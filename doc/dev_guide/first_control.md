@@ -153,16 +153,18 @@ int ret = ops.Control(handle, ControlCommand::kJson, &param);
 // ret != 0 时，立即读取同线程 GetOperatorLastError()。
 ```
 
-`kJson` 选择唯一参数结构；节点命令 ID 位于 `param.cmd_id`。payload 必须是非空 JSON object，
-UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
+`kJson` 选择唯一参数结构；节点命令 ID 位于 `param.cmd_id`。payload 必须是非空字符串，
+解析结果为 JSON object；空对象 `{}` 是否有效由目标命令的 schema 决定。UTF-8 字节数
+小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
 必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
 更新；显式 `--example-control` 才启用，且显式文件优先。
 
-同一 handle 的 Operator 调用串行；多个线程提交不保证顺序。内部直接调用
-Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播到所有声明支持该
-命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `id: prefix`：
+同一 handle 的 Operator 调用串行；多个线程提交不保证顺序。内部直接调用 Pipeline 时，
+由调用者将 `Execute` 与 `Control` 串行化。Spec 的 `AuthorNode` 内部会串行构建和发布
+配置快照，但这不扩展底层 `INode`、模型或共享资源的并发契约。裸 payload 广播到所有
+声明支持该命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `id: prefix`：
 
 ```json
 {"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"VIP:"}}

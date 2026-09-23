@@ -68,6 +68,9 @@ Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运
 `bool(const nlohmann::json&, Params*, std::string*)` 解析函数。解析器接收已规范化 JSON，
 返回持有自身字符串和容器的普通对象；不保存 JSON 指针，不序列化后重解析。
 它与 `Field` 可组合，框架拒绝重名字段，预检和初始化共享语义规则。
+解析器和基础字段赋值后，`Prepare` 可构建依赖这些字段的派生状态，再执行语义与连线校验。
+同时使用 `WithParser` 和字段 Control `WithControls` 时必须显式声明 `Prepare`，
+字段更新会通过它重建派生状态，再校验并发布。
 
 参考 [StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp) 和
 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。复杂 Control 用 `.WithControl` 声明命令与

@@ -1,235 +1,91 @@
 @startuml LLM_EdgeFlow_Target_Architecture_V2
 !pragma layout smetana
 !theme plain
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam packageStyle rectangle
+skinparam ArrowColor #475569
+skinparam packageBackgroundColor #F8FAFC
+skinparam packageBorderColor #94A3B8
+skinparam componentBackgroundColor #EFF6FF
+skinparam componentBorderColor #60A5FA
 
-title LLM-EdgeFlow Target Architecture V2\nDeveloper-Friendly & AI-Friendly Business Delivery Platform
-
-legend top right
-  |= State |= Meaning |
-  | Implemented | implemented and covered by repository tests |
-  | Partial | implemented core, remaining RFC acceptance work |
-  | Planned | not implemented in RFC 0008 |
+title LLM-EdgeFlow 当前配置与运行流程
+legend bottom
+  文件名沿用 architecture_v2.puml；内容描述当前实现。
+  箭头表示准备、创建或调用关系，不表示编译依赖。
+  可用 Node、Model、Backend 与 Biz 以目标构建 Catalog 为准。
 endlegend
 
-skinparam backgroundColor #0F172A
-skinparam defaultFontName "Segoe UI", Arial, sans-serif
-skinparam roundCorner 8
-skinparam shadowing true
-skinparam dpi 300
-skinparam package {
-  BackgroundColor #1E293B
-  BorderColor #475569
-  FontColor #F8FAFC
-  FontStyle bold
-}
-skinparam component {
-  BackgroundColor #0F172A
-  BorderColor #0284C7
-  FontColor #F1F5F9
-}
-skinparam interface {
-  BackgroundColor #0F172A
-  BorderColor #10B981
-  FontColor #A7F3D0
-}
-skinparam artifact {
-  BackgroundColor #0F172A
-  BorderColor #F59E0B
-  FontColor #FDE68A
-}
-skinparam actor {
-  BackgroundColor #0F172A
-  BorderColor #38BDF8
-  FontColor #E0F2FE
-}
-skinparam arrow {
-  Color #38BDF8
-  FontColor #CBD5E1
-  FontSize 9
+actor "宿主程序 / 统一 Demo" as Caller
+component "CLI / Pipeline Studio" as Tools
+
+package "方案与注册信息" {
+  artifact ".conf\n仅 pipe_path" as Conf
+  artifact "Pipeline JSON\n节点 / depends_on / typed ports / models\ndeployment.io / deployment.model_paths" as Document
+  component "PipelineCatalog\n注册 Definition 的查询视图" as Catalog
+  component "Node Spec + 普通算法函数\nREGISTER_FUNCTION_NODE\nModel / Backend / I/O 注册" as Definitions
 }
 
-' Users and ownership boundaries
-actor "Downstream C Caller" as Caller
-actor "Platform Scheduler" as PlatformScheduler
-actor "Pipeline Composer" as Composer
-actor "Business Developer" as BizDev
-actor "AI Agent" as AIAgent
-actor "Platform Developer" as PlatformDev
-
-' Machine-readable control plane
-package "Control Plane: Business Development Surface" as ControlPlane {
-  artifact "Business Manifest\nJSON Schema" as Manifest <<Planned>>
-  artifact "Pipeline Config\nExplicit DAG JSON" as PipelineConfig <<Implemented>>
-  artifact "Node / Model / Backend / Business Catalog\nPipelineCatalog (JSON Export)" as Catalog <<Implemented>>
-  component "Business Scaffolder\nTemplates" as Scaffolder <<Planned>>
-  component "Static Validator\nPipelineValidator" as Validator <<Partial>>
-  component "Business Test Harness\nGoogleTest Suites / CTest" as BizTests <<Implemented>>
+package "创建期：接入准备与统一校验" {
+  component "PrepareDeploymentDocument\n接入绑定 / 路径覆盖 / 输出分配参数" as Prepare
+  artifact "PreparedDeployment\n中性 Pipeline JSON + PipelineIoBoundary" as Prepared
+  component "PipelineValidator\n显式 DAG / 类型端口 / 并发写冲突" as Validator
+  artifact "ValidatedPipelinePlan" as PipelinePlan
+  artifact "ValidatedIoPlan\nI/O Definition 与端口映射\n输出池规格 + Pipeline 计划" as IoPlan
 }
 
-Composer --> PipelineConfig : compose
-BizDev --> Scaffolder : create business
-AIAgent --> Scaffolder : generate scaffold
-AIAgent --> PipelineConfig : generate / modify
-PlatformDev --> Catalog : publish capabilities
-Scaffolder --> Manifest : generate
-Scaffolder --> PipelineConfig : generate
-Manifest --> Validator
-PipelineConfig --> Validator
-Catalog --> Validator
-Validator --> BizTests : validated package
-
-' Integration
-package "接入适配层（Integration）" as Integration {
-  component "Operator Facade\nOperatorFunc + NamedIoBatch\nOperatorConfigResolver\nOperatorControlRegistry" as PlatformFacade <<Operator API>>
-  component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Decode-Execute-Encode" as SharedRuntime
-  artifact "Business-Specific\nOperator Types" as CStructs
-  component "IoBindingRegistry" as AdapterRegistry
-  interface "IoBinding\nInputConverter / OutputConverter\nDecode / Encode" as IoConverters
-  component "I/O Converters\nStatically Linked" as BizAdapters
-  artifact "Common Typed Contracts" as CommonContracts
+package "运行期：C++ Operator SDK" {
+  component "OperatorFunc\nCreate / Process / Control / Destroy\n命名槽位校验 / 输出租约 / 异常屏障" as Operator
+  component "SharedAlgorithmRuntime" as Runtime
+  component "InputConverterDefinition::decode_fn\n完整请求 → 中性输入与元信息" as Decode
+  component "OutputConverterDefinition::encode_fn\n内部结果 → 完整响应与容量检查" as Encode
+  component "Pipeline\nBuildFromPlan / Execute / Control\n消费已验证计划" as Pipeline
+  component "AlgContext\nBlackboardKey<T> / Read / Publish\n请求内不可变快照" as Context
+  component "SessionContext\nModelManager / SessionResourceKey<T>" as Session
+  component "NodeBase → AuthorNode<Spec>\n通用 Node 与自定义 Node\ntyped I/O / 参数 / 模型 / Control" as Nodes
 }
 
-Caller --> PlatformFacade : OperatorFunc calls
-PlatformScheduler --> PlatformFacade : OperatorFunc calls
-PlatformFacade --> SharedRuntime : execute via IoPlan
-PlatformFacade --> BizAdapters : decode input / encode output
-SharedRuntime --> AdapterRegistry : resolve binding by config
-AdapterRegistry o-- IoConverters
-BizAdapters ..|> IoConverters
-BizAdapters --> CStructs : decode / encode slots
-BizAdapters --> CommonContracts : map to typed values
-Manifest --> AdapterRegistry : registration metadata
-Scaffolder --> BizAdapters : generate scaffold
-
-' Orchestration
-package "流程编排层（Orchestration）" as Orchestration {
-  component "PipelineBuilder\nPipeline::BuildFromPlan\nValidatedPipelinePlan" as PipelineBuilder
-  component "PipelineStaticValidator\nPipelineValidator\nDAG / ports / producers / parallel conflicts" as PipelineValidator
-  component "Pipeline Runtime\nsequential / parallel wavefront" as PipelineRuntime
-  component "Typed Port Access\nBlackboardKey<T>" as TypedPorts <<Implemented>>
-  component "Request Blackboard\nAlgContext" as RequestContext <<Implemented>>
-  component "SessionContext" as SessionContext
-  component "ModelManager" as ModelManager
-  artifact "RuntimeOptions\nmodel root / device / limits" as RuntimeOptions
-  component "Structured Status\nPipelineDiagnostic / AdapterStatus" as Status
+package "模型执行（按需）" {
+  component "ModelRuntimeFactory\nModelRegistry + BackendRegistry" as Factory
+  component "IModel 能力\nEmbed / Score / Generate / Recognize / Transcribe" as Model
+  component "中性 Backend 会话\nTensorGraph / TextGeneration / ImageTextGeneration\nGeneratedTokenEmbedding / AudioTranscription" as Backend
+  component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id" as Batch
 }
 
-Validator --> PipelineBuilder : validated definitions
-PipelineBuilder --> PipelineValidator
-PipelineValidator --> PipelineRuntime : executable plan
-PipelineRuntime --> TypedPorts
-TypedPorts --> RequestContext
-PipelineRuntime *-- SessionContext
-SessionContext *-- ModelManager
-SessionContext o-- RuntimeOptions
-PipelineRuntime --> Status : structured failures
-BizAdapters --> RequestContext : inject / extract
-CommonContracts --> RequestContext
-
-' Capability Nodes
-package "能力节点层（Capability Nodes）" as CapabilityNodes {
-  interface "INode\nInit / Process / Control / Name" as INode
-  component "NodeBase\nfinal noexcept lifecycle" as NodeBase <<Implemented>>
-  component "AuthorNode / typed Spec" as NodeSupport <<Implemented>>
-  component "NodeRegistry\n(NodeRegistry)" as NodeRegistry
-  component "Registered\nCommon Nodes" as CommonNodes
-  component "Optional Domain Node\n(none currently registered)" as DomainNodes
-  artifact "NodeDescriptor\n(NodeDefinition in Catalog)" as NodeDescriptor
-}
-
-NodeRegistry o-- INode
-INode <|-- NodeBase
-NodeBase <|-- NodeSupport
-CommonNodes ..|> INode
-DomainNodes ..|> INode
-NodeDescriptor --> NodeRegistry : registration metadata
-Catalog o-- NodeDescriptor
-PipelineBuilder --> NodeRegistry : create nodes
-INode --> TypedPorts : declared access only
-INode --> SessionContext : models / resources
-BizTests --> CommonNodes : composition contract tests
-
-note right of DomainNodes
-  Request state only in RequestContext
-  No Integration C structs
-  No concrete Backend implementations
-  Requires RFC justification
-end note
-
-' Model Execution
-package "模型执行层（Model Execution）" as ModelExecution {
-  interface "IModel\nIEmbeddingModel / IRerankModel / ILlmModel\nIOcrModel / IAsrModel" as IModel
-  interface "IBackendSession\nTensorGraph / TextGeneration protocols" as IBackendSession
-  interface "IInferenceBackend\nloads backend sessions" as IInferenceBackend
-  component "ModelRegistry" as ModelRegistry
-  component "BackendRegistry" as BackendRegistry
-  component "ModelRuntimeFactory\ncompose model_type + backend" as ModelRuntimeFactory
-  component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id provenance" as FixedBatchExecutor
-  component "BGE Embedding / Reranker Models" as BgeModels
-  component "Qwen Text Generation Model" as QwenModel
-  component "ONNX Runtime Backend" as OnnxBackend
-  component "llama.cpp Backend" as LlamaBackend
-  component "kiteLLM Backend\n(conditional SDK)" as KiteBackend
-  component "Future Hardware Backends" as FutureBackends
-  artifact "ModelDefinition / BackendDefinition\nprotocol + concurrency contracts" as InferenceDescriptors <<Implemented>>
-}
-
-ModelRegistry o-- IModel
-BackendRegistry o-- IInferenceBackend
-IInferenceBackend --> IBackendSession : load
-InferenceDescriptors --> ModelRegistry : model metadata
-InferenceDescriptors --> BackendRegistry : backend metadata
-Catalog o-- InferenceDescriptors
-PipelineBuilder --> ModelRuntimeFactory : create models
-ModelRuntimeFactory --> ModelRegistry
-ModelRuntimeFactory --> BackendRegistry
-ModelManager o-- IModel
-INode --> IModel : capability interfaces only
-BgeModels ..|> IModel
-QwenModel ..|> IModel
-OnnxBackend ..|> IInferenceBackend
-LlamaBackend ..|> IInferenceBackend
-KiteBackend ..|> IInferenceBackend
-FutureBackends ..|> IInferenceBackend
-BgeModels --> IBackendSession : TensorGraph protocol
-QwenModel --> IBackendSession : TextGeneration protocol
-BgeModels --> FixedBatchExecutor
-QwenModel --> FixedBatchExecutor
-
-note right of ModelExecution
-  Platform-owned extension surface
-  Business developers do not modify by default
-end note
-
-' Cross-cutting contracts
-package "Cross-Cutting Platform Contracts" as CrossCutting {
-  component "Version & Compatibility" as Versioning
-  component "Observability\nLogs / Metrics / Traces" as Observability
-  component "Layer Dependency Guard" as LayerGuard
-  component "Ownership & Review Policy" as Ownership
-}
-
-Versioning ..> Manifest
-Versioning ..> PlatformFacade
-Versioning ..> NodeDescriptor
-Versioning ..> InferenceDescriptors
-Observability ..> PlatformFacade
-Observability ..> PipelineRuntime
-Observability ..> IModel
-Observability ..> IInferenceBackend
-LayerGuard ..> Integration
-LayerGuard ..> Orchestration
-LayerGuard ..> CapabilityNodes
-LayerGuard ..> ModelExecution
-Ownership ..> Composer
-Ownership ..> BizDev
-Ownership ..> AIAgent
-Ownership ..> PlatformDev
-
-note bottom of ControlPlane
-  Phase 1 packaging:
-  single repository + static linking
-  no dynamic plugin ABI yet
-end note
-
+Tools --> Catalog : 查询
+Definitions --> Catalog : 提供 Definition
+Tools --> Document : 编辑 / 保存
+Conf --> Document : 定位
+Document --> Prepare
+Prepare --> Prepared
+Prepared --> Validator
+Catalog --> Validator : 能力与配置契约
+Validator --> PipelinePlan
+Prepared --> IoPlan : 接入信息
+PipelinePlan --> IoPlan
+Caller --> Operator : NamedIoBatch
+Operator --> IoPlan : 创建期解析部署
+IoPlan --> Runtime : 创建
+Runtime *-- Pipeline
+IoPlan --> Pipeline : 转移 ValidatedPipelinePlan
+Pipeline *-- Session
+Pipeline --> Factory : 创建期物化模型
+Factory --> Model
+Factory --> Backend
+Session o-- Model
+Operator --> Decode : Process 校验输入
+Decode --> Context : 发布
+Operator --> Pipeline : Execute
+Pipeline --> Nodes : 依拓扑执行
+Nodes --> Context : 读取 / 发布
+Nodes --> Model : 调用声明能力
+Model --> Backend : 推理
+Model --> Batch : 固定批次执行
+Operator --> Encode : 执行成功后编码
+Context --> Encode : 读取结果与元信息
+Encode --> Operator : 编码完成 / written_count
+Operator --> Caller : 发布输出池租约
 @enduml

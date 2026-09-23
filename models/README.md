@@ -31,7 +31,8 @@ For Kite text, mixed ONNX/text and image/document profiles:
 This additionally fetches SmolVLM-256M-Instruct Q8_0 and its matching projector
 from `ggml-org/SmolVLM-256M-Instruct-GGUF` revision
 `b9e4379657e1450d04d02eec8e345667265b0a00`. Both SHA-256 values are pinned in
-the fetch script. `kite_vision_run.json` points to the projector relative to
+[asset_manifest.json](asset_manifest.json), which the fetch script reads.
+`kite_vision_run.json` points to the projector relative to
 this directory. These small models support functional regression; document
 recognition accuracy must be evaluated on the intended data.
 

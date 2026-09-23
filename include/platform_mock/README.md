@@ -16,7 +16,9 @@
 
 ## 框架入口与包含方式
 
-SDK 调用方包含 `edgeflow/operator/interface.h`（或通过 `edgeflow/operator/types.h` 访问交互类型）。
+SDK 调用方包含 `edgeflow/operator/interface.h`，获得函数入口以及 `CreateParam`、
+`NamedIoBatch`、`OperatorFunc` 等交互类型。`edgeflow/operator/types.h` 只转发
+`operator_data_types.h` 中的 `Company*` 数据结构。
 只需要平台数据结构的 Demo/接入代码可包含本目录对应头。
 当前公开 CMake 头视图显式列出这些依赖；Core、Nodes、Models 和 Backends 不可包含它们。
 

@@ -150,8 +150,10 @@ Control 更新单独归一化参数、构造下一状态后发布。
 `Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
 结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(NodeConfigParser<YourConfig>(fields, parse))`
 与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
-最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。parser 接收已规范化 JSON，
-不要再次序列化；复杂派生成员若依赖基础参数，使用最终语义校验检查它们。
+再执行 `Prepare` 构建派生状态，最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的
+连线规则。parser 接收已规范化 JSON，不要再次序列化；依赖基础参数的派生成员应在
+`Prepare` 中重建。组合 `WithParser` 与字段 Control `WithControls` 时必须显式声明
+`Prepare`，更新字段后框架会再次执行它，再校验和发布候选状态。
 
 复杂参数的完整例子见
 [复杂参数封装](../../src/custom_nodes/README.md#参数复杂时使用普通结构和解析封装)。

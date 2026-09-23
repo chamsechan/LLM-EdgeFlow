@@ -45,7 +45,7 @@ graph TD
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• SessionResourceKey&lt;T&gt; 类型安全缓存"]
             R_Ctx["AlgContext (请求级瞬态黑板)<br>• Read / Publish 不可变快照<br>• 只读视图随请求生命周期稳定"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
-            Factory["NodeRegistry / ModelRegistry / BackendRegistry<br>• *_WITH_DEFINITION 就地注册"]
+            Factory["NodeRegistry / ModelRegistry / BackendRegistry<br>• 函数式 Node Spec 与 Model / Backend Definition"]
         end
     end
 
@@ -84,19 +84,22 @@ graph TD
             BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
             GeneratedEmbedModel["GeneratedTextEmbeddingModel<br>(generated token pooling / normalization)"]
             QwenModel["QwenCausalLmModel<br>(ChatML / provenance / protocol delegation)"]
+            VisionModel["VisionDocumentModel<br>(图像解码与识别指令)"]
+            WhisperModel["WhisperAsrModel<br>(音频校验与语言语义)"]
         end
 
         subgraph HardwareBackends["硬件推理 Backend (src/engine/backends/)"]
             OnnxBackend["OnnxRuntimeBackend<br>(TensorGraph, CPU/CUDA)"]
             LlamaCpp["LlamaCppBackend<br>(TextGeneration, GGUF runtime)"]
             KiteLlm["KiteLlmBackend<br>(Text / ImageText / GeneratedTokenEmbedding, conditional SDK)"]
+            WhisperCpp["WhisperCppBackend<br>(AudioTranscription, optional build)"]
         end
     end
 
     %% 连接关系
     Caller <==|命名 I/O 批次 NamedIoBatch| PlatformFacade
     PlatformFacade --> IoBinding
-    PlatformFacade -->|已验证 IoPlan 构造/控制| PipeCore
+    PlatformFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
     IoBinding -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
@@ -116,7 +119,7 @@ graph TD
     class PlatformFacade,IoBinding integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
-    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm model_execution;
+    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,VisionModel,WhisperModel,OnnxBackend,LlamaCpp,KiteLlm,WhisperCpp model_execution;
 ```
 
 ---
@@ -156,15 +159,16 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
-- `CompanyString` 只表达无嵌入 NUL 的文本；任意二进制数据使用 `CompanyBuffer`。
-- 输入由外部持有，Process 只借用裸指针并复制所需值，不持有输入 shared_ptr。
+- `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。任意二进制数据使用 `CompanyBuffer`。
+- 输入存储由调用方保持有效；Process 在同步调用内保留输入 shared_ptr 视图并复制所需中性值，不跨调用保存输入指针或引用。
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
   SOVERSION/ABI major 为 7。
-- v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
+- `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
+  `.conf` 只用 `pipe_path` 指向 Pipeline JSON，接入绑定与模型路径覆盖由 Pipeline 的 `deployment` 声明；
   Pipeline 的 `deployment.io.output_allocations` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
   最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
   将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
@@ -175,15 +179,15 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
-  1. **配置驱动与执行计划**：通过 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、业务契约查找、拓扑排序生成 `ValidatedPipelinePlan`，杜绝重复解析与排序；
+  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 解析中性 Pipeline 配置、校验端口与显式 DAG，并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例
        （`ModelManager`）与 `SessionResourceKey<T>` 类型安全资源；同名异型访问在 cast 前
        fail-closed，`GetOrCreateResource` 对同一 key 执行 single-flight 创建；
      - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），`Read` 返回请求生命周期内
        稳定的只读视图，`Publish` 拒绝重复生产；Adapter 与 Node 使用同一 write-once 契约；
-     - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
-  3. **自注册 SSOT 机制**：Node 作者通过 `REGISTER_FUNCTION_NODE` 生成 Definition 并复用原注册机制，Model 与 Backend 分别通过 `REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明；`PipelineCatalog` 查询返回值快照，Validator 每次规划只消费一次稳定的 Node/Biz Catalog 快照，后续注册不会使当前计划悬空。
+     - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），在 1对N 展开后标识每个分片，供后续聚合或回填对齐；
+  3. **自注册 SSOT 机制**：Node 作者通过 `REGISTER_FUNCTION_NODE` 生成 Definition 并复用原注册机制，Model 与 Backend 分别通过 `REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明；`PipelineCatalog` 查询返回值快照，Validator 消费注册 Definition 的值快照，后续注册不会使当前计划悬空。
 
 ### 能力节点层（Capability Nodes）
 - **代码位置**：`src/common_nodes/`，`src/custom_nodes/`，`include/nodes/`
@@ -200,10 +204,10 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
-  2. `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession` 和 `IGeneratedTokenEmbeddingSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph；
+  2. `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession`、`IGeneratedTokenEmbeddingSession` 和 `IAudioTranscriptionSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph，whisper.cpp 提供 AudioTranscription；
   3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合模型与 Backend，校验协议和并发契约后再原子注册到 `ModelManager`；
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
-  5. 切换 NPU/GPU/CPU 或 LLM 生成引擎只改 JSON 中的 `backend`、`model_path` 与 `backend_config`，不改业务 Node 或模型语义实现。
+  5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 的 `backend`、`model_path`、`backend_config` 及部署模型路径覆盖完成；存在能力缺口时仍需扩展模型执行层。
 
 图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
 通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
@@ -251,7 +255,7 @@ Core、Node 或 Engine 的隐含依赖。
 sequenceDiagram
     autonumber
     participant App as 外部调用方
-    participant Adapter as C 适配层 (Integration)
+    participant Adapter as C++ Operator 接入适配 (Integration)
     participant Pipe as Pipeline 调度器 (Orchestration)
     participant Ctx as AlgContext 黑板 (Orchestration)
     participant Node as AuthorNode (Capability Nodes)
@@ -259,30 +263,33 @@ sequenceDiagram
     participant Backend as 中性协议 Backend 会话 (Model Execution)
     participant HW as 底层硬件 NPU/GPU
 
-    App->>Adapter: Alg_Process(inputs: const void**, num_inputs, outputs: void**, &num_outputs)
-    Adapter->>Ctx: 1. 解包外部结构体，注入输入数据
+    App->>Adapter: OperatorFunc::Process(handle, inputs, outputs)
+    Adapter->>Adapter: 校验 NamedIoBatch，借用输入
+    Adapter->>Ctx: 1. decode_fn 解码完整请求，发布中性输入与元信息
+    Adapter->>Adapter: 解码成功后租用输出池
     Adapter->>Pipe: 2. Execute(ctx)
     
     loop 依次执行各拓扑层算子节点
         Pipe->>Node: Process(ctx)
-        Node->>Ctx: Require(ctx, key, error_code) 读取上游特征
+        Node->>Ctx: AuthorNode 按 Spec 绑定读取上游 typed ports
         opt 需要模型推理
             Node->>Model: Embed / Score / Generate / Recognize / Transcribe
-            Model->>Model: 固定 Batch 切块 + Dummy Pad 补齐
-            Model->>Backend: 通过 TensorGraph / TextGeneration 协议执行
-            Backend->>HW: 调用硬件推理时
+            Model->>Model: 按 BatchPolicy 调度（固定批次时补齐）
+            Model->>Backend: 通过声明的中性协议执行
+            Backend->>HW: 调用推理运行时
             HW-->>Backend: 返回原始执行结果
             Backend-->>Model: 返回中性 Tensor / Text 结果
-            Model->>Model: 剥离 Pad，恢复 (req_id, sub_id) 溯源标签
+            Model->>Model: 固定批次时剥离 Pad，保留 (req_id, sub_id)
             Model-->>Node: 返回强类型对齐输出
         end
-        Node->>Node: 处理业务私有逻辑 / 规则字典匹配
-        Node->>Ctx: Publish(ctx, key, value) 写回中间特征或最终结果
+        Node->>Node: 执行 Spec 的普通算法函数与结果校验
+        Node->>Ctx: Publish 写回中间特征或最终结果
     end
 
     Pipe-->>Adapter: 管线执行完成
-    Adapter->>Ctx: 3. 提取最终输出结果
-    Adapter->>App: 4. 打包回 outputs: void**，返回状态码 0
+    Adapter->>Ctx: 3. encode_fn 读取结果与请求元信息
+    Adapter->>Adapter: 组装完整响应并检查容量，写入租用输出
+    Adapter-->>App: 4. 发布 NamedIoBatch 输出 shared_ptr，返回状态码 0
 ```
 
 ---

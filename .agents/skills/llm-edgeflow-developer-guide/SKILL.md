@@ -16,7 +16,7 @@ policy for conditional reading; RFC citations in layer guides are not prerequisi
 | Pipeline lifecycle, Validator/planning, typed Blackboard, sessions | [Orchestration](references/orchestration.md) |
 | Capability Node, parameters, Control handler | [Capability Nodes](references/capability-nodes.md); for Control, [compiled example](../../../doc/dev_guide/first_control.md) |
 | Model semantics/capability, Backend/protocol, batching | [Model Execution](references/model-execution.md) |
-| Demo carriers, dataset, registration, result display | [Demo onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入) |
+| Demo carriers, dataset, registration, result display | [Demo onboarding](../../../doc/dev_guide/business_onboarding.md#5-统一-demo-接入) |
 
 External field selection/response assembly is Integration work even when the carrier layout
 stays unchanged; Demo must not replace Adapter conversion. Load all affected-layer contracts

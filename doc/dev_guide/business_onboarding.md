@@ -17,9 +17,9 @@
 | 位置 | 负责的工作 |
 | --- | --- |
 | Demo / 调用方 | 读取样例、构造 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
-| `InputConverter::decode_fn` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值发布至 `AlgContext` |
+| `InputConverterDefinition::decode_fn` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值发布至 `AlgContext` |
 | Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
-| `OutputConverter::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应并写入已租用输出池 |
+| `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应并写入已租用输出池 |
 | `IoBinding` | 声明业务逻辑端口与 Pipeline Blackboard Key 的映射关系，将转换器与业务编排关联 |
 
 Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
@@ -49,7 +49,7 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 这些路径可以组合：新契约可以继续编排已有 Nodes，也可以只补充一个缺失算法。
 输入和输出分别判断是否需要新转换器；仅改变输出时，输入转换器通常可以原样复用。
 已有宿主载体、ValueType 和 Demo 运行代码能表达完整请求、响应及数据集格式时优先复用；
-新绑定仍需匹配的 Demo 注册。Profile 只在需要保存运行预设时添加。
+需要通过统一 Demo 运行的新绑定还需匹配的 Demo 注册。Profile 只在需要保存运行预设时添加。
 
 “结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
@@ -120,6 +120,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
+   新 `biz_name` 先定义 `BizDefinition`，声明 Demo 名及完整 ingress/egress typed 端口，
+   调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
    在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、
    绑定的 `input_converter_id` 和 `output_converter_id`，以及逻辑端口到内部 Blackboard Key 的映射。
    使用 `REGISTER_IO_BINDING` 注册绑定。
@@ -130,7 +132,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 行函数返回的错误只需携带业务原因与字段路径，包装补充 converter 和样本位置。
 输入行全部通过后才开始发布；输出 writer、宿主指针和池内字符串均只在同步调用期间借用，不能保存。
 输出中途失败时 `written_count=0`；租用块可能已被写入，Operator 负责不发布并归还租约。
-字符串按显式长度处理，包括内嵌 NUL，不通过 `c_str()` 丢失长度。
+转换器字符串按显式长度处理，包括内部值和输出中的内嵌 NUL，不通过 `c_str()` 丢失长度。
+Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL；JSON 文本中的
+`\u0000` 转义仍可在解包后成为内部字符串的一部分。
 
 共享端口用 `MakeBlackboardKey<T>(name)` 定义一次；转换器 Definition 使用
 `RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`
@@ -235,7 +239,7 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.output_allocations` 按逻辑
 槽位分别指定类型、`allocator`、`params` 和容量。
-超过输出池容量时返回 `-4`，尚未发布的输出租约全部回滚。
+单份响应超过已配置字段容量时返回 `-4`，尚未发布的输出租约全部回滚。
 
 在运行前查看生效的池规格与配置，`depth` 应与实际宿主一致：
 

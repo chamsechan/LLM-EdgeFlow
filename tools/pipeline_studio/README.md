@@ -180,7 +180,7 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
 Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接入绑定、输出容量与模型路径覆盖）；`.conf` 仅包含 `pipe_path` 用于定位 Pipeline JSON；Profile 保存 Demo 的
 业务、配置、数据集等预设。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
 并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与业务匹配的 Profile，
-其数据集、运行选项和输出池容量会被复用。模型目录默认为 `models`；引用
+复用其数据集与运行选项，并从它指向的 Pipeline 读取输出分配配置。模型目录默认为 `models`；引用
 `demo/fixtures/...` 的测试方案填 `.`。模型路径按当前 Pipeline 重建，避免旧 Profile
 的路径覆盖刚选择的权重。运行与已保存方案各自的展开区显示原生部署解析结果，已保存方案同时提供完整命令。
 
@@ -189,23 +189,24 @@ Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接�
 
 本次服务会话创建的配套文件，以及运行页“关联部署配置”明确关联的已有文件，后续点击“保存”
 会同步 JSON 和 `.conf`。关联本身不写文件，并校验该 conf 确实指向当前保存的 Pipeline。
-预检、运行和保存共用候选配置，Profile 只提供数据集及运行选项，不替换关联文件的模型覆盖和
-输出池。模型表单中换资产只改对应覆盖；原始 JSON 改动已有部署覆盖的路径时，在运行页明确
+预检、运行和保存共用候选配置。关联后，Profile 提供数据集及运行选项，模型覆盖和输出分配
+来自已关联 Pipeline 的 `deployment`。模型表单中换资产只改对应覆盖；原始 JSON 改动已有部署覆盖的路径时，在运行页明确
 选择“保留当前部署覆盖”或“将新路径作为所选模型目录下的资产”。未明确选择时服务拒绝运行和保存。
 两份文件都会检查修改冲突，预检失败不会写入。
 更新后的运行命令和解析结果会一起刷新。详情面板的“保存目标”来自服务端，打开或
 保存后列明本次普通保存会写入的文件；按钮悬停也可查看。保存成功显示实际文件名，
 保存或运行遇到 Validator 错误时展示可定位诊断；文件冲突以持续可见的提示展示。
 
-其他方案的普通“保存”/“另存”只写 JSON。服务重启后也不会自动接管已有 `.conf`；若其
-`model_paths` 会覆盖本次模型路径或 ID 修改，保存会明确提示核对部署文件。可在运行页明确
-关联该文件后继续成套编辑，也可在外部同步并用 `resolve-conf` 检查，或另存可运行副本。
+其他方案的普通“保存”/“另存”只写 JSON。服务重启后也不会自动接管已有 `.conf`；若
+同名配套 `.conf` 指向当前方案，且已保存 Pipeline 的 `deployment.model_paths` 可能覆盖
+本次模型路径或 ID 修改，保存会提示核对该 Pipeline 的部署配置。可在运行页明确关联
+配套文件后继续成套编辑，也可在外部更新 Pipeline 并用 `resolve-conf` 检查，或另存可运行副本。
 
 若手动使用只写 JSON 的路径，需自行配套 `.conf`：
 
 完成上述练习后，复制 `configs/pipeline_keyword_match_rules.conf` 为
 `configs/pipeline_first_solution.conf`（已有同名文件时直接编辑），将其中
-`pipe_path` 改为 `configs/pipeline_first_solution.json`；部署 I/O 绑定、输出分配与模型路径覆盖直接在 `pipeline_first_solution.json` 的 `deployment` 根对象下配置。
+`pipe_path` 改为 `pipeline_first_solution.json`（相对 `.conf` 所在目录）；部署 I/O 绑定、输出分配与模型路径覆盖直接在 `pipeline_first_solution.json` 的 `deployment` 根对象下配置。
 从仓库根目录执行：
 
 ```bash
@@ -246,8 +247,9 @@ Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算�
 命令必须在当前 Pipeline 的节点 Definition 中声明。Profile 可设置 `control_cmd`，CLI
 优先。详见[第一个 Control](../../doc/dev_guide/first_control.md)。
 
-Studio 为草稿生成项目内的临时 JSON 和 `.conf`。未关联部署时复用 Profile 输出池容量，按“模型目录”
-和当前 Pipeline 重建模型路径，并使用原生解析器预检；运行结束清理临时文件。草稿运行
+Studio 为草稿生成项目内的临时 JSON 和 `.conf`。未关联部署时，从 Profile 指向的 Pipeline
+复用输出分配配置，按“模型目录”和当前 Pipeline 重建 `deployment.model_paths`，并使用原生
+解析器预检；运行结束清理临时文件。草稿运行
 使用配置初值，Control 练习通过 CLI 显式下发。解析成功说明部署配置可接受，不代表模型
 已加载；日志和样本结果用于确认实际执行。
 运行页先展示运行状态、Demo 返回的成功/失败样本数和可展开的逐请求输出，再按需查看

@@ -32,7 +32,7 @@
 架构图按用途区分：
 
 - 当前实现类图：[PlantUML 源文件](architecture.puml) · [SVG](assets/architecture_class_diagram.svg)。
-- 目标演进图：[PlantUML 源文件](architecture_v2.puml) · [SVG](assets/architecture_flow.svg)；按图例区分 Implemented、Partial 与 Planned。
+- 当前配置与运行流程图：[PlantUML 源文件](architecture_v2.puml) · [SVG](assets/architecture_flow.svg)；区分创建期的准备与校验、请求期的解码与执行。
 - 首页工作原理图：[framework_overview.svg](assets/framework_overview.svg)，直接维护 SVG 源码。
 
 前两张 SVG 由 PlantUML `1.2024.7` 生成。修改对应源文件后运行：
@@ -48,14 +48,14 @@
 | --- | --- |
 | 尚待完成的开发者试用与生产验收 | [方案开发者验收计划](plans/solution_developer_acceptance.md) |
 | 上线前精简代码、兼容分支与重复测试 | [代码与测试精简实施计划（2026-09-15）](plans/prelaunch_simplification_2026-09-15.md) |
-| 独立复用输入、输出转换器，隔离外部结构与内部流程 | [输入输出转换独立化：详细设计与实施计划（2026-09-15）](plans/adapter_io_layout_design_2026-09-15.md)（待实施） |
+| 查阅输入输出转换独立化的实施记录 | [输入输出转换独立化：详细设计与实施计划（2026-09-15）](plans/adapter_io_layout_design_2026-09-15.md)（已实施；双入口设计后由 [RFC-0060](rfcs/0060-cpp-operator-only.md) 取代） |
 | 降低方案编排心智负担的实施顺序与验收 | [RFC-0057：Pipeline 编排体验](rfcs/0057-pipeline-composition-experience.md)（In Implementation） |
 | 架构与接口为何这样设计 | [RFC 索引](rfcs/README.md)，优先列出进行中的 RFC |
 | 用户可感知的版本变化 | [Changelog](CHANGELOG.md) |
 | 特定 RFC 当时的验证证据 | [评审与验收归档](rfcs/reviews/README.md) |
 | 日期型审计、整改与已完成计划 | [历史报告归档](archive/README.md) |
 
-`dev_guide/` 维护操作步骤，架构和参考文档维护当前规则，`plans/` 维护尚未完成的工作。
+`dev_guide/` 维护操作步骤，架构和参考文档维护当前规则，`plans/` 包含计划及其实施记录，以各文件状态为准。
 历史 RFC 与报告按原始基线阅读；其中的命令、代码路径、测试数量和阶段待办不代表当前状态。
 文档维护遵循 [CONTRIBUTING](../CONTRIBUTING.md#5-update-durable-documentation-proportionally)，
 同一教程或规则在一个入口维护，其他位置链接引用。

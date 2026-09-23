@@ -9,4 +9,4 @@
 - 多槽和候选展开继续显式使用 `ValidateDecodeRequest` / `ReadInputSlot`；Definition 共用批次常量。文本结构检查和复制使用 `IsValidInputString` / `CopyInputString`。
 - 负责外部载体批次envelope校验、类型转换、深拷贝（copy-in）以及按端口映射发布到 `AlgContext`。
 - 保证无请求间共享状态与局部临时引用的生命周期隔离。
-- 输入校验失败时立即终止，不分配后续输出池资源，不触发 Pipeline 执行。
+- 输入校验失败时立即终止，不租用输出池块，不触发 Pipeline 执行；输出池存储已在 Create 阶段分配。

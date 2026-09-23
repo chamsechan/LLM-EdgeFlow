@@ -67,7 +67,8 @@ struct ControlUpdateThresholdParam {
 
 /**
  * @brief kJson 对应参数。同步调用返回前指针必须有效；实现拥有 payload 拷贝。
- * json_param_str 必须为非空 JSON object，UTF-8 字节数 < 65536（不含终止符）。
+ * json_param_str 必须为非空 JSON 字符串，解析结果为 object（可为 {}）；
+ * UTF-8 字节数 < 65536（不含终止符）。
  * cmd_id 是节点声明的正整数；未声明命令返回 unsupported。
  */
 struct ControlJsonParam {
