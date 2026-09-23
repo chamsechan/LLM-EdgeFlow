@@ -1,8 +1,11 @@
 # 新业务接入：从平台结构到统一 Demo
 
-本指南面向需要转换平台输入输出的 C++ 开发者。先按根目录
-[README](../../README.md#快速开始)完成默认构建；以下命令都从仓库根目录执行。
+本指南面向需要新增或调整外部业务契约的 C++ 开发者。先按根目录
+[README](../../README.md#快速开始)完成快速开始构建；以下命令都从仓库根目录执行。
 公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md)记录 RFC，再开始实现。
+
+第一次接触 Adapter，可以先运行[无需模型的关键词样例](#2-用一个现有业务看清文件关系)，
+观察完整请求与响应，再按实际缺口查阅下文。新契约不要求重新实现所有接入组件。
 
 ## 输入输出以 Operator 接口为边界
 
@@ -40,8 +43,13 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 | --- | --- |
 | 外部业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有转换器、绑定和 Demo |
 | 外部业务契约不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
-| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 实现并注册对应 `InputConverter`、`OutputConverter` 与 `IoBinding`；已有载体和 ValueType 可以复用 |
+| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 为新契约登记 `IoBinding` 与曝光；分别复用符合输入、输出语义的转换器，只新增缺失的一侧；已有载体与 ValueType 继续复用 |
 | 修复已有业务的转换逻辑 | 修改对应输入/输出转换器并运行相关契约测试；仅影响该路径时，无需另建 Demo |
+
+这些路径可以组合：新契约可以继续编排已有 Nodes，也可以只补充一个缺失算法。
+输入和输出分别判断是否需要新转换器；仅改变输出时，输入转换器通常可以原样复用。
+已有宿主载体、ValueType 和 Demo 运行代码能表达完整请求、响应及数据集格式时优先复用；
+新绑定仍需匹配的 Demo 注册。Profile 只在需要保存运行预设时添加。
 
 “结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
@@ -68,17 +76,17 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 为 false。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
 新业务仍须换成自己的配置和输入验证。
 
-按下表阅读对应代码，再在同一位置实现新契约；表中的名称都是这个已注册样例的名称。
+按下表核对需要补齐的部分；表中的名称都是这个已注册样例的名称，无需逐项复制。
 
-| 环节 | 样例文件 | 新业务要落实的内容 |
+| 环节 | 样例文件 | 需要补齐时落实的内容 |
 | --- | --- | --- |
-| 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 外部输入输出字段、长度和所有权；本目录只保存当前环境的模拟约定，真实公司定义在授权内网接入 |
+| 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
 | 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、输出池租约填充及 `REGISTER_OUTPUT_CONVERTER` |
 | 业务绑定与曝光 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明逻辑端口映射、批次上限、`REGISTER_IO_BINDING` 与 `REGISTER_BIZ_EXPOSURE` |
 | Operator 类型注册 | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 为新宿主类型登记规范后缀、输入校验或输出分配/重置/释放 |
-| Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 读数据集、构造平台输入、复制输出字段及 `REGISTER_DEMO_BIZ` |
+| Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [接入适配层 CMake](../../src/adapter/CMakeLists.txt)、[Demo CMake](../../demo/CMakeLists.txt)、[Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 登记新增 `.cpp`，编排业务端口，配置路径和输出容量 |
 
 其中，Pipeline 的 `biz_name`（`keyword_match_v1`）、Demo 的 `--biz`（`keyword_match`）
@@ -88,7 +96,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 ## 3. 实现并注册转换器与绑定
 
-参照关键词或实体抽取的转换器实现完成：
+先选择可复用的输入、输出转换器，并在绑定中组合；只有缺少兼容转换器时才实现对应步骤。
+参照关键词或实体抽取的实现，按需要完成：
 
 1. **实现输入转换器（`src/adapter/input/`）。**
    单槽且每请求生成一个载荷时，先写普通函数
@@ -159,6 +168,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 **ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。**
 
+新业务继续使用已注册宿主类型时，复用其 ValueType 与内存管理；载荷协议变化由转换器处理。
+只有需要新宿主类型或分配布局时，才执行下面的相应步骤。
+
 1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明。
    新输入、输出 DTO 均须在接入层共享头中包含 DTO 定义和 `adapter/io_converter.h`，
    在 `llm_edgeflow` 命名空间声明 `DECLARE_EXTERNAL_TYPE_TRAITS(YourDto, "YourDto");`，
@@ -182,18 +194,21 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 ## 5. 统一 Demo 接入
 
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
+新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
+Demo 注册的 `expected_binding_id` 必须与部署绑定一致，不能仅因宿主类型相同就沿用旧 Demo 名。
 这里的数据转换仅指载体构造和结果展示，外部协议的解包、
 字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
-新增外部结构需要统一 Demo 时，按 `keyword_match_demo.cpp` 完成以下步骤：
+新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：
 
-1. 新建 `demo/biz/<biz>_demo.cpp`，从数据集读入样本，为每条样本构造宿主输入结构，
+1. 已有运行函数可用时复用；需要新载体构造时，新建 `demo/biz/<biz>_demo.cpp`，
+   从数据集读入样本，为每条样本构造宿主输入结构，
    保持字符串及数组在同步处理期间有效。
 2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入声明的槽位后缀；
    在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
    同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
    调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
-3. 用 `REGISTER_DEMO_BIZ(name, title, run_function, biz_type)` 注册，`name` 与
-   `BizDefinition` 的 Demo 名一致，业务类型显式给出且非 UNKNOWN；将源码加入
+3. 用 `REGISTER_DEMO_BIZ(name, title, run_function, expected_binding_id)` 注册，`name` 与
+   `BizDefinition` 的 Demo 名一致，最后一个参数填写对应 `IoBindingDefinition::binding_id`；将新增源码加入
    `demo/CMakeLists.txt`。无需在 `demo/main.cpp` 增加业务分支。
 4. 准备样例数据、Pipeline 和 `.conf`。先用显式 `--biz`、`--config`、`--dataset` 运行。
    仅需保存可重复调用的预设或加入套件时，再向 `demo/profiles.json` 添加 Profile。

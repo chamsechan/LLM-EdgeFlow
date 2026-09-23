@@ -380,7 +380,7 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(updated["command"], saved["command"])
         self.assertEqual(updated["pipeline"]["deployment"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
-        profile, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
+        profile, _, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
         effective = self.service.resolve_run_conf(self.configs / saved["conf_filename"], profile)
         self.assertEqual(effective, updated["configuration"])
         self.assertEqual(effective["model_paths"][0]["resolved"], str(ROOT / "models/replacement.gguf"))
@@ -507,14 +507,29 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(unrelated.read_text(), "keep")
 
     def test_native_deployment_rejection_rolls_back_the_pair(self):
-        profile, outputs = self.service.profile_inputs(self.keyword, "keyword_match_rules")
+        profile, outputs, binding = self.service.profile_inputs(self.keyword, "keyword_match_rules")
         outputs["keyword_out"]["capacities"]["match_result_json"] = 0
-        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, outputs)):
+        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, outputs, binding)):
             with self.assertRaises(SHOW.StudioError) as error:
                 self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_rules")
         self.assertEqual(error.exception.code, "DEPLOYMENT_VALIDATION_FAILED")
         self.assertIn("match_result_json", str(error.exception))
         self.assertEqual(list(self.configs.iterdir()), [])
+
+    def test_profile_supplies_only_missing_binding(self):
+        pipeline = copy.deepcopy(self.keyword)
+        del pipeline["deployment"]
+        saved = self.service.save_solution("pipeline_profile_binding.json", pipeline, "keyword_match_rules")
+        self.assertEqual(saved["pipeline"]["deployment"]["io"]["io_binding"], "keyword_match.operator.v1")
+        for binding in ("", "unknown.operator.v1", "entity_extract.operator.v1"):
+            with self.subTest(binding=binding):
+                pipeline = copy.deepcopy(self.keyword)
+                pipeline["deployment"]["io"]["io_binding"] = binding
+                with self.assertRaises(SHOW.StudioError):
+                    self.service.save_solution("pipeline_bad_binding.json", pipeline, "keyword_match_rules")
+                self.assertEqual(pipeline["deployment"]["io"]["io_binding"], binding)
+                self.assertFalse((self.configs / "pipeline_bad_binding.json").exists())
+                self.assertFalse((self.configs / "pipeline_bad_binding.conf").exists())
 
 
 class PipelineCliTest(unittest.TestCase):
@@ -1487,9 +1502,12 @@ if (backend) {
 assert.ok(!w.compatibleBackends(catalog.backends,modelDef).some(b=>b.backend_type==='llama_cpp'));
 const models = {models:[], pipeline:[]};
 w.upsertModel(models,catalog,'',{model_id:'embed',model_type:modelDef.model_type,backend:backend.backend_type,model_path:'embed.onnx',model_config:w.schemaDefaults(modelDef.config_fields),backend_config:w.schemaDefaults(backend.config_fields)});
+assert.equal(models.deployment,undefined,'adding a model must not invent deployment overrides');
+models.deployment = {model_paths:{embed:'models/deployed_embed.onnx',other:'models/other.onnx'}};
 models.pipeline.push({id:'embed_node',node_type:'TextEmbeddingNode',config:{bind_model:'embed'}});
 w.upsertModel(models,catalog,'embed',{...models.models[0],model_id:'renamed'});
 assert.equal(models.pipeline[0].config.bind_model,'renamed');
+assert.deepEqual(models.deployment.model_paths,{renamed:'models/deployed_embed.onnx',other:'models/other.onnx'});
 assert.throws(()=>w.removeModel(models,catalog,'renamed'), /使用/);
 assert.throws(()=>w.upsertModel(models,catalog,'',{...models.models[0],backend:'llama_cpp'}), /不兼容/);
 }
@@ -1567,6 +1585,26 @@ process.stdout.write(JSON.stringify(pipeline));
 
 
 class SelectionVerificationTest(unittest.TestCase):
+    def test_run_conf_uses_supplied_binding_without_business_name_table(self):
+        selection = SHOW.SELECTION
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pipeline = {"biz_name": "new_contract_v1", "models": []}
+            conf = selection.build_run_conf(pipeline, {}, "pipeline.json", root, root,
+                                             default_io_binding="reusable.operator.v2")
+            self.assertEqual(conf, {"pipe_path": "pipeline.json"})
+            self.assertEqual(pipeline["deployment"]["io"]["io_binding"], "reusable.operator.v2")
+            for explicit in ("custom.operator.v3", "", None, 42):
+                with self.subTest(explicit=explicit):
+                    pipeline["deployment"]["io"]["io_binding"] = explicit
+                    selection.build_run_conf(pipeline, {}, "pipeline.json", root, root,
+                                             default_io_binding="reusable.operator.v2")
+                    self.assertEqual(pipeline["deployment"]["io"]["io_binding"], explicit)
+            for biz in ("keyword_match_v1", "new_contract_v1"):
+                pipeline = {"biz_name": biz, "models": []}
+                selection.build_run_conf(pipeline, {}, "pipeline.json", root, root)
+                self.assertNotIn("io_binding", pipeline["deployment"]["io"])
+
     def test_asset_hashes_include_sidecars_and_changed_paths_are_unregistered(self):
         selection = SHOW.SELECTION
         with tempfile.TemporaryDirectory() as directory:

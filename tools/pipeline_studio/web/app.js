@@ -229,11 +229,60 @@ function renderAll() {
   $("#edgeSelectionLabel").textContent = state.selectedEdge ? state.selectedEdge.dependency ? "已选中执行依赖" : `${state.selectedEdge.sourcePort} → ${state.selectedEdge.targetPort}` : "";
   $("#deleteEdgeButton").disabled = !state.editing || !state.selectedEdge;
   renderInspector(nodes.find(node => node.id === state.selected));
+  renderBizContract();
   filterProfiles();
   refreshModelList();
   renderPathIntent();
   renderPreflightFreshness();
   updateEditorStatus();
+}
+
+function renderBizContract() {
+  $("#bizContract").hidden = !state.pipeline;
+  const container = $("#bizContractFields");
+  container.replaceChildren();
+  if (!state.pipeline) return;
+  const fields = (parent, values) => {
+    const list = document.createElement("dl");
+    list.className = "contract-fields";
+    for (const [name, value] of values) {
+      const term = document.createElement("dt");
+      term.textContent = name;
+      const detail = document.createElement("dd");
+      detail.textContent = value ?? "未提供";
+      list.append(term, detail);
+    }
+    parent.append(list);
+  };
+  const biz = state.catalogReady ? state.catalog.bizs?.find(item => item.biz_name === state.pipeline.biz_name) : null;
+  const bindingId = state.pipeline.deployment?.io?.io_binding;
+  fields(container, [
+    ["业务契约 · biz_name", state.pipeline.biz_name],
+    ["Demo 入口 · alg_demo --biz", biz?.demo_biz],
+    ["配置绑定 · io_binding", bindingId ?? "未配置"],
+  ]);
+  if (!state.catalogReady) return;
+  const bindings = (state.catalog.io_bindings || []).filter(binding =>
+    binding.biz_name === state.pipeline.biz_name && (bindingId === undefined || binding.binding_id === bindingId));
+  for (const binding of bindings) {
+    const heading = document.createElement("h3");
+    heading.textContent = bindingId === undefined ? "候选接入绑定" : "接入绑定";
+    container.append(heading);
+    fields(container, [["Binding ID", binding.binding_id]]);
+    for (const [direction, label] of [["input", "输入"], ["output", "输出"]]) {
+      const converterId = binding[`${direction}_converter_id`];
+      const converter = state.catalog[`${direction}_converters`]?.find(item => item.converter_id === converterId);
+      fields(container, [[`${label} Converter`, converterId], [`${label}协议 · schema_id`, converter?.schema_id]]);
+      for (const slot of converter?.external_slots || []) {
+        fields(container, [
+          [`${label}逻辑槽 · slot_name`, slot.slot_name],
+          ["宿主类型 · type_id", slot.type_id],
+          ["类型注册后缀 · type_suffix", slot.type_suffix],
+          ["外部键后缀 · key_suffix", slot.key_suffix],
+        ]);
+      }
+    }
+  }
 }
 
 function renderInspector(node) {

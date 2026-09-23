@@ -30,6 +30,8 @@ const open = async filename => {
 const rule = () => page.locator('.node').filter({ hasText: 'TextRuleMatchNode' });
 const categories = () => page.locator('#configFields [data-field="categories"]');
 const json = async () => JSON.parse(await page.locator("#rawJson").inputValue());
+const contractValues = label => page.locator("#bizContractFields dt").evaluateAll(
+  (terms, name) => terms.filter(term => term.textContent === name).map(term => term.nextElementSibling.textContent), label);
 try {
   await page.goto(url);
   await page.waitForFunction(() => document.querySelector("#pipelineSelect").options.length > 1);
@@ -67,6 +69,61 @@ try {
     }
   }
   await page.setViewportSize({ width: 1366, height: 768 });
+  await open("pipeline_browser.json");
+  await page.click("#openRunButton");
+  await page.locator("#bizContract > summary").click();
+  for (const [label, expected] of [
+    ["业务契约 · biz_name", ["keyword_match_v1"]],
+    ["Demo 入口 · alg_demo --biz", ["keyword_match"]],
+    ["配置绑定 · io_binding", ["keyword_match.operator.v1"]],
+    ["Binding ID", ["keyword_match.operator.v1"]],
+    ["输入 Converter", ["keyword.plain.operator.v1"]],
+    ["输出 Converter", ["keyword.result.operator.v1"]],
+    ["输入协议 · schema_id", ["text.plain.request"]],
+    ["输出协议 · schema_id", ["keyword.result.response"]],
+    ["输入逻辑槽 · slot_name", ["keyword_in"]],
+    ["输出逻辑槽 · slot_name", ["keyword_out"]],
+    ["宿主类型 · type_id", ["CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"]],
+    ["类型注册后缀 · type_suffix", ["keyword_in", "keyword_out"]],
+    ["外部键后缀 · key_suffix", ["keyword_in", "keyword_out"]],
+  ]) assert.deepEqual(await contractValues(label), expected, label);
+  await open("pipeline_browser_multi.json");
+  await page.click("#openRunButton");
+  assert.deepEqual(await contractValues("业务契约 · biz_name"), ["smart_doc_qa_v1"]);
+  assert.deepEqual(await contractValues("Demo 入口 · alg_demo --biz"), ["doc_qa"]);
+  assert.deepEqual(await contractValues("Binding ID"), ["doc_qa.operator.v1"]);
+  assert.doesNotMatch(await page.locator("#bizContractFields").textContent(), /keyword/,
+    "Changing documents must replace every previous contract field");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("#bizContract > summary").scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  assert.equal(await page.locator("#bizContract").evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return box.left >= 0 && box.right <= innerWidth && element.scrollWidth <= element.clientWidth;
+  }), true, "Contract details must fit the narrow viewport");
+  assert.equal(await page.locator("#bizContractFields dt, #bizContractFields dd").evaluateAll(
+    fields => fields.every(field => field.scrollWidth <= field.clientWidth)), true,
+  "Contract labels and identifiers must wrap within their fields");
+  await screenshot("390-contract-details");
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.route("**/api/v1/catalog?biz=keyword_match_v1", async route => {
+    const response = await route.fetch();
+    const catalog = await response.json();
+    for (const converter of [...catalog.input_converters, ...catalog.output_converters]) {
+      for (const slot of converter.external_slots) {
+        delete slot.type_id; delete slot.type_suffix; delete slot.key_suffix;
+      }
+    }
+    await route.fulfill({ response, json: catalog });
+  }, { times: 1 });
+  await open("pipeline_browser.json");
+  await page.click("#openRunButton");
+  for (const label of ["宿主类型 · type_id", "类型注册后缀 · type_suffix", "外部键后缀 · key_suffix"]) {
+    assert.deepEqual(await contractValues(label), ["未提供", "未提供"],
+      "Missing Catalog fields must not be inferred from slot_name or value_type");
+  }
+  assert.deepEqual(await contractValues("输入逻辑槽 · slot_name"), ["keyword_in"]);
+  await open("pipeline_browser_multi.json");
   await open("pipeline_browser.json");
   await rule().click();
   assert.equal(await page.locator("#nodeForm").isVisible(), true);
@@ -174,6 +231,9 @@ try {
   await page.click('#quickValidateButton');
   await page.waitForFunction(() => document.querySelector('#validationOutput').textContent.includes('校验通过'));
   assert.ok((await json()).models.some(model => model.model_id === 'browser_model'));
+  const renamedPaths = (await json()).deployment.model_paths;
+  assert.equal(renamedPaths.browser_model, originalMulti.deployment.model_paths[originalMulti.models[0].model_id]);
+  assert.equal(Object.hasOwn(renamedPaths, originalMulti.models[0].model_id), false);
   await page.click('#undoButton');
   assert.deepEqual(await json(), originalMulti);
   await page.click('[data-tab="json"]'); await page.locator('#rawJson').fill('{ broken');
@@ -305,4 +365,14 @@ try {
   } finally { await startupPage.close(); }
   assert.deepEqual(errors, []);
   console.log('Browser workflow passed: desktop layouts, read-only browsing, creation, drafts, undo, save scope/conflicts, real Demo and cross-document run isolation.');
+} catch (error) {
+  console.error("Browser failure state:", JSON.stringify(await page.evaluate(() => ({
+    document: document.querySelector("#documentTitle")?.textContent,
+    model: document.querySelector("#modelId")?.value,
+    validation: document.querySelector("#validationOutput")?.textContent,
+    feedback: document.querySelector("#operationFeedback")?.textContent,
+  })), null, 2));
+  console.error("Browser JavaScript errors:", errors);
+  await screenshot("browser-failure");
+  throw error;
 } finally { await browser.close(); }

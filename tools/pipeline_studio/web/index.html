@@ -149,6 +149,10 @@
           <div id="validationOutput" aria-live="polite"></div>
         </section>
         <section id="runTab" class="tab scroll" role="tabpanel" aria-label="运行方案" hidden>
+          <details id="bizContract" class="contract-details" hidden>
+            <summary>接入契约</summary>
+            <div id="bizContractFields"></div>
+          </details>
           <label>运行 Profile<select id="runProfile"></select></label>
           <details class="run-settings"><summary>模型目录：<span id="modelRootLabel">models</span></summary>
             <label>模型目录（相对项目根）<input id="runModelRoot" value="models" placeholder="models"></label>

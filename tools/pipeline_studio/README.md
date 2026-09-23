@@ -124,6 +124,14 @@ C++ 查看工具，展示更多声明信息：
 [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，新平台结构转到
 [业务接入指南](../../doc/dev_guide/business_onboarding.md)。
 
+在“运行”页展开“接入契约”，可核对当前方案的 `biz_name`、Demo 入口、Binding、
+输入/输出 Converter 及槽位名称。`alg_pipeline_tool --biz` 使用业务契约 ID，
+`alg_demo --biz` 使用 Demo 入口名；使用 Profile 运行时无需重复填写这些名称。
+Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` 和有效
+`key_suffix`，分别表示逻辑槽、宿主类型、类型注册后缀和外部键后缀。旧工具缺少的字段
+显示为“未提供”，重新构建 `alg_pipeline_tool` 后可查看完整信息。详情中的内部端口
+与槽位类型不代表外部 JSON 载荷协议，完整请求响应仍以对应 Converter 契约为准。
+
 ## 自动化 CLI
 
 ```bash

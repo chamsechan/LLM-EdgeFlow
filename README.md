@@ -148,12 +148,20 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 ## 开发文档
 
+从需要改变的部分选择入口；同一个方案可以组合使用这三条路径。
+
+| 路径 | 何时使用 | 入口 |
+| :--- | :--- | :--- |
+| 已有能力编排 | 外部契约不变，调整规则、提示词、模型或连线 | [Pipeline Studio](tools/pipeline_studio/README.md#第一次编排) · [提示词 Recipe](doc/dev_guide/recipe_prompt_config.md) |
+| 新增自定义 Node | 已有节点无法实现所需算法 | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) |
+| 新增外部业务契约 | 请求或响应的字段、格式、语义发生变化 | [业务接入指南](doc/dev_guide/business_onboarding.md) |
+
+### 进阶与参考
+
 | 目标 | 入口 |
 | :--- | :--- |
-| 用已有节点构建方案 | [Pipeline Studio](tools/pipeline_studio/README.md#第一次编排) |
-| 编写第一个自定义算法 | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) · [节点作者的五个概念](doc/dev_guide/custom_node_concepts.md) |
+| 理解节点端口、模型绑定与并发 | [节点作者的五个概念](doc/dev_guide/custom_node_concepts.md) |
 | 给节点增加运行时控制 | [Control 入门](doc/dev_guide/first_control.md) |
-| 对接平台输入输出 | [业务接入指南](doc/dev_guide/business_onboarding.md) |
 | 扩展框架、模型或后端 | [开发者指南](doc/developer_guide.md) · [架构设计](doc/architecture.md) |
 | 准备模型并验证效果 | [模型、构建与效果验收](doc/VERIFIABLE_SELECTION.md) |
 | 了解设计决策与版本演进 | [RFC 索引](doc/rfcs/README.md) · [Changelog](doc/CHANGELOG.md) |
