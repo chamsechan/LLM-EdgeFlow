@@ -139,13 +139,13 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
       }
     }
 
-    return FixedBatchExecutor::Execute<AudioPcmPayload, std::string>(
+    return FixedBatchExecutor::ExecuteItems<AudioPcmPayload, std::string>(
         audio, session_->GetBatchPolicy(),
-        [this, &audio, diagnostic](const BatchSlice& slice,
-                                   std::vector<std::string>* batch) {
-          const auto& item = audio[slice.offset].data;
+        [this, diagnostic](const TraceableItem<AudioPcmPayload>& input,
+                           std::string* output) {
+          const auto& item = input.data;
           if (item.pcm_data.empty()) {
-            batch->push_back("");
+            output->clear();
             return 0;
           }
           std::string raw_output;
@@ -181,7 +181,7 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
                                   "Transcription exceeds max_output_bytes");
             return -1;
           }
-          batch->push_back(std::move(trimmed));
+          *output = std::move(trimmed);
           return 0;
         },
         outputs, diagnostic);

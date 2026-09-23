@@ -121,9 +121,24 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                               "--write-test")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('kUpdatePrefix = 12345;', result.stdout)
-        self.assertIn('ctx.Publish("source"', result.stdout)
-        self.assertIn('ctx.Read<TextBatch>("result")', result.stdout)
+        self.assertIn('harness.CustomInput("source"', result.stdout)
+        self.assertIn('result.Output<TextBatch>("result")', result.stdout)
         self.assertIn('ControlChangesOutputAndPreservesOnFailure', result.stdout)
+
+    def test_generated_behavior_tests_use_harness_across_signatures(self):
+        cases = [(["--control-id", "12345"], "ControlChangesOutputAndPreservesOnFailure"),
+                 (["--in-port", "input:AudioPcmBatch", "--out-port", "output:AudioPcmBatch"],
+                  "PreservesBatchDataAndProvenance")]
+        cases.extend((["--kind", "model", "-m", capability], "ControlledExecutionAndModelFailure")
+                     for capability in ("embedding", "asr", "ocr", "rerank"))
+        for options, behavior in cases:
+            with self.subTest(options=options):
+                result = self.run_cli("HarnessNode", *options, "--write-test", "--dry-run")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('NodeHarness harness("HarnessNode");', result.stdout)
+                self.assertIn(behavior, result.stdout)
+                for internal in ("SessionContext", "AlgContext", "ValidatedNodePlan"):
+                    self.assertNotIn(internal, result.stdout)
 
     def test_control_starter_rejects_invalid_ids_and_non_text_signatures(self):
         with tempfile.TemporaryDirectory() as temp:

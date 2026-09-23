@@ -182,13 +182,24 @@ bool BuildRules(const nlohmann::json& rules_json,
   return true;
 }
 
-bool ParseConfig(const nlohmann::json& config, CategoryList* categories,
-                 std::vector<RuleSpec>* rules, std::string* diagnostic) {
+bool BuildRuleMatchState(const nlohmann::json& config, RuleMatchState* state,
+                         std::string* diagnostic) {
   if (diagnostic) diagnostic->clear();
-  return (!config.contains("categories") ||
-          BuildCategories(config["categories"], categories, diagnostic)) &&
-         (!config.contains("rules") ||
-          BuildRules(config["rules"], rules, diagnostic));
+  CategoryList categories;
+  std::vector<RuleSpec> rules;
+  if (config.contains("categories") &&
+      !BuildCategories(config["categories"], &categories, diagnostic)) {
+    return false;
+  }
+  if (config.contains("rules") &&
+      !BuildRules(config["rules"], &rules, diagnostic)) {
+    return false;
+  }
+  if (config.contains("categories")) {
+    state->category_keywords_list = std::move(categories);
+  }
+  if (config.contains("rules")) state->rules_list = std::move(rules);
+  return true;
 }
 
 struct RuleInputs {
@@ -330,24 +341,12 @@ NodeResult<RuleMatchState> UpdateRules(const RuleMatchState& current,
                                        const nlohmann::json& root,
                                        const BindingFacts&) {
   std::string error;
-  const bool has_categories = root.contains("categories");
-  const bool has_rules = root.contains("rules");
-  CategoryList new_categories;
-  std::vector<RuleSpec> new_rules;
-  if (has_categories &&
-      !BuildCategories(root["categories"], &new_categories, &error)) {
-    return NodeResult<RuleMatchState>::Failure(
-        NodeErrorKind::kBusinessError, error,
-        node_error::control::kInvalidRequest);
-  }
-  if (has_rules && !BuildRules(root["rules"], &new_rules, &error)) {
-    return NodeResult<RuleMatchState>::Failure(
-        NodeErrorKind::kBusinessError, error,
-        node_error::control::kInvalidRequest);
-  }
   RuleMatchState next = current;
-  if (has_categories) next.category_keywords_list = std::move(new_categories);
-  if (has_rules) next.rules_list = std::move(new_rules);
+  if (!BuildRuleMatchState(root, &next, &error)) {
+    return NodeResult<RuleMatchState>::Failure(
+        NodeErrorKind::kBusinessError, error,
+        node_error::control::kInvalidRequest);
+  }
   return NodeResult<RuleMatchState>::Success(std::move(next));
 }
 
@@ -360,8 +359,7 @@ auto MakeTextRuleMatchSpec() {
             state->default_category =
                 config.at("default_category").get<std::string>();
             state->default_score = config.at("default_score").get<float>();
-            return ParseConfig(config, &state->category_keywords_list,
-                               &state->rules_list, diagnostic);
+            return BuildRuleMatchState(config, state, diagnostic);
           }));
   auto control = ControlCommandDefinition(
       kControlCmdUpdateRules, "update_rules",

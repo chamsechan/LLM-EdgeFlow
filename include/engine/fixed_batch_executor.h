@@ -32,6 +32,47 @@ struct BatchSlice {
  */
 class FixedBatchExecutor {
  public:
+  // Single-item model semantics on a dynamic session. Tensor/fixed-batch
+  // models continue to use Execute and explicitly prepare their padded batch.
+  // The callback owns only one input -> one output; Execute owns provenance and
+  // rollback. exception_code preserves a model's established exception mapping.
+  template <typename TIn, typename TOut, typename RunItem>
+  static int ExecuteItems(const std::vector<TraceableItem<TIn>>& inputs,
+                          const BatchPolicy& policy, RunItem&& run_item,
+                          std::vector<TraceableItem<TOut>>* outputs,
+                          std::string* diagnostic = nullptr,
+                          int exception_code = -4) noexcept {
+    if (outputs && !inputs.empty() && policy.fixed_batch_size != 0) {
+      outputs->clear();
+      SetDiagnosticNoexcept(diagnostic,
+                            "Item execution requires a non-fixed batch policy");
+      return -2;
+    }
+    return Execute<TIn, TOut>(
+        inputs, policy,
+        [&](const BatchSlice& slice, std::vector<TOut>* batch) {
+          try {
+            batch->reserve(slice.valid_count);
+            for (size_t i = 0; i < slice.valid_count; ++i) {
+              TOut output{};
+              if (diagnostic) diagnostic->clear();
+              const int code = run_item(inputs[slice.offset + i], &output);
+              if (code != 0) return code;
+              batch->push_back(std::move(output));
+            }
+            return 0;
+          } catch (const std::exception& error) {
+            SetDiagnosticNoexcept(diagnostic, error.what());
+            return exception_code;
+          } catch (...) {
+            SetDiagnosticNoexcept(diagnostic,
+                                  "Unknown item execution exception");
+            return exception_code;
+          }
+        },
+        outputs, diagnostic);
+  }
+
   /**
    * @brief 基于 BatchSlice 和 BatchPolicy 的新版中性批处理入口
    */

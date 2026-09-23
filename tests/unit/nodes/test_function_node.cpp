@@ -2317,6 +2317,85 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
   EXPECT_EQ(final_out->at(0).data, "p30:final:s30");
 }
 
+TEST(FunctionNodeTest, SessionResultCachesSuccessfulValueAcrossFacades) {
+  SessionContext session;
+  SessionResources resources(session);
+  const SessionResourceKey<std::string> key("result-cache-success");
+  int constructions = 0;
+  auto first = resources.GetOrCreateResult<std::string>(key, [&] {
+    ++constructions;
+    return NodeResult<std::string>::Success("prepared value");
+  });
+  ASSERT_TRUE(first.ok());
+  ASSERT_NE(first.value(), nullptr);
+  EXPECT_EQ(*first.value(), "prepared value");
+
+  auto cached =
+      SessionResources(session).GetOrCreateResult<std::string>(key, [&] {
+        ++constructions;
+        return NodeResult<std::string>::Failure(NodeErrorKind::kInternalError,
+                                                "must not run");
+      });
+  ASSERT_TRUE(cached.ok());
+  EXPECT_EQ(cached.value(), first.value());
+  EXPECT_EQ(constructions, 1);
+}
+
+TEST(FunctionNodeTest,
+     SessionResultPreservesFailureAndRetriesWithoutCachingIt) {
+  SessionContext session;
+  SessionResources resources(session);
+  const SessionResourceKey<std::string> key("result-cache-retry");
+  const NodeFailure expected(
+      NodeErrorKind::kModelCallError, "embedding unavailable",
+      BatchFailureDetail{"embed corpus", BatchFailureReason::kCallbackFailed,
+                         TraceableItemKey{17, 3}},
+      -47, "prepare corpus", "embedding", "corpus_builder.cpp:42");
+  int constructions = 0;
+  auto failed = resources.GetOrCreateResult<std::string>(key, [&] {
+    ++constructions;
+    return NodeResult<std::string>::Failure(expected);
+  });
+  ASSERT_FALSE(failed.ok());
+  const auto& actual = failed.failure();
+  EXPECT_EQ(actual.kind, expected.kind);
+  EXPECT_EQ(actual.message, expected.message);
+  EXPECT_EQ(actual.cause_code, expected.cause_code);
+  EXPECT_EQ(actual.stage, expected.stage);
+  EXPECT_EQ(actual.model_slot, expected.model_slot);
+  EXPECT_EQ(actual.source_location, expected.source_location);
+  ASSERT_TRUE(actual.batch_detail.has_value());
+  EXPECT_EQ(actual.batch_detail->operation, expected.batch_detail->operation);
+  EXPECT_EQ(actual.batch_detail->reason, expected.batch_detail->reason);
+  EXPECT_EQ(actual.batch_detail->key, expected.batch_detail->key);
+
+  auto retried = resources.GetOrCreateResult<std::string>(key, [&] {
+    ++constructions;
+    return NodeResult<std::string>::Success("recovered");
+  });
+  ASSERT_TRUE(retried.ok());
+  ASSERT_NE(retried.value(), nullptr);
+  EXPECT_EQ(*retried.value(), "recovered");
+  EXPECT_EQ(constructions, 2);
+}
+
+TEST(FunctionNodeTest,
+     SessionResultLeavesUnexpectedExceptionsForRuntimeBarrier) {
+  SessionContext session;
+  SessionResources resources(session);
+  const SessionResourceKey<std::string> key("result-cache-exception");
+  EXPECT_THROW(resources.GetOrCreateResult<std::string>(
+                   key,
+                   []() -> NodeResult<std::string> {
+                     throw std::runtime_error("unexpected preparation failure");
+                   }),
+               std::runtime_error);
+  auto retried = resources.GetOrCreateResult<std::string>(
+      key, [] { return NodeResult<std::string>::Success("recovered"); });
+  ASSERT_TRUE(retried.ok());
+  EXPECT_EQ(*retried.value(), "recovered");
+}
+
 }  // namespace llm_edgeflow
 
 namespace llm_edgeflow {

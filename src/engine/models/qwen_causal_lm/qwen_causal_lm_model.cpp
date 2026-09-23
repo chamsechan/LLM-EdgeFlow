@@ -128,36 +128,13 @@ int QwenCausalLmModel::Generate(const TextBatch& prompts,
                           "Text generation requires a non-fixed batch policy");
     return -1;
   }
-  return FixedBatchExecutor::Execute<std::string, std::string>(
+  return FixedBatchExecutor::ExecuteItems<std::string, std::string>(
       prompts, policy,
-      [this, &prompts, &options, diagnostic](
-          const BatchSlice& slice, std::vector<std::string>* batch_outputs) {
-        if (!batch_outputs) return -1;
-        batch_outputs->clear();
-        try {
-          batch_outputs->reserve(slice.valid_count);
-          for (size_t i = 0; i < slice.valid_count; ++i) {
-            std::string output;
-            const int result = GenerateOne(prompts[slice.offset + i], options,
-                                           &output, diagnostic);
-            if (result != 0) {
-              batch_outputs->clear();
-              return result;
-            }
-            batch_outputs->push_back(std::move(output));
-          }
-          return 0;
-        } catch (const std::exception& error) {
-          SetDiagnosticNoexcept(diagnostic, error.what());
-          batch_outputs->clear();
-          return -1;
-        } catch (...) {
-          SetDiagnosticNoexcept(diagnostic, "Unknown text batch exception");
-          batch_outputs->clear();
-          return -1;
-        }
+      [this, &options, diagnostic](const TraceableItem<std::string>& prompt,
+                                   std::string* output) {
+        return GenerateOne(prompt, options, output, diagnostic);
       },
-      outputs, diagnostic);
+      outputs, diagnostic, -1);
 }
 
 int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,

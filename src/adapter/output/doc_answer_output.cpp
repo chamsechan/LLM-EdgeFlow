@@ -76,14 +76,13 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     out->status_code = match.status_code;
 
     if (!WriteOutputString(*destination, "doc_out", out->intent_name,
-                           "intent_name", match.category.c_str(), options,
-                           status, i)) {
+                           "intent_name", match.category, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
     if (!WriteOutputString(*destination, "doc_out", out->answer_text,
-                           "answer_text", answers_by_req[i]->data.c_str(),
-                           options, status, i)) {
+                           "answer_text", answers_by_req[i]->data, options,
+                           status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }

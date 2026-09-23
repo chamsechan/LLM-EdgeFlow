@@ -98,8 +98,11 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 
 Pipeline 构建期间准备模型资源，作者包装在初始化时取得各槽绑定的能力句柄。
 资源属于会话，当前输入输出属于请求。本次提示词、回答、临时向量留在函数局部。
-需要会话缓存时，`Run` 显式接收 `const SessionResources&`，通过 `GetOrCreateResource` 和
-`GetModelRevision` 访问资源；参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
+需要会话缓存时，`Run` 显式接收 `const SessionResources&`。普通工厂返回 `NodeResult<T>`，
+交给 `GetOrCreateResult<T>(key, factory)`，得到 `NodeResult<std::shared_ptr<T>>`；框架复用资源、
+向等待者保留完整失败信息，失败后允许重试。这是 Node 作者唯一的缓存创建入口。
+缓存 key 必须包含影响结果的输入、参数和通过 `GetModelRevision` 取得的模型版本；
+参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。轻量模板使用 `GenerateOptions{}` 的默认采样参数；
@@ -170,6 +173,9 @@ Control 更新单独归一化参数、构造下一状态后发布。
 “无请求状态”允许节点持有配置。在线更新时先校验新值，失败保留旧值，每次处理读取
 一致快照。普通字段使用 `WithControls`；复杂命令使用 `WithControl` 声明 schema 和
 构造下一状态的函数，框架串行处理更新并发布。见 [Control 练习](first_control.md)。
+复杂状态的初始构建与更新复用普通 `Build...State` 函数；更新回调负责构建完整候选，
+`WithControl` 不会再次运行初始化的 `Prepare`。模板编译和规则解析各有一个实现，
+配置与补丁可以使用不同结构。
 
 `parallel_safe=false` 是脚手架的保守初始声明。对于显式 `parallel` Pipeline，若该节点
 处于含多个节点的并行层，Validator 会拒绝这个计划；它不会自动加锁，也不会自动把

@@ -75,8 +75,8 @@ Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运
 [TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp)：框架串行处理更新，失败保持旧值，
 每次请求读取一次一致快照。
 
-会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResource` 和
-`GetModelRevision` 使用现有会话资源；参考
+会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResult<T>`
+调用返回 `NodeResult<T>` 的工厂，通过 `GetModelRevision` 取得缓存身份所需的模型版本；参考
 [TextEmbeddingNode](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
 
 ## 完整参考样例

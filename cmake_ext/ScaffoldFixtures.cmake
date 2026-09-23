@@ -15,6 +15,9 @@ set(EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
     "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/scaffold/scaffold_contracts.cpp")
 add_custom_command(
   OUTPUT "${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}"
+  BYPRODUCTS
+    "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/scaffold/control_tutorial/pipeline.json"
+    "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/scaffold/control_tutorial/pipeline.conf"
   COMMAND "${Python3_EXECUTABLE}"
           "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
           "${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}"
@@ -23,6 +26,7 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_llm_node.cpp"
     "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_control_node.cpp"
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_custom_node.md"
+    "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_control.md"
     "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
     "${PROJECT_SOURCE_DIR}/src/custom_nodes/CMakeLists.txt"
     "${PROJECT_SOURCE_DIR}/cmake_ext/CustomNodeTests.cmake"

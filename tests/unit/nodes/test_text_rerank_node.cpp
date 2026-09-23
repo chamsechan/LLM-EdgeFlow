@@ -37,6 +37,7 @@ class FakeRerankModel : public IRerankModel {
 
   int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override {
+    ++score_calls_;
     if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
     outputs->clear();
@@ -67,6 +68,7 @@ class FakeRerankModel : public IRerankModel {
     return 0;
   }
 
+  int score_calls_ = 0;
   bool fail_score_ = false;
   bool return_wrong_count_ = false;
   bool corrupt_provenance_ = false;
@@ -122,6 +124,78 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
   EXPECT_EQ((*ranked)[0].data.original_sub_id, 0u);
   EXPECT_EQ((*ranked)[1].data.text, "Contact Support MID");
   EXPECT_EQ((*ranked)[1].data.original_sub_id, 2u);
+}
+
+TEST_F(TextRerankNodeTest, RejectsMultipleQueriesBeforeCallingModel) {
+  for (bool ranked_candidates : {false, true}) {
+    SCOPED_TRACE(ranked_candidates);
+    auto node = NodeRegistry::Instance().Create("TextRerankNode");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(
+        *node, {{"bind_model", "fake_rerank_model"}}, session_ctx_.get(),
+        nullptr,
+        {"pairs", ranked_candidates ? "candidate_texts" : "candidates"}));
+    AlgContext ctx;
+    ctx.Publish("queries", TextBatch{{7, 0, "first"}, {7, 1, "second"}});
+    if (ranked_candidates) {
+      ctx.Publish("candidates",
+                  RankedTextBatch{{7, 0, RankedCandidate("HIGH", 0.9f, 7, 0)}});
+    } else {
+      ctx.Publish("candidate_texts", TextBatch{{7, 0, "HIGH"}});
+    }
+    EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
+    EXPECT_EQ(fake_model_->score_calls_, 0);
+    EXPECT_FALSE(ctx.Has("ranked"));
+  }
+}
+
+TEST_F(TextRerankNodeTest, RejectsCandidateWithoutQueryBeforeCallingModel) {
+  for (bool ranked_candidates : {false, true}) {
+    SCOPED_TRACE(ranked_candidates);
+    auto node = NodeRegistry::Instance().Create("TextRerankNode");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(
+        *node, {{"bind_model", "fake_rerank_model"}}, session_ctx_.get(),
+        nullptr,
+        {"pairs", ranked_candidates ? "candidate_texts" : "candidates"}));
+    AlgContext ctx;
+    ctx.Publish("queries", TextBatch{{7, 0, "query"}});
+    if (ranked_candidates) {
+      ctx.Publish(
+          "candidates",
+          RankedTextBatch{{7, 0, RankedCandidate("HIGH", 0.9f, 7, 0)},
+                          {8, 0, RankedCandidate("orphan", 0.8f, 8, 0)}});
+    } else {
+      ctx.Publish("candidate_texts",
+                  TextBatch{{7, 0, "HIGH"}, {8, 0, "orphan"}});
+    }
+    EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
+    EXPECT_EQ(fake_model_->score_calls_, 0);
+    EXPECT_FALSE(ctx.Has("ranked"));
+  }
+}
+
+TEST_F(TextRerankNodeTest, RejectsCandidatesWithConnectedEmptyQueries) {
+  for (bool ranked_candidates : {false, true}) {
+    SCOPED_TRACE(ranked_candidates);
+    auto node = NodeRegistry::Instance().Create("TextRerankNode");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(
+        *node, {{"bind_model", "fake_rerank_model"}}, session_ctx_.get(),
+        nullptr,
+        {"pairs", ranked_candidates ? "candidate_texts" : "candidates"}));
+    AlgContext ctx;
+    ctx.Publish("queries", TextBatch{});
+    if (ranked_candidates) {
+      ctx.Publish("candidates",
+                  RankedTextBatch{{7, 0, RankedCandidate("HIGH", 0.9f, 7, 0)}});
+    } else {
+      ctx.Publish("candidate_texts", TextBatch{{7, 0, "HIGH"}});
+    }
+    EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
+    EXPECT_EQ(fake_model_->score_calls_, 0);
+    EXPECT_FALSE(ctx.Has("ranked"));
+  }
 }
 
 // 2. Process Pairs (Group 1)

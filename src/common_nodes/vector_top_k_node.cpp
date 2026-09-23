@@ -2,6 +2,7 @@
 #include <cmath>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "edgeflow/log.h"
@@ -47,6 +48,16 @@ NodeResult<RankedTextBatch> RankVectors(const VectorInputs& inputs,
   const auto* queries = inputs.queries;
   const auto* candidates = inputs.candidates;
   const auto* candidate_texts = inputs.candidate_texts;
+  std::unordered_set<uint32_t> query_requests;
+  for (const auto& query : *queries) {
+    if (!query_requests.insert(query.req_id).second) {
+      return NodeResult<RankedTextBatch>::Failure(
+          NodeErrorKind::kBusinessError,
+          "VectorTopKNode requires one query per request; duplicate req_id=" +
+              std::to_string(query.req_id),
+          -3102);
+    }
+  }
   // 索引候选文本 (根据 req_id 和 sub_id)
   std::unordered_map<uint64_t, std::string> text_map;
   if (candidate_texts) {

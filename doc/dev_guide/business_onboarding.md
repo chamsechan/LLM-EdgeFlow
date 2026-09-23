@@ -91,20 +91,23 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 参照关键词或实体抽取的转换器实现完成：
 
 1. **实现输入转换器（`src/adapter/input/`）。**
-   编写 `DecodeInputFn`，使用 `ValidateDecodeRequest` 复用 context/批次检查，
-   同一批次常量同时赋给 Definition。用 `ReadInputSlot<T>` 取得带类型检查的槽，
-   `IsValidInputString` 和 `CopyInputString` 处理字符串结构安全及自持有复制；
-   长度限制、可选字段含义及相应诊断留在原业务检查位置。
-   将输入复制为中性 DTO 发布到 `AlgContext`。外部请求编号保存在 `raw_request_ids`，
-   内部批次使用批内编号；输出阶段按来源映射回原编号。
+   单槽且每请求生成一个载荷时，先写普通函数
+   `AdapterStatus Decode(const Host& input, Payload* output)`，只校验业务字段并复制为自持有值。
+   `DecodeInputFn` 内调用 `DecodeRequestRows<Host>`，传入槽、typed 端口、批次上限与该函数；
+   框架负责槽检查、循环、批内来源编号和绑定发布。Definition 使用同一批次上限。
+   文本可用 `IsValidInputString` / `CopyInputString`，PCM 的范围检查和复制仍属于业务函数。
+   多槽、候选展开等算法继续使用 `ValidateDecodeRequest` / `ReadInputSlot<T>` 显式组织。
+   外部请求编号保存在 `raw_request_ids`，内部批次使用批内编号，输出时恢复原编号。
    定义 `InputConverterDefinition`并使用
    `REGISTER_INPUT_CONVERTER` 注册。
 2. **实现输出转换器（`src/adapter/output/`）。**
-   编写 `EncodeOutputFn`，用 `ReadOutputValue` 读取 typed 逻辑端口并报告缺值，
-   使用已有 `IndexResults` 检查结果完整性并按来源关联；多路组合、排名与业务状态继续显式处理。
-   通过 `ExternalOutputBatchView` 将字段写入已租用的输出池结构（如 `CompanyOperator*Output`），
-   字符串使用 `WriteOutputString` 读取对应 `pool_specs` 的容量并安全写入，
-   不在转换器里再填写容量默认值。非字符串输出按自己的结构契约填充。
+   每请求一个结果时，先写普通函数
+   `AdapterStatus Encode(const Payload& result, Host* output, const OutputStringWriter& writer)`。
+   函数设置业务字段，字符串用 `writer.Write(output->field, "field", value)` 写入。
+   `EncodeOutputFn` 调用 `EncodeResultRows<Host>`，由框架读取绑定、检查每请求恰好一个
+   `sub_id=0` 的结果、恢复顺序与外部 `request_id`、维护 `written_count`。
+   多路结果组合和排名仍显式使用 `ReadOutputValue` / `IndexResults` / `WriteOutputString`。
+   所有写入使用实际输出池容量，不在转换器内另填容量默认值；业务状态和 JSON 组装仍由函数负责。
    定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
@@ -114,6 +117,11 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    使用 `REGISTER_BIZ_EXPOSURE` 声明业务生产暴露：`biz_name` 与 `max_batch_size`。
 4. **登记构建。**
    将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
+
+行函数返回的错误只需携带业务原因与字段路径，包装补充 converter 和样本位置。
+输入行全部通过后才开始发布；输出 writer、宿主指针和池内字符串均只在同步调用期间借用，不能保存。
+输出中途失败时 `written_count=0`；租用块可能已被写入，Operator 负责不发布并归还租约。
+字符串按显式长度处理，包括内嵌 NUL，不通过 `c_str()` 丢失长度。
 
 共享端口用 `MakeBlackboardKey<T>(name)` 定义一次；转换器 Definition 使用
 `RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`

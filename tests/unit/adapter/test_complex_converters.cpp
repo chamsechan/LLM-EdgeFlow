@@ -108,6 +108,54 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   EXPECT_STREQ(doc_out.answer_text->data, "This is the answer.");
 }
 
+TEST_F(ComplexConvertersTest,
+       DocQaOutputPreservesEmbeddedNullAndRejectsSmallPool) {
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.operator.v1");
+  ASSERT_NE(converter, nullptr);
+  const std::string answer("a\0b", 3);
+  AlgContext ctx;
+  ctx.Publish("raw_request_ids", std::vector<uint64_t>{2001});
+  ctx.Publish("llm_answers", TextBatch{{0, 0, answer}});
+  ctx.Publish("intent_matches", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
+  ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
+  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                               {"llm_answers", "llm_answers"},
+                               {"intent_matches", "intent_matches"},
+                               {"doc_chunk_counts", "doc_chunk_counts"}});
+  OutputEncodeOptions options;
+  options.converter_id = converter->converter_id;
+  char bytes[4] = {};
+  char intent_bytes[1] = {};
+  CompanyString answer_out{0, bytes};
+  CompanyString intent_out{0, intent_bytes};
+  CompanyOperatorDocOutput output{};
+  output.answer_text = &answer_out;
+  output.intent_name = &intent_out;
+  TestOutputBatchView view;
+  view.count = 1;
+  view.leased_slots["doc_out"] = {&output};
+  view.slot_types["doc_out"] = "CompanyOperatorDocOutput";
+  view.SetCapacity("doc_out", "answer_text", 3);
+  view.SetCapacity("doc_out", "intent_name", 0);
+  size_t written = 0;
+  AdapterStatus status;
+  ASSERT_EQ(
+      converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
+      COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 1U);
+  ASSERT_EQ(answer_out.length, 3);
+  EXPECT_EQ(std::string(answer_out.data, answer_out.length), answer);
+  EXPECT_EQ(bytes[3], '\0');
+
+  view.SetCapacity("doc_out", "answer_text", 1);
+  written = 0;
+  EXPECT_NE(
+      converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
+      COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 0U);
+}
+
 // ==================== CrossRerank ====================
 TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(

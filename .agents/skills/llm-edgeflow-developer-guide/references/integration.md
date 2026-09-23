@@ -28,4 +28,10 @@ slot configurations, allocator and capacities. It is not a Pipeline Node and doe
 5. Declare binding ingress/egress Blackboard ports and allowed runtime Pipeline names through its `BizExposureDefinition` and `IoBindingDefinition`. The `biz_name` in Pipeline JSON must match the binding.
 6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
 
+For one required host slot and one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows`
+from `converter_authoring.h`. Business callbacks handle one owned payload or one borrowed output row;
+helpers own looping, bindings, provenance, request IDs and diagnostic location. `OutputStringWriter`
+uses actual pool capacities and explicit string lengths. Do not retain its borrowed view or pointers.
+Multi-slot, expanded and aggregated conversions keep their explicit algorithms and existing lower-level helpers.
+
 Use `tests/contract/abi/test_cpp_operator_sdk.cpp`, `tests/contract/abi/test_operator_safety.cpp`, `tests/contract/abi/test_adapter_contract_security.cpp`, and existing modality converters as live templates. If the change also adds nodes, read `capability-nodes.md`; if it changes Core contract behavior, read `orchestration.md`.

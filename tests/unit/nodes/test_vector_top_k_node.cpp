@@ -114,3 +114,19 @@ TEST_F(VectorTopKNodeTest, RejectsDimensionMismatch) {
   EXPECT_FALSE(ctx.Has("ranked"));
 }
 }  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST_F(VectorTopKNodeTest, RejectsMultipleQueriesForSameRequest) {
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"candidate_scope", "shared"}},
+                              session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("queries", EmbeddingBatch{{7, 0, {1.0f}}, {7, 1, {1.0f}}});
+  ctx.Publish("candidates", EmbeddingBatch{{0, 0, {1.0f}}});
+  ctx.Publish("candidate_texts", TextBatch{{0, 0, "candidate"}});
+
+  EXPECT_EQ(node->Process(&ctx), -3102);
+  EXPECT_FALSE(ctx.Has("ranked"));
+}
+}  // namespace llm_edgeflow

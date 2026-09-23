@@ -79,11 +79,11 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
     return -1;
   }
-  return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
+  return FixedBatchExecutor::ExecuteItems<std::string, std::vector<float>>(
       inputs, session_->GetBatchPolicy(),
-      [this, &inputs, &options, diagnostic](
-          const BatchSlice& slice, std::vector<std::vector<float>>* batch) {
-        const auto& text = inputs[slice.offset].data;
+      [this, &options, diagnostic](const TraceableItem<std::string>& input,
+                                   std::vector<float>* output) {
+        const auto& text = input.data;
         if (text.empty()) {
           SetDiagnosticNoexcept(diagnostic, "Embedding text is empty");
           return -1;
@@ -135,14 +135,12 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         for (double& value : pooled) {
           if (pooling_ == "mean") value /= tokens.values.size();
         }
-        std::vector<float> vector;
         if (!embedding_support::FinalizeEmbeddingVector(
-                pooled, options.normalize, &vector)) {
+                pooled, options.normalize, output)) {
           SetDiagnosticNoexcept(diagnostic,
                                 "Embedding pooling or normalization failed");
           return -1;
         }
-        batch->push_back(std::move(vector));
         return 0;
       },
       outputs, diagnostic);

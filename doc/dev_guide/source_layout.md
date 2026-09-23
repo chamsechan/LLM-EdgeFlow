@@ -60,6 +60,8 @@ src/adapter/
 
 转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与
 `OutputConverter` 函数回调及各自的 Definition，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
+常见单槽、每请求一行的回调使用 `DecodeRequestRows` / `EncodeResultRows` 调用普通业务函数，
+批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
 各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
 端口 Definition、回调的 `bindings.Key(port)` 和 `BindIoPort` 映射共用 typed 声明；
 非同名映射显式传入逻辑端口与实际 key。常见必需槽可用 `ExternalInputSlot<T>` /

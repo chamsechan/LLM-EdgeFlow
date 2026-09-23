@@ -30,56 +30,30 @@ int ParseTranslateQuery(const std::string& raw_text, std::string* out_query) {
   return 0;
 }
 
+AdapterStatus DecodeTranslateQuery(const CompanyOperatorEntityInput& input,
+                                   std::string* query) {
+  if (!IsValidInputString(input.sentence_text)) {
+    return AdapterStatus::InvalidInput(
+        "sentence_text string pointer is null or invalid", "sentence_text");
+  }
+  if (static_cast<size_t>(input.sentence_text->length) > kMaxSentenceLen) {
+    return AdapterStatus::InvalidInput(
+        "sentence_text length exceeds 64 KiB limit", "sentence_text");
+  }
+  if (ParseTranslateQuery(CopyInputString(*input.sentence_text), query) != 0) {
+    return AdapterStatus::InvalidInput(
+        "Expected a JSON object with string field query", "json");
+  }
+  return AdapterStatus::Ok();
+}
+
 int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  std::vector<uint64_t> req_ids;
-  TextBatch sentences;
-  req_ids.reserve(source.count);
-  sentences.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = ReadInputSlot<CompanyOperatorEntityInput>(
-        source, "entity_in", i, options, status);
-    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
-    if (!IsValidInputString(in->sentence_text)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "sentence_text string pointer is null or invalid",
-          "sentence_text", options.converter_id.c_str(), static_cast<int>(i));
-    }
-    if (static_cast<size_t>(in->sentence_text->length) > kMaxSentenceLen) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "sentence_text length exceeds 64 KiB limit", "sentence_text",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-
-    std::string raw = CopyInputString(*in->sentence_text);
-    std::string query;
-    if (ParseTranslateQuery(raw, &query) != 0) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Expected a JSON object with string field query", "json",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-
-    req_ids.push_back(in->request_id);
-    sentences.emplace_back(static_cast<uint32_t>(i), 0, std::move(query));
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawRequestIds), std::move(req_ids),
-          options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kInputSentences), std::move(sentences),
-          options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
+  return DecodeRequestRows<CompanyOperatorEntityInput>(
+      source, options, bindings, context, status, kMaxBatchSize, "entity_in",
+      kRawRequestIds, kInputSentences, &DecodeTranslateQuery);
 }
 
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {

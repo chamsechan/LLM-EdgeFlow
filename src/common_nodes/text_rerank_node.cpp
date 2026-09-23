@@ -54,19 +54,28 @@ NodeResult<RankedTextBatch> RerankText(const RerankInputs& inputs,
           QueryCandidatePair{item.data.query, item.data.candidate});
       cand_payloads.push_back({item.req_id, item.sub_id, item.data.candidate});
     }
-  } else if (queries && !queries->empty()) {
+  } else if (queries) {
     std::unordered_map<uint32_t, std::string> query_map;
     for (const auto& q : *queries) {
-      query_map[q.req_id] = q.data;
+      if (!query_map.emplace(q.req_id, q.data).second) {
+        return NodeResult<RankedTextBatch>::Failure(
+            NodeErrorKind::kBusinessError,
+            "TextRerankNode requires one query per request; duplicate req_id=" +
+                std::to_string(q.req_id));
+      }
     }
 
     if (candidates && !candidates->empty()) {
       pair_items.reserve(candidates->size());
       cand_payloads.reserve(candidates->size());
       for (const auto& c : *candidates) {
-        std::string q = (query_map.find(c.req_id) != query_map.end())
-                            ? query_map[c.req_id]
-                            : "";
+        const auto query = query_map.find(c.req_id);
+        if (query == query_map.end()) {
+          return NodeResult<RankedTextBatch>::Failure(
+              NodeErrorKind::kBusinessError,
+              "Candidate has no query for req_id=" + std::to_string(c.req_id));
+        }
+        std::string q = query->second;
         pair_items.emplace_back(c.req_id, c.sub_id,
                                 QueryCandidatePair{std::move(q), c.data.text});
         cand_payloads.push_back({c.req_id, c.sub_id, c.data.text});
@@ -75,9 +84,13 @@ NodeResult<RankedTextBatch> RerankText(const RerankInputs& inputs,
       pair_items.reserve(candidate_texts->size());
       cand_payloads.reserve(candidate_texts->size());
       for (const auto& c : *candidate_texts) {
-        std::string q = (query_map.find(c.req_id) != query_map.end())
-                            ? query_map[c.req_id]
-                            : "";
+        const auto query = query_map.find(c.req_id);
+        if (query == query_map.end()) {
+          return NodeResult<RankedTextBatch>::Failure(
+              NodeErrorKind::kBusinessError,
+              "Candidate has no query for req_id=" + std::to_string(c.req_id));
+        }
+        std::string q = query->second;
         pair_items.emplace_back(c.req_id, c.sub_id,
                                 QueryCandidatePair{std::move(q), c.data});
         cand_payloads.push_back({c.req_id, c.sub_id, c.data});

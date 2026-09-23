@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <string_view>
+
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
@@ -519,6 +521,31 @@ TEST(IoConverterTest, OutputWriterHonorsPayloadCapacityAndTerminator) {
   EXPECT_EQ(bytes[1], 'b');
 }
 
+TEST(IoConverterTest, OutputWriterPreservesEmbeddedNullAndChecksFullLength) {
+  TestOutputBatchView view;
+  view.SetCapacity("output", "text", 3);
+  OutputEncodeOptions options;
+  options.converter_id = "test.writer";
+  const std::string payload("a\0b", 3);
+  char bytes[] = {'?', '?', '?', '?', '!'};
+  CompanyString destination{0, bytes};
+  ASSERT_TRUE(WriteOutputString(view, "output", &destination, "text",
+                                std::string_view(payload), options, nullptr,
+                                0));
+  ASSERT_EQ(destination.length, 3);
+  EXPECT_EQ(std::string(bytes, destination.length), payload);
+  EXPECT_EQ(bytes[3], '\0');
+  EXPECT_EQ(bytes[4], '!');
+
+  view.SetCapacity("output", "text", 1);
+  EXPECT_FALSE(WriteOutputString(view, "output", &destination, "text",
+                                 std::string_view(payload), options, nullptr,
+                                 0));
+  EXPECT_EQ(destination.length, 3);
+  EXPECT_EQ(std::string(bytes, 3), payload);
+  EXPECT_EQ(bytes[4], '!');
+}
+
 TEST(IoConverterTest, EmptyInputStringAllowsNullDataAndCopiesEmbeddedNulls) {
   CompanyString empty{0, nullptr};
   EXPECT_TRUE(IsValidInputString(&empty));
@@ -532,6 +559,150 @@ TEST(IoConverterTest, EmptyInputStringAllowsNullDataAndCopiesEmbeddedNulls) {
   CompanyString binary{3, bytes};
   EXPECT_TRUE(IsValidInputString(&binary));
   EXPECT_EQ(CopyInputString(binary), std::string(bytes, sizeof(bytes)));
+}
+
+namespace {
+constexpr auto kRowIds = MakeBlackboardKey<std::vector<uint64_t>>("ids");
+constexpr auto kRowTexts = MakeBlackboardKey<TextBatch>("texts");
+}  // namespace
+
+TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
+  char bytes[] = {'a', '\0', 'b'};
+  CompanyString text{3, bytes};
+  CompanyOperatorKeywordInput first{42, &text}, second{42, &text};
+  ExternalInputBatchView source;
+  source.count = 2;
+  source.slots["input"] = BorrowInputForTest({&first, &second});
+  source.slot_types["input"] = "CompanyOperatorKeywordInput";
+  InputDecodeOptions options;
+  options.converter_id = "test.rows.input";
+  InputPortBindings bindings(
+      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  AlgContext context;
+  AdapterStatus status;
+  ASSERT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
+                source, options, bindings, &context, &status, 2, "input",
+                kRowIds, kRowTexts,
+                [](const CompanyOperatorKeywordInput& row, std::string* value) {
+                  *value = CopyInputString(*row.sentence_text);
+                  return AdapterStatus::Ok();
+                }),
+            COMPANY_ALG_SUCCESS);
+  bytes[0] = 'x';
+  const auto* ids = context.Read<std::vector<uint64_t>>("actual_ids");
+  ASSERT_NE(ids, nullptr);
+  EXPECT_EQ(*ids, (std::vector<uint64_t>{42, 42}));
+  const auto* texts = context.Read<TextBatch>("actual_texts");
+  ASSERT_NE(texts, nullptr);
+  ASSERT_EQ(texts->size(), 2U);
+  for (size_t i = 0; i < texts->size(); ++i) {
+    EXPECT_EQ((*texts)[i].req_id, i);
+    EXPECT_EQ((*texts)[i].sub_id, 0U);
+    EXPECT_EQ((*texts)[i].data, std::string("a\0b", 3));
+  }
+  EXPECT_FALSE(context.Has("ids"));
+  EXPECT_FALSE(context.Has("texts"));
+}
+
+TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
+  CompanyOperatorKeywordInput first{1, nullptr}, second{2, nullptr};
+  ExternalInputBatchView source;
+  source.count = 2;
+  source.slots["input"] = BorrowInputForTest({&first, &second});
+  source.slot_types["input"] = "CompanyOperatorKeywordInput";
+  InputDecodeOptions options;
+  options.converter_id = "test.rows.input";
+  InputPortBindings bindings(
+      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  AlgContext context;
+  AdapterStatus status;
+  EXPECT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
+                source, options, bindings, &context, &status, 2, "input",
+                kRowIds, kRowTexts,
+                [](const CompanyOperatorKeywordInput& row, std::string* value) {
+                  if (row.request_id == 2)
+                    return AdapterStatus::InvalidInput("bad sentence",
+                                                       "sentence_text");
+                  *value = "accepted";
+                  return AdapterStatus::Ok();
+                }),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.AdapterName(), options.converter_id);
+  EXPECT_EQ(status.SampleIndex(), 1);
+  EXPECT_EQ(status.FieldPath(), "sentence_text");
+  EXPECT_EQ(status.Message(), "bad sentence");
+  EXPECT_FALSE(context.Has("actual_ids"));
+  EXPECT_FALSE(context.Has("actual_texts"));
+}
+
+TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
+  AlgContext context;
+  context.Publish("actual_ids", std::vector<uint64_t>{91, 17});
+  context.Publish("actual_texts",
+                  TextBatch{{1, 0, "two"}, {0, 0, std::string("a\0b", 3)}});
+  OutputPortBindings bindings(
+      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  OutputEncodeOptions options;
+  options.converter_id = "test.rows.output";
+  char first_bytes[4] = {}, second_bytes[4] = {};
+  CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};
+  CompanyOperatorEntityOutput first{}, second{};
+  first.entities_json = &first_text;
+  second.entities_json = &second_text;
+  TestOutputBatchView view;
+  view.count = 2;
+  view.leased_slots["output"] = {&first, &second};
+  view.slot_types["output"] = "CompanyOperatorEntityOutput";
+  view.SetCapacity("output", "entities_json", 3);
+  auto encode = [](const std::string& text, CompanyOperatorEntityOutput* row,
+                   const OutputStringWriter& writer) {
+    row->status_code = 23;
+    return writer.Write(row->entities_json, "entities_json", text);
+  };
+  AdapterStatus status;
+  size_t written = 99;
+  ASSERT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
+                &context, bindings, options, &view, &written, &status, "output",
+                kRowIds, kRowTexts, encode),
+            COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 2U);
+  EXPECT_EQ(first.request_id, 91U);
+  EXPECT_EQ(second.request_id, 17U);
+  EXPECT_EQ(first.status_code, 23);
+  EXPECT_EQ(second.status_code, 23);
+  ASSERT_EQ(first_text.length, 3);
+  EXPECT_EQ(std::string(first_bytes, 3), std::string("a\0b", 3));
+  EXPECT_EQ(first_bytes[3], '\0');
+  EXPECT_EQ(std::string(second_bytes, second_text.length), "two");
+
+  view.SetCapacity("output", "entities_json", 1);
+  written = 99;
+  EXPECT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
+                &context, bindings, options, &view, &written, &status, "output",
+                kRowIds, kRowTexts, encode),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(written, 0U);
+  EXPECT_EQ(status.AdapterName(), options.converter_id);
+  EXPECT_EQ(status.SampleIndex(), 0);
+  EXPECT_EQ(status.FieldPath(), "entities_json");
+
+  written = 99;
+  EXPECT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
+                &context, bindings, options, &view, &written, &status, "output",
+                kRowIds, kRowTexts,
+                [](const std::string&, CompanyOperatorEntityOutput* row,
+                   const OutputStringWriter&) {
+                  return row->request_id == 17
+                             ? AdapterStatus::InvalidInput("cannot encode",
+                                                           "business_field")
+                             : AdapterStatus::Ok();
+                }),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(written, 0U);
+  EXPECT_EQ(status.AdapterName(), options.converter_id);
+  EXPECT_EQ(status.SampleIndex(), 1);
+  EXPECT_EQ(status.FieldPath(), "business_field");
+  EXPECT_EQ(status.Message(), "cannot encode");
 }
 
 }  // namespace llm_edgeflow

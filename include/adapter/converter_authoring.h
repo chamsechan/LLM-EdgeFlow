@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstring>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "adapter/adapter_validation_helper.h"
@@ -9,6 +11,8 @@
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/result_validation.h"
+#include "contracts/diagnostic.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
@@ -53,8 +57,8 @@ inline ExternalSlotDefinition ExternalOutputSlot(
           std::move(capacity_fields)};
 }
 
-// Direct callbacks share only these checks with each other. Operator keeps its
-// own carrier validation and the intersection of all deployment batch limits.
+// Operator also checks carriers and the intersection of deployment batch
+// limits.
 inline bool ValidateDecodeRequest(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
                                   AlgContext* context, size_t max_batch_size,
@@ -119,7 +123,7 @@ inline const T* ReadOutputValue(AlgContext& context,
   return value;
 }
 
-inline int CopyToOperatorString(const char* src, CompanyString* dest,
+inline int CopyToOperatorString(std::string_view src, CompanyString* dest,
                                 uint32_t capacity, const char* field_name,
                                 std::string* err) noexcept {
   try {
@@ -129,28 +133,24 @@ inline int CopyToOperatorString(const char* src, CompanyString* dest,
                " in destination pool block is null";
       return -4;
     }
-    if (!src) {
-      dest->length = 0;
-      dest->data[0] = '\0';
-      return 0;
-    }
-    size_t len = std::strlen(src);
-    if (len > capacity) {
+    const size_t len = src.size();
+    if (len > capacity ||
+        len > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
       if (err)
         *err = std::string(field_name ? field_name : "string") +
                " output length (" + std::to_string(len) +
                ") exceeds pool capacity (" + std::to_string(capacity) + ")";
       return -4;
     }
-    std::memcpy(dest->data, src, len);
+    if (len != 0) std::memcpy(dest->data, src.data(), len);
     dest->data[len] = '\0';
     dest->length = static_cast<int32_t>(len);
     return 0;
   } catch (const std::exception& e) {
-    if (err) *err = e.what();
+    SetDiagnosticNoexcept(err, e.what());
     return -4;
   } catch (...) {
-    if (err) *err = "Unknown exception in CopyToOperatorString";
+    SetDiagnosticNoexcept(err, "Unknown exception in CopyToOperatorString");
     return -4;
   }
 }
@@ -159,7 +159,7 @@ inline int CopyToOperatorString(const char* src, CompanyString* dest,
 // CompanyString.length (content length) or a converter-local fallback.
 inline bool WriteOutputString(const ExternalOutputBatchView& view,
                               const char* slot, CompanyString* destination,
-                              const char* field, const char* value,
+                              const char* field, std::string_view value,
                               const OutputEncodeOptions& options,
                               AdapterStatus* status, size_t index) {
   const auto* spec = view.GetPoolSpec(slot);
@@ -185,6 +185,122 @@ inline bool WriteOutputString(const ExternalOutputBatchView& view,
                                                 options.converter_id.c_str(),
                                                 static_cast<int>(index));
   return false;
+}
+
+// Add runtime location to a business error without making the business function
+// depend on converter IDs, batch indices, or port bindings.
+inline int ReturnRowStatus(const AdapterStatus& result, const std::string& id,
+                           size_t index, AdapterStatus* status) {
+  if (status) {
+    *status = AdapterStatus(result.Code(), result.Message(), result.FieldPath(),
+                            static_cast<int>(index), id);
+  }
+  return result.Code();
+}
+
+// A synchronous borrowed writer. Do not retain it or any destination pointers.
+class OutputStringWriter {
+ public:
+  OutputStringWriter(const ExternalOutputBatchView& view, const char* slot,
+                     const OutputEncodeOptions& options, size_t index)
+      : view_(view), slot_(slot), options_(options), index_(index) {}
+
+  AdapterStatus Write(CompanyString* destination, const char* field,
+                      std::string_view value) const {
+    AdapterStatus status;
+    WriteOutputString(view_, slot_, destination, field, value, options_,
+                      &status, index_);
+    return status;
+  }
+
+ private:
+  const ExternalOutputBatchView& view_;
+  const char* slot_;
+  const OutputEncodeOptions& options_;
+  size_t index_;
+};
+
+// One required host slot -> one owned payload per request. Callback validates
+// and copies borrowed host fields; publication starts only after every row
+// passes.
+template <typename Host, typename Payload, typename Decode>
+int DecodeRequestRows(
+    const ExternalInputBatchView& source, const InputDecodeOptions& options,
+    const InputPortBindings& bindings, AlgContext* context,
+    AdapterStatus* status, size_t max_batch_size, const char* slot,
+    const BlackboardKey<std::vector<uint64_t>>& raw_ids_port,
+    const BlackboardKey<std::vector<TraceableItem<Payload>>>& payload_port,
+    Decode&& decode) {
+  if (!ValidateDecodeRequest(source, options, context, max_batch_size, status))
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  std::vector<uint64_t> ids;
+  std::vector<TraceableItem<Payload>> payloads;
+  ids.reserve(source.count);
+  payloads.reserve(source.count);
+  for (size_t i = 0; i < source.count; ++i) {
+    const auto* input = ReadInputSlot<Host>(source, slot, i, options, status);
+    if (!input) return COMPANY_ALG_ERR_INVALID_INPUT;
+    Payload payload{};
+    const auto result = decode(*input, &payload);
+    if (!result.IsOk())
+      return ReturnRowStatus(result, options.converter_id, i, status);
+    ids.push_back(input->request_id);
+    payloads.emplace_back(static_cast<uint32_t>(i), 0, std::move(payload));
+  }
+  if (!AdapterValidationHelper::PublishContextValue(
+          *context, bindings.Key(raw_ids_port), std::move(ids),
+          options.converter_id.c_str(), status) ||
+      !AdapterValidationHelper::PublishContextValue(
+          *context, bindings.Key(payload_port), std::move(payloads),
+          options.converter_id.c_str(), status))
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  return COMPANY_ALG_SUCCESS;
+}
+
+// Exactly one result (sub_id == 0) per request, in any internal order. The
+// framework restores external IDs; callback owns business fields/serialization.
+template <typename Host, typename Payload, typename Encode>
+int EncodeResultRows(
+    AlgContext* context, const OutputPortBindings& bindings,
+    const OutputEncodeOptions& options, ExternalOutputBatchView* destination,
+    size_t* written_count, AdapterStatus* status, const char* slot,
+    const BlackboardKey<std::vector<uint64_t>>& raw_ids_port,
+    const BlackboardKey<std::vector<TraceableItem<Payload>>>& result_port,
+    Encode&& encode) {
+  if (written_count) *written_count = 0;
+  if (!context)
+    return AdapterValidationHelper::ReturnInvalidInput(
+        status, "Null AlgContext passed to Encode", "context",
+        options.converter_id.c_str());
+  const auto* results =
+      ReadOutputValue(*context, bindings, result_port, options, status, "res");
+  if (!results) return COMPANY_ALG_ERR_INVALID_INPUT;
+  const auto* ids =
+      ReadOutputValue(*context, bindings, raw_ids_port, options, status);
+  if (!ids) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!destination || destination->count < results->size())
+    return AdapterValidationHelper::ReturnBufferTooSmall(
+        status, "Destination item count is less than output count",
+        "destination", options.converter_id.c_str());
+  std::vector<const TraceableItem<Payload>*> ordered;
+  if (!IndexResults(results, ids, &ordered, "res", options.converter_id.c_str(),
+                    status))
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  for (size_t i = 0; i < ordered.size(); ++i) {
+    auto* output = destination->GetSlot<Host>(slot, i);
+    if (!output)
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          status, std::string("Missing ") + slot + " slot block in output view",
+          slot, options.converter_id.c_str(), static_cast<int>(i));
+    output->request_id = (*ids)[i];
+    const auto result =
+        encode(ordered[i]->data, output,
+               OutputStringWriter(*destination, slot, options, i));
+    if (!result.IsOk())
+      return ReturnRowStatus(result, options.converter_id, i, status);
+  }
+  if (written_count) *written_count = ordered.size();
+  return COMPANY_ALG_SUCCESS;
 }
 
 #define EDGEFLOW_CONCAT_IMPL(s1, s2) s1##s2

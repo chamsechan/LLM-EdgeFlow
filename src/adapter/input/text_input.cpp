@@ -17,64 +17,38 @@ constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
 
-template <typename T>
-int DecodeSentenceInput(const ExternalInputBatchView& source,
-                        const InputDecodeOptions& options,
-                        const InputPortBindings& bindings, AlgContext* context,
-                        AdapterStatus* status, const char* slot_name) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+template <typename Host>
+AdapterStatus DecodeSentence(const Host& input, std::string* text) {
+  if (!IsValidInputString(input.sentence_text)) {
+    return AdapterStatus::InvalidInput(
+        "sentence_text string pointer is null or invalid", "sentence_text");
   }
-
-  std::vector<uint64_t> req_ids;
-  TextBatch sentences;
-  req_ids.reserve(source.count);
-  sentences.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = ReadInputSlot<T>(source, slot_name, i, options, status);
-    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
-    if (!IsValidInputString(in->sentence_text)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "sentence_text string pointer is null or invalid",
-          "sentence_text", options.converter_id.c_str(), static_cast<int>(i));
-    }
-    if (static_cast<size_t>(in->sentence_text->length) > kMaxSentenceLen) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "sentence_text length exceeds 64 KiB limit", "sentence_text",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-    std::string text = CopyInputString(*in->sentence_text);
-    req_ids.push_back(in->request_id);
-    sentences.emplace_back(static_cast<uint32_t>(i), 0, std::move(text));
+  if (static_cast<size_t>(input.sentence_text->length) > kMaxSentenceLen) {
+    return AdapterStatus::InvalidInput(
+        "sentence_text length exceeds 64 KiB limit", "sentence_text");
   }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawRequestIds), std::move(req_ids),
-          options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kInputSentences), std::move(sentences),
-          options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
+  *text = CopyInputString(*input.sentence_text);
+  return AdapterStatus::Ok();
 }
 
 int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
-  return DecodeSentenceInput<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, "entity_in");
+  return DecodeRequestRows<CompanyOperatorEntityInput>(
+      source, options, bindings, context, status, kMaxBatchSize, "entity_in",
+      kRawRequestIds, kInputSentences,
+      &DecodeSentence<CompanyOperatorEntityInput>);
 }
 
 int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputDecodeOptions& options,
                                const InputPortBindings& bindings,
                                AlgContext* context, AdapterStatus* status) {
-  return DecodeSentenceInput<CompanyOperatorKeywordInput>(
-      source, options, bindings, context, status, "keyword_in");
+  return DecodeRequestRows<CompanyOperatorKeywordInput>(
+      source, options, bindings, context, status, kMaxBatchSize, "keyword_in",
+      kRawRequestIds, kInputSentences,
+      &DecodeSentence<CompanyOperatorKeywordInput>);
 }
 
 InputConverterDefinition MakeOperatorEntityInputConverter() {

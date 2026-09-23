@@ -108,20 +108,19 @@ int EncodeOperatorAuditResult(AlgContext* context,
     out->status_code = 0;
 
     if (!WriteOutputString(*destination, "audit_out", out->risk_level,
-                           "risk_level", risk_level.c_str(), options, status,
-                           i)) {
+                           "risk_level", risk_level, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
     if (!WriteOutputString(*destination, "audit_out",
                            out->matched_policy_clause, "matched_policy_clause",
-                           policy_clause.c_str(), options, status, i)) {
+                           policy_clause, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
     if (!WriteOutputString(*destination, "audit_out", out->audit_verdict_json,
-                           "audit_verdict_json", verdict_json.c_str(), options,
-                           status, i)) {
+                           "audit_verdict_json", verdict_json, options, status,
+                           i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }

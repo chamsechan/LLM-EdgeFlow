@@ -14,60 +14,23 @@
 namespace llm_edgeflow {
 namespace {
 
+AdapterStatus EncodeKeyword(const RuleMatchItem& result,
+                            CompanyOperatorKeywordOutput* output,
+                            const OutputStringWriter& writer) {
+  output->is_hit = result.is_hit;
+  output->status_code = result.status_code;
+  return writer.Write(output->match_result_json, "match_result_json",
+                      result.match_result_json);
+}
+
 int EncodeOperatorKeywordResult(AlgContext* context,
                                 const OutputPortBindings& bindings,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
                                 size_t* written_count, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
-  }
-
-  const auto* res =
-      ReadOutputValue(*context, bindings, kRuleMatches, options, status, "res");
-  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
-
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
-
-  size_t count = res->size();
-  if (!destination || destination->count < count) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Destination item count is less than output count",
-        "destination", options.converter_id.c_str());
-  }
-
-  std::vector<const RuleMatchBatch::value_type*> res_by_request;
-  if (!IndexResults(res, raw_req_ids, &res_by_request, "res",
-                    options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  for (size_t i = 0; i < count; ++i) {
-    auto* out =
-        destination->GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
-    if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing keyword_out slot block in output view",
-          "keyword_out", options.converter_id.c_str(), static_cast<int>(i));
-    }
-    out->request_id = (*raw_req_ids)[i];
-    out->is_hit = res_by_request[i]->data.is_hit;
-    out->status_code = res_by_request[i]->data.status_code;
-
-    if (!WriteOutputString(*destination, "keyword_out", out->match_result_json,
-                           "match_result_json",
-                           res_by_request[i]->data.match_result_json.c_str(),
-                           options, status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    }
-  }
-
-  if (written_count) *written_count = count;
-  return COMPANY_ALG_SUCCESS;
+  return EncodeResultRows<CompanyOperatorKeywordOutput>(
+      context, bindings, options, destination, written_count, status,
+      "keyword_out", kRawRequestIds, kRuleMatches, &EncodeKeyword);
 }
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
