@@ -197,7 +197,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   EXPECT_EQ(ops.DeInit(), 0);
   ASSERT_EQ(result, 0);
 
-  std::ifstream results(temporary.path / "output/entity_extract/results.jsonl");
+  std::ifstream results(temporary.path / "output" / opts.biz / "results.jsonl");
   ASSERT_TRUE(results.good());
   std::string line;
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
