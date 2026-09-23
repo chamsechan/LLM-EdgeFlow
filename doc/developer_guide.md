@@ -45,9 +45,10 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 `OutputConverter` 使用 Create 期输出池组装完整响应。`IoBindingDefinition` 声明业务、
 转换器、逻辑槽位与内部端口映射，注册审计检查类型和契约一致性。
 
-`CompanyString` 只用于无嵌入 NUL 的文本，二进制内容使用 `CompanyBuffer`。
+`CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
+转义的 NUL 可在解包后保留。输出按显式长度复制，二进制内容使用 `CompanyBuffer`。
 外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期；
-销毁和释放顺序见[业务接入](dev_guide/business_onboarding.md#输出容量)。
+销毁和释放顺序见[业务接入](dev_guide/business_onboarding.md#6-输出容量与生命周期)。
 
 目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
 SOVERSION/ABI major 为 7。
@@ -88,7 +89,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
 - **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildFromPlan()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
-- **`BlackboardKey<T>`**：强类型黑板键，各算子间通过 `Require` 与 `Publish` 交换数据，杜绝无类型内存乱序。
+- **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
   发布新的输出 key，不原地修改已经发布的值。

@@ -17,10 +17,11 @@ Deterministic Model and Backend registrations shared by Demo mock profiles and t
 `dev_support/inference/`. They are OBJECT targets so every consumer receives the registration
 translation units, while production `alg_sdk` never links them.
 
-The source path for each compiled test is declared once in `cmake_ext/TestInventory.cmake`.
-`cmake_ext/Tests.cmake` groups those sources into the default PCH-enabled runners;
-`cmake_ext/IndividualTests.cmake` creates process-per-file targets for focused diagnostics. Both modes
-must satisfy the same required CTest inventory.
+The source path for each compiled runtime suite is declared in `cmake_ext/TestInventory.cmake`.
+`cmake_ext/Tests.cmake` groups those sources into four shared runners and keeps suites that need
+process isolation in separate executables. It registers filtered CTest entries for the shared
+runners and checks the required inventory. Precompiled headers are optional through
+`LLM_EDGEFLOW_TEST_PCH`; they default to `OFF` and remain disabled in the canonical gate.
 
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
 when process isolation or an independent runtime lifecycle is part of the contract.
@@ -35,7 +36,7 @@ you actually changed. Source inventory is in `cmake_ext/TestInventory.cmake`, ru
 | --- | --- | --- |
 | Node algorithm, fields or Control handler | `edgeflow_test_nodes_runner` | `CommonNodesTest.*` or the affected Node suite |
 | Init/Process diagnostic or planning | `edgeflow_test_core_runner` | `NodeBaseContractsTest.*` / `PipelineConfigTest.*` |
-| Adapter, protocol copies or Operator bridge | `edgeflow_test_adapter_runner` | `OperatorBizBridgeRegistryTest.*` / `OperatorApiTest.*` |
+| Adapter, protocol copies or Operator binding | `edgeflow_test_adapter_runner` | `IoBindingRegistryTest.*` / `OperatorApiTest.*` |
 | Demo result conversion or Pipeline integration | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
 
 ```bash
@@ -53,10 +54,9 @@ the composed solution with the same build. The final gate covers the complete de
 even when first practice used a minimal build. Follow [CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate)
 to run it directly for a local handoff or through the authorized PR delivery script.
 
-Operator allocation-failure tests use `support/scoped_allocation_failure.*`, linked only
-into the adapter runner and the individual output-pool/value-registry test executables.
-It replaces C++ allocation functions in those executables; the SDK, tools and demos use
-the normal allocator without test hooks. Injection is one-shot, thread-local and scoped,
+Allocation-failure tests use `support/scoped_allocation_failure.*`, linked into the Core/Model,
+Node and Adapter runners. It replaces C++ allocation functions in those executables; the SDK,
+tools and demos use the normal allocator without test hooks. Injection is one-shot, thread-local and scoped,
 with automatic restoration for nested scopes and exception unwinding.
 
 For ordinary Operator end-to-end tests, derive from

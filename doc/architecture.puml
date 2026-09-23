@@ -1,364 +1,201 @@
 @startuml LLM_EdgeFlow_Architecture
 !pragma layout smetana
 !theme plain
-skinparam backgroundColor #0F172A
-skinparam defaultFontName "Segoe UI", Arial, sans-serif
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam shadowing false
 skinparam roundCorner 8
-skinparam shadowing true
-skinparam dpi 300
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam ArrowColor #475569
+skinparam packageBackgroundColor #F8FAFC
+skinparam packageBorderColor #94A3B8
+skinparam classBackgroundColor #EFF6FF
+skinparam classBorderColor #60A5FA
 
-skinparam package {
-  BackgroundColor #1E293B
-  BorderColor #475569
-  FontColor #F8FAFC
-  FontSize 13
-  FontStyle bold
+title LLM-EdgeFlow 当前实现：主要类型与职责
+legend bottom
+  仅列主要类型、成员与操作；省略参数时不表示完整 C++ 签名。
+  关系表示类型使用与所有权，不替代 CMake 编译依赖边界。
+endlegend
+
+package "接入适配层 / Integration" {
+  class "C++ Operator SDK" as Operator {
+    Get_LLM_EDGEFLOW_OperatorTable()
+    GetOperatorLastError()
+    ValidateOperatorConfigBinding()
+    OperatorFunc: Init / Create / Process
+    Control / Destroy / DeInit
+  }
+  class OperatorHandle {
+    runtime: owns SharedAlgorithmRuntime
+    output_pools: pool state per slot
+    mutex: serializes Process / Control
+  }
+  class SharedAlgorithmRuntime {
+    io_plan_: unique_ptr<ValidatedIoPlan>
+    pipeline_: unique_ptr<Pipeline>
+    CreateFromIoPlan(): int
+    ExecuteControl(): int
+  }
+  class ValidatedIoPlan {
+    binding: IoBindingDefinition
+    input_converter: Definition pointer
+    output_converter: Definition pointer
+    pipeline_plan: owns ValidatedPipelinePlan
+    构建时移交 Pipeline，运行时为空
+  }
+  class IoBindingResolver {
+    ResolveFromFile()
+    ResolveFromPipelineJson()
+  }
+  class "PrepareDeploymentDocument()" as PrepareDeployment
+  class IoBindingRegistry {
+    RegisterBinding()
+    RegisterExposure()
+    Audit()
+  }
+  class IoConverterRegistry {
+    RegisterInputConverter(definition)
+    RegisterOutputConverter(definition)
+    FindInputConverter(id)
+    FindOutputConverter(id)
+  }
+  class InputConverterDefinition {
+    external_slots / logical_ports
+    decode_fn: DecodeInputFn
+  }
+  class OutputConverterDefinition {
+    logical_ports / external_slots
+    encode_fn: EncodeOutputFn
+  }
+  class "NamedIoBatch / Company* DTO" as ExternalIo
 }
 
-skinparam class {
-  BackgroundColor #0F172A
-  BorderColor #0284C7
-  FontColor #F1F5F9
-  AttributeFontColor #94A3B8
-  FontSize 11
-  AttributeFontSize 10
-}
-
-skinparam interface {
-  BackgroundColor #0F172A
-  BorderColor #10B981
-  FontColor #A7F3D0
-  AttributeFontColor #94A3B8
-  FontSize 11
-}
-
-skinparam arrow {
-  Color #38BDF8
-  FontColor #CBD5E1
-  FontSize 9
-}
-
-' ==============================================================================
-' Integration
-' ==============================================================================
-package "接入适配层（Integration）" as Integration {
-  class "Operator SDK Entrypoint" as PlatformFacade <<(P,#38BDF8) Operator API>> {
-    + Get_LLM_EDGEFLOW_OperatorTable(): OperatorFunc
-    + GetOperatorLastError(): string
-    + ValidateOperatorConfigBinding(cfg_path, model_root, err): int
-    + OperatorConfigResolver: resolve .conf & rewrite model paths
-    + OperatorValueTypeRegistry: value type whitelist & pool sizing
-    + OperatorControlRegistry: typed control commands
+package "流程编排层 / Orchestration" {
+  class PipelineValidator {
+    ValidateAndPlan(): ValidatedPipelinePlan
+    Validate(): ValidationReport
   }
-
-  class "OperatorHandleInstance" as HandleInst {
-    + runtime: std::unique_ptr<SharedAlgorithmRuntime>
-    + input_converter: std::shared_ptr<InputConverter>
-    + output_converter: std::shared_ptr<OutputConverter>
-    + output_pools: std::unordered_map<string, OutputPool>
-    + mutex: std::mutex
+  class ValidatedPipelinePlan {
+    config: ParsedPipelineConfig
+    models: vector<ValidatedModelPlan>
+    node_plans: ValidatedNodePlan by node id
+    report: ValidationReport
   }
-
-  class "SharedAlgorithmRuntime" as SharedRuntime <<(R,#10B981) Shared Runtime>> {
-    - pipeline_: std::unique_ptr<Pipeline>
-    - io_plan_: std::unique_ptr<ValidatedIoPlan>
-    + CreateFromIoPlan(plan, runtime_options, err): unique_ptr<SharedAlgorithmRuntime>
-    + ExecuteControl(cmd, json_param, err): int
-  }
-
-  class "IoBindingRegistry" as BindingRegistry <<(S,#EC4899) Singleton>> {
-    + RegisterBinding(definition: IoBindingDefinition): bool
-    + FindBinding(binding_id: string): const IoBindingDefinition*
-    + HasConflict(): bool
-  }
-
-  class "IoConverterRegistry" as ConverterRegistry <<(S,#EC4899) Singleton>> {
-    + RegisterInputConverter(definition, factory): bool
-    + RegisterOutputConverter(definition, factory): bool
-    + CreateInputConverter(converter_id): unique_ptr<InputConverter>
-    + CreateOutputConverter(converter_id): unique_ptr<OutputConverter>
-  }
-
-  interface "InputConverter" as IInputConverter {
-    + {abstract} Decode(view: const InputView&, ctx: AlgContext*, status: AdapterStatus*): int
-  }
-
-  interface "OutputConverter" as IOutputConverter {
-    + {abstract} Encode(ctx: const AlgContext&, view: OutputView*, status: AdapterStatus*): int
-  }
-
-  class "AdapterValidationHelper" as ValidationHelper {
-    + {static} CheckedStringCopy(src, dst, max_len, status): bool
-    + {static} RequireBoundedString(str, max_len, status): bool
-  }
-
-  class "Operator Named I/O & Types" as Structs <<(S,#F59E0B) Data Struct>> {
-    + CompanyString / CompanyBuffer / CompanyAny
-    + NamedIo / NamedIoBatch
-    + CompanyDocQA / Keyword / Entity / Audit
-    + CompanyAudio / Invoice / Rerank Operator Types
-  }
-}
-
-' ==============================================================================
-' Orchestration
-' ==============================================================================
-package "流程编排层（Orchestration）" as Orchestration {
   class Pipeline {
-    - nodes_: std::vector<std::unique_ptr<INode>>
-    - session_context_: SessionContext
-    - plan_: std::unique_ptr<ValidatedPipelinePlan>
-    - state_: State {kEmpty, kBuilding, kReady, kFailed}
-    + BuildFromPlan(plan: ValidatedPipelinePlan): bool
-    + Execute(req_ctx: AlgContext*): int
-    + Control(cmd: int, json_param: string): int
+    plan_: unique_ptr<ValidatedPipelinePlan>
+    session_ctx_: unique_ptr<SessionContext>
+    BuildFromPlan(): bool
+    Execute(AlgContext*): int
+    Control(cmd, json_param, error): int
   }
-
-  class PipelineValidator <<(V,#0284C7) Static Validator>> {
-    + {static} ValidateAndPlan(json_obj): ValidatedPipelinePlan
-    + {static} Validate(json_obj): ValidationReport
+  class AlgContext {
+    Publish<T>(BlackboardKey<T>, value): bool
+    Read<T>(BlackboardKey<T>): const T*
+    SetError(code, message)
   }
-
-  class ValidatedPipelinePlan <<(P,#38BDF8) Immutable Plan>> {
-    + report: ValidationReport
-    + config: ParsedPipelineConfig
-    + node_plans: unordered_map<string, ValidatedNodePlan>
-  }
-
-  class AlgContext <<(B,#10B981) Request Blackboard>> {
-    - blackboard_: std::unordered_map<string, std::any>
-    - mutable rw_mutex_: std::shared_mutex
-    - error_code_: int
-    - error_message_: std::string
-    + Publish<T>(key: BlackboardKey<T>, value: T): bool
-    + Read<T>(key: BlackboardKey<T>): const T*
-    + Has<T>(key: BlackboardKey<T>): bool
-    + SetError(code: int, msg: string): void
-  }
-
   class SessionContext {
-    - model_manager_: ModelManager
-    - runtime_options_: RuntimeOptions
-    + GetModelManager(): ModelManager&
-    + GetRuntimeOptions(): const RuntimeOptions&
+    GetModelManager(): ModelManager&
+    GetOrCreateResource<T>()
   }
-
   class ModelManager {
-    - models_: map<string, ModelRegistration>
-    + RegisterBatch(models): bool
-    + GetModel<T>(id: string): std::shared_ptr<T>
-    + HasModel(id: string): bool
+    RegisterBatch(registrations): bool
+    GetModel<T>(id): shared_ptr<T>
   }
-
-  class "TraceableItem<T>" as TraceableItem <<(T,#8B5CF6) Data Container>> {
-    + req_id: uint64_t
-    + sub_id: uint32_t
-    + data: T
+  class PipelineCatalog {
+    Node / Model / Backend / Biz Definition snapshots
   }
 }
 
-' ==============================================================================
-' Capability Nodes
-' ==============================================================================
-package "能力节点层（Capability Nodes）" as CapabilityNodes {
+package "能力节点层 / Capability Nodes" {
   interface INode {
-    + {abstract} Init(init_ctx: const NodeInitContext&): bool
-    + {abstract} Process(req_ctx: AlgContext*): int
-    + {abstract} Control(cmd: int, json_param: const string&): int
-    + {abstract} Name(): const string&
+    Init(NodeInitContext): bool
+    Process(AlgContext*): int
+    Control(): NodeControlResult
+    Name(): const string&
   }
-
-  class NodeBase <<(B,#38BDF8) Base Class>> {
-    # {abstract} ProcessNode(req_ctx: AlgContext&): int
-    # InitNode(init_ctx, config, session_ctx): bool
-    # Require<T>(ctx, key, err_code): const T*
-    # Publish<T>(ctx, key, val): void
-    # Fail(ctx, err_code, msg): int
+  class NodeBase {
+    Init(): final noexcept
+    Process(): final noexcept
+    Control(): exception barrier
   }
-
-  class "AuthorNode<Spec>" as AuthorNode <<(A,#10B981) Node Runtime>> {
-    - inputs: typed bindings
-    - outputs: typed bindings
-    - parameters: immutable configuration
-    - models: declared capability calls
+  class "AuthorNode<Spec>" as AuthorNode {
+    typed InputsOf / OutputsOf / ModelsOf
+    Parameters / ConfigurationSnapshot
+    ordinary algorithm function
   }
-
-  class NodeRegistry <<(S,#EC4899) Singleton>> {
-    + {static} Instance(): NodeRegistry&
-    + Register(type: string, creator: Func): void
-    + Create(type: string): std::unique_ptr<INode>
-    + HasConflict(): bool
+  class NodeRegistry {
+    Register(): bool
+    Create(type): unique_ptr<INode>
   }
-
-  class "Registered Common Nodes\n(query PipelineCatalog for exact list)" as CommonNodes
+  class "通用与自定义 Spec\nREGISTER_FUNCTION_NODE" as Specs
 }
 
-' ==============================================================================
-' Model Execution
-' ==============================================================================
-package "模型执行层（Model Execution）" as ModelExecution {
-  interface IModel {
-    + {abstract} ModelType(): const string&
-    + {abstract} Capability(): const string&
-    + {abstract} Concurrency(): InferenceConcurrency
-  }
-
-  interface IEmbeddingModel {
-    + {abstract} Embed(inputs: TextBatch, options, outputs): int
-  }
-
-  interface IRerankModel {
-    + {abstract} Score(inputs: QueryCandidatesBatch, outputs: ScoreBatch*): int
-  }
-
-  interface ILlmModel {
-    + {abstract} Generate(prompts: TextBatch, options, outputs: TextBatch*): int
-  }
-
-  interface IOcrModel {
-    + {abstract} Recognize(images: ImageRefBatch, outputs: OcrDocumentBatch*): int
-  }
-
-  interface IAsrModel {
-    + {abstract} Transcribe(audio: AudioPcmBatch, outputs: TextBatch*): int
-  }
-
-  interface IBackendSession {
-    + {abstract} BackendType(): const string&
-    + {abstract} Protocol(): ExecutionProtocol
-    + {abstract} Concurrency(): InferenceConcurrency
-    + {abstract} GetBatchPolicy(): BatchPolicy
-  }
-
-  interface ITensorGraphSession {
-    + {abstract} Inputs(): vector<TensorSpec>
-    + {abstract} Outputs(): vector<TensorSpec>
-    + {abstract} Run(inputs: TensorMap, outputs: TensorMap*): int
-  }
-
-  interface ITextGenerationSession {
-    + {abstract} Generate(formatted_prompt, add_bos, options, seed, output): int
-  }
-
-  interface IAutoregressiveDecoder <<(I,#F59E0B) Backend Private>>
-  class CommonAutoregressiveGenerator
-
-  interface IInferenceBackend {
-    + {abstract} BackendType(): const string&
-    + {abstract} Load(spec: BackendLoadSpec): shared_ptr<IBackendSession>
-  }
-
-  class ModelRegistry <<(S,#EC4899) Singleton>> {
-    + Register(definition: ModelDefinition, creator): bool
-    + Create(model_type: string, context): shared_ptr<IModel>
-  }
-
-  class BackendRegistry <<(S,#EC4899) Singleton>> {
-    + Register(definition: BackendDefinition, creator): bool
-    + Create(backend_type: string): unique_ptr<IInferenceBackend>
-  }
-
+package "模型执行层 / Model Execution" {
+  interface IModel
+  class "模型能力接口\nIEmbeddingModel / IRerankModel\nILlmModel / IOcrModel / IAsrModel" as Capabilities
+  class "模型语义\nBgeEmbeddingModel / BgeRerankerModel\nQwenCausalLmModel\nGeneratedTextEmbeddingModel\nVisionDocumentModel / WhisperAsrModel" as Models
+  class ModelRegistry
   class ModelRuntimeFactory {
-    + {static} Create(config, runtime_options): ModelRegistration
+    Create(): shared_ptr<IModel>
   }
-
-  class BgeEmbeddingModel
-  class BgeRerankerModel
-  class QwenCausalLmModel
-  class OnnxRuntimeBackend
-  class LlamaCppBackend
-  class KiteLlmBackend
-
-  class FixedBatchExecutor <<(T,#F59E0B) Generic Template>> {
-    + {static} Execute<TIn, TOut>(inputs, policy: BatchPolicy, callback: BatchSlice, outputs): int
+  class BackendRegistry
+  interface IInferenceBackend {
+    Load(): shared_ptr<IBackendSession>
   }
-}
-
-' ==============================================================================
-' Platform Tooling & Visualizer Studio
-' ==============================================================================
-package "Platform Tooling & Visualizer Studio (Tools & Demo)" as Tools {
-  class "alg_pipeline_tool (CLI)" as PipelineTool <<(T,#38BDF8) C++ Tool>> {
-    + catalog / describe-node / init / validate / plan
+  interface IBackendSession {
+    Protocol() / Concurrency() / GetBatchPolicy()
   }
-  class "alg_show (CLI)" as AlgShow <<(T,#38BDF8) C++ Tool>> {
-    + Native declared id / depends_on print
-  }
-  class "Web Visualizer Studio" as WebStudio <<(W,#10B981) Web App>> {
-    + ./show --web (ES Modules + SVG Graph + Live Demo Draft)
-  }
-  class "Parameterized Demo Runner" as DemoRunner <<(D,#F59E0B) Demo Suite>> {
-    + profiles.json (Single source of truth)
-    + OperatorRunner (RAII lifecycle execution)
-    + ResultWriter (JSONL / Summary persistence)
+  class "中性执行协议\nITensorGraphSession / ITextGenerationSession\nIImageTextGenerationSession\nIGeneratedTokenEmbeddingSession\nIAudioTranscriptionSession" as Sessions
+  class "可选 Backend\nOnnxRuntimeBackend / LlamaCppBackend\nKiteLlmBackend / WhisperCppBackend" as Backends
+  class FixedBatchExecutor {
+    Execute(inputs, policy, callback, outputs)
+    chunk / pad / strip / validate provenance
   }
 }
 
-' ==============================================================================
-' 关系连接与流向
-' ==============================================================================
-PlatformFacade ..> HandleInst : 管理生命周期与 Process/Control
-PlatformFacade ..> Structs : 命名槽位校验与租约
-HandleInst *-- SharedRuntime
-HandleInst o-- IInputConverter
-HandleInst o-- IOutputConverter
-SharedRuntime *-- Pipeline
-BindingRegistry ..> ConverterRegistry : 关联输入/输出转换器
-ConverterRegistry o-- IInputConverter
-ConverterRegistry o-- IOutputConverter
-IInputConverter ..> ValidationHelper : 字段截断与容量防护
-IOutputConverter ..> ValidationHelper : 字段截断与容量防护
-
+Operator ..> ExternalIo : 命名槽位与输出租约
+Operator ..> OperatorHandle : 生命周期
+OperatorHandle *-- SharedAlgorithmRuntime
+SharedAlgorithmRuntime *-- ValidatedIoPlan
+SharedAlgorithmRuntime *-- Pipeline
+Operator ..> IoBindingResolver : Create / 配置预检
+IoBindingResolver ..> PrepareDeployment
+PrepareDeployment ..> IoBindingRegistry
+PrepareDeployment ..> IoConverterRegistry
+IoBindingResolver ..> PipelineValidator : 中性文档与 I/O 边界
+IoBindingResolver ..> ValidatedIoPlan : 组装
+IoConverterRegistry o-- InputConverterDefinition
+IoConverterRegistry o-- OutputConverterDefinition
+Operator ..> InputConverterDefinition : decode_fn
+Operator ..> OutputConverterDefinition : encode_fn
+InputConverterDefinition ..> AlgContext : 发布输入与请求元信息
+OutputConverterDefinition ..> AlgContext : 读取结果并组装响应
+PipelineValidator ..> PipelineCatalog : 注册 Definition
+PipelineValidator ..> ValidatedPipelinePlan : 生成
+Pipeline *-- ValidatedPipelinePlan : 消费计划所有权
 Pipeline *-- SessionContext
-Pipeline *-- INode : 显式 DAG 拓扑执行
-Pipeline ..> PipelineConfig : 强类型解析
-Pipeline ..> PipelineValidator : 静态校验与规范化
 SessionContext *-- ModelManager
-ModelManager o-- IModel
-
+Pipeline *-- INode : 顺序 / 波前执行
+Pipeline ..> NodeRegistry : 创建
 INode <|-- NodeBase
 NodeBase <|-- AuthorNode
-AuthorNode <|.. CommonNodes
-NodeRegistry ..> INode : 动态反射创建 (Fail-Closed)
-
-AuthorNode ..> AlgContext : Typed port 读写
-AuthorNode ..> ModelManager : 解析声明的模型依赖
-
-IModel <|-- IEmbeddingModel
-IModel <|-- IRerankModel
-IModel <|-- ILlmModel
-IModel <|-- IOcrModel
-IModel <|-- IAsrModel
-IEmbeddingModel <|.. BgeEmbeddingModel
-IRerankModel <|.. BgeRerankerModel
-ILlmModel <|.. QwenCausalLmModel
-
-IBackendSession <|-- ITensorGraphSession
-IBackendSession <|-- ITextGenerationSession
-IInferenceBackend <|.. OnnxRuntimeBackend
-IInferenceBackend <|.. LlamaCppBackend
-IInferenceBackend <|.. KiteLlmBackend
-OnnxRuntimeBackend ..> ITensorGraphSession : 创建中性协议会话
-LlamaCppBackend ..> ITextGenerationSession : 公共采样生成
-KiteLlmBackend ..> ITextGenerationSession : 托管生成
-LlamaCppBackend ..> CommonAutoregressiveGenerator
-CommonAutoregressiveGenerator ..> IAutoregressiveDecoder
-BgeEmbeddingModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
-BgeRerankerModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
-QwenCausalLmModel ..> ITextGenerationSession : 已格式化 prompt / 统一参数
-
-ModelRuntimeFactory ..> BackendRegistry : backend 创建与加载
-ModelRuntimeFactory ..> ModelRegistry : model 语义对象创建
-BackendRegistry ..> IInferenceBackend : 自描述注册 (Fail-Closed)
-ModelRegistry ..> IModel : 自描述注册 (Fail-Closed)
-
-BgeEmbeddingModel ..> FixedBatchExecutor : 定长分批与溯源
-BgeRerankerModel ..> FixedBatchExecutor : 定长分批与溯源
-QwenCausalLmModel ..> FixedBatchExecutor : 批次切分与溯源
-FixedBatchExecutor ..> TraceableItem : 样本切块/补齐/剥离/溯源
-
-WebStudio ..> PipelineTool : 交互式编排调用
-Tools ..> Integration : 驱动 Demo 与 Operator API
-Tools ..> Orchestration : 静态校验与拓扑规划
-
+Specs ..> AuthorNode : 实例化运行时
+Specs ..> NodeRegistry : 生成 Definition 并注册
+AuthorNode ..> AlgContext : typed ports
+AuthorNode ..> ModelManager : 声明的模型能力
+IModel <|-- Capabilities
+Capabilities <|.. Models
+ModelManager o-- IModel
+Pipeline ..> ModelRuntimeFactory : 物化已验证模型计划
+ModelRuntimeFactory ..> ModelRegistry
+ModelRuntimeFactory ..> BackendRegistry
+ModelRegistry ..> Models : 创建
+BackendRegistry ..> Backends : 创建
+IInferenceBackend <|.. Backends
+Backends ..> Sessions : 加载
+IBackendSession <|-- Sessions
+Models ..> Sessions : 仅依赖中性协议
+Models ..> FixedBatchExecutor : 保留 req_id / sub_id
 @enduml

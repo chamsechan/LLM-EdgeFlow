@@ -509,7 +509,7 @@ class WorkbenchService:
                 return
             raise StudioError(
                 "DEPLOYMENT_CONFLICT",
-                f"{conf_path.name} 的 model_paths 可能覆盖本次模型修改。此配套配置不由当前会话管理；请在外部编辑器中检查并同步更新 JSON 与 .conf，或另存为可运行方案。",
+                f"已保存的 {path.name} 中 deployment.model_paths 可能覆盖本次 models[].model_path 修改。此方案不由当前会话管理；请在外部编辑器中检查并同步这两个字段，或另存为可运行方案。",
                 409,
             )
 

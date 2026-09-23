@@ -1,6 +1,6 @@
-# Required runtime contract suites shared by sharded and individual modes.
-# Mode-specific smoke/tooling tests may extend this set, but neither mode may
-# silently omit one of these core contracts.
+# Required runtime contract suites for the canonical runner assembly.
+# Smoke and tooling tests may extend this set; the assembly must not silently
+# omit any of these core contracts.
 set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   QualityGateScriptsContractTest
   BatchExecutorTest
@@ -60,9 +60,8 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   LlamaCppBackendTest
   WhisperCppBackendTest)
 
-# Source ownership is shared by sharded and individual runners. Keep each test
-# translation unit declared once here; mode-specific files only decide how to
-# group processes, filters and labels.
+# Declare each runtime test translation unit here. Tests.cmake owns the shared
+# runners, separate executables, CTest filters and labels.
 set(EDGEFLOW_SOURCE_test_adapter_contract_security "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_adapter_contract_security.cpp")
 set(EDGEFLOW_SOURCE_test_cpp_operator_sdk "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_cpp_operator_sdk.cpp")
 set(EDGEFLOW_SOURCE_test_operator_safety "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_operator_safety.cpp")

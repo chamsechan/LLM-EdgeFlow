@@ -48,11 +48,13 @@ find_deprecated_registration_macros() {
 ACTIVE_DOCS=(
   "${DOC_ROOT}/architecture.md"
   "${DOC_ROOT}/developer_guide.md"
+  "${DOC_ROOT}/dev_guide"
   "${DOC_ROOT}/README.md"
   "${DOC_ROOT}/architecture.puml"
   "${DOC_ROOT}/architecture_v2.puml"
   "${DOC_ROOT}/assets/architecture_class_diagram.svg"
   "${DOC_ROOT}/assets/architecture_flow.svg"
+  "${DOC_ROOT}/assets/framework_overview.svg"
   "${ROOT_DIR}/README.md"
   "${ROOT_DIR}/CONTRIBUTING.md"
   "${ROOT_DIR}/AGENTS.md"
@@ -94,6 +96,21 @@ report_matches "${REMOVED_ARCH}" \
   "Found removed architecture identifiers in active governance/docs:" \
   "Active governance matches the Model/Backend and Common Node architecture."
 
+OVERVIEW_DOCS=(
+  "${DOC_ROOT}/architecture.md"
+  "${DOC_ROOT}/architecture.puml"
+  "${DOC_ROOT}/architecture_v2.puml"
+  "${DOC_ROOT}/assets/architecture_class_diagram.svg"
+  "${DOC_ROOT}/assets/architecture_flow.svg"
+  "${DOC_ROOT}/assets/framework_overview.svg"
+)
+REMOVED_C_ABI=$(grep -nE \
+  '\bAlg_(Init|Create|Process|Control|Destroy|DeInit)\b|C ABI[[:space:]]*(/|或)[[:space:]]*Operator' \
+  "${OVERVIEW_DOCS[@]}" 2>/dev/null || true)
+report_matches "${REMOVED_C_ABI}" \
+  "Found removed C ABI entrypoints or alternate C ABI access in active architecture overviews:" \
+  "Architecture overviews use the current Operator entrypoint."
+
 # 5. 检查架构文档核心概念完备性 (ValidatedPipelinePlan, BlackboardKey, NodeBase, FixedBatchExecutor)
 echo "[Check 5/8] Verifying core architectural concepts in architecture documents..."
 require_concepts "${DOC_ROOT}/architecture.md" \
@@ -106,16 +123,11 @@ if [ ${FAILED} -eq 0 ]; then
   echo "✅ All core architectural concepts verified in architecture docs."
 fi
 
-# 6. 检查 architecture_v2.puml 状态图例
-echo "[Check 6/8] Checking architecture_v2.puml state legends..."
-if ! grep -q "Implemented" "${DOC_ROOT}/architecture_v2.puml" || \
-   ! grep -q "Partial" "${DOC_ROOT}/architecture_v2.puml" || \
-   ! grep -q "Planned" "${DOC_ROOT}/architecture_v2.puml"; then
-  echo "❌ doc/architecture_v2.puml is missing Implemented / Partial / Planned status legends"
-  FAILED=1
-else
-  echo "✅ architecture_v2.puml state legends verified."
-fi
+# 6. 检查当前部署解析、计划与 Node 注册流程
+echo "[Check 6/8] Checking current deployment and runtime planning concepts..."
+require_concepts "${DOC_ROOT}/architecture_v2.puml" \
+  "PrepareDeploymentDocument" "ValidatedIoPlan" "ValidatedPipelinePlan" \
+  "REGISTER_FUNCTION_NODE"
 
 # 7. 检查 PlantUML 与 SVG 资产存在性与非空
 echo "[Check 7/8] Verifying architecture diagrams exist and are non-empty..."
@@ -123,7 +135,8 @@ for diagram in \
   "${DOC_ROOT}/architecture.puml" \
   "${DOC_ROOT}/architecture_v2.puml" \
   "${DOC_ROOT}/assets/architecture_class_diagram.svg" \
-  "${DOC_ROOT}/assets/architecture_flow.svg"; do
+  "${DOC_ROOT}/assets/architecture_flow.svg" \
+  "${DOC_ROOT}/assets/framework_overview.svg"; do
   if [[ ! -s "${diagram}" ]]; then
     echo "❌ Architecture diagram '${diagram}' is missing or empty"
     FAILED=1

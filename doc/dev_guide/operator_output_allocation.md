@@ -164,7 +164,7 @@ binding.normalize_parameters =
 
 ## 转换与有效期
 
-通过 `REGISTER_OUTPUT_CONVERTER` 注册 `OutputConverter` 函数回调和 Definition，
+通过 `REGISTER_OUTPUT_CONVERTER` 注册含 `encode_fn` 回调的 `OutputConverterDefinition`，
 再由 `IoBindingDefinition` 绑定转换器与命名输出槽位。回调从 `ExternalOutputBatchView`
 按槽位读取已分配的外层结构与 `ResolvedOutputPoolSpec`，按同一份
 `allocator` 和类型化参数填充载荷。转换必须保持指针与已分配布局一致，不重新读取
@@ -173,7 +173,7 @@ binding.normalize_parameters =
 框架在全部输出转换成功后发布 map；任何一项失败都会归还已经获取的输出租约。
 调用方读取时依照外部协议的枚举解释 `void*`；内存的实际清理依据已登记的所有权
 记录。输出引用不延长 handle 的有效期，销毁顺序沿用
-[输出容量与生命周期](business_onboarding.md#输出容量)。
+[输出容量与生命周期](business_onboarding.md#6-输出容量与生命周期)。
 
 `alg_pipeline_tool resolve-conf` 在 `configuration.output_pools` 按逻辑槽位展示有效
 方案与框架容量，`params` 是交给结构体解析函数的**字符串**（例如

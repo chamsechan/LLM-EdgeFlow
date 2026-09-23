@@ -34,7 +34,7 @@
 include/edgeflow/                 SDK 调用接口
   export.h / log.h
   operator/interface.h
-  operator/types.h                平台交互类型门面
+  operator/types.h                Company* 数据 DTO 门面
 include/platform_mock/            本地平台公共定义模拟
   error_codes.h
   operator_data_types.h / operator_types.h
@@ -103,13 +103,15 @@ Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑�
 | `edgeflow/log.h` | 统一日志入口 |
 | `edgeflow/version.h` | 版本头（由 CMake 生成） |
 | `edgeflow/operator/interface.h` | C++ Operator 接口及函数表 |
-| `edgeflow/operator/types.h` | Operator 平台交互类型门面（转发至 platform_mock） |
+| `edgeflow/operator/types.h` | `Company*` 数据 DTO 门面（转发至 `platform_mock/operator_data_types.h`） |
 
 `Company*`、公共宏、C++ Operator 公开函数签名、结构布局及 `libcompany_alg_sdk`
 名称保持原样；这些名称属于既有调用契约。内部扩展统一使用 `NodeRegistry`。
 
-`edgeflow/operator/types.h` 转发到 `platform_mock/operator_data_types.h`，
-Operator 平台交互类型集中在 `platform_mock/operator_types.h`，错误码来自 `platform_mock/error_codes.h`。
+`edgeflow/operator/types.h` 仅转发 `platform_mock/operator_data_types.h` 中的 `Company*`
+数据 DTO。计算平台、Control 参数、命名 I/O 与函数表类型定义在
+`platform_mock/operator_types.h`，由 `edgeflow/operator/interface.h` 引入；错误码来自
+`platform_mock/error_codes.h`。
 真实公司公共头需要在授权内网单独核对和接入。
 
 示例配置和 Profile 的命名见[配置说明](../../configs/README.md)。

@@ -421,7 +421,7 @@ class RunnableSolutionTest(unittest.TestCase):
         # A recovered failure must not advance either revision.
         self.assertTrue(self.service.save_pipeline(saved["filename"], self.keyword, saved["revision"])["ok"])
 
-    def test_restarted_service_rejects_model_changes_shadowed_by_unmanaged_conf(self):
+    def test_restarted_service_rejects_model_changes_shadowed_by_unmanaged_deployment(self):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         saved = self.service.save_solution("pipeline_restart.json", pipeline, "entity_extract_mock", ".")
         restarted = SHOW.WorkbenchService(self.configs)
@@ -433,7 +433,9 @@ class RunnableSolutionTest(unittest.TestCase):
         with self.assertRaises(SHOW.StudioError) as error:
             restarted.save_pipeline(saved["filename"], pipeline, updated["revision"])
         self.assertEqual(error.exception.code, "DEPLOYMENT_CONFLICT")
-        self.assertIn("pipeline_restart.conf", str(error.exception))
+        self.assertIn("pipeline_restart.json", str(error.exception))
+        self.assertIn("deployment.model_paths", str(error.exception))
+        self.assertIn("models[].model_path", str(error.exception))
         self.assertEqual({path: path.read_bytes() for path in paths}, before)
         self.assertFalse(restarted.generated_solutions)
 

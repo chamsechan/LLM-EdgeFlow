@@ -11,7 +11,7 @@ description: Build LLM-EdgeFlow solutions that transform a field from a complete
 ## 先确定真正的 SDK 边界
 
 本项目业务需求中的输入、输出指完整 Operator 请求和响应，见根 `AGENTS.md` 与
-[业务接入边界](../../../doc/dev_guide/business_onboarding.md#输入输出以-operator-sdk-为边界)。
+[业务接入边界](../../../doc/dev_guide/business_onboarding.md#输入输出以-operator-接口为边界)。
 传给 Operator `Process` 的输入槽位必须包含完整请求对象；输出由 OutputConverter
 按业务契约组装完成。不能重新把边界解释为 Python、Demo 或内部节点端口。
 输入是序列化对象文本，不给整个对象额外添加一层 JSON 字符串编码。

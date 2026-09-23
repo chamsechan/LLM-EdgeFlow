@@ -45,7 +45,7 @@ python3 scripts/dev_recipe.py verify text-llm-node \
 verify 依次完成：
 
 1. 检查输入、效果样例、单输出部署和工具/构建目录的一致性。
-2. 增量构建**选定的** CLI、Demo，以及当前 sharded/individual 模式的 Node runner；
+2. 增量构建**选定的** CLI、Demo，以及 `edgeflow_test_nodes_runner`；
    Demo 尚未存在时也可在此构建。
 3. 在更新后的 Catalog 中确认新 Node，并确认 Pipeline 实际使用该 Node。
 4. 原生 validate、plan 和 resolve-conf，确认部署指向本 Pipeline 和所选模型资产。

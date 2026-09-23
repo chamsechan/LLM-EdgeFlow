@@ -21,8 +21,8 @@ class ThreadPool;
  * @brief 算法管线调度核心引擎 (Pipeline)
  *
  * 支持显式 DAG (有向无环图) 依赖声明 (`depends_on`)、
- * Kahn 算法拓扑分层波前排序与成环死锁检测，
- * 并支持配置驱动的【顺序调度 (Sequential)】与【多分支异步波前并发调度
+ * 消费 PipelineValidator 生成的已验证拓扑计划，不重复解析或排序。
+ * 支持配置驱动的【顺序调度 (Sequential)】与【多分支异步波前并发调度
  * (Parallel)】。
  */
 class Pipeline {
@@ -34,7 +34,7 @@ class Pipeline {
    */
   enum class State {
     kEmpty = 0,  ///< 新建空实例，允许发起且仅允许发起一次构建
-    kBuilding,  ///< 正在执行构建（解析、预检、物化）
+    kBuilding,  ///< 正在执行构建（计划预检、模型与节点物化）
     kReady,     ///< 构建成功，允许执行 Execute 和 Control
     kFailed,    ///< 构建失败，不可再次构建或执行
   };

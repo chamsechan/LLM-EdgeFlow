@@ -44,14 +44,21 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 - 零字节占位模型与未注册资产不会通过选择检查。
 - SHA 匹配证明文件身份；模型是否能加载、是否满足业务需求，仍需实际执行验收。
 
-资产检查示例（检查器的模型根直接包含权重）：
+资产检查示例（检查器的模型根直接包含权重；先准备上文模型资产）：
 
 ```bash
+cmake --preset default-cpu
+cmake --build --preset default-cpu --target alg_pipeline_tool alg_demo
 python3 tools/verify_selection.py check \
   --pipeline configs/pipeline_doc_qa_default.json \
+  --tool build/variants/default-cpu/alg_pipeline_tool \
   --model-root models --variant default-cpu \
   --output results/docqa-selection.json
 ```
+
+`default-cpu` preset 包含 whisper.cpp；日常完整门禁的 `build/` 默认关闭它，不能直接作为
+该 preset 的匹配产物。`--variant` 只校验 Backend 集合，不选择可执行文件；使用 preset
+时需显式传入对应目录的 `--tool`，执行效果验收时还需指定同目录的 `--demo`。
 
 报告使用 `schema_version=2`；报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_biz`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
 
@@ -75,12 +82,12 @@ python3 tools/verify_selection.py check \
 
 检查会比较预期变体的 Backend 集合与**实际执行文件**的 Catalog，记录工具 SHA-256 和平台。选择 `kite-cpu` 不会把当前进程动态切换为 Kite；需构建对应产物并指定其 `--tool`、`--demo`。Kite 与 llama/Whisper 的互斥条件直接遵守已有 CMake 约束。
 
-本次实际验证了当前完整 CPU 构建与 `minimal` 工具构建。Kite preset 的提供不等于 Kite 目标硬件或真实业务效果验收通过。
+构建变体检查不等于目标硬件或真实业务效果验收通过；这些结论需要对应环境的执行记录。
 
 ## 业务效果验收
 
 复用现有 `alg_demo` 的样例读取、宿主载体构造和 SDK 执行路径；业务请求的解包与响应
-组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
+组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-operator-接口为边界)。
 验收器为选定 Pipeline 生成临时 `.conf`，从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io` 输出池配置，按 `--model-root` 生成模型路径并写入临时 Pipeline 的 `deployment.model_paths`。
 
 验收固定使用 CPU、device 0、batch 1；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
@@ -88,11 +95,15 @@ python3 tools/verify_selection.py check \
 ```bash
 python3 tools/verify_selection.py evaluate \
   --pipeline configs/pipeline_keyword_match_rules.json --variant default-cpu \
+  --tool build/variants/default-cpu/alg_pipeline_tool \
+  --demo build/variants/default-cpu/alg_demo \
   --effects tests/fixtures/effects/keyword_exact.json \
   --output results/keyword-effects.json
 
 python3 tools/verify_selection.py check \
   --pipeline configs/pipeline_keyword_match_rules.json --variant default-cpu \
+  --tool build/variants/default-cpu/alg_pipeline_tool \
+  --demo build/variants/default-cpu/alg_demo \
   --effects tests/fixtures/effects/keyword_exact.json \
   --evidence results/keyword-effects.json --require-effects
 ```

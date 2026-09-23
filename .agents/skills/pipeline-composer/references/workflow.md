@@ -8,7 +8,7 @@ First compare the requested complete Operator SDK input/output contract with the
 The same carrier layout is not enough: payload fields, types and serialization must also match.
 Catalog ingress/egress are internal ports. A missing external conversion belongs in Integration;
 do not compensate by extracting request fields or assembling business responses in Demo/Python.
-See [the I/O boundary](../../../../doc/dev_guide/business_onboarding.md#输入输出以-operator-sdk-为边界).
+See [the I/O boundary](../../../../doc/dev_guide/business_onboarding.md#输入输出以-operator-接口为边界).
 
 ## Discover assets
 
@@ -84,6 +84,9 @@ come from the edited Pipeline. For example:
 
 A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
 original Profile alone only when its configuration already points to the intended Pipeline.
+Execution settings `chip`, `device_id`, `batch_size`, and `depth` come only from Profile JSON;
+there are no corresponding CLI options. Without a Profile, Demo uses CPU, device 0, batch 1,
+and depth 1. Use `--profiles-file <path> --profile <name>` to select different execution settings.
 Demo uses the selected Pipeline defaults (by default, no example Control is sent). Use
 `--example-control` only for the built-in update demonstration, and provide a Control file
 only when it is part of the requested scenario. Verify request IDs, status and expected

@@ -13,7 +13,8 @@
 gh auth login
 gh repo view chamsechan/kiteLLM
 cmake -S . -B build-kite -DCMAKE_BUILD_TYPE=Release \
-  -DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF -DENABLE_ONNXRUNTIME=ON
+  -DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF \
+  -DENABLE_WHISPERCPP=OFF -DENABLE_ONNXRUNTIME=ON
 cmake --build build-kite -j8
 ./build-kite/alg_pipeline_tool catalog
 ```
@@ -27,10 +28,11 @@ CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤
 `KITELLM_GITHUB_TOKEN`。新建凭据只需选择 kiteLLM 仓库并授予 Contents 读取权限。
 
 `kiteLLM Private Release & Real GGUF` 独立任务在 Linux x64 上下载校验发布包，构建
-kiteLLM + ONNX，确认 Catalog 注册并运行包含真实 GGUF 的完整 CTest。缺少或失效的
-凭据会使任务明确失败，结果写入验收记录。外部 fork PR 和 Dependabot 跳过此私有任务，
+kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆盖真实文本、视觉、
+生成向量与部署示例。缺少或失效的凭据会使任务明确失败，结果写入验收记录。
+外部 fork PR 和 Dependabot 跳过此私有任务，
 其余默认 CI 保持执行；跳过状态在验收记录中保留。私有库、头文件和链接产物不上传为
-公开 artifact，也不进入 Actions cache，只有公开 GGUF 模型使用缓存。
+公开 artifact，也不进入 Actions cache；模型缓存包含公开 GGUF、ONNX 权重和 tokenizer。
 
 支持 Linux x86_64 与 aarch64；版本、平台包和 SHA-256 固定在
 [`cmake_ext/KiteLlm.cmake`](../cmake_ext/KiteLlm.cmake)。上游 v0.1.0 对应提交
@@ -43,15 +45,15 @@ kiteLLM + ONNX，确认 Catalog 注册并运行包含真实 GGUF 的完整 CTest
 ## 使用与限制
 
 - kiteLLM 的静态归档内含 llama.cpp/ggml，版本与项目独立 llama_cpp 后端不同；
-  两者在本次接入中互斥。ONNX Runtime 可同时启用。默认完整门禁仍验证默认后端组合，
-  kiteLLM 使用独立构建目录专项验证。
+  两者互斥，依赖共享 llama.cpp/ggml 的 whisper.cpp 也不能同时启用。ONNX Runtime
+  可同时启用。默认完整门禁仍验证默认后端组合，kiteLLM 使用独立构建目录专项验证。
 - Catalog 的后端名仍为 `kite_llm`，支持 `text_generation`、`image_text_generation` 和 `generated_token_embedding` 协议；模型名、端口及
   参数应查询对应构建的 Catalog。关闭时不注册该后端。
 - `model_path` 指向真实模型文件；可选 `backend_config.run_config_file` 是模型所在
   目录内的相对路径，由上游解析运行选项。设备 ID 通过原生
   `kiteLLM_Parameter_SetDeviceId` 传入，并非只能通过 run-config 选择。
-- 当前固定 Linux 发布包按 CPU 接入。Operator / alg_demo 使用既有 `CPU` / `cpu_generic`
-  平台与 `device_id=0` 即可运行正确配置的 Kite 文本生成业务；无需修改 Operator 参数。
+- 当前固定 Linux 发布包按 CPU 接入。Operator 使用 `ComputePlatform::kCpu`，
+  alg_demo Profile 使用 `"chip": "cpu"`，并设置 `device_id=0`，即可运行正确配置的 Kite 文本生成业务。
   CUDA、NPU 等显式平台，以及 CPU 平台下大于 0 的设备 ID，均明确拒绝。
 - Backend 收到显式 `device_id=-1` 时映射到原生自动选择。原生非负 ID 是其 ggml 设备枚举索引，不保证等同于
   CUDA ordinal。小于 -1 拒绝，其余索引由原生加载检查。
@@ -79,7 +81,9 @@ ctest --test-dir build-kite --output-on-failure -j8
 已有实体抽取、文档问答等配置中的 `llama_cpp` 不会自动变成 Kite。切换时应使用
 `qwen_causal_lm` + `kite_llm`，将原来的 llama.cpp `backend_config` 替换为 `{}` 或
 `{"run_config_file":"run.json"}`，并保持真实模型路径正确。`random_seed` 使用 -1。
-既有文档问答配置的 Embedding/Rerank 使用 ONNX；新增生成向量配置可将 Embedding 交给 Kite；图像文档识别通过下述视觉协议接入。ASR 仍未接入真实模型。
+既有文档问答配置的 Embedding/Rerank 使用 ONNX；新增生成向量配置可将 Embedding 交给 Kite；
+图像文档识别通过下述视觉协议接入。`kite_llm` 不提供音频转写协议；真实 ASR 使用独立构建中的
+`whisper_asr` + `whisper_cpp`，见[模型准备](../models/README.md)。
 
 依赖设计见 [RFC-0032](rfcs/0032-kitellm-direct-github-dependency.md)；设备契约的修正与
 验收见 [RFC-0033](rfcs/0033-kitellm-native-device-contract.md)。RFC-0026/0032 中的
