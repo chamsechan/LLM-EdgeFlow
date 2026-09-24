@@ -1,10 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "embed_model_v2": "./models/bge_m3_npu.bin",
-      "rerank_model_v1": "./models/bge_reranker_large_npu.bin",
-      "audit_llm_v1": "./models/qwen_1_8b_npu.bin"
-    },
     "io": {
       "io_binding": "compliance_audit.operator.v1"
     }
@@ -19,7 +14,7 @@
       },
       "backend_config": {},
       "model_id": "embed_model_v2",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-embedding.fixture"
+      "model_path": "./models/bge_m3_npu.bin"
     },
     {
       "model_type": "test_biz_rerank",
@@ -29,7 +24,7 @@
       },
       "backend_config": {},
       "model_id": "rerank_model_v1",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-rerank.fixture"
+      "model_path": "./models/bge_reranker_large_npu.bin"
     },
     {
       "model_type": "test_biz_llm",
@@ -40,7 +35,7 @@
       },
       "backend_config": {},
       "model_id": "audit_llm_v1",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+      "model_path": "./models/qwen_1_8b_npu.bin"
     }
   ],
   "pipeline": [

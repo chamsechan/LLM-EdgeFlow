@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "entity_llm": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
-    },
     "io": {
       "io_binding": "entity_extract.operator.v1"
     }

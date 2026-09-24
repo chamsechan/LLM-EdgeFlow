@@ -192,7 +192,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       PipelineValidator::ValidateAndPlan(prepared.neutral_pipeline_json,
                                          &prepared.io_boundary));
 
-  ProjectModelPathDiagnostics(prepared, &plan->report);
+  ProjectDeploymentDiagnostics(&plan->report);
 
   if (!plan->report.ok) {
     if (!plan->report.diagnostics.empty()) {
@@ -232,7 +232,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
   io_plan->operator_output_specs = std::move(prepared.output_specs);
   io_plan->operator_output_parameter_texts =
       std::move(prepared.output_parameter_texts);
-  io_plan->overridden_model_ids = std::move(prepared.overridden_model_ids);
   io_plan->resolved_pipeline_json = std::move(prepared.neutral_pipeline_json);
   io_plan->resolved_pipeline_json.erase("biz_name");
   io_plan->resolved_pipeline_json["deployment"] =

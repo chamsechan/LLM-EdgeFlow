@@ -47,13 +47,12 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     return false;
   }
 
-  // 1. 校验 deployment 内部白名单: 仅允许 model_paths 与 io
+  // 1. 校验 deployment 内部白名单: 仅允许 io
   for (auto it = dep.begin(); it != dep.end(); ++it) {
     if (!structure::AllowsProperty(dep_shape, it.key())) {
       if (out_error) {
         *out_error = "Unknown field at /deployment/" +
-                     EscapeJsonPointer(it.key()) +
-                     " (only 'model_paths' and 'io' allowed)";
+                     EscapeJsonPointer(it.key()) + " (only 'io' allowed)";
       }
       if (out_error_path) {
         *out_error_path = "/deployment/" + EscapeJsonPointer(it.key());
@@ -62,57 +61,10 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     }
   }
 
-  // 2. 校验 model_paths (可选)
-  if (dep.contains("model_paths")) {
-    const auto& mp_shape = structure::Property(dep_shape, "model_paths");
-    const auto& mp = dep["model_paths"];
-    if (!structure::HasType(mp, mp_shape)) {
-      if (out_error) {
-        *out_error = "Field '/deployment/model_paths' must be an object";
-      }
-      if (out_error_path) *out_error_path = "/deployment/model_paths";
-      return false;
-    }
-    for (auto it = mp.begin(); it != mp.end(); ++it) {
-      if (structure::TooShort(it.key(), mp_shape.at("propertyNames"))) {
-        if (out_error) *out_error = "Empty model_id in /deployment/model_paths";
-        if (out_error_path) *out_error_path = "/deployment/model_paths";
-        return false;
-      }
-      if (!structure::HasType(it.value(),
-                              mp_shape.at("additionalProperties"))) {
-        if (out_error) {
-          *out_error = "Field '/deployment/model_paths/" +
-                       EscapeJsonPointer(it.key()) + "' value must be a string";
-        }
-        if (out_error_path) {
-          *out_error_path =
-              "/deployment/model_paths/" + EscapeJsonPointer(it.key());
-        }
-        return false;
-      }
-      const std::string path_str = it.value().get<std::string>();
-      if (structure::TooShort(it.value(),
-                              mp_shape.at("additionalProperties"))) {
-        if (out_error) {
-          *out_error = "Field '/deployment/model_paths/" +
-                       EscapeJsonPointer(it.key()) + "' cannot be empty";
-        }
-        if (out_error_path) {
-          *out_error_path =
-              "/deployment/model_paths/" + EscapeJsonPointer(it.key());
-        }
-        return false;
-      }
-      out_split->deployment.model_paths[it.key()] = path_str;
-    }
-    out_split->deployment.has_model_paths = true;
-  }
-
   out_split->neutral_pipeline_json = root;
   out_split->neutral_pipeline_json.erase("deployment");
 
-  // 3. 唯一的外部契约入口，输出内存覆盖仍可省略。
+  // 2. 唯一的外部契约入口，输出内存覆盖仍可省略。
   if (!dep.contains("io")) {
     if (out_error) *out_error = "Missing required field '/deployment/io'";
     if (out_error_path) *out_error_path = "/deployment/io";

@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "entity_llm": "./models/qwen_0_6b_npu.bin"
-    },
     "io": {
       "io_binding": "entity_extract.operator.v1"
     }

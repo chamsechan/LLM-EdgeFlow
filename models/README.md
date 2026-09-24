@@ -1,10 +1,17 @@
 # Model deployment directory
 
 The C++ Operator `model_path` is the deployment bundle root. The `.conf` selects
-Pipeline JSON through `pipe_path`; optional `deployment.model_paths` overrides
-are keyed by model ID. Relative model paths resolve beneath the same root, and
-Integration passes resolved absolute paths to Core. With the repository as the
-bundle root, model references include the `models/` prefix.
+Pipeline JSON through `pipe_path`; each model path is configured only in
+`models[].model_path`. Relative model paths resolve beneath the same host-provided
+root, and Integration passes resolved absolute paths to Core. With the repository
+as the bundle root, model references include the `models/` prefix.
+
+Asset manifest paths are relative to the asset directory. Tokenizer and runtime
+configuration sidecars resolve relative to the actual model's directory. The
+selection checker distinguishes these roots with `--model-root` (asset directory,
+defaulting to this directory) and `--pipeline-root` (host deployment root,
+defaulting to the repository root); choosing an asset directory does not override
+the model paths saved in the Pipeline.
 
 Prepare the default CPU real Profile artifacts from pinned upstream commits with:
 

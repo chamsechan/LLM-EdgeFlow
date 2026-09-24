@@ -1,9 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "ocr_model_v1": "models/SmolVLM-256M-Instruct-Q8_0.gguf",
-      "llm_model_v1": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    },
     "io": {
       "io_binding": "ocr_doc_qa.operator.v1"
     }
@@ -20,7 +16,7 @@
         "run_config_file": "kite_vision_run.json"
       },
       "model_id": "ocr_model_v1",
-      "model_path": "SmolVLM-256M-Instruct-Q8_0.gguf"
+      "model_path": "models/SmolVLM-256M-Instruct-Q8_0.gguf"
     },
     {
       "model_type": "qwen_causal_lm",
@@ -32,7 +28,7 @@
         "run_config_file": "kite_text_run.json"
       },
       "model_id": "llm_model_v1",
-      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
   "pipeline": [

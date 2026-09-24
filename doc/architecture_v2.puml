@@ -24,13 +24,13 @@ component "CLI / Pipeline Studio" as Tools
 
 package "方案与注册信息" {
   artifact ".conf\n仅 pipe_path" as Conf
-  artifact "Pipeline JSON\n节点 / depends_on / typed ports / models\ndeployment.io / deployment.model_paths" as Document
+  artifact "Pipeline JSON\n节点 / depends_on / typed ports / models\ndeployment.io / models[].model_path" as Document
   component "PipelineCatalog\n注册 Definition 的查询视图" as Catalog
   component "Node Spec + 普通算法函数\nREGISTER_FUNCTION_NODE\nModel / Backend / I/O 注册" as Definitions
 }
 
 package "创建期：接入准备与统一校验" {
-  component "PrepareDeploymentDocument\n接入绑定 / 路径覆盖 / 输出分配参数" as Prepare
+  component "PrepareDeploymentDocument\n接入绑定 / 路径解析 / 输出分配参数" as Prepare
   artifact "PreparedDeployment\n中性 Pipeline JSON + PipelineIoBoundary" as Prepared
   component "PipelineValidator\n显式 DAG / 类型端口 / 并发写冲突" as Validator
   artifact "ValidatedPipelinePlan" as PipelinePlan

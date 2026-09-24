@@ -625,10 +625,8 @@ TEST_F(IoBindingRegistryTest,
   }
 }
 
-TEST_F(IoBindingRegistryTest, EscapedJsonPointerInModelPathsAndSlots) {
+TEST_F(IoBindingRegistryTest, EscapedJsonPointerInOutputSlots) {
   RegisterTestBizBinding();
-
-  // 1. Slot name with special characters ~ and /
   nlohmann::json slot_doc = {
       {"deployment",
        {{"io",
@@ -639,148 +637,86 @@ TEST_F(IoBindingRegistryTest, EscapedJsonPointerInModelPathsAndSlots) {
 
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
-  int ret = IoBindingResolver::ResolveFromPipelineJson(slot_doc, "./models",
-                                                       &plan, &err);
-  EXPECT_EQ(ret, -2);
-  // slot~0/bad escaped: ~ -> ~0, / -> ~1 => slot~00~1bad
-  EXPECT_NE(err.find("/deployment/io/out_mem/slot~00~1bad"), std::string::npos)
-      << "ACTUAL ERR: " << err;
-
-  // 2. Unknown model ID with special characters ~ and /
-  nlohmann::json model_doc = {
-      {"deployment",
-       {{"model_paths", {{"model~1/test", "path/to/model"}}},
-        {"io",
-         {{"io_binding", "test_biz.operator.v1"},
-          {"out_mem",
-           {{"entity_out",
-             {{"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
-      {"models", nlohmann::json::array()},
-      {"pipeline", DefaultPipelineNodes()}};
-
-  ret = IoBindingResolver::ResolveFromPipelineJson(model_doc, "./models", &plan,
-                                                   &err);
-  EXPECT_EQ(ret, -2);
-  // model~1/test escaped: ~ -> ~0, / -> ~1 => model~01~1test
-  EXPECT_NE(err.find("/deployment/model_paths/model~01~1test"),
-            std::string::npos)
-      << "ACTUAL ERR: " << err;
+  DeploymentDiagnostic diagnostic;
+  EXPECT_EQ(IoBindingResolver::ResolveFromPipelineJson(
+                slot_doc, "./models", &plan, &err, &diagnostic),
+            -2);
+  EXPECT_EQ(plan, nullptr);
+  EXPECT_EQ(diagnostic.path, "/deployment/io/out_mem/slot~00~1bad");
+  EXPECT_NE(err.find(diagnostic.path), std::string::npos) << err;
 }
 
-TEST_F(IoBindingRegistryTest,
-       OverriddenModelPathResolutionFailurePointsToDeployment) {
+TEST_F(IoBindingRegistryTest, ModelPathResolutionFailurePointsToModelEntry) {
   RegisterTestBizBinding();
-
-  // Case 1: When model path override escapes model_root_dir, error points to
-  // /deployment/model_paths/<mid>
   nlohmann::json doc = {
-      {"deployment",
-       {{"model_paths", {{"mid~test", "../../escaped_model.bin"}}},
-        {"io",
-         {{"io_binding", "test_biz.operator.v1"},
-          {"out_mem",
-           {{"entity_out",
-             {{"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
       {"models",
-       {{{"model_id", "mid~test"},
+       {{{"model_id", "mid~test/path"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
          {"backend_config", nlohmann::json::object()},
-         {"model_path", "models/legal.bin"}}}},
+         {"model_path", "../../escaped_model.bin"}}}},
       {"pipeline", DefaultPipelineNodes()}};
-
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
-  int ret =
-      IoBindingResolver::ResolveFromPipelineJson(doc, "./models", &plan, &err);
-  EXPECT_EQ(ret, -2);
-  // mid~test escaped: mid~0test
-  EXPECT_NE(err.find("/deployment/model_paths/mid~0test"), std::string::npos)
-      << "ACTUAL ERR: " << err;
-  EXPECT_EQ(err.find("/models/0/model_path"), std::string::npos)
-      << "ACTUAL ERR: " << err;
-
-  // Case 2: When an un-overridden model path escapes model_root_dir, error
-  // points to /models/0/model_path
-  nlohmann::json unoverridden_doc = doc;
-  unoverridden_doc["deployment"].erase("model_paths");
-  unoverridden_doc["models"][0]["model_path"] = "../../escaped_model.bin";
-  ret = IoBindingResolver::ResolveFromPipelineJson(unoverridden_doc, "./models",
-                                                   &plan, &err);
-  EXPECT_EQ(ret, -2);
-  EXPECT_NE(err.find("/models/0/model_path"), std::string::npos)
-      << "ACTUAL ERR: " << err;
-  EXPECT_EQ(err.find("/deployment/model_paths/"), std::string::npos)
-      << "ACTUAL ERR: " << err;
+  DeploymentDiagnostic diagnostic;
+  EXPECT_EQ(IoBindingResolver::ResolveFromPipelineJson(doc, "./models", &plan,
+                                                       &err, &diagnostic),
+            -2);
+  EXPECT_EQ(plan, nullptr);
+  EXPECT_EQ(diagnostic.code, "INVALID_MODEL_PATH");
+  EXPECT_EQ(diagnostic.path, "/models/0/model_path");
+  EXPECT_NE(err.find(diagnostic.path), std::string::npos) << err;
 }
 
 TEST_F(IoBindingRegistryTest,
        PrepareDeploymentSuccessAndBoundaryExtraction_T01) {
   RegisterTestBizBinding();
-
   nlohmann::json doc = {
-      {"deployment",
-       {{"model_paths", {{"mid_1", "models/override.bin"}}},
-        {"io",
-         {{"io_binding", "test_biz.operator.v1"},
-          {"out_mem",
-           {{"entity_out",
-             {{"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
          {"backend_config", nlohmann::json::object()},
-         {"model_path", "models/original.bin"}}}},
+         {"model_path", "models/first.bin"}},
+        {{"model_id", "mid~2/path"},
+         {"model_type", "test_biz_embedding"},
+         {"backend", "test_tensor_backend"},
+         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
+         {"backend_config", nlohmann::json::object()},
+         {"model_path", "models/second.bin"}}}},
       {"pipeline", DefaultPipelineNodes()}};
-
+  const auto original = doc;
   DeploymentPrepareOptions options;
-
   options.path_mode = DeploymentPathMode::kLexicalOnly;
-
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
 
-  // 1. With override
-  EXPECT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
+  ASSERT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag))
+      << diag.message;
   EXPECT_FALSE(prepared.neutral_pipeline_json.contains("deployment"));
   EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz_v1");
-  EXPECT_EQ(prepared.neutral_pipeline_json["models"][0]["model_path"],
-            "models/override.bin");
-  EXPECT_EQ(prepared.overridden_model_ids.count("mid_1"), 1u);
-  ASSERT_EQ(prepared.model_path_source_pointers.size(), 1u);
-  EXPECT_EQ(prepared.model_path_source_pointers[0],
-            "/deployment/model_paths/mid_1");
+  EXPECT_EQ(prepared.neutral_pipeline_json["models"], doc["models"]);
   EXPECT_EQ(prepared.binding.binding_id, "test_biz.operator.v1");
   ASSERT_NE(prepared.input_converter, nullptr);
   ASSERT_NE(prepared.output_converter, nullptr);
   EXPECT_EQ(prepared.output_specs.count("entity_out"), 1u);
-  EXPECT_EQ(prepared.io_boundary.input_published_ports.size(), 1u);
+  ASSERT_EQ(prepared.io_boundary.input_published_ports.size(), 1u);
   EXPECT_EQ(prepared.io_boundary.input_published_ports[0].Name(),
             "input_sentences");
-  EXPECT_EQ(prepared.io_boundary.output_consumed_ports.size(), 1u);
+  ASSERT_EQ(prepared.io_boundary.output_consumed_ports.size(), 1u);
   EXPECT_EQ(prepared.io_boundary.output_consumed_ports[0].Name(),
             "llm_answers");
+  EXPECT_EQ(doc, original);
 
-  // 2. Without override
-  nlohmann::json doc_no_override = doc;
-  doc_no_override["deployment"].erase("model_paths");
-  prepared.Clear();
-  EXPECT_TRUE(
-      PrepareDeploymentDocument(doc_no_override, options, &prepared, &diag));
-  EXPECT_EQ(prepared.neutral_pipeline_json["models"][0]["model_path"],
-            "models/original.bin");
-  EXPECT_EQ(prepared.overridden_model_ids.count("mid_1"), 0u);
-  ASSERT_EQ(prepared.model_path_source_pointers.size(), 1u);
-  EXPECT_EQ(prepared.model_path_source_pointers[0], "/models/0/model_path");
+  doc["models"][0]["model_id"] = "renamed_first";
+  doc["models"][0]["model_path"] = "models/changed.bin";
+  ASSERT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag))
+      << diag.message;
+  EXPECT_EQ(prepared.neutral_pipeline_json["models"], doc["models"]);
 }
 
 TEST_F(IoBindingRegistryTest,
@@ -810,20 +746,10 @@ TEST_F(IoBindingRegistryTest,
   }
 }
 
-TEST_F(IoBindingRegistryTest,
-       OriginalModelPathInvalidRejectedEvenWithOverride_T03) {
+TEST_F(IoBindingRegistryTest, ModelPathMissingEmptyOrWrongTypeRejected_T03) {
   RegisterTestBizBinding();
-
-  nlohmann::json base_doc = {
-      {"deployment",
-       {{"model_paths", {{"mid_1", "models/valid_override.bin"}}},
-        {"io",
-         {{"io_binding", "test_biz.operator.v1"},
-          {"out_mem",
-           {{"entity_out",
-             {{"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+  const nlohmann::json base_doc = {
+      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
@@ -831,81 +757,30 @@ TEST_F(IoBindingRegistryTest,
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
          {"backend_config", nlohmann::json::object()}}}},
       {"pipeline", DefaultPipelineNodes()}};
-
   DeploymentPrepareOptions options;
-
   options.path_mode = DeploymentPathMode::kLexicalOnly;
-
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
 
-  // Subcase 1: model_path missing completely
-  {
-    nlohmann::json doc = base_doc;
+  EXPECT_FALSE(PrepareDeploymentDocument(base_doc, options, &prepared, &diag));
+  EXPECT_EQ(diag.code, "MISSING_FIELD");
+  EXPECT_EQ(diag.path, "/models/0/model_path");
+  for (const auto& value :
+       nlohmann::json::array({nullptr, 12345, true, nlohmann::json::object(),
+                              nlohmann::json::array(), ""})) {
+    SCOPED_TRACE(value.dump());
+    auto doc = base_doc;
+    doc["models"][0]["model_path"] = value;
+    const auto original = doc;
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "MISSING_FIELD");
+    EXPECT_EQ(diag.code, value.is_string() ? "FIELD_RANGE" : "FIELD_TYPE");
     EXPECT_EQ(diag.path, "/models/0/model_path");
-
-    // Paired check without override: same result
-    doc["deployment"].erase("model_paths");
-    DeploymentDiagnostic diag_no_override;
-    EXPECT_FALSE(
-        PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "MISSING_FIELD");
-    EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-  }
-
-  // Subcase 2: model_path is null
-  {
-    nlohmann::json doc = base_doc;
-    doc["models"][0]["model_path"] = nullptr;
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "FIELD_TYPE");
-    EXPECT_EQ(diag.path, "/models/0/model_path");
-
-    doc["deployment"].erase("model_paths");
-    DeploymentDiagnostic diag_no_override;
-    EXPECT_FALSE(
-        PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "FIELD_TYPE");
-    EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-  }
-
-  // Subcase 3: model_path is integer
-  {
-    nlohmann::json doc = base_doc;
-    doc["models"][0]["model_path"] = 12345;
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "FIELD_TYPE");
-    EXPECT_EQ(diag.path, "/models/0/model_path");
-
-    doc["deployment"].erase("model_paths");
-    DeploymentDiagnostic diag_no_override;
-    EXPECT_FALSE(
-        PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "FIELD_TYPE");
-    EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-  }
-
-  // Subcase 4: model_path is empty string
-  {
-    nlohmann::json doc = base_doc;
-    doc["models"][0]["model_path"] = "";
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "FIELD_RANGE");
-    EXPECT_EQ(diag.path, "/models/0/model_path");
-
-    doc["deployment"].erase("model_paths");
-    DeploymentDiagnostic diag_no_override;
-    EXPECT_FALSE(
-        PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "FIELD_RANGE");
-    EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
+    EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
+    EXPECT_EQ(doc, original);
   }
 }
 
-TEST_F(IoBindingRegistryTest,
-       OriginalModelStructureInvalidRejectedEvenWithOverride_T04) {
+TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
   RegisterTestBizBinding();
 
   DeploymentPrepareOptions options;
@@ -918,8 +793,7 @@ TEST_F(IoBindingRegistryTest,
   {
     nlohmann::json doc = {
         {"deployment",
-         {{"model_paths", {{"mid_1", "models/override.bin"}}},
-          {"io",
+         {{"io",
            {{"io_binding", "test_biz.operator.v1"},
             {"out_mem", {{"entity_out", nlohmann::json::object()}}}}}}},
         {"models", {{"mid_1", "not_an_array"}}},
@@ -929,12 +803,11 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/models");
   }
 
-  // Case 2: an override cannot supply a missing required model_path.
+  // Case 2: model_path is required in every model entry.
   {
     nlohmann::json doc = {
         {"deployment",
-         {{"model_paths", {{"mid_1", "models/override.bin"}}},
-          {"io",
+         {{"io",
            {{"io_binding", "test_biz.operator.v1"},
             {"out_mem", {{"entity_out", nlohmann::json::object()}}}}}}},
         {"models",
@@ -951,8 +824,7 @@ TEST_F(IoBindingRegistryTest,
   {
     nlohmann::json doc = {
         {"deployment",
-         {{"model_paths", {{"mid_1", "models/override.bin"}}},
-          {"io",
+         {{"io",
            {{"io_binding", "test_biz.operator.v1"},
             {"out_mem", {{"entity_out", nlohmann::json::object()}}}}}}},
         {"models",
@@ -971,117 +843,76 @@ TEST_F(IoBindingRegistryTest,
   }
 }
 
-TEST_F(IoBindingRegistryTest,
-       OriginalModelPathNonexistentOnDiskWithValidOverride_T05) {
+TEST_F(IoBindingRegistryTest, ModelPathNonexistentOnDiskIsAllowed_T05) {
   RegisterTestBizBinding();
-
-  // Create temporary directory with only the override model file
-  fs::path temp_dir = fs::temp_directory_path() / "edgeflow_test_t05";
+  const auto temp_dir = fs::temp_directory_path() / "edgeflow_test_t05";
   fs::create_directories(temp_dir);
-  fs::path override_file = temp_dir / "override_model.bin";
-  {
-    std::ofstream ofs(override_file);
-    ofs << "dummy model data";
-  }
-
-  nlohmann::json doc = {
-      {"deployment",
-       {{"model_paths", {{"mid_1", "override_model.bin"}}},
-        {"io",
-         {{"io_binding", "test_biz.operator.v1"},
-          {"out_mem",
-           {{"entity_out",
-             {{"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+  const auto missing_path = temp_dir / "missing_dir/model.bin";
+  ASSERT_FALSE(fs::exists(missing_path));
+  const nlohmann::json doc = {
+      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
          {"backend_config", nlohmann::json::object()},
-         {"model_path", "nonexistent_dir/completely_missing_original.bin"}}}},
+         {"model_path", "missing_dir/model.bin"}}}},
       {"pipeline", DefaultPipelineNodes()}};
-
+  const auto original = doc;
   DeploymentPrepareOptions options;
-
   options.path_mode = DeploymentPathMode::kUnderRoot;
   options.model_root_dir = temp_dir.string();
-
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
-  // S2 checks original syntax only; S6 checks override path under root which
-  // exists. Missing original model on disk must NOT cause failure!
-  EXPECT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag))
+  ASSERT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag))
       << diag.message;
   EXPECT_EQ(prepared.neutral_pipeline_json["models"][0]["model_path"],
-            override_file.string());
-
+            fs::weakly_canonical(missing_path).string());
+  EXPECT_EQ(doc, original);
+  EXPECT_FALSE(fs::exists(missing_path));
   fs::remove_all(temp_dir);
 }
 
-TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
+TEST_F(IoBindingRegistryTest, RemovedModelPathsIsAlwaysUnknownField_T06) {
   RegisterTestBizBinding();
-
-  nlohmann::json base_doc = {
-      {"deployment",
-       {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
-          {"out_mem",
-           {{"entity_out",
-             {{"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+  const nlohmann::json base_doc = {
+      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
          {"backend_config", nlohmann::json::object()},
-         {"model_path", "models/original.bin"}}}},
+         {"model_path", "models/current.bin"}}}},
       {"pipeline", DefaultPipelineNodes()}};
-
   DeploymentPrepareOptions options;
-
   options.path_mode = DeploymentPathMode::kLexicalOnly;
-  PreparedDeployment prepared;
-  DeploymentDiagnostic diag;
-
-  // Case 1: Override unknown model_id
-  {
-    nlohmann::json doc = base_doc;
-    doc["deployment"]["model_paths"] = {
-        {"nonexistent_model", "models/foo.bin"}};
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
-    EXPECT_EQ(diag.path, "/deployment/model_paths/nonexistent_model");
-  }
-
-  // Case 2: Override unknown model_id with special chars (escaped pointer)
-  {
-    nlohmann::json doc = base_doc;
-    doc["deployment"]["model_paths"] = {{"non/exist~id", "models/foo.bin"}};
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
-    EXPECT_EQ(diag.path, "/deployment/model_paths/non~1exist~0id");
-  }
-
-  // Case 3: Override value is non-string (e.g. integer)
-  {
-    nlohmann::json doc = base_doc;
-    doc["deployment"]["model_paths"] = {{"mid_1", 999}};
+  for (const auto& legacy_value :
+       nlohmann::json::array({nlohmann::json::object(),
+                              {{"mid_1", "models/current.bin"}},
+                              {{"mid_1", "models/conflicting.bin"}},
+                              {{"non/exist~id", "models/foo.bin"}},
+                              {{"mid_1", 999}},
+                              {{"mid_1", ""}},
+                              nullptr,
+                              "",
+                              999})) {
+    SCOPED_TRACE(legacy_value.dump());
+    auto doc = base_doc;
+    doc["deployment"]["model_paths"] = legacy_value;
+    const auto original = doc;
+    PreparedDeployment prepared;
+    DeploymentDiagnostic diag;
+    ASSERT_TRUE(PrepareDeploymentDocument(base_doc, options, &prepared, &diag));
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
-    EXPECT_EQ(diag.path, "/deployment/model_paths/mid_1");
-  }
-
-  // Case 4: Override value is empty string
-  {
-    nlohmann::json doc = base_doc;
-    doc["deployment"]["model_paths"] = {{"mid_1", ""}};
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
-    EXPECT_EQ(diag.path, "/deployment/model_paths/mid_1");
+    EXPECT_EQ(diag.path, "/deployment/model_paths");
+    EXPECT_NE(diag.message.find("Unknown field at /deployment/model_paths"),
+              std::string::npos);
+    EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
+    EXPECT_TRUE(prepared.binding.binding_id.empty());
+    EXPECT_EQ(doc, original);
   }
 }
 
@@ -1515,8 +1346,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
 
   nlohmann::json valid_doc = {
       {"deployment",
-       {{"model_paths", {{"mid_1", "models/override.bin"}}},
-        {"io",
+       {{"io",
          {{"io_binding", "test_biz.operator.v1"},
           {"out_mem",
            {{"entity_out",
@@ -1564,99 +1394,88 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   EXPECT_EQ(prepared.effective_max_batch_size, 0u);
   EXPECT_TRUE(prepared.output_specs.empty());
   EXPECT_TRUE(prepared.output_parameter_texts.empty());
-  EXPECT_TRUE(prepared.overridden_model_ids.empty());
-  EXPECT_TRUE(prepared.model_path_source_pointers.empty());
   EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
   EXPECT_TRUE(prepared.io_boundary.input_published_ports.empty());
   EXPECT_TRUE(prepared.io_boundary.output_consumed_ports.empty());
 
   // Verify the input document was NOT mutated
   EXPECT_EQ(invalid_doc, invalid_doc_copy);
+
+  // Failure after resolving the first model must not publish partial state.
+  valid_doc["models"].push_back(valid_doc["models"][0]);
+  valid_doc["models"][1]["model_id"] = "mid_2";
+  valid_doc["models"][1]["model_path"] = "models/second.bin";
+  options.path_mode = DeploymentPathMode::kUnderRoot;
+  options.model_root_dir = fs::temp_directory_path().string();
+  ASSERT_TRUE(PrepareDeploymentDocument(valid_doc, options, &prepared, &diag))
+      << diag.message;
+  ASSERT_EQ(prepared.neutral_pipeline_json["models"].size(), 2u);
+  invalid_doc = valid_doc;
+  invalid_doc["models"][1]["model_path"] = "../../escaped_second.bin";
+  const auto invalid_second_copy = invalid_doc;
+  EXPECT_FALSE(
+      PrepareDeploymentDocument(invalid_doc, options, &prepared, &diag));
+  EXPECT_EQ(diag.code, "INVALID_MODEL_PATH");
+  EXPECT_EQ(diag.path, "/models/1/model_path");
+  EXPECT_TRUE(prepared.binding.binding_id.empty());
+  EXPECT_EQ(prepared.input_converter, nullptr);
+  EXPECT_EQ(prepared.output_converter, nullptr);
+  EXPECT_TRUE(prepared.input_port_bindings.All().empty());
+  EXPECT_TRUE(prepared.output_port_bindings.All().empty());
+  EXPECT_EQ(prepared.effective_max_batch_size, 0u);
+  EXPECT_TRUE(prepared.output_specs.empty());
+  EXPECT_TRUE(prepared.output_parameter_texts.empty());
+  EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
+  EXPECT_TRUE(prepared.io_boundary.input_published_ports.empty());
+  EXPECT_TRUE(prepared.io_boundary.output_consumed_ports.empty());
+  EXPECT_EQ(invalid_doc, invalid_second_copy);
 }
 
-TEST_F(IoBindingRegistryTest,
-       ProjectModelPathDiagnosticsProjectionAndRemediation) {
-  PreparedDeployment prepared;
-  prepared.overridden_model_ids = {"mid_0"};
-  prepared.model_path_source_pointers = {
-      "/deployment/model_paths/mid_0",
-      "/models/1/model_path",
-  };
-
+TEST_F(IoBindingRegistryTest, ModelPathDiagnosticsKeepApplicableRemediation) {
+  const nlohmann::json document = {
+      {"models",
+       {{{"model_id", "mid~0/path"}, {"model_path", "first.bin"}},
+        {{"model_id", "mid_1"}, {"model_path", "second.bin"}}}}};
   ValidationReport report;
   report.ok = false;
+  for (size_t index = 0; index < 2; ++index) {
+    ValidationDiagnostic diagnostic;
+    diagnostic.code = DiagnosticCode::kFieldRange;
+    diagnostic.path = "/models/" + std::to_string(index) + "/model_path";
+    diagnostic.message = "Invalid model path";
+    ValidationFix fix;
+    fix.id = "fix_model_" + std::to_string(index);
+    fix.patch = nlohmann::json::array(
+        {{{"op", "replace"},
+          {"path", diagnostic.path},
+          {"value", "corrected_" + std::to_string(index) + ".bin"}}});
+    diagnostic.remediation.emplace();
+    diagnostic.remediation->fixes.push_back(fix);
+    report.diagnostics.push_back(diagnostic);
+  }
+  ValidationDiagnostic port_diagnostic;
+  port_diagnostic.code = DiagnosticCode::kMissingField;
+  port_diagnostic.path = "/pipeline/0/inputs/text";
+  report.diagnostics.push_back(port_diagnostic);
 
-  // Diagnostic 1: Points to model 0 (overridden) with a fix patching model_path
-  ValidationDiagnostic diag1;
-  diag1.code = DiagnosticCode::kFieldRange;
-  diag1.path = "/models/0/model_path";
-  diag1.message = "File not found";
-  ValidationRemediation rem1;
-  ValidationFix fix1;
-  fix1.id = "fix_model_0";
-  fix1.patch = nlohmann::json::array({{{"op", "replace"},
-                                       {"path", "/models/0/model_path"},
-                                       {"value", "foo.bin"}}});
-  rem1.fixes.push_back(fix1);
-  diag1.remediation = rem1;
-  report.diagnostics.push_back(diag1);
+  ProjectDeploymentDiagnostics(&report);
 
-  // Diagnostic 2: Points to model 1 (un-overridden) with a fix patching
-  // model_path
-  ValidationDiagnostic diag2;
-  diag2.code = DiagnosticCode::kFieldRange;
-  diag2.path = "/models/1/model_path";
-  diag2.message = "File not found 1";
-  ValidationRemediation rem2;
-  ValidationFix fix2;
-  fix2.id = "fix_model_1";
-  fix2.patch = nlohmann::json::array({{{"op", "replace"},
-                                       {"path", "/models/1/model_path"},
-                                       {"value", "bar.bin"}}});
-  rem2.fixes.push_back(fix2);
-  diag2.remediation = rem2;
-  report.diagnostics.push_back(diag2);
-
-  // Diagnostic 3: Non-model diagnostic
-  ValidationDiagnostic diag3;
-  diag3.code = DiagnosticCode::kMissingField;
-  diag3.path = "/pipeline/0/inputs/text";
-  diag3.message = "Port unbound";
-  report.diagnostics.push_back(diag3);
-
-  // Diagnostic 4: Special characters ~ and / in model ID
-  ValidationDiagnostic diag4;
-  diag4.code = DiagnosticCode::kFieldRange;
-  diag4.path = "/models/2/model_path";
-  diag4.message = "File not found 2";
-  report.diagnostics.push_back(diag4);
-  prepared.overridden_model_ids.insert("mid~special/0");
-  prepared.model_path_source_pointers.push_back(
-      "/deployment/model_paths/mid~0special~10");
-
-  // Project diagnostics
-  ProjectModelPathDiagnostics(prepared, &report);
-
-  ASSERT_EQ(report.diagnostics.size(), 4u);
-
-  // Diagnostic 1: Path projected to /deployment/model_paths/mid_0, and fix
-  // targeting model_path removed!
-  EXPECT_EQ(report.diagnostics[0].path, "/deployment/model_paths/mid_0");
-  ASSERT_TRUE(report.diagnostics[0].remediation.has_value());
-  EXPECT_TRUE(report.diagnostics[0].remediation->fixes.empty());
-
-  // Diagnostic 2: Path stays /models/1/model_path, fix preserved!
-  EXPECT_EQ(report.diagnostics[1].path, "/models/1/model_path");
-  ASSERT_TRUE(report.diagnostics[1].remediation.has_value());
-  ASSERT_EQ(report.diagnostics[1].remediation->fixes.size(), 1u);
-  EXPECT_EQ(report.diagnostics[1].remediation->fixes[0].id, "fix_model_1");
-
-  // Diagnostic 3: Unchanged
-  EXPECT_EQ(report.diagnostics[2].path, "/pipeline/0/inputs/text");
-
-  // Diagnostic 4: Escaped pointer with ~ and /
-  EXPECT_EQ(report.diagnostics[3].path,
-            "/deployment/model_paths/mid~0special~10");
+  ASSERT_EQ(report.diagnostics.size(), 3u);
+  auto fixed_document = document;
+  for (size_t index = 0; index < 2; ++index) {
+    const auto& diagnostic = report.diagnostics[index];
+    EXPECT_EQ(diagnostic.path,
+              "/models/" + std::to_string(index) + "/model_path");
+    ASSERT_TRUE(diagnostic.remediation.has_value());
+    ASSERT_EQ(diagnostic.remediation->fixes.size(), 1u);
+    const auto& fix = diagnostic.remediation->fixes[0];
+    EXPECT_EQ(fix.id, "fix_model_" + std::to_string(index));
+    fixed_document = fixed_document.patch(fix.patch);
+    EXPECT_EQ(fixed_document["models"][index]["model_path"],
+              "corrected_" + std::to_string(index) + ".bin");
+  }
+  EXPECT_EQ(report.diagnostics[2].path, port_diagnostic.path);
+  EXPECT_FALSE(fixed_document.contains("deployment"));
 }
 
 TEST_F(IoBindingRegistryTest,
@@ -1705,7 +1524,7 @@ TEST_F(IoBindingRegistryTest,
 
   ValidationReport report;
   report.diagnostics = {business_diagnostic, node_diagnostic};
-  ProjectModelPathDiagnostics(prepared, &report);
+  ProjectDeploymentDiagnostics(&report);
 
   ASSERT_EQ(report.diagnostics.size(), 2u);
   EXPECT_EQ(report.diagnostics[0].code, DiagnosticCode::kUnknownBiz);
@@ -1732,11 +1551,10 @@ TEST_F(IoBindingRegistryTest,
        ResolveFromPipelineJsonDiagnosticCarrier_T03_T06_T07_T08) {
   RegisterTestBizBinding();
 
-  // T03: Invalid original model path with override through IoBindingResolver
+  // T03: Missing direct model path through IoBindingResolver
   nlohmann::json t03_doc = {
       {"deployment",
-       {{"model_paths", {{"mid_1", "models/override.bin"}}},
-        {"io",
+       {{"io",
          {{"io_binding", "test_biz.operator.v1"},
           {"out_mem",
            {{"entity_out",
@@ -1761,7 +1579,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diag.code, "MISSING_FIELD");
   EXPECT_EQ(diag.path, "/models/0/model_path");
 
-  // T06: Unknown override model ID
+  // T06: Removed deployment model_paths field
   nlohmann::json t06_doc = t03_doc;
   t06_doc["models"][0]["model_path"] = "models/original.bin";
   t06_doc["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
@@ -1769,8 +1587,8 @@ TEST_F(IoBindingRegistryTest,
                                                   &err, &diag);
   EXPECT_EQ(rc, -2);
   EXPECT_EQ(plan, nullptr);
-  EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
-  EXPECT_EQ(diag.path, "/deployment/model_paths/unknown_mid");
+  EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
+  EXPECT_EQ(diag.path, "/deployment/model_paths");
 
   // T07: Unknown binding through IoBindingResolver
   nlohmann::json t07_doc = t03_doc;
@@ -1855,7 +1673,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_NE(plan, nullptr);
   EXPECT_TRUE(diag.code.empty());
 
-  // 2. T03 via file: missing raw model_path with override
+  // 2. T03 via file: missing model_path
   {
     nlohmann::json t03_pipe = base_pipeline;
     t03_pipe["models"] = {
@@ -1864,7 +1682,6 @@ TEST_F(IoBindingRegistryTest,
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
          {"backend_config", nlohmann::json::object()}}};
-    t03_pipe["deployment"]["model_paths"] = {{"mid_1", "models/override.bin"}};
     write_file(pipe_path, t03_pipe);
 
     rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
@@ -1875,7 +1692,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/models/0/model_path");
   }
 
-  // 3. T06 via file: unknown override model ID
+  // 3. T06 via file: removed deployment model_paths field
   {
     nlohmann::json t06_pipe = base_pipeline;
     t06_pipe["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
@@ -1885,8 +1702,8 @@ TEST_F(IoBindingRegistryTest,
                                             &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
-    EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
-    EXPECT_EQ(diag.path, "/deployment/model_paths/unknown_mid");
+    EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
+    EXPECT_EQ(diag.path, "/deployment/model_paths");
   }
 
   // 4. T07 via file: unknown io_binding

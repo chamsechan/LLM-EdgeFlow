@@ -188,12 +188,6 @@ export function upsertModel(pipeline, catalog, previousId, model) {
   const index = pipeline.models.findIndex(item => item.model_id === previousId);
   if (index < 0) pipeline.models.push(model); else pipeline.models[index] = model;
   if (previousId && previousId !== model.model_id) {
-    const paths = pipeline.deployment?.model_paths;
-    if (paths && Object.hasOwn(paths, previousId)) {
-      pipeline.deployment.model_paths = Object.fromEntries(
-        Object.entries(paths).map(([id, path]) => [id === previousId ? model.model_id : id, path])
-      );
-    }
     for (const node of pipeline.pipeline) {
       const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
       if (nodeDefinition && node.config) {
@@ -217,4 +211,28 @@ export function removeModel(pipeline, catalog, id) {
   });
   if (used) throw new Error("模型仍被节点使用，请先更换绑定");
   pipeline.models = pipeline.models.filter(model => model.model_id !== id);
+}
+
+export function assetModelPath(path, assetRoot = "models") {
+  const root = assetRoot.replace(/\/+$/, "");
+  return root && root !== "." ? `${root}/${path}` : path;
+}
+
+export function assetModel(asset, assetRoot = "models") {
+  const model = structuredClone(asset.model);
+  const modelPath = asset.paths["/model_path"];
+  const directory = modelPath.includes("/") ? modelPath.slice(0, modelPath.lastIndexOf("/") + 1) : "";
+  model.model_path = assetModelPath(modelPath, assetRoot);
+  for (const [pointer, path] of Object.entries(asset.paths)) {
+    if (pointer === "/model_path") continue;
+    if (!path.startsWith(directory)) {
+      throw new Error("资产附属文件不在模型目录内，请在模型表单中填写可用的绝对附属文件路径");
+    }
+    const parts = pointer.slice(1).split("/").map(part => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+    const field = parts.pop();
+    let target = model;
+    for (const part of parts) target = target[part];
+    target[field] = path.slice(directory.length);
+  }
+  return model;
 }

@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "rerank_model_v1": "missing_rerank_fixture.onnx"
-    },
     "io": {
       "io_binding": "cross_rerank.operator.v1"
     }
@@ -12,7 +9,7 @@
       "model_id": "rerank_model_v1",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
-      "model_path": "rerank_fixture.onnx",
+      "model_path": "missing_rerank_fixture.onnx",
       "model_config": {
         "tokenizer_file": "vocab.txt",
         "do_lower_case": true,

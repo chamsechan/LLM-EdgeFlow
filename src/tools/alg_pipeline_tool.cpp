@@ -204,12 +204,9 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
 
   nlohmann::json paths = nlohmann::json::array();
   for (const auto& model : plan.models)
-    paths.push_back(
-        {{"model_id", model.model_id},
-         {"source", resolved.io_plan->overridden_model_ids.count(model.model_id)
-                        ? "pipeline.deployment.model_paths"
-                        : "pipeline.models.model_path"},
-         {"resolved", model.resolved_model_path}});
+    paths.push_back({{"model_id", model.model_id},
+                     {"source", "pipeline.models.model_path"},
+                     {"resolved", model.resolved_model_path}});
   nlohmann::json configuration = {
       {"biz_name", resolved.biz_name},
       {"io_binding", resolved.io_binding},

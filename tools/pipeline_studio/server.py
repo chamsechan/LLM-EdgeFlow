@@ -318,9 +318,10 @@ class WorkbenchService:
     def assets(self) -> dict[str, Any]:
         return {"ok": True, **SELECTION.asset_catalog()}
 
-    def verify_selection(self, pipeline: Any, variant: str = "") -> dict[str, Any]:
+    def verify_selection(self, pipeline: Any, variant: str = "", model_root: str = "models") -> dict[str, Any]:
         try:
-            return SELECTION.inspect_selection(pipeline, PIPELINE_TOOL, PROJECT_ROOT / "models", variant=variant or None)
+            root = SELECTION.within(PROJECT_ROOT, model_root)
+            return SELECTION.inspect_selection(pipeline, PIPELINE_TOOL, root, variant=variant or None, pipeline_root=PROJECT_ROOT)
         except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
             raise StudioError("SELECTION_CHECK_FAILED", str(error)) from error
 
@@ -447,11 +448,10 @@ class WorkbenchService:
         save_as: bool = False,
         profile_name: str = "",
         model_root: str = "models",
-        model_path_actions: Any = None,
     ) -> dict[str, Any]:
         path = self.managed_path(requested)
         if not save_as and path.name in self.generated_solutions:
-            return self.update_solution(path, pipeline, expected_revision, profile_name, model_root, model_path_actions)
+            return self.update_solution(path, pipeline, expected_revision, profile_name, model_root)
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
@@ -463,7 +463,6 @@ class WorkbenchService:
                     "文件已被 IDE 或 Git 修改，请重新加载或另存",
                     409,
                 )
-            self.check_unmanaged_deployment(path, pipeline)
         if save_as and path.exists():
             raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
@@ -489,40 +488,8 @@ class WorkbenchService:
             deployment=self.deployment_info(path.name),
         )
 
-    def check_unmanaged_deployment(self, path: Path, pipeline: Any) -> None:
-        """Do not silently preserve model overrides from an unowned sidecar."""
-        conf_path = path.with_suffix(".conf")
-        if not conf_path.is_file():
-            return
-        try:
-            conf = read_json(conf_path)
-            reference = conf.get("pipe_path")
-            points_here = isinstance(reference, str) and any(
-                (base / reference).resolve() == path.resolve()
-                for base in (PROJECT_ROOT, conf_path.parent)
-            )
-            if not points_here:
-                return
-            original = read_json(path)
-            overrides = original.get("deployment", {}).get("model_paths")
-        except (OSError, ValueError, AttributeError, TypeError):
-            return
-        if isinstance(overrides, dict) and overrides:
-            def model_paths(document: Any) -> dict:
-                models = document.get("models", []) if isinstance(document, dict) else []
-                return {model.get("model_id"): model.get("model_path", "")
-                        for model in models if isinstance(model, dict)} if isinstance(models, list) else {}
-            if model_paths(original) == model_paths(pipeline):
-                return
-            raise StudioError(
-                "DEPLOYMENT_CONFLICT",
-                f"已保存的 {path.name} 中 deployment.model_paths 可能覆盖本次 models[].model_path 修改。此方案不由当前会话管理；请在外部编辑器中检查并同步这两个字段，或另存为可运行方案。",
-                409,
-            )
-
     def update_solution(self, path: Path, pipeline: Any, expected_revision: str | None,
-                        profile_name: str = "", model_root: str = "models",
-                        model_path_actions: Any = None) -> dict[str, Any]:
+                        profile_name: str = "", model_root: str = "models") -> dict[str, Any]:
         with self.solution_lock:
             managed = self.generated_solutions[path.name]
             conf_path = managed["conf_path"]
@@ -537,8 +504,7 @@ class WorkbenchService:
 
             old_json, _ = check_revisions()
             profile, conf = self.deployment_candidate(
-                pipeline, profile_name, model_root, path.name,
-                model_path_actions=model_path_actions)
+                pipeline, profile_name, model_root, path.name)
             report = self.validate(pipeline)
             if not report.get("ok"):
                 raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
@@ -612,20 +578,9 @@ class WorkbenchService:
 
     def deployment_candidate(
         self, pipeline: Any, profile_name: str = "", model_root: str = "models",
-        filename: str = "", conf_name: str = "", model_path_actions: Any = None,
+        filename: str = "", conf_name: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Build one deployment snapshot shared by preview, run and save."""
-        models = {m["model_id"]: m for m in pipeline.get("models", [])}
-        actions = {} if model_path_actions is None else model_path_actions
-        if not isinstance(actions, dict):
-            raise StudioError("INVALID_MODEL_PATH_ACTION", "模型路径选择必须是对象")
-        for mid, choice in actions.items():
-            if (mid not in models or not isinstance(choice, dict)
-                    or set(choice) != {"path", "action"}
-                    or not isinstance(choice["path"], str)
-                    or choice["path"] != models[mid].get("model_path")
-                    or choice["action"] not in ("select_asset", "preserve_override")):
-                raise StudioError("INVALID_MODEL_PATH_ACTION", f"模型 {mid} 的路径选择无效或已过期")
         if conf_name:
             requested_conf = self.managed_conf_path(conf_name, must_exist=True)
             if not filename:
@@ -656,25 +611,6 @@ class WorkbenchService:
         if SELECTION.pipeline_binding(original) != SELECTION.pipeline_binding(pipeline):
             raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变 I/O 契约，请另存方案")
         profile = self.profile_inputs(pipeline, profile_name)[0] if profile_name else copy.deepcopy(managed["profile"])
-        overrides = copy.deepcopy(original.get("deployment", {}).get("model_paths", {}))
-        old_models = {m["model_id"]: m for m in original.get("models", [])}
-        for mid in list(overrides):
-            if mid not in models:
-                del overrides[mid]
-        for mid, model in models.items():
-            choice = actions.get(mid)
-            if choice and choice["action"] == "select_asset":
-                temp_pipe = {"models": [model]}
-                self.run_conf(temp_pipe, {}, path, model_root)
-                overrides[mid] = temp_pipe.get("deployment", {}).get("model_paths", {}).get(mid, "")
-            elif (not choice and mid in overrides and mid in old_models
-                  and model.get("model_path") != old_models[mid].get("model_path")):
-                raise StudioError("DEPLOYMENT_PATH_INTENT_REQUIRED",
-                                  f"模型 {mid} 的路径已改变，请明确选择保留部署覆盖或采用新资产路径", 409)
-        if overrides:
-            pipeline.setdefault("deployment", {})["model_paths"] = overrides
-        elif "deployment" in pipeline and "model_paths" in pipeline["deployment"]:
-            del pipeline["deployment"]["model_paths"]
         if "io" in original.get("deployment", {}):
             pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
         return profile, {"pipe_path": path.name}
@@ -865,7 +801,6 @@ class WorkbenchService:
         conf_name: str = "",
         model_root: str = "models",
         filename: str = "",
-        model_path_actions: Any = None,
     ) -> dict[str, Any]:
         report = self.validate(pipeline, explain=True)
         if not report.get("ok"):
@@ -904,7 +839,7 @@ class WorkbenchService:
                 )
 
             profile_obj, conf_data = self.deployment_candidate(
-                pipeline, profile_name, model_root, filename, conf_name, model_path_actions)
+                pipeline, profile_name, model_root, filename, conf_name)
             staged_pipe.write_text(json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8")
             staged_conf_data = {"pipe_path": staged_pipe.name}
             staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
@@ -969,13 +904,12 @@ class WorkbenchService:
 
 
     def start_run(self, pipeline: Any, profile_name: str, model_root: str = "models",
-                  filename: str = "", conf_name: str = "",
-                  model_path_actions: Any = None) -> dict[str, Any]:
+                  filename: str = "", conf_name: str = "") -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         profile, conf = self.deployment_candidate(
-            pipeline, profile_name, model_root, filename, conf_name, model_path_actions)
+            pipeline, profile_name, model_root, filename, conf_name)
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
                 raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)
@@ -1146,7 +1080,7 @@ def make_handler(service: WorkbenchService):
             elif method == "GET" and path == "/api/v1/assets":
                 payload = service.assets()
             elif method == "POST" and path == "/api/v1/selection":
-                payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""))
+                payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""), body.get("model_root", "models"))
             elif method == "GET" and path == "/api/v1/profiles":
                 payload = service.profiles()
             elif method == "GET" and path == "/api/v1/pipelines":
@@ -1192,7 +1126,6 @@ def make_handler(service: WorkbenchService):
                     conf_name=body.get("conf_path", "") or body.get("conf_name", ""),
                     model_root=body.get("model_root", "models"),
                     filename=body.get("filename", ""),
-                    model_path_actions=body.get("model_path_actions"),
                 )
             elif method == "POST" and path == "/api/v1/deployment/associate":
                 payload = service.associate_deployment(
@@ -1222,13 +1155,12 @@ def make_handler(service: WorkbenchService):
                     save_as=False,
                     profile_name=body.get("profile", ""),
                     model_root=body.get("model_root", "models"),
-                    model_path_actions=body.get("model_path_actions"),
                 )
             elif method == "POST" and path == "/api/v1/runs":
                 payload = service.start_run(
                     body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models"),
                     filename=body.get("filename", ""), conf_name=body.get("conf_name", ""),
-                    model_path_actions=body.get("model_path_actions"))
+                )
             elif method == "DELETE" and path.startswith("/api/v1/runs/"):
                 payload = service.cancel_run(path.rsplit("/", 1)[-1])
             else:

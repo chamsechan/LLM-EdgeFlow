@@ -19,19 +19,20 @@
 Node 的检索数、生成预算、模板等业务参数放在 Node `config`，字段说明与默认值通过
 `describe-node` 或 Studio 属性查看。未声明为 Control 的参数在重新创建 handle 后生效。
 
-Pipeline JSON 根对象的 `deployment.model_paths` 可覆盖 `models` 中的权重路径。`.conf` 仅包含 `pipe_path` 定位该 JSON。使用现有部署文件时，更新
-或移除相应覆盖后，查看与 Operator Create 同一解析器得到的结果：
+Pipeline JSON 的 `models[].model_path` 是权重路径的唯一配置来源，相对路径以宿主传入的部署根为基准。
+`.conf` 仅包含 `pipe_path` 定位该 JSON。更新模型条目的路径后，查看与 Operator Create 同一解析器得到的结果：
 
 ```bash
 ./build/alg_pipeline_tool resolve-conf configs/pipeline_keyword_match_rules.conf --root . --depth 2
 ```
 
 `--root` 是部署根目录，默认当前目录；`--depth` 与 Demo 的 batch size、depth 两者最大值
-一致，省略时为 Operator 默认值 25。响应中的 `model_paths` 标明每个模型路径的来源与
-解析结果，`effective_pipeline` 包含 Node/Model/Backend 默认值，`output_pools` 按逻辑槽位给出容量。
+一致，省略时为 Operator 默认值 25。响应中的 `configuration.model_paths` 列出每个模型路径的
+解析结果，来源统一为 `pipeline.models.model_path`；该字段是观测报告，不是配置字段。
+`effective_pipeline` 包含 Node/Model/Backend 默认值，`output_pools` 按逻辑槽位给出容量。
 非法部署字段、输出池容量和 Pipeline 会直接报错。此命令不加载权重，不证明业务效果。
 
-Studio 的“另存为可运行方案”和“运行草稿”共用配置生成与原生预检，按当前模型选择重建
+Studio 的“另存为可运行方案”和“运行草稿”共用配置生成与原生预检，使用模型条目中已保存的
 路径。检查后用生成的命令运行样本，再执行下文效果验收；JSON 校验通过不能代替这一步。
 
 ## 资产清单
@@ -40,11 +41,12 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 
 - 下载命令仍为 `./scripts/fetch_real_test_models.sh --all`、`--kite`、`--whisper` 或 `--gguf-only`，精确 URL 和 SHA 统一从清单读取。
 - 清单中的 Model/Backend 配置是可选择的起点；兼容性仍由当前执行文件的 Catalog 校验。
+- 清单路径相对资产目录；Pipeline 的 `models[].model_path` 相对宿主部署根；tokenizer、运行配置等 sidecar 路径相对实际模型所在目录解析。
 - 变更 tokenizer/运行配置路径后不会借用旧组合的校验结论，而会变为 `unregistered`。接入新资产时，补充清单中的 `artifacts`、`selections.paths` 与完整 `files`，再实际校验。
 - 零字节占位模型与未注册资产不会通过选择检查。
 - SHA 匹配证明文件身份；模型是否能加载、是否满足业务需求，仍需实际执行验收。
 
-资产检查示例（检查器的模型根直接包含权重；先准备上文模型资产）：
+资产检查示例（先准备上文模型资产）：
 
 ```bash
 cmake --preset default-cpu
@@ -52,9 +54,12 @@ cmake --build --preset default-cpu --target alg_pipeline_tool alg_demo
 python3 tools/verify_selection.py check \
   --pipeline configs/pipeline_doc_qa_default.json \
   --tool build/variants/default-cpu/alg_pipeline_tool \
-  --model-root models --variant default-cpu \
+  --model-root models --pipeline-root . --variant default-cpu \
   --output results/docqa-selection.json
 ```
+
+`--model-root` 指定资产清单路径的基准目录，默认仓库的 `models/`；`--pipeline-root`
+指定模型条目路径的宿主根，默认仓库根目录。调整资产目录不会覆盖 Pipeline 中已保存的模型路径。
 
 `default-cpu` preset 包含 whisper.cpp；日常完整门禁的 `build/` 默认关闭它，不能直接作为
 该 preset 的匹配产物。`--variant` 只校验 Backend 集合，不选择可执行文件；使用 preset
@@ -88,7 +93,9 @@ python3 tools/verify_selection.py check \
 
 复用现有 `alg_demo` 的样例读取、宿主载体构造和 SDK 执行路径；业务请求的解包与响应
 组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-operator-接口为边界)。
-验收器为选定 Pipeline 生成临时 `.conf`，从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io` 输出池配置，按 `--model-root` 生成模型路径并写入临时 Pipeline 的 `deployment.model_paths`。
+验收器在 `--pipeline-root` 指定的宿主根内生成临时 Pipeline 和 `.conf`，保留所选 Pipeline 的
+`models[].model_path`，并从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io`
+输出池配置。`--model-root` 仅用于资产清单校验，不改写模型条目中的路径。
 
 验收固定使用 CPU、device 0、batch 1；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
 

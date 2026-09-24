@@ -238,9 +238,9 @@ try {
   await page.click('#quickValidateButton');
   await page.waitForFunction(() => document.querySelector('#validationOutput').textContent.includes('校验通过'));
   assert.ok((await json()).models.some(model => model.model_id === 'browser_model'));
-  const renamedPaths = (await json()).deployment.model_paths;
-  assert.equal(renamedPaths.browser_model, originalMulti.deployment.model_paths[originalMulti.models[0].model_id]);
-  assert.equal(Object.hasOwn(renamedPaths, originalMulti.models[0].model_id), false);
+  const renamedModel = (await json()).models.find(model => model.model_id === 'browser_model');
+  assert.equal(renamedModel.model_path, originalMulti.models[0].model_path);
+  assert.equal(Object.hasOwn((await json()).deployment, 'model_paths'), false);
   await page.click('#undoButton');
   assert.deepEqual(await json(), originalMulti);
   await page.click('[data-tab="json"]'); await page.locator('#rawJson').fill('{ broken');

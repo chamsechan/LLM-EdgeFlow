@@ -1,8 +1,13 @@
 # 示例方案配置
 
-文件统一采用 `pipeline_<方案>_<变体>.json`，同名 `.conf` 仅保存 `pipe_path`，部署设置位于 Pipeline 的 `deployment`。
+文件统一采用 `pipeline_<方案>_<变体>.json`，同名 `.conf` 仅保存 `pipe_path`，接入绑定与输出容量位于 Pipeline 的 `deployment.io`。
 方案文件保持平铺，Pipeline Studio 可直接发现、打开并另存；测试替身方案继续位于
 `demo/fixtures/mock/`。Model、Backend、权重和节点参数以文件内容与原生 Catalog 为准。
+
+模型路径只填写在 `models[].model_path`，相对路径以宿主传入的模型根目录为基准。
+以仓库根目录为宿主根时，仓内权重路径应包含 `models/` 前缀。
+旧 `deployment.model_paths` 字段不再接受；迁移时将其中的生效路径移到对应模型条目后删除该字段。
+`model_config` 保存模型语义参数，`backend_config` 保存后端执行参数，两者职责独立。
 
 `default` 保留原始方案参数；`cpu` 是开源 Backend 的 CPU 演示配置（ASR 需启用 whisper.cpp）；`kite`
 使用可选 Kite Backend（部分方案同时使用 ONNX Runtime）；`rules` 只运行规则节点。

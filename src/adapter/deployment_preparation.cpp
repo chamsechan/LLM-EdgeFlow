@@ -1,9 +1,7 @@
 #include "adapter/deployment_preparation.h"
 
 #include <algorithm>
-#include <cctype>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/io_binding_registry.h"
@@ -199,66 +197,20 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     local_output_params[slot.slot_name] = std::move(param_text);
   }
 
-  // S5: 应用模型路径覆盖并记录来源
-  std::unordered_map<std::string, size_t> model_id_to_index;
-  for (size_t i = 0; i < original_config.models.size(); ++i) {
-    model_id_to_index[original_config.models[i].model_id] = i;
-  }
-
-  if (document.contains("deployment") && document["deployment"].is_object() &&
-      document["deployment"].contains("model_paths") &&
-      document["deployment"]["model_paths"].is_object()) {
-    for (const auto& [mid, _] : document["deployment"]["model_paths"].items()) {
-      if (model_id_to_index.find(mid) == model_id_to_index.end()) {
-        if (diagnostic) {
-          std::string ptr = "/deployment/model_paths/" + EscapeJsonPointer(mid);
-          diagnostic->code = "UNKNOWN_MODEL_ID";
-          diagnostic->path = ptr;
-          diagnostic->message = "Unknown model_id '" + mid +
-                                "' in '/deployment/model_paths' (at " + ptr +
-                                ")";
-        }
-        return false;
-      }
-    }
-  }
-
-  std::vector<std::string> model_path_source_pointers(
-      original_config.models.size());
-  for (size_t i = 0; i < original_config.models.size(); ++i) {
-    model_path_source_pointers[i] =
-        "/models/" + std::to_string(i) + "/model_path";
-  }
-
-  nlohmann::json staged_neutral_json = doc_split.neutral_pipeline_json;
-  std::unordered_set<std::string> overridden_model_ids;
-  if (doc_split.deployment.has_model_paths) {
-    for (const auto& [mid, override_path] : doc_split.deployment.model_paths) {
-      auto it = model_id_to_index.find(mid);
-      if (it != model_id_to_index.end()) {
-        size_t idx = it->second;
-        staged_neutral_json["models"][idx]["model_path"] = override_path;
-        overridden_model_ids.insert(mid);
-        model_path_source_pointers[idx] =
-            "/deployment/model_paths/" + EscapeJsonPointer(mid);
-      }
-    }
-  }
-
-  // S6: 按模式处理有效路径
+  // S5: 按模式解析模型条目的唯一路径。
   nlohmann::json resolved_neutral_json;
   if (options.path_mode == DeploymentPathMode::kUnderRoot) {
     std::string model_err;
     if (!ResolveDeploymentModelPaths(
-            staged_neutral_json, options.model_root_dir, &resolved_neutral_json,
-            &model_err, overridden_model_ids, diagnostic)) {
+            doc_split.neutral_pipeline_json, options.model_root_dir,
+            &resolved_neutral_json, &model_err, diagnostic)) {
       return false;
     }
   } else {
-    resolved_neutral_json = std::move(staged_neutral_json);
+    resolved_neutral_json = std::move(doc_split.neutral_pipeline_json);
   }
 
-  // S7: 构造中性 I/O 边界，发布准备结果
+  // S6: 构造中性 I/O 边界，发布准备结果
   PipelineIoBoundary io_boundary;
   for (const auto& port : in_conv->logical_ports) {
     std::string key = port.logical_name;
@@ -291,8 +243,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   local_prep.effective_max_batch_size = max_batch;
   local_prep.output_specs = std::move(local_output_specs);
   local_prep.output_parameter_texts = std::move(local_output_params);
-  local_prep.overridden_model_ids = std::move(overridden_model_ids);
-  local_prep.model_path_source_pointers = std::move(model_path_source_pointers);
   local_prep.neutral_pipeline_json = std::move(resolved_neutral_json);
   local_prep.io_boundary = std::move(io_boundary);
 
@@ -300,68 +250,31 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   return true;
 }
 
-void ProjectModelPathDiagnostics(const PreparedDeployment& prepared,
-                                 ValidationReport* report) {
+void ProjectDeploymentDiagnostics(ValidationReport* report) {
   if (!report) return;
 
   for (auto& diag : report->diagnostics) {
     if (diag.path == "/biz_name") {
       diag.path = "/deployment/io/io_binding";
     }
-    if (diag.path.rfind("/models/", 0) == 0) {
-      auto second_slash = diag.path.find('/', 8);
-      if (second_slash != std::string::npos &&
-          diag.path.substr(second_slash) == "/model_path") {
-        std::string idx_str = diag.path.substr(8, second_slash - 8);
-        if (!idx_str.empty() &&
-            std::all_of(idx_str.begin(), idx_str.end(), ::isdigit)) {
-          size_t idx = std::stoul(idx_str);
-          if (idx < prepared.model_path_source_pointers.size()) {
-            diag.path = prepared.model_path_source_pointers[idx];
-          }
-        }
-      }
-    }
+    if (!diag.remediation.has_value()) continue;
 
-    if (diag.remediation.has_value()) {
-      auto& fixes = diag.remediation->fixes;
-      fixes.erase(
-          std::remove_if(
-              fixes.begin(), fixes.end(),
-              [&](const ValidationFix& fix) {
-                if (!fix.patch.is_array()) return false;
-                for (const auto& op : fix.patch) {
-                  if (op.is_object() && op.contains("path") &&
-                      op["path"].is_string()) {
-                    std::string p = op["path"].get<std::string>();
-                    // The business identity is derived, never an editable field
-                    // in the external document.
-                    if (p == "/biz_name") return true;
-                    if (p.rfind("/models/", 0) == 0) {
-                      auto second_slash = p.find('/', 8);
-                      if (second_slash != std::string::npos &&
-                          p.substr(second_slash) == "/model_path") {
-                        std::string idx_str = p.substr(8, second_slash - 8);
-                        if (!idx_str.empty() &&
-                            std::all_of(idx_str.begin(), idx_str.end(),
-                                        ::isdigit)) {
-                          size_t idx = std::stoul(idx_str);
-                          if (idx <
-                              prepared.model_path_source_pointers.size()) {
-                            if (prepared.model_path_source_pointers[idx].rfind(
-                                    "/deployment/model_paths/", 0) == 0) {
-                              return true;
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                return false;
-              }),
-          fixes.end());
-    }
+    auto& fixes = diag.remediation->fixes;
+    fixes.erase(std::remove_if(fixes.begin(), fixes.end(),
+                               [](const ValidationFix& fix) {
+                                 if (!fix.patch.is_array()) return false;
+                                 for (const auto& op : fix.patch) {
+                                   // Business identity is derived, not editable
+                                   // in the external document. Model paths
+                                   // remain editable.
+                                   if (op.is_object() && op.contains("path") &&
+                                       op["path"] == "/biz_name") {
+                                     return true;
+                                   }
+                                 }
+                                 return false;
+                               }),
+                fixes.end());
   }
 }
 

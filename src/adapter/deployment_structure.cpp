@@ -50,11 +50,7 @@ const nlohmann::json& OutputAllocationStructure() {
 
 const nlohmann::json& DeploymentStructure() {
   static const Json shape = Object(
-      {{"model_paths",
-        {{"type", "object"},
-         {"propertyNames", NonemptyString()},
-         {"additionalProperties", NonemptyString()}}},
-       {"io",
+      {{"io",
         Object({{"io_binding", NonemptyString()},
                 {"out_mem",
                  {{"type", "object"},
