@@ -115,7 +115,7 @@ flowchart TD
 
 | 文件 | 负责什么 | 示例 |
 | :--- | :--- | :--- |
-| Pipeline JSON | 节点、依赖、类型端口、模型与算法参数；`deployment` 声明接入绑定、模型路径覆盖与输出容量 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
+| Pipeline JSON | 节点、依赖、类型端口、模型路径与算法参数；`deployment.io` 声明接入绑定与输出容量 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
 | 部署 `.conf` | 仅用 `pipe_path` 指向 Pipeline JSON | [pipeline_keyword_match_rules.conf](configs/pipeline_keyword_match_rules.conf) |
 | Demo Profile（可选） | 运行预设：业务、配置、数据集和批大小等 | [demo/profiles.json](demo/profiles.json) |
 

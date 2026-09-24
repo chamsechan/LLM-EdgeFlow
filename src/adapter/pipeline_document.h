@@ -2,7 +2,6 @@
 
 #include <nlohmann/json.hpp>
 #include <string>
-#include <unordered_map>
 
 #include "contracts/json_pointer.h"
 
@@ -17,11 +16,9 @@ struct DeploymentIoSection {
 };
 
 /**
- * @brief 部署配置定义 (RFC-0061: 包含模型路径覆盖与 I/O 接入配置)
+ * @brief 部署配置定义：仅包含 I/O 接入配置
  */
 struct DeploymentSection {
-  std::unordered_map<std::string, std::string> model_paths;
-  bool has_model_paths = false;
   DeploymentIoSection io;
 };
 
@@ -38,8 +35,7 @@ struct PipelineDocumentSplit {
  *
  * 严格校验 deployment:
  * - 根中必须有 deployment；拒绝根级 biz_name
- * - deployment 必须为对象，且只允许 model_paths 与 io 键
- * - model_paths 若存在必须为对象，键为 model_id，值为非空字符串路径
+ * - deployment 必须为对象，且只允许 io 键
  * - io 必须为对象，含必需的 io_binding 和可选的 out_mem
  * - neutral_pipeline_json 为移除已校验 deployment
  * 后的副本，保留所有其他根字段供 Core 校验

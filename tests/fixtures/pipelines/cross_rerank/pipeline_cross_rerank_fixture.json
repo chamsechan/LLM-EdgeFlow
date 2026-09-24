@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "rerank_model_v1": "rerank_fixture.onnx"
-    },
     "io": {
       "io_binding": "cross_rerank.operator.v1"
     }

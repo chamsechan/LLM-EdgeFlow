@@ -1387,7 +1387,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
             std::string::npos);
 
-  // 5. Unknown model_id in model_paths rejected
+  // 5. Removed deployment model_paths is rejected as an unknown field
   nlohmann::json unknown_mid_json = {
       {"deployment",
        {{"model_paths", {{"non_existent_model", "dummy_path"}}},
@@ -1403,10 +1403,8 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "./models",
                                                    &plan, &error);
   EXPECT_EQ(ret, -2);
-  EXPECT_NE(
-      error.find(
-          "Unknown model_id 'non_existent_model' in '/deployment/model_paths'"),
-      std::string::npos)
+  EXPECT_NE(error.find("Unknown field at /deployment/model_paths"),
+            std::string::npos)
       << "actual error was: " << error;
 }
 

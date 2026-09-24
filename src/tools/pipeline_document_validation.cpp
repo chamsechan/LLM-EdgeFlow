@@ -45,7 +45,7 @@ DocumentValidationResult ValidatePipelineDocument(
                                        &prepared.io_boundary)
           : PipelineValidator::Validate(prepared.neutral_pipeline_json,
                                         &prepared.io_boundary);
-  ProjectModelPathDiagnostics(prepared, &report);
+  ProjectDeploymentDiagnostics(&report);
   result.ok = report.ok;
   result.response = report.ToJson();
   if (mode == DocumentValidationMode::kPlan && report.ok)

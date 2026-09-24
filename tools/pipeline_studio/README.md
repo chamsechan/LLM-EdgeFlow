@@ -147,7 +147,7 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 [RFC-0071 的简化契约](../../doc/rfcs/0071-pipeline-configuration-simplicity.md)。
 工具支持新增、删除、重命名节点、连接、断开和单独增删执行依赖。无需补数据依赖，输入也没有
 隐式同名绑定。外部文档必须指定 `deployment.io.io_binding`，在 `validate`、`plan`、`edit` 中统一执行部署准备：
-原始模型路径必须为合法非空字符串，`deployment.model_paths` 覆盖不得掩盖非法原始声明；
+模型路径仅保存在 `models[].model_path`，必须为合法非空字符串；
 `edit` 同样严格校验未知 I/O 绑定或非法输出分配。
 
 编排或修改 Pipeline 时，应先查询 Catalog 与节点 Definition，再执行 validate 和 plan。完整开发流程参见项目的 `pipeline-composer` skill 与[开发者指南](../../doc/developer_guide.md)。
@@ -179,36 +179,35 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
 
 ### 运行当前方案
 
-Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接入绑定、输出容量与模型路径覆盖）；`.conf` 仅包含 `pipe_path` 用于定位 Pipeline JSON；Profile 保存 Demo 的
+Pipeline JSON 描述算法连线，`models[].model_path` 保存唯一模型路径，`deployment.io` 保存接入绑定和输出容量；`.conf` 仅包含 `pipe_path` 用于定位 Pipeline JSON；Profile 保存 Demo 的
 配置、数据集和执行参数。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
 并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与 I/O 契约匹配的 Profile，
-复用其数据集与运行选项，并从它指向的 Pipeline 读取输出分配配置。模型目录默认为 `models`；引用
-`demo/fixtures/...` 的测试方案填 `.`。模型路径按当前 Pipeline 重建，避免旧 Profile
-的路径覆盖刚选择的权重。运行与已保存方案各自的展开区显示原生部署解析结果，已保存方案同时提供完整命令。
+复用其数据集与运行选项，并从它指向的 Pipeline 读取输出分配配置。模型路径相对项目根解析，
+例如 `models/model.onnx` 或 `demo/fixtures/mock/artifacts/neutral-llm.fixture`。新选资产目录默认为 `models`，
+仅在资产表单选择新资产时生成模型路径；修改该目录不会改写已有模型条目。运行与已保存方案各自的展开区显示原生部署解析结果，已保存方案同时提供完整命令。
 
 运行页的“检查运行条件”独立调用原生部署解析，不加载模型、不执行 Demo；摘要区分配置检查与
 文件存在性，不能代替实际加载和效果验收。方案、部署关联或运行设置改变后，旧摘要标为过期。
 
 本次服务会话创建的配套文件，以及运行页“关联部署配置”明确关联的已有文件，后续点击“保存”
 会同步 JSON 和 `.conf`。关联本身不写文件，并校验该 conf 确实指向当前保存的 Pipeline。
-预检、运行和保存共用候选配置。关联后，Profile 提供数据集及运行选项，模型覆盖和输出分配
-来自已关联 Pipeline 的 `deployment`。模型表单中换资产只改对应覆盖；原始 JSON 改动已有部署覆盖的路径时，在运行页明确
-选择“保留当前部署覆盖”或“将新路径作为所选模型目录下的资产”。未明确选择时服务拒绝运行和保存。
+预检、运行和保存共用候选配置。关联后，Profile 提供数据集及运行选项，输出分配
+来自已关联 Pipeline 的 `deployment.io`。模型表单和原始 JSON 都直接修改 `models[].model_path`；
+模型重命名只同步节点引用，保存与运行使用当前模型条目中的路径。
 两份文件都会检查修改冲突，预检失败不会写入。
 更新后的运行命令和解析结果会一起刷新。详情面板的“保存目标”来自服务端，打开或
 保存后列明本次普通保存会写入的文件；按钮悬停也可查看。保存成功显示实际文件名，
 保存或运行遇到 Validator 错误时展示可定位诊断；文件冲突以持续可见的提示展示。
 
-其他方案的普通“保存”/“另存”只写 JSON。服务重启后也不会自动接管已有 `.conf`；若
-同名配套 `.conf` 指向当前方案，且已保存 Pipeline 的 `deployment.model_paths` 可能覆盖
-本次模型路径或 ID 修改，保存会提示核对该 Pipeline 的部署配置。可在运行页明确关联
-配套文件后继续成套编辑，也可在外部更新 Pipeline 并用 `resolve-conf` 检查，或另存可运行副本。
+其他方案的普通“保存”/“另存”只写 JSON。服务重启后不会自动接管已有 `.conf`，
+模型路径仍可直接保存。可在运行页明确关联配套文件后继续成套编辑，也可在外部更新 Pipeline
+并用 `resolve-conf` 检查，或另存可运行副本。
 
 若手动使用只写 JSON 的路径，需自行配套 `.conf`：
 
 完成上述练习后，复制 `configs/pipeline_keyword_match_rules.conf` 为
 `configs/pipeline_first_solution.conf`（已有同名文件时直接编辑），将其中
-`pipe_path` 改为 `pipeline_first_solution.json`（相对 `.conf` 所在目录）；部署 I/O 绑定、输出分配与模型路径覆盖直接在 `pipeline_first_solution.json` 的 `deployment` 根对象下配置。
+`pipe_path` 改为 `pipeline_first_solution.json`（相对 `.conf` 所在目录）；部署 I/O 绑定与输出分配在 `pipeline_first_solution.json` 的 `deployment.io` 下配置，模型路径在 `models[].model_path` 中配置。
 从仓库根目录执行：
 
 ```bash
@@ -244,7 +243,7 @@ Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算�
 每份方案显式填写 `deployment.io.io_binding`，无需填写根级 `biz_name`。
 `deployment.io.out_mem` 可省略，必需输出采用注册默认分配；可选输出通过显式槽位配置启用。
 输出类型由注册槽位确定；非默认容量、分配器和布局参数在 `out_mem` 中覆盖。
-复用其他配置时，还要核对 Pipeline `deployment.model_paths` 的模型路径覆盖和 `deployment.io.out_mem` 输出池容量是否适合
+复用其他配置时，还要核对 Pipeline `models[].model_path` 的模型路径和 `deployment.io.out_mem` 输出池容量是否适合
 当前方案；Pipeline 校验不代表部署资源可加载。Demo 默认不发送内置
 热更新覆盖所选规则或提示词，显式 `--control-file` 仍会执行，应只在需要该更新时提供。
 
@@ -253,13 +252,13 @@ Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算�
 优先。详见[第一个 Control](../../doc/dev_guide/first_control.md)。
 
 Studio 为草稿生成项目内的临时 JSON 和 `.conf`。未关联部署时，从 Profile 指向的 Pipeline
-复用输出分配配置，按“模型目录”和当前 Pipeline 重建 `deployment.model_paths`，并使用原生
+复用输出分配配置，保留当前 Pipeline 的 `models[].model_path`，并使用原生
 解析器预检；运行结束清理临时文件。草稿运行
 使用配置初值，Control 练习通过 CLI 显式下发。解析成功说明部署配置可接受，不代表模型
 已加载；日志和样本结果用于确认实际执行。
 运行页先展示运行状态、Demo 返回的成功/失败样本数和可展开的逐请求输出，再按需查看
 日志与原始 JSON。样本卡片最多展示前 50 条，完整内容在原始结果中。运行记录包含提交时
-的方案名、时间、Profile 和模型目录；方案、表单草稿或运行设置变化后，旧结果会标记为
+的方案名、时间、Profile 和新选资产目录；方案、表单草稿或运行设置变化后，旧结果会标记为
 提交时的版本。撤销回到相同内容和设置后可恢复匹配状态。切换文档会隔离旧结果，即使
 任务启动或轮询稍后返回也不会填入新文档；仍在执行的任务可在运行页取消。同一服务仍
 仅允许一个任务，页面不保存跨刷新运行历史。进程完成与样本成功分别展示。
@@ -280,6 +279,8 @@ Studio 为草稿生成项目内的临时 JSON 和 `.conf`。未关联部署时�
 
 画布按具体端口连线，显示业务输入/输出，生成节点顶层 `inputs` / `outputs`；数据依赖由框架推导。
 模型页支持 Model/Backend 完整字段、资产组合及当前构建的兼容检查。
+选择资产时，主模型路径相对项目根，词表等附属文件相对模型文件所在目录；
+资产模板若将附属文件放在模型目录之外，需在模型表单中填写可用的绝对附属文件路径。
 无兼容 Backend 的 Model 类型会标注“当前构建无兼容 Backend”，选择后显示缺失的协议，
 并禁止提交该模型组合；已有不可用模型仍可浏览。兼容提示来自 Catalog，不能代替模型
 资产、设备和业务效果验收。

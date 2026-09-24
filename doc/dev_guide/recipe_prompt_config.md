@@ -32,14 +32,15 @@ JSON 中只有真正完成的步骤会进入 `completed_steps`，效果结果保
 
 以下 Profile 提供仓库维护的确定性样例：
 
-| Profile | 默认效果文件 | 模型根与清单 |
+| Profile | 默认效果文件 | 资产目录与清单 |
 | --- | --- | --- |
 | keyword_match_rules | tests/fixtures/effects/keyword_exact.json | models；models/asset_manifest.json |
 | entity_extract_mock | tests/fixtures/effects/entity_mock_exact.json | 项目根；tests/fixtures/asset_manifest_test.json |
 | entity_extract_custom_mock | 同上 | 同上 |
 
 其他 Profile 必须在 prepare 提供 `--effects`；模型位于其他资产包时同时提供 `--model-root`
-和 `--manifest`。这些路径会被完整带入生成的 verify 命令。效果样例使用其自身 dataset，
+和 `--manifest`。`--model-root` 是清单资产目录，Pipeline 模型路径仍相对宿主根，sidecar 路径相对实际模型目录。
+这些路径会被完整带入生成的 verify 命令。效果样例使用其自身 dataset，
 不会被 Profile 的 dataset 静默替换。
 
 mock 使用仓库自有的中性文本 fixture，结果仅证明任务与验收工具正确工作。真实模型质量与设备

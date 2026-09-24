@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-24 模型路径单一来源（RFC-0075）
+
+- 模型路径统一写入 `models[].model_path`，删除 `deployment.model_paths` 及覆盖优先级；`deployment` 仅管理 I/O 接入与输出内存。
+- 同步配置、解析器、Schema、CLI、Studio、Recipe 与效果验证，模型编辑直接决定实际部署路径。
+- 保留模型根目录与路径安全检查，`model_config` 和 `backend_config` 继续分别配置模型语义与后端执行参数。
+
 ## 2026-09-23 删除旧配置专用处理（RFC-0074）
 
 - 删除根级业务名和 Profile 业务选择的专用迁移提示，统一按现行字段声明拒绝未知字段，不保留别名或回退。

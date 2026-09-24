@@ -466,8 +466,6 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_EQ(pipeline_json["models"].size(), 2u);
   pipeline_json["models"][0]["model_path"] = "embedding.fixture";
   pipeline_json["models"][1]["model_path"] = "llm.fixture";
-  pipeline_json["deployment"]["model_paths"] = {
-      {"embed_model_v1", "embedding.fixture"}, {"llm_model_v1", "llm.fixture"}};
 
   const std::filesystem::path model_root =
       std::filesystem::weakly_canonical(GetConfigPath("models"));

@@ -1,7 +1,7 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
 import { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
-import { pipelineBinding, compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
+import { pipelineBinding, compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel, assetModel } from "./workbench.js";
 
 import { captureRun, runIsCurrent, runSummary, renderSamples } from "./workflow.js";
 
@@ -10,7 +10,6 @@ const state = {
   pipeline: null,
   authoringBusy: false,
   deployment: null,
-  modelPathActions: {},
   preflight: null,
   filename: "",
   sourceName: "",
@@ -42,7 +41,7 @@ let pendingAction = null;
 let pendingFixReview = null;
 let preflightRequest = 0;
 
-function snapshot() { return { pipeline: state.pipeline, selected: state.selected, modelPathActions: state.modelPathActions }; }
+function snapshot() { return { pipeline: state.pipeline, selected: state.selected }; }
 
 function updateEditorStatus() {
   const pending = drafts.pending;
@@ -232,7 +231,6 @@ function renderAll() {
   renderBizContract();
   filterProfiles();
   refreshModelList();
-  renderPathIntent();
   renderPreflightFreshness();
   updateEditorStatus();
 }
@@ -473,7 +471,7 @@ async function openDocument(load) {
     state.pipeline = result.pipeline;
     state.filename = result.imported ? "" : result.filename;
     state.sourceName = result.imported ? result.filename : "";
-    state.deployment = result.deployment || null; state.modelPathActions = {};
+    state.deployment = result.deployment || null;
     if (state.deployment) $("#runModelRoot").value = state.deployment.model_root;
     state.revision = result.revision; state.saveTargets = result.save_targets || (state.filename ? [state.filename] : []); state.selected = "";
     $("#pipelineSelect").value = state.filename;
@@ -498,7 +496,7 @@ async function createPipeline() {
   try {
     const result = await write("/init", "POST", { io_binding, profile, empty: !profile });
     if (request !== documentRequest) return;
-    state.deployment = null; state.modelPathActions = {};
+    state.deployment = null;
     state.pipeline = result.pipeline; state.filename = ""; state.sourceName = ""; state.revision = ""; state.saveTargets = []; state.selected = "";
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
     resetDocumentFeedback();
@@ -528,13 +526,12 @@ async function save(saveAs, runnable = false) {
   try {
     const result = await write(runnable ? "/solutions" : saveAs ? "/pipelines" : "/pipeline", saveAs ? "POST" : "PUT", {
       filename, pipeline, revision: state.revision,
-      profile: $("#runProfile").value, model_root: $("#runModelRoot").value, model_path_actions: modelPathActions(),
+      profile: $("#runProfile").value, model_root: $("#runModelRoot").value,
     });
     if (documentVersion !== state.documentVersion) return;
     state.filename = result.filename; state.sourceName = ""; state.revision = result.revision;
     state.saveTargets = result.save_targets || [result.filename];
     state.deployment = result.deployment || null;
-    if (JSON.stringify(state.pipeline) === JSON.stringify(pipeline)) state.modelPathActions = {};
     state.savedPipeline = JSON.stringify(pipeline);
     savePositions(graph.positions);
     setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
@@ -700,7 +697,7 @@ function renderRunContext() {
   const currentDocument = run?.documentVersion === state.documentVersion;
   $("#runContext").textContent = !run ? "尚未运行" : !currentDocument
     ? `其他方案：${run.filename} · ${runBusy() ? "运行中，可取消后运行当前方案" : "已结束；当前方案尚未运行"}`
-    : `${run.filename} · ${new Date(run.startedAt).toLocaleString("zh-CN", { hour12: false })}\nProfile：${run.profile} · 模型目录：${run.modelRoot}`;
+    : `${run.filename} · ${new Date(run.startedAt).toLocaleString("zh-CN", { hour12: false })}\nProfile：${run.profile} · 新选资产目录：${run.modelRoot}`;
   const stale = currentDocument && ((run.deploymentSnapshot && run.deploymentSnapshot !== deploymentSnapshot()) || !runIsCurrent(run, {
     documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
     profile: $("#runProfile").value, modelRoot: $("#runModelRoot").value,
@@ -728,7 +725,7 @@ async function runDraft() {
   run.deploymentSnapshot = deploymentSnapshot();
   state.run = run; renderRun();
   try {
-    const result = await write("/runs", "POST", { pipeline: JSON.parse(run.pipeline), profile: run.profile, model_root: run.modelRoot, filename: state.filename, model_path_actions: modelPathActions() });
+    const result = await write("/runs", "POST", { pipeline: JSON.parse(run.pipeline), profile: run.profile, model_root: run.modelRoot, filename: state.filename });
     if (state.run !== run) return;
     run.id = result.job_id; run.job = { status: result.status || "queued" }; renderRun(); pollRun(run);
   } catch (error) {
@@ -765,15 +762,10 @@ async function ensureAppliedOrAction(action) {
   return await action();
 }
 
-function modelPathActions() {
-  return Object.fromEntries(Object.entries(state.modelPathActions || {}).filter(([id, action]) =>
-    state.pipeline?.models?.some(m => m.model_id === id && m.model_path === action.path)));
-}
-
 function deploymentSnapshot() {
   return JSON.stringify({ documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
     filename: state.filename, deployment: state.deployment, profile: $("#runProfile")?.value,
-    modelRoot: $("#runModelRoot")?.value, actions: modelPathActions() });
+    modelRoot: $("#runModelRoot")?.value });
 }
 
 function renderPreflightFreshness() {
@@ -781,31 +773,6 @@ function renderPreflightFreshness() {
   if (!summary || !state.preflight || state.preflight.snapshot === deploymentSnapshot()) return;
   summary.hidden = false; summary.className = "preflight-summary stale";
   summary.textContent = "预检已过期：方案、部署配置或运行设置已改变，请重新检查运行条件。";
-}
-
-function renderPathIntent() {
-  const container = $("#modelPathIntent");
-  if (!container) return;
-  container.replaceChildren(); container.hidden = !state.deployment;
-  if (!state.deployment) return;
-  const saved = JSON.parse(state.savedPipeline || "{}");
-  for (const model of state.pipeline?.models || []) {
-    const old = saved.models?.find(m => m.model_id === model.model_id);
-    if (!old || old.model_path === model.model_path) continue;
-    const label = document.createElement("label"); label.textContent = `${model.model_id}：${old.model_path} → ${model.model_path}`;
-    const select = document.createElement("select"); select.dataset.modelIntent = model.model_id;
-    select.add(new Option("存在部署覆盖时，请明确路径意图", ""));
-    select.add(new Option("将新路径作为所选模型目录下的资产", "select_asset"));
-    select.add(new Option("保留当前部署覆盖", "preserve_override"));
-    select.value = modelPathActions()[model.model_id]?.action || "";
-    select.addEventListener("change", () => {
-      state.modelPathActions ||= {};
-      if (select.value) state.modelPathActions[model.model_id] = { path: model.model_path, action: select.value };
-      else delete state.modelPathActions[model.model_id];
-      history.record(snapshot()); setDirty(true); renderPreflightFreshness();
-    });
-    label.append(select); container.append(label);
-  }
 }
 
 async function runPreflight() {
@@ -820,7 +787,7 @@ async function runPreflight() {
   summaryEl.textContent = "正在执行独立部署预检（无 Demo 执行）…";
   try {
     const res = await write("/preflight", "POST", {
-      pipeline: state.pipeline, filename: state.filename, model_path_actions: modelPathActions(),
+      pipeline: state.pipeline, filename: state.filename,
       profile: $("#runProfile")?.value || "",
       model_root: $("#runModelRoot")?.value || "models",
     }, true);
@@ -981,17 +948,19 @@ function updateBackendAvailability() {
 $("#assetSelect").addEventListener("change", event => {
   const asset = state.assets.find(item => item.id === event.target.value);
   if (!asset) return;
-  const model = structuredClone(asset.model);
-  $("#modelType").value = model.model_type; $("#modelPath").value = model.model_path;
-  if (!$("#modelId").value) $("#modelId").value = asset.id;
-  renderModelFields(model);
+  try {
+    const model = assetModel(asset, $("#runModelRoot").value || "models");
+    $("#modelType").value = model.model_type; $("#modelPath").value = model.model_path;
+    if (!$("#modelId").value) $("#modelId").value = asset.id;
+    renderModelFields(model);
+  } catch (error) { operationFeedback(error.message, true); }
 });
 $("#verifySelection").addEventListener("click", async () => {
   if (!state.pipeline || !requireApplied()) return;
   const version = state.pipelineVersion;
   $("#selectionReport").textContent = "正在计算资产散列并检查编译产物…";
   try {
-    const report = await write("/selection", "POST", {pipeline: state.pipeline, variant: $("#buildVariant").value}, true);
+    const report = await write("/selection", "POST", {pipeline: state.pipeline, variant: $("#buildVariant").value, model_root: $("#runModelRoot").value || "models"}, true);
     if (version !== state.pipelineVersion) return;
     const summary = [report.ok ? "配置、资产与构建检查通过。" : "选择检查未通过。", "业务效果：尚未验收。请使用 verify_selection.py evaluate 生成数据集验收记录。"];
     $("#selectionReport").textContent = summary.join("\n") + "\n" + JSON.stringify(report, null, 2);
@@ -1015,13 +984,7 @@ function applyModel() {
       model_config: readConfigFields($("#modelConfigFields")), backend_config: readConfigFields($("#backendConfigFields")),
     };
     state.pipeline.models ??= [];
-    const before = state.pipeline.models.find(m => m.model_id === editingModelId);
-    const changedPath = !before || before.model_path !== model.model_path || editingModelId !== model.model_id;
     upsertModel(state.pipeline, state.catalog, editingModelId, model);
-    if (changedPath) {
-      state.modelPathActions ||= {};
-      state.modelPathActions[model.model_id] = { path: model.model_path, action: "select_asset" };
-    }
     drafts.clear("model");
     markPipelineChanged(); renderAll(); loadModelEditor(model.model_id); toast("模型已应用，请校验方案");
     return true;
@@ -1075,7 +1038,6 @@ async function restoreHistory(direction) {
   if (!restored) return;
   const bindingChanged = pipelineBinding(state.pipeline) !== pipelineBinding(restored.pipeline) || !state.catalogReady;
   state.pipeline = restored.pipeline; state.selected = restored.selected;
-  state.modelPathActions = restored.modelPathActions || {};
   markPipelineChanged(false);
   if (bindingChanged) {
     state.loading = true; graph.editable = false;

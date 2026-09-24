@@ -3,7 +3,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "adapter/deployment_io_config.h"
 #include "adapter/io_binding.h"
@@ -27,7 +26,6 @@ struct ValidatedIoPlan {
 
   std::unordered_map<std::string, ResolvedOutputPoolSpec> operator_output_specs;
   std::unordered_map<std::string, std::string> operator_output_parameter_texts;
-  std::unordered_set<std::string> overridden_model_ids;
   // External document snapshot with resolved model paths, without derived biz.
   nlohmann::json resolved_pipeline_json;
 

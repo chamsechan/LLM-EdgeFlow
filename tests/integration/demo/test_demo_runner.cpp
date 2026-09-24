@@ -172,7 +172,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
       node["config"]["failure_policy"] = "fail";
     }
   }
-  pipeline["deployment"]["model_paths"]["entity_llm"] = "model.gguf";
+
   std::ofstream(temporary.path / "pipeline.json") << pipeline.dump(2);
   std::ofstream(temporary.path / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}}.dump(2);

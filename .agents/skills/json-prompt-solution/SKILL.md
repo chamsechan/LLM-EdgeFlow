@@ -51,7 +51,8 @@ JSON 内的 query / translated；名称不够通用并不要求全仓改名。
   `failure_policy=fail`。SDK 响应组装始终留在 Converter，不靠 Demo 投影字段。
   不用固定示例或 fallback 冒充成功。
 - `.conf` 必须指向新 Pipeline（仅包含 `pipe_path` 定位），并在 Pipeline JSON 的
-  `deployment` 中配置 `io.io_binding`、`io.out_mem` 及可选模型路径覆盖。原 Profile 不会自动指向新方案。
+  `deployment.io` 中配置 `io_binding`、`out_mem`，模型路径只在 `models[].model_path` 中填写，
+  相对路径以宿主传入的模型根目录为基准。原 Profile 不会自动指向新方案。
 
 ## 验证与交付
 

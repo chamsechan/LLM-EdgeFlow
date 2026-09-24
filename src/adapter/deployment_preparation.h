@@ -3,8 +3,6 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
-#include <vector>
 
 #include "adapter/deployment_diagnostic.h"
 #include "adapter/io_binding.h"
@@ -34,8 +32,6 @@ struct PreparedDeployment {
 
   std::unordered_map<std::string, ResolvedOutputPoolSpec> output_specs;
   std::unordered_map<std::string, std::string> output_parameter_texts;
-  std::unordered_set<std::string> overridden_model_ids;
-  std::vector<std::string> model_path_source_pointers;  // 与 models 原顺序对应
 
   nlohmann::json neutral_pipeline_json;
   PipelineIoBoundary io_boundary;
@@ -49,15 +45,13 @@ struct PreparedDeployment {
     effective_max_batch_size = 0;
     output_specs.clear();
     output_parameter_texts.clear();
-    overridden_model_ids.clear();
-    model_path_source_pointers.clear();
     neutral_pipeline_json = nullptr;
     io_boundary = PipelineIoBoundary{};
   }
 };
 
 /**
- * @brief 准备部署文档（S1–S7 共享接入准备入口，RFC-0062）
+ * @brief 准备部署文档（共享接入准备入口）
  */
 bool PrepareDeploymentDocument(const nlohmann::json& document,
                                const DeploymentPrepareOptions& options,
@@ -65,9 +59,8 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                                DeploymentDiagnostic* diagnostic);
 
 /**
- * @brief 将有效模型路径的 Core 诊断归位投影回原文档来源路径（RFC-0062）
+ * @brief 将派生业务身份诊断映射到外部 I/O 入口，保留模型字段的原始定位
  */
-void ProjectModelPathDiagnostics(const PreparedDeployment& prepared,
-                                 ValidationReport* report);
+void ProjectDeploymentDiagnostics(ValidationReport* report);
 
 }  // namespace llm_edgeflow

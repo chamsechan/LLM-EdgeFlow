@@ -127,7 +127,7 @@
             <label>Model 类型<select id="modelType" required></select></label>
             <label>Backend<select id="modelBackend" required></select></label>
             <p id="modelAvailability" class="draft-hint" role="status" hidden></p>
-            <label>模型资产路径<input id="modelPath" required placeholder="相对于 model_root_dir 的路径"></label>
+            <label>模型资产路径<input id="modelPath" required placeholder="相对项目根，例如 models/model.onnx"></label>
             <p class="field-heading">Model 参数</p><div id="modelConfigFields"></div>
             <p class="field-heading">Backend 参数</p><div id="backendConfigFields"></div>
             <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改，应用后更新方案。</p>
@@ -154,11 +154,10 @@
             <div id="bizContractFields"></div>
           </details>
           <label>运行 Profile<select id="runProfile"></select></label>
-          <details class="run-settings"><summary>模型目录：<span id="modelRootLabel">models</span></summary>
-            <label>模型目录（相对项目根）<input id="runModelRoot" value="models" placeholder="models"></label>
-            <p class="tab-description">模型路径相对该目录解析；demo/fixtures 测试方案填“.”。运行和另存均采用此设置。</p>
+          <details class="run-settings"><summary>新选资产目录：<span id="modelRootLabel">models</span></summary>
+            <label>新选资产目录（不改写现有路径）<input id="runModelRoot" value="models" placeholder="models"></label>
+            <p class="tab-description">该目录仅用于选择新资产。已有模型路径始终相对项目根解析，运行和保存保留原值。</p>
           </details>
-          <div id="modelPathIntent" hidden></div>
           <button id="preflightButton" type="button" class="full">检查运行条件（无执行预检）</button>
           <div id="preflightSummary" class="preflight-summary" hidden></div>
           <details class="associate-deployment-panel"><summary>关联部署配置（.conf）</summary>

@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "asr_model_v1": "models/ggml-base.bin"
-    },
     "io": {
       "io_binding": "audio_asr_intent.operator.v1"
     }
@@ -12,7 +9,7 @@
       "model_id": "asr_model_v1",
       "model_type": "whisper_asr",
       "backend": "whisper_cpp",
-      "model_path": "ggml-base.bin",
+      "model_path": "models/ggml-base.bin",
       "model_config": {
         "language": "zh",
         "max_audio_seconds": 30,

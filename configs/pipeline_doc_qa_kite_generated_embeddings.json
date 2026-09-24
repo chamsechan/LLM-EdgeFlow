@@ -1,9 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "embed_model_v1": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      "llm_model_v1": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    },
     "io": {
       "io_binding": "doc_qa.operator.v1"
     }
@@ -24,7 +20,7 @@
         "run_config_file": "kite_text_run.json"
       },
       "model_id": "embed_model_v1",
-      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     },
     {
       "model_type": "qwen_causal_lm",
@@ -36,7 +32,7 @@
         "run_config_file": "kite_text_run.json"
       },
       "model_id": "llm_model_v1",
-      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
   "pipeline": [

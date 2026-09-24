@@ -376,30 +376,30 @@ class RunnableSolutionTest(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-    def test_conf_rebuilds_selected_model_paths_and_honors_explicit_root(self):
+    def test_conf_preserves_single_model_path_without_adding_model_root(self):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         selected = pipeline["models"][0]["model_path"]
         saved = self.service.save_solution("pipeline_fixture.json", pipeline, "entity_extract_mock", ".")
-        self.assertEqual(saved["pipeline"]["deployment"]["model_paths"], {"entity_llm": selected})
-        pipeline["models"][0]["model_path"] = "replacement.gguf"
+        self.assertEqual(saved["pipeline"]["models"][0]["model_path"], selected)
+        pipeline["models"][0]["model_path"] = "models/replacement.gguf"
         saved = self.service.save_solution("pipeline_replaced.json", pipeline, "entity_extract_mock", "models")
-        self.assertEqual(saved["pipeline"]["deployment"]["model_paths"], {"entity_llm": "models/replacement.gguf"})
+        self.assertEqual(saved["pipeline"]["models"][0]["model_path"], "models/replacement.gguf")
+        self.assertNotIn("model_paths", saved["pipeline"]["deployment"])
         self.assertEqual(json.loads((self.configs / "pipeline_replaced.json").read_text()), pipeline)
 
     def test_ordinary_save_updates_managed_model_paths_and_node_parameters(self):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         saved = self.service.save_solution("pipeline_paired.json", pipeline, "entity_extract_mock", "models")
-        pipeline["models"][0]["model_path"] = "replacement.gguf"
+        pipeline["models"][0]["model_path"] = "models/replacement.gguf"
         pipeline["models"][0]["model_id"] = "replacement_model"
         pipeline["pipeline"][1]["config"]["bind_model"] = "replacement_model"
         pipeline["pipeline"][1]["config"]["max_tokens"] = 17
         updated = self.service.save_pipeline(
             saved["filename"], pipeline, saved["revision"],
-            model_path_actions={"replacement_model": {
-                "path": "replacement.gguf", "action": "select_asset"}},
         )
         self.assertEqual(updated["command"], saved["command"])
-        self.assertEqual(updated["pipeline"]["deployment"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
+        self.assertEqual(updated["pipeline"]["models"][0]["model_path"], "models/replacement.gguf")
+        self.assertNotIn("model_paths", updated["pipeline"]["deployment"])
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
         profile, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
         effective = self.service.resolve_run_conf(self.configs / saved["conf_filename"], profile)
@@ -442,22 +442,15 @@ class RunnableSolutionTest(unittest.TestCase):
         # A recovered failure must not advance either revision.
         self.assertTrue(self.service.save_pipeline(saved["filename"], self.keyword, saved["revision"])["ok"])
 
-    def test_restarted_service_rejects_model_changes_shadowed_by_unmanaged_deployment(self):
+    def test_restarted_service_saves_model_path_without_shadowed_values(self):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         saved = self.service.save_solution("pipeline_restart.json", pipeline, "entity_extract_mock", ".")
         restarted = SHOW.WorkbenchService(self.configs)
-        pipeline["pipeline"][1]["config"]["max_tokens"] = 17
+        pipeline["models"][0]["model_path"] = "models/replacement.gguf"
         updated = restarted.save_pipeline(saved["filename"], pipeline, saved["revision"])
-        paths = [self.configs / saved["filename"], self.configs / saved["conf_filename"]]
-        before = {path: path.read_bytes() for path in paths}
-        pipeline["models"][0]["model_path"] = "replacement.gguf"
-        with self.assertRaises(SHOW.StudioError) as error:
-            restarted.save_pipeline(saved["filename"], pipeline, updated["revision"])
-        self.assertEqual(error.exception.code, "DEPLOYMENT_CONFLICT")
-        self.assertIn("pipeline_restart.json", str(error.exception))
-        self.assertIn("deployment.model_paths", str(error.exception))
-        self.assertIn("models[].model_path", str(error.exception))
-        self.assertEqual({path: path.read_bytes() for path in paths}, before)
+        self.assertEqual(updated["pipeline"]["models"][0]["model_path"], "models/replacement.gguf")
+        self.assertNotIn("model_paths", updated["pipeline"]["deployment"])
+        self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
         self.assertFalse(restarted.generated_solutions)
 
     def test_draft_uses_the_same_selected_paths_under_project_root_and_cleans_up(self):
@@ -481,7 +474,8 @@ class RunnableSolutionTest(unittest.TestCase):
                     break
                 time.sleep(0.05)
         self.assertEqual(job["status"], "completed", job)
-        self.assertEqual(observed["pipeline"]["deployment"]["model_paths"], {"entity_llm": pipeline["models"][0]["model_path"]})
+        self.assertEqual(observed["pipeline"]["models"], pipeline["models"])
+        self.assertNotIn("model_paths", observed["pipeline"]["deployment"])
         self.assertEqual(observed["conf"]["pipe_path"], "pipeline.json")
         self.assertFalse(observed["directory"].exists())
 
@@ -844,11 +838,11 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(configuration["io_binding"], "entity_extract.operator.v1")
         self.assertNotIn("biz_name", configuration["effective_pipeline"])
         self.assertEqual(configuration["effective_pipeline"]["deployment"]["io"]["io_binding"], "entity_extract.operator.v1")
-        self.assertEqual(configuration["effective_pipeline"]["models"][0]["model_path"], str(ROOT / "models/qwen_0_6b_npu.bin"))
+        self.assertEqual(configuration["effective_pipeline"]["models"][0]["model_path"], str(ROOT / "demo/fixtures/mock/artifacts/neutral-llm.fixture"))
         self.assertEqual(configuration["conf_path"], str(conf_path))
         self.assertEqual(configuration["model_paths"], [{
-            "model_id": "entity_llm", "source": "pipeline.deployment.model_paths",
-            "resolved": str(ROOT / "models/qwen_0_6b_npu.bin"),
+            "model_id": "entity_llm", "source": "pipeline.models.model_path",
+            "resolved": str(ROOT / "demo/fixtures/mock/artifacts/neutral-llm.fixture"),
         }])
         llm_config = configuration["effective_pipeline"]["pipeline"][1]["config"]
         self.assertEqual(llm_config["max_tokens"], 64)
@@ -858,7 +852,7 @@ class PipelineCliTest(unittest.TestCase):
             changed = Path(directory) / "pipeline.conf"
             pipe_file = conf_path.with_name(conf["pipe_path"])
             pipe_doc = json.loads(pipe_file.read_text())
-            pipe_doc["deployment"].pop("model_paths")
+            self.assertNotIn("model_paths", pipe_doc["deployment"])
             (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             changed.write_text(json.dumps(conf))
             code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
@@ -895,53 +889,23 @@ class PipelineCliTest(unittest.TestCase):
             self.assertEqual(bad_res_root["diagnostics"][0]["path"], "/")
             self.assertIn("pipe_path", bad_res_root["diagnostics"][0]["message"])
 
-    def test_rfc0062_cli_raw_model_path_required_even_with_override_t03(self):
-        # T03 via CLI: Deployment model path override does not forgive missing/invalid original model_path.
-        # Covers missing, null, empty string, and number, paired with without-override cases.
-        pipeline = json.loads(
-            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
-        )
-        self.assertIn("model_paths", pipeline.get("deployment", {}))
-        # 1. Missing model_path in original models[0]
-        missing_doc = copy.deepcopy(pipeline)
-        missing_doc["models"][0].pop("model_path")
-
-        # 2. null model_path
-        null_doc = copy.deepcopy(pipeline)
-        null_doc["models"][0]["model_path"] = None
-
-        # 3. empty string model_path
-        empty_doc = copy.deepcopy(pipeline)
-        empty_doc["models"][0]["model_path"] = ""
-
-        # 4. number (integer) model_path
-        number_doc = copy.deepcopy(pipeline)
-        number_doc["models"][0]["model_path"] = 12345
-
-        cases = [
-            ("missing_with_override", missing_doc, "MISSING_FIELD"),
-            ("null_with_override", null_doc, "FIELD_TYPE"),
-            ("empty_with_override", empty_doc, "FIELD_RANGE"),
-            ("number_with_override", number_doc, "FIELD_TYPE"),
-        ]
-
-        # Add paired without-override cases to prove the identical structural requirements
-        for case_name, doc, exp_code in list(cases):
-            no_override_doc = copy.deepcopy(doc)
-            no_override_doc["deployment"].pop("model_paths", None)
-            paired_name = case_name.replace("_with_override", "_without_override")
-            cases.append((paired_name, no_override_doc, exp_code))
-
-        for case_name, doc, expected_code in cases:
-            for ep in self.CLI_PARITY_ENTRYPOINTS:
-                with self.subTest(case=case_name, entrypoint=ep):
-                    code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+    def test_cli_model_path_is_required_and_typed(self):
+        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
+        cases = [(None, "FIELD_TYPE"), ("", "FIELD_RANGE"), (12345, "FIELD_TYPE")]
+        for value, expected_code in cases + [("missing", "MISSING_FIELD")]:
+            document = copy.deepcopy(pipeline)
+            if value == "missing":
+                document["models"][0].pop("model_path")
+            else:
+                document["models"][0]["model_path"] = value
+            for endpoint in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(value=value, endpoint=endpoint):
+                    code, report = self.command(*endpoint, "--stdin", input_pipeline=document)
                     self.assertEqual(code, 1)
-                    self.assertFalse(res["ok"])
-                    self.assertEqual(res["diagnostics"][0]["code"], expected_code)
-                    self.assertEqual(res["diagnostics"][0]["path"], "/models/0/model_path")
-                    if ep[0] == "plan":
-                        self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+                    self.assertEqual(report["diagnostics"][0]["code"], expected_code)
+                    self.assertEqual(report["diagnostics"][0]["path"], "/models/0/model_path")
+                    if endpoint[0] == "plan":
+                        self.assertEqual(report["plan"], {"layers": [], "topological_order": []})
 
     def test_rfc0062_cli_plan_envelopes_t16(self):
         # T16 via CLI: plan returns envelope with diagnostics on deployment preparation failure,
@@ -949,17 +913,17 @@ class PipelineCliTest(unittest.TestCase):
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. Invalid deployment override model ID
+        # 1. Removed deployment field is rejected
         invalid_doc = copy.deepcopy(pipeline)
-        invalid_doc["deployment"]["model_paths"]["unknown_model_id"] = "models/foo.bin"
+        invalid_doc["deployment"]["model_paths"] = {"unknown_model_id": "models/foo.bin"}
         for ep in self.CLI_PARITY_ENTRYPOINTS:
             with self.subTest(case="deployment_failure", entrypoint=ep):
                 code, res = self.command(*ep, "--stdin", input_pipeline=invalid_doc)
                 self.assertEqual(code, 1)
                 self.assertFalse(res["ok"])
                 self.assertIn("diagnostics", res)
-                self.assertEqual(res["diagnostics"][0]["code"], "UNKNOWN_MODEL_ID")
-                self.assertEqual(res["diagnostics"][0]["path"], "/deployment/model_paths/unknown_model_id")
+                self.assertEqual(res["diagnostics"][0]["code"], "DEPLOYMENT_ERROR")
+                self.assertEqual(res["diagnostics"][0]["path"], "/deployment/model_paths")
                 if ep[0] == "plan":
                     self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
@@ -1019,50 +983,19 @@ class PipelineCliTest(unittest.TestCase):
                 "/deployment/io/out_mem/entity_out",
             )
 
-    def test_rfc0062_cli_override_unknown_and_escaped_model_id_t06(self):
-        # T06 via CLI: unknown model ID, special characters ~ and /, and invalid override syntax (null, empty, non-string)
-        pipeline = json.loads(
-            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
-        )
-        # 1. Unknown model ID in override
-        doc1 = copy.deepcopy(pipeline)
-        doc1["deployment"]["model_paths"] = {"nonexistent_mid": "models/foo.bin"}
-
-        # 2. Unknown model ID with special characters (~ -> ~0, / -> ~1)
-        doc2 = copy.deepcopy(pipeline)
-        doc2["deployment"]["model_paths"] = {"bad~id/extra": "models/foo.bin"}
-
-        # 3. Override value is non-string (integer)
-        doc3 = copy.deepcopy(pipeline)
-        first_mid = list(doc3["deployment"]["model_paths"].keys())[0]
-        doc3["deployment"]["model_paths"][first_mid] = 12345
-
-        # 4. Override value is empty string
-        doc4 = copy.deepcopy(pipeline)
-        doc4["deployment"]["model_paths"][first_mid] = ""
-
-        # 5. Override value is null
-        doc5 = copy.deepcopy(pipeline)
-        doc5["deployment"]["model_paths"][first_mid] = None
-
-        cases = [
-            ("unknown_id", doc1, "UNKNOWN_MODEL_ID", "/deployment/model_paths/nonexistent_mid"),
-            ("escaped_chars", doc2, "UNKNOWN_MODEL_ID", "/deployment/model_paths/bad~0id~1extra"),
-            ("non_string", doc3, "DEPLOYMENT_ERROR", f"/deployment/model_paths/{first_mid}"),
-            ("empty_value", doc4, "DEPLOYMENT_ERROR", f"/deployment/model_paths/{first_mid}"),
-            ("null_value", doc5, "DEPLOYMENT_ERROR", f"/deployment/model_paths/{first_mid}"),
-        ]
-
-        for case_name, doc, exp_code, exp_path in cases:
-            for ep in self.CLI_PARITY_ENTRYPOINTS:
-                with self.subTest(case=case_name, entrypoint=ep):
-                    code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+    def test_cli_rejects_removed_model_paths_field_for_every_value(self):
+        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
+        for value in ({}, {"entity_llm": "models/ignored.bin"}, {"bad~id/extra": "ignored"}, None, 42, ""):
+            document = copy.deepcopy(pipeline)
+            document["deployment"]["model_paths"] = value
+            for endpoint in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(value=value, endpoint=endpoint):
+                    code, report = self.command(*endpoint, "--stdin", input_pipeline=document)
                     self.assertEqual(code, 1)
-                    self.assertFalse(res["ok"])
-                    self.assertEqual(res["diagnostics"][0]["code"], exp_code)
-                    self.assertEqual(res["diagnostics"][0]["path"], exp_path)
-                    if ep[0] == "plan":
-                        self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+                    self.assertEqual(report["diagnostics"][0]["code"], "DEPLOYMENT_ERROR")
+                    self.assertEqual(report["diagnostics"][0]["path"], "/deployment/model_paths")
+                    if endpoint[0] == "plan":
+                        self.assertEqual(report["plan"], {"layers": [], "topological_order": []})
 
     def test_cli_unknown_binding_unknown_root_and_malformed_binding(self):
         # External selector diagnostics are identical across native entrypoints.
@@ -1620,15 +1553,23 @@ const modelDef = catalog.models.find(m=>m.model_type==='bge_embedding');
 const backend = w.compatibleBackends(catalog.backends,modelDef).find(b=>b.backend_type==='onnxruntime');
 if (backend) {
 assert.ok(!w.compatibleBackends(catalog.backends,modelDef).some(b=>b.backend_type==='llama_cpp'));
+assert.equal(w.assetModelPath('weights.bin', 'models'), 'models/weights.bin');
+assert.equal(w.assetModelPath('nested/weights.bin', 'assets/'), 'assets/nested/weights.bin');
+assert.equal(w.assetModelPath('demo/model.fixture', '.'), 'demo/model.fixture');
+const nestedAsset = {model:{model_path:'nested/weights.bin',model_config:{tokenizer_file:'nested/vocab.txt'}},paths:{'/model_path':'nested/weights.bin','/model_config/tokenizer_file':'nested/vocab.txt'}};
+assert.deepEqual(w.assetModel(nestedAsset), {model_path:'models/nested/weights.bin',model_config:{tokenizer_file:'vocab.txt'}});
+nestedAsset.paths['/model_config/tokenizer_file']='outside/vocab.txt';
+assert.throws(()=>w.assetModel(nestedAsset), /绝对附属文件路径/);
 const models = {models:[], pipeline:[]};
 w.upsertModel(models,catalog,'',{model_id:'embed',model_type:modelDef.model_type,backend:backend.backend_type,model_path:'embed.onnx',model_config:w.schemaDefaults(modelDef.config_fields),backend_config:w.schemaDefaults(backend.config_fields)});
 assert.equal(models.deployment,undefined,'adding a model must not invent deployment overrides');
 assert.equal(Object.hasOwn(models.models[0], "capability"), false);
-models.deployment = {model_paths:{embed:'models/deployed_embed.onnx',other:'models/other.onnx'}};
+models.deployment = {io:{io_binding:'doc_qa.operator.v1'}};
 models.pipeline.push({id:'embed_node',node_type:'TextEmbeddingNode',config:{bind_model:'embed'}});
 w.upsertModel(models,catalog,'embed',{...models.models[0],model_id:'renamed'});
 assert.equal(models.pipeline[0].config.bind_model,'renamed');
-assert.deepEqual(models.deployment.model_paths,{renamed:'models/deployed_embed.onnx',other:'models/other.onnx'});
+assert.equal(models.models[0].model_path,'embed.onnx');
+assert.deepEqual(models.deployment,{io:{io_binding:'doc_qa.operator.v1'}});
 assert.throws(()=>w.removeModel(models,catalog,'renamed'), /使用/);
 assert.throws(()=>w.upsertModel(models,catalog,'',{...models.models[0],backend:'llama_cpp'}), /不兼容/);
 }
@@ -1720,6 +1661,15 @@ process.stdout.write(JSON.stringify(pipeline));
 
 
 class SelectionVerificationTest(unittest.TestCase):
+    def test_studio_selection_uses_selected_asset_directory_and_host_root(self):
+        service = SHOW.WorkbenchService(ROOT / "configs")
+        with mock.patch.object(SHOW.SELECTION, "inspect_selection", return_value={"ok": True}) as inspect:
+            self.assertTrue(service.verify_selection({"models": []}, model_root="custom-assets")["ok"])
+            self.assertEqual(inspect.call_args.args[2], ROOT / "custom-assets")
+            self.assertEqual(inspect.call_args.kwargs["pipeline_root"], ROOT)
+        with self.assertRaises(SHOW.StudioError):
+            service.verify_selection({"models": []}, model_root="../outside-assets")
+
     def test_run_conf_preserves_binding_override_without_inference(self):
         selection = SHOW.SELECTION
         with tempfile.TemporaryDirectory() as directory:
@@ -1757,6 +1707,59 @@ class SelectionVerificationTest(unittest.TestCase):
             self.assertEqual(selection.verify_assets(pipeline, root, manifest)[0]["status"], "unregistered")
             with self.assertRaises(ValueError):
                 selection.within(root, "../outside")
+
+    def test_asset_paths_use_host_root_and_sidecars_use_model_directory(self):
+        selection = SHOW.SELECTION
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            assets = root / "models"
+            nested = assets / "nested"
+            nested.mkdir(parents=True)
+            (nested / "weights.bin").write_bytes(b"weights")
+            (nested / "vocab.txt").write_bytes(b"vocabulary")
+            model = {"model_id": "m", "model_type": "bge_embedding", "backend": "onnxruntime",
+                     "model_path": "models/nested/weights.bin", "model_config": {"tokenizer_file": "vocab.txt"}}
+            template = copy.deepcopy(model)
+            template["model_path"] = "nested/weights.bin"
+            template["model_config"]["tokenizer_file"] = "nested/vocab.txt"
+            manifest = {"schema_version": 1, "selections": [{"id": "nested", "model": template,
+                "paths": {"/model_path": "nested/weights.bin", "/model_config/tokenizer_file": "nested/vocab.txt"},
+                "files": ["nested/weights.bin", "nested/vocab.txt"]}],
+                "artifacts": {name: {"sha256": selection.file_digest(assets / name)}
+                              for name in ("nested/weights.bin", "nested/vocab.txt")}}
+            if not shutil.which("node"):
+                self.skipTest("Node.js is required to exercise the asset-selection helper")
+            script = """
+import {assetModel} from './tools/pipeline_studio/web/workbench.js';
+import fs from 'node:fs';
+const asset = JSON.parse(fs.readFileSync(0, 'utf8'));
+process.stdout.write(JSON.stringify(assetModel(asset, 'models')));
+"""
+            generated = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script],
+                                       input=json.dumps(manifest["selections"][0]), cwd=ROOT,
+                                       text=True, capture_output=True, check=True)
+            model = json.loads(generated.stdout)
+            self.assertEqual(model["model_path"], "models/nested/weights.bin")
+            self.assertEqual(model["model_config"]["tokenizer_file"], "vocab.txt")
+            pipeline = {"models": [model]}
+            self.assertEqual(selection.verify_assets(pipeline, assets, manifest, pipeline_root=root)[0]["status"], "verified")
+            original = copy.deepcopy(pipeline)
+            selection.build_run_conf(pipeline, {}, "pipeline.json", assets, root)
+            selection.build_run_conf(pipeline, {}, "pipeline.json", assets, root)
+            self.assertEqual(pipeline, original, "saving must not prefix model paths again")
+            model["model_config"]["tokenizer_file"] = "../vocab.txt"
+            self.assertEqual(selection.verify_assets(pipeline, assets, manifest, pipeline_root=root)[0]["status"], "unregistered")
+            (assets / "vocab.txt").write_bytes(b"vocabulary")
+            escaped_manifest = copy.deepcopy(manifest)
+            choice = escaped_manifest["selections"][0]
+            choice["model"]["model_config"]["tokenizer_file"] = "vocab.txt"
+            choice["paths"]["/model_config/tokenizer_file"] = "vocab.txt"
+            choice["files"] = ["nested/weights.bin", "vocab.txt"]
+            escaped_manifest["artifacts"]["vocab.txt"] = {"sha256": selection.file_digest(assets / "vocab.txt")}
+            self.assertEqual(selection.verify_assets(pipeline, assets, escaped_manifest, pipeline_root=root)[0]["status"], "unregistered",
+                             "a relative sidecar must stay inside the model directory")
+            model["model_config"]["tokenizer_file"] = str(assets / "vocab.txt")
+            self.assertEqual(selection.verify_assets(pipeline, assets, escaped_manifest, pipeline_root=root)[0]["status"], "verified")
 
     def test_native_build_variant_and_real_effects_are_bound_to_selection(self):
         selection = SHOW.SELECTION
@@ -2424,8 +2427,8 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         pipeline_path = self.configs / "pipeline_associated.json"
         conf_path = self.configs / "pipeline_associated.conf"
         conf["pipe_path"] = pipeline_path.name
-        for model_id in pipeline.get("deployment", {}).get("model_paths", {}):
-            pipeline["deployment"]["model_paths"][model_id] = "models/deployed_" + model_id
+        for model in pipeline.get("models", []):
+            model["model_path"] = "models/deployed_" + model["model_id"]
         output_override(pipeline, "doc_out")["capacities"] = {"answer_text": 2047}
         pipeline_path.write_text(json.dumps(pipeline))
         conf_path.write_text(json.dumps(conf))
@@ -2434,9 +2437,8 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_associated_preflight_run_and_save_share_candidate(self):
         pipeline, original_conf, path, conf_path = self.associated_doc_qa()
-        pipeline["models"][0]["model_path"] = "selected_A.onnx"
+        pipeline["models"][0]["model_path"] = "models/selected_A.onnx"
         model_id = pipeline["models"][0]["model_id"]
-        actions = {model_id: {"path": "selected_A.onnx", "action": "select_asset"}}
         expected_conf = {"pipe_path": path.name}
         # Spy on real native resolution so this checks exactly what preflight resolves.
         resolved_candidates = []
@@ -2448,40 +2450,37 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
         with mock.patch.object(self.service, "resolve_run_conf", side_effect=capture_resolve):
             preview = self.service.preflight(
-                pipeline, filename=path.name, model_path_actions=actions,
+                pipeline, filename=path.name,
             )
         self.assertTrue(preview["ok"], preview)
         self.assertEqual(len(resolved_candidates), 1)
+        self.assertEqual(preview["configuration"]["model_paths"][0]["resolved"], str(ROOT / "models/selected_A.onnx"))
+        self.assertEqual(preview["configuration"]["model_paths"][0]["source"], "pipeline.models.model_path")
         with mock.patch.object(SHOW.threading, "Thread") as thread:
-            self.service.start_run(pipeline, "doc_qa_cpu", filename=path.name,
-                                   model_path_actions=actions)
+            self.service.start_run(pipeline, "doc_qa_cpu", filename=path.name)
             args = thread.call_args.kwargs["args"]
             run_profile, run_conf = args[2], args[3]
+            self.assertEqual(args[1]["models"], pipeline["models"])
+            self.assertNotIn("model_paths", args[1]["deployment"])
         self.assertNotIn("biz", run_profile)
         self.service.save_pipeline(
             path.name, pipeline, SHOW.revision_for(path.read_bytes()),
-            model_path_actions=actions,
         )
         saved_conf = json.loads(conf_path.read_text())
         self.assertEqual(saved_conf, expected_conf)
         saved_pipe = json.loads(path.read_text())
-        self.assertEqual(saved_pipe["deployment"]["model_paths"][model_id], "models/selected_A.onnx")
+        self.assertEqual(saved_pipe["models"][0]["model_path"], "models/selected_A.onnx")
+        self.assertNotIn("model_paths", saved_pipe["deployment"])
         self.assertEqual(run_conf, expected_conf)
         self.assertEqual(resolved_candidates[0], {"pipe_path": "pipeline.json"})
 
-    def test_associated_raw_model_edit_requires_explicit_override_intent(self):
+    def test_associated_raw_model_edit_is_the_effective_path(self):
         pipeline, conf, path, _ = self.associated_doc_qa()
-        model = pipeline["models"][0]
-        model["model_path"] = "raw_edit.onnx"
-        with self.assertRaises(SHOW.StudioError) as ctx:
-            self.service.deployment_candidate(pipeline, filename=path.name)
-        self.assertEqual(ctx.exception.code, "DEPLOYMENT_PATH_INTENT_REQUIRED")
-        _, candidate = self.service.deployment_candidate(
-            pipeline, filename=path.name,
-            model_path_actions={model["model_id"]: {"path": model["model_path"],
-                                                   "action": "preserve_override"}},
-        )
-        self.assertEqual(pipeline["deployment"]["model_paths"], {m: f"models/deployed_{m}" for m in pipeline["deployment"]["model_paths"]})
+        pipeline["models"][0]["model_path"] = "models/raw_edit.onnx"
+        _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
+        self.assertEqual(pipeline["models"][0]["model_path"], "models/raw_edit.onnx")
+        self.assertNotIn("model_paths", pipeline["deployment"])
+        self.assertEqual(candidate, {"pipe_path": path.name})
         self.assertEqual(pipeline["deployment"]["io"]["out_mem"]["doc_out"]["capacities"]["answer_text"], 2047)
 
     def test_associated_new_model_does_not_invent_deployment_override(self):
@@ -2490,7 +2489,8 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         new_model.update(model_id="new_model", model_path="new.onnx")
         pipeline["models"].append(new_model)
         _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
-        self.assertNotIn("new_model", pipeline["deployment"]["model_paths"])
+        self.assertNotIn("model_paths", pipeline["deployment"])
+        self.assertEqual(pipeline["models"][-1]["model_path"], "new.onnx")
 
     def test_associated_external_file_changes_block_candidate_and_save(self):
         for changed_name in ["pipeline", "conf"]:
@@ -2508,7 +2508,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
                 self.assertEqual(ctx.exception.code, "REVISION_CONFLICT")
                 self.assertEqual((path.read_bytes(), conf_path.read_bytes()), originals)
 
-    def test_studio_deployment_associate_and_partial_override_update(self):
+    def test_studio_deployment_associate_and_model_path_update(self):
         # Create pipeline in configs
         pipe_path = self.configs / "pipeline_doc_qa_assoc.json"
         doc_qa_pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text())
@@ -2531,21 +2531,19 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         # Now update pipeline models and save
         modified_pipe = copy.deepcopy(doc_qa_pipe)
         # Update model_path of first model
-        modified_pipe["models"][0]["model_path"] = "new_embed_model.onnx"
+        modified_pipe["models"][0]["model_path"] = "models/new_embed_model.onnx"
         pipe_raw = pipe_path.read_bytes()
         pipe_rev = SHOW.revision_for(pipe_raw)
 
         save_res = self.service.save_pipeline(
             "pipeline_doc_qa_assoc.json", modified_pipe, pipe_rev, save_as=False,
-            model_path_actions={modified_pipe["models"][0]["model_id"]: {
-                "path": "new_embed_model.onnx", "action": "select_asset"}},
         )
         self.assertTrue(save_res["ok"])
 
-        # Verify pipeline deployment was updated with modified model_path override
+        # Verify the model entry owns the effective path
         updated_pipe = json.loads(pipe_path.read_text())
         self.assertEqual(
-            updated_pipe["deployment"]["model_paths"][modified_pipe["models"][0]["model_id"]],
+            updated_pipe["models"][0]["model_path"],
             "models/new_embed_model.onnx",
         )
         # Verify non-model conf settings preserved
@@ -2888,7 +2886,7 @@ class PipelineJsonSchemaTest(unittest.TestCase):
         for tool, artifacts in self.builds:
             with self.subTest(tool=tool):
                 deployment = artifacts["export-schema"]["properties"]["deployment"]
-                self.assertEqual(set(deployment["properties"]), {"model_paths", "io"})
+                self.assertEqual(set(deployment["properties"]), {"io"})
                 self.assertEqual(deployment["required"], ["io"])
                 io = deployment["properties"]["io"]
                 self.assertEqual(io["required"], ["io_binding"])

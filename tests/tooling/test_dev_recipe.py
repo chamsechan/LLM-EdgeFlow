@@ -117,7 +117,7 @@ class DevRecipeTest(unittest.TestCase):
         report = self.prepare(profile="entity_extract_custom_mock")
         self.assertTrue(report["ok"], report)
         pipeline = json.loads(self.target.read_text())
-        self.assertEqual(pipeline["deployment"]["model_paths"]["entity_llm"],
+        self.assertEqual(pipeline["models"][0]["model_path"],
                          "demo/fixtures/mock/artifacts/neutral-llm.fixture")
         conf = json.loads(self.target.with_suffix(".conf").read_text())
         self.assertEqual(conf, {"pipe_path": self.target.name})
@@ -175,13 +175,20 @@ class DevRecipeTest(unittest.TestCase):
         self.assert_prepare_rejected_without_writes(tool_path=TOOL)
 
     def test_external_destination_preserves_deployment_and_dataset_paths(self):
-        with tempfile.TemporaryDirectory(prefix="edgeflow-recipe-output-") as directory:
-            target = Path(directory) / "pipeline_external.json"
-            report = self.prepare(pipeline_target=target)
-            self.assertTrue(report["ok"], report)
-            verified = self.verify(pipeline_path=target,
-                                   effects_path=target.with_name(target.stem + "_effects.json"))
-            self.assertTrue(verified["ok"], verified)
+        for profile in ("keyword_match_rules", "entity_extract_custom_mock"):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory(prefix="edgeflow-recipe-output-") as directory:
+                target = Path(directory) / "pipeline_external.json"
+                report = self.prepare(pipeline_target=target, profile=profile)
+                self.assertTrue(report["ok"], report)
+                pipeline = json.loads(target.read_text())
+                bundle = RECIPE.deployment_root(self.root, target, self.root)
+                for model in pipeline.get("models", []):
+                    self.assertEqual((bundle / model["model_path"]).resolve(),
+                                     self.root / "demo/fixtures/mock/artifacts/neutral-llm.fixture")
+                self.assertNotIn("model_paths", pipeline["deployment"])
+                verified = self.verify(pipeline_path=target,
+                                       effects_path=target.with_name(target.stem + "_effects.json"))
+                self.assertTrue(verified["ok"], verified)
 
     def test_invalid_profile_fields_and_shapes_rejected_before_generation(self):
         path = self.root / "demo/profiles.json"

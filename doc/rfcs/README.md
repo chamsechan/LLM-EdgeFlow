@@ -100,6 +100,7 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0072** | 业务身份与输出配置收敛 | `Completed` | 投产前 | 接入适配层 / Demo / Tooling / Config | [0072-business-configuration-convergence.md](0072-business-configuration-convergence.md) |
 | **RFC-0073** | 以 I/O 契约作为配置的唯一入口 | `Completed` | 投产前 | 接入适配层 / Demo / Tooling / Config | [0073-io-contract-entry.md](0073-io-contract-entry.md) |
 | **RFC-0074** | 删除旧配置的专用处理 | `Completed` | 投产前 | 接入适配层 / Demo / Tooling | [0074-current-config-only.md](0074-current-config-only.md) |
+| **RFC-0075** | 模型路径单一来源 | `Completed` | 投产前 | 接入适配层 / Tooling / Docs | [0075-model-path-single-source.md](0075-model-path-single-source.md) |
 
 ## 专项验收与评审归档
 

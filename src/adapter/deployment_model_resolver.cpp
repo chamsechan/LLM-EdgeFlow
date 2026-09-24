@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <system_error>
 
-#include "adapter/pipeline_document.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
@@ -31,7 +30,6 @@ void SetDiagnostic(std::string* diagnostic,
 bool ResolveDeploymentModelPaths(
     const nlohmann::json& pipeline_json, const std::string& model_root_dir,
     nlohmann::json* resolved_pipeline_json, std::string* diagnostic,
-    const std::unordered_set<std::string>& overridden_model_ids,
     DeploymentDiagnostic* out_diagnostic) noexcept {
   try {
     if (out_diagnostic) out_diagnostic->Clear();
@@ -85,15 +83,8 @@ bool ResolveDeploymentModelPaths(
         continue;
       }
 
-      std::string pointer = "/models/" + std::to_string(index) + "/model_path";
-      std::string model_id =
-          model.contains("model_id") && model["model_id"].is_string()
-              ? model["model_id"].get<std::string>()
-              : "";
-      if (!model_id.empty() && overridden_model_ids.count(model_id)) {
-        pointer = "/deployment/model_paths/" + EscapeJsonPointer(model_id);
-      }
-
+      const std::string pointer =
+          "/models/" + std::to_string(index) + "/model_path";
       const std::string raw_path = model["model_path"].get<std::string>();
       const fs::path normalized = fs::path(raw_path).lexically_normal();
       if (!normalized.is_absolute() && HasParentPathComponent(normalized)) {

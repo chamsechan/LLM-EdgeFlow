@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "rerank_model_v1": "./models/ms_marco_tinybert_l2_v2_quantized.onnx"
-    },
     "io": {
       "io_binding": "cross_rerank.operator.v1"
     }
@@ -12,7 +9,7 @@
       "model_id": "rerank_model_v1",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
-      "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
+      "model_path": "./models/ms_marco_tinybert_l2_v2_quantized.onnx",
       "model_config": {
         "tokenizer_file": "ms_marco_bert_vocab.txt",
         "do_lower_case": true,

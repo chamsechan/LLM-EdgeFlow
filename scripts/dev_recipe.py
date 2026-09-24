@@ -168,7 +168,7 @@ def make_recipe_conf(pipeline_doc, outputs, pipeline_target, root, model_root=No
     models = absolute(model_root, root) if model_root is not None else root / "models"
     bundle = deployment_root(root, pipeline, models)
     return VERIFY_SELECTION.build_run_conf(pipeline_doc, outputs,
-                                           pipeline.name, models, bundle)
+                                           pipeline.name, models, bundle, pipeline_root=root)
 
 
 def command(description, argv):
@@ -282,7 +282,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         conf_target = target.with_suffix(".conf")
         effects_target = target.with_name(target.stem + "_effects.json")
         spec, dataset, models, manifest = effects_inputs(profile_name, pipeline, root, effects_path, model_root, manifest_path)
-        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, models, manifest)
+        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, models, manifest, pipeline_root=root)
         if not selection["ok"]:
             raise RecipeError("Selected build or model assets are not verified", selection)
         plan = SCAFFOLD.ChangePlan()
@@ -319,7 +319,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         with tempfile.TemporaryDirectory(prefix=".recipe-preview-", dir=root) as temporary:
             temp = Path(temporary)
             preview_pipeline = temp / "pipeline.json"
-            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name, models, bundle)
+            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name, models, bundle, pipeline_root=root)
             preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
             (temp / "pipeline.conf").write_text(json.dumps(preview_conf), encoding="utf-8")
             native(tool, ["resolve-conf", str((temp / "pipeline.conf").relative_to(bundle)), "--root", str(bundle)], root)
@@ -412,8 +412,8 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
         effective = configuration["effective_pipeline"]
         for model in effective.get("models", []):
             original = next(m for m in pipeline["models"] if m["model_id"] == model["model_id"])
-            if absolute(model["model_path"], bundle) != VERIFY_SELECTION.within(models, original["model_path"]):
-                raise RecipeError(f"Deployment model path differs from --model-root for {model['model_id']}")
+            if absolute(model["model_path"], bundle) != VERIFY_SELECTION.within(bundle, original["model_path"]):
+                raise RecipeError(f"Deployment model path differs from the Pipeline declaration for {model['model_id']}")
         completed.append(step)
         if recipe == "text-llm-node":
             step = "focused_test"
@@ -430,10 +430,10 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
                 raise RecipeError("Focused tests failed or skipped required cases:\n" + proc.stdout + proc.stderr)
             completed.append(step)
         step = "evaluate"
-        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, models, manifest)
+        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, models, manifest, pipeline_root=bundle)
         if not selection["ok"]:
             raise RecipeError("Configuration, build or assets are not verified", selection)
-        evaluated = VERIFY_SELECTION.evaluate(pipeline, selection, tool, models, effects, conf_path, demo)
+        evaluated = VERIFY_SELECTION.evaluate(pipeline, selection, tool, models, effects, conf_path, demo, pipeline_root=bundle)
         if evaluated.get("metrics", {}).get("status") != "passed":
             raise RecipeError("Effects evaluation failed", evaluated)
         completed.append(step)

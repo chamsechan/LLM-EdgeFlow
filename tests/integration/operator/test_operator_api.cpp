@@ -101,8 +101,6 @@ class OperatorApiTest : public ::testing::Test {
     pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
     pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
     pipe_json["models"][0]["model_config"]["max_length"] = 32;
-    pipe_json["deployment"]["model_paths"]["rerank_model_v1"] =
-        "models/bge_reranker_large.onnx";
 
     auto temp_json_path = temp_dir->path() / "pipeline_cross_rerank.json";
     std::ofstream json_out(temp_json_path);
@@ -1307,7 +1305,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   EXPECT_NE(std::string(GetOperatorLastError()).find("Unknown field"),
             std::string::npos);
 
-  // 6. deployment.model_path 单值字段被拒绝 (必须为 model_paths 映射) -> -2
+  // 6. deployment.model_path 单值字段被拒绝（路径只存在 models 条目中）-> -2
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
                           "configs/pipeline_keyword_match_rules.json");
@@ -1325,6 +1323,24 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   EXPECT_NE(std::string(GetOperatorLastError())
                 .find("Unknown field at /deployment/model_path"),
             std::string::npos);
+
+  // 6b. Removed model_paths is rejected even when empty or redundant.
+  for (const auto& legacy_value :
+       nlohmann::json::array({nlohmann::json::object(),
+                              {{"unused_model", "models/unused.bin"}}})) {
+    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
+                          "configs/pipeline_keyword_match_rules.json");
+    nlohmann::json pipe_json;
+    json_in >> pipe_json;
+    pipe_json["deployment"]["model_paths"] = legacy_value;
+    std::ofstream(root / "configs/pipeline_keyword_match_rules.json")
+        << pipe_json.dump(2);
+    EXPECT_EQ(ops_.Create(&handle, &param), -2);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_NE(std::string(GetOperatorLastError())
+                  .find("Unknown field at /deployment/model_paths"),
+              std::string::npos);
+  }
 
   // 7. .conf 根对象仅允许 pipe_path -> -2
   {
@@ -1904,7 +1920,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   const std::filesystem::path source_root = GetConfDir();
   std::string err;
 
-  // 1. model_paths 和 Pipeline 原始 model_path 都指向尚未部署的模型；
+  // 1. models 中的路径指向尚未部署的模型；
   // Resolver 只规范化引用，不能创建或要求模型文件存在。
   {
     std::filesystem::copy_file(
@@ -1915,9 +1931,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       std::ifstream pipe_in(root / "configs/pipeline_doc_qa_default.json");
       nlohmann::json pipe_json;
       pipe_in >> pipe_json;
-      pipe_json["deployment"]["model_paths"] = {
-          {"embed_model_v1", "models/not_deployed_embed.bin"},
-          {"llm_model_v1", "models/not_deployed_llm.bin"}};
+      pipe_json["models"][0]["model_path"] = "models/not_deployed_embed.bin";
+      pipe_json["models"][1]["model_path"] = "models/not_deployed_llm.bin";
       original_deployment = pipe_json["deployment"];
       std::ofstream pipe_out(root / "configs/pipeline_doc_qa_default.json");
       pipe_out << pipe_json.dump(2);
@@ -1954,7 +1969,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     EXPECT_FALSE(std::filesystem::exists(root / "models"));
   }
 
-  // 2. 只覆盖一个模型时仍使用 model_paths 映射，且允许最终文件尚未部署。
+  // 2. 单个模型直接指定路径，且允许最终文件尚未部署。
   {
     std::filesystem::copy_file(
         source_root / "demo/fixtures/mock/pipeline_audio_asr_intent.json",
@@ -1963,8 +1978,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       std::ifstream pipe_in(root / "configs/pipeline_audio_asr_intent.json");
       nlohmann::json pipe_json;
       pipe_in >> pipe_json;
-      pipe_json["deployment"]["model_paths"] = {
-          {"asr_model_v1", "deployment/asr_model_will_arrive_later.bin"}};
+      pipe_json["models"][0]["model_path"] =
+          "deployment/asr_model_will_arrive_later.bin";
       std::ofstream pipe_out(root / "configs/pipeline_audio_asr_intent.json");
       pipe_out << pipe_json.dump(2);
     }

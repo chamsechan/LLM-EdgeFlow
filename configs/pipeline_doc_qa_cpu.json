@@ -1,9 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "embed_model_onnx": "./models/bge_base_zh_v1.5.onnx",
-      "llm_model_llamacpp": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    },
     "io": {
       "io_binding": "doc_qa.operator.v1"
     }
@@ -13,7 +9,7 @@
       "model_id": "embed_model_onnx",
       "model_type": "bge_embedding",
       "backend": "onnxruntime",
-      "model_path": "bge_base_zh_v1.5.onnx",
+      "model_path": "./models/bge_base_zh_v1.5.onnx",
       "model_config": {
         "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
         "do_lower_case": true,
@@ -33,7 +29,7 @@
       "model_id": "llm_model_llamacpp",
       "model_type": "qwen_causal_lm",
       "backend": "llama_cpp",
-      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
       "model_config": {
         "system_prompt": "",
         "add_bos": false,

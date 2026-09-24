@@ -1,8 +1,5 @@
 {
   "deployment": {
-    "model_paths": {
-      "entity_llm": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-    },
     "io": {
       "io_binding": "entity_extract.operator.v1"
     }
@@ -18,7 +15,7 @@
         "run_config_file": "kite_text_run.json"
       },
       "model_id": "entity_llm",
-      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
   "pipeline": [
