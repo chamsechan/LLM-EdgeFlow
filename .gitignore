@@ -9,6 +9,8 @@ build/
 build_*/
 build-*/
 cmake-build-*/
+cmake_*/
+!cmake_ext/
 _deps/
 3rdparty/*
 !3rdparty/README.md
