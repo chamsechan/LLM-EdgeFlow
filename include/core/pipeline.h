@@ -20,7 +20,7 @@ class ThreadPool;
 /**
  * @brief 算法管线调度核心引擎 (Pipeline)
  *
- * 支持显式 DAG (有向无环图) 依赖声明 (`depends_on`)、
+ * 支持数据依赖与额外顺序约束 (`depends_on`) 的 DAG (有向无环图)、
  * 消费 PipelineValidator 生成的已验证拓扑计划，不重复解析或排序。
  * 支持配置驱动的【顺序调度 (Sequential)】与【多分支异步波前并发调度
  * (Parallel)】。

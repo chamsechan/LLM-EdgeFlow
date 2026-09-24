@@ -92,7 +92,6 @@ auto TextEmbeddingSpec() {
                                    "须满足 session 生命周期契约。")}),
              ModelsOf<EmbeddingModels>(
                  {Model("encoder", "bind_model", &EmbeddingModels::encoder,
-                        "embed_model_v1",
                         "引用 models[].model_id；所选模型必须提供 embedding "
                         "文本向量能力。")}),
              &EmbedText)

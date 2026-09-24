@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeEntityExtractBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "entity_extract";
   def.display_name = "实体抽取";
   def.ingress = {RequiredBizInput(kRawRequestIds),
                  RequiredBizInput(kInputSentences)};

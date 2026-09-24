@@ -160,7 +160,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("audio_asr", "语音识别与意图槽位抽取", RunAudioAsrDemo,
-                  "audio_asr_intent.operator.v1");
+REGISTER_DEMO_BIZ("speech_audio_asr_intent_slot", "语音识别与意图槽位抽取",
+                  RunAudioAsrDemo);
 
 }  // namespace alg_demo

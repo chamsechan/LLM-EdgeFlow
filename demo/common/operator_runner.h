@@ -11,21 +11,12 @@
 
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
-#include "demo/common/demo_registry.h"
 #include "demo/common/result_writer.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
 
 namespace alg_demo {
-
-/**
- * @brief 从 DemoRegistry 获取业务自注册的权威接入绑定 ID
- */
-inline std::string DemoBizToExpectedBindingId(std::string_view demo_biz) {
-  const auto* desc = DemoRegistry::Instance().Find(demo_biz);
-  return desc ? desc->expected_binding_id : "";
-}
 
 /**
  * @brief 自动解析 model_root 和 relative cfg_file_name
@@ -73,38 +64,31 @@ inline bool ResolveModelRootAndConfig(const std::string& conf_path,
 }
 
 /**
- * @brief 校验 .conf 与 Pipeline JSON 中的 biz_name 是否与 Demo Case 兼容
+ * @brief 由 SDK 解析最终配置，取得 Demo 分发所需的业务身份。
  */
-inline bool ValidateConfigBizMatch(const std::string& conf_path,
-                                   std::string_view expected_biz,
-                                   std::string* error_msg) {
-  std::string expected_binding = DemoBizToExpectedBindingId(expected_biz);
-  if (expected_binding.empty()) {
-    if (error_msg) {
-      *error_msg = "Unknown demo biz: " + std::string(expected_biz);
-    }
+inline bool ResolveConfigBiz(DemoOptions* options, std::string* error_msg) {
+  if (!options) {
+    if (error_msg) *error_msg = "Null DemoOptions pointer";
     return false;
   }
-
+  options->biz.clear();
   std::string model_root;
   std::string cfg_rel;
-  ResolveModelRootAndConfig(conf_path, &model_root, &cfg_rel);
+  ResolveModelRootAndConfig(options->config_path, &model_root, &cfg_rel);
 
   char err_buf[512] = {0};
-  int ret = llm_edgeflow::operator_api::ValidateOperatorConfigBinding(
-      model_root.c_str(), cfg_rel.c_str(), expected_binding.c_str(), err_buf,
+  int ret = llm_edgeflow::operator_api::ResolveOperatorConfigBiz(
+      model_root.c_str(), cfg_rel.c_str(), &options->biz, err_buf,
       sizeof(err_buf));
-
   if (ret != 0) {
     if (error_msg) {
       *error_msg = (err_buf[0] != '\0')
                        ? std::string(err_buf)
-                       : "Operator config validation failed (code " +
+                       : "Operator config resolution failed (code " +
                              std::to_string(ret) + ")";
     }
     return false;
   }
-
   return true;
 }
 
@@ -213,13 +197,6 @@ inline int CreateOperatorInstance(
     return 3;
   }
   *out_handle = nullptr;
-
-  std::string err;
-  if (!ValidateConfigBizMatch(options.config_path, options.biz, &err)) {
-    std::cerr << "[" << logger_prefix
-              << " ERROR] Config validation failed: " << err << std::endl;
-    return 3;
-  }
 
   ComputePlatform chip_type = ComputePlatform::kUnknown;
   if (!ParseComputePlatform(options.chip, &chip_type)) {

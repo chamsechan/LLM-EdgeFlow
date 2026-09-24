@@ -540,9 +540,8 @@ auto MockAsrSpec() {
       InputsOf<MockAsrInputs>{
           Required(kTestAudioInputs.name, &MockAsrInputs::audio)},
       PreservedOutput<TextBatch>(kTestTranscripts.name, kTestAudioInputs.name),
-      ModelsOf<MockAsrModels>{Model("transcriber", "bind_model",
-                                    &MockAsrModels::transcriber,
-                                    "test_asr_model")},
+      ModelsOf<MockAsrModels>{
+          Model("transcriber", "bind_model", &MockAsrModels::transcriber)},
       [](const MockAsrInputs& inputs, const NoParameters&,
          const MockAsrModels& models) {
         return models.transcriber.Transcribe(*inputs.audio);
@@ -566,7 +565,8 @@ TEST(NodeBaseContractsTest, FunctionAsrWorkflow) {
                                               "test-v1");
 
   MockAsrNode node("MockAsrNode", MockAsrSpec());
-  ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session_ctx));
+  ASSERT_TRUE(
+      InitNodeForTest(node, {{"bind_model", "test_asr_model"}}, &session_ctx));
 
   AlgContext ctx;
   AudioPcmBatch audios;

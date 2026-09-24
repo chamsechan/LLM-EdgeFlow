@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 
 #include "edgeflow/export.h"
 #include "edgeflow/operator/types.h"
@@ -58,19 +59,14 @@ COMPANY_ALG_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
 COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
 
 /**
- * @brief 校验部署配置 .conf 与预期接入绑定是否兼容
- * (只读无副作用预检，不抛出任何异常)
- * @param model_path 模型与配置根目录
- * @param cfg_file_name 相对配置文件路径
- * @param expected_binding_id 预期接入绑定 ID (如 "translate.operator.v1")
- * @param out_error_msg 错误输出信息缓冲区 (可选)
- * @param error_buf_size 缓冲区容量
- * @return 0 校验通过且兼容, -1 参数非法, -2 配置解析或文件不存在/逃逸, -3
- * 绑定不匹配
+ * @brief 解析部署配置并返回由 I/O 绑定确定的业务契约名。
+ * 只读预检，不加载模型、不执行转换；同业务的绑定须有一致的外部契约。
+ * @param out_biz_name 必需的结果指针；失败时为空，成功时为完整业务名。
+ * @return 0 成功，-2 参数/配置错误，其他负值为验证或内部异常。
  */
-COMPANY_ALG_API int ValidateOperatorConfigBinding(
+COMPANY_ALG_API int ResolveOperatorConfigBiz(
     const char* model_path, const char* cfg_file_name,
-    const char* expected_binding_id, char* out_error_msg = nullptr,
+    std::string* out_biz_name, char* out_error_msg = nullptr,
     size_t error_buf_size = 0) noexcept;
 
 }  // namespace llm_edgeflow::operator_api

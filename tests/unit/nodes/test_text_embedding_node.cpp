@@ -412,7 +412,6 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
     {
       "model_id": "embed_model_v1",
       "model_type": "bge_embedding",
-      "capability": "embedding",
       "backend": "onnxruntime",
       "model_path": "demo/fixtures/mock/artifacts/neutral-embedding.fixture",
       "model_config": {
@@ -425,12 +424,6 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
     {
       "id": "source_a",
       "node_type": "TextCorpusSourceNode",
-      "depends_on": [],
-      "ports": {
-        "outputs": {
-          "corpus": "corpus_a"
-        }
-      },
       "config": {
         "corpus": [
           "a",
@@ -438,36 +431,28 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
           "",
           "中文"
         ]
+      },
+      "outputs": {
+        "corpus": "corpus_a"
       }
     },
     {
       "id": "embed_a",
       "node_type": "TextEmbeddingNode",
-      "depends_on": [
-        "source_a"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "corpus_a"
-        },
-        "outputs": {
-          "embedding": "vectors_a"
-        }
-      },
       "config": {
         "bind_model": "embed_model_v1",
         "lifetime": "session"
+      },
+      "inputs": {
+        "text": "corpus_a"
+      },
+      "outputs": {
+        "embedding": "vectors_a"
       }
     },
     {
       "id": "source_b",
       "node_type": "TextCorpusSourceNode",
-      "depends_on": [],
-      "ports": {
-        "outputs": {
-          "corpus": "corpus_b"
-        }
-      },
       "config": {
         "corpus": [
           "a\u0000\u0001b",
@@ -475,40 +460,35 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
           "",
           "中文"
         ]
+      },
+      "outputs": {
+        "corpus": "corpus_b"
       }
     },
     {
       "id": "embed_b",
       "node_type": "TextEmbeddingNode",
-      "depends_on": [
-        "source_b"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "corpus_b"
-        },
-        "outputs": {
-          "embedding": "vectors_b"
-        }
-      },
       "config": {
         "bind_model": "embed_model_v1",
         "lifetime": "session"
+      },
+      "inputs": {
+        "text": "corpus_b"
+      },
+      "outputs": {
+        "embedding": "vectors_b"
       }
     },
     {
       "id": "rules",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "input_sentences"
-        },
-        "outputs": {
-          "matches": "rule_matches"
-        }
+      "config": {},
+      "inputs": {
+        "text": "input_sentences"
       },
-      "config": {}
+      "outputs": {
+        "matches": "rule_matches"
+      }
     }
   ]
 })json");

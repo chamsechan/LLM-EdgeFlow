@@ -186,11 +186,9 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
     config["bind_model"] = "llm_model_v1";
     const nlohmann::json pipeline = {
         {"biz_name", "entity_extract_v1"},
-        {"pipeline",
-         nlohmann::json::array({{{"id", "generate"},
-                                 {"node_type", "LlmGenerateNode"},
-                                 {"depends_on", nlohmann::json::array()},
-                                 {"config", config}}})}};
+        {"pipeline", nlohmann::json::array({{{"id", "generate"},
+                                             {"node_type", "LlmGenerateNode"},
+                                             {"config", config}}})}};
     const auto plan = PipelineValidator::ValidateAndPlan(pipeline);
     EXPECT_FALSE(plan.report.ok);
     bool config_rejected = false;

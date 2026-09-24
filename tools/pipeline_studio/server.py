@@ -44,6 +44,9 @@ DEMO_BINARY = Path(
 _SELECTION_SPEC = importlib.util.spec_from_file_location("edgeflow_selection", PROJECT_ROOT / "tools/verify_selection.py")
 SELECTION = importlib.util.module_from_spec(_SELECTION_SPEC)
 _SELECTION_SPEC.loader.exec_module(SELECTION)
+_PROFILE_SPEC = importlib.util.spec_from_file_location("edgeflow_demo_profile", PROJECT_ROOT / "demo/common/demo_profile.py")
+DEMO_PROFILE = importlib.util.module_from_spec(_PROFILE_SPEC)
+_PROFILE_SPEC.loader.exec_module(DEMO_PROFILE)
 
 MANAGED_NAME = re.compile(r"^pipeline_[a-z0-9_]+\.json$")
 MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -246,7 +249,7 @@ class WorkbenchService:
             items.append(
                 {
                     "filename": checked.name,
-                    "biz_name": pipeline.get("biz_name", ""),
+                    "io_binding": SELECTION.pipeline_binding(pipeline),
                     "revision": revision_for(raw),
                 }
             )
@@ -306,10 +309,10 @@ class WorkbenchService:
                 500,
             ) from error
 
-    def catalog(self, biz: str = "") -> dict[str, Any]:
+    def catalog(self, io_binding: str = "") -> dict[str, Any]:
         args = ["catalog"]
-        if biz:
-            args.extend(["--biz", biz])
+        if io_binding:
+            args.extend(["--io-binding", io_binding])
         return self.invoke_tool(args)
 
     def assets(self) -> dict[str, Any]:
@@ -325,6 +328,10 @@ class WorkbenchService:
         root = read_json(PROFILE_FILE)
         profiles = []
         for name, profile in sorted(root.get("profiles", {}).items()):
+            try:
+                DEMO_PROFILE.validate_profile_fields(profile)
+            except ValueError as error:
+                raise StudioError("INVALID_PROFILE", f"Profile '{name}': {error}") from error
             item = dict(profile)
             item["name"] = name
             profiles.append(item)
@@ -423,9 +430,9 @@ class WorkbenchService:
 
 
     def init_pipeline(
-        self, biz: str, profile: str = "", empty: bool = False
+        self, io_binding: str, profile: str = "", empty: bool = False
     ) -> dict[str, Any]:
-        args = ["init", "--biz", biz]
+        args = ["init", "--io-binding", io_binding]
         if profile:
             args.extend(["--profile", profile])
         elif empty:
@@ -578,28 +585,28 @@ class WorkbenchService:
                 if not preserve_backup:
                     shutil.rmtree(staging)
 
-    def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any, str]:
+    def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any]:
         profiles = read_json(PROFILE_FILE).get("profiles", {})
-        profile = profiles.get(profile_name)
-        if not profile:
+        if profile_name not in profiles:
             raise StudioError("UNKNOWN_PROFILE", profile_name)
+        profile = profiles[profile_name]
+        try:
+            DEMO_PROFILE.validate_profile_fields(profile)
+        except ValueError as error:
+            raise StudioError("INVALID_PROFILE", f"Profile '{profile_name}': {error}") from error
         profile_conf = PROJECT_ROOT / profile["config"]
         configuration = self.resolve_run_conf(profile_conf, profile)
         original = read_json(Path(configuration["pipeline_path"]))
-        orig_biz = original.get("biz_name")
-        curr_biz = pipeline.get("biz_name")
-        if orig_biz != curr_biz:
-            raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
-        io = original["deployment"]["io"]
-        return copy.deepcopy(profile), copy.deepcopy(io["output_allocations"]), io["io_binding"]
+        if SELECTION.pipeline_binding(original) != SELECTION.pipeline_binding(pipeline):
+            raise StudioError("PROFILE_MISMATCH", "Profile 与I/O 契约不匹配")
+        outputs = original.get("deployment", {}).get("io", {}).get("out_mem", {})
+        return copy.deepcopy(profile), copy.deepcopy(outputs)
 
-    def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str,
-                 default_io_binding: str | None = None) -> dict[str, Any]:
+    def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
         if not isinstance(model_root, str) or not model_root or Path(model_root).is_absolute():
             raise StudioError("INVALID_MODEL_ROOT", "模型目录必须是项目内的相对路径（例如 models 或 .）")
         try:
-            return SELECTION.build_run_conf(pipeline, outputs, pipe_path, model_root, PROJECT_ROOT,
-                                            default_io_binding=default_io_binding)
+            return SELECTION.build_run_conf(pipeline, outputs, pipe_path, model_root, PROJECT_ROOT)
         except (ValueError, TypeError, KeyError) as error:
             raise StudioError("INVALID_DEPLOYMENT_PATH", str(error)) from error
 
@@ -635,9 +642,8 @@ class WorkbenchService:
         if conf_name and (not managed or managed["conf_path"] != requested_conf):
             raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "部署配置未关联到当前方案")
         if not managed:
-            profile, outputs, binding = self.profile_inputs(pipeline, profile_name)
-            return profile, self.run_conf(pipeline, outputs, path or PROJECT_ROOT / "build/pipeline.json", model_root,
-                                          default_io_binding=binding)
+            profile, outputs = self.profile_inputs(pipeline, profile_name)
+            return profile, self.run_conf(pipeline, outputs, path or PROJECT_ROOT / "build/pipeline.json", model_root)
         conf_path = managed["conf_path"]
         if (path.is_symlink() or conf_path.is_symlink()
                 or not path.is_file() or not conf_path.is_file()):
@@ -647,8 +653,8 @@ class WorkbenchService:
                 or revision_for(conf_raw) != managed["conf_revision"]):
             raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新关联", 409)
         original = json.loads(raw)
-        if original.get("biz_name") != pipeline.get("biz_name"):
-            raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变业务契约，请另存方案")
+        if SELECTION.pipeline_binding(original) != SELECTION.pipeline_binding(pipeline):
+            raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变 I/O 契约，请另存方案")
         profile = self.profile_inputs(pipeline, profile_name)[0] if profile_name else copy.deepcopy(managed["profile"])
         overrides = copy.deepcopy(original.get("deployment", {}).get("model_paths", {}))
         old_models = {m["model_id"]: m for m in original.get("models", [])}
@@ -669,7 +675,8 @@ class WorkbenchService:
             pipeline.setdefault("deployment", {})["model_paths"] = overrides
         elif "deployment" in pipeline and "model_paths" in pipeline["deployment"]:
             del pipeline["deployment"]["model_paths"]
-        pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
+        if "io" in original.get("deployment", {}):
+            pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
         return profile, {"pipe_path": path.name}
 
     def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
@@ -680,11 +687,11 @@ class WorkbenchService:
         return report["configuration"]
 
     @staticmethod
-    def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path) -> list[str]:
+    def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path, configuration: dict[str, Any]) -> list[str]:
         # Snapshot only settings previously passed to Demo, not runtime Control.
-        name = str(profile["biz"])
+        name = configuration["biz_name"]
         run_profile = {
-            "biz": name, "config": str(conf_path),
+            "config": str(conf_path),
             "dataset": str(PROJECT_ROOT / profile["dataset"]),
         }
         for field in ("batch_size", "device_id", "chip", "depth"):
@@ -746,7 +753,7 @@ class WorkbenchService:
         conf_path = self.generated_solutions[path.name]["conf_path"]
         command_str = ""
         if profile and profile.get("dataset"):
-            command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem)
+            command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem, configuration)
             command_str = f"cd {shlex.quote(str(PROJECT_ROOT))} && {shlex.join(command)}"
         return json_result(
             True, filename=path.name, conf_filename=conf_path.name, revision=revision_for(encoded),
@@ -815,12 +822,12 @@ class WorkbenchService:
             )
 
         if profile_name:
-            prof, _, _ = self.profile_inputs(pipeline, profile_name)
+            prof, _ = self.profile_inputs(pipeline, profile_name)
         else:
             prof = None
             for name in read_json(PROFILE_FILE).get("profiles", {}):
                 try:
-                    prof, _, _ = self.profile_inputs(pipeline, name)
+                    prof, _ = self.profile_inputs(pipeline, name)
                     break
                 except StudioError as error:
                     if error.code != "PROFILE_MISMATCH":
@@ -866,7 +873,7 @@ class WorkbenchService:
                 False,
                 summary={
                     "status": "validation_failed",
-                    "biz_name": pipeline.get("biz_name", "") if isinstance(pipeline, dict) else "",
+                    "io_binding": SELECTION.pipeline_binding(pipeline) if isinstance(pipeline, dict) else "",
                     "project_root": str(PROJECT_ROOT),
                     "next_step": "请先修复 Pipeline 校验错误",
                 },
@@ -885,7 +892,7 @@ class WorkbenchService:
                     True,
                     summary={
                         "status": "no_deployment_conf",
-                        "biz_name": pipeline.get("biz_name", ""),
+                        "io_binding": SELECTION.pipeline_binding(pipeline),
                         "project_root": str(PROJECT_ROOT),
                         "pipeline_snapshot": {
                             "node_count": len(pipeline.get("pipeline", [])),
@@ -932,7 +939,8 @@ class WorkbenchService:
 
             summary = {
                 "status": overall_status,
-                "biz_name": pipeline.get("biz_name", ""),
+                "biz_name": configuration["biz_name"],
+                "io_binding": configuration["io_binding"],
                 "project_root": str(PROJECT_ROOT),
                 "pipeline_snapshot": {
                     "node_count": len(pipeline.get("pipeline", [])),
@@ -1010,7 +1018,7 @@ class WorkbenchService:
             conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
             configuration = self.resolve_run_conf(conf_path, profile)
             output_dir = temp_root / "results"
-            args = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), output_dir)
+            args = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), output_dir, configuration)
             timeout = 300 if profile.get("suite", "smoke") == "smoke" else 1800
             with self.job_lock:
                 job = self.jobs[job_id]
@@ -1134,7 +1142,7 @@ def make_handler(service: WorkbenchService):
             if method in ("POST", "PUT", "DELETE"):
                 body = self._body()
             if method == "GET" and path == "/api/v1/catalog":
-                payload = service.catalog(query.get("biz", [""])[0])
+                payload = service.catalog(query.get("io_binding", [""])[0])
             elif method == "GET" and path == "/api/v1/assets":
                 payload = service.assets()
             elif method == "POST" and path == "/api/v1/selection":
@@ -1196,7 +1204,7 @@ def make_handler(service: WorkbenchService):
             elif method == "POST" and path == "/api/v1/init":
 
                 payload = service.init_pipeline(
-                    body.get("biz", ""), body.get("profile", ""), body.get("empty", False)
+                    body.get("io_binding", ""), body.get("profile", ""), body.get("empty", False)
                 )
             elif method == "POST" and path == "/api/v1/pipelines":
                 payload = service.save_pipeline(
@@ -1270,13 +1278,17 @@ def make_handler(service: WorkbenchService):
 
 def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print(f"\nLLM-EdgeFlow Pipeline: {path}")
-    biz = pipeline.get("biz_name", "unknown")
-    print(f"Biz: {biz}")
+    binding = SELECTION.pipeline_binding(pipeline)
+    print(f"I/O binding: {binding}")
     nodes = pipeline.get("pipeline", [])
     for index, node in enumerate(nodes):
         node_id = node.get("id", "<missing-id>")
-        depends = node.get("depends_on", "<missing-depends_on>")
-        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')} <- {depends}")
+        depends = node.get("depends_on", [])
+        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')}")
+        for direction in ("inputs", "outputs"):
+            mapping = json.dumps(node[direction], ensure_ascii=False) if direction in node else "<未声明>"
+            print(f"      {direction}: {mapping}")
+        print(f"      depends_on: {json.dumps(depends, ensure_ascii=False)} (额外顺序)")
     print()
 
 

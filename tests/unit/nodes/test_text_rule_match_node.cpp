@@ -98,11 +98,21 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
           {{"id", "broken"}, {"strategy", "regex"}, {"pattern", "("}}}}},
        {"rules[1].pattern", "broken", "byte offset"}}};
   auto root = nlohmann::json::parse(R"({
-    "biz_name":"keyword_match_v1", "models":[], "pipeline":[
-      {"id":"rules", "node_type":"TextRuleMatchNode", "depends_on":[],
-       "ports":{"inputs":{"text":"input_sentences"},
-                "outputs":{"matches":"rule_matches"}}}
-    ]})");
+  "biz_name": "keyword_match_v1",
+  "models": [],
+  "pipeline": [
+    {
+      "id": "rules",
+      "node_type": "TextRuleMatchNode",
+      "inputs": {
+        "text": "input_sentences"
+      },
+      "outputs": {
+        "matches": "rule_matches"
+      }
+    }
+  ]
+})");
   auto active = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(active, nullptr);
   ASSERT_TRUE(InitNodeForTest(*active, {{"categories", {{"OLD", {"kept"}}}}},

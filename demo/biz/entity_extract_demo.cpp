@@ -119,12 +119,11 @@ int RunEntityExtractDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("entity_extract", "实体/名词提取业务", RunEntityExtractDemo,
-                  "entity_extract.operator.v1");
+REGISTER_DEMO_BIZ("entity_extract_v1", "实体/名词提取业务",
+                  RunEntityExtractDemo);
 int RunTranslateDemo(const DemoOptions& options) {
   return RunEntityExtractDemo(options);
 }
-REGISTER_DEMO_BIZ("translate", "JSON 字符串翻译", RunTranslateDemo,
-                  "translate.operator.v1");
+REGISTER_DEMO_BIZ("translate_v1", "JSON 字符串翻译", RunTranslateDemo);
 
 }  // namespace alg_demo

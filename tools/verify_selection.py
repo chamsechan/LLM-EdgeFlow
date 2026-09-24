@@ -48,7 +48,7 @@ def pointer(document, path):
 
 
 def native(tool, command, document=None):
-    args = [str(Path(tool).resolve()), command]
+    args = [str(Path(tool).resolve()), *(command if isinstance(command, list) else [command])]
     if document is not None:
         args.append("--stdin")
     result = subprocess.run(args, input=json.dumps(document) if document is not None else None,
@@ -67,21 +67,25 @@ def within(root, relative):
     return path
 
 
-def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, default_io_binding=None):
+def pipeline_binding(pipeline):
+    if not isinstance(pipeline, dict):
+        return ""
+    deployment = pipeline.get("deployment", {})
+    io = deployment.get("io", {}) if isinstance(deployment, dict) else {}
+    return io.get("io_binding", "") if isinstance(io, dict) else ""
+
+
+def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root):
     """Map the selected Pipeline's model paths into an explicit deployment root."""
     bundle_root = Path(bundle_root).resolve()
     model_root = within(bundle_root, model_root)
     pipeline_path = Path(pipe_path).name
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
-    deployment = pipeline.setdefault("deployment", {})
-    io_obj = deployment.setdefault("io", {})
-    if "io_binding" not in io_obj and default_io_binding is not None:
-        io_obj["io_binding"] = default_io_binding
     if outputs:
-        io_obj["output_allocations"] = outputs
+        pipeline.setdefault("deployment", {}).setdefault("io", {})["out_mem"] = outputs
     if model_paths:
-        deployment["model_paths"] = model_paths
+        pipeline.setdefault("deployment", {})["model_paths"] = model_paths
     return {"pipe_path": str(pipeline_path)}
 
 
@@ -214,7 +218,7 @@ def effect_inputs(spec_path, conf_path, demo):
     pipe_doc = read_json(pipeline_file)
     deployment = pipe_doc.get("deployment", {})
     io_doc = deployment.get("io", {})
-    outputs = io_doc.get("output_allocations", {})
+    outputs = io_doc.get("out_mem", {})
     model_paths = deployment.get("model_paths", {})
     binding = io_doc.get("io_binding", "")
     demo = Path(demo).resolve()
@@ -232,10 +236,8 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
         raise ValueError("Configuration, build or assets are not verified")
     spec, dataset, outputs, test_inputs = effect_inputs(spec_path, conf_path, demo)
     test_fingerprint = digest(test_inputs)
-    if spec["biz_name"] != pipeline["biz_name"]:
-        raise ValueError("Effect specification business mismatch")
-    catalog = native(tool, "catalog")
-    biz = next(item["demo_biz"] for item in catalog["bizs"] if item["biz_name"] == pipeline["biz_name"])
+    if spec["io_binding"] != pipeline_binding(pipeline):
+        raise ValueError("Effect specification I/O binding mismatch")
     model_root = Path(model_root).resolve()
     bundle_root = model_root.parent
     # Use a temporary configuration inside the existing asset bundle; no model
@@ -243,11 +245,14 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
     with tempfile.TemporaryDirectory(prefix=".selection-", dir=bundle_root) as directory:
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
-        generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root,
-                                       default_io_binding=test_inputs["io_binding"])
+        generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
         (temporary / "pipeline.json").write_text(json.dumps(pipeline))
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
-        command = [str(Path(demo).resolve()), "--biz", biz, "--config", str(relative / "pipeline.conf"),
+        resolved = native(tool, ["resolve-conf", str(relative / "pipeline.conf"), "--root", str(bundle_root)])
+        if not resolved.get("ok"):
+            raise ValueError("Effect deployment is invalid: " + json.dumps(resolved))
+        biz = resolved["configuration"]["biz_name"]
+        command = [str(Path(demo).resolve()), "--config", str(relative / "pipeline.conf"),
                    "--dataset", str(dataset), "--output-dir", str(temporary / "results")]
         process = subprocess.run(command, cwd=bundle_root, text=True, capture_output=True, timeout=1800, check=False)
         if process.returncode:

@@ -23,7 +23,7 @@ package "接入适配层 / Integration" {
   class "C++ Operator SDK" as Operator {
     Get_LLM_EDGEFLOW_OperatorTable()
     GetOperatorLastError()
-    ValidateOperatorConfigBinding()
+    ResolveOperatorConfigBiz()
     OperatorFunc: Init / Create / Process
     Control / Destroy / DeInit
   }

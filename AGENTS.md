@@ -44,7 +44,8 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
   carriers, hold buffers, invoke the SDK and display/copy results. Shared DTO types do not imply
   shared payload semantics; Node/Catalog ports are internal. Platform mocks live only in
   `include/platform_mock/`; framework entrypoints/helpers stay under `edgeflow/`.
-- **Orchestration:** `PipelineValidator` alone validates/plans explicit `id` + `depends_on`.
+- **Orchestration:** `PipelineValidator` alone derives data dependencies from explicit
+  `inputs` / `outputs` bindings and combines optional `depends_on` ordering constraints.
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing/resorting. Request values use
   `AlgContext` and typed `BlackboardKey<T>` ports; session resources use `SessionContext`.
 - **Capability Nodes:** common Nodes are neutral framework operations; custom Nodes are

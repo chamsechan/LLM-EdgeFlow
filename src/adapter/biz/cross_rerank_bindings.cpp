@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeCrossRerankBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "cross_rerank";
   def.display_name = "Cross-Encoder 精排";
   def.ingress = {
       RequiredBizInput(kRawRequestIds), RequiredBizInput(kRerankQueries),

@@ -532,7 +532,9 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
                   if (!m.is_object()) continue;
                   std::string mid = m.value("model_id", "");
                   if (mid.empty()) continue;
-                  if (m.value("capability", "") == req_cap) {
+                  const auto model_def =
+                      PipelineCatalog::FindModel(m.value("model_type", ""));
+                  if (model_def && model_def->capability == req_cap) {
                     candidate_model_ids.push_back(mid);
                   }
                 }
@@ -566,16 +568,13 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
 
     if (consumer_idx < root.value("pipeline", nlohmann::json::array()).size()) {
       const auto& consumer_node = root["pipeline"][consumer_idx];
-      std::string consumer_id = consumer_node.value("id", diag->node_id);
       std::string consumer_type = consumer_node.value("node_type", "");
       const auto* consumer_def = catalog.FindNode(consumer_type);
       std::string port_name = diag->port;
-      std::string bound_key = port_name;
-      if (consumer_node.contains("ports") &&
-          consumer_node["ports"].contains("inputs") &&
-          consumer_node["ports"]["inputs"].contains(port_name)) {
-        bound_key =
-            consumer_node["ports"]["inputs"][port_name].get<std::string>();
+      std::string bound_key;
+      if (consumer_node.contains("inputs") &&
+          consumer_node["inputs"].contains(port_name)) {
+        bound_key = consumer_node["inputs"][port_name].get<std::string>();
       }
 
       std::string expected_type;
@@ -604,10 +603,10 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
         if (!p_def) continue;
         for (const auto& out : p_def->outputs) {
           std::string actual_out_key = out.logical_name;
-          if (p_node.contains("ports") && p_node["ports"].contains("outputs") &&
-              p_node["ports"]["outputs"].contains(out.logical_name)) {
+          if (p_node.contains("outputs") &&
+              p_node["outputs"].contains(out.logical_name)) {
             actual_out_key =
-                p_node["ports"]["outputs"][out.logical_name].get<std::string>();
+                p_node["outputs"][out.logical_name].get<std::string>();
           }
           if (actual_out_key == bound_key) {
             producer_idx = static_cast<int>(p);
@@ -620,42 +619,34 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
         if (producer_idx >= 0) break;
       }
 
-      if (producer_idx >= 0) {
-        if (producer_out_type == expected_type) {
-          ValidationRemediation rem;
-          rem.schema_version = 1;
-          rem.cause = RemediationCause::kProducerNotDependencyAncestor;
-          rem.summary = producer_id + " 已输出 " + bound_key +
-                        "，但不在消费者的依赖路径中。";
-          rem.facts["bound_key"] = bound_key;
-          rem.facts["producer_id"] = producer_id;
-          diag->remediation = std::move(rem);
-        } else {
-          ValidationRemediation rem;
-          rem.schema_version = 1;
-          rem.cause = RemediationCause::kPortTypeMismatch;
-          rem.summary = "生产者 '" + producer_id + "' 输出类型与端口 '" +
-                        port_name + "' 要求不符。";
-          rem.facts["bound_key"] = bound_key;
-          rem.facts["producer_id"] = producer_id;
-          rem.facts["expected"] = {
-              {"type_id", expected_contract.type_id},
-              {"cardinality", expected_contract.cardinality},
-              {"provenance_policy", expected_contract.provenance_policy},
-              {"lifetime", expected_contract.lifetime}};
-          rem.facts["actual"] = {
-              {"type_id", producer_contract.type_id},
-              {"cardinality", producer_contract.cardinality},
-              {"provenance_policy", producer_contract.provenance_policy},
-              {"lifetime", producer_contract.lifetime}};
-          diag->remediation = std::move(rem);
-        }
+      if (producer_idx >= 0 && producer_out_type != expected_type) {
+        ValidationRemediation rem;
+        rem.schema_version = 1;
+        rem.cause = RemediationCause::kPortTypeMismatch;
+        rem.summary = "生产者 '" + producer_id + "' 输出类型与端口 '" +
+                      port_name + "' 要求不符。";
+        rem.facts["bound_key"] = bound_key;
+        rem.facts["producer_id"] = producer_id;
+        rem.facts["expected"] = {
+            {"type_id", expected_contract.type_id},
+            {"cardinality", expected_contract.cardinality},
+            {"provenance_policy", expected_contract.provenance_policy},
+            {"lifetime", expected_contract.lifetime}};
+        rem.facts["actual"] = {
+            {"type_id", producer_contract.type_id},
+            {"cardinality", producer_contract.cardinality},
+            {"provenance_policy", producer_contract.provenance_policy},
+            {"lifetime", producer_contract.lifetime}};
+        diag->remediation = std::move(rem);
       } else {
         ValidationRemediation rem;
         rem.schema_version = 1;
         rem.cause = RemediationCause::kNoCompatibleInputSource;
-        rem.summary = "Pipeline 中没有为端口 '" + port_name + "' (绑定键: '" +
-                      bound_key + "') 提供匹配类型的生产者。";
+        rem.summary =
+            bound_key.empty()
+                ? "请为必需输入端口 '" + port_name + "' 明确指定数据来源。"
+                : "Pipeline 中没有为端口 '" + port_name + "' (绑定键: '" +
+                      bound_key + "') 提供唯一匹配类型的生产者。";
         rem.facts["bound_key"] = bound_key;
         rem.facts["expected_type"] = expected_type;
         rem.facts["candidate_node_types"] = diag->suggestions;
@@ -795,12 +786,10 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       std::string consumer_type = consumer_node.value("node_type", "");
       const auto* consumer_def = catalog.FindNode(consumer_type);
       std::string port_name = diag->port;
-      std::string bound_key = port_name;
-      if (consumer_node.contains("ports") &&
-          consumer_node["ports"].contains("inputs") &&
-          consumer_node["ports"]["inputs"].contains(port_name)) {
-        bound_key =
-            consumer_node["ports"]["inputs"][port_name].get<std::string>();
+      std::string bound_key;
+      if (consumer_node.contains("inputs") &&
+          consumer_node["inputs"].contains(port_name)) {
+        bound_key = consumer_node["inputs"][port_name].get<std::string>();
       }
 
       PortContract expected_contract;
@@ -835,11 +824,10 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
             if (p_def) {
               for (const auto& out : p_def->outputs) {
                 std::string actual_out_key = out.logical_name;
-                if (p_node.contains("ports") &&
-                    p_node["ports"].contains("outputs") &&
-                    p_node["ports"]["outputs"].contains(out.logical_name)) {
-                  actual_out_key = p_node["ports"]["outputs"][out.logical_name]
-                                       .get<std::string>();
+                if (p_node.contains("outputs") &&
+                    p_node["outputs"].contains(out.logical_name)) {
+                  actual_out_key =
+                      p_node["outputs"][out.logical_name].get<std::string>();
                 }
                 if (actual_out_key == bound_key) {
                   producer_contract = out;
@@ -924,6 +912,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       Add(&report, DiagnosticCode::kUnknownModelType,
           "/models/" + std::to_string(model.source_index) + "/model_type",
           "Unknown model_type: " + model.model_type);
+    } else {
+      model_capabilities[model.model_id] = model_def_opt->capability;
     }
 
     auto backend_def_opt = BackendRegistry::Instance().Find(model.backend);
@@ -934,14 +924,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
 
     if (model_def_opt && backend_def_opt) {
-      if (model.capability != model_def_opt->capability) {
-        Add(&report, DiagnosticCode::kModelCapabilityMismatch,
-            "/models/" + std::to_string(model.source_index) + "/capability",
-            "Model capability mismatch: declared '" + model.capability +
-                "' but ModelDefinition specifies '" +
-                model_def_opt->capability + "'");
-      }
-
       const auto& supported_protocols = backend_def_opt->supported_protocols;
       bool protocol_supported =
           std::find(supported_protocols.begin(), supported_protocols.end(),
@@ -1013,12 +995,11 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
               ? InferenceConcurrency::kSerialized
               : InferenceConcurrency::kConcurrent;
 
-      model_capabilities[model.model_id] = model.capability;
       model_concurrency[model.model_id] = effective_concurrency;
 
       ValidatedModelPlan model_plan;
       model_plan.model_id = model.model_id;
-      model_plan.capability = model.capability;
+      model_plan.capability = model_def_opt->capability;
       model_plan.model_type = model.model_type;
       model_plan.backend = model.backend;
       model_plan.resolved_model_path = normalized_path.string();
@@ -1064,11 +1045,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       std::unordered_set<std::string> connected;
       for (const auto& binding : node.ports.inputs)
         connected.insert(binding.first);
-      for (const auto& declared_input : definition->inputs) {
-        if (declared_input.required) {
-          connected.insert(declared_input.logical_name);
-        }
-      }
       std::string diagnostic;
       try {
         if (!definition->validate_config(normalized_config, connected,
@@ -1111,33 +1087,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
-  const size_t pre_topology_errors = report.diagnostics.size();
-  ResolveTopology(nodes, &report);
-
-  if (report.diagnostics.size() != pre_topology_errors || !biz ||
-      report.topological_order.size() != nodes.size()) {
-    finish_plan(plan);
-    return plan;
-  }
-
-  std::unordered_map<std::string, std::vector<std::string>> deps;
-  for (const auto& node : nodes) deps[node.id] = node.depends_on;
-  std::function<bool(const std::string&, const std::string&)> is_ancestor =
-      [&](const std::string& candidate, const std::string& node_id) {
-        std::unordered_set<std::string> visited;
-        std::vector<std::string> stack = deps[node_id];
-        while (!stack.empty()) {
-          std::string current = stack.back();
-          stack.pop_back();
-          if (current == candidate) return true;
-          if (!visited.insert(current).second) continue;
-          auto it = deps.find(current);
-          if (it != deps.end())
-            stack.insert(stack.end(), it->second.begin(), it->second.end());
-        }
-        return false;
-      };
-
   std::unordered_map<std::string, BizPortDefinition> ingress;
   if (biz) {
     for (const auto& port : biz->ingress) ingress[port.blackboard_key] = port;
@@ -1178,6 +1127,65 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortContract>>>
       producers;
+  // Resolve ownership before ordering. Array order never selects a producer.
+  for (const auto& node : nodes) {
+    auto def_it = def_by_id.find(node.id);
+    if (def_it == def_by_id.end()) continue;
+    const auto& definition = *def_it->second;
+    const auto& normalized_config = normalized_config_by_node.at(node.id);
+    for (const auto& declared_output : definition.outputs) {
+      const auto output = EffectivePortDefinition(declared_output, definition,
+                                                  normalized_config);
+      auto binding = node.ports.outputs.find(output.logical_name);
+      const std::string& key = binding == node.ports.outputs.end()
+                                   ? output.logical_name
+                                   : binding->second;
+      auto& existing = producers[key];
+      std::vector<std::string> conflicts;
+      if (ingress.count(key)) conflicts.push_back("$ingress");
+      for (const auto& producer : existing) conflicts.push_back(producer.first);
+      if (!conflicts.empty()) {
+        Add(&report, DiagnosticCode::kDuplicatePortProducer,
+            "/pipeline/" + std::to_string(node.source_index) + "/outputs/" +
+                EscapeJsonPointer(output.logical_name),
+            "Write-once Blackboard port has multiple producers: " + key,
+            node.id, output.logical_name, std::move(conflicts));
+      }
+      existing.push_back({node.id, static_cast<const PortContract&>(output)});
+    }
+  }
+  for (auto& node : plan.config.nodes) {
+    auto def_it = def_by_id.find(node.id);
+    if (def_it == def_by_id.end()) continue;
+    for (const auto& input : def_it->second->inputs) {
+      const auto binding = node.ports.inputs.find(input.logical_name);
+      if (binding == node.ports.inputs.end()) continue;
+      const auto producer = producers.find(binding->second);
+      if (producer == producers.end() || producer->second.size() != 1 ||
+          ingress.count(binding->second))
+        continue;
+      const auto& producer_id = producer->second.front().first;
+      if (producer_id == node.id) {
+        Add(&report, DiagnosticCode::kDagCycle,
+            "/pipeline/" + std::to_string(node.source_index) + "/inputs/" +
+                EscapeJsonPointer(input.logical_name),
+            "Node input cannot consume its own output", node.id,
+            input.logical_name, {node.id});
+      } else if (std::find(node.depends_on.begin(), node.depends_on.end(),
+                           producer_id) == node.depends_on.end()) {
+        node.depends_on.push_back(producer_id);
+      }
+    }
+  }
+
+  const size_t pre_topology_errors = report.diagnostics.size();
+  ResolveTopology(nodes, &report);
+  if (report.diagnostics.size() != pre_topology_errors || !biz ||
+      report.topological_order.size() != nodes.size()) {
+    finish_plan(plan);
+    return plan;
+  }
+
   for (const auto& id : report.topological_order) {
     auto def_it = def_by_id.find(id);
     if (def_it == def_by_id.end()) continue;
@@ -1210,8 +1218,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           [&](const auto& item) { return item.logical_name == in_port; });
       if (!declared) {
         Add(&report, DiagnosticCode::kUnknownField,
-            "/pipeline/" + std::to_string(node.source_index) +
-                "/ports/inputs/" + in_port,
+            "/pipeline/" + std::to_string(node.source_index) + "/inputs/" +
+                in_port,
             "Unknown logical input port '" + in_port + "' for node type '" +
                 definition.node_type + "'",
             id, in_port);
@@ -1226,8 +1234,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           [&](const auto& item) { return item.logical_name == out_port; });
       if (!declared) {
         Add(&report, DiagnosticCode::kUnknownField,
-            "/pipeline/" + std::to_string(node.source_index) +
-                "/ports/outputs/" + out_port,
+            "/pipeline/" + std::to_string(node.source_index) + "/outputs/" +
+                out_port,
             "Unknown logical output port '" + out_port + "' for node type '" +
                 definition.node_type + "'",
             id, out_port);
@@ -1238,44 +1246,35 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     for (const auto& declared_input : definition.inputs) {
       const auto input = EffectivePortDefinition(declared_input, definition,
                                                  normalized_config);
-      std::string actual_key = input.logical_name;
-      bool explicitly_bound = false;
+      const std::string input_path =
+          "/pipeline/" + std::to_string(node.source_index) + "/inputs/" +
+          EscapeJsonPointer(input.logical_name);
       auto port_it = node.ports.inputs.find(input.logical_name);
-      if (port_it != node.ports.inputs.end()) {
-        actual_key = port_it->second;
-        explicitly_bound = true;
-        bound_input_ports.insert(input.logical_name);
-      } else if (input.required) {
-        bound_input_ports.insert(input.logical_name);
+      if (port_it == node.ports.inputs.end()) {
+        if (input.required) {
+          Add(&report, DiagnosticCode::kMissingInputProducer, input_path,
+              "Required input port must be explicitly connected: " +
+                  input.logical_name,
+              id, input.logical_name);
+        }
+        continue;
       }
-
-      if (!input.required && !explicitly_bound) continue;
+      const std::string& actual_key = port_it->second;
+      bound_input_ports.insert(input.logical_name);
       node_plan.ports.push_back({input.logical_name, actual_key, input.type_id,
                                  input.cardinality, input.provenance_policy,
                                  input.lifetime, PortDirection::kInput});
-
-      const std::string input_path = "/pipeline/" +
-                                     std::to_string(node.source_index) +
-                                     "/ports/inputs/" + input.logical_name;
       bool found = false;
       auto producer_it = producers.find(actual_key);
-      if (producer_it != producers.end()) {
-        // Blackboard keys are write-once. Duplicate producers are diagnosed
-        // below; resolve the nearest topologically preceding ancestor for
-        // deterministic type and flow-contract diagnostics.
-        for (auto it = producer_it->second.rbegin();
-             it != producer_it->second.rend(); ++it) {
-          if (is_ancestor(it->first, id)) {
-            if (it->second.type_id == input.type_id) {
-              found = true;
-              ValidatePortFlowContract(it->second, input, input_path, id,
-                                       input.logical_name, it->first, &report);
-            }
-            break;
-          }
+      if (producer_it != producers.end() && producer_it->second.size() == 1 &&
+          !ingress.count(actual_key)) {
+        const auto& producer = producer_it->second.front();
+        if (producer.second.type_id == input.type_id) {
+          found = true;
+          ValidatePortFlowContract(producer.second, input, input_path, id,
+                                   input.logical_name, producer.first, &report);
         }
-      }
-      if (!found && producer_it == producers.end()) {
+      } else if (producer_it == producers.end()) {
         auto root_port = ingress.find(actual_key);
         if (root_port != ingress.end() &&
             root_port->second.type_id == input.type_id) {
@@ -1294,12 +1293,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
             suggestions.push_back(candidate.node_type);
           }
         }
-        Add(&report, DiagnosticCode::kMissingInputProducer,
-            explicitly_bound
-                ? ("/pipeline/" + std::to_string(node.source_index) +
-                   "/ports/inputs/" + input.logical_name)
-                : ("/pipeline/" + std::to_string(node.source_index)),
-            "No biz ingress or ancestor node produces port '" +
+        Add(&report, DiagnosticCode::kMissingInputProducer, input_path,
+            "No unique compatible biz ingress or node produces port '" +
                 input.logical_name + "' (bound key: '" + actual_key +
                 "') of type '" + input.type_id + "'",
             id, input.logical_name, {}, suggestions);
@@ -1386,30 +1381,9 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         actual_key = port_it->second;
       }
 
-      const std::string output_path =
-          "/pipeline/" + std::to_string(node.source_index) +
-          (port_it == node.ports.outputs.end()
-               ? std::string()
-               : "/ports/outputs/" + output.logical_name);
-
       node_plan.ports.push_back(
           {output.logical_name, actual_key, output.type_id, output.cardinality,
            output.provenance_policy, output.lifetime, PortDirection::kOutput});
-
-      auto& existing = producers[actual_key];
-      std::vector<std::string> conflicting_producers;
-      if (ingress.find(actual_key) != ingress.end()) {
-        conflicting_producers.push_back("$ingress");
-      }
-      if (!existing.empty()) {
-        conflicting_producers.push_back(existing.back().first);
-      }
-      if (!conflicting_producers.empty()) {
-        Add(&report, DiagnosticCode::kDuplicatePortProducer, output_path,
-            "Write-once Blackboard port has multiple producers: " + actual_key,
-            id, output.logical_name, std::move(conflicting_producers));
-      }
-      existing.push_back({id, static_cast<const PortContract&>(output)});
     }
 
     plan.node_plans[id] = std::move(node_plan);
@@ -1434,7 +1408,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       for (const auto& [logical_key, actual_key] :
            producer_node.ports.outputs) {
         if (actual_key == consumer.blackboard_key) {
-          output_path += "/ports/outputs/" + logical_key;
+          output_path += "/outputs/" + logical_key;
           break;
         }
       }
@@ -1495,7 +1469,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
-  if (parsed.execution_mode == "parallel") {
+  if (parsed.max_parallel_workers > 1) {
     for (const auto& layer : report.topological_layers) {
       std::unordered_map<std::string, std::string> writes;
       std::unordered_map<std::string, std::string> serialized_model_users;
@@ -1716,52 +1690,6 @@ ValidationReport PipelineValidator::Explain(
             break;
           }
         }
-      }
-    } else if (diag.remediation->cause ==
-               RemediationCause::kProducerNotDependencyAncestor) {
-      size_t idx_end = diag.path.find('/', 10);
-      size_t consumer_idx = std::stoul(diag.path.substr(10, idx_end - 10));
-      const auto& consumer_node = root["pipeline"][consumer_idx];
-      std::string consumer_id = consumer_node.value("id", diag.node_id);
-      std::string producer_id =
-          diag.remediation->facts.value("producer_id", "");
-      int producer_idx = -1;
-      for (size_t p = 0; p < root["pipeline"].size(); ++p) {
-        if (root["pipeline"][p].value("id", "") == producer_id) {
-          producer_idx = static_cast<int>(p);
-          break;
-        }
-      }
-      if (producer_idx >= 0) {
-        ValidationFix fix;
-        fix.id = "add-dependency-" + std::to_string(++fix_counter);
-        fix.title = "添加对 " + producer_id + " 的依赖";
-        fix.effect = "消费者等待 " + producer_id + " 完成后读取其结果。";
-
-        std::string p_path = "/pipeline/" + std::to_string(producer_idx);
-        std::string c_path = "/pipeline/" + std::to_string(consumer_idx);
-
-        nlohmann::json patch = nlohmann::json::array();
-        patch.push_back(
-            {{"op", "test"}, {"path", p_path + "/id"}, {"value", producer_id}});
-        patch.push_back(
-            {{"op", "test"}, {"path", c_path + "/id"}, {"value", consumer_id}});
-
-        if (consumer_node.contains("depends_on") &&
-            consumer_node["depends_on"].is_array()) {
-          patch.push_back({{"op", "test"},
-                           {"path", c_path + "/depends_on"},
-                           {"value", consumer_node["depends_on"]}});
-          patch.push_back({{"op", "add"},
-                           {"path", c_path + "/depends_on/-"},
-                           {"value", producer_id}});
-        } else {
-          patch.push_back({{"op", "add"},
-                           {"path", c_path + "/depends_on"},
-                           {"value", nlohmann::json::array({producer_id})}});
-        }
-        fix.patch = std::move(patch);
-        candidate_fixes.push_back(std::move(fix));
       }
     } else if (diag.remediation->cause ==
                RemediationCause::kDuplicateDependency) {

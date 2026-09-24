@@ -1,28 +1,15 @@
 {
-  "biz_name": "speech_audio_asr_intent_slot",
   "deployment": {
     "model_paths": {
       "asr_model_v1": "models/ggml-base.bin"
     },
     "io": {
-      "io_binding": "audio_asr_intent.operator.v1",
-      "output_allocations": {
-        "audio_out": {
-          "type": "audio_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {
-            "transcribed_text": 511,
-            "intent_slot_json": 1023
-          }
-        }
-      }
+      "io_binding": "audio_asr_intent.operator.v1"
     }
   },
   "models": [
     {
       "model_id": "asr_model_v1",
-      "capability": "asr",
       "model_type": "whisper_asr",
       "backend": "whisper_cpp",
       "model_path": "ggml-base.bin",
@@ -40,33 +27,19 @@
     {
       "id": "transcribe",
       "node_type": "AsrTranscribeNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "audio": "audio_inputs"
-        },
-        "outputs": {
-          "text": "transcripts"
-        }
-      },
       "config": {
         "bind_model": "asr_model_v1"
+      },
+      "inputs": {
+        "audio": "audio_inputs"
+      },
+      "outputs": {
+        "text": "transcripts"
       }
     },
     {
       "id": "intent",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [
-        "transcribe"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "transcripts"
-        },
-        "outputs": {
-          "matches": "intent_slots"
-        }
-      },
       "config": {
         "default_category": "UNCLASSIFIED",
         "categories": {
@@ -78,6 +51,12 @@
             "播放"
           ]
         }
+      },
+      "inputs": {
+        "text": "transcripts"
+      },
+      "outputs": {
+        "matches": "intent_slots"
       }
     }
   ]

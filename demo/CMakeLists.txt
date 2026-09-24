@@ -12,6 +12,8 @@ add_library(edgeflow_demo_objects OBJECT
   biz/cross_rerank_demo.cpp)
 target_link_libraries(edgeflow_demo_objects PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)
+target_include_directories(edgeflow_demo_objects PRIVATE
+  "${PROJECT_BINARY_DIR}/generated/internal")
 
 add_executable(alg_demo
   main.cpp

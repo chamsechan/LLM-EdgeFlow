@@ -29,7 +29,7 @@
         <details class="create-panel">
           <summary>新建方案</summary>
           <div class="create-fields">
-            <label>业务契约<select id="bizSelect" title="业务契约"></select></label>
+            <label>I/O 契约<select id="bindingSelect" title="I/O 契约"></select></label>
             <label>初始内容<select id="cloneProfile" title="从 Profile 克隆"><option value="">空图</option></select></label>
             <button id="newButton" class="full">新建方案</button>
           </div>
@@ -82,7 +82,7 @@
         </svg>
         <div class="canvas-footer">
           <span id="canvasHint">拖动空白处平移 · 滚轮缩放 · 双击节点放大阅读</span>
-          <div class="graph-legend" aria-label="连线图例"><span><i class="legend-line"></i>数据流</span><span><i class="legend-line dependency"></i>执行依赖</span></div>
+          <div class="graph-legend" aria-label="连线图例"><span><i class="legend-line"></i>数据流</span><span><i class="legend-line dependency"></i>额外顺序</span></div>
         </div>
       </section>
 
@@ -113,7 +113,7 @@
             <label>节点 ID<input id="nodeId" autocomplete="off"></label>
             <div id="nodeType" class="node-type"></div>
             <div id="configFields"></div>
-            <details><summary>输入绑定与执行依赖</summary><div id="nodeBindings"></div></details>
+            <details><summary>额外执行顺序</summary><div id="nodeBindings"></div></details>
             <p id="nodeDraftHint" class="draft-hint" role="status" hidden>节点属性已修改，应用后更新方案。</p>
             <div class="row form-actions"><button id="applyNode" type="submit" class="primary">应用</button><button id="discardNode" type="button" disabled>放弃修改</button><button id="deleteNode" type="button" class="danger">删除节点</button></div>
           </form>
@@ -143,7 +143,7 @@
           <div class="row"><button id="applyJson" class="primary">应用 JSON</button><button id="discardJson" disabled>放弃修改</button></div>
         </section>
         <section id="validationTab" class="tab scroll" role="tabpanel" aria-label="方案校验" hidden>
-          <p class="tab-description">检查节点配置、端口绑定与执行依赖。</p>
+          <p class="tab-description">检查节点配置、数据连接与额外执行顺序。</p>
           <button id="validateButton" class="primary full">校验方案</button>
           <div id="fixReviewPanel" class="fix-review-panel" hidden></div>
           <div id="validationOutput" aria-live="polite"></div>

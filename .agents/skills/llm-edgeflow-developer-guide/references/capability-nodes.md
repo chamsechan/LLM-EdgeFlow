@@ -25,7 +25,8 @@ Use this reference for production Node implementation. Start first-time LLM auth
    after parser and field assignment, before semantic/binding validation, to rebuild derived state.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
    `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. These facades handle empty batches,
-   model diagnostics and alignment checks. Propagate `NodeResult` failures without remapping shared
+   model diagnostics and alignment checks. Model-reference fields are required and have no default
+   instance name. Propagate `NodeResult` failures without remapping shared
    errors to old node-specific codes. Keep domain failure codes where they describe actual algorithms.
 8. Keep request data local. A `Run` needing session resources explicitly accepts
    `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary
@@ -40,7 +41,10 @@ Use this reference for production Node implementation. Start first-time LLM auth
    does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
    Combining `WithParser` and field controls (`WithControls`) requires an explicit `Prepare`; field
    updates rerun it before semantic/binding validation and candidate publication.
-10. Declare category, description, parallel safety and any actual business restrictions in the Spec.
+10. Declare category, description and any actual business restrictions in the Spec.
+    Ordinary Map/LLM functions work on payloads; their existing helpers preserve provenance and flow.
+    Keep the default conservative parallel safety for sequential use; explicitly establish
+    `.ParallelSafe(true)` only when making the implementation available to parallel graphs.
     Generated Definition is the only Catalog source; do not maintain a second UI registry.
     Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.
 

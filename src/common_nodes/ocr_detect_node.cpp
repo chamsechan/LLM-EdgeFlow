@@ -35,7 +35,6 @@ auto OcrDetectSpec() {
                   Produced("text", &Outputs::text, "images")}),
              Parameters<NoParameters>{},
              ModelsOf<Models>{Model("detector", "bind_model", &Models::detector,
-                                    "ocr_model_v1",
                                     "引用 models[].model_id；所选模型必须提供 "
                                     "ocr 文档识别能力。")},
              &Recognize)

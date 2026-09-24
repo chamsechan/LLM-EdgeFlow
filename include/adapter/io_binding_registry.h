@@ -22,6 +22,10 @@ class IoBindingRegistry {
   std::vector<IoBindingDefinition> AllBindings() const;
   std::vector<BizExposureDefinition> AllExposures() const;
 
+  // A biz identifies one complete external contract across its bindings.
+  bool ValidateBizContract(const std::string& biz_name,
+                           std::string* error = nullptr) const;
+
   bool HasConflict() const;
   std::vector<std::string> GetConflictErrors() const;
 

@@ -1,5 +1,4 @@
 {
-  "biz_name": "smart_doc_qa_v1",
   "deployment": {
     "model_paths": {
       "embed_model_onnx": "models/bge_base_zh_v1.5.onnx",
@@ -7,24 +6,12 @@
       "llm_model_llamacpp": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     },
     "io": {
-      "io_binding": "doc_qa.operator.v1",
-      "output_allocations": {
-        "doc_out": {
-          "type": "doc_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {
-            "intent_name": 63,
-            "answer_text": 1023
-          }
-        }
-      }
+      "io_binding": "doc_qa.operator.v1"
     }
   },
   "models": [
     {
       "model_id": "embed_model_onnx",
-      "capability": "embedding",
       "model_type": "bge_embedding",
       "backend": "onnxruntime",
       "model_path": "bge_base_zh_v1.5.onnx",
@@ -45,7 +32,6 @@
     },
     {
       "model_id": "rerank_model_onnx",
-      "capability": "rerank",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
       "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
@@ -66,7 +52,6 @@
     },
     {
       "model_id": "llm_model_llamacpp",
-      "capability": "llm",
       "model_type": "qwen_causal_lm",
       "backend": "kite_llm",
       "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
@@ -82,127 +67,91 @@
     {
       "id": "node_0_TextChunkNode",
       "node_type": "TextChunkNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "raw_docs"
-        },
-        "outputs": {
-          "chunks": "doc_chunks",
-          "chunk_counts": "doc_chunk_counts"
-        }
-      },
       "config": {
         "chunk_size": 60
+      },
+      "inputs": {
+        "text": "raw_docs"
+      },
+      "outputs": {
+        "chunks": "doc_chunks",
+        "chunk_counts": "doc_chunk_counts"
       }
     },
     {
       "id": "node_1_QueryEmbeddingNode",
       "node_type": "TextEmbeddingNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "raw_queries"
-        },
-        "outputs": {
-          "embedding": "query_embeddings"
-        }
-      },
       "config": {
         "bind_model": "embed_model_onnx"
+      },
+      "inputs": {
+        "text": "raw_queries"
+      },
+      "outputs": {
+        "embedding": "query_embeddings"
       }
     },
     {
       "id": "node_2_ChunkEmbeddingNode",
       "node_type": "TextEmbeddingNode",
-      "depends_on": [
-        "node_0_TextChunkNode"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "doc_chunks"
-        },
-        "outputs": {
-          "embedding": "chunk_embeddings"
-        }
-      },
       "config": {
         "bind_model": "embed_model_onnx"
+      },
+      "inputs": {
+        "text": "doc_chunks"
+      },
+      "outputs": {
+        "embedding": "chunk_embeddings"
       }
     },
     {
       "id": "node_3_VectorTopKNode",
       "node_type": "VectorTopKNode",
-      "depends_on": [
-        "node_1_QueryEmbeddingNode",
-        "node_2_ChunkEmbeddingNode"
-      ],
-      "ports": {
-        "inputs": {
-          "queries": "query_embeddings",
-          "candidates": "chunk_embeddings",
-          "candidate_texts": "doc_chunks"
-        },
-        "outputs": {
-          "ranked": "coarse_contexts"
-        }
-      },
       "config": {
         "min_score": 0.0,
         "top_k": 4
+      },
+      "inputs": {
+        "queries": "query_embeddings",
+        "candidates": "chunk_embeddings",
+        "candidate_texts": "doc_chunks"
+      },
+      "outputs": {
+        "ranked": "coarse_contexts"
       }
     },
     {
       "id": "node_4_TextRerankNode",
       "node_type": "TextRerankNode",
-      "depends_on": [
-        "node_3_VectorTopKNode"
-      ],
-      "ports": {
-        "inputs": {
-          "queries": "raw_queries",
-          "candidates": "coarse_contexts"
-        },
-        "outputs": {
-          "ranked": "fine_contexts"
-        }
-      },
       "config": {
         "bind_model": "rerank_model_onnx",
         "top_k": 1
+      },
+      "inputs": {
+        "queries": "raw_queries",
+        "candidates": "coarse_contexts"
+      },
+      "outputs": {
+        "ranked": "fine_contexts"
       }
     },
     {
       "id": "node_5_TextTemplateNode",
       "node_type": "TextTemplateNode",
-      "depends_on": [
-        "node_4_TextRerankNode"
-      ],
-      "ports": {
-        "inputs": {
-          "primary": "raw_queries",
-          "context": "fine_contexts"
-        },
-        "outputs": {
-          "text": "prompt_text"
-        }
-      },
       "config": {
         "template": "【精准检索上下文】: {{context}}\n【用户提问】: {{primary}}\n请给出解答:"
+      },
+      "inputs": {
+        "primary": "raw_queries",
+        "context": "fine_contexts"
+      },
+      "outputs": {
+        "text": "prompt_text"
       }
     },
     {
       "id": "node_6_TextRuleMatchNode",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "raw_queries"
-        },
-        "outputs": {
-          "matches": "intent_matches"
-        }
-      },
       "config": {
         "categories": {
           "AFTER_SALES_REFUND": [
@@ -220,26 +169,27 @@
             "Rerank"
           ]
         }
+      },
+      "inputs": {
+        "text": "raw_queries"
+      },
+      "outputs": {
+        "matches": "intent_matches"
       }
     },
     {
       "id": "node_7_LlmGenerateNode",
       "node_type": "LlmGenerateNode",
-      "depends_on": [
-        "node_5_TextTemplateNode"
-      ],
-      "ports": {
-        "inputs": {
-          "prompt": "prompt_text"
-        },
-        "outputs": {
-          "text": "llm_answers"
-        }
-      },
       "config": {
         "bind_model": "llm_model_llamacpp",
         "max_tokens": 128,
         "temperature": 0.0
+      },
+      "inputs": {
+        "prompt": "prompt_text"
+      },
+      "outputs": {
+        "text": "llm_answers"
       }
     }
   ]

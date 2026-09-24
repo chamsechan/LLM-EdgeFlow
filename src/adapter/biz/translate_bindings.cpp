@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeTranslateBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "translate";
   def.display_name = "JSON 字符串翻译";
   def.ingress = {RequiredBizInput(kRawRequestIds),
                  RequiredBizInput(kInputSentences)};

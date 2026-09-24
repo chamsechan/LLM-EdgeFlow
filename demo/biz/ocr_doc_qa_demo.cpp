@@ -138,7 +138,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("ocr_doc_qa", "智能多模态图文票据问答", RunOcrDocQaDemo,
-                  "ocr_doc_qa.operator.v1");
+REGISTER_DEMO_BIZ("multimodal_ocr_invoice_qa", "智能多模态图文票据问答",
+                  RunOcrDocQaDemo);
 
 }  // namespace alg_demo

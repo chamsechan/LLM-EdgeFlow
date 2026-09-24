@@ -53,7 +53,6 @@
         "models": [
           {
             "model_id": "llm",
-            "capability": "llm",
             "model_type": "test_biz_llm",
             "backend": "test_causal_lm_backend",
             "model_path": "fixture.gguf"
@@ -64,13 +63,11 @@
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "primary": "input_sentences"
-              },
-              "outputs": {
-                "text": "prompt_text"
-              }
+            "inputs": {
+              "primary": "input_sentences"
+            },
+            "outputs": {
+              "text": "prompt_text"
             }
           },
           {
@@ -79,17 +76,15 @@
             "depends_on": [
               "pre"
             ],
-            "ports": {
-              "inputs": {
-                "prompt": "prompt_text"
-              },
-              "outputs": {
-                "text": "ans"
-              }
-            },
             "config": {
               "bind_model": "llm",
               "unsupported_option": true
+            },
+            "inputs": {
+              "prompt": "prompt_text"
+            },
+            "outputs": {
+              "text": "ans"
             }
           },
           {
@@ -98,13 +93,11 @@
             "depends_on": [
               "generate"
             ],
-            "ports": {
-              "inputs": {
-                "text": "ans"
-              },
-              "outputs": {
-                "document": "extracted_entities"
-              }
+            "inputs": {
+              "text": "ans"
+            },
+            "outputs": {
+              "document": "extracted_entities"
             }
           }
         ]
@@ -124,7 +117,6 @@
         "models": [
           {
             "model_id": "llm",
-            "capability": "llm",
             "model_type": "test_biz_llm",
             "backend": "test_causal_lm_backend",
             "model_path": "fixture.gguf"
@@ -135,13 +127,11 @@
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "primary": "input_sentences"
-              },
-              "outputs": {
-                "text": "prompt_text"
-              }
+            "inputs": {
+              "primary": "input_sentences"
+            },
+            "outputs": {
+              "text": "prompt_text"
             }
           },
           {
@@ -150,17 +140,15 @@
             "depends_on": [
               "pre"
             ],
-            "ports": {
-              "inputs": {
-                "prompt": "prompt_text"
-              },
-              "outputs": {
-                "text": "ans"
-              }
-            },
             "config": {
               "bind_model": "llm",
               "max_tokens": 0
+            },
+            "inputs": {
+              "prompt": "prompt_text"
+            },
+            "outputs": {
+              "text": "ans"
             }
           },
           {
@@ -169,13 +157,11 @@
             "depends_on": [
               "generate"
             ],
-            "ports": {
-              "inputs": {
-                "text": "ans"
-              },
-              "outputs": {
-                "document": "extracted_entities"
-              }
+            "inputs": {
+              "text": "ans"
+            },
+            "outputs": {
+              "document": "extracted_entities"
             }
           }
         ]
@@ -195,7 +181,6 @@
         "models": [
           {
             "model_id": "embedding",
-            "capability": "embedding",
             "model_type": "test_biz_embedding",
             "backend": "test_tensor_backend",
             "model_path": "fixture.onnx"
@@ -206,13 +191,11 @@
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "primary": "input_sentences"
-              },
-              "outputs": {
-                "text": "prompt_text"
-              }
+            "inputs": {
+              "primary": "input_sentences"
+            },
+            "outputs": {
+              "text": "prompt_text"
             }
           },
           {
@@ -221,16 +204,14 @@
             "depends_on": [
               "pre"
             ],
-            "ports": {
-              "inputs": {
-                "prompt": "prompt_text"
-              },
-              "outputs": {
-                "text": "ans"
-              }
-            },
             "config": {
               "bind_model": "embedding"
+            },
+            "inputs": {
+              "prompt": "prompt_text"
+            },
+            "outputs": {
+              "text": "ans"
             }
           },
           {
@@ -239,13 +220,11 @@
             "depends_on": [
               "generate"
             ],
-            "ports": {
-              "inputs": {
-                "text": "ans"
-              },
-              "outputs": {
-                "document": "extracted_entities"
-              }
+            "inputs": {
+              "text": "ans"
+            },
+            "outputs": {
+              "document": "extracted_entities"
             }
           }
         ]
@@ -270,7 +249,13 @@
             "depends_on": [
               "b"
             ],
-            "config": {}
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
+            },
+            "outputs": {
+              "matches": "a_matches"
+            }
           },
           {
             "id": "b",
@@ -278,7 +263,13 @@
             "depends_on": [
               "a"
             ],
-            "config": {}
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
+            },
+            "outputs": {
+              "matches": "rule_matches"
+            }
           }
         ]
       },
@@ -300,12 +291,10 @@
             "id": "parse",
             "node_type": "StructuredJsonParseNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "text": "non_existent_key"
-              }
-            },
-            "config": {}
+            "config": {},
+            "inputs": {
+              "text": "non_existent_key"
+            }
           }
         ]
       },
@@ -313,7 +302,7 @@
         "MISSING_INPUT_PRODUCER"
       ],
       "primary_code": "MISSING_INPUT_PRODUCER",
-      "primary_path": "/pipeline/0/ports/inputs/text",
+      "primary_path": "/pipeline/0/inputs/text",
       "runtime_error_code": -2
     },
     {
@@ -321,45 +310,41 @@
       "biz_type": 2,
       "pipeline": {
         "biz_name": "keyword_match_v1",
-        "execution_mode": "parallel",
         "models": [],
         "pipeline": [
           {
             "id": "left",
             "node_type": "TextRuleMatchNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "text": "input_sentences"
-              },
-              "outputs": {
-                "matches": "conflict_matches"
-              }
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
             },
-            "config": {}
+            "outputs": {
+              "matches": "conflict_matches"
+            }
           },
           {
             "id": "right",
             "node_type": "TextRuleMatchNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "text": "input_sentences"
-              },
-              "outputs": {
-                "matches": "conflict_matches"
-              }
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
             },
-            "config": {}
+            "outputs": {
+              "matches": "conflict_matches"
+            }
           }
-        ]
+        ],
+        "max_parallel_workers": 4
       },
       "required_codes": [
         "DUPLICATE_PORT_PRODUCER",
         "PARALLEL_WRITE_CONFLICT"
       ],
       "primary_code": "DUPLICATE_PORT_PRODUCER",
-      "primary_path": "/pipeline/1/ports/outputs/matches",
+      "primary_path": "/pipeline/1/outputs/matches",
       "runtime_error_code": -2
     },
     {
@@ -367,11 +352,9 @@
       "biz_type": 3,
       "pipeline": {
         "biz_name": "entity_extract_v1",
-        "execution_mode": "parallel",
         "models": [
           {
             "model_id": "serialized_llm",
-            "capability": "llm",
             "model_type": "test_biz_llm",
             "backend": "test_causal_lm_backend",
             "model_path": "fixture.gguf"
@@ -382,13 +365,11 @@
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {
-              "inputs": {
-                "primary": "input_sentences"
-              },
-              "outputs": {
-                "text": "prompt_text"
-              }
+            "inputs": {
+              "primary": "input_sentences"
+            },
+            "outputs": {
+              "text": "prompt_text"
             }
           },
           {
@@ -397,16 +378,14 @@
             "depends_on": [
               "pre"
             ],
-            "ports": {
-              "inputs": {
-                "prompt": "prompt_text"
-              },
-              "outputs": {
-                "text": "ans_left"
-              }
-            },
             "config": {
               "bind_model": "serialized_llm"
+            },
+            "inputs": {
+              "prompt": "prompt_text"
+            },
+            "outputs": {
+              "text": "ans_left"
             }
           },
           {
@@ -415,16 +394,14 @@
             "depends_on": [
               "pre"
             ],
-            "ports": {
-              "inputs": {
-                "prompt": "prompt_text"
-              },
-              "outputs": {
-                "text": "ans_right"
-              }
-            },
             "config": {
               "bind_model": "serialized_llm"
+            },
+            "inputs": {
+              "prompt": "prompt_text"
+            },
+            "outputs": {
+              "text": "ans_right"
             }
           },
           {
@@ -434,16 +411,15 @@
               "left",
               "right"
             ],
-            "ports": {
-              "inputs": {
-                "text": "ans_left"
-              },
-              "outputs": {
-                "document": "extracted_entities"
-              }
+            "inputs": {
+              "text": "ans_left"
+            },
+            "outputs": {
+              "document": "extracted_entities"
             }
           }
-        ]
+        ],
+        "max_parallel_workers": 4
       },
       "required_codes": [
         "SERIALIZED_MODEL_CONCURRENCY"
@@ -474,11 +450,10 @@
       "runtime_error_code": -2
     },
     {
-      "name": "invalid_execution_mode",
+      "name": "removed_execution_mode",
       "biz_type": 2,
       "pipeline": {
         "biz_name": "keyword_match_v1",
-        "execution_mode": "quantum",
         "models": [],
         "pipeline": [
           {
@@ -487,12 +462,13 @@
             "depends_on": [],
             "config": {}
           }
-        ]
+        ],
+        "execution_mode": "quantum"
       },
       "required_codes": [
-        "FIELD_RANGE"
+        "UNKNOWN_FIELD"
       ],
-      "primary_code": "FIELD_RANGE",
+      "primary_code": "UNKNOWN_FIELD",
       "primary_path": "/execution_mode",
       "runtime_error_code": -2
     },
@@ -507,7 +483,13 @@
             "id": "node_a",
             "node_type": "TextRuleMatchNode",
             "depends_on": [],
-            "config": {}
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
+            },
+            "outputs": {
+              "matches": "node_a_matches"
+            }
           },
           {
             "id": "node_b",
@@ -516,7 +498,13 @@
               "node_a",
               "node_a"
             ],
-            "config": {}
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
+            },
+            "outputs": {
+              "matches": "rule_matches"
+            }
           }
         ]
       },
@@ -540,7 +528,13 @@
             "depends_on": [
               "non_existent_node"
             ],
-            "config": {}
+            "config": {},
+            "inputs": {
+              "text": "input_sentences"
+            },
+            "outputs": {
+              "matches": "rule_matches"
+            }
           }
         ]
       },

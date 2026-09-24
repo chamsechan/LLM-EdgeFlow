@@ -10,8 +10,7 @@ inline void RegisterTestBizs(std::initializer_list<const char*> names,
                              std::vector<BizPortDefinition> egress = {}) {
   for (const char* name : names) {
     if (!PipelineCatalog::FindBiz(name)) {
-      PipelineCatalog::RegisterBizDefinition(
-          {name, "test", "", ingress, egress});
+      PipelineCatalog::RegisterBizDefinition({name, "", ingress, egress});
     }
   }
 }

@@ -1,27 +1,14 @@
 {
-  "biz_name": "speech_audio_asr_intent_slot",
   "deployment": {
     "model_paths": {
       "asr_model_v1": "./models/paraformer_asr_npu.bin"
     },
     "io": {
-      "io_binding": "audio_asr_intent.operator.v1",
-      "output_allocations": {
-        "audio_out": {
-          "type": "audio_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {
-            "transcribed_text": 511,
-            "intent_slot_json": 1023
-          }
-        }
-      }
+      "io_binding": "audio_asr_intent.operator.v1"
     }
   },
   "models": [
     {
-      "capability": "asr",
       "model_type": "test_biz_asr",
       "backend": "test_tensor_backend",
       "model_config": {
@@ -36,33 +23,19 @@
     {
       "id": "node_0_AsrTranscribeNode",
       "node_type": "AsrTranscribeNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "audio": "audio_inputs"
-        },
-        "outputs": {
-          "text": "transcripts"
-        }
-      },
       "config": {
         "bind_model": "asr_model_v1"
+      },
+      "inputs": {
+        "audio": "audio_inputs"
+      },
+      "outputs": {
+        "text": "transcripts"
       }
     },
     {
       "id": "node_1_TextRuleMatchNode",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [
-        "node_0_AsrTranscribeNode"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "transcripts"
-        },
-        "outputs": {
-          "matches": "intent_slots"
-        }
-      },
       "config": {
         "default_category": "GENERAL_VOICE_CMD",
         "default_score": 1.0,
@@ -156,6 +129,12 @@
             "score": 1.0
           }
         ]
+      },
+      "inputs": {
+        "text": "transcripts"
+      },
+      "outputs": {
+        "matches": "intent_slots"
       }
     }
   ]

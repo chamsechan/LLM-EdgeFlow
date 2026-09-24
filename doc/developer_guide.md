@@ -7,7 +7,7 @@
 方案开发从[Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排)开始；已有能力
 和外部契约下，只需方案配置与必要的 `.conf`，Profile 可选。缺失业务算法时完成
 [自定义 Node 动手练习](dev_guide/first_custom_node.md)，按需查阅
-[五个概念说明](dev_guide/custom_node_concepts.md)。初始参数与运行中调参见
+[Node 按需参考](dev_guide/custom_node_concepts.md)。初始参数与运行中调参见
 [Control 练习](dev_guide/first_control.md)，换模型后使用
 [原生部署解析](VERIFIABLE_SELECTION.md#替换模型后确认实际生效配置)检查实际路径与参数。平台结构转换见
 [业务接入指南](dev_guide/business_onboarding.md)，结果检查见
@@ -51,13 +51,14 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 销毁和释放顺序见[业务接入](dev_guide/business_onboarding.md#6-输出容量与生命周期)。
 
 目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
-SOVERSION/ABI major 为 7。
+SOVERSION/ABI major 为 9。
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
-`cfg_file_name`。每份 `.conf` 只含非空相对 `pipe_path`；Pipeline 根 `deployment`
-包含 `io.io_binding`、`io.output_allocations` 和可选 `model_paths`。
-输出按逻辑槽位声明外部类型、分配方案及参数，Resolver 统一解析容量并按实际队列
+`cfg_file_name`。每份 `.conf` 只含非空相对 `pipe_path`；Pipeline 必须填写 `deployment.io.io_binding`，
+可按需配置 `io.out_mem` 和 `model_paths`。业务身份由 binding 推导，根级 `biz_name` 不再接受。
+Demo 从 SDK 查询配置的业务身份后选择 runner；必需输出槽自动采用注册默认值。
+输出类型来自已注册的逻辑槽位，普通配置只覆盖分配方案、参数和容量；Resolver 按实际队列
 深度审计预算；转换器消费已解析的方案，不重复解析部署 JSON 或补默认值。
 完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
 
@@ -88,7 +89,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 ## 2. 流程编排层：Pipeline 与静态校验计划
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
-- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildFromPlan()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
@@ -102,12 +103,14 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 
 Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
+配置中的必需输入必须显式绑定，可选输入省略即未连接；输出省略映射时沿用逻辑端口名。
+Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64，默认 1。
 
 ---
 
 ## 3. 能力节点层：如何新增通用或自定义 Node
 
-先运行 `alg_pipeline_tool catalog --biz <name>` 和 `describe-node`。只有现有操作无法闭合
+先运行 `alg_pipeline_tool catalog --io-binding <binding_id>` 和 `describe-node`。只有现有操作无法闭合
 typed port 契约时才新增 Node。Node 必须：
 
 - 通用操作放在 `src/common_nodes/`；领域算法与特定前后处理放在 `src/custom_nodes/`，
@@ -185,7 +188,6 @@ Pipeline 配置只使用 Model/Backend 语法：
 ```json
 {
   "model_id": "embedding_v1",
-  "capability": "embedding",
   "model_type": "my_embedding_model",
   "backend": "my_tensor_backend",
   "model_path": "embedding/model.bin",
@@ -193,6 +195,9 @@ Pipeline 配置只使用 Model/Backend 语法：
   "backend_config": {"max_batch_size": 4}
 }
 ```
+
+模型能力来自 `model_type` 对应的注册 Definition，不在 JSON 中重复声明。
+Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，没有默认模型实例名。
 
 `ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
 再把构建好的 `IModel` 原子注册到 `ModelManager`。参考实现：

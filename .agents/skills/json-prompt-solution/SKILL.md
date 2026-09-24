@@ -39,7 +39,7 @@ JSON 内的 query / translated；名称不够通用并不要求全仓改名。
 
 ## 编排与字符串保真
 
-- 克隆兼容方案，声明节点 `id`、`depends_on` 和真实绑定。把提示词与生成参数放配置里。
+- 克隆兼容方案，声明节点 `id` 和顶层 `inputs` / `outputs` 绑定。数据依赖由 Validator 推导，只有额外顺序约束才填写 `depends_on`。模型引用明确填写，把提示词与生成参数放配置里。
 - 原文包含问句或指令时仍是处理对象。不要把完整请求交给模型自行选择字段；Adapter
   仅把约定原文交给提示词。翻译样例由 C++ JSON 解析器读取原始 `std::string`，经
   `TextBatch` 直接交给生成节点；模型配置中的 system prompt 说明处理规则。
@@ -51,7 +51,7 @@ JSON 内的 query / translated；名称不够通用并不要求全仓改名。
   `failure_policy=fail`。SDK 响应组装始终留在 Converter，不靠 Demo 投影字段。
   不用固定示例或 fallback 冒充成功。
 - `.conf` 必须指向新 Pipeline（仅包含 `pipe_path` 定位），并在 Pipeline JSON 的
-  `deployment` 中配置 `io.io_binding`、`io.output_allocations` 及可选模型路径覆盖。原 Profile 不会自动指向新方案。
+  `deployment` 中配置 `io.io_binding`、`io.out_mem` 及可选模型路径覆盖。原 Profile 不会自动指向新方案。
 
 ## 验证与交付
 

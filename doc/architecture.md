@@ -129,7 +129,7 @@ graph TD
 ### 接入适配层（Integration）
 - **代码位置**：`include/edgeflow/operator/`，`include/adapter/`，`src/adapter/`
 - **核心职责**：
-  1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ValidateOperatorConfigBinding()`；
+  1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ResolveOperatorConfigBiz()`；
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
   3. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
   4. 由注册的 Input/Output Converter 与 IoBinding 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
@@ -166,10 +166,11 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
-  SOVERSION/ABI major 为 7。
+  SOVERSION/ABI major 为 9。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
-  `.conf` 只用 `pipe_path` 指向 Pipeline JSON，接入绑定与模型路径覆盖由 Pipeline 的 `deployment` 声明；
-  Pipeline 的 `deployment.io.output_allocations` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
+  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；配置必须选择 `deployment.io.io_binding`，
+  接入适配层据此派生内部业务边界，外部文档不保存根级 `biz_name`。模型路径可在 `deployment` 中覆盖；
+  Pipeline 的 `deployment.io.out_mem` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
   最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
   将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
   每个逻辑输出槽位拥有独立输出池，
@@ -179,7 +180,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
-  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 解析中性 Pipeline 配置、校验端口与显式 DAG，并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序；
+  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 根据节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，校验端口及 DAG 并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序。必需输入显式连接，可选输入省略即未连接；`max_parallel_workers` 默认 1，大于 1 时启用现有并行调度及安全检查；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例
        （`ModelManager`）与 `SessionResourceKey<T>` 类型安全资源；同名异型访问在 cast 前

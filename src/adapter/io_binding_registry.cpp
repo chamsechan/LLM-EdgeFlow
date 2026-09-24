@@ -1,12 +1,83 @@
 #include "adapter/io_binding_registry.h"
 
 #include <algorithm>
+#include <tuple>
 
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/pipeline_catalog.h"
 
 namespace llm_edgeflow {
+namespace {
+
+bool SameExternalSlots(const std::vector<ExternalSlotDefinition>& left,
+                       const std::vector<ExternalSlotDefinition>& right) {
+  const auto signature = [](const auto& slots) {
+    using Slot =
+        std::tuple<std::string, std::string, std::string, PortDirection, bool,
+                   std::string, std::vector<std::string>>;
+    std::vector<Slot> result;
+    for (const auto& slot : slots) {
+      auto capacities = slot.capacity_fields;
+      std::sort(capacities.begin(), capacities.end());
+      result.emplace_back(slot.KeySuffix(), slot.type_id, slot.type_suffix,
+                          slot.direction, slot.required, slot.value_type,
+                          std::move(capacities));
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+  };
+  return signature(left) == signature(right);
+}
+
+template <typename Converter>
+bool SameExternalContract(const Converter& left, const Converter& right) {
+  return left.schema_id == right.schema_id &&
+         left.schema_version == right.schema_version &&
+         left.external_type == right.external_type &&
+         SameExternalSlots(left.external_slots, right.external_slots);
+}
+
+bool CheckBizContract(std::vector<IoBindingDefinition> bindings,
+                      const std::string& biz_name, std::string* error) {
+  std::sort(bindings.begin(), bindings.end(), [](const auto& a, const auto& b) {
+    return a.binding_id < b.binding_id;
+  });
+  const auto& converters = IoConverterRegistry::Instance();
+  const InputConverterDefinition* first_input = nullptr;
+  const OutputConverterDefinition* first_output = nullptr;
+  std::string first_binding;
+  for (const auto& binding : bindings) {
+    if (binding.biz_name != biz_name) continue;
+    const auto* input =
+        converters.FindInputConverter(binding.input_converter_id);
+    const auto* output =
+        converters.FindOutputConverter(binding.output_converter_id);
+    if (!input || !output) {
+      if (error)
+        *error = "Binding '" + binding.binding_id +
+                 "' references an unregistered converter";
+      return false;
+    }
+    if (first_input &&
+        (!SameExternalContract(*first_input, *input) ||
+         !SameExternalContract(*first_output, *output) ||
+         first_output->cardinality != output->cardinality ||
+         first_output->capacity_policy != output->capacity_policy)) {
+      if (error)
+        *error = "Bindings '" + first_binding + "' and '" + binding.binding_id +
+                 "' for biz_name '" + biz_name +
+                 "' declare different external I/O contracts";
+      return false;
+    }
+    first_input = input;
+    first_output = output;
+    first_binding = binding.binding_id;
+  }
+  return true;
+}
+
+}  // namespace
 
 IoBindingRegistry& IoBindingRegistry::Instance() {
   static IoBindingRegistry instance;
@@ -105,6 +176,11 @@ std::vector<BizExposureDefinition> IoBindingRegistry::AllExposures() const {
   return result;
 }
 
+bool IoBindingRegistry::ValidateBizContract(const std::string& biz_name,
+                                            std::string* error) const {
+  return CheckBizContract(AllBindings(), biz_name, error);
+}
+
 bool IoBindingRegistry::HasConflict() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return !conflict_errors_.empty();
@@ -126,6 +202,21 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
   }
 
   const auto catalog_snapshot = PipelineCatalog::Snapshot();
+
+  std::vector<IoBindingDefinition> all_bindings;
+  std::vector<std::string> biz_names;
+  for (const auto& [id, binding] : bindings_) {
+    all_bindings.push_back(binding);
+    biz_names.push_back(binding.biz_name);
+  }
+  std::sort(biz_names.begin(), biz_names.end());
+  biz_names.erase(std::unique(biz_names.begin(), biz_names.end()),
+                  biz_names.end());
+  for (const auto& biz_name : biz_names) {
+    std::string error;
+    if (!CheckBizContract(all_bindings, biz_name, &error))
+      errors.push_back(error);
+  }
 
   for (const auto& [binding_id, binding] : bindings_) {
     // 1. 检查 biz_name 是否在 PipelineCatalog 中已注册

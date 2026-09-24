@@ -154,9 +154,9 @@ class DevRecipeTest(unittest.TestCase):
         self.assertTrue(report["ok"], report)
         document = json.loads(self.target.read_text())
         generated = next(node for node in document["pipeline"] if node["node_type"] == "RecipeContractNode")
-        self.assertEqual(generated["ports"]["inputs"], {"input": "prompt_text"})
-        self.assertEqual(generated["ports"]["outputs"], {"output": "llm_raw_answer"})
-        self.assertEqual(generated["depends_on"], ["node_0_TextTemplateNode"])
+        self.assertEqual(generated["inputs"], {"input": "prompt_text"})
+        self.assertEqual(generated["outputs"], {"output": "llm_raw_answer"})
+        self.assertNotIn("depends_on", generated)
         self.assertEqual(generated["config"], {"bind_model": "entity_llm"})
         self.assertTrue((self.root / "src/custom_nodes/recipe_contract_node.cpp").is_file())
         self.assertTrue((self.root / "tests/unit/nodes/test_recipe_contract_node.cpp").is_file())
@@ -183,25 +183,49 @@ class DevRecipeTest(unittest.TestCase):
                                    effects_path=target.with_name(target.stem + "_effects.json"))
             self.assertTrue(verified["ok"], verified)
 
-    def test_multi_output_rejected_before_generation(self):
+    def test_invalid_profile_fields_and_shapes_rejected_before_generation(self):
+        path = self.root / "demo/profiles.json"
+        profiles = json.loads(path.read_text())
+        valid = profiles["profiles"]["keyword_match_rules"]
+        for profile in ({**valid, "biz": "keyword_match_v1"},
+                        {**valid, "datset": "data/corpus_keyword_match.txt"}, [], None):
+            with self.subTest(profile=profile):
+                profiles["profiles"]["keyword_match_rules"] = profile
+                path.write_text(json.dumps(profiles))
+                self.assert_prepare_rejected_without_writes()
+
+    def test_unknown_output_slots_rejected_before_generation(self):
         pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
         pipe = json.loads(pipe_path.read_text())
-        pipe["deployment"]["io"]["output_allocations"] = {"slot1": {}, "slot2": {}}
+        pipe.setdefault("deployment", {}).setdefault("io", {})["out_mem"] = {"slot1": {}, "slot2": {}}
         pipe_path.write_text(json.dumps(pipe))
         self.assert_prepare_rejected_without_writes()
 
-    def test_missing_outputs_deployment_rejected_without_writes(self):
+    def test_recipe_counts_effective_output_slots_from_native_resolution(self):
+        conf = self.root / "configs/pipeline_keyword_match_rules.conf"
+        for pools in ({}, {"required": {}, "optional_enabled": {}}):
+            with self.subTest(pools=pools), mock.patch.object(
+                    RECIPE, "native", return_value={"ok": True, "output_pools": pools}) as native:
+                with self.assertRaises(RECIPE.RecipeError) as caught:
+                    RECIPE.require_deployment(conf, self.tool, self.root)
+                self.assertEqual(caught.exception.code, RECIPE.UNSUPPORTED_RECIPE_DEPLOYMENT)
+                native.assert_called_once_with(self.tool, ["validate-io", str(conf)], self.root)
+
+    def test_missing_outputs_deployment_uses_native_required_slot_defaults(self):
         pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
         pipe = json.loads(pipe_path.read_text())
-        del pipe["deployment"]["io"]["output_allocations"]
+        pipe["deployment"]["io"].pop("out_mem", None)
         pipe_path.write_text(json.dumps(pipe))
-        self.assert_prepare_rejected_without_writes()
+        report = self.prepare()
+        self.assertTrue(report["ok"], report)
+        generated = json.loads(self.target.read_text())
+        self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match.operator.v1"})
+        self.assertTrue(self.verify()["ok"])
 
     def test_legacy_mem_que_deployment_rejected_as_missing_outputs(self):
         pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
         pipe = json.loads(pipe_path.read_text())
-        del pipe["deployment"]["io"]["output_allocations"]
-        pipe["deployment"]["io"]["mem_que"] = {"type": "keyword_out"}
+        pipe.setdefault("deployment", {}).setdefault("io", {})["mem_que"] = {"type": "keyword_out"}
         pipe_path.write_text(json.dumps(pipe))
         self.assert_prepare_rejected_without_writes()
 
@@ -211,7 +235,7 @@ class DevRecipeTest(unittest.TestCase):
         for invalid in (
             dict(labelled, samples=[{"request_id": 20001, "expected": {"/status": 0}}]),
             dict(labelled, samples=[labelled["samples"][0], labelled["samples"][0]]),
-            dict(labelled, biz_name="entity_extract_v1"),
+            dict(labelled, io_binding="entity_extract.operator.v1"),
         ):
             with self.subTest(spec=invalid):
                 source.write_text(json.dumps(invalid))

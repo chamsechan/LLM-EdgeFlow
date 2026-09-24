@@ -21,7 +21,6 @@ auto AsrTranscribeSpec() {
              Parameters<NoParameters>{},
              ModelsOf<Models>{Model(
                  "transcriber", "bind_model", &Models::transcriber,
-                 "asr_model_v1",
                  "引用 models[].model_id；所选模型必须提供 asr 转写能力。")},
              &Transcribe)
       .Category("common")

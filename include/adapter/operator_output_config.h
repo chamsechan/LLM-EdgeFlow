@@ -7,7 +7,6 @@ namespace llm_edgeflow {
 // Select a field of one output's configuration. These are framework fields,
 // distinct from the structure-specific enums inside kParameters.
 enum class OutputConfigField {
-  kType,
   kAllocator,
   kParameters,
   kCapacities,

@@ -1,31 +1,28 @@
 #include "tools/pipeline_authoring.h"
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include <algorithm>
-#include <cerrno>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <sstream>
 #include <stdexcept>
 
 #include "adapter/io_binding_registry.h"
-#include "adapter/io_converter_registry.h"
-#include "adapter/pipeline_document.h"
 #include "core/pipeline_catalog.h"
-#include "core/pipeline_validator.h"
-#include "edgeflow/operator/interface.h"
 #include "pipeline_document_validation.h"
 
 namespace llm_edgeflow {
 
-namespace fs = std::filesystem;
-
 namespace {
+
+std::string BoundBiz(const nlohmann::json& pipeline) {
+  if (!pipeline.is_object() || !pipeline.contains("deployment") ||
+      !pipeline["deployment"].is_object())
+    return {};
+  const auto& deployment = pipeline["deployment"];
+  if (!deployment.contains("io") || !deployment["io"].is_object()) return {};
+  const auto& io = deployment["io"];
+  if (!io.contains("io_binding") || !io["io_binding"].is_string()) return {};
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(
+      io["io_binding"].get<std::string>());
+  return binding ? binding->biz_name : std::string{};
+}
 
 nlohmann::json* FindNodeById(nlohmann::json* pipeline, const std::string& id) {
   if (!pipeline || !pipeline->contains("pipeline") ||
@@ -44,36 +41,20 @@ nlohmann::json* FindNodeById(nlohmann::json* pipeline, const std::string& id) {
 
 std::string GetEffectiveOutputKey(const nlohmann::json& node,
                                   const std::string& port_name) {
-  if (node.contains("ports") && node["ports"].is_object() &&
-      node["ports"].contains("outputs") &&
-      node["ports"]["outputs"].is_object() &&
-      node["ports"]["outputs"].contains(port_name) &&
-      node["ports"]["outputs"][port_name].is_string()) {
-    return node["ports"]["outputs"][port_name].get<std::string>();
+  if (node.contains("outputs") && node["outputs"].is_object() &&
+      node["outputs"].contains(port_name) &&
+      node["outputs"][port_name].is_string()) {
+    return node["outputs"][port_name].get<std::string>();
   }
   return port_name;
 }
 
 std::optional<std::string> GetEffectiveInputKey(const nlohmann::json& node,
                                                 const std::string& port_name) {
-  if (node.contains("ports") && node["ports"].is_object() &&
-      node["ports"].contains("inputs") && node["ports"]["inputs"].is_object() &&
-      node["ports"]["inputs"].contains(port_name) &&
-      node["ports"]["inputs"][port_name].is_string()) {
-    return node["ports"]["inputs"][port_name].get<std::string>();
-  }
-  std::string node_type = node.value("node_type", "");
-  auto def = PipelineCatalog::FindNode(node_type);
-  if (def) {
-    for (const auto& in_p : def->inputs) {
-      if (in_p.logical_name == port_name) {
-        if (in_p.required) {
-          return port_name;
-        } else {
-          return std::nullopt;
-        }
-      }
-    }
+  if (node.contains("inputs") && node["inputs"].is_object() &&
+      node["inputs"].contains(port_name) &&
+      node["inputs"][port_name].is_string()) {
+    return node["inputs"][port_name].get<std::string>();
   }
   return std::nullopt;
 }
@@ -124,9 +105,6 @@ void CheckOperation(const nlohmann::json& op) {
     CheckFields(op, {"kind", "source", "target"});
     CheckEndpoint(op.at("source"));
     CheckEndpoint(op.at("target"));
-  } else if (kind == "reset_input_binding") {
-    CheckFields(op, {"kind", "target"});
-    CheckEndpoint(op.at("target"));
   } else if (kind == "add_dependency" || kind == "remove_dependency") {
     CheckFields(op, {"kind", "node_id", "depends_on_id"});
     RequireString(op, "node_id");
@@ -143,7 +121,7 @@ std::string CheckGraphEndpoint(nlohmann::json* pipeline,
   if (id == "$ingress" || id == "$egress") {
     if ((output && id != "$ingress") || (!output && id != "$egress"))
       throw std::invalid_argument("INVALID_ENDPOINT: 业务端点方向错误");
-    const auto biz = PipelineCatalog::FindBiz(pipeline->value("biz_name", ""));
+    const auto biz = PipelineCatalog::FindBiz(BoundBiz(*pipeline));
     if (biz) {
       const auto& ports = output ? biz->ingress : biz->egress;
       for (const auto& definition : ports)
@@ -168,7 +146,7 @@ std::string CheckGraphEndpoint(nlohmann::json* pipeline,
 void CheckUniqueProducer(const nlohmann::json& pipeline,
                          const std::string& key) {
   size_t count = 0;
-  auto biz = PipelineCatalog::FindBiz(pipeline.value("biz_name", ""));
+  auto biz = PipelineCatalog::FindBiz(BoundBiz(pipeline));
   if (biz)
     for (const auto& port : biz->ingress)
       if (port.blackboard_key == key) ++count;
@@ -179,79 +157,6 @@ void CheckUniqueProducer(const nlohmann::json& pipeline,
         if (GetEffectiveOutputKey(node, port.logical_name) == key) ++count;
   }
   if (count != 1) throw std::invalid_argument("AMBIGUOUS_PRODUCER: " + key);
-}
-
-class FileDescriptor {
- public:
-  explicit FileDescriptor(int value) : value_(value) {}
-  ~FileDescriptor() {
-    if (value_ >= 0) close(value_);
-  }
-  int Get() const { return value_; }
-  bool Close() {
-    int value = value_;
-    value_ = -1;
-    return close(value) == 0;
-  }
-
- private:
-  int value_;
-};
-
-std::string ReadRegularFile(const std::string& path, struct stat* identity) {
-  FileDescriptor descriptor(
-      open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK));
-  if (descriptor.Get() < 0 || fstat(descriptor.Get(), identity) != 0 ||
-      !S_ISREG(identity->st_mode))
-    throw std::runtime_error("CANNOT_READ_FILE: " + path);
-  std::string contents;
-  char buffer[65536];
-  for (;;) {
-    const auto size = read(descriptor.Get(), buffer, sizeof(buffer));
-    if (size < 0 && errno == EINTR) continue;
-    if (size < 0) throw std::runtime_error("FILE_READ_FAILED: " + path);
-    if (size == 0) return contents;
-    contents.append(buffer, static_cast<size_t>(size));
-  }
-}
-
-void ReplaceFile(const fs::path& path, const std::string& contents,
-                 const std::string& original, const struct stat& identity) {
-  std::string pattern =
-      (path.parent_path() /
-       (".tmp_fix_deps_" + path.filename().string() + "_XXXXXX"))
-          .string();
-  FileDescriptor descriptor(mkstemp(pattern.data()));
-  if (descriptor.Get() < 0) throw std::runtime_error("CANNOT_WRITE_TEMP_FILE");
-  // Cleanup covers write, metadata, conflict and rename failures.
-  struct Cleanup {
-    std::string path;
-    ~Cleanup() { unlink(path.c_str()); }
-  } cleanup{pattern};
-  size_t offset = 0;
-  while (offset < contents.size()) {
-    const auto size = write(descriptor.Get(), contents.data() + offset,
-                            contents.size() - offset);
-    if (size < 0 && errno == EINTR) continue;
-    if (size <= 0) throw std::runtime_error("FILE_WRITE_FAILED");
-    offset += static_cast<size_t>(size);
-  }
-  if (fchmod(descriptor.Get(), identity.st_mode & 07777) != 0 ||
-      fsync(descriptor.Get()) != 0 || !descriptor.Close())
-    throw std::runtime_error("FILE_WRITE_FAILED: flush/close/permissions");
-  struct stat current {
-  }, named{};
-  const auto bytes = ReadRegularFile(path.string(), &current);
-  if (lstat(path.c_str(), &named) != 0 || !S_ISREG(named.st_mode) ||
-      named.st_dev != current.st_dev || named.st_ino != current.st_ino ||
-      current.st_dev != identity.st_dev || current.st_ino != identity.st_ino ||
-      current.st_mode != identity.st_mode ||
-      current.st_size != identity.st_size ||
-      current.st_mtim.tv_sec != identity.st_mtim.tv_sec ||
-      current.st_mtim.tv_nsec != identity.st_mtim.tv_nsec || bytes != original)
-    throw std::runtime_error("FILE_CONFLICT: 文件在读取后已被外部修改");
-  if (rename(pattern.c_str(), path.c_str()) != 0)
-    throw std::runtime_error("RENAME_FAILED: " + std::string(strerror(errno)));
 }
 
 }  // namespace
@@ -290,30 +195,6 @@ nlohmann::json AuthoringResult::ToJson() const {
   }
   if (failed_operation_index.has_value()) {
     j["failed_operation_index"] = *failed_operation_index;
-  }
-  return j;
-}
-
-nlohmann::json FixDepsResult::ToJson() const {
-  nlohmann::json j = {{"schema_version", schema_version},
-                      {"ok", ok},
-                      {"target_file", target_file},
-                      {"written", written}};
-  j["changes"] = nlohmann::json::array();
-  for (const auto& change : changes) {
-    j["changes"].push_back(change.ToJson());
-  }
-  if (!validation.empty()) {
-    j["validation"] = validation;
-  }
-  if (!diagnostics.empty()) {
-    j["diagnostics"] = nlohmann::json::array();
-    for (const auto& d : diagnostics) {
-      j["diagnostics"].push_back({{"code", "FIX_DEPS_ERROR"},
-                                  {"path", "/"},
-                                  {"message", d},
-                                  {"severity", "error"}});
-    }
   }
   return j;
 }
@@ -379,7 +260,7 @@ std::unordered_set<std::string> PipelineAuthoring::GetOccupiedKeys(
   std::unordered_set<std::string> occupied;
   if (!pipeline.is_object()) return occupied;
 
-  std::string biz_name = pipeline.value("biz_name", "");
+  std::string biz_name = BoundBiz(pipeline);
   if (!biz_name.empty()) {
     auto biz = PipelineCatalog::FindBiz(biz_name);
     if (biz) {
@@ -398,45 +279,19 @@ std::unordered_set<std::string> PipelineAuthoring::GetOccupiedKeys(
       std::string node_type = node.value("node_type", "");
       auto node_def = PipelineCatalog::FindNode(node_type);
 
-      if (node.contains("ports") && node["ports"].is_object()) {
-        const auto& ports = node["ports"];
-        if (ports.contains("inputs") && ports["inputs"].is_object()) {
-          for (const auto& [k, v] : ports["inputs"].items()) {
-            if (v.is_string()) {
-              occupied.insert(v.get<std::string>());
-            }
-          }
-        }
-        if (ports.contains("outputs") && ports["outputs"].is_object()) {
-          for (const auto& [k, v] : ports["outputs"].items()) {
-            if (v.is_string()) {
-              occupied.insert(v.get<std::string>());
-            }
+      for (const auto* direction : {"inputs", "outputs"}) {
+        if (node.contains(direction) && node[direction].is_object()) {
+          for (const auto& value : node[direction]) {
+            if (value.is_string()) occupied.insert(value.get<std::string>());
           }
         }
       }
 
       if (node_def) {
-        for (const auto& in : node_def->inputs) {
-          if (in.required) {
-            bool has_explicit = false;
-            if (node.contains("ports") && node["ports"].is_object() &&
-                node["ports"].contains("inputs") &&
-                node["ports"]["inputs"].is_object() &&
-                node["ports"]["inputs"].contains(in.logical_name)) {
-              has_explicit = true;
-            }
-            if (!has_explicit) {
-              occupied.insert(in.logical_name);
-            }
-          }
-        }
         for (const auto& out : node_def->outputs) {
           bool has_explicit = false;
-          if (node.contains("ports") && node["ports"].is_object() &&
-              node["ports"].contains("outputs") &&
-              node["ports"]["outputs"].is_object() &&
-              node["ports"]["outputs"].contains(out.logical_name)) {
+          if (node.contains("outputs") && node["outputs"].is_object() &&
+              node["outputs"].contains(out.logical_name)) {
             has_explicit = true;
           }
           if (!has_explicit) {
@@ -479,15 +334,12 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     CheckGraphEndpoint(pipeline, operation.at("target"), false);
     CheckUniqueProducer(*pipeline, key);
   }
-  if (kind == "reset_input_binding") {
-    CheckGraphEndpoint(pipeline, operation.at("target"), false);
-  }
   if (kind.empty()) {
     if (error) *error = "operation 缺少 kind 字段";
     return false;
   }
 
-  std::string biz_name = pipeline->value("biz_name", "");
+  std::string biz_name = BoundBiz(*pipeline);
   auto biz = PipelineCatalog::FindBiz(biz_name);
 
   if (kind == "add_node") {
@@ -543,9 +395,8 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     nlohmann::json new_node;
     new_node["id"] = node_id;
     new_node["node_type"] = node_type;
-    new_node["depends_on"] = nlohmann::json::array();
-    new_node["ports"] = {{"inputs", nlohmann::json::object()},
-                         {"outputs", nlohmann::json::object()}};
+    new_node["inputs"] = nlohmann::json::object();
+    new_node["outputs"] = nlohmann::json::object();
     new_node["config"] = config;
 
     auto occupied = GetOccupiedKeys(*pipeline);
@@ -553,7 +404,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       std::string base = node_id + "__" + out.logical_name;
       std::string out_key = AllocateKey(base, occupied);
       occupied.insert(out_key);
-      new_node["ports"]["outputs"][out.logical_name] = out_key;
+      new_node["outputs"][out.logical_name] = out_key;
     }
 
     (*pipeline)["pipeline"].push_back(std::move(new_node));
@@ -580,10 +431,9 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     }
 
     std::unordered_set<std::string> out_keys;
-    if (target_node->contains("ports") &&
-        (*target_node)["ports"].contains("outputs") &&
-        (*target_node)["ports"]["outputs"].is_object()) {
-      for (const auto& [k, v] : (*target_node)["ports"]["outputs"].items()) {
+    if ((*target_node).contains("outputs") &&
+        (*target_node)["outputs"].is_object()) {
+      for (const auto& [k, v] : (*target_node)["outputs"].items()) {
         if (v.is_string()) {
           out_keys.insert(v.get<std::string>());
         }
@@ -593,9 +443,8 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
         PipelineCatalog::FindNode(target_node->value("node_type", ""));
     if (node_def) {
       for (const auto& out : node_def->outputs) {
-        if (!target_node->contains("ports") ||
-            !(*target_node)["ports"].contains("outputs") ||
-            !(*target_node)["ports"]["outputs"].contains(out.logical_name)) {
+        if (!(*target_node).contains("outputs") ||
+            !(*target_node)["outputs"].contains(out.logical_name)) {
           out_keys.insert(out.logical_name);
         }
       }
@@ -615,72 +464,18 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     }
 
     std::vector<std::string> affected = {node_id};
-    auto occupied = GetOccupiedKeys(*pipeline);
-
     for (auto& other : (*pipeline)["pipeline"]) {
       if (!other.is_object() || other.value("id", "") == node_id) continue;
       std::string other_id = other.value("id", "");
-      auto other_def = PipelineCatalog::FindNode(other.value("node_type", ""));
       bool other_affected = false;
-
-      if (other.contains("ports") && other["ports"].is_object() &&
-          other["ports"].contains("inputs") &&
-          other["ports"]["inputs"].is_object()) {
-        std::vector<std::string> keys_to_erase;
-        for (auto& [in_k, in_v] : other["ports"]["inputs"].items()) {
-          if (!in_v.is_string()) continue;
-          std::string val = in_v.get<std::string>();
-          if (out_keys.find(val) != out_keys.end()) {
-            bool req = true;
-            if (other_def) {
-              for (const auto& in_p : other_def->inputs) {
-                if (in_p.logical_name == in_k) {
-                  req = in_p.required;
-                  break;
-                }
-              }
-            }
-            if (req) {
-              std::string placeholder =
-                  AllocateKey(other_id + "__unconnected__" + in_k, occupied);
-              occupied.insert(placeholder);
-              in_v = placeholder;
-            } else {
-              keys_to_erase.push_back(in_k);
-            }
+      if (other.contains("inputs") && other["inputs"].is_object()) {
+        auto& inputs = other["inputs"];
+        for (auto it = inputs.begin(); it != inputs.end();) {
+          if (it->is_string() && out_keys.count(it->get<std::string>())) {
+            it = inputs.erase(it);
             other_affected = true;
-          }
-        }
-        for (const auto& k : keys_to_erase) {
-          other["ports"]["inputs"].erase(k);
-        }
-      }
-
-      if (other_def) {
-        for (const auto& in_p : other_def->inputs) {
-          if (in_p.required &&
-              out_keys.find(in_p.logical_name) != out_keys.end()) {
-            bool has_explicit = false;
-            if (other.contains("ports") && other["ports"].is_object() &&
-                other["ports"].contains("inputs") &&
-                other["ports"]["inputs"].is_object() &&
-                other["ports"]["inputs"].contains(in_p.logical_name)) {
-              has_explicit = true;
-            }
-            if (!has_explicit) {
-              if (!other.contains("ports") || !other["ports"].is_object()) {
-                other["ports"] = nlohmann::json::object();
-              }
-              if (!other["ports"].contains("inputs") ||
-                  !other["ports"]["inputs"].is_object()) {
-                other["ports"]["inputs"] = nlohmann::json::object();
-              }
-              std::string placeholder = AllocateKey(
-                  other_id + "__unconnected__" + in_p.logical_name, occupied);
-              occupied.insert(placeholder);
-              other["ports"]["inputs"][in_p.logical_name] = placeholder;
-              other_affected = true;
-            }
+          } else {
+            ++it;
           }
         }
       }
@@ -802,7 +597,8 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     if (src_id == "$ingress") {
       if (!biz) {
-        if (error) *error = "UNKNOWN_BIZ: " + biz_name;
+        if (error)
+          *error = "UNKNOWN_IO_BINDING: select deployment.io.io_binding";
         return false;
       }
       auto in_it = std::find_if(biz->ingress.begin(), biz->ingress.end(),
@@ -845,13 +641,10 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
         }
         return false;
       }
-
-      if (!tgt_node->contains("ports"))
-        (*tgt_node)["ports"] = nlohmann::json::object();
-      if (!(*tgt_node)["ports"].contains("inputs")) {
-        (*tgt_node)["ports"]["inputs"] = nlohmann::json::object();
+      if (!(*tgt_node).contains("inputs")) {
+        (*tgt_node)["inputs"] = nlohmann::json::object();
       }
-      (*tgt_node)["ports"]["inputs"][tgt_port] = src_port;
+      (*tgt_node)["inputs"][tgt_port] = src_port;
 
       if (changes) {
         changes->push_back(
@@ -866,7 +659,8 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     if (tgt_id == "$egress") {
       if (!biz) {
-        if (error) *error = "UNKNOWN_BIZ: " + biz_name;
+        if (error)
+          *error = "UNKNOWN_IO_BINDING: select deployment.io.io_binding";
         return false;
       }
       auto out_it = std::find_if(biz->egress.begin(), biz->egress.end(),
@@ -934,12 +728,10 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       }
 
       std::string current_key = src_port;
-      if (src_node->contains("ports") &&
-          (*src_node)["ports"].contains("outputs") &&
-          (*src_node)["ports"]["outputs"].contains(src_port) &&
-          (*src_node)["ports"]["outputs"][src_port].is_string()) {
-        current_key =
-            (*src_node)["ports"]["outputs"][src_port].get<std::string>();
+      if ((*src_node).contains("outputs") &&
+          (*src_node)["outputs"].contains(src_port) &&
+          (*src_node)["outputs"][src_port].is_string()) {
+        current_key = (*src_node)["outputs"][src_port].get<std::string>();
       }
 
       // Check if current_key is already mapped to another egress port
@@ -955,13 +747,10 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       if (current_key == tgt_port) {
         return true;
       }
-
-      if (!src_node->contains("ports"))
-        (*src_node)["ports"] = nlohmann::json::object();
-      if (!(*src_node)["ports"].contains("outputs")) {
-        (*src_node)["ports"]["outputs"] = nlohmann::json::object();
+      if (!(*src_node).contains("outputs")) {
+        (*src_node)["outputs"] = nlohmann::json::object();
       }
-      (*src_node)["ports"]["outputs"][src_port] = tgt_port;
+      (*src_node)["outputs"][src_port] = tgt_port;
 
       std::vector<std::string> affected = {src_id};
       for (auto& consumer : (*pipeline)["pipeline"]) {
@@ -969,32 +758,11 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
         std::string c_id = consumer.value("id", "");
         if (c_id == src_id) continue;
         bool c_affected = false;
-        if (consumer.contains("ports") &&
-            consumer["ports"].contains("inputs") &&
-            consumer["ports"]["inputs"].is_object()) {
-          for (auto& [in_k, in_v] : consumer["ports"]["inputs"].items()) {
+        if (consumer.contains("inputs") && consumer["inputs"].is_object()) {
+          for (auto& [in_k, in_v] : consumer["inputs"].items()) {
             if (in_v.is_string() && in_v.get<std::string>() == current_key) {
               in_v = tgt_port;
               c_affected = true;
-            }
-          }
-        }
-        auto c_def = PipelineCatalog::FindNode(consumer.value("node_type", ""));
-        if (c_def) {
-          for (const auto& in_p : c_def->inputs) {
-            if (in_p.required && in_p.logical_name == current_key) {
-              if (!consumer.contains("ports") ||
-                  !consumer["ports"].contains("inputs") ||
-                  !consumer["ports"]["inputs"].contains(in_p.logical_name)) {
-                if (!consumer.contains("ports")) {
-                  consumer["ports"] = nlohmann::json::object();
-                }
-                if (!consumer["ports"].contains("inputs")) {
-                  consumer["ports"]["inputs"] = nlohmann::json::object();
-                }
-                consumer["ports"]["inputs"][in_p.logical_name] = tgt_port;
-                c_affected = true;
-              }
             }
           }
         }
@@ -1071,21 +839,10 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     // Ordinary fan-out never renames the producer's existing effective key.
     std::string key = GetEffectiveOutputKey(*src_node, src_port);
-
-    if (!tgt_node->contains("ports"))
-      (*tgt_node)["ports"] = nlohmann::json::object();
-    if (!(*tgt_node)["ports"].contains("inputs")) {
-      (*tgt_node)["ports"]["inputs"] = nlohmann::json::object();
+    if (!(*tgt_node).contains("inputs")) {
+      (*tgt_node)["inputs"] = nlohmann::json::object();
     }
-    (*tgt_node)["ports"]["inputs"][tgt_port] = key;
-
-    if (!IsAncestor(src_id, tgt_id, dep_graph)) {
-      if (!tgt_node->contains("depends_on") ||
-          !(*tgt_node)["depends_on"].is_array()) {
-        (*tgt_node)["depends_on"] = nlohmann::json::array();
-      }
-      (*tgt_node)["depends_on"].push_back(src_id);
-    }
+    (*tgt_node)["inputs"][tgt_port] = key;
 
     if (changes) {
       changes->push_back({"connect",
@@ -1124,50 +881,22 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       auto occupied = GetOccupiedKeys(*pipeline);
       std::string new_key = AllocateKey(src_id + "__" + src_port, occupied);
       occupied.insert(new_key);
-      if (!src_node->contains("ports") || !(*src_node)["ports"].is_object()) {
-        (*src_node)["ports"] = nlohmann::json::object();
+      if (!(*src_node).contains("outputs") ||
+          !(*src_node)["outputs"].is_object()) {
+        (*src_node)["outputs"] = nlohmann::json::object();
       }
-      if (!(*src_node)["ports"].contains("outputs") ||
-          !(*src_node)["ports"]["outputs"].is_object()) {
-        (*src_node)["ports"]["outputs"] = nlohmann::json::object();
-      }
-      (*src_node)["ports"]["outputs"][src_port] = new_key;
+      (*src_node)["outputs"][src_port] = new_key;
 
       std::vector<std::string> affected = {src_id};
       for (auto& consumer : (*pipeline)["pipeline"]) {
         if (!consumer.is_object() || consumer.value("id", "") == src_id)
           continue;
         bool c_affected = false;
-        if (consumer.contains("ports") &&
-            consumer["ports"].contains("inputs") &&
-            consumer["ports"]["inputs"].is_object()) {
-          for (auto& [in_k, in_v] : consumer["ports"]["inputs"].items()) {
+        if (consumer.contains("inputs") && consumer["inputs"].is_object()) {
+          for (auto& [in_k, in_v] : consumer["inputs"].items()) {
             if (in_v.is_string() && in_v.get<std::string>() == tgt_port) {
               in_v = new_key;
               c_affected = true;
-            }
-          }
-        }
-        auto c_def = PipelineCatalog::FindNode(consumer.value("node_type", ""));
-        if (c_def) {
-          for (const auto& in_p : c_def->inputs) {
-            if (in_p.required && in_p.logical_name == tgt_port) {
-              if (!consumer.contains("ports") ||
-                  !consumer["ports"].is_object() ||
-                  !consumer["ports"].contains("inputs") ||
-                  !consumer["ports"]["inputs"].is_object() ||
-                  !consumer["ports"]["inputs"].contains(in_p.logical_name)) {
-                if (!consumer.contains("ports") ||
-                    !consumer["ports"].is_object()) {
-                  consumer["ports"] = nlohmann::json::object();
-                }
-                if (!consumer["ports"].contains("inputs") ||
-                    !consumer["ports"]["inputs"].is_object()) {
-                  consumer["ports"]["inputs"] = nlohmann::json::object();
-                }
-                consumer["ports"]["inputs"][in_p.logical_name] = new_key;
-                c_affected = true;
-              }
             }
           }
         }
@@ -1194,34 +923,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
         return false;
       }
 
-      auto tgt_def =
-          PipelineCatalog::FindNode(tgt_node->value("node_type", ""));
-      bool req = true;
-      if (tgt_def) {
-        for (const auto& in_p : tgt_def->inputs) {
-          if (in_p.logical_name == tgt_port) {
-            req = in_p.required;
-            break;
-          }
-        }
-      }
-
-      if (!tgt_node->contains("ports") || !(*tgt_node)["ports"].is_object()) {
-        (*tgt_node)["ports"] = nlohmann::json::object();
-      }
-      if (!(*tgt_node)["ports"].contains("inputs") ||
-          !(*tgt_node)["ports"]["inputs"].is_object()) {
-        (*tgt_node)["ports"]["inputs"] = nlohmann::json::object();
-      }
-
-      if (req) {
-        auto occupied = GetOccupiedKeys(*pipeline);
-        std::string placeholder =
-            AllocateKey(tgt_id + "__unconnected__" + tgt_port, occupied);
-        (*tgt_node)["ports"]["inputs"][tgt_port] = placeholder;
-      } else {
-        (*tgt_node)["ports"]["inputs"].erase(tgt_port);
-      }
+      (*tgt_node)["inputs"].erase(tgt_port);
 
       if (changes) {
         changes->push_back(
@@ -1253,34 +955,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       return false;
     }
 
-    auto tgt_def = PipelineCatalog::FindNode(tgt_node->value("node_type", ""));
-    bool req = true;
-    if (tgt_def) {
-      for (const auto& in_p : tgt_def->inputs) {
-        if (in_p.logical_name == tgt_port) {
-          req = in_p.required;
-          break;
-        }
-      }
-    }
-
-    if (!tgt_node->contains("ports") || !(*tgt_node)["ports"].is_object()) {
-      (*tgt_node)["ports"] = nlohmann::json::object();
-    }
-    if (!(*tgt_node)["ports"].contains("inputs") ||
-        !(*tgt_node)["ports"]["inputs"].is_object()) {
-      (*tgt_node)["ports"]["inputs"] = nlohmann::json::object();
-    }
-
-    if (req) {
-      auto occupied = GetOccupiedKeys(*pipeline);
-      std::string placeholder =
-          AllocateKey(tgt_id + "__unconnected__" + tgt_port, occupied);
-      (*tgt_node)["ports"]["inputs"][tgt_port] = placeholder;
-    } else {
-      (*tgt_node)["ports"]["inputs"].erase(tgt_port);
-    }
-    // Execution dependency is preserved per RFC-0057 conservative rule!
+    (*tgt_node)["inputs"].erase(tgt_port);
 
     if (changes) {
       changes->push_back({"disconnect",
@@ -1289,55 +964,6 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
                           {src_id, tgt_id},
                           "断开 " + src_id + "." + src_port + " 到 " + tgt_id +
                               "." + tgt_port});
-    }
-    return true;
-  }
-
-  if (kind == "reset_input_binding") {
-    if (!operation.contains("target") || !operation["target"].is_object()) {
-      if (error) *error = "reset_input_binding 缺少 target 对象";
-      return false;
-    }
-    std::string tgt_id = operation["target"].value("node_id", "");
-    std::string tgt_port = operation["target"].value("port", "");
-    if (tgt_id.empty() || tgt_port.empty()) {
-      if (error) *error = "reset_input_binding 端点 node_id 或 port 不能为空";
-      return false;
-    }
-
-    auto* tgt_node = FindNodeById(pipeline, tgt_id);
-    if (!tgt_node) {
-      if (error) *error = "NODE_NOT_FOUND: " + tgt_id;
-      return false;
-    }
-    auto tgt_def = PipelineCatalog::FindNode(tgt_node->value("node_type", ""));
-    if (!tgt_def) {
-      if (error)
-        *error = "UNKNOWN_NODE_TYPE: " + tgt_node->value("node_type", "");
-      return false;
-    }
-    auto in_it = std::find_if(tgt_def->inputs.begin(), tgt_def->inputs.end(),
-                              [&](const NodePortDefinition& p) {
-                                return p.logical_name == tgt_port;
-                              });
-    if (in_it == tgt_def->inputs.end()) {
-      if (error) *error = "目标输入端口不存在: " + tgt_port;
-      return false;
-    }
-
-    if (tgt_node->contains("ports") &&
-        (*tgt_node)["ports"].contains("inputs") &&
-        (*tgt_node)["ports"]["inputs"].is_object() &&
-        (*tgt_node)["ports"]["inputs"].contains(tgt_port)) {
-      (*tgt_node)["ports"]["inputs"].erase(tgt_port);
-    }
-
-    if (changes) {
-      changes->push_back({"reset_input_binding",
-                          tgt_id,
-                          tgt_port,
-                          {tgt_id},
-                          "恢复 " + tgt_id + "." + tgt_port + " 为默认绑定"});
     }
     return true;
   }
@@ -1551,187 +1177,6 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
     result.ok = false;
     result.pipeline.reset();
     result.changes.clear();
-    result.diagnostics.push_back(error.what());
-    return result;
-  }
-}
-
-FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
-                                         bool in_place) {
-  FixDepsResult result;
-  result.target_file = file_path;
-  try {
-    fs::path path(file_path);
-
-    if (fs::is_symlink(path)) {
-      result.ok = false;
-      result.written = false;
-      result.diagnostics.push_back("SYMLINK_REJECTED: 拒绝修复符号链接方案");
-      return result;
-    }
-    if (!fs::exists(path) || !fs::is_regular_file(path)) {
-      result.ok = false;
-      result.written = false;
-      result.diagnostics.push_back("FILE_NOT_FOUND: 文件不存在或不是普通文件");
-      return result;
-    }
-
-    struct stat old_stat {};
-    const std::string old_bytes = ReadRegularFile(file_path, &old_stat);
-
-    nlohmann::json root;
-    try {
-      root = nlohmann::json::parse(old_bytes);
-    } catch (const std::exception& e) {
-      result.ok = false;
-      result.written = false;
-      result.diagnostics.push_back(std::string("JSON_READ: ") + e.what());
-      return result;
-    }
-
-    auto initial_res =
-        ValidatePipelineDocument(root, DocumentValidationMode::kExplain);
-    if (initial_res.ok) {
-      result.ok = true;
-      result.written = false;
-      result.validation = std::move(initial_res.response);
-      return result;
-    }
-
-    if (!initial_res.core_report.has_value()) {
-      result.ok = false;
-      result.written = false;
-      result.validation = std::move(initial_res.response);
-      for (const auto& diag :
-           result.validation.value("diagnostics", nlohmann::json::array())) {
-        result.diagnostics.push_back(diag.value("code", "") + " " +
-                                     diag.value("path", "") + ": " +
-                                     diag.value("message", ""));
-      }
-      return result;
-    }
-
-    const auto& report = *initial_res.core_report;
-
-    nlohmann::json working = root;
-    auto dep_graph = BuildDependencyGraph(working);
-    bool found_fix = false;
-
-    // Build map of producers for each key in working pipeline
-    // to detect ambiguity (RFC-0057 Section 4.5 & G9)
-    std::unordered_map<std::string, std::vector<std::string>> key_producers;
-    std::string biz_name = working.value("biz_name", "");
-    auto biz = PipelineCatalog::FindBiz(biz_name);
-    if (biz) {
-      for (const auto& in_p : biz->ingress) {
-        key_producers[in_p.blackboard_key].push_back("$ingress");
-      }
-    }
-    if (working.contains("pipeline") && working["pipeline"].is_array()) {
-      for (const auto& node : working["pipeline"]) {
-        if (!node.is_object()) continue;
-        std::string n_id = node.value("id", "");
-        std::string n_type = node.value("node_type", "");
-        auto n_def = PipelineCatalog::FindNode(n_type);
-        if (n_def) {
-          for (const auto& out : n_def->outputs) {
-            std::string actual_key =
-                GetEffectiveOutputKey(node, out.logical_name);
-            key_producers[actual_key].push_back(n_id);
-          }
-        }
-      }
-    }
-
-    for (const auto& diag : report.diagnostics) {
-      if (diag.remediation.has_value() &&
-          diag.remediation->cause ==
-              RemediationCause::kProducerNotDependencyAncestor) {
-        std::string producer_id =
-            diag.remediation->facts.value("producer_id", "");
-        std::string bound_key = diag.remediation->facts.value("bound_key", "");
-        std::string consumer_id = diag.node_id;
-
-        // Check ambiguity: is producer unique?
-        auto it_p = key_producers.find(bound_key);
-        if (it_p != key_producers.end() && it_p->second.size() > 1) {
-          result.ok = false;
-          result.written = false;
-          result.validation = initial_res.response;
-          result.diagnostics.push_back(
-              "AMBIGUOUS_PRODUCER: 数据键 '" + bound_key +
-              "' 存在多个生产者，来源存在歧义，不能自动修复");
-          return result;
-        }
-
-        if (!producer_id.empty() && !consumer_id.empty()) {
-          auto* c_node = FindNodeById(&working, consumer_id);
-          if (c_node) {
-            // Check cycle
-            if (IsAncestor(consumer_id, producer_id, dep_graph)) {
-              result.ok = false;
-              result.written = false;
-              result.validation = initial_res.response;
-              result.diagnostics.push_back("CYCLE_DETECTED: 添加 " +
-                                           consumer_id + " 对 " + producer_id +
-                                           " 的依赖会形成环");
-              return result;
-            }
-            if (!IsAncestor(producer_id, consumer_id, dep_graph)) {
-              if (!c_node->contains("depends_on") ||
-                  !(*c_node)["depends_on"].is_array()) {
-                (*c_node)["depends_on"] = nlohmann::json::array();
-              }
-              (*c_node)["depends_on"].push_back(producer_id);
-              dep_graph[consumer_id].push_back(producer_id);
-              found_fix = true;
-              result.changes.push_back({"add_dependency",
-                                        consumer_id,
-                                        "",
-                                        {consumer_id, producer_id},
-                                        "添加 " + consumer_id + " 对 " +
-                                            producer_id + " 的执行依赖"});
-            }
-          }
-        }
-      }
-    }
-
-    if (!found_fix) {
-      result.ok = false;
-      result.written = false;
-      result.validation = std::move(initial_res.response);
-      result.diagnostics.push_back(
-          "NO_FIXABLE_DEPENDENCY: 未发现可安全自动修复的生产者依赖");
-      return result;
-    }
-
-    auto final_res =
-        ValidatePipelineDocument(working, DocumentValidationMode::kExplain);
-    result.validation = std::move(final_res.response);
-    if (!final_res.ok) {
-      result.ok = false;
-      result.written = false;
-      for (const auto& diag :
-           result.validation.value("diagnostics", nlohmann::json::array())) {
-        result.diagnostics.push_back(diag.value("code", "") + " " +
-                                     diag.value("path", "") + ": " +
-                                     diag.value("message", ""));
-      }
-      return result;
-    }
-
-    result.ok = true;
-    if (in_place) {
-      ReplaceFile(path, working.dump(2) + "\n", old_bytes, old_stat);
-      result.written = true;
-    } else {
-      result.written = false;
-    }
-    return result;
-  } catch (const std::exception& error) {
-    result.ok = false;
-    result.written = false;
     result.diagnostics.push_back(error.what());
     return result;
   }

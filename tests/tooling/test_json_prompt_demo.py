@@ -43,7 +43,7 @@ class JsonPromptDemoTest(unittest.TestCase):
         payload = json.dumps({"query": query, "src_lan": "ignored"})
 
         def native_demo(command, **kwargs):
-            self.assertEqual(command[command.index("--biz") + 1], "translate")
+            self.assertNotIn("--biz", command)
             self.assertEqual(command[command.index("--config") + 1],
                              "configs/pipeline_translate_cpu.conf")
             dataset = Path(command[command.index("--dataset") + 1])
@@ -52,7 +52,7 @@ class JsonPromptDemoTest(unittest.TestCase):
             self.assertEqual(kwargs["cwd"], ROOT)
             self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
             kwargs["stdout"].write("native diagnostic\n")
-            output = Path(command[command.index("--output-dir") + 1]) / "translate"
+            output = Path(command[command.index("--output-dir") + 1]) / "translate_v1"
             output.mkdir(parents=True)
             (output / "results.jsonl").write_text(json.dumps({
                 "request_id": 30001, "status": 0,
@@ -101,11 +101,11 @@ class JsonPromptDemoTest(unittest.TestCase):
     def test_direct_run_demo_validates_and_normalizes_requests(self):
         # Empty input rejects with ValueError
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
-            demo.run_demo([], "config.conf", "translate", Path(tmp), "bin")
+            demo.run_demo([], "config.conf", Path(tmp), "bin")
 
         # Invalid input rejects with ValueError before invoking any process
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
-            demo.run_demo(["invalid json"], "config.conf", "translate", Path(tmp), "bin")
+            demo.run_demo(["invalid json"], "config.conf", Path(tmp), "bin")
 
         # Valid input is prepared and formatted
         prepared = demo.prepare_requests(['{"b": 2, "a": 1}'])

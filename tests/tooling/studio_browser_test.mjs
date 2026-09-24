@@ -17,8 +17,10 @@ const page = await browser.newPage({ viewport: { width: 1366, height: 768 } });
 page.setDefaultTimeout(10000);
 const errors = [];
 const authoringRequests = [];
+const initializationRequests = [];
 page.on("request", request => {
   if (request.url().endsWith("/api/v1/authoring/preview")) authoringRequests.push(request.postDataJSON());
+  if (request.url().endsWith("/api/v1/init")) initializationRequests.push(request.postDataJSON());
 });
 page.on("pageerror", error => errors.push(error.message));
 const screenshot = async name => { if (screenshotRoot) await page.screenshot({ path: join(screenshotRoot, `${name}.png`) }); };
@@ -39,11 +41,15 @@ try {
   assert.equal(await page.locator("#newEntryButton").isVisible(), true);
   await page.click("#newEntryButton");
   assert.equal(await page.locator("#newButton").isVisible(), true, "one click exposes creation");
-  await page.selectOption("#bizSelect", "keyword_match_v1");
+  await page.selectOption("#bindingSelect", "keyword_match.operator.v1");
   await page.selectOption("#cloneProfile", "keyword_match_rules");
   await page.click("#newButton");
   await page.waitForFunction(() => document.querySelectorAll('.node').length === 3 && !document.querySelector('#newButton').disabled);
-  assert.equal((await json()).biz_name, "keyword_match_v1");
+  assert.equal((await json()).deployment.io.io_binding, "keyword_match.operator.v1");
+  assert.equal(Object.hasOwn(await json(), "biz_name"), false);
+  assert.deepEqual(initializationRequests.at(-1), {
+    io_binding: "keyword_match.operator.v1", profile: "keyword_match_rules", empty: false,
+  });
   page.once("dialog", dialog => dialog.accept());
   await open("pipeline_browser.json");
   await page.click("#editModeButton"); // browse
@@ -73,9 +79,7 @@ try {
   await page.click("#openRunButton");
   await page.locator("#bizContract > summary").click();
   for (const [label, expected] of [
-    ["业务契约 · biz_name", ["keyword_match_v1"]],
-    ["Demo 入口 · alg_demo --biz", ["keyword_match"]],
-    ["配置绑定 · io_binding", ["keyword_match.operator.v1"]],
+    ["I/O 契约 · io_binding", ["keyword_match.operator.v1"]],
     ["Binding ID", ["keyword_match.operator.v1"]],
     ["输入 Converter", ["keyword.plain.operator.v1"]],
     ["输出 Converter", ["keyword.result.operator.v1"]],
@@ -89,8 +93,7 @@ try {
   ]) assert.deepEqual(await contractValues(label), expected, label);
   await open("pipeline_browser_multi.json");
   await page.click("#openRunButton");
-  assert.deepEqual(await contractValues("业务契约 · biz_name"), ["smart_doc_qa_v1"]);
-  assert.deepEqual(await contractValues("Demo 入口 · alg_demo --biz"), ["doc_qa"]);
+  assert.deepEqual(await contractValues("I/O 契约 · io_binding"), ["doc_qa.operator.v1"]);
   assert.deepEqual(await contractValues("Binding ID"), ["doc_qa.operator.v1"]);
   assert.doesNotMatch(await page.locator("#bizContractFields").textContent(), /keyword/,
     "Changing documents must replace every previous contract field");
@@ -106,7 +109,7 @@ try {
   "Contract labels and identifiers must wrap within their fields");
   await screenshot("390-contract-details");
   await page.setViewportSize({ width: 1366, height: 768 });
-  await page.route("**/api/v1/catalog?biz=keyword_match_v1", async route => {
+  await page.route("**/api/v1/catalog?io_binding=keyword_match.operator.v1", async route => {
     const response = await route.fetch();
     const catalog = await response.json();
     for (const converter of [...catalog.input_converters, ...catalog.output_converters]) {
@@ -179,7 +182,11 @@ try {
   await rule().click(); await categories().fill('{"SAVED_BROWSER":["VIP"]}');
   await page.click("#saveButton");
   await page.waitForFunction(() => document.querySelector("#operationFeedback").textContent.includes("已保存"));
-  assert.deepEqual(JSON.parse(readFileSync(join(configRoot, "pipeline_browser.json"))).pipeline[0].config.categories, { SAVED_BROWSER: ["VIP"] });
+  const savedPipeline = JSON.parse(readFileSync(join(configRoot, "pipeline_browser.json")));
+  assert.deepEqual(savedPipeline.pipeline[0].config.categories, { SAVED_BROWSER: ["VIP"] });
+  assert.equal(savedPipeline.deployment.io.io_binding, "keyword_match.operator.v1");
+  assert.equal(Object.hasOwn(savedPipeline, "biz_name"), false);
+  assert.equal(Object.hasOwn(savedPipeline.deployment.io, "output_allocations"), false);
   assert.match(await page.locator("#saveScope").textContent(), /pipeline_browser.json/);
   assert.doesNotMatch(await page.locator("#saveScope").textContent(), /\.conf/);
   await page.click("#openRunButton"); await page.click("#runButton");
@@ -268,15 +275,9 @@ try {
   await page.click('#runButton');
   await page.waitForFunction(() => document.querySelector('#runSummary').textContent.includes('运行已完成'));
   assert.equal(await page.locator('.run-sample').count(), 2);
-  // A real port action must use native authoring and remain a single undo step.
   await rule().click();
-  const beforeReset = await json();
   await page.locator("#nodeForm details > summary").click();
-  await page.locator("#nodeBindings button").filter({ hasText: "恢复默认绑定" }).first().click();
-  await page.waitForFunction(() => !JSON.parse(document.querySelector("#rawJson").value).pipeline[0].ports?.inputs?.text);
-  assert.ok(authoringRequests.some(request => request.operation?.kind === "reset_input_binding"));
-  await page.click("#undoButton");
-  assert.deepEqual(await json(), beforeReset);
+  assert.equal(await page.locator("#nodeBindings button").filter({ hasText: "恢复默认绑定" }).count(), 0);
 
   // Dependency controls are graph actions, not node-property draft buffers.
   // Add an independent node so the new ordering is observable and acyclic.
@@ -296,7 +297,7 @@ try {
     "Selecting an execution dependency must not create a pending parameter draft");
   await page.click("#addDependencyButton");
   await page.waitForFunction(({ id, dependency }) => JSON.parse(document.querySelector("#rawJson").value)
-    .pipeline.find(node => node.id === id).depends_on.includes(dependency),
+    .pipeline.find(node => node.id === id).depends_on?.includes(dependency),
     { id: addedNode.id, dependency: beforeAdd.pipeline[0].id });
   assert.ok(authoringRequests.some(request => request.operation?.kind === "add_dependency" &&
     request.operation.node_id === addedNode.id));
@@ -306,35 +307,15 @@ try {
   assert.deepEqual(await json(), beforeAdd, "The preceding undo removes the added node");
   await page.locator("#operatorSearch").fill("");
 
-  // Native missing-dependency remedies are reviewed on the page, never in a dialog.
+  // Data connections need no explicit ordering or dependency repair.
   await open("pipeline_browser_multi.json");
-  const repairOriginal = await json();
-  const missingDependencies = structuredClone(repairOriginal);
-  for (const node of missingDependencies.pipeline) node.depends_on = [];
+  const inferredDependencies = await json();
+  for (const node of inferredDependencies.pipeline) delete node.depends_on;
   await page.click('[data-tab="json"]');
-  await page.locator("#rawJson").fill(JSON.stringify(missingDependencies));
+  await page.locator("#rawJson").fill(JSON.stringify(inferredDependencies));
   await page.click("#quickValidateButton");
-  await page.waitForSelector("#validationOutput .fix-apply-btn");
-  let repairDialogs = 0;
-  const rejectRepairDialog = async dialog => { repairDialogs++; await dialog.dismiss(); };
-  page.on("dialog", rejectRepairDialog);
-  await page.locator("#validationOutput .fix-apply-btn").first().click();
-  await page.waitForSelector("#applyReviewedFix");
-  assert.deepEqual(await json(), missingDependencies, "Review must leave draft unchanged");
-  assert.equal(await page.locator("#fixReviewPanel details").getAttribute("open"), null);
-  await page.click("#cancelReviewedFix");
-  assert.equal(await page.locator("#fixReviewPanel").isVisible(), false);
-  await page.locator("#validationOutput .fix-apply-btn").first().click();
-  await page.waitForSelector("#applyReviewedFix");
-  await page.click("#applyReviewedFix");
-  await page.waitForFunction(() => document.querySelector("#fixReviewPanel").hidden);
-  assert.notDeepEqual(await json(), missingDependencies);
-  assert.equal(repairDialogs, 0);
-  page.off("dialog", rejectRepairDialog);
-  await page.click("#undoButton");
-  assert.deepEqual(await json(), missingDependencies, "One undo restores the entire reviewed draft");
-  await page.click("#undoButton");
-  assert.deepEqual(await json(), repairOriginal);
+  await page.waitForFunction(() => document.querySelector("#validationOutput").textContent.includes("校验通过"));
+  assert.equal(await page.locator("#validationOutput .fix-apply-btn").count(), 0);
   await open("pipeline_browser_other.json");
   // Native Validator reports use an object-valued error.message.
   await page.click('[data-tab="json"]');

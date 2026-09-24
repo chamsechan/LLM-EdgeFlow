@@ -161,7 +161,7 @@ console.log("Studio config string and form repaint checks passed");
 
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { readPipelineFile, modelAvailability, upsertModel } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
-const input = { biz_name: "unknown_biz_is_still_viewable", pipeline: [], models: [] };
+const input = { deployment: { io: { io_binding: "unknown_binding_is_still_viewable" } }, pipeline: [], models: [] };
 const file = { name: "selected.json", size: 30, text: async () => JSON.stringify(input) };
 assert.deepEqual(await readPipelineFile(file), { filename: "selected.json", revision: "", imported: true, pipeline: input });
 assert.deepEqual((await readPipelineFile({ ...file, text: async () => "\uFEFF" + JSON.stringify(input) })).pipeline, input);

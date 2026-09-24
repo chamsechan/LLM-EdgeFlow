@@ -1,0 +1,11 @@
+[
+  "config",
+  "dataset",
+  "suite",
+  "batch_size",
+  "device_id",
+  "depth",
+  "chip",
+  "control_file",
+  "control_cmd"
+]

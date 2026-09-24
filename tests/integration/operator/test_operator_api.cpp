@@ -874,28 +874,43 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
   leak_out.reset();
 }
 
-// 15. ValidateOperatorConfigBinding 双路径校验接口测试
-TEST_F(OperatorApiTest, ValidateOperatorConfigBindingApi) {
-  std::string root_dir = GetConfDir();
-  char err_buf[256] = {0};
-
-  // 1. 正常校验
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
-                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
-            0);
-
-  // 2. 业务不匹配
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
-                "doc_qa.operator.v1", err_buf, sizeof(err_buf)),
-            -3);
-
-  // 3. 相对路径传入绝对路径 / 逃逸
-  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "/etc/passwd",
-                                          "keyword_match.operator.v1", err_buf,
-                                          sizeof(err_buf)),
+// 15. ResolveOperatorConfigBiz 双路径校验接口测试
+TEST_F(OperatorApiTest, ResolveOperatorConfigBizApi) {
+  const std::string root = GetConfDir();
+  std::string biz = "stale";
+  char error[256]{};
+  static_assert(noexcept(ResolveOperatorConfigBiz(nullptr, nullptr, nullptr)));
+  ASSERT_EQ(ResolveOperatorConfigBiz(
+                root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz,
+                error, sizeof(error)),
+            0)
+      << error;
+  EXPECT_EQ(biz, "keyword_match_v1");
+  biz = "stale";
+  ASSERT_EQ(
+      ResolveOperatorConfigBiz(
+          root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz),
+      0);
+  EXPECT_EQ(biz, "keyword_match_v1");
+  EXPECT_EQ(ResolveOperatorConfigBiz(
+                root.c_str(), "configs/pipeline_keyword_match_rules.conf",
+                nullptr, error, sizeof(error)),
             -2);
+  biz = "stale";
+  EXPECT_EQ(ResolveOperatorConfigBiz(root.c_str(), "/etc/passwd", &biz, error,
+                                     sizeof(error)),
+            -2);
+  EXPECT_TRUE(biz.empty());
+  for (int invalid = 0; invalid < 2; ++invalid) {
+    biz = "stale";
+    EXPECT_EQ(ResolveOperatorConfigBiz(
+                  invalid == 0 ? nullptr : root.c_str(),
+                  invalid == 1 ? nullptr
+                               : "configs/pipeline_keyword_match_rules.conf",
+                  &biz, error, sizeof(error)),
+              -2);
+    EXPECT_TRUE(biz.empty());
+  }
 }
 
 // 16. 实体抽取业务端到端 (Entity Extract)
@@ -1207,7 +1222,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["mem_que"] = {{"type", "keyword_out"}};
+    pipe_json["deployment"]["io"]["mem_que"] = nlohmann::json::object();
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
     p_ofs.close();
@@ -1217,31 +1232,28 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                 .find("Unknown field at /deployment/io/mem_que"),
             std::string::npos);
 
-  // 1. 缺失 output_allocations 对象 -> -2
+  // 1. Missing out_mem uses the registered required output defaults.
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"].erase("output_allocations");
-    std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
-    p_ofs << pipe_json.dump(2);
-    p_ofs.close();
+    pipe_json["deployment"]["io"].erase("out_mem");
+    std::ofstream(root / "configs/pipeline_keyword_match_rules.json")
+        << pipe_json;
   }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(
-      std::string(GetOperatorLastError())
-          .find("Missing required field '/deployment/io/output_allocations'"),
-      std::string::npos);
+  ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
+  EXPECT_EQ(ops_.Destroy(handle), 0);
+  handle = nullptr;
 
-  // 2. output_allocations.keyword_out.type 与业务不匹配 -> -2
+  // 2. Removed output allocation type is rejected even when it matches.
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["type"] =
-        "doc_out";
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["type"] =
+        "keyword_out";
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
     p_ofs.close();
@@ -1254,9 +1266,8 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
-             ["meta_num"] = 0;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["meta_num"] = 0;
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
              ["metadata_type_id"] = 123;
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
@@ -1270,8 +1281,8 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
-             ["capacities"] = {{"unknown_field_xyz", 100}};
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["capacities"] = {
+        {"unknown_field_xyz", 100}};
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
     p_ofs.close();
@@ -1385,47 +1396,44 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
 TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   std::string root_dir = GetConfDir();
   char err_buf[256] = {0};
+  std::string biz = "stale";
 
   // 1. POSIX 绝对路径拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "/etc/pipeline.conf",
-                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "/etc/pipeline.conf",
+                                     &biz, err_buf, sizeof(err_buf)),
             -2);
 
   // 2. Windows 盘符拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "C:\\pipeline.conf",
-                                          "keyword_match.operator.v1", err_buf,
-                                          sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "C:\\pipeline.conf",
+                                     &biz, err_buf, sizeof(err_buf)),
             -2);
 
   // 3. UNC 路径拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "\\\\server\\share\\pipeline.conf",
-                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(),
+                                     "\\\\server\\share\\pipeline.conf", &biz,
+                                     err_buf, sizeof(err_buf)),
             -2);
 
   // 4. .. 逃逸拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "../../etc/passwd",
-                                          "keyword_match.operator.v1", err_buf,
-                                          sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "../../etc/passwd", &biz,
+                                     err_buf, sizeof(err_buf)),
             -2);
 
   // 5. 目录而非普通文件拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "configs",
-                                          "keyword_match.operator.v1", err_buf,
-                                          sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "configs", &biz, err_buf,
+                                     sizeof(err_buf)),
             -2);
 
   // 6. 不存在的文件拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "configs/non_existent.conf",
-                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
-            -2);
+  EXPECT_EQ(
+      ResolveOperatorConfigBiz(root_dir.c_str(), "configs/non_existent.conf",
+                               &biz, err_buf, sizeof(err_buf)),
+      -2);
 
   // 7. 路径前缀混淆拒绝 (例如目标根为 root，试图访问 root_extra 目录)
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "../configs_fake/pipeline.conf",
-                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(),
+                                     "../configs_fake/pipeline.conf", &biz,
+                                     err_buf, sizeof(err_buf)),
             -2);
 
   // 8. 对 Create 接口同样严格拦截非普通文件与不存在文件
@@ -1902,6 +1910,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     std::filesystem::copy_file(
         source_root / "demo/fixtures/mock/pipeline_doc_qa.json",
         root / "configs/pipeline_doc_qa_default.json");
+    nlohmann::json original_deployment;
     {
       std::ifstream pipe_in(root / "configs/pipeline_doc_qa_default.json");
       nlohmann::json pipe_json;
@@ -1909,6 +1918,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       pipe_json["deployment"]["model_paths"] = {
           {"embed_model_v1", "models/not_deployed_embed.bin"},
           {"llm_model_v1", "models/not_deployed_llm.bin"}};
+      original_deployment = pipe_json["deployment"];
       std::ofstream pipe_out(root / "configs/pipeline_doc_qa_default.json");
       pipe_out << pipe_json.dump(2);
     }
@@ -1924,7 +1934,13 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     llm_edgeflow::ResolvedOperatorConfig resolved;
     int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
         root_string.c_str(), "configs/model_paths.conf", &resolved, &err);
-    EXPECT_EQ(ret, 0) << "Error: " << err;
+    ASSERT_EQ(ret, 0) << "Error: " << err;
+    ASSERT_NE(resolved.io_plan, nullptr);
+    EXPECT_FALSE(resolved.io_plan->resolved_pipeline_json.contains("biz_name"));
+    ASSERT_TRUE(
+        resolved.io_plan->resolved_pipeline_json.contains("deployment"));
+    EXPECT_EQ(resolved.io_plan->resolved_pipeline_json["deployment"],
+              original_deployment);
     ASSERT_EQ(resolved.io_plan->resolved_pipeline_json["models"].size(), 2u);
     for (const auto& model :
          resolved.io_plan->resolved_pipeline_json["models"]) {
@@ -2086,22 +2102,19 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
   for (const int capacity : {16384, 1024}) {
     ScopedTempDirectory temp;
     nlohmann::json pipeline = {
-        {"biz_name", "keyword_match_v1"},
         {"deployment",
          {{"io",
            {{"io_binding", "keyword_match.operator.v1"},
-            {"output_allocations",
+            {"out_mem",
              {{"keyword_out",
-               {{"type", "keyword_out"},
-                {"capacities", {{"match_result_json", capacity}}}}}}}}}}},
+               {{"capacities", {{"match_result_json", capacity}}}}}}}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline",
          {{{"id", "rule"},
            {"node_type", "TextRuleMatchNode"},
            {"depends_on", nlohmann::json::array()},
-           {"ports",
-            {{"inputs", {{"text", "input_sentences"}}},
-             {"outputs", {{"matches", "rule_matches"}}}}},
+           {"inputs", {{"text", "input_sentences"}}},
+           {"outputs", {{"matches", "rule_matches"}}},
            {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
     std::ofstream(temp.path() / "pipeline.json") << pipeline;
     std::ofstream(temp.path() / "pipeline.conf")
@@ -2165,7 +2178,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
              ["metadata_type_id"] = 3000000000ULL;
     std::ofstream pipe_out(root / "configs/pipe_overflow.json");
     pipe_out << pipe_json.dump(2);
@@ -2188,7 +2201,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
              ["metadata_type_id"] = -3000000000LL;
     std::ofstream pipe_out(root / "configs/pipe_underflow.json");
     pipe_out << pipe_json.dump(2);
@@ -2211,7 +2224,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
              ["metadata_type_id"] = 1.5;
     std::ofstream pipe_out(root / "configs/pipe_not_integer.json");
     pipe_out << pipe_json.dump(2);
@@ -2239,6 +2252,21 @@ void RegisterNestedOutputTestTypes() {
                                   MakeNestedOutputBinding(1));
   RegisterOperatorOutputAllocator("test_nested_alternate",
                                   MakeNestedOutputBinding(2));
+  auto explicit_parameters = MakeNestedOutputBinding();
+  explicit_parameters.normalize_parameters =
+      MakeOutputParameterParser<NestedOutputParameters>(
+          [](const std::string& text, NestedOutputParameters* parameters,
+             std::string* error) {
+            const auto requested = nlohmann::json::parse(text);
+            if (!requested.is_object() || !requested.contains("capacity")) {
+              if (error) *error = "capacity must be explicitly configured";
+              return false;
+            }
+            return ParseNestedOutput(text, parameters, error);
+          });
+  RegisterOperatorOutputAllocator("test_nested_explicit_parameters",
+                                  explicit_parameters);
+
   auto footprint = MakeNestedOutputBinding();
   footprint.output_layout.compute_block_payload_bytes =
       [](const ResolvedOutputPoolSpec&, size_t* bytes, std::string*) {
@@ -2350,14 +2378,12 @@ const bool g_reg_nested_output_components = []() {
 
 nlohmann::json NestedOutputAllocations(bool alternate = false) {
   return {{"main",
-           {{"type", "test_nested_out"},
-            {"allocator",
+           {{"allocator",
              alternate ? "test_nested_alternate" : "test_nested_standard"},
             {"params",
              {{"kind", alternate ? 2 : 1}, {"capacity", alternate ? 3 : 2}}}}},
           {"audit",
-           {{"type", "test_nested_out"},
-            {"allocator",
+           {{"allocator",
              alternate ? "test_nested_standard" : "test_nested_alternate"},
             {"params",
              {{"kind", alternate ? 1 : 2}, {"capacity", alternate ? 4 : 5}}}}}};
@@ -2368,11 +2394,11 @@ nlohmann::json NestedOutputPipelineJson(bool alternate = false) {
                        "configs/pipeline_keyword_match_rules.json");
   nlohmann::json pipeline;
   source >> pipeline;
-  pipeline["biz_name"] = "test_nested_output_v1";
+  pipeline.erase("biz_name");
   pipeline["deployment"] = {
       {"io",
        {{"io_binding", "nested_output_test.operator.v1"},
-        {"output_allocations", NestedOutputAllocations(alternate)}}}};
+        {"out_mem", NestedOutputAllocations(alternate)}}}};
   return pipeline;
 }
 
@@ -2515,7 +2541,7 @@ TEST_F(OperatorApiTest, NestedOutputConfigurationIsValidatedBeforeAllocation) {
   for (int mutation = 0; mutation < 11; ++mutation) {
     SCOPED_TRACE(mutation);
     auto pipeline = NestedOutputPipelineJson();
-    auto& allocs = pipeline["deployment"]["io"]["output_allocations"];
+    auto& allocs = pipeline["deployment"]["io"]["out_mem"];
     auto& main = allocs["main"];
     switch (mutation) {
       case 0:
@@ -2537,13 +2563,13 @@ TEST_F(OperatorApiTest, NestedOutputConfigurationIsValidatedBeforeAllocation) {
         main["params"] = nlohmann::json::array();
         break;
       case 6:
-        allocs.erase("audit");
+        allocs["audit"] = 42;
         break;
       case 7:
         allocs["unknown"] = main;
         break;
       case 8:
-        pipeline["deployment"]["io"]["mem_que"] = {{"type", "test_nested_out"}};
+        pipeline["deployment"]["io"]["mem_que"] = nlohmann::json::object();
         break;
       case 9:
         main["capacities"] = {{"unknown", 10}};
@@ -2568,12 +2594,78 @@ TEST_F(OperatorApiTest, NestedOutputConfigurationIsValidatedBeforeAllocation) {
   }
 }
 
+TEST_F(OperatorApiTest, MissingOutputMemoryUsesRegisteredNestedDefaults) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  auto pipeline = NestedOutputPipelineJson();
+  pipeline["deployment"]["io"].erase("out_mem");
+  std::ofstream(temp.path() / "pipeline.json") << pipeline;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto root = temp.path().string();
+  char error[256]{};
+  std::string biz;
+  EXPECT_EQ(ResolveOperatorConfigBiz(root.c_str(), "pipeline.conf", &biz, error,
+                                     sizeof(error)),
+            0)
+      << error;
+  EXPECT_EQ(biz, "test_nested_output_v1");
+  CreateParam param{};
+  param.model_path = root.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 1;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+  const std::shared_ptr<void> handle(
+      raw_handle, [this](void* ptr) { EXPECT_EQ(ops_.Destroy(ptr), 0); });
+  std::string text = "初始化";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorKeywordInput input{907, &sentence};
+  NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
+  outputs[0]["chan.result"] = {};
+  outputs[0]["chan.audit"] = {};
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  ExpectNestedResult(outputs[0].at("chan.result"), 907, 1, 1, 3, true);
+  ExpectNestedResult(outputs[0].at("chan.audit"), 907, 1, 1, 3, true);
+  EXPECT_NE(outputs[0].at("chan.result"), outputs[0].at("chan.audit"));
+  outputs.clear();
+}
+
+TEST_F(OperatorApiTest,
+       CustomAllocatorStillRequiresItsExplicitLayoutParameters) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  auto pipeline = NestedOutputPipelineJson();
+  pipeline["deployment"]["io"]["out_mem"]["main"] = {
+      {"allocator", "test_nested_explicit_parameters"}};
+  std::ofstream(temp.path() / "pipeline.json") << pipeline;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto root = temp.path().string();
+  CreateParam param{};
+  param.model_path = root.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 1;
+  const int allocations_before = nested_allocations;
+  void* handle = nullptr;
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+  EXPECT_EQ(handle, nullptr);
+  EXPECT_EQ(nested_allocations, allocations_before);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("capacity"),
+            std::string::npos);
+  if (handle) ops_.Destroy(handle);
+}
+
 TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["output_allocations"]["audit"]["params"]
-          ["reject_hit"] = true;
+  pipeline["deployment"]["io"]["out_mem"]["audit"]["params"]["reject_hit"] =
+      true;
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2616,7 +2708,7 @@ TEST_F(OperatorApiTest, OutputBudgetUsesRequestedDepthWithoutAllocating) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["output_allocations"]["main"]["allocator"] =
+  pipeline["deployment"]["io"]["out_mem"]["main"]["allocator"] =
       "test_nested_3mib_footprint";
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
@@ -2648,7 +2740,7 @@ TEST_F(OperatorApiTest, AllOutputSlotsShareTheHandlePayloadBudget) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  for (auto& output : pipeline["deployment"]["io"]["output_allocations"]) {
+  for (auto& output : pipeline["deployment"]["io"]["out_mem"]) {
     output["params"]["capacity"] = 9000;
   }
   std::ofstream(temp.path() / "pipeline.json") << pipeline;

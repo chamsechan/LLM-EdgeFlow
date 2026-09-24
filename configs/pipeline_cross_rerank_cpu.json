@@ -1,25 +1,15 @@
 {
-  "biz_name": "dense_cross_rerank_scoring",
   "deployment": {
     "model_paths": {
       "rerank_model_v1": "./models/ms_marco_tinybert_l2_v2_quantized.onnx"
     },
     "io": {
-      "io_binding": "cross_rerank.operator.v1",
-      "output_allocations": {
-        "rerank_out": {
-          "type": "rerank_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {}
-        }
-      }
+      "io_binding": "cross_rerank.operator.v1"
     }
   },
   "models": [
     {
       "model_id": "rerank_model_v1",
-      "capability": "rerank",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
       "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
@@ -43,19 +33,16 @@
     {
       "id": "node_0_TextRerankNode",
       "node_type": "TextRerankNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "queries": "rerank_queries",
-          "candidates": "rerank_candidates"
-        },
-        "outputs": {
-          "ranked": "ranked_results"
-        }
-      },
       "config": {
         "bind_model": "rerank_model_v1",
         "top_k": 8
+      },
+      "inputs": {
+        "queries": "rerank_queries",
+        "candidates": "rerank_candidates"
+      },
+      "outputs": {
+        "ranked": "ranked_results"
       }
     }
   ]

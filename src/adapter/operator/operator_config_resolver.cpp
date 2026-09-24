@@ -131,19 +131,8 @@ int OperatorConfigResolver::ResolveOutputAllocation(
       return -2;
     }
   }
-  if (structure::MissingRequired(config, shape, "type") ||
-      !structure::HasType(config["type"], structure::Property(shape, "type"))) {
-    if (error) *error = "Missing required 'type' string in output allocation";
-    return -2;
-  }
   ResolvedOutputPoolSpec requested;
-  requested.type = config["type"].get<std::string>();
-  if (requested.type != slot.type_suffix) {
-    if (error)
-      *error = "Output type '" + requested.type + "' does not match slot '" +
-               slot.slot_name + "'";
-    return -2;
-  }
+  requested.type = slot.type_suffix;
   if (config.contains("allocator")) {
     if (!structure::HasType(config["allocator"],
                             structure::Property(shape, "allocator")) ||

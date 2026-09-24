@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeOcrDocQaBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "ocr_doc_qa";
   def.display_name = "OCR 票据问答";
   def.ingress = {RequiredBizInput(kRawRequestIds),
                  RequiredBizInput(kImagePaths), RequiredBizInput(kUserQueries)};

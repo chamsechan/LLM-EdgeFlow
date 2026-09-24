@@ -38,8 +38,8 @@ static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
 int main() {
   // 1. Version contract check
   if (std::strcmp(COMPANY_ALG_PRODUCT_VERSION, "11.0.0") != 0 ||
-      std::strcmp(COMPANY_ALG_ABI_VERSION, "7.0.0") != 0 ||
-      COMPANY_ALG_ABI_VERSION_MAJOR != 7) {
+      std::strcmp(COMPANY_ALG_ABI_VERSION, "9.0.0") != 0 ||
+      COMPANY_ALG_ABI_VERSION_MAJOR != 9) {
     std::fprintf(stderr,
                  "[SDK Consumer Test] Generated version contract drifted\n");
     return 1;
@@ -97,16 +97,15 @@ int main() {
     return 6;
   }
 
-  // 5. ValidateOperatorConfigBinding
+  // 5. ResolveOperatorConfigBiz
   char err_buf[512] = {0};
-  int val_ret = llm_edgeflow::operator_api::ValidateOperatorConfigBinding(
-      root_dir.c_str(), config_rel, "keyword_match.operator.v1", err_buf,
-      sizeof(err_buf));
-  if (val_ret != 0) {
-    std::fprintf(
-        stderr,
-        "[SDK Consumer Test] ValidateOperatorConfigBinding failed: %s\n",
-        err_buf);
+  std::string resolved_biz;
+  int val_ret = llm_edgeflow::operator_api::ResolveOperatorConfigBiz(
+      root_dir.c_str(), config_rel, &resolved_biz, err_buf, sizeof(err_buf));
+  if (val_ret != 0 || resolved_biz != "keyword_match_v1") {
+    std::fprintf(stderr,
+                 "[SDK Consumer Test] ResolveOperatorConfigBiz failed: %s\n",
+                 err_buf);
     return 7;
   }
 

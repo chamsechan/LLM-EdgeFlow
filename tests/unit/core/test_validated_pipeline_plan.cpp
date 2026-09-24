@@ -296,6 +296,7 @@ TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
              {"depends_on", nlohmann::json::array()}},
             {{"id", "consumer"},
              {"node_type", FlowContractConsumerNode::kNodeType},
+             {"inputs", {{"flow", "flow"}}},
              {"depends_on", nlohmann::json::array({"producer"})}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
@@ -308,7 +309,7 @@ TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
   for (const auto& diagnostic : plan.report.diagnostics) {
     actual.insert(diagnostic.code);
     if (expected.count(diagnostic.code)) {
-      EXPECT_EQ(diagnostic.path, "/pipeline/1/ports/inputs/flow");
+      EXPECT_EQ(diagnostic.path, "/pipeline/1/inputs/flow");
       EXPECT_EQ(diagnostic.node_id, "consumer");
       EXPECT_EQ(diagnostic.port, "flow");
       EXPECT_EQ(diagnostic.related_nodes,
@@ -350,15 +351,14 @@ TEST_F(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
   nlohmann::json pipeline_json;
   stream >> pipeline_json;
   pipeline_json.erase("deployment");
+  pipeline_json["biz_name"] = "smart_doc_qa_v1";
   const size_t source_index = pipeline_json["pipeline"].size();
   pipeline_json["pipeline"].push_back(
       {{"id", "ingress_collision"},
        {"node_type", "TextChunkNode"},
        {"depends_on", nlohmann::json::array()},
-       {"ports",
-        {{"inputs", {{"text", "raw_docs"}}},
-         {"outputs",
-          {{"chunks", "raw_docs"}, {"chunk_counts", "audit_counts"}}}}},
+       {"inputs", {{"text", "raw_docs"}}},
+       {"outputs", {{"chunks", "raw_docs"}, {"chunk_counts", "audit_counts"}}},
        {"config", {{"chunk_size", 60}}}});
 
   const auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
@@ -369,8 +369,8 @@ TEST_F(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
                      return item.code == DiagnosticCode::kDuplicatePortProducer;
                    });
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-  EXPECT_EQ(diagnostic->path, "/pipeline/" + std::to_string(source_index) +
-                                  "/ports/outputs/chunks");
+  EXPECT_EQ(diagnostic->path,
+            "/pipeline/" + std::to_string(source_index) + "/outputs/chunks");
   EXPECT_EQ(diagnostic->node_id, "ingress_collision");
   EXPECT_EQ(diagnostic->port, "chunks");
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"$ingress"}));
@@ -382,7 +382,6 @@ TEST_F(ValidatedPipelinePlanTest,
       {"biz_name", "smart_doc_qa_v1"},
       {"models",
        nlohmann::json::array({{{"model_id", "embed_model_v1"},
-                               {"capability", "embedding"},
                                {"model_type", "test_biz_embedding"},
                                {"backend", "test_tensor_backend"},
                                {"model_path", "fixture.bin"},
@@ -393,7 +392,7 @@ TEST_F(ValidatedPipelinePlanTest,
            {{{"id", "session_embedding"},
              {"node_type", "TextEmbeddingNode"},
              {"depends_on", nlohmann::json::array()},
-             {"ports", {{"inputs", {{"text", "raw_queries"}}}}},
+             {"inputs", {{"text", "raw_queries"}}},
              {"config",
               {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}}}}})}};
 
@@ -480,10 +479,9 @@ TEST_F(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
 TEST_F(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
   nlohmann::json pipeline_json = {
       {"biz_name", "plan_fixture_biz"},
-      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 4},
       {"models", nlohmann::json::array(
                      {{{"model_id", "shared"},
-                       {"capability", "plan_test"},
                        {"model_type", SerializedPlanTestModel::kModelType},
                        {"backend", "test_tensor_backend"},
                        {"model_path", "serialized.bin"},
@@ -509,6 +507,11 @@ TEST_F(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
   EXPECT_EQ(diagnostic->node_id, "node_b");
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"node_a"}));
+  pipeline_json["max_parallel_workers"] = 1;
+  EXPECT_TRUE(PipelineValidator::Validate(pipeline_json).ok);
+  pipeline_json["max_parallel_workers"] = 4;
+  pipeline_json["pipeline"][1]["depends_on"] = {"node_a"};
+  EXPECT_TRUE(PipelineValidator::Validate(pipeline_json).ok);
 }
 
 class RestrictedBusinessNode : public INode {
@@ -579,19 +582,16 @@ TEST_F(ValidatedPipelinePlanTest,
       {"biz_name", "dense_cross_rerank_scoring"},
       {"models",
        nlohmann::json::array({{{"model_id", "m_rel"},
-                               {"capability", "rerank"},
                                {"model_type", "mock_path_model"},
                                {"backend", "mock_path_backend"},
                                {"model_path", "./models/sub/model.onnx"},
                                {"model_config", nlohmann::json::object()}},
                               {{"model_id", "m_abs"},
-                               {"capability", "rerank"},
                                {"model_type", "mock_path_model"},
                                {"backend", "mock_path_backend"},
                                {"model_path", "/opt/models/fixed.onnx"},
                                {"model_config", nlohmann::json::object()}},
                               {{"model_id", "m_direct"},
-                               {"capability", "rerank"},
                                {"model_type", "mock_path_model"},
                                {"backend", "mock_path_backend"},
                                {"model_path", "model_direct.onnx"},
@@ -600,11 +600,10 @@ TEST_F(ValidatedPipelinePlanTest,
        nlohmann::json::array({{{"id", "node_0_TextRerankNode"},
                                {"node_type", "TextRerankNode"},
                                {"depends_on", nlohmann::json::array()},
-                               {"ports",
-                                {{"inputs",
-                                  {{"queries", "rerank_queries"},
-                                   {"candidates", "rerank_candidates"}}},
-                                 {"outputs", {{"ranked", "ranked_results"}}}}},
+                               {"inputs",
+                                {{"queries", "rerank_queries"},
+                                 {"candidates", "rerank_candidates"}}},
+                               {"outputs", {{"ranked", "ranked_results"}}},
                                {"config", {{"bind_model", "m_rel"}}}}})}};
 
   // Orchestration only performs deterministic lexical normalization. Deployment
@@ -635,7 +634,6 @@ TEST_F(ValidatedPipelinePlanTest,
        RejectsIncompatibleEgressPortExecutionContracts) {
   BizDefinition biz_def;
   biz_def.biz_name = "test_egress_flow_biz";
-  biz_def.demo_biz = "test";
   biz_def.egress = {BizPortDefinition{"flow", "TextBatch", true, "1:1",
                                       "independent", "session"}};
   ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz_def));
@@ -688,7 +686,7 @@ TEST_F(ValidatedPipelinePlanTest,
          {"node_type", FlowContractProducerNode::kNodeType},
          {"depends_on", nlohmann::json::array()}}}}};
   EXPECT_TRUE(PipelineValidator::ValidateAndPlan(config).report.ok);
-  config["pipeline"][0]["ports"]["outputs"]["flow"] = "optional";
+  config["pipeline"][0]["outputs"]["flow"] = "optional";
   auto plan = PipelineValidator::ValidateAndPlan(config);
   EXPECT_FALSE(plan.report.ok);
   ASSERT_FALSE(plan.report.diagnostics.empty());
@@ -702,18 +700,16 @@ TEST_F(ValidatedPipelinePlanTest,
        MultiModelBindingsAndConcurrencyDeduplication) {
   nlohmann::json base_pipeline = {
       {"biz_name", "plan_fixture_biz"},
-      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 4},
       {"models", nlohmann::json::array({
                      {{"model_id", "shared_a"},
                       {"model_type", SerializedPlanTestModel::kModelType},
-                      {"capability", "plan_test"},
                       {"backend", "test_tensor_backend"},
                       {"model_path", "model_a.bin"},
                       {"model_config", nlohmann::json::object()},
                       {"backend_config", nlohmann::json::object()}},
                      {{"model_id", "independent_b"},
                       {"model_type", SerializedPlanTestModel::kModelType},
-                      {"capability", "plan_test"},
                       {"backend", "test_tensor_backend"},
                       {"model_path", "model_b.bin"},
                       {"model_config", nlohmann::json::object()},
@@ -781,9 +777,8 @@ TEST_F(ValidatedPipelinePlanTest,
                        {{"id", "node1"},
                         {"node_type", "IoBoundaryTestNode"},
                         {"depends_on", nlohmann::json::array()},
-                        {"ports",
-                         {{"inputs", {{"input_data", "text_in"}}},
-                          {"outputs", {{"output_data", "text_out"}}}}}},
+                        {"inputs", {{"input_data", "text_in"}}},
+                        {"outputs", {{"output_data", "text_out"}}}},
                    })}};
 
   // 1. 合法 IO boundary：覆盖必需 ingress，消费 egress
@@ -842,6 +837,170 @@ TEST_F(ValidatedPipelinePlanTest,
   ASSERT_NE(diag_conflict, plan_conflict.report.diagnostics.end());
 }
 
+TEST_F(ValidatedPipelinePlanTest, InfersDependenciesAndMergesExtraOrder) {
+  RegisterTestBizs({"inferred_graph_biz"}, {{"request", "TextBatch"}});
+  nlohmann::json config = {
+      {"biz_name", "inferred_graph_biz"},
+      {"pipeline",
+       {{{"id", "consumer"},
+         {"node_type", IoBoundaryTestNode::kNodeType},
+         {"inputs", {{"input_data", "intermediate"}}},
+         {"outputs", {{"output_data", "result"}}},
+         {"depends_on", {"barrier", "producer"}}},
+        {{"id", "barrier"},
+         {"node_type", PlanTestNode::kNodeType},
+         {"depends_on", {"producer"}}},
+        {{"id", "producer"},
+         {"node_type", IoBoundaryTestNode::kNodeType},
+         {"inputs", {{"input_data", "request"}}},
+         {"outputs", {{"output_data", "intermediate"}}}}}}};
+  const auto plan = PipelineValidator::ValidateAndPlan(config);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  EXPECT_EQ(plan.report.topological_order,
+            (std::vector<std::string>{"producer", "barrier", "consumer"}));
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{
+                {"producer"}, {"barrier"}, {"consumer"}}));
+  EXPECT_EQ(plan.config.max_parallel_workers, 1);
+  const auto& dependencies = plan.node_plans.at("consumer").node.depends_on;
+  EXPECT_EQ(
+      std::unordered_set<std::string>(dependencies.begin(), dependencies.end()),
+      (std::unordered_set<std::string>{"producer", "barrier"}));
+  EXPECT_EQ(dependencies.size(), 2U);
+  EXPECT_FALSE(config["pipeline"][2].contains("depends_on"));
+}
+
+TEST_F(ValidatedPipelinePlanTest, RejectsDataAndMixedDependencyCycles) {
+  for (bool mixed : {false, true}) {
+    SCOPED_TRACE(mixed ? "data plus order cycle" : "data cycle");
+    nlohmann::json first = {{"id", "first"},
+                            {"node_type", IoBoundaryTestNode::kNodeType},
+                            {"inputs", {{"input_data", "second_out"}}},
+                            {"outputs", {{"output_data", "first_out"}}}};
+    nlohmann::json second = {{"id", "second"},
+                             {"node_type", IoBoundaryTestNode::kNodeType},
+                             {"inputs", {{"input_data", "first_out"}}},
+                             {"outputs", {{"output_data", "second_out"}}}};
+    if (mixed) {
+      first["inputs"]["input_data"] = "request";
+      first["depends_on"] = {"second"};
+    }
+    RegisterTestBizs({"cycle_graph_biz"}, {{"request", "TextBatch"}});
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        {{"biz_name", "cycle_graph_biz"}, {"pipeline", {first, second}}});
+    EXPECT_FALSE(plan.report.ok);
+    EXPECT_TRUE(std::any_of(
+        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+        [](const auto& d) { return d.code == DiagnosticCode::kDagCycle; }))
+        << plan.report.ToJson().dump(2);
+  }
+}
+
+TEST_F(ValidatedPipelinePlanTest, RejectsDataSelfCycle) {
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      {{"biz_name", "plan_fixture_biz"},
+       {"pipeline",
+        {{{"id", "self"},
+          {"node_type", IoBoundaryTestNode::kNodeType},
+          {"inputs", {{"input_data", "shared"}}},
+          {"outputs", {{"output_data", "shared"}}}}}}});
+  EXPECT_FALSE(plan.report.ok);
+  EXPECT_TRUE(std::any_of(
+      plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+      [](const auto& d) { return d.code == DiagnosticCode::kDagCycle; }))
+      << plan.report.ToJson().dump(2);
+}
+
+TEST_F(ValidatedPipelinePlanTest,
+       RequiredInputNeverFallsBackToSameNameProducer) {
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      {{"biz_name", "plan_fixture_biz"},
+       {"pipeline",
+        {{{"id", "producer"},
+          {"node_type", FlowContractProducerNode::kNodeType}},
+         {{"id", "consumer"},
+          {"node_type", FlowContractConsumerNode::kNodeType},
+          {"depends_on", {"producer"}}}}}});
+  EXPECT_FALSE(plan.report.ok);
+  const auto diagnostic =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& d) {
+                     return d.code == DiagnosticCode::kMissingInputProducer;
+                   });
+  ASSERT_NE(diagnostic, plan.report.diagnostics.end())
+      << plan.report.ToJson().dump(2);
+  EXPECT_EQ(diagnostic->path, "/pipeline/1/inputs/flow");
+  EXPECT_EQ(diagnostic->node_id, "consumer");
+}
+
+TEST_F(ValidatedPipelinePlanTest,
+       RejectsAmbiguousProducersWithoutExplicitDependencies) {
+  for (bool reverse : {false, true}) {
+    nlohmann::json nodes = {{{"id", "consumer"},
+                             {"node_type", IoBoundaryTestNode::kNodeType},
+                             {"inputs", {{"input_data", "shared"}}},
+                             {"outputs", {{"output_data", "result"}}}},
+                            {{"id", "first"},
+                             {"node_type", FlowContractProducerNode::kNodeType},
+                             {"outputs", {{"flow", "shared"}}}},
+                            {{"id", "second"},
+                             {"node_type", FlowContractProducerNode::kNodeType},
+                             {"outputs", {{"flow", "shared"}}}}};
+    if (reverse) std::reverse(nodes.begin(), nodes.end());
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        {{"biz_name", "plan_fixture_biz"}, {"pipeline", nodes}});
+    EXPECT_FALSE(plan.report.ok);
+    EXPECT_TRUE(std::any_of(
+        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+        [](const auto& d) {
+          return d.code == DiagnosticCode::kDuplicatePortProducer;
+        }))
+        << plan.report.ToJson().dump(2);
+  }
+}
+
+TEST_F(ValidatedPipelinePlanTest,
+       ModelBindingIsRequiredEvenForOneMatchingModel) {
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      {{"biz_name", "plan_fixture_biz"},
+       {"models",
+        {{{"model_id", "shared"},
+          {"model_type", SerializedPlanTestModel::kModelType},
+          {"backend", "test_tensor_backend"},
+          {"model_path", "fixture.bin"}}}},
+       {"pipeline",
+        {{{"id", "consumer"},
+          {"node_type", ModelBoundPlanTestNode::kNodeType}}}}});
+  EXPECT_FALSE(plan.report.ok);
+  EXPECT_TRUE(std::any_of(
+      plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+      [](const auto& d) {
+        return d.code == DiagnosticCode::kMissingConfigField &&
+               d.path == "/pipeline/0/config/bind_model";
+      }))
+      << plan.report.ToJson().dump(2);
+}
+
+TEST_F(ValidatedPipelinePlanTest, WorkerBudgetControlsParallelSafetyChecks) {
+  nlohmann::json config = {
+      {"biz_name", "plan_fixture_biz"},
+      {"pipeline",
+       {{{"id", "source"}, {"node_type", FlowContractProducerNode::kNodeType}},
+        {{"id", "independent"}, {"node_type", PlanTestNode::kNodeType}}}}};
+  EXPECT_TRUE(PipelineValidator::Validate(config).ok);
+  config["max_parallel_workers"] = 1;
+  EXPECT_TRUE(PipelineValidator::Validate(config).ok);
+  config["max_parallel_workers"] = 2;
+  const auto report = PipelineValidator::Validate(config);
+  EXPECT_FALSE(report.ok);
+  EXPECT_TRUE(std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
+                          [](const auto& d) {
+                            return d.code ==
+                                   DiagnosticCode::kNodeNotParallelSafe;
+                          }))
+      << report.ToJson().dump(2);
+}
+
 TEST_F(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
   nlohmann::json valid_pipeline = {
       {"biz_name", "io_boundary_test_biz"},
@@ -849,9 +1008,8 @@ TEST_F(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
                        {{"id", "node1"},
                         {"node_type", "IoBoundaryTestNode"},
                         {"depends_on", nlohmann::json::array()},
-                        {"ports",
-                         {{"inputs", {{"input_data", "text_in"}}},
-                          {"outputs", {{"output_data", "text_out"}}}}}},
+                        {"inputs", {{"input_data", "text_in"}}},
+                        {"outputs", {{"output_data", "text_out"}}}},
                    })}};
 
   PipelineIoBoundary boundary;

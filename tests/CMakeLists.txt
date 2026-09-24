@@ -32,6 +32,8 @@ add_executable(alg_pipeline_tool_test
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime)
+target_include_directories(alg_pipeline_tool_test PRIVATE
+  "${PROJECT_BINARY_DIR}/generated/internal")
 
 # GNU-compatible link wrapping is confined to the existing model test runner.
 function(edgeflow_enable_aligned_allocation_failure target_name)

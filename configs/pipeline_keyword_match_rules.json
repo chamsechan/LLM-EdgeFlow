@@ -1,34 +1,9 @@
 {
-  "biz_name": "keyword_match_v1",
-  "deployment": {
-    "io": {
-      "io_binding": "keyword_match.operator.v1",
-      "output_allocations": {
-        "keyword_out": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {
-            "match_result_json": 2047
-          }
-        }
-      }
-    }
-  },
   "models": [],
   "pipeline": [
     {
       "id": "node_0_TextRuleMatchNode",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "input_sentences"
-        },
-        "outputs": {
-          "matches": "rule_matches"
-        }
-      },
       "config": {
         "categories": {
           "SYSTEM_INIT": [
@@ -36,7 +11,18 @@
             "自检"
           ]
         }
+      },
+      "inputs": {
+        "text": "input_sentences"
+      },
+      "outputs": {
+        "matches": "rule_matches"
       }
     }
-  ]
+  ],
+  "deployment": {
+    "io": {
+      "io_binding": "keyword_match.operator.v1"
+    }
+  }
 }

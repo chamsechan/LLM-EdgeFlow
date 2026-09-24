@@ -196,7 +196,6 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
       {"biz_name", "conflict_model_test"},
       {"models",
        nlohmann::json::array({{{"model_id", "m1"},
-                               {"capability", "embedding"},
                                {"model_type", DummyModel::kModelType},
                                {"backend", "unused_backend"},
                                {"model_path", "unused.bin"},

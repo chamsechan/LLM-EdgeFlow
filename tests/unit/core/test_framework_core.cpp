@@ -195,10 +195,8 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   pipe.GetSessionContext().SetRuntimeOptions(opts);
 
   nlohmann::json root_cfg = {{"biz_name", "test_runtime_opts"},
-                             {"execution_mode", "sequential"},
                              {"models",
                               {{{"model_id", "test_mock_llm"},
-                                {"capability", "llm"},
                                 {"model_type", "test_biz_llm"},
                                 {"backend", "test_causal_lm_backend"},
                                 {"model_path", "./models/qwen.bin"},
@@ -207,6 +205,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
                              {"pipeline",
                               {{{"id", "node_0_TextChunkNode"},
                                 {"node_type", "TextChunkNode"},
+                                {"inputs", {{"text", "text"}}},
                                 {"depends_on", nlohmann::json::array()}}}}};
 
   PipelineDiagnostic diag;

@@ -13,6 +13,43 @@ JSON 字符串翻译的运行命令、输入输出与复用范围见[翻译方�
 需要选择可运行预设时查询 `alg_pipeline_tool catalog` 的 `profiles` 并核对资源；详细流程见
 [Pipeline Studio](../tools/pipeline_studio/README.md)。
 
+## 配置中的连接与模型
+
+节点保留 `id`、`node_type`、`config`，直接用顶层 `inputs` / `outputs` 将逻辑端口映射到数据名。
+必需输入必须明确连接，可选输入省略时表示未连接；输出省略映射时使用逻辑端口名。
+Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于额外执行顺序，可以省略。
+节点在数组中的位置不决定执行顺序；生产者缺失、多个生产者或成环会被拒绝。
+
+模型能力从 `model_type` 的注册 Definition 获取。节点的模型引用（如 `config.bind_model`）
+必须显式填写 `models[].model_id`；普通参数仍按 Definition 补齐默认值。
+`max_parallel_workers` 范围为 1–64，默认 1，大于 1 时启用并行调度和相应安全检查。
+旧的节点 `ports`、根级 `execution_mode` 和 `models[].capability` 字段不再接受。
+
+## 业务入口与输出配置
+
+每份 Pipeline 显式填写 `deployment.io.io_binding`，它决定外部 C 结构体与内部数据的转换契约。
+框架从注册关系获得业务边界、输入/输出转换器、端口映射和输出类型，不靠文件名或后缀猜测。
+Demo 根据配置自动选取运行入口，Profile 只保存配置路径、数据集和执行参数。
+同一业务的多个 binding 必须声明一致的外部协议、载体和有效槽位，注册审计及部署预检都会校验。
+
+```json
+{
+  "deployment": {
+    "io": {
+      "io_binding": "keyword_match.operator.v1"
+    }
+  }
+}
+```
+
+必需输出槽自动采用注册的默认 allocator、容量与零 metadata。仅覆盖值写入
+`deployment.io.out_mem`；输出类型直接来自注册的槽位定义。
+可选输出槽通过显式槽配置启用，`{}` 表示默认值；`out_mem` 可以省略，`io_binding` 必须保留。
+`out_mem.params` 表示分配器布局参数，Node 算法参数仍在节点 `config` 中。
+
+`validate/plan` 与 Operator 共用部署准备和校验入口；`resolve-conf` 同时列出实际业务、
+binding 与完整输出池规格。派生的业务名仅为查询结果，不需要写回配置。
+
 ## 手写 JSON 的补全
 
 完成 CMake 配置后，在 VS Code 打开仓内 [edgeflow.code-workspace](../edgeflow.code-workspace)，

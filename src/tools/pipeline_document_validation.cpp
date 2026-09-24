@@ -12,9 +12,7 @@ DocumentValidationResult ValidatePipelineDocument(
   DocumentValidationResult result;
 
   PreparedDeployment prepared;
-  const nlohmann::json* neutral = &document;
-  const PipelineIoBoundary* boundary = nullptr;
-  if (document.is_object() && document.contains("deployment")) {
+  {
     DeploymentPrepareOptions options;
 
     options.path_mode = DeploymentPathMode::kLexicalOnly;
@@ -40,14 +38,14 @@ DocumentValidationResult ValidatePipelineDocument(
       result.response = std::move(resp);
       return result;
     }
-
-    neutral = &prepared.neutral_pipeline_json;
-    boundary = &prepared.io_boundary;
   }
-  auto report = mode == DocumentValidationMode::kExplain
-                    ? PipelineValidator::Explain(*neutral, boundary)
-                    : PipelineValidator::Validate(*neutral, boundary);
-  if (boundary) ProjectModelPathDiagnostics(prepared, &report);
+  auto report =
+      mode == DocumentValidationMode::kExplain
+          ? PipelineValidator::Explain(prepared.neutral_pipeline_json,
+                                       &prepared.io_boundary)
+          : PipelineValidator::Validate(prepared.neutral_pipeline_json,
+                                        &prepared.io_boundary);
+  ProjectModelPathDiagnostics(prepared, &report);
   result.ok = report.ok;
   result.response = report.ToJson();
   if (mode == DocumentValidationMode::kPlan && report.ok)

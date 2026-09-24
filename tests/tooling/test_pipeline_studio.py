@@ -37,6 +37,14 @@ SPEC.loader.exec_module(SHOW)
 SHOW.PIPELINE_TOOL = PIPELINE_TOOL
 
 
+def io_overrides(pipeline):
+    return pipeline.setdefault("deployment", {}).setdefault("io", {})
+
+
+def output_override(pipeline, slot):
+    return io_overrides(pipeline).setdefault("out_mem", {}).setdefault(slot, {})
+
+
 class WorkbenchServiceTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -84,7 +92,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         with self.assertRaises(SHOW.StudioError) as link:
             self.service.open_pipeline("pipeline_link.json")
         self.assertEqual(link.exception.code, "SYMLINK_REJECTED")
-        invalid = {"biz_name": "keyword_match_v1", "pipeline": []}
+        invalid = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "pipeline": []}
         with self.assertRaises(SHOW.StudioError) as validation:
             self.service.save_pipeline("pipeline_invalid.json", invalid, None, True)
         self.assertEqual(validation.exception.code, "VALIDATION_FAILED")
@@ -149,6 +157,19 @@ class WorkbenchServiceTest(unittest.TestCase):
         saved = service.save_pipeline(path.name, changed, original_revision)
         self.assertEqual(service.initial_pipeline()["document"], saved)
         self.assertNotEqual(service.initial_pipeline()["document"]["revision"], original_revision)
+
+    def test_terminal_viewer_prints_declared_mappings_without_inferring_order(self):
+        with mock.patch("builtins.print") as output:
+            SHOW.render_terminal(Path("pipeline.json"), {"pipeline": [
+                {"id": "consumer", "node_type": "Consumer", "inputs": {"text": "shared"}},
+                {"id": "producer", "node_type": "Producer", "outputs": {"text": "shared"}},
+            ]})
+        rendered = "\n".join(call.args[0] for call in output.call_args_list if call.args)
+        self.assertIn('inputs: {"text": "shared"}', rendered)
+        self.assertIn('outputs: {"text": "shared"}', rendered)
+        self.assertIn("outputs: <未声明>", rendered)
+        self.assertEqual(rendered.count("depends_on: [] (额外顺序)"), 2)
+        self.assertLess(rendered.index("consumer"), rendered.index("producer"))
 
     def test_file_reader_rejects_directories_invalid_json_and_oversized_files(self):
         with self.assertRaises(SHOW.StudioError):
@@ -284,7 +305,7 @@ class PreviewFixTest(unittest.TestCase):
         valid_rev = SHOW.revision_for(raw)
         valid_fp = self._valid_fingerprint()
 
-        bad_patch = [{"op": "test", "path": "/biz_name", "value": "mismatched_biz"}]
+        bad_patch = [{"op": "test", "path": "/deployment/io/io_binding", "value": "mismatched_binding"}]
         with self.assertRaises(SHOW.StudioError) as patch_err:
             self.service.preview_fix(
                 self.keyword,
@@ -315,7 +336,7 @@ class RunnableSolutionTest(unittest.TestCase):
         try:
             process = subprocess.run(command[3:], cwd=command[1], text=True, capture_output=True, timeout=30)
             self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-            records = [json.loads(line) for line in (output / "keyword_match/results.jsonl").read_text().splitlines()]
+            records = [json.loads(line) for line in (output / "keyword_match_v1/results.jsonl").read_text().splitlines()]
             self.assertEqual(records[0]["output"]["match_result"]["intent"], "SAVED_RULE")
         finally:
             shutil.rmtree(output, ignore_errors=True)
@@ -380,7 +401,7 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(updated["command"], saved["command"])
         self.assertEqual(updated["pipeline"]["deployment"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
-        profile, _, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
+        profile, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
         effective = self.service.resolve_run_conf(self.configs / saved["conf_filename"], profile)
         self.assertEqual(effective, updated["configuration"])
         self.assertEqual(effective["model_paths"][0]["resolved"], str(ROOT / "models/replacement.gguf"))
@@ -509,24 +530,25 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(unrelated.read_text(), "keep")
 
     def test_native_deployment_rejection_rolls_back_the_pair(self):
-        profile, outputs, binding = self.service.profile_inputs(self.keyword, "keyword_match_rules")
-        outputs["keyword_out"]["capacities"]["match_result_json"] = 0
-        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, outputs, binding)):
+        profile, outputs = self.service.profile_inputs(self.keyword, "keyword_match_rules")
+        outputs["keyword_out"] = {"capacities": {"match_result_json": 0}}
+        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, outputs)):
             with self.assertRaises(SHOW.StudioError) as error:
                 self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_rules")
         self.assertEqual(error.exception.code, "DEPLOYMENT_VALIDATION_FAILED")
         self.assertIn("match_result_json", str(error.exception))
         self.assertEqual(list(self.configs.iterdir()), [])
 
-    def test_profile_supplies_only_missing_binding(self):
+    def test_profile_preserves_explicit_binding_selection(self):
         pipeline = copy.deepcopy(self.keyword)
-        del pipeline["deployment"]
         saved = self.service.save_solution("pipeline_profile_binding.json", pipeline, "keyword_match_rules")
         self.assertEqual(saved["pipeline"]["deployment"]["io"]["io_binding"], "keyword_match.operator.v1")
+        self.assertNotIn("biz_name", saved["pipeline"])
+        self.assertEqual(saved["configuration"]["io_binding"], "keyword_match.operator.v1")
         for binding in ("", "unknown.operator.v1", "entity_extract.operator.v1"):
             with self.subTest(binding=binding):
                 pipeline = copy.deepcopy(self.keyword)
-                pipeline["deployment"]["io"]["io_binding"] = binding
+                io_overrides(pipeline)["io_binding"] = binding
                 with self.assertRaises(SHOW.StudioError):
                     self.service.save_solution("pipeline_bad_binding.json", pipeline, "keyword_match_rules")
                 self.assertEqual(pipeline["deployment"]["io"]["io_binding"], binding)
@@ -551,24 +573,98 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         payload = json.loads(process.stdout)
-        expected_schema = 4 if args[0] == "catalog" else (3 if args[0] == "describe-node" else 1)
+        expected_schema = 4 if args[0] == "catalog" and payload.get("ok") else (3 if args[0] == "describe-node" and payload.get("ok") else 1)
         self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 
+    def test_removed_dependency_repair_command_is_rejected_without_writing(self):
+        original = (ROOT / "configs/pipeline_keyword_match_rules.json").read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "pipeline.json"
+            path.write_bytes(original)
+            result = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(path), "--in-place"],
+                text=True, capture_output=True, cwd=ROOT, check=False,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertNotIn("fix-deps", result.stderr)
+
+    def test_explicit_binding_uses_native_required_output_defaults(self):
+        original = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
+        original.pop("deployment", None)
+        variants = [{"io": {"io_binding": "keyword_match.operator.v1"}},
+                    {"io": {"io_binding": "keyword_match.operator.v1", "out_mem": {}}}]
+        for deployment in variants:
+            with self.subTest(deployment=deployment), tempfile.TemporaryDirectory() as directory:
+                pipeline = copy.deepcopy(original)
+                if deployment is not None:
+                    pipeline["deployment"] = deployment
+                before = json.dumps(pipeline)
+                code, validated = self.command("validate", "--stdin", input_pipeline=pipeline)
+                self.assertEqual(code, 0, validated)
+                path = Path(directory)
+                (path / "pipeline.json").write_text(json.dumps(pipeline))
+                (path / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
+                code, resolved = self.command("validate-io", str(path / "pipeline.conf"))
+                self.assertEqual(code, 0, resolved)
+                self.assertEqual(resolved["binding"]["biz_name"], "keyword_match_v1")
+                self.assertEqual(resolved["binding"]["binding_id"], "keyword_match.operator.v1")
+                self.assertEqual(set(resolved["output_pools"]), {"keyword_out"})
+                self.assertEqual(resolved["output_pools"]["keyword_out"]["capacities"], {"match_result_json": 2047})
+                self.assertEqual((path / "pipeline.json").read_text(), before)
+
+    def test_external_selector_is_required_and_legacy_selectors_are_rejected(self):
+        original = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
+        variants = [(None, "/deployment"), ({}, "/deployment/io"),
+                    ({"io": {}}, "/deployment/io/io_binding"),
+                    ({"io": {"io_binding": ""}}, "/deployment/io/io_binding")]
+        for deployment, path in variants:
+            pipeline = copy.deepcopy(original)
+            pipeline.pop("deployment", None)
+            if deployment is not None:
+                pipeline["deployment"] = deployment
+            for entrypoint in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(deployment=deployment, entrypoint=entrypoint):
+                    code, result = self.command(*entrypoint, "--stdin", input_pipeline=pipeline)
+                    self.assertEqual(code, 1, result)
+                    self.assertEqual(result["diagnostics"][0]["path"], path)
+        for field, path in (("biz_name", "/biz_name"),
+                            ("output_allocations", "/deployment/io/output_allocations")):
+            pipeline = copy.deepcopy(original)
+            if field == "biz_name":
+                pipeline[field] = "keyword_match_v1"
+            else:
+                io_overrides(pipeline)[field] = {}
+            code, result = self.command("validate", "--stdin", input_pipeline=pipeline)
+            self.assertEqual(code, 1, result)
+            self.assertEqual(result["diagnostics"][0]["path"], path)
+        code, result = self.command("catalog", "--io-binding", "unknown.binding")
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
+        for command in ("catalog", "init"):
+            process = subprocess.run([str(PIPELINE_TOOL), command, "--biz", "keyword_match_v1"],
+                                     cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(process.returncode, 2, process.stdout)
+
     def test_all_commands_return_versioned_json(self):
-        first_code, first = self.command("catalog", "--biz", "keyword_match_v1")
-        second_code, second = self.command("catalog", "--biz", "keyword_match_v1")
+        first_code, first = self.command("catalog", "--io-binding", "keyword_match.operator.v1")
+        second_code, second = self.command("catalog", "--io-binding", "keyword_match.operator.v1")
         self.assertEqual((first_code, first), (second_code, second))
         self.assertTrue(first["nodes"])
+        self.assertTrue(first["profiles"])
+        self.assertTrue(all(profile["io_binding"] == "keyword_match.operator.v1" for profile in first["profiles"]))
+        self.assertTrue(all("biz" not in profile and "pipeline_biz" not in profile for profile in first["profiles"]))
+        self.assertTrue(all("demo_biz" not in biz for biz in first["bizs"]))
         code, described = self.command("describe-node", "TextRuleMatchNode")
         self.assertEqual(code, 0)
         self.assertEqual(described["node_type"], "TextRuleMatchNode")
         code, initialized = self.command(
-            "init", "--biz", "keyword_match_v1", "--empty"
+            "init", "--io-binding", "keyword_match.operator.v1", "--empty"
         )
         self.assertEqual(code, 0)
         self.assertEqual(initialized["pipeline"]["pipeline"], [])
-        self.assertEqual(initialized["pipeline"]["biz_name"], "keyword_match_v1")
+        self.assertEqual(initialized["pipeline"]["deployment"]["io"]["io_binding"], "keyword_match.operator.v1")
         self.assertNotIn("business_name", initialized["pipeline"])
         rejected = subprocess.run(
             [str(PIPELINE_TOOL), "catalog", "--business", "keyword_match_v1"],
@@ -601,6 +697,55 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("diagnostics", plan)
         self.assertTrue(plan["plan"]["topological_order"])
+
+    def test_catalog_profile_identity_does_not_require_model_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "demo").mkdir()
+            (root / "demo/profiles.json").write_text(json.dumps({"profiles": {
+                "unavailable_models": {"config": "pipeline.conf", "dataset": "unused.txt"}
+            }}))
+            (root / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
+            pipeline = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
+                        "models": [{"model_type": "unregistered_in_this_build"}], "pipeline": []}
+            (root / "pipeline.json").write_text(json.dumps(pipeline))
+            process = subprocess.run([str(PIPELINE_TOOL), "catalog", "--io-binding", "keyword_match.operator.v1"],
+                                     cwd=root, capture_output=True, text=True)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            profiles = json.loads(process.stdout)["profiles"]
+            self.assertEqual([p["name"] for p in profiles], ["unavailable_models"])
+            self.assertEqual(profiles[0]["io_binding"], "keyword_match.operator.v1")
+            self.assertEqual(profiles[0]["biz_name"], "keyword_match_v1")
+
+    def test_invalid_profile_fields_and_shapes_are_rejected_by_all_consumers(self):
+        base = {"config": "unused.conf", "dataset": "unused.txt"}
+        cases = [(dict(base, biz="keyword_match_v1"), "Unknown Profile field", "biz"),
+                 (dict(base, batch_szie=1), "Unknown Profile field", "batch_szie"),
+                 ([], "must be an object", None), (None, "must be an object", None)]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "demo").mkdir()
+            profile_path = root / "demo/profiles.json"
+            for profile, expected, field in cases:
+                with self.subTest(profile=profile):
+                    profile_path.write_text(json.dumps({"schema_version": 2, "profiles": {"invalid": profile}}))
+                    for args in (("catalog",), ("init", "--io-binding", "keyword_match.operator.v1", "--profile", "invalid")):
+                        process = subprocess.run([str(PIPELINE_TOOL), *args], cwd=root, capture_output=True, text=True)
+                        self.assertEqual(process.returncode, 1, process.stderr)
+                        diagnostic = json.loads(process.stdout)["diagnostics"][0]
+                        self.assertEqual(diagnostic["code"], "INVALID_PROFILE")
+                        self.assertIn(expected, diagnostic["message"])
+                        if field:
+                            self.assertIn(field, diagnostic["message"])
+                    with mock.patch.object(SHOW, "PROFILE_FILE", profile_path):
+                        service = SHOW.WorkbenchService(root)
+                        for call in (service.profiles, lambda: service.profile_inputs({}, "invalid")):
+                            with self.assertRaises(SHOW.StudioError) as error:
+                                call()
+                            self.assertEqual(error.exception.code, "INVALID_PROFILE")
+                            self.assertIn(expected, str(error.exception))
+                            if field:
+                                self.assertIn(field, str(error.exception))
 
     def test_describe_models_and_backends_match_catalog(self):
         code, catalog = self.command("catalog")
@@ -644,7 +789,7 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertIn("Usage:", process.stderr)
 
     def test_init_raw_can_be_saved_and_validated_without_unwrapping(self):
-        args = ["init", "--biz", "keyword_match_v1", "--profile", "keyword_match_rules"]
+        args = ["init", "--io-binding", "keyword_match.operator.v1", "--profile", "keyword_match_rules"]
         code, wrapped = self.command(*args)
         self.assertEqual(code, 0)
         raw = subprocess.run(
@@ -663,12 +808,12 @@ class PipelineCliTest(unittest.TestCase):
             code, validated = self.command("validate", str(saved))
             self.assertEqual(code, 0, validated)
         empty = subprocess.run(
-            [str(PIPELINE_TOOL), "init", "--raw", "-b", "keyword_match_v1", "--empty"],
+            [str(PIPELINE_TOOL), "init", "--raw", "--io-binding", "keyword_match.operator.v1", "--empty"],
             text=True, capture_output=True, cwd=ROOT, check=False,
         )
         self.assertEqual(empty.returncode, 0, empty.stderr)
         self.assertEqual(json.loads(empty.stdout), {
-            "biz_name": "keyword_match_v1", "models": [], "pipeline": []
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []
         })
 
     def test_init_rejects_invalid_options(self):
@@ -676,12 +821,12 @@ class PipelineCliTest(unittest.TestCase):
             ["--profile", "keyword_match_rules", "--empty"],
             ["--profile"], ["--profile", "--raw"], ["--unknown"],
             ["--raw", "--raw"], ["--empty", "--empty"],
-            ["--biz", "keyword_match_v1"],
+            ["--io-binding", "keyword_match.operator.v1"],
             ["--profile", "keyword_match_rules", "--profile", "keyword_match_rules"],
         ):
             with self.subTest(options=options):
                 process = subprocess.run(
-                    [str(PIPELINE_TOOL), "init", "--biz", "keyword_match_v1", *options],
+                    [str(PIPELINE_TOOL), "init", "--io-binding", "keyword_match.operator.v1", *options],
                     text=True, capture_output=True, cwd=ROOT, check=False,
                 )
                 self.assertEqual(process.returncode, 2)
@@ -695,6 +840,11 @@ class PipelineCliTest(unittest.TestCase):
         code, report = self.command("resolve-conf", str(conf_path.relative_to(ROOT)), "--root", str(ROOT), "--depth", "1")
         self.assertEqual(code, 0, report)
         configuration = report["configuration"]
+        self.assertEqual(configuration["biz_name"], "entity_extract_v1")
+        self.assertEqual(configuration["io_binding"], "entity_extract.operator.v1")
+        self.assertNotIn("biz_name", configuration["effective_pipeline"])
+        self.assertEqual(configuration["effective_pipeline"]["deployment"]["io"]["io_binding"], "entity_extract.operator.v1")
+        self.assertEqual(configuration["effective_pipeline"]["models"][0]["model_path"], str(ROOT / "models/qwen_0_6b_npu.bin"))
         self.assertEqual(configuration["conf_path"], str(conf_path))
         self.assertEqual(configuration["model_paths"], [{
             "model_id": "entity_llm", "source": "pipeline.deployment.model_paths",
@@ -714,7 +864,7 @@ class PipelineCliTest(unittest.TestCase):
             code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
             self.assertEqual(code, 0, direct)
             self.assertEqual(direct["configuration"]["model_paths"][0]["source"], "pipeline.models.model_path")
-            pipe_doc["deployment"]["io"]["output_allocations"]["entity_out"]["capacities"]["entities_json"] = 0
+            output_override(pipe_doc, "entity_out")["capacities"] = {"entities_json": 0}
             (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             code, rejected = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
             self.assertEqual(code, 1)
@@ -723,14 +873,11 @@ class PipelineCliTest(unittest.TestCase):
             self.assertEqual(rejected["diagnostics"][0]["path"], "/")
             self.assertIn("entities_json", rejected["diagnostics"][0]["message"])
 
-            pipe_doc["deployment"]["io"]["output_allocations"].clear()
+            io_overrides(pipe_doc)["out_mem"] = {}
             (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
-            code, rejected_missing = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
-            self.assertEqual(code, 1)
-            self.assertFalse(rejected_missing["ok"])
-            self.assertEqual(rejected_missing["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
-            self.assertEqual(rejected_missing["diagnostics"][0]["path"], "/")
-            self.assertIn("entity_out", rejected_missing["diagnostics"][0]["message"])
+            code, defaulted = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
+            self.assertEqual(code, 0, defaulted)
+            self.assertEqual(defaulted["configuration"]["output_pools"]["entity_out"]["capacities"], {"entities_json": 2047})
 
             bad_conf = Path(directory) / "bad.conf"
             bad_conf.write_text("{}")
@@ -858,8 +1005,8 @@ class PipelineCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="validate-io-", dir=ROOT / "build") as directory:
             changed_conf = Path(directory) / "pipeline.conf"
             changed_pipe = Path(directory) / conf["pipe_path"]
-            # Erase required output slot entity_out
-            pipe_doc["deployment"]["io"]["output_allocations"].pop("entity_out")
+            # Explicit malformed allocation retains its exact native pointer.
+            output_override(pipe_doc, "entity_out")["capacities"] = {"entities_json": 0}
             changed_pipe.write_text(json.dumps(pipe_doc))
             changed_conf.write_text(json.dumps(conf))
 
@@ -869,7 +1016,7 @@ class PipelineCliTest(unittest.TestCase):
             self.assertEqual(res["diagnostics"][0]["code"], "IO_VALIDATION_ERROR")
             self.assertEqual(
                 res["diagnostics"][0]["path"],
-                "/deployment/io/output_allocations/entity_out",
+                "/deployment/io/out_mem/entity_out",
             )
 
     def test_rfc0062_cli_override_unknown_and_escaped_model_id_t06(self):
@@ -917,27 +1064,28 @@ class PipelineCliTest(unittest.TestCase):
                     if ep[0] == "plan":
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
-    def test_rfc0062_cli_unknown_binding_and_biz_mismatch_t07(self):
-        # T07 via CLI: unknown io_binding, biz mismatch, and non-string biz
+    def test_cli_unknown_binding_unknown_root_and_malformed_binding(self):
+        # External selector diagnostics are identical across native entrypoints.
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
         # 1. Unknown io_binding
         doc1 = copy.deepcopy(pipeline)
-        doc1["deployment"]["io"]["io_binding"] = "nonexistent.binding.v99"
+        io_overrides(doc1)["io_binding"] = "nonexistent.binding.v99"
 
-        # 2. Biz mismatch: pipeline biz_name doesn't match binding
+        # 2. Removed root selector is rejected even when a binding is present.
         doc2 = copy.deepcopy(pipeline)
         doc2["biz_name"] = "unmatched_biz_name"
+        io_overrides(doc2)["io_binding"] = "entity_extract.operator.v1"
 
-        # 3. Biz is non-string (integer)
+        # 3. Binding must be a nonempty string.
         doc3 = copy.deepcopy(pipeline)
-        doc3["biz_name"] = 12345
+        io_overrides(doc3)["io_binding"] = 12345
 
         cases = [
             ("unknown_binding", doc1, "UNKNOWN_IO_BINDING", "/deployment/io/io_binding"),
-            ("biz_mismatch", doc2, "BIZ_MISMATCH", "/deployment/io/io_binding"),
-            ("biz_non_string", doc3, "FIELD_TYPE", "/biz_name"),
+            ("removed_biz", doc2, "DEPLOYMENT_ERROR", "/biz_name"),
+            ("binding_non_string", doc3, "DEPLOYMENT_ERROR", "/deployment/io/io_binding"),
         ]
 
         for case_name, doc, exp_code, exp_path in cases:
@@ -956,27 +1104,27 @@ class PipelineCliTest(unittest.TestCase):
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. Missing required output slot entity_out
+        # 1. A removed type declaration is an unknown field.
         doc1 = copy.deepcopy(pipeline)
-        doc1["deployment"]["io"]["output_allocations"].pop("entity_out")
+        output_override(doc1, "entity_out")["type"] = "entity_out"
 
         # 2. Unknown output slot
         doc2 = copy.deepcopy(pipeline)
-        doc2["deployment"]["io"]["output_allocations"]["bogus_slot"] = {"type": "entity_out"}
+        io_overrides(doc2)["out_mem"] = {"bogus_slot": {}}
 
-        # 3. Invalid output allocation (missing required 'type' field)
+        # 3. Invalid output allocation shape
         doc3 = copy.deepcopy(pipeline)
-        doc3["deployment"]["io"]["output_allocations"]["entity_out"].pop("type")
+        io_overrides(doc3)["out_mem"] = {"entity_out": []}
 
         # 4. Invalid output allocation capacity (non-positive capacity value 0)
         doc4 = copy.deepcopy(pipeline)
-        doc4["deployment"]["io"]["output_allocations"]["entity_out"]["capacities"]["entities_json"] = 0
+        output_override(doc4, "entity_out")["capacities"] = {"entities_json": 0}
 
         cases = [
-            ("missing_slot", doc1, "MISSING_OUTPUT_SLOT", "/deployment/io/output_allocations/entity_out"),
-            ("unknown_slot", doc2, "UNKNOWN_OUTPUT_SLOT", "/deployment/io/output_allocations/bogus_slot"),
-            ("invalid_alloc", doc3, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/output_allocations/entity_out"),
-            ("invalid_capacity", doc4, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/output_allocations/entity_out"),
+            ("removed_type", doc1, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
+            ("unknown_slot", doc2, "UNKNOWN_OUTPUT_SLOT", "/deployment/io/out_mem/bogus_slot"),
+            ("invalid_alloc", doc3, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
+            ("invalid_capacity", doc4, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
         ]
 
         for case_name, doc, exp_code, exp_path in cases:
@@ -987,6 +1135,8 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertFalse(res["ok"])
                     self.assertEqual(res["diagnostics"][0]["code"], exp_code)
                     self.assertEqual(res["diagnostics"][0]["path"], exp_path)
+                    if case_name == "removed_type":
+                        self.assertIn("Unknown output allocation field: type", res["diagnostics"][0]["message"])
                     if ep[0] == "plan":
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
@@ -1028,7 +1178,7 @@ class PipelineCliTest(unittest.TestCase):
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
         invalid_doc = copy.deepcopy(pipeline)
-        invalid_doc["deployment"]["io"]["io_binding"] = "invalid_binding_id"
+        io_overrides(invalid_doc)["io_binding"] = "invalid_binding_id"
 
         op = {
             "kind": "add_node",
@@ -1069,42 +1219,6 @@ class PipelineCliTest(unittest.TestCase):
         self.assertFalse(res_true["validation"]["ok"])
         self.assertEqual(res_true["validation"]["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
 
-    def test_rfc0062_cli_fix_deps_invalid_deployment_t15(self):
-        # T15 via CLI: fix-deps on pipeline where dependencies can be fixed but deployment is invalid
-        pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_default.json").read_text())
-        # Introduce fixable dependency issue in Core
-        pipe["pipeline"][2]["depends_on"] = []
-        # Introduce invalid deployment
-        pipe["deployment"]["io"]["io_binding"] = "invalid_binding_id"
-
-        with tempfile.TemporaryDirectory() as td:
-            fpath = Path(td) / "pipeline_fixable_dep_invalid_deploy.json"
-            orig_text = json.dumps(pipe, indent=2)
-            fpath.write_text(orig_text)
-
-            code, res = self.command("fix-deps", str(fpath), "--in-place")
-            self.assertEqual(code, 1)
-            self.assertFalse(res["ok"])
-            self.assertFalse(res["written"])
-            # Assert file was NOT written/modified
-            self.assertEqual(fpath.read_text(), orig_text)
-            # Structured deployment diagnostics are returned
-            self.assertIn("validation", res)
-            self.assertFalse(res["validation"]["ok"])
-            diag = res["validation"]["diagnostics"][0]
-            self.assertEqual(diag["code"], "UNKNOWN_IO_BINDING")
-            self.assertEqual(diag["path"], "/deployment/io/io_binding")
-
-            # Also verify preview mode (without --in-place): does not write, returns failure with diagnostics
-            code_prev, res_prev = self.command("fix-deps", str(fpath))
-            self.assertEqual(code_prev, 1)
-            self.assertFalse(res_prev["ok"])
-            self.assertFalse(res_prev["written"])
-            self.assertIn("validation", res_prev)
-            self.assertFalse(res_prev["validation"]["ok"])
-            diag_prev = res_prev["validation"]["diagnostics"][0]
-            self.assertEqual(diag_prev["code"], "UNKNOWN_IO_BINDING")
-            self.assertEqual(diag_prev["path"], "/deployment/io/io_binding")
 
     def test_rfc0062_cli_exception_barriers(self):
         # RFC §2.8: Outer exception barriers for validate, plan, validate-io, and resolve-conf
@@ -1132,7 +1246,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(res["schema_version"], 1)
         self.assertEqual(res["diagnostics"][0]["code"], "JSON_READ")
 
-    def test_native_viewer_preserves_explicit_dag_dependencies(self):
+    def test_native_viewer_shows_data_mappings_and_extra_order(self):
         process = subprocess.run(
             [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa_default.json")],
             text=True,
@@ -1142,8 +1256,10 @@ class PipelineCliTest(unittest.TestCase):
         )
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertIn("node_1_QueryEmbeddingNode", process.stdout)
-        self.assertIn("depends_on: []", process.stdout)
-        self.assertIn(
+        self.assertIn("depends_on: [] (额外顺序)", process.stdout)
+        self.assertIn('inputs: {"text":"raw_docs"}', process.stdout)
+        self.assertIn('"chunks":"doc_chunks"', process.stdout)
+        self.assertNotIn(
             'depends_on: ["node_0_TextChunkNode"]', process.stdout
         )
         self.assertIn("alg_pipeline_tool validate/plan", process.stdout)
@@ -1283,7 +1399,7 @@ class HttpApiTest(unittest.TestCase):
         managed.write_text(json.dumps(pipeline))
         self.service.initial_document = self.service.open_pipeline(path.name)
         for endpoint in ("/catalog", "/profiles", "/pipelines", "/assets", "/initial",
-                         "/catalog?biz=smart_doc_qa_v1"):
+                         "/catalog?io_binding=doc_qa.operator.v1"):
             with self.subTest(endpoint=endpoint), urllib.request.urlopen(self.base + endpoint, timeout=10) as response:
                 payload = json.load(response)
                 self.assertTrue(payload["ok"])
@@ -1319,8 +1435,8 @@ for (const base of ["http://127.0.0.1:8080/", "https://studio.example/proxy/8080
     location.href = base + page;
     assert.equal((await api("/pipelines")).pipelines[0].filename, "pipeline_test.json");
     assert.equal(requested, base + "api/v1/pipelines");
-    await api("/catalog?biz=smart_doc_qa_v1");
-    assert.equal(requested, base + "api/v1/catalog?biz=smart_doc_qa_v1");
+    await api("/catalog?io_binding=doc_qa.operator.v1");
+    assert.equal(requested, base + "api/v1/catalog?io_binding=doc_qa.operator.v1");
   }
 }
 body = JSON.stringify({ ok: false, error: { code: "INVALID_JSON", message: "invalid pipeline" } });
@@ -1369,11 +1485,13 @@ const workbench = await loadModule({json.dumps(str(WEB_ROOT / "workbench.js"))})
 const graph = await loadModule({json.dumps(str(WEB_ROOT / "graph.js"))});
 
 const models = [
-  {{ model_id: "embed", model_type: "embed_type", capability: "embedding" }},
-  {{ model_id: "llm", model_type: "llm_type", capability: "llm" }},
+  {{ model_id: "embed", model_type: "embed_type" }},
+  {{ model_id: "llm", model_type: "llm_type" }},
   {{ model_id: "legacy_embed", model_type: "legacy_embed_type" }},
 ];
 const modelDefinitions = [
+  {{ model_type: "embed_type", capability: "embedding" }},
+  {{ model_type: "llm_type", capability: "llm" }},
   {{ model_type: "legacy_embed_type", capability: "embedding" }},
 ];
 const nodeDefinition = {{ model_dependencies: [{{ name: "encoder", capability: "embedding", config_field: "model_slot" }}] }};
@@ -1488,9 +1606,9 @@ import {readFileSync} from 'node:fs';
 const code = readFileSync(process.argv[1], 'utf8');
 const w = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const catalog = JSON.parse(readFileSync(0, 'utf8'));
-const pipeline = {biz_name:'keyword_match_v1', models:[], pipeline:[
-  {id:'template', node_type:'TextTemplateNode', depends_on:[], config:{template:'{{primary}}'}, ports:{inputs:{primary:'input_sentences'},outputs:{text:'template_text'}}},
-  {id:'rule', node_type:'TextRuleMatchNode', depends_on:['template'], config:{}, ports:{inputs:{text:'template_text'},outputs:{matches:'rule_matches'}}}
+const pipeline = {deployment:{io:{io_binding:'keyword_match.operator.v1'}}, models:[], pipeline:[
+  {id:'template', node_type:'TextTemplateNode', depends_on:[], config:{template:'{{primary}}'}, inputs:{primary:'input_sentences'},outputs:{text:'template_text'}},
+  {id:'rule', node_type:'TextRuleMatchNode', depends_on:['template'], config:{}, inputs:{text:'template_text'},outputs:{matches:'rule_matches'}}
 ]};
 const snapshot = structuredClone(pipeline);
 const graph = w.graphDocument(pipeline,catalog);
@@ -1505,6 +1623,7 @@ assert.ok(!w.compatibleBackends(catalog.backends,modelDef).some(b=>b.backend_typ
 const models = {models:[], pipeline:[]};
 w.upsertModel(models,catalog,'',{model_id:'embed',model_type:modelDef.model_type,backend:backend.backend_type,model_path:'embed.onnx',model_config:w.schemaDefaults(modelDef.config_fields),backend_config:w.schemaDefaults(backend.config_fields)});
 assert.equal(models.deployment,undefined,'adding a model must not invent deployment overrides');
+assert.equal(Object.hasOwn(models.models[0], "capability"), false);
 models.deployment = {model_paths:{embed:'models/deployed_embed.onnx',other:'models/other.onnx'}};
 models.pipeline.push({id:'embed_node',node_type:'TextEmbeddingNode',config:{bind_model:'embed'}});
 w.upsertModel(models,catalog,'embed',{...models.models[0],model_id:'renamed'});
@@ -1538,7 +1657,18 @@ process.stdout.write(JSON.stringify(pipeline));
 
         for case in fixtures["cases"]:
             with self.subTest(case=case["name"]):
-                pipeline = case["pipeline"]
+                pipeline = copy.deepcopy(case["pipeline"])
+                _, catalog = PipelineCliTest.command(self, "catalog")
+                bindings = {b["biz_name"]: b["binding_id"] for b in catalog["io_bindings"]}
+                neutral_biz = pipeline.pop("biz_name")
+                pipeline["deployment"] = {"io": {"io_binding": bindings.get(neutral_biz, "unknown.binding")}}
+                if case["primary_code"] == "UNKNOWN_BIZ":
+                    case = {**case, "primary_code": "UNKNOWN_IO_BINDING",
+                            "primary_path": "/deployment/io/io_binding", "required_codes": ["UNKNOWN_IO_BINDING"]}
+                elif case["primary_code"] == "UNKNOWN_FIELD" and case["primary_path"].count("/") == 1:
+                    # The external envelope rejects unknown root fields before Core.
+                    case = {**case, "primary_code": "DEPLOYMENT_ERROR",
+                            "required_codes": ["DEPLOYMENT_ERROR"]}
                 proc_val = subprocess.run(
                     [str(PIPELINE_TOOL), "validate", "--stdin"],
                     input=json.dumps(pipeline),
@@ -1582,30 +1712,28 @@ process.stdout.write(JSON.stringify(pipeline));
                 )
                 self.assertEqual(proc_plan.returncode, 1)
                 cli_plan = json.loads(proc_plan.stdout)
-                # Invalid plan requests retain the exact diagnostic report.
+                # Preparation errors have an explicit empty plan envelope;
+                # diagnostics remain identical to validate and the HTTP API.
+                if "plan" not in cli_val:
+                    self.assertEqual(cli_plan.pop("plan"), {"layers": [], "topological_order": []})
                 self.assertEqual(cli_plan, cli_val)
 
 
 class SelectionVerificationTest(unittest.TestCase):
-    def test_run_conf_uses_supplied_binding_without_business_name_table(self):
+    def test_run_conf_preserves_binding_override_without_inference(self):
         selection = SHOW.SELECTION
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            pipeline = {"biz_name": "new_contract_v1", "models": []}
-            conf = selection.build_run_conf(pipeline, {}, "pipeline.json", root, root,
-                                             default_io_binding="reusable.operator.v2")
-            self.assertEqual(conf, {"pipe_path": "pipeline.json"})
-            self.assertEqual(pipeline["deployment"]["io"]["io_binding"], "reusable.operator.v2")
-            for explicit in ("custom.operator.v3", "", None, 42):
-                with self.subTest(explicit=explicit):
-                    pipeline["deployment"]["io"]["io_binding"] = explicit
-                    selection.build_run_conf(pipeline, {}, "pipeline.json", root, root,
-                                             default_io_binding="reusable.operator.v2")
-                    self.assertEqual(pipeline["deployment"]["io"]["io_binding"], explicit)
-            for biz in ("keyword_match_v1", "new_contract_v1"):
-                pipeline = {"biz_name": biz, "models": []}
-                selection.build_run_conf(pipeline, {}, "pipeline.json", root, root)
-                self.assertNotIn("io_binding", pipeline["deployment"]["io"])
+            for binding in ("keyword_match.operator.v1", "new_contract.operator.v1"):
+                pipeline = {"deployment": {"io": {"io_binding": binding}}, "models": []}
+                conf = selection.build_run_conf(pipeline, {}, "pipeline.json", root, root)
+                self.assertEqual(conf, {"pipe_path": "pipeline.json"})
+                self.assertEqual(pipeline["deployment"]["io"]["io_binding"], binding)
+                for explicit in ("custom.operator.v3", "", None, 42):
+                    with self.subTest(explicit=explicit):
+                        io_overrides(pipeline)["io_binding"] = explicit
+                        selection.build_run_conf(pipeline, {}, "pipeline.json", root, root)
+                        self.assertEqual(pipeline["deployment"]["io"]["io_binding"], explicit)
 
     def test_asset_hashes_include_sidecars_and_changed_paths_are_unregistered(self):
         selection = SHOW.SELECTION
@@ -1707,17 +1835,17 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         pipe = copy.deepcopy(self.keyword)
         existing = pipe["pipeline"][0]
         existing["id"] = "b"
-        existing["depends_on"] = ["a"]
-        existing["ports"]["inputs"] = {}  # Required text defaults to producer A.text.
+        existing.pop("depends_on", None)
+        existing["inputs"] = {"text": "text"}  # Explicit input uses the default output key.
         source = {
             "id": "a", "node_type": "TextTemplateNode", "depends_on": [],
-            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {}},
+            "inputs": {"primary": "input_sentences"}, "outputs": {},
             "config": {"template": "{{primary}}"},
         }
         consumer = copy.deepcopy(existing)
-        consumer.update(id="c", depends_on=[])
-        consumer["ports"] = {"inputs": {"text": "input_sentences"},
-                             "outputs": {"matches": "other_matches"}}
+        consumer.update(id="c")
+        consumer.update(inputs={"text": "input_sentences"},
+                        outputs={"matches": "other_matches"})
         pipe["pipeline"] = [source, existing, consumer]
         self.assertTrue(self.service.validate(pipe)["ok"])
         code, result = self.run_edit({
@@ -1729,17 +1857,48 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertTrue(result["validation"]["ok"])
         a, b, c = result["pipeline"]["pipeline"]
-        self.assertEqual(a.get("ports", {}).get("outputs", {}).get("text", "text"), "text")
+        self.assertEqual(a.get("outputs", {}).get("text", "text"), "text")
         self.assertEqual(b, existing)
-        self.assertEqual(c["ports"]["inputs"]["text"], "text")
-        self.assertIn("a", c["depends_on"])
+        self.assertEqual(c["inputs"]["text"], "text")
+        self.assertNotIn("depends_on", c)
+
+    def test_authoring_inferred_cycle_is_rejected_by_native_validation(self):
+        pipe = copy.deepcopy(self.keyword)
+        rule = pipe["pipeline"][0]
+        rule["inputs"]["text"] = "b_text"
+        pipe["pipeline"] = [
+            {"id": "a", "node_type": "TextTemplateNode",
+             "inputs": {"primary": "input_sentences"}, "outputs": {"text": "a_text"}},
+            {"id": "b", "node_type": "TextTemplateNode",
+             "inputs": {"primary": "a_text"}, "outputs": {"text": "b_text"}},
+            rule,
+        ]
+        self.assertTrue(self.service.validate(pipe)["ok"])
+        operations = [
+            {"kind": "connect", "source": {"node_id": "b", "port": "text"},
+             "target": {"node_id": "a", "port": "primary"}},
+            {"kind": "add_dependency", "node_id": "a", "depends_on_id": "b"},
+        ]
+        for operation in operations:
+            for require_valid in (False, True):
+                with self.subTest(operation=operation["kind"], require_valid=require_valid):
+                    code, result = self.run_edit({
+                        "schema_version": 1, "pipeline": pipe,
+                        "require_valid": require_valid, "operation": operation,
+                    })
+                    self.assertEqual(code, 1 if require_valid else 0, result)
+                    self.assertEqual(result["ok"], not require_valid)
+                    self.assertEqual("pipeline" in result, not require_valid)
+                    self.assertFalse(result["validation"]["ok"])
+                    self.assertIn("DAG_CYCLE", [d["code"] for d in result["validation"]["diagnostics"]])
+
 
     def test_authoring_disconnect_rejects_unknown_and_reversed_endpoints(self):
         pipe = copy.deepcopy(self.keyword)
         pipe["pipeline"][0]["id"] = "c"
         pipe["pipeline"].insert(0, {
             "id": "a", "node_type": "TextTemplateNode", "depends_on": [],
-            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {}},
+            "inputs": {"primary": "input_sentences"}, "outputs": {},
             "config": {"template": "{{primary}}"},
         })
         cases = [
@@ -1797,6 +1956,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
              "target": {"node_id": "added", "port": "primary"}},
             {"kind": "connect", "source": {"node_id": "$ingress", "port": 42},
              "target": {"node_id": "added", "port": "primary"}},
+            {"kind": "reset_input_binding", "target": {"node_id": "added", "port": "primary"}},
             None, [],
         ]
         for operation in invalid_operations:
@@ -1809,39 +1969,10 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
                     ],
                 }, 1)
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "requires RLIMIT_FSIZE")
-    def test_fix_deps_short_write_preserves_original_and_cleans_temporary(self):
-        pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_default.json").read_text())
-        pipe["pipeline"][2]["depends_on"] = []
-        path = self.configs / "short-write.json"
-        original = json.dumps(pipe, indent=2).encode()
-        path.write_bytes(original)
-        path.chmod(0o640)
-        # A separate launcher avoids preexec_fn in this threaded service test process.
-        launcher = (
-            "import os, resource, signal, sys; "
-            "signal.signal(signal.SIGXFSZ, signal.SIG_IGN); "
-            "resource.setrlimit(resource.RLIMIT_FSIZE, (128, 128)); "
-            "os.execv(sys.argv[1], sys.argv[1:])"
-        )
-        before = set(self.configs.iterdir())
-        proc = subprocess.run(
-            [sys.executable, "-c", launcher, str(PIPELINE_TOOL), "fix-deps", str(path), "--in-place"],
-            capture_output=True, text=True, cwd=ROOT, check=False,
-        )
-        self.assertEqual(path.read_bytes(), original, "failed write must never replace the source")
-        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
-        self.assertEqual(set(self.configs.iterdir()), before, "failed write must clean staging files")
-        self.assertEqual(proc.returncode, 1, proc.stderr)
-        result = json.loads(proc.stdout)
-        self.assertFalse(result["ok"])
-        self.assertFalse(result.get("written", False))
-        self.assertTrue(result.get("diagnostics"))
-
     def test_authoring_add_node_explicit_auto_id_and_collision(self):
         req = {
             "schema_version": 1,
-            "pipeline": {"biz_name": "keyword_match_v1", "models": [], "pipeline": []},
+            "pipeline": {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []},
             "operation": {
                 "kind": "add_node",
                 "node_type": "TextRuleMatchNode",
@@ -1851,7 +1982,11 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         code, res = self.run_edit(req)
         self.assertEqual(code, 0)
         self.assertTrue(res["ok"])
-        self.assertEqual(res["pipeline"]["pipeline"][0]["id"], "custom_rule")
+        added = res["pipeline"]["pipeline"][0]
+        self.assertEqual(added["id"], "custom_rule")
+        self.assertNotIn("ports", added)
+        self.assertNotIn("depends_on", added)
+        self.assertEqual(added["inputs"], {})
 
         # Duplicate ID rejection
         req2 = {
@@ -1895,21 +2030,21 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_remove_node_detaches_inputs_and_dependencies(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "template",
                     "node_type": "TextTemplateNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {"text": "tpl_text"}},
+                    "inputs": {}, "outputs": {"text": "tpl_text"},
                     "config": {"template": "{{primary}}"},
                 },
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["template"],
-                    "ports": {"inputs": {"text": "tpl_text"}, "outputs": {}},
+                    "inputs": {"text": "tpl_text"}, "outputs": {},
                     "config": {},
                 },
             ],
@@ -1927,26 +2062,26 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(rule_node["id"], "rule")
         # depends_on detached
         self.assertEqual(rule_node["depends_on"], [])
-        # Required input text assigned unconnected placeholder
-        self.assertIn("__unconnected__text", rule_node["ports"]["inputs"]["text"])
+        # Required input is absent after its producer is removed.
+        self.assertNotIn("text", rule_node["inputs"])
 
     def test_authoring_rename_node_syncs_dependencies_and_preserves_keys(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "template",
                     "node_type": "TextTemplateNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {"text": "tpl_text"}},
+                    "inputs": {}, "outputs": {"text": "tpl_text"},
                     "config": {"template": "{{primary}}"},
                 },
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["template"],
-                    "ports": {"inputs": {"text": "tpl_text"}, "outputs": {}},
+                    "inputs": {"text": "tpl_text"}, "outputs": {},
                     "config": {},
                 },
             ],
@@ -1967,7 +2102,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         rule = res["pipeline"]["pipeline"][1]
         self.assertEqual(tpl["id"], "new_template")
         # Data keys are preserved
-        self.assertEqual(tpl["ports"]["outputs"]["text"], "tpl_text")
+        self.assertEqual(tpl["outputs"]["text"], "tpl_text")
         # depends_on updated
         self.assertEqual(rule["depends_on"], ["new_template"])
 
@@ -1983,21 +2118,21 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_connect_and_cycle_and_redundant_dependencies(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "template",
                     "node_type": "TextTemplateNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {}},
+                    "inputs": {}, "outputs": {},
                     "config": {"template": "{{primary}}"},
                 },
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {}},
+                    "inputs": {}, "outputs": {},
                     "config": {},
                 },
             ],
@@ -2015,7 +2150,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         code1, res1 = self.run_edit(req1)
         self.assertEqual(code1, 0)
         self.assertEqual(
-            res1["pipeline"]["pipeline"][0]["ports"]["inputs"]["primary"],
+            res1["pipeline"]["pipeline"][0]["inputs"]["primary"],
             "input_sentences",
         )
         self.assertEqual(res1["pipeline"]["pipeline"][0]["depends_on"], [])
@@ -2033,10 +2168,10 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         code2, res2 = self.run_edit(req2)
         self.assertEqual(code2, 0)
         rule = res2["pipeline"]["pipeline"][1]
-        tpl_key = res2["pipeline"]["pipeline"][0]["ports"]["outputs"].get("text", "text")
+        tpl_key = res2["pipeline"]["pipeline"][0]["outputs"].get("text", "text")
         self.assertEqual(tpl_key, "text", "connecting preserves the effective default output key")
-        self.assertEqual(rule["ports"]["inputs"]["text"], tpl_key)
-        self.assertEqual(rule["depends_on"], ["template"])
+        self.assertEqual(rule["inputs"]["text"], tpl_key)
+        self.assertEqual(rule["depends_on"], [])
 
         # Cycle detection: connecting rule to template creates cycle
         req_cycle = {
@@ -2054,24 +2189,22 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_connect_and_disconnect_biz_egress(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": [],
-                    "ports": {
-                        "inputs": {"text": "input_sentences"},
-                        "outputs": {"matches": "rule_internal_out"},
-                    },
+                    "inputs": {"text": "input_sentences"},
+                    "outputs": {"matches": "rule_internal_out"},
                     "config": {},
                 },
                 {
                     "id": "audit",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["rule"],
-                    "ports": {"inputs": {"text": "rule_internal_out"}, "outputs": {}},
+                    "inputs": {"text": "rule_internal_out"}, "outputs": {},
                     "config": {},
                 },
             ],
@@ -2088,8 +2221,8 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         }
         code_egress, res_egress = self.run_edit(req_egress)
         self.assertEqual(code_egress, 0)
-        rule_out = res_egress["pipeline"]["pipeline"][0]["ports"]["outputs"]["matches"]
-        audit_in = res_egress["pipeline"]["pipeline"][1]["ports"]["inputs"]["text"]
+        rule_out = res_egress["pipeline"]["pipeline"][0]["outputs"]["matches"]
+        audit_in = res_egress["pipeline"]["pipeline"][1]["inputs"]["text"]
         self.assertEqual(rule_out, "rule_matches")
         self.assertEqual(audit_in, "rule_matches")
 
@@ -2105,28 +2238,28 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         }
         code_disc, res_disc = self.run_edit(req_disc)
         self.assertEqual(code_disc, 0)
-        rule_out2 = res_disc["pipeline"]["pipeline"][0]["ports"]["outputs"]["matches"]
-        audit_in2 = res_disc["pipeline"]["pipeline"][1]["ports"]["inputs"]["text"]
+        rule_out2 = res_disc["pipeline"]["pipeline"][0]["outputs"]["matches"]
+        audit_in2 = res_disc["pipeline"]["pipeline"][1]["inputs"]["text"]
         self.assertNotEqual(rule_out2, "rule_matches")
         self.assertEqual(rule_out2, audit_in2)
 
-    def test_authoring_disconnect_preserves_execution_dependency_and_placeholders(self):
+    def test_authoring_disconnect_preserves_extra_order_and_removes_input(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "tpl",
                     "node_type": "TextTemplateNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}},
+                    "inputs": {}, "outputs": {"text": "tpl_out"},
                     "config": {"template": "{{primary}}"},
                 },
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["tpl"],
-                    "ports": {"inputs": {"text": "tpl_out"}, "outputs": {}},
+                    "inputs": {"text": "tpl_out"}, "outputs": {},
                     "config": {},
                 },
             ],
@@ -2145,25 +2278,12 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(code, 0)
         rule = res["pipeline"]["pipeline"][1]
         self.assertEqual(rule["depends_on"], ["tpl"])
-        self.assertIn("__unconnected__text", rule["ports"]["inputs"]["text"])
-
-        # reset_input_binding removes the placeholder
-        req_reset = {
-            "schema_version": 1,
-            "pipeline": res["pipeline"],
-            "operation": {
-                "kind": "reset_input_binding",
-                "target": {"node_id": "rule", "port": "text"},
-            },
-        }
-        code_reset, res_reset = self.run_edit(req_reset)
-        self.assertEqual(code_reset, 0)
-        self.assertNotIn("text", res_reset["pipeline"]["pipeline"][1]["ports"]["inputs"])
+        self.assertNotIn("text", rule["inputs"])
 
         # remove_dependency removes execution dependency
         req_rm_dep = {
             "schema_version": 1,
-            "pipeline": res_reset["pipeline"],
+            "pipeline": res["pipeline"],
             "operation": {
                 "kind": "remove_dependency",
                 "node_id": "rule",
@@ -2175,7 +2295,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(res_rm_dep["pipeline"]["pipeline"][1]["depends_on"], [])
 
     def test_authoring_batch_operations_and_atomic_rollback(self):
-        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        pipe = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []}
         req_valid = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2221,7 +2341,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertFalse(res_oversize["ok"])
 
     def test_authoring_regression_case_2_key_allocation_no_collision(self):
-        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        pipe = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []}
         req = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2238,84 +2358,13 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         foo_node = res["pipeline"]["pipeline"][1]
         self.assertEqual(bar_node["id"], "bar")
         self.assertEqual(foo_node["id"], "foo")
-        bar_key = bar_node["ports"]["outputs"]["matches"]
-        foo_key = foo_node["ports"]["outputs"]["matches"]
+        bar_key = bar_node["outputs"]["matches"]
+        foo_key = foo_node["outputs"]["matches"]
         self.assertNotEqual(bar_key, foo_key, "Allocated keys must not collide with retained keys")
 
-    def test_fix_deps_cli_preview_and_inplace_and_idempotent(self):
-        pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_default.json").read_text())
-        # Remove dependency from node 2
-        pipe["pipeline"][2]["depends_on"] = []
-        with tempfile.TemporaryDirectory() as td:
-            fpath = Path(td) / "pipeline_missing_dep.json"
-            fpath.write_text(json.dumps(pipe, indent=2))
-
-            # Preview mode: written is false, file unchanged
-            proc_prev = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(fpath)],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
-            self.assertEqual(proc_prev.returncode, 0)
-            res_prev = json.loads(proc_prev.stdout)
-            self.assertTrue(res_prev["ok"])
-            self.assertFalse(res_prev["written"])
-            self.assertEqual(len(res_prev["changes"]), 1)
-            self.assertEqual(res_prev["changes"][0]["action"], "add_dependency")
-            self.assertEqual(
-                json.loads(fpath.read_text())["pipeline"][2]["depends_on"], []
-            )
-
-            # In-place mode: written is true, file updated
-            proc_fix = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(fpath), "--in-place"],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
-            self.assertEqual(proc_fix.returncode, 0)
-            res_fix = json.loads(proc_fix.stdout)
-            self.assertTrue(res_fix["ok"])
-            self.assertTrue(res_fix["written"])
-            fixed_pipe = json.loads(fpath.read_text())
-            self.assertEqual(
-                fixed_pipe["pipeline"][2]["depends_on"], ["node_0_TextChunkNode"]
-            )
-
-            # Repeated in-place mode: idempotent, written is false, changes empty
-            proc_idem = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(fpath), "--in-place"],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
-            self.assertEqual(proc_idem.returncode, 0)
-            res_idem = json.loads(proc_idem.stdout)
-            self.assertTrue(res_idem["ok"])
-            self.assertFalse(res_idem["written"])
-            self.assertEqual(len(res_idem["changes"]), 0)
-
-            # Symlink rejected
-            link_path = Path(td) / "symlink.json"
-            link_path.symlink_to(fpath)
-            proc_link = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(link_path)],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
-            self.assertEqual(proc_link.returncode, 1)
-            res_link = json.loads(proc_link.stdout)
-            self.assertFalse(res_link["ok"])
-            self.assertIn("SYMLINK_REJECTED", res_link["diagnostics"][0]["message"])
 
     def test_studio_authoring_preview_endpoint(self):
-        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        pipe = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []}
         res = self.service.preview_authoring(
             pipe,
             operation={"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "n1"},
@@ -2377,7 +2426,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         conf["pipe_path"] = pipeline_path.name
         for model_id in pipeline.get("deployment", {}).get("model_paths", {}):
             pipeline["deployment"]["model_paths"][model_id] = "models/deployed_" + model_id
-        pipeline["deployment"]["io"]["output_allocations"]["doc_out"]["capacities"]["answer_text"] = 2047
+        output_override(pipeline, "doc_out")["capacities"] = {"answer_text": 2047}
         pipeline_path.write_text(json.dumps(pipeline))
         conf_path.write_text(json.dumps(conf))
         self.service.associate_deployment(pipeline_path.name, conf_path.name)
@@ -2408,7 +2457,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
                                    model_path_actions=actions)
             args = thread.call_args.kwargs["args"]
             run_profile, run_conf = args[2], args[3]
-        self.assertEqual(run_profile["biz"], "doc_qa")
+        self.assertNotIn("biz", run_profile)
         self.service.save_pipeline(
             path.name, pipeline, SHOW.revision_for(path.read_bytes()),
             model_path_actions=actions,
@@ -2433,7 +2482,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
                                                    "action": "preserve_override"}},
         )
         self.assertEqual(pipeline["deployment"]["model_paths"], {m: f"models/deployed_{m}" for m in pipeline["deployment"]["model_paths"]})
-        self.assertEqual(pipeline["deployment"]["io"]["output_allocations"]["doc_out"]["capacities"]["answer_text"], 2047)
+        self.assertEqual(pipeline["deployment"]["io"]["out_mem"]["doc_out"]["capacities"]["answer_text"], 2047)
 
     def test_associated_new_model_does_not_invent_deployment_override(self):
         pipeline, conf, path, _ = self.associated_doc_qa()
@@ -2463,6 +2512,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         # Create pipeline in configs
         pipe_path = self.configs / "pipeline_doc_qa_assoc.json"
         doc_qa_pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text())
+        output_override(doc_qa_pipe, "doc_out")["capacities"] = {"answer_text": 2047}
         pipe_path.write_text(json.dumps(doc_qa_pipe, indent=2))
 
         # Create conf in configs pointing to this pipeline
@@ -2499,12 +2549,13 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
             "models/new_embed_model.onnx",
         )
         # Verify non-model conf settings preserved
-        self.assertIn("doc_out", updated_pipe["deployment"]["io"]["output_allocations"])
+        self.assertEqual(updated_pipe["deployment"]["io"]["out_mem"],
+                         {"doc_out": {"capacities": {"answer_text": 2047}}})
         updated_conf = json.loads(conf_path.read_text())
         self.assertEqual(updated_conf, {"pipe_path": pipe_path.name})
 
     def test_authoring_oversized_payload_rejection_4mib(self):
-        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        pipe = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []}
         large_comment = "x" * (4 * 1024 * 1024 + 100)
         req = {
             "schema_version": 1,
@@ -2518,7 +2569,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("REQUEST_TOO_LARGE", res["diagnostics"][0]["message"])
 
     def test_authoring_reserved_node_ids_rejected(self):
-        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        pipe = {"deployment": {"io": {"io_binding": "keyword_match.operator.v1"}}, "models": [], "pipeline": []}
         req_add_ingress = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2530,10 +2581,10 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("RESERVED_NODE_ID", res1["diagnostics"][0]["message"])
 
         pipe2 = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
-                {"id": "node_a", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {}}, "config": {}}
+                {"id": "node_a", "node_type": "TextRuleMatchNode", "depends_on": [], "inputs": {}, "outputs": {}, "config": {}}
             ],
         }
         req_rename_egress = {
@@ -2546,24 +2597,24 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertFalse(res2["ok"])
         self.assertIn("RESERVED_NODE_ID", res2["diagnostics"][0]["message"])
 
-    def test_authoring_disconnect_implicit_bindings(self):
-        # Implicit node-to-node binding: rule requires text, omitted in ports.inputs
+    def test_authoring_disconnect_requires_explicit_binding(self):
+        # A same-name output plus explicit order must not create an input binding.
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "tpl",
                     "node_type": "TextTemplateNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {"text": "text"}},
+                    "inputs": {}, "outputs": {"text": "text"},
                     "config": {"template": "{{primary}}"},
                 },
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["tpl"],
-                    "ports": {"inputs": {}, "outputs": {}},
+                    "inputs": {}, "outputs": {},
                     "config": {},
                 },
             ],
@@ -2578,22 +2629,20 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
             },
         }
         code, res = self.run_edit(req_disc)
-        self.assertEqual(code, 0)
-        self.assertTrue(res["ok"])
-        rule = res["pipeline"]["pipeline"][1]
-        self.assertEqual(rule["depends_on"], ["tpl"])
-        self.assertIn("__unconnected__text", rule["ports"]["inputs"]["text"])
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertIn("连线不存在", res["diagnostics"][0]["message"])
 
         # Ingress disconnect
         pipe_ing = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": [],
-                    "ports": {"inputs": {"text": "input_sentences"}, "outputs": {}},
+                    "inputs": {"text": "input_sentences"}, "outputs": {},
                     "config": {},
                 }
             ],
@@ -2610,31 +2659,27 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         code_ing, res_ing = self.run_edit(req_ing_disc)
         self.assertEqual(code_ing, 0)
         self.assertTrue(res_ing["ok"])
-        self.assertIn("__unconnected__text", res_ing["pipeline"]["pipeline"][0]["ports"]["inputs"]["text"])
+        self.assertNotIn("text", res_ing["pipeline"]["pipeline"][0]["inputs"])
 
-    def test_authoring_disconnect_egress_syncs_implicit_consumers(self):
+    def test_authoring_disconnect_egress_syncs_explicit_consumers(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": [],
-                    "ports": {
-                        "inputs": {"text": "input_sentences"},
-                        "outputs": {"matches": "rule_matches"},
-                    },
+                    "inputs": {"text": "input_sentences"},
+                    "outputs": {"matches": "rule_matches"},
                     "config": {},
                 },
                 {
                     "id": "consumer",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["rule"],
-                    "ports": {
-                        "inputs": {"text": "rule_matches"},
-                        "outputs": {},
-                    },
+                    "inputs": {"text": "rule_matches"},
+                    "outputs": {},
                     "config": {},
                 },
             ],
@@ -2653,27 +2698,27 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertTrue(res["ok"])
         rule = res["pipeline"]["pipeline"][0]
         consumer = res["pipeline"]["pipeline"][1]
-        new_key = rule["ports"]["outputs"]["matches"]
+        new_key = rule["outputs"]["matches"]
         self.assertNotEqual(new_key, "rule_matches")
-        self.assertEqual(consumer["ports"]["inputs"]["text"], new_key)
+        self.assertEqual(consumer["inputs"]["text"], new_key)
 
-    def test_authoring_remove_node_handles_implicit_consumers_and_egress(self):
+    def test_authoring_remove_node_handles_consumers_and_egress(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
                 {
                     "id": "tpl",
                     "node_type": "TextTemplateNode",
                     "depends_on": [],
-                    "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}},
+                    "inputs": {}, "outputs": {"text": "tpl_out"},
                     "config": {"template": "{{primary}}"},
                 },
                 {
                     "id": "rule",
                     "node_type": "TextRuleMatchNode",
                     "depends_on": ["tpl"],
-                    "ports": {"inputs": {"text": "tpl_out"}, "outputs": {"matches": "rule_matches"}},
+                    "inputs": {"text": "tpl_out"}, "outputs": {"matches": "rule_matches"},
                     "config": {},
                 },
             ],
@@ -2691,12 +2736,12 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_add_dependency_avoids_redundant_indirect_ancestor(self):
         pipe = {
-            "biz_name": "keyword_match_v1",
+            "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
             "pipeline": [
-                {"id": "a", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {}}, "config": {}},
-                {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": ["a"], "ports": {"inputs": {}, "outputs": {}}, "config": {}},
-                {"id": "c", "node_type": "TextRuleMatchNode", "depends_on": ["b"], "ports": {"inputs": {}, "outputs": {}}, "config": {}},
+                {"id": "a", "node_type": "TextRuleMatchNode", "depends_on": [], "inputs": {}, "outputs": {}, "config": {}},
+                {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": ["a"], "inputs": {}, "outputs": {}, "config": {}},
+                {"id": "c", "node_type": "TextRuleMatchNode", "depends_on": ["b"], "inputs": {}, "outputs": {}, "config": {}},
             ],
         }
         # Adding c depends on a: a is already an indirect ancestor of c via b
@@ -2711,56 +2756,6 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         c_node = res["pipeline"]["pipeline"][2]
         self.assertEqual(c_node["depends_on"], ["b"])
 
-    def test_fix_deps_fails_closed_on_ambiguity_and_cycles(self):
-        with tempfile.TemporaryDirectory() as td:
-            # Ambiguity: two nodes output the same key 'tpl_out'
-            ambig_pipe = {
-                "biz_name": "keyword_match_v1",
-                "models": [],
-                "pipeline": [
-                    {"id": "a1", "node_type": "TextTemplateNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}}, "config": {"template": "1"}},
-                    {"id": "a2", "node_type": "TextTemplateNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}}, "config": {"template": "2"}},
-                    {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {"text": "tpl_out"}, "outputs": {}}, "config": {}},
-                ],
-            }
-            f_ambig = Path(td) / "ambig.json"
-            f_ambig.write_text(json.dumps(ambig_pipe, indent=2))
-            proc_ambig = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(f_ambig), "--in-place"],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
-            self.assertEqual(proc_ambig.returncode, 1)
-            res_ambig = json.loads(proc_ambig.stdout)
-            self.assertFalse(res_ambig["ok"])
-            self.assertIn("AMBIGUOUS_PRODUCER", res_ambig["diagnostics"][0]["message"])
-            self.assertEqual(json.loads(f_ambig.read_text()), ambig_pipe)
-
-            # Cycle: a depends on b, b needs a's output
-            cycle_pipe = {
-                "biz_name": "keyword_match_v1",
-                "models": [],
-                "pipeline": [
-                    {"id": "a", "node_type": "TextTemplateNode", "depends_on": ["b"], "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}}, "config": {"template": "1"}},
-                    {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {"text": "tpl_out"}, "outputs": {}}, "config": {}},
-                ],
-            }
-            f_cycle = Path(td) / "cycle.json"
-            f_cycle.write_text(json.dumps(cycle_pipe, indent=2))
-            proc_cycle = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(f_cycle), "--in-place"],
-                capture_output=True,
-                text=True,
-                cwd=ROOT,
-                check=False,
-            )
-            self.assertEqual(proc_cycle.returncode, 1)
-            res_cycle = json.loads(proc_cycle.stdout)
-            self.assertFalse(res_cycle["ok"])
-            self.assertIn("CYCLE_DETECTED", res_cycle["diagnostics"][0]["message"])
-            self.assertEqual(json.loads(f_cycle.read_text()), cycle_pipe)
 
 
 class PipelineJsonSchemaTest(unittest.TestCase):
@@ -2813,11 +2808,16 @@ class PipelineJsonSchemaTest(unittest.TestCase):
                 self.assertCountEqual(
                     [node["properties"]["node_type"]["const"] for node in nodes],
                     [node["node_type"] for node in catalog["nodes"]])
+                self.assertNotIn("biz_name", properties)
+                self.assertIn("deployment", artifacts["export-schema"]["required"])
+                self.assertNotIn("execution_mode", properties)
+                self.assertEqual(properties["max_parallel_workers"]["minimum"], 1)
+                self.assertEqual(properties["max_parallel_workers"]["maximum"], 64)
                 model = properties["models"]["items"]["properties"]
+                self.assertNotIn("capability", model)
                 for choices, definitions, key in (
                     (model["model_type"], catalog["models"], "model_type"),
                     (model["backend"], catalog["backends"], "backend_type"),
-                    (properties["biz_name"], catalog["bizs"], "biz_name"),
                 ):
                     if definitions:
                         self.assertCountEqual(choices["enum"], [d[key] for d in definitions])
@@ -2846,15 +2846,18 @@ class PipelineJsonSchemaTest(unittest.TestCase):
                 with self.subTest(tool=tool, node=definition["node_type"]):
                     branch = by_type[definition["node_type"]]
                     self.assertIn("node_type", branch["required"])
+                    self.assertNotIn("depends_on", branch["required"])
+                    self.assertNotIn("ports", branch["properties"])
                     properties = branch["properties"]
                     self.assert_config_matches_catalog(properties["config"], definition["config_fields"])
                     self.assertEqual("config" in branch["required"],
                                      any(f["required"] for f in definition["config_fields"]))
                     for direction in ("inputs", "outputs"):
-                        ports = properties["ports"]["properties"][direction]
+                        ports = properties[direction]
                         self.assertEqual(set(ports["properties"]),
                                          {p["key"] for p in definition[direction]})
-                        self.assertEqual(ports["required"], [])
+                        self.assertEqual(ports["required"],
+                                         [p["key"] for p in definition[direction] if direction == "inputs" and p["required"]])
                         for port in definition[direction]:
                             hint = ports["properties"][port["key"]]
                             self.assertEqual(hint["type"], "string")
@@ -2879,8 +2882,7 @@ class PipelineJsonSchemaTest(unittest.TestCase):
                         self.assertEqual(config_key in body.get("required", []),
                                          any(f["required"] for f in definition["config_fields"]))
                         if section == "models":
-                            self.assertEqual(body["properties"]["capability"]["const"],
-                                             definition["capability"])
+                            self.assertNotIn("capability", body["properties"])
 
     def test_complete_deployment_envelope_is_available(self):
         for tool, artifacts in self.builds:
@@ -2889,14 +2891,14 @@ class PipelineJsonSchemaTest(unittest.TestCase):
                 self.assertEqual(set(deployment["properties"]), {"model_paths", "io"})
                 self.assertEqual(deployment["required"], ["io"])
                 io = deployment["properties"]["io"]
-                self.assertCountEqual(io["required"], ["io_binding", "output_allocations"])
+                self.assertEqual(io["required"], ["io_binding"])
                 self.assertCountEqual(io["properties"]["io_binding"]["enum"],
                                       [b["binding_id"] for b in artifacts["catalog"]["io_bindings"]])
-                allocation = io["properties"]["output_allocations"]["additionalProperties"]
+                allocation = io["properties"]["out_mem"]["additionalProperties"]
                 self.assertEqual(set(allocation["properties"]),
-                                 {"type", "allocator", "params", "meta_num",
+                                 {"allocator", "params", "meta_num",
                                   "metadata_type_id", "capacities"})
-                self.assertEqual(allocation["required"], ["type"])
+                self.assertEqual(allocation["required"], [])
                 self.assertFalse(allocation["additionalProperties"])
                 # Array and scalar params are interpreted by the allocator.
                 params = allocation["properties"]["params"]

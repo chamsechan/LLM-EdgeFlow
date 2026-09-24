@@ -1113,6 +1113,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   nlohmann::json pipeline_config;
   config_in >> pipeline_config;
   pipeline_config.erase("deployment");
+  pipeline_config["biz_name"] = "smart_doc_qa_v1";
   pipeline_config["models"][0]["model_path"] = onnx_path.string();
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();
@@ -1123,7 +1124,6 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   // model registration with an explicit typed Model/Backend fixture.
   pipeline_config["models"][1] = {
       {"model_id", "llm_model_llamacpp"},
-      {"capability", "llm"},
       {"model_type", "test_biz_llm"},
       {"backend", "test_causal_lm_backend"},
       {"model_path", "./models/test-qwen-mock.bin"},

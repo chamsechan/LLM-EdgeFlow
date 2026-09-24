@@ -133,7 +133,6 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("keyword_match", "关注词匹配业务", RunKeywordMatchDemo,
-                  "keyword_match.operator.v1");
+REGISTER_DEMO_BIZ("keyword_match_v1", "关注词匹配业务", RunKeywordMatchDemo);
 
 }  // namespace alg_demo

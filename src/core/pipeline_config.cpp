@@ -1,6 +1,7 @@
 #include "core/pipeline_config.h"
 
 #include <algorithm>
+#include <string_view>
 #include <unordered_set>
 
 #include "contracts/json_structure.h"
@@ -38,7 +39,6 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   const auto& model_shape = models_shape.at("items");
   const auto& nodes_shape = shape::Property(structure, "pipeline");
   const auto& node_shape = nodes_shape.at("items");
-  const auto& ports_shape = shape::Property(node_shape, "ports");
 
   // 1. 根节点必须是 JSON Object
   if (!shape::HasType(root, structure)) {
@@ -86,40 +86,8 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     return false;
   }
 
-  // 4. 解析 execution_mode: 可选字符串，仅支持 "sequential" 与 "parallel"
-  if (root.contains("execution_mode")) {
-    if (!shape::HasType(root["execution_mode"],
-                        shape::Property(structure, "execution_mode"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType, "/execution_mode",
-              "Field 'execution_mode' must be a string");
-      return false;
-    }
-    std::string mode_str = root["execution_mode"].get<std::string>();
-    if (!shape::AllowsValue(mode_str,
-                            shape::Property(structure, "execution_mode"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/execution_mode",
-              "Field 'execution_mode' must be 'sequential' or 'parallel'");
-      return false;
-    }
-    result.execution_mode = mode_str;
-  } else {
-    result.execution_mode = shape::Property(structure, "execution_mode")
-                                .at("default")
-                                .get<std::string>();
-  }
-
-  // 5. 解析 max_parallel_workers: 可选整数，范围 1~64
+  // A single worker budget controls sequential and parallel execution.
   if (root.contains("max_parallel_workers")) {
-    // R1-ACC-003: sequential 模式禁止声明
-    // max_parallel_workers，避免配置复制隐式错误
-    if (!AllowsParallelWorkers(result.execution_mode)) {
-      SetDiag(
-          diagnostic, DiagnosticCode::kInvalidCombination,
-          "/max_parallel_workers",
-          "Field 'max_parallel_workers' is only allowed when execution_mode "
-          "is 'parallel'");
-      return false;
-    }
     if (!shape::HasType(root["max_parallel_workers"],
                         shape::Property(structure, "max_parallel_workers"))) {
       SetDiag(diagnostic, DiagnosticCode::kFieldType, "/max_parallel_workers",
@@ -137,7 +105,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
     result.max_parallel_workers = static_cast<size_t>(workers);
   } else {
-    result.max_parallel_workers = 4;
+    result.max_parallel_workers = 1;
   }
 
   // 6. 解析 models: 可选数组，最多 64 个模型定义
@@ -217,29 +185,6 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         return false;
       }
       seen_model_ids.insert(model_cfg.model_id);
-
-      // capability (必填非空字符串)
-      if (shape::MissingRequired(model_elem, model_shape, "capability")) {
-        SetDiag(diagnostic, DiagnosticCode::kMissingField,
-                model_path_prefix + "/capability",
-                "Missing required field 'capability'");
-        return false;
-      }
-      if (!shape::HasType(model_elem["capability"],
-                          shape::Property(model_shape, "capability"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                model_path_prefix + "/capability",
-                "Field 'capability' must be a string");
-        return false;
-      }
-      model_cfg.capability = model_elem["capability"].get<std::string>();
-      if (shape::TooShort(model_elem["capability"],
-                          shape::Property(model_shape, "capability"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
-                model_path_prefix + "/capability",
-                "Field 'capability' cannot be empty");
-        return false;
-      }
 
       // model_type (必填非空字符串)
       if (shape::MissingRequired(model_elem, model_shape, "model_type")) {
@@ -422,80 +367,35 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       return false;
     }
 
-    // ports (可选对象)
-    if (node_elem.contains("ports")) {
-      if (!shape::HasType(node_elem["ports"],
-                          shape::Property(node_shape, "ports"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                node_path_prefix + "/ports", "Field 'ports' must be an object");
+    // Input connections and output names use the same explicit mapping shape.
+    for (const char* direction : {"inputs", "outputs"}) {
+      if (!node_elem.contains(direction)) continue;
+      const auto& bindings = node_elem[direction];
+      const auto& mapping_shape = shape::Property(node_shape, direction);
+      const std::string mapping_path = node_path_prefix + "/" + direction;
+      if (!shape::HasType(bindings, mapping_shape)) {
+        SetDiag(diagnostic, DiagnosticCode::kFieldType, mapping_path,
+                std::string("Field '") + direction + "' must be an object");
         return false;
       }
-      const auto& ports_obj = node_elem["ports"];
-      for (auto pit = ports_obj.begin(); pit != ports_obj.end(); ++pit) {
-        if (!shape::AllowsProperty(ports_shape, pit.key())) {
-          SetDiag(diagnostic, DiagnosticCode::kUnknownField,
-                  node_path_prefix + "/ports/" + pit.key(),
-                  "Unknown field in ports: " + pit.key());
-          return false;
-        }
-      }
-      if (ports_obj.contains("inputs")) {
-        if (!shape::HasType(ports_obj["inputs"],
-                            shape::Property(ports_shape, "inputs"))) {
+      auto& targets = std::string_view(direction) == "inputs"
+                          ? node_cfg.ports.inputs
+                          : node_cfg.ports.outputs;
+      for (auto it = bindings.begin(); it != bindings.end(); ++it) {
+        const auto& target_shape = mapping_shape.at("additionalProperties");
+        if (!shape::HasType(it.value(), target_shape)) {
           SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                  node_path_prefix + "/ports/inputs",
-                  "Field 'ports.inputs' must be an object");
+                  mapping_path + "/" + it.key(),
+                  "Port mapping target must be a string");
           return false;
         }
-        for (auto it = ports_obj["inputs"].begin();
-             it != ports_obj["inputs"].end(); ++it) {
-          if (!shape::HasType(it.value(), shape::Property(ports_shape, "inputs")
-                                              .at("additionalProperties"))) {
-            SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                    node_path_prefix + "/ports/inputs/" + it.key(),
-                    "Port mapping target must be a string");
-            return false;
-          }
-          std::string target = it.value().get<std::string>();
-          if (shape::TooShort(it.value(), shape::Property(ports_shape, "inputs")
-                                              .at("additionalProperties"))) {
-            SetDiag(diagnostic, DiagnosticCode::kFieldRange,
-                    node_path_prefix + "/ports/inputs/" + it.key(),
-                    "Port mapping target cannot be empty");
-            return false;
-          }
-          node_cfg.ports.inputs[it.key()] = std::move(target);
-        }
-      }
-      if (ports_obj.contains("outputs")) {
-        if (!shape::HasType(ports_obj["outputs"],
-                            shape::Property(ports_shape, "outputs"))) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                  node_path_prefix + "/ports/outputs",
-                  "Field 'ports.outputs' must be an object");
+        if (shape::TooShort(it.value(), target_shape)) {
+          SetDiag(diagnostic, DiagnosticCode::kFieldRange,
+                  mapping_path + "/" + it.key(),
+                  "Port mapping target cannot be empty");
           return false;
         }
-        for (auto it = ports_obj["outputs"].begin();
-             it != ports_obj["outputs"].end(); ++it) {
-          if (!shape::HasType(it.value(),
-                              shape::Property(ports_shape, "outputs")
-                                  .at("additionalProperties"))) {
-            SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                    node_path_prefix + "/ports/outputs/" + it.key(),
-                    "Port mapping target must be a string");
-            return false;
-          }
-          std::string target = it.value().get<std::string>();
-          if (shape::TooShort(it.value(),
-                              shape::Property(ports_shape, "outputs")
-                                  .at("additionalProperties"))) {
-            SetDiag(diagnostic, DiagnosticCode::kFieldRange,
-                    node_path_prefix + "/ports/outputs/" + it.key(),
-                    "Port mapping target cannot be empty");
-            return false;
-          }
-          node_cfg.ports.outputs[it.key()] = std::move(target);
-        }
+        targets[it.key()] = it.value().get<std::string>();
       }
     }
 
@@ -538,49 +438,46 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
     seen_node_ids.insert(node_cfg.id);
 
-    // depends_on (必填数组，元素为非空字符串且不重复)
-    if (shape::MissingRequired(node_elem, node_shape, "depends_on")) {
-      SetDiag(diagnostic, DiagnosticCode::kMissingField,
-              node_path_prefix + "/depends_on",
-              "Missing required field 'depends_on' in pipeline node");
-      return false;
-    }
-    if (!shape::HasType(node_elem["depends_on"],
-                        shape::Property(node_shape, "depends_on"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType,
-              node_path_prefix + "/depends_on",
-              "Field 'depends_on' must be an array");
-      return false;
-    }
-    if (shape::TooLong(node_elem["depends_on"],
-                       shape::Property(node_shape, "depends_on"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldRange,
-              node_path_prefix + "/depends_on",
-              "Node dependencies exceed limit of 256");
-      return false;
-    }
-
-    for (size_t d = 0; d < node_elem["depends_on"].size(); ++d) {
-      const auto& dep_item = node_elem["depends_on"][d];
-      std::string dep_path =
-          node_path_prefix + "/depends_on/" + std::to_string(d);
-
-      if (!shape::HasType(
-              dep_item,
-              shape::Property(node_shape, "depends_on").at("items"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType, dep_path,
-                "Dependency item must be a string");
+    // Optional additional ordering constraints. Data dependencies are planned
+    // by PipelineValidator from input/output bindings.
+    if (node_elem.contains("depends_on")) {
+      if (!shape::HasType(node_elem["depends_on"],
+                          shape::Property(node_shape, "depends_on"))) {
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
+                node_path_prefix + "/depends_on",
+                "Field 'depends_on' must be an array");
         return false;
       }
-      std::string dep_str = dep_item.get<std::string>();
-      if (shape::TooShort(
-              dep_item,
-              shape::Property(node_shape, "depends_on").at("items"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldRange, dep_path,
-                "Dependency item cannot be empty");
+      if (shape::TooLong(node_elem["depends_on"],
+                         shape::Property(node_shape, "depends_on"))) {
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
+                node_path_prefix + "/depends_on",
+                "Node dependencies exceed limit of 256");
         return false;
       }
-      node_cfg.depends_on.push_back(dep_str);
+
+      for (size_t d = 0; d < node_elem["depends_on"].size(); ++d) {
+        const auto& dep_item = node_elem["depends_on"][d];
+        std::string dep_path =
+            node_path_prefix + "/depends_on/" + std::to_string(d);
+
+        if (!shape::HasType(
+                dep_item,
+                shape::Property(node_shape, "depends_on").at("items"))) {
+          SetDiag(diagnostic, DiagnosticCode::kFieldType, dep_path,
+                  "Dependency item must be a string");
+          return false;
+        }
+        std::string dep_str = dep_item.get<std::string>();
+        if (shape::TooShort(
+                dep_item,
+                shape::Property(node_shape, "depends_on").at("items"))) {
+          SetDiag(diagnostic, DiagnosticCode::kFieldRange, dep_path,
+                  "Dependency item cannot be empty");
+          return false;
+        }
+        node_cfg.depends_on.push_back(dep_str);
+      }
     }
 
     result.nodes.push_back(std::move(node_cfg));

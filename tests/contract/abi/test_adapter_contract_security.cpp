@@ -146,10 +146,9 @@ TEST_F(AdapterContractSecurityTest,
   pipeline["deployment"] = {
       {"io",
        {{"io_binding", "translate.operator.v1"},
-        {"output_allocations",
+        {"out_mem",
          {{"entity_out",
-           {{"type", "entity_out"},
-            {"meta_num", 0},
+           {{"meta_num", 0},
             {"metadata_type_id", 0},
             {"capacities", {{"entities_json", 2047}}}}}}}}}};
   std::ofstream(pipe_path) << pipeline.dump();

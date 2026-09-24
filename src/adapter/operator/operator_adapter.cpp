@@ -550,12 +550,16 @@ const char* GetOperatorLastError() noexcept {
   return g_last_operator_error.c_str();
 }
 
-int ValidateOperatorConfigBinding(const char* model_path,
-                                  const char* cfg_file_name,
-                                  const char* expected_binding_id,
-                                  char* out_error_msg,
-                                  size_t error_buf_size) noexcept {
+int ResolveOperatorConfigBiz(const char* model_path, const char* cfg_file_name,
+                             std::string* out_biz_name, char* out_error_msg,
+                             size_t error_buf_size) noexcept {
   try {
+    if (!out_biz_name) {
+      if (out_error_msg && error_buf_size > 0)
+        std::snprintf(out_error_msg, error_buf_size, "Null out_biz_name");
+      return -2;
+    }
+    out_biz_name->clear();
     if (!model_path || model_path[0] == '\0') {
       if (out_error_msg && error_buf_size > 0) {
         std::snprintf(out_error_msg, error_buf_size,
@@ -570,14 +574,6 @@ int ValidateOperatorConfigBinding(const char* model_path,
       }
       return -2;
     }
-    if (!expected_binding_id || expected_binding_id[0] == '\0') {
-      if (out_error_msg && error_buf_size > 0) {
-        std::snprintf(out_error_msg, error_buf_size,
-                      "Null or empty expected_binding_id");
-      }
-      return -2;
-    }
-
     llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string err;
     int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
@@ -589,26 +585,19 @@ int ValidateOperatorConfigBinding(const char* model_path,
       return ret;
     }
 
-    if (resolved.io_binding != expected_binding_id) {
-      if (out_error_msg && error_buf_size > 0) {
-        std::snprintf(out_error_msg, error_buf_size,
-                      "Binding mismatch: Config resolves to binding '%s', but "
-                      "expected '%s'",
-                      resolved.io_binding.c_str(), expected_binding_id);
-      }
-      return -3;
-    }
-
+    *out_biz_name = resolved.biz_name;
     return 0;
   } catch (const std::exception& e) {
+    if (out_biz_name) out_biz_name->clear();
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size, "Exception: %s", e.what());
     }
     return -99;
   } catch (...) {
+    if (out_biz_name) out_biz_name->clear();
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size,
-                    "Unknown exception in ValidateOperatorConfigBinding");
+                    "Unknown exception in ResolveOperatorConfigBiz");
     }
     return -100;
   }
