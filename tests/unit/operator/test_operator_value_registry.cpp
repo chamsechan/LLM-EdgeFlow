@@ -1036,7 +1036,7 @@ TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   EXPECT_FALSE(reg.HasConflict());
 }
 
-// 15. RFC-0044 C02: noexcept 安全性与故障注入不抛出、不 terminate 测试
+// 15. noexcept 安全性与故障注入不抛出、不 terminate 测试
 TEST(OperatorValueRegistryTest, NoexceptOOMFaultTolerance) {
   CompanyString str{-1, nullptr};
   CompanyBuffer buf{-1, nullptr};
@@ -1073,7 +1073,7 @@ TEST(OperatorValueRegistryTest, NoexceptOOMFaultTolerance) {
   }
 }
 
-// 16. RFC-0044 C05: audio_in zero-length accepts null buffer, rejects negative
+// 16. audio_in zero-length accepts null buffer, rejects negative
 // length
 TEST(OperatorValueRegistryTest,
      AudioInZeroLengthAcceptsNullBufferAndRejectsNegative) {

@@ -19,7 +19,8 @@ required_files=(
   "CONTRIBUTING.md"
   ".github/copilot-instructions.md"
   "${required_skills[@]}"
-  "doc/rfcs/README.md"
+  "doc/architecture.md"
+  "doc/developer_guide.md"
   "scripts/run_all_tests.sh"
   "scripts/git_branch_upload.sh"
 )
@@ -66,8 +67,7 @@ if grep -rnE '(six-stage|6-stage|六阶段|7 CTest|src/business/|src/biz/|IModel
   "${ROOT_DIR}/AGENTS.md" \
   "${ROOT_DIR}/CONTRIBUTING.md" \
   "${ROOT_DIR}/.github/copilot-instructions.md" \
-  "${ROOT_DIR}/.agents/skills" \
-  "${ROOT_DIR}/doc/rfcs/README.md"; then
+  "${ROOT_DIR}/.agents/skills"; then
   fail "active governance contains obsolete architecture or test-count guidance"
 fi
 

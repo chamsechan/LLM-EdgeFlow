@@ -1,5 +1,5 @@
-// Standalone Linux measurement; build/run commands and limits are recorded in
-// doc/rfcs/reviews/0055-traceable-batch-verification.md.
+// Standalone Linux measurement of traceable batch operation construction.
+// Checks output counts and reports median duration and process peak RSS.
 #include "nodes/traceable_batch_operations.h"
 
 #include <sys/resource.h>

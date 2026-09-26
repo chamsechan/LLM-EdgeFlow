@@ -2,7 +2,8 @@
 
 本指南面向需要新增或调整外部业务契约的 C++ 开发者。先按根目录
 [README](../../README.md#快速开始)完成快速开始构建；以下命令都从仓库根目录执行。
-公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md)记录 RFC，再开始实现。
+公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)
+明确契约与设计，再开始实现。
 
 第一次接触 Adapter，可以先运行[无需模型的关键词样例](#2-用一个现有业务看清文件关系)，
 观察完整请求与响应，再按实际缺口查阅下文。新契约不要求重新实现所有接入组件。
@@ -226,6 +227,12 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 
 ## 6. 输出容量与生命周期
 
+`Process` 的输入、输出批次必须非空且帧数相等。单次批次上限为有效输出池深与绑定业务
+批次上限的较小值；超出上限会直接失败，不会在门面中自动拆批。每帧按接入绑定提供必需的输入槽和
+输出槽，可选槽按契约省略。提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
+有效 key 后缀与宿主类型可通过 `catalog --io-binding <binding_id>` 查询，后缀与类型的区别见
+[输出分配方案](operator_output_allocation.md)。
+
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。
 输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
 需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。
@@ -237,12 +244,25 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_doc_qa_demo.cpp) 和
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
+`Init` 用于注册审计，应在创建实例前调用。同一 handle 的 `Process` 与 `Control` 串行，
+不同 handle 可并行。`DeInit` 会清理该库实例中登记的**所有 handle**，不是单个调用方的局部清理。
+调用前须停止所有实例的新调用、等待在途调用返回并释放全部输出；不支持与 Create、Process、
+Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但已清理的 handle 和旧输出仍失效。
+
 Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.out_mem` 按逻辑
 槽位覆盖 `allocator`、`params` 和容量。类型从槽位注册定义获得，不在配置中重复声明。
 必需输出省略配置时使用注册默认值；可选输出需要显式槽配置来启用。
 每份配置都显式选择 `deployment.io.io_binding`，没有输出覆盖时可省略 `out_mem`。
 单份响应超过已配置字段容量时返回 `-4`，尚未发布的输出租约全部回滚。
+全部转换成功后才向调用方发布本批输出；失败不发布新输出，也不通过输出槽回填所需容量。
+需要更大容量时修改 `out_mem` 并重新创建 handle。
+
+常见门面错误包括无效 handle `-1`、非法创建参数/配置 `-2`、非法输入或批次 `-3`、
+输出槽/容量错误 `-4`。公开错误码见 [`error_codes.h`](../../include/platform_mock/error_codes.h)；
+Pipeline、Node 或 Model 的失败码也会向上传递，不能只按数值判断故障层。
+`Process` 失败后在当前线程读取 `GetOperatorLastError()` 并及时复制诊断；它返回的指针由库持有，
+后续调用可能更新内容。成功返回不代表已完成真实模型效果或生产验收。
 
 在运行前查看生效的池规格与配置，`depth` 应与实际宿主一致：
 
@@ -280,4 +300,5 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 
 交付前执行 `./scripts/run_all_tests.sh`。真实模型效果与目标平台验收按
 [效果验收指南](../VERIFIABLE_SELECTION.md)另行记录；涉及公司内部 SDK 时遵循
-[RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md)，当前外部工作区只准备中立接口。
+[仓库边界](../../AGENTS.md#repository-guardrails)，当前外部工作区只准备中立接口，
+完整项目进入授权内网后才进行真实 SDK 对接和目标设备验收。

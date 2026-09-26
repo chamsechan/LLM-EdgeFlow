@@ -6,7 +6,6 @@
 
 模型路径只填写在 `models[].model_path`，相对路径以宿主传入的模型根目录为基准。
 以仓库根目录为宿主根时，仓内权重路径应包含 `models/` 前缀。
-旧 `deployment.model_paths` 字段不再接受；迁移时将其中的生效路径移到对应模型条目后删除该字段。
 `model_config` 保存模型语义参数，`backend_config` 保存后端执行参数，两者职责独立。
 
 `default` 保留原始方案参数；`cpu` 是开源 Backend 的 CPU 演示配置（ASR 需启用 whisper.cpp）；`kite`
@@ -18,6 +17,23 @@ JSON 字符串翻译的运行命令、输入输出与复用范围见[翻译方�
 需要选择可运行预设时查询 `alg_pipeline_tool catalog` 的 `profiles` 并核对资源；详细流程见
 [Pipeline Studio](../tools/pipeline_studio/README.md)。
 
+## 配置路径
+
+宿主调用 Operator 时，Create 的 `model_path` 是部署根目录；它和模型条目里的
+`models[].model_path` 分别表示根目录与模型资产路径。配置预检使用同一解析规则：
+
+| 字段 | 相对路径基准 | 目录与存在性约束 |
+| --- | --- | --- |
+| Create / 预检的 `model_path` | 宿主进程当前目录 | 必须是已存在的目录 |
+| `cfg_file_name` | 部署根 | 必须是非空相对路径，指向根内已存在的普通配置文件（通常使用 `.conf` 后缀） |
+| `.conf` 的 `pipe_path` | `.conf` 所在目录 | 可为相对或绝对路径，解析后的 Pipeline 必须存在且留在该目录内 |
+| `models[].model_path` | 部署根 | 可为相对或绝对路径，规范化后必须留在部署根内；配置预检允许资产尚未部署 |
+
+目录边界同时检查路径规范化与符号链接目标，不允许通过 `..` 或符号链接逃逸，也没有
+同名文件搜索回退。模型在实际创建时由相应 Backend 加载；预检成功不证明资产存在、
+格式正确或可在目标设备上运行。`.conf` 只接受 `pipe_path`；Pipeline 的字段来自当前结构
+声明与注册 Definition，未声明字段被拒绝，没有旧字段别名或自动迁移。
+
 ## 配置中的连接与模型
 
 节点保留 `id`、`node_type`、`config`，直接用顶层 `inputs` / `outputs` 将逻辑端口映射到数据名。
@@ -28,7 +44,6 @@ Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于
 模型能力从 `model_type` 的注册 Definition 获取。节点的模型引用（如 `config.bind_model`）
 必须显式填写 `models[].model_id`；普通参数仍按 Definition 补齐默认值。
 `max_parallel_workers` 范围为 1–64，默认 1，大于 1 时启用并行调度和相应安全检查。
-旧的节点 `ports`、根级 `execution_mode` 和 `models[].capability` 字段不再接受。
 
 ## 业务入口与输出配置
 

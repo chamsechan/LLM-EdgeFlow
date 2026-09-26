@@ -1,4 +1,4 @@
 model = "gpt-6-astra"
 model_reasoning_effort = "ultra"
 sandbox_mode = "read-only"
-developer_instructions = "Follow the Reviewer role and Delegation context in the repository root AGENTS.md. Apply its task-scoped reading and RFC lookup policy; do not preload RFC documents or their index."
+developer_instructions = "Follow the Reviewer role and Delegation context in the repository root AGENTS.md. Apply its task-scoped reading policy; start with current guides and affected code/tests."

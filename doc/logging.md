@@ -49,4 +49,4 @@ LLMEDGEFLOW_LEVEL=4 ./build/alg_demo --suite smoke
 - `name` 参数为兼容性命名字段，日志阈值仍是进程级而非按名称隔离。
 - 头文件会拒绝与已有 `ALG_LOG_*` 宏发生静默冲突。
 
-接口定义以 [`edgeflow/log.h`](../include/edgeflow/log.h) 为准，设计依据参见 [RFC-0014](rfcs/0014-public-log-api.md)。
+接口定义以 [`edgeflow/log.h`](../include/edgeflow/log.h) 为准。

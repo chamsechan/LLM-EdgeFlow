@@ -9,7 +9,7 @@ provider configurations or load every linked document at task start.
 
 Read the files and tests needed to resolve the current task. A contained documentation, test,
 or configuration edit does not require a repository-wide tour. Read the relevant CONTRIBUTING
-sections before editing or delivering. Use the RFC route below only when needed.
+sections before editing or delivering.
 
 - Existing-capability Pipeline JSON, deployment `.conf`, or optional Demo Profile changes:
   [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md).
@@ -18,8 +18,9 @@ sections before editing or delivering. Use the RFC route below only when needed.
 - Operator/Adapter, Core/Pipeline, Node, Model, Backend, or Demo implementation:
   [llm-edgeflow-developer-guide](.agents/skills/llm-edgeflow-developer-guide/SKILL.md).
   Read only affected-layer references, including every layer of a cross-layer change.
-- RFC decisions or implementation/review: use [RFC lookup](CONTRIBUTING.md#rfc-lookup).
-  RFCs and their index are not startup reading. Linked RFCs are references, not a reading list.
+- Architecture or contract decisions: use
+  [design and current contracts](CONTRIBUTING.md#3-design-and-current-contracts).
+  Start from current guides and affected code/tests; consult Git history only when needed.
 - Upload, PR, or merge explicitly requested by the user:
   [github-branch-merge](.agents/skills/github-branch-merge/SKILL.md).
   An implementation request alone never authorizes remote delivery.
@@ -77,7 +78,7 @@ coordination, durable documentation, and final completion against the requested 
   CONTRIBUTING. Report commands, results, and skips; return defects to source/test owners
   rather than silently fixing them.
 - **Reviewer:** read-only independent review of high-risk Operator, cross-layer, Core/Pipeline,
-  ownership/lifetime/concurrency, Model/Backend, or RFC changes. Check correctness, boundaries,
+  ownership/lifetime/concurrency, Model/Backend, or architectural design changes. Check correctness, boundaries,
   regressions, and whether tests prove the contract; routine low-risk edits need no reviewer.
 
 Small edits may stay with the primary agent plus a Verifier. Add other agents only for concrete
@@ -90,11 +91,11 @@ phase acceptance, the final gate, and honest reporting of blocked verification.
 ### Delegation context
 
 All roles follow [Start with the requested scope](#start-with-the-requested-scope) and
-[RFC lookup](CONTRIBUTING.md#rfc-lookup); provider role files reference, rather than redefine,
+[design and current contracts](CONTRIBUTING.md#3-design-and-current-contracts); provider role files reference, rather than redefine,
 those rules. Pass only task-relevant decisions and evidence. Reuse supplied context while it
 is valid for the target revision and scope; independent review still verifies required evidence.
 Return concise findings, file/line or artifact references, and exact check results/skips.
-Do not copy entire RFCs or logs into handoffs unless necessary to establish the result.
+Do not copy entire design discussions or logs into handoffs unless necessary to establish the result.
 
 ## Repository guardrails
 
@@ -103,7 +104,7 @@ Do not bundle third-party sources/binaries; dependencies stay pinned and verifie
 The external workspace cannot access the company-internal SDK: do not request, infer, copy,
 or commit its headers, libraries, models, configuration, or credentials. Prepare only neutral
 integration seams; real SDK integration and target-hardware acceptance start only after the
-complete project enters the authorized internal network. Read
-[RFC-0029](doc/rfcs/0029-external-readiness-and-intranet-sdk-migration.md) only when the task
-needs migration details or target-environment acceptance; these restrictions apply without
-opening it.
+complete project enters the authorized internal network. There, verify real public headers,
+enum values, layouts, ownership, control and I/O conversion before target-hardware acceptance.
+Keep platform mocks explicitly separate from that integration. Current verification scope and
+deployment acceptance limits are described in [the verification guide](doc/VERIFIABLE_SELECTION.md).

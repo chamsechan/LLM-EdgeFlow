@@ -164,7 +164,7 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 | 给节点增加运行时控制 | [Control 入门](doc/dev_guide/first_control.md) |
 | 扩展框架、模型或后端 | [开发者指南](doc/developer_guide.md) · [架构设计](doc/architecture.md) |
 | 准备模型并验证效果 | [模型、构建与效果验收](doc/VERIFIABLE_SELECTION.md) |
-| 了解设计决策与版本演进 | [RFC 索引](doc/rfcs/README.md) · [Changelog](doc/CHANGELOG.md) |
+| 查看当前未发布基线 | [Changelog](doc/CHANGELOG.md) |
 | 查阅全部文档 | [文档目录](doc/README.md) |
 
 ## 参与开发
@@ -179,10 +179,10 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18，以及架构图检查所需的 Java 17+；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
 
-当前产品版本为 **v11.0.0**，公共 **ABI major 为 9**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。
+项目尚未正式发布；当前产品版本标识为 **v11.0.0**，公共 **ABI major 为 9**。接口边界见[架构设计](doc/architecture.md)，当前基线见 [Changelog](doc/CHANGELOG.md)。
 
 ## 许可证
 
 项目采用 [MIT License](LICENSE)。第三方组件及其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-源码头文件和命名约定见[源码布局与迁移](doc/dev_guide/source_layout.md)；示例配置和 Profile 的路径调整见[配置目录](configs/README.md)。
+源码头文件和命名约定见[源码布局与命名](doc/dev_guide/source_layout.md)；示例配置和 Profile 的组织见[配置目录](configs/README.md)。

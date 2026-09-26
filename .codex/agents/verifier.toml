@@ -1,4 +1,4 @@
 model = "gpt-6-sol"
 model_reasoning_effort = "max"
 sandbox_mode = "workspace-write"
-developer_instructions = "Follow the Verifier role and Delegation context in the repository root AGENTS.md. Apply its task-scoped reading and RFC lookup policy; do not preload RFC documents or their index."
+developer_instructions = "Follow the Verifier role and Delegation context in the repository root AGENTS.md. Apply its task-scoped reading policy; start with current guides and affected code/tests."

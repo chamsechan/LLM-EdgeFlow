@@ -43,8 +43,7 @@ inline BindingFacts MakeBindingFacts(const NodeInitContext& ctx) {
 }
 
 /**
- * @brief Thread-safe configuration snapshot manager for node instances
- * (RFC-0054).
+ * @brief Thread-safe configuration snapshot manager for node instances.
  *
  * Enforces:
  * - Atomic snapshot acquisition for readers via atomic load acquire (without

@@ -16,7 +16,7 @@ struct DocumentValidationResult {
 };
 
 /**
- * @brief 校验 Pipeline 文档（CLI 与 Authoring 共用适配，RFC-0062）
+ * @brief 校验 Pipeline 文档（CLI 与 Authoring 共用适配）
  *
  * 统一处理带/不带 deployment 的文档，并根据模式调用
  * Validate/Explain/ValidateAndPlan， 投影有效模型路径来源，保留完整 Core 报告。

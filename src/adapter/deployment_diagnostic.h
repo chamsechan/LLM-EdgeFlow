@@ -9,7 +9,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 轻量级部署诊断载体 (RFC-0062)
+ * @brief 轻量级部署诊断载体
  *
  * 用于在 Integration 内部及工具调用面跨函数传递结构化错误 (code, path,
  * message).

@@ -6,14 +6,15 @@ description: Deliver verified LLM-EdgeFlow changes through an isolated GitHub br
 # GitHub Branch and PR Delivery
 
 This skill governs remote delivery, not ordinary local implementation. Read
-[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) before acting; it owns branch, RFC, documentation,
-and verification policy. Do not repeat those decisions here.
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) before acting; it owns branch, design review,
+documentation, and verification policy. Do not repeat those decisions here.
 
 ## Preconditions
 
 - The user explicitly authorized the requested remote action.
 - Work is already on an existing isolated non-`main` branch.
-- The diff contains only intended work and any applicable RFC/index/`doc/CHANGELOG.md` updates.
+- The diff contains only intended work and any applicable current-contract documentation and
+  `doc/CHANGELOG.md` updates.
 - Implementation and required focused checks are complete; the intended changes are ready for
   the delivery script's canonical local gate.
 

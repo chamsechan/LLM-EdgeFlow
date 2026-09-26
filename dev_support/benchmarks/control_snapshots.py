@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare RFC-0054 node implementations on an otherwise idle machine.
+"""Compare configuration snapshot node implementations on an otherwise idle machine.
 
 Run the canonical gate/build first. This script reuses its Ninja node-runner
 runtime objects and libraries without building the repository. Only the two node

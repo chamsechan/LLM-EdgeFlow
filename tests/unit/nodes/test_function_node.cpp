@@ -1489,7 +1489,7 @@ TEST(FunctionNodeTest, LogicObjectIsRecreatedForEachProcessOnSameNode) {
 }
 
 // ---------------------------------------------------------------------------
-// RFC-0054 Tests: ConfigurationSnapshot & Direct Concurrency (Section 7.1)
+// ConfigurationSnapshot & Direct Concurrency
 // ---------------------------------------------------------------------------
 
 TEST(ConfigurationSnapshotTest, UninitializedAndNullStateHandled) {
@@ -1518,7 +1518,6 @@ TEST(ConfigurationSnapshotTest, InitializeAndRead) {
 }
 
 TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
-  // Verifies RFC-0054 Section 7.1:
   // writer A updates prefix, writer B updates suffix.
   // Both successful updates are preserved; B cannot submit based on stale pre-A
   // state.
@@ -1579,7 +1578,6 @@ TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
 }
 
 TEST(ConfigurationSnapshotTest, FailedWriterRollbackPreservesActiveState) {
-  // Verifies RFC-0054 Section 7.1:
   // Writer fails during validation / candidate generation -> no new snapshot
   // published; old state remains active and intact.
   struct State {
@@ -1610,7 +1608,6 @@ TEST(ConfigurationSnapshotTest, FailedWriterRollbackPreservesActiveState) {
 }
 
 TEST(ConfigurationSnapshotTest, ReaderHoldsOldSnapshotWhileWriterPublishes) {
-  // Verifies RFC-0054 Section 7.1:
   // Reader holding old snapshot is isolated from concurrent writer publication;
   // old reader completes safely with old version; subsequent reader sees new
   // version.

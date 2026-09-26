@@ -7,7 +7,7 @@ Use this reference for production Node implementation. Start first-time LLM auth
 1. Query the target build's `alg_pipeline_tool catalog` and `describe-node` before adding a capability.
 2. Keep neutral operations in `src/common_nodes/` and domain algorithms in `src/custom_nodes/`,
    organized by operation. Common Nodes, Core and Engine must not depend on custom implementations.
-   Platform conversion stays in Adapter. Follow CONTRIBUTING for RFC thresholds.
+   Platform conversion stays in Adapter. Follow CONTRIBUTING for design review criteria.
 3. Use ordinary functions and one Spec contract, registered with `REGISTER_FUNCTION_NODE`.
    Map and LLM helpers compose the same authoring contract as Batch. All 12 production Nodes use it;
    `NodeBase` is internal runtime infrastructure, not another business authoring choice.

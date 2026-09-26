@@ -1,7 +1,7 @@
 # 源码布局与命名
 
 文件按职责归属，头文件按使用者范围放置。架构职责与依赖方向见
-[架构设计](../architecture.md)，本次迁移决策见 [RFC-0046](../rfcs/0046-naming-and-header-boundaries.md)。
+[架构设计](../architecture.md)。
 
 ## 构建扩展目录
 
@@ -25,8 +25,7 @@
 使用范围之外，还要区分定义的来源：`include/platform_mock/` 存放当前外网环境使用的
 平台公共定义替身，包括业务 DTO、平台枚举、控制参数、命名 I/O、函数表类型和错误码。
 它们作为现行调用接口的依赖，被显式列入 SDK 头视图，但不属于框架自有数据模型。
-具体清单与排除项见[平台模拟定义](../../include/platform_mock/README.md)，决策见
-[RFC-0047](../rfcs/0047-platform-mock-header-isolation.md)。
+具体清单与排除项见[平台模拟定义](../../include/platform_mock/README.md)。
 
 ## 接入适配层
 
@@ -97,7 +96,7 @@ Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑�
 
 ## 公共头与统一入口
 
-仓内代码统一使用 `edgeflow/` 前缀入口；历史转发头与别名已清理：
+SDK 调用代码使用以下 `edgeflow/` 前缀入口：
 
 | 规范入口 | 说明 |
 | --- | --- |
@@ -108,7 +107,7 @@ Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑�
 | `edgeflow/operator/types.h` | `Company*` 数据 DTO 门面（转发至 `platform_mock/operator_data_types.h`） |
 
 `Company*`、公共宏、C++ Operator 公开函数签名、结构布局及 `libcompany_alg_sdk`
-名称保持原样；这些名称属于既有调用契约。内部扩展统一使用 `NodeRegistry`。
+名称属于调用契约。内部扩展统一使用 `NodeRegistry`。
 
 `edgeflow/operator/types.h` 仅转发 `platform_mock/operator_data_types.h` 中的 `Company*`
 数据 DTO。计算平台、Control 参数、命名 I/O 与函数表类型定义在
@@ -117,6 +116,3 @@ Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑�
 真实公司公共头需要在授权内网单独核对和接入。
 
 示例配置和 Profile 的命名见[配置说明](../../configs/README.md)。
-
-`common_nodes/custom_nodes`、`models/backends`、`dev_support/tests/support` 的现有
-职责划分继续适用。历史 RFC 和审计报告保留当时的名称与路径。

@@ -1195,7 +1195,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
 
   void* handle = nullptr;
 
-  // 0. 旧 Schema 1 配置格式严格拒绝 (RFC-0061) -> -2
+  // 0. 旧 Schema 1 配置格式严格拒绝 -> -2
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
@@ -2778,7 +2778,7 @@ TEST_F(OperatorApiTest, AllOutputSlotsShareTheHandlePayloadBudget) {
   if (handle) ops_.Destroy(handle);
 }
 
-// RFC-0053: 共享载体不合并 payload schema
+// 共享载体不合并 payload schema
 TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   auto param =
       DefaultCreateParam("demo/fixtures/mock/pipeline_entity_extract.conf");

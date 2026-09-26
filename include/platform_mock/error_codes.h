@@ -11,7 +11,7 @@
 #define COMPANY_ALG_ERR_INVALID_INPUT \
   (-3)  // 输入数据非法 (空指针槽位、批大小超限或字段语义错误)
 #define COMPANY_ALG_ERR_BUFFER_TOO_SMALL \
-  (-4)  // 输出缓冲区不足或空槽位 (此时回填所需容量)
+  (-4)  // 输出槽位、容量或写入数量错误；失败不发布新输出
 #define COMPANY_ALG_ERR_UNSUPPORTED_BIZ \
   (-5)  // 不支持或未注册的业务类型 / 业务配置不匹配
 #define COMPANY_ALG_ERR_REGISTRY_CONFLICT (-6)  // 注册表冲突 (fail-closed 拦截)

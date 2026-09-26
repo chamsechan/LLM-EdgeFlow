@@ -1,9 +1,9 @@
 # Contributing to LLM-EdgeFlow
 
 This document is the single source of truth for the development and delivery lifecycle. Current
-architecture constraints and task routing live in [AGENTS.md](AGENTS.md); RFC statuses live in
-[the RFC index](doc/rfcs/README.md); scripts own the exact mechanics of quality gates and GitHub
-delivery.
+architecture constraints and task routing live in [AGENTS.md](AGENTS.md); current contracts live
+in [the architecture and developer guides](doc/README.md). Scripts own the exact mechanics of
+quality gates and GitHub delivery.
 
 ## 1. Classify before editing
 
@@ -12,12 +12,12 @@ Choose the smallest path that covers the change:
 | Change | Path |
 | :--- | :--- |
 | Read-only review or diagnosis | Inspect and report; no branch or write is required. |
-| Solution configuration using registered capabilities and biz contracts (Pipeline JSON, necessary `.conf`, optional Demo Profiles) | Use `pipeline-composer`, Catalog, and Validator; no C++ and normally no RFC. |
-| Local bug, test, documentation, behavior-preserving refactor, or routine custom Node using existing contracts | Create a branch, implement, and add proportional tests; normally no RFC. |
-| Public contract, cross-layer architecture, compatibility/migration policy, new shared Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and RFC before implementation. |
+| Solution configuration using registered capabilities and biz contracts (Pipeline JSON, necessary `.conf`, optional Demo Profiles) | Use `pipeline-composer`, Catalog, and Validator; no C++ or separate design review normally needed. |
+| Local bug, test, documentation, behavior-preserving refactor, or routine custom Node using existing contracts | Create a branch, implement, and add proportional tests. |
+| Public contract, cross-layer architecture, compatibility/migration policy, new shared Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and settle the design before implementation. |
 
 If classification changes during investigation, pause only work crossing the newly discovered
-boundary, add the required RFC or route to the affected-layer guide, and resolve the decision
+boundary, record the design or route to the affected-layer guide, and resolve the decision
 before that work resumes. A route change alone is not completion of an implementation request.
 
 ## 2. Work on an isolated branch
@@ -28,55 +28,40 @@ into a dirty worktree.
 
 The branch itself is not evidence of quality; it provides isolation and a reviewable diff.
 
-## 3. Design only when the decision needs a durable record
+## 3. Design and current contracts
 
-An RFC is required when a change affects one or more of these boundaries:
+Design review is required when a change affects one or more of these boundaries:
 
-- public C ABI, Operator contract, persisted Pipeline schema, or compatibility behavior;
+- public SDK ABI, Operator contract, persisted Pipeline schema, or compatibility behavior;
 - dependencies between architectural layers or responsibilities shared across layers;
 - new framework-maintained common Node, Model capability, Backend, modality, shared port type, or major toolchain;
 - data ownership, lifetime, concurrency, security, or performance decisions that are difficult
   to reverse;
 - a migration or deprecation that downstream users must coordinate.
 
-An RFC is not required for a contained bug fix, test improvement, documentation correction,
-mechanical refactor, or Pipeline composition that reuses existing registered contracts. A routine
-custom Node also needs no RFC when it uses existing port types/model capabilities and preserves
-public contracts, layer boundaries and established ownership/concurrency rules. Its Definition,
-change description and focused behavior tests record the extension. Registration alone does not
-trigger an RFC; a new shared contract or one of the boundaries above still does. A small
-change may still use an RFC when the decision is contentious or has lasting operational cost.
+A contained bug fix, test improvement, documentation correction, mechanical refactor, or
+Pipeline composition using existing contracts needs no separate design document. A routine
+custom Node uses its Definition, change description and focused behavior tests when it
+preserves existing port types, model capabilities, public contracts, layer boundaries and
+ownership/concurrency rules. Registration alone does not trigger design review.
 
-Create RFCs from [RFC_TEMPLATE.md](doc/rfcs/RFC_TEMPLATE.md), add them to the index, and keep
-scope, invariants, decisions, and verification current while implementing.
+Record the problem, chosen design, affected contracts, important trade-offs, and acceptance
+criteria in the work description or PR before implementing a boundary change. For complex
+work, include independently verifiable stages and a rollback path. Keep this proportionate to
+the decision; a local task does not require opening a remote PR or obtaining new permission.
 
-### RFC lookup
+Maintain the resulting rules and necessary rationale in their current owning guide, alongside
+the implementation and contract tests. Do not create numbered proposal archives or duplicate
+the same rule across documents. Git and PR history retain the development discussion.
 
-RFCs are durable decision records, not default development context. Start routine work from
-current guides and affected code/tests. Do not pre-read the index or bulk-read RFC, review, or
-archive trees; exclude those trees from ordinary code searches unless the task needs them.
-A citation in a guide alone does not require opening an RFC.
+Start from the current guides and affected code/tests. Consult Git history only when the task
+needs a past decision or regression baseline. If current documentation, implementation and
+tests disagree, resolve whether this is a defect, stale documentation, or an authorized design
+change before altering the contract. An unfinished proposal is not an implemented feature.
 
-Read relevant RFC material for an explicit RFC task, implementation/review against its
-requirements, an architecture/contract/migration decision that needs its governing rationale
-or acceptance criteria, or unclear/conflicting intent in current sources. The creation
-thresholds above still apply; reading less never exempts a required new RFC.
-
-For a known number/path, locate that RFC directly. Search only matching index rows when its
-path, status, or supersession is unclear; otherwise skip the index. For an unknown RFC, search
-index titles/topics before RFC bodies. Read relevant headings/sections and expand only for
-necessary dependencies. Open the template to author an RFC, not as routine startup reading;
-open linked reviews only when their evidence is needed.
-
-For RFC implementation/review, cover every applicable requirement, invariant, migration step,
-stage checkpoint, and acceptance criterion before claiming completion. Selected snippets do
-not prove full coverage; read the whole relevant RFC when necessary. Pass delegated work
-specific paths/sections and decisions, not an entire history; expand for its actual scope.
-
-Check status, target baseline, and explicit supersession. `Completed` does not mean obsolete;
-`Proposed` does not mean implemented. Current docs/code/tests guide discovery, not silent
-overrides of an applicable approved contract. Surface conflicts and resolve whether they are
-bugs, stale documentation, or authorized design changes before crossing that boundary.
+Review every applicable requirement, invariant, migration step and acceptance criterion in
+the agreed design before claiming completion. Pass delegated work the relevant decisions and
+evidence, expanding context only as its scope requires.
 
 ## 4. Implement at the narrowest layer
 
@@ -127,7 +112,7 @@ Keep public ABI and vendor-defined names unchanged. Use `biz` for new internal b
 identifiers. Share model helpers under a common owner, not inside a consuming model's directory.
 
 A `biz_name` identifies an I/O contract; model size and Backend selection belong in deployment
-configuration and Profiles. Preserve historical RFCs and acceptance records when renaming code.
+configuration and Profiles. Update current documentation and examples when renaming code.
 
 ## 5. Update durable documentation proportionally
 
@@ -136,8 +121,10 @@ configuration and Profiles. Preserve historical RFCs and acceptance records when
   developer-tool changes; do not add entries for typo-only or internal mechanical changes.
 - Update README only when the current overview, capability maturity, quick start, or navigation
   changes.
-- Historical RFCs and acceptance reports record their original context; do not rewrite them to
-  mimic current architecture. Supersede them with a new RFC when a decision changes.
+- Keep current usage, contracts and verification limits in the working tree. Development
+  history belongs in Git and PR discussions; do not accumulate dated implementation reports.
+- Distinguish supported behavior from proposed work and unverified effects or deployment
+  environments. A passing default gate does not establish production readiness.
 
 ## 6. Run one canonical delivery gate
 
@@ -163,12 +150,10 @@ Documentation-only changes still run the canonical gate before PR because docume
 governance checks are registered in CTest. If the environment cannot run the gate, report the
 exact missing prerequisite and do not claim full verification.
 
-When an RFC's implementation and required focused/non-default checks are complete, prepare its
-`Completed` status and matching index row in the final diff submitted to the gate. Completion is
-confirmed only after the gate succeeds; on failure, restore `In Implementation` while correcting
-the remaining work. This keeps the RFC closeout in the verified changes. `Completed` means the
-scoped implementation and required verification are complete; GitHub merge state remains
-observable in Git rather than duplicated in RFC metadata.
+Complete the agreed scope, focused/non-default checks and current documentation before the
+final gate. Report exact results, skips and unverified requirements in the handoff or PR;
+completion is confirmed only after the required checks succeed. GitHub merge state remains
+observable in Git rather than duplicated in documentation metadata.
 
 ## 7. Deliver only with explicit authorization
 

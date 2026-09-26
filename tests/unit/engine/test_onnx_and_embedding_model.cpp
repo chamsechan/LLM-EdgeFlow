@@ -429,7 +429,7 @@ TEST_F(OnnxAndEmbeddingModelTest, ModelSidecarContainmentSecurity) {
   EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
   EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
 
-  // RFC 明确允许显式绝对路径。
+  // 模型路径允许使用显式绝对路径。
   context.model_config["tokenizer_file"] =
       (sibling_root / "vocab.txt").string();
   diag.clear();

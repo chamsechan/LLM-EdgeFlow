@@ -521,7 +521,7 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
   EXPECT_EQ(op.Destroy(handle), 0);
 }
 
-// 12. RFC-0053: Entity 失败样本在结构化校验失败时，先写 request_id，但 status
+// 12. Entity 失败样本在结构化校验失败时，先写 request_id，但 status
 // 与 entities_json 保留原调用者哨兵值
 TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   const auto* out_conv =

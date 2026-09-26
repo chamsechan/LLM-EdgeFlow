@@ -841,7 +841,7 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
   }
 }
 
-// RFC-0053 / RFC-0059: Cross-sample carrier error vs biz decode error priority
+// Cross-sample carrier error vs biz decode error priority
 TEST_F(AdapterContractSecurityTest,
        TranslationCrossSampleCarrierVsBizErrorPriority) {
   const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
@@ -892,7 +892,7 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(biz_status.FieldPath(), "json");
 }
 
-// RFC-0053 / RFC-0059: Return code and AdapterStatus independence
+// Return code and AdapterStatus independence
 TEST_F(AdapterContractSecurityTest,
        TranslationReturnCodeAndAdapterStatusIndependence) {
   const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
@@ -924,7 +924,7 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
-// RFC-0053 / RFC-0059: Translate serialization failure (invalid UTF-8) priority
+// Translate serialization failure (invalid UTF-8) priority
 // over capacity check
 TEST_F(AdapterContractSecurityTest,
        TranslationSerializationFailurePriorityOverCapacity) {
@@ -960,7 +960,7 @@ TEST_F(AdapterContractSecurityTest,
       std::exception);
 }
 
-// RFC-0053 / RFC-0059: Translate null AlgContext diagnostics
+// Translate null AlgContext diagnostics
 TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "translate.json.operator.v1");
