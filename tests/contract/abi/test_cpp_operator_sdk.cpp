@@ -1,6 +1,6 @@
 /**
  * @file test_cpp_operator_sdk.cpp
- * @brief Public C++ Operator SDK consumer test (RFC-0060).
+ * @brief Public C++ Operator SDK consumer test.
  *
  * This file verifies that an external C++ consumer can link against
  * llm_edgeflow::sdk using solely the public SDK headers, without any

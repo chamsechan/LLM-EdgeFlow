@@ -11,13 +11,13 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 解析后的单模型配置 (RFC 0015 解耦标准契约)
+ * @brief 解析后的单模型配置，独立声明 Model 与 Backend
  */
 struct ParsedModelConfig {
   std::string model_id;
   size_t source_index = 0;
 
-  // RFC 0015 解耦标准字段 (Model/Backend 方言)
+  // Model/Backend 配置字段
   std::string model_type;
   std::string backend;
   std::string model_path;

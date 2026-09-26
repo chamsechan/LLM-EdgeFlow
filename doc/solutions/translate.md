@@ -59,7 +59,7 @@ int ret = op.Process(handle, inputs, outputs);
 
 先按根 README 构建。权重为 `models/qwen2.5-0.5b-instruct-q4_k_m.gguf`，缺失时可沿用
 `./scripts/fetch_real_test_models.sh --gguf-only`；来源及校验以
-[资产清单](../../models/asset_manifest.json)为准。本次使用工作区已有权重。
+[资产清单](../../models/asset_manifest.json)为准。
 
 ```bash
 python3 demo/json_prompt_demo.py --input '{"version":"0.0.1","endpoint":"translate","query":"hello,what is your name","src_lan":"en"}'
@@ -97,9 +97,8 @@ flowchart LR
   直接将 `input_sentences` 原文传入模型，生成纯文本 `llm_answers`。翻译规则放在模型
   `system_prompt` 配置中，由现有 C++ Model 组装对话提示词。每条请求只调用一次文本
   生成，没有格式修复或二次推理；自回归生成内部仍逐 token 解码。无关字段不会进入模型。
-- [部署配置](../../configs/pipeline_translate_cpu.conf)选择既有 Qwen Model / llama.cpp
-  Backend；新增业务仅涉及 Integration 的注册与转换，Core、节点、模型实现和现有
-  实体业务语义保持不变。决策见 [RFC-0048](../rfcs/0048-translation-json-abi.md) 与 [RFC-0060](../rfcs/0060-cpp-operator-only.md)。
+- [部署配置](../../configs/pipeline_translate_cpu.conf)定位 Pipeline，Pipeline 中选择 Qwen Model / llama.cpp
+  Backend。翻译 JSON 的字段语义由 Integration 中的注册与转换实现。
 
 输入必须是 JSON 对象且 query 是字符串；非法输入在 SDK 内报错。空串可通过接入校验，
 但当前 Qwen Model 拒绝空原文并返回错误，不补造成功译文。
@@ -128,9 +127,8 @@ Operator 的 JSON 输出池在本配置中为 8191 字节。当前上下文为 2
 该测试不作为翻译质量证据。Python 测试验证完整对象转发和完整 SDK 响应转发；
 真实模型验证使用同一份生产 Pipeline，执行三条样例的 Operator Demo。
 
-真实请求返回 `ret=0`、`request_id=101`、`status_code=0`，
-响应如上。Demo 的请求 ID 30001–30003 状态均为 0，译文分别为“你好，你叫什么名字？”、
-“早上好。”和“谢谢！”。同句柄输入 `{"query":""}` 实测返回错误，没有有效成功响应。
+实际运行需检查 `ret`、每条响应的 `request_id` 和 `status_code`，并用业务数据核对译文。
+示例译文不代表其他权重或输入的效果；同句柄输入 `{"query":""}` 应返回错误而非成功响应。
 
 复用相同输入/输出契约的新提示词方案只需改配置；改变 SDK 字段契约时，按
 [业务接入指南](../dev_guide/business_onboarding.md)在 Integration 增加必要转换。

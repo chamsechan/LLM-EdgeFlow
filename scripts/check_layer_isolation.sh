@@ -409,7 +409,7 @@ if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
 
-# Rule 10: RFC-0015 LLM vendor/semantic boundary.
+# Rule 10: LLM vendor runtime and model semantic boundary.
 LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" \
   --exclude-dir=backends 2>/dev/null || true)

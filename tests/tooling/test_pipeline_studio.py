@@ -907,8 +907,8 @@ class PipelineCliTest(unittest.TestCase):
                     if endpoint[0] == "plan":
                         self.assertEqual(report["plan"], {"layers": [], "topological_order": []})
 
-    def test_rfc0062_cli_plan_envelopes_t16(self):
-        # T16 via CLI: plan returns envelope with diagnostics on deployment preparation failure,
+    def test_cli_plan_envelopes_across_entrypoints(self):
+        # Plan returns envelope with diagnostics on deployment preparation failure,
         # partial plan on Core failure, and full topological order on success, with CLI parity.
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
@@ -930,7 +930,7 @@ class PipelineCliTest(unittest.TestCase):
         # 2. Core failure with valid deployment
         invalid_core = copy.deepcopy(pipeline)
         invalid_core["pipeline"].append({
-            "id": "bad_node_t16",
+            "id": "bad_node",
             "node_type": "CompletelyUnknownNodeType",
             "depends_on": [],
         })
@@ -955,12 +955,12 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertNotIn("diagnostics", res)
                     self.assertTrue(res["plan"]["topological_order"])
 
-    def test_rfc0062_cli_plan_envelopes(self):
-        # Alias for backward compatibility
-        self.test_rfc0062_cli_plan_envelopes_t16()
+    def test_cli_plan_envelopes_repeat(self):
+        # Repeat the full CLI parity matrix.
+        self.test_cli_plan_envelopes_across_entrypoints()
 
-    def test_rfc0062_cli_validate_io_exact_pointer_without_regex(self):
-        # T19 via CLI: validate-io returns structured diagnostics with exact JSON pointer
+    def test_cli_validate_io_exact_diagnostic_pointer(self):
+        # validate-io returns structured diagnostics with the exact JSON pointer.
         conf_path = ROOT / "demo/fixtures/mock/pipeline_entity_extract.conf"
         conf = json.loads(conf_path.read_text())
         pipe_file = conf_path.with_name(conf["pipe_path"])
@@ -1032,8 +1032,8 @@ class PipelineCliTest(unittest.TestCase):
                     if ep[0] == "plan":
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
-    def test_rfc0062_cli_output_slot_allocations_t08(self):
-        # T08 via CLI: missing required slot, unknown slot, allocation configuration error, and invalid capacity
+    def test_cli_output_slot_allocation_errors(self):
+        # Reject removed type fields, unknown slots, invalid allocation shapes and capacities.
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
@@ -1073,8 +1073,8 @@ class PipelineCliTest(unittest.TestCase):
                     if ep[0] == "plan":
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
-    def test_rfc0062_cli_multiple_core_errors_with_deployment_t12(self):
-        # T12 via CLI: valid deployment, but Core has multiple Node errors.
+    def test_cli_multiple_core_errors_with_deployment(self):
+        # Valid deployment, but Core has multiple Node errors.
         # All diagnostics must be preserved in the response array across all CLI entrypoints.
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
@@ -1105,8 +1105,8 @@ class PipelineCliTest(unittest.TestCase):
                 if ep[0] == "plan":
                     self.assertIn("plan", res)
 
-    def test_rfc0062_cli_edit_invalid_deployment_t14(self):
-        # T14 via CLI: edit on invalid deployment with require_valid=false vs require_valid=true
+    def test_cli_edit_invalid_deployment_validation_policy(self):
+        # Edit invalid deployment with require_valid=false vs require_valid=true.
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
@@ -1116,7 +1116,7 @@ class PipelineCliTest(unittest.TestCase):
         op = {
             "kind": "add_node",
             "node_type": "TextTemplateNode",
-            "id": "draft_node_t14",
+            "id": "draft_node",
             "config": {"template": "{{input}}"},
         }
 
@@ -1132,7 +1132,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertTrue(res_false["ok"])
         self.assertIn("pipeline", res_false)
         draft_node_ids = [n["id"] for n in res_false["pipeline"]["pipeline"]]
-        self.assertIn("draft_node_t14", draft_node_ids)
+        self.assertIn("draft_node", draft_node_ids)
         self.assertIn("validation", res_false)
         self.assertFalse(res_false["validation"]["ok"])
         self.assertEqual(res_false["validation"]["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
@@ -1153,9 +1153,8 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(res_true["validation"]["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
 
 
-    def test_rfc0062_cli_exception_barriers(self):
-        # RFC §2.8: Outer exception barriers for validate, plan, validate-io, and resolve-conf
-        # output schema-compliant JSON error envelopes with code INTERNAL_EXCEPTION or DEPLOYMENT_CONFIG / IO_VALIDATION_ERROR.
+    def test_cli_file_failures_return_json_diagnostics(self):
+        # Missing files produce schema-compliant JSON diagnostics through CLI entrypoints.
         # 1. validate-io on non-existent config file
         code, res = self.command("validate-io", "nonexistent_config_file.conf")
         self.assertEqual(code, 1)
@@ -1796,9 +1795,9 @@ process.stdout.write(JSON.stringify(assetModel(asset, 'models')));
         self.assertEqual(selection.compare_samples(records, selection.read_json(spec))["status"], "failed")
 
 
-class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
+class AuthoringAndDeploymentTest(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="rfc0057-test-", dir=ROOT / "build")
+        self.temporary = tempfile.TemporaryDirectory(prefix="authoring-deployment-test-", dir=ROOT / "build")
         self.root = Path(self.temporary.name)
         self.configs = self.root / "configs"
         self.configs.mkdir(parents=True, exist_ok=True)

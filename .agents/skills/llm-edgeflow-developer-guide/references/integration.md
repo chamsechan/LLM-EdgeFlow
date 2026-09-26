@@ -19,7 +19,7 @@ or config-selected nested payloads, follow the
 Keep configuration reading in Create-time Integration. `OperatorConfigResolver` validates
 slot configurations, allocator and capacities. It is not a Pipeline Node and does not run per request.
 
-1. Public Operator contract or new modality changes meet the RFC threshold in
+1. Public Operator contract or new modality changes meet the design review criteria in
    `CONTRIBUTING.md`. Map the external contract, ownership, cardinality, batch bounds, and
    failure behavior before implementation.
 2. Operator public API lives in `include/edgeflow/operator/interface.h`; `types.h` forwards platform data structures. Platform mock interaction types live in `include/platform_mock/operator_types.h`, and payload structures in `operator_data_types.h`; see that directory's README for the distinction from real company headers.

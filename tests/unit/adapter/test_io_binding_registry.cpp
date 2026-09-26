@@ -290,7 +290,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 }
 
 TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
-  // 1. 合法 RFC-0061 Operator 定位配置 (仅包含 pipe_path)
+  // 1. 合法 Operator 定位配置 (仅包含 pipe_path)
   nlohmann::json valid_cfg = {{"pipe_path", "test.json"}};
 
   // 写入临时测试 pipeline 文件

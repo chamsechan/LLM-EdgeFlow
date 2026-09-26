@@ -25,9 +25,9 @@
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
 | [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |
 | [公共日志 API](logging.md) | C/C++ 日志接入、等级与 Demo 环境变量 |
-| [源码布局与命名](dev_guide/source_layout.md) | 公开、扩展和内部头文件边界，以及目录与名称迁移 |
+| [源码布局与命名](dev_guide/source_layout.md) | 公开、扩展和内部头文件边界，以及目录与命名约定 |
 | [kiteLLM 接入](kitellm.md) | 可选 Backend 的构建、部署示例与验证限制 |
-| [开发与交付流程](../CONTRIBUTING.md) · [测试指南](../tests/README.md) | 任务分级、RFC 阈值、验证与交付 |
+| [开发与交付流程](../CONTRIBUTING.md) · [测试指南](../tests/README.md) | 任务分级、设计审查、验证与交付 |
 
 架构图按用途区分：
 
@@ -42,20 +42,7 @@
 ./scripts/render_architecture_diagrams.sh --check
 ```
 
-## 规划、决策与历史
-
-| 需要了解什么 | 入口 |
-| --- | --- |
-| 尚待完成的开发者试用与生产验收 | [方案开发者验收计划](plans/solution_developer_acceptance.md) |
-| 上线前精简代码、兼容分支与重复测试 | [代码与测试精简实施计划（2026-09-15）](plans/prelaunch_simplification_2026-09-15.md) |
-| 查阅输入输出转换独立化的实施记录 | [输入输出转换独立化：详细设计与实施计划（2026-09-15）](plans/adapter_io_layout_design_2026-09-15.md)（已实施；双入口设计后由 [RFC-0060](rfcs/0060-cpp-operator-only.md) 取代） |
-| 降低方案编排心智负担的实施顺序与验收 | [RFC-0057：Pipeline 编排体验](rfcs/0057-pipeline-composition-experience.md)（In Implementation） |
-| 架构与接口为何这样设计 | [RFC 索引](rfcs/README.md)，优先列出进行中的 RFC |
-| 用户可感知的版本变化 | [Changelog](CHANGELOG.md) |
-| 特定 RFC 当时的验证证据 | [评审与验收归档](rfcs/reviews/README.md) |
-| 日期型审计、整改与已完成计划 | [历史报告归档](archive/README.md) |
-
-`dev_guide/` 维护操作步骤，架构和参考文档维护当前规则，`plans/` 包含计划及其实施记录，以各文件状态为准。
-历史 RFC 与报告按原始基线阅读；其中的命令、代码路径、测试数量和阶段待办不代表当前状态。
+`dev_guide/` 维护操作步骤，架构和参考文档维护当前规则；
+[模型、构建与效果验收](VERIFIABLE_SELECTION.md#验收范围与发布准备)说明已验证范围和实际部署需要的证据。
 文档维护遵循 [CONTRIBUTING](../CONTRIBUTING.md#5-update-durable-documentation-proportionally)，
 同一教程或规则在一个入口维护，其他位置链接引用。

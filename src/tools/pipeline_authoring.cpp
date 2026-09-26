@@ -997,7 +997,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     }
 
     if (IsAncestor(dep_id, node_id, dep_graph)) {
-      // Already an ancestor; do not add redundant edge (RFC-0057 Section 4.5)
+      // Already an ancestor; do not add a redundant edge.
       if (changes) {
         changes->push_back({"add_dependency",
                             node_id,
@@ -1080,7 +1080,7 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
       return result;
     }
 
-    // Check 4 MiB payload limit (RFC-0057 Section 4.4)
+    // Check the 4 MiB payload limit.
     if (request.dump().size() > 4 * 1024 * 1024) {
       result.ok = false;
       result.diagnostics.push_back(

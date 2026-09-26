@@ -1569,7 +1569,7 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
 };
 
 // ---------------------------------------------------------------------------
-// LLM Text Shortcut Spec Factory (RFC 0052 Section 4.4)
+// LLM Text Shortcut Spec Factory
 // ---------------------------------------------------------------------------
 
 struct LlmTextInputs {

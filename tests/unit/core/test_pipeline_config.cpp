@@ -682,7 +682,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       DiagnosticCode::kUnknownField, "/models/0/engine_type"});
 
-  // --- Model/Backend 方言及混用校验 (RFC 0015) ---
+  // --- Model/Backend 方言及混用校验 ---
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingModelType",
       nlohmann::json{
@@ -1335,7 +1335,7 @@ TEST_F(PipelineConfigTest, WorkerBudgetSelectsExecutionMode) {
   }
 }
 
-// 8. Model/Backend 单一方言解析正例测试 (RFC 0015 阶段 7)
+// 8. Model/Backend 单一方言解析正例测试
 TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
   nlohmann::json root = {
       {"biz_name", "model_backend_dialect_test"},

@@ -101,7 +101,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     if (it.key() != "pipe_path") {
       std::string escaped_key = EscapeJsonPointer(it.key());
       std::string msg = "Unknown field at /: '" + it.key() +
-                        "' (only 'pipe_path' is allowed under RFC-0061)";
+                        "' (only 'pipe_path' is allowed)";
       if (out_error) *out_error = msg;
       SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/" + escaped_key, msg);
       return false;

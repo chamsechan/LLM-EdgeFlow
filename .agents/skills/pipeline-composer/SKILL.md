@@ -8,7 +8,7 @@ description: Compose or adjust Pipeline JSON, deployment conf, and Demo Profiles
 Use the target build's runtime Catalog, Validator, and native Resolver for capabilities, ports,
 parameters, biz contracts, and deployment semantics. Do not maintain a parallel catalog or
 validation logic in this skill. Scope edits to the requested JSON, necessary `.conf`, and
-optional Profile; configuration-only work normally needs no RFC.
+optional Profile; configuration-only work normally needs no separate design review.
 
 Choose the applicable part of [the command reference](references/workflow.md): discover assets,
 create/clone a solution, validate changes, or run the intended configuration. Reuse current

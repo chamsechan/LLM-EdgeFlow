@@ -55,9 +55,10 @@ SOVERSION/ABI major 为 9。
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
-`cfg_file_name`。每份 `.conf` 只含非空相对 `pipe_path`；Pipeline 必须填写 `deployment.io.io_binding`，
+`cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果必须留在该配置文件的目录内；Pipeline 必须填写 `deployment.io.io_binding`，
 可按需配置 `deployment.io.out_mem`。模型路径只在 `models[].model_path` 中填写，
-相对路径以宿主传入的部署根为基准。业务身份由 binding 推导，根级 `biz_name` 不再接受。
+相对路径以宿主传入的部署根为基准。各路径的相对基准、存在性和目录边界见
+[配置路径](../configs/README.md#配置路径)。业务身份由 binding 推导。
 Demo 从 SDK 查询配置的业务身份后选择 runner；必需输出槽自动采用注册默认值。
 输出类型来自已注册的逻辑槽位，普通配置只覆盖分配方案、参数和容量；Resolver 按实际队列
 深度审计预算；转换器消费已解析的方案，不重复解析部署 JSON 或补默认值。
@@ -74,7 +75,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
 1. 当前环境的模拟平台枚举和数据结构放在 `platform_mock/operator_data_types.h` 与
-   `operator_types.h`，函数入口统一为 `edgeflow/operator/interface.h`。公开结构体变更必须先有 RFC。
+   `operator_types.h`，函数入口统一为 `edgeflow/operator/interface.h`。公开结构体变更须先完成
+   [契约设计评审](../CONTRIBUTING.md#3-design-and-current-contracts)。
 2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
    `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
@@ -167,6 +169,13 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 固定 Tensor 路径继续使用 `FixedBatchExecutor::Execute` 显式准备补齐批次；`ExecuteItems` 拒绝固定批策略。
 参考 Qwen 的 `GenerateOne` 和 VisionDocument 的逐项回调，无需为普通循环新增模型基类。
 
+固定批次的补齐内容由 Model 回调按 `BatchSlice::execution_count` 构造。执行器校验返回数量、
+剥离补齐项并恢复原始 `(req_id, sub_id)`；任一切片失败或抛异常，整批输出清空，不能暴露
+之前切片的部分结果。具体接口见 [`FixedBatchExecutor`](../include/engine/fixed_batch_executor.h)。
+Tensor 协议的共享 buffer 必须覆盖执行和结果解码的生命周期；Model 使用
+[`CreateHostTensor` 与类型化访问检查](../include/engine/tensor.h)，拒绝运行时未解析的负维度、
+字节数溢出、类型不匹配或存储字节数与形状不符。厂商内存及释放方式封装在 Backend 中。
+
 Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负责实际计算；
 TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的
 `model_config.normalize`，已有配置应将该选择移到消费节点。
@@ -209,6 +218,6 @@ Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，
 ## 5. 验证与交付
 
 开发中运行最小相关测试。本地交付运行 `./scripts/run_all_tests.sh`；已授权的 PR 交付
-由交付脚本执行同一门禁，无需预先单独运行。是否需要 RFC、
-Changelog、PR 或合并，以及对应授权边界，统一遵循
+由交付脚本执行同一门禁，无需预先单独运行。设计评审、现行契约与
+Changelog 更新、PR 或合并，以及对应授权边界，统一遵循
 [`CONTRIBUTING.md`](../CONTRIBUTING.md)，本指南不维护第二套流程。

@@ -1,8 +1,7 @@
 # kiteLLM 直接接入
 
 项目从私有 GitHub 仓库 `chamsechan/kiteLLM` 的固定 `v0.1.0` Release 下载平台包，
-直接包含 `kiteLLM.h` 并链接 `libkiteLLM.a`。不再需要 `kitellm_edgeflow_adapter.h`
-或另一个本地 kiteLLM 源码目录。
+直接包含 `kiteLLM.h` 并链接 `libkiteLLM.a`。
 
 ## 新环境构建
 
@@ -22,7 +21,7 @@ cmake --build build-kite -j8
 CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤将其注入为
 `GH_TOKEN`，无需交互登录。凭据必须能读取 `chamsechan/kiteLLM`；当前工程的默认
 `GITHUB_TOKEN` 不能代替该跨私有仓库授权。不要把 token 放在 CMake 参数、URL 或仓库文件中。
-新环境仍需网络和授权；GitHub 自动下载消除了对旧机器目录的依赖，不会绕过私有仓库权限。
+新环境需要网络和对应私有仓库的读取权限。
 
 轮换时在仓库 Settings → Secrets and variables → Actions 更新
 `KITELLM_GITHUB_TOKEN`。新建凭据只需选择 kiteLLM 仓库并授予 Contents 读取权限。
@@ -47,7 +46,7 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆�
 - kiteLLM 的静态归档内含 llama.cpp/ggml，版本与项目独立 llama_cpp 后端不同；
   两者互斥，依赖共享 llama.cpp/ggml 的 whisper.cpp 也不能同时启用。ONNX Runtime
   可同时启用。默认完整门禁仍验证默认后端组合，kiteLLM 使用独立构建目录专项验证。
-- Catalog 的后端名仍为 `kite_llm`，支持 `text_generation`、`image_text_generation` 和 `generated_token_embedding` 协议；模型名、端口及
+- Catalog 的后端名为 `kite_llm`，支持 `text_generation`、`image_text_generation` 和 `generated_token_embedding` 协议；模型名、端口及
   参数应查询对应构建的 Catalog。关闭时不注册该后端。
 - `model_path` 指向真实模型文件；可选 `backend_config.run_config_file` 是模型所在
   目录内的相对路径，由上游解析运行选项。设备 ID 通过原生
@@ -81,13 +80,9 @@ ctest --test-dir build-kite --output-on-failure -j8
 已有实体抽取、文档问答等配置中的 `llama_cpp` 不会自动变成 Kite。切换时应使用
 `qwen_causal_lm` + `kite_llm`，将原来的 llama.cpp `backend_config` 替换为 `{}` 或
 `{"run_config_file":"run.json"}`，并保持真实模型路径正确。`random_seed` 使用 -1。
-既有文档问答配置的 Embedding/Rerank 使用 ONNX；新增生成向量配置可将 Embedding 交给 Kite；
+文档问答配置的 Embedding/Rerank 使用 ONNX；生成向量配置可将 Embedding 交给 Kite；
 图像文档识别通过下述视觉协议接入。`kite_llm` 不提供音频转写协议；真实 ASR 使用独立构建中的
 `whisper_asr` + `whisper_cpp`，见[模型准备](../models/README.md)。
-
-依赖设计见 [RFC-0032](rfcs/0032-kitellm-direct-github-dependency.md)；设备契约的修正与
-验收见 [RFC-0033](rfcs/0033-kitellm-native-device-contract.md)。RFC-0026/0032 中的
-run-config 独占设备约定是历史本地政策，已由 RFC-0033 替代。
 
 ## Kite 部署示例套件
 
@@ -99,9 +94,9 @@ run-config 独占设备约定是历史本地政策，已由 RFC-0033 替代。
 ```
 
 `--profiles-file` 是通用部署配置入口；省略时保持原有 demo/profiles.json 和默认套件。
-新套件包含实体抽取、问答、带精排问答、审核、图像文档问答，以及复用的关键词匹配与
+该套件包含实体抽取、问答、带精排问答、审核、图像文档问答，以及复用的关键词匹配与
 ONNX 精排，以及 `doc_qa_kite_embeddings` 纯 Kite 问答。纯文本 LLM 使用 Kite；
-原有混合配置的 Embedding/Rerank 使用 ONNX。所有新增结构化
+混合配置的 Embedding/Rerank 使用 ONNX。所有结构化
 解析配置均使用 fail 策略，不通过 JSON fallback 掩盖模型生成错误。
 
 ### 生成模型向量与纯 Kite 问答
@@ -131,7 +126,7 @@ prefix/suffix、last/mean 池化和请求级 L2 归一化。Backend 负责 greed
 
 现有 BGE ONNX 模型仍要求 `tensor_graph`，不能仅把 backend 名改为 Kite。后续如果
 Kite 提供 encoder/prefill 向量能力，应在模型执行层增加符合实际输出语义的协议/Model，
-保持 Node、Pipeline 和 Operator 使用能力接口。见 [RFC-0035](rfcs/0035-generated-token-embedding.md)。
+保持 Node、Pipeline 和 Operator 使用能力接口。
 
 ### 图像文档识别
 
@@ -161,5 +156,5 @@ LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 \
 
 视觉测试验证真实红色图像的推理结果、错误图像和投影配置；模型单测验证补边、RGB
 排列、尺寸限制、请求溯源和失败回滚。Demo 测试运行上述独立部署套件。未设置真实
-模型环境变量的跳过不算真实能力验收。设计与验收见
-[RFC-0034](rfcs/0034-kitellm-capability-coverage.md)。
+模型环境变量的跳过不算真实能力验收。具体业务与设备的验收要求见
+[模型、构建与效果验收](VERIFIABLE_SELECTION.md#验收范围与发布准备)。

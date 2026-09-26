@@ -8,7 +8,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 部署配置中的 I/O 接入定义 (RFC-0061)
+ * @brief 部署配置中的 I/O 接入定义
  */
 struct DeploymentIoSection {
   std::string io_binding;
@@ -23,7 +23,7 @@ struct DeploymentSection {
 };
 
 /**
- * @brief Pipeline 文档拆分结果 (RFC-0061)
+ * @brief Pipeline 文档拆分结果
  */
 struct PipelineDocumentSplit {
   DeploymentSection deployment;

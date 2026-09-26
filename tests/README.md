@@ -8,7 +8,7 @@ Test paths describe ownership; CTest labels describe when and where a test runs.
 - `tooling/` covers developer-facing CLI or Studio behavior.
 - `e2e/` contains opt-in physical model and hardware scenarios.
 - `support/` contains test-only helpers that do not register production capabilities.
-- `fixtures/` contains stable test data grouped by purpose rather than RFC stage.
+- `fixtures/` contains stable test data grouped by purpose.
 
 The four adapter parsing examples live in `support/adapter_examples/` and are compiled by
 `AdapterContractSecurityTest`. Their example DTOs and keys do not register production businesses.

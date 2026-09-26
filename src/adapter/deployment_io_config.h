@@ -8,7 +8,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 部署配置文件解析结构 (RFC-0061: 仅包含启动定位字段 pipe_path)
+ * @brief 部署配置文件解析结构，仅包含启动定位字段 pipe_path
  */
 struct DeploymentIoConfig {
   std::string pipe_path;

@@ -15,7 +15,7 @@
 | 能力节点层 | Capability Nodes | `include/nodes/`、`src/common_nodes/`、`src/custom_nodes/` | `edgeflow_capability_nodes_objects` |
 | 模型执行层 | Model Execution | `include/engine/`、`src/engine/` | `edgeflow_model_execution_objects` |
 
-文档、工具诊断和构建目标使用上述职责名称。旧资料中的 Layer 1–4 按表格顺序对应这四层；编号仅用于阅读历史记录。源码目录继续按 Adapter、Core、Nodes、Engine 等组件组织。
+文档、工具诊断和构建目标使用上述职责名称。源码目录按 Adapter、Core、Nodes、Engine 等组件组织。
 
 下图展示组件职责与调用关系；编译依赖由下文的构建边界约束。`include/core/` 中的中性运行时契约通过独立的 `edgeflow_runtime_contracts` 提供给实现层，不能将目录名称直接等同于完整编译依赖。
 
@@ -154,8 +154,8 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ```
 
 - 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
-- 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。
-- C++ Operator API 根据 Key 的最后一个点号解析槽位后缀：`OperatorValueTypeRegistry` 负责“后缀到外部 C++ 类型”的唯一绑定；`IoBindingRegistry` 负责按业务和方向将外部命名槽位映射到内部 Pipeline 逻辑端口。
+- 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[输出容量与生命周期](dev_guide/business_onboarding.md#6-输出容量与生命周期)。
+- C++ Operator API 根据 Key 的最后一个点号解析外部槽位的 `key_suffix`；槽位的 `type_suffix` 再选择 `OperatorValueTypeRegistry` 中的外部 C++ 类型。不同槽位后缀可以复用同一类型。`IoBindingRegistry` 负责将转换器的逻辑端口映射到内部 Pipeline 端口，具体区别见[输出分配方案](dev_guide/operator_output_allocation.md)。
 - 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
@@ -219,7 +219,8 @@ Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填�
 生成向量接入遵循相同分层：`generated_text_embedding` 实现 `IEmbeddingModel`，
 经 `IGeneratedTokenEmbeddingSession` 获得生成 token 隐藏向量；Model 独占 prompt、
 池化及归一化语义，Backend 独占原生任务和输出内存。该向量空间与 BGE encoder
-不同，既有 ONNX 模型和配置保持可用，见 [RFC-0035](rfcs/0035-generated-token-embedding.md)。
+不同，更换模型或池化参数后需重建索引并重新评估检索质量，见
+[生成模型向量的使用与限制](kitellm.md#生成模型向量与纯-kite-问答)。
 
 ### 编译期边界与 Composition Root
 

@@ -1255,7 +1255,7 @@ TEST_F(TraceableBatchOperationsTest,
 }
 
 // ============================================================================
-// 7. Functional Integration & Additional RFC-0055 Assertions
+// 7. Functional Integration & Provenance Assertions
 // ============================================================================
 
 struct DirectSubBatchInputs {

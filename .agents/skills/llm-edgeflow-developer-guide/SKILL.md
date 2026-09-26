@@ -6,9 +6,10 @@ description: Implement or fix LLM-EdgeFlow C++/Demo behavior in Adapter, Core, N
 # LLM-EdgeFlow Developer Guide
 
 Read the affected layer below, not the entire reference set. `AGENTS.md` owns shared constraints
-and roles; [CONTRIBUTING.md](../../../CONTRIBUTING.md) owns RFC thresholds, local iteration,
-phase acceptance, verification, and delivery. Follow its [RFC lookup](../../../CONTRIBUTING.md#rfc-lookup)
-policy for conditional reading; RFC citations in layer guides are not prerequisites.
+and roles; [CONTRIBUTING.md](../../../CONTRIBUTING.md) owns design review criteria, local iteration,
+phase acceptance, verification, and delivery. Follow its
+[design and current-contract policy](../../../CONTRIBUTING.md#3-design-and-current-contracts);
+start with current guides and affected code/tests.
 
 | Affected behavior | Read |
 | :--- | :--- |

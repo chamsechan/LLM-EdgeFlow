@@ -59,12 +59,12 @@ def main():
     (work / "current_starter.cpp").write_text(current.replace("StarterLlmNode", "ProbeStarterLlmNode"))
     run(["cmake", "-S", str(work), "-B", str(build), "-DEDGEFLOW_SOURCE=" + str(root),
          "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"])
-    run(["cmake", "--build", str(build), "--target", "rfc52_probe", "-j8"])
+    run(["cmake", "--build", str(build), "--target", "node_authoring_probe", "-j8"])
     modes = ("old_map", "new_map", "old_llm", "new_llm", "new_batch", "new_batch_inplace")
     results = []
     for repeat in range(5):
         for mode in modes:
-            output = run([str(build / "rfc52_probe"), mode, str(args.iterations)], capture_output=True)
+            output = run([str(build / "node_authoring_probe"), mode, str(args.iterations)], capture_output=True)
             row = json.loads(output.stdout.strip().splitlines()[-1])
             results.append(dict(row, repeat=repeat + 1))
     (work / "results.json").write_text(json.dumps(results, indent=2) + "\n")

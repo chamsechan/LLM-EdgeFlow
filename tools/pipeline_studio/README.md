@@ -129,8 +129,8 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 及槽位名称。Pipeline 只通过 `deployment.io.io_binding` 选择外部 I/O 契约；
 Demo 从 SDK 解析结果选择运行函数，Profile 仅保存配置、数据集和运行选项。
 Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` 和有效
-`key_suffix`，分别表示逻辑槽、宿主类型、类型注册后缀和外部键后缀。旧工具缺少的字段
-显示为“未提供”，重新构建 `alg_pipeline_tool` 后可查看完整信息。详情中的内部端口
+`key_suffix`，分别表示逻辑槽、宿主类型、类型注册后缀和外部键后缀。工具未提供的字段
+显示为“未提供”；应使用与工作区匹配的 `alg_pipeline_tool`。详情中的内部端口
 与槽位类型不代表外部 JSON 载荷协议，完整请求响应仍以对应 Converter 契约为准。
 
 ## 自动化 CLI
@@ -143,8 +143,25 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 ```
 
 可将版本化编辑请求交给 `alg_pipeline_tool edit --stdin`，返回候选 Pipeline、变更和校验报告；
-单次最多 128 个动作、4 MiB，`require_valid: true` 要求最终候选合法。具体请求见
-[RFC-0071 的简化契约](../../doc/rfcs/0071-pipeline-configuration-simplicity.md)。
+请求包含整数 `schema_version: 1`、完整 Pipeline 文档 `pipeline`，以及互斥的单动作对象
+`operation` 或非空动作数组 `operations`。可选布尔字段 `require_valid` 默认为 `false`；
+设为 `true` 时要求最终候选合法。单次最多 128 个动作、4 MiB。
+
+| 动作 `kind` | 字段 |
+| --- | --- |
+| `add_node` | 必需 `node_type`；可选 `id` 和对象 `config`，省略 `id` 时分配唯一 ID |
+| `remove_node` | `node_id` |
+| `rename_node` | `node_id`、`new_id` |
+| `connect` / `disconnect` | `source`、`target`，均为包含 `node_id` 和 `port` 的对象 |
+| `add_dependency` / `remove_dependency` | `node_id`、`depends_on_id` |
+
+字段中的名称和 ID 必须是非空字符串，未知字段或动作会被拒绝。连线来源的 `node_id` 为
+节点实例 ID 或业务输入 `$ingress`，目标为节点实例 ID 或业务输出 `$egress`；`port` 为对应端口名。
+批量动作依次作用于同一份候选，最后执行一次校验。动作失败或严格校验失败不返回候选；
+动作失败时 `failed_operation_index` 给出从 0 开始的位置。允许不完整草稿时，响应的 `ok: true`
+仅表示编辑成功，仍需检查 `validation.ok`。命令只输出 JSON，不写配置文件。
+请求和响应实现见 [PipelineAuthoring](../../src/tools/pipeline_authoring.h)。
+
 工具支持新增、删除、重命名节点、连接、断开和单独增删执行依赖。无需补数据依赖，输入也没有
 隐式同名绑定。外部文档必须指定 `deployment.io.io_binding`，在 `validate`、`plan`、`edit` 中统一执行部署准备：
 模型路径仅保存在 `models[].model_path`，必须为合法非空字符串；
@@ -227,7 +244,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 选项。需要自定义时修改 Profile，或通过 `--profiles-file <path> --profile <name>` 选择自有
 Profile；未指定时默认值分别为 `cpu`、`0`、`1`、`1`。无 Profile 的命令按单条提交。
 平台名只接受 `ax650`、`ascend310p`、`ascend910b`、`rk3588`、`cuda`、`cpu`
-（大小写不敏感）；旧别名如 `cpu_generic`、`nvidia_gpu` 已删除。
+（大小写不敏感）。
 Studio 将这四项连同配置和数据集写入运行 Profile；保存方案返回的命令引用输出目录
 中的 `demo-profile.json`；每次保存更新该文件，复制的命令读取最新运行配置。
 Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算。
