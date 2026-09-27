@@ -180,6 +180,11 @@ target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
 
+if(LLM_EDGEFLOW_HAS_WHISPERCPP)
+  target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_WHISPERCPP=1)
+  target_compile_definitions(edgeflow_test_tooling_runner PRIVATE HAVE_WHISPERCPP=1)
+endif()
+
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   foreach(target
       edgeflow_test_core_runner
@@ -251,7 +256,7 @@ edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
   "DefinitionSchemaValidationTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
-  "ModelBackendDecouplingTest.*" "${_edgeflow_tier1};kite")
+  "ModelBackendDecouplingTest.*:ModelConfigValidationTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
   "ModelBackendPipelineTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner

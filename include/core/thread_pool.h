@@ -21,24 +21,32 @@ class ThreadPool {
  public:
   explicit ThreadPool(size_t threads = 4) : stop_(false) {
     if (threads == 0) threads = 1;
-    for (size_t i = 0; i < threads; ++i) {
-      workers_.emplace_back([this]() {
-        while (true) {
-          std::function<void()> task;
-          {
-            std::unique_lock<std::mutex> lock(this->queue_mutex_);
-            this->cv_.wait(lock, [this]() {
-              return this->stop_ || !this->tasks_.empty();
-            });
-            if (this->stop_ && this->tasks_.empty()) {
-              return;
+    try {
+      workers_.reserve(threads);
+      for (size_t i = 0; i < threads; ++i) {
+        workers_.emplace_back([this]() {
+          while (true) {
+            std::function<void()> task;
+            {
+              std::unique_lock<std::mutex> lock(this->queue_mutex_);
+              this->cv_.wait(lock, [this]() {
+                return this->stop_ || !this->tasks_.empty();
+              });
+              if (this->stop_ && this->tasks_.empty()) {
+                return;
+              }
+              task = std::move(this->tasks_.front());
+              this->tasks_.pop();
             }
-            task = std::move(this->tasks_.front());
-            this->tasks_.pop();
+            task();
           }
-          task();
-        }
-      });
+        });
+      }
+    } catch (...) {
+      // A failed constructor never runs ~ThreadPool. Join any workers before
+      // their queue, mutex and condition variable are destroyed.
+      StopAndJoin();
+      throw;
     }
   }
 
@@ -62,7 +70,10 @@ class ThreadPool {
     return res;
   }
 
-  ~ThreadPool() {
+  ~ThreadPool() { StopAndJoin(); }
+
+ private:
+  void StopAndJoin() {
     {
       std::unique_lock<std::mutex> lock(queue_mutex_);
       stop_ = true;
@@ -75,7 +86,6 @@ class ThreadPool {
     }
   }
 
- private:
   std::vector<std::thread> workers_;
   std::queue<std::function<void()>> tasks_;
   std::mutex queue_mutex_;

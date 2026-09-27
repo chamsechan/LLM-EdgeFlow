@@ -73,6 +73,9 @@ option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)
   add_executable(test_real_models_e2e
     ${EDGEFLOW_SOURCE_test_real_models_e2e})
+  if(LLM_EDGEFLOW_HAS_WHISPERCPP)
+    target_compile_definitions(test_real_models_e2e PRIVATE HAVE_WHISPERCPP=1)
+  endif()
   target_compile_definitions(test_real_models_e2e PRIVATE
     LLM_EDGEFLOW_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
   target_link_libraries(test_real_models_e2e PRIVATE

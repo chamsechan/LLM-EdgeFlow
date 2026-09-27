@@ -24,13 +24,15 @@ description: Build LLM-EdgeFlow solutions that transform a field from a complete
 1. 按 `pipeline-composer` 查询目标构建的 Catalog 和 `describe-node`，核对实际端口、
    模型和现有契约。不要从 prose 推断资源或为新提示词添加专用 LLM 节点。
 2. 外部 JSON 字段契约不变时，增加或克隆 Pipeline、必要 `.conf` 和样例即可。
-   改变输入/输出字段契约时，按 `llm-edgeflow-developer-guide` 的 Integration 路径，
+   改变输入/输出字段契约时，按 [Adapter skill](../edgeflow-adapter-developer/SKILL.md)，
    在注册 Converter 内提取输入字段并序列化输出。Demo 只转换载体，不承担该业务语义。
 3. 优先复用已有 Operator 结构、ValueType、结果打包和运行器；有合适载体时无需再建
    平台类型。不同业务可以复用载体，同时注册自己的契约，保持旧业务语义。
    遵循业务接入指南中的注册完整性要求。
 4. 按 `CONTRIBUTING.md` 判断设计审查要求；追加新业务类型需记录接口决定并更新
-   现行契约文档，普通配置不需额外审批。算法能力缺失时才考虑 custom Node，不把平台转换放进 Core 或 Nodes。
+   现行契约文档，普通配置不需额外审批。算法能力缺失时才考虑 custom Node；简单文本前后处理
+   用 [LLM Node skill](../edgeflow-node-llm-developer/SKILL.md)，复杂数据关系用
+   [Batch Node skill](../edgeflow-node-batch-developer/SKILL.md)。不把平台转换放进 Core 或 Nodes。
 
 当前翻译参照 `doc/solutions/translate.md`、`src/adapter/biz/translate_bindings.cpp` 和
 `configs/pipeline_translate_cpu.json`。其 `translate_v1` 复用既有文本/JSON 载体、一个

@@ -14,12 +14,41 @@
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
+#include "core/thread_pool.h"
 #include "dev_support/inference/test_biz_models.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "tests/support/pipeline_test_utils.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
+
+TEST(PipelineTest, ThreadPoolConstructionFailureCleansUpAndAllowsRetry) {
+  bool completed = false;
+  for (std::ptrdiff_t fail_after = 0; fail_after < 64; ++fail_after) {
+    bool threw = false;
+    bool triggered = false;
+    {
+      test_support::ScopedAllocationFailure failure(fail_after);
+      try {
+        ThreadPool pool(4);
+      } catch (const std::bad_alloc&) {
+        threw = true;
+      }
+      triggered = failure.Triggered();
+      failure.DisableFailure();
+    }
+    EXPECT_EQ(threw, triggered) << "allocation position " << fail_after;
+    // A new pool must still execute work after every failed construction.
+    ThreadPool recovered(2);
+    EXPECT_EQ(recovered.Submit([] { return 42; }).get(), 42);
+    if (!triggered) {
+      completed = true;
+      break;
+    }
+  }
+  EXPECT_TRUE(completed);
+}
 
 // 1. 测试 AlgContext 黑板基础功能与类型安全
 TEST(AlgContextTest, BasicAndTypeSafety) {

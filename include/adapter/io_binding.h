@@ -20,6 +20,7 @@ struct IoBindingDefinition {
       input_ports;  // logical_name -> blackboard_key
   std::unordered_map<std::string, std::string>
       output_ports;  // logical_name -> blackboard_key
+  // Zero inherits converter/exposure limits; a nonzero value adds a bound.
   size_t max_batch_size = 0;
 };
 

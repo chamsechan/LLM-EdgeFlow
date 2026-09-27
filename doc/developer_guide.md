@@ -108,6 +108,7 @@ Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回�
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
 配置中的必需输入必须显式绑定，可选输入省略即未连接；输出省略映射时沿用逻辑端口名。
 Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64，默认 1。
+线程池创建失败时先停止并回收已创建的线程，再将异常交给 Pipeline 的失败诊断路径。
 
 ---
 
@@ -132,6 +133,8 @@ typed port 契约时才新增 Node。Node 必须：
 
 熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
+组合 LLM 采样参数时可复用 [`GenerateOptionsFields` / `ParseGenerateOptions`](../include/nodes/generate_options_config.h)，
+显式指定该节点的 `max_tokens` 默认值，其余字段约束与解析共用同一实现。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，沿用现有
 `MakeBatchSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；仅在存在
@@ -160,6 +163,12 @@ Node 不依赖自定义实现。编写、构建和复用步骤见
 Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议；Backend 实现
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
+
+Model 的字段类型、默认值和范围由 `config_fields` 声明；字段之间或文本内容的额外规则
+放在可选的 `ModelDefinition::validate_config` 中。Validator 与 ModelRuntimeFactory
+均先完成字段校验和默认值补齐，再调用此纯函数；失败时不创建 Backend 或加载模型。
+该函数只检查配置，不读文件或创建会话。直接 Model 创建入口应复用相同语义检查；
+依赖真实会话、模型资源或 Tensor 形状的检查继续留在创建阶段。
 
 逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
 `TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，

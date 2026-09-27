@@ -166,6 +166,12 @@ endfunction()
 
 edgeflow_add_runtime_object_target(edgeflow_model_execution_objects
     edgeflow_model_execution_dependencies)
+# Vendor compilation stays inside the Backend implementations, including
+# headers and definitions carried by imported runtime targets.
+edgeflow_add_runtime_object_target(edgeflow_model_execution_backends_objects
+    edgeflow_model_execution_dependencies)
+target_include_directories(edgeflow_model_execution_backends_objects PRIVATE
+    "${edgeflow_model_execution_include_dir}")
 edgeflow_add_runtime_object_target(edgeflow_capability_nodes_objects
     edgeflow_capability_nodes_dependencies)
 edgeflow_add_runtime_object_target(edgeflow_orchestration_objects
@@ -193,40 +199,47 @@ target_compile_definitions(edgeflow_runtime_objects INTERFACE
     COMPANY_ALG_STATIC_LINK=1)
 
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
-  target_include_directories(edgeflow_model_execution_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_model_execution_backends_objects SYSTEM PRIVATE
       "${ONNXRUNTIME_INCLUDE_DIR}")
-  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_backends_objects PRIVATE
       HAVE_ONNXRUNTIME=1)
-  target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
-      "${ONNXRUNTIME_LIB}")
+  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+      "$<LINK_ONLY:${ONNXRUNTIME_LIB}>")
 endif()
 if(LLM_EDGEFLOW_HAS_KITELLM)
-  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_backends_objects PRIVATE
       HAVE_KITELLM=1)
-  target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
+  target_link_libraries(edgeflow_model_execution_backends_objects PRIVATE
       kiteLLM::kiteLLM)
+  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+      "$<LINK_ONLY:kiteLLM::kiteLLM>")
 endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
-  target_include_directories(edgeflow_model_execution_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_model_execution_backends_objects SYSTEM PRIVATE
       ${LLAMACPP_INCLUDE_DIRS})
-  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_backends_objects PRIVATE
       HAVE_LLAMACPP=1)
 endif()
 if(LLM_EDGEFLOW_HAS_WHISPERCPP)
-  target_include_directories(edgeflow_model_execution_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_model_execution_backends_objects SYSTEM PRIVATE
       ${WHISPERCPP_INCLUDE_DIRS})
-  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_backends_objects PRIVATE
       HAVE_WHISPERCPP=1)
 endif()
 if(THIRD_PARTY_ENGINE_LIBS)
-  target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
+  target_link_libraries(edgeflow_model_execution_backends_objects PRIVATE
       ${THIRD_PARTY_ENGINE_LIBS})
+  foreach(runtime_library IN LISTS THIRD_PARTY_ENGINE_LIBS)
+    target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+        "$<LINK_ONLY:${runtime_library}>")
+  endforeach()
 endif()
 
 add_subdirectory(src)
 
 target_sources(edgeflow_runtime_objects INTERFACE
     $<TARGET_OBJECTS:edgeflow_model_execution_objects>
+    $<TARGET_OBJECTS:edgeflow_model_execution_backends_objects>
     $<TARGET_OBJECTS:edgeflow_capability_nodes_objects>
     $<TARGET_OBJECTS:edgeflow_orchestration_objects>
     $<TARGET_OBJECTS:edgeflow_integration_objects>
@@ -235,6 +248,7 @@ target_sources(edgeflow_runtime_objects INTERFACE
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED
     $<TARGET_OBJECTS:edgeflow_model_execution_objects>
+    $<TARGET_OBJECTS:edgeflow_model_execution_backends_objects>
     $<TARGET_OBJECTS:edgeflow_capability_nodes_objects>
     $<TARGET_OBJECTS:edgeflow_orchestration_objects>
     $<TARGET_OBJECTS:edgeflow_integration_objects>

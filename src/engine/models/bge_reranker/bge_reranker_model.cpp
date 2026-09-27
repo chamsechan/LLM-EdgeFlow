@@ -57,17 +57,13 @@ BgeRerankerModel::BgeRerankerModel(std::shared_ptr<ITensorGraphSession> session,
 
 std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
                                                  std::string* diagnostic) {
+  if (!ValidateBertModelConfig(ctx.model_config, diagnostic)) return nullptr;
   auto tensor_session =
       RequireTensorGraphSession(ctx.backend_session, diagnostic);
   if (!tensor_session) return nullptr;
 
   std::string tokenizer_file =
       ctx.model_config.value("tokenizer_file", "vocab.txt");
-  if (tokenizer_file.empty()) {
-    if (diagnostic) *diagnostic = "Field 'tokenizer_file' cannot be empty";
-    return nullptr;
-  }
-
   bool do_lower_case = ctx.model_config.value("do_lower_case", true);
   size_t max_length = ctx.model_config.value("max_length", 512);
   if (max_length < 3 || max_length > 4096) {
@@ -79,11 +75,6 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
   }
 
   std::string output_name = ctx.model_config.value("output_name", "logits");
-  if (output_name.empty()) {
-    if (diagnostic) *diagnostic = "Field 'output_name' cannot be empty";
-    return nullptr;
-  }
-
   std::string score_activation =
       ctx.model_config.value("score_activation", "sigmoid");
   if (score_activation != "sigmoid" && score_activation != "identity") {
@@ -384,6 +375,7 @@ static const ModelDefinition kBgeRerankerModelDefinition = [] {
        {},
        "一次模型执行处理的查询与候选对数量上限；必须满足 Backend 的批次约束。"},
   };
+  def.validate_config = ValidateBertModelConfig;
   return def;
 }();
 

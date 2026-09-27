@@ -10,6 +10,9 @@ function(check_header layer header allowed)
   foreach(directory IN LISTS ${layer}_includes)
     list(APPEND include_flags "-I${directory}")
   endforeach()
+  foreach(definition IN LISTS ${layer}_definitions)
+    list(APPEND include_flags "-D${definition}")
+  endforeach()
   execute_process(COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C
       "${layer_cxx}" -std=c++17 -fsyntax-only
       ${layer_cxx_flags}
@@ -29,6 +32,28 @@ function(check_header layer header allowed)
     endif()
   endif()
 endfunction()
+
+# Imported runtime targets must not bring their compile usage requirements
+# back through final linking, including into Models and the composition root.
+foreach(layer model_execution capability_nodes orchestration integration composition alg_sdk alg_pipeline_tool)
+  foreach(header onnxruntime_cxx_api.h llama.h whisper.h kiteLLM.h)
+    check_header(${layer} ${header} FALSE)
+  endforeach()
+  foreach(definition IN LISTS ${layer}_definitions)
+    if(definition MATCHES "^HAVE_(ONNXRUNTIME|LLAMACPP|WHISPERCPP|KITELLM)(=|$)")
+      message(FATAL_ERROR "${layer} inherits vendor definition ${definition}")
+    endif()
+  endforeach()
+endforeach()
+foreach(pair "ONNXRUNTIME:onnxruntime_cxx_api.h" "LLAMACPP:llama.h" "WHISPERCPP:whisper.h" "KITELLM:kiteLLM.h")
+  string(REPLACE ":" ";" parts "${pair}")
+  list(GET parts 0 vendor)
+  list(GET parts 1 header)
+  list(FIND model_execution_backends_definitions "HAVE_${vendor}=1" enabled)
+  if(NOT enabled EQUAL -1)
+    check_header(model_execution_backends ${header} TRUE)
+  endif()
+endforeach()
 
 check_header(model_execution engine/model_interface.h TRUE)
 check_header(model_execution engine/models/bge_common/bert_wordpiece_tokenizer.h TRUE)

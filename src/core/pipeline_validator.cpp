@@ -941,13 +941,31 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
       nlohmann::json normalized_mcfg = nlohmann::json::object();
       std::vector<ValidationDiagnostic> mcfg_diags;
-      ValidateAndNormalizeConfig(
+      const bool model_fields_valid = ValidateAndNormalizeConfig(
           model_def_opt->config_fields, model.model_config, &normalized_mcfg,
           &mcfg_diags,
           "/models/" + std::to_string(model.source_index) + "/model_config",
           DiagnosticCode::kUnknownModelConfigField);
       for (auto& d : mcfg_diags) {
         report.diagnostics.push_back(std::move(d));
+      }
+
+      if (model_fields_valid && model_def_opt->validate_config) {
+        const std::string path =
+            "/models/" + std::to_string(model.source_index) + "/model_config";
+        std::string diagnostic;
+        try {
+          if (!model_def_opt->validate_config(normalized_mcfg, &diagnostic)) {
+            Add(&report, DiagnosticCode::kInvalidCombination, path,
+                diagnostic.empty() ? "Invalid model configuration"
+                                   : diagnostic);
+          }
+        } catch (const std::exception& e) {
+          Add(&report, DiagnosticCode::kInvalidCombination, path, e.what());
+        } catch (...) {
+          Add(&report, DiagnosticCode::kInvalidCombination, path,
+              "Model configuration validator threw an unknown exception");
+        }
       }
 
       nlohmann::json normalized_bcfg = nlohmann::json::object();

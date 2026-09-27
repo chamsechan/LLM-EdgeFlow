@@ -86,9 +86,17 @@ function(edgeflow_generate_layer_compile_manifest)
   string(APPEND content "set(layer_source_dir [==[${PROJECT_SOURCE_DIR}]==])\n")
   string(APPEND content "set(layer_generator [==[${CMAKE_GENERATOR}]==])\n")
   string(APPEND content "set(layer_test_root [==[${PROJECT_BINARY_DIR}/layer_compile_checks/$<CONFIG>]==])\n")
-  foreach(layer model_execution capability_nodes orchestration integration)
+  foreach(layer model_execution model_execution_backends capability_nodes orchestration integration composition)
     string(APPEND content
       "set(${layer}_includes [==[$<TARGET_PROPERTY:edgeflow_${layer}_objects,INCLUDE_DIRECTORIES>]==])\n")
+    string(APPEND content
+      "set(${layer}_definitions [==[$<TARGET_PROPERTY:edgeflow_${layer}_objects,COMPILE_DEFINITIONS>]==])\n")
+  endforeach()
+  foreach(target alg_sdk alg_pipeline_tool)
+    string(APPEND content
+      "set(${target}_includes [==[$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>]==])\n")
+    string(APPEND content
+      "set(${target}_definitions [==[$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>]==])\n")
   endforeach()
   foreach(scope public extension)
     string(APPEND content

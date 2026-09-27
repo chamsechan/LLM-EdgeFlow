@@ -9,7 +9,15 @@ fail() {
 }
 
 required_skills=(
+  ".agents/skills/edgeflow-solution-planner/SKILL.md"
   ".agents/skills/pipeline-composer/SKILL.md"
+  ".agents/skills/json-prompt-solution/SKILL.md"
+  ".agents/skills/edgeflow-adapter-developer/SKILL.md"
+  ".agents/skills/edgeflow-node-map-developer/SKILL.md"
+  ".agents/skills/edgeflow-node-llm-developer/SKILL.md"
+  ".agents/skills/edgeflow-node-batch-developer/SKILL.md"
+  ".agents/skills/edgeflow-model-developer/SKILL.md"
+  ".agents/skills/edgeflow-backend-developer/SKILL.md"
   ".agents/skills/llm-edgeflow-developer-guide/SKILL.md"
   ".agents/skills/github-branch-merge/SKILL.md"
 )

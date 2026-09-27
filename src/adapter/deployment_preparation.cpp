@@ -139,6 +139,9 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
 
   size_t max_batch =
       std::min(in_conv->max_batch_size, out_conv->max_batch_size);
+  if (binding->max_batch_size != 0) {
+    max_batch = std::min(max_batch, binding->max_batch_size);
+  }
   const auto* exposure =
       IoBindingRegistry::Instance().FindExposure(binding->biz_name);
   if (exposure) {

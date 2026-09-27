@@ -11,11 +11,25 @@ Read the files and tests needed to resolve the current task. A contained documen
 or configuration edit does not require a repository-wide tour. Read the relevant CONTRIBUTING
 sections before editing or delivering.
 
+- Business requirements → component reuse/gaps, typed DAG, and development sequence:
+  [edgeflow-solution-planner](.agents/skills/edgeflow-solution-planner/SKILL.md).
 - Existing-capability Pipeline JSON, deployment `.conf`, or optional Demo Profile changes:
   [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md).
 - Complete JSON request → prompt processing → JSON response solutions:
   [json-prompt-solution](.agents/skills/json-prompt-solution/SKILL.md), then its relevant route.
-- Operator/Adapter, Core/Pipeline, Node, Model, Backend, or Demo implementation:
+- Component implementation: choose the smallest authoring path below. Common/custom Node
+  ownership is independent of Map/LLM/Batch authoring; shared contracts remain in the linked guides.
+
+  | Component / task | Skill |
+  | :--- | :--- |
+  | Operator input/output, Converter, IoBinding | [edgeflow-adapter-developer](.agents/skills/edgeflow-adapter-developer/SKILL.md) |
+  | Node: pure per-item 1:1 transform | [edgeflow-node-map-developer](.agents/skills/edgeflow-node-map-developer/SKILL.md) |
+  | Node: text preparation, one LLM call, text result processing | [edgeflow-node-llm-developer](.agents/skills/edgeflow-node-llm-developer/SKILL.md) |
+  | Node: batch/multi-port/model algorithms, derived output, dynamic sampling | [edgeflow-node-batch-developer](.agents/skills/edgeflow-node-batch-developer/SKILL.md) |
+  | Model semantics and preprocessing | [edgeflow-model-developer](.agents/skills/edgeflow-model-developer/SKILL.md) |
+  | Backend runtime and resources | [edgeflow-backend-developer](.agents/skills/edgeflow-backend-developer/SKILL.md) |
+
+- Core/Pipeline, Demo, or changes crossing multiple components:
   [llm-edgeflow-developer-guide](.agents/skills/llm-edgeflow-developer-guide/SKILL.md).
   Read only affected-layer references, including every layer of a cross-layer change.
 - Architecture or contract decisions: use

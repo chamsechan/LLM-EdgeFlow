@@ -9,7 +9,7 @@ Use this reference for production Node implementation. Start first-time LLM auth
    organized by operation. Common Nodes, Core and Engine must not depend on custom implementations.
    Platform conversion stays in Adapter. Follow CONTRIBUTING for design review criteria.
 3. Use ordinary functions and one Spec contract, registered with `REGISTER_FUNCTION_NODE`.
-   Map and LLM helpers compose the same authoring contract as Batch. All 12 production Nodes use it;
+   Map and LLM helpers compose the same authoring contract as Batch;
    `NodeBase` is internal runtime infrastructure, not another business authoring choice.
 4. Declare input views with `InputsOf` and typed members. `Required` requires a value; `Optional`
    permits an unconnected port; `OptionalValue` also permits a connected port without a request value
@@ -18,7 +18,7 @@ Use this reference for production Node implementation. Start first-time LLM auth
    or `OutputsOf` / `Produced` for derived or multiple outputs. Derived-flow correctness remains
    the algorithm's responsibility; declarations do not prove splitting or aggregation semantics.
    Complete preserved-output checks precede publication of any output.
-6. Declare ordinary parameters using `Parameters` / `Field`, including defaults, bounds and semantic
+6. Prefer typed `Parameters` / `Field` declarations for ordinary parameters, including defaults, bounds and semantic
    descriptions. Use `Validate` / `ValidateBindings` for semantic and connection rules. Complex
    configuration uses `WithParser(NodeConfigParser<Params>(fields, parse))`; consume normalized JSON,
    own parsed values and share semantic rules between preflight and initialization. `Prepare` runs
@@ -33,7 +33,7 @@ Use this reference for production Node implementation. Start first-time LLM auth
    model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.
    Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
    for single-flight waiters without caching them. Resource keys and model revision remain explicit.
-9. Use `WithControls` for field updates, or `WithControl` for complex command schemas and ordinary
+9. Use `WithControls` for typed `Field` updates, or Batch's `WithControl` for complex command schemas and ordinary
    state-building functions. The framework serializes updates, retains old state on failure and reads
    one immutable snapshot per request. TextTemplateNode and TextRuleMatchNode are production examples.
    Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
@@ -41,12 +41,23 @@ Use this reference for production Node implementation. Start first-time LLM auth
    does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
    Combining `WithParser` and field controls (`WithControls`) requires an explicit `Prepare`; field
    updates rerun it before semantic/binding validation and candidate publication.
+   Parser-only fields are not typed bindings and cannot be selected by `WithControls`, even with
+   `Prepare`; use typed Fields or a complex Batch updater with explicit normalization/validation.
 10. Declare category, description and any actual business restrictions in the Spec.
     Ordinary Map/LLM functions work on payloads; their existing helpers preserve provenance and flow.
     Keep the default conservative parallel safety for sequential use; explicitly establish
     `.ParallelSafe(true)` only when making the implementation available to parallel graphs.
     Generated Definition is the only Catalog source; do not maintain a second UI registry.
     Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.
+
+For parser-based LLM generation parameters, compose `GenerateOptionsFields(default_max_tokens)` and
+`ParseGenerateOptions` from [generate_options_config.h](../../../../include/nodes/generate_options_config.h)
+through the existing `NodeConfigParser`; each caller supplies its token default explicitly.
+`MakeLlmTextSpec` captures fixed `GenerateOptions` when the Spec is built; those options do not change
+with the parameters snapshot. When sampling options must follow configuration or Control updates,
+use `MakeBatchSpec` and pass options from the current parameters to `LlmCall::Generate`, as in
+[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) for configuration.
+For sampling field controls, prefer typed Fields; that parser-based example does not itself add Control.
 
 Use existing production implementations and matching `tests/unit/nodes/test_*_node.cpp` suites.
 Add focused behavior and contract coverage for changed configuration, missing values, output provenance,

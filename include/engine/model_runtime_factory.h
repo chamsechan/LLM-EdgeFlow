@@ -26,7 +26,7 @@ struct ModelLoadSpec {
  * @brief 模型运行时工厂 (ModelRuntimeFactory)
  *
  * 按照解耦流程执行：
- * 1. 查找并创建后端实例 (BackendRegistry)
+ * 1. 查找 Definition，规范化并校验模型配置，再创建后端实例
  * 2. 加载后端会话 (backend->Load)
  * 3. 校验协议与并发契约
  * 4. 推导 model_resource_root
