@@ -126,6 +126,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    绑定的 `input_converter_id` 和 `output_converter_id`，以及逻辑端口到内部 Blackboard Key 的映射。
    使用 `REGISTER_IO_BINDING` 注册绑定。
    使用 `REGISTER_BIZ_EXPOSURE` 声明业务生产暴露：`biz_name` 与 `max_batch_size`。
+   Binding 的 `max_batch_size = 0` 表示继承；非零值与输入转换器、输出转换器及已声明
+   Exposure 的上限共同取最小值，Operator 再按实际输出池深收紧。
 4. **登记构建。**
    将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 

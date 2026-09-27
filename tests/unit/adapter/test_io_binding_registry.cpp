@@ -127,7 +127,7 @@ class IoBindingRegistryTest : public ::testing::Test {
     IoBindingRegistry::Instance().ClearForTesting();
   }
 
-  void RegisterTestBizBinding() {
+  void RegisterTestBizBinding(size_t max_batch_size = 0) {
     IoBindingDefinition binding;
     binding.binding_id = "test_biz.operator.v1";
     binding.biz_name = "test_biz_v1";
@@ -136,6 +136,7 @@ class IoBindingRegistryTest : public ::testing::Test {
     binding.output_converter_id = "test.out.operator";
     binding.input_ports = {{"texts", "input_sentences"}};
     binding.output_ports = {{"answers", "llm_answers"}};
+    binding.max_batch_size = max_batch_size;
     ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
   }
 
@@ -1191,6 +1192,53 @@ TEST_F(IoBindingRegistryTest,
               binding.binding_id == first.binding_id ? 64U : 8U);
     ASSERT_EQ(prepared.output_specs.size(), 1U);
     EXPECT_EQ(prepared.output_specs.begin()->second.type, "entity_out");
+  }
+}
+
+TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIncludesBindingBound) {
+  struct Limits {
+    size_t binding;
+    size_t input;
+    size_t output;
+    size_t exposure;  // Zero means no registered exposure in this fixture.
+    size_t expected;
+  };
+  const Limits cases[] = {
+      {1, 64, 64, 32, 1},    {0, 64, 64, 32, 32}, {0, 8, 16, 0, 8},
+      {128, 64, 64, 32, 32}, {128, 8, 64, 32, 8}, {128, 64, 16, 32, 16},
+  };
+  auto input =
+      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
+  auto output =
+      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
+  const nlohmann::json document = {
+      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"pipeline", DefaultPipelineNodes()}};
+  for (const auto& limits : cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << "binding=" << limits.binding << ", input=" << limits.input
+                 << ", output=" << limits.output
+                 << ", exposure=" << limits.exposure);
+    IoBindingRegistry::Instance().ClearForTesting();
+    IoConverterRegistry::Instance().ClearForTesting();
+    input.max_batch_size = limits.input;
+    output.max_batch_size = limits.output;
+    ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+    ASSERT_TRUE(
+        IoConverterRegistry::Instance().RegisterOutputConverter(output));
+    RegisterTestBizBinding(limits.binding);
+    if (limits.exposure != 0) {
+      BizExposureDefinition exposure;
+      exposure.biz_name = "test_biz_v1";
+      exposure.max_batch_size = limits.exposure;
+      ASSERT_TRUE(IoBindingRegistry::Instance().RegisterExposure(exposure));
+    }
+
+    PreparedDeployment prepared;
+    DeploymentDiagnostic diagnostic;
+    ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
+        << diagnostic.message;
+    EXPECT_EQ(prepared.effective_max_batch_size, limits.expected);
   }
 }
 

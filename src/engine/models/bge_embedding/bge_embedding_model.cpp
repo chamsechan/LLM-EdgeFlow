@@ -142,6 +142,7 @@ BgeEmbeddingModel::BgeEmbeddingModel(
 
 std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
+  if (!ValidateBertModelConfig(ctx.model_config, diagnostic)) return nullptr;
   if (ctx.model_config.contains("normalize")) {
     if (diagnostic)
       *diagnostic =
@@ -473,6 +474,7 @@ static const ModelDefinition kBgeEmbeddingModelDefinition = [] {
        {},
        "模型切批的样本数上限；必须满足 Backend 的动态上限或固定批次要求。"},
   };
+  def.validate_config = ValidateBertModelConfig;
   return def;
 }();
 

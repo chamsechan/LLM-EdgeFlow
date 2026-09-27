@@ -28,10 +28,18 @@ slot configurations, allocator and capacities. It is not a Pipeline Node and doe
 5. Register `BizDefinition` with `PipelineCatalog::RegisterBizDefinition` to declare `biz_name` and complete ingress/egress Blackboard ports. `IoBindingDefinition` selects converters and maps their logical ports to those keys; `BizExposureDefinition` declares production exposure and its batch bound. External Pipeline JSON requires `deployment.io.io_binding` and rejects root `biz_name`; Integration derives the internal business boundary from the selected registration. Demo resolves its runner through the SDK configuration query; neither CLI nor Profile accepts a business selector. Bindings of the same biz must declare the same external schema, carrier and slot contract; Registry audit and deployment preflight enforce this before any payload cast.
 6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
 
-For one required host slot and one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows`
+`IoBindingDefinition::max_batch_size = 0` inherits converter/exposure limits. A nonzero binding
+limit takes the minimum with the input/output converter limits and any registered exposure limit
+in [deployment preparation](../../../../src/adapter/deployment_preparation.cpp).
+[Operator creation](../../../../src/adapter/operator/operator_adapter.cpp) further caps the effective
+Process batch limit at the output pool depth; a larger binding limit cannot relax another limit.
+
+For one required host slot, one business payload stream and one payload/result per request,
+use `DecodeRequestRows` / `EncodeResultRows`
 from `converter_authoring.h`. Business callbacks handle one owned payload or one borrowed output row;
 helpers own looping, bindings, provenance, request IDs and diagnostic location. `OutputStringWriter`
 uses actual pool capacities and explicit string lengths. Do not retain its borrowed view or pointers.
-Multi-slot, expanded and aggregated conversions keep their explicit algorithms and existing lower-level helpers.
+Independent metadata streams, multi-slot, expanded and aggregated conversions keep their explicit
+algorithms and existing lower-level helpers; a single external slot alone does not imply a single stream.
 
 Use `tests/contract/abi/test_cpp_operator_sdk.cpp`, `tests/contract/abi/test_operator_safety.cpp`, `tests/contract/abi/test_adapter_contract_security.cpp`, and existing modality converters as live templates. If the change also adds nodes, read `capability-nodes.md`; if it changes Core contract behavior, read `orchestration.md`.

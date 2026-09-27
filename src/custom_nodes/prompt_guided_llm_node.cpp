@@ -1,5 +1,4 @@
-#include <cstdint>
-#include <limits>
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -7,6 +6,7 @@
 #include <vector>
 
 #include "nodes/authoring.h"
+#include "nodes/generate_options_config.h"
 #include "nodes/text_template.h"
 
 namespace llm_edgeflow {
@@ -44,25 +44,17 @@ bool ParsePromptConfig(const nlohmann::json& config, PromptConfig* parameters,
     parameters->uses_context |= part.value == "context";
   }
 
-  auto& options = parameters->generation;
-  config.at("temperature").get_to(options.temperature);
-  config.at("max_tokens").get_to(options.max_tokens);
-  config.at("top_k").get_to(options.top_k);
-  config.at("top_p").get_to(options.top_p);
-  config.at("repetition_penalty").get_to(options.repetition_penalty);
-  for (const auto& word : config.at("stop_words")) {
-    if (!word.is_string() || word.get_ref<const std::string&>().empty()) {
-      return reject("stop_words must contain non-empty strings");
-    }
-    options.stop_words.push_back(word.get<std::string>());
-  }
+  if (!ParseGenerateOptions(config, &parameters->generation, error))
+    return false;
   config.at("prompt_prefix").get_to(parameters->prompt_prefix);
   config.at("strip_markdown").get_to(parameters->strip_markdown);
   return true;
 }
 
-const NodeConfigParser<PromptConfig>& PromptConfiguration() {
-  static const NodeConfigParser<PromptConfig> parser(
+std::vector<ConfigFieldDefinition> PromptConfigFields() {
+  auto fields = GenerateOptionsFields(512);
+  fields.insert(
+      fields.begin(),
       {ConfigFieldDefinition{"prompt_template",
                              ConfigValueKind::kString,
                              false,
@@ -80,71 +72,27 @@ const NodeConfigParser<PromptConfig>& PromptConfiguration() {
                              std::nullopt,
                              {},
                              "在渲染模板前追加的普通文本及换行；模型的 system "
-                             "角色请使用 model_config.system_prompt。"},
-       ConfigFieldDefinition{
-           "temperature",
-           ConfigValueKind::kNumber,
-           false,
-           0.7,
-           0.0,
-           2.0,
-           {},
-           "生成采样温度；0 用于贪心生成，具体采样由绑定模型执行。"},
-       ConfigFieldDefinition{"max_tokens",
-                             ConfigValueKind::kInteger,
-                             false,
-                             512,
-                             1.0,
-                             32768.0,
-                             {},
-                             "每条输入最多生成的 token "
-                             "数，不包含输入提示词；还受模型上下文容量限制。"},
-       ConfigFieldDefinition{
-           "top_k",
-           ConfigValueKind::kInteger,
-           false,
-           0,
-           0.0,
-           static_cast<double>(std::numeric_limits<int32_t>::max()),
-           {},
-           "采样时保留的候选 token 数；0 "
-           "表示不按数量截断，区别于检索返回条数。"},
-       ConfigFieldDefinition{"top_p",
-                             ConfigValueKind::kNumber,
-                             false,
-                             0.9,
-                             1.0e-9,
-                             1.0,
-                             {},
-                             "核采样的累计概率阈值；1 表示不按累计概率截断。"},
-       ConfigFieldDefinition{
-           "repetition_penalty",
-           ConfigValueKind::kNumber,
-           false,
-           1.0,
-           1.0e-9,
-           100.0,
-           {},
-           "已出现 token 的重复惩罚系数；1 不调整，大于 1 抑制重复。"},
-       ConfigFieldDefinition{"strip_markdown",
-                             ConfigValueKind::kBoolean,
-                             false,
-                             false,
-                             std::nullopt,
-                             std::nullopt,
-                             {},
-                             "移除模型输出两端空白和外层 Markdown "
-                             "代码围栏，保留围栏内的文本内容。"},
-       ConfigFieldDefinition{"stop_words",
-                             ConfigValueKind::kArray,
-                             false,
-                             nlohmann::json::array(),
-                             std::nullopt,
-                             std::nullopt,
-                             {},
-                             "生成停止文本数组，例如 [\"结束\", "
-                             "\"<END>\"]；命中后输出不包含停止文本。"}},
-      ParsePromptConfig);
+                             "角色请使用 model_config.system_prompt。"}});
+  // Preserve the Catalog presentation order without assuming a field index.
+  const auto stop_words = std::find_if(
+      fields.begin(), fields.end(),
+      [](const auto& field) { return field.name == "stop_words"; });
+  fields.insert(stop_words,
+                ConfigFieldDefinition{"strip_markdown",
+                                      ConfigValueKind::kBoolean,
+                                      false,
+                                      false,
+                                      std::nullopt,
+                                      std::nullopt,
+                                      {},
+                                      "移除模型输出两端空白和外层 Markdown "
+                                      "代码围栏，保留围栏内的文本内容。"});
+  return fields;
+}
+
+const NodeConfigParser<PromptConfig>& PromptConfiguration() {
+  static const NodeConfigParser<PromptConfig> parser(PromptConfigFields(),
+                                                     ParsePromptConfig);
   return parser;
 }
 

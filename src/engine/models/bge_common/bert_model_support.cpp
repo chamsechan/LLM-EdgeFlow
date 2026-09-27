@@ -8,6 +8,25 @@
 
 namespace llm_edgeflow {
 
+bool ValidateBertModelConfig(const nlohmann::json& config,
+                             std::string* diagnostic) {
+  for (const char* name : {"tokenizer_file", "output_name"}) {
+    const auto field = config.find(name);
+    if (field == config.end()) continue;
+    if (!field->is_string()) {
+      if (diagnostic)
+        *diagnostic = std::string("Field '") + name + "' must be a string";
+      return false;
+    }
+    if (field->get_ref<const std::string&>().empty()) {
+      if (diagnostic)
+        *diagnostic = std::string("Field '") + name + "' cannot be empty";
+      return false;
+    }
+  }
+  return true;
+}
+
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
     const std::shared_ptr<IBackendSession>& backend_session,
     std::string* diagnostic) {

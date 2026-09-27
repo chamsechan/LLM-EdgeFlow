@@ -10,6 +10,9 @@ namespace llm_edgeflow {
 
 class BertWordPieceTokenizer;
 
+bool ValidateBertModelConfig(const nlohmann::json& config,
+                             std::string* diagnostic);
+
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
     const std::shared_ptr<IBackendSession>& backend_session,
     std::string* diagnostic);

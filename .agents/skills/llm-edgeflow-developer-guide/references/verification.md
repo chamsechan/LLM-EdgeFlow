@@ -4,6 +4,10 @@ Apply this checklist after implementing a framework extension. `CONTRIBUTING.md`
 branch, design review criteria, documentation, quality-gate, and delivery policy; this reference adds only
 framework-specific evidence.
 
+Commands using `build` assume the default configured directory. For a preset or another build,
+substitute its actual directory consistently for build targets, CLI/Demo binaries and tests;
+do not mix a variant Catalog with default binaries.
+
 1. If the change requires design review, keep its scope, layer mapping, interfaces/data flow,
    invariants, and tests current in the work description or PR; update the resulting rules in
    current-contract documentation.
@@ -25,7 +29,12 @@ framework-specific evidence.
    [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案)
    for `.conf` / Profile selection and Demo Control behavior; running an unchanged Profile
    does not verify a new JSON file.
-5. Run focused tests during development. For the final gate, follow
+5. Run focused tests during development. Extend an existing source/suite where it owns the contract.
+   A new handwritten runtime test file needs its `TestInventory.cmake` source entry and the owning
+   runner's source list in `Tests.cmake`; a new fixture also needs inclusion in a CTest filter.
+   Generated custom Node tests instead use `CustomNodeTests.cmake` and the existing
+   `CustomNodeCatalogTest` filter. Confirm the actual cases run, not just that the runner builds.
+   For the final gate, follow
    [CONTRIBUTING](../../../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate): run it directly
    for a local handoff, or let the authorized delivery script run it before pushing. Do not
    require both invocations for the same delivery.

@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
@@ -450,6 +452,83 @@ TEST_F(OperatorSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
   EXPECT_NE(ret, 0);
 
   EXPECT_EQ(op.Destroy(handle), 0);
+}
+
+TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
+  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
+  const auto* original = registry.FindBinding("keyword_match.operator.v1");
+  ASSERT_NE(original, nullptr);
+  auto binding = *original;
+  binding.binding_id = "test.keyword_match.single.operator.v1";
+  binding.max_batch_size = 1;
+
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-binding-batch-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  struct Cleanup {
+    std::vector<llm_edgeflow::IoBindingDefinition> bindings;
+    std::vector<llm_edgeflow::BizExposureDefinition> exposures;
+    std::filesystem::path directory;
+    ~Cleanup() {
+      auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
+      registry.ClearForTesting();
+      for (const auto& binding : bindings)
+        EXPECT_TRUE(registry.RegisterBinding(binding));
+      for (const auto& exposure : exposures)
+        EXPECT_TRUE(registry.RegisterExposure(exposure));
+      std::error_code error;
+      std::filesystem::remove_all(directory, error);
+    }
+  } cleanup{registry.AllBindings(), registry.AllExposures(), directory};
+  ASSERT_TRUE(registry.RegisterBinding(binding));
+  std::filesystem::create_directory(directory);
+  std::ifstream source("configs/pipeline_keyword_match_rules.json");
+  ASSERT_TRUE(source.is_open());
+  nlohmann::json pipeline;
+  source >> pipeline;
+  pipeline["deployment"]["io"]["io_binding"] = binding.binding_id;
+  std::ofstream(directory / "pipeline.json") << pipeline.dump();
+  std::ofstream(directory / "pipeline.conf")
+      << nlohmann::json({{"pipe_path", "pipeline.json"}}).dump();
+
+  auto op = Get_LLM_EDGEFLOW_OperatorTable();
+  CreateParam param{};
+  param.model_path = directory.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 8;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(op.Create(&raw_handle, &param), COMPANY_ALG_SUCCESS)
+      << GetOperatorLastError();
+  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
+
+  char text[] = "ordinary request";
+  CompanyString sentence{static_cast<int32_t>(std::strlen(text)), text};
+  CompanyOperatorKeywordInput requests[] = {{41, &sentence}, {42, &sentence}};
+  NamedIoBatch inputs(2);
+  NamedIoBatch outputs(2);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    inputs[i]["client.keyword_in"] = MakeBorrowedOperatorInput(&requests[i]);
+    outputs[i]["client.keyword_out"] = nullptr;
+  }
+  EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(std::string(GetOperatorLastError()),
+            "Input batch size 2 exceeds effective batch limit 1");
+  for (const auto& output : outputs)
+    EXPECT_EQ(output.at("client.keyword_out"), nullptr);
+
+  inputs.resize(1);
+  outputs.resize(1);
+  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
+      << GetOperatorLastError();
+  auto* result = static_cast<CompanyOperatorKeywordOutput*>(
+      outputs[0].at("client.keyword_out").get());
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ(result->request_id, 41U);
+  EXPECT_EQ(result->is_hit, 0);
 }
 
 // 11. 同一 handle 的并发 Process 由接入适配层串行化，停流 join 后才允许 Destroy

@@ -82,6 +82,10 @@ struct ModelDefinition {
   ExecutionProtocol required_protocol = ExecutionProtocol::kTensorGraph;
   std::vector<ConfigFieldDefinition> config_fields;
   InferenceConcurrency concurrency = InferenceConcurrency::kSerialized;
+  // Pure validation of schema-normalized config, shared by preflight and
+  // runtime materialization.
+  // No session allocation, model loading or external I/O.
+  std::function<bool(const nlohmann::json&, std::string*)> validate_config;
 };
 
 /**

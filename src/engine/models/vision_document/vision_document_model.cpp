@@ -9,11 +9,23 @@ namespace llm_edgeflow {
 namespace {
 constexpr char kPrompt[] =
     "Read all text visible in this image. Return only the transcribed text.";
+
+bool ValidateVisionConfig(const nlohmann::json& config,
+                          std::string* diagnostic) {
+  const auto prompt = config.value("prompt", std::string(kPrompt));
+  if (prompt.empty() || prompt.find('\0') != std::string::npos) {
+    SetDiagnosticNoexcept(
+        diagnostic, "Field 'prompt' must be non-empty and contain no NUL");
+    return false;
+  }
+  return true;
 }
+}  // namespace
 
 std::shared_ptr<IModel> VisionDocumentModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   try {
+    if (!ValidateVisionConfig(context.model_config, diagnostic)) return nullptr;
     auto session = std::dynamic_pointer_cast<IImageTextGenerationSession>(
         context.backend_session);
     if (!session ||
@@ -29,9 +41,7 @@ std::shared_ptr<IModel> VisionDocumentModel::Create(
     model->patch_size_ = context.model_config.value("patch_size", 16);
     const int max_pixels = context.model_config.value("max_pixels", 4194304);
     model->options_.max_tokens = context.model_config.value("max_tokens", 512);
-    if (model->prompt_.empty() ||
-        model->prompt_.find('\0') != std::string::npos ||
-        model->patch_size_ < 1 || model->patch_size_ > 256 || max_pixels < 1 ||
+    if (model->patch_size_ < 1 || model->patch_size_ > 256 || max_pixels < 1 ||
         max_pixels > 16777216 || model->options_.max_tokens < 1 ||
         model->options_.max_tokens > 4096) {
       throw std::runtime_error("Invalid vision_document configuration");
@@ -112,6 +122,7 @@ static const ModelDefinition kVisionDocumentDefinition = [] {
       "Image-to-text document recognition; text only, no detected boxes";
   definition.required_protocol = ExecutionProtocol::kImageTextGeneration;
   definition.concurrency = InferenceConcurrency::kConcurrent;
+  definition.validate_config = ValidateVisionConfig;
   definition.config_fields = {
       {"prompt",
        ConfigValueKind::kString,

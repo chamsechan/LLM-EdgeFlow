@@ -13,6 +13,31 @@
 | 新增自定义 Node | 需要实现缺失算法 | [自定义 Node 入门](dev_guide/first_custom_node.md)，按任务选择 Recipe 或普通脚手架 |
 | 新增外部业务契约 | 请求或响应的字段、格式、语义变化 | [业务接入指南](dev_guide/business_onboarding.md)，先复用已有转换器、载体和 Demo 运行代码 |
 
+## 使用开发 Skills
+
+项目技能位于 `.agents/skills/`，可以用 `$技能名` 调用，或让 Agent 按任务选择。
+业务描述还没有落到组件时，先用 `$edgeflow-solution-planner`，提供完整请求/响应样例和
+业务规则；它会检查当前 Catalog，给出复用/新增部件、实现位置、带类型端口的 DAG 和验收步骤。
+已明确修改部件时直接使用对应技能，不必先跑一遍规划。
+
+| 开发任务 | Skill |
+| --- | --- |
+| 业务拆解、组件选型与 DAG 建议 | [edgeflow-solution-planner](../.agents/skills/edgeflow-solution-planner/SKILL.md) |
+| 已有能力的配置与运行 | [pipeline-composer](../.agents/skills/pipeline-composer/SKILL.md) |
+| 完整 JSON 输入、提示词处理、完整 JSON 输出 | [json-prompt-solution](../.agents/skills/json-prompt-solution/SKILL.md) |
+| Adapter、转换器、业务绑定与输出容量 | [edgeflow-adapter-developer](../.agents/skills/edgeflow-adapter-developer/SKILL.md) |
+| Node：逐项纯计算、数量和来源不变 | [edgeflow-node-map-developer](../.agents/skills/edgeflow-node-map-developer/SKILL.md) |
+| Node：文本前处理、一次 LLM 生成、文本后处理 | [edgeflow-node-llm-developer](../.agents/skills/edgeflow-node-llm-developer/SKILL.md) |
+| Node：多输入输出、拆分聚合、动态采样、各类模型能力 | [edgeflow-node-batch-developer](../.agents/skills/edgeflow-node-batch-developer/SKILL.md) |
+| Model：预处理与模型语义 | [edgeflow-model-developer](../.agents/skills/edgeflow-model-developer/SKILL.md) |
+| Backend：运行时与厂商资源 | [edgeflow-backend-developer](../.agents/skills/edgeflow-backend-developer/SKILL.md) |
+| Core、Demo 与跨组件开发 | [llm-edgeflow-developer-guide](../.agents/skills/llm-edgeflow-developer-guide/SKILL.md) |
+
+Map、LLM、Batch 是同一 Node 框架的三种作者入口。`common/custom` 按中性操作或领域算法
+选择代码归属；Embedding、ASR、OCR、Rerank 复用 Batch 的能力声明，不各自维护生命周期。
+例如：“用 `$edgeflow-solution-planner` 分析此请求和响应，列出需要新增的部件与 DAG”；
+或“用 `$edgeflow-adapter-developer` 为现有算法补齐新的 JSON 输入输出契约”。
+
 ## 进阶与参考
 
 | 资料 | 职责 |

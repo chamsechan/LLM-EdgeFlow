@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <utility>
 
+#include "contracts/config_schema_validation.h"
 #include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
@@ -38,6 +39,28 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
             spec.model_type + " required protocol (" +
             ExecutionProtocolName(model_def_opt->required_protocol) + ")";
       }
+      return nullptr;
+    }
+
+    nlohmann::json model_config;
+    std::vector<ConfigFieldValidationError> config_errors;
+    if (!ValidateAndNormalizeFields(model_def_opt->config_fields,
+                                    spec.model_config, &model_config,
+                                    &config_errors)) {
+      if (diagnostic) {
+        *diagnostic = "Invalid model configuration: " + spec.model_type;
+        if (!config_errors.empty())
+          *diagnostic += ": " + config_errors.front().message;
+      }
+      return nullptr;
+    }
+    std::string config_diagnostic;
+    if (model_def_opt->validate_config &&
+        !model_def_opt->validate_config(model_config, &config_diagnostic)) {
+      SetDiagnosticNoexcept(
+          diagnostic, config_diagnostic.empty()
+                          ? "Invalid model configuration: " + spec.model_type
+                          : config_diagnostic);
       return nullptr;
     }
 
@@ -143,7 +166,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     ModelCreateContext create_ctx;
     create_ctx.backend_session = session;
     create_ctx.model_resource_root = model_resource_root;
-    create_ctx.model_config = spec.model_config;
+    create_ctx.model_config = std::move(model_config);
 
     std::string model_diag;
     auto model = ModelRegistry::Instance().Create(spec.model_type, create_ctx,
@@ -187,9 +210,14 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
 
     return model;
   } catch (const std::exception& e) {
-    (void)e;
-    SetDiagnosticNoexcept(diagnostic,
-                          "Exception in ModelRuntimeFactory::Create");
+    if (diagnostic) {
+      try {
+        *diagnostic = "Exception in ModelRuntimeFactory::Create: ";
+        diagnostic->append(e.what());
+      } catch (...) {
+        SetDiagnosticNoexcept(diagnostic, e.what());
+      }
+    }
     return nullptr;
   } catch (...) {
     SetDiagnosticNoexcept(diagnostic,

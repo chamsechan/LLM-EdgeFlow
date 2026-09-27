@@ -1,23 +1,32 @@
 ---
 name: llm-edgeflow-developer-guide
-description: Implement or fix LLM-EdgeFlow C++/Demo behavior in Adapter, Core, Nodes, Models, or Backends. Not configuration-only composition.
+description: Route LLM-EdgeFlow cross-component C++ changes to the owning development skill; handle Core/Pipeline lifecycle, Validator, and Demo implementation. Use the specific Adapter, Node, Model or Backend skill when the component is known.
 ---
 
 # LLM-EdgeFlow Developer Guide
 
-Read the affected layer below, not the entire reference set. `AGENTS.md` owns shared constraints
+Read the affected skill/reference below, not the entire set. `AGENTS.md` owns shared constraints
 and roles; [CONTRIBUTING.md](../../../CONTRIBUTING.md) owns design review criteria, local iteration,
 phase acceptance, verification, and delivery. Follow its
 [design and current-contract policy](../../../CONTRIBUTING.md#3-design-and-current-contracts);
 start with current guides and affected code/tests.
 
-| Affected behavior | Read |
+| Affected behavior | Entry |
 | :--- | :--- |
-| Operator SDK, modality, external payload, Converter, IoBinding, allowed Pipeline names | [Integration](references/integration.md) |
+| Business requirements needing component selection and a DAG | [Solution planner](../edgeflow-solution-planner/SKILL.md) |
+| Operator SDK, external payload, Converter, IoBinding | [Adapter developer](../edgeflow-adapter-developer/SKILL.md) |
+| One input item to one output item, pure computation | [Map Node developer](../edgeflow-node-map-developer/SKILL.md) |
+| Text preprocessing → one LLM call → text postprocessing | [LLM Node developer](../edgeflow-node-llm-developer/SKILL.md) |
+| Multiple ports/models, derived outputs, configurable sampling, batch algorithms | [Batch Node developer](../edgeflow-node-batch-developer/SKILL.md) |
+| Model preprocessing, semantics and capabilities | [Model developer](../edgeflow-model-developer/SKILL.md) |
+| Vendor runtime, execution protocol implementation and resources | [Backend developer](../edgeflow-backend-developer/SKILL.md) |
 | Pipeline lifecycle, Validator/planning, typed Blackboard, sessions | [Orchestration](references/orchestration.md) |
-| Capability Node, parameters, Control handler | [Capability Nodes](references/capability-nodes.md); for Control, [compiled example](../../../doc/dev_guide/first_control.md) |
-| Model semantics/capability, Backend/protocol, batching | [Model Execution](references/model-execution.md) |
 | Demo carriers, dataset, registration, result display | [Demo onboarding](../../../doc/dev_guide/business_onboarding.md#5-统一-demo-接入) |
+
+Map, LLM and Batch are authoring forms of the same runtime. Common versus custom identifies
+ownership, not a second set of authoring interfaces. For existing Node parameter/Control work,
+read [shared Node contracts](references/capability-nodes.md) and only the applicable form;
+use the [compiled Control example](../../../doc/dev_guide/first_control.md) when needed.
 
 External field selection/response assembly is Integration work even when the carrier layout
 stays unchanged; Demo must not replace Adapter conversion. Load all affected-layer contracts

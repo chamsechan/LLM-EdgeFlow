@@ -15,3 +15,11 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**，公�
 
 研发过程与变更历史通过 Git 追溯。正式发布后，本文件按发布版本记录用户可感知的能力、
 契约变化及必要的迁移说明。
+
+当前修正包括：线程池部分创建失败时完整回收线程；接入 Binding 批次上限参与运行时
+限额；Model 纯配置语义在 Backend 加载前校验；vendor 编译依赖隔离至 Backend。
+LLM 节点复用生成参数声明和解析，保留原有字段及默认值。公共 Operator ABI 与
+Pipeline 配置格式保持不变。
+
+开发 Skills 按业务方案规划、Adapter、Map/LLM/Batch Node、Model 和 Backend 提供独立入口，
+由业务需求生成组件增补与 DAG 建议，并复用现有作者 API、Catalog 和验证流程。
