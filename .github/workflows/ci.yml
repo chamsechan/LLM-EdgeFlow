@@ -92,9 +92,12 @@ jobs:
     env:
       CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers
       CCACHE_COMPRESS: "true"
-      CCACHE_MAXSIZE: "2G"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "3G"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
     steps:
       - name: Checkout Code
@@ -114,8 +117,8 @@ jobs:
             python3
           echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
-      - name: Restore Prebuilt 3rdparty Dependencies
-        uses: actions/cache/restore@v4
+      - name: Restore/Save Prebuilt 3rdparty Dependencies
+        uses: actions/cache@v4
         with:
           path: |
             3rdparty/onnxruntime
@@ -124,22 +127,23 @@ jobs:
           key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/ThirdPartyEngines.cmake', 'cmake_ext/NlohmannJson.cmake', 'cmake_ext/StbImage.cmake') }}
           restore-keys: |
             3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
-            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save Sanitizer CCache
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          # Restore the latest accessible snapshot; save a new one after each
-          # successful run, including reruns (GitHub cache entries are immutable).
-          key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # Restore the latest accessible snapshot; save a new one scoped to ref and commit sha
+          key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
+            sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.ref }}-
             sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Run CI Runtime Sanitizer Suite
         run: |
-          LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_SANITIZERS=address,undefined \
+          ccache -z
+          LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_JOBS=4 LLM_EDGEFLOW_SANITIZERS=address,undefined \
             ./scripts/run_sanitizers.sh --ci-runtime
+          ccache -s
 
   real-c-abi-and-profile:
     name: Real GGUF Operator & Profile
