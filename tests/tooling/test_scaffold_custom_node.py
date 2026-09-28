@@ -29,11 +29,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         cmake_src = (ROOT / "src/custom_nodes/CMakeLists.txt").read_text(encoding="utf-8")
         (custom_nodes_dir / "CMakeLists.txt").write_text(cmake_src, encoding="utf-8")
 
-        cmake_ext_dir = temp_root / "cmake_ext"
-        cmake_ext_dir.mkdir(parents=True, exist_ok=True)
-        cmake_test = (ROOT / "cmake_ext/CustomNodeTests.cmake").read_text(encoding="utf-8")
-        (cmake_ext_dir / "CustomNodeTests.cmake").write_text(cmake_test, encoding="utf-8")
-
         (temp_root / "tests" / "unit" / "nodes").mkdir(parents=True, exist_ok=True)
         return dict(os.environ, LLM_EDGEFLOW_REPO_ROOT=str(temp_root))
 
@@ -174,16 +169,16 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertIn(f"Created {source_file}", result.stdout)
             self.assertIn(f"Created {test_file}", result.stdout)
             self.assertIn("Pending registrations:", result.stdout)
-            self.assertIn("awesome_feature_node.cpp", result.stdout)
-            self.assertIn("test_awesome_feature_node.cpp", result.stdout)
+            self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
 
-            # Without --add-to-cmake, CMake files should NOT be modified
+            # Only the production source needs explicit registration.
             cmake_file = Path(temp) / "src" / "custom_nodes" / "CMakeLists.txt"
-            test_cmake_file = Path(temp) / "cmake_ext" / "CustomNodeTests.cmake"
             self.assertNotIn("awesome_feature_node.cpp", cmake_file.read_text(encoding="utf-8"))
-            self.assertNotIn("test_awesome_feature_node.cpp", test_cmake_file.read_text(encoding="utf-8"))
+            self.assertIn(f"Add awesome_feature_node.cpp to {cmake_file}", result.stdout)
+            self.assertNotIn("Add test_awesome_feature_node.cpp", result.stdout)
+            self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
-    def test_write_test_add_to_cmake_registers_both_files(self):
+    def test_write_test_add_to_cmake_needs_only_production_registration(self):
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)
             result = self.run_cli("AwesomeFeatureNode", "--write-test", "--add-to-cmake", env=env)
@@ -204,31 +199,25 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                 r"target_sources\(edgeflow_capability_nodes_objects\s+PRIVATE[\s\S]*awesome_feature_node\.cpp",
             )
 
-            # Verify test registered in cmake_ext/CustomNodeTests.cmake
-            test_cmake_file = Path(temp) / "cmake_ext" / "CustomNodeTests.cmake"
-            test_cmake_content = test_cmake_file.read_text(encoding="utf-8")
-            self.assertIn("test_awesome_feature_node.cpp", test_cmake_content)
-            self.assertIn(
-                '  "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_awesome_feature_node.cpp"',
-                test_cmake_content,
-            )
+            # Test generation works without creating or reading a source manifest.
+            self.assertEqual(list(test_file.parent.glob("test_*.cpp")), [test_file])
+            self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
             # Verify stdout messages and next commands for default sharded runner
             self.assertIn(f"Registered awesome_feature_node.cpp in {cmake_file}", result.stdout)
-            self.assertIn(f"Registered test_awesome_feature_node.cpp in {test_cmake_file}", result.stdout)
+            self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
+            self.assertNotIn("Registered test_awesome_feature_node.cpp", result.stdout)
             self.assertIn("Next steps:", result.stdout)
             self.assertIn("cmake --build build --target edgeflow_test_nodes_runner", result.stdout)
             self.assertIn("CustomNodeCatalogTest.AwesomeFeatureNode_*", result.stdout)
-            self.assertIn("ctest --test-dir build -R CommonNodesTest", result.stdout)
+            self.assertIn("(cd build && ctest -R CommonNodesTest)", result.stdout)
             self.assertIn('./build/edgeflow_test_nodes_runner --gtest_filter="CustomNodeCatalogTest.AwesomeFeatureNode_*"', result.stdout)
 
     def test_write_test_dry_run_does_not_create_files(self):
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)
             cmake_file = Path(temp) / "src" / "custom_nodes" / "CMakeLists.txt"
-            test_cmake_file = Path(temp) / "cmake_ext" / "CustomNodeTests.cmake"
             orig_cmake = cmake_file.read_text(encoding="utf-8")
-            orig_test_cmake = test_cmake_file.read_text(encoding="utf-8")
 
             result = self.run_cli(
                 "DryRunNode", "--write-test", "--dry-run", "--add-to-cmake", env=env
@@ -244,14 +233,14 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertIn("TEST(CustomNodeCatalogTest, DryRunNode_", result.stdout)
             self.assertIn(f"--- {cmake_file} registration ---", result.stdout)
             self.assertIn("+  dry_run_node.cpp", result.stdout)
-            self.assertIn(f"--- {test_cmake_file} registration ---", result.stdout)
-            self.assertIn("+  test_dry_run_node.cpp", result.stdout)
+            self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
+            self.assertNotIn("+  test_dry_run_node.cpp", result.stdout)
 
             # Verify no files were created or modified
             self.assertFalse(source_file.exists())
             self.assertFalse(test_file.exists())
             self.assertEqual(cmake_file.read_text(encoding="utf-8"), orig_cmake)
-            self.assertEqual(test_cmake_file.read_text(encoding="utf-8"), orig_test_cmake)
+            self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
     def test_write_test_rejects_incompatible_flags_and_custom_output_dir(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -282,9 +271,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)
             cmake_file = Path(temp) / "src" / "custom_nodes" / "CMakeLists.txt"
-            test_cmake_file = Path(temp) / "cmake_ext" / "CustomNodeTests.cmake"
             orig_cmake = cmake_file.read_text(encoding="utf-8")
-            orig_test_cmake = test_cmake_file.read_text(encoding="utf-8")
 
             # Case 1: Target source file already exists
             conflict_source = Path(temp) / "src" / "custom_nodes" / "conflict_source_node.cpp"
@@ -297,7 +284,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(conflict_source.read_text(encoding="utf-8"), "existing custom node source")
             self.assertFalse((Path(temp) / "tests" / "unit" / "nodes" / "test_conflict_source_node.cpp").exists())
             self.assertEqual(cmake_file.read_text(encoding="utf-8"), orig_cmake)
-            self.assertEqual(test_cmake_file.read_text(encoding="utf-8"), orig_test_cmake)
+            self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
             # Case 2: Target test file already exists
             conflict_test = Path(temp) / "tests" / "unit" / "nodes" / "test_conflict_test_node.cpp"
@@ -310,7 +297,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(conflict_test.read_text(encoding="utf-8"), "existing custom node test")
             self.assertFalse((Path(temp) / "src" / "custom_nodes" / "conflict_test_node.cpp").exists())
             self.assertEqual(cmake_file.read_text(encoding="utf-8"), orig_cmake)
-            self.assertEqual(test_cmake_file.read_text(encoding="utf-8"), orig_test_cmake)
+            self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
             # Case 3: Registration error during CMake modification (corrupted CMakeLists.txt)
             cmake_file.write_text("# Corrupted cmake with missing target_sources block\n", encoding="utf-8")
@@ -319,14 +306,17 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertIn("No edgeflow_capability_nodes_objects target_sources", res_corrupt.stderr)
             self.assertFalse((Path(temp) / "src" / "custom_nodes" / "corrupt_cmake_node.cpp").exists())
             self.assertFalse((Path(temp) / "tests" / "unit" / "nodes" / "test_corrupt_cmake_node.cpp").exists())
-            self.assertEqual(test_cmake_file.read_text(encoding="utf-8"), orig_test_cmake)
+            self.assertEqual(cmake_file.read_text(encoding="utf-8"), "# Corrupted cmake with missing target_sources block\n")
+            self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
             # Case 4: ChangePlan unit rollback on commit failure
             plan = SCAFFOLD.ChangePlan()
             new_file = Path(temp) / "src" / "custom_nodes" / "rollback_probe.cpp"
-            mod_target = test_cmake_file
+            new_test = Path(temp) / "tests" / "unit" / "nodes" / "test_rollback_probe.cpp"
+            mod_target = cmake_file
             mod_orig = mod_target.read_text(encoding="utf-8")
             plan.add_new_file(new_file, "// rollback probe content")
+            plan.add_new_file(new_test, "// rollback test probe content")
             plan.add_modification(mod_target, mod_orig, mod_orig + "\n# Modified\n")
             # Simulate concurrent modification to mod_target before commit
             mod_target.write_text(mod_orig + "\n# Concurrent user edit\n", encoding="utf-8")
@@ -334,6 +324,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                 plan.commit()
             # Verify new_file was unlinked and mod_target was not clobbered
             self.assertFalse(new_file.exists())
+            self.assertFalse(new_test.exists())
             self.assertEqual(mod_target.read_text(encoding="utf-8"), mod_orig + "\n# Concurrent user edit\n")
 
     def test_atomic_install_preserves_destination_created_at_final_syscall(self):

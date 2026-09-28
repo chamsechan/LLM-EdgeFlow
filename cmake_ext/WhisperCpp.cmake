@@ -70,7 +70,7 @@ else()
     whisper_cpp_source
     URL https://github.com/ggml-org/whisper.cpp/archive/${LLM_EDGEFLOW_WHISPERCPP_COMMIT}.tar.gz
     URL_HASH SHA256=${_WHISPER_SOURCE_SHA256}
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
   FetchContent_GetProperties(whisper_cpp_source)
   if(NOT whisper_cpp_source_POPULATED)

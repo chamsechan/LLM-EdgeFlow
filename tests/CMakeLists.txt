@@ -53,7 +53,7 @@ set_tests_properties(QualityGateScriptsContractTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
-include(${PROJECT_SOURCE_DIR}/cmake_ext/Tests.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/RuntimeTests.cmake)
 
 add_test(NAME JsonPromptDemoTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_json_prompt_demo.py)
@@ -72,7 +72,7 @@ set_tests_properties(TestLabelsContractTest PROPERTIES
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)
   add_executable(test_real_models_e2e
-    ${EDGEFLOW_SOURCE_test_real_models_e2e})
+    "${PROJECT_SOURCE_DIR}/tests/e2e/real_models/test_real_models_e2e.cpp")
   if(LLM_EDGEFLOW_HAS_WHISPERCPP)
     target_compile_definitions(test_real_models_e2e PRIVATE HAVE_WHISPERCPP=1)
   endif()

@@ -17,10 +17,17 @@ Deterministic Model and Backend registrations shared by Demo mock profiles and t
 `dev_support/inference/`. They are OBJECT targets so every consumer receives the registration
 translation units, while production `alg_sdk` never links them.
 
-The source path for each compiled runtime suite is declared in `cmake_ext/TestInventory.cmake`.
-`cmake_ext/Tests.cmake` groups those sources into four shared runners and keeps suites that need
-process isolation in separate executables. It registers filtered CTest entries for the shared
-runners and checks the required inventory. Precompiled headers are optional through
+`tests/RuntimeTests.cmake` collects `test_*.cpp` from each shared runner's owned directories
+using `file(GLOB ... CONFIGURE_DEPENDS)`. Adding or removing a file in those directories
+automatically updates the next build, including on CMake 3.19. Directory matching is not
+recursive; process-isolated contracts, opt-in E2E tests and Pipeline tests with different
+runner dependencies keep explicit source entries. Test-only authoring fixtures are generated
+by `tests/ScaffoldFixtures.cmake` and also remain explicit.
+
+CTest entries, filters and labels stay explicit in `tests/RuntimeTests.cmake`. A new GoogleTest
+suite needs a matching CTest filter; compiling a file alone does not schedule its cases.
+`TestLabelsContractTest` rejects compiled cases that no registered filter runs, and the
+required CTest inventory is also checked. Precompiled headers are optional through
 `LLM_EDGEFLOW_TEST_PCH`; they default to `OFF` and remain disabled in the canonical gate.
 
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
@@ -29,8 +36,7 @@ when process isolation or an independent runtime lifecycle is part of the contra
 ## Fast feedback for solution authors
 
 Use the default sharded runners below while developing; replace the filter with the suite/test
-you actually changed. Source inventory is in `cmake_ext/TestInventory.cmake`, runner membership in
-`cmake_ext/Tests.cmake`.
+you actually changed. Source paths and runner membership are together in `tests/RuntimeTests.cmake`.
 
 | Change | Build target | Typical GoogleTest filter |
 | --- | --- | --- |
@@ -48,8 +54,11 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 The [Node helper](support/node_test_utils.h) initializes a registered Node with a validated Plan and Session. Put
 request input into a fresh `AlgContext`, call Process, and assert actual outputs and
 `(req_id, sub_id)`; do not stop at factory creation. Cover the algorithm's empty/invalid input and
-failure behavior. The generator's `--write-test` creates a complete standalone test file; add
-`--add-to-cmake` to register both source and test. Rebuild `alg_pipeline_tool` after a production registration/Definition change, and check
+failure behavior. The generator's `--write-test` creates a complete test file in
+`unit/nodes/`, automatically included in the Node runner and covered by the existing
+`CustomNodeCatalogTest` filter. Add `--add-to-cmake` to register the production Node source;
+without it, register that source before building its test. Rebuild `alg_pipeline_tool`
+after a production registration/Definition change, and check
 the composed solution with the same build. The final gate covers the complete default configuration
 even when first practice used a minimal build. Follow [CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate)
 to run it directly for a local handoff or through the authorized PR delivery script.

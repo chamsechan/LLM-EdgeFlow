@@ -41,7 +41,7 @@ padding 与来源、失败清空；无效语义配置应在 Backend 创建/Load 
 
 ```bash
 cmake --build build --target edgeflow_test_core_runner alg_pipeline_tool -j 4
-ctest --test-dir build -R '^(ModelBackendDecouplingTest|BatchExecutorTest)$' --output-on-failure
+(cd build && ctest -R '^(ModelBackendDecouplingTest|BatchExecutorTest)$' --output-on-failure)
 ./build/alg_pipeline_tool describe-model <model_type>
 ```
 

@@ -40,39 +40,15 @@ git -C "$ROOT_DIR" diff --check
 echo -e "${GREEN}✓ Static source gates passed.${NC}\n"
 
 echo -e "${BOLD}[ Step 2/6: Configure and build ]${NC}"
-GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "$BUILD_DIR")
-CMAKE_GEN_ARGS=()
-if [[ -n "$GEN_ARG_STR" ]]; then
-  read -r -a CMAKE_GEN_ARGS <<< "$GEN_ARG_STR"
-fi
-
-CMAKE_ARGS=(
-  -DBUILD_TESTING=ON
-  -DENABLE_SANITIZERS=OFF
-  -DENABLE_KITELLM=OFF
-  -DENABLE_WHISPERCPP=OFF
-  -DCMAKE_BUILD_TYPE=Release
+"$SCRIPT_DIR/configure_build.sh" "$ROOT_DIR" "$BUILD_DIR" dev-gate \
   -DLLM_EDGEFLOW_LINKER="$SELECTED_LINKER"
-  -DENABLE_REAL_MODEL_TESTS=OFF
-  -DENABLE_LLAMACPP=ON
-  -DENABLE_ONNXRUNTIME=ON
-  -DLLM_EDGEFLOW_TEST_PCH=OFF
-)
-
-if [[ ${#CMAKE_GEN_ARGS[@]} -gt 0 ]]; then
-  cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}" \
-    "${CMAKE_GEN_ARGS[@]}"
-else
-  # macOS 自带 Bash 3.2 在 set -u 下不能展开空数组。
-  cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}"
-fi
 cmake --build "$BUILD_DIR" -j"$JOBS"
 echo -e "${GREEN}✓ Build completed.${NC}\n"
 
 # Steps 3-6 share one global scheduler. Labels retain stage ownership while
 # allowing slow integration and tooling tests to overlap safely.
 echo -e "${BOLD}[ Steps 3-6/6: Unified Tier 1-4 CTest scheduler ]${NC}"
-ctest --test-dir "$BUILD_DIR" -j"$JOBS" --output-on-failure --no-tests=error
+(cd "$BUILD_DIR" && ctest -j"$JOBS" --output-on-failure --no-tests=error)
 
 echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
 echo -e "${BOLD}${GREEN}  ✓ All required development gates passed in ${SECONDS}s.${NC}"

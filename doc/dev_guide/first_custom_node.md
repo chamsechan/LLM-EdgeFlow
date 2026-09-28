@@ -172,7 +172,8 @@ flowchart LR
 `StarterTextFunctionsFollowTheDocumentedExercise`。该测试编译本文的两个函数体，检查模型
 实际收到的提示词、后处理结果、多条输入的来源，以及输入快照未被修改。
 
-本练习的 `--write-test` 会创建并登记真实测试文件，使用 `NodeHarness` 注入输入与 mock，
+本练习的 `--write-test` 会创建真实测试文件，由节点 runner 自动收集；`--add-to-cmake`
+登记生产 Node 源码。测试使用 `NodeHarness` 注入输入与 mock，
 检查输出及模型调用。修改算法后同步填写独立业务期望。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
 还应覆盖自己的边界输入。交付执行 `./scripts/run_all_tests.sh`，流程见
 [CONTRIBUTING](../../CONTRIBUTING.md)。

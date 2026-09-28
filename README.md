@@ -30,7 +30,7 @@ LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语�
 
 ## 快速开始
 
-以下以 Linux CPU 环境为例，所有命令均在仓库根目录执行。需要支持 C++17 的编译器、CMake 3.16+、Ninja、Python 3 和 Git。首次构建需联网获取固定版本的第三方依赖；模型权重另行准备。
+以下以 Linux CPU 环境为例，所有命令均在仓库根目录执行。需要支持 C++17 的编译器、CMake 3.19+（构建预设和脚本使用 Presets）、Ninja、Python 3 和 Git。首次构建需联网获取固定版本的第三方依赖；模型权重另行准备。
 
 ### 1. 获取并构建
 
@@ -38,15 +38,14 @@ LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语�
 git clone https://github.com/chamsechan/LLM-EdgeFlow.git
 cd LLM-EdgeFlow
 
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DENABLE_ONNXRUNTIME=OFF -DENABLE_LLAMACPP=OFF \
-  -DENABLE_WHISPERCPP=OFF -DENABLE_KITELLM=OFF
+cmake --preset=minimal -B build
 cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --parallel 4
 ```
 
 首次练习只构建规则、模板、数据处理与工具，不启用推理后端或构建全部测试。后续真实模型
 按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)选择 Backend；若沿用 `build/`，重新
-配置对应 `ENABLE_*` 开关并重建即可。交付前仍执行完整默认门禁。主要产物如下：
+执行 `cmake --preset=<变体> -B build` 并重建即可。交付前仍执行完整默认门禁，
+它会应用 `dev-gate` 预设。构建参数统一维护在 `CMakePresets.json`。主要产物如下：
 
 | 产物 | 用途 |
 | :--- | :--- |

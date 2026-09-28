@@ -49,8 +49,8 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 资产检查示例（先准备上文模型资产）：
 
 ```bash
-cmake --preset default-cpu
-cmake --build --preset default-cpu --target alg_pipeline_tool alg_demo
+cmake --preset=default-cpu
+cmake --build build/variants/default-cpu --target alg_pipeline_tool alg_demo
 python3 tools/verify_selection.py check \
   --pipeline configs/pipeline_doc_qa_default.json \
   --tool build/variants/default-cpu/alg_pipeline_tool \
@@ -61,7 +61,7 @@ python3 tools/verify_selection.py check \
 `--model-root` 指定资产清单路径的基准目录，默认仓库的 `models/`；`--pipeline-root`
 指定模型条目路径的宿主根，默认仓库根目录。调整资产目录不会覆盖 Pipeline 中已保存的模型路径。
 
-`default-cpu` preset 包含 whisper.cpp；日常完整门禁的 `build/` 默认关闭它，不能直接作为
+`default-cpu` preset 包含 whisper.cpp；日常完整门禁使用 `dev-gate`，其 `build/` 关闭它，不能直接作为
 该 preset 的匹配产物。`--variant` 只校验 Backend 集合，不选择可执行文件；使用 preset
 时需显式传入对应目录的 `--tool`，执行效果验收时还需指定同目录的 `--demo`。
 
@@ -69,17 +69,43 @@ python3 tools/verify_selection.py check \
 
 ## 构建变体
 
-[CMakePresets.json](../CMakePresets.json) 提供三个互相隔离的构建目录；使用 preset 需要支持 CMake Presets 的 CMake 版本以及 Ninja。
+[CMakePresets.json](../CMakePresets.json) 是构建场景参数的统一来源；预设和验证脚本需要
+CMake 3.19+。直接使用 preset 默认采用 Ninja；脚本通过 `configure_build.sh` 保留已有
+目录的生成器，新目录优先 Ninja，不可用时使用 Unix Makefiles。配置使用兼容 3.19 的
+schema 1；编译使用 `cmake --build <目录>`，不使用 3.20 才支持的 build presets。
+默认 CI 门禁固定使用经过 SHA-256 校验的 CMake 3.19.8，持续检查最低版本兼容性。
 
 | 变体 | 启用 Backend | 目的 |
 | --- | --- | --- |
+| `dev-gate` | ONNX Runtime、llama.cpp | `run_all_tests.sh` 的完整默认开发门禁 |
 | `default-cpu` | ONNX Runtime、llama.cpp、whisper.cpp | 常规文本、向量和语音能力 |
 | `kite-cpu` | ONNX Runtime、Kite | Kite 文本、视觉及生成向量能力 |
 | `minimal` | 无推理 Backend | 规则、模板及纯数据处理方案 |
 
+`base` 是隐藏的共享默认值；`dev-gate` 是开发门禁入口。资产选择界面和 `--variant`
+仅列出带 selection 元数据的 `default-cpu`、`kite-cpu`、`minimal`，不把开发入口作为部署选择。
+
+默认目录按用途集中在 `build/` 下：
+
+| 用途 | 目录 |
+| --- | --- |
+| 日常完整门禁 | `build/` |
+| 三个部署变体 | `build/variants/<变体>/` |
+| sanitizer | `build/sanitizers/<sanitizer组合>-<模式>/` |
+| 真实模型 E2E | `build/real-models/<模式>/` |
+
+sanitizer 的 `--fast` 复用 `minimal`，`--full` / `--ci-runtime` 复用 `dev-gate`，
+再覆盖 Debug 和 sanitizer 选项；`LLM_EDGEFLOW_SANITIZER_BUILD_DIR` 仍可指定已有目录。
+真实模型脚本按模式复用 `dev-gate` 或含语音能力的 `default-cpu`，显式启用真实模型测试。
+这些入口不会依赖另一次构建遗留的 Backend 开关。
+
+旧的 `build-*` 目录不会自动迁移；CMake 缓存包含绝对路径，需在新位置重新配置。
+确认目录没有运行中的构建、程序或需要保留的结果后，可删除不用的构建目录；下次会重新编译。
+常用的 `build/` 和已校验的 `3rdparty/` 缓存可保留以减少重复构建和下载。
+
 ```bash
-cmake --preset minimal
-cmake --build --preset minimal --target alg_pipeline_tool
+cmake --preset=minimal
+cmake --build build/variants/minimal --target alg_pipeline_tool
 python3 tools/verify_selection.py check \
   --pipeline configs/pipeline_keyword_match_rules.json \
   --tool build/variants/minimal/alg_pipeline_tool --variant minimal

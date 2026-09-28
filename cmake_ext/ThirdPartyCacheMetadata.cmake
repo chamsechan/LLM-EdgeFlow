@@ -2,6 +2,13 @@ include_guard(GLOBAL)
 
 include(CMakeParseArguments)
 
+# Older CMake already preserves archive timestamps; the explicit switch was
+# introduced in 3.24. Keep the same extraction behavior on every supported version.
+set(EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
+  set(EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
+
 # Prepare an inspectable cache marker and report whether an existing cache was
 # produced for the same pinned source and ABI-relevant build environment.
 function(edgeflow_prepare_third_party_cache)

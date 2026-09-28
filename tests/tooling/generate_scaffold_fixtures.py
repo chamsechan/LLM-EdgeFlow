@@ -49,10 +49,10 @@ with output.open("w", encoding="utf-8") as stream:
     standalone_cases.extend(cases)
     with tempfile.TemporaryDirectory(prefix="edgeflow-written-fixtures-") as directory:
         fixture_root = Path(directory)
-        for relative in ("src/custom_nodes/CMakeLists.txt", "cmake_ext/CustomNodeTests.cmake"):
-            target = fixture_root / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text((root / relative).read_text(encoding="utf-8"), encoding="utf-8")
+        relative = "src/custom_nodes/CMakeLists.txt"
+        target = fixture_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((root / relative).read_text(encoding="utf-8"), encoding="utf-8")
         env = dict(os.environ, LLM_EDGEFLOW_REPO_ROOT=str(fixture_root))
         for name, options in standalone_cases:
             subprocess.run([sys.executable, str(root / "scripts/scaffold_custom_node.py"),

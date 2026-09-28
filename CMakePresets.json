@@ -1,17 +1,40 @@
 {
-  "version": 2,
+  "version": 1,
   "configurePresets": [
     {
-      "name": "default-cpu",
+      "name": "base",
+      "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/variants/default-cpu",
+      "binaryDir": "${sourceDir}/build/variants/${presetName}",
       "cacheVariables": {
-        "ENABLE_ONNXRUNTIME": "ON",
-        "ENABLE_LLAMACPP": "ON",
-        "ENABLE_WHISPERCPP": "ON",
+        "BUILD_TESTING": "ON",
+        "ENABLE_ONNXRUNTIME": "OFF",
+        "ENABLE_LLAMACPP": "OFF",
+        "ENABLE_WHISPERCPP": "OFF",
         "ENABLE_KITELLM": "OFF",
         "CMAKE_BUILD_TYPE": "Release",
-        "ENABLE_REAL_MODEL_TESTS": "OFF"
+        "ENABLE_REAL_MODEL_TESTS": "OFF",
+        "ENABLE_SANITIZERS": "OFF",
+        "LLM_EDGEFLOW_TEST_PCH": "OFF"
+      }
+    },
+    {
+      "name": "dev-gate",
+      "displayName": "Default development gate (ONNX Runtime + llama.cpp)",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ENABLE_ONNXRUNTIME": "ON",
+        "ENABLE_LLAMACPP": "ON"
+      }
+    },
+    {
+      "name": "default-cpu",
+      "displayName": "Full CPU capabilities (including Whisper)",
+      "inherits": "dev-gate",
+      "binaryDir": "${sourceDir}/build/variants/${presetName}",
+      "cacheVariables": {
+        "ENABLE_WHISPERCPP": "ON"
       },
       "vendor": {
         "llm-edgeflow/selection": {
@@ -25,15 +48,10 @@
     },
     {
       "name": "kite-cpu",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/variants/kite-cpu",
+      "inherits": "base",
       "cacheVariables": {
         "ENABLE_ONNXRUNTIME": "ON",
-        "ENABLE_LLAMACPP": "OFF",
-        "ENABLE_WHISPERCPP": "OFF",
-        "ENABLE_KITELLM": "ON",
-        "CMAKE_BUILD_TYPE": "Release",
-        "ENABLE_REAL_MODEL_TESTS": "OFF"
+        "ENABLE_KITELLM": "ON"
       },
       "vendor": {
         "llm-edgeflow/selection": {
@@ -46,35 +64,12 @@
     },
     {
       "name": "minimal",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/variants/minimal",
-      "cacheVariables": {
-        "ENABLE_ONNXRUNTIME": "OFF",
-        "ENABLE_LLAMACPP": "OFF",
-        "ENABLE_WHISPERCPP": "OFF",
-        "ENABLE_KITELLM": "OFF",
-        "CMAKE_BUILD_TYPE": "Release",
-        "ENABLE_REAL_MODEL_TESTS": "OFF"
-      },
+      "inherits": "base",
       "vendor": {
         "llm-edgeflow/selection": {
           "backends": []
         }
       }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "default-cpu",
-      "configurePreset": "default-cpu"
-    },
-    {
-      "name": "kite-cpu",
-      "configurePreset": "kite-cpu"
-    },
-    {
-      "name": "minimal",
-      "configurePreset": "minimal"
     }
   ]
 }

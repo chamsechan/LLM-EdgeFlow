@@ -303,11 +303,9 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             description = f"{name} custom LLM node"
             plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port))
             plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port))
-            for path, update, filename in [
-                (root / "src/custom_nodes/CMakeLists.txt", SCAFFOLD.updated_cmakelists, src.name),
-                (root / "cmake_ext/CustomNodeTests.cmake", SCAFFOLD.updated_custom_node_tests_cmake, test.name),
-            ]:
-                plan.add_modification(path, path.read_text(encoding="utf-8"), update(path, filename))
+            cmake_path = root / "src/custom_nodes/CMakeLists.txt"
+            plan.add_modification(cmake_path, cmake_path.read_text(encoding="utf-8"),
+                                  SCAFFOLD.updated_cmakelists(cmake_path, src.name))
             generated = [src, test]
         conf = make_recipe_conf(pipeline, outputs, target, root, models)
         spec = copy.deepcopy(spec)

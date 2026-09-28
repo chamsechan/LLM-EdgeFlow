@@ -37,7 +37,7 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 脚手架以[可编译模板](../../dev_support/node_authoring/starter_control_node.cpp)为唯一输入，
 生成 `src/custom_nodes/prefix_control_node.cpp`。这个选项只生成 TextBatch → TextBatch、
 1:1 保留来源的纯计算例子，不会改造任意已有 C++ 类。已有文件默认拒绝覆盖。
-`--write-test` 生成独立测试文件；配合 `--add-to-cmake` 同时登记源文件和测试。
+`--write-test` 生成由节点 runner 自动收集的测试文件；`--add-to-cmake` 登记生产 Node 源码。
 
 ## 3. 阅读受控参数声明
 

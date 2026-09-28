@@ -39,7 +39,7 @@ class DevRecipeTest(unittest.TestCase):
         for relative in ("configs", "demo/fixtures", "data", "tests/fixtures"):
             shutil.copytree(ROOT / relative, self.root / relative)
         for relative in ("demo/profiles.json", "src/custom_nodes/CMakeLists.txt",
-                         "cmake_ext/CustomNodeTests.cmake", "models/asset_manifest.json"):
+                         "models/asset_manifest.json"):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, destination)
@@ -150,6 +150,7 @@ class DevRecipeTest(unittest.TestCase):
                 RECIPE.VERIFY_SELECTION.effect_inputs(spec, conf, DEMO)
 
     def test_text_preparation_remaps_native_llm_ports_and_keeps_upstream_prompt(self):
+        self.assertEqual(list((self.root / "tests").glob("*.cmake")), [])
         report = self.prepare(kind="text-llm-node", profile="entity_extract_mock")
         self.assertTrue(report["ok"], report)
         document = json.loads(self.target.read_text())
@@ -161,6 +162,7 @@ class DevRecipeTest(unittest.TestCase):
         self.assertTrue((self.root / "src/custom_nodes/recipe_contract_node.cpp").is_file())
         self.assertTrue((self.root / "tests/unit/nodes/test_recipe_contract_node.cpp").is_file())
         self.assertEqual((self.root / "src/custom_nodes/CMakeLists.txt").read_text().count("recipe_contract_node.cpp"), 1)
+        self.assertEqual(list((self.root / "tests").glob("*.cmake")), [])
 
     def test_native_invalid_profile_and_unavailable_llm_rejected_before_writing(self):
         self.assert_prepare_rejected_without_writes(kind="text-llm-node", profile="keyword_match_rules")
