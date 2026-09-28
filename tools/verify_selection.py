@@ -108,13 +108,20 @@ def validate_manifest(manifest):
     return manifest
 
 
+def build_variants():
+    # Build-only presets and hidden inheritance defaults are not asset selections.
+    return [item for item in read_json(PRESETS)["configurePresets"]
+            if not item.get("hidden", False)
+            and "llm-edgeflow/selection" in item.get("vendor", {})]
+
+
 def asset_catalog(manifest=MANIFEST, model_root=ROOT / "models"):
     catalog = validate_manifest(read_json(manifest))
     for selection in catalog["selections"]:
         selection["availability"] = "present_unverified" if all(
             within(model_root, name).is_file() for name in selection["files"]) else "missing"
     catalog["variants"] = [{"name": item["name"], **item["vendor"]["llm-edgeflow/selection"]}
-                           for item in read_json(PRESETS)["configurePresets"]]
+                           for item in build_variants()]
     return catalog
 
 
@@ -171,7 +178,7 @@ def inspect_selection(pipeline, tool, model_root, manifest=MANIFEST, variant=Non
     build = {"enabled_backends": enabled, "tool_sha256": file_digest(tool),
              "platform": platform.platform(), "variant": variant, "status": "catalog_verified"}
     if variant:
-        preset = next((p for p in read_json(PRESETS)["configurePresets"] if p["name"] == variant), None)
+        preset = next((p for p in build_variants() if p["name"] == variant), None)
         if not preset:
             raise ValueError("Unknown build variant: " + variant)
         expected = sorted(preset["vendor"]["llm-edgeflow/selection"]["backends"])

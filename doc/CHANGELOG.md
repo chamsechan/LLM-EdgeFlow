@@ -23,3 +23,9 @@ Pipeline 配置格式保持不变。
 
 开发 Skills 按业务方案规划、Adapter、Map/LLM/Batch Node、Model 和 Backend 提供独立入口，
 由业务需求生成组件增补与 DAG 建议，并复用现有作者 API、Catalog 和验证流程。
+
+构建预设、验证脚本和 Kite CI 共用 `CMakePresets.json` 中的场景参数，脚本需要 CMake 3.19+。
+默认门禁沿用 `build/`；新的 sanitizer 和真实模型构建分别使用 `build/sanitizers/` 与
+`build/real-models/`，旧目录可按需重建或通过 sanitizer 目录变量复用。测试源码与 runner
+归属集中在 `tests/RuntimeTests.cmake`，普通测试按目录自动收集 `test_*.cpp`，自定义 Node
+测试无需额外维护源码清单；保留独立测试目标、CTest 分组及必需测试清单校验。

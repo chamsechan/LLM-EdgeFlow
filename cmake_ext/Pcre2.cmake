@@ -55,7 +55,7 @@ else()
       pcre2
       URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz
       URL_HASH SHA256=c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16
-      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
 
   FetchContent_MakeAvailable(pcre2)

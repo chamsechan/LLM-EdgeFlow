@@ -34,8 +34,8 @@ def parse_args():
 
 
 def get_test_inventory(build_dir: Path):
-    cmd = ["ctest", "--test-dir", str(build_dir), "--show-only=json-v1"]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    cmd = ["ctest", "--show-only=json-v1"]
+    res = subprocess.run(cmd, cwd=build_dir, capture_output=True, text=True)
     if res.returncode != 0:
         sys.stderr.write(f"Failed to query ctest inventory: {res.stderr}\n")
         sys.exit(res.returncode)

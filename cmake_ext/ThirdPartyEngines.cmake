@@ -64,7 +64,7 @@ if(ENABLE_ONNXRUNTIME)
       onnxruntime_prebuilt
       URL ${ORT_URL}
       URL_HASH SHA256=${ORT_SHA256}
-      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
     )
     FetchContent_MakeAvailable(onnxruntime_prebuilt)
 
@@ -245,7 +245,7 @@ if(ENABLE_LLAMACPP)
       llama_cpp_source
       URL https://github.com/ggml-org/llama.cpp/archive/${LLM_EDGEFLOW_LLAMACPP_COMMIT}.tar.gz
       URL_HASH SHA256=${_LLAMA_SOURCE_SHA256}
-      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
     )
     FetchContent_MakeAvailable(llama_cpp_source)
 

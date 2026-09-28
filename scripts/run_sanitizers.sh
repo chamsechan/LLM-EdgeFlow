@@ -22,7 +22,7 @@ if [[ $# -eq 1 ]]; then
   esac
 fi
 BUILD_DIR_TAG="${SANITIZERS//,/-}"
-BUILD_DIR="${LLM_EDGEFLOW_SANITIZER_BUILD_DIR:-${PROJECT_ROOT}/build-sanitizers-${BUILD_DIR_TAG}-${MODE}}"
+BUILD_DIR="${LLM_EDGEFLOW_SANITIZER_BUILD_DIR:-${PROJECT_ROOT}/build/sanitizers/${BUILD_DIR_TAG}-${MODE}}"
 
 DETECT_LEAKS="${DETECT_LEAKS:-0}"
 
@@ -52,9 +52,6 @@ fi
 echo "=================================================="
 
 COMMON_CMAKE_ARGS=(
-  -DBUILD_TESTING=ON
-  -DENABLE_KITELLM=OFF
-  -DENABLE_WHISPERCPP=OFF
   -DCMAKE_BUILD_TYPE=Debug
   -DENABLE_SANITIZERS=ON
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
@@ -73,23 +70,9 @@ if [[ -d "${PROJECT_ROOT}/build/_deps/googletest-src" ]]; then
     -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="${PROJECT_ROOT}/build/_deps/googletest-src"
   )
 fi
-GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
-if [[ -n "${GEN_ARG_STR}" ]]; then
-  read -r -a GENERATOR_ARGS <<< "${GEN_ARG_STR}"
-  COMMON_CMAKE_ARGS+=("${GENERATOR_ARGS[@]}")
-fi
+PRESET=dev-gate
 if [[ "${MODE}" == "fast" ]]; then
-  COMMON_CMAKE_ARGS+=(
-    -DENABLE_LLAMACPP=OFF
-    -DENABLE_ONNXRUNTIME=OFF
-    -DENABLE_REAL_MODEL_TESTS=OFF
-  )
-else
-  COMMON_CMAKE_ARGS+=(
-    -DENABLE_LLAMACPP=ON
-    -DENABLE_ONNXRUNTIME=ON
-    -DENABLE_REAL_MODEL_TESTS=OFF
-  )
+  PRESET=minimal
 fi
 
 if command -v ccache >/dev/null 2>&1; then
@@ -100,7 +83,6 @@ if command -v ccache >/dev/null 2>&1; then
   COMMON_CMAKE_ARGS+=(
     -DCMAKE_C_COMPILER_LAUNCHER=ccache
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-    -DLLM_EDGEFLOW_TEST_PCH=OFF
   )
   ccache --zero-stats
   report_ccache_stats() {
@@ -111,9 +93,10 @@ if command -v ccache >/dev/null 2>&1; then
   trap report_ccache_stats EXIT
 fi
 
-NCPU="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+NCPU="${LLM_EDGEFLOW_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" "${COMMON_CMAKE_ARGS[@]}"
+"${SCRIPT_DIR}/configure_build.sh" "${PROJECT_ROOT}" "${BUILD_DIR}" "${PRESET}" \
+  "${COMMON_CMAKE_ARGS[@]}"
 if [[ "${MODE}" == "fast" ]]; then
   cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"${NCPU}"
 else
@@ -149,7 +132,6 @@ if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]]; then
 fi
 
 CTEST_ARGS=(
-  --test-dir "${BUILD_DIR}"
   -j"${NCPU}"
   --output-on-failure
   --no-tests=error
@@ -166,11 +148,14 @@ fi
 if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
   CTEST_ARGS+=( -E '^PipelineStudioServerTest$' )
 fi
-if [[ ${#ARCH_PREFIX[@]} -gt 0 ]]; then
-  "${ARCH_PREFIX[@]}" ctest "${CTEST_ARGS[@]}"
-else
-  ctest "${CTEST_ARGS[@]}"
-fi
+(
+  cd "${BUILD_DIR}"
+  if [[ ${#ARCH_PREFIX[@]} -gt 0 ]]; then
+    "${ARCH_PREFIX[@]}" ctest "${CTEST_ARGS[@]}"
+  else
+    ctest "${CTEST_ARGS[@]}"
+  fi
+)
 
 echo "=================================================="
 echo " 🎉 Sanitizer set [${SANITIZERS}] checks PASSED! (Mode: ${MODE})"

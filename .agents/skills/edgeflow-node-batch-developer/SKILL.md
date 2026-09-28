@@ -52,10 +52,10 @@ description: 用 MakeBatchSpec 新增或修改 LLM-EdgeFlow 多输入输出、�
 
 以 `REGISTER_FUNCTION_NODE` 登记 Spec，源码加入所属 common/custom CMake 的
 `edgeflow_capability_nodes_objects`。common 显式设置 category；领域算法不为进入 common 而泛化。
-优先扩展现有测试文件/套件。确需新 common 测试文件时，登记 `cmake_ext/TestInventory.cmake`
-并接入 `cmake_ext/Tests.cmake` 的节点 runner；新 fixture 还需纳入 CTest filter。
-custom 脚手架用 `--write-test --add-to-cmake` 登记 `cmake_ext/CustomNodeTests.cmake`，
-沿用 `CustomNodeCatalogTest` 的现有过滤器；均使用现有节点 runner。
+优先扩展现有测试文件/套件。`tests/unit/nodes/test_*.cpp` 由
+`tests/RuntimeTests.cmake` 自动收集到节点 runner；新测试套件还需纳入 CTest filter。
+custom 脚手架用 `--write-test` 生成自动编入的测试，沿用 `CustomNodeCatalogTest`
+的现有过滤器；`--add-to-cmake` 登记生产 Node 源码。
 只有确需并行且可证明线程安全时设置 `.ParallelSafe(true)`，再验证整个计划的并发限制。
 
 聚焦测试至少执行真实 Run，检查不同请求、非零子编号、空/缺失输入、数量变化、来源关系、

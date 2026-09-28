@@ -87,4 +87,36 @@ expect_whisper_failure("cannot coexist with ENABLE_KITELLM=ON" -DENABLE_LLAMACPP
 
 include("${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_llama_cache.cmake")
 
+# Exercise the uncached archive path on the running CMake version. Reusing
+# prebuilt libraries alone would not catch unsupported FetchContent options.
+set(_archive_source "${TEST_ROOT}/archive-source")
+set(_archive_project "${TEST_ROOT}/archive-project")
+file(MAKE_DIRECTORY "${_archive_source}" "${_archive_project}")
+file(WRITE "${_archive_source}/fixture.txt" "verified local archive\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E tar czf "${TEST_ROOT}/fixture.tar.gz" fixture.txt
+  WORKING_DIRECTORY "${_archive_source}" RESULT_VARIABLE _archive_result)
+if(NOT _archive_result EQUAL 0)
+  message(FATAL_ERROR "Cannot create local dependency archive")
+endif()
+file(SHA256 "${TEST_ROOT}/fixture.tar.gz" _archive_sha256)
+file(WRITE "${_archive_project}/CMakeLists.txt"
+  "cmake_minimum_required(VERSION 3.19)\n"
+  "project(ArchiveCompatibility NONE)\n"
+  "include(\"${PROJECT_SOURCE_DIR}/cmake_ext/ThirdPartyCacheMetadata.cmake\")\n"
+  "include(FetchContent)\n"
+  "FetchContent_Declare(local_archive URL \"${TEST_ROOT}/fixture.tar.gz\"\n"
+  "  URL_HASH SHA256=${_archive_sha256} \${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS})\n"
+  "FetchContent_Populate(local_archive)\n"
+  "file(READ \"\${local_archive_SOURCE_DIR}/fixture.txt\" content)\n"
+  "if(NOT content STREQUAL \"verified local archive\\n\")\n"
+  "  message(FATAL_ERROR \"Fetched archive content does not match\")\n"
+  "endif()\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -S "${_archive_project}" -B "${TEST_ROOT}/archive-build"
+  RESULT_VARIABLE _fetch_result OUTPUT_VARIABLE _fetch_output ERROR_VARIABLE _fetch_error)
+if(NOT _fetch_result EQUAL 0)
+  message(FATAL_ERROR "Local archive population failed: ${_fetch_output}${_fetch_error}")
+endif()
+
 file(REMOVE_RECURSE "${TEST_ROOT}")

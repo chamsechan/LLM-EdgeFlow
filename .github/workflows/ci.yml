@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   build-and-test:
-    name: Build & GTest Regression Suite
+    name: Build & GTest Regression Suite (CMake 3.19)
     runs-on: ubuntu-latest
 
     env:
@@ -44,6 +44,16 @@ jobs:
             ninja-build \
             python3
           echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
+
+      - name: Use Minimum Supported CMake
+        run: |
+          archive="${RUNNER_TEMP}/cmake-3.19.8-Linux-x86_64.tar.gz"
+          curl --fail --location --retry 3 \
+            https://github.com/Kitware/CMake/releases/download/v3.19.8/cmake-3.19.8-Linux-x86_64.tar.gz \
+            --output "${archive}"
+          echo "db0d7d225150dd6e08ce54995e671f9b4801b8e93e22df1eef52339f6bbbecd9  ${archive}" | sha256sum --check
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/cmake-3.19.8-Linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Restore/Save 3rdparty Dependencies
         uses: actions/cache@v4
@@ -374,20 +384,15 @@ jobs:
             echo "::error::Set KITELLM_GITHUB_TOKEN with read access to chamsechan/kiteLLM."
             exit 1
           fi
-          cmake -S . -B build-kite -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
+          cmake --preset=kite-cpu \
             -DLLM_EDGEFLOW_LINKER=mold \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DENABLE_KITELLM=ON \
-            -DENABLE_LLAMACPP=OFF \
-            -DENABLE_ONNXRUNTIME=ON \
-            -DLLM_EDGEFLOW_TEST_PCH=OFF
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build kiteLLM SDK and Tests
         run: |
           ccache -z
-          cmake --build build-kite -j4
+          cmake --build build/variants/kite-cpu -j4
           ccache -s
 
       - name: Verify Backend Registration and Real Model Tests
@@ -398,12 +403,12 @@ jobs:
           LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
         run: |
           test -s "${LLM_EDGEFLOW_TEST_KITELLM_MODEL}"
-          ./build-kite/alg_pipeline_tool catalog > build-kite/catalog.json
+          ./build/variants/kite-cpu/alg_pipeline_tool catalog > build/variants/kite-cpu/catalog.json
           python3 - <<'PY'
           import json
           import pathlib
           import subprocess
-          with open("build-kite/catalog.json", encoding="utf-8") as stream:
+          with open("build/variants/kite-cpu/catalog.json", encoding="utf-8") as stream:
               catalog = json.load(stream)
           backends = {entry["backend_type"] for entry in catalog["backends"]}
           assert "kite_llm" in backends, "kiteLLM must be registered"
@@ -417,11 +422,11 @@ jobs:
           assert configs, "Kite deployment configurations are missing"
           for config in configs:
               for command in ("validate", "plan"):
-                  subprocess.run(["./build-kite/alg_pipeline_tool", command, str(config)], check=True)
+                  subprocess.run(["./build/variants/kite-cpu/alg_pipeline_tool", command, str(config)], check=True)
           PY
-          ctest --test-dir build-kite -j4 \
-            --output-on-failure \
-            -L "kite"
+          (cd build/variants/kite-cpu && ctest -j4 \
+            --output-on-failure --no-tests=error \
+            -L "kite")
 
   acceptance-evidence:
     name: Exact-SHA Acceptance Evidence

@@ -1660,6 +1660,41 @@ process.stdout.write(JSON.stringify(pipeline));
 
 
 class SelectionVerificationTest(unittest.TestCase):
+    def test_asset_catalog_exposes_only_public_selection_variants(self):
+        selection = SHOW.SELECTION
+        catalog = selection.asset_catalog()
+        self.assertEqual({row["name"] for row in catalog["variants"]},
+                         {"minimal", "default-cpu", "kite-cpu"})
+        with tempfile.TemporaryDirectory() as directory:
+            presets = Path(directory) / "CMakePresets.json"
+            presets.write_text(json.dumps({"configurePresets": [
+                {"name": "base", "hidden": True},
+                {"name": "internal", "hidden": True,
+                 "vendor": {"llm-edgeflow/selection": {"backends": ["internal"]}}},
+                {"name": "gate"},
+                {"name": "unrelated", "vendor": {"other/tool": {}}},
+                {"name": "public", "vendor": {"llm-edgeflow/selection": {"backends": []}}}
+            ]}))
+            with mock.patch.object(selection, "PRESETS", presets):
+                self.assertEqual(selection.asset_catalog()["variants"],
+                                 [{"name": "public", "backends": []}])
+
+    def test_inspection_rejects_presets_without_public_selection_metadata(self):
+        selection = SHOW.SELECTION
+        presets = selection.read_json(selection.PRESETS)["configurePresets"]
+        private = [preset["name"] for preset in presets
+                   if preset.get("hidden") or "llm-edgeflow/selection" not in preset.get("vendor", {})]
+        self.assertTrue(private)
+        with mock.patch.object(selection, "native", side_effect=lambda tool, command, *args:
+                               {"backends": []} if command == "catalog" else {"ok": True}), \
+                mock.patch.object(selection, "file_digest", return_value="mock-tool-digest"):
+            for variant in [*private, "missing-preset"]:
+                with self.subTest(variant=variant), self.assertRaisesRegex(ValueError, "Unknown build variant"):
+                    selection.inspect_selection({"models": []}, Path("mock-tool"), ROOT / "models", variant=variant)
+            report = selection.inspect_selection({"models": []}, Path("mock-tool"), ROOT / "models", variant="minimal")
+            self.assertTrue(report["ok"])
+            self.assertEqual(report["build"]["status"], "verified")
+
     def test_studio_selection_uses_selected_asset_directory_and_host_root(self):
         service = SHOW.WorkbenchService(ROOT / "configs")
         with mock.patch.object(SHOW.SELECTION, "inspect_selection", return_value={"ok": True}) as inspect:

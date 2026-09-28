@@ -4,61 +4,65 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-TEST_TMP_DIR=$(mktemp -d /tmp/test_generator_detection_XXXXXX)
-trap 'rm -rf "${TEST_TMP_DIR}"' EXIT
+python3 - "${PROJECT_ROOT}/scripts/configure_build.sh" <<'PY'
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 
-echo "[Test] 1. Fresh directory with Ninja available"
-mkdir -p "${TEST_TMP_DIR}/fresh_dir"
-NINJA_BIN="${TEST_TMP_DIR}/ninja_bin"
-mkdir -p "${NINJA_BIN}"
-ln -s "$(type -P true)" "${NINJA_BIN}/ninja"
-RES1=$(PATH="${NINJA_BIN}:${PATH}" "${PROJECT_ROOT}/scripts/detect_cmake_generator.sh" "${TEST_TMP_DIR}/fresh_dir")
-if [[ "${RES1}" != "-G Ninja" ]]; then
-  echo "FAILED: Expected '-G Ninja', got '${RES1}'"
-  exit 1
-fi
+helper = Path(sys.argv[1])
+with tempfile.TemporaryDirectory(prefix="edgeflow-configure-contract-") as directory:
+    root = Path(directory)
+    binary = root / "bin"
+    binary.mkdir()
+    # An isolated PATH makes both Ninja availability branches deterministic.
+    for name in ("bash", "sh", "env", "dirname", "sed", "grep", "awk", "head", "cut"):
+        command = shutil.which(name)
+        if command:
+            (binary / name).symlink_to(command)
+    cmake = binary / "cmake"
+    cmake.write_text("#!" + sys.executable + '\n'
+                     'import json, os, sys\n'
+                     'print(json.dumps(sys.argv[1:]))\n'
+                     'sys.exit(int(os.environ.get("MOCK_CMAKE_EXIT", "0")))\n')
+    cmake.chmod(0o755)
+    env = {**os.environ, "PATH": str(binary)}
+    source = root / "source with spaces"
+    source.mkdir()
+    options = ["-DMODEL_ROOT=/path with spaces/weights", "-DVALUES=one;two three"]
 
-echo "[Test] 2. Existing build directory with Unix Makefiles CMakeCache.txt"
-mkdir -p "${TEST_TMP_DIR}/make_dir"
-echo "CMAKE_GENERATOR:INTERNAL=Unix Makefiles" > "${TEST_TMP_DIR}/make_dir/CMakeCache.txt"
-RES2=$("${PROJECT_ROOT}/scripts/detect_cmake_generator.sh" "${TEST_TMP_DIR}/make_dir")
-if [[ -n "${RES2}" ]]; then
-  echo "FAILED: Expected empty generator arg for existing Makefiles, got '${RES2}'"
-  exit 1
-fi
+    def check(name, generator, cached=None):
+        build = root / name
+        build.mkdir(exist_ok=True)
+        if cached:
+            (build / "CMakeCache.txt").write_text("CMAKE_GENERATOR:INTERNAL=" + cached + "\n")
+        result = subprocess.run([str(helper), str(source), str(build), "minimal", *options],
+                                env=env, text=True, capture_output=True)
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        args = json.loads(result.stdout)
+        assert "--preset=minimal" in args, args
+        for option, expected in (("-S", str(source)), ("-B", str(build)), ("-G", generator)):
+            assert args[args.index(option) + 1] == expected, args
+        assert args[-len(options):] == options, args
 
-echo "[Test] 3. Existing build directory with Ninja CMakeCache.txt"
-mkdir -p "${TEST_TMP_DIR}/ninja_dir"
-echo "CMAKE_GENERATOR:INTERNAL=Ninja" > "${TEST_TMP_DIR}/ninja_dir/CMakeCache.txt"
-RES3=$("${PROJECT_ROOT}/scripts/detect_cmake_generator.sh" "${TEST_TMP_DIR}/ninja_dir")
-if [[ -n "${RES3}" ]]; then
-  echo "FAILED: Expected empty generator arg for existing Ninja cache, got '${RES3}'"
-  exit 1
-fi
-
-echo "[Test] 4. PATH without ninja on a fresh directory"
-MOCK_BIN="${TEST_TMP_DIR}/mock_bin"
-mkdir -p "${MOCK_BIN}"
-for cmd in bash sh env dirname; do
-  target_cmd=$(command -v "$cmd" || true)
-  if [[ -n "${target_cmd}" ]]; then
-    ln -sf "${target_cmd}" "${MOCK_BIN}/${cmd}"
-  fi
-done
-
-RES4=$(PATH="${MOCK_BIN}" "${MOCK_BIN}/bash" "${PROJECT_ROOT}/scripts/detect_cmake_generator.sh" "${TEST_TMP_DIR}/fresh_no_ninja")
-if [[ -n "${RES4}" ]]; then
-  echo "FAILED: Expected empty output when ninja is not in PATH, got '${RES4}'"
-  exit 1
-fi
-
-echo "[Test] 5. Idempotent repeated runs"
-for i in {1..5}; do
-  RES5=$("${PROJECT_ROOT}/scripts/detect_cmake_generator.sh" "${TEST_TMP_DIR}/make_dir")
-  if [[ -n "${RES5}" ]]; then
-    echo "FAILED: Iteration $i failed"
-    exit 1
-  fi
-done
-
-echo "ALL GENERATOR DETECTION TESTS PASSED 100%!"
+    check("fresh without ninja", "Unix Makefiles")
+    (binary / "ninja").symlink_to(shutil.which("true"))
+    check("fresh with ninja", "Ninja")
+    check("existing make build", "Unix Makefiles", "Unix Makefiles")
+    check("existing ninja build", "Ninja", "Ninja")
+    check("existing multi config", "Ninja Multi-Config", "Ninja Multi-Config")
+    (binary / "ninja").unlink()
+    check("cached ninja without binary", "Ninja", "Ninja")
+    for _ in range(3):
+        check("existing make build", "Unix Makefiles", "Unix Makefiles")
+    failure = subprocess.run([str(helper), str(source), str(root / "failure"), "minimal"],
+                             env={**env, "MOCK_CMAKE_EXIT": "23"}, capture_output=True)
+    assert failure.returncode == 23, failure
+    for missing in ([], [str(source)], [str(source), str(root / "missing")]):
+        result = subprocess.run([str(helper), *missing], env=env, capture_output=True)
+        assert result.returncode != 0, missing
+print("Native preset configure generator selection, argument boundaries and failure propagation passed.")
+PY

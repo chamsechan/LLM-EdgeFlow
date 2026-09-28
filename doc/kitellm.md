@@ -11,11 +11,9 @@
 ```bash
 gh auth login
 gh repo view chamsechan/kiteLLM
-cmake -S . -B build-kite -DCMAKE_BUILD_TYPE=Release \
-  -DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF \
-  -DENABLE_WHISPERCPP=OFF -DENABLE_ONNXRUNTIME=ON
-cmake --build build-kite -j8
-./build-kite/alg_pipeline_tool catalog
+cmake --preset=kite-cpu
+cmake --build build/variants/kite-cpu -j8
+./build/variants/kite-cpu/alg_pipeline_tool catalog
 ```
 
 CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤将其注入为
@@ -67,8 +65,8 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆�
 
 ```bash
 LLM_EDGEFLOW_TEST_KITELLM_MODEL=/absolute/path/model.gguf \
-  ctest --test-dir build-kite -R '^(LlamaCppBackendTest|DemoRunnerTest)$' --output-on-failure
-ctest --test-dir build-kite --output-on-failure -j8
+  sh -c 'cd build/variants/kite-cpu && ctest -R "^(LlamaCppBackendTest|DemoRunnerTest)$" --output-on-failure'
+(cd build/variants/kite-cpu && ctest --output-on-failure -j8)
 ```
 
 沿用现有 engine 测试套件名称。未设置真实模型路径时，真实模型用例会明确跳过。
@@ -88,9 +86,9 @@ ctest --test-dir build-kite --output-on-failure -j8
 
 ```bash
 ./scripts/fetch_real_test_models.sh --kite
-./build-kite/alg_demo --profiles-file demo/profiles_kite.json --suite real
+./build/variants/kite-cpu/alg_demo --profiles-file demo/profiles_kite.json --suite real
 # 单项运行：
-./build-kite/alg_demo --profiles-file demo/profiles_kite.json --profile ocr_doc_qa_kite
+./build/variants/kite-cpu/alg_demo --profiles-file demo/profiles_kite.json --profile ocr_doc_qa_kite
 ```
 
 `--profiles-file` 是通用部署配置入口；省略时保持原有 demo/profiles.json 和默认套件。
@@ -113,10 +111,10 @@ prefix/suffix、last/mean 池化和请求级 L2 归一化。Backend 负责 greed
 只池化实际生成的 token；首步 EOS 没有向量时明确失败，不伪造或补齐向量。
 
 ```bash
-./build-kite/alg_pipeline_tool catalog
-./build-kite/alg_pipeline_tool validate configs/pipeline_doc_qa_kite_generated_embeddings.json
-./build-kite/alg_pipeline_tool plan configs/pipeline_doc_qa_kite_generated_embeddings.json
-./build-kite/alg_demo --profiles-file demo/profiles_kite.json --profile doc_qa_kite_embeddings
+./build/variants/kite-cpu/alg_pipeline_tool catalog
+./build/variants/kite-cpu/alg_pipeline_tool validate configs/pipeline_doc_qa_kite_generated_embeddings.json
+./build/variants/kite-cpu/alg_pipeline_tool plan configs/pipeline_doc_qa_kite_generated_embeddings.json
+./build/variants/kite-cpu/alg_demo --profiles-file demo/profiles_kite.json --profile doc_qa_kite_embeddings
 ```
 
 该示例复用既有问答 DAG，向量与回答生成都用 Qwen2.5-0.5B GGUF + Kite，向量维度 896。
@@ -151,7 +149,7 @@ LLM_EDGEFLOW_TEST_KITELLM_MODEL="$PWD/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" 
 LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL="$PWD/models/SmolVLM-256M-Instruct-Q8_0.gguf" \
 LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG=kite_vision_run.json \
 LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 \
-  ctest --test-dir build-kite --output-on-failure -j4
+  sh -c 'cd build/variants/kite-cpu && ctest --output-on-failure -j4'
 ```
 
 视觉测试验证真实红色图像的推理结果、错误图像和投影配置；模型单测验证补边、RGB

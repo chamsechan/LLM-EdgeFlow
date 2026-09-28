@@ -1,5 +1,6 @@
 # Generated extensions belong only to tests, never the SDK or production Catalog.
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(EDGEFLOW_CONTROL_FIXTURE_SOURCE
+  "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/control/test_control_node.cpp")
 get_filename_component(_control_fixture_dir "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}" DIRECTORY)
 add_custom_command(
   OUTPUT "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}"
@@ -29,7 +30,6 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_control.md"
     "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
     "${PROJECT_SOURCE_DIR}/src/custom_nodes/CMakeLists.txt"
-    "${PROJECT_SOURCE_DIR}/cmake_ext/CustomNodeTests.cmake"
   COMMENT "Generating custom Node snippets and standalone behavioral test fixtures"
   VERBATIM)
 

@@ -7,7 +7,6 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${PROJECT_ROOT}/build"
 MODEL_DIR="${PROJECT_ROOT}/models"
 
 MODE="gguf-only"
@@ -27,6 +26,12 @@ if [[ $# -eq 1 ]]; then
   esac
 fi
 
+BUILD_DIR="${PROJECT_ROOT}/build/real-models/${MODE}"
+PRESET=dev-gate
+if [[ "${MODE}" == "whisper" || "${MODE}" == "all" ]]; then
+  PRESET=default-cpu
+fi
+
 echo "=================================================================="
 echo "  [LLM-EdgeFlow] 物理真实模型端到端 E2E 压测套件启动 (${MODE})     "
 echo "  (独立物理测试：物理加载权重 / 真实推理 / 真实 Profile 验证)        "
@@ -43,14 +48,9 @@ fi
 
 # 2. 编译独立物理测试套件
 echo ">>> 正在编译 test_real_models_e2e..."
-mkdir -p "${BUILD_DIR}"
-EXTRA_CMAKE_ARGS=()
-if [[ "${MODE}" == "whisper" || "${MODE}" == "all" ]]; then
-  EXTRA_CMAKE_ARGS+=(-DENABLE_WHISPERCPP=ON)
-fi
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" \
+"${PROJECT_ROOT}/scripts/configure_build.sh" "${PROJECT_ROOT}" "${BUILD_DIR}" "${PRESET}" \
   -DENABLE_REAL_MODEL_TESTS=ON \
-  "${EXTRA_CMAKE_ARGS[@]}"
+  -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 cmake --build "${BUILD_DIR}" --target test_real_models_e2e alg_demo \
   -j"${LLM_EDGEFLOW_JOBS:-4}"
 

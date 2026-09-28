@@ -1,7 +1,6 @@
 # Sharded Google Test runners and label-driven development test matrix.
 
-include(${PROJECT_SOURCE_DIR}/cmake_ext/TestInventory.cmake)
-include(${PROJECT_SOURCE_DIR}/cmake_ext/ScaffoldFixtures.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/ScaffoldFixtures.cmake)
 
 option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" OFF)
 
@@ -13,8 +12,6 @@ add_test(NAME ThirdPartyCacheMetadataTest
 set_tests_properties(ThirdPartyCacheMetadataTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
-
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 function(edgeflow_enable_test_pch target_name)
   if(NOT LLM_EDGEFLOW_TEST_PCH)
@@ -38,27 +35,16 @@ function(edgeflow_add_runner_test test_name runner_name gtest_filter labels)
     LABELS "${labels}")
 endfunction()
 
-set(EDGEFLOW_TEST_CORE_SRCS
-  ${EDGEFLOW_SOURCE_test_batch_executor}
-  ${EDGEFLOW_SOURCE_test_log}
-  ${EDGEFLOW_SOURCE_test_log_name_override}
-  ${EDGEFLOW_SOURCE_test_framework_core}
-  ${EDGEFLOW_SOURCE_test_dag_pipeline}
-  ${EDGEFLOW_SOURCE_test_engine_fault_tolerance_and_lifecycle}
-  ${EDGEFLOW_SOURCE_test_pipeline_config}
-  ${EDGEFLOW_SOURCE_test_registry_reentrant}
-  ${EDGEFLOW_SOURCE_test_typed_blackboard_contracts}
-  ${EDGEFLOW_SOURCE_test_validated_pipeline_plan}
-  ${EDGEFLOW_SOURCE_test_node_base_contracts}
-  ${EDGEFLOW_SOURCE_test_node_ownership_and_reuse}
-  ${EDGEFLOW_SOURCE_test_definition_schema_validation}
-  ${EDGEFLOW_SOURCE_test_model_backend_decoupling}
-  ${EDGEFLOW_SOURCE_test_model_backend_pipeline}
-  ${EDGEFLOW_SOURCE_test_onnx_and_embedding_model}
-  ${EDGEFLOW_SOURCE_test_onnx_and_reranker_model}
-  ${EDGEFLOW_SOURCE_test_qwen_causal_lm_model}
-  ${EDGEFLOW_SOURCE_test_llama_cpp_backend}
-  ${EDGEFLOW_SOURCE_test_whisper_cpp_backend})
+# Discover only each runner's owned test directories. Keep generated sources,
+# process-isolated contracts and opt-in E2E targets explicit. CONFIGURE_DEPENDS
+# makes additions/removals trigger regeneration on the next build (CMake 3.19).
+file(GLOB EDGEFLOW_TEST_CORE_SRCS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/core/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/engine/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/logging/test_*.cpp")
+# Pipeline integration tests have different runner dependencies.
+list(APPEND EDGEFLOW_TEST_CORE_SRCS
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_model_backend_pipeline.cpp")
 add_executable(edgeflow_test_core_runner
   ${EDGEFLOW_TEST_CORE_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
@@ -116,22 +102,8 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
 endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
-set(EDGEFLOW_TEST_NODE_SRCS
-  ${EDGEFLOW_SOURCE_test_text_chunk_node}
-  ${EDGEFLOW_SOURCE_test_text_embedding_node}
-  ${EDGEFLOW_SOURCE_test_vector_top_k_node}
-  ${EDGEFLOW_SOURCE_test_text_rerank_node}
-  ${EDGEFLOW_SOURCE_test_text_template_node}
-  ${EDGEFLOW_SOURCE_test_llm_generate_node}
-  ${EDGEFLOW_SOURCE_test_asr_transcribe_node}
-  ${EDGEFLOW_SOURCE_test_ocr_detect_node}
-  ${EDGEFLOW_SOURCE_test_text_rule_match_node}
-  ${EDGEFLOW_SOURCE_test_structured_json_parse_node}
-  ${EDGEFLOW_SOURCE_test_text_corpus_source_node}
-  ${EDGEFLOW_SOURCE_test_common_nodes}
-  ${EDGEFLOW_SOURCE_test_function_node}
-  ${EDGEFLOW_SOURCE_test_parameter_binding}
-  ${EDGEFLOW_CUSTOM_NODE_TEST_SRCS})
+file(GLOB EDGEFLOW_TEST_NODE_SRCS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/nodes/test_*.cpp")
 add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
@@ -142,22 +114,15 @@ target_link_libraries(edgeflow_test_nodes_runner PRIVATE
   edgeflow_test_allocation_failure)
 edgeflow_enable_test_pch(edgeflow_test_nodes_runner)
 
-set(EDGEFLOW_TEST_ADAPTER_SRCS
-  ${EDGEFLOW_SOURCE_test_operator_safety}
-  ${EDGEFLOW_SOURCE_test_different_io_modalities}
-  ${EDGEFLOW_SOURCE_test_all_biz_pipelines}
-  ${EDGEFLOW_SOURCE_test_concurrency_and_edge_cases}
-  ${EDGEFLOW_SOURCE_test_runtime_control_and_hot_swap}
-  ${EDGEFLOW_SOURCE_test_adapter_contract_security}
-  ${EDGEFLOW_SOURCE_test_operator_api}
-  ${EDGEFLOW_SOURCE_test_operator_output_pool}
-  ${EDGEFLOW_SOURCE_test_operator_value_registry}
-  ${EDGEFLOW_SOURCE_test_operator_golden}
-  ${EDGEFLOW_SOURCE_test_adapter_purity}
-  ${EDGEFLOW_SOURCE_test_io_converters}
-  ${EDGEFLOW_SOURCE_test_io_binding_registry}
-  ${EDGEFLOW_SOURCE_test_text_converters}
-  ${EDGEFLOW_SOURCE_test_complex_converters})
+file(GLOB EDGEFLOW_TEST_ADAPTER_SRCS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/adapter/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/operator/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/operator/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/runtime/test_*.cpp")
+list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS
+  "${CMAKE_CURRENT_SOURCE_DIR}/contract/abi/test_operator_safety.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/contract/abi/test_adapter_contract_security.cpp"
+  "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
@@ -167,10 +132,12 @@ target_link_libraries(edgeflow_test_adapter_runner PRIVATE
   edgeflow_test_allocation_failure)
 edgeflow_enable_test_pch(edgeflow_test_adapter_runner)
 
-set(EDGEFLOW_TEST_TOOLING_SRCS
-  ${EDGEFLOW_SOURCE_test_doc_qa_rerank}
-  ${EDGEFLOW_SOURCE_test_pipeline_catalog_validator}
-  ${EDGEFLOW_SOURCE_test_demo_runner})
+file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp")
+list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_doc_qa_rerank.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_catalog_validator.cpp"
+  "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
   $<TARGET_OBJECTS:edgeflow_demo_objects>
@@ -204,20 +171,20 @@ endif()
 
 # Process-isolated targets. Registry conflict intentionally runs each dirty
 # singleton scenario in its own process.
-add_executable(test_cpp_operator_sdk ${EDGEFLOW_SOURCE_test_cpp_operator_sdk})
+add_executable(test_cpp_operator_sdk "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_cpp_operator_sdk.cpp")
 set_target_properties(test_cpp_operator_sdk PROPERTIES LINK_LIBRARIES "llm_edgeflow::sdk")
 
-add_executable(test_registry_conflict ${EDGEFLOW_SOURCE_test_registry_conflict})
+add_executable(test_registry_conflict "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_registry_conflict.cpp")
 target_link_libraries(test_registry_conflict PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
 add_executable(test_model_backend_registry_conflict
-  ${EDGEFLOW_SOURCE_test_model_backend_registry_conflict})
+  "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_model_backend_registry_conflict.cpp")
 target_link_libraries(test_model_backend_registry_conflict PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
 add_executable(test_catalog_contract_ssot
-  ${EDGEFLOW_SOURCE_test_catalog_contract_ssot})
+  "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_catalog_contract_ssot.cpp")
 target_link_libraries(test_catalog_contract_ssot PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
@@ -396,7 +363,6 @@ set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier4;tooling;static-gate;slow")
 
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME PipelineStudioServerTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/tooling/test_pipeline_studio.py)
@@ -513,4 +479,76 @@ set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   PROPERTIES TIMEOUT 5)
 # The opt-in real Kite deployment suite loads text, ONNX and vision models.
 set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
+
+# Required runtime contract suites for the canonical runner assembly.
+# Smoke and tooling tests may extend this set; the assembly must not silently
+# omit any of these core contracts.
+set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
+  QualityGateScriptsContractTest
+  BatchExecutorTest
+  FrameworkCoreTest
+  CompanyAlgLogTest
+  DagPipelineTest
+  EngineFaultToleranceAndLifecycleTest
+  PipelineConfigTest
+  RegistryReentrantTest
+  CatalogContractSsotTest
+  TypedBlackboardContractsTest
+  ValidatedPipelinePlanTest
+  NodeBaseContractsTest
+  NodeOwnershipAndReuseTest
+  DefinitionSchemaValidationTest
+  ModelBackendDecouplingTest
+  ModelBackendPipelineTest
+  OnnxAndEmbeddingModelTest
+  OnnxAndRerankerModelTest
+  TextChunkNodeTest
+  TextEmbeddingNodeTest
+  VectorTopKNodeTest
+  TextRerankNodeTest
+  TextTemplateNodeTest
+  LlmGenerateNodeTest
+  AsrTranscribeNodeTest
+  OcrDetectNodeTest
+  TextRuleMatchNodeTest
+  StructuredJsonParseNodeTest
+  TextCorpusSourceNodeTest
+  CommonNodesTest
+  FunctionNodeTest
+  ParameterBindingTest
+  CppOperatorSdkTest
+  OperatorSafetyTest
+  DifferentIoModalitiesTest
+  AllBizPipelinesTest
+  ConcurrencyAndEdgeCasesTest
+  RuntimeControlAndHotSwapTest
+  AdapterContractSecurityTest
+  OperatorApiTest
+  OperatorOutputPoolTest
+  OperatorValueRegistryTest
+  OperatorGoldenTest
+  AdapterPurityTest
+  IoConverterTest
+  IoBindingRegistryTest
+  TextConvertersTest
+  ComplexConvertersTest
+  DocQaRerankTest
+  PipelineStudioTest
+  DemoRunnerTest
+  RegistryConflictNodeTest
+  RegistryConflictModelTest
+  ModelBackendRegistryConflictTest
+  QwenCausalLmModelTest
+  LlamaCppBackendTest
+  WhisperCppBackendTest)
+
+function(edgeflow_assert_required_test_inventory)
+  get_property(registered_tests DIRECTORY PROPERTY TESTS)
+  foreach(required_test IN LISTS EDGEFLOW_REQUIRED_CONTRACT_TESTS)
+    if(NOT required_test IN_LIST registered_tests)
+      message(FATAL_ERROR
+        "Test mode omitted required contract suite: ${required_test}")
+    endif()
+  endforeach()
+endfunction()
 edgeflow_assert_required_test_inventory()
