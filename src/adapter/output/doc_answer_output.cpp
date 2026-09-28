@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "doc_out";
+
 int EncodeOperatorDocAnswer(AlgContext* context,
                             const OutputPortBindings& bindings,
                             const OutputEncodeOptions& options,
@@ -62,10 +64,10 @@ int EncodeOperatorDocAnswer(AlgContext* context,
   }
 
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOperatorDocOutput>("doc_out", i);
+    auto* out = destination->GetSlot<CompanyOperatorDocOutput>(kOutputSlot, i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing doc_out slot item", "doc_out",
+          status, "Missing doc_out slot item", kOutputSlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
@@ -75,12 +77,12 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     out->chunk_count = chunks_by_req[i]->data;
     out->status_code = match.status_code;
 
-    if (!WriteOutputString(*destination, "doc_out", out->intent_name,
+    if (!WriteOutputString(*destination, kOutputSlot, out->intent_name,
                            "intent_name", match.category, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    if (!WriteOutputString(*destination, "doc_out", out->answer_text,
+    if (!WriteOutputString(*destination, kOutputSlot, out->answer_text,
                            "answer_text", answers_by_req[i]->data, options,
                            status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
@@ -100,7 +102,7 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorDocOutput>(
-      "doc_out", {"intent_name", "answer_text"})};
+      kOutputSlot, {"intent_name", "answer_text"})};
   def.logical_ports = {
       RequiredInputPort(kRawRequestIds), RequiredInputPort(kLlmAnswers),
       RequiredInputPort(kIntentMatches), RequiredInputPort(kDocChunkCounts)};

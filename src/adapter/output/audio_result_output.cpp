@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "audio_out";
+
 int EncodeOperatorAudioResult(AlgContext* context,
                               const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
@@ -57,10 +59,10 @@ int EncodeOperatorAudioResult(AlgContext* context,
 
   for (size_t i = 0; i < count; ++i) {
     auto* out =
-        destination->GetSlot<CompanyOperatorAudioOutput>("audio_out", i);
+        destination->GetSlot<CompanyOperatorAudioOutput>(kOutputSlot, i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing audio_out slot item", "audio_out",
+          status, "Missing audio_out slot item", kOutputSlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
@@ -70,13 +72,13 @@ int EncodeOperatorAudioResult(AlgContext* context,
     const std::string& slot_json =
         intent_slots_by_request[i]->data.match_result_json;
 
-    if (!WriteOutputString(*destination, "audio_out", out->transcribed_text,
+    if (!WriteOutputString(*destination, kOutputSlot, out->transcribed_text,
                            "transcribed_text", transcripts_by_request[i]->data,
                            options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    if (!WriteOutputString(*destination, "audio_out", out->intent_slot_json,
+    if (!WriteOutputString(*destination, kOutputSlot, out->intent_slot_json,
                            "intent_slot_json", slot_json, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -95,7 +97,7 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorAudioOutput>(
-      "audio_out", {"transcribed_text", "intent_slot_json"})};
+      kOutputSlot, {"transcribed_text", "intent_slot_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kTranscripts),
                        RequiredInputPort(kIntentSlots)};

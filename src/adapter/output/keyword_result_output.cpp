@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "keyword_out";
+
 AdapterStatus EncodeKeyword(const RuleMatchItem& result,
                             CompanyOperatorKeywordOutput* output,
                             const OutputStringWriter& writer) {
@@ -30,7 +32,7 @@ int EncodeOperatorKeywordResult(AlgContext* context,
                                 size_t* written_count, AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorKeywordOutput>(
       context, bindings, options, destination, written_count, status,
-      "keyword_out", kRawRequestIds, kRuleMatches, &EncodeKeyword);
+      kOutputSlot, kRawRequestIds, kRuleMatches, &EncodeKeyword);
 }
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
@@ -42,7 +44,7 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorKeywordOutput>(
-      "keyword_out", {"match_result_json"})};
+      kOutputSlot, {"match_result_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kRuleMatches)};
   def.encode_fn = &EncodeOperatorKeywordResult;

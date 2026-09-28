@@ -13,6 +13,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kInputSlot = "doc_in";
+
 constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxQueryLen = 64 * 1024;       // 64KB
@@ -35,8 +37,8 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
   raw_queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = ReadInputSlot<CompanyOperatorDocInput>(source, "doc_in", i,
-                                                            options, status);
+    const auto* in = ReadInputSlot<CompanyOperatorDocInput>(source, kInputSlot,
+                                                            i, options, status);
     if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     if (!IsValidInputString(in->query_text)) {
@@ -95,7 +97,7 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   def.external_type = "CompanyOperatorDocInput";
   def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>("doc_in")};
+  def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRawDocs),
                        OutputPort(kRawQueries)};
   def.decode_fn = &DecodeOperatorDocQueryInput;

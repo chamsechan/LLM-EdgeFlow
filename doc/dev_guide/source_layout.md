@@ -85,6 +85,8 @@ src/adapter/
 普通配置只填写 `deployment.io.io_binding`；业务边界由框架沿该绑定的注册关系获得。
 框架沿注册关系选择转换器和槽位，不按名字拼写推导载体类型。
 
+外部槽名在所属转换器 `.cpp` 内声明一次，回调与 Definition 复用；仅用一次的 schema ID、binding ID 保持原位。
+
 业务端口使用 `RequiredBizInput`、`OptionalBizInput`、`BizOutput`；Node 端口使用
 `RequiredInputPort`、`OptionalInputPort`、`OutputPort`。两种端口类型不可相互隐式转换。
 Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑端口或业务黑板键。

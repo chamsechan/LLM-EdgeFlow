@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kInputSlot = "audio_in";
+
 constexpr size_t kMaxBatchSize = 64;
 
 AdapterStatus DecodeAudio(const CompanyOperatorAudioInput& input,
@@ -47,7 +49,7 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorAudioInput>(
-      source, options, bindings, context, status, kMaxBatchSize, "audio_in",
+      source, options, bindings, context, status, kMaxBatchSize, kInputSlot,
       kRawRequestIds, kAudioInputs, &DecodeAudio);
 }
 
@@ -60,7 +62,7 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
   def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorAudioInput>("audio_in")};
+      ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kAudioInputs)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;

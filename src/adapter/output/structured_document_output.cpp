@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "entity_out";
+
 AdapterStatus EncodeDocument(const JsonDocumentItem& result,
                              CompanyOperatorEntityOutput* output,
                              const OutputStringWriter& writer) {
@@ -34,7 +36,7 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
                                      AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, bindings, options, destination, written_count, status,
-      "entity_out", kRawRequestIds, kExtractedEntities, &EncodeDocument);
+      kOutputSlot, kRawRequestIds, kExtractedEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
@@ -46,7 +48,7 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
-      "entity_out", {"entities_json"})};
+      kOutputSlot, {"entities_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kExtractedEntities)};
   def.encode_fn = &EncodeOperatorStructuredDocument;

@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kInputSlot = "audit_in";
+
 constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
@@ -36,7 +38,7 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
   for (size_t i = 0; i < source.count; ++i) {
     const auto* in = ReadInputSlot<CompanyOperatorAuditInput>(
-        source, "audit_in", i, options, status);
+        source, kInputSlot, i, options, status);
     if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     if (!IsValidInputString(in->user_text)) {
@@ -99,7 +101,7 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
   def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorAuditInput>("audit_in")};
+      ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kUserTexts),
                        OutputPort(kChannelNames)};
   def.decode_fn = &DecodeOperatorAuditInput;

@@ -13,6 +13,9 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kEntitySlot = "entity_in";
+constexpr const char* kKeywordSlot = "keyword_in";
+
 constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
@@ -36,7 +39,7 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kMaxBatchSize, "entity_in",
+      source, options, bindings, context, status, kMaxBatchSize, kEntitySlot,
       kRawRequestIds, kInputSentences,
       &DecodeSentence<CompanyOperatorEntityInput>);
 }
@@ -46,7 +49,7 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputPortBindings& bindings,
                                AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorKeywordInput>(
-      source, options, bindings, context, status, kMaxBatchSize, "keyword_in",
+      source, options, bindings, context, status, kMaxBatchSize, kKeywordSlot,
       kRawRequestIds, kInputSentences,
       &DecodeSentence<CompanyOperatorKeywordInput>);
 }
@@ -60,7 +63,7 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
   def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>("entity_in", "entity_in")};
+      ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot, kEntitySlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
@@ -75,7 +78,7 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
   def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorKeywordInput>(
-      "keyword_in", "keyword_in")};
+      kKeywordSlot, kKeywordSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;

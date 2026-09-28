@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kInputSlot = "entity_in";
+
 constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
@@ -52,7 +54,7 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kMaxBatchSize, "entity_in",
+      source, options, bindings, context, status, kMaxBatchSize, kInputSlot,
       kRawRequestIds, kInputSentences, &DecodeTranslateQuery);
 }
 
@@ -65,7 +67,7 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>("entity_in", "entity_in")};
+      ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot, kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;
