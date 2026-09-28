@@ -15,6 +15,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "entity_out";
+
 AdapterStatus EncodeTranslation(const std::string& result,
                                 CompanyOperatorEntityOutput* output,
                                 const OutputStringWriter& writer) {
@@ -31,7 +33,7 @@ int EncodeOperatorTranslationJson(AlgContext* context,
                                   AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, bindings, options, destination, written_count, status,
-      "entity_out", kRawRequestIds, kLlmAnswers, &EncodeTranslation);
+      kOutputSlot, kRawRequestIds, kLlmAnswers, &EncodeTranslation);
 }
 
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
@@ -43,7 +45,7 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
-      "entity_out", {"entities_json"})};
+      kOutputSlot, {"entities_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kLlmAnswers)};
   def.encode_fn = &EncodeOperatorTranslationJson;

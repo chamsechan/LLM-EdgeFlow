@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kInputSlot = "rerank_in";
+
 constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
@@ -36,7 +38,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 
   for (size_t i = 0; i < source.count; ++i) {
     const auto* in = ReadInputSlot<CompanyOperatorRerankInput>(
-        source, "rerank_in", i, options, status);
+        source, kInputSlot, i, options, status);
     if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     if (!IsValidInputString(in->query_text)) {
@@ -112,7 +114,7 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
   def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorRerankInput>("rerank_in")};
+      ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRerankQueries),
                        OutputPort(kRerankCandidates, "N:1"),
                        OutputPort(kRerankPairs, "N:1")};

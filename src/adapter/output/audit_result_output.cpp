@@ -16,6 +16,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "audit_out";
+
 int EncodeOperatorAuditResult(AlgContext* context,
                               const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
@@ -67,10 +69,10 @@ int EncodeOperatorAuditResult(AlgContext* context,
 
   for (size_t i = 0; i < count; ++i) {
     auto* out =
-        destination->GetSlot<CompanyOperatorAuditOutput>("audit_out", i);
+        destination->GetSlot<CompanyOperatorAuditOutput>(kOutputSlot, i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing audit_out slot item", "audit_out",
+          status, "Missing audit_out slot item", kOutputSlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
@@ -107,18 +109,18 @@ int EncodeOperatorAuditResult(AlgContext* context,
     out->risk_score = risk_score;
     out->status_code = 0;
 
-    if (!WriteOutputString(*destination, "audit_out", out->risk_level,
+    if (!WriteOutputString(*destination, kOutputSlot, out->risk_level,
                            "risk_level", risk_level, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    if (!WriteOutputString(*destination, "audit_out",
+    if (!WriteOutputString(*destination, kOutputSlot,
                            out->matched_policy_clause, "matched_policy_clause",
                            policy_clause, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    if (!WriteOutputString(*destination, "audit_out", out->audit_verdict_json,
+    if (!WriteOutputString(*destination, kOutputSlot, out->audit_verdict_json,
                            "audit_verdict_json", verdict_json, options, status,
                            i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
@@ -138,7 +140,7 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorAuditOutput>(
-      "audit_out",
+      kOutputSlot,
       {"risk_level", "matched_policy_clause", "audit_verdict_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kStructuredVerdicts),

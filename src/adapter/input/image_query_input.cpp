@@ -13,6 +13,9 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kFrameSlot = "frame";
+constexpr const char* kQuerySlot = "string";
+
 constexpr size_t kMaxBatchSize = 64;
 
 constexpr size_t kMaxPathLen = 4096;
@@ -36,10 +39,10 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 
   for (size_t i = 0; i < source.count; ++i) {
     const auto* frame =
-        ReadInputSlot<CompanyFrame>(source, "frame", i, options, status);
+        ReadInputSlot<CompanyFrame>(source, kFrameSlot, i, options, status);
     if (!frame) return COMPANY_ALG_ERR_INVALID_INPUT;
     const auto* query =
-        ReadInputSlot<CompanyString>(source, "string", i, options, status);
+        ReadInputSlot<CompanyString>(source, kQuerySlot, i, options, status);
     if (!query) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     if (!IsValidInputString(frame->image_uri)) {
@@ -55,12 +58,12 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 
     if (!IsValidInputString(query)) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Invalid query CompanyString", "string",
+          status, "Invalid query CompanyString", kQuerySlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(query->length) > kMaxQueryLen) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "query length exceeds limit", "string",
+          status, "query length exceeds limit", kQuerySlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
@@ -96,8 +99,8 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   def.external_type = "CompanyFrame,CompanyString";
   def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {ExternalInputSlot<CompanyFrame>("frame"),
-                        ExternalInputSlot<CompanyString>("string")};
+  def.external_slots = {ExternalInputSlot<CompanyFrame>(kFrameSlot),
+                        ExternalInputSlot<CompanyString>(kQuerySlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kImagePaths),
                        OutputPort(kUserQueries)};
   def.decode_fn = &DecodeOperatorImageQueryInput;

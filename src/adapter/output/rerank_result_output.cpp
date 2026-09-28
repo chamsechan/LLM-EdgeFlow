@@ -17,6 +17,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "rerank_out";
+
 int EncodeOperatorRerankResult(AlgContext* context,
                                const OutputPortBindings& bindings,
                                const OutputEncodeOptions& options,
@@ -70,10 +72,10 @@ int EncodeOperatorRerankResult(AlgContext* context,
 
   for (size_t i = 0; i < count; ++i) {
     auto* out =
-        destination->GetSlot<CompanyOperatorRerankOutput>("rerank_out", i);
+        destination->GetSlot<CompanyOperatorRerankOutput>(kOutputSlot, i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing rerank_out slot item", "rerank_out",
+          status, "Missing rerank_out slot item", kOutputSlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
@@ -102,7 +104,7 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorRerankOutput>("rerank_out")};
+      ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kRankedResults, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;

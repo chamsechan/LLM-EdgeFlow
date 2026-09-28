@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kOutputSlot = "od_out";
+
 int EncodeOperatorInvoiceResult(AlgContext* context,
                                 const OutputPortBindings& bindings,
                                 const OutputEncodeOptions& options,
@@ -57,10 +59,10 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   }
 
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOdOutput>("od_out", i);
+    auto* out = destination->GetSlot<CompanyOdOutput>(kOutputSlot, i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing od_out slot item", "od_out",
+          status, "Missing od_out slot item", kOutputSlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
@@ -74,7 +76,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     }
     out->status_code = 0;
 
-    if (!WriteOutputString(*destination, "od_out", out->result_json,
+    if (!WriteOutputString(*destination, kOutputSlot, out->result_json,
                            "result_json",
                            invoice_jsons_by_request[i]->data.json_payload,
                            options, status, i)) {
@@ -95,7 +97,7 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   def.max_batch_size = 64;
 
   def.external_slots = {
-      ExternalOutputSlot<CompanyOdOutput>("od_out", {"result_json"})};
+      ExternalOutputSlot<CompanyOdOutput>(kOutputSlot, {"result_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kExtractedInvoiceJson),
                        RequiredInputPort(kOcrDocs)};
