@@ -39,7 +39,7 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 
 [models/asset_manifest.json](../models/asset_manifest.json) 包含 11 个权重/sidecar 条目的 SHA-256 与 8 个现有资产组合。权重、tokenizer、Kite 运行配置与视觉 projector 均纳入检查。
 
-- 下载命令为 `./scripts/fetch_real_test_models.sh --all`、`--kite`、`--whisper` 或 `--gguf-only`，精确 URL 和 SHA 统一从清单读取。
+- 下载命令为 `./scripts/fetch_real_test_models.sh --all`、`--kite`、`--whisper`、`--gguf-only` 或仅供 Whisper 真实模型测试使用的 `--whisper-e2e`，精确 URL 和 SHA 统一从清单读取。
 - 清单中的 Model/Backend 配置是可选择的起点；兼容性仍由当前执行文件的 Catalog 校验。
 - 清单路径相对资产目录；Pipeline 的 `models[].model_path` 相对宿主部署根；tokenizer、运行配置等 sidecar 路径相对实际模型所在目录解析。
 - 变更 tokenizer/运行配置路径后不会借用旧组合的校验结论，而会变为 `unregistered`。接入新资产时，补充清单中的 `artifacts`、`selections.paths` 与完整 `files`，再实际校验。

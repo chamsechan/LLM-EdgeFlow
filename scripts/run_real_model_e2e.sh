@@ -39,7 +39,7 @@ echo "=================================================================="
 
 # 1. 拉取或校验固定提交的真实模型权重。
 if [[ "${MODE}" == "whisper" ]]; then
-  "${PROJECT_ROOT}/scripts/fetch_real_test_models.sh" --whisper
+  "${PROJECT_ROOT}/scripts/fetch_real_test_models.sh" --whisper-e2e
 elif [[ "${MODE}" == "all" ]]; then
   "${PROJECT_ROOT}/scripts/fetch_real_test_models.sh" --all
 else

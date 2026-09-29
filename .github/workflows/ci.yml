@@ -206,9 +206,6 @@ jobs:
           path: models/qwen2.5-0.5b-instruct-q4_k_m.gguf
           key: qwen2.5-0.5b-q4-k-m-74a4da8c9fdb
 
-      - name: Fetch and Verify Pinned GGUF
-        run: ./scripts/fetch_real_test_models.sh --gguf-only
-
       - name: Run Real Model and Public Profile
         run: |
           ccache -z
@@ -273,20 +270,14 @@ jobs:
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
 
-      - name: Cache Pinned Whisper Models
+      - name: Cache Pinned Whisper Model
         uses: actions/cache@v4
         with:
-          path: |
-            models/ggml-base.bin
-            models/qwen2.5-0.5b-instruct-q4_k_m.gguf
-            models/ggml-tiny-q5_1.bin
-          key: whisper-models-${{ hashFiles('models/asset_manifest.json') }}
+          path: models/ggml-base.bin
+          key: whisper-e2e-${{ hashFiles('models/asset_manifest.json') }}
           restore-keys: |
-            whisper-models-
-            whisper-ggml-base-60ed5bc3dd14
-
-      - name: Fetch and Verify Pinned Whisper Model
-        run: ./scripts/fetch_real_test_models.sh --whisper
+            whisper-e2e-
+            whisper-ggml-base-
 
       - name: Run Real Whisper E2E and Public Profile
         run: |

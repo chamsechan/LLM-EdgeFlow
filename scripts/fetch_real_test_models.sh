@@ -8,7 +8,7 @@ MODEL_DIR="${PROJECT_ROOT}/models"
 MODE="all"
 
 if [[ $# -gt 1 ]]; then
-  echo "Usage: $0 [--all | --gguf-only | --kite | --whisper]"
+  echo "Usage: $0 [--all | --gguf-only | --kite | --whisper | --whisper-e2e]"
   exit 2
 fi
 if [[ $# -eq 1 ]]; then
@@ -17,8 +17,9 @@ if [[ $# -eq 1 ]]; then
     --gguf-only) MODE="gguf-only" ;;
     --kite) MODE="kite" ;;
     --whisper) MODE="whisper" ;;
+    --whisper-e2e) MODE="whisper-e2e" ;;
     *)
-      echo "Usage: $0 [--all | --gguf-only | --kite | --whisper]"
+      echo "Usage: $0 [--all | --gguf-only | --kite | --whisper | --whisper-e2e]"
       exit 2
       ;;
   esac
