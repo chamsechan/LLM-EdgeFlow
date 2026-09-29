@@ -252,7 +252,8 @@ def check_real_model_contract(root, env, log):
         configurations.append((configure, preset, False, True))
         assert "-DENABLE_REAL_MODEL_TESTS=ON" in configure
         commands = [row["command"] for row in records]
-        assert commands[0] == ["fetch_real_test_models.sh", "--" + mode]
+        fetch_mode = "--whisper-e2e" if mode == "whisper" else "--" + mode
+        assert commands[0] == ["fetch_real_test_models.sh", fetch_mode]
         for row in records:
             if row["command"][0] in ("test_real_models_e2e", "alg_demo"):
                 assert row["executable"] == str(build / row["command"][0]), row
@@ -344,6 +345,16 @@ def main():
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         assert "WHISPER_GATE_RESULT: ${{ needs.whisper-asr.result }}" in workflow
         assert "KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}" in workflow
+        assert "run: ./scripts/fetch_real_test_models.sh --gguf-only" not in workflow
+        assert "run: ./scripts/fetch_real_test_models.sh --whisper" not in workflow
+        manifest = json.loads((ROOT / "models/asset_manifest.json").read_text())
+        artifact_groups = {
+            group: {name for name, artifact in manifest["artifacts"].items()
+                    if group in artifact.get("download_groups", [])}
+            for group in ("whisper", "whisper-e2e")
+        }
+        assert artifact_groups["whisper-e2e"] == {"ggml-base.bin"}
+        assert artifact_groups["whisper"] == {"ggml-base.bin", "ggml-tiny-q5_1.bin"}
         evidence = root / "evidence.json"
         for state in ("success", "failure", "skipped", "cancelled"):
             evidence_env = {**os.environ, "WHISPER_GATE_RESULT": state,
@@ -351,9 +362,11 @@ def main():
             result = run([str(root / "scripts/generate_acceptance_evidence.sh"), str(evidence),
                           "success", "failure", "cancelled"], env=evidence_env)
             assert result.returncode == 0, result.stdout + result.stderr
-            gates = json.loads(evidence.read_text())["gates"]
+            report = json.loads(evidence.read_text())
+            assert report["schema_version"] == 3
+            gates = report["gates"]
             assert gates == {"canonical_run_all_tests": "success",
-                             "full_address_undefined_sanitizer": "failure",
+                             "ci_runtime_address_undefined_sanitizer": "failure",
                              "real_c_abi_and_public_profile": "cancelled",
                              "whisper_asr_backend_and_real_profile": state,
                              "kitellm_private_release_and_real_gguf": "skipped"}

@@ -53,7 +53,7 @@ import json
 import os
 
 evidence = {
-    "schema_version": 2,
+    "schema_version": 3,
     "scope": os.environ["EVIDENCE_SCOPE"],
     "generated_at_utc": datetime.datetime.now(
         datetime.timezone.utc).isoformat(),
@@ -65,7 +65,7 @@ evidence = {
     "worktree_clean": os.environ["WORKTREE_CLEAN"] == "true",
     "gates": {
         "canonical_run_all_tests": os.environ["CANONICAL_GATE"],
-        "full_address_undefined_sanitizer": os.environ["SANITIZER_GATE"],
+        "ci_runtime_address_undefined_sanitizer": os.environ["SANITIZER_GATE"],
         "real_c_abi_and_public_profile": os.environ["REAL_GATE"],
     },
 }

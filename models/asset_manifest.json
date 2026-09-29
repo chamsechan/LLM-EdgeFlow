@@ -7,8 +7,7 @@
       "download_groups": [
         "all",
         "gguf-only",
-        "kite",
-        "whisper"
+        "kite"
       ]
     },
     "bge_base_zh_v1.5.onnx": {
@@ -62,7 +61,8 @@
       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
       "download_groups": [
         "all",
-        "whisper"
+        "whisper",
+        "whisper-e2e"
       ]
     },
     "ggml-tiny-q5_1.bin": {
