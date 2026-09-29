@@ -23,9 +23,6 @@ class RealModelE2ETest : public ::testing::Test {
         std::filesystem::path(LLM_EDGEFLOW_PROJECT_SOURCE_DIR));
     model_root_ = project_root_ / "models";
     model_path_ = model_root_ / "qwen2.5-0.5b-instruct-q4_k_m.gguf";
-    ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
-        << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
-           "./scripts/fetch_real_test_models.sh --gguf-only";
   }
 
   std::filesystem::path project_root_;
@@ -49,6 +46,9 @@ class RealModelE2ETest : public ::testing::Test {
 
 // 1. 真实 Qwen GGUF 物理前向与自回归 Token 生成测试
 TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
+  ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
+      << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
+         "./scripts/fetch_real_test_models.sh --gguf-only";
   auto model = CreateModel();
   ASSERT_NE(model, nullptr);
 
@@ -80,6 +80,9 @@ TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
 
 // 2. 真实 Qwen 模型在 FixedBatchExecutor 定长对齐批推理压测
 TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
+  ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
+      << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
+         "./scripts/fetch_real_test_models.sh --gguf-only";
   auto model = CreateModel();
   ASSERT_NE(model, nullptr);
 
@@ -110,6 +113,9 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
 
 // 3. 真实模型接入 Operator 全链路端到端验证
 TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
+  ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
+      << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
+         "./scripts/fetch_real_test_models.sh --gguf-only";
   std::vector<std::string> sentences = {
       "李雷在微软北京研发中心负责AI大模型芯片开发。"};
   std::ifstream corpus(project_root_ / "data/corpus_entity_extract.txt");
