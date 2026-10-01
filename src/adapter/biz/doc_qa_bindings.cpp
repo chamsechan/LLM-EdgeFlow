@@ -34,7 +34,6 @@ IoBindingDefinition MakeDocQaOperatorBinding() {
 
   def.input_converter_id = "doc_query.plain.operator.v1";
   def.output_converter_id = "doc_answer.plain.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 

@@ -33,7 +33,6 @@ IoBindingDefinition MakeEntityExtractOperatorBinding() {
 
   def.input_converter_id = "text.plain.operator.v1";
   def.output_converter_id = "document.structured.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 

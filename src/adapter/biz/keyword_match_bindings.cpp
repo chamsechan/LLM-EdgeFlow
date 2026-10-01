@@ -33,7 +33,6 @@ IoBindingDefinition MakeKeywordMatchOperatorBinding() {
 
   def.input_converter_id = "keyword.plain.operator.v1";
   def.output_converter_id = "keyword.result.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 

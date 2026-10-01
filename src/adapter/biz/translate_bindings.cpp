@@ -33,7 +33,6 @@ IoBindingDefinition MakeTranslateOperatorBinding() {
 
   def.input_converter_id = "translate.json.operator.v1";
   def.output_converter_id = "translate.json.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 

@@ -36,7 +36,6 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
   def.input_converter_id = "audit.plain.operator.v1";
   def.output_converter_id = "audit_result.plain.operator.v1";
   def.output_ports = {BindIoPort(kMatchedPolicies, kMatchedPolicy)};
-  def.max_batch_size = 64;
   return def;
 }
 

@@ -24,7 +24,8 @@ Pipeline 配置格式保持不变。
 接入适配层去掉重复声明。删除 `BizExposureDefinition`、`REGISTER_BIZ_EXPOSURE` 及
 `IoBindingRegistry` 的 Exposure 接口，注册审计不再检查"曝光业务必须有绑定"。批次上限在绑定上
 声明一次：转换器的 `max_batch_size` 默认改为 0（不设限），有效上限取绑定与两个转换器中正值的
-最小值，三者都为 0 时注册审计和部署准备报错，因此复用生产转换器的绑定要自己声明 `max_batch_size`。
+最小值，三者显式为 0 时注册审计和部署准备报错。Binding 现默认使用框架标准批次上限 64，
+只有实测确需更小值时才覆盖 `max_batch_size`。
 绑定的 `input_ports` / `output_ports` 可以省略同名映射，需要完整映射的代码改用 `EffectivePortMapping`。
 `ValidateDecodeRequest`、`DecodeRequestRows` 删除批次上限参数，改读 Operator 填入的
 `InputDecodeOptions::max_batch_size`。Catalog 中生产转换器的 `max_batch_size` 由 64 变为 0；各业务的

@@ -85,7 +85,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、输出池租约填充及 `REGISTER_OUTPUT_CONVERTER` |
-| 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合、批次上限和非同名端口映射，用 `REGISTER_IO_BINDING` 注册 |
+| 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合和非同名端口映射；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
 | Operator 类型注册 | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 为新宿主类型登记规范后缀、输入校验或输出分配/重置/释放 |
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [接入适配层 CMake](../../src/adapter/CMakeLists.txt)、[Demo CMake](../../demo/CMakeLists.txt)、[Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 登记新增 `.cpp`，编排业务端口，配置路径和输出容量 |
@@ -103,7 +103,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    单槽且每请求生成一个载荷时，先写普通函数
    `AdapterStatus Decode(const Host& input, Payload* output)`，只校验业务字段并复制为自持有值。
    `DecodeInputFn` 内调用 `DecodeRequestRows<Host>`，传入槽、typed 端口与该函数；
-   框架负责槽检查、批次上限、循环、批内来源编号和绑定发布。批次上限在绑定中声明，
+   框架负责槽检查、批次上限、循环、批内来源编号和绑定发布。绑定批次上限默认 64，
    由 Operator 通过 `InputDecodeOptions` 传入，转换器不必另行声明。
    文本可用 `IsValidInputString` / `CopyInputString`，PCM 的范围检查和复制仍属于业务函数。
    多槽、候选展开等算法继续使用 `ValidateDecodeRequest` / `ReadInputSlot<T>` 显式组织。
@@ -124,10 +124,11 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    新 `biz_name` 先定义 `BizDefinition`，声明业务名称及完整 ingress/egress typed 端口，
    调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
    在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`input_converter_id`、
-   `output_converter_id` 和 `max_batch_size`，使用 `REGISTER_IO_BINDING` 注册。
+   `output_converter_id`，使用 `REGISTER_IO_BINDING` 注册。
    转换器的逻辑端口默认映射到同名的 Blackboard Key，`input_ports` / `output_ports`
    只写不同名的映射。
-   批次上限写在绑定上；转换器只在自身确有限制时才声明 `max_batch_size`，0 表示不设限。
+   Binding 的批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
+   转换器只在自身确有限制时才声明上限，0 表示不设限。
    有效上限取绑定与两个转换器中正值的最小值，Operator 再按实际输出池深收紧；
    三者都为 0 时，注册审计和部署准备都会报错。
 4. **登记构建。**
