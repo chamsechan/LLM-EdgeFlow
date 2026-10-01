@@ -5,6 +5,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -16,7 +17,10 @@ namespace {
 
 constexpr const char* kInputSlot = "rerank_in";
 
-constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
+// Converter-level business limit. The Operator admits passages up to
+// max_doc_text_bytes; this stricter bound is the effective limit today and
+// awaits the solution owner's confirmation.
+constexpr size_t kMaxCandidatePassageBytes = biz_input::kMaxTextBytes;
 
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
@@ -44,15 +48,19 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
           status, "Invalid query_text CompanyString", "rerank_in.query_text",
           options.converter_id.c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(in->query_text->length) > kMaxTextLen) {
+    if (static_cast<size_t>(in->query_text->length) >
+        biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query_text length exceeds limit", "rerank_in.query_text",
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
-    if (in->candidate_count < 1 || in->candidate_count > 8) {
+    if (in->candidate_count < 1 ||
+        in->candidate_count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "candidate_count out of valid range [1, 8]",
+          status,
+          "candidate_count out of valid range [1, " +
+              std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) + "]",
           "rerank_in.candidate_count", options.converter_id.c_str(),
           static_cast<int>(i));
     }
@@ -69,7 +77,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
             "rerank_in.candidate_passages", options.converter_id.c_str(),
             static_cast<int>(i));
       }
-      if (static_cast<size_t>(pass->length) > kMaxTextLen) {
+      if (static_cast<size_t>(pass->length) > kMaxCandidatePassageBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "candidate passage length exceeds limit",
             "rerank_in.candidate_passages", options.converter_id.c_str(),

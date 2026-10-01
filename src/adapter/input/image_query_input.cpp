@@ -5,6 +5,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -15,9 +16,6 @@ namespace {
 
 constexpr const char* kFrameSlot = "frame";
 constexpr const char* kQuerySlot = "string";
-
-constexpr size_t kMaxPathLen = 4096;
-constexpr size_t kMaxQueryLen = 64 * 1024;
 
 int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
@@ -48,7 +46,8 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
           status, "Invalid frame.image_uri CompanyString", "frame.image_uri",
           options.converter_id.c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(frame->image_uri->length) > kMaxPathLen) {
+    if (static_cast<size_t>(frame->image_uri->length) >
+        biz_input::kMaxImageUriBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "image_uri length exceeds limit", "frame.image_uri",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -59,7 +58,7 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
           status, "Invalid query CompanyString", kQuerySlot,
           options.converter_id.c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(query->length) > kMaxQueryLen) {
+    if (static_cast<size_t>(query->length) > biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query length exceeds limit", kQuerySlot,
           options.converter_id.c_str(), static_cast<int>(i));
