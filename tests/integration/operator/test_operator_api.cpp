@@ -2532,14 +2532,17 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
     if (ret == 0) options.request_ids->resize(1);
     return ret;
   };
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  // The registries are process-global; register once so the test can repeat.
+  if (!IoConverterRegistry::Instance().FindInputConverter(input.converter_id))
+    ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
   const auto* nested = IoBindingRegistry::Instance().FindBinding(
       "nested_output_test.operator.v1");
   ASSERT_NE(nested, nullptr);
   auto binding = *nested;
   binding.binding_id = "request_id_count_test.operator.v1";
   binding.input_converter_id = input.converter_id;
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  if (!IoBindingRegistry::Instance().FindBinding(binding.binding_id))
+    ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
 
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
