@@ -71,12 +71,14 @@
 | 2 | Spec 签名编译期提示 | 无 | 小 | 不需要 | `refactor/spec-signature-diagnostics` |
 | 3 | Adapter 重复声明收敛：删除 Exposure、批次上限只写一处、同名端口免写 | 无（净减少 Exposure） | 中 | 需要（扩展接口变更，见 7.2） | `refactor/adapter-binding-dedup` |
 | 4 | 跨请求状态 | `state`；端口来源规则新增 `shared` 取值 | 中偏大 | 需要（Pipeline 结构、所有权、提交边界），先评审第 8 节 | `feat/pipeline-state` |
+| 5 | 平台与调度参数归位：业务作者不再手填平台限制和调度参数（分 5.1–5.5 五步） | 无 | 小（5.1–5.3）＋中（5.4、5.5） | 5.4、5.5 需要 | 见 `doc/platform_parameter_ownership_plan.md` |
 
 **顺序理由**
 
 - 阶段 1、2 相互独立、风险低，先做可以立刻降低日常摩擦；阶段 3、4 新增的源文件和测试也就不用再登记。
 - 阶段 3 放在 4 之前，是因为阶段 4 的集成测试要通过 Operator 运行，先让接入层稳定下来。
 - 阶段 3、4 之间没有代码依赖。如果需要先交付新能力，可以对调。
+- 阶段 5 与阶段 4 没有代码依赖；5.4 与阶段 4 都会改接入层的解码、编码和输出发布路径，同时进行时先合并其中一个。
 
 **每个阶段的通用流程**
 
@@ -600,6 +602,12 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 状态的 merge、evict 等配置项 | 不做 | 合并与淘汰规则由写入节点实现；框架只强制容量上限 `max_items` |
 | 纯 JSON 用的通用广播节点、通用追加节点 | 暂缓 | 两个闭环都不需要，等第一个真实业务需要时再加（见 8.12） |
 | 统一错误类型、大规模改写文档 | 不做 | 各阶段只更新受影响的文档 |
+| 部署配置与业务编排分离（按硬件拆出 `models`、`backend_config`，业务 Pipeline 只留一份） | 不做 | 改变 Pipeline JSON 格式，属于外部契约；与"模型配置拆分"同理。5.1 和 5.3 的默认值清单已能去掉大部分重复 |
+| 合并 `model_config.max_batch_size` 与 `backend_config.max_batch_size` | 不做 | 现有配置写了这两个字段，而未知字段会被拒绝；删掉任一字段都会让现有配置失效 |
+| 新增 SDK 接口查询有效批次上限 | 不做 | 改变公共 Operator 接口；有效限制改由 `resolve-conf` 查询（5.3） |
+| Demo 运行前读取内部有效限制并自动分批 | 不做 | Demo 应和真实宿主一样只通过 SDK 运行；超限时 Create/Process 已明确报错 |
+| 批量删除配置中等于默认值的显式字段 | 不做，交给方案负责人 | 显式值可能是有意固定，现在无法区分（Studio 会自动写入默认值，见 `doc/platform_parameter_ownership_plan.md` 附录 C）。清单见 5.3 |
+| `validate` 对"显式值等于默认值"给出警告 | 不做 | 与"保留有意固定的显式值"矛盾；根源由 5.1 修复 |
 
 ## 10. 核对代码后对前几轮讨论的修正
 
@@ -615,6 +623,11 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 转换器的宿主类型和槽位由签名推导 | 撤回 | 见第 9 节 |
 | 配置变体一致性测试 | 撤回 | 见第 9 节 |
 | BizDefinition 并入 Binding（原阶段 3b） | 撤回 | 见第 9 节。不必要，而且按原写法"首次读取时派生"，会让 `alg_pipeline_tool catalog` 输出空的 `bizs`，并让现有契约测试失败 |
+| 批次上限 64 是引入转换器时（`7f8f0b1`）定下的 | 首次出现在 `43c777f` / `0a27334`（2026-08-19），随 fail-closed 批次契约引入，提交说明没有给出取值依据 | `git log -G "max_batch_size\s*=\s*64"` |
+| 删掉配置中与默认值相同的字段即可 | 改为先修复 Studio（5.1），存量字段列清单交方案负责人（5.3） | 显式值可能是有意固定 |
+| 并行时的拒绝等第一个并行 Pipeline 出现再改 | 改为阶段 5.5 计划实施，实施前确认这一兼容放宽 | 普通开发者不应管理并行调度；改动只在 Validator，执行器已支持单节点层顺序执行 |
+| Node 编写一侧已没有平台参数 | 不完整：Studio 会把 Node 参数默认值写成显式值；Control 命令 ID 需要人工选号 | `doc/platform_parameter_ownership_plan.md` 附录 B 的复现结果；`doc/dev_guide/first_control.md:23` |
+| 去掉默认值字段后 `plan` 输出一致，所以配置等价 | `plan` 只输出拓扑和波前层，不能证明配置等价；改用 `resolve-conf` 的 `effective_pipeline` 比对 | `doc/platform_parameter_ownership_plan.md` 附录 C |
 
 ## 11. 完成后的效果
 
@@ -625,6 +638,19 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 新增业务契约（复用已有转换器） | BizDefinition、Exposure、IoBinding 三个结构；批次上限写 4 处，端口表写 3 处；还要登记 CMake | 一个只列端口的 BizDefinition，加一个只写 ID 和批次上限的 IoBinding |
 | 新增业务契约（新的载荷语义） | 另写转换器，转换器也要声明批次上限并登记 CMake | 另写转换器的 Decode/Encode，不用声明批次上限，不用改 CMake；业务文件同上一行 |
 | 前面请求的结果影响后续请求 | 没有正式支持 | 声明 `state`（含容量上限）；写入节点产出新状态，共享输入端口直接读取，提交边界由框架保证 |
+| 用 Studio 编辑配置（阶段 5） | 未修改的数值、布尔、枚举字段被写成显式值 | 只保存改过的字段；Backend 字段默认收起 |
+| 新增业务契约（阶段 5） | IoBinding 写 ID 和批次上限；转换器写长度上限常量、容量字段和请求编号端口 | IoBinding 只写 ID；转换器只写业务字段的校验和 Decode/Encode |
+| 开启并行执行（阶段 5） | 有未声明 `parallel_safe` 的节点或共享串行模型时，整个配置被拒绝 | 框架把这些节点放进单独的子层顺序执行 |
+| 确认单次能送多少条请求（阶段 5） | 分别查池深、`validate-io` 和代码 | `resolve-conf --depth N` 直接给出 |
+
+## 12. 阶段 5：平台与调度参数归位
+
+目标：业务开发者（写 Node 函数、转换器 Decode/Encode、编排 Pipeline）不了解平台资源和框架调度，也能接入并运行。
+分 5.1–5.5 五步：Studio 保留"未配置"状态；接入层平台数值归位；单次有效批次可查询与清理；请求编号回传移出业务契约；
+并行层按约束自动串行。外部契约（Operator 接口、宿主结构体、`.conf`、Pipeline JSON 格式、Demo 与 SDK 的交互）全部不变，
+5.5 的兼容放宽需先确认。
+
+实施步骤、决策点、测试、验收和回退见 `doc/platform_parameter_ownership_plan.md`，本节不再重复。
 
 ## 附录：配置变体差异（供方案负责人确认）
 
