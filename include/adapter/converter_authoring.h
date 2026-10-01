@@ -45,6 +45,8 @@ inline ExternalSlotDefinition ExternalInputSlot(
           slot_name};
 }
 
+// Omitted capacity fields are derived from the registered ValueType; an
+// explicit list must match that ValueType.
 template <typename T>
 inline ExternalSlotDefinition ExternalOutputSlot(
     std::string slot_name, std::vector<std::string> capacity_fields = {}) {

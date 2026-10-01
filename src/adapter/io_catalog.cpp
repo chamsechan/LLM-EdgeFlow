@@ -20,7 +20,7 @@ nlohmann::json SlotJson(const ExternalSlotDefinition& slot) {
            slot.direction == PortDirection::kInput ? "input" : "output"},
           {"value_type", slot.value_type},
           {"required", slot.required},
-          {"capacity_fields", slot.capacity_fields}};
+          {"capacity_fields", EffectiveCapacityFields(slot)}};
 }
 
 nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {

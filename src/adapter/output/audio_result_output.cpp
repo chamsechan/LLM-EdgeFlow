@@ -95,8 +95,8 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   def.schema_id = "audio_result.plain.response";
   def.external_type = "CompanyOperatorAudioOutput";
 
-  def.external_slots = {ExternalOutputSlot<CompanyOperatorAudioOutput>(
-      kOutputSlot, {"transcribed_text", "intent_slot_json"})};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kTranscripts),
                        RequiredInputPort(kIntentSlots)};
