@@ -235,7 +235,12 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 ## 6. 输出容量与生命周期
 
 `Process` 的输入、输出批次必须非空且帧数相等。单次批次上限为有效输出池深与绑定业务
-批次上限的较小值；超出上限会直接失败，不会在门面中自动拆批。每帧按接入绑定提供必需的输入槽和
+批次上限的较小值；超出上限会直接失败，不会在门面中自动拆批。
+用 `alg_pipeline_tool resolve-conf <conf> --root <root> --depth <depth>` 查询
+`effective_process_batch_limit`（单次有效批次）、`effective_frame_depth`（规范化池深）和
+`max_frame_depth_limit`（池深硬上限）。池深 0 使用默认 25；池深 100 配合标准 Binding 时，
+单次有效批次仍为 64。Demo 遇到批次或池深超限时提示同一查询命令。
+每帧按接入绑定提供必需的输入槽和
 输出槽，可选槽按契约省略。提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
 有效 key 后缀与宿主类型可通过 `catalog --io-binding <binding_id>` 查询，后缀与类型的区别见
 [输出分配方案](operator_output_allocation.md)。

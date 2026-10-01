@@ -47,3 +47,7 @@ Studio 应用表单时，未修改的数值、布尔、枚举、数组和对象�
 接入层输入长度上限集中在 `biz_input_constraints.h`，接受/拒绝边界、诊断和返回码不变；输出
 转换器的容量字段由 ValueType 推导，显式列出时必须与 ValueType 一致。Catalog 中
 `audio_result`、`audit_result`、`doc_answer` 输出转换器的容量字段按字典序报告。
+
+`resolve-conf` 增加单次有效批次 `effective_process_batch_limit`、规范化池深
+`effective_frame_depth` 和池深硬上限 `max_frame_depth_limit`。Operator 使用解析器给出的同一
+批次值；Demo 超限后提示查询命令，原有错误和退出码不变。现有配置中的显式默认值保持原样。
