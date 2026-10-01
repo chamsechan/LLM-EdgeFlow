@@ -764,6 +764,42 @@ TEST_F(OperatorApiTest, OutputSlotValidation) {
   ops_.Destroy(handle);
 }
 
+TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
+  auto param = DefaultCreateParam("configs/pipeline_keyword_match_rules.conf");
+  param.max_frame_depth = 100;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+  const auto destroy = [this](void* handle) { ops_.Destroy(handle); };
+  std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
+  char text[] = "query";
+  CompanyString sentence{5, text};
+  std::vector<CompanyOperatorKeywordInput> rows(65);
+  for (size_t count : {64U, 65U}) {
+    NamedIoBatch inputs(count), outputs(count);
+    for (size_t i = 0; i < count; ++i) {
+      rows[i] = {1000 + i, &sentence};
+      inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
+      outputs[i]["test.keyword_out"] = nullptr;
+    }
+    EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), count == 64 ? 0 : -3)
+        << GetOperatorLastError();
+    if (count == 64) {
+      for (size_t i = 0; i < count; ++i) {
+        const auto* result = static_cast<CompanyOperatorKeywordOutput*>(
+            outputs[i]["test.keyword_out"].get());
+        ASSERT_NE(result, nullptr);
+        EXPECT_EQ(result->request_id, rows[i].request_id);
+        EXPECT_EQ(result->status_code, 0);
+      }
+    } else {
+      EXPECT_STREQ(GetOperatorLastError(),
+                   "Input batch size 65 exceeds effective batch limit 64");
+      for (const auto& frame : outputs)
+        EXPECT_EQ(frame.at("test.keyword_out"), nullptr);
+    }
+  }
+}
+
 // 13. 输出池耗尽、阻塞与唤醒复用测试
 TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   std::string root_dir = GetConfDir();

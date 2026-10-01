@@ -836,6 +836,17 @@ class PipelineCliTest(unittest.TestCase):
         configuration = report["configuration"]
         self.assertEqual(configuration["biz_name"], "entity_extract_v1")
         self.assertEqual(configuration["io_binding"], "entity_extract.operator.v1")
+        self.assertEqual(configuration["effective_frame_depth"], 1)
+        self.assertEqual(configuration["effective_process_batch_limit"], 1)
+        self.assertEqual(configuration["max_frame_depth_limit"], 1024)
+        for depth, normalized, batch_limit in [(0, 25, 25), (1, 1, 1), (25, 25, 25), (64, 64, 64), (100, 100, 64)]:
+            code, limits = self.command("resolve-conf", "configs/pipeline_keyword_match_rules.conf", "--root", str(ROOT), "--depth", str(depth))
+            self.assertEqual(code, 0, limits)
+            self.assertEqual(limits["configuration"]["effective_frame_depth"], normalized)
+            self.assertEqual(limits["configuration"]["effective_process_batch_limit"], batch_limit)
+        code, oversized = self.command("resolve-conf", "configs/pipeline_keyword_match_rules.conf", "--root", str(ROOT), "--depth", "1025")
+        self.assertEqual(code, 1)
+        self.assertEqual(oversized["diagnostics"][0]["message"], "max_frame_depth (1025) exceeds hard limit 1024")
         self.assertNotIn("biz_name", configuration["effective_pipeline"])
         self.assertEqual(configuration["effective_pipeline"]["deployment"]["io"]["io_binding"], "entity_extract.operator.v1")
         self.assertEqual(configuration["effective_pipeline"]["models"][0]["model_path"], str(ROOT / "demo/fixtures/mock/artifacts/neutral-llm.fixture"))

@@ -167,8 +167,9 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
       return -2;
     }
 
-    uint32_t effective_depth =
-        param->max_frame_depth > 0 ? param->max_frame_depth : 25;
+    uint32_t effective_depth = param->max_frame_depth > 0
+                                   ? param->max_frame_depth
+                                   : llm_edgeflow::kDefaultOutputPoolDepth;
     if (effective_depth > llm_edgeflow::kMaxOutputPoolDepth) {
       SetLastError("max_frame_depth (" + std::to_string(effective_depth) +
                    ") exceeds hard limit " +
@@ -188,16 +189,12 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     }
 
     // 2. 组装运行时参数
-    uint32_t adapter_max_batch =
-        static_cast<uint32_t>(resolved_conf.io_plan->effective_max_batch_size);
     uint32_t effective_batch_limit =
-        std::min(effective_depth, adapter_max_batch);
+        resolved_conf.effective_process_batch_limit;
 
     llm_edgeflow::RuntimeOptions runtime_options;
     runtime_options.chip_type =
         ComputePlatformToString(param->compute_platform);
-    runtime_options.platform_max_batch =
-        static_cast<int32_t>(effective_batch_limit);
     runtime_options.depth_num = effective_depth;
     runtime_options.device_id = param->device_id;
     runtime_options.has_device_id = (param->device_id >= 0);

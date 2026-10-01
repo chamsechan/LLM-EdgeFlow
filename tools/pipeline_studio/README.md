@@ -254,6 +254,9 @@ Studio 将这四项连同配置和数据集写入运行 Profile；保存方案�
 Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算。
 选择 Profile 时通过原生 `resolve-conf` 获取实际 Pipeline 路径，
 相对 `pipe_path` 始终基于 `.conf` 所在目录，不搜索项目根目录下的同名文件。
+`alg_pipeline_tool resolve-conf <conf> --root <root> --depth <depth>` 同时报告
+`effective_frame_depth`（规范化输出池深）、`effective_process_batch_limit`（池深与 Binding
+有效上限的较小值）和 `max_frame_depth_limit`（池深硬上限），供部署者核对单次调用限制。
 
 只有原 Profile 已指向本次方案时，才能直接用它证明本次修改已运行。
 
