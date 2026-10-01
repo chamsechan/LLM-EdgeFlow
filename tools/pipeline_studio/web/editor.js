@@ -91,6 +91,7 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
 // Config fields share the same editor for Node, Model and Backend parameters.
 export function appendConfigField(container, field, values, modelChoices = null) {
   const label = document.createElement("label"); label.textContent = field.name;
+  const hasDefault = field.default !== undefined && field.default !== null;
   let input;
   if (modelChoices !== null || (Array.isArray(field.enum) && field.enum.length)) {
     input = document.createElement("select");
@@ -105,6 +106,11 @@ export function appendConfigField(container, field, values, modelChoices = null)
     if (field.maximum !== undefined) input.max = field.maximum;
     input.step = field.type === "integer" ? "1" : "any";
   }
+  if (input.tagName === "SELECT" && !field.required && modelChoices === null) {
+    const option = new Option(hasDefault ? `默认（${field.default}）` : "未设置", "");
+    input.add(option, 0);
+    input.dataset.unsetOption = "true";
+  }
   input.dataset.field = field.name; input.dataset.type = field.type;
   // Definition.required concerns field presence; a required string may be empty.
   input.required = Boolean(field.required) && field.type !== "string";
@@ -112,6 +118,13 @@ export function appendConfigField(container, field, values, modelChoices = null)
   const value = present ? values[field.name] : field.default;
   const text = typeof value === "object" ? JSON.stringify(value) : String(value ?? "");
   input.value = text;
+  if (!present) {
+    if (input.dataset.unsetOption === "true") input.value = "";
+    else if (["number", "integer", "array", "object"].includes(field.type)) {
+      input.value = "";
+      input.placeholder = hasDefault ? (["array", "object"].includes(field.type) ? text : `默认 ${text}`) : "";
+    }
+  }
   if (field.type === "string" && input.tagName === "TEXTAREA") {
     // Browsers normalize CR/CRLF in textarea.value. Preserve the original string
     // when applying an untouched field, including after a draft repaint.
@@ -128,6 +141,7 @@ export function appendConfigField(container, field, values, modelChoices = null)
 }
 
 function parseField(input) {
+  if (["integer", "number"].includes(input.dataset.type) && input.value.trim() === "") throw new Error("请输入数值");
   if (input.dataset.type === "integer") {
     const value = Number(input.value);
     if (!Number.isSafeInteger(value)) throw new Error("请输入有效整数");
@@ -142,6 +156,7 @@ function parseField(input) {
 export function readConfigFields(container) {
   const config = {};
   for (const input of container.querySelectorAll("[data-field]")) {
+    if (input.dataset.unsetOption === "true" && input.value === "") continue;
     if (input.value === input.dataset.displayValue && input.dataset.originalValue === undefined) continue;
     try {
       if (input.dataset.type === "string" || input.value !== "" || input.required) config[input.dataset.field] = parseField(input);

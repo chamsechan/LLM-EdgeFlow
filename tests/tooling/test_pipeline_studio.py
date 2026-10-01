@@ -1511,6 +1511,21 @@ await assert.rejects(
         self.assertEqual(process.returncode, 0, process.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_untouched_apply_preserves_repository_configs(self):
+        code, catalog = PipelineCliTest.command(self, "catalog")
+        self.assertEqual(code, 0, catalog)
+        pipelines = [str(path) for pattern in ("configs/pipeline_*.json", "demo/fixtures/mock/pipeline_*.json")
+                     for path in sorted(ROOT.glob(pattern))]
+        with tempfile.TemporaryDirectory(prefix="studio-roundtrip-", dir=ROOT / "build") as directory:
+            catalog_path = Path(directory) / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+            process = subprocess.run(
+                [shutil.which("node"), str(Path(__file__).with_name("studio_config_roundtrip_test.mjs")),
+                 str(catalog_path), *pipelines],
+                text=True, capture_output=True, cwd=ROOT, check=False)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
     def test_graph_navigation_routes_and_editor_history(self):
         for filename in ("studio_graph_test.mjs", "studio_editor_test.mjs"):
             with self.subTest(module=filename):

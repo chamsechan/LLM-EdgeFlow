@@ -60,7 +60,10 @@ class FormElement {
   }
   get value() { return this.rawValue; }
   append(...children) { for (const child of children) { child.parent = this; this.children.push(child); } }
-  add(child) { this.append(child); }
+  add(child, index) {
+    if (index === undefined) this.append(child);
+    else { child.parent = this; this.children.splice(index, 0, child); }
+  }
   closest(selector) { return this.id === selector.slice(1) ? this : this.parent?.closest(selector); }
   querySelectorAll(selector) {
     return this.children.flatMap(child => [
@@ -158,6 +161,46 @@ restoreFormBuffer(combinedForm, combinedBuffer);
 assert.deepEqual(readConfigFields(modelForm), { separator: "model separator" });
 assert.deepEqual(readConfigFields(backendForm), { separator: "backend separator" });
 console.log("Studio config string and form repaint checks passed");
+
+const tuningFields = [
+  { name: "top_p", type: "number", default: 0.9 },
+  { name: "ratio", type: "number" },
+  { name: "normalize", type: "boolean", default: true },
+  { name: "policy", type: "string", enum: ["fail", "truncate"], default: "fail" },
+  { name: "stop_words", type: "array", default: [] },
+  { name: "options", type: "object", default: {} },
+];
+for (const formId of ["configFields", "backendConfigFields"]) {
+  const unset = renderFields({}, tuningFields, formId);
+  assert.equal(field(unset, "normalize").children[0].value, "");
+  assert.equal(field(unset, "normalize").children[0].textContent, "默认（true）");
+  assert.equal(field(unset, "top_p").placeholder, "默认 0.9");
+  assert.equal(field(unset, "ratio").placeholder, "");
+  assert.equal(field(unset, "options").placeholder, "{}");
+  assert.deepEqual(readConfigFields(unset), {}, "untouched defaults must stay unset");
+  const repainted = renderFields({}, tuningFields, formId);
+  restoreFormBuffer(repainted, readFormBuffer(unset));
+  assert.deepEqual(readConfigFields(repainted), {}, "draft repaint must keep fields unset");
+  const explicit = { top_p: 0.9, normalize: true, policy: "fail", stop_words: [], options: {} };
+  const pinned = renderFields(explicit, tuningFields, formId);
+  assert.deepEqual(readConfigFields(pinned), explicit, "explicit values equal to defaults stay explicit");
+  for (const name of Object.keys(explicit)) field(pinned, name).value = "";
+  assert.deepEqual(readConfigFields(pinned), {}, "clearing an override restores the default");
+  field(unset, "top_p").value = "0.5";
+  field(unset, "normalize").value = "false";
+  field(unset, "policy").value = "truncate";
+  assert.deepEqual(readConfigFields(unset), { top_p: 0.5, normalize: false, policy: "truncate" });
+}
+for (const type of ["integer", "number"]) {
+  assert.throws(() => readConfigFields(renderFields({}, [{ name: "dim", type, required: true }])), /dim：请输入数值/);
+}
+const optionalBoolean = renderFields({}, [{ name: "enabled", type: "boolean" }]);
+assert.equal(field(optionalBoolean, "enabled").children[0].textContent, "未设置");
+assert.deepEqual(readConfigFields(optionalBoolean), {});
+const modelReference = new FormElement("form");
+appendConfigField(modelReference, { name: "model", type: "string", required: true }, { model: "m1" }, ["m1"]);
+assert.equal(field(modelReference, "model").dataset.unsetOption, undefined);
+assert.deepEqual(readConfigFields(modelReference), { model: "m1" });
 
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { readPipelineFile, modelAvailability, upsertModel } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
