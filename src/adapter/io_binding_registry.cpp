@@ -1,6 +1,7 @@
 #include "adapter/io_binding_registry.h"
 
 #include <algorithm>
+#include <set>
 #include <tuple>
 
 #include "adapter/io_converter_registry.h"
@@ -18,7 +19,7 @@ bool SameExternalSlots(const std::vector<ExternalSlotDefinition>& left,
                    std::string, std::vector<std::string>>;
     std::vector<Slot> result;
     for (const auto& slot : slots) {
-      auto capacities = slot.capacity_fields;
+      auto capacities = EffectiveCapacityFields(slot);
       std::sort(capacities.begin(), capacities.end());
       result.emplace_back(slot.KeySuffix(), slot.type_id, slot.type_suffix,
                           slot.direction, slot.required, slot.value_type,
@@ -78,6 +79,21 @@ bool CheckBizContract(std::vector<IoBindingDefinition> bindings,
 }
 
 }  // namespace
+
+std::vector<std::string> EffectiveCapacityFields(
+    const ExternalSlotDefinition& slot) {
+  if (slot.direction != PortDirection::kOutput || !slot.capacity_fields.empty())
+    return slot.capacity_fields;
+  const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
+      slot.type_suffix, "");
+  if (!binding) return slot.capacity_fields;
+  std::vector<std::string> fields;
+  for (const auto& [name, config] :
+       binding->output_layout.string_capacity_fields)
+    fields.push_back(name);
+  std::sort(fields.begin(), fields.end());
+  return fields;
+}
 
 std::unordered_map<std::string, std::string> EffectivePortMapping(
     const std::unordered_map<std::string, std::string>& declared,
@@ -378,6 +394,19 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
           errors.push_back(
               "Binding '" + binding_id + "' output slot '" + slot.slot_name +
               "' uses unregistered ValueType suffix: " + slot.type_suffix);
+        } else if (!slot.capacity_fields.empty()) {
+          std::set<std::string> expected;
+          for (const auto& [name, config] :
+               val_binding->output_layout.string_capacity_fields)
+            expected.insert(name);
+          const std::set<std::string> declared(slot.capacity_fields.begin(),
+                                               slot.capacity_fields.end());
+          if (declared != expected) {
+            errors.push_back("Binding '" + binding_id + "' output slot '" +
+                             slot.slot_name +
+                             "' capacity_fields do not match ValueType '" +
+                             slot.type_suffix + "'");
+          }
         }
       }
     }

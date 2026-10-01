@@ -46,8 +46,8 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.schema_id = "document.structured.response";
   def.external_type = "CompanyOperatorEntityOutput";
 
-  def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
-      kOutputSlot, {"entities_json"})};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kExtractedEntities)};
   def.encode_fn = &EncodeOperatorStructuredDocument;

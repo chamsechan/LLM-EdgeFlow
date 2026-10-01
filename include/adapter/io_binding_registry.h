@@ -17,6 +17,12 @@ std::unordered_map<std::string, std::string> EffectivePortMapping(
     const std::unordered_map<std::string, std::string>& declared,
     const std::vector<NodePortDefinition>& logical_ports);
 
+// Output slots with no capacity_fields inherit the string capacity fields of
+// their registered ValueType, in lexicographic order. Input slots and unknown
+// ValueTypes return the declared list unchanged.
+std::vector<std::string> EffectiveCapacityFields(
+    const ExternalSlotDefinition& slot);
+
 // Smallest positive limit among the binding and its converters; zero when none
 // of them declares one.
 size_t EffectiveMaxBatchSize(const IoBindingDefinition& binding,

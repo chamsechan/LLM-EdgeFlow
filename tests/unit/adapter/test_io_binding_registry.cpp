@@ -265,6 +265,66 @@ TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
   EXPECT_EQ(prepared.effective_max_batch_size, 64U);
 }
 
+TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
+  auto input =
+      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
+  auto output =
+      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
+  IoConverterRegistry::Instance().ClearForTesting();
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  // Keep the fixture's logical contract and use the registered keyword layout.
+  output.external_slots = {
+      ExternalOutputSlot<CompanyOperatorKeywordOutput>("keyword_out")};
+  output.external_type = "CompanyOperatorKeywordOutput";
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
+  const auto catalog = IoCatalog::ToJson();
+  ASSERT_EQ(catalog["output_converters"].size(), 1U);
+  EXPECT_EQ(
+      catalog["output_converters"][0]["external_slots"][0]["capacity_fields"],
+      nlohmann::json::array({"match_result_json"}));
+  const auto inferred = output.external_slots[0];
+  EXPECT_EQ(EffectiveCapacityFields(inferred),
+            std::vector<std::string>{"match_result_json"});
+  auto input_slot = inferred;
+  input_slot.direction = PortDirection::kInput;
+  EXPECT_TRUE(EffectiveCapacityFields(input_slot).empty());
+  auto unknown = inferred;
+  unknown.type_suffix = "unregistered";
+  EXPECT_TRUE(EffectiveCapacityFields(unknown).empty());
+
+  // Explicit and inferred declarations of the same layout are compatible.
+  RegisterTestBizBinding();
+  auto binding =
+      *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
+  output.converter_id = "explicit.out.operator";
+  output.external_slots[0].capacity_fields = {"match_result_json"};
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
+  binding.binding_id = "explicit.binding";
+  binding.output_converter_id = output.converter_id;
+  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  std::vector<std::string> errors;
+  EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
+  EXPECT_TRUE(errors.empty());
+}
+
+TEST_F(IoBindingRegistryTest, AuditRejectsCapacityFieldsMismatch) {
+  auto input =
+      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
+  auto output =
+      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
+  IoConverterRegistry::Instance().ClearForTesting();
+  output.external_slots[0].capacity_fields = {"unknown_capacity"};
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
+  RegisterTestBizBinding();
+  std::vector<std::string> errors;
+  EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
+  EXPECT_NE(std::find(errors.begin(), errors.end(),
+                      "Binding 'test_biz.operator.v1' output slot 'entity_out' "
+                      "capacity_fields do not match ValueType 'entity_out'"),
+            errors.end());
+}
+
 TEST_F(IoBindingRegistryTest, OmittedPortMappingsUseConverterPortNames) {
   auto input =
       *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");

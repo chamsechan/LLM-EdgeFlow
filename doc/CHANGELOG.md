@@ -44,4 +44,6 @@ Studio 应用表单时，未修改的数值、布尔、枚举、数组和对象�
 保留，清空或选回“默认”可移除这些字段的覆盖。字符串清空仍表示显式空字符串。Backend 参数
 收进“部署高级设置”，已有显式值时自动展开。
 
-接入层输入长度上限集中在 `biz_input_constraints.h`，接受/拒绝边界、诊断和返回码不变。
+接入层输入长度上限集中在 `biz_input_constraints.h`，接受/拒绝边界、诊断和返回码不变；输出
+转换器的容量字段由 ValueType 推导，显式列出时必须与 ValueType 一致。Catalog 中
+`audio_result`、`audit_result`、`doc_answer` 输出转换器的容量字段按字典序报告。

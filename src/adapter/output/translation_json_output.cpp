@@ -43,8 +43,8 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   def.schema_id = "translate.json.response";
   def.external_type = "CompanyOperatorEntityOutput";
 
-  def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
-      kOutputSlot, {"entities_json"})};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kLlmAnswers)};
   def.encode_fn = &EncodeOperatorTranslationJson;

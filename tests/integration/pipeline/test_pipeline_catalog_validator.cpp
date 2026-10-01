@@ -268,7 +268,7 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
           const auto* val_binding =
               OperatorValueTypeRegistry::Instance().GetOutputBinding(slot_type,
                                                                      "");
-          for (const auto& cap : slot.capacity_fields) {
+          for (const auto& cap : EffectiveCapacityFields(slot)) {
             uint32_t cap_val = 1024;
             if (val_binding &&
                 val_binding->output_layout.string_capacity_fields.count(cap)) {

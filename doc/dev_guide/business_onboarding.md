@@ -149,7 +149,8 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 需要完整映射的代码调用 `EffectivePortMapping`，不要直接读取绑定的端口表。
 
 外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
-`ExternalOutputSlot<T>(slot, capacity_fields)`，类型由 traits 推导。
+`ExternalOutputSlot<T>(slot)`，类型由 traits 推导。
+输出容量字段由已注册 ValueType 的字符串容量字段决定；显式列出时必须与该 ValueType 的字段集合一致。
 这两个工厂令 `type_suffix = slot_name`，`key_suffix` 留空并通过 `KeySuffix()` 回退到 `type_suffix`；
 仅适用于必需槽且这三个名称相同的常见约定。输入工厂的第二参数是 `value_type`，不能用来覆盖后缀。
 不同后缀、可选槽或特殊布局使用完整 `ExternalSlotDefinition`，明确填写对应字段。
