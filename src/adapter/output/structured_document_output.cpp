@@ -45,7 +45,6 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
 
   def.schema_id = "document.structured.response";
   def.external_type = "CompanyOperatorEntityOutput";
-  def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
       kOutputSlot, {"entities_json"})};

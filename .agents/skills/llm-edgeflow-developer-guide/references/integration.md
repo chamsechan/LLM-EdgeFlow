@@ -25,12 +25,13 @@ slot configurations, allocator and capacities. It is not a Pipeline Node and doe
 2. Operator public API lives in `include/edgeflow/operator/interface.h`; `types.h` forwards platform data structures. Platform mock interaction types live in `include/platform_mock/operator_types.h`, and payload structures in `operator_data_types.h`; see that directory's README for the distinction from real company headers.
 3. Preserve exported Operator functions and their exception barrier in `src/adapter/operator/operator_adapter.cpp`: `noexcept`, `try`, `catch (const std::exception&)`, and `catch (...)`.
 4. Implement ordinary `DecodeInputFn` callbacks in `InputConverterDefinition` under `src/adapter/input/`, `EncodeOutputFn` callbacks in `OutputConverterDefinition` under `src/adapter/output/`, and business binding through `IoBindingDefinition` under `src/adapter/biz/`. Register through `REGISTER_INPUT_CONVERTER`, `REGISTER_OUTPUT_CONVERTER`, and `REGISTER_IO_BINDING`.
-5. Register `BizDefinition` with `PipelineCatalog::RegisterBizDefinition` to declare `biz_name` and complete ingress/egress Blackboard ports. `IoBindingDefinition` selects converters and maps their logical ports to those keys; `BizExposureDefinition` declares production exposure and its batch bound. External Pipeline JSON requires `deployment.io.io_binding` and rejects root `biz_name`; Integration derives the internal business boundary from the selected registration. Demo resolves its runner through the SDK configuration query; neither CLI nor Profile accepts a business selector. Bindings of the same biz must declare the same external schema, carrier and slot contract; Registry audit and deployment preflight enforce this before any payload cast.
+5. Register `BizDefinition` with `PipelineCatalog::RegisterBizDefinition` to declare `biz_name` and complete ingress/egress Blackboard ports. `IoBindingDefinition` selects converters and declares the batch bound; converter logical ports map to the same-named keys unless the binding lists a renamed mapping. External Pipeline JSON requires `deployment.io.io_binding` and rejects root `biz_name`; Integration derives the internal business boundary from the selected registration. Demo resolves its runner through the SDK configuration query; neither CLI nor Profile accepts a business selector. Bindings of the same biz must declare the same external schema, carrier and slot contract; Registry audit and deployment preflight enforce this before any payload cast.
 6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
 
-`IoBindingDefinition::max_batch_size = 0` inherits converter/exposure limits. A nonzero binding
-limit takes the minimum with the input/output converter limits and any registered exposure limit
-in [deployment preparation](../../../../src/adapter/deployment_preparation.cpp).
+Production bindings declare `IoBindingDefinition::max_batch_size`; converters declare a limit only
+when they have one of their own, and zero adds no bound. The effective limit is the smallest
+positive value among the binding and its converters, and a binding where all three are zero fails
+the registry audit and [deployment preparation](../../../../src/adapter/deployment_preparation.cpp).
 [Operator creation](../../../../src/adapter/operator/operator_adapter.cpp) further caps the effective
 Process batch limit at the output pool depth; a larger binding limit cannot relax another limit.
 

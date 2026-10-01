@@ -16,8 +16,6 @@ namespace {
 constexpr const char* kFrameSlot = "frame";
 constexpr const char* kQuerySlot = "string";
 
-constexpr size_t kMaxBatchSize = 64;
-
 constexpr size_t kMaxPathLen = 4096;
 constexpr size_t kMaxQueryLen = 64 * 1024;
 
@@ -25,7 +23,7 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
                                   const InputPortBindings& bindings,
                                   AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -97,7 +95,6 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
 
   def.schema_id = "image_query.plain.request";
   def.external_type = "CompanyFrame,CompanyString";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {ExternalInputSlot<CompanyFrame>(kFrameSlot),
                         ExternalInputSlot<CompanyString>(kQuerySlot)};

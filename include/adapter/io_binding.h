@@ -16,20 +16,13 @@ struct IoBindingDefinition {
 
   std::string input_converter_id;
   std::string output_converter_id;
-  std::unordered_map<std::string, std::string>
-      input_ports;  // logical_name -> blackboard_key
-  std::unordered_map<std::string, std::string>
-      output_ports;  // logical_name -> blackboard_key
-  // Zero inherits converter/exposure limits; a nonzero value adds a bound.
+  // logical_name -> blackboard_key. Converter logical ports without an entry
+  // map to the same name; list only renamed ports.
+  std::unordered_map<std::string, std::string> input_ports;
+  std::unordered_map<std::string, std::string> output_ports;
+  // Zero adds no bound. The effective limit is the smallest positive value
+  // among the binding and its converters; at least one must be positive.
   size_t max_batch_size = 0;
-};
-
-/**
- * @brief 业务生产暴露能力声明 (声明生产环境必需支持的入口形式与批次约束)
- */
-struct BizExposureDefinition {
-  std::string biz_name;
-  size_t max_batch_size = 64;
 };
 
 }  // namespace llm_edgeflow

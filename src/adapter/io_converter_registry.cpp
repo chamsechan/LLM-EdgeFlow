@@ -75,13 +75,6 @@ bool IoConverterRegistry::RegisterInputConverter(
       return false;
     }
   }
-  if (def.max_batch_size == 0) {
-    conflict_errors_.push_back(
-        "Invalid max_batch_size (0) in InputConverterDefinition for: " +
-        def.converter_id);
-    return false;
-  }
-
   auto it = input_converters_.find(def.converter_id);
   if (it != input_converters_.end()) {
     conflict_errors_.push_back("Duplicate InputConverter registration: " +
@@ -162,13 +155,6 @@ bool IoConverterRegistry::RegisterOutputConverter(
       return false;
     }
   }
-  if (def.max_batch_size == 0) {
-    conflict_errors_.push_back(
-        "Invalid max_batch_size (0) in OutputConverterDefinition for: " +
-        def.converter_id);
-    return false;
-  }
-
   auto it = output_converters_.find(def.converter_id);
   if (it != output_converters_.end()) {
     conflict_errors_.push_back("Duplicate OutputConverter registration: " +

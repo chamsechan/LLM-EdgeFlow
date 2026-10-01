@@ -7,7 +7,6 @@ namespace llm_edgeflow {
 namespace {
 
 constexpr const char* kBizName = "dialogue_compliance_audit_v1";
-constexpr size_t kMaxBatchSize = 64;
 
 BizDefinition MakeComplianceAuditBizDefinition() {
   BizDefinition def;
@@ -29,14 +28,6 @@ const bool g_reg_compliance_audit_biz = []() {
   return true;
 }();
 
-BizExposureDefinition MakeComplianceAuditBizExposure() {
-  BizExposureDefinition def;
-  def.biz_name = kBizName;
-  def.max_batch_size = kMaxBatchSize;
-
-  return def;
-}
-
 IoBindingDefinition MakeComplianceAuditOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "compliance_audit.operator.v1";
@@ -44,16 +35,11 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
 
   def.input_converter_id = "audit.plain.operator.v1";
   def.output_converter_id = "audit_result.plain.operator.v1";
-  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kUserTexts),
-                     BindIoPort(kChannelNames)};
-  def.output_ports = {BindIoPort(kRawRequestIds),
-                      BindIoPort(kStructuredVerdicts),
-                      BindIoPort(kMatchedPolicies, kMatchedPolicy)};
-  def.max_batch_size = kMaxBatchSize;
+  def.output_ports = {BindIoPort(kMatchedPolicies, kMatchedPolicy)};
+  def.max_batch_size = 64;
   return def;
 }
 
-REGISTER_BIZ_EXPOSURE(MakeComplianceAuditBizExposure());
 REGISTER_IO_BINDING(MakeComplianceAuditOperatorBinding());
 
 }  // namespace

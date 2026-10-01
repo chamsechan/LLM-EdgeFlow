@@ -180,11 +180,12 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.logical_ports.clear();
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  // max_batch_size == 0
+  // max_batch_size == 0 表示转换器自身不设限，Binding 负责声明上限
+  bad_in.converter_id = "unbounded.in";
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   bad_in.max_batch_size = 0;
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+  EXPECT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "bad.out";
@@ -576,13 +577,14 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
   source.slot_types["input"] = "CompanyOperatorKeywordInput";
   InputDecodeOptions options;
   options.converter_id = "test.rows.input";
+  options.max_batch_size = 2;
   InputPortBindings bindings(
       {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
   AlgContext context;
   AdapterStatus status;
   ASSERT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
-                source, options, bindings, &context, &status, 2, "input",
-                kRowIds, kRowTexts,
+                source, options, bindings, &context, &status, "input", kRowIds,
+                kRowTexts,
                 [](const CompanyOperatorKeywordInput& row, std::string* value) {
                   *value = CopyInputString(*row.sentence_text);
                   return AdapterStatus::Ok();
@@ -612,13 +614,14 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   source.slot_types["input"] = "CompanyOperatorKeywordInput";
   InputDecodeOptions options;
   options.converter_id = "test.rows.input";
+  options.max_batch_size = 2;
   InputPortBindings bindings(
       {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
   AlgContext context;
   AdapterStatus status;
   EXPECT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
-                source, options, bindings, &context, &status, 2, "input",
-                kRowIds, kRowTexts,
+                source, options, bindings, &context, &status, "input", kRowIds,
+                kRowTexts,
                 [](const CompanyOperatorKeywordInput& row, std::string* value) {
                   if (row.request_id == 2)
                     return AdapterStatus::InvalidInput("bad sentence",
@@ -633,6 +636,44 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   EXPECT_EQ(status.Message(), "bad sentence");
   EXPECT_FALSE(context.Has("actual_ids"));
   EXPECT_FALSE(context.Has("actual_texts"));
+}
+
+TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
+  char bytes[] = {'a'};
+  CompanyString text{1, bytes};
+  CompanyOperatorKeywordInput first{1, &text}, second{2, &text};
+  ExternalInputBatchView source;
+  source.count = 2;
+  source.slots["input"] = BorrowInputForTest({&first, &second});
+  source.slot_types["input"] = "CompanyOperatorKeywordInput";
+  InputPortBindings bindings(
+      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  const auto decode = [&](size_t limit, AlgContext* context,
+                          AdapterStatus* status) {
+    InputDecodeOptions options;
+    options.converter_id = "test.rows.input";
+    options.max_batch_size = limit;
+    return DecodeRequestRows<CompanyOperatorKeywordInput>(
+        source, options, bindings, context, status, "input", kRowIds, kRowTexts,
+        [](const CompanyOperatorKeywordInput& row, std::string* value) {
+          *value = CopyInputString(*row.sentence_text);
+          return AdapterStatus::Ok();
+        });
+  };
+
+  AlgContext limited;
+  AdapterStatus limited_status;
+  EXPECT_EQ(decode(1, &limited, &limited_status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_NE(limited_status.Message().find("Batch size out of range [1, 1]"),
+            std::string::npos);
+  EXPECT_FALSE(limited.Has("actual_texts"));
+
+  // Zero means the caller did not pass a limit; only emptiness is checked.
+  AlgContext unlimited;
+  AdapterStatus unlimited_status;
+  EXPECT_EQ(decode(0, &unlimited, &unlimited_status), COMPANY_ALG_SUCCESS);
+  EXPECT_TRUE(unlimited.Has("actual_texts"));
 }
 
 TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {

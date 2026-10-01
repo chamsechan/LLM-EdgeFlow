@@ -347,6 +347,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
         synth_b.biz_name = biz;
         synth_b.input_converter_id = "keyword.plain.operator.v1";
         synth_b.output_converter_id = "keyword.result.operator.v1";
+        synth_b.max_batch_size = 64;
         IoBindingRegistry::Instance().RegisterBinding(synth_b);
       }
     }

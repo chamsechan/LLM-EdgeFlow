@@ -99,7 +99,6 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
 
   def.schema_id = "doc_answer.plain.response";
   def.external_type = "CompanyOperatorDocOutput";
-  def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorDocOutput>(
       kOutputSlot, {"intent_name", "answer_text"})};

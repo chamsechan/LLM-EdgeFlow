@@ -353,6 +353,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     llm_edgeflow::InputDecodeOptions in_options;
 
     in_options.converter_id = h->input_converter->converter_id;
+    in_options.max_batch_size = h->effective_process_batch_limit;
 
     llm_edgeflow::AdapterStatus decode_status;
     int decode_ret = h->input_converter->decode_fn(

@@ -16,8 +16,6 @@ namespace {
 
 constexpr const char* kInputSlot = "entity_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
 
 int ParseTranslateQuery(const std::string& raw_text, std::string* out_query) {
@@ -54,8 +52,8 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kMaxBatchSize, kInputSlot,
-      kRawRequestIds, kInputSentences, &DecodeTranslateQuery);
+      source, options, bindings, context, status, kInputSlot, kRawRequestIds,
+      kInputSentences, &DecodeTranslateQuery);
 }
 
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
@@ -64,7 +62,6 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
 
   def.schema_id = "translate.json.request";
   def.external_type = "CompanyOperatorEntityInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot, kInputSlot)};

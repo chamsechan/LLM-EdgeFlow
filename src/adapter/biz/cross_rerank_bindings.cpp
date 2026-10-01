@@ -7,7 +7,6 @@ namespace llm_edgeflow {
 namespace {
 
 constexpr const char* kBizName = "dense_cross_rerank_scoring";
-constexpr size_t kMaxBatchSize = 64;
 
 BizDefinition MakeCrossRerankBizDefinition() {
   BizDefinition def;
@@ -31,14 +30,6 @@ const bool g_reg_cross_rerank_biz = []() {
   return true;
 }();
 
-BizExposureDefinition MakeCrossRerankBizExposure() {
-  BizExposureDefinition def;
-  def.biz_name = kBizName;
-  def.max_batch_size = kMaxBatchSize;
-
-  return def;
-}
-
 IoBindingDefinition MakeCrossRerankOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "cross_rerank.operator.v1";
@@ -46,14 +37,10 @@ IoBindingDefinition MakeCrossRerankOperatorBinding() {
 
   def.input_converter_id = "rerank.plain.operator.v1";
   def.output_converter_id = "rerank_result.plain.operator.v1";
-  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kRerankQueries),
-                     BindIoPort(kRerankCandidates), BindIoPort(kRerankPairs)};
-  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kRankedResults)};
-  def.max_batch_size = kMaxBatchSize;
+  def.max_batch_size = 64;
   return def;
 }
 
-REGISTER_BIZ_EXPOSURE(MakeCrossRerankBizExposure());
 REGISTER_IO_BINDING(MakeCrossRerankOperatorBinding());
 
 }  // namespace

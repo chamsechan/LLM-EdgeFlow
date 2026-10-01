@@ -16,15 +16,13 @@ namespace {
 
 constexpr const char* kInputSlot = "rerank_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
 
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -111,7 +109,6 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
 
   def.schema_id = "rerank.plain.request";
   def.external_type = "CompanyOperatorRerankInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot)};

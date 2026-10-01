@@ -94,7 +94,6 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
 
   def.schema_id = "invoice_result.plain.response";
   def.external_type = "CompanyOdOutput";
-  def.max_batch_size = 64;
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOdOutput>(kOutputSlot, {"result_json"})};

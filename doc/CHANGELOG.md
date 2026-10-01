@@ -21,6 +21,15 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**，公�
 LLM 节点复用生成参数声明和解析，保留原有字段及默认值。公共 Operator ABI 与
 Pipeline 配置格式保持不变。
 
+接入适配层去掉重复声明。删除 `BizExposureDefinition`、`REGISTER_BIZ_EXPOSURE` 及
+`IoBindingRegistry` 的 Exposure 接口，注册审计不再检查"曝光业务必须有绑定"。批次上限在绑定上
+声明一次：转换器的 `max_batch_size` 默认改为 0（不设限），有效上限取绑定与两个转换器中正值的
+最小值，三者都为 0 时注册审计和部署准备报错，因此复用生产转换器的绑定要自己声明 `max_batch_size`。
+绑定的 `input_ports` / `output_ports` 可以省略同名映射，需要完整映射的代码改用 `EffectivePortMapping`。
+`ValidateDecodeRequest`、`DecodeRequestRows` 删除批次上限参数，改读 Operator 填入的
+`InputDecodeOptions::max_batch_size`。Catalog 中生产转换器的 `max_batch_size` 由 64 变为 0；各业务的
+有效批次上限、Pipeline 配置格式与公共 Operator ABI 不变。
+
 开发 Skills 按业务方案规划、Adapter、Map/LLM/Batch Node、Model 和 Backend 提供独立入口，
 由业务需求生成组件增补与 DAG 建议，并复用现有作者 API、Catalog 和验证流程。
 

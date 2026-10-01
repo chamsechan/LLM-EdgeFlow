@@ -16,15 +16,13 @@ namespace {
 
 constexpr const char* kInputSlot = "audit_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
 
 int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -98,7 +96,6 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
 
   def.schema_id = "audit.plain.request";
   def.external_type = "CompanyOperatorAuditInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};

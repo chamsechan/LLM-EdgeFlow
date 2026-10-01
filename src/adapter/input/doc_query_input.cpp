@@ -15,8 +15,6 @@ namespace {
 
 constexpr const char* kInputSlot = "doc_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
 constexpr size_t kMaxQueryLen = 64 * 1024;       // 64KB
 constexpr size_t kMaxDocLen = 10 * 1024 * 1024;  // 10MB
 
@@ -24,7 +22,7 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -95,7 +93,6 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
 
   def.schema_id = "doc_query.plain.request";
   def.external_type = "CompanyOperatorDocInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRawDocs),

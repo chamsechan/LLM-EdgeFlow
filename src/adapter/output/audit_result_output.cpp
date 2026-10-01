@@ -137,7 +137,6 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
 
   def.schema_id = "audit_result.plain.response";
   def.external_type = "CompanyOperatorAuditOutput";
-  def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorAuditOutput>(
       kOutputSlot,

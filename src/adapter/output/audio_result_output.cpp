@@ -94,7 +94,6 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
 
   def.schema_id = "audio_result.plain.response";
   def.external_type = "CompanyOperatorAudioOutput";
-  def.max_batch_size = 64;
 
   def.external_slots = {ExternalOutputSlot<CompanyOperatorAudioOutput>(
       kOutputSlot, {"transcribed_text", "intent_slot_json"})};

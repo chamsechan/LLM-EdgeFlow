@@ -7,7 +7,6 @@ namespace llm_edgeflow {
 namespace {
 
 constexpr const char* kBizName = "translate_v1";
-constexpr size_t kMaxBatchSize = 64;
 
 BizDefinition MakeTranslateBizDefinition() {
   BizDefinition def;
@@ -27,14 +26,6 @@ const bool g_reg_translate_biz = []() {
   return true;
 }();
 
-BizExposureDefinition MakeTranslateBizExposure() {
-  BizExposureDefinition def;
-  def.biz_name = kBizName;
-  def.max_batch_size = kMaxBatchSize;
-
-  return def;
-}
-
 IoBindingDefinition MakeTranslateOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "translate.operator.v1";
@@ -42,13 +33,10 @@ IoBindingDefinition MakeTranslateOperatorBinding() {
 
   def.input_converter_id = "translate.json.operator.v1";
   def.output_converter_id = "translate.json.operator.v1";
-  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kInputSentences)};
-  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kLlmAnswers)};
-  def.max_batch_size = kMaxBatchSize;
+  def.max_batch_size = 64;
   return def;
 }
 
-REGISTER_BIZ_EXPOSURE(MakeTranslateBizExposure());
 REGISTER_IO_BINDING(MakeTranslateOperatorBinding());
 
 }  // namespace
