@@ -81,7 +81,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
    `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
 4. 在 `src/adapter/biz/` 声明 `BizDefinition` 并实现 `IoBinding` 绑定：选择转换器、
-   声明批次上限；逻辑端口默认映射到同名 Blackboard Key，只写不同名的映射。
+   批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖；逻辑端口默认映射到同名 Blackboard Key，只写不同名的映射。
 5. 解码与编码使用 `core/common_contracts.h` 中的中性值类型，并在
    `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
    Core、Node 和 Engine 不得包含该业务 key 头。

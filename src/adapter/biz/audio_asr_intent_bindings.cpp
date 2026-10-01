@@ -33,7 +33,6 @@ IoBindingDefinition MakeAudioAsrIntentOperatorBinding() {
 
   def.input_converter_id = "audio.pcm.operator.v1";
   def.output_converter_id = "audio_result.plain.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 

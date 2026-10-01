@@ -234,6 +234,37 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diagnostic.path, "/deployment/io/io_binding");
 }
 
+TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
+  auto input =
+      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
+  auto output =
+      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
+  IoConverterRegistry::Instance().ClearForTesting();
+  input.max_batch_size = 0;
+  output.max_batch_size = 0;
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
+  IoBindingDefinition binding;
+  binding.binding_id = "test_biz.operator.v1";
+  binding.biz_name = "test_biz_v1";
+  binding.input_converter_id = input.converter_id;
+  binding.output_converter_id = output.converter_id;
+  binding.input_ports = {{"texts", "input_sentences"}};
+  binding.output_ports = {{"answers", "llm_answers"}};
+  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  std::vector<std::string> errors;
+  EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
+  EXPECT_TRUE(errors.empty());
+  const nlohmann::json document = {
+      {"deployment", {{"io", {{"io_binding", binding.binding_id}}}}},
+      {"pipeline", DefaultPipelineNodes()}};
+  PreparedDeployment prepared;
+  DeploymentDiagnostic diagnostic;
+  ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
+      << diagnostic.message;
+  EXPECT_EQ(prepared.effective_max_batch_size, 64U);
+}
+
 TEST_F(IoBindingRegistryTest, OmittedPortMappingsUseConverterPortNames) {
   auto input =
       *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");

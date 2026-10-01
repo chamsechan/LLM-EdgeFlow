@@ -37,7 +37,6 @@ IoBindingDefinition MakeCrossRerankOperatorBinding() {
 
   def.input_converter_id = "rerank.plain.operator.v1";
   def.output_converter_id = "rerank_result.plain.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 

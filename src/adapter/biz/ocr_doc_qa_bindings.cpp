@@ -33,7 +33,6 @@ IoBindingDefinition MakeOcrDocQaOperatorBinding() {
 
   def.input_converter_id = "image_query.plain.operator.v1";
   def.output_converter_id = "invoice_result.plain.operator.v1";
-  def.max_batch_size = 64;
   return def;
 }
 
