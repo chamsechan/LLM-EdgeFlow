@@ -137,15 +137,16 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
-  size_t max_batch =
-      std::min(in_conv->max_batch_size, out_conv->max_batch_size);
-  if (binding->max_batch_size != 0) {
-    max_batch = std::min(max_batch, binding->max_batch_size);
-  }
-  const auto* exposure =
-      IoBindingRegistry::Instance().FindExposure(binding->biz_name);
-  if (exposure) {
-    max_batch = std::min(max_batch, exposure->max_batch_size);
+  const size_t max_batch = EffectiveMaxBatchSize(*binding, *in_conv, *out_conv);
+  if (max_batch == 0) {
+    if (diagnostic) {
+      diagnostic->code = "DEPLOYMENT_ERROR";
+      diagnostic->path = "/deployment/io/io_binding";
+      diagnostic->message =
+          "Binding '" + binding->binding_id +
+          "' declares no batch limit on the binding or its converters";
+    }
+    return false;
   }
 
   // S4: 必需输出槽采用注册默认值；可选槽由显式配置启用。
@@ -213,36 +214,33 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     resolved_neutral_json = std::move(doc_split.neutral_pipeline_json);
   }
 
-  // S6: 构造中性 I/O 边界，发布准备结果
+  // S6: 构造中性 I/O 边界，发布准备结果（未显式映射的端口按同名映射）
+  auto input_mapping =
+      EffectivePortMapping(binding->input_ports, in_conv->logical_ports);
+  auto output_mapping =
+      EffectivePortMapping(binding->output_ports, out_conv->logical_ports);
   PipelineIoBoundary io_boundary;
   for (const auto& port : in_conv->logical_ports) {
-    std::string key = port.logical_name;
-    auto bit = binding->input_ports.find(port.logical_name);
-    if (bit != binding->input_ports.end()) {
-      key = bit->second;
-    }
     io_boundary.input_published_ports.emplace_back(
-        key, port.type_id, port.required, port.cardinality,
-        port.provenance_policy, port.lifetime, port.lifetime_config_field);
+        input_mapping.at(port.logical_name), port.type_id, port.required,
+        port.cardinality, port.provenance_policy, port.lifetime,
+        port.lifetime_config_field);
   }
 
   for (const auto& port : out_conv->logical_ports) {
-    std::string key = port.logical_name;
-    auto bit = binding->output_ports.find(port.logical_name);
-    if (bit != binding->output_ports.end()) {
-      key = bit->second;
-    }
     io_boundary.output_consumed_ports.emplace_back(
-        key, port.type_id, port.required, port.cardinality,
-        port.provenance_policy, port.lifetime, port.lifetime_config_field);
+        output_mapping.at(port.logical_name), port.type_id, port.required,
+        port.cardinality, port.provenance_policy, port.lifetime,
+        port.lifetime_config_field);
   }
 
   PreparedDeployment local_prep;
   local_prep.binding = *binding;
   local_prep.input_converter = in_conv;
   local_prep.output_converter = out_conv;
-  local_prep.input_port_bindings = InputPortBindings(binding->input_ports);
-  local_prep.output_port_bindings = OutputPortBindings(binding->output_ports);
+  local_prep.input_port_bindings = InputPortBindings(std::move(input_mapping));
+  local_prep.output_port_bindings =
+      OutputPortBindings(std::move(output_mapping));
   local_prep.effective_max_batch_size = max_batch;
   local_prep.output_specs = std::move(local_output_specs);
   local_prep.output_parameter_texts = std::move(local_output_params);

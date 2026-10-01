@@ -7,6 +7,9 @@
 
 namespace llm_edgeflow {
 
+// Standard Operator batch bound applied when a binding does not override it.
+inline constexpr size_t kDefaultIoBindingMaxBatchSize = 64;
+
 /**
  * @brief 接入绑定定义 (将外部输入/输出转换器与内部 Pipeline 业务契约显式关联)
  */
@@ -16,20 +19,14 @@ struct IoBindingDefinition {
 
   std::string input_converter_id;
   std::string output_converter_id;
-  std::unordered_map<std::string, std::string>
-      input_ports;  // logical_name -> blackboard_key
-  std::unordered_map<std::string, std::string>
-      output_ports;  // logical_name -> blackboard_key
-  // Zero inherits converter/exposure limits; a nonzero value adds a bound.
-  size_t max_batch_size = 0;
-};
-
-/**
- * @brief 业务生产暴露能力声明 (声明生产环境必需支持的入口形式与批次约束)
- */
-struct BizExposureDefinition {
-  std::string biz_name;
-  size_t max_batch_size = 64;
+  // logical_name -> blackboard_key. Converter logical ports without an entry
+  // map to the same name; list only renamed ports.
+  std::unordered_map<std::string, std::string> input_ports;
+  std::unordered_map<std::string, std::string> output_ports;
+  // Defaults to the standard Operator bound. Zero adds no bound; the effective
+  // limit is the smallest positive value among the binding and its converters,
+  // and at least one must be positive.
+  size_t max_batch_size = kDefaultIoBindingMaxBatchSize;
 };
 
 }  // namespace llm_edgeflow

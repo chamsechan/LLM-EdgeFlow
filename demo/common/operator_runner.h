@@ -231,6 +231,12 @@ inline int CreateOperatorInstance(
     std::cerr << "[" << logger_prefix
               << " ERROR] Failed ops.Create with conf: " << options.config_path
               << " (Operator error: " << op_err << ")" << std::endl;
+    if (op_err.find("max_frame_depth") != std::string::npos) {
+      std::cerr << "[OperatorRunner HINT] 输出池深度超过上限；用 "
+                   "alg_pipeline_tool resolve-conf <conf> --root <root> "
+                   "--depth <depth> 查看 max_frame_depth_limit"
+                << std::endl;
+    }
     return 5;
   }
 
@@ -314,6 +320,12 @@ int RunOperatorWithExtractor(
                    "starting index "
                 << processed_count << ": code=" << ret << " (" << op_err << ")"
                 << std::endl;
+      if (op_err.find("exceeds effective batch limit") != std::string::npos) {
+        std::cerr << "[OperatorRunner HINT] 单次批次超过有效上限；用 "
+                     "alg_pipeline_tool resolve-conf <conf> --root <root> "
+                     "--depth <depth> 查看 effective_process_batch_limit"
+                  << std::endl;
+      }
       return 5;
     }
 

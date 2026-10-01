@@ -1029,7 +1029,9 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   // Decode input with entity binding
   {
     test::AdapterHarness harness(
-        entity_conv, InputPortBindings(entity_binding->input_ports));
+        entity_conv,
+        InputPortBindings(EffectivePortMapping(entity_binding->input_ports,
+                                               entity_conv->logical_ports)));
     std::string text_str = "entity sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
@@ -1044,7 +1046,9 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   // Decode input with keyword binding
   {
     test::AdapterHarness harness(
-        keyword_conv, InputPortBindings(keyword_binding->input_ports));
+        keyword_conv,
+        InputPortBindings(EffectivePortMapping(keyword_binding->input_ports,
+                                               keyword_conv->logical_ports)));
     std::string text_str = "keyword sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};

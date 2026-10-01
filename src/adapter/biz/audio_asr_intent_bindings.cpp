@@ -7,7 +7,6 @@ namespace llm_edgeflow {
 namespace {
 
 constexpr const char* kBizName = "speech_audio_asr_intent_slot";
-constexpr size_t kMaxBatchSize = 64;
 
 BizDefinition MakeAudioAsrIntentBizDefinition() {
   BizDefinition def;
@@ -27,14 +26,6 @@ const bool g_reg_audio_asr_intent_biz = []() {
   return true;
 }();
 
-BizExposureDefinition MakeAudioAsrIntentBizExposure() {
-  BizExposureDefinition def;
-  def.biz_name = kBizName;
-  def.max_batch_size = kMaxBatchSize;
-
-  return def;
-}
-
 IoBindingDefinition MakeAudioAsrIntentOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "audio_asr_intent.operator.v1";
@@ -42,14 +33,9 @@ IoBindingDefinition MakeAudioAsrIntentOperatorBinding() {
 
   def.input_converter_id = "audio.pcm.operator.v1";
   def.output_converter_id = "audio_result.plain.operator.v1";
-  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kAudioInputs)};
-  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kTranscripts),
-                      BindIoPort(kIntentSlots)};
-  def.max_batch_size = kMaxBatchSize;
   return def;
 }
 
-REGISTER_BIZ_EXPOSURE(MakeAudioAsrIntentBizExposure());
 REGISTER_IO_BINDING(MakeAudioAsrIntentOperatorBinding());
 
 }  // namespace

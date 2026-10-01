@@ -45,6 +45,8 @@ inline ExternalSlotDefinition ExternalInputSlot(
           slot_name};
 }
 
+// Omitted capacity fields are derived from the registered ValueType; an
+// explicit list must match that ValueType.
 template <typename T>
 inline ExternalSlotDefinition ExternalOutputSlot(
     std::string slot_name, std::vector<std::string> capacity_fields = {}) {
@@ -57,22 +59,28 @@ inline ExternalSlotDefinition ExternalOutputSlot(
           std::move(capacity_fields)};
 }
 
-// Operator also checks carriers and the intersection of deployment batch
-// limits.
+// Operator checks carriers and the effective batch limit before decoding and
+// passes that limit in options; this repeats the bound defensively.
 inline bool ValidateDecodeRequest(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
-                                  AlgContext* context, size_t max_batch_size,
-                                  AdapterStatus* status) {
+                                  AlgContext* context, AdapterStatus* status) {
   if (!context) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
         options.converter_id.c_str());
     return false;
   }
-  if (source.count == 0 || source.count > max_batch_size) {
+  if (source.count == 0) {
+    AdapterValidationHelper::ReturnInvalidInput(
+        status, "Batch must contain at least one request", "slots",
+        options.converter_id.c_str());
+    return false;
+  }
+  if (options.max_batch_size != 0 && source.count > options.max_batch_size) {
     AdapterValidationHelper::ReturnInvalidInput(
         status,
-        "Batch size out of range [1, " + std::to_string(max_batch_size) + "]",
+        "Batch size out of range [1, " +
+            std::to_string(options.max_batch_size) + "]",
         "slots", options.converter_id.c_str());
     return false;
   }
@@ -227,11 +235,11 @@ template <typename Host, typename Payload, typename Decode>
 int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
     const InputPortBindings& bindings, AlgContext* context,
-    AdapterStatus* status, size_t max_batch_size, const char* slot,
+    AdapterStatus* status, const char* slot,
     const BlackboardKey<std::vector<uint64_t>>& raw_ids_port,
     const BlackboardKey<std::vector<TraceableItem<Payload>>>& payload_port,
     Decode&& decode) {
-  if (!ValidateDecodeRequest(source, options, context, max_batch_size, status))
+  if (!ValidateDecodeRequest(source, options, context, status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
   std::vector<uint64_t> ids;
   std::vector<TraceableItem<Payload>> payloads;
@@ -324,12 +332,6 @@ int EncodeResultRows(
   static const bool EDGEFLOW_CONCAT(g_reg_io_binding_, __COUNTER__) = []() { \
     return ::llm_edgeflow::IoBindingRegistry::Instance().RegisterBinding(    \
         binding_expr);                                                       \
-  }()
-
-#define REGISTER_BIZ_EXPOSURE(exposure_expr)                                   \
-  static const bool EDGEFLOW_CONCAT(g_reg_biz_exposure_, __COUNTER__) = []() { \
-    return ::llm_edgeflow::IoBindingRegistry::Instance().RegisterExposure(     \
-        exposure_expr);                                                        \
   }()
 
 }  // namespace llm_edgeflow

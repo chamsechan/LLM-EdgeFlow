@@ -42,7 +42,6 @@ struct RuntimeOptions {
   int biz_type = 0;
   std::string biz_name;
   std::string chip_type = "UNKNOWN";
-  int platform_max_batch = 1;
   uint32_t depth_num = 1;
 };
 

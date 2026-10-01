@@ -128,6 +128,8 @@ class ExternalOutputBatchView {
  */
 struct InputDecodeOptions {
   std::string converter_id;
+  // Effective batch limit filled by the Operator; zero skips the upper bound.
+  size_t max_batch_size = 0;
 };
 
 /**
@@ -285,7 +287,8 @@ struct InputConverterDefinition {
   std::string external_type;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
-  size_t max_batch_size = 64;
+  // Optional converter-specific limit; zero adds no bound.
+  size_t max_batch_size = 0;
 
   DecodeInputFn decode_fn = nullptr;
 };
@@ -302,7 +305,8 @@ struct OutputConverterDefinition {
   std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
   std::vector<ExternalSlotDefinition> external_slots;
   std::string cardinality = "1:1";
-  size_t max_batch_size = 64;
+  // Optional converter-specific limit; zero adds no bound.
+  size_t max_batch_size = 0;
   std::string capacity_policy = "reject_overflow";
 
   EncodeOutputFn encode_fn = nullptr;

@@ -137,11 +137,9 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
 
   def.schema_id = "audit_result.plain.response";
   def.external_type = "CompanyOperatorAuditOutput";
-  def.max_batch_size = 64;
 
-  def.external_slots = {ExternalOutputSlot<CompanyOperatorAuditOutput>(
-      kOutputSlot,
-      {"risk_level", "matched_policy_clause", "audit_verdict_json"})};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kStructuredVerdicts),
                        RequiredInputPort(kMatchedPolicies, "N:1")};

@@ -7,7 +7,6 @@ namespace llm_edgeflow {
 namespace {
 
 constexpr const char* kBizName = "multimodal_ocr_invoice_qa";
-constexpr size_t kMaxBatchSize = 64;
 
 BizDefinition MakeOcrDocQaBizDefinition() {
   BizDefinition def;
@@ -27,14 +26,6 @@ const bool g_reg_ocr_doc_qa_biz = []() {
   return true;
 }();
 
-BizExposureDefinition MakeOcrDocQaBizExposure() {
-  BizExposureDefinition def;
-  def.biz_name = kBizName;
-  def.max_batch_size = kMaxBatchSize;
-
-  return def;
-}
-
 IoBindingDefinition MakeOcrDocQaOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "ocr_doc_qa.operator.v1";
@@ -42,15 +33,9 @@ IoBindingDefinition MakeOcrDocQaOperatorBinding() {
 
   def.input_converter_id = "image_query.plain.operator.v1";
   def.output_converter_id = "invoice_result.plain.operator.v1";
-  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kImagePaths),
-                     BindIoPort(kUserQueries)};
-  def.output_ports = {BindIoPort(kRawRequestIds),
-                      BindIoPort(kExtractedInvoiceJson), BindIoPort(kOcrDocs)};
-  def.max_batch_size = kMaxBatchSize;
   return def;
 }
 
-REGISTER_BIZ_EXPOSURE(MakeOcrDocQaBizExposure());
 REGISTER_IO_BINDING(MakeOcrDocQaOperatorBinding());
 
 }  // namespace

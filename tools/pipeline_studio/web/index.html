@@ -129,7 +129,7 @@
             <p id="modelAvailability" class="draft-hint" role="status" hidden></p>
             <label>模型资产路径<input id="modelPath" required placeholder="相对项目根，例如 models/model.onnx"></label>
             <p class="field-heading">Model 参数</p><div id="modelConfigFields"></div>
-            <p class="field-heading">Backend 参数</p><div id="backendConfigFields"></div>
+            <details id="backendAdvanced"><summary>部署高级设置（Backend 参数）</summary><div id="backendConfigFields"></div></details>
             <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改，应用后更新方案。</p>
             <div class="row form-actions"><button id="applyModel" type="submit" class="primary">应用模型</button><button id="discardModel" type="button" disabled>放弃修改</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
           </form>

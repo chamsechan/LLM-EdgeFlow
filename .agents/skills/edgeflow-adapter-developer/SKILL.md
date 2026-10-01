@@ -22,8 +22,7 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 | --- | --- |
 | 请求校验、字段选择与内部 payload | `src/adapter/input/`，`InputConverterDefinition` + `REGISTER_INPUT_CONVERTER` |
 | 完整响应组装、序列化和拷贝 | `src/adapter/output/`，`OutputConverterDefinition` + `REGISTER_OUTPUT_CONVERTER` |
-| 新业务边界与连接 | `src/adapter/biz/`，`BizDefinition` 声明 ingress/egress；`IoBindingDefinition` + `REGISTER_IO_BINDING` 选择转换器并映射端口 |
-| 生产暴露 | 同一业务登记 `REGISTER_BIZ_EXPOSURE` 与批次上限 |
+| 新业务边界与连接 | `src/adapter/biz/`，`BizDefinition` 声明 ingress/egress；`IoBindingDefinition` + `REGISTER_IO_BINDING` 选择转换器；批次上限默认 64，只有实测确需更小值时才覆盖；同名端口自动映射，只写不同名的映射 |
 | 确需新的宿主值类型/分配方式 | `include/adapter/operator_value_type.h`，按 [输出分配指南](../../../doc/dev_guide/operator_output_allocation.md) 注册 |
 | 编译 | 源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects` |
 

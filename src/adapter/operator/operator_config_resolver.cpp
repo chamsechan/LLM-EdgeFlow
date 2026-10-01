@@ -1,5 +1,6 @@
 #include "adapter/operator/operator_config_resolver.h"
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
@@ -340,6 +341,9 @@ int OperatorConfigResolver::Resolve(
     result->model_root_path = canon_root;
     result->biz_name = io_plan->binding.biz_name;
     result->io_binding = io_plan->binding.binding_id;
+    result->effective_frame_depth = effective_depth;
+    result->effective_process_batch_limit = static_cast<uint32_t>(
+        std::min<size_t>(effective_depth, io_plan->effective_max_batch_size));
 
     result->input_limits = ResolvedInputLimits{};
     result->io_plan = std::move(io_plan);

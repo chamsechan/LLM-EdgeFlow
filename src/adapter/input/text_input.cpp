@@ -5,6 +5,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -16,17 +17,14 @@ namespace {
 constexpr const char* kEntitySlot = "entity_in";
 constexpr const char* kKeywordSlot = "keyword_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
-constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
-
 template <typename Host>
 AdapterStatus DecodeSentence(const Host& input, std::string* text) {
   if (!IsValidInputString(input.sentence_text)) {
     return AdapterStatus::InvalidInput(
         "sentence_text string pointer is null or invalid", "sentence_text");
   }
-  if (static_cast<size_t>(input.sentence_text->length) > kMaxSentenceLen) {
+  if (static_cast<size_t>(input.sentence_text->length) >
+      biz_input::kMaxTextBytes) {
     return AdapterStatus::InvalidInput(
         "sentence_text length exceeds 64 KiB limit", "sentence_text");
   }
@@ -39,9 +37,8 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kMaxBatchSize, kEntitySlot,
-      kRawRequestIds, kInputSentences,
-      &DecodeSentence<CompanyOperatorEntityInput>);
+      source, options, bindings, context, status, kEntitySlot, kRawRequestIds,
+      kInputSentences, &DecodeSentence<CompanyOperatorEntityInput>);
 }
 
 int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
@@ -49,9 +46,8 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputPortBindings& bindings,
                                AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorKeywordInput>(
-      source, options, bindings, context, status, kMaxBatchSize, kKeywordSlot,
-      kRawRequestIds, kInputSentences,
-      &DecodeSentence<CompanyOperatorKeywordInput>);
+      source, options, bindings, context, status, kKeywordSlot, kRawRequestIds,
+      kInputSentences, &DecodeSentence<CompanyOperatorKeywordInput>);
 }
 
 InputConverterDefinition MakeOperatorEntityInputConverter() {
@@ -60,7 +56,6 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
 
   def.schema_id = "text.plain.request";
   def.external_type = "CompanyOperatorEntityInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot, kEntitySlot)};
@@ -75,7 +70,6 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
 
   def.schema_id = "text.plain.request";
   def.external_type = "CompanyOperatorKeywordInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorKeywordInput>(
       kKeywordSlot, kKeywordSlot)};

@@ -41,10 +41,9 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
 
   def.schema_id = "keyword.result.response";
   def.external_type = "CompanyOperatorKeywordOutput";
-  def.max_batch_size = 64;
 
-  def.external_slots = {ExternalOutputSlot<CompanyOperatorKeywordOutput>(
-      kOutputSlot, {"match_result_json"})};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kRuleMatches)};
   def.encode_fn = &EncodeOperatorKeywordResult;
