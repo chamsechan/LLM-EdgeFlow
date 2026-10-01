@@ -115,6 +115,30 @@ inline std::string CopyInputString(const CompanyString& value) {
                            : std::string(value.data, value.length);
 }
 
+// Call after every row passes validation, before publishing business values.
+inline bool PublishRequestIds(const InputDecodeOptions& options,
+                              std::vector<uint64_t> ids,
+                              AdapterStatus* status) {
+  if (!options.request_ids) {
+    AdapterValidationHelper::ReturnInvalidInput(
+        status, "Missing request id table in decode options", "request_ids",
+        options.converter_id.c_str());
+    return false;
+  }
+  *options.request_ids = std::move(ids);
+  return true;
+}
+
+inline const std::vector<uint64_t>* RequestIds(
+    const OutputEncodeOptions& options, AdapterStatus* status) {
+  if (!options.request_ids) {
+    AdapterValidationHelper::ReturnInvalidInput(
+        status, "Missing request id table in encode options", "request_ids",
+        options.converter_id.c_str());
+  }
+  return options.request_ids;
+}
+
 template <typename T>
 inline const T* ReadOutputValue(AlgContext& context,
                                 const OutputPortBindings& bindings,

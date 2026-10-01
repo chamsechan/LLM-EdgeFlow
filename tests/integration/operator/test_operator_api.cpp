@@ -800,6 +800,36 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
   }
 }
 
+TEST_F(OperatorApiTest, ProcessRestoresRequestIdsWithoutBizPort) {
+  auto param = DefaultCreateParam("configs/pipeline_keyword_match_rules.conf");
+  void* raw_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+  const auto destroy = [this](void* handle) { ops_.Destroy(handle); };
+  std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
+  char text[] = "query";
+  CompanyString sentence{5, text};
+  for (const std::vector<uint64_t>& ids :
+       {std::vector<uint64_t>{900001, 42, 7},
+        std::vector<uint64_t>{900001, 42, 42}}) {
+    std::vector<CompanyOperatorKeywordInput> rows(ids.size());
+    NamedIoBatch inputs(ids.size()), outputs(ids.size());
+    for (size_t i = 0; i < ids.size(); ++i) {
+      rows[i] = {ids[i], &sentence};
+      inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
+      outputs[i]["test.keyword_out"] = nullptr;
+    }
+    ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+        << GetOperatorLastError();
+    for (size_t i = 0; i < ids.size(); ++i) {
+      const auto* result = static_cast<const CompanyOperatorKeywordOutput*>(
+          outputs[i].at("test.keyword_out").get());
+      ASSERT_NE(result, nullptr);
+      EXPECT_EQ(result->request_id, ids[i]);
+      EXPECT_EQ(result->status_code, 0);
+    }
+  }
+}
+
 // 13. 输出池耗尽、阻塞与唤醒复用测试
 TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   std::string root_dir = GetConfDir();
