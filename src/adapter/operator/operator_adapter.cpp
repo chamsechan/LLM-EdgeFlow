@@ -364,6 +364,13 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
                    decode_status.ToString());
       return decode_ret;
     }
+    if (request_ids.size() != inputs.size()) {
+      SetLastError("DecodeInput for " + h->input_converter->converter_id +
+                   " recorded " + std::to_string(request_ids.size()) +
+                   " request ids for " + std::to_string(inputs.size()) +
+                   " inputs");
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
 
     // 4. 租用输出池内存块 (受 ScopedOutputLeaseGuard 保护，失败自动归还)
     llm_edgeflow::ScopedOutputLeaseGuard lease_guard;

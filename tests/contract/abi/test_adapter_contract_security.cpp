@@ -283,12 +283,12 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_NE(converter, nullptr);
   const std::string translation(2200, 'x');
   AlgContext large;
-  large.Publish(kRawRequestIds, std::vector<uint64_t>{123});
+  std::vector<uint64_t> request_ids{123};
   large.Publish(kLlmAnswers, TextBatch{{0, 0, translation}});
-  OutputPortBindings bindings(
-      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
+  options.request_ids = &request_ids;
 
   AdapterStatus status;
 
@@ -310,7 +310,7 @@ TEST_F(AdapterContractSecurityTest,
 
   // Reordered internal results must map back to external request IDs.
   AlgContext reordered;
-  reordered.Publish(kRawRequestIds, std::vector<uint64_t>{999, 123});
+  request_ids = {999, 123};
   reordered.Publish(kLlmAnswers, TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
   char buf_first[512] = {0};
   char buf_second[512] = {0};
@@ -349,7 +349,6 @@ TEST_F(AdapterContractSecurityTest,
                               {{0, 0, "duplicate"}, {0, 0, "duplicate"}},
                               {{0, 0, "missing-second"}}}) {
     AlgContext ctx;
-    ctx.Publish(kRawRequestIds, std::vector<uint64_t>{999, 123});
     ctx.Publish(kLlmAnswers, invalid);
     reordered_view.count = 2;
     EXPECT_EQ(converter->encode_fn(&ctx, bindings, options, &reordered_view,
@@ -359,8 +358,9 @@ TEST_F(AdapterContractSecurityTest,
   for (bool publish_ids : {false, true}) {
     AlgContext missing;
     if (publish_ids) {
-      missing.Publish(kRawRequestIds, std::vector<uint64_t>{123});
+      options.request_ids = &request_ids;
     } else {
+      options.request_ids = nullptr;
       missing.Publish(kLlmAnswers, TextBatch{{0, 0, "你好"}});
     }
     reordered_view.count = 1;
@@ -628,7 +628,11 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
   const void* inputs[1] = {&tree_in};
   AlgContext ctx;
   AdapterStatus status;
-  int ret = adapter.Unpack(inputs, 1, &ctx, &status);
+  std::vector<uint64_t> request_ids;
+  InputDecodeOptions options;
+  options.converter_id = adapter.AdapterName();
+  options.request_ids = &request_ids;
+  int ret = adapter.Unpack(inputs, 1, &ctx, options, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   auto* tree_dtos =
       ctx.Read<std::vector<TemplateTreeNodeDto>>("tree_root_dtos");
@@ -643,7 +647,7 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
   const void* bad_inputs[1] = {&bad_tree_in};
   AlgContext bad_ctx;
   AdapterStatus bad_status;
-  int bad_ret = adapter.Unpack(bad_inputs, 1, &bad_ctx, &bad_status);
+  int bad_ret = adapter.Unpack(bad_inputs, 1, &bad_ctx, options, &bad_status);
   EXPECT_EQ(bad_ret, COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
@@ -668,10 +672,11 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   in_view.count = 1;
   in_view.slots["keyword_in"] = llm_edgeflow::BorrowInputForTest({&in_struct});
   in_view.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"input_sentences", "input_sentences"}});
+  InputPortBindings in_bindings({{"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "keyword.plain.operator.v1";
+  std::vector<uint64_t> request_ids;
+  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -860,8 +865,7 @@ TEST_F(AdapterContractSecurityTest,
       llm_edgeflow::BorrowInputForTest({&in_carrier});
   carrier_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                              {"input_sentences", "input_sentences"}});
+  InputPortBindings bindings({{"input_sentences", "input_sentences"}});
   InputDecodeOptions options;
   options.converter_id = "translate.json.operator.v1";
 
@@ -899,9 +903,9 @@ TEST_F(AdapterContractSecurityTest,
       "translate.json.operator.v1");
   ASSERT_NE(converter, nullptr);
 
-  // AlgContext with raw_request_ids but missing answers
+  // A request ID table is present, but answers are missing
   AlgContext ctx;
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
+  const std::vector<uint64_t> request_ids{1001};
 
   CompanyOperatorEntityOutput out{};
   ExternalOutputBatchView view;
@@ -909,10 +913,10 @@ TEST_F(AdapterContractSecurityTest,
   view.leased_slots["entity_out"] = {&out};
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
-  OutputPortBindings bindings(
-      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
+  options.request_ids = &request_ids;
 
   size_t written = 0;
   AdapterStatus status;
@@ -932,10 +936,10 @@ TEST_F(AdapterContractSecurityTest,
       "translate.json.operator.v1");
   ASSERT_NE(converter, nullptr);
 
-  // AlgContext with valid raw_req_ids, but answer has invalid UTF-8 byte
+  // A request ID table is present, but the answer has invalid UTF-8 byte
   // sequence
   AlgContext ctx;
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
+  const std::vector<uint64_t> request_ids{1001};
   std::string invalid_utf8 = "prefix\xFF\xFFsuffix";
   ctx.Publish(kLlmAnswers, TextBatch{{0, 0, invalid_utf8}});
 
@@ -945,10 +949,10 @@ TEST_F(AdapterContractSecurityTest,
   view.leased_slots["entity_out"] = {&out};
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
-  OutputPortBindings bindings(
-      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
+  options.request_ids = &request_ids;
 
   size_t written = 0;
   AdapterStatus status;
@@ -980,8 +984,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   in_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&input});
   in_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"input_sentences", "input_sentences"}});
+  InputPortBindings in_bindings({{"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "translate.json.operator.v1";
 
@@ -1005,8 +1008,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   out_view.leased_slots["entity_out"] = {&output};
   out_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
-  OutputPortBindings out_bindings(
-      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputPortBindings out_bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = "translate.json.operator.v1";
 
@@ -1022,6 +1024,57 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   EXPECT_EQ(out_conv->encode_fn(nullptr, out_bindings, out_options, &out_view,
                                 &written, nullptr),
             COMPANY_ALG_ERR_INVALID_INPUT);
+}
+
+TEST_F(AdapterContractSecurityTest,
+       DecodeAndEncodeRejectMissingRequestIdTable) {
+  const auto* input = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword.plain.operator.v1");
+  const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
+      "keyword.result.operator.v1");
+  ASSERT_NE(input, nullptr);
+  ASSERT_NE(output, nullptr);
+  char bytes[] = "query";
+  CompanyString text{5, bytes};
+  CompanyOperatorKeywordInput row{900001, &text};
+  ExternalInputBatchView source;
+  source.count = 1;
+  source.slots["keyword_in"] = BorrowInputForTest({&row});
+  source.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
+  InputDecodeOptions in_options;
+  in_options.converter_id = input->converter_id;
+  AlgContext context;
+  AdapterStatus status;
+  EXPECT_EQ(input->decode_fn(
+                source, in_options,
+                InputPortBindings({{"input_sentences", "input_sentences"}}),
+                &context, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "request_ids");
+  EXPECT_EQ(status.AdapterName(), input->converter_id);
+  EXPECT_EQ(status.Message(), "Missing request id table in decode options");
+  EXPECT_FALSE(context.Has("input_sentences"));
+
+  ASSERT_TRUE(context.Publish(kRuleMatches, RuleMatchBatch{{0, 0, {}}}));
+  OutputEncodeOptions out_options;
+  out_options.converter_id = output->converter_id;
+  CompanyOperatorKeywordOutput result{};
+  result.request_id = 123;
+  ExternalOutputBatchView destination;
+  destination.count = 1;
+  destination.leased_slots["keyword_out"] = {&result};
+  destination.slot_types["keyword_out"] = "CompanyOperatorKeywordOutput";
+  size_t written = 99;
+  EXPECT_EQ(
+      output->encode_fn(&context,
+                        OutputPortBindings({{"rule_matches", "rule_matches"}}),
+                        out_options, &destination, &written, &status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "request_ids");
+  EXPECT_EQ(status.AdapterName(), output->converter_id);
+  EXPECT_EQ(status.Message(), "Missing request id table in encode options");
+  EXPECT_EQ(written, 0U);
+  EXPECT_EQ(result.request_id, 123U);
 }
 
 TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
@@ -1115,6 +1168,8 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
       AdapterStatus status;
       InputDecodeOptions options;
       options.converter_id = id;
+      std::vector<uint64_t> request_ids;
+      options.request_ids = &request_ids;
       const int result = converter->decode_fn(
           view, options, InputPortBindings(mapping), &context, &status);
       EXPECT_EQ(result, extra == 0 ? 0 : COMPANY_ALG_ERR_INVALID_INPUT);

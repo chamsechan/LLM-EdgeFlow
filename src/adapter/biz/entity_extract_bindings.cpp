@@ -12,8 +12,7 @@ BizDefinition MakeEntityExtractBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "实体抽取";
-  def.ingress = {RequiredBizInput(kRawRequestIds),
-                 RequiredBizInput(kInputSentences)};
+  def.ingress = {RequiredBizInput(kInputSentences)};
   def.egress = {BizOutput(kExtractedEntities)};
   return def;
 }

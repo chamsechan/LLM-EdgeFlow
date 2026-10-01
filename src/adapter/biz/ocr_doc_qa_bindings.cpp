@@ -12,8 +12,7 @@ BizDefinition MakeOcrDocQaBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "OCR 票据问答";
-  def.ingress = {RequiredBizInput(kRawRequestIds),
-                 RequiredBizInput(kImagePaths), RequiredBizInput(kUserQueries)};
+  def.ingress = {RequiredBizInput(kImagePaths), RequiredBizInput(kUserQueries)};
   def.egress = {BizOutput(kExtractedInvoiceJson), BizOutput(kOcrDocs)};
   return def;
 }

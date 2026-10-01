@@ -33,7 +33,7 @@ int EncodeOperatorTranslationJson(AlgContext* context,
                                   AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, bindings, options, destination, written_count, status,
-      kOutputSlot, kRawRequestIds, kLlmAnswers, &EncodeTranslation);
+      kOutputSlot, kLlmAnswers, &EncodeTranslation);
 }
 
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
@@ -45,8 +45,7 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kLlmAnswers)};
+  def.logical_ports = {RequiredInputPort(kLlmAnswers)};
   def.encode_fn = &EncodeOperatorTranslationJson;
   return def;
 }

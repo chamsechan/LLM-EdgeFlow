@@ -285,6 +285,32 @@ TEST_F(CatalogContractSsotTest, IoCatalogSchema4SerializationAndFiltering) {
   EXPECT_TRUE(km_catalog["io_bindings"].is_array());
 }
 
+TEST_F(CatalogContractSsotTest, CatalogHasNoRequestIdPort) {
+  const auto catalog = IoCatalog::ToJson();
+  for (const auto& biz : catalog.at("bizs")) {
+    for (const auto& port : biz.at("ingress")) {
+      EXPECT_NE(port.at("key"), "raw_request_ids") << biz.at("biz_name");
+    }
+  }
+  for (const char* kind : {"input_converters", "output_converters"}) {
+    for (const auto& converter : catalog.at(kind)) {
+      for (const auto& port : converter.at("logical_ports")) {
+        EXPECT_NE(port.at("key"), "raw_request_ids")
+            << converter.at("converter_id");
+      }
+    }
+  }
+  for (const auto& binding : catalog.at("io_bindings")) {
+    for (const char* kind : {"input_port_mapping", "output_port_mapping"}) {
+      for (const auto& mapping : binding.at(kind).items()) {
+        EXPECT_NE(mapping.key(), "raw_request_ids") << binding.at("binding_id");
+        EXPECT_NE(mapping.value(), "raw_request_ids")
+            << binding.at("binding_id");
+      }
+    }
+  }
+}
+
 TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   const auto catalog = IoCatalog::ToJson("keyword_match_v1");
   ASSERT_EQ(catalog.at("input_converters").size(), 1U);
