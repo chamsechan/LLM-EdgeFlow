@@ -485,11 +485,48 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
       "multimodal_ocr_invoice_qa",
   };
 
+  const auto bindings = IoBindingRegistry::Instance().AllBindings();
+  const auto& converters = IoConverterRegistry::Instance();
   for (const auto& biz : expected_biz) {
-    const auto* desc = IoBindingRegistry::Instance().FindExposure(biz);
-    ASSERT_NE(desc, nullptr) << "Missing biz exposure: " << biz;
     auto biz_def = PipelineCatalog::FindBiz(biz);
     ASSERT_TRUE(biz_def.has_value()) << "Missing biz in catalog: " << biz;
+    const auto binding =
+        std::find_if(bindings.begin(), bindings.end(),
+                     [&](const auto& item) { return item.biz_name == biz; });
+    ASSERT_NE(binding, bindings.end()) << "Missing Operator binding: " << biz;
+    const auto* input =
+        converters.FindInputConverter(binding->input_converter_id);
+    const auto* output =
+        converters.FindOutputConverter(binding->output_converter_id);
+    ASSERT_NE(input, nullptr) << biz;
+    ASSERT_NE(output, nullptr) << biz;
+    // Production declares the limit once, on the binding.
+    EXPECT_EQ(binding->max_batch_size, 64U) << biz;
+    EXPECT_EQ(input->max_batch_size, 0U) << biz;
+    EXPECT_EQ(output->max_batch_size, 0U) << biz;
+    EXPECT_EQ(EffectiveMaxBatchSize(*binding, *input, *output), 64U) << biz;
+  }
+}
+
+// Only the renamed port is declared; the others map to their own names.
+TEST_F(ComplexConvertersTest, ComplianceBindingDeclaresOnlyRenamedPort) {
+  const auto* binding =
+      IoBindingRegistry::Instance().FindBinding("compliance_audit.operator.v1");
+  ASSERT_NE(binding, nullptr);
+  EXPECT_TRUE(binding->input_ports.empty());
+  ASSERT_EQ(binding->output_ports.size(), 1U);
+  const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
+      binding->output_converter_id);
+  ASSERT_NE(output, nullptr);
+
+  const auto mapping =
+      EffectivePortMapping(binding->output_ports, output->logical_ports);
+  ASSERT_EQ(mapping.size(), output->logical_ports.size());
+  for (const auto& port : output->logical_ports) {
+    const std::string expected = port.logical_name == "matched_policies"
+                                     ? "matched_policy"
+                                     : port.logical_name;
+    EXPECT_EQ(mapping.at(port.logical_name), expected) << port.logical_name;
   }
 }
 

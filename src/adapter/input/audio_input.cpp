@@ -16,8 +16,6 @@ namespace {
 
 constexpr const char* kInputSlot = "audio_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
 AdapterStatus DecodeAudio(const CompanyOperatorAudioInput& input,
                           AudioPcmPayload* audio) {
   if (input.sample_rate < biz_input::kMinSampleRate ||
@@ -49,8 +47,8 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorAudioInput>(
-      source, options, bindings, context, status, kMaxBatchSize, kInputSlot,
-      kRawRequestIds, kAudioInputs, &DecodeAudio);
+      source, options, bindings, context, status, kInputSlot, kRawRequestIds,
+      kAudioInputs, &DecodeAudio);
 }
 
 InputConverterDefinition MakeOperatorAudioInputConverter() {
@@ -59,7 +57,6 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
 
   def.schema_id = "audio.pcm.request";
   def.external_type = "CompanyOperatorAudioInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot)};

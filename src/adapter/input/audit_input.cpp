@@ -16,15 +16,11 @@ namespace {
 
 constexpr const char* kInputSlot = "audit_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
-constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
-
 int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -46,7 +42,7 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
           status, "Invalid user_text CompanyString", "audit_in.user_text",
           options.converter_id.c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(in->user_text->length) > kMaxTextLen) {
+    if (static_cast<size_t>(in->user_text->length) > biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "user_text length exceeds limit", "audit_in.user_text",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -98,7 +94,6 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
 
   def.schema_id = "audit.plain.request";
   def.external_type = "CompanyOperatorAuditInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};

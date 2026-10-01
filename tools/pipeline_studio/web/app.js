@@ -934,6 +934,7 @@ function renderBackendFields(values = {}) {
   const definition = state.catalog.backends?.find(item => item.backend_type === $("#modelBackend").value);
   const container = $("#backendConfigFields"); container.replaceChildren();
   for (const field of definition?.config_fields || []) appendConfigField(container, field, values);
+  $("#backendAdvanced").open = Object.keys(values).length > 0;
 }
 
 function updateBackendAvailability() {

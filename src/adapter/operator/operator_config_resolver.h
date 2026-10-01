@@ -23,6 +23,8 @@ struct ResolvedOperatorConfig {
   std::string io_binding;
   std::unique_ptr<ValidatedIoPlan> io_plan;
   ResolvedInputLimits input_limits;
+  uint32_t effective_frame_depth = 0;          // normalized output pool depth
+  uint32_t effective_process_batch_limit = 0;  // min(pool depth, binding limit)
 };
 
 /**
@@ -38,7 +40,7 @@ class OperatorConfigResolver {
 
   static int Resolve(const char* model_path, const char* cfg_file_name,
                      ResolvedOperatorConfig* result, std::string* error_msg,
-                     uint32_t max_frame_depth = 25,
+                     uint32_t max_frame_depth = kDefaultOutputPoolDepth,
                      DeploymentDiagnostic* out_diagnostic = nullptr) noexcept;
 };
 

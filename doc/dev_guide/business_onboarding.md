@@ -44,7 +44,7 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 | --- | --- |
 | 外部业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有转换器、绑定和 Demo |
 | 外部业务契约不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
-| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 为新契约登记 `IoBinding` 与曝光；分别复用符合输入、输出语义的转换器，只新增缺失的一侧；已有载体与 ValueType 继续复用 |
+| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 为新契约登记 `BizDefinition` 与 `IoBinding`；分别复用符合输入、输出语义的转换器，只新增缺失的一侧；已有载体与 ValueType 继续复用 |
 | 修复已有业务的转换逻辑 | 修改对应输入/输出转换器并运行相关契约测试；仅影响该路径时，无需另建 Demo |
 
 这些路径可以组合：新契约可以继续编排已有 Nodes，也可以只补充一个缺失算法。
@@ -55,9 +55,9 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 “结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
 
-当前共享 SDK 的 Operator 初始化会全量审计**所有已声明业务的曝光与绑定**。新增生产业务
-必须有完整的 Operator 绑定与转换器注册；
-若缺少绑定，SDK 全局初始化失败。
+当前共享 SDK 的 Operator 初始化会全量审计**所有已注册的绑定**：转换器、端口映射、
+业务契约和批次上限必须完整一致，任何一个绑定不合格，SDK 全局初始化都会失败。
+业务能否部署取决于是否注册了绑定；配置引用不存在的绑定时，部署准备报 `UNKNOWN_IO_BINDING`。
 
 ## 2. 用一个现有业务看清文件关系
 
@@ -85,7 +85,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、输出池租约填充及 `REGISTER_OUTPUT_CONVERTER` |
-| 业务绑定与曝光 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明逻辑端口映射、批次上限、`REGISTER_IO_BINDING` 与 `REGISTER_BIZ_EXPOSURE` |
+| 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合和非同名端口映射；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
 | Operator 类型注册 | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 为新宿主类型登记规范后缀、输入校验或输出分配/重置/释放 |
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [接入适配层 CMake](../../src/adapter/CMakeLists.txt)、[Demo CMake](../../demo/CMakeLists.txt)、[Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 登记新增 `.cpp`，编排业务端口，配置路径和输出容量 |
@@ -102,8 +102,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 1. **实现输入转换器（`src/adapter/input/`）。**
    单槽且每请求生成一个载荷时，先写普通函数
    `AdapterStatus Decode(const Host& input, Payload* output)`，只校验业务字段并复制为自持有值。
-   `DecodeInputFn` 内调用 `DecodeRequestRows<Host>`，传入槽、typed 端口、批次上限与该函数；
-   框架负责槽检查、循环、批内来源编号和绑定发布。Definition 使用同一批次上限。
+   `DecodeInputFn` 内调用 `DecodeRequestRows<Host>`，传入槽、typed 端口与该函数；
+   框架负责槽检查、批次上限、循环、批内来源编号和绑定发布。绑定批次上限默认 64，
+   由 Operator 通过 `InputDecodeOptions` 传入，转换器不必另行声明。
    文本可用 `IsValidInputString` / `CopyInputString`，PCM 的范围检查和复制仍属于业务函数。
    多槽、候选展开等算法继续使用 `ValidateDecodeRequest` / `ReadInputSlot<T>` 显式组织。
    外部请求编号保存在 `raw_request_ids`，内部批次使用批内编号，输出时恢复原编号。
@@ -119,15 +120,17 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    所有写入使用实际输出池容量，不在转换器内另填容量默认值；业务状态和 JSON 组装仍由函数负责。
    定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
-3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
+3. **声明业务契约并注册绑定（`src/adapter/biz/`）。**
    新 `biz_name` 先定义 `BizDefinition`，声明业务名称及完整 ingress/egress typed 端口，
    调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
-   在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、
-   绑定的 `input_converter_id` 和 `output_converter_id`，以及逻辑端口到内部 Blackboard Key 的映射。
-   使用 `REGISTER_IO_BINDING` 注册绑定。
-   使用 `REGISTER_BIZ_EXPOSURE` 声明业务生产暴露：`biz_name` 与 `max_batch_size`。
-   Binding 的 `max_batch_size = 0` 表示继承；非零值与输入转换器、输出转换器及已声明
-   Exposure 的上限共同取最小值，Operator 再按实际输出池深收紧。
+   在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`input_converter_id`、
+   `output_converter_id`，使用 `REGISTER_IO_BINDING` 注册。
+   转换器的逻辑端口默认映射到同名的 Blackboard Key，`input_ports` / `output_ports`
+   只写不同名的映射。
+   Binding 的批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
+   转换器只在自身确有限制时才声明上限，0 表示不设限。
+   有效上限取绑定与两个转换器中正值的最小值，Operator 再按实际输出池深收紧；
+   三者都为 0 时，注册审计和部署准备都会报错。
 4. **登记构建。**
    将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 
@@ -140,12 +143,14 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 
 共享端口用 `MakeBlackboardKey<T>(name)` 定义一次；转换器 Definition 使用
 `RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`
-读取或发布，绑定映射使用 `BindIoPort(port)`。非同名映射使用
+读取或发布。同名端口在绑定中无需声明；非同名映射使用
 `BindIoPort(logical_port, actual_key)`，两端的 C++ 类型必须一致。例如审核输出使用
 `BindIoPort(kMatchedPolicies, kMatchedPolicy)`，不能直接绕过绑定读写实际 key。
+需要完整映射的代码调用 `EffectivePortMapping`，不要直接读取绑定的端口表。
 
 外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
-`ExternalOutputSlot<T>(slot, capacity_fields)`，类型由 traits 推导。
+`ExternalOutputSlot<T>(slot)`，类型由 traits 推导。
+输出容量字段由已注册 ValueType 的字符串容量字段决定；显式列出时必须与该 ValueType 的字段集合一致。
 这两个工厂令 `type_suffix = slot_name`，`key_suffix` 留空并通过 `KeySuffix()` 回退到 `type_suffix`；
 仅适用于必需槽且这三个名称相同的常见约定。输入工厂的第二参数是 `value_type`，不能用来覆盖后缀。
 不同后缀、可选槽或特殊布局使用完整 `ExternalSlotDefinition`，明确填写对应字段。
@@ -230,7 +235,12 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 ## 6. 输出容量与生命周期
 
 `Process` 的输入、输出批次必须非空且帧数相等。单次批次上限为有效输出池深与绑定业务
-批次上限的较小值；超出上限会直接失败，不会在门面中自动拆批。每帧按接入绑定提供必需的输入槽和
+批次上限的较小值；超出上限会直接失败，不会在门面中自动拆批。
+用 `alg_pipeline_tool resolve-conf <conf> --root <root> --depth <depth>` 查询
+`effective_process_batch_limit`（单次有效批次）、`effective_frame_depth`（规范化池深）和
+`max_frame_depth_limit`（池深硬上限）。池深 0 使用默认 25；池深 100 配合标准 Binding 时，
+单次有效批次仍为 64。Demo 遇到批次或池深超限时提示同一查询命令。
+每帧按接入绑定提供必需的输入槽和
 输出槽，可选槽按契约省略。提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
 有效 key 后缀与宿主类型可通过 `catalog --io-binding <binding_id>` 查询，后缀与类型的区别见
 [输出分配方案](operator_output_allocation.md)。

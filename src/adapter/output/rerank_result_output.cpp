@@ -101,7 +101,6 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
 
   def.schema_id = "rerank_result.plain.response";
   def.external_type = "CompanyOperatorRerankOutput";
-  def.max_batch_size = 64;
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot)};

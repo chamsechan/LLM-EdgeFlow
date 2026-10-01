@@ -469,19 +469,16 @@ TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
            std::chrono::steady_clock::now().time_since_epoch().count()));
   struct Cleanup {
     std::vector<llm_edgeflow::IoBindingDefinition> bindings;
-    std::vector<llm_edgeflow::BizExposureDefinition> exposures;
     std::filesystem::path directory;
     ~Cleanup() {
       auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
       registry.ClearForTesting();
       for (const auto& binding : bindings)
         EXPECT_TRUE(registry.RegisterBinding(binding));
-      for (const auto& exposure : exposures)
-        EXPECT_TRUE(registry.RegisterExposure(exposure));
       std::error_code error;
       std::filesystem::remove_all(directory, error);
     }
-  } cleanup{registry.AllBindings(), registry.AllExposures(), directory};
+  } cleanup{registry.AllBindings(), directory};
   ASSERT_TRUE(registry.RegisterBinding(binding));
   std::filesystem::create_directory(directory);
   std::ifstream source("configs/pipeline_keyword_match_rules.json");

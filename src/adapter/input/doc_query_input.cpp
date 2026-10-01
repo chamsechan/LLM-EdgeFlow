@@ -5,6 +5,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -15,16 +16,11 @@ namespace {
 
 constexpr const char* kInputSlot = "doc_in";
 
-constexpr size_t kMaxBatchSize = 64;
-
-constexpr size_t kMaxQueryLen = 64 * 1024;       // 64KB
-constexpr size_t kMaxDocLen = 10 * 1024 * 1024;  // 10MB
-
 int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -46,7 +42,8 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
           status, "Invalid query_text CompanyString", "doc_in.query_text",
           options.converter_id.c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(in->query_text->length) > kMaxQueryLen) {
+    if (static_cast<size_t>(in->query_text->length) >
+        biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query_text length exceeds limit", "doc_in.query_text",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -59,7 +56,8 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
             status, "Invalid doc_text CompanyString", "doc_in.doc_text",
             options.converter_id.c_str(), static_cast<int>(i));
       }
-      if (static_cast<size_t>(in->doc_text->length) > kMaxDocLen) {
+      if (static_cast<size_t>(in->doc_text->length) >
+          biz_input::kMaxDocTextBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "doc_text length exceeds limit", "doc_in.doc_text",
             options.converter_id.c_str(), static_cast<int>(i));
@@ -95,7 +93,6 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
 
   def.schema_id = "doc_query.plain.request";
   def.external_type = "CompanyOperatorDocInput";
-  def.max_batch_size = kMaxBatchSize;
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRawDocs),

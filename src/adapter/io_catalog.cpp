@@ -20,7 +20,7 @@ nlohmann::json SlotJson(const ExternalSlotDefinition& slot) {
            slot.direction == PortDirection::kInput ? "input" : "output"},
           {"value_type", slot.value_type},
           {"required", slot.required},
-          {"capacity_fields", slot.capacity_fields}};
+          {"capacity_fields", EffectiveCapacityFields(slot)}};
 }
 
 nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {
@@ -60,13 +60,21 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
 }
 
 nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
+  // Report the effective mappings, including ports mapped to the same name.
+  const auto& converters = IoConverterRegistry::Instance();
+  const auto* input = converters.FindInputConverter(b.input_converter_id);
+  const auto* output = converters.FindOutputConverter(b.output_converter_id);
   return {{"binding_id", b.binding_id},
           {"biz_name", b.biz_name},
           {"transport", "operator"},
           {"input_converter_id", b.input_converter_id},
           {"output_converter_id", b.output_converter_id},
-          {"input_port_mapping", b.input_ports},
-          {"output_port_mapping", b.output_ports},
+          {"input_port_mapping",
+           input ? EffectivePortMapping(b.input_ports, input->logical_ports)
+                 : b.input_ports},
+          {"output_port_mapping",
+           output ? EffectivePortMapping(b.output_ports, output->logical_ports)
+                  : b.output_ports},
           {"max_batch_size", b.max_batch_size}};
 }
 

@@ -52,7 +52,6 @@ package "接入适配层 / Integration" {
   class "PrepareDeploymentDocument()" as PrepareDeployment
   class IoBindingRegistry {
     RegisterBinding()
-    RegisterExposure()
     Audit()
   }
   class IoConverterRegistry {

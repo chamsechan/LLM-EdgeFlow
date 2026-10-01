@@ -21,6 +21,16 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**，公�
 LLM 节点复用生成参数声明和解析，保留原有字段及默认值。公共 Operator ABI 与
 Pipeline 配置格式保持不变。
 
+接入适配层去掉重复声明。删除 `BizExposureDefinition`、`REGISTER_BIZ_EXPOSURE` 及
+`IoBindingRegistry` 的 Exposure 接口，注册审计不再检查"曝光业务必须有绑定"。批次上限在绑定上
+声明一次：转换器的 `max_batch_size` 默认改为 0（不设限），有效上限取绑定与两个转换器中正值的
+最小值，三者显式为 0 时注册审计和部署准备报错。Binding 现默认使用框架标准批次上限 64，
+只有实测确需更小值时才覆盖 `max_batch_size`。
+绑定的 `input_ports` / `output_ports` 可以省略同名映射，需要完整映射的代码改用 `EffectivePortMapping`。
+`ValidateDecodeRequest`、`DecodeRequestRows` 删除批次上限参数，改读 Operator 填入的
+`InputDecodeOptions::max_batch_size`。Catalog 中生产转换器的 `max_batch_size` 由 64 变为 0；各业务的
+有效批次上限、Pipeline 配置格式与公共 Operator ABI 不变。
+
 开发 Skills 按业务方案规划、Adapter、Map/LLM/Batch Node、Model 和 Backend 提供独立入口，
 由业务需求生成组件增补与 DAG 建议，并复用现有作者 API、Catalog 和验证流程。
 
@@ -29,3 +39,15 @@ Pipeline 配置格式保持不变。
 `build/real-models/`，旧目录可按需重建或通过 sanitizer 目录变量复用。测试源码与 runner
 归属集中在 `tests/RuntimeTests.cmake`，普通测试按目录自动收集 `test_*.cpp`，自定义 Node
 测试无需额外维护源码清单；保留独立测试目标、CTest 分组及必需测试清单校验。
+
+Studio 应用表单时，未修改的数值、布尔、枚举、数组和对象默认值继续保持未配置；已有显式值原样
+保留，清空或选回“默认”可移除这些字段的覆盖。字符串清空仍表示显式空字符串。Backend 参数
+收进“部署高级设置”，已有显式值时自动展开。
+
+接入层输入长度上限集中在 `biz_input_constraints.h`，接受/拒绝边界、诊断和返回码不变；输出
+转换器的容量字段由 ValueType 推导，显式列出时必须与 ValueType 一致。Catalog 中
+`audio_result`、`audit_result`、`doc_answer` 输出转换器的容量字段按字典序报告。
+
+`resolve-conf` 增加单次有效批次 `effective_process_batch_limit`、规范化池深
+`effective_frame_depth` 和池深硬上限 `max_frame_depth_limit`。Operator 使用解析器给出的同一
+批次值；Demo 超限后提示查询命令，原有错误和退出码不变。现有配置中的显式默认值保持原样。

@@ -268,7 +268,7 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
           const auto* val_binding =
               OperatorValueTypeRegistry::Instance().GetOutputBinding(slot_type,
                                                                      "");
-          for (const auto& cap : slot.capacity_fields) {
+          for (const auto& cap : EffectiveCapacityFields(slot)) {
             uint32_t cap_val = 1024;
             if (val_binding &&
                 val_binding->output_layout.string_capacity_fields.count(cap)) {
@@ -347,6 +347,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
         synth_b.biz_name = biz;
         synth_b.input_converter_id = "keyword.plain.operator.v1";
         synth_b.output_converter_id = "keyword.result.operator.v1";
+        synth_b.max_batch_size = 64;
         IoBindingRegistry::Instance().RegisterBinding(synth_b);
       }
     }

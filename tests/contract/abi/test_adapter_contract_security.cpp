@@ -1024,4 +1024,232 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
             COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
+TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
+  struct Boundary {
+    const char* converter;
+    const char* field;
+    size_t limit;
+    const char* message;
+  };
+  // Keep numeric expectations independent of the implementation constants.
+  const Boundary boundaries[] = {
+      {"keyword.plain.operator.v1", "sentence_text", 65536,
+       "sentence_text length exceeds 64 KiB limit"},
+      {"text.plain.operator.v1", "sentence_text", 65536,
+       "sentence_text length exceeds 64 KiB limit"},
+      {"translate.json.operator.v1", "sentence_text", 65536,
+       "sentence_text length exceeds 64 KiB limit"},
+      {"audit.plain.operator.v1", "audit_in.user_text", 65536,
+       "user_text length exceeds limit"},
+      {"doc_query.plain.operator.v1", "doc_in.query_text", 65536,
+       "query_text length exceeds limit"},
+      {"doc_query.plain.operator.v1", "doc_in.doc_text", 10485760,
+       "doc_text length exceeds limit"},
+      {"image_query.plain.operator.v1", "frame.image_uri", 4096,
+       "image_uri length exceeds limit"},
+      {"image_query.plain.operator.v1", "string", 65536,
+       "query length exceeds limit"},
+      {"rerank.plain.operator.v1", "rerank_in.query_text", 65536,
+       "query_text length exceeds limit"},
+      {"rerank.plain.operator.v1", "rerank_in.candidate_passages", 65536,
+       "candidate passage length exceeds limit"},
+      {"rerank.plain.operator.v1", "rerank_in.candidate_count", 8,
+       "candidate_count out of valid range [1, 8]"},
+  };
+  for (const auto& boundary : boundaries) {
+    const std::string id = boundary.converter;
+    const std::string field = boundary.field;
+    const auto* converter =
+        IoConverterRegistry::Instance().FindInputConverter(id);
+    ASSERT_NE(converter, nullptr) << id;
+    std::unordered_map<std::string, std::string> mapping;
+    for (const auto& port : converter->logical_ports)
+      mapping.emplace(port.logical_name, port.logical_name);
+    for (size_t extra : {0U, 1U}) {
+      SCOPED_TRACE(id + " " + field + " +" + std::to_string(extra));
+      std::string text(boundary.limit + extra, 'x');
+      if (id == "translate.json.operator.v1") {
+        text = "{\"query\":\"" + std::string(text.size() - 12, 'x') + "\"}";
+      }
+      CompanyString large{static_cast<int32_t>(text.size()), text.data()};
+      char short_text[] = "query";
+      CompanyString small{5, short_text};
+      CompanyOperatorKeywordInput keyword{101, &large};
+      CompanyOperatorEntityInput entity{101, &large};
+      CompanyOperatorAuditInput audit{101, &large, nullptr};
+      CompanyOperatorDocInput doc{
+          101, field == "doc_in.doc_text" ? &large : &small,
+          field == "doc_in.query_text" ? &large : &small};
+      CompanyFrame frame{101, field == "frame.image_uri" ? &large : &small,
+                         nullptr};
+      CompanyOperatorRerankInput rerank{};
+      rerank.request_id = 101;
+      rerank.query_text = field == "rerank_in.query_text" ? &large : &small;
+      rerank.candidate_count =
+          field == "rerank_in.candidate_count"
+              ? static_cast<int32_t>(boundary.limit + extra)
+              : 1;
+      for (auto& passage : rerank.candidate_passages)
+        passage = field == "rerank_in.candidate_passages" ? &large : &small;
+
+      ExternalInputBatchView view;
+      view.count = 1;
+      for (const auto& slot : converter->external_slots)
+        view.slot_types[slot.slot_name] = slot.type_id;
+      if (id == "keyword.plain.operator.v1")
+        view.slots["keyword_in"] = BorrowInputForTest({&keyword});
+      else if (id == "text.plain.operator.v1" ||
+               id == "translate.json.operator.v1")
+        view.slots["entity_in"] = BorrowInputForTest({&entity});
+      else if (id == "audit.plain.operator.v1")
+        view.slots["audit_in"] = BorrowInputForTest({&audit});
+      else if (id == "doc_query.plain.operator.v1")
+        view.slots["doc_in"] = BorrowInputForTest({&doc});
+      else if (id == "image_query.plain.operator.v1") {
+        view.slots["frame"] = BorrowInputForTest({&frame});
+        view.slots["string"] =
+            BorrowInputForTest({field == "string" ? &large : &small});
+      } else
+        view.slots["rerank_in"] = BorrowInputForTest({&rerank});
+      AlgContext context;
+      AdapterStatus status;
+      InputDecodeOptions options;
+      options.converter_id = id;
+      const int result = converter->decode_fn(
+          view, options, InputPortBindings(mapping), &context, &status);
+      EXPECT_EQ(result, extra == 0 ? 0 : COMPANY_ALG_ERR_INVALID_INPUT);
+      EXPECT_EQ(status.ToString(),
+                extra == 0 ? "OK"
+                           : "[AdapterStatus] Error -3 in Adapter [" + id +
+                                 "] at sample [0] field `" + field +
+                                 "`: " + boundary.message);
+    }
+  }
+}
+
+TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
+  using namespace operator_api;
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-input-boundaries-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  struct Cleanup {
+    std::filesystem::path path;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(path, error);
+    }
+  } cleanup{directory};
+  const auto root = std::filesystem::absolute(GetConfigPath("configs"))
+                        .parent_path()
+                        .string();
+  const auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  const auto check = [&](const char* conf, const NamedIoBatch& inputs,
+                         NamedIoBatch outputs, int expected,
+                         const std::string& diagnostic) {
+    CreateParam param{};
+    const std::filesystem::path conf_path(conf);
+    const auto model_root =
+        conf_path.is_absolute() ? conf_path.parent_path().string() : root;
+    const auto relative_conf = conf_path.is_absolute()
+                                   ? conf_path.filename().string()
+                                   : std::string(conf);
+    param.model_path = model_root.c_str();
+    param.cfg_file_name = relative_conf.c_str();
+    param.compute_platform = ComputePlatform::kCpu;
+    void* raw_handle = nullptr;
+    ASSERT_EQ(ops.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+    const auto destroy = [ops](void* handle) { ops.Destroy(handle); };
+    std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
+    // Successful calls preserve the existing thread-local last error.
+    const std::string previous_error = GetOperatorLastError();
+    EXPECT_EQ(ops.Process(handle.get(), inputs, outputs), expected)
+        << GetOperatorLastError();
+    EXPECT_EQ(GetOperatorLastError(),
+              expected == 0 ? previous_error : diagnostic);
+    if (expected == 0) {
+      for (const auto& [key, value] : outputs[0])
+        EXPECT_NE(value, nullptr) << key;
+    } else {
+      for (const auto& [key, value] : outputs[0])
+        EXPECT_EQ(value, nullptr) << key;
+    }
+  };
+
+  for (size_t length : {65536U, 65537U}) {
+    std::string text(length, 'x');
+    CompanyString cs{static_cast<int32_t>(length), text.data()};
+    CompanyOperatorKeywordInput keyword{101, &cs};
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["test.keyword_in"] = MakeBorrowedOperatorInput(&keyword);
+    outputs[0]["test.keyword_out"] = nullptr;
+    check("configs/pipeline_keyword_match_rules.conf", inputs, outputs,
+          length == 65536 ? 0 : -3,
+          length == 65536
+              ? ""
+              : "Validation failed for input key test.keyword_in: "
+                "sentence_text length 65537 exceeds max limit 65536");
+  }
+
+  // Use the production graph with test model execution; neither rejection
+  // path should reach model inference, and no external model assets are needed.
+  std::ifstream source(GetConfigPath("configs/pipeline_cross_rerank_cpu.json"));
+  ASSERT_TRUE(source.is_open());
+  nlohmann::json pipeline;
+  source >> pipeline;
+  pipeline["models"][0]["model_type"] = "test_biz_rerank";
+  pipeline["models"][0]["backend"] = "test_tensor_backend";
+  pipeline["models"][0]["model_path"] = "boundary.fixture";
+  pipeline["models"][0]["model_config"] = nlohmann::json::object();
+  pipeline["models"][0]["backend_config"] = nlohmann::json::object();
+  std::ofstream(directory / "pipeline.json") << pipeline.dump();
+  std::ofstream(directory / "pipeline.conf")
+      << "{\"pipe_path\":\"pipeline.json\"}";
+  const auto conf = (directory / "pipeline.conf").string();
+  for (size_t length : {65537U, 10485761U}) {
+    std::string text(length, 'x');
+    CompanyString passage{static_cast<int32_t>(length), text.data()};
+    char query_text[] = "query";
+    CompanyString query{5, query_text};
+    CompanyOperatorRerankInput rerank{};
+    rerank.request_id = 101;
+    rerank.query_text = &query;
+    rerank.candidate_count = 1;
+    rerank.candidate_passages[0] = &passage;
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["test.rerank_in"] = MakeBorrowedOperatorInput(&rerank);
+    outputs[0]["test.rerank_out"] = nullptr;
+    check(
+        conf.c_str(), inputs, outputs, -3,
+        length == 65537
+            ? "DecodeInput failed for rerank.plain.operator.v1: "
+              "[AdapterStatus] Error -3 in Adapter [rerank.plain.operator.v1] "
+              "at sample [0] field `rerank_in.candidate_passages`: candidate "
+              "passage length exceeds limit"
+            : "Validation failed for input key test.rerank_in: "
+              "candidate_passages[0] length 10485761 exceeds max limit "
+              "10485760");
+  }
+
+  for (size_t length : {4096U, 4097U}) {
+    std::string path(length, 'x');
+    CompanyString uri{static_cast<int32_t>(length), path.data()};
+    char query_text[] = "query";
+    CompanyString query{5, query_text};
+    CompanyFrame frame{101, &uri, nullptr};
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["test.frame"] = MakeBorrowedOperatorInput(&frame);
+    inputs[0]["test.string"] = MakeBorrowedOperatorInput(&query);
+    outputs[0]["test.od_out"] = nullptr;
+    check("demo/fixtures/mock/pipeline_ocr_doc_qa.conf", inputs, outputs,
+          length == 4096 ? 0 : -3,
+          length == 4096
+              ? ""
+              : "Validation failed for input key test.frame: "
+                "CompanyFrame.image_uri length 4097 exceeds max limit 4096");
+  }
+}
+
 }  // namespace llm_edgeflow
