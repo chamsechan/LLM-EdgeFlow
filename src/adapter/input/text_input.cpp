@@ -5,6 +5,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -16,15 +17,14 @@ namespace {
 constexpr const char* kEntitySlot = "entity_in";
 constexpr const char* kKeywordSlot = "keyword_in";
 
-constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
-
 template <typename Host>
 AdapterStatus DecodeSentence(const Host& input, std::string* text) {
   if (!IsValidInputString(input.sentence_text)) {
     return AdapterStatus::InvalidInput(
         "sentence_text string pointer is null or invalid", "sentence_text");
   }
-  if (static_cast<size_t>(input.sentence_text->length) > kMaxSentenceLen) {
+  if (static_cast<size_t>(input.sentence_text->length) >
+      biz_input::kMaxTextBytes) {
     return AdapterStatus::InvalidInput(
         "sentence_text length exceeds 64 KiB limit", "sentence_text");
   }
