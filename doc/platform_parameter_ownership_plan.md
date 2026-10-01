@@ -55,6 +55,7 @@
 | D2 | Binding 默认批次上限放在哪个分支 | 随 5.2。若希望随阶段 3 一起合入，把 5.2.1 单独提交到 `refactor/adapter-binding-dedup` | 项目负责人 |
 | D3 | rerank 候选段落的上限：Operator 层 10 MiB，转换器 64 KiB | 5.2 保持现有行为，只改为具名常量 | 方案负责人 |
 | D4 | 配置中显式写出、且等于默认值的字段是否删除 | 5.3 只出清单，不改配置 | 方案负责人 |
+| D5 | 5.4 中转换器记录的请求编号数量不对、或辅助函数拿不到请求编号表时的返回码。两者都是接入代码缺陷而非宿主输入错误，但平台错误码没有"内部错误"，且不能新增；`-4` 是 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL`，现有"编码写出数量不符"沿用它，语义同样不贴切 | 用 `-3`（`COMPANY_ALG_ERR_INVALID_INPUT`），诊断文本写明是转换器问题 | 设计审查：**已定为 `-3`**（理由见 7 节"设计审查结论"） |
 
 ### 2.3 判定原则（阶段完成后写入 CONTRIBUTING §3）
 
@@ -432,10 +433,41 @@ Binding 默认使用框架标准批次上限 64，业务只在有实测依据时
 
 **问题**：请求编号是 Operator 的账目：解码时记录宿主 `request_id`，编码时按批内序号恢复。它现在作为 `kRawRequestIds` 端口，
 写进 8 个 BizDefinition 的 ingress、全部输入/输出转换器的 `logical_ports`，以及 `DecodeRequestRows` / `EncodeResultRows` 的参数，
-共 40 处；没有任何 Node、Pipeline、Demo 或 Studio 读取它。
+`src`、`include` 中共 42 行（`git grep -c "kRawRequestIds\|raw_request_ids" -- src include`）；没有任何 Node、Pipeline、Demo 或 Studio 读取它。
 
 **设计要点**（在 PR 描述中展开）：Operator 每次 `Process` 持有一张请求编号表，通过解码、编码选项交给转换器，不再经过 Blackboard 和业务契约。
 从哪个槽读取宿主 `request_id` 仍由转换器决定，这属于载体知识；mock 结构体的布局不能当作真实 SDK 的约定，进入内网后核对。
+
+**前提与基线**：5.2 已随 PR #150 合入 `main@b24be92`（与 `0cac08f` 的代码树相同，本节的引用数、行号和调用点都核对于它）。
+从该提交建分支；改动前基线在该提交上重新采集（`capture_baseline.sh before-5.4`），不能沿用 `c894657` 的 `before`，
+因为 5.2、5.3 已有意改变 Catalog 和 `resolve-conf` 的输出。实施前先完成设计审查，并确认 D5。
+
+### 设计审查要点（写入 PR 描述）
+
+| 项目 | 内容 |
+| --- | --- |
+| 问题 | 见上。请求编号是 Operator 的账目，却作为业务端口出现在 Catalog、BizDefinition、转换器端口和 Studio 的 `$ingress` 中，新业务作者必须照抄 |
+| 方案 | 见"设计要点"和下面的改动 1–5 |
+| 受影响的契约 | 扩展接口（不兼容）：删除 `kRawRequestIds`；`DecodeRequestRows` / `EncodeResultRows` 去掉请求编号参数；`InputDecodeOptions` / `OutputEncodeOptions` 新增 `request_ids`；新增 `PublishRequestIds` / `RequestIds`。内部输出：Catalog 的 `bizs[].ingress`、转换器 `logical_ports`、Binding 端口映射和 `validate-io` 中不再出现 `raw_request_ids`。外部契约（2.1）不变，Operator 输出的 `request_id` 不变 |
+| 取舍 | 不选"保留端口、只在 Catalog 中隐藏"：BizDefinition 和转换器仍要声明，作者负担不变。不选"框架直接读取宿主结构体的 `request_id`"：槽和布局属于载体知识，mock 布局不代表真实 SDK。不选"把外部编号放进 `TraceableItem`"：改动所有载荷类型，范围远大于本步骤。不选"给 `DecodeInputFn` 增加输出参数"：要改全部转换器和测试的函数签名；改用 `const InputDecodeOptions&` 中的非 const 指针作为输出通道，在字段注释中写明。请求编号表缺失的检查放在 `PublishRequestIds`（全部行通过之后），不放进 `ValidateDecodeRequest`：这样所有校验失败的返回码和诊断不变，直接调用转换器、期望校验失败的测试也不用改 |
+| 风险 | 仓库外的自定义转换器：调用两个辅助函数或引用 `kRawRequestIds` 的会编译失败（可见）；自行组织解码、又不调用 `PublishRequestIds` 的，会在 `Process` 中被数量检查拦下并给出诊断，不会静默输出错误编号 |
+| 待确认 | 无（D5 已在设计审查中定为 `-3`） |
+| 验收 | 本节"验收" |
+| 回退 | 还原本步骤的提交；不涉及配置或数据迁移 |
+
+### 设计审查结论
+
+结论：**方案可以实施**，按下列结论调整本节后执行。审查核对于 `main@b24be92`。
+
+| # | 审查项 | 结论 |
+| --- | --- | --- |
+| 1 | 正确性：编号表的生命周期与并发 | 表是 `Process` 的局部变量，覆盖解码到编码的全过程；同一句柄的 `Process` 由句柄互斥锁串行，不同句柄各有一张表。只有 `Process` 调用 `decode_fn` / `encode_fn`（`operator_adapter.cpp` 中唯一的调用点），没有其他入口需要接入 |
+| 2 | 正确性：编号的来源与语义 | 4 个多槽转换器的编号分别取自 `frame`、`audit_in`、`doc_in`、`rerank_in` 槽，迁移时位置不变。`IndexResults` 以编号表长度作为请求数，不检查编号唯一；宿主重复的 `request_id` 现在被接受（`DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds`），5.4 不得新增唯一性检查 |
+| 3 | 边界：没有按名字特殊处理该端口的代码 | Core、Operator、工具、Studio 中都没有按 `raw_request_ids` 特判的逻辑；Studio 只通过 Catalog 的 `bizs[].ingress` 间接显示它。删除后 Binding 审计、部署准备与转换器端口、BizDefinition 两侧同步减少，不会产生新的审计错误 |
+| 4 | D5 返回码 | **定为 `-3`。** 这类缺陷今天表现为：解码少记或漏发编号后，编码时 `ReadOutputValue` 报 `Missing required context value` 或 `IndexResults` 报来源错误，两者都经 `ReturnInvalidInput` 返回 `-3`。5.4 保持同一返回码，只是把发现时间提前到租用输出块之前。`-4` 的定义是"输出槽位、容量或写入数量错误"，不适用于解码阶段 |
+| 5 | 回归：迁移范围有遗漏 | 原规则按端口名查找，漏掉了 `tests/unit/adapter/test_io_converters.cpp`：它用自定义端口 `"ids"` / `"actual_ids"` 直接调用 `DecodeRequestRows` / `EncodeResultRows`（4 个用例、6 处调用）。已补进改动 6 |
+| 6 | 测试能否证明契约 | 原测试不足以长期防止回退，补三项：Catalog 契约断言（替代只在验收时运行的 grep）、Operator 级重复编号、解码失败时编号表保持为空。已补进"测试" |
+| 7 | 文档 | `adapter_templates/README.md` 与 4 个示例转换器不提请求编号；`.agents` 中两处只提辅助函数名，签名变化后仍成立。无额外文档需要改 |
 
 ### 改动
 
@@ -500,7 +532,7 @@ Binding 默认使用框架标准批次上限 64，业务只在有实测依据时
 4. `src/adapter/operator/operator_adapter.cpp` 的 `Process`：
    - 解码前声明 `std::vector<uint64_t> request_ids;`，设置 `in_options.request_ids = &request_ids;`。
    - 解码成功后检查 `request_ids.size() == inputs.size()`；不相等时设置诊断
-     `DecodeInput for <converter_id> recorded <n> request ids for <m> inputs`，返回 `COMPANY_ALG_ERR_INVALID_INPUT`。
+     `DecodeInput for <converter_id> recorded <n> request ids for <m> inputs`，返回 `COMPANY_ALG_ERR_INVALID_INPUT`（返回码见 D5）。
    - 编码前设置 `out_options.request_ids = &request_ids;`。
 5. `tests/support/adapter_harness.h`：新增成员 `std::vector<uint64_t> request_ids_`、`SetRequestIds(std::vector<uint64_t>)` 和 `RequestIds()`；
    `DecodeOperator`、`EncodeOperator` 分别把它传入两个选项。
@@ -511,21 +543,71 @@ Binding 默认使用框架标准批次上限 64，业务只在有实测依据时
    - 向上下文发布 `kRawRequestIds` 的地方，改为 `harness.SetRequestIds(...)`，或给选项设置请求编号表。
    - `InputPortBindings` / `OutputPortBindings` 字面量中删除 `{"raw_request_ids", "raw_request_ids"}`。
    - 解码后从上下文读取 `raw_request_ids` 的断言，改为读取 `harness.RequestIds()` 或选项中的表。
-   - 断言"缺少 `raw_request_ids` 时编码失败"的用例，改为断言"选项中没有请求编号表时编码失败"。
+   - 断言"缺少 `raw_request_ids` 时编码失败"的用例，改为断言"选项中没有请求编号表时编码失败"。harness 总是传入自己的表
+     （可能为空，但不是空指针），经 harness 只能得到"编号与结果数量不符"的错误；因此这类用例不经 harness，
+     直接调用 `encode_fn` / `decode_fn` 并使用默认选项（`request_ids == nullptr`）。
+
+   上面的规则按引用 `raw_request_ids` 的位置查找，会漏掉另一类用例：不经 harness、直接调用生产转换器 `decode_fn` / `encode_fn`
+   的测试。它们不提到这个端口，但 5.4 之后未设置 `options.request_ids` 时，本应成功的解码和编码都会失败。
+   例如 5.2 新增的 `InputLengthLimitsStayUnchanged`，长度等于上限时期望解码成功。规则：
+
+   - 直接调用生产转换器、且期望成功的解码，设置 `options.request_ids` 指向测试持有的表；期望成功的编码，设置同一张表或预先填好的表。
+   - 期望在校验阶段失败的调用不用改：校验失败发生在记录请求编号之前，返回码和诊断不变。
+   - 逐个文件检查直接调用点（按 `git grep -c "decode_fn(\|encode_fn(" -- tests ':!tests/support'` 统计，核对于 `main@b24be92`）：
+
+     | 文件 | 直接调用 |
+     | --- | --- |
+     | `tests/contract/abi/test_adapter_contract_security.cpp` | 15 |
+     | `tests/unit/adapter/test_complex_converters.cpp` | 12 |
+     | `tests/unit/adapter/test_adapter_purity.cpp` | 10 |
+     | `tests/unit/adapter/test_text_converters.cpp` | 9 |
+     | `tests/integration/operator/test_operator_api.cpp` | 2 |
+     | `tests/unit/operator/test_operator_value_registry.cpp` | 2 |
+     | `tests/contract/abi/test_operator_safety.cpp` | 1 |
+
+     `tests/unit/adapter/test_io_converters.cpp` 中 `decode_fn` / `encode_fn` 的直接调用只针对测试自建的转换器，不受影响；
+     但同一文件直接调用两个辅助函数，见下一条。
+   - 按名字查找还会漏掉使用其他端口名的请求编号。以类型 `std::vector<uint64_t>` 和两个辅助函数名补查
+     （`git grep -n "DecodeRequestRows<\|EncodeResultRows<\|BlackboardKey<std::vector<uint64_t>>" -- tests`），
+     需要额外迁移的只有 `tests/unit/adapter/test_io_converters.cpp`：
+     - `DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds`：编号断言改为读取选项中的表，重复编号 `{42, 42}` 保持不变。
+     - `DecodeRowsReportsCallbackFailureWithoutPublishingBatch`：`actual_ids` 未发布的断言，改为"编号表仍为空"。
+     - `DecodeRowsUsesEffectiveBatchLimitFromOptions`：去掉 `kRowIds` 实参和 `ids` 映射。
+     - `EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity`：`context.Publish("actual_ids", ...)` 改为给选项设置 `{91, 17}`。
+   - `tests/support/adapter_examples/` 下的示例只被 `test_adapter_contract_security.cpp` 编译；`doc/dev_guide/adapter_templates/README.md`
+     链接这些示例，但不提请求编号，迁移后复核即可。
+
+### 提交拆分
+
+分两个提交，每个都能单独构建并通过门禁，便于审查和回退：
+
+1. **接入请求编号表**（不改变行为）：改动 1、2 中新增的选项字段和两个辅助函数；改动 4 中声明请求编号表并传给两个选项，
+   但暂不加数量检查；改动 5。此时转换器仍发布并读取 `kRawRequestIds`，选项中的请求编号表已经存在但没有转换器写入或读取，行为不变。
+2. **迁移并删除端口**：`DecodeRequestRows` / `EncodeResultRows` 改签名；改动 3；改动 4 的数量检查；改动 6 的测试迁移；文档与 CHANGELOG。
 
 ### 测试
 
 - `OperatorApiTest` 新增 `ProcessRestoresRequestIdsWithoutBizPort`：keyword 业务输入非连续的请求编号（如 900001、42、7），输出的 `request_id` 一一对应。
-- `OperatorApiTest` 新增 `ProcessRejectsConverterRecordingWrongRequestIdCount`：注册一个只记录部分编号的测试转换器，`Process` 返回 `-3` 并给出上述诊断。
+- `OperatorApiTest` 新增 `ProcessRejectsConverterRecordingWrongRequestIdCount`：注册一个只记录部分编号的测试转换器，`Process` 返回 `-3` 并给出上述诊断，
+  且没有租用输出块（输出仍为空指针）。注册测试转换器、Binding 和临时 Pipeline 的写法参照同文件的
+  `RegisterNestedOutputTestTypes` / `WriteNestedOutputPipeline`。返回码按 D5 的结论断言。
 - `AdapterContractSecurityTest` 新增 `DecodeAndEncodeRejectMissingRequestIdTable`。
+- `OperatorApiTest` 的 `ProcessRestoresRequestIdsWithoutBizPort` 同时覆盖重复编号：输入 900001、42、42，输出依次为 900001、42、42。
+- `IoConverterTest` 中解码回调失败的用例断言编号表仍为空（见改动 6），保证不会留下部分编号。
+- `CatalogContractSsotTest` 新增 `CatalogHasNoRequestIdPort`：Catalog 的 `bizs[].ingress`、所有转换器的 `logical_ports`、
+  所有 Binding 的端口映射中都没有 `raw_request_ids`。这条断言替代验收中的 grep，防止以后再加回业务契约。
 - 现有的结果乱序、重复/缺失来源、多槽（image_query）、候选展开（rerank）用例迁移后全部通过。
 
 ### 文档与 CHANGELOG
 
 - 检查并更新：`grep -rn "raw_request_ids\|kRawRequestIds\|raw_ids" doc .agents src/adapter`。
-  已知位置：`doc/dev_guide/business_onboarding.md:110` 以及描述 `EncodeResultRows` 恢复 `request_id` 的段落、`src/adapter/input/README.md`、`src/adapter/output/README.md`。
-  改为：请求编号由框架保存和恢复；只有自己组织多槽解码或多路结果的转换器，才调用 `PublishRequestIds` / `RequestIds`。
+  核对于 `main@b24be92`，唯一命中是 `doc/dev_guide/business_onboarding.md:110`，改为：请求编号由框架保存和恢复；
+  只有自己组织多槽解码或多路结果的转换器，才调用 `PublishRequestIds` / `RequestIds`。
+- 以下描述"框架恢复外部编号"的段落不提端口名，改动后仍然成立，只需复核：`business_onboarding.md:117-118`、
+  `src/adapter/input/README.md:8`、`src/adapter/output/README.md:7`。
 - CHANGELOG：写明删除 `kRawRequestIds`、`DecodeRequestRows` / `EncodeResultRows` 去掉请求编号参数、新增两个选项字段和两个辅助函数，以及迁移方法；Operator 输出的 `request_id` 不变。
+  Studio 的 `$ingress` 由 Catalog 的 `bizs[].ingress` 生成（`tools/pipeline_studio/web/workbench.js` 的 `INGRESS`），
+  改动后不再列出 `raw_request_ids`，也写进 CHANGELOG。
 
 ### 验收
 
@@ -913,7 +995,7 @@ process.exit(failures ? 1 : 0);
 | rerank 候选段落：Operator 层按 10 MiB 检查，转换器按 64 KiB 拒绝；`max_rerank_candidates` 没有读取方，转换器写死 8 | `src/adapter/operator/operator_builtin_value_types.cpp:218-236`；`src/adapter/input/rerank_input.cpp:53`、`:72` | 5.2 |
 | 输出转换器的 `capacity_fields` 与 ValueType 的字符串容量字段重复（8 个逐一相同），没有交叉校验 | `src/adapter/output/keyword_result_output.cpp:45-46`；`src/adapter/operator/operator_builtin_value_types.cpp:73-77`；`src/adapter/io_binding_registry.cpp:13-31` | 5.2 |
 | 没有一处给出单次有效批次；池深规范化写了两遍；`platform_max_batch` 只赋值不读取；Profile 接受 `batch_size`、`depth` 到 100000，SDK 池深上限 1024 | `operator_adapter.cpp:170-200`；`operator_config_resolver.cpp:276-283`；`include/core/session_context.h:45`；`demo/common/demo_options.cpp:293`、`:324` | 5.3 |
-| `kRawRequestIds` 在业务契约、转换器端口和辅助函数参数中共 40 处，没有读取方 | `include/adapter/converter_authoring.h:232-301` | 5.4 |
+| `kRawRequestIds` 在业务契约、转换器端口和辅助函数参数中共 42 行，没有读取方 | `include/adapter/converter_authoring.h:232-301` | 5.4 |
 | 并行时 Validator 拒绝不安全节点和共享串行模型；运行时对串行模型不加锁；执行器已在主线程顺序执行单节点层 | `src/core/pipeline_validator.cpp:1490-1525`；`src/core/pipeline.cpp:419-432` | 5.5 |
 
 ## 附录 D：不在本阶段做的事项
