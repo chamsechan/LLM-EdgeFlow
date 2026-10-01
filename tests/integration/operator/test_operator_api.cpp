@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/converter_authoring.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
@@ -2365,8 +2366,7 @@ int EncodeNestedOutput(AlgContext* context, const OutputPortBindings& bindings,
                        size_t* written_count, AdapterStatus* status) {
   if (written_count) *written_count = 0;
   if (!context || !destination) return -1;
-  const auto* req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* req_ids = RequestIds(options, status);
   const auto* matches =
       context->Read<RuleMatchBatch>(bindings.GetActualKey("rule_matches"));
   if (!req_ids || !matches) return -3;
@@ -2405,7 +2405,6 @@ const bool g_reg_nested_output_components = []() {
   BizDefinition bdef;
   bdef.biz_name = "test_nested_output_v1";
   bdef.ingress = {
-      BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
   bdef.egress = {
       BizPortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
@@ -2437,7 +2436,6 @@ const bool g_reg_nested_output_components = []() {
                                                 {},
                                                 "audit"}};
   odef.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
   odef.encode_fn = &EncodeNestedOutput;
   IoConverterRegistry::Instance().RegisterOutputConverter(odef);
@@ -2448,10 +2446,8 @@ const bool g_reg_nested_output_components = []() {
 
   bind.input_converter_id = "keyword.plain.operator.v1";
   bind.output_converter_id = "test_nested_output.operator.v1";
-  bind.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"input_sentences", "input_sentences"}};
-  bind.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                       {"rule_matches", "rule_matches"}};
+  bind.input_ports = {{"input_sentences", "input_sentences"}};
+  bind.output_ports = {{"rule_matches", "rule_matches"}};
   bind.max_batch_size = 64;
   IoBindingRegistry::Instance().RegisterBinding(bind);
   return true;
@@ -2516,6 +2512,70 @@ void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
 
 }  // namespace
 }  // namespace llm_edgeflow::test_support
+
+TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
+  using namespace llm_edgeflow;
+  using namespace llm_edgeflow::test_support;
+  const auto* production = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword.plain.operator.v1");
+  ASSERT_NE(production, nullptr);
+  auto input = *production;
+  input.converter_id = "test_partial_request_ids.operator.v1";
+  input.decode_fn = [](const ExternalInputBatchView& source,
+                       const InputDecodeOptions& options,
+                       const InputPortBindings& bindings, AlgContext* context,
+                       AdapterStatus* status) {
+    const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+        "keyword.plain.operator.v1");
+    const int ret =
+        converter->decode_fn(source, options, bindings, context, status);
+    if (ret == 0) options.request_ids->resize(1);
+    return ret;
+  };
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  const auto* nested = IoBindingRegistry::Instance().FindBinding(
+      "nested_output_test.operator.v1");
+  ASSERT_NE(nested, nullptr);
+  auto binding = *nested;
+  binding.binding_id = "request_id_count_test.operator.v1";
+  binding.input_converter_id = input.converter_id;
+  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+
+  ScopedTempDirectory temp;
+  auto pipeline = NestedOutputPipelineJson();
+  pipeline["deployment"]["io"]["io_binding"] = binding.binding_id;
+  std::ofstream(temp.path() / "pipeline.json") << pipeline;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto root = temp.path().string();
+  auto param = DefaultCreateParam("pipeline.conf");
+  param.model_path = root.c_str();
+  void* raw_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+  const auto destroy = [this](void* handle) { ops_.Destroy(handle); };
+  std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
+  const int resets_before = nested_resets;
+  char text[] = "query";
+  CompanyString sentence{5, text};
+  CompanyOperatorKeywordInput rows[] = {{900001, &sentence}, {42, &sentence}};
+  NamedIoBatch inputs(2), outputs(2);
+  for (size_t i = 0; i < 2; ++i) {
+    inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
+    outputs[i]["test.result"] = nullptr;
+    outputs[i]["test.audit"] = nullptr;
+  }
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_STREQ(GetOperatorLastError(),
+               "DecodeInput for test_partial_request_ids.operator.v1 recorded "
+               "1 request ids for 2 inputs");
+  for (const auto& frame : outputs) {
+    EXPECT_EQ(frame.at("test.result"), nullptr);
+    EXPECT_EQ(frame.at("test.audit"), nullptr);
+  }
+  // Returning an acquired block resets it, even when no output was published.
+  EXPECT_EQ(nested_resets, resets_before);
+}
 
 TEST_F(OperatorApiTest,
        SameOutputKeysSelectIndependentNestedAllocatorsPerHandle) {
@@ -2881,10 +2941,11 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
       llm_edgeflow::BorrowInputForTest({&c_in_plain});
   view_plain.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   llm_edgeflow::InputPortBindings port_bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"input_sentences", "input_sentences"}});
+      {{"input_sentences", "input_sentences"}});
   llm_edgeflow::InputDecodeOptions decode_opts;
   decode_opts.converter_id = translate_in_conv->converter_id;
+  std::vector<uint64_t> request_ids;
+  decode_opts.request_ids = &request_ids;
 
   EXPECT_EQ(translate_in_conv->decode_fn(view_plain, decode_opts, port_bindings,
                                          &ctx, &status),

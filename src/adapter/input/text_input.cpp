@@ -37,8 +37,8 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kEntitySlot, kRawRequestIds,
-      kInputSentences, &DecodeSentence<CompanyOperatorEntityInput>);
+      source, options, bindings, context, status, kEntitySlot, kInputSentences,
+      &DecodeSentence<CompanyOperatorEntityInput>);
 }
 
 int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
@@ -46,8 +46,8 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputPortBindings& bindings,
                                AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorKeywordInput>(
-      source, options, bindings, context, status, kKeywordSlot, kRawRequestIds,
-      kInputSentences, &DecodeSentence<CompanyOperatorKeywordInput>);
+      source, options, bindings, context, status, kKeywordSlot, kInputSentences,
+      &DecodeSentence<CompanyOperatorKeywordInput>);
 }
 
 InputConverterDefinition MakeOperatorEntityInputConverter() {
@@ -59,7 +59,7 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot, kEntitySlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
+  def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
 }
@@ -73,7 +73,7 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorKeywordInput>(
       kKeywordSlot, kKeywordSlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
+  def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;
 }

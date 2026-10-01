@@ -12,8 +12,7 @@ BizDefinition MakeAudioAsrIntentBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "语音识别与意图槽位";
-  def.ingress = {RequiredBizInput(kRawRequestIds),
-                 RequiredBizInput(kAudioInputs)};
+  def.ingress = {RequiredBizInput(kAudioInputs)};
   def.egress = {BizOutput(kTranscripts), BizOutput(kIntentSlots)};
   return def;
 }

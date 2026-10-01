@@ -147,11 +147,9 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"raw_docs", "raw_docs"},
-                         {"raw_queries", "raw_queries"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"llm_answers", "llm_answers"},
+      InputPortBindings(
+          {{"raw_docs", "raw_docs"}, {"raw_queries", "raw_queries"}}),
+      OutputPortBindings({{"llm_answers", "llm_answers"},
                           {"intent_matches", "intent_matches"},
                           {"doc_chunk_counts", "doc_chunk_counts"}}));
 
@@ -164,14 +162,13 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
 
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
-  const auto* req_ids =
-      harness.Context().Read<std::vector<uint64_t>>("raw_request_ids");
+  const auto& req_ids = harness.RequestIds();
   const auto* docs = harness.Context().Read<TextBatch>("raw_docs");
   const auto* queries = harness.Context().Read<TextBatch>("raw_queries");
-  ASSERT_NE(req_ids, nullptr);
+  ASSERT_EQ(req_ids.size(), 1U);
   ASSERT_NE(docs, nullptr);
   ASSERT_NE(queries, nullptr);
-  EXPECT_EQ((*req_ids)[0], 1001u);
+  EXPECT_EQ(req_ids[0], 1001u);
   EXPECT_EQ((*docs)[0].data, "Doc Content");
   EXPECT_EQ((*queries)[0].data, "Query Question");
 
@@ -213,10 +210,8 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"rule_matches", "rule_matches"}}));
+      InputPortBindings({{"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"rule_matches", "rule_matches"}}));
 
   std::string text_str = "Some text";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
@@ -250,10 +245,8 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"extracted_entities", "extracted_entities"}}));
+      InputPortBindings({{"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"extracted_entities", "extracted_entities"}}));
 
   std::string text_str = "Entity text";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
@@ -286,11 +279,9 @@ TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"user_texts", "user_texts"},
-                         {"channel_names", "channel_names"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"structured_verdicts", "structured_verdicts"},
+      InputPortBindings(
+          {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}}),
+      OutputPortBindings({{"structured_verdicts", "structured_verdicts"},
                           {"matched_policies", "matched_policies"}}));
 
   std::string text_str = "audit sentence";
@@ -347,10 +338,11 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"image_paths", "image_paths"},
-                                 {"user_queries", "user_queries"}});
+  InputPortBindings in_bindings(
+      {{"image_paths", "image_paths"}, {"user_queries", "user_queries"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
+  in_options.request_ids = &request_ids;
   in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
@@ -377,10 +369,10 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
   out_view.SetCapacity("od_out", "result_json", sizeof(od_fix.json) - 1);
 
   OutputPortBindings out_bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"extracted_invoice_json", "extracted_invoice_json"},
+      {{"extracted_invoice_json", "extracted_invoice_json"},
        {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
+  out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
@@ -404,12 +396,9 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"audio_inputs", "audio_inputs"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"transcripts", "transcripts"},
-                          {"intent_slots", "intent_slots"}}));
+      in_conv, out_conv, InputPortBindings({{"audio_inputs", "audio_inputs"}}),
+      OutputPortBindings(
+          {{"transcripts", "transcripts"}, {"intent_slots", "intent_slots"}}));
 
   std::vector<float> pcm(1600, 0.05f);
   CompanyOperatorAudioInput in{1006, pcm.data(), static_cast<int>(pcm.size()),
@@ -447,12 +436,10 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"rerank_queries", "rerank_queries"},
+      InputPortBindings({{"rerank_queries", "rerank_queries"},
                          {"rerank_candidates", "rerank_candidates"},
                          {"rerank_pairs", "rerank_pairs"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"ranked_results", "ranked_results"}}));
+      OutputPortBindings({{"ranked_results", "ranked_results"}}));
 
   std::string q_str = "query";
   std::string cand0_str = "cand0";
@@ -499,10 +486,8 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"llm_answers", "llm_answers"}}));
+      InputPortBindings({{"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"llm_answers", "llm_answers"}}));
 
   std::string json_query = "{\"query\":\"Hello\"}";
   CompanyString cs_text{static_cast<int32_t>(json_query.size()),
@@ -534,15 +519,14 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
       "doc_answer.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                   {"llm_answers", "llm_answers"},
+  OutputPortBindings out_bindings({{"llm_answers", "llm_answers"},
                                    {"intent_matches", "intent_matches"},
                                    {"doc_chunk_counts", "doc_chunk_counts"}});
 
   // Case 1: missing llm_answers
   {
     test::AdapterHarness harness(out_conv, out_bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+    harness.SetRequestIds(std::vector<uint64_t>{1001});
     DocOutputFixture fix;
     std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
     EXPECT_NE(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
@@ -551,7 +535,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // Case 2: has llm_answers but missing intent_matches -> MUST fail-closed
   {
     test::AdapterHarness harness(out_conv, out_bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+    harness.SetRequestIds(std::vector<uint64_t>{1001});
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("llm_answers", std::move(answers));
@@ -565,7 +549,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // fail-closed
   {
     test::AdapterHarness harness(out_conv, out_bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+    harness.SetRequestIds(std::vector<uint64_t>{1001});
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("llm_answers", std::move(answers));
@@ -578,7 +562,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 
-  // Case 4: all outputs exist but raw_request_ids is absent
+  // Case 4: all outputs exist but the request id table is absent
   {
     test::AdapterHarness harness(out_conv, out_bindings);
     TextBatch answers;
@@ -591,8 +575,22 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     chunk_counts.emplace_back(0, 0, 1);
     harness.Publish("doc_chunk_counts", std::move(chunk_counts));
     DocOutputFixture fix;
-    std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
-    EXPECT_NE(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
+    TestOutputBatchView destination;
+    destination.count = 1;
+    destination.leased_slots["doc_out"] = {&fix.out};
+    destination.slot_types["doc_out"] = "CompanyOperatorDocOutput";
+    destination.SetCapacity("doc_out", "answer_text",
+                            fix.Capacities().at("answer_text"));
+    destination.SetCapacity("doc_out", "intent_name",
+                            fix.Capacities().at("intent_name"));
+    OutputEncodeOptions options;
+    options.converter_id = out_conv->converter_id;
+    AdapterStatus status;
+    size_t written = 0;
+    EXPECT_EQ(out_conv->encode_fn(&harness.Context(), out_bindings, options,
+                                  &destination, &written, &status),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(status.FieldPath(), "request_ids");
   }
 }
 
@@ -603,12 +601,11 @@ TEST_F(AdapterPurityTest,
   ASSERT_NE(out_conv, nullptr);
 
   OutputPortBindings out_bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"structured_verdicts", "structured_verdicts"},
+      {{"structured_verdicts", "structured_verdicts"},
        {"matched_policies", "matched_policies"}});
 
   test::AdapterHarness harness(out_conv, out_bindings);
-  harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+  harness.SetRequestIds(std::vector<uint64_t>{1001});
 
   // structured_verdicts missing required field 'risk_level' -> MUST fail-closed
   StructuredDocumentBatch verdicts;
@@ -634,15 +631,14 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
   ASSERT_NE(out_conv, nullptr);
 
   OutputPortBindings out_bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"structured_verdicts", "structured_verdicts"},
+      {{"structured_verdicts", "structured_verdicts"},
        {"matched_policies", "matched_policies"}});
 
   for (const auto parse_status :
        {JsonParseStatus::kOk, JsonParseStatus::kFailed,
         JsonParseStatus::kFallbackApplied}) {
     test::AdapterHarness harness(out_conv, out_bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{100, 200});
+    harness.SetRequestIds(std::vector<uint64_t>{100, 200});
 
     StructuredDocumentBatch verdicts;
     for (uint32_t id : {1u, 0u}) {
@@ -676,13 +672,12 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
       "keyword.result.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                   {"rule_matches", "rule_matches"}});
+  OutputPortBindings out_bindings({{"rule_matches", "rule_matches"}});
 
   for (const auto& ids :
        {std::vector<uint32_t>{0, 0}, std::vector<uint32_t>{0, 2}}) {
     test::AdapterHarness harness(out_conv, out_bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{100, 200});
+    harness.SetRequestIds(std::vector<uint64_t>{100, 200});
     RuleMatchBatch matches;
     for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
     harness.Publish("rule_matches", std::move(matches));
@@ -699,9 +694,8 @@ TEST_F(AdapterPurityTest, ComplianceAuditAdapter_RejectsOversizedChannelName) {
       "audit.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"user_texts", "user_texts"},
-                                 {"channel_names", "channel_names"}});
+  InputPortBindings in_bindings(
+      {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}});
 
   const std::string valid_channel(256, 'c');
   const std::string oversized_channel(257, 'c');
@@ -733,7 +727,7 @@ TEST_F(AdapterPurityTest,
   const std::string long_answer(5000, 'a');
 
   AlgContext ctx;
-  ctx.Publish("raw_request_ids", std::vector<uint64_t>{10});
+  const std::vector<uint64_t> request_ids{10};
   ctx.Publish("llm_answers", TextBatch{{0, 0, long_answer}});
   ctx.Publish("intent_matches",
               RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f)}});
@@ -743,11 +737,11 @@ TEST_F(AdapterPurityTest,
       "doc_answer.plain.operator.v1");
   ASSERT_NE(op_conv, nullptr);
 
-  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                               {"llm_answers", "llm_answers"},
+  OutputPortBindings bindings({{"llm_answers", "llm_answers"},
                                {"intent_matches", "intent_matches"},
                                {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions options;
+  options.request_ids = &request_ids;
   options.converter_id = op_conv->converter_id;
 
   // 1. Operator buffer with small capacity (500) -> BUFFER_TOO_SMALL
@@ -807,17 +801,17 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
   const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
       "doc_answer.plain.operator.v1");
   ASSERT_NE(converter, nullptr);
-  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                               {"llm_answers", "llm_answers"},
+  OutputPortBindings bindings({{"llm_answers", "llm_answers"},
                                {"intent_matches", "intent_matches"},
                                {"doc_chunk_counts", "doc_chunk_counts"}});
+  const std::vector<uint64_t> request_ids{42};
   OutputEncodeOptions options;
+  options.request_ids = &request_ids;
   options.converter_id = converter->converter_id;
 
   for (bool overflow : {false, true}) {
     SCOPED_TRACE(overflow);
     AlgContext context;
-    context.Publish(kRawRequestIds, std::vector<uint64_t>{42});
     context.Publish(kLlmAnswers,
                     TextBatch{{0, 0, overflow ? "12345" : "1234"}});
     context.Publish(
@@ -870,8 +864,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
   ASSERT_NE(in_conv, nullptr);
 
   test::AdapterHarness harness(
-      in_conv, InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"input_sentences", "input_sentences"}}));
+      in_conv, InputPortBindings({{"input_sentences", "input_sentences"}}));
 
   std::string buffer = "{\"query\":\"original query\"}";
   CompanyString cs_buf{static_cast<int32_t>(buffer.size()), buffer.data()};
@@ -898,10 +891,8 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
 
   test::AdapterHarness harness(
       in_conv, out_conv,
-      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"llm_answers", "llm_answers"}}));
+      InputPortBindings({{"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"llm_answers", "llm_answers"}}));
 
   std::string q0 = "{\"query\":\"q0\"}";
   std::string q1 = "{\"query\":\"q1\"}";
@@ -912,13 +903,12 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
 
   ASSERT_EQ(harness.DecodeOperator({&in0, &in1}), 0);
 
-  const auto* req_ids =
-      harness.Context().Read<std::vector<uint64_t>>("raw_request_ids");
+  const auto& req_ids = harness.RequestIds();
   const auto* sentences = harness.Context().Read<TextBatch>("input_sentences");
-  ASSERT_NE(req_ids, nullptr);
+  ASSERT_EQ(req_ids.size(), 2U);
   ASSERT_NE(sentences, nullptr);
-  EXPECT_EQ((*req_ids)[0], 1234u);
-  EXPECT_EQ((*req_ids)[1], 1234u);
+  EXPECT_EQ(req_ids[0], 1234u);
+  EXPECT_EQ(req_ids[1], 1234u);
   EXPECT_EQ((*sentences)[0].req_id, 0u);
   EXPECT_EQ((*sentences)[1].req_id, 1u);
 
@@ -938,8 +928,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
   ASSERT_NE(in_conv, nullptr);
 
   test::AdapterHarness harness(
-      in_conv, InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"input_sentences", "input_sentences"}}));
+      in_conv, InputPortBindings({{"input_sentences", "input_sentences"}}));
 
   std::string valid_q = "{\"query\":\"valid\"}";
   std::string invalid_q = "invalid json";
@@ -952,9 +941,8 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
   EXPECT_EQ(harness.DecodeOperator({&in0, &in1}),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // AlgContext must be completely unpopulated
-  EXPECT_EQ(harness.Context().Read<std::vector<uint64_t>>("raw_request_ids"),
-            nullptr);
+  // Neither the request id table nor business values may be published.
+  EXPECT_TRUE(harness.RequestIds().empty());
   EXPECT_EQ(harness.Context().Read<TextBatch>("input_sentences"), nullptr);
 }
 
@@ -964,12 +952,11 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(
-      out_conv, OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                                    {"llm_answers", "llm_answers"},
+      out_conv, OutputPortBindings({{"llm_answers", "llm_answers"},
                                     {"intent_matches", "intent_matches"},
                                     {"doc_chunk_counts", "doc_chunk_counts"}}));
 
-  harness.Publish("raw_request_ids", std::vector<uint64_t>{1001, 2002});
+  harness.SetRequestIds(std::vector<uint64_t>{1001, 2002});
 
   // Perturbed order: index 1 published before index 0
   TextBatch answers{{1, 0, "Answer 1"}, {0, 0, "Answer 0"}};
@@ -1086,13 +1073,12 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
       "document.structured.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                               {"extracted_entities", "extracted_entities"}});
+  OutputPortBindings bindings({{"extracted_entities", "extracted_entities"}});
 
   // Context A: Entity Extraction pipeline output
   {
     test::AdapterHarness harness(out_conv, bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{9001});
+    harness.SetRequestIds(std::vector<uint64_t>{9001});
     StructuredDocumentBatch batch;
     batch.emplace_back(
         0, 0,
@@ -1110,7 +1096,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   // Context B: Generic structured JSON pipeline output producing same schema
   {
     test::AdapterHarness harness(out_conv, bindings);
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{9002});
+    harness.SetRequestIds(std::vector<uint64_t>{9002});
     StructuredDocumentBatch batch;
     batch.emplace_back(
         0, 0,
@@ -1140,12 +1126,11 @@ TEST_F(AdapterPurityTest,
       "CustomMultiFieldInput", "custom_input")};
   custom_in_def.max_batch_size = 64;
   custom_in_def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
-                               const InputDecodeOptions&,
+                               const InputDecodeOptions& options,
                                const InputPortBindings& bindings,
-                               AlgContext* ctx, AdapterStatus*) -> int {
+                               AlgContext* ctx, AdapterStatus* status) -> int {
     std::vector<uint64_t> ids;
     TextBatch texts;
     for (size_t i = 0; i < src.count; ++i) {
@@ -1156,7 +1141,9 @@ TEST_F(AdapterPurityTest,
           std::string(item->topic) + ": " + std::string(item->content);
       texts.emplace_back(static_cast<uint32_t>(i), 0, combined);
     }
-    ctx->Publish(bindings.GetActualKey("raw_request_ids"), ids);
+    if (!PublishRequestIds(options, std::move(ids), status)) {
+      return status->Code();
+    }
     ctx->Publish(bindings.GetActualKey("texts"), texts);
     return 0;
   };
@@ -1179,9 +1166,10 @@ TEST_F(AdapterPurityTest,
     view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
     view.count = 1;
 
-    InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                                {"input_sentences", "input_sentences"}});
+    InputPortBindings bindings({{"input_sentences", "input_sentences"}});
+    std::vector<uint64_t> request_ids;
     InputDecodeOptions opts;
+    opts.request_ids = &request_ids;
     opts.converter_id = in_a->converter_id;
 
     AdapterStatus st;
@@ -1200,9 +1188,10 @@ TEST_F(AdapterPurityTest,
     view.slot_types["inputs"] = "CustomMultiFieldInput";
     view.count = 1;
 
-    InputPortBindings bindings(
-        {{"raw_request_ids", "raw_request_ids"}, {"texts", "input_sentences"}});
+    InputPortBindings bindings({{"texts", "input_sentences"}});
+    std::vector<uint64_t> request_ids;
     InputDecodeOptions opts;
+    opts.request_ids = &request_ids;
     opts.converter_id = in_b->converter_id;
 
     AdapterStatus st;
@@ -1229,9 +1218,8 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     std::vector<CompanyOperatorEntityOutput> outputs = {fix.out};
     test::AdapterHarness harness(
         out_a,
-        OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                            {"extracted_entities", "extracted_entities"}}));
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{5001});
+        OutputPortBindings({{"extracted_entities", "extracted_entities"}}));
+    harness.SetRequestIds(std::vector<uint64_t>{5001});
     harness.Publish(
         "extracted_entities",
         StructuredDocumentBatch{
@@ -1252,9 +1240,8 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     KeywordOutputFixture fix;
     std::vector<CompanyOperatorKeywordOutput> outputs = {fix.out};
     test::AdapterHarness harness(
-        out_b, OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                                   {"rule_matches", "rule_matches"}}));
-    harness.Publish("raw_request_ids", std::vector<uint64_t>{5001});
+        out_b, OutputPortBindings({{"rule_matches", "rule_matches"}}));
+    harness.SetRequestIds(std::vector<uint64_t>{5001});
     harness.Publish(
         "rule_matches",
         RuleMatchBatch{{0, 0,
@@ -1288,9 +1275,10 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   plain_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   plain_view.count = 1;
 
-  InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                              {"input_sentences", "input_sentences"}});
+  InputPortBindings bindings({{"input_sentences", "input_sentences"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions opts;
+  opts.request_ids = &request_ids;
 
   // text.plain.operator.v1 accepts it as plain text
   {

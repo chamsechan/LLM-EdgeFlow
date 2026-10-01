@@ -34,8 +34,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
       ReadOutputValue(*context, bindings, kRankedResults, options, status);
   if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   std::vector<const RankedTextBatch::value_type*> first;
@@ -104,8 +103,7 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kRankedResults, "N:1")};
+  def.logical_ports = {RequiredInputPort(kRankedResults, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;
   return def;
 }

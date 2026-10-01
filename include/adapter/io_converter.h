@@ -140,7 +140,7 @@ struct InputDecodeOptions {
  */
 struct OutputEncodeOptions {
   std::string converter_id;
-  // The same per-call table, read-only: row i has external request ID i.
+  // The same per-call table, read-only: index i is input row i's external ID.
   const std::vector<uint64_t>* request_ids = nullptr;
 };
 

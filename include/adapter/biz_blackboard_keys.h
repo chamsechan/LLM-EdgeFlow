@@ -10,9 +10,6 @@ namespace llm_edgeflow {
 // Business-facing request and response slots belong to the Integration
 // adapters. Lower layers consume logical port bindings and neutral value
 // contracts only.
-inline constexpr auto kRawRequestIds =
-    MakeBlackboardKey<std::vector<uint64_t>>("raw_request_ids");
-
 inline constexpr auto kInputSentences =
     MakeBlackboardKey<TextBatch>("input_sentences");
 inline constexpr auto kRuleMatches =

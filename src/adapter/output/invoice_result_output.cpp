@@ -35,8 +35,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
       ReadOutputValue(*context, bindings, kOcrDocs, options, status);
   if (!ocr_docs) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = invoice_jsons->size();
@@ -96,8 +95,7 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   def.external_type = "CompanyOdOutput";
 
   def.external_slots = {ExternalOutputSlot<CompanyOdOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kExtractedInvoiceJson),
+  def.logical_ports = {RequiredInputPort(kExtractedInvoiceJson),
                        RequiredInputPort(kOcrDocs)};
   def.encode_fn = &EncodeOperatorInvoiceResult;
   return def;

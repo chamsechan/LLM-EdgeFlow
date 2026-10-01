@@ -37,8 +37,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
       ReadOutputValue(*context, bindings, kMatchedPolicies, options, status);
   if (!matched_policies) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = verdicts->size();
@@ -140,8 +139,7 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kStructuredVerdicts),
+  def.logical_ports = {RequiredInputPort(kStructuredVerdicts),
                        RequiredInputPort(kMatchedPolicies, "N:1")};
   def.encode_fn = &EncodeOperatorAuditResult;
   return def;
