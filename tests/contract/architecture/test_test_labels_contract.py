@@ -260,7 +260,10 @@ def verify_compiled_gtest_coverage(
                 continue
             if not is_test_covered(test, filters):
                 errors.append(
-                    f"Compiled test '{test}' in '{exe.name}' is not covered by any CTest filter."
+                    f"Compiled test '{test}' in '{exe.name}' is not covered by any CTest filter. "
+                    "Add its suite to a filter in tests/RuntimeTests.cmake "
+                    "(edgeflow_add_runner_test), or move the case into an existing suite "
+                    "such as CustomNodeCatalogTest."
                 )
             else:
                 covered_test_names.add(f"{exe.name}:{test}")
@@ -460,6 +463,8 @@ ValueParamSuite/Inst.
         runner_fn=lambda cmd: FakeProc(0, "Suite.\n  Test1\n", ""),
     )
     assert any("is not covered by any CTest filter" in e for e in errs), errs
+    assert any("tests/RuntimeTests.cmake" in e and "edgeflow_add_runner_test" in e
+               and "CustomNodeCatalogTest" in e for e in errs), errs
 
     # 3g. Typed test omission reproduction (reproducing missed typed suite)
     mock_ctest_typed = {
