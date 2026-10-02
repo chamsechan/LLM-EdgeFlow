@@ -71,7 +71,7 @@
 | 2 | Spec 签名编译期提示 | 无 | 小 | 不需要 | `refactor/spec-signature-diagnostics` |
 | 3 | Adapter 重复声明收敛：删除 Exposure、批次上限只写一处、同名端口免写 | 无（净减少 Exposure） | 中 | 需要（扩展接口变更，见 7.2） | `refactor/adapter-binding-dedup` |
 | 4 | 跨请求状态 | `state`；端口来源规则新增 `shared` 取值 | 中偏大 | 需要（Pipeline 结构、所有权、提交边界），先评审第 8 节 | `feat/pipeline-state` |
-| 5 | 平台与调度参数归位：业务作者不再手填平台限制和调度参数（分 5.1–5.5 五步） | 无 | 小（5.1–5.3）＋中（5.4、5.5） | 5.4、5.5 需要 | 见 `doc/platform_parameter_ownership_plan.md` |
+| 5（已完成） | 平台与调度参数归位：业务作者不再手填平台限制和调度参数（分 5.1–5.5 五步） | 无 | 小（5.1–5.3）＋中（5.4、5.5） | 5.4、5.5 需要 | `feat/auto-serialize-parallel-layers` |
 
 **顺序理由**
 
@@ -606,7 +606,7 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 合并 `model_config.max_batch_size` 与 `backend_config.max_batch_size` | 不做 | 现有配置写了这两个字段，而未知字段会被拒绝；删掉任一字段都会让现有配置失效 |
 | 新增 SDK 接口查询有效批次上限 | 不做 | 改变公共 Operator 接口；有效限制改由 `resolve-conf` 查询（5.3） |
 | Demo 运行前读取内部有效限制并自动分批 | 不做 | Demo 应和真实宿主一样只通过 SDK 运行；超限时 Create/Process 已明确报错 |
-| 批量删除配置中等于默认值的显式字段 | 不做，交给方案负责人 | 显式值可能是有意固定，现在无法区分（Studio 曾自动写入默认值，已由 5.1 修复，PR #150）。清单见 `doc/platform_parameter_ownership_plan.md` D4 |
+| 批量删除配置中等于默认值的显式字段 | 不做，交给方案负责人 | 显式值可能是有意固定，现在无法区分（Studio 曾自动写入默认值，已由 5.1 修复，PR #150）。现有配置保持原样，清单待方案负责人确认（见第 12 节） |
 | `validate` 对"显式值等于默认值"给出警告 | 不做 | 与"保留有意固定的显式值"矛盾；根源由 5.1 修复 |
 
 ## 10. 核对代码后对前几轮讨论的修正
@@ -625,9 +625,9 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | BizDefinition 并入 Binding（原阶段 3b） | 撤回 | 见第 9 节。不必要，而且按原写法"首次读取时派生"，会让 `alg_pipeline_tool catalog` 输出空的 `bizs`，并让现有契约测试失败 |
 | 批次上限 64 是引入转换器时（`7f8f0b1`）定下的 | 首次出现在 `43c777f` / `0a27334`（2026-08-19），随 fail-closed 批次契约引入，提交说明没有给出取值依据 | `git log -G "max_batch_size\s*=\s*64"` |
 | 删掉配置中与默认值相同的字段即可 | 改为先修复 Studio（5.1），存量字段列清单交方案负责人（5.3） | 显式值可能是有意固定 |
-| 并行时的拒绝等第一个并行 Pipeline 出现再改 | 改为阶段 5.5 计划实施，实施前确认这一兼容放宽 | 普通开发者不应管理并行调度；改动只在 Validator，执行器已支持单节点层顺序执行 |
+| 并行时的拒绝等第一个并行 Pipeline 出现再改 | 阶段 5.5 已按约束自动分层，兼容放宽已确认 | 普通开发者不应管理并行调度；改动只在 Validator，执行器已支持单节点层顺序执行 |
 | Node 编写一侧已没有平台参数 | 不完整：Studio 会把 Node 参数默认值写成显式值；Control 命令 ID 需要人工选号 | `tests/tooling/studio_config_roundtrip_test.mjs`（PR #150）；`doc/dev_guide/first_control.md:23` |
-| 去掉默认值字段后 `plan` 输出一致，所以配置等价 | `plan` 只输出拓扑和波前层，不能证明配置等价；改用 `resolve-conf` 的 `effective_pipeline` 比对 | `doc/platform_parameter_ownership_plan.md` 附录 B |
+| 去掉默认值字段后 `plan` 输出一致，所以配置等价 | `plan` 只输出拓扑和波前层，不能证明配置等价；改用 `resolve-conf` 的 `effective_pipeline` 比对 | `alg_pipeline_tool resolve-conf` 的有效配置输出 |
 
 ## 11. 完成后的效果
 
@@ -643,14 +643,22 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 开启并行执行（阶段 5） | 有未声明 `parallel_safe` 的节点或共享串行模型时，整个配置被拒绝 | 框架把这些节点放进单独的子层顺序执行 |
 | 确认单次能送多少条请求（阶段 5） | 分别查池深、`validate-io` 和代码 | `resolve-conf --depth N` 直接给出 |
 
-## 12. 阶段 5：平台与调度参数归位
+## 12. 阶段 5：平台与调度参数归位（已完成）
 
 目标：业务开发者（写 Node 函数、转换器 Decode/Encode、编排 Pipeline）不了解平台资源和框架调度，也能接入并运行。
 分 5.1–5.5 五步：Studio 保留"未配置"状态；接入层平台数值归位；单次有效批次可查询与清理；请求编号回传移出业务契约；
 并行层按约束自动串行。外部契约（Operator 接口、宿主结构体、`.conf`、Pipeline JSON 格式、Demo 与 SDK 的交互）全部不变，
-5.5 的兼容放宽需先确认。
+5.5 的兼容放宽已确认并实现：未声明并行安全的节点和共享串行模型的节点自动拆层，原始层的写冲突仍会被拒绝。
 
-实施步骤、决策点、测试、验收和回退见 `doc/platform_parameter_ownership_plan.md`，本节不再重复。
+默认值的判定原则见 `CONTRIBUTING.md` §3，现行用法见 `tools/pipeline_studio/README.md`、
+`doc/dev_guide/business_onboarding.md` 和 `doc/dev_guide/custom_node_concepts.md`。
+
+待方案负责人确认：
+
+- rerank 候选段落上限：Operator 层按 10 MiB 检查，转换器按 64 KiB 拒绝（`src/adapter/input/rerank_input.cpp` 的
+  `kMaxCandidatePassageBytes`），实际生效的是 64 KiB，取值未定。
+- 配置中显式写出、且等于注册默认值的字段是否删除：基线时 `configs/` 下 161 个、`demo/fixtures/mock/` 下 29 个，配置未修改。
+  生成清单的脚本见提交 `12b3345` 中 `doc/platform_parameter_ownership_plan.md` 的附录 A.3。
 
 ## 附录：配置变体差异（供方案负责人确认）
 
