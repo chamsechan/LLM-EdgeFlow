@@ -54,7 +54,7 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 SOVERSION/ABI major 为 9。
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
-Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
+Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果必须留在该配置文件的目录内；Pipeline 必须填写 `deployment.io.io_binding`，
 可按需配置 `deployment.io.out_mem`。模型路径只在 `models[].model_path` 中填写，
 相对路径以宿主传入的部署根为基准。各路径的相对基准、存在性和目录边界见
@@ -219,7 +219,8 @@ Pipeline 配置只使用 Model/Backend 语法：
 Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，没有默认模型实例名。
 
 `ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
-再把构建好的 `IModel` 原子注册到 `ModelManager`。参考实现：
+返回构建好的单个 `IModel`。Pipeline 暂存全部模型，全部构建成功后通过
+`ModelManager::RegisterBatch` 完成会话内的批量原子注册。参考实现：
 `src/engine/models/bge_embedding/` 与 `src/engine/backends/onnxruntime/`。
 
 ---

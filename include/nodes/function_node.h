@@ -423,6 +423,13 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
       return true;
     }
     const auto* val = in_port_.Get(ctx);
+    if (!val && in_port_.Has(ctx)) {
+      if (err) {
+        *err = "Input port type mismatch for '" + name_ + "' (bound key: '" +
+               in_port_.ActualKey() + "') expected type: " + in_port_.TypeId();
+      }
+      return false;
+    }
     if (allow_missing_value_) {
       inputs->*member_ptr_ = val;
       return true;

@@ -51,7 +51,7 @@ package "模型执行（按需）" {
   component "ModelRuntimeFactory\nModelRegistry + BackendRegistry" as Factory
   component "IModel 能力\nEmbed / Score / Generate / Recognize / Transcribe" as Model
   component "中性 Backend 会话\nTensorGraph / TextGeneration / ImageTextGeneration\nGeneratedTokenEmbedding / AudioTranscription" as Backend
-  component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id" as Batch
+  component "FixedBatchExecutor\nchunk / execution_count / strip\nModel callback prepares padding\nreq_id / sub_id" as Batch
 }
 
 Tools --> Catalog : 查询
