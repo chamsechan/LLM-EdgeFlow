@@ -29,7 +29,7 @@ description: 用 MakeBatchSpec 新增或修改 LLM-EdgeFlow 多输入输出、�
 | --- | --- |
 | 多输入、参数、条件生成 | [starter_batch_node](../../../dev_support/node_authoring/starter_batch_node.cpp) |
 | 多模型能力 | [starter_multi_model_node](../../../dev_support/node_authoring/starter_multi_model_node.cpp) |
-| 1:1 的 Embedding/ASR/OCR/Rerank 起点 | `scripts/scaffold_custom_node.py --kind model -m <capability>`；检查生成端口是否符合真实算法 |
+| 1:1 的 Embedding/ASR/OCR/Rerank 起点 | `tools/scaffold_custom_node.py --kind model -m <capability>`；检查生成端口是否符合真实算法 |
 | 拆分且分配子编号/输出 counts | [TextChunkNode](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
 | 排名与候选来源 | [TextRerankNode](../../../src/common_nodes/text_rerank_node.cpp) |
 | 可配置 LLM 参数与请求上下文 | [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp)，共用 [生成参数 helper](../../../include/nodes/generate_options_config.h) |

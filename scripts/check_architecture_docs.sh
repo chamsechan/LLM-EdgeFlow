@@ -50,8 +50,8 @@ ACTIVE_DOCS=(
   "${DOC_ROOT}/developer_guide.md"
   "${DOC_ROOT}/dev_guide"
   "${DOC_ROOT}/README.md"
-  "${DOC_ROOT}/architecture.puml"
-  "${DOC_ROOT}/architecture_v2.puml"
+  "${DOC_ROOT}/architecture_classes.puml"
+  "${DOC_ROOT}/architecture_flow.puml"
   "${DOC_ROOT}/assets/architecture_class_diagram.svg"
   "${DOC_ROOT}/assets/architecture_flow.svg"
   "${DOC_ROOT}/assets/framework_overview.svg"
@@ -87,7 +87,7 @@ report_matches "${FICTITIOUS_NODES}" \
   "Found fictitious production nodes in active docs or codebase:" \
   "No fictitious production nodes found."
 
-# 4. 检查当前治理入口是否引用已移除的 Engine / Biz Node 架构。
+# 4. 检查当前治理入口是否引用已移除的 Engine / Biz Node 架构或已迁移的仓库路径。
 echo "[Check 4/8] Checking active governance for removed architecture identifiers..."
 REMOVED_ARCH=$(grep -rnE \
   '(IModelEngine|include/engine/engine_interface\.h|REGISTER_ENGINE_WITH_DEFINITION|src/business/|src/biz/|26 production nodes)' \
@@ -95,11 +95,17 @@ REMOVED_ARCH=$(grep -rnE \
 report_matches "${REMOVED_ARCH}" \
   "Found removed architecture identifiers in active governance/docs:" \
   "Active governance matches the Model/Backend and Common Node architecture."
+MOVED_PATHS=$(grep -rnE \
+  '(src/tools/|scripts/(dev_recipe|scaffold_custom_node)\.py|(^|[^_[:alnum:]])architecture(_v2)?\.puml|\./show([[:space:]]|$))' \
+  "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
+report_matches "${MOVED_PATHS}" \
+  "Found moved repository paths in active governance/docs:" \
+  "Active governance uses current tool and diagram paths."
 
 OVERVIEW_DOCS=(
   "${DOC_ROOT}/architecture.md"
-  "${DOC_ROOT}/architecture.puml"
-  "${DOC_ROOT}/architecture_v2.puml"
+  "${DOC_ROOT}/architecture_classes.puml"
+  "${DOC_ROOT}/architecture_flow.puml"
   "${DOC_ROOT}/assets/architecture_class_diagram.svg"
   "${DOC_ROOT}/assets/architecture_flow.svg"
   "${DOC_ROOT}/assets/framework_overview.svg"
@@ -117,7 +123,7 @@ require_concepts "${DOC_ROOT}/architecture.md" \
   "ValidatedPipelinePlan" "BlackboardKey" "NodeBase" "FixedBatchExecutor"
 require_concepts "${DOC_ROOT}/developer_guide.md" \
   "ValidatedPipelinePlan" "BlackboardKey" "NodeBase" "FixedBatchExecutor"
-require_concepts "${DOC_ROOT}/architecture.puml" \
+require_concepts "${DOC_ROOT}/architecture_classes.puml" \
   "SharedAlgorithmRuntime" "Pipeline" "AlgContext" "NodeBase" "FixedBatchExecutor"
 if [ ${FAILED} -eq 0 ]; then
   echo "✅ All core architectural concepts verified in architecture docs."
@@ -125,15 +131,15 @@ fi
 
 # 6. 检查当前部署解析、计划与 Node 注册流程
 echo "[Check 6/8] Checking current deployment and runtime planning concepts..."
-require_concepts "${DOC_ROOT}/architecture_v2.puml" \
+require_concepts "${DOC_ROOT}/architecture_flow.puml" \
   "PrepareDeploymentDocument" "ValidatedIoPlan" "ValidatedPipelinePlan" \
   "REGISTER_FUNCTION_NODE"
 
 # 7. 检查 PlantUML 与 SVG 资产存在性与非空
 echo "[Check 7/8] Verifying architecture diagrams exist and are non-empty..."
 for diagram in \
-  "${DOC_ROOT}/architecture.puml" \
-  "${DOC_ROOT}/architecture_v2.puml" \
+  "${DOC_ROOT}/architecture_classes.puml" \
+  "${DOC_ROOT}/architecture_flow.puml" \
   "${DOC_ROOT}/assets/architecture_class_diagram.svg" \
   "${DOC_ROOT}/assets/architecture_flow.svg" \
   "${DOC_ROOT}/assets/framework_overview.svg"; do

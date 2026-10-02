@@ -55,7 +55,7 @@ with output.open("w", encoding="utf-8") as stream:
         target.write_text((root / relative).read_text(encoding="utf-8"), encoding="utf-8")
         env = dict(os.environ, LLM_EDGEFLOW_REPO_ROOT=str(fixture_root))
         for name, options in standalone_cases:
-            subprocess.run([sys.executable, str(root / "scripts/scaffold_custom_node.py"),
+            subprocess.run([sys.executable, str(root / "tools/scaffold_custom_node.py"),
                             name, *options, "--write-test", "--add-to-cmake"],
                            env=env, text=True, capture_output=True, check=True)
         for source in sorted((fixture_root / "src/custom_nodes").glob("*.cpp")):

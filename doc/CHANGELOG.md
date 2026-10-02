@@ -64,3 +64,8 @@ Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `reque
 节点拆到单独的层顺序执行；原本因此在 Create 时返回 `-2` 的配置现在可以运行。
 `NODE_NOT_PARALLEL_SAFE`、`SERIALIZED_MODEL_CONCURRENCY` 两个诊断码保留但不再产生，
 `plan` 的 `layers` 与 `topological_order` 反映拆分后的执行顺序；原始层的写冲突仍会被拒绝。
+
+开发工具目录调整：Node 脚手架与开发 Recipe 移至 `tools/scaffold_custom_node.py`、
+`tools/dev_recipe.py`；根目录 `show` 软链接删除，Studio 改由 `./tools/pipeline_studio/server.py`
+启动，参数不变。C++ 命令行工具源码由 `src/tools/` 改名为 `src/cli/`，可执行文件仍输出到
+`build/`。架构图源文件改名为 `doc/architecture_classes.puml` 与 `doc/architecture_flow.puml`。

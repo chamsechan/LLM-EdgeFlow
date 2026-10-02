@@ -11,7 +11,7 @@ LLM Node，保留其上下游 Blackboard 键与依赖关系。
 
 ```bash
 cmake --build build --target alg_pipeline_tool_test alg_demo
-python3 scripts/dev_recipe.py prepare text-llm-node \
+python3 tools/dev_recipe.py prepare text-llm-node \
   --name MySummaryNode --profile entity_extract_mock \
   --tool build/alg_pipeline_tool_test --build-dir build \
   --pipeline configs/pipeline_my_summary.json --json
@@ -35,7 +35,7 @@ python3 scripts/dev_recipe.py prepare text-llm-node \
 执行 prepare 打印的唯一 verify 命令，例如：
 
 ```bash
-python3 scripts/dev_recipe.py verify text-llm-node \
+python3 tools/dev_recipe.py verify text-llm-node \
   --name MySummaryNode --pipeline configs/pipeline_my_summary.json \
   --tool build/alg_pipeline_tool_test --build-dir build \
   --effects configs/pipeline_my_summary_effects.json \

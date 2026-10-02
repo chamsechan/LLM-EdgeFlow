@@ -70,13 +70,25 @@ for removed_api in \
 done
 
 sed -i.bak 's/ValidatedIoPlan/ObsoleteIoPlan/g' \
-  "${FIXTURE_DOC_ROOT}/architecture_v2.puml"
-rm -f "${FIXTURE_DOC_ROOT}/architecture_v2.puml.bak"
+  "${FIXTURE_DOC_ROOT}/architecture_flow.puml"
+rm -f "${FIXTURE_DOC_ROOT}/architecture_flow.puml.bak"
 if run_fixture_gate; then
   echo "❌ Docs drift gate missed a missing current deployment plan concept"
   exit 1
 fi
-cp doc/architecture_v2.puml "${FIXTURE_DOC_ROOT}/architecture_v2.puml"
+cp doc/architecture_flow.puml "${FIXTURE_DOC_ROOT}/architecture_flow.puml"
+
+for moved_path in \
+  "src/tools/pipeline_authoring.h" "./scripts/scaffold_custom_node.py" \
+  "scripts/dev_recipe.py" "architecture_v2.puml" "(architecture.puml)" "./show --web"; do
+  echo "${moved_path}" >> "${FIXTURE_DOC_ROOT}/dev_guide/first_custom_node.md"
+  if run_fixture_gate; then
+    echo "❌ Docs drift gate missed moved path '${moved_path}'"
+    exit 1
+  fi
+  cp doc/dev_guide/first_custom_node.md \
+    "${FIXTURE_DOC_ROOT}/dev_guide/first_custom_node.md"
+done
 
 echo "PassthroughNode" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
 if run_fixture_gate; then

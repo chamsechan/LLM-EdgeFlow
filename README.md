@@ -83,7 +83,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
 
 # 打开本地 Web 工作台
-./show configs/pipeline_keyword_match_rules.json --web
+./tools/pipeline_studio/server.py configs/pipeline_keyword_match_rules.json --web
 ```
 
 工作台绑定 `127.0.0.1`，支持节点连线、参数编辑、配置校验和草稿运行。下一步可跟随 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则，并用 Demo 验证自己的方案。
@@ -184,4 +184,4 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 项目采用 [MIT License](LICENSE)。第三方组件及其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-源码头文件和命名约定见[源码布局与命名](doc/dev_guide/source_layout.md)；示例配置和 Profile 的组织见[配置目录](configs/README.md)。
+仓库目录、源码头文件和命名约定见[源码布局与命名](doc/dev_guide/source_layout.md)；示例配置和 Profile 的组织见[配置目录](configs/README.md)。
