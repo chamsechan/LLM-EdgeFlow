@@ -476,7 +476,8 @@ TEST_F(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
   EXPECT_EQ(plan.report.topological_layers[1][0], "node_c");
 }
 
-TEST_F(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
+TEST_F(ValidatedPipelinePlanTest,
+       SplitsSharedSerializedModelIntoSequentialLayers) {
   nlohmann::json pipeline_json = {
       {"biz_name", "plan_fixture_biz"},
       {"max_parallel_workers", 4},
@@ -498,17 +499,16 @@ TEST_F(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
                                {"config", {{"bind_model", "shared"}}}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
-  EXPECT_FALSE(plan.report.ok);
-  auto diagnostic = std::find_if(
-      plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-      [](const auto& item) {
-        return item.code == DiagnosticCode::kSerializedModelConcurrency;
-      });
-  ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-  EXPECT_EQ(diagnostic->node_id, "node_b");
-  EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"node_a"}));
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"node_a"}, {"node_b"}}));
+  EXPECT_EQ(plan.report.topological_order,
+            (std::vector<std::string>{"node_a", "node_b"}));
   pipeline_json["max_parallel_workers"] = 1;
-  EXPECT_TRUE(PipelineValidator::Validate(pipeline_json).ok);
+  plan = PipelineValidator::ValidateAndPlan(pipeline_json);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"node_a", "node_b"}}));
   pipeline_json["max_parallel_workers"] = 4;
   pipeline_json["pipeline"][1]["depends_on"] = {"node_a"};
   EXPECT_TRUE(PipelineValidator::Validate(pipeline_json).ok);
@@ -730,7 +730,10 @@ TEST_F(ValidatedPipelinePlanTest,
 
   // 1. 同节点同实例去重且独立实例并行通过
   auto plan_ok = PipelineValidator::ValidateAndPlan(base_pipeline);
-  EXPECT_TRUE(plan_ok.report.ok);
+  ASSERT_TRUE(plan_ok.report.ok) << plan_ok.report.ToJson().dump(2);
+  EXPECT_EQ(
+      plan_ok.report.topological_layers,
+      (std::vector<std::vector<std::string>>{{"multi_node", "parallel_node"}}));
   const auto& multi_plan = plan_ok.node_plans["multi_node"];
   ASSERT_EQ(multi_plan.model_bindings.size(), 2U);
   EXPECT_EQ(multi_plan.model_bindings[0].name, "generator");
@@ -743,20 +746,17 @@ TEST_F(ValidatedPipelinePlanTest,
   EXPECT_EQ(multi_plan.model_bindings[1].config_field, "bind_reviewer");
   EXPECT_EQ(multi_plan.model_bindings[1].model_id, "shared_a");
 
-  // 2. 其他节点共享第一槽位或第二槽位的 serialized 模型时被拒绝
+  // 2. 其他节点共享 serialized 模型时拆到单独的层
   auto conflict_pipeline = base_pipeline;
   conflict_pipeline["pipeline"][1]["config"]["bind_model"] = "shared_a";
-  auto plan_err = PipelineValidator::ValidateAndPlan(conflict_pipeline);
-  EXPECT_FALSE(plan_err.report.ok);
-  auto diag = std::find_if(
-      plan_err.report.diagnostics.begin(), plan_err.report.diagnostics.end(),
-      [](const auto& item) {
-        return item.code == DiagnosticCode::kSerializedModelConcurrency;
-      });
-  ASSERT_NE(diag, plan_err.report.diagnostics.end());
-  EXPECT_EQ(diag->node_id, "parallel_node");
-  EXPECT_EQ(diag->path, "/pipeline/1/config/bind_model");
-  EXPECT_EQ(diag->related_nodes, std::vector<std::string>{"multi_node"});
+  auto serialized_plan = PipelineValidator::ValidateAndPlan(conflict_pipeline);
+  ASSERT_TRUE(serialized_plan.report.ok)
+      << serialized_plan.report.ToJson().dump(2);
+  EXPECT_EQ(serialized_plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"multi_node"},
+                                                   {"parallel_node"}}));
+  EXPECT_EQ(serialized_plan.report.topological_order,
+            (std::vector<std::string>{"multi_node", "parallel_node"}));
 }
 
 TEST_F(ValidatedPipelinePlanTest,
@@ -981,7 +981,8 @@ TEST_F(ValidatedPipelinePlanTest,
       << plan.report.ToJson().dump(2);
 }
 
-TEST_F(ValidatedPipelinePlanTest, WorkerBudgetControlsParallelSafetyChecks) {
+TEST_F(ValidatedPipelinePlanTest,
+       WorkerBudgetSchedulesUnsafeNodesSequentially) {
   nlohmann::json config = {
       {"biz_name", "plan_fixture_biz"},
       {"pipeline",
@@ -989,14 +990,34 @@ TEST_F(ValidatedPipelinePlanTest, WorkerBudgetControlsParallelSafetyChecks) {
         {{"id", "independent"}, {"node_type", PlanTestNode::kNodeType}}}}};
   EXPECT_TRUE(PipelineValidator::Validate(config).ok);
   config["max_parallel_workers"] = 1;
-  EXPECT_TRUE(PipelineValidator::Validate(config).ok);
+  const auto sequential_report = PipelineValidator::Validate(config);
+  ASSERT_TRUE(sequential_report.ok) << sequential_report.ToJson().dump(2);
+  EXPECT_EQ(sequential_report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"source", "independent"}}));
   config["max_parallel_workers"] = 2;
+  const auto report = PipelineValidator::Validate(config);
+  ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
+  EXPECT_EQ(report.topological_layers, (std::vector<std::vector<std::string>>{
+                                           {"independent"}, {"source"}}));
+  EXPECT_EQ(report.topological_order,
+            (std::vector<std::string>{"independent", "source"}));
+}
+
+TEST_F(ValidatedPipelinePlanTest,
+       SerializationPreservesOriginalLayerWriteChecks) {
+  const nlohmann::json config = {
+      {"biz_name", "plan_fixture_biz"},
+      {"max_parallel_workers", 2},
+      {"pipeline",
+       {{{"id", "left"}, {"node_type", FlowContractProducerNode::kNodeType}},
+        {{"id", "right"},
+         {"node_type", FlowContractProducerNode::kNodeType}}}}};
   const auto report = PipelineValidator::Validate(config);
   EXPECT_FALSE(report.ok);
   EXPECT_TRUE(std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
                           [](const auto& d) {
                             return d.code ==
-                                   DiagnosticCode::kNodeNotParallelSafe;
+                                   DiagnosticCode::kParallelWriteConflict;
                           }))
       << report.ToJson().dump(2);
 }

@@ -139,6 +139,25 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
                                              {{"node_a_out", "string"}},
                                              {{"node_c_out", "string"}}));
 
+class DagTestUnsafeNodeC : public DagTestNodeC {
+ public:
+  inline static constexpr char kNodeType[] = "DagTestUnsafeNodeC";
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+inline NodeDefinition MakeUnsafeDagNodeDef() {
+  auto def =
+      MakeDagNodeDef(DagTestUnsafeNodeC::kNodeType, {{"node_a_out", "string"}},
+                     {{"node_c_out", "string"}});
+  def.parallel_safe = false;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DagTestUnsafeNodeC, MakeUnsafeDagNodeDef());
+
 class DagTestNodeD : public INode {
  public:
   inline static constexpr char kNodeType[] = "DagTestNodeD";
@@ -518,6 +537,52 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   ASSERT_NE(final_res, nullptr);
   EXPECT_EQ(*final_res,
             "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+}
+
+TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
+  nlohmann::json config = {
+      {"biz_name", "parallel_wavefront_dag"},
+      {"pipeline",
+       {{{"id", "node_a"}, {"node_type", DagTestNodeA::kNodeType}},
+        {{"id", "node_b"},
+         {"node_type", DagTestNodeB::kNodeType},
+         {"inputs", {{"node_a_out", "node_a_out"}}}},
+        {{"id", "node_c"},
+         {"node_type", DagTestUnsafeNodeC::kNodeType},
+         {"inputs", {{"node_a_out", "node_a_out"}}}},
+        {{"id", "node_d"},
+         {"node_type", DagTestNodeD::kNodeType},
+         {"inputs",
+          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}}}}}};
+
+  for (int workers : {4, 1}) {
+    SCOPED_TRACE(workers);
+    config["max_parallel_workers"] = workers;
+    const auto report = PipelineValidator::Validate(config);
+    ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
+    const std::vector<std::vector<std::string>> expected_layers =
+        workers > 1 ? std::vector<std::vector<std::string>>{{"node_a"},
+                                                            {"node_b"},
+                                                            {"node_c"},
+                                                            {"node_d"}}
+                    : std::vector<std::vector<std::string>>{
+                          {"node_a"}, {"node_b", "node_c"}, {"node_d"}};
+    EXPECT_EQ(report.topological_layers, expected_layers);
+    EXPECT_EQ(
+        report.topological_order,
+        (std::vector<std::string>{"node_a", "node_b", "node_c", "node_d"}));
+
+    Pipeline pipeline;
+    ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+    AlgContext context;
+    ResetExecutionTrace();
+    EXPECT_EQ(pipeline.Execute(&context), 0);
+    const auto* result = context.Read<std::string>("final_dag_result");
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(*result, "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+    EXPECT_EQ(SnapshotExecutionTrace(),
+              (std::vector<std::string>{"NodeA", "NodeB", "NodeC", "NodeD"}));
+  }
 }
 
 TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
