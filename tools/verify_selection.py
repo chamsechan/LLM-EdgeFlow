@@ -6,6 +6,7 @@ always the configuration authority. Effect scores are exact matches of selected
 JSON fields, scoped to an explicit labelled dataset, never general model quality.
 """
 import argparse
+import copy
 import datetime
 import hashlib
 import json
@@ -256,13 +257,14 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo, 
         raise ValueError("Effect specification I/O binding mismatch")
     model_root = Path(model_root).resolve()
     bundle_root = Path(pipeline_root).resolve()
+    execution_pipeline = copy.deepcopy(pipeline)
     # Use a temporary configuration inside the existing asset bundle; no model
     # weights are copied and no path escapes the Operator deployment root.
     with tempfile.TemporaryDirectory(prefix=".selection-", dir=bundle_root) as directory:
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
-        generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
-        (temporary / "pipeline.json").write_text(json.dumps(pipeline))
+        generated_conf = build_run_conf(execution_pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
+        (temporary / "pipeline.json").write_text(json.dumps(execution_pipeline))
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
         resolved = native(tool, ["resolve-conf", str(relative / "pipeline.conf"), "--root", str(bundle_root)])
         if not resolved.get("ok"):
@@ -279,7 +281,7 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo, 
     metrics = compare_samples(records, spec)
     return {"schema_version": 2, "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "selection_fingerprint": selection["selection_fingerprint"], "test_fingerprint": test_fingerprint,
-            "pipeline": pipeline, "selection": selection, "test_inputs": test_inputs,
+            "pipeline": execution_pipeline, "selection": selection, "test_inputs": test_inputs,
             "metrics": metrics, "records": records}
 
 

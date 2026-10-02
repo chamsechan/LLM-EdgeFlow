@@ -57,7 +57,15 @@ int ret = op.Process(handle, inputs, outputs);
 
 ## Demo
 
-先按根 README 构建。权重为 `models/qwen2.5-0.5b-instruct-q4_k_m.gguf`，缺失时可沿用
+本方案需要 llama.cpp；根 README 的 `minimal` 快速开始未启用推理 Backend。
+在仓库根目录切换到 `dev-gate` 并重建，使下面命令使用的 `build/` 包含该后端：
+
+```bash
+cmake --preset=dev-gate -B build
+cmake --build build --target alg_sdk alg_pipeline_tool alg_demo --parallel 4
+```
+
+权重为 `models/qwen2.5-0.5b-instruct-q4_k_m.gguf`，缺失时可沿用
 `./scripts/fetch_real_test_models.sh --gguf-only`；来源及校验以
 [资产清单](../../models/asset_manifest.json)为准。
 

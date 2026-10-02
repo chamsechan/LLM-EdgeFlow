@@ -5,6 +5,10 @@
 LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**，公共 **ABI major 为 9**；
 它们描述当前构建与接口基线，不代表已经交付的正式 Release。
 
+Node 的 `OptionalValue` 允许请求缺值，但拒绝已连接输入的运行时类型错误，失败时不调用业务
+函数或发布输出。效果验收在独立 Pipeline 副本中继承输出池配置，避免把自身配置合成误报为
+执行期间资产变化；验收记录保留实际执行配置，部署变更仍使旧证据失效。
+
 当前基线采用四层架构，通过 C++ Operator SDK 接入宿主；Pipeline JSON 描述明确的数据连接、
 模型配置与接入绑定，函数式 Node 使用统一 Spec 声明端口、参数、模型能力和 Control。
 现行规则见[架构设计](architecture.md)、[开发者指南](developer_guide.md)和
