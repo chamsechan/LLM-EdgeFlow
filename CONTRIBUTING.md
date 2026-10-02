@@ -54,6 +54,14 @@ Maintain the resulting rules and necessary rationale in their current owning gui
 the implementation and contract tests. Do not create numbered proposal archives or duplicate
 the same rule across documents. Git and PR history retain the development discussion.
 
+Use framework defaults for platform limits and scheduling values when a conservative value
+is correct for every supported scenario, even if slower, or an independent runtime hard
+limit bounds it. Keep semantic contracts such as ports, types, quantity relationships,
+execution protocols and external protocol IDs explicit, with actionable validation errors.
+Declare defaults in Definitions or registries so Catalog and tools expose them; tools must
+not turn untouched defaults into explicit configuration. Component capability limits belong
+in code; deployment overrides use existing Pipeline JSON fields without adding `.conf` fields.
+
 Start from the current guides and affected code/tests. Consult Git history only when the task
 needs a past decision or regression baseline. If current documentation, implementation and
 tests disagree, resolve whether this is a defect, stale documentation, or an authorized design
