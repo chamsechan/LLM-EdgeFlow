@@ -20,15 +20,15 @@ TextBatch → TextBatch 的 custom Node 可使用现有脚手架：
 
 ```bash
 python3 tools/scaffold_custom_node.py NormalizeTextNode --kind compute \
-  --in-port input:TextBatch --out-port output:TextBatch --add-to-cmake --write-test
+  --in-port input:TextBatch --out-port output:TextBatch --write-test
 ```
 
 示例名称需替换成实际操作名，已有实现直接修改，不用 `--force` 覆盖。
 脚手架的最简 Map 路径只自动生成该文本形态；其他载荷类型按实际 `MakeMapSpec` 接口实现，
 不要把生成的“未实现”占位当可用算法。填入真实算法和独立业务期望；需要字段时用
 `Parameters` / `Field` 绑定普通参数结构，
-默认值、范围与语义只声明一次。common Node 选择相同 API，登记到
-`src/common_nodes/CMakeLists.txt` 并明确 `.Category("common")`；脚手架默认生成 custom。
+默认值、范围与语义只声明一次。common Node 选择相同 API，放在
+`src/common_nodes/` 并明确 `.Category("common")`；脚手架默认生成 custom。
 
 以下情况改用 [Batch skill](../edgeflow-node-batch-developer/SKILL.md)：过滤/拆分/聚合、
 多输入/输出、请求分组、需要检查整批数据或模型调用。逐项函数自身可以返回 `NodeResult`

@@ -88,7 +88,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合和非同名端口映射；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
 | Operator 类型注册 | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 为新宿主类型登记规范后缀、输入校验或输出分配/重置/释放 |
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
-| 构建与部署 | [接入适配层 CMake](../../src/adapter/CMakeLists.txt)、[Demo CMake](../../demo/CMakeLists.txt)、[Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 登记新增 `.cpp`，编排业务端口，配置路径和输出容量 |
+| 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
 配置作者只选择 `io_binding`（`keyword_match.operator.v1`）。它关联注册的内部业务边界、
 输入/输出转换器和端口映射；Demo 从配置自动选择运行入口。Operator 槽位后缀
@@ -134,8 +134,6 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    转换器只在自身确有限制时才声明上限，0 表示不设限。
    有效上限取绑定与两个转换器中正值的最小值，Operator 再按实际输出池深收紧；
    三者都为 0 时，注册审计和部署准备都会报错。
-4. **登记构建。**
-   将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 
 行函数返回的错误只需携带业务原因与字段路径，包装补充 converter 和样本位置。
 输入行全部通过后才开始发布；输出 writer、宿主指针和池内字符串均只在同步调用期间借用，不能保存。
@@ -224,8 +222,7 @@ Profile 不填写业务名。SDK 预检与注册审计共用同业务 binding �
    同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
    调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
 3. 用 `REGISTER_DEMO_BIZ(biz_name, title, run_function)` 注册，名称与
-   binding 注册的内部业务名一致；将新增源码加入
-   `demo/CMakeLists.txt`。无需在 `demo/main.cpp` 增加业务分支。
+   binding 注册的内部业务名一致；`demo/biz/` 下的 `.cpp` 自动编入。无需在 `demo/main.cpp` 增加业务分支。
 4. 准备样例数据、Pipeline 和 `.conf`。先用 `--config`、`--dataset` 运行。
    仅需保存可重复调用的预设或加入套件时，再向 `demo/profiles.json` 添加 Profile。
 
@@ -292,7 +289,7 @@ Pipeline、Node 或 Model 的失败码也会向上传递，不能只按数值判
 
 ## 7. 最小验证
 
-完成源码登记后重新构建，再检查新业务是否进入 Catalog：
+重新构建，再检查新业务是否进入 Catalog：
 
 ```bash
 cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4

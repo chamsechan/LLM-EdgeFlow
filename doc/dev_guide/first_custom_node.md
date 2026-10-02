@@ -7,7 +7,7 @@
 下面用实体抽取指令做教学练习；这个任务本身也能用已有通用节点完成。
 
 需要新增文本 LLM Node 时，优先使用[文本 LLM Recipe](recipe_text_llm_node.md)：它会生成源码、
-测试、CMake 登记和可运行方案，并给出验证命令。该路径要求单输出部署，源方案中恰好有一个
+测试和可运行方案，并给出验证命令。该路径要求单输出部署，源方案中恰好有一个
 兼容的单输入、单输出 `TextBatch` LLM 节点，数量与来源规则为 `1:1` / `preserve`。
 普通计算 Node 使用[自定义 Node 开发步骤](../../src/custom_nodes/README.md#通用开发步骤速查)中的
 `--kind compute` 脚手架；希望逐步理解文本 Node 的文件与连线时，继续下面的练习。
@@ -19,7 +19,6 @@
 | 文件 | 你要做什么 |
 | --- | --- |
 | `src/custom_nodes/my_business_llm_node.cpp` | 脚手架生成后，填写两个文本函数 |
-| `src/custom_nodes/CMakeLists.txt` | 脚手架自动登记源码 |
 | `demo/fixtures/mock/pipeline_first_node.json` | 在复制的方案中选用新节点 |
 | `demo/fixtures/mock/pipeline_first_node.conf` | 指向新方案，复用已有模型路径和输出容量 |
 
@@ -47,7 +46,7 @@
 再生成源码：
 
 ```bash
-./tools/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --add-to-cmake --write-test
+./tools/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --write-test
 ```
 
 打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成三部分：
@@ -105,7 +104,7 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_pipeline_tool_test al
 ```
 
 看到 `node_type` 为 `MyBusinessLlmNode`、输入输出为 `TextBatch`，说明构建和注册已完成。
-仅创建 `.cpp` 文件还不够；`--add-to-cmake` 负责把它加入构建，重新编译才会进入 Catalog。
+新文件在下次构建时自动编入，重新编译后才会进入 Catalog。
 
 ## 5. 复用已有方案和 Adapter
 
@@ -172,8 +171,7 @@ flowchart LR
 `StarterTextFunctionsFollowTheDocumentedExercise`。该测试编译本文的两个函数体，检查模型
 实际收到的提示词、后处理结果、多条输入的来源，以及输入快照未被修改。
 
-本练习的 `--write-test` 会创建真实测试文件，由节点 runner 自动收集；`--add-to-cmake`
-登记生产 Node 源码。测试使用 `NodeHarness` 注入输入与 mock，
+本练习的 `--write-test` 会创建真实测试文件，由节点 runner 自动收集。测试使用 `NodeHarness` 注入输入与 mock，
 检查输出及模型调用。修改算法后同步填写独立业务期望。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
 还应覆盖自己的边界输入。交付执行 `./scripts/run_all_tests.sh`，流程见
 [CONTRIBUTING](../../CONTRIBUTING.md)。

@@ -8,7 +8,6 @@
 | 要做什么 | 修改位置 |
 | --- | --- |
 | 参数声明、业务校验和更新逻辑 | 所属 `src/custom_nodes/<操作>_node.cpp` |
-| 新节点登记编译 | 同目录 CMakeLists；脚手架可自动完成 |
 | 控制命令的行为断言 | 已有节点测试套件 |
 | 新平台专有结构的转换和拷贝 | Integration；普通 JSON Control 使用已有通用入口 |
 
@@ -25,7 +24,7 @@
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
+./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --write-test
 ```
 
 `1001` 是练习选择的 ID；若已被占用，选用另一个 ID 并同步下发值。标准 ID 保留给
@@ -37,7 +36,7 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 脚手架以[可编译模板](../../dev_support/node_authoring/starter_control_node.cpp)为唯一输入，
 生成 `src/custom_nodes/prefix_control_node.cpp`。这个选项只生成 TextBatch → TextBatch、
 1:1 保留来源的纯计算例子，不会改造任意已有 C++ 类。已有文件默认拒绝覆盖。
-`--write-test` 生成由节点 runner 自动收集的测试文件；`--add-to-cmake` 登记生产 Node 源码。
+`--write-test` 生成由节点 runner 自动收集的测试文件。
 
 ## 3. 阅读受控参数声明
 
@@ -62,7 +61,7 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ```
 
 输出应包含 `cmd_id: 1001`、`name: set_prefix` 和必填字符串 `prefix`。生产 Catalog
-只在你生成并登记源码后才增加节点；模板本身不作为内置能力交付。
+只在你生成源码并重新构建后才增加节点；模板本身不作为内置能力交付。
 
 ## 5. 通过已有 Demo 下发
 
