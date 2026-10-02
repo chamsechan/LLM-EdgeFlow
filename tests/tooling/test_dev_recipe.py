@@ -20,7 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = Path(os.environ.get("LLM_EDGEFLOW_PIPELINE_TOOL", ROOT / "build/alg_pipeline_tool_test"))
 DEMO = Path(os.environ.get("LLM_EDGEFLOW_DEMO_BINARY", ROOT / "build/alg_demo"))
-SPEC = importlib.util.spec_from_file_location("dev_recipe", ROOT / "scripts/dev_recipe.py")
+SPEC = importlib.util.spec_from_file_location("dev_recipe", ROOT / "tools/dev_recipe.py")
 RECIPE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RECIPE)
 
@@ -28,7 +28,7 @@ SPEC.loader.exec_module(RECIPE)
 class DevRecipeTest(unittest.TestCase):
     def test_recipe_cli_has_no_alternate_authoring_mode(self):
         result = subprocess.run(
-            [sys.executable, str(ROOT / "scripts/dev_recipe.py"), "prepare", "--help"],
+            [sys.executable, str(ROOT / "tools/dev_recipe.py"), "prepare", "--help"],
             text=True, capture_output=True, check=True)
         self.assertNotIn("--authoring", result.stdout)
 

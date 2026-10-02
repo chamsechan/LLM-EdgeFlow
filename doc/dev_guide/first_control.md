@@ -25,7 +25,7 @@
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
+./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
 ```
 
 `1001` 是练习选择的 ID；若已被占用，选用另一个 ID 并同步下发值。标准 ID 保留给

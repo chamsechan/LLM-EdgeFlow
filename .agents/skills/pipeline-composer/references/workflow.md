@@ -96,4 +96,4 @@ Demo uses the selected Pipeline defaults (by default, no example Control is sent
 only when it is part of the requested scenario. Verify request IDs, status and expected
 output fields in `results.jsonl` and `summary.json`.
 
-For human composition, use `./show --web` or `./show <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.
+For human composition, use `./tools/pipeline_studio/server.py --web` or `./tools/pipeline_studio/server.py <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.

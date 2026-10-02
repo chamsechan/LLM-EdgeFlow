@@ -1,4 +1,4 @@
-#include "tools/pipeline_authoring.h"
+#include "cli/pipeline_authoring.h"
 
 #include <algorithm>
 #include <stdexcept>

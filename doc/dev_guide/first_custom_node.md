@@ -47,7 +47,7 @@
 再生成源码：
 
 ```bash
-./scripts/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --add-to-cmake --write-test
+./tools/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --add-to-cmake --write-test
 ```
 
 打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成三部分：

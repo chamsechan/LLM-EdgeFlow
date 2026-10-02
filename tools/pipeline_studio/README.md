@@ -1,7 +1,7 @@
 # LLM-EdgeFlow Pipeline Studio
 
 本目录是 Pipeline Studio 的模块根目录，集中保存 Python 服务端、Web 资源和使用文档。
-根目录 `show` 是指向 `server.py` 的稳定启动入口。Web 工作台和自动化 CLI 调用 C++
+启动入口是 `tools/pipeline_studio/server.py`。Web 工作台和自动化 CLI 调用 C++
 Catalog 与 Validator，避免工具端维护另一套 Pipeline 规则。
 
 ## 前置条件
@@ -13,11 +13,11 @@ Backend 并重建对应产物。以下命令都从仓库根目录执行。
 
 ## 终端查看
 
-`./show 配置.json` 默认在终端显示方案；不提供文件时显示帮助。也可以使用原生
+`./tools/pipeline_studio/server.py 配置.json` 默认在终端显示方案；不提供文件时显示帮助。也可以使用原生
 C++ 查看工具，展示更多声明信息：
 
 ```bash
-./show configs/pipeline_doc_qa_default.json
+./tools/pipeline_studio/server.py configs/pipeline_doc_qa_default.json
 ./build/alg_show configs/pipeline_doc_qa_default.json
 ```
 
@@ -31,16 +31,16 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 
 ```bash
 # 启动工作台，使用“浏览文件…”选择一个 JSON
-./show --web
+./tools/pipeline_studio/server.py --web
 
 # 直接打开指定方案
-./show configs/pipeline_dialogue_audit_default.json --web
+./tools/pipeline_studio/server.py configs/pipeline_dialogue_audit_default.json --web
 
 # 可直接指定子目录或其他位置的单个文件
-./show configs/pipeline_doc_qa_kite.json --web
+./tools/pipeline_studio/server.py configs/pipeline_doc_qa_kite.json --web
 
 # 使用自定义端口
-./show --web --port 8081
+./tools/pipeline_studio/server.py --web --port 8081
 ```
 
 服务只绑定 `127.0.0.1`。启动命令会尝试打开浏览器；无法自动打开时，按终端输出的地址访问即可。按 `Ctrl+C` 停止服务。
@@ -109,7 +109,7 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 ```bash
 ./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
-./show --web
+./tools/pipeline_studio/server.py --web
 ```
 
 1. 点击顶部“新建”，选择 I/O 契约 `keyword_match.operator.v1`，
@@ -164,7 +164,7 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 批量动作依次作用于同一份候选，最后执行一次校验。动作失败或严格校验失败不返回候选；
 动作失败时 `failed_operation_index` 给出从 0 开始的位置。允许不完整草稿时，响应的 `ok: true`
 仅表示编辑成功，仍需检查 `validation.ok`。命令只输出 JSON，不写配置文件。
-请求和响应实现见 [PipelineAuthoring](../../src/tools/pipeline_authoring.h)。
+请求和响应实现见 [PipelineAuthoring](../../src/cli/pipeline_authoring.h)。
 
 工具支持新增、删除、重命名节点、连接、断开和单独增删执行依赖。无需补数据依赖，输入也没有
 隐式同名绑定。外部文档必须指定 `deployment.io.io_binding`，在 `validate`、`plan`、`edit` 中统一执行部署准备：
@@ -195,7 +195,7 @@ CLI 克隆默认返回包含 `pipeline` 的版本化响应。需要直接保存 
 需要在 Studio 编排测试配置时，启动服务前显式选择测试工具：
 
 ```bash
-LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
+LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./tools/pipeline_studio/server.py --web
 ```
 
 ### 运行当前方案

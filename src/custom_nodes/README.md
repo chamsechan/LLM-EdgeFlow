@@ -18,10 +18,10 @@ Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运
 2. 生成普通函数、Spec 和对应测试：
 
    ```bash
-   ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --write-test
-   ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --write-test
-   ./scripts/scaffold_custom_node.py FastAudioNode --kind model -m asr --add-to-cmake --write-test
-   ./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
+   ./tools/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --write-test
+   ./tools/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --write-test
+   ./tools/scaffold_custom_node.py FastAudioNode --kind model -m asr --add-to-cmake --write-test
+   ./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
    ```
 
    `--dry-run` 查看计划；已有文件默认拒绝覆盖。生成测试后补充独立业务期望。

@@ -1,4 +1,4 @@
-@startuml LLM_EdgeFlow_Target_Architecture_V2
+@startuml LLM_EdgeFlow_Runtime_Flow
 !pragma layout smetana
 !theme plain
 skinparam backgroundColor #FFFFFF
@@ -14,7 +14,6 @@ skinparam componentBorderColor #60A5FA
 
 title LLM-EdgeFlow 当前配置与运行流程
 legend bottom
-  文件名沿用 architecture_v2.puml；内容描述当前实现。
   箭头表示准备、创建或调用关系，不表示编译依赖。
   可用 Node、Model、Backend 与 Biz 以目标构建 Catalog 为准。
 endlegend

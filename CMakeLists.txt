@@ -271,7 +271,7 @@ set_target_properties(alg_sdk PROPERTIES
 
 add_subdirectory(dev_support)
 add_subdirectory(demo)
-add_subdirectory(src/tools)
+add_subdirectory(src/cli)
 
 include(CTest)
 if(BUILD_TESTING)

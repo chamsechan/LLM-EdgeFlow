@@ -13,6 +13,7 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/pipeline_document.h"
+#include "cli/pipeline_authoring.h"
 #include "core/common_contracts.h"
 #include "core/diagnostic_code.h"
 #include "core/pipeline_catalog.h"
@@ -25,7 +26,6 @@
 #include "nlohmann/json.hpp"
 #include "pipeline_document_validation.h"
 #include "pipeline_json_schema.h"
-#include "tools/pipeline_authoring.h"
 
 namespace {
 

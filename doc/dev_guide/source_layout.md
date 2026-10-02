@@ -1,7 +1,30 @@
 # 源码布局与命名
 
 文件按职责归属，头文件按使用者范围放置。架构职责与依赖方向见
-[架构设计](../architecture.md)。
+[架构设计](../architecture.md)，四层职责名称、源码目录与构建目标的对照见其中的
+[架构总览](../architecture.md#1-架构总览)。
+
+## 仓库顶层目录
+
+| 目录 | 内容 |
+| --- | --- |
+| `include/` | 头文件，按[使用范围](#头文件的三种使用范围)分目录；`contracts/` 是各层共用的轻量运行时契约（`edgeflow_runtime_contracts`），`platform_mock/` 是平台公共定义替身 |
+| `src/` | 四层实现：`adapter/`、`core/`、`common_nodes/` 与 `custom_nodes/`、`engine/`；`cli/` 是随框架编译的命令行工具 `alg_pipeline_tool` 与 `alg_show` |
+| `demo/` | 统一 Demo 程序、Demo Profile 与 Mock 方案（`fixtures/mock/`） |
+| `configs/` | 示例方案的 Pipeline JSON 与部署 `.conf`，命名见[配置说明](../../configs/README.md) |
+| `data/` | Demo Profile 使用的示例数据集 |
+| `models/` | 模型资产清单与说明；权重文件不入库 |
+| `dev_support/` | 测试用 Model/Backend 替身、Node 起步模板和可选基准，不链接进生产 SDK |
+| `tests/` | 按 `unit/`、`integration/`、`contract/`、`e2e/` 分类的测试，见[测试指南](../../tests/README.md) |
+| `tools/` | 开发者直接运行的工具：Pipeline Studio、Node 脚手架、开发 Recipe 与模型选择检查 |
+| `scripts/` | 构建、门禁、测试、格式化、架构图渲染与交付脚本 |
+| `cmake_ext/` | 见[构建扩展目录](#构建扩展目录) |
+| `doc/` | 架构、开发指南与参考文档，入口见[文档目录](../README.md) |
+| `.agents/skills/` | 项目开发 Skills，用法见[文档目录](../README.md#使用开发-skills) |
+
+新增工具按调用方选择目录：开发者在编排或编写组件时手动运行的放 `tools/`；构建、门禁
+与 CI 调用的放 `scripts/`；需要链接框架运行时的 C++ 命令行程序放 `src/cli/`，可执行文件
+仍输出到 `build/`。
 
 ## 构建扩展目录
 
@@ -72,6 +95,47 @@ src/adapter/
 `MakeTypedInputBinding<T>` 与 `MakePooledOutputBinding<T>`；模板保留在扩展头中，
 非模板分配实现归 `src/adapter/operator/`，不按业务复制池机制。
 完整步骤见[业务接入](business_onboarding.md)。
+
+## 流程编排层
+
+```text
+include/core/                     编排契约与 Node 注册接口
+  pipeline_config.h               Pipeline JSON 解析结果
+  pipeline_validator.h            依赖推导与校验，产出 ValidatedPipelinePlan
+  pipeline.h                      按校验计划执行
+  alg_context.h / blackboard_key.h / session_context.h
+  node_interface.h / node_definition.h / node_registry.h / port_definition.h
+  biz_definition.h / pipeline_catalog.h
+src/core/                         上述接口的实现；pipeline_config_structure.cpp/.h 等私有头相邻放置
+```
+
+## 能力节点层
+
+```text
+include/nodes/                    Node 作者接口，模板与内联实现，没有对应的 src/nodes/
+  authoring.h                     Node 作者统一包含的入口头
+  function_node.h                 Spec 声明、AuthorNode 与 REGISTER_FUNCTION_NODE
+  node_base.h                     Node 运行时基类 NodeBase
+  model_binding.h / model_calls.h / parameter_binding.h / control_authoring.h
+  traceable_batch_operations.h    Join、Group 等批处理与来源追踪辅助
+src/common_nodes/                 框架维护的中性 Node，每个文件一个 *_node.cpp
+  support/                        多个 Node 共用的私有辅助
+src/custom_nodes/                 领域算法 Node，按操作而非业务命名
+```
+
+起步模板在 `dev_support/node_authoring/`，由 `tools/scaffold_custom_node.py` 生成到
+`src/custom_nodes/`，见[自定义 Node 源码指南](../../src/custom_nodes/README.md)。
+
+## 模型执行层
+
+```text
+include/engine/                   Model/Backend 接口、注册表与 FixedBatchExecutor
+src/engine/
+  runtime/                        Model/Backend 注册表与运行时工厂
+  models/<模型>/                  模型预处理与语义；共享辅助放在 common/、bge_common/
+  backends/<运行时>/              厂商运行时资源，厂商头文件只在此处包含
+  text/ / text_generation/        UTF-8 处理与通用自回归生成
+```
 
 ## 标识符与定义
 

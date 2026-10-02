@@ -50,14 +50,14 @@ Map、LLM、Batch 是同一 Node 框架的三种作者入口。`common/custom` �
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
 | [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |
 | [公共日志 API](logging.md) | C/C++ 日志接入、等级与 Demo 环境变量 |
-| [源码布局与命名](dev_guide/source_layout.md) | 公开、扩展和内部头文件边界，以及目录与命名约定 |
+| [源码布局与命名](dev_guide/source_layout.md) | 仓库顶层目录、四层源码目录、公开/扩展/内部头文件边界与命名约定 |
 | [kiteLLM 接入](kitellm.md) | 可选 Backend 的构建、部署示例与验证限制 |
 | [开发与交付流程](../CONTRIBUTING.md) · [测试指南](../tests/README.md) | 任务分级、设计审查、验证与交付 |
 
 架构图按用途区分：
 
-- 当前实现类图：[PlantUML 源文件](architecture.puml) · [SVG](assets/architecture_class_diagram.svg)。
-- 当前配置与运行流程图：[PlantUML 源文件](architecture_v2.puml) · [SVG](assets/architecture_flow.svg)；区分创建期的准备与校验、请求期的解码与执行。
+- 当前实现类图：[PlantUML 源文件](architecture_classes.puml) · [SVG](assets/architecture_class_diagram.svg)。
+- 当前配置与运行流程图：[PlantUML 源文件](architecture_flow.puml) · [SVG](assets/architecture_flow.svg)；区分创建期的准备与校验、请求期的解码与执行。
 - 首页工作原理图：[framework_overview.svg](assets/framework_overview.svg)，直接维护 SVG 源码。
 
 前两张 SVG 由 PlantUML `1.2024.7` 生成。修改对应源文件后运行：
