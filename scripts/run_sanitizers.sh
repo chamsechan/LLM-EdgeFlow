@@ -99,6 +99,19 @@ NCPU="${LLM_EDGEFLOW_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null 
   "${COMMON_CMAKE_ARGS[@]}"
 if [[ "${MODE}" == "fast" ]]; then
   cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"${NCPU}"
+elif [[ "${MODE}" == "ci-runtime" ]]; then
+  # Build only executables run by sanitizer-runtime tests. Tooling binaries such as
+  # alg_pipeline_tool and alg_show are tier4-only; a missing target here fails CTest.
+  cmake --build "${BUILD_DIR}" -j"${NCPU}" --target \
+    alg_demo \
+    edgeflow_test_core_runner \
+    edgeflow_test_nodes_runner \
+    edgeflow_test_adapter_runner \
+    edgeflow_test_tooling_runner \
+    test_cpp_operator_sdk \
+    test_registry_conflict \
+    test_model_backend_registry_conflict \
+    test_catalog_contract_ssot
 else
   cmake --build "${BUILD_DIR}" -j"${NCPU}"
 fi

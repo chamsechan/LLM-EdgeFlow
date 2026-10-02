@@ -1,0 +1,42 @@
+name: Set up build environment
+description: >-
+  Install only the build tools missing from the runner image and export TOOLCHAIN_ID.
+  Hosted images already provide most tools; skipping them avoids slow mirror downloads.
+
+inputs:
+  packages:
+    description: >-
+      Whitespace-separated apt packages. Use package:command when the package provides a
+      command with a different name; a package is skipped when that command already exists
+      or dpkg reports it installed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install missing packages
+      shell: bash
+      env:
+        REQUESTED_PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        missing=()
+        for spec in ${REQUESTED_PACKAGES}; do
+          package="${spec%%:*}"
+          probe="${spec#*:}"
+          if command -v "${probe}" >/dev/null 2>&1 ||
+             [[ "$(dpkg-query -W -f='${Status}' "${package}" 2>/dev/null)" == "install ok installed" ]]; then
+            continue
+          fi
+          missing+=("${package}")
+        done
+        if [[ ${#missing[@]} -eq 0 ]]; then
+          echo "All requested build tools are preinstalled."
+        else
+          echo "Installing: ${missing[*]}"
+          # Package triggers rebuilding the man database add minutes on hosted runners.
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends "${missing[@]}"
+        fi
+        echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> "${GITHUB_ENV}"

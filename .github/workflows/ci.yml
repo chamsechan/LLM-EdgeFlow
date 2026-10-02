@@ -15,6 +15,11 @@ jobs:
   build-and-test:
     name: Build & GTest Regression Suite (CMake 3.19)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    permissions:
+      contents: read
+      actions: write
 
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -30,20 +35,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # CMake comes from the pinned 3.19 archive below; Java only needs to run PlantUML.
       - name: Set up Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ccache \
-            clang-format-18 \
-            cmake \
-            curl \
-            default-jre-headless \
-            mold \
-            ninja-build \
-            python3
-          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-build-env
+        with:
+          packages: >-
+            build-essential ccache clang-format-18 curl default-jre-headless:java
+            mold ninja-build:ninja python3
 
       - name: Use Minimum Supported CMake
         run: |
@@ -69,10 +67,10 @@ jobs:
           restore-keys: |
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      - name: Restore/Save CCache
-        uses: actions/cache@v4
+      - name: Restore CCache
+        uses: ./.github/actions/ccache-restore
         with:
-          path: ${{ github.workspace }}/.ccache
+          path: ${{ env.CCACHE_DIR }}
           key: ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
             ccache-${{ runner.os }}-${{ github.ref }}-
@@ -85,9 +83,21 @@ jobs:
             ./scripts/run_all_tests.sh
           ccache -s
 
+      - name: Save CCache
+        uses: ./.github/actions/ccache-save
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          prefix: ccache-${{ runner.os }}-${{ github.ref }}-
+
   sanitizer:
     name: Production Backends ASan & UBSan
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    permissions:
+      contents: read
+      actions: write
 
     env:
       CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers
@@ -103,19 +113,11 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # sanitizer-runtime excludes the tooling tests that need Java.
       - name: Set up Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ccache \
-            cmake \
-            curl \
-            default-jre-headless \
-            mold \
-            ninja-build \
-            python3
-          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-build-env
+        with:
+          packages: build-essential ccache cmake curl mold ninja-build:ninja python3
 
       - name: Restore/Save Prebuilt 3rdparty Dependencies
         uses: actions/cache@v4
@@ -128,8 +130,8 @@ jobs:
           restore-keys: |
             3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      - name: Restore/Save Sanitizer CCache
-        uses: actions/cache@v4
+      - name: Restore Sanitizer CCache
+        uses: ./.github/actions/ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
           # Restore the latest accessible snapshot; save a new one scoped to ref and commit sha
@@ -145,9 +147,21 @@ jobs:
             ./scripts/run_sanitizers.sh --ci-runtime
           ccache -s
 
+      - name: Save Sanitizer CCache
+        uses: ./.github/actions/ccache-save
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.ref }}-${{ github.sha }}
+          prefix: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.ref }}-
+
   real-c-abi-and-profile:
     name: Real GGUF Operator & Profile
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    permissions:
+      contents: read
+      actions: write
 
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -164,17 +178,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ccache \
-            cmake \
-            curl \
-            mold \
-            ninja-build \
-            python3
-          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-build-env
+        with:
+          packages: build-essential ccache cmake curl mold ninja-build:ninja python3
 
       - name: Restore 3rdparty Dependencies
         uses: actions/cache/restore@v4
@@ -190,14 +196,16 @@ jobs:
           restore-keys: |
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      - name: Restore/Save CCache
-        uses: actions/cache@v4
+      # Fall back to this job's main snapshot before the default gate's differently
+      # configured cache.
+      - name: Restore CCache
+        uses: ./.github/actions/ccache-restore
         with:
-          path: ${{ github.workspace }}/.ccache
+          path: ${{ env.CCACHE_DIR }}
           key: ccache-real-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
             ccache-real-${{ runner.os }}-${{ github.ref }}-
-            ccache-${{ runner.os }}-${{ github.ref }}-
+            ccache-real-${{ runner.os }}-
             ccache-${{ runner.os }}-
 
       - name: Cache Pinned GGUF
@@ -214,9 +222,21 @@ jobs:
             ./scripts/run_real_model_e2e.sh
           ccache -s
 
+      - name: Save CCache
+        uses: ./.github/actions/ccache-save
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-real-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          prefix: ccache-real-${{ runner.os }}-${{ github.ref }}-
+
   whisper-asr:
     name: Whisper ASR Backend & Real Profile
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    permissions:
+      contents: read
+      actions: write
 
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -233,17 +253,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ccache \
-            cmake \
-            curl \
-            mold \
-            ninja-build \
-            python3
-          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-build-env
+        with:
+          packages: build-essential ccache cmake curl mold ninja-build:ninja python3
 
       - name: Restore/Save Whisper 3rdparty Dependencies
         uses: actions/cache@v4
@@ -260,14 +272,14 @@ jobs:
             3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      - name: Restore/Save CCache
-        uses: actions/cache@v4
+      - name: Restore CCache
+        uses: ./.github/actions/ccache-restore
         with:
-          path: ${{ github.workspace }}/.ccache
+          path: ${{ env.CCACHE_DIR }}
           key: ccache-whisper-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
             ccache-whisper-${{ runner.os }}-${{ github.ref }}-
-            ccache-${{ runner.os }}-${{ github.ref }}-
+            ccache-whisper-${{ runner.os }}-
             ccache-${{ runner.os }}-
 
       - name: Cache Pinned Whisper Model
@@ -287,6 +299,13 @@ jobs:
             ./scripts/run_real_model_e2e.sh --whisper
           ccache -s
 
+      - name: Save CCache
+        uses: ./.github/actions/ccache-save
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-whisper-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          prefix: ccache-whisper-${{ runner.os }}-${{ github.ref }}-
+
   kite-llm:
     name: kiteLLM Private Release & Real GGUF
     # Fork PRs and Dependabot do not receive repository secrets. Keep this job
@@ -297,8 +316,10 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # actions: write lets ccache-save prune superseded snapshots for this ref.
     permissions:
       contents: read
+      actions: write
 
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache-kite
@@ -317,19 +338,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            ccache \
-            cmake \
-            curl \
-            gh \
-            libgomp1 \
-            mold \
-            ninja-build \
-            python3
-          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-build-env
+        with:
+          packages: build-essential ccache cmake curl gh libgomp1 mold ninja-build:ninja python3
 
       - name: Restore/Save Open-Source 3rdparty Dependencies
         uses: actions/cache@v4
@@ -344,8 +355,8 @@ jobs:
           restore-keys: |
             3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      - name: Restore/Save Kite CCache
-        uses: actions/cache@v4
+      - name: Restore Kite CCache
+        uses: ./.github/actions/ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
           key: kite-ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
@@ -423,11 +434,19 @@ jobs:
             --output-on-failure --no-tests=error \
             -L "kite")
 
+      - name: Save Kite CCache
+        uses: ./.github/actions/ccache-save
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: kite-ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          prefix: kite-ccache-${{ runner.os }}-${{ github.ref }}-
+
   acceptance-evidence:
     name: Exact-SHA Acceptance Evidence
     if: always()
     needs: [build-and-test, sanitizer, real-c-abi-and-profile, whisper-asr, kite-llm]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout Code

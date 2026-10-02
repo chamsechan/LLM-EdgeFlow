@@ -1,0 +1,38 @@
+name: PR Cache Cleanup
+
+# Pull request caches are only reachable from that pull request. Delete them once it closes so
+# they do not push main snapshots out of the repository's Actions cache quota.
+on:
+  pull_request:
+    types: [ closed ]
+    branches: [ main ]
+
+jobs:
+  delete-pr-caches:
+    name: Delete Closed PR Caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete Caches Scoped to the Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          set -uo pipefail
+          api="repos/${GITHUB_REPOSITORY}/actions/caches"
+          if ! entries=$(gh api -X GET "${api}" -f ref="${CACHE_REF}" -f per_page=100 \
+              --jq '.actions_caches[] | "\(.id) \(.key)"'); then
+            echo "::warning::Cannot list caches for ${CACHE_REF}."
+            exit 0
+          fi
+          while read -r id key; do
+            [[ -z "${id}" ]] && continue
+            if gh api -X DELETE "${api}/${id}" >/dev/null; then
+              echo "Deleted ${key}"
+            else
+              echo "::warning::Cannot delete ${key}; read-only tokens skip cleanup."
+            fi
+          done <<< "${entries}"
