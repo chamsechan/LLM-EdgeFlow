@@ -1,0 +1,31 @@
+name: Restore ccache
+description: >-
+  Restore the newest matching ccache snapshot and record when the job started using it,
+  so ccache-save can keep only the entries this job touched.
+
+inputs:
+  path:
+    description: ccache directory.
+    required: true
+  key:
+    description: Exact key saved by this job for the current ref and commit.
+    required: true
+  restore-keys:
+    description: Ordered fallback key prefixes.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore ccache snapshot
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+
+    # Restored files keep their saved mtimes; ccache refreshes an entry's mtime on every hit
+    # and writes misses as new files, so anything newer than this mark is the job's working set.
+    - name: Mark ccache working-set start
+      shell: bash
+      run: echo "CCACHE_WORKING_SET_START=$(date +%s)" >> "${GITHUB_ENV}"
