@@ -259,10 +259,7 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
       {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
       {DiagnosticCode::kMissingBizOutput, "MISSING_BIZ_OUTPUT"},
-      {DiagnosticCode::kNodeNotParallelSafe, "NODE_NOT_PARALLEL_SAFE"},
       {DiagnosticCode::kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT"},
-      {DiagnosticCode::kSerializedModelConcurrency,
-       "SERIALIZED_MODEL_CONCURRENCY"},
       {DiagnosticCode::kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH"},
       {DiagnosticCode::kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH"},
       {DiagnosticCode::kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH"},
@@ -274,7 +271,7 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kInvalidBuildState, "INVALID_BUILD_STATE"},
   };
 
-  EXPECT_EQ(cases.size(), 44u);
+  EXPECT_EQ(cases.size(), 42u);
   std::unordered_set<std::string> names;
   for (const auto& item : cases) {
     std::string name = DiagnosticCodeName(item.code);
@@ -351,7 +348,7 @@ TEST_F(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
   nlohmann::json pipeline_json;
   stream >> pipeline_json;
   pipeline_json.erase("deployment");
-  pipeline_json["biz_name"] = "smart_doc_qa_v1";
+  pipeline_json["biz_name"] = "doc_qa";
   const size_t source_index = pipeline_json["pipeline"].size();
   pipeline_json["pipeline"].push_back(
       {{"id", "ingress_collision"},
@@ -379,7 +376,7 @@ TEST_F(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
 TEST_F(ValidatedPipelinePlanTest,
        ResolvesConfiguredPortLifetimeBeforePlanning) {
   nlohmann::json pipeline_json = {
-      {"biz_name", "smart_doc_qa_v1"},
+      {"biz_name", "doc_qa"},
       {"models",
        nlohmann::json::array({{{"model_id", "embed_model_v1"},
                                {"model_type", "test_biz_embedding"},
@@ -537,7 +534,7 @@ REGISTER_NODE_WITH_DEFINITION(RestrictedBusinessNode, MakeRestrictedNodeDef());
 
 TEST_F(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
   nlohmann::json pipeline_json = {
-      {"biz_name", "smart_doc_qa_v1"},
+      {"biz_name", "doc_qa"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "wrong_business_node"},
@@ -579,7 +576,7 @@ TEST_F(ValidatedPipelinePlanTest,
   }
 
   nlohmann::json pipeline_json = {
-      {"biz_name", "dense_cross_rerank_scoring"},
+      {"biz_name", "cross_rerank"},
       {"models",
        nlohmann::json::array({{{"model_id", "m_rel"},
                                {"model_type", "mock_path_model"},

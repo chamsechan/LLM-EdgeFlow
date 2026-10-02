@@ -58,7 +58,7 @@ typedef struct CompanyOdOutput {
 } CompanyOdOutput;
 
 /**
- * @brief 业务 4: 智能对话风控质检 Operator 聚合输入结构体
+ * @brief 业务 4: 对话合规审核 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorAuditInput {
   uint64_t request_id;
@@ -67,7 +67,7 @@ typedef struct CompanyOperatorAuditInput {
 } CompanyOperatorAuditInput;
 
 /**
- * @brief 业务 4: 智能对话风控质检 Operator 聚合输出结构体
+ * @brief 业务 4: 对话合规审核 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorAuditOutput {
   uint64_t request_id;
@@ -97,7 +97,7 @@ typedef struct CompanyOperatorKeywordOutput {
 } CompanyOperatorKeywordOutput;
 
 /**
- * @brief 业务 2: 实体/名词提取 Operator 聚合输入结构体
+ * @brief 业务 2: 实体抽取 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorEntityInput {
   uint64_t request_id;
@@ -105,7 +105,7 @@ typedef struct CompanyOperatorEntityInput {
 } CompanyOperatorEntityInput;
 
 /**
- * @brief 业务 2: 实体/名词提取 Operator 聚合输出结构体
+ * @brief 业务 2: 实体抽取 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorEntityOutput {
   uint64_t request_id;
@@ -114,7 +114,7 @@ typedef struct CompanyOperatorEntityOutput {
 } CompanyOperatorEntityOutput;
 
 /**
- * @brief 业务 3: 智能长文档问答 Operator 聚合输入结构体
+ * @brief 业务 3: 文档问答 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorDocInput {
   uint64_t request_id;
@@ -123,7 +123,7 @@ typedef struct CompanyOperatorDocInput {
 } CompanyOperatorDocInput;
 
 /**
- * @brief 业务 3: 智能长文档问答 Operator 聚合输出结构体
+ * @brief 业务 3: 文档问答 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorDocOutput {
   uint64_t request_id;
@@ -157,7 +157,7 @@ typedef struct CompanyOperatorAudioOutput {
 #define COMPANY_OPERATOR_MAX_RERANK_CANDIDATES 8
 
 /**
- * @brief 业务 7: 纯语义精排 Operator 聚合输入结构体
+ * @brief 业务 7: Cross-Encoder 精排 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorRerankInput {
   uint64_t request_id;
@@ -168,7 +168,7 @@ typedef struct CompanyOperatorRerankInput {
 } CompanyOperatorRerankInput;
 
 /**
- * @brief 业务 7: 纯语义精排 Operator 聚合输出结构体
+ * @brief 业务 7: Cross-Encoder 精排 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorRerankOutput {
   uint64_t request_id;

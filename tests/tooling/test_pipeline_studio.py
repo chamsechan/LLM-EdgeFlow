@@ -336,7 +336,7 @@ class RunnableSolutionTest(unittest.TestCase):
         try:
             process = subprocess.run(command[3:], cwd=command[1], text=True, capture_output=True, timeout=30)
             self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-            records = [json.loads(line) for line in (output / "keyword_match_v1/results.jsonl").read_text().splitlines()]
+            records = [json.loads(line) for line in (output / "keyword_match/results.jsonl").read_text().splitlines()]
             self.assertEqual(records[0]["output"]["match_result"]["intent"], "SAVED_RULE")
         finally:
             shutil.rmtree(output, ignore_errors=True)
@@ -602,7 +602,7 @@ class PipelineCliTest(unittest.TestCase):
                 (path / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
                 code, resolved = self.command("validate-io", str(path / "pipeline.conf"))
                 self.assertEqual(code, 0, resolved)
-                self.assertEqual(resolved["binding"]["biz_name"], "keyword_match_v1")
+                self.assertEqual(resolved["binding"]["biz_name"], "keyword_match")
                 self.assertEqual(resolved["binding"]["binding_id"], "keyword_match.operator.v1")
                 self.assertEqual(set(resolved["output_pools"]), {"keyword_out"})
                 self.assertEqual(resolved["output_pools"]["keyword_out"]["capacities"], {"match_result_json": 2047})
@@ -627,7 +627,7 @@ class PipelineCliTest(unittest.TestCase):
                             ("output_allocations", "/deployment/io/output_allocations")):
             pipeline = copy.deepcopy(original)
             if field == "biz_name":
-                pipeline[field] = "keyword_match_v1"
+                pipeline[field] = "keyword_match"
             else:
                 io_overrides(pipeline)[field] = {}
             code, result = self.command("validate", "--stdin", input_pipeline=pipeline)
@@ -637,7 +637,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(code, 1, result)
         self.assertEqual(result["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
         for command in ("catalog", "init"):
-            process = subprocess.run([str(PIPELINE_TOOL), command, "--biz", "keyword_match_v1"],
+            process = subprocess.run([str(PIPELINE_TOOL), command, "--biz", "keyword_match"],
                                      cwd=ROOT, capture_output=True, text=True)
             self.assertEqual(process.returncode, 2, process.stdout)
 
@@ -661,7 +661,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(initialized["pipeline"]["deployment"]["io"]["io_binding"], "keyword_match.operator.v1")
         self.assertNotIn("business_name", initialized["pipeline"])
         rejected = subprocess.run(
-            [str(PIPELINE_TOOL), "catalog", "--business", "keyword_match_v1"],
+            [str(PIPELINE_TOOL), "catalog", "--business", "keyword_match"],
             text=True,
             capture_output=True,
             cwd=ROOT,
@@ -709,11 +709,11 @@ class PipelineCliTest(unittest.TestCase):
             profiles = json.loads(process.stdout)["profiles"]
             self.assertEqual([p["name"] for p in profiles], ["unavailable_models"])
             self.assertEqual(profiles[0]["io_binding"], "keyword_match.operator.v1")
-            self.assertEqual(profiles[0]["biz_name"], "keyword_match_v1")
+            self.assertEqual(profiles[0]["biz_name"], "keyword_match")
 
     def test_invalid_profile_fields_and_shapes_are_rejected_by_all_consumers(self):
         base = {"config": "unused.conf", "dataset": "unused.txt"}
-        cases = [(dict(base, biz="keyword_match_v1"), "Unknown Profile field", "biz"),
+        cases = [(dict(base, biz="keyword_match"), "Unknown Profile field", "biz"),
                  (dict(base, batch_szie=1), "Unknown Profile field", "batch_szie"),
                  ([], "must be an object", None), (None, "must be an object", None)]
         with tempfile.TemporaryDirectory() as directory:
@@ -834,7 +834,7 @@ class PipelineCliTest(unittest.TestCase):
         code, report = self.command("resolve-conf", str(conf_path.relative_to(ROOT)), "--root", str(ROOT), "--depth", "1")
         self.assertEqual(code, 0, report)
         configuration = report["configuration"]
-        self.assertEqual(configuration["biz_name"], "entity_extract_v1")
+        self.assertEqual(configuration["biz_name"], "entity_extract")
         self.assertEqual(configuration["io_binding"], "entity_extract.operator.v1")
         self.assertEqual(configuration["effective_frame_depth"], 1)
         self.assertEqual(configuration["effective_process_batch_limit"], 1)
@@ -2474,7 +2474,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         )
         self.assertTrue(preflight_res["ok"])
         summary = preflight_res["summary"]
-        self.assertEqual(summary["biz_name"], "keyword_match_v1")
+        self.assertEqual(summary["biz_name"], "keyword_match")
         self.assertIn("tools", summary)
         self.assertIn("pipeline_snapshot", summary)
         self.assertIn("status", summary)

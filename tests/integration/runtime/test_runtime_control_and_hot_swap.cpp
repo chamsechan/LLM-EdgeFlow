@@ -34,7 +34,7 @@ namespace {
 
 nlohmann::json ControlInstancesPipeline() {
   return nlohmann::json::parse(R"({
-    "biz_name":"keyword_match_v1", "models":[], "pipeline":[
+    "biz_name":"keyword_match", "models":[], "pipeline":[
       {"id":"rules_a", "node_type":"TextRuleMatchNode", "depends_on":[],
        "inputs":{"text":"input_sentences"},
                 "outputs":{"matches":"first_matches"},

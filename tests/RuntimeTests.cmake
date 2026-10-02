@@ -433,7 +433,7 @@ set(EDGEFLOW_PIPELINE_CONFIGS
   configs/pipeline_doc_qa_rerank_default.json
   configs/pipeline_doc_qa_rerank_cpu.json
   configs/pipeline_entity_extract_cpu.json
-  demo/fixtures/mock/pipeline_ocr_doc_qa.json
+  demo/fixtures/mock/pipeline_ocr_invoice_qa.json
   demo/fixtures/mock/pipeline_audio_asr_intent.json
   configs/pipeline_cross_rerank_cpu.json)
 foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)

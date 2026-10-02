@@ -1,4 +1,4 @@
-# 语音交互与意图槽位抽取测试语料 ([AUDIO_META])
+# 语音识别与意图槽位测试语料 ([AUDIO_META])
 [AUDIO_META]
 sample_rate=16000
 duration_samples=16000

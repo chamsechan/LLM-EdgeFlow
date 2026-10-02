@@ -35,7 +35,7 @@ description: Build LLM-EdgeFlow solutions that transform a field from a complete
    [Batch Node skill](../edgeflow-node-batch-developer/SKILL.md)。不把平台转换放进 Core 或 Nodes。
 
 当前翻译参照 `doc/solutions/translate.md`、`src/adapter/biz/translate_bindings.cpp` 和
-`configs/pipeline_translate_cpu.json`。其 `translate_v1` 复用既有文本/JSON 载体、一个
+`configs/pipeline_translate_cpu.json`。其业务 `translate` 复用既有文本/JSON 载体、一个
 `LlmGenerateNode` 及模型实现。`sentence_text` / `entities_json` 是载体字段名称，不是业务
 JSON 内的 query / translated；名称不够通用并不要求全仓改名。
 

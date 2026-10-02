@@ -126,13 +126,13 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 
 | 场景 | 处理方式 | 配置与运行条件 |
 | :--- | :--- | :--- |
-| 关键词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match_rules.json)；无需模型权重 |
+| 关注词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match_rules.json)；无需模型权重 |
 | 实体抽取 | LLM 生成与结构化结果解析 | [配置](configs/pipeline_entity_extract_cpu.json)；llama.cpp 与匹配的语言模型 |
 | 文档问答 | 文本分块、向量检索与 LLM 回答 | [配置](configs/pipeline_doc_qa_default.json)；ONNX Runtime、llama.cpp 与对应模型 |
-| 对话合规审计 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit_default.json)；向量、精排和语言模型 |
-| 文本精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank_cpu.json)；ONNX Runtime 与精排模型 |
-| 图像文档问答 | 图像转写后进行问答 | [配置](configs/pipeline_ocr_doc_qa_kite.json)；Kite 与视觉、语言模型 |
-| 语音意图识别 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_cpu.json)；启用 whisper.cpp 并准备语音模型 |
+| 对话合规审核 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit_default.json)；向量、精排和语言模型 |
+| Cross-Encoder 精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank_cpu.json)；ONNX Runtime 与精排模型 |
+| OCR 票据问答 | 票据图像转写后抽取字段并问答 | [配置](configs/pipeline_ocr_invoice_qa_kite.json)；Kite 与视觉、语言模型 |
+| 语音识别与意图槽位 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_intent_cpu.json)；启用 whisper.cpp 并准备语音模型 |
 
 Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置；参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
 

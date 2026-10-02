@@ -11,7 +11,7 @@
 namespace alg_demo {
 
 int RunKeywordMatchDemo(const DemoOptions& options) {
-  PrintBanner("关注词匹配业务", "Conf: " + options.config_path);
+  PrintBanner("关注词匹配", "Conf: " + options.config_path);
 
   std::vector<std::string> lines;
   std::string err;
@@ -133,6 +133,6 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("keyword_match_v1", "关注词匹配业务", RunKeywordMatchDemo);
+REGISTER_DEMO_BIZ("keyword_match", "关注词匹配", RunKeywordMatchDemo);
 
 }  // namespace alg_demo

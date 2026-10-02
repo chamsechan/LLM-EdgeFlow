@@ -73,27 +73,27 @@
       "chip": "cpu",
       "depth": 1
     },
-    "ocr_doc_qa_mock": {
-      "config": "demo/fixtures/mock/pipeline_ocr_doc_qa.conf",
-      "dataset": "data/corpus_ocr_doc_qa.txt",
+    "ocr_invoice_qa_mock": {
+      "config": "demo/fixtures/mock/pipeline_ocr_invoice_qa.conf",
+      "dataset": "data/corpus_ocr_invoice_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
       "device_id": 0,
       "chip": "cpu",
       "depth": 1
     },
-    "audio_asr_mock": {
+    "audio_asr_intent_mock": {
       "config": "demo/fixtures/mock/pipeline_audio_asr_intent.conf",
-      "dataset": "data/corpus_audio_asr.txt",
+      "dataset": "data/corpus_audio_asr_intent.txt",
       "suite": "smoke",
       "batch_size": 1,
       "device_id": 0,
       "chip": "cpu",
       "depth": 1
     },
-    "audio_asr_cpu": {
-      "config": "configs/pipeline_audio_asr_cpu.conf",
-      "dataset": "data/corpus_audio_asr_whisper.jsonl",
+    "audio_asr_intent_cpu": {
+      "config": "configs/pipeline_audio_asr_intent_cpu.conf",
+      "dataset": "data/corpus_audio_asr_intent_whisper.jsonl",
       "suite": "real",
       "batch_size": 1,
       "device_id": 0,

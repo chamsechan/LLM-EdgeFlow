@@ -244,8 +244,8 @@ def check_sanitizer_contract(root, env, log):
 def check_real_model_contract(root, env, log):
     configurations = []
     for mode, preset, profiles in (("gguf-only", "dev-gate", ["entity_extract_cpu"]),
-                                   ("whisper", "default-cpu", ["audio_asr_cpu"]),
-                                   ("all", "default-cpu", ["audio_asr_cpu", "entity_extract_cpu"])):
+                                   ("whisper", "default-cpu", ["audio_asr_intent_cpu"]),
+                                   ("all", "default-cpu", ["audio_asr_intent_cpu", "entity_extract_cpu"])):
         _, records = invoke(root, env, log, "run_real_model_e2e.sh", "--" + mode)
         build = root / "build" / "real-models" / mode
         configure = configure_command(records, preset, build)

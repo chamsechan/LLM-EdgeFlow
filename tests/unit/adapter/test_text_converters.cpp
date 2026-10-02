@@ -188,7 +188,7 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
   // 证明同一个转换器 ID 可以在不同绑定间复用：通过测试专用绑定
   IoBindingDefinition test_reuse_binding;
   test_reuse_binding.binding_id = "test_text_reuse.operator.v1";
-  test_reuse_binding.biz_name = "entity_extract_v1";
+  test_reuse_binding.biz_name = "entity_extract";
 
   test_reuse_binding.input_converter_id = "text.plain.operator.v1";
   test_reuse_binding.output_converter_id = "document.structured.operator.v1";
