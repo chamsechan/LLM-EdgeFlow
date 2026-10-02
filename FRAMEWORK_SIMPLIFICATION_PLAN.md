@@ -114,7 +114,7 @@
 2. `src/adapter/CMakeLists.txt`：只把 `input/`、`output/`、`biz/` 这三个业务目录改为自动收录。框架机制文件（`deployment_*`、`io_*`、`operator/`）保持显式列表。
 3. `demo/CMakeLists.txt`：`biz/` 目录改为自动收录。
 4. `src/core`、`src/engine` 不改。Backend 按构建选项条件编译，需要保持显式列表。
-5. `scripts/scaffold_custom_node.py`：删除 `--add-to-cmake` 参数，以及对应测试（`tests/tooling/test_scaffold_custom_node.py:65`、`:81`）。项目不保留旧参数别名。
+5. `tools/scaffold_custom_node.py`：删除 `--add-to-cmake` 参数，以及对应测试（`tests/tooling/test_scaffold_custom_node.py:65`、`:81`）。项目不保留旧参数别名。
 6. 文档中删除 `--add-to-cmake` 和"登记 CMake"步骤，涉及：
    - `doc/dev_guide/first_custom_node.md`（`:50`、`:108`、`:175`）
    - `doc/dev_guide/first_control.md`（`:28`、`:40`）
@@ -239,7 +239,7 @@
    - `src/adapter/input/README.md:9`
    - `edgeflow-adapter-developer` skill（`:26`）
    - `llm-edgeflow-developer-guide/references/integration.md:28-32`
-   - `doc/architecture.puml:55`，并重新生成架构图
+   - `doc/architecture_classes.puml:55`，并重新生成架构图
    - `doc/CHANGELOG.md`
 
 ### 7.5 改动后新业务的写法（以 keyword_match 为例）
@@ -590,7 +590,7 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 
 | 提议 | 结论 | 理由 |
 | --- | --- | --- |
-| BizDefinition 改为由 Binding 和转换器派生（原阶段 3b） | 不做 | 不补任何能力。做完阶段 3 后，剩下的重复只是端口清单列两次；两边引用同一批常量，漏改会被审计报出。派生必须等所有转换器注册完，但 `alg_pipeline_tool catalog`（`src/tools/alg_pipeline_tool.cpp:308`）和契约测试（`tests/contract/catalog/test_catalog_contract_ssot.cpp:78`）会在此之前读取业务契约。可靠的修法是给每个入口加"完成注册"调用，或在 Core 新增挂接机制，都会增加框架复杂度。此外还会失去"改转换器端口时审计报错"这道检查，并推翻 RFC 0066（`9c64981`）刚定下的规则。实测 8 个业务的派生结果与手写定义逐字段一致；将来如果接入量大到这处重复成为负担，再单独设计 |
+| BizDefinition 改为由 Binding 和转换器派生（原阶段 3b） | 不做 | 不补任何能力。做完阶段 3 后，剩下的重复只是端口清单列两次；两边引用同一批常量，漏改会被审计报出。派生必须等所有转换器注册完，但 `alg_pipeline_tool catalog`（`src/cli/alg_pipeline_tool.cpp:308`）和契约测试（`tests/contract/catalog/test_catalog_contract_ssot.cpp:78`）会在此之前读取业务契约。可靠的修法是给每个入口加"完成注册"调用，或在 Core 新增挂接机制，都会增加框架复杂度。此外还会失去"改转换器端口时审计报错"这道检查，并推翻 RFC 0066（`9c64981`）刚定下的规则。实测 8 个业务的派生结果与手写定义逐字段一致；将来如果接入量大到这处重复成为负担，再单独设计 |
 | 用派生基类写节点 | 不做 | 与 Spec 的心智基本一致（`MakeLlmTextSpec` 本身就是"填钩子"），加一层只会多一套写法 |
 | 具名链式钩子、公开通用节点的 Spec、拆分/过滤/排序预设工厂、节点分类树、`PortFlow` 改枚举 | 不做 | 都是新写法或新概念。报错可读性的问题由阶段 2 解决；`PortFlow` 的非法值在注册时已经会被校验 |
 | 把接线从 C++ 挪到 JSON `deployment.io` | 不做 | 需要同时改 Validator、Catalog、Studio、SDK 初始化和全部配置。阶段 3 在 C++ 内合并已经拿到主要收益 |

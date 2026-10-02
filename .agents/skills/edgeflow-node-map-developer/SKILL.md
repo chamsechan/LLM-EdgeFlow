@@ -19,7 +19,7 @@ Definition。框架负责批循环、数量、顺序、来源和发布；不要�
 TextBatch → TextBatch 的 custom Node 可使用现有脚手架：
 
 ```bash
-python3 scripts/scaffold_custom_node.py NormalizeTextNode --kind compute \
+python3 tools/scaffold_custom_node.py NormalizeTextNode --kind compute \
   --in-port input:TextBatch --out-port output:TextBatch --add-to-cmake --write-test
 ```
 

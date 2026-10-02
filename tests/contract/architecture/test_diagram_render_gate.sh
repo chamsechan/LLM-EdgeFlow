@@ -26,17 +26,17 @@ run_fixture_renderer() {
 # A syntactically valid source change must make the committed asset stale.
 if sed --version >/dev/null 2>&1; then
   sed -i '/@enduml/i class SourceDriftProbe' \
-    "${FIXTURE_DOC_ROOT}/architecture.puml"
+    "${FIXTURE_DOC_ROOT}/architecture_classes.puml"
 else
   sed -i '' '/@enduml/i\
 class SourceDriftProbe
-' "${FIXTURE_DOC_ROOT}/architecture.puml"
+' "${FIXTURE_DOC_ROOT}/architecture_classes.puml"
 fi
 if run_fixture_renderer --check; then
   echo "❌ Render gate missed source/asset drift"
   exit 1
 fi
-cp doc/architecture.puml "${FIXTURE_DOC_ROOT}/architecture.puml"
+cp doc/architecture_classes.puml "${FIXTURE_DOC_ROOT}/architecture_classes.puml"
 
 # A committed asset that does not match the generated result must fail.
 echo "corrupted svg" > \

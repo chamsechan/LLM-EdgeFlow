@@ -10,7 +10,7 @@
 
 ```bash
 cmake --build build --target alg_pipeline_tool_test alg_demo
-python3 scripts/dev_recipe.py prepare prompt-config \
+python3 tools/dev_recipe.py prepare prompt-config \
   --name EntityPromptTask --profile entity_extract_custom_mock \
   --tool build/alg_pipeline_tool_test --build-dir build \
   --pipeline configs/pipeline_entity_prompt_task.json --json
