@@ -185,9 +185,13 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 `WithControl` 不会再次运行初始化的 `Prepare`。模板编译和规则解析各有一个实现，
 配置与补丁可以使用不同结构。
 
-默认顺序执行不要求作者填写并发声明；`parallel_safe=false` 是框架的保守默认。Pipeline 的 `max_parallel_workers` 大于 1 时，若该节点
-处于含多个节点的并行层，Validator 会拒绝这个计划；它不会自动加锁，也不会自动把
-那一层改成串行。`max_parallel_workers` 范围为 1–64，默认 1；本练习沿用默认串行执行。
+默认顺序执行不要求作者填写并发声明；`parallel_safe=false` 是框架的保守默认。Pipeline 的
+`max_parallel_workers` 大于 1 时，框架把它放到单独的层顺序执行，不会自动加锁；声明
+`.ParallelSafe(true)` 后才可能与同层节点并行。共享串行模型的节点也按同样方式分层。
+`max_parallel_workers` 范围为 1–64，默认 1；本练习沿用默认串行执行。
+
+每个原始层先执行可并行且不共享串行模型的节点，再按原层内顺序逐个执行拆出的节点。
+`plan` 的 `layers` 和 `topological_order` 反映这个执行顺序。原始层的重复端口写入仍会被拒绝。
 
 准备设为 `true` 时，检查你的业务函数、调用的辅助对象和所有节点自有共享状态。
 `true` 只说明节点自身可以按该契约并行执行；所绑定模型及 Backend 的并发约束仍由
@@ -260,7 +264,7 @@ Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-
 | 输入类型或生产者不匹配 | `inputs` / `outputs` 两端的类型、实际数据名和唯一生产者 |
 | 模型调用返回错误 | 节点报告的错误码、所绑定模型的日志和资产配置 |
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |
-| 并行计划被拒绝 | 节点声明以及同层所使用模型的并发能力 |
+| 并行计划被拆层 | 节点声明以及同层所使用模型的并发能力 |
 
 需要核对精确接口时，再查阅 [Node 作者接口](../../include/nodes/authoring.h)、
 [模型调用门面](../../include/nodes/model_calls.h)、
