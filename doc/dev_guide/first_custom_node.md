@@ -80,17 +80,10 @@ return answer;
 
 你只处理 `text`；框架自动保留每条输入与回答的对应关系，无需在业务函数中传递或填写来源编号。前处理从只读输入构造新文本，不修改其他节点共享的输入。
 
-这里没有模板语言、参数解析或 Markdown 解析器。需要这些能力时再使用已有通用节点，
-或者参考完整样例中对应的一小部分。需要多输入或条件二次推理时，参考
-[自由 Batch 示例](../../dev_support/node_authoring/starter_batch_node.cpp)；需要两种模型能力时，参考
-[多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。它们用普通 `Run` 函数、
-`InputsOf`、`Parameters` 和 `ModelsOf` 声明输入、参数及模型槽位。Control 使用
-`.WithControls(...)`，复杂命令使用 `.WithControl(...)`，参见[第一个 Control](first_control.md)。
-多输出用 `OutputsOf` / `Produced`，数量变化用 `ProducedBatch` 和 `PortFlow` 声明；
-参考 [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp)。Map、Batch、LLM 组合都使用
-同一个 Spec 运行机制，12 个生产 Node 已统一迁移，复杂场景也无需另写生命周期。
-外部 Operator 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
-[输入输出边界](business_onboarding.md#输入输出以-operator-接口为边界)。
+这里没有模板语言、参数解析或 Markdown 解析器；需要时再使用已有通用节点。
+需要多个输入、条件二次推理、多种模型能力或拆分聚合时，改用 Batch 写法：三种写法的签名与
+常见编译错误见[写法速查](custom_node_concepts.md#三种写法速查)，第 7 节列出了对应的示例。
+外部请求的字段选择与响应组装属于 Adapter，见[输入输出边界](business_onboarding.md#输入输出以-operator-接口为边界)。
 
 ## 4. 编译，让工具能够找到新节点
 

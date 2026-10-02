@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -473,6 +474,33 @@ auto StarterLlmTestSpec() {
                          &StarterBuildPrompt, &StarterFormatAnswer);
 }
 REGISTER_FUNCTION_NODE(StarterLlmTestNode, StarterLlmTestSpec());
+
+auto ViewHooksSpec() {
+  return MakeLlmTextSpec(
+      Input<TextBatch>("input"), Output<TextBatch>("output"),
+      [](const std::string& text) { return std::string_view(text).substr(1); },
+      [](const std::string& text) -> NodeResult<std::string_view> {
+        return std::string_view(text).substr(4);
+      });
+}
+REGISTER_FUNCTION_NODE(ViewHooksNode, ViewHooksSpec());
+
+auto ResultViewHooksSpec() {
+  return MakeLlmTextSpec(
+      Input<TextBatch>("input"), Output<TextBatch>("output"), ShortcutConfig(),
+      [](const std::string& text,
+         const ShortcutParams&) -> NodeResult<std::string_view> {
+        if (text == "REJECT") {
+          return NodeResult<std::string_view>::Failure(
+              NodeErrorKind::kBusinessError, "prompt rejected", -8765);
+        }
+        return std::string_view(text).substr(1);
+      },
+      [](const std::string& text, const ShortcutParams&) {
+        return std::string_view(text).substr(4);
+      });
+}
+REGISTER_FUNCTION_NODE(ResultViewHooksNode, ResultViewHooksSpec());
 
 struct TextToScoreInputs {
   const TextBatch* texts = nullptr;
@@ -1322,6 +1350,51 @@ TEST(FunctionNodeTest, FourArgMakeLlmTextSpecExecutesProperly) {
   ASSERT_TRUE(result.ok()) << result.diagnostic();
   EXPECT_EQ(result.TextValues("output"),
             (std::vector<std::string>{"formatted:ans:prompt:hello"}));
+}
+
+TEST(FunctionNodeTest, LlmViewHooksCopyAliasedTextAndPreserveProvenance) {
+  const TextBatch input{{17, 3, std::string("xhello\0world", 12)}, {8, 5, "x"}};
+  for (const auto* node_type : {"ViewHooksNode", "ResultViewHooksNode"}) {
+    SCOPED_TRACE(node_type);
+    auto model = std::make_shared<CountingMockLlmModel>();
+    NodeHarness harness(node_type);
+    harness.Config({{"bind_model", "test_llm"}});
+    harness.BindModel("test_llm", model);
+    harness.CustomInput("input", input);
+    auto result = harness.Run();
+    ASSERT_TRUE(result.ok()) << result.diagnostic();
+    const auto* output = result.Output<TextBatch>("output");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), input.size());
+    ASSERT_EQ(model->last_prompts.size(), input.size());
+    ASSERT_NE(result.Context(), nullptr);
+    const auto* snapshot = result.Context()->Read<TextBatch>("bk_in_input");
+    ASSERT_NE(snapshot, nullptr);
+    ASSERT_EQ(snapshot->size(), input.size());
+    for (size_t i = 0; i < input.size(); ++i) {
+      EXPECT_EQ(output->at(i).data, input[i].data.substr(1));
+      EXPECT_EQ(model->last_prompts[i].data, input[i].data.substr(1));
+      EXPECT_EQ(output->at(i).req_id, input[i].req_id);
+      EXPECT_EQ(output->at(i).sub_id, input[i].sub_id);
+      EXPECT_EQ(snapshot->at(i).data, input[i].data);
+      EXPECT_EQ(snapshot->at(i).req_id, input[i].req_id);
+      EXPECT_EQ(snapshot->at(i).sub_id, input[i].sub_id);
+    }
+  }
+}
+
+TEST(FunctionNodeTest, LlmResultViewPromptFailureStopsBeforeModelCall) {
+  auto model = std::make_shared<CountingMockLlmModel>();
+  NodeHarness harness("ResultViewHooksNode");
+  harness.Config({{"bind_model", "test_llm"}});
+  harness.BindModel("test_llm", model);
+  harness.TextInput("input", {"xfirst", "REJECT"});
+  auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_FALSE(result.init_failed()) << result.diagnostic();
+  EXPECT_EQ(result.process_code(), -8765);
+  EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
+  EXPECT_EQ(model->call_count, 0);
 }
 
 TEST(FunctionNodeTest, BatchCrossTypeOutputAlignmentSucceeds) {

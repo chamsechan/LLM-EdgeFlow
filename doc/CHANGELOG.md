@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Node 作者接口：Batch `Run`、`BuildPrompt`、`FormatAnswer` 签名不符时，编译期直接给出可接受的签名。
+两个 LLM 钩子统一返回值规则：接受能隐式转换为 `std::string` 的类型、`std::string_view` 及其 `NodeResult`。
+约束收紧：`FormatAnswer` 不再接受 `char`、`int` 等算术类型返回值（此前会被当作单个字符写入结果）。
+约束放宽：`BuildPrompt` 可以返回 `std::string_view`；两个钩子的视图先复制再写入，保留来源与内容。
+
 校验诊断：未注册的节点类型、模型类型和 Backend 给出原因与相近的已注册名称；
 未注册模型不再连带报告引用错误，业务出口与 IO 边界的同一缺失键只报告一次。
 未知配置字段的建议按相似度排序。生产版 `alg_pipeline_tool` 在 stderr 提示检查构建变体
