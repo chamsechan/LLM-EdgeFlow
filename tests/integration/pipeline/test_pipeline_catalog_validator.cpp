@@ -5,6 +5,7 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "adapter/deployment_preparation.h"
 #include "adapter/io_binding_registry.h"
@@ -289,6 +290,48 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
   synthetic["deployment"] = {
       {"io", {{"io_binding", binding_id}, {"out_mem", allocations}}}};
   return synthetic;
+}
+
+TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
+  const nlohmann::json config = {
+      {"biz_name", "entity_extract_v1"},
+      {"max_parallel_workers", 4},
+      {"models",
+       {{{"model_id", "serialized_llm"},
+         {"model_type", "test_biz_llm"},
+         {"backend", "test_causal_lm_backend"},
+         {"model_path", "fixture.gguf"}}}},
+      {"pipeline",
+       {{{"id", "pre"},
+         {"node_type", "TextTemplateNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"inputs", {{"primary", "input_sentences"}}},
+         {"outputs", {{"text", "prompt_text"}}}},
+        {{"id", "left"},
+         {"node_type", "LlmGenerateNode"},
+         {"depends_on", {"pre"}},
+         {"config", {{"bind_model", "serialized_llm"}}},
+         {"inputs", {{"prompt", "prompt_text"}}},
+         {"outputs", {{"text", "ans_left"}}}},
+        {{"id", "right"},
+         {"node_type", "LlmGenerateNode"},
+         {"depends_on", {"pre"}},
+         {"config", {{"bind_model", "serialized_llm"}}},
+         {"inputs", {{"prompt", "prompt_text"}}},
+         {"outputs", {{"text", "ans_right"}}}},
+        {{"id", "post"},
+         {"node_type", "StructuredJsonParseNode"},
+         {"depends_on", {"left", "right"}},
+         {"inputs", {{"text", "ans_left"}}},
+         {"outputs", {{"document", "extracted_entities"}}}}}}};
+
+  const auto report = PipelineValidator::Validate(config);
+  ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
+  EXPECT_EQ(report.topological_layers,
+            (std::vector<std::vector<std::string>>{
+                {"pre"}, {"left"}, {"right"}, {"post"}}));
+  EXPECT_EQ(report.topological_order,
+            (std::vector<std::string>{"pre", "left", "right", "post"}));
 }
 
 TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
