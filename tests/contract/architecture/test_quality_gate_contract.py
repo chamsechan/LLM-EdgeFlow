@@ -219,6 +219,15 @@ def check_sanitizer_contract(root, env, log):
         assert (test[test.index("-L") + 1] if "-L" in test else None) == label
         build_command = next(command for command in commands if command[:2] == ["cmake", "--build"])
         assert ("edgeflow_dev_tests" in build_command) == (mode == "fast")
+        assert ("--target" in build_command) == (mode != "full"), build_command
+        if mode == "ci-runtime":
+            for target in ("alg_demo", "edgeflow_test_core_runner", "edgeflow_test_nodes_runner",
+                           "edgeflow_test_adapter_runner", "edgeflow_test_tooling_runner",
+                           "test_cpp_operator_sdk", "test_registry_conflict",
+                           "test_model_backend_registry_conflict", "test_catalog_contract_ssot"):
+                assert target in build_command, (target, build_command)
+            for target in ("alg_pipeline_tool", "alg_pipeline_tool_test", "alg_show"):
+                assert target not in build_command, (target, build_command)
         _, failed = invoke(root, env, log, "run_sanitizers.sh", "--" + mode, failure="ctest")
         assert failed[-1]["command"] == ["ccache", "--show-stats"]
         check_ctest_records(failed, build)
@@ -347,6 +356,14 @@ def main():
         assert "KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}" in workflow
         assert "run: ./scripts/fetch_real_test_models.sh --gguf-only" not in workflow
         assert "run: ./scripts/fetch_real_test_models.sh --whisper" not in workflow
+        # Each ccache job falls back to its own main snapshot before any shared prefix, and
+        # every restored ccache is saved through the pruning action.
+        for prefix in ("ccache-real-", "ccache-whisper-"):
+            assert f"            {prefix}${{{{ runner.os }}}}-\n" in workflow, prefix
+        assert "uses: actions/cache@v4\n        with:\n          path: ${{ env.CCACHE_DIR }}" \
+            not in workflow
+        assert (workflow.count("uses: ./.github/actions/ccache-restore")
+                == workflow.count("uses: ./.github/actions/ccache-save") == 5)
         manifest = json.loads((ROOT / "models/asset_manifest.json").read_text())
         artifact_groups = {
             group: {name for name, artifact in manifest["artifacts"].items()
