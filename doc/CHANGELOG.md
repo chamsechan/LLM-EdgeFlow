@@ -59,3 +59,8 @@ Operator 提供本次调用的编号表；自行组织转换的实现改用 `Pub
 `COMPANY_ALG_ERR_INVALID_INPUT`（`-3`）并报告转换器与数量。Catalog、Binding 端口映射和
 Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `request_id`、公共 ABI
 与配置格式不变。
+
+`max_parallel_workers > 1` 时，Validator 将未声明并行安全的节点，以及会共享串行模型的
+节点拆到单独的层顺序执行；原本因此在 Create 时返回 `-2` 的配置现在可以运行。
+`NODE_NOT_PARALLEL_SAFE`、`SERIALIZED_MODEL_CONCURRENCY` 两个诊断码保留但不再产生，
+`plan` 的 `layers` 与 `topological_order` 反映拆分后的执行顺序；原始层的写冲突仍会被拒绝。

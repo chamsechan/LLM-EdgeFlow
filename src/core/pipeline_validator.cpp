@@ -1488,41 +1488,44 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   }
 
   if (parsed.max_parallel_workers > 1) {
+    // Split unsafe nodes and users of shared serialized models into their own
+    // layers. Write conflicts are still checked against each original layer.
+    auto serialized_models = [&](const std::string& id) {
+      std::unordered_set<std::string> models;
+      for (const auto& binding : plan.node_plans[id].model_bindings) {
+        if (binding.model_id.empty()) continue;
+        auto it = model_concurrency.find(binding.model_id);
+        if (it != model_concurrency.end() &&
+            it->second == InferenceConcurrency::kSerialized) {
+          models.insert(binding.model_id);
+        }
+      }
+      return models;
+    };
+    std::vector<std::vector<std::string>> scheduled;
     for (const auto& layer : report.topological_layers) {
       std::unordered_map<std::string, std::string> writes;
-      std::unordered_map<std::string, std::string> serialized_model_users;
+      std::vector<std::string> parallel;
+      std::vector<std::string> sequential;
+      std::unordered_set<std::string> used_models;
       for (const auto& id : layer) {
         auto def_it = def_by_id.find(id);
-        if (def_it == def_by_id.end()) continue;
-        if (!def_it->second->parallel_safe && layer.size() > 1) {
-          Add(&report, DiagnosticCode::kNodeNotParallelSafe, "/pipeline",
-              "Node is not declared safe for wavefront parallel execution", id);
-        }
-        if (layer.size() > 1) {
-          const auto& node_plan = plan.node_plans[id];
-          std::unordered_set<std::string> seen_node_models;
-          for (const auto& binding : node_plan.model_bindings) {
-            if (binding.model_id.empty()) continue;
-            if (!seen_node_models.insert(binding.model_id).second) {
-              continue;
-            }
-            auto concurrency = model_concurrency.find(binding.model_id);
-            if (concurrency != model_concurrency.end() &&
-                concurrency->second == InferenceConcurrency::kSerialized) {
-              auto inserted =
-                  serialized_model_users.emplace(binding.model_id, id);
-              if (!inserted.second) {
-                const auto& node = *node_by_id.at(id);
-                Add(&report, DiagnosticCode::kSerializedModelConcurrency,
-                    "/pipeline/" + std::to_string(node.source_index) +
-                        "/config/" + EscapeJsonPointer(binding.config_field),
-                    "Parallel layer shares serialized model instance: " +
-                        binding.model_id,
-                    id, {}, {inserted.first->second});
-              }
-            }
+        if (def_it == def_by_id.end() || !def_it->second->parallel_safe) {
+          sequential.push_back(id);
+        } else {
+          auto models = serialized_models(id);
+          const bool shares = std::any_of(models.begin(), models.end(),
+                                          [&](const std::string& model) {
+                                            return used_models.count(model) > 0;
+                                          });
+          if (shares) {
+            sequential.push_back(id);
+          } else {
+            used_models.insert(models.begin(), models.end());
+            parallel.push_back(id);
           }
         }
+        if (def_it == def_by_id.end()) continue;
         const auto& node_plan = plan.node_plans[id];
         for (const auto& p : node_plan.ports) {
           if (p.direction != PortDirection::kOutput) continue;
@@ -1534,6 +1537,14 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           }
         }
       }
+      if (!parallel.empty()) scheduled.push_back(std::move(parallel));
+      for (auto& id : sequential) scheduled.push_back({std::move(id)});
+    }
+    report.topological_layers = std::move(scheduled);
+    report.topological_order.clear();
+    for (const auto& layer : report.topological_layers) {
+      report.topological_order.insert(report.topological_order.end(),
+                                      layer.begin(), layer.end());
     }
   }
 
