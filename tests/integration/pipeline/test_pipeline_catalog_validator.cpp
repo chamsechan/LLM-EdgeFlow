@@ -59,6 +59,152 @@ nlohmann::json PrepareExternalFixtureForCore(const nlohmann::json& document) {
   return prepared.neutral_pipeline_json;
 }
 
+PreparedDeployment LoadRegistrationFixture(const std::string& path) {
+  std::ifstream stream(path);
+  EXPECT_TRUE(stream.is_open()) << path;
+  nlohmann::json document;
+  stream >> document;
+  PreparedDeployment prepared;
+  DeploymentDiagnostic diagnostic;
+  EXPECT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
+      << diagnostic.message;
+  return prepared;
+}
+
+const ValidationDiagnostic* FindDiagnostic(const ValidationReport& report,
+                                           DiagnosticCode code,
+                                           const std::string& path = {}) {
+  auto it = std::find_if(
+      report.diagnostics.begin(), report.diagnostics.end(), [&](const auto& d) {
+        return d.code == code && (path.empty() || d.path == path);
+      });
+  return it == report.diagnostics.end() ? nullptr : &*it;
+}
+
+TEST(PipelineValidatorTest,
+     UnknownModelTypeHasRemediationWithoutReferenceCascade) {
+  auto fixture = LoadRegistrationFixture(
+      "demo/fixtures/mock/pipeline_entity_extract_custom.json");
+  fixture.neutral_pipeline_json["models"][0]["model_type"] = "test_biz_llmm";
+  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
+                                                  &fixture.io_boundary);
+  ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
+  const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownModelType);
+  ASSERT_NE(d, nullptr);
+  ASSERT_TRUE(d->remediation.has_value());
+  EXPECT_EQ(d->remediation->cause, RemediationCause::kUnknownModelType);
+  EXPECT_EQ(d->message, "Unknown model_type: test_biz_llmm");
+  ASSERT_FALSE(d->suggestions.empty());
+  EXPECT_EQ(d->suggestions.front(), "test_biz_llm");
+  EXPECT_EQ(d->remediation->facts["candidate_model_types"], d->suggestions);
+  const auto names = d->remediation->facts["registered_model_types"]
+                         .get<std::vector<std::string>>();
+  EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
+  EXPECT_EQ(d->remediation->facts["model_id"], "entity_llm");
+  EXPECT_EQ(FindDiagnostic(report, DiagnosticCode::kUnknownModelReference),
+            nullptr);
+  EXPECT_EQ(d->remediation->summary.find("alg_pipeline_tool"),
+            std::string::npos);
+}
+
+TEST(PipelineValidatorTest, UndeclaredModelReferenceIsStillReported) {
+  auto fixture = LoadRegistrationFixture(
+      "demo/fixtures/mock/pipeline_entity_extract_custom.json");
+  fixture.neutral_pipeline_json["pipeline"][0]["config"]["bind_model"] =
+      "undeclared";
+  const auto report =
+      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownModelReference,
+                           "/pipeline/0/config/bind_model"),
+            nullptr);
+}
+
+TEST(PipelineValidatorTest, UnknownBackendHasRemediation) {
+  auto fixture = LoadRegistrationFixture(
+      "demo/fixtures/mock/pipeline_entity_extract_custom.json");
+  fixture.neutral_pipeline_json["models"][0]["backend"] =
+      "test_causal_lm_backnd";
+  const auto report =
+      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
+  const auto& d = report.diagnostics.front();
+  EXPECT_EQ(d.code, DiagnosticCode::kUnknownBackend);
+  ASSERT_TRUE(d.remediation.has_value());
+  EXPECT_EQ(d.remediation->cause, RemediationCause::kUnknownBackend);
+  ASSERT_FALSE(d.suggestions.empty());
+  EXPECT_EQ(d.suggestions.front(), "test_causal_lm_backend");
+  EXPECT_EQ(d.remediation->facts["candidate_backends"], d.suggestions);
+  const auto names = d.remediation->facts["registered_backends"]
+                         .get<std::vector<std::string>>();
+  ASSERT_FALSE(names.empty());
+  EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
+}
+
+TEST(PipelineValidatorTest, UnknownNodeTypeHasRemediation) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
+      "TextRuleMatchNod";
+  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
+                                                  &fixture.io_boundary);
+  const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownNodeType);
+  ASSERT_NE(d, nullptr);
+  ASSERT_TRUE(d->remediation.has_value());
+  EXPECT_EQ(d->remediation->cause, RemediationCause::kUnknownNodeType);
+  EXPECT_EQ(d->suggestions, std::vector<std::string>{"TextRuleMatchNode"});
+  EXPECT_EQ(d->remediation->facts["candidate_node_types"], d->suggestions);
+  EXPECT_NE(d->remediation->summary.find("重新构建"), std::string::npos);
+}
+
+TEST(PipelineValidatorTest, DistantUnknownNamesHaveNoSuggestions) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
+      "ZZZZZZZZZZZZZZZZZZZZ";
+  const auto report =
+      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownNodeType);
+  ASSERT_NE(d, nullptr);
+  ASSERT_TRUE(d->remediation.has_value());
+  EXPECT_TRUE(d->suggestions.empty());
+  EXPECT_EQ(d->remediation->facts["candidate_node_types"],
+            nlohmann::json::array());
+}
+
+TEST(PipelineValidatorTest, MissingBizOutputIsReportedOnce) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  fixture.neutral_pipeline_json["pipeline"] = {
+      {{"id", "probe"}, {"node_type", "StudioCatalogProbeNode"}}};
+  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
+                                                  &fixture.io_boundary);
+  const auto* d = FindDiagnostic(report, DiagnosticCode::kMissingBizOutput);
+  ASSERT_NE(d, nullptr) << report.ToJson().dump(2);
+  EXPECT_EQ(d->path, "/pipeline");
+  EXPECT_EQ(std::count_if(report.diagnostics.begin(), report.diagnostics.end(),
+                          [](const auto& item) {
+                            return item.code ==
+                                   DiagnosticCode::kMissingBizOutput;
+                          }),
+            1);
+}
+
+TEST(PipelineValidatorTest, UnknownConfigFieldSuggestionsAreRanked) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  auto& config = fixture.neutral_pipeline_json["pipeline"][0]["config"];
+  config["categoriess"] = config["categories"];
+  config.erase("categories");
+  const auto report =
+      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownConfigField);
+  ASSERT_NE(d, nullptr);
+  ASSERT_TRUE(d->remediation.has_value());
+  ASSERT_FALSE(d->suggestions.empty());
+  EXPECT_EQ(d->suggestions.front(), "categories");
+  EXPECT_EQ(d->remediation->facts["candidate_fields"], d->suggestions);
+}
+
 TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
   for (const auto& node_type : NodeRegistry::Instance().ListTypes()) {
     EXPECT_TRUE(PipelineCatalog::FindNode(node_type).has_value()) << node_type;
