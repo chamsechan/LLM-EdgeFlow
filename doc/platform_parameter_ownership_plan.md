@@ -11,13 +11,13 @@
 业务开发者（编写 Node 函数、转换器 Decode/Encode、编排 Pipeline JSON 的人）不了解平台资源和框架调度，也能接入并运行。
 平台限制和调度参数由框架给默认值或自动推导；只有负责性能验收或部署的人，在有依据时才显式覆盖。
 
-| 步骤 | 内容 | 规模 | 设计审查 | 前置条件 | 建议分支 |
-| --- | --- | --- | --- | --- | --- |
-| 5.1 | Studio 保留"未配置"状态；Backend 字段收进"部署高级设置" | 小 | 不需要 | 无 | `fix/studio-unset-defaults` |
-| 5.2 | 接入层平台数值归位：Binding 默认批次上限、输入长度上限单一来源、输出容量字段从 ValueType 推导 | 小 | 不需要 | 阶段 3 已合入 `main` | `refactor/adapter-platform-limits` |
-| 5.3 | 单次有效批次可查询；删除无读取方的字段；存量默认值清单 | 小 | 不需要 | 阶段 3 已合入 `main` | `chore/effective-limits-tooling` |
-| 5.4 | 请求编号回传移出业务契约 | 中 | 需要 | 5.2 已合入（改动同一批转换器文件） | `refactor/adapter-request-ids` |
-| 5.5 | 并行层按约束自动串行 | 中 | 需要 | D1 已确认 | `feat/auto-serialize-parallel-layers` |
+| 步骤 | 内容 | 规模 | 设计审查 | 前置条件 | 建议分支 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5.1 | Studio 保留"未配置"状态；Backend 字段收进"部署高级设置" | 小 | 不需要 | 无 | `fix/studio-unset-defaults` | 已完成（PR #150） |
+| 5.2 | 接入层平台数值归位：Binding 默认批次上限、输入长度上限单一来源、输出容量字段从 ValueType 推导 | 小 | 不需要 | 阶段 3 已合入 `main` | `refactor/adapter-platform-limits` | 已完成（PR #150） |
+| 5.3 | 单次有效批次可查询；删除无读取方的字段；存量默认值清单 | 小 | 不需要 | 阶段 3 已合入 `main` | `chore/effective-limits-tooling` | 已完成（PR #150） |
+| 5.4 | 请求编号回传移出业务契约 | 中 | 需要 | 5.2 已合入（改动同一批转换器文件） | `refactor/adapter-request-ids` | 已完成（PR #151） |
+| 5.5 | 并行层按约束自动串行 | 中 | 需要 | D1 已确认 | `feat/auto-serialize-parallel-layers` | 未开始，待 D1 确认 |
 
 建议顺序：5.1 → 5.2 → 5.3 → 5.4；5.5 与其他步骤没有代码依赖，D1 确认后即可进行。
 
@@ -55,7 +55,7 @@
 | D2 | Binding 默认批次上限放在哪个分支 | 随 5.2。若希望随阶段 3 一起合入，把 5.2.1 单独提交到 `refactor/adapter-binding-dedup` | 项目负责人 |
 | D3 | rerank 候选段落的上限：Operator 层 10 MiB，转换器 64 KiB | 5.2 保持现有行为，只改为具名常量 | 方案负责人 |
 | D4 | 配置中显式写出、且等于默认值的字段是否删除 | 5.3 只出清单，不改配置 | 方案负责人 |
-| D5 | 5.4 中转换器记录的请求编号数量不对、或辅助函数拿不到请求编号表时的返回码。两者都是接入代码缺陷而非宿主输入错误，但平台错误码没有"内部错误"，且不能新增；`-4` 是 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL`，现有"编码写出数量不符"沿用它，语义同样不贴切 | 用 `-3`（`COMPANY_ALG_ERR_INVALID_INPUT`），诊断文本写明是转换器问题 | 设计审查：**已定为 `-3`**（理由见 7 节"设计审查结论"） |
+| D5 | 5.4 中转换器记录的请求编号数量不对、或辅助函数拿不到请求编号表时的返回码。两者都是接入代码缺陷而非宿主输入错误，但平台错误码没有"内部错误"，且不能新增；`-4` 是 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL`，现有"编码写出数量不符"沿用它，语义同样不贴切 | 用 `-3`（`COMPANY_ALG_ERR_INVALID_INPUT`），诊断文本写明是转换器问题 | 设计审查：**已定为 `-3`**，已随 5.4 实现（理由见 PR #151） |
 
 ### 2.3 判定原则（阶段完成后写入 CONTRIBUTING §3）
 
@@ -89,7 +89,9 @@
 
 8. 逐项勾选验收清单，把命令和结果记录在 PR 中。
 
-## 4. 步骤 5.1：Studio 保留"未配置"状态
+## 4. 步骤 5.1：Studio 保留"未配置"状态（已完成）
+
+**状态**：已随 PR #150 合入 `main`（`b24be92`），验收通过；下文保留实施时的步骤与验收清单，仅供参考。
 
 **问题**：`appendConfigField`（`tools/pipeline_studio/web/editor.js:92`）对未配置的字段直接把默认值填进控件（`:112`），
 `readConfigFields`（`:142`）应用时只对字符串字段判断"是否修改"，数值、布尔、枚举、数组和对象字段都会被写成显式值。
@@ -201,7 +203,9 @@ Node、Model、Backend 三处表单共用这两个函数。用附录 B 的测试
 
 **回退**：还原本步骤的提交。
 
-## 5. 步骤 5.2：接入层平台数值归位
+## 5. 步骤 5.2：接入层平台数值归位（已完成）
+
+**状态**：已随 PR #150 合入 `main`（`b24be92`），验收通过；下文保留实施时的步骤与验收清单，仅供参考。
 
 三项改动分别提交，可以单独回退。
 
@@ -359,7 +363,9 @@ Binding 默认使用框架标准批次上限 64，业务只在有实测依据时
 
 **回退**：三项改动分别还原对应提交。
 
-## 6. 步骤 5.3：单次有效批次可查询与清理
+## 6. 步骤 5.3：单次有效批次可查询与清理（已完成）
+
+**状态**：已随 PR #150 合入 `main`（`b24be92`），验收通过；下文保留实施时的步骤与验收清单，仅供参考。
 
 **问题**：单次有效批次是 min(池深, Binding 有效上限)。`validate-io` 只给出 Binding 上限，`resolve-conf` 只给出池规格，
 没有一处给出合成值；池深规范化在 Create（`operator_adapter.cpp:170-177`，字面量 25）和 `OperatorConfigResolver::Resolve`
@@ -429,201 +435,22 @@ Binding 默认使用框架标准批次上限 64，业务只在有实测依据时
 
 **回退**：还原本步骤的提交。
 
-## 7. 步骤 5.4：请求编号回传移出业务契约
+## 7. 步骤 5.4：请求编号回传移出业务契约（已完成）
 
-**问题**：请求编号是 Operator 的账目：解码时记录宿主 `request_id`，编码时按批内序号恢复。它现在作为 `kRawRequestIds` 端口，
-写进 8 个 BizDefinition 的 ingress、全部输入/输出转换器的 `logical_ports`，以及 `DecodeRequestRows` / `EncodeResultRows` 的参数，
-`src`、`include` 中共 42 行（`git grep -c "kRawRequestIds\|raw_request_ids" -- src include`）；没有任何 Node、Pipeline、Demo 或 Studio 读取它。
+**状态**：已随 PR #151 合入 `main`（`a7d2c29`），验收通过。设计审查（问题、方案、受影响的契约、取舍、风险、回退）、
+D5 的理由和验证记录见 PR #151 的描述；本节只记录实现后的现行行为，不再是实施指引。
 
-**设计要点**（在 PR 描述中展开）：Operator 每次 `Process` 持有一张请求编号表，通过解码、编码选项交给转换器，不再经过 Blackboard 和业务契约。
-从哪个槽读取宿主 `request_id` 仍由转换器决定，这属于载体知识；mock 结构体的布局不能当作真实 SDK 的约定，进入内网后核对。
+**现行行为**
 
-**前提与基线**：5.2 已随 PR #150 合入 `main@b24be92`（与 `0cac08f` 的代码树相同，本节的引用数、行号和调用点都核对于它）。
-从该提交建分支；改动前基线在该提交上重新采集（`capture_baseline.sh before-5.4`），不能沿用 `c894657` 的 `before`，
-因为 5.2、5.3 已有意改变 Catalog 和 `resolve-conf` 的输出。实施前先完成设计审查，并确认 D5。
+- `Process` 持有本次调用的请求编号表，通过 `InputDecodeOptions::request_ids` / `OutputEncodeOptions::request_ids` 交给转换器。
+  请求编号不再是业务端口：Catalog 的 `bizs[].ingress`、转换器 `logical_ports`、Binding 端口映射、`validate-io` 和 Studio 的 `$ingress`
+  中都没有 `raw_request_ids`。
+- 单槽转换器使用 `DecodeRequestRows` / `EncodeResultRows`，由框架记录和恢复编号；自行组织多槽解码或多路结果的转换器，
+  在全部行校验通过后调用 `PublishRequestIds`，编码时用 `RequestIds` 读取。
+- 解码成功但记录的编号数与输入数不一致时，`Process` 在租用输出块之前返回 `-3`（D5）。宿主重复的 `request_id` 仍被接受。
+- `CatalogContractSsotTest.CatalogHasNoRequestIdPort` 防止请求编号重新进入业务契约。
 
-### 设计审查要点（写入 PR 描述）
-
-| 项目 | 内容 |
-| --- | --- |
-| 问题 | 见上。请求编号是 Operator 的账目，却作为业务端口出现在 Catalog、BizDefinition、转换器端口和 Studio 的 `$ingress` 中，新业务作者必须照抄 |
-| 方案 | 见"设计要点"和下面的改动 1–5 |
-| 受影响的契约 | 扩展接口（不兼容）：删除 `kRawRequestIds`；`DecodeRequestRows` / `EncodeResultRows` 去掉请求编号参数；`InputDecodeOptions` / `OutputEncodeOptions` 新增 `request_ids`；新增 `PublishRequestIds` / `RequestIds`。内部输出：Catalog 的 `bizs[].ingress`、转换器 `logical_ports`、Binding 端口映射和 `validate-io` 中不再出现 `raw_request_ids`。外部契约（2.1）不变，Operator 输出的 `request_id` 不变 |
-| 取舍 | 不选"保留端口、只在 Catalog 中隐藏"：BizDefinition 和转换器仍要声明，作者负担不变。不选"框架直接读取宿主结构体的 `request_id`"：槽和布局属于载体知识，mock 布局不代表真实 SDK。不选"把外部编号放进 `TraceableItem`"：改动所有载荷类型，范围远大于本步骤。不选"给 `DecodeInputFn` 增加输出参数"：要改全部转换器和测试的函数签名；改用 `const InputDecodeOptions&` 中的非 const 指针作为输出通道，在字段注释中写明。请求编号表缺失的检查放在 `PublishRequestIds`（全部行通过之后），不放进 `ValidateDecodeRequest`：这样所有校验失败的返回码和诊断不变，直接调用转换器、期望校验失败的测试也不用改 |
-| 风险 | 仓库外的自定义转换器：调用两个辅助函数或引用 `kRawRequestIds` 的会编译失败（可见）；自行组织解码、又不调用 `PublishRequestIds` 的，会在 `Process` 中被数量检查拦下并给出诊断，不会静默输出错误编号 |
-| 待确认 | 无（D5 已在设计审查中定为 `-3`） |
-| 验收 | 本节"验收" |
-| 回退 | 还原本步骤的提交；不涉及配置或数据迁移 |
-
-### 设计审查结论
-
-结论：**方案可以实施**，按下列结论调整本节后执行。审查核对于 `main@b24be92`。
-
-| # | 审查项 | 结论 |
-| --- | --- | --- |
-| 1 | 正确性：编号表的生命周期与并发 | 表是 `Process` 的局部变量，覆盖解码到编码的全过程；同一句柄的 `Process` 由句柄互斥锁串行，不同句柄各有一张表。只有 `Process` 调用 `decode_fn` / `encode_fn`（`operator_adapter.cpp` 中唯一的调用点），没有其他入口需要接入 |
-| 2 | 正确性：编号的来源与语义 | 4 个多槽转换器的编号分别取自 `frame`、`audit_in`、`doc_in`、`rerank_in` 槽，迁移时位置不变。`IndexResults` 以编号表长度作为请求数，不检查编号唯一；宿主重复的 `request_id` 现在被接受（`DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds`），5.4 不得新增唯一性检查 |
-| 3 | 边界：没有按名字特殊处理该端口的代码 | Core、Operator、工具、Studio 中都没有按 `raw_request_ids` 特判的逻辑；Studio 只通过 Catalog 的 `bizs[].ingress` 间接显示它。删除后 Binding 审计、部署准备与转换器端口、BizDefinition 两侧同步减少，不会产生新的审计错误 |
-| 4 | D5 返回码 | **定为 `-3`。** 这类缺陷今天表现为：解码少记或漏发编号后，编码时 `ReadOutputValue` 报 `Missing required context value` 或 `IndexResults` 报来源错误，两者都经 `ReturnInvalidInput` 返回 `-3`。5.4 保持同一返回码，只是把发现时间提前到租用输出块之前。`-4` 的定义是"输出槽位、容量或写入数量错误"，不适用于解码阶段 |
-| 5 | 回归：迁移范围有遗漏 | 原规则按端口名查找，漏掉了 `tests/unit/adapter/test_io_converters.cpp`：它用自定义端口 `"ids"` / `"actual_ids"` 直接调用 `DecodeRequestRows` / `EncodeResultRows`（4 个用例、6 处调用）。已补进改动 6 |
-| 6 | 测试能否证明契约 | 原测试不足以长期防止回退，补三项：Catalog 契约断言（替代只在验收时运行的 grep）、Operator 级重复编号、解码失败时编号表保持为空。已补进"测试" |
-| 7 | 文档 | `adapter_templates/README.md` 与 4 个示例转换器不提请求编号；`.agents` 中两处只提辅助函数名，签名变化后仍成立。无额外文档需要改 |
-
-### 改动
-
-1. `include/adapter/io_converter.h`：
-
-   ```cpp
-   struct InputDecodeOptions {
-     // ...
-     // Per-call table owned by the Operator. Converters record the external
-     // request ID of every input row, in input order.
-     std::vector<uint64_t>* request_ids = nullptr;
-   };
-
-   struct OutputEncodeOptions {
-     // ...
-     // The same table, read-only: index i is the external ID of input row i.
-     const std::vector<uint64_t>* request_ids = nullptr;
-   };
-   ```
-
-2. `include/adapter/converter_authoring.h`：
-   - 新增辅助函数：
-
-     ```cpp
-     // Call after every row passes validation and before publishing business values.
-     inline bool PublishRequestIds(const InputDecodeOptions& options,
-                                   std::vector<uint64_t> ids, AdapterStatus* status) {
-       if (!options.request_ids) {
-         AdapterValidationHelper::ReturnInvalidInput(
-             status, "Missing request id table in decode options", "request_ids",
-             options.converter_id.c_str());
-         return false;
-       }
-       *options.request_ids = std::move(ids);
-       return true;
-     }
-
-     inline const std::vector<uint64_t>* RequestIds(const OutputEncodeOptions& options,
-                                                    AdapterStatus* status) {
-       if (!options.request_ids) {
-         AdapterValidationHelper::ReturnInvalidInput(
-             status, "Missing request id table in encode options", "request_ids",
-             options.converter_id.c_str());
-       }
-       return options.request_ids;
-     }
-     ```
-
-   - `DecodeRequestRows`、`EncodeResultRows` 删除 `raw_ids_port` 参数，内部分别改用 `PublishRequestIds`、`RequestIds`。
-     发布顺序不变：全部行通过后，先记录请求编号，再发布业务值。
-3. 转换器与业务文件：
-
-   | 文件 | 改动 |
-   | --- | --- |
-   | `src/adapter/input/text_input.cpp`（两个转换器）、`translate_json_input.cpp`、`audio_input.cpp` | 调用 `DecodeRequestRows` 时去掉 `kRawRequestIds` 实参；`logical_ports` 去掉 `kRawRequestIds` |
-   | `src/adapter/input/audit_input.cpp`、`doc_query_input.cpp`、`image_query_input.cpp`、`rerank_input.cpp` | `PublishContextValue(..., bindings.Key(kRawRequestIds), ...)` 改为 `PublishRequestIds(options, std::move(ids), status)`，位置不变；`logical_ports` 去掉 `kRawRequestIds` |
-   | `src/adapter/output/keyword_result_output.cpp`、`structured_document_output.cpp`、`translation_json_output.cpp` | 调用 `EncodeResultRows` 时去掉实参；`logical_ports` 去掉 `kRawRequestIds` |
-   | `src/adapter/output/audio_result_output.cpp`、`audit_result_output.cpp`、`doc_answer_output.cpp`、`invoice_result_output.cpp`、`rerank_result_output.cpp` | `ReadOutputValue(*context, bindings, kRawRequestIds, options, status)` 改为 `RequestIds(options, status)`；`logical_ports` 去掉 `kRawRequestIds` |
-   | `src/adapter/biz/` 下 8 个文件 | ingress 去掉 `RequiredBizInput(kRawRequestIds)` |
-   | `include/adapter/biz_blackboard_keys.h` | 删除 `kRawRequestIds` |
-
-4. `src/adapter/operator/operator_adapter.cpp` 的 `Process`：
-   - 解码前声明 `std::vector<uint64_t> request_ids;`，设置 `in_options.request_ids = &request_ids;`。
-   - 解码成功后检查 `request_ids.size() == inputs.size()`；不相等时设置诊断
-     `DecodeInput for <converter_id> recorded <n> request ids for <m> inputs`，返回 `COMPANY_ALG_ERR_INVALID_INPUT`（返回码见 D5）。
-   - 编码前设置 `out_options.request_ids = &request_ids;`。
-5. `tests/support/adapter_harness.h`：新增成员 `std::vector<uint64_t> request_ids_`、`SetRequestIds(std::vector<uint64_t>)` 和 `RequestIds()`；
-   `DecodeOperator`、`EncodeOperator` 分别把它传入两个选项。
-6. 测试迁移（括号内为引用数）：`tests/unit/adapter/test_adapter_purity.cpp`（53）、`tests/contract/abi/test_adapter_contract_security.cpp`（14）、
-   `tests/unit/adapter/test_complex_converters.cpp`（12）、`tests/unit/adapter/test_text_converters.cpp`（10）、
-   `tests/integration/operator/test_operator_api.cpp`（6）、`tests/unit/operator/test_operator_value_registry.cpp`（2）、
-   `tests/contract/abi/test_operator_safety.cpp`（2），以及 `tests/support/adapter_examples/` 下的 `flat_struct_adapter.h`、`nested_pointer_tree_adapter.h`。规则如下：
-   - 向上下文发布 `kRawRequestIds` 的地方，改为 `harness.SetRequestIds(...)`，或给选项设置请求编号表。
-   - `InputPortBindings` / `OutputPortBindings` 字面量中删除 `{"raw_request_ids", "raw_request_ids"}`。
-   - 解码后从上下文读取 `raw_request_ids` 的断言，改为读取 `harness.RequestIds()` 或选项中的表。
-   - 断言"缺少 `raw_request_ids` 时编码失败"的用例，改为断言"选项中没有请求编号表时编码失败"。harness 总是传入自己的表
-     （可能为空，但不是空指针），经 harness 只能得到"编号与结果数量不符"的错误；因此这类用例不经 harness，
-     直接调用 `encode_fn` / `decode_fn` 并使用默认选项（`request_ids == nullptr`）。
-
-   上面的规则按引用 `raw_request_ids` 的位置查找，会漏掉另一类用例：不经 harness、直接调用生产转换器 `decode_fn` / `encode_fn`
-   的测试。它们不提到这个端口，但 5.4 之后未设置 `options.request_ids` 时，本应成功的解码和编码都会失败。
-   例如 5.2 新增的 `InputLengthLimitsStayUnchanged`，长度等于上限时期望解码成功。规则：
-
-   - 直接调用生产转换器、且期望成功的解码，设置 `options.request_ids` 指向测试持有的表；期望成功的编码，设置同一张表或预先填好的表。
-   - 期望在校验阶段失败的调用不用改：校验失败发生在记录请求编号之前，返回码和诊断不变。
-   - 逐个文件检查直接调用点（按 `git grep -c "decode_fn(\|encode_fn(" -- tests ':!tests/support'` 统计，核对于 `main@b24be92`）：
-
-     | 文件 | 直接调用 |
-     | --- | --- |
-     | `tests/contract/abi/test_adapter_contract_security.cpp` | 15 |
-     | `tests/unit/adapter/test_complex_converters.cpp` | 12 |
-     | `tests/unit/adapter/test_adapter_purity.cpp` | 10 |
-     | `tests/unit/adapter/test_text_converters.cpp` | 9 |
-     | `tests/integration/operator/test_operator_api.cpp` | 2 |
-     | `tests/unit/operator/test_operator_value_registry.cpp` | 2 |
-     | `tests/contract/abi/test_operator_safety.cpp` | 1 |
-
-     `tests/unit/adapter/test_io_converters.cpp` 中 `decode_fn` / `encode_fn` 的直接调用只针对测试自建的转换器，不受影响；
-     但同一文件直接调用两个辅助函数，见下一条。
-   - 按名字查找还会漏掉使用其他端口名的请求编号。以类型 `std::vector<uint64_t>` 和两个辅助函数名补查
-     （`git grep -n "DecodeRequestRows<\|EncodeResultRows<\|BlackboardKey<std::vector<uint64_t>>" -- tests`），
-     需要额外迁移的只有 `tests/unit/adapter/test_io_converters.cpp`：
-     - `DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds`：编号断言改为读取选项中的表，重复编号 `{42, 42}` 保持不变。
-     - `DecodeRowsReportsCallbackFailureWithoutPublishingBatch`：`actual_ids` 未发布的断言，改为"编号表仍为空"。
-     - `DecodeRowsUsesEffectiveBatchLimitFromOptions`：去掉 `kRowIds` 实参和 `ids` 映射。
-     - `EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity`：`context.Publish("actual_ids", ...)` 改为给选项设置 `{91, 17}`。
-   - `tests/support/adapter_examples/` 下的示例只被 `test_adapter_contract_security.cpp` 编译；`doc/dev_guide/adapter_templates/README.md`
-     链接这些示例，但不提请求编号，迁移后复核即可。
-
-### 提交拆分
-
-分两个提交，每个都能单独构建并通过门禁，便于审查和回退：
-
-1. **接入请求编号表**（不改变行为）：改动 1、2 中新增的选项字段和两个辅助函数；改动 4 中声明请求编号表并传给两个选项，
-   但暂不加数量检查；改动 5。此时转换器仍发布并读取 `kRawRequestIds`，选项中的请求编号表已经存在但没有转换器写入或读取，行为不变。
-2. **迁移并删除端口**：`DecodeRequestRows` / `EncodeResultRows` 改签名；改动 3；改动 4 的数量检查；改动 6 的测试迁移；文档与 CHANGELOG。
-
-### 测试
-
-- `OperatorApiTest` 新增 `ProcessRestoresRequestIdsWithoutBizPort`：keyword 业务输入非连续的请求编号（如 900001、42、7），输出的 `request_id` 一一对应。
-- `OperatorApiTest` 新增 `ProcessRejectsConverterRecordingWrongRequestIdCount`：注册一个只记录部分编号的测试转换器，`Process` 返回 `-3` 并给出上述诊断，
-  且没有租用输出块（输出仍为空指针）。注册测试转换器、Binding 和临时 Pipeline 的写法参照同文件的
-  `RegisterNestedOutputTestTypes` / `WriteNestedOutputPipeline`。返回码按 D5 的结论断言。
-- `AdapterContractSecurityTest` 新增 `DecodeAndEncodeRejectMissingRequestIdTable`。
-- `OperatorApiTest` 的 `ProcessRestoresRequestIdsWithoutBizPort` 同时覆盖重复编号：输入 900001、42、42，输出依次为 900001、42、42。
-- `IoConverterTest` 中解码回调失败的用例断言编号表仍为空（见改动 6），保证不会留下部分编号。
-- `CatalogContractSsotTest` 新增 `CatalogHasNoRequestIdPort`：Catalog 的 `bizs[].ingress`、所有转换器的 `logical_ports`、
-  所有 Binding 的端口映射中都没有 `raw_request_ids`。这条断言替代验收中的 grep，防止以后再加回业务契约。
-- 现有的结果乱序、重复/缺失来源、多槽（image_query）、候选展开（rerank）用例迁移后全部通过。
-
-### 文档与 CHANGELOG
-
-- 检查并更新：`grep -rn "raw_request_ids\|kRawRequestIds\|raw_ids" doc .agents src/adapter`。
-  核对于 `main@b24be92`，唯一命中是 `doc/dev_guide/business_onboarding.md:110`，改为：请求编号由框架保存和恢复；
-  只有自己组织多槽解码或多路结果的转换器，才调用 `PublishRequestIds` / `RequestIds`。
-- 以下描述"框架恢复外部编号"的段落不提端口名，改动后仍然成立，只需复核：`business_onboarding.md:117-118`、
-  `src/adapter/input/README.md:8`、`src/adapter/output/README.md:7`。
-- CHANGELOG：写明删除 `kRawRequestIds`、`DecodeRequestRows` / `EncodeResultRows` 去掉请求编号参数、新增两个选项字段和两个辅助函数，以及迁移方法；Operator 输出的 `request_id` 不变。
-  Studio 的 `$ingress` 由 Catalog 的 `bizs[].ingress` 生成（`tools/pipeline_studio/web/workbench.js` 的 `INGRESS`），
-  改动后不再列出 `raw_request_ids`，也写进 CHANGELOG。
-
-### 验收
-
-- [ ] `compare_baseline.py ... --drop-port raw_request_ids` 0 个差异；不加该参数时，差异只在 Catalog 和 `validate-io` 中的 `raw_request_ids` 条目。
-- [ ] smoke 的 `results.jsonl` 中 `request_id` 与基线一致（已包含在上一项对比中）。
-- [ ] `grep -rn "kRawRequestIds\|raw_request_ids" src include demo tools` 无输出。
-- [ ] 聚焦测试通过：
-
-  ```bash
-  ctest --test-dir build --output-on-failure -R \
-    "AdapterPurityTest|AdapterContractSecurityTest|ComplexConvertersTest|TextConvertersTest|IoConverterTest|IoBindingRegistryTest|OperatorApiTest|OperatorSafetyTest|OperatorGoldenTest|OperatorValueRegistryTest|AllBizPipelinesTest|DifferentIoModalitiesTest|ConcurrencyAndEdgeCasesTest|CatalogContractSsotTest|PipelineStudioTest"
-  ```
-
-- [ ] 2.1 的外部契约检查通过；门禁通过。
-
-**回退**：还原本步骤的提交。
+现行用法见 `doc/dev_guide/business_onboarding.md`，迁移说明见 `doc/CHANGELOG.md`。
 
 ## 8. 步骤 5.5：并行层按约束自动串行
 
@@ -680,7 +507,8 @@ Binding 默认使用框架标准批次上限 64，业务只在有实测依据时
 
 ## 9. 阶段完成
 
-- [ ] 5.1–5.4 全部验收；D1 确认后 5.5 也已验收，未确认时在 PR 中注明未实施。
+- [x] 5.1–5.4 全部验收（PR #150、#151）。
+- [ ] D1 确认后 5.5 已验收；未确认时在 PR 中注明未实施。
 - [ ] 2.3 的判定原则写入 `CONTRIBUTING.md` §3。
 - [ ] `FRAMEWORK_SIMPLIFICATION_PLAN.md` 标记阶段 5 完成。
 - [ ] 删除本文件，并清理指向本文件的引用。
