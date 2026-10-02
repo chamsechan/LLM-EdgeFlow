@@ -56,8 +56,8 @@ request input into a fresh `AlgContext`, call Process, and assert actual outputs
 `(req_id, sub_id)`; do not stop at factory creation. Cover the algorithm's empty/invalid input and
 failure behavior. The generator's `--write-test` creates a complete test file in
 `unit/nodes/`, automatically included in the Node runner and covered by the existing
-`CustomNodeCatalogTest` filter. Add `--add-to-cmake` to register the production Node source;
-without it, register that source before building its test. Rebuild `alg_pipeline_tool`
+`CustomNodeCatalogTest` filter. Production sources are compiled automatically on the next build.
+Rebuild `alg_pipeline_tool`
 after a production registration/Definition change, and check
 the composed solution with the same build. The final gate covers the complete default configuration
 even when first practice used a minimal build. Follow [CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate)

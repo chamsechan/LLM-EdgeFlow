@@ -211,7 +211,7 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 
 12 个生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、
 TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一套生命周期写法。
-函数较多时可拆成操作相关的 `.h/.cpp`，登记同目录 CMake，保持目录按操作组织。
+函数较多时可拆成操作相关的 `.h/.cpp`，目录下的 `.cpp` 自动编入，保持目录按操作组织。
 
 从下面的现有实现中只取需要的部分：
 
@@ -260,7 +260,7 @@ Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-
 
 | 现象 | 先检查什么 |
 | --- | --- |
-| Catalog 找不到新节点 | 文件是否登记进 CMake、是否重新构建、执行的是否是刚构建的工具 |
+| Catalog 找不到新节点 | 文件是否位于 `src/custom_nodes/`、是否重新构建、执行的是否是刚构建的工具 |
 | 未知参数或缺失 `bind_model` | 当前 Definition、节点 config、`models[].model_id` |
 | 输入类型或生产者不匹配 | `inputs` / `outputs` 两端的类型、实际数据名和唯一生产者 |
 | 模型调用返回错误 | 节点报告的错误码、所绑定模型的日志和资产配置 |

@@ -18,17 +18,17 @@ Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运
 2. 生成普通函数、Spec 和对应测试：
 
    ```bash
-   ./tools/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --write-test
-   ./tools/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --write-test
-   ./tools/scaffold_custom_node.py FastAudioNode --kind model -m asr --add-to-cmake --write-test
-   ./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
+   ./tools/scaffold_custom_node.py CustomFilterNode --kind compute --write-test
+   ./tools/scaffold_custom_node.py DomainPromptNode --kind model -m llm --write-test
+   ./tools/scaffold_custom_node.py FastAudioNode --kind model -m asr --write-test
+   ./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --write-test
    ```
 
    `--dry-run` 查看计划；已有文件默认拒绝覆盖。生成测试后补充独立业务期望。
 3. 在 `Transform`、`BuildPrompt` / `FormatAnswer` 或 `Run` 中实现普通算法，返回值或
    `NodeResult`。配置、端口、模型只在 Spec 中声明；请求数据留在函数局部。
-4. 格式化、构建 SDK、CLI 和现有测试 runner，再查询 Catalog。未用 `--add-to-cmake` 时，
-   将源码加入本目录 [CMakeLists.txt](CMakeLists.txt)。无需修改中央节点列表或 Studio。
+4. 格式化、构建 SDK、CLI 和现有测试 runner，再查询 Catalog。
+   目录下所有 `.cpp`（含子目录）都会编入，草稿不要用 `.cpp` 后缀。无需修改中央节点列表或 Studio。
 5. 编排 Pipeline，执行原生 `validate`、`plan` 与匹配 Demo。新平台结构走
    [业务接入指南](../../doc/dev_guide/business_onboarding.md)，交付执行
    [CONTRIBUTING](../../CONTRIBUTING.md) 的统一门禁。

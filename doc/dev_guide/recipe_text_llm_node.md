@@ -1,6 +1,6 @@
 # 任务：新增文本 LLM Node
 
-`text-llm-node` 自动创建源码、真实测试文件、生产源码的 CMake 登记、Pipeline、conf 和效果样例；
+`text-llm-node` 自动创建源码、真实测试文件、Pipeline、conf 和效果样例；
 测试由节点 runner 按目录自动收集。
 开发者主要编辑 `BuildPrompt`、`FormatAnswer` 以及独立业务期望。recipe 与独立脚手架统一生成普通函数和 Spec，使用同一注册及执行机制。
 
