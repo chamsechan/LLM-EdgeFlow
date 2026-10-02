@@ -1,0 +1,69 @@
+name: Save ccache
+description: >-
+  Trim ccache to this job's working set, save it, then delete older snapshots with the same
+  prefix on the same ref. Keeping one snapshot per job and ref holds the repository under the
+  Actions cache quota, so main snapshots are not evicted. Requires actions: write to prune;
+  read-only tokens such as fork pull requests only skip pruning.
+
+inputs:
+  path:
+    description: ccache directory.
+    required: true
+  key:
+    description: Exact key to save; must start with prefix.
+    required: true
+  prefix:
+    description: Key prefix shared by this job's snapshots on the current ref.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Trim ccache to working set
+      shell: bash
+      env:
+        CCACHE_DIR: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${CCACHE_WORKING_SET_START:-}" ]]; then
+          echo "::warning::ccache-restore did not record a working-set start; saving untrimmed."
+          exit 0
+        fi
+        age=$(( $(date +%s) - CCACHE_WORKING_SET_START + 60 ))
+        ccache --evict-older-than "${age}s"
+        ccache --show-stats --verbose | grep -E "Cache size|Files:" || true
+
+    - name: Save ccache snapshot
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+
+    - name: Delete superseded snapshots for this ref
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_KEY: ${{ inputs.key }}
+        CACHE_PREFIX: ${{ inputs.prefix }}
+      run: |
+        set -uo pipefail
+        api="repos/${GITHUB_REPOSITORY}/actions/caches"
+        if ! entries=$(gh api -X GET "${api}" -f key="${CACHE_PREFIX}" -f ref="${GITHUB_REF}" \
+            -f per_page=100 --jq '.actions_caches[] | "\(.id) \(.key)"'); then
+          echo "::warning::Cannot list Actions caches; skipped pruning."
+          exit 0
+        fi
+        # Never prune unless the snapshot just saved is visible; otherwise the ref would lose
+        # its only warm cache.
+        if ! awk -v key="${CACHE_KEY}" '$2 == key { found = 1 } END { exit !found }' <<< "${entries}"; then
+          echo "::notice::Saved snapshot ${CACHE_KEY} is not listed yet; skipped pruning."
+          exit 0
+        fi
+        while read -r id key; do
+          [[ -z "${id}" || "${key}" == "${CACHE_KEY}" ]] && continue
+          if gh api -X DELETE "${api}/${id}" >/dev/null; then
+            echo "Deleted superseded cache ${key}"
+          else
+            echo "::warning::Cannot delete cache ${key}; read-only tokens skip pruning."
+          fi
+        done <<< "${entries}"
