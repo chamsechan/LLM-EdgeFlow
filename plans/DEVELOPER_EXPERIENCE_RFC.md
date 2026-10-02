@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 状态 | 草案，待评审 |
+| 状态 | 实施中；按已确认范围分阶段验收 |
 | 基线 | `main@26d60f2`（2026-10-02） |
 | 详细设计 | [DEVELOPER_EXPERIENCE_DESIGN.md](DEVELOPER_EXPERIENCE_DESIGN.md) |
 | 关联文档 | [FRAMEWORK_SIMPLIFICATION_PLAN.md](FRAMEWORK_SIMPLIFICATION_PLAN.md)：本 RFC 取代其阶段 1、2 |
