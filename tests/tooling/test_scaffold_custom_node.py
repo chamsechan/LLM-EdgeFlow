@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/scaffold_custom_node.py"
+SCRIPT = ROOT / "tools/scaffold_custom_node.py"
 SPEC = importlib.util.spec_from_file_location("scaffold", SCRIPT)
 SCAFFOLD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SCAFFOLD)

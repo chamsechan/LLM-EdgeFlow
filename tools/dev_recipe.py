@@ -23,7 +23,7 @@ import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
-SCAFFOLD_SCRIPT = ROOT / "scripts/scaffold_custom_node.py"
+SCAFFOLD_SCRIPT = ROOT / "tools/scaffold_custom_node.py"
 SPEC = importlib.util.spec_from_file_location("scaffold", SCAFFOLD_SCRIPT)
 SCAFFOLD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SCAFFOLD)
@@ -327,7 +327,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         step = "files_prepared"
         plan.commit()
         completed.append(step)
-        argv = [sys.executable, root / "scripts/dev_recipe.py", "verify", recipe,
+        argv = [sys.executable, root / "tools/dev_recipe.py", "verify", recipe,
                 "--pipeline", target, "--tool", tool, "--build-dir", build,
                 "--effects", effects_target, "--model-root", models, "--manifest", manifest, "--demo", demo]
         if recipe == "text-llm-node":

@@ -16,8 +16,8 @@ PLANTUML_SHA256="e34c12bbe9944f1f338ca3d88c9b116b86300cc8e90b35c4086b825b5ae96d2
 PLANTUML_JAR="${TOOL_CACHE_DIR}/plantuml-${PLANTUML_VERSION}.jar"
 PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
 
-CLASS_SOURCE="${DOC_ROOT}/architecture.puml"
-FLOW_SOURCE="${DOC_ROOT}/architecture_v2.puml"
+CLASS_SOURCE="${DOC_ROOT}/architecture_classes.puml"
+FLOW_SOURCE="${DOC_ROOT}/architecture_flow.puml"
 CLASS_ASSET="${DOC_ROOT}/assets/architecture_class_diagram.svg"
 FLOW_ASSET="${DOC_ROOT}/assets/architecture_flow.svg"
 
@@ -113,7 +113,7 @@ trap cleanup EXIT INT TERM
   "${CLASS_SOURCE}" "${FLOW_SOURCE}" -o "${TMP_RENDER_DIR}"
 
 GENERATED_CLASS="${TMP_RENDER_DIR}/LLM_EdgeFlow_Architecture.svg"
-GENERATED_FLOW="${TMP_RENDER_DIR}/LLM_EdgeFlow_Target_Architecture_V2.svg"
+GENERATED_FLOW="${TMP_RENDER_DIR}/LLM_EdgeFlow_Runtime_Flow.svg"
 for generated_file in "${GENERATED_CLASS}" "${GENERATED_FLOW}"; do
   if [[ ! -s "${generated_file}" ]]; then
     echo "❌ PlantUML did not produce expected SVG: ${generated_file}"

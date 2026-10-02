@@ -446,7 +446,7 @@ foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
     LABELS "${_edgeflow_tier4}")
   if(config_path MATCHES "^configs/")
     add_test(NAME PythonCli_${config_stem}
-      COMMAND ${PROJECT_SOURCE_DIR}/show
+      COMMAND ${PROJECT_SOURCE_DIR}/tools/pipeline_studio/server.py
               ${config_path})
     set_tests_properties(PythonCli_${config_stem}
       PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"

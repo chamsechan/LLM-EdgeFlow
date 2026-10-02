@@ -25,10 +25,10 @@ endif()
 # Validation parity uses deterministic registrations without contaminating the
 # production CLI or shared SDK.
 add_executable(alg_pipeline_tool_test
-  ${PROJECT_SOURCE_DIR}/src/tools/alg_pipeline_tool.cpp
-  ${PROJECT_SOURCE_DIR}/src/tools/pipeline_authoring.cpp
-  ${PROJECT_SOURCE_DIR}/src/tools/pipeline_json_schema.cpp
-  ${PROJECT_SOURCE_DIR}/src/tools/pipeline_document_validation.cpp
+  ${PROJECT_SOURCE_DIR}/src/cli/alg_pipeline_tool.cpp
+  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_authoring.cpp
+  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_json_schema.cpp
+  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_document_validation.cpp
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime)

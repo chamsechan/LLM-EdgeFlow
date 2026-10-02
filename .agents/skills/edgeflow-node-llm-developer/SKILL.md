@@ -19,7 +19,7 @@ description: 用 MakeLlmTextSpec 新增 LLM-EdgeFlow 文本 LLM Node，编写 Bu
 这里“一次”指一次生成调用，不是只解码一个 token。平台 JSON 提取/响应序列化仍归 Adapter。
 
 ```bash
-python3 scripts/scaffold_custom_node.py ExtractFactsNode --kind model -m llm \
+python3 tools/scaffold_custom_node.py ExtractFactsNode --kind model -m llm \
   --add-to-cmake --write-test
 ```
 
