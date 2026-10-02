@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+校验诊断：未注册的节点类型、模型类型和 Backend 给出原因与相近的已注册名称；
+未注册模型不再连带报告引用错误，业务出口与 IO 边界的同一缺失键只报告一次。
+未知配置字段的建议按相似度排序。生产版 `alg_pipeline_tool` 在 stderr 提示检查构建变体
+或改用 `alg_pipeline_tool_test`，stdout JSON 保持原有结构。
+
 业务源码自动收录：`src/custom_nodes/`、`src/common_nodes/`、`src/adapter/{input,output,biz}/`
 与 `demo/biz/` 下的 `.cpp`（含子目录）在下次构建时自动编入，不再需要修改 CMake。
 脚手架删除 `--add-to-cmake`，recipe 不再修改 CMakeLists。
