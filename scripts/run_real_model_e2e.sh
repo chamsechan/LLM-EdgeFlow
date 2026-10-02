@@ -71,7 +71,7 @@ fi
 # 4. 使用同一固定权重运行公开 real Profile，而非测试专用直连入口。
 cd "${PROJECT_ROOT}"
 if [[ "${MODE}" == "whisper" || "${MODE}" == "all" ]]; then
-  "${BUILD_DIR}/alg_demo" --profile audio_asr_cpu
+  "${BUILD_DIR}/alg_demo" --profile audio_asr_intent_cpu
 fi
 if [[ "${MODE}" == "gguf-only" || "${MODE}" == "all" ]]; then
   "${BUILD_DIR}/alg_demo" --profile entity_extract_cpu

@@ -88,11 +88,11 @@ LLM_EDGEFLOW_TEST_KITELLM_MODEL=/absolute/path/model.gguf \
 ./scripts/fetch_real_test_models.sh --kite
 ./build/variants/kite-cpu/alg_demo --profiles-file demo/profiles_kite.json --suite real
 # 单项运行：
-./build/variants/kite-cpu/alg_demo --profiles-file demo/profiles_kite.json --profile ocr_doc_qa_kite
+./build/variants/kite-cpu/alg_demo --profiles-file demo/profiles_kite.json --profile ocr_invoice_qa_kite
 ```
 
 `--profiles-file` 是通用部署配置入口；省略时保持原有 demo/profiles.json 和默认套件。
-该套件包含实体抽取、问答、带精排问答、审核、图像文档问答，以及复用的关键词匹配与
+该套件包含实体抽取、问答、带精排问答、对话合规审核、OCR 票据问答，以及复用的关注词匹配与
 ONNX 精排，以及 `doc_qa_kite_embeddings` 纯 Kite 问答。纯文本 LLM 使用 Kite；
 混合配置的 Embedding/Rerank 使用 ONNX。所有结构化
 解析配置均使用 fail 策略，不通过 JSON fallback 掩盖模型生成错误。

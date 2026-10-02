@@ -36,12 +36,12 @@ class DifferentIoModalitiesTest : public ::testing::Test {
   }
 };
 
-// 1. 验证业务 5: 多模态图文票据问答 (Image + Query -> OCR BBox -> LLM JSON)
-TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
+// 1. 验证业务 5: OCR 票据问答 (Image + Query -> OCR BBox -> LLM JSON)
+TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
   auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
   operator_api::CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_doc_qa.conf";
+  param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_invoice_qa.conf";
   param.device_id = 0;
   param.compute_platform = operator_api::ComputePlatform::kCpu;
   param.max_frame_depth = 25;
@@ -111,7 +111,7 @@ TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
   EXPECT_EQ(ret, 0);
 }
 
-// 2. 验证业务 6: 语音识别与时序意图槽位抽取 (Float PCM Buffer -> Speech Text ->
+// 2. 验证业务 6: 语音识别与意图槽位 (Float PCM Buffer -> Speech Text ->
 // NLU Intent/Slots)
 TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
@@ -200,8 +200,8 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   EXPECT_EQ(ret, 0);
 }
 
-// 3. 验证业务 7: 纯语义精排矩阵打分 (1 Query + N Candidate Passages -> Matrix
-// Scores -> Top-K Indices)
+// 3. 验证业务 7: Cross-Encoder 精排矩阵打分 (1 Query + N Candidate Passages ->
+// Matrix Scores -> Top-K Indices)
 TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
 #ifndef HAVE_ONNXRUNTIME
   GTEST_SKIP() << "ONNX Runtime disabled in this build";

@@ -10,8 +10,8 @@
 
 namespace alg_demo {
 
-int RunAudioAsrDemo(const DemoOptions& options) {
-  PrintBanner("语音识别与意图槽位抽取", "Conf: " + options.config_path);
+int RunAudioAsrIntentDemo(const DemoOptions& options) {
+  PrintBanner("语音识别与意图槽位", "Conf: " + options.config_path);
 
   std::string err;
   std::vector<AudioDatasetSample> dataset_samples;
@@ -28,7 +28,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
     std::string resolved = ResolvePath(options.dataset_path);
     if (!std::filesystem::exists(resolved)) {
       if (!options.allow_fallback_sample) {
-        std::cerr << "[AudioAsrDemo ERROR] Dataset file not found: "
+        std::cerr << "[AudioAsrIntentDemo ERROR] Dataset file not found: "
                   << options.dataset_path << std::endl;
         return 4;
       }
@@ -37,8 +37,9 @@ int RunAudioAsrDemo(const DemoOptions& options) {
       if (!ReadAudioDataset(options.dataset_path, &dataset_samples,
                             &read_err)) {
         if (!options.allow_fallback_sample) {
-          std::cerr << "[AudioAsrDemo ERROR] Failed to read audio dataset: "
-                    << read_err << std::endl;
+          std::cerr
+              << "[AudioAsrIntentDemo ERROR] Failed to read audio dataset: "
+              << read_err << std::endl;
           return 4;
         }
       } else {
@@ -46,9 +47,10 @@ int RunAudioAsrDemo(const DemoOptions& options) {
       }
     } else {
       if (is_real_profile && !options.allow_fallback_sample) {
-        std::cerr << "[AudioAsrDemo ERROR] Real audio ASR profile requires a "
-                     ".jsonl dataset, got: "
-                  << options.dataset_path << std::endl;
+        std::cerr
+            << "[AudioAsrIntentDemo ERROR] Real audio ASR profile requires a "
+               ".jsonl dataset, got: "
+            << options.dataset_path << std::endl;
         return 4;
       }
     }
@@ -56,9 +58,10 @@ int RunAudioAsrDemo(const DemoOptions& options) {
 
   if (is_real_profile && !loaded_from_dataset &&
       !options.allow_fallback_sample) {
-    std::cerr << "[AudioAsrDemo ERROR] Real audio ASR profile requires a valid "
-                 "audio dataset and fallback sample is disabled."
-              << std::endl;
+    std::cerr
+        << "[AudioAsrIntentDemo ERROR] Real audio ASR profile requires a valid "
+           "audio dataset and fallback sample is disabled."
+        << std::endl;
     return 4;
   }
 
@@ -71,9 +74,10 @@ int RunAudioAsrDemo(const DemoOptions& options) {
     }
   } else {
     if (is_real_profile && !options.allow_fallback_sample) {
-      std::cerr << "[AudioAsrDemo ERROR] Real audio ASR profile cannot use "
-                   "fallback fixed audio."
-                << std::endl;
+      std::cerr
+          << "[AudioAsrIntentDemo ERROR] Real audio ASR profile cannot use "
+             "fallback fixed audio."
+          << std::endl;
       return 4;
     }
     fallback_buffers.emplace_back(16000, 0.01f);
@@ -149,18 +153,19 @@ int RunAudioAsrDemo(const DemoOptions& options) {
   ResultWriter writer(options);
   int w_ret = writer.WriteResults(sample_results, 0.0, &err);
   if (w_ret != 0) {
-    std::cerr << "[AudioAsrDemo ERROR] Failed to write results: " << err
+    std::cerr << "[AudioAsrIntentDemo ERROR] Failed to write results: " << err
               << std::endl;
     return w_ret;
   }
 
-  std::cout << "[AudioAsrDemo] Results written; see summary.json for sample "
-               "success/failure counts."
-            << std::endl;
+  std::cout
+      << "[AudioAsrIntentDemo] Results written; see summary.json for sample "
+         "success/failure counts."
+      << std::endl;
   return 0;
 }
 
-REGISTER_DEMO_BIZ("speech_audio_asr_intent_slot", "语音识别与意图槽位抽取",
-                  RunAudioAsrDemo);
+REGISTER_DEMO_BIZ("audio_asr_intent", "语音识别与意图槽位",
+                  RunAudioAsrIntentDemo);
 
 }  // namespace alg_demo

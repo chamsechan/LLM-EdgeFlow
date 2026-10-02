@@ -23,7 +23,7 @@ class AllBizPipelinesTest : public ::testing::Test {
   }
 };
 
-// 1. 业务 3 (智能长文档切片问答 RAG) 细粒度断言测试 (DocChunk -> Embedding ->
+// 1. 业务 3 (文档问答 RAG) 细粒度断言测试 (DocChunk -> Embedding ->
 // VectorSearch -> Prompt -> LLM)
 TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   operator_api::CreateParam param{};
@@ -110,8 +110,8 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   EXPECT_EQ(ret, 0);
 }
 
-// 2. 业务 4 (智能对话风控质检 - 3模型6节点级联) 细粒度高危与合规样本双向校验
-TEST_F(AllBizPipelinesTest, DialogueComplianceAuditPipeline) {
+// 2. 业务 4 (对话合规审核 - 3模型6节点级联) 细粒度高危与合规样本双向校验
+TEST_F(AllBizPipelinesTest, DialogueAuditPipeline) {
   operator_api::CreateParam param{};
   param.model_path = ".";
   param.cfg_file_name = "demo/fixtures/mock/pipeline_dialogue_audit.conf";

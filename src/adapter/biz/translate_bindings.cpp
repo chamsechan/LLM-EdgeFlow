@@ -6,7 +6,7 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "translate_v1";
+constexpr const char* kBizName = "translate";
 
 BizDefinition MakeTranslateBizDefinition() {
   BizDefinition def;

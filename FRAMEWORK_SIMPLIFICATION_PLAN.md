@@ -50,7 +50,7 @@
 | Spec 只有 Map 函数有签名检查；Batch 的 `Run` 和 LLM 钩子签名写错时，报错出现在模板深处 | `include/nodes/function_node.h:96` 有检查；`InvokeBatch`（`:120`）、LLM 钩子（`:1603`、`:1641`）没有 | 2 |
 | 同一个批次上限 64 写在 4 处：输入转换器、输出转换器、Exposure、Binding，运行时取最小值 | 15 个转换器 + 8 个 biz 文件；`src/adapter/deployment_preparation.cpp:140-149` | 3 |
 | Exposure 只是在 Binding 之外把业务名和批次上限再声明一次 | `include/adapter/io_binding.h:30-33`；唯一消费点是 `deployment_preparation.cpp:145-149` 和 `src/adapter/io_binding_registry.cpp:414-427` | 3 |
-| 端口在转换器 `logical_ports`、BizDefinition ingress/egress、Binding 端口表中写 3 遍。8 个 Binding 里只有 1 处不是同名映射 | `src/adapter/biz/compliance_audit_bindings.cpp:51`；审计代码 `io_binding_registry.cpp:244-377` 专门比对这三份声明 | 3 |
+| 端口在转换器 `logical_ports`、BizDefinition ingress/egress、Binding 端口表中写 3 遍。8 个 Binding 里只有 1 处不是同名映射 | `src/adapter/biz/dialogue_audit_bindings.cpp:51`；审计代码 `io_binding_registry.cpp:244-377` 专门比对这三份声明 | 3 |
 | 转换器注册时拒绝 `max_batch_size == 0`；测试夹具普遍依赖"Binding 为 0 时继承转换器上限" | `src/adapter/io_converter_registry.cpp:78`、`:165`；`tests/unit/adapter/test_io_binding_registry.cpp:130-139` 与 `EffectiveBatchLimitIncludesBindingBound` 测试 | 3 |
 | 没有跨请求状态。会话缓存 `GetOrCreateResult` 只能创建一次，没有更新和淘汰；端口 `lifetime=session` 只是元数据 | `include/nodes/session_resources.h`；`pipeline_validator.cpp:68-84` | 4 |
 | 同一句柄上的 `Process` 已经被句柄互斥锁串行化 | `src/adapter/operator/operator_adapter.cpp:321` | 4 |
@@ -183,7 +183,7 @@
 | `BizExposureDefinition`、`REGISTER_BIZ_EXPOSURE`、`IoBindingRegistry::RegisterExposure/FindExposure/AllExposures` | 删除 | 编译错误 | 8 个 biz 文件删掉 Exposure；测试 `test_operator_safety.cpp:472-484`、`test_complex_converters.cpp:489`、`test_io_binding_registry.cpp`（保存与恢复 Exposure、`AuditRejectsMissingProductionExposure` 等用例） |
 | `InputConverterDefinition::max_batch_size`、`OutputConverterDefinition::max_batch_size` | 默认值从 64 改为 0；0 从"注册失败"改为"转换器自身不设限"；非 0 仍参与取交集 | 语义变化，写进 CHANGELOG | 16 个转换器（7 个输入文件中的 8 个输入转换器，加 8 个输出转换器）删除 `= 64` 和 `kMaxBatchSize`；`io_converter_registry.cpp:78`、`:165` 不再拒绝 0；`test_io_converters.cpp:183-186` 由"拒绝 0"改为"接受 0" |
 | `IoBindingDefinition::max_batch_size` | 0 的含义从"继承转换器和 Exposure"改为"Binding 不设限"；Binding、输入转换器、输出转换器三处全为 0 时，审计和部署准备都报错 | 语义变化，写进 CHANGELOG；全为 0 时有明确报错，且部署准备的报错先于 Validator 诊断 | 8 个生产 Binding 保留 64；自带非 0 上限的测试转换器不用改；复用生产转换器又没写上限的临时 Binding 要补 `max_batch_size`（仓内一处：`test_pipeline_catalog_validator.cpp` 的合成 Binding，由门禁发现） |
-| `IoBindingDefinition::input_ports/output_ports` | 可以省略同名项，按转换器 `logical_ports` 补全；显式写出的项仍必须是转换器声明过的端口 | 向后兼容，写全仍然有效 | 8 个生产 Binding 删除同名项，只有 `compliance_audit` 保留 `matched_policies → matched_policy` |
+| `IoBindingDefinition::input_ports/output_ports` | 可以省略同名项，按转换器 `logical_ports` 补全；显式写出的项仍必须是转换器声明过的端口 | 向后兼容，写全仍然有效 | 8 个生产 Binding 删除同名项，只有 `dialogue_audit` 保留 `matched_policies → matched_policy` |
 | 直接读取 `input_ports/output_ports` 当作完整映射的代码 | 同名项不再写出，完整映射要用新增的 `EffectivePortMapping(declared, logical_ports)` 计算 | 语义变化：旧代码会少映射同名端口，解码时找不到 key | 部署准备、审计、Catalog 输出和 `alg_pipeline_tool validate-io` 改用有效映射；测试 `test_adapter_purity.cpp:1032`、`:1047` 同步修改 |
 | `InputDecodeOptions` | 新增 `max_batch_size`，由 Operator 填入本句柄的有效上限；0 表示不检查上限 | 向后兼容 | `operator_adapter.cpp:353-355` 填值 |
 | `ValidateDecodeRequest`、`DecodeRequestRows` | 删除批次上限参数，改为读取 `options.max_batch_size` | 编译错误 | 4 个多槽转换器（`doc_query`、`audit`、`rerank`、`image_query`）、3 个单行转换器文件（`text_input` 两处、`audio`、`translate_json`）、`test_io_converters.cpp:583`、`:619` |
@@ -279,7 +279,7 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 - [x] 8 个业务的有效批次上限仍是 64：用 `alg_pipeline_tool validate-io` 的 `effective_max_batch_size` 核对，并加单元测试逐一断言。
 - [x] 在 `src`、`include`、`doc`、`.agents`、`tests` 中执行 `grep -rn "REGISTER_BIZ_EXPOSURE\|BizExposure\|kMaxBatchSize\|RegisterExposure"`，除 CHANGELOG 中的删除说明外没有任何结果。
 - [x] 新增或更新以下单元测试：
-  - 省略端口表时按同名映射；`compliance_audit` 的非同名映射；
+  - 省略端口表时按同名映射；`dialogue_audit` 的非同名映射；
   - 显式映射到转换器没有声明的端口时，审计报错；
   - Binding 与两个转换器的上限全为 0 时，审计和部署准备都报错；
   - 转换器声明了非 0 上限时，仍与 Binding 的上限取交集（对应 RFC 0066 的交集规则）；
@@ -447,7 +447,7 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 
 ### 8.8 闭环一：模式保持（真实业务）
 
-**业务**：关键词匹配（`keyword_match_v1`）加上模式保持。复用现有的 Binding、转换器和 Demo，不新增业务契约。
+**业务**：关键词匹配（`keyword_match`）加上模式保持。复用现有的 Binding、转换器和 Demo，不新增业务契约。
 
 **规则**
 - `#严格模式` 切到 strict，`#常规模式` 切回 normal。

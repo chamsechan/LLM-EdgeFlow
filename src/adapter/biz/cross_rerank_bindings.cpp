@@ -6,7 +6,7 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "dense_cross_rerank_scoring";
+constexpr const char* kBizName = "cross_rerank";
 
 BizDefinition MakeCrossRerankBizDefinition() {
   BizDefinition def;

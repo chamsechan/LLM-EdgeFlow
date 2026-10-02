@@ -98,7 +98,7 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
           {{"id", "broken"}, {"strategy", "regex"}, {"pattern", "("}}}}},
        {"rules[1].pattern", "broken", "byte offset"}}};
   auto root = nlohmann::json::parse(R"({
-  "biz_name": "keyword_match_v1",
+  "biz_name": "keyword_match",
   "models": [],
   "pipeline": [
     {

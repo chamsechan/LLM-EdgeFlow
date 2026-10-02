@@ -52,7 +52,7 @@ class JsonPromptDemoTest(unittest.TestCase):
             self.assertEqual(kwargs["cwd"], ROOT)
             self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
             kwargs["stdout"].write("native diagnostic\n")
-            output = Path(command[command.index("--output-dir") + 1]) / "translate_v1"
+            output = Path(command[command.index("--output-dir") + 1]) / "translate"
             output.mkdir(parents=True)
             (output / "results.jsonl").write_text(json.dumps({
                 "request_id": 30001, "status": 0,

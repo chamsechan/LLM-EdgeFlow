@@ -12,7 +12,7 @@
 namespace alg_demo {
 
 int RunDialogueAuditDemo(const DemoOptions& options) {
-  PrintBanner("智能对话风控质检业务", "Conf: " + options.config_path);
+  PrintBanner("对话合规审核", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -156,7 +156,6 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("dialogue_compliance_audit_v1", "智能对话风控质检业务",
-                  RunDialogueAuditDemo);
+REGISTER_DEMO_BIZ("dialogue_audit", "对话合规审核", RunDialogueAuditDemo);
 
 }  // namespace alg_demo

@@ -158,7 +158,7 @@ flowchart LR
 这些配置使用测试模型，校验要用带测试注册的 `alg_pipeline_tool_test`。
 `alg_pipeline_tool` 用于查看生产注册，也能发现刚编译的自定义节点。
 
-查看 `results/first-node/entity_extract_v1/results.jsonl`：应有 `request_id: 30001`、`status: 0`，
+查看 `results/first-node/entity_extract/results.jsonl`：应有 `request_id: 30001`、`status: 0`，
 以及 `output.entities.nouns` 中的“张三”“清华大学”等值。`summary.json` 应显示一条成功、
 零条失败。这里验证节点、编排与 Adapter 的完整路径，回答来自确定性测试模型。
 

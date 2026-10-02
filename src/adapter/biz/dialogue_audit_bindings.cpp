@@ -6,9 +6,9 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "dialogue_compliance_audit_v1";
+constexpr const char* kBizName = "dialogue_audit";
 
-BizDefinition MakeComplianceAuditBizDefinition() {
+BizDefinition MakeDialogueAuditBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "对话合规审核";
@@ -19,17 +19,17 @@ BizDefinition MakeComplianceAuditBizDefinition() {
   return def;
 }
 
-const bool g_reg_compliance_audit_biz = []() {
-  auto def = MakeComplianceAuditBizDefinition();
+const bool g_reg_dialogue_audit_biz = []() {
+  auto def = MakeDialogueAuditBizDefinition();
   if (!PipelineCatalog::FindBiz(def.biz_name)) {
     PipelineCatalog::RegisterBizDefinition(def);
   }
   return true;
 }();
 
-IoBindingDefinition MakeComplianceAuditOperatorBinding() {
+IoBindingDefinition MakeDialogueAuditOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "compliance_audit.operator.v1";
+  def.binding_id = "dialogue_audit.operator.v1";
   def.biz_name = kBizName;
 
   def.input_converter_id = "audit.plain.operator.v1";
@@ -38,7 +38,7 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
   return def;
 }
 
-REGISTER_IO_BINDING(MakeComplianceAuditOperatorBinding());
+REGISTER_IO_BINDING(MakeDialogueAuditOperatorBinding());
 
 }  // namespace
 }  // namespace llm_edgeflow

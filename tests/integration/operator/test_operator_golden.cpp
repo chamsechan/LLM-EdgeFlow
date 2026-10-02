@@ -248,8 +248,8 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 4: ComplianceAudit (Biz 4)
-TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
+// Golden Test 4: DialogueAudit (Biz 4)
+TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
   ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_dialogue_audit.conf"),
@@ -293,11 +293,12 @@ TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 5: OcrDocQA (Biz 5)
-TEST_F(OperatorGoldenTest, OcrDocQaGolden) {
+// Golden Test 5: OcrInvoiceQa (Biz 5)
+TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
-  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_ocr_doc_qa.conf"), 0)
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_ocr_invoice_qa.conf"),
+            0)
       << instance.create_diagnostic();
   ASSERT_NE(instance.get(), nullptr);
 

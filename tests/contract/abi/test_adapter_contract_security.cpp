@@ -731,17 +731,21 @@ TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
   ASSERT_NE(binding, nullptr);
 
   // 6.1 精确匹配成功
-  EXPECT_EQ(binding->biz_name, "keyword_match_v1");
+  EXPECT_EQ(binding->biz_name, "keyword_match");
 
   // 6.2 旧 cabi / 包含子串的伪造名称 / 大小写不匹配 / 空白名称均严格拒绝
   // (Fail-Closed)
   EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("keyword_match.cabi.v1"),
             nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("keyword_match_v1_fake"),
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("keyword_match_fake"),
             nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("my_keyword_match_v1"),
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("my_keyword_match"),
             nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("KEYWORD_MATCH_V1"),
+  EXPECT_EQ(
+      IoBindingRegistry::Instance().FindBinding("KEYWORD_MATCH.OPERATOR.V1"),
+      nullptr);
+  // 业务名与 binding ID 共用词根，但业务名本身不是 binding ID。
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("keyword_match"),
             nullptr);
   EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(""), nullptr);
 
@@ -1298,7 +1302,7 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
     inputs[0]["test.frame"] = MakeBorrowedOperatorInput(&frame);
     inputs[0]["test.string"] = MakeBorrowedOperatorInput(&query);
     outputs[0]["test.od_out"] = nullptr;
-    check("demo/fixtures/mock/pipeline_ocr_doc_qa.conf", inputs, outputs,
+    check("demo/fixtures/mock/pipeline_ocr_invoice_qa.conf", inputs, outputs,
           length == 4096 ? 0 : -3,
           length == 4096
               ? ""

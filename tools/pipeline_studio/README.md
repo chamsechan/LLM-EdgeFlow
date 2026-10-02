@@ -262,7 +262,7 @@ Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算�
 
 检查 `results/first-solution/keyword_match_rules/results.jsonl` 和 `summary.json`：
 本练习应有两条成功结果，第一条命中 `FIRST_RUN`，第二条未命中。核对请求 ID、状态
-和业务字段，不只看退出码。无 Profile 运行时，结果子目录为 SDK 解析出的业务名 `keyword_match_v1`。
+和业务字段，不只看退出码。无 Profile 运行时，结果子目录为 SDK 解析出的业务名 `keyword_match`。
 
 每份方案显式填写 `deployment.io.io_binding`，无需填写根级 `biz_name`。
 `deployment.io.out_mem` 可省略，必需输出采用注册默认分配；可选输出通过显式槽位配置启用。

@@ -54,6 +54,12 @@ Maintain the resulting rules and necessary rationale in their current owning gui
 the implementation and contract tests. Do not create numbered proposal archives or duplicate
 the same rule across documents. Git and PR history retain the development discussion.
 
+Until the first production release there are no compatibility consumers. Rename or remove
+identifiers, fields, parameters and diagnostic codes in place and update every reference in the
+same change; do not keep aliases, retired values or migration shims. After release, an
+incompatible external contract change adds a new versioned IoBinding instead of changing an
+existing ID.
+
 Use framework defaults for platform limits and scheduling values when a conservative value
 is correct for every supported scenario, even if slower, or an independent runtime hard
 limit bounds it. Keep semantic contracts such as ports, types, quantity relationships,
