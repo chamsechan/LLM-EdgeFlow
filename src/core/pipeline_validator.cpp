@@ -985,6 +985,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   }
 
   std::unordered_set<std::string> unresolved_model_ids;
+  std::unordered_set<std::string> unresolved_output_keys;
   std::unordered_set<std::string> reported_missing_outputs;
   std::unordered_map<std::string, std::string> model_capabilities;
   std::unordered_map<std::string, InferenceConcurrency> model_concurrency;
@@ -1125,6 +1126,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           "/pipeline/" + std::to_string(node.source_index) + "/node_type",
           "Unknown node_type or missing catalog definition: " + node.node_type,
           node.id);
+      for (const auto& output : node.ports.outputs)
+        unresolved_output_keys.insert(output.second);
       continue;
     }
     def_by_id[node.id] = definition;
@@ -1281,6 +1284,15 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
+  // Missing-producer errors cascade only when an unregistered node's
+  // explicit mapping is the sole possible source. Known producers or ingress
+  // still permit independent type/uniqueness/conflict checks.
+  auto has_only_unresolved_source = [&](const std::string& key) {
+    auto it = producers.find(key);
+    return unresolved_output_keys.count(key) &&
+           (it == producers.end() || it->second.empty()) && !ingress.count(key);
+  };
+
   const size_t pre_topology_errors = report.diagnostics.size();
   ResolveTopology(nodes, &report);
   if (report.diagnostics.size() != pre_topology_errors || !biz ||
@@ -1386,7 +1398,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                                    input.logical_name, "$ingress", &report);
         }
       }
-      if (!found && biz) {
+      if (!found && biz && !has_only_unresolved_source(actual_key)) {
         std::vector<std::string> suggestions;
         for (const auto& candidate : catalog.nodes) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
@@ -1496,7 +1508,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     for (const auto& consumer : biz->egress) {
       auto it = producers.find(consumer.blackboard_key);
       if (it == producers.end() || it->second.empty()) {
-        if (consumer.required) {
+        if (consumer.required &&
+            !has_only_unresolved_source(consumer.blackboard_key)) {
           Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",
               "Pipeline does not produce required biz output: " +
                   consumer.blackboard_key,
@@ -1551,6 +1564,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           continue;
         }
         if (consumer.required &&
+            !has_only_unresolved_source(consumer.blackboard_key) &&
             !reported_missing_outputs.count(consumer.blackboard_key)) {
           Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
               "Pipeline does not produce required IO boundary output: " +
