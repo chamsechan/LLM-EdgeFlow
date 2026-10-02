@@ -32,7 +32,7 @@ int EncodeOperatorKeywordResult(AlgContext* context,
                                 size_t* written_count, AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorKeywordOutput>(
       context, bindings, options, destination, written_count, status,
-      kOutputSlot, kRawRequestIds, kRuleMatches, &EncodeKeyword);
+      kOutputSlot, kRuleMatches, &EncodeKeyword);
 }
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
@@ -44,8 +44,7 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kRuleMatches)};
+  def.logical_ports = {RequiredInputPort(kRuleMatches)};
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;
 }

@@ -115,6 +115,30 @@ inline std::string CopyInputString(const CompanyString& value) {
                            : std::string(value.data, value.length);
 }
 
+// Call after every row passes validation, before publishing business values.
+inline bool PublishRequestIds(const InputDecodeOptions& options,
+                              std::vector<uint64_t> ids,
+                              AdapterStatus* status) {
+  if (!options.request_ids) {
+    AdapterValidationHelper::ReturnInvalidInput(
+        status, "Missing request id table in decode options", "request_ids",
+        options.converter_id.c_str());
+    return false;
+  }
+  *options.request_ids = std::move(ids);
+  return true;
+}
+
+inline const std::vector<uint64_t>* RequestIds(
+    const OutputEncodeOptions& options, AdapterStatus* status) {
+  if (!options.request_ids) {
+    AdapterValidationHelper::ReturnInvalidInput(
+        status, "Missing request id table in encode options", "request_ids",
+        options.converter_id.c_str());
+  }
+  return options.request_ids;
+}
+
 template <typename T>
 inline const T* ReadOutputValue(AlgContext& context,
                                 const OutputPortBindings& bindings,
@@ -236,7 +260,6 @@ int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
     const InputPortBindings& bindings, AlgContext* context,
     AdapterStatus* status, const char* slot,
-    const BlackboardKey<std::vector<uint64_t>>& raw_ids_port,
     const BlackboardKey<std::vector<TraceableItem<Payload>>>& payload_port,
     Decode&& decode) {
   if (!ValidateDecodeRequest(source, options, context, status))
@@ -255,9 +278,7 @@ int DecodeRequestRows(
     ids.push_back(input->request_id);
     payloads.emplace_back(static_cast<uint32_t>(i), 0, std::move(payload));
   }
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(raw_ids_port), std::move(ids),
-          options.converter_id.c_str(), status) ||
+  if (!PublishRequestIds(options, std::move(ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.Key(payload_port), std::move(payloads),
           options.converter_id.c_str(), status))
@@ -272,7 +293,6 @@ int EncodeResultRows(
     AlgContext* context, const OutputPortBindings& bindings,
     const OutputEncodeOptions& options, ExternalOutputBatchView* destination,
     size_t* written_count, AdapterStatus* status, const char* slot,
-    const BlackboardKey<std::vector<uint64_t>>& raw_ids_port,
     const BlackboardKey<std::vector<TraceableItem<Payload>>>& result_port,
     Encode&& encode) {
   if (written_count) *written_count = 0;
@@ -283,8 +303,7 @@ int EncodeResultRows(
   const auto* results =
       ReadOutputValue(*context, bindings, result_port, options, status, "res");
   if (!results) return COMPANY_ALG_ERR_INVALID_INPUT;
-  const auto* ids =
-      ReadOutputValue(*context, bindings, raw_ids_port, options, status);
+  const auto* ids = RequestIds(options, status);
   if (!ids) return COMPANY_ALG_ERR_INVALID_INPUT;
   if (!destination || destination->count < results->size())
     return AdapterValidationHelper::ReturnBufferTooSmall(

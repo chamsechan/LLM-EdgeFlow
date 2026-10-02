@@ -73,9 +73,7 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
                              std::move(query_prompt));
   }
 
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
-          options.converter_id.c_str(), status) ||
+  if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.Key(kImagePaths), std::move(raw_images),
           options.converter_id.c_str(), status) ||
@@ -97,8 +95,7 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
 
   def.external_slots = {ExternalInputSlot<CompanyFrame>(kFrameSlot),
                         ExternalInputSlot<CompanyString>(kQuerySlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kImagePaths),
-                       OutputPort(kUserQueries)};
+  def.logical_ports = {OutputPort(kImagePaths), OutputPort(kUserQueries)};
   def.decode_fn = &DecodeOperatorImageQueryInput;
   return def;
 }

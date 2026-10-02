@@ -6,6 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/converter_authoring.h"
 #include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
@@ -102,6 +103,7 @@ class TemplateNestedPointerTreeAdapter {
   }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             const InputDecodeOptions& options,
              AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
@@ -140,9 +142,7 @@ class TemplateNestedPointerTreeAdapter {
       root_dtos.push_back(std::move(root_dto));
     }
 
-    if (!AdapterValidationHelper::PublishContextValue(
-            *ctx, "raw_request_ids", std::move(req_ids), AdapterName(),
-            out_status) ||
+    if (!PublishRequestIds(options, std::move(req_ids), out_status) ||
         !AdapterValidationHelper::PublishContextValue(
             *ctx, "tree_root_dtos", std::move(root_dtos), AdapterName(),
             out_status)) {

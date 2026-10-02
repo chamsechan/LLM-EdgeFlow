@@ -49,6 +49,10 @@ class AdapterHarness {
   const AlgContext& Context() const { return ctx_; }
   AdapterStatus& Status() { return status_; }
   const AdapterStatus& Status() const { return status_; }
+  void SetRequestIds(std::vector<uint64_t> ids) {
+    request_ids_ = std::move(ids);
+  }
+  const std::vector<uint64_t>& RequestIds() const { return request_ids_; }
 
   int DecodeOperator(const std::vector<const void*>& inputs) {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
@@ -70,6 +74,7 @@ class AdapterHarness {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     InputDecodeOptions options;
     options.converter_id = in_conv_->converter_id;
+    options.request_ids = &request_ids_;
 
     return in_conv_->decode_fn(view, options, in_bindings_, &ctx_, &status_);
   }
@@ -108,6 +113,7 @@ class AdapterHarness {
     if (!out_conv_ || !out_conv_->encode_fn || !view) return -1;
     OutputEncodeOptions options;
     options.converter_id = out_conv_->converter_id;
+    options.request_ids = &request_ids_;
     return out_conv_->encode_fn(&ctx_, out_bindings_, options, view,
                                 written_count, &status_);
   }
@@ -173,6 +179,7 @@ class AdapterHarness {
   OutputPortBindings out_bindings_;
   AlgContext ctx_;
   AdapterStatus status_;
+  std::vector<uint64_t> request_ids_;
 };
 
 }  // namespace test

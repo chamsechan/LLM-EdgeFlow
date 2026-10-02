@@ -107,7 +107,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    由 Operator 通过 `InputDecodeOptions` 传入，转换器不必另行声明。
    文本可用 `IsValidInputString` / `CopyInputString`，PCM 的范围检查和复制仍属于业务函数。
    多槽、候选展开等算法继续使用 `ValidateDecodeRequest` / `ReadInputSlot<T>` 显式组织。
-   外部请求编号保存在 `raw_request_ids`，内部批次使用批内编号，输出时恢复原编号。
+   请求编号由框架保存和恢复，内部批次使用批内编号。自己组织多槽解码或多路结果的转换器，
+   在所有行校验通过后调用 `PublishRequestIds` 记录编号，编码时通过 `RequestIds` 读取；
+   编号表通过解码/编码选项传递，不声明为业务端口。
    定义 `InputConverterDefinition`并使用
    `REGISTER_INPUT_CONVERTER` 注册。
 2. **实现输出转换器（`src/adapter/output/`）。**

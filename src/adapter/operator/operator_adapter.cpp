@@ -347,10 +347,12 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     // 3. 执行统一输入解码
     // (在租用输出块之前完成业务校验；若校验失败则零输出块被租用)
     llm_edgeflow::AlgContext req_ctx;
+    std::vector<uint64_t> request_ids;
     llm_edgeflow::InputDecodeOptions in_options;
 
     in_options.converter_id = h->input_converter->converter_id;
     in_options.max_batch_size = h->effective_process_batch_limit;
+    in_options.request_ids = &request_ids;
 
     llm_edgeflow::AdapterStatus decode_status;
     int decode_ret = h->input_converter->decode_fn(
@@ -361,6 +363,13 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
                    h->input_converter->converter_id + ": " +
                    decode_status.ToString());
       return decode_ret;
+    }
+    if (request_ids.size() != inputs.size()) {
+      SetLastError("DecodeInput for " + h->input_converter->converter_id +
+                   " recorded " + std::to_string(request_ids.size()) +
+                   " request ids for " + std::to_string(inputs.size()) +
+                   " inputs");
+      return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
     // 4. 租用输出池内存块 (受 ScopedOutputLeaseGuard 保护，失败自动归还)
@@ -401,6 +410,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     llm_edgeflow::OutputEncodeOptions out_options;
 
     out_options.converter_id = h->output_converter->converter_id;
+    out_options.request_ids = &request_ids;
 
     size_t written_count = 0;
     llm_edgeflow::AdapterStatus encode_status;

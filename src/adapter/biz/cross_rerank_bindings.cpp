@@ -13,7 +13,7 @@ BizDefinition MakeCrossRerankBizDefinition() {
   def.biz_name = kBizName;
   def.display_name = "Cross-Encoder 精排";
   def.ingress = {
-      RequiredBizInput(kRawRequestIds), RequiredBizInput(kRerankQueries),
+      RequiredBizInput(kRerankQueries),
       BizPortDefinition(kRerankCandidates.name, kRerankCandidates.type_id, true,
                         "N:1"),
       BizPortDefinition(kRerankPairs.name, kRerankPairs.type_id, true, "N:1")};

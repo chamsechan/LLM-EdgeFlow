@@ -563,7 +563,6 @@ TEST(IoConverterTest, EmptyInputStringAllowsNullDataAndCopiesEmbeddedNulls) {
 }
 
 namespace {
-constexpr auto kRowIds = MakeBlackboardKey<std::vector<uint64_t>>("ids");
 constexpr auto kRowTexts = MakeBlackboardKey<TextBatch>("texts");
 }  // namespace
 
@@ -578,22 +577,21 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
   InputDecodeOptions options;
   options.converter_id = "test.rows.input";
   options.max_batch_size = 2;
-  InputPortBindings bindings(
-      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  std::vector<uint64_t> request_ids;
+  options.request_ids = &request_ids;
+  InputPortBindings bindings({{"texts", "actual_texts"}});
   AlgContext context;
   AdapterStatus status;
-  ASSERT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
-                source, options, bindings, &context, &status, "input", kRowIds,
-                kRowTexts,
-                [](const CompanyOperatorKeywordInput& row, std::string* value) {
-                  *value = CopyInputString(*row.sentence_text);
-                  return AdapterStatus::Ok();
-                }),
-            COMPANY_ALG_SUCCESS);
+  ASSERT_EQ(
+      DecodeRequestRows<CompanyOperatorKeywordInput>(
+          source, options, bindings, &context, &status, "input", kRowTexts,
+          [](const CompanyOperatorKeywordInput& row, std::string* value) {
+            *value = CopyInputString(*row.sentence_text);
+            return AdapterStatus::Ok();
+          }),
+      COMPANY_ALG_SUCCESS);
   bytes[0] = 'x';
-  const auto* ids = context.Read<std::vector<uint64_t>>("actual_ids");
-  ASSERT_NE(ids, nullptr);
-  EXPECT_EQ(*ids, (std::vector<uint64_t>{42, 42}));
+  EXPECT_EQ(request_ids, (std::vector<uint64_t>{42, 42}));
   const auto* texts = context.Read<TextBatch>("actual_texts");
   ASSERT_NE(texts, nullptr);
   ASSERT_EQ(texts->size(), 2U);
@@ -602,7 +600,6 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
     EXPECT_EQ((*texts)[i].sub_id, 0U);
     EXPECT_EQ((*texts)[i].data, std::string("a\0b", 3));
   }
-  EXPECT_FALSE(context.Has("ids"));
   EXPECT_FALSE(context.Has("texts"));
 }
 
@@ -615,26 +612,27 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   InputDecodeOptions options;
   options.converter_id = "test.rows.input";
   options.max_batch_size = 2;
-  InputPortBindings bindings(
-      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  std::vector<uint64_t> request_ids;
+  options.request_ids = &request_ids;
+  InputPortBindings bindings({{"texts", "actual_texts"}});
   AlgContext context;
   AdapterStatus status;
-  EXPECT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
-                source, options, bindings, &context, &status, "input", kRowIds,
-                kRowTexts,
-                [](const CompanyOperatorKeywordInput& row, std::string* value) {
-                  if (row.request_id == 2)
-                    return AdapterStatus::InvalidInput("bad sentence",
-                                                       "sentence_text");
-                  *value = "accepted";
-                  return AdapterStatus::Ok();
-                }),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(
+      DecodeRequestRows<CompanyOperatorKeywordInput>(
+          source, options, bindings, &context, &status, "input", kRowTexts,
+          [](const CompanyOperatorKeywordInput& row, std::string* value) {
+            if (row.request_id == 2)
+              return AdapterStatus::InvalidInput("bad sentence",
+                                                 "sentence_text");
+            *value = "accepted";
+            return AdapterStatus::Ok();
+          }),
+      COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.AdapterName(), options.converter_id);
   EXPECT_EQ(status.SampleIndex(), 1);
   EXPECT_EQ(status.FieldPath(), "sentence_text");
   EXPECT_EQ(status.Message(), "bad sentence");
-  EXPECT_FALSE(context.Has("actual_ids"));
+  EXPECT_TRUE(request_ids.empty());
   EXPECT_FALSE(context.Has("actual_texts"));
 }
 
@@ -646,15 +644,16 @@ TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
   source.count = 2;
   source.slots["input"] = BorrowInputForTest({&first, &second});
   source.slot_types["input"] = "CompanyOperatorKeywordInput";
-  InputPortBindings bindings(
-      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  InputPortBindings bindings({{"texts", "actual_texts"}});
   const auto decode = [&](size_t limit, AlgContext* context,
                           AdapterStatus* status) {
     InputDecodeOptions options;
     options.converter_id = "test.rows.input";
     options.max_batch_size = limit;
+    std::vector<uint64_t> request_ids;
+    options.request_ids = &request_ids;
     return DecodeRequestRows<CompanyOperatorKeywordInput>(
-        source, options, bindings, context, status, "input", kRowIds, kRowTexts,
+        source, options, bindings, context, status, "input", kRowTexts,
         [](const CompanyOperatorKeywordInput& row, std::string* value) {
           *value = CopyInputString(*row.sentence_text);
           return AdapterStatus::Ok();
@@ -678,13 +677,13 @@ TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
 
 TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   AlgContext context;
-  context.Publish("actual_ids", std::vector<uint64_t>{91, 17});
+  const std::vector<uint64_t> request_ids{91, 17};
   context.Publish("actual_texts",
                   TextBatch{{1, 0, "two"}, {0, 0, std::string("a\0b", 3)}});
-  OutputPortBindings bindings(
-      {{"ids", "actual_ids"}, {"texts", "actual_texts"}});
+  OutputPortBindings bindings({{"texts", "actual_texts"}});
   OutputEncodeOptions options;
   options.converter_id = "test.rows.output";
+  options.request_ids = &request_ids;
   char first_bytes[4] = {}, second_bytes[4] = {};
   CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};
   CompanyOperatorEntityOutput first{}, second{};
@@ -704,7 +703,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   size_t written = 99;
   ASSERT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
                 &context, bindings, options, &view, &written, &status, "output",
-                kRowIds, kRowTexts, encode),
+                kRowTexts, encode),
             COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 2U);
   EXPECT_EQ(first.request_id, 91U);
@@ -720,7 +719,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   written = 99;
   EXPECT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
                 &context, bindings, options, &view, &written, &status, "output",
-                kRowIds, kRowTexts, encode),
+                kRowTexts, encode),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(written, 0U);
   EXPECT_EQ(status.AdapterName(), options.converter_id);
@@ -730,7 +729,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   written = 99;
   EXPECT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
                 &context, bindings, options, &view, &written, &status, "output",
-                kRowIds, kRowTexts,
+                kRowTexts,
                 [](const std::string&, CompanyOperatorEntityOutput* row,
                    const OutputStringWriter&) {
                   return row->request_id == 17

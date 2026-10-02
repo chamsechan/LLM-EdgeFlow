@@ -51,3 +51,11 @@ Studio 应用表单时，未修改的数值、布尔、枚举、数组和对象�
 `resolve-conf` 增加单次有效批次 `effective_process_batch_limit`、规范化池深
 `effective_frame_depth` 和池深硬上限 `max_frame_depth_limit`。Operator 使用解析器给出的同一
 批次值；Demo 超限后提示查询命令，原有错误和退出码不变。现有配置中的显式默认值保持原样。
+
+请求编号回传移出业务端口：删除 `kRawRequestIds`，`DecodeRequestRows` / `EncodeResultRows`
+去掉请求编号端口参数。`InputDecodeOptions` / `OutputEncodeOptions` 新增 `request_ids`，由
+Operator 提供本次调用的编号表；自行组织转换的实现改用 `PublishRequestIds` / `RequestIds`，
+直接调用转换器的代码需在选项中提供编号表。解码成功却少记或漏记编号时，在租用输出块前返回
+`COMPANY_ALG_ERR_INVALID_INPUT`（`-3`）并报告转换器与数量。Catalog、Binding 端口映射和
+Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `request_id`、公共 ABI
+与配置格式不变。

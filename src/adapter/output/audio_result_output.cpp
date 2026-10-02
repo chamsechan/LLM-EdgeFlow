@@ -35,8 +35,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
       ReadOutputValue(*context, bindings, kIntentSlots, options, status);
   if (!intent_slots) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = transcripts->size();
@@ -97,8 +96,7 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kTranscripts),
+  def.logical_ports = {RequiredInputPort(kTranscripts),
                        RequiredInputPort(kIntentSlots)};
   def.encode_fn = &EncodeOperatorAudioResult;
   return def;

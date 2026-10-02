@@ -6,6 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/converter_authoring.h"
 #include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
@@ -37,6 +38,7 @@ class TemplateFlatStructAdapter {
   size_t MaxBatchSize() const { return 64; }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             const InputDecodeOptions& options,
              AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
@@ -70,9 +72,7 @@ class TemplateFlatStructAdapter {
       sentences.push_back(in->sentence_text);  // COPY_IN 深拷贝
     }
 
-    if (!AdapterValidationHelper::PublishContextValue(
-            *ctx, "raw_request_ids", std::move(req_ids), AdapterName(),
-            out_status) ||
+    if (!PublishRequestIds(options, std::move(req_ids), out_status) ||
         !AdapterValidationHelper::PublishContextValue(
             *ctx, "raw_sentences", std::move(sentences), AdapterName(),
             out_status)) {

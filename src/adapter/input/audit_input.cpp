@@ -73,9 +73,7 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                                std::move(channel_str));
   }
 
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawRequestIds), std::move(req_ids),
-          options.converter_id.c_str(), status) ||
+  if (!PublishRequestIds(options, std::move(req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.Key(kUserTexts), std::move(user_texts),
           options.converter_id.c_str(), status) ||
@@ -97,8 +95,7 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kUserTexts),
-                       OutputPort(kChannelNames)};
+  def.logical_ports = {OutputPort(kUserTexts), OutputPort(kChannelNames)};
   def.decode_fn = &DecodeOperatorAuditInput;
   return def;
 }

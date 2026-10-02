@@ -47,8 +47,8 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorAudioInput>(
-      source, options, bindings, context, status, kInputSlot, kRawRequestIds,
-      kAudioInputs, &DecodeAudio);
+      source, options, bindings, context, status, kInputSlot, kAudioInputs,
+      &DecodeAudio);
 }
 
 InputConverterDefinition MakeOperatorAudioInputConverter() {
@@ -60,7 +60,7 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kAudioInputs)};
+  def.logical_ports = {OutputPort(kAudioInputs)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;
 }

@@ -12,8 +12,7 @@ BizDefinition MakeTranslateBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "JSON 字符串翻译";
-  def.ingress = {RequiredBizInput(kRawRequestIds),
-                 RequiredBizInput(kInputSentences)};
+  def.ingress = {RequiredBizInput(kInputSentences)};
   def.egress = {BizOutput(kLlmAnswers)};
   return def;
 }

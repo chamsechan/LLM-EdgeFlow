@@ -606,7 +606,7 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;
-  ctx.Publish(llm_edgeflow::kRawRequestIds, std::vector<uint64_t>{1001, 2002});
+  const std::vector<uint64_t> request_ids{1001, 2002};
 
   llm_edgeflow::StructuredDocumentBatch entities;
   entities.emplace_back(
@@ -641,10 +641,10 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   llm_edgeflow::OutputEncodeOptions options;
 
   options.converter_id = out_conv->converter_id;
+  options.request_ids = &request_ids;
 
   llm_edgeflow::OutputPortBindings bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"extracted_entities", "extracted_entities"}});
+      {{"extracted_entities", "extracted_entities"}});
   size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
   int ret = out_conv->encode_fn(&ctx, bindings, options, &out_view,
