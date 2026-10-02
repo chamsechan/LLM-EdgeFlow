@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 状态 | 草案，与 RFC 一起评审 |
+| 状态 | 实施中；按 RFC 的已确认范围执行 |
 | RFC | [DEVELOPER_EXPERIENCE_RFC.md](DEVELOPER_EXPERIENCE_RFC.md) |
 | 基线 | `main@26d60f2`（2026-10-02） |
 
