@@ -606,7 +606,7 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 合并 `model_config.max_batch_size` 与 `backend_config.max_batch_size` | 不做 | 现有配置写了这两个字段，而未知字段会被拒绝；删掉任一字段都会让现有配置失效 |
 | 新增 SDK 接口查询有效批次上限 | 不做 | 改变公共 Operator 接口；有效限制改由 `resolve-conf` 查询（5.3） |
 | Demo 运行前读取内部有效限制并自动分批 | 不做 | Demo 应和真实宿主一样只通过 SDK 运行；超限时 Create/Process 已明确报错 |
-| 批量删除配置中等于默认值的显式字段 | 不做，交给方案负责人 | 显式值可能是有意固定，现在无法区分（Studio 会自动写入默认值，见 `doc/platform_parameter_ownership_plan.md` 附录 C）。清单见 5.3 |
+| 批量删除配置中等于默认值的显式字段 | 不做，交给方案负责人 | 显式值可能是有意固定，现在无法区分（Studio 曾自动写入默认值，已由 5.1 修复，PR #150）。清单见 `doc/platform_parameter_ownership_plan.md` D4 |
 | `validate` 对"显式值等于默认值"给出警告 | 不做 | 与"保留有意固定的显式值"矛盾；根源由 5.1 修复 |
 
 ## 10. 核对代码后对前几轮讨论的修正
@@ -626,8 +626,8 @@ REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 | 批次上限 64 是引入转换器时（`7f8f0b1`）定下的 | 首次出现在 `43c777f` / `0a27334`（2026-08-19），随 fail-closed 批次契约引入，提交说明没有给出取值依据 | `git log -G "max_batch_size\s*=\s*64"` |
 | 删掉配置中与默认值相同的字段即可 | 改为先修复 Studio（5.1），存量字段列清单交方案负责人（5.3） | 显式值可能是有意固定 |
 | 并行时的拒绝等第一个并行 Pipeline 出现再改 | 改为阶段 5.5 计划实施，实施前确认这一兼容放宽 | 普通开发者不应管理并行调度；改动只在 Validator，执行器已支持单节点层顺序执行 |
-| Node 编写一侧已没有平台参数 | 不完整：Studio 会把 Node 参数默认值写成显式值；Control 命令 ID 需要人工选号 | `doc/platform_parameter_ownership_plan.md` 附录 B 的复现结果；`doc/dev_guide/first_control.md:23` |
-| 去掉默认值字段后 `plan` 输出一致，所以配置等价 | `plan` 只输出拓扑和波前层，不能证明配置等价；改用 `resolve-conf` 的 `effective_pipeline` 比对 | `doc/platform_parameter_ownership_plan.md` 附录 C |
+| Node 编写一侧已没有平台参数 | 不完整：Studio 会把 Node 参数默认值写成显式值；Control 命令 ID 需要人工选号 | `tests/tooling/studio_config_roundtrip_test.mjs`（PR #150）；`doc/dev_guide/first_control.md:23` |
+| 去掉默认值字段后 `plan` 输出一致，所以配置等价 | `plan` 只输出拓扑和波前层，不能证明配置等价；改用 `resolve-conf` 的 `effective_pipeline` 比对 | `doc/platform_parameter_ownership_plan.md` 附录 B |
 
 ## 11. 完成后的效果
 
