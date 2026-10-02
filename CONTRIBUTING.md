@@ -53,6 +53,8 @@ the decision; a local task does not require opening a remote PR or obtaining new
 Maintain the resulting rules and necessary rationale in their current owning guide, alongside
 the implementation and contract tests. Do not create numbered proposal archives or duplicate
 the same rule across documents. Git and PR history retain the development discussion.
+Work that spans several PRs may keep one working plan under [`plans/`](plans/README.md) until
+its last stage merges; delete the plan then. A plan describes intended changes, not current rules.
 
 Until the first production release there are no compatibility consumers. Rename or remove
 identifiers, fields, parameters and diagnostic codes in place and update every reference in the
