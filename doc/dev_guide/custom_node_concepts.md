@@ -7,6 +7,31 @@
 先完成[第一个自定义 Node](first_custom_node.md)。下面前三节解释常用声明；仅在改变数据关系、
 增加共享资源或启用并行执行时，阅读后面的对应部分。
 
+## 三种写法速查
+
+| 写法 | 适用场景 | 工厂 | 业务函数签名 | 返回 |
+| --- | --- | --- | --- | --- |
+| Map | 逐项纯计算，数量与来源不变 | `MakeMapSpec(Input<InBatch>, Output<OutBatch>, [Parameters<P>], &Transform)` | `Out Transform(const In&)`<br>`Out Transform(const In&, const Params&)` | `Out` 或 `NodeResult<Out>` |
+| LLM 两函数 | 文本前处理 → 一次生成 → 文本后处理 | `MakeLlmTextSpec(Input<TextBatch>, Output<TextBatch>, [Parameters<P>], &BuildPrompt, &FormatAnswer)` | `std::string BuildPrompt(const std::string&)`<br>`std::string BuildPrompt(const std::string&, const Params&)`<br>`std::string FormatAnswer(const std::string&)`<br>`std::string FormatAnswer(const std::string&, const Params&)` | 文本：`std::string`、`const char*`、`std::string_view`，或它们的 `NodeResult`；不接受 `char`、`int` 等算术类型 |
+| Batch | 多输入多输出、拆分聚合、多模型、会话缓存 | `MakeBatchSpec(InputsOf<Inputs>, <输出声明>, [Parameters<P>], [ModelsOf<M>], &Run)` | `NodeResult<OutputBatch> Run(const Inputs&, const Params&)`<br>`NodeResult<OutputBatch> Run(const Inputs&, const Params&, const Models&)`<br>`NodeResult<OutputBatch> Run(const Inputs&, const Params&, const Models&, const SessionResources&)` | `NodeResult<OutputBatch>`；多输出为 `NodeResult<Outputs>` |
+
+没有 `Parameters<...>` 时，`Params` 是 `NoParameters`。Batch 的 `Run` 仍然要写这个参数，
+例如 `Run(const Inputs&, const NoParameters&, const Models&)`，见
+[多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。
+LLM 两个钩子也接受能隐式转换为 `std::string` 的类型；`std::string_view` 会先复制为自有字符串。
+返回失败用 `NodeResult<T>::Failure(...)`，成功用 `NodeResult<T>::Success(...)`。
+
+## 常见编译错误对照
+
+| 报错包含 | 原因 | 处理 |
+| --- | --- | --- |
+| `Map function must accept either` | `Transform` 的参数不支持 `const In&`（可再带 `const Params&`） | 改成表中签名 |
+| `Map function return payload type must match` | 返回类型与输出批的元素类型不同 | 返回 `Out` 或 `NodeResult<Out>` |
+| `BuildPrompt must be callable as` / `FormatAnswer must be callable as` | 参数不支持 `const std::string&`（可再带 `const Params&`） | 改成表中签名；函数对象的调用操作符应为 const |
+| `BuildPrompt must return` / `FormatAnswer must return` | 返回了非文本类型，例如 `char`、`int` | 返回 `std::string`（或 `const char*`、`std::string_view`），失败时返回 `NodeResult<std::string>` |
+| `Batch Run must be callable as one of` | 参数顺序不对、使用了非 const 引用，或漏写 `const NoParameters&` | 改成表中三种形式之一；函数对象的调用操作符应为 const |
+| `Batch Run must return NodeResult<OutputBatch>` | 直接返回批次，或结果类型与输出声明不匹配 | `return NodeResult<OutputBatch>::Success(std::move(output));` |
+
 ## 1. 类型端口：这个操作接收什么、产生什么
 
 把一个 Node 看作批量处理函数。输入端口是函数参数，输出端口是返回值；`TextBatch`
@@ -209,7 +234,7 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 每个输出端口必须绑定独立的结果成员；重复绑定同一成员会在声明时被拒绝，避免发布时重复移动。
 框架在发布前检查全部带 anchor 的输出，派生输出的编号和数量正确性由算法及测试保证。
 
-12 个生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、
+所有生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、
 TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一套生命周期写法。
 函数较多时可拆成操作相关的 `.h/.cpp`，目录下的 `.cpp` 自动编入，保持目录按操作组织。
 
