@@ -12,7 +12,7 @@
 namespace alg_demo {
 
 int RunDocQaDemo(const DemoOptions& options) {
-  PrintBanner("智能长文档问答业务", "Conf: " + options.config_path);
+  PrintBanner("文档问答", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -140,6 +140,6 @@ int RunDocQaDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("smart_doc_qa_v1", "智能长文档问答业务", RunDocQaDemo);
+REGISTER_DEMO_BIZ("doc_qa", "文档问答", RunDocQaDemo);
 
 }  // namespace alg_demo

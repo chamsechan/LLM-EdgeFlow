@@ -1,4 +1,4 @@
-# 语义精排打分测试语料 ([QUERY] 与 [PASSAGE])
+# Cross-Encoder 精排测试语料 ([QUERY] 与 [PASSAGE])
 [QUERY]
 怎么办理7天无理由退款？
 

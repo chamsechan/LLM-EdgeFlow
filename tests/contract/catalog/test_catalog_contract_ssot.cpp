@@ -76,7 +76,7 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
 }
 
 TEST_F(CatalogContractSsotTest, BizContractsDoNotDependOnDeploymentVariants) {
-  for (const char* biz : {"entity_extract_v1", "smart_doc_qa_v1"}) {
+  for (const char* biz : {"entity_extract", "doc_qa"}) {
     EXPECT_TRUE(PipelineCatalog::FindBiz(biz).has_value());
   }
   for (const char* name :
@@ -141,14 +141,14 @@ TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
     biz_names.insert(b.biz_name);
   }
 
-  EXPECT_TRUE(biz_names.count("keyword_match_v1"));
-  EXPECT_TRUE(biz_names.count("entity_extract_v1"));
-  EXPECT_TRUE(biz_names.count("smart_doc_qa_v1"));
-  EXPECT_TRUE(biz_names.count("dialogue_compliance_audit_v1"));
-  EXPECT_TRUE(biz_names.count("multimodal_ocr_invoice_qa"));
-  EXPECT_TRUE(biz_names.count("speech_audio_asr_intent_slot"));
-  EXPECT_TRUE(biz_names.count("dense_cross_rerank_scoring"));
-  EXPECT_TRUE(biz_names.count("translate_v1"));
+  EXPECT_TRUE(biz_names.count("keyword_match"));
+  EXPECT_TRUE(biz_names.count("entity_extract"));
+  EXPECT_TRUE(biz_names.count("doc_qa"));
+  EXPECT_TRUE(biz_names.count("dialogue_audit"));
+  EXPECT_TRUE(biz_names.count("ocr_invoice_qa"));
+  EXPECT_TRUE(biz_names.count("audio_asr_intent"));
+  EXPECT_TRUE(biz_names.count("cross_rerank"));
+  EXPECT_TRUE(biz_names.count("translate"));
 
   for (const auto& name : biz_names) {
     const auto found = PipelineCatalog::FindBiz(name);
@@ -245,11 +245,11 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   }
 
   // 业务过滤查询
-  auto km_catalog = PipelineCatalog::ToJson("keyword_match_v1");
+  auto km_catalog = PipelineCatalog::ToJson("keyword_match");
   EXPECT_FALSE(km_catalog.contains("schema_version"));
   EXPECT_FALSE(km_catalog["nodes"].empty());
   EXPECT_EQ(km_catalog["bizs"].size(), 1U);
-  EXPECT_EQ(km_catalog["bizs"][0]["biz_name"], "keyword_match_v1");
+  EXPECT_EQ(km_catalog["bizs"][0]["biz_name"], "keyword_match");
   EXPECT_FALSE(km_catalog["bizs"][0].contains("business_name"));
   EXPECT_FALSE(km_catalog["bizs"][0].contains("demo_business"));
 
@@ -276,7 +276,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogSchema4SerializationAndFiltering) {
   EXPECT_TRUE(full_catalog["io_bindings"].is_array());
 
   // 业务过滤查询
-  auto km_catalog = IoCatalog::ToJson("keyword_match_v1");
+  auto km_catalog = IoCatalog::ToJson("keyword_match");
   EXPECT_EQ(km_catalog["schema_version"], 4);
   EXPECT_TRUE(km_catalog["bizs"].is_array());
   EXPECT_TRUE(km_catalog["nodes"].is_array());
@@ -312,7 +312,7 @@ TEST_F(CatalogContractSsotTest, CatalogHasNoRequestIdPort) {
 }
 
 TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
-  const auto catalog = IoCatalog::ToJson("keyword_match_v1");
+  const auto catalog = IoCatalog::ToJson("keyword_match");
   ASSERT_EQ(catalog.at("input_converters").size(), 1U);
   ASSERT_EQ(catalog.at("output_converters").size(), 1U);
 

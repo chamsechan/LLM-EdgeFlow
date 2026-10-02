@@ -385,7 +385,7 @@ class ModelConfigValidationTest : public ::testing::Test {
   }
 
   static nlohmann::json Document(const ModelLoadSpec& spec) {
-    return {{"biz_name", "keyword_match_v1"},
+    return {{"biz_name", "keyword_match"},
             {"models",
              {{{"model_id", "validation_model"},
                {"model_type", spec.model_type},

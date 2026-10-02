@@ -27,7 +27,7 @@
       "name": "unknown_node_type",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -49,7 +49,7 @@
       "name": "unknown_config_field",
       "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract_v1",
+        "biz_name": "entity_extract",
         "models": [
           {
             "model_id": "llm",
@@ -113,7 +113,7 @@
       "name": "config_field_range",
       "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract_v1",
+        "biz_name": "entity_extract",
         "models": [
           {
             "model_id": "llm",
@@ -177,7 +177,7 @@
       "name": "model_capability_mismatch",
       "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract_v1",
+        "biz_name": "entity_extract",
         "models": [
           {
             "model_id": "embedding",
@@ -240,7 +240,7 @@
       "name": "dag_cycle",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -284,7 +284,7 @@
       "name": "missing_input_producer",
       "biz_type": 1,
       "pipeline": {
-        "biz_name": "smart_doc_qa_v1",
+        "biz_name": "doc_qa",
         "models": [],
         "pipeline": [
           {
@@ -309,7 +309,7 @@
       "name": "parallel_write_conflict",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -351,7 +351,7 @@
       "name": "missing_node_id",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -372,7 +372,7 @@
       "name": "removed_execution_mode",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -395,7 +395,7 @@
       "name": "duplicate_dependency",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -438,7 +438,7 @@
       "name": "invalid_dependency",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match_v1",
+        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {

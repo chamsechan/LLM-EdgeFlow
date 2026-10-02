@@ -10,14 +10,14 @@
 
 namespace alg_demo {
 
-int RunOcrDocQaDemo(const DemoOptions& options) {
-  PrintBanner("智能多模态图文票据问答", "Conf: " + options.config_path);
+int RunOcrInvoiceQaDemo(const DemoOptions& options) {
+  PrintBanner("OCR 票据问答", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
   if (!ParseTagSections(options.dataset_path, &sections, &err)) {
     if (!options.allow_fallback_sample) {
-      std::cerr << "[OcrDocQaDemo ERROR] " << err << std::endl;
+      std::cerr << "[OcrInvoiceQaDemo ERROR] " << err << std::endl;
       return 4;
     }
   }
@@ -29,15 +29,16 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
 
   if (img.empty() || prompt.empty()) {
     if (options.allow_fallback_sample) {
-      std::cout << "[OcrDocQaDemo WARN] Dataset sections missing, using "
+      std::cout << "[OcrInvoiceQaDemo WARN] Dataset sections missing, using "
                    "fallback sample."
                 << std::endl;
       if (img.empty()) img = "./data/invoice_01.jpg";
       if (prompt.empty()) prompt = "提取发票代码、号码与总金额";
     } else {
-      std::cerr << "[OcrDocQaDemo ERROR] Dataset missing required [IMAGE] or "
-                   "[PROMPT] sections."
-                << std::endl;
+      std::cerr
+          << "[OcrInvoiceQaDemo ERROR] Dataset missing required [IMAGE] or "
+             "[PROMPT] sections."
+          << std::endl;
       return 4;
     }
   }
@@ -45,7 +46,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   llm_edgeflow::operator_api::OperatorFunc ops{};
   void* raw_handle = nullptr;
   const int init_ret =
-      CreateOperatorInstance(options, "OcrDocQaDemo", &ops, &raw_handle);
+      CreateOperatorInstance(options, "OcrInvoiceQaDemo", &ops, &raw_handle);
   if (init_ret != 0) return init_ret;
 
   OperatorHandleGuard guard(ops, raw_handle);
@@ -77,7 +78,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
       std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
   if (ret != 0) {
-    std::cerr << "[OcrDocQaDemo ERROR] ops.Process failed: "
+    std::cerr << "[OcrInvoiceQaDemo ERROR] ops.Process failed: "
               << llm_edgeflow::operator_api::GetOperatorLastError()
               << std::endl;
     return 5;
@@ -86,7 +87,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   const auto* out_ptr = static_cast<const CompanyOdOutput*>(
       out_batch[0]["camera_0.od_out"].get());
   if (!out_ptr) {
-    std::cerr << "[OcrDocQaDemo ERROR] Null output pointer received."
+    std::cerr << "[OcrInvoiceQaDemo ERROR] Null output pointer received."
               << std::endl;
     return 5;
   }
@@ -127,18 +128,18 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   ResultWriter writer(options);
   int w_ret = writer.WriteResults(sample_results, 0.0, &err);
   if (w_ret != 0) {
-    std::cerr << "[OcrDocQaDemo ERROR] Failed to write results: " << err
+    std::cerr << "[OcrInvoiceQaDemo ERROR] Failed to write results: " << err
               << std::endl;
     return w_ret;
   }
 
-  std::cout << "[OcrDocQaDemo] Results written; see summary.json for sample "
-               "success/failure counts."
-            << std::endl;
+  std::cout
+      << "[OcrInvoiceQaDemo] Results written; see summary.json for sample "
+         "success/failure counts."
+      << std::endl;
   return 0;
 }
 
-REGISTER_DEMO_BIZ("multimodal_ocr_invoice_qa", "智能多模态图文票据问答",
-                  RunOcrDocQaDemo);
+REGISTER_DEMO_BIZ("ocr_invoice_qa", "OCR 票据问答", RunOcrInvoiceQaDemo);
 
 }  // namespace alg_demo

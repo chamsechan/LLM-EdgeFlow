@@ -185,7 +185,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
     SCOPED_TRACE(config.dump());
     config["bind_model"] = "llm_model_v1";
     const nlohmann::json pipeline = {
-        {"biz_name", "entity_extract_v1"},
+        {"biz_name", "entity_extract"},
         {"pipeline", nlohmann::json::array({{{"id", "generate"},
                                              {"node_type", "LlmGenerateNode"},
                                              {"config", config}}})}};

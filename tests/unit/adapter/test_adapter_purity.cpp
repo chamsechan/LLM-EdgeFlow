@@ -268,8 +268,8 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   EXPECT_STREQ(outputs[0].entities_json->data, "[\"E1\"]");
 }
 
-// 1.4 ComplianceAuditConverter Purity (Biz 4)
-TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
+// 1.4 DialogueAuditConverter Purity (Biz 4)
+TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audit.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
@@ -315,8 +315,8 @@ TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
   EXPECT_STREQ(outputs[0].matched_policy_clause->data, "Clause 1");
 }
 
-// 1.5 OcrDocQaConverter Purity (Biz 5)
-TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
+// 1.5 OcrInvoiceQaConverter Purity (Biz 5)
+TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "image_query.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
@@ -595,7 +595,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 }
 
 TEST_F(AdapterPurityTest,
-       ComplianceAuditAdapter_FailClosedWhenMissingStructuredFields) {
+       DialogueAuditAdapter_FailClosedWhenMissingStructuredFields) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
       "audit_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
@@ -689,7 +689,7 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
   }
 }
 
-TEST_F(AdapterPurityTest, ComplianceAuditAdapter_RejectsOversizedChannelName) {
+TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audit.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
@@ -1051,7 +1051,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   {
     IoBindingDefinition test_reuse_binding;
     test_reuse_binding.binding_id = "test_purity_reuse.operator.v1";
-    test_reuse_binding.biz_name = "entity_extract_v1";
+    test_reuse_binding.biz_name = "entity_extract";
 
     test_reuse_binding.input_converter_id = "text.plain.operator.v1";
     test_reuse_binding.output_converter_id = "document.structured.operator.v1";

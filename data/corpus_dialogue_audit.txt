@@ -1,4 +1,4 @@
-# 智能对话风控质检测试语料 ([CHANNEL] 与 [DIALOGUE])
+# 对话合规审核测试语料 ([CHANNEL] 与 [DIALOGUE])
 [CHANNEL]
 VIP专席客服
 [DIALOGUE]

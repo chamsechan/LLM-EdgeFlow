@@ -25,7 +25,7 @@
 
 ## 验证方式
 
-- 简单方案：生产 `keyword_match_v1` 契约及 `keyword_match_rules` Profile。
+- 简单方案：生产 `keyword_match` 契约及 `keyword_match_rules` Profile。
 - 多节点方案：`pipeline_doc_qa_rerank_cpu.json` 的临时副本，仅用于浏览和编辑路径。
 - 桌面：1280×768、1366×768、1920×1080，检查浏览与编辑模式的关键按钮可达、
   页面无水平溢出、画布可用；保存截图用于人工核对布局。

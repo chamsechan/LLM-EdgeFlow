@@ -196,7 +196,7 @@ class DevRecipeTest(unittest.TestCase):
         path = self.root / "demo/profiles.json"
         profiles = json.loads(path.read_text())
         valid = profiles["profiles"]["keyword_match_rules"]
-        for profile in ({**valid, "biz": "keyword_match_v1"},
+        for profile in ({**valid, "biz": "keyword_match"},
                         {**valid, "datset": "data/corpus_keyword_match.txt"}, [], None):
             with self.subTest(profile=profile):
                 profiles["profiles"]["keyword_match_rules"] = profile

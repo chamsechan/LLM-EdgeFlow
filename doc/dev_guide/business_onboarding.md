@@ -72,7 +72,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 ./build/alg_demo --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
 ```
 
-查看 `results/business-onboarding/keyword_match_v1/results.jsonl`：请求编号为 20001–20004，
+查看 `results/business-onboarding/keyword_match/results.jsonl`：请求编号为 20001–20004，
 四条 `status` 均为 0，前两条 `output.is_hit` 为 true 且类别为 `SYSTEM_INIT`，后两条
 为 false。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
 新业务仍须换成自己的配置和输入验证。
@@ -124,6 +124,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **声明业务契约并注册绑定（`src/adapter/biz/`）。**
    新 `biz_name` 先定义 `BizDefinition`，声明业务名称及完整 ingress/egress typed 端口，
+   业务词根与各标识符的命名见[源码布局与命名](source_layout.md#标识符与定义)；
    调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
    在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`input_converter_id`、
    `output_converter_id`，使用 `REGISTER_IO_BINDING` 注册。
@@ -255,7 +256,7 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 
 销毁顺序是：等待所有 `Process` / `Control` 返回 → 释放输出引用 → `Destroy`。
 有效 handle 即使因未归还输出而在 `Destroy` 返回错误，也已被消费，不得重试或再访问
-旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_doc_qa_demo.cpp) 和
+旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_invoice_qa_demo.cpp) 和
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
 `Init` 用于注册审计，应在创建实例前调用。同一 handle 的 `Process` 与 `Control` 串行，

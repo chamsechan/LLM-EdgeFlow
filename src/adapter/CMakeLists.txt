@@ -28,9 +28,9 @@ target_sources(edgeflow_integration_objects PRIVATE
   biz/keyword_match_bindings.cpp
   biz/doc_qa_bindings.cpp
   biz/cross_rerank_bindings.cpp
-  biz/compliance_audit_bindings.cpp
+  biz/dialogue_audit_bindings.cpp
   biz/audio_asr_intent_bindings.cpp
-  biz/ocr_doc_qa_bindings.cpp
+  biz/ocr_invoice_qa_bindings.cpp
   operator/json_output_config_reader.cpp
   operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp

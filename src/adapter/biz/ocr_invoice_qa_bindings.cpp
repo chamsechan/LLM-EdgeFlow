@@ -6,9 +6,9 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "multimodal_ocr_invoice_qa";
+constexpr const char* kBizName = "ocr_invoice_qa";
 
-BizDefinition MakeOcrDocQaBizDefinition() {
+BizDefinition MakeOcrInvoiceQaBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "OCR 票据问答";
@@ -17,17 +17,17 @@ BizDefinition MakeOcrDocQaBizDefinition() {
   return def;
 }
 
-const bool g_reg_ocr_doc_qa_biz = []() {
-  auto def = MakeOcrDocQaBizDefinition();
+const bool g_reg_ocr_invoice_qa_biz = []() {
+  auto def = MakeOcrInvoiceQaBizDefinition();
   if (!PipelineCatalog::FindBiz(def.biz_name)) {
     PipelineCatalog::RegisterBizDefinition(def);
   }
   return true;
 }();
 
-IoBindingDefinition MakeOcrDocQaOperatorBinding() {
+IoBindingDefinition MakeOcrInvoiceQaOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "ocr_doc_qa.operator.v1";
+  def.binding_id = "ocr_invoice_qa.operator.v1";
   def.biz_name = kBizName;
 
   def.input_converter_id = "image_query.plain.operator.v1";
@@ -35,7 +35,7 @@ IoBindingDefinition MakeOcrDocQaOperatorBinding() {
   return def;
 }
 
-REGISTER_IO_BINDING(MakeOcrDocQaOperatorBinding());
+REGISTER_IO_BINDING(MakeOcrInvoiceQaOperatorBinding());
 
 }  // namespace
 }  // namespace llm_edgeflow

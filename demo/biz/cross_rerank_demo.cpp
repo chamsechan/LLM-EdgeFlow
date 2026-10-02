@@ -12,7 +12,7 @@
 namespace alg_demo {
 
 int RunCrossRerankDemo(const DemoOptions& options) {
-  PrintBanner("纯语义精排打分业务", "Conf: " + options.config_path);
+  PrintBanner("Cross-Encoder 精排", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -134,7 +134,6 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("dense_cross_rerank_scoring", "纯语义精排打分业务",
-                  RunCrossRerankDemo);
+REGISTER_DEMO_BIZ("cross_rerank", "Cross-Encoder 精排", RunCrossRerankDemo);
 
 }  // namespace alg_demo

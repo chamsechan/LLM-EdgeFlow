@@ -6,7 +6,7 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "keyword_match_v1";
+constexpr const char* kBizName = "keyword_match";
 
 BizDefinition MakeKeywordMatchBizDefinition() {
   BizDefinition def;

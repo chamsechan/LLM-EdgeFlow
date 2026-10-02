@@ -14,8 +14,8 @@ namespace alg_demo {
 using DemoRunFunction = int (*)(const DemoOptions& options);
 
 struct DemoDescriptor {
-  std::string biz_name;  // Pipeline 业务契约名 (如 entity_extract_v1)
-  std::string display_title;  // 终端展示标题 (如 "实体/名词提取业务")
+  std::string biz_name;       // Pipeline 业务契约名 (如 entity_extract)
+  std::string display_title;  // 终端展示标题 (如 "实体抽取")
   DemoRunFunction run = nullptr;
   DemoDescriptor() = default;
   DemoDescriptor(std::string name, std::string title, DemoRunFunction func)

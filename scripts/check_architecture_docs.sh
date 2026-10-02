@@ -67,8 +67,9 @@ ACTIVE_DOCS=(
 )
 
 # 1. 检查权威文档与资产中是否存在旧业务名 (包含 SVG 资产)
-echo "[Check 1/8] Checking for legacy business names (doc_qa_embedding_v1, doc_qa_rerank_v1)..."
-LEGACY_BIZ=$(grep -rnE "(doc_qa_embedding_v1|doc_qa_rerank_v1)" "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
+echo "[Check 1/8] Checking for legacy business names and identifiers..."
+LEGACY_BIZ=$(grep -rnE "(doc_qa_embedding_v1|doc_qa_rerank_v1|(keyword_match|entity_extract|translate|smart_doc_qa|dialogue_compliance_audit)_v1|dense_cross_rerank_scoring|multimodal_ocr_invoice_qa|speech_audio_asr_intent_slot|compliance_audit|ocr_doc_qa|audio_asr_(cpu|mock|demo))" \
+  "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
 report_matches "${LEGACY_BIZ}" \
   "Found deprecated business names in active docs, assets or codebase:" \
   "No legacy business names found."
