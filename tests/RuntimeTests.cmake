@@ -525,6 +525,7 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   TextCorpusSourceNodeTest
   CommonNodesTest
   FunctionNodeTest
+  SpecSignatureDiagnosticsTest
   ParameterBindingTest
   CppOperatorSdkTest
   OperatorSafetyTest
