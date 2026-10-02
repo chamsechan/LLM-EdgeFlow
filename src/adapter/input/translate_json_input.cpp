@@ -52,8 +52,8 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kInputSlot, kRawRequestIds,
-      kInputSentences, &DecodeTranslateQuery);
+      source, options, bindings, context, status, kInputSlot, kInputSentences,
+      &DecodeTranslateQuery);
 }
 
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
@@ -65,7 +65,7 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot, kInputSlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
+  def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;
 }

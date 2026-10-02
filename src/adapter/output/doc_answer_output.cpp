@@ -31,8 +31,7 @@ int EncodeOperatorDocAnswer(AlgContext* context,
                                         options, status, "answers");
   if (!answers) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_matches =
@@ -102,9 +101,9 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorDocOutput>(kOutputSlot)};
-  def.logical_ports = {
-      RequiredInputPort(kRawRequestIds), RequiredInputPort(kLlmAnswers),
-      RequiredInputPort(kIntentMatches), RequiredInputPort(kDocChunkCounts)};
+  def.logical_ports = {RequiredInputPort(kLlmAnswers),
+                       RequiredInputPort(kIntentMatches),
+                       RequiredInputPort(kDocChunkCounts)};
   def.encode_fn = &EncodeOperatorDocAnswer;
   return def;
 }

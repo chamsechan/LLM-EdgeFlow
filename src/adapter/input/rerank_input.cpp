@@ -93,9 +93,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
     }
   }
 
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
-          options.converter_id.c_str(), status) ||
+  if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.Key(kRerankQueries), std::move(queries),
           options.converter_id.c_str(), status) ||
@@ -120,7 +118,7 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRerankQueries),
+  def.logical_ports = {OutputPort(kRerankQueries),
                        OutputPort(kRerankCandidates, "N:1"),
                        OutputPort(kRerankPairs, "N:1")};
   def.decode_fn = &DecodeOperatorRerankInput;

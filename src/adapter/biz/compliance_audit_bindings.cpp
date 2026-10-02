@@ -12,8 +12,7 @@ BizDefinition MakeComplianceAuditBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "对话合规审核";
-  def.ingress = {RequiredBizInput(kRawRequestIds), RequiredBizInput(kUserTexts),
-                 RequiredBizInput(kChannelNames)};
+  def.ingress = {RequiredBizInput(kUserTexts), RequiredBizInput(kChannelNames)};
   def.egress = {BizOutput(kStructuredVerdicts),
                 BizPortDefinition(kMatchedPolicy.name, kMatchedPolicy.type_id,
                                   true, "N:1")};

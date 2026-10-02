@@ -72,9 +72,7 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
     raw_queries.emplace_back(static_cast<uint32_t>(i), 0, std::move(query_str));
   }
 
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
-          options.converter_id.c_str(), status) ||
+  if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.Key(kRawDocs), std::move(raw_docs),
           options.converter_id.c_str(), status) ||
@@ -95,8 +93,7 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   def.external_type = "CompanyOperatorDocInput";
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
-  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRawDocs),
-                       OutputPort(kRawQueries)};
+  def.logical_ports = {OutputPort(kRawDocs), OutputPort(kRawQueries)};
   def.decode_fn = &DecodeOperatorDocQueryInput;
   return def;
 }

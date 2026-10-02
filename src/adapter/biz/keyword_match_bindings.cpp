@@ -12,8 +12,7 @@ BizDefinition MakeKeywordMatchBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
   def.display_name = "关注词匹配";
-  def.ingress = {RequiredBizInput(kRawRequestIds),
-                 RequiredBizInput(kInputSentences)};
+  def.ingress = {RequiredBizInput(kInputSentences)};
   def.egress = {BizOutput(kRuleMatches)};
   return def;
 }

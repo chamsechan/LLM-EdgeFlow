@@ -44,10 +44,11 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
   in_view.slot_types["doc_in"] = "CompanyOperatorDocInput";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"raw_docs", "raw_docs"},
-                                 {"raw_queries", "raw_queries"}});
+  InputPortBindings in_bindings(
+      {{"raw_docs", "raw_docs"}, {"raw_queries", "raw_queries"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
+  in_options.request_ids = &request_ids;
   in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
@@ -87,11 +88,11 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   out_view.SetCapacity("doc_out", "answer_text", 255);
   out_view.SetCapacity("doc_out", "intent_name", 63);
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                   {"llm_answers", "llm_answers"},
+  OutputPortBindings out_bindings({{"llm_answers", "llm_answers"},
                                    {"intent_matches", "intent_matches"},
                                    {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions out_options;
+  out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
@@ -115,15 +116,15 @@ TEST_F(ComplexConvertersTest,
   ASSERT_NE(converter, nullptr);
   const std::string answer("a\0b", 3);
   AlgContext ctx;
-  ctx.Publish("raw_request_ids", std::vector<uint64_t>{2001});
+  std::vector<uint64_t> request_ids{2001};
   ctx.Publish("llm_answers", TextBatch{{0, 0, answer}});
   ctx.Publish("intent_matches", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
   ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
-  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                               {"llm_answers", "llm_answers"},
+  OutputPortBindings bindings({{"llm_answers", "llm_answers"},
                                {"intent_matches", "intent_matches"},
                                {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions options;
+  options.request_ids = &request_ids;
   options.converter_id = converter->converter_id;
   char bytes[4] = {};
   char intent_bytes[1] = {};
@@ -183,11 +184,12 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   in_view.slots["rerank_in"] = llm_edgeflow::BorrowInputForTest({&rerank_in});
   in_view.slot_types["rerank_in"] = "CompanyOperatorRerankInput";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"rerank_queries", "rerank_queries"},
+  InputPortBindings in_bindings({{"rerank_queries", "rerank_queries"},
                                  {"rerank_candidates", "rerank_candidates"},
                                  {"rerank_pairs", "rerank_pairs"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
+  in_options.request_ids = &request_ids;
   in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
@@ -211,9 +213,9 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   out_view.leased_slots["rerank_out"] = {&rerank_out};
   out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                   {"ranked_results", "ranked_results"}});
+  OutputPortBindings out_bindings({{"ranked_results", "ranked_results"}});
   OutputEncodeOptions out_options;
+  out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
@@ -249,10 +251,11 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
   in_view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"user_texts", "user_texts"},
-                                 {"channel_names", "channel_names"}});
+  InputPortBindings in_bindings(
+      {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
+  in_options.request_ids = &request_ids;
   in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
@@ -293,10 +296,10 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   out_view.SetCapacity("audit_out", "audit_verdict_json", 1023);
 
   OutputPortBindings out_bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"structured_verdicts", "structured_verdicts"},
+      {{"structured_verdicts", "structured_verdicts"},
        {"matched_policies", "matched_policies"}});
   OutputEncodeOptions out_options;
+  out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
@@ -331,9 +334,10 @@ TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
   in_view.slots["audio_in"] = llm_edgeflow::BorrowInputForTest({&audio_in});
   in_view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"audio_inputs", "audio_inputs"}});
+  InputPortBindings in_bindings({{"audio_inputs", "audio_inputs"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
+  in_options.request_ids = &request_ids;
   in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
@@ -369,10 +373,10 @@ TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
   out_view.SetCapacity("audio_out", "transcribed_text", 511);
   out_view.SetCapacity("audio_out", "intent_slot_json", 1023);
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                   {"transcripts", "transcripts"},
-                                   {"intent_slots", "intent_slots"}});
+  OutputPortBindings out_bindings(
+      {{"transcripts", "transcripts"}, {"intent_slots", "intent_slots"}});
   OutputEncodeOptions out_options;
+  out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
@@ -416,10 +420,11 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"image_paths", "image_paths"},
-                                 {"user_queries", "user_queries"}});
+  InputPortBindings in_bindings(
+      {{"image_paths", "image_paths"}, {"user_queries", "user_queries"}});
+  std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
+  in_options.request_ids = &request_ids;
   in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
@@ -455,10 +460,10 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
   out_view.count = 1;
 
   OutputPortBindings out_bindings(
-      {{"raw_request_ids", "raw_request_ids"},
-       {"extracted_invoice_json", "extracted_invoice_json"},
+      {{"extracted_invoice_json", "extracted_invoice_json"},
        {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
+  out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;

@@ -36,7 +36,7 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
                                      AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, bindings, options, destination, written_count, status,
-      kOutputSlot, kRawRequestIds, kExtractedEntities, &EncodeDocument);
+      kOutputSlot, kExtractedEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
@@ -48,8 +48,7 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kRawRequestIds),
-                       RequiredInputPort(kExtractedEntities)};
+  def.logical_ports = {RequiredInputPort(kExtractedEntities)};
   def.encode_fn = &EncodeOperatorStructuredDocument;
   return def;
 }

@@ -130,6 +130,9 @@ struct InputDecodeOptions {
   std::string converter_id;
   // Effective batch limit filled by the Operator; zero skips the upper bound.
   size_t max_batch_size = 0;
+  // Per-call table owned by the Operator. Despite const options, converters
+  // write each input row's external request ID here, in input order.
+  std::vector<uint64_t>* request_ids = nullptr;
 };
 
 /**
@@ -137,6 +140,8 @@ struct InputDecodeOptions {
  */
 struct OutputEncodeOptions {
   std::string converter_id;
+  // The same per-call table, read-only: index i is input row i's external ID.
+  const std::vector<uint64_t>* request_ids = nullptr;
 };
 
 /**
