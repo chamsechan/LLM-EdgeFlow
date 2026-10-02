@@ -62,10 +62,18 @@ Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `reque
 
 `max_parallel_workers > 1` 时，Validator 将未声明并行安全的节点，以及会共享串行模型的
 节点拆到单独的层顺序执行；原本因此在 Create 时返回 `-2` 的配置现在可以运行。
-`NODE_NOT_PARALLEL_SAFE`、`SERIALIZED_MODEL_CONCURRENCY` 两个诊断码保留但不再产生，
+`NODE_NOT_PARALLEL_SAFE`、`SERIALIZED_MODEL_CONCURRENCY` 两个诊断码已删除，
 `plan` 的 `layers` 与 `topological_order` 反映拆分后的执行顺序；原始层的写冲突仍会被拒绝。
 
 开发工具目录调整：Node 脚手架与开发 Recipe 移至 `tools/scaffold_custom_node.py`、
 `tools/dev_recipe.py`；根目录 `show` 软链接删除，Studio 改由 `./tools/pipeline_studio/server.py`
 启动，参数不变。C++ 命令行工具源码由 `src/tools/` 改名为 `src/cli/`，可执行文件仍输出到
 `build/`。架构图源文件改名为 `doc/architecture_classes.puml` 与 `doc/architecture_flow.puml`。
+
+业务标识统一：每个业务的配置与 Demo 文件名、IoBinding ID（`<词根>.operator.v1`）和
+`biz_name`（`<词根>`，不带版本号）使用同一词根，中文名统一使用 BizDefinition 的显示名。
+`biz_name` 变更为 `keyword_match`、`entity_extract`、`translate`、`doc_qa`、`cross_rerank`、
+`dialogue_audit`、`ocr_invoice_qa`、`audio_asr_intent`；IoBinding `compliance_audit.operator.v1`
+改为 `dialogue_audit.operator.v1`，`ocr_doc_qa.operator.v1` 改为 `ocr_invoice_qa.operator.v1`；
+OCR 与语音方案的配置、Demo、数据集和 Profile 改用 `ocr_invoice_qa`、`audio_asr_intent` 词根。
+Demo 结果目录随 `biz_name` 变化。正式上线前不保留旧名别名。

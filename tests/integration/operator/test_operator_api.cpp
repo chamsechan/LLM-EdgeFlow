@@ -471,7 +471,7 @@ TEST_F(OperatorApiTest, CompanyStringValidation) {
             0);
 }
 
-// 6. 关注词匹配业务端到端 (Keyword Match)
+// 6. 关注词匹配端到端 (Keyword Match)
 TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
   auto param = DefaultCreateParam("configs/pipeline_keyword_match_rules.conf");
 
@@ -511,11 +511,11 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
 }
 
 // 7. 多模态 OCR 业务多槽位聚合端到端 (frame + string -> od_out)
-TEST_F(OperatorApiTest, EndToEndOcrDocQaMultiSlot) {
+TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_doc_qa.conf";
+  param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_invoice_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -553,7 +553,7 @@ TEST_F(OperatorApiTest, EndToEndOcrDocQaMultiSlot) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
-// 8. 智能长文档问答业务 (Doc QA)
+// 8. 文档问答 (Doc QA)
 TEST_F(OperatorApiTest, EndToEndDocQa) {
   auto param = DefaultCreateParam("demo/fixtures/mock/pipeline_doc_qa.conf");
 
@@ -587,8 +587,8 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
-// 9. 智能对话风控质检业务 (Compliance Audit)
-TEST_F(OperatorApiTest, EndToEndComplianceAudit) {
+// 9. 对话合规审核 (Dialogue Audit)
+TEST_F(OperatorApiTest, EndToEndDialogueAudit) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
@@ -672,7 +672,7 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
-// 11. 纯语义精排业务 (Cross Rerank)
+// 11. Cross-Encoder 精排 (Cross Rerank)
 TEST_F(OperatorApiTest, EndToEndCrossRerank) {
   if (!llm_edgeflow::BackendRegistry::Instance()
            .Find("onnxruntime")
@@ -950,13 +950,13 @@ TEST_F(OperatorApiTest, ResolveOperatorConfigBizApi) {
                 error, sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "keyword_match_v1");
+  EXPECT_EQ(biz, "keyword_match");
   biz = "stale";
   ASSERT_EQ(
       ResolveOperatorConfigBiz(
           root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz),
       0);
-  EXPECT_EQ(biz, "keyword_match_v1");
+  EXPECT_EQ(biz, "keyword_match");
   EXPECT_EQ(ResolveOperatorConfigBiz(
                 root.c_str(), "configs/pipeline_keyword_match_rules.conf",
                 nullptr, error, sizeof(error)),
@@ -1771,11 +1771,11 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     EXPECT_EQ(ops_.Destroy(handle), 0);
   }
 
-  // 5. OcrDocQA 最大 Batch 压测
+  // 5. OcrInvoiceQa 最大 Batch 压测
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_doc_qa.conf";
+    param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_invoice_qa.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;

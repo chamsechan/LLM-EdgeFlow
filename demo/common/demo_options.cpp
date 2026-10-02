@@ -480,7 +480,7 @@ void PrintHelp(const char* program_name) {
          "./results)\n\n"
       << "Runtime Control & Output Options:\n"
       << "  --example-control          Apply the built-in Demo example update "
-         "(keyword_match_v1)\n"
+         "(keyword_match)\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
       << "  --control-cmd <id>         Node command ID for --control-file\n"
       << "  --append                   Append output to existing results file "

@@ -1,30 +1,34 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "ocr_doc_qa.operator.v1"
+      "io_binding": "ocr_invoice_qa.operator.v1"
     }
   },
   "models": [
     {
-      "model_type": "test_biz_ocr",
-      "backend": "test_tensor_backend",
+      "model_type": "vision_document",
+      "backend": "kite_llm",
       "model_config": {
-        "max_batch_size": 2
+        "patch_size": 16,
+        "max_tokens": 256
       },
-      "backend_config": {},
+      "backend_config": {
+        "run_config_file": "kite_vision_run.json"
+      },
       "model_id": "ocr_model_v1",
-      "model_path": "./models/ch_ppocr_v4_det_rec_npu.bin"
+      "model_path": "models/SmolVLM-256M-Instruct-Q8_0.gguf"
     },
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
+      "model_type": "qwen_causal_lm",
+      "backend": "kite_llm",
       "model_config": {
-        "max_batch_size": 2,
-        "max_seq_len": 1024
+        "random_seed": -1
       },
-      "backend_config": {},
+      "backend_config": {
+        "run_config_file": "kite_text_run.json"
+      },
       "model_id": "llm_model_v1",
-      "model_path": "./models/qwen_1.5b_npu.bin"
+      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
   "pipeline": [
@@ -62,8 +66,8 @@
       "node_type": "LlmGenerateNode",
       "config": {
         "bind_model": "llm_model_v1",
-        "max_tokens": 128,
-        "temperature": 0.1
+        "max_tokens": 256,
+        "temperature": 0.0
       },
       "inputs": {
         "prompt": "prompt_text"
@@ -76,7 +80,7 @@
       "id": "node_3_StructuredJsonParseNode",
       "node_type": "StructuredJsonParseNode",
       "config": {
-        "fallback_json": "{}"
+        "failure_policy": "fail"
       },
       "inputs": {
         "text": "llm_raw_answer"

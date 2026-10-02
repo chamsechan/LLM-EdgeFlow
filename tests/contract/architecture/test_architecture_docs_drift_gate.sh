@@ -32,6 +32,17 @@ fi
 cp doc/assets/architecture_flow.svg \
   "${FIXTURE_DOC_ROOT}/assets/architecture_flow.svg"
 
+for legacy_name in \
+  keyword_match_v1 smart_doc_qa_v1 dense_cross_rerank_scoring \
+  compliance_audit.operator.v1 ocr_doc_qa.operator.v1 audio_asr_cpu; do
+  echo "${legacy_name}" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
+  if run_fixture_gate; then
+    echo "❌ Docs drift gate missed legacy business identifier '${legacy_name}'"
+    exit 1
+  fi
+  cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
+done
+
 echo "REGISTER_NODE(OldNode);" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
 if run_fixture_gate; then
   echo "❌ Docs drift gate missed a deprecated registration macro"

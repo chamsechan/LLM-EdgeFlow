@@ -37,9 +37,9 @@
       "chip": "cpu",
       "depth": 1
     },
-    "ocr_doc_qa_kite": {
-      "config": "configs/pipeline_ocr_doc_qa_kite.conf",
-      "dataset": "data/corpus_ocr_doc_qa_kite.txt",
+    "ocr_invoice_qa_kite": {
+      "config": "configs/pipeline_ocr_invoice_qa_kite.conf",
+      "dataset": "data/corpus_ocr_invoice_qa_kite.txt",
       "suite": "real",
       "batch_size": 1,
       "device_id": 0,

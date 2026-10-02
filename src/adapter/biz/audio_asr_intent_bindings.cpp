@@ -6,7 +6,7 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "speech_audio_asr_intent_slot";
+constexpr const char* kBizName = "audio_asr_intent";
 
 BizDefinition MakeAudioAsrIntentBizDefinition() {
   BizDefinition def;

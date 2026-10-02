@@ -6,12 +6,12 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "smart_doc_qa_v1";
+constexpr const char* kBizName = "doc_qa";
 
 BizDefinition MakeDocQaBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.display_name = "智能文档问答";
+  def.display_name = "文档问答";
   def.ingress = {RequiredBizInput(kRawDocs), RequiredBizInput(kRawQueries)};
   def.egress = {BizOutput(kLlmAnswers), BizOutput(kIntentMatches),
                 BizOutput(kDocChunkCounts)};

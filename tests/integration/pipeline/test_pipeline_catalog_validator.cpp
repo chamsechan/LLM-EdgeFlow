@@ -44,7 +44,7 @@ NodeDefinition StudioCatalogProbeDefinition() {
   definition.node_type = StudioCatalogProbeNode::kNodeType;
   definition.category = "test";
   definition.description = "Catalog auto-discovery probe";
-  definition.biz_names = {"keyword_match_v1"};
+  definition.biz_names = {"keyword_match"};
   return definition;
 }
 
@@ -96,7 +96,7 @@ TEST(PipelineCatalogTest, DefinitionRegistrationMakesNewNodeDiscoverable) {
   const auto definition = PipelineCatalog::FindNode("StudioCatalogProbeNode");
   ASSERT_TRUE(definition.has_value());
   EXPECT_EQ(definition->description, "Catalog auto-discovery probe");
-  const auto filtered = PipelineCatalog::ToJson("keyword_match_v1");
+  const auto filtered = PipelineCatalog::ToJson("keyword_match");
   EXPECT_TRUE(std::any_of(
       filtered["nodes"].begin(), filtered["nodes"].end(), [](const auto& item) {
         return item["node_type"] == "StudioCatalogProbeNode";
@@ -208,7 +208,7 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
 
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
-      {"biz_name", "entity_extract_v1"},
+      {"biz_name", "entity_extract"},
       {"models",
        {{{"model_id", "llm_model_v1"},
          {"model_type", "test_biz_embedding"},
@@ -294,7 +294,7 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
 
 TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
   const nlohmann::json config = {
-      {"biz_name", "entity_extract_v1"},
+      {"biz_name", "entity_extract"},
       {"max_parallel_workers", 4},
       {"models",
        {{{"model_id", "serialized_llm"},
@@ -417,7 +417,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
 }
 
 TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
-  std::ifstream stream("configs/pipeline_audio_asr_cpu.json");
+  std::ifstream stream("configs/pipeline_audio_asr_intent_cpu.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
@@ -603,7 +603,7 @@ TEST(PipelineValidatorTest, ExplainRespectsFixBounds) {
   // having invalid dependencies. Without bounds, each consumer would produce 8
   // candidate fixes, yielding 32 candidates total.
   // Explain must cap at max 3 fixes per diagnostic and max 8 fixes per report.
-  nlohmann::json root = {{"biz_name", "keyword_match_v1"},
+  nlohmann::json root = {{"biz_name", "keyword_match"},
                          {"models", nlohmann::json::array()},
                          {"pipeline", nlohmann::json::array()}};
 
@@ -730,7 +730,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
 }
 
 TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
-  nlohmann::json root = {{"biz_name", "entity_extract_v1"},
+  nlohmann::json root = {{"biz_name", "entity_extract"},
                          {"models", nlohmann::json::array()},
                          {"pipeline",
                           {{{"id", "custom_prompt"},
@@ -795,7 +795,7 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
 }
 
 TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
-  nlohmann::json root = {{"biz_name", "entity_extract_v1"},
+  nlohmann::json root = {{"biz_name", "entity_extract"},
                          {"models",
                           {{{"model_id", "broken_model"},
                             {"model_type", "bge_embedding"},
@@ -840,7 +840,7 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
 
 TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   nlohmann::json root = {
-      {"biz_name", "keyword_match_v1"},
+      {"biz_name", "keyword_match"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        {{{"id", "producer"},
@@ -894,7 +894,7 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
 TEST(PipelineValidatorTest,
      ExplainHandlesMultipleDifferentDuplicateDependencies) {
   nlohmann::json root = {
-      {"biz_name", "keyword_match_v1"},
+      {"biz_name", "keyword_match"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        {{{"id", "dep_a"},

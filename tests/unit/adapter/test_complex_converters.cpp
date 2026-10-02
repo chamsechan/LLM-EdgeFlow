@@ -229,7 +229,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   EXPECT_EQ(rerank_out.sorted_indices[0], 0);
 }
 
-// ==================== ComplianceAudit ====================
+// ==================== DialogueAudit ====================
 TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audit.plain.operator.v1");
@@ -317,8 +317,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   EXPECT_STREQ(audit_out.audit_verdict_json->data, "{\"risk\":\"high\"}");
 }
 
-// ==================== AudioAsr ====================
-TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
+// ==================== AudioAsrIntent ====================
+TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audio.pcm.operator.v1");
   ASSERT_NE(in_conv, nullptr);
@@ -392,8 +392,8 @@ TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
                "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}");
 }
 
-// ==================== OcrDocQa ====================
-TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
+// ==================== OcrInvoiceQa ====================
+TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "image_query.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
@@ -480,14 +480,8 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
 // ==================== All 8 Businesses Bound ====================
 TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   const std::vector<std::string> expected_biz = {
-      "translate_v1",
-      "entity_extract_v1",
-      "keyword_match_v1",
-      "smart_doc_qa_v1",
-      "dense_cross_rerank_scoring",
-      "dialogue_compliance_audit_v1",
-      "speech_audio_asr_intent_slot",
-      "multimodal_ocr_invoice_qa",
+      "translate",    "entity_extract", "keyword_match",    "doc_qa",
+      "cross_rerank", "dialogue_audit", "audio_asr_intent", "ocr_invoice_qa",
   };
 
   const auto bindings = IoBindingRegistry::Instance().AllBindings();
@@ -516,7 +510,7 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
 // Only the renamed port is declared; the others map to their own names.
 TEST_F(ComplexConvertersTest, ComplianceBindingDeclaresOnlyRenamedPort) {
   const auto* binding =
-      IoBindingRegistry::Instance().FindBinding("compliance_audit.operator.v1");
+      IoBindingRegistry::Instance().FindBinding("dialogue_audit.operator.v1");
   ASSERT_NE(binding, nullptr);
   EXPECT_TRUE(binding->input_ports.empty());
   ASSERT_EQ(binding->output_ports.size(), 1U);

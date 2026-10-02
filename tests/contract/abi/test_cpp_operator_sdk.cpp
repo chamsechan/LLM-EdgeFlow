@@ -102,7 +102,7 @@ int main() {
   std::string resolved_biz;
   int val_ret = llm_edgeflow::operator_api::ResolveOperatorConfigBiz(
       root_dir.c_str(), config_rel, &resolved_biz, err_buf, sizeof(err_buf));
-  if (val_ret != 0 || resolved_biz != "keyword_match_v1") {
+  if (val_ret != 0 || resolved_biz != "keyword_match") {
     std::fprintf(stderr,
                  "[SDK Consumer Test] ResolveOperatorConfigBiz failed: %s\n",
                  err_buf);

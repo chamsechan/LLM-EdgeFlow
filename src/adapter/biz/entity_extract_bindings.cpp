@@ -6,7 +6,7 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr const char* kBizName = "entity_extract_v1";
+constexpr const char* kBizName = "entity_extract";
 
 BizDefinition MakeEntityExtractBizDefinition() {
   BizDefinition def;

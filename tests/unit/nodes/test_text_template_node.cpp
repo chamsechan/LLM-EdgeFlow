@@ -254,7 +254,7 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
   pipe_json.erase("deployment");
-  pipe_json["biz_name"] = "smart_doc_qa_v1";
+  pipe_json["biz_name"] = "doc_qa";
   ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, &diagnostic))
       << diagnostic.message;
 
@@ -276,7 +276,7 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
 namespace {
 nlohmann::json TemplatePipeline(const nlohmann::json& config) {
   auto root = nlohmann::json::parse(R"({
-  "biz_name": "keyword_match_v1",
+  "biz_name": "keyword_match",
   "models": [],
   "pipeline": [
     {

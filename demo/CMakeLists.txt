@@ -7,8 +7,8 @@ add_library(edgeflow_demo_objects OBJECT
   biz/keyword_match_demo.cpp
   biz/doc_qa_demo.cpp
   biz/dialogue_audit_demo.cpp
-  biz/ocr_doc_qa_demo.cpp
-  biz/audio_asr_demo.cpp
+  biz/ocr_invoice_qa_demo.cpp
+  biz/audio_asr_intent_demo.cpp
   biz/cross_rerank_demo.cpp)
 target_link_libraries(edgeflow_demo_objects PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)

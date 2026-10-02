@@ -318,7 +318,7 @@ TEST_F(OperatorSafetyTest, IoBindingRegistryConflictDetectionAndDescriptor) {
   ASSERT_NE(binding, nullptr);
 
   EXPECT_EQ(binding->binding_id, "keyword_match.operator.v1");
-  EXPECT_EQ(binding->biz_name, "keyword_match_v1");
+  EXPECT_EQ(binding->biz_name, "keyword_match");
 
   EXPECT_GT(binding->max_batch_size, 0);
 
