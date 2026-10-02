@@ -150,7 +150,9 @@ package "模型执行层 / Model Execution" {
   class "可选 Backend\nOnnxRuntimeBackend / LlamaCppBackend\nKiteLlmBackend / WhisperCppBackend" as Backends
   class FixedBatchExecutor {
     Execute(inputs, policy, callback, outputs)
-    chunk / pad / strip / validate provenance
+    chunk / execution_count / strip
+    Model callback prepares padding
+    restore provenance / validate output count
   }
 }
 

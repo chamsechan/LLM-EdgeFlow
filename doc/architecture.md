@@ -78,7 +78,7 @@ graph TD
         LlmIntf["ILlmModel + ITextGenerationSession<br>(formatted prompt / unified options / text)"]
         EmbedIntf["IEmbeddingModel / IRerankModel<br>TensorGraph / GeneratedTokenEmbedding"]
         
-        BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
+        BatchExec["FixedBatchExecutor (固定 Batch 调度器)<br>• 计算切片与补齐数量<br>• Model 回调构造补齐输入<br>• 推理后剥离补齐输出并恢复溯源标签"]
         
         subgraph ModelSemantics["模型语义实现 (src/engine/models/)"]
             BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
@@ -207,8 +207,8 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
   2. `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession`、`IGeneratedTokenEmbeddingSession` 和 `IAudioTranscriptionSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph，whisper.cpp 提供 AudioTranscription；
-  3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合模型与 Backend，校验协议和并发契约后再原子注册到 `ModelManager`；
-  4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
+  3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合并校验单个模型与 Backend；Pipeline 暂存全部模型，成功后批量原子注册到会话的 `ModelManager`；
+  4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：计算批次切片与补齐数量，Model 回调构造补齐输入；执行器剔除补齐输出并恢复 `(req_id, sub_id)` 溯源；
   5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend`、`model_path`、`backend_config` 完成；存在能力缺口时仍需扩展模型执行层。
 
 图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层

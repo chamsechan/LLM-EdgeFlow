@@ -3,6 +3,7 @@
 
 import copy
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -1854,6 +1855,76 @@ process.stdout.write(JSON.stringify(assetModel(asset, 'models')));
         records = json.loads(json.dumps(receipt["records"]))
         records[0]["output"]["is_hit"] = False
         self.assertEqual(selection.compare_samples(records, selection.read_json(spec))["status"], "failed")
+
+    def test_evaluate_inherits_output_configuration_without_changing_selection(self):
+        selection = SHOW.SELECTION
+        tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
+        pipeline = selection.read_json(ROOT / "configs/pipeline_keyword_match_rules.json")
+        spec = ROOT / "tests/fixtures/effects/keyword_exact.json"
+        outputs = {"keyword_out": {"capacities": {"match_result_json": 2048}}}
+        with tempfile.TemporaryDirectory(prefix="selection-inheritance-", dir=ROOT / "build") as directory:
+            root = Path(directory)
+            model_root = root / "models"
+            model_root.mkdir()
+            source = root / "selected.json"
+            source.write_text(json.dumps(pipeline))
+            inherited = copy.deepcopy(pipeline)
+            io_overrides(inherited)["out_mem"] = outputs
+            deployment = root / "deployment.json"
+            deployment.write_text(json.dumps(inherited))
+            conf = root / "deployment.conf"
+            conf.write_text(json.dumps({"pipe_path": deployment.name}))
+            evidence = root / "effects.json"
+            arguments = ["verify_selection.py", "evaluate", "--pipeline", str(source),
+                         "--tool", str(tool), "--demo", str(SHOW.DEMO_BINARY),
+                         "--model-root", str(model_root), "--pipeline-root", str(root),
+                         "--effects", str(spec), "--conf", str(conf), "--output", str(evidence)]
+            with mock.patch.object(sys, "argv", arguments), mock.patch.object(sys, "stdout", io.StringIO()) as stdout:
+                self.assertEqual(selection.main(), 0, stdout.getvalue())
+            receipt = selection.read_json(evidence)
+            self.assertEqual(receipt["metrics"]["status"], "passed")
+            self.assertEqual(receipt["metrics"]["total"], 4)
+            self.assertEqual(receipt["pipeline"]["deployment"]["io"]["out_mem"], outputs)
+            self.assertEqual(selection.read_json(source), pipeline)
+
+            report = selection.inspect_selection(pipeline, tool, model_root, pipeline_root=root)
+            snapshot = copy.deepcopy(pipeline)
+            selection.evaluate(pipeline, report, tool, model_root, spec, conf, SHOW.DEMO_BINARY, root)
+            self.assertEqual(pipeline, snapshot, "evaluation must not mutate the selected Pipeline")
+            self.assertEqual(report["selection_fingerprint"], receipt["selection_fingerprint"])
+            checked = selection.attach_evidence(copy.deepcopy(report), evidence, spec, conf, SHOW.DEMO_BINARY, root)
+            self.assertTrue(checked["ready_for_biz"])
+
+            inherited["deployment"]["io"]["out_mem"]["keyword_out"]["capacities"]["match_result_json"] = 4096
+            deployment.write_text(json.dumps(inherited))
+            changed = selection.attach_evidence(copy.deepcopy(report), evidence, spec, conf, SHOW.DEMO_BINARY, root)
+            self.assertEqual(changed["effects"]["status"], "stale")
+            self.assertFalse(changed["ready_for_biz"])
+
+    def test_evaluate_still_rejects_deployment_changes_during_execution(self):
+        selection = SHOW.SELECTION
+        tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
+        pipeline = selection.read_json(ROOT / "configs/pipeline_keyword_match_rules.json")
+        spec = ROOT / "tests/fixtures/effects/keyword_exact.json"
+        with tempfile.TemporaryDirectory(prefix="selection-deployment-change-", dir=ROOT / "build") as directory:
+            root = Path(directory)
+            deployment = root / "pipeline.json"
+            deployment.write_text(json.dumps(pipeline))
+            conf = root / "pipeline.conf"
+            conf.write_text(json.dumps({"pipe_path": deployment.name}))
+            report = selection.inspect_selection(pipeline, tool, root, pipeline_root=root)
+            run = subprocess.run
+
+            def run_with_changed_deployment(command, **kwargs):
+                result = run(command, **kwargs)
+                if Path(command[0]).resolve() == SHOW.DEMO_BINARY.resolve():
+                    io_overrides(pipeline)["out_mem"] = {"keyword_out": {}}
+                    deployment.write_text(json.dumps(pipeline))
+                return result
+
+            with mock.patch.object(selection.subprocess, "run", side_effect=run_with_changed_deployment):
+                with self.assertRaisesRegex(ValueError, "Effect inputs or binaries changed during execution"):
+                    selection.evaluate(pipeline, report, tool, root, spec, conf, SHOW.DEMO_BINARY, root)
 
 
 class AuthoringAndDeploymentTest(unittest.TestCase):

@@ -290,6 +290,37 @@ auto AnswerBatchSpec() {
 
 REGISTER_FUNCTION_NODE(AnswerBatchNode, AnswerBatchSpec());
 
+struct OptionalValueInputs {
+  const TextBatch* input = nullptr;
+  const TextBatch* context = nullptr;
+};
+
+std::atomic<int> optional_value_run_count{0};
+
+auto OptionalValueSpec() {
+  return MakeBatchSpec(
+      InputsOf<OptionalValueInputs>({
+          Required("input", &OptionalValueInputs::input),
+          OptionalValue("context", &OptionalValueInputs::context),
+      }),
+      PreservedOutput<TextBatch>("output", "input"), Parameters<NoParameters>{},
+      ModelsOf<NoModels>{},
+      [](const OptionalValueInputs& inputs, const NoParameters&,
+         const NoModels&) -> NodeResult<TextBatch> {
+        ++optional_value_run_count;
+        std::string prefix = "[no-context] ";
+        if (inputs.context) {
+          prefix = inputs.context->empty()
+                       ? "[empty-context] "
+                       : "[CTX:" + inputs.context->front().data + "] ";
+        }
+        return MapPayloads(*inputs.input, [&](const std::string& text) {
+          return prefix + text;
+        });
+      });
+}
+REGISTER_FUNCTION_NODE(OptionalValueBatchNode, OptionalValueSpec());
+
 struct TwoStageModels {
   LlmCall draft;
   LlmCall revise;
@@ -1036,6 +1067,100 @@ TEST(FunctionNodeTest, BatchOptionalPortConnectedButMissingFailsClosed) {
   auto result = harness.Run();
   EXPECT_FALSE(result.ok());
   EXPECT_NE(result.diagnostic().find("context"), std::string::npos);
+  EXPECT_EQ(mock_model->call_count, 0);
+  EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
+}
+
+TEST(FunctionNodeTest, BatchOptionalPortWrongRuntimeTypeFailsBeforeModelCall) {
+  auto mock_model = std::make_shared<CountingMockLlmModel>();
+  NodeHarness harness("AnswerBatchNode");
+  harness.Config({{"bind_model", "test_llm"}});
+  harness.BindModel("test_llm", mock_model);
+  harness.TextInput("questions", {"What is AI?"});
+  harness.CustomInput("context", std::string("not a TextBatch"));
+
+  auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_FALSE(result.init_failed());
+  EXPECT_NE(result.diagnostic().find("context"), std::string::npos);
+  EXPECT_NE(result.diagnostic().find("bk_in_context"), std::string::npos);
+  EXPECT_NE(result.diagnostic().find("type mismatch"), std::string::npos);
+  EXPECT_EQ(mock_model->call_count, 0);
+  EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
+}
+
+TEST(FunctionNodeTest, BatchOptionalValueUnconnectedProvidesNullptr) {
+  optional_value_run_count = 0;
+  NodeHarness harness("OptionalValueBatchNode");
+  harness.OmitPortFromPlan("context");
+  harness.TextInput("input", {"hello"});
+
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  EXPECT_EQ(result.TextValues("output"),
+            (std::vector<std::string>{"[no-context] hello"}));
+  EXPECT_EQ(optional_value_run_count.load(), 1);
+}
+
+TEST(FunctionNodeTest, BatchOptionalValueConnectedButMissingProvidesNullptr) {
+  optional_value_run_count = 0;
+  NodeHarness harness("OptionalValueBatchNode");
+  harness.TextInput("input", {"hello"});
+
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  EXPECT_EQ(result.TextValues("output"),
+            (std::vector<std::string>{"[no-context] hello"}));
+  EXPECT_EQ(optional_value_run_count.load(), 1);
+}
+
+TEST(FunctionNodeTest, BatchOptionalValueConnectedEmptyProvidesBatch) {
+  optional_value_run_count = 0;
+  NodeHarness harness("OptionalValueBatchNode");
+  harness.TextInput("input", {"hello"});
+  harness.TextInput("context", {});
+
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  EXPECT_EQ(result.TextValues("output"),
+            (std::vector<std::string>{"[empty-context] hello"}));
+  EXPECT_EQ(optional_value_run_count.load(), 1);
+}
+
+TEST(FunctionNodeTest, BatchOptionalValueUsesContextAndPreservesProvenance) {
+  optional_value_run_count = 0;
+  NodeHarness harness("OptionalValueBatchNode");
+  harness.TextInputWithBatch("input", {{71, 5, "hello"}, {72, 9, "world"}});
+  harness.TextInputWithBatch("context", {{71, 4, "knowledge"}});
+
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<TextBatch>("output");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 2U);
+  EXPECT_EQ((*output)[0].req_id, 71U);
+  EXPECT_EQ((*output)[0].sub_id, 5U);
+  EXPECT_EQ((*output)[0].data, "[CTX:knowledge] hello");
+  EXPECT_EQ((*output)[1].req_id, 72U);
+  EXPECT_EQ((*output)[1].sub_id, 9U);
+  EXPECT_EQ((*output)[1].data, "[CTX:knowledge] world");
+  EXPECT_EQ(optional_value_run_count.load(), 1);
+}
+
+TEST(FunctionNodeTest, BatchOptionalValueWrongRuntimeTypeFailsBeforeRun) {
+  optional_value_run_count = 0;
+  NodeHarness harness("OptionalValueBatchNode");
+  harness.TextInput("input", {"hello"});
+  harness.CustomInput("context", std::string("not a TextBatch"));
+
+  auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_FALSE(result.init_failed());
+  EXPECT_NE(result.diagnostic().find("context"), std::string::npos);
+  EXPECT_NE(result.diagnostic().find("bk_in_context"), std::string::npos);
+  EXPECT_NE(result.diagnostic().find("type mismatch"), std::string::npos);
+  EXPECT_EQ(optional_value_run_count.load(), 0);
+  EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
 }
 
 TEST(FunctionNodeTest, MissingValidatedPlanFailsInitialization) {
