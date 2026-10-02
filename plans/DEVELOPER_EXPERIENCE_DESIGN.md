@@ -336,7 +336,7 @@ add_library(edgeflow_demo_objects OBJECT
       `describe-node` 能查到；删除文件并重新构建后查不到。在临时子目录中放一个 `.cpp`，重复同样的验证。
       过程记录在 PR 中，临时文件不提交。
 - [ ] 在 `demo/biz/` 和 `src/adapter/biz/` 各做一次同样的增删验证（可用复制现有文件、改注册名的方式）。
-- [ ] `git grep -n -- '--add-to-cmake'` 只命中 CHANGELOG 中的删除说明，以及 `plans/` 下的计划文档。
+- [ ] `git grep -n -- '--add-to-cmake'` 只命中 CHANGELOG 中的删除说明、`plans/` 下的计划文档，以及拒绝旧参数的契约测试。
 - [ ] `LayerGuardTest`、`LayerGuardSelfTest`、`CustomNodeScaffoldTest`、Recipe 相关测试通过；
       统一门禁通过。
 

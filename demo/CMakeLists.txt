@@ -1,15 +1,11 @@
+file(GLOB_RECURSE EDGEFLOW_DEMO_BIZ_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/biz/*.cpp")
 add_library(edgeflow_demo_objects OBJECT
   common/demo_options.cpp
   common/demo_registry.cpp
   common/dataset_reader.cpp
   common/result_writer.cpp
-  biz/entity_extract_demo.cpp
-  biz/keyword_match_demo.cpp
-  biz/doc_qa_demo.cpp
-  biz/dialogue_audit_demo.cpp
-  biz/ocr_invoice_qa_demo.cpp
-  biz/audio_asr_intent_demo.cpp
-  biz/cross_rerank_demo.cpp)
+  ${EDGEFLOW_DEMO_BIZ_SOURCES})
 target_link_libraries(edgeflow_demo_objects PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)
 target_include_directories(edgeflow_demo_objects PRIVATE

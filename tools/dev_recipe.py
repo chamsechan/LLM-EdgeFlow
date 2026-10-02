@@ -48,7 +48,7 @@ SUPPORTED_RECIPES = {
         "title": "Text LLM Node Recipe",
         "description": "Create a custom LLM node handling TextBatch -> TextBatch with tests and pipeline deployment.",
         "preconditions": "Requires TextBatch 1:1 preserve ports, registered LLM model capability, and single-output data.outputs.",
-        "artifacts": "Node source, unit test, CMake registration, Pipeline JSON, .conf, effects sample.",
+        "artifacts": "Node source, unit test, Pipeline JSON, .conf, effects sample.",
     },
 }
 
@@ -303,9 +303,6 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             description = f"{name} custom LLM node"
             plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port))
             plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port))
-            cmake_path = root / "src/custom_nodes/CMakeLists.txt"
-            plan.add_modification(cmake_path, cmake_path.read_text(encoding="utf-8"),
-                                  SCAFFOLD.updated_cmakelists(cmake_path, src.name))
             generated = [src, test]
         conf = make_recipe_conf(pipeline, outputs, target, root, models)
         spec = copy.deepcopy(spec)
