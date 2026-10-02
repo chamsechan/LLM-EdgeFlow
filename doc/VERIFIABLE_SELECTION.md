@@ -6,7 +6,7 @@
 
 1. Studio 的“模型”页选择“资产组合”，自动填充已有模型类型、权重路径、tokenizer 或运行配置，以及 Model/Backend 参数。也可手动配置。
 2. 选择 Backend 与模型实例，再将节点绑定到该实例；按端口名称连接业务输入、节点与业务输出。
-3. “检查资产与构建选择”验证**已应用到方案**的配置。Studio 固定检查当前工作区 `models/`，文件存在仅标记 `present_unverified`，点击检查后才计算散列。
+3. “检查资产与构建选择”验证**已应用到方案**的配置，使用运行页选择的项目内资产目录，默认 `models/`。资产列表初始 availability 使用工作区 `models/`，文件存在仅标记 `present_unverified`，点击检查后才按所选目录计算散列。
 4. 在目标数据集上执行效果验收。未提供匹配的效果证据时，资产/构建通过也不会产生 `ready_for_biz=true`。
 
 ## 替换模型后确认实际生效配置
@@ -137,6 +137,8 @@ python3 tools/verify_selection.py check \
 验收器在 `--pipeline-root` 指定的宿主根内生成临时 Pipeline 和 `.conf`，保留所选 Pipeline 的
 `models[].model_path`，并从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io`
 输出池配置。`--model-root` 仅用于资产清单校验，不改写模型条目中的路径。
+继承的输出池配置只应用到执行副本，不修改所选方案。验收记录中的 `pipeline` 保存实际执行配置；
+所选方案与资产由选择指纹记录，继承的输出池、数据集和执行文件由验收输入指纹记录。
 
 验收固定使用 CPU、device 0、batch 1；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
 
