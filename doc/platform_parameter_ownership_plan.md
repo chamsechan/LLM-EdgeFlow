@@ -97,56 +97,130 @@
 
 ## 5. 步骤 5.5：并行层按约束自动串行
 
-**前提**：D1 已确认。
+**前提**：D1 已确认。在 `feat/auto-serialize-parallel-layers` 上实施，一个提交即可。本节核对于 `main@12b3345`，行号以符号名为准。
 
 **问题**：`max_parallel_workers > 1` 时，Validator 拒绝含非 `parallel_safe` 节点的并行层，也拒绝共享串行模型的并行层
-（`src/core/pipeline_validator.cpp:1490-1525`）。运行时对串行模型没有加锁，这个拒绝是唯一保护。
-执行器对单节点层已在主线程顺序执行（`src/core/pipeline.cpp:419-432`），因此只改 Validator 就能做到"按约束安全执行"。
+（`src/core/pipeline_validator.cpp:1490-1537` 的 `if (parsed.max_parallel_workers > 1)` 块），Create 因此返回 `-2`。
+运行时对串行模型不加锁，这个拒绝是唯一保护。执行器对单节点层已在主线程顺序执行（`src/core/pipeline.cpp:419-432`），
+所以只改 Validator：把这些节点拆到单独的层，就能在不加锁的前提下安全执行。
+
+**外部契约**：Operator 接口、返回码集合、宿主结构体、`.conf`、Pipeline JSON 格式、`plan` / `validate` 输出的 JSON 结构、
+诊断码表（两个诊断码保留，只是不再产生）都不变。唯一的行为变化是 D1：原本被这两个诊断拒绝的配置可以运行。
+仓库内的配置都没有设置 `max_parallel_workers`（默认 1），不受影响。
+
+### 规则
+
+只处理 `max_parallel_workers > 1` 的计划，逐层进行：
+
+1. 按层内原顺序遍历节点。节点**不是** `parallel_safe`，放入"顺序组"。
+2. 否则取它绑定的串行模型集合（`model_bindings` 中 `model_id` 非空、且 `model_concurrency` 为 `kSerialized` 的 `model_id`，去重；与原检查相同）。
+   与"并行组"已占用的串行模型有交集，放入"顺序组"；没有交集，放入"并行组"并占用这些模型。
+3. 输出：并行组非空时作为一层（保持原顺序），之后顺序组的每个节点各成一层（保持原顺序）。
+4. 全部层处理完后，用新层替换 `report.topological_layers`，并把 `report.topological_order` 重建为新层依次展开的结果，
+   使两者一致（同层节点之间没有依赖，任何顺序都是合法的拓扑序）。
+
+推论：全部节点都安全、且不共享串行模型的层保持原样；单节点层不变；`max_parallel_workers == 1` 的计划完全不变。
+同一层内写同一端口的 `kParallelWriteConflict` 仍按**原始层**检查并拒绝。
+
+执行器不需要改：`Pipeline::BuildFromPlan` 按 `report.topological_layers` 实例化节点（`pipeline.cpp:133`），执行（`:419` 起）和
+`Control` 分发（`:564` 起）也按同一份层遍历，三者始终一致。拆出的单节点层走现有的主线程分支。
 
 ### 改动
 
-1. `src/core/pipeline_validator.cpp` 中 `if (parsed.max_parallel_workers > 1)` 的代码块：
-   - `kParallelWriteConflict` 检查保持不变，仍按原始层进行。
-   - 不再产生 `kNodeNotParallelSafe` 和 `kSerializedModelConcurrency`，改为拆分层。新增匿名命名空间函数，按下面的规则处理每个多节点层：
+1. `src/core/pipeline_validator.cpp`，把 `if (parsed.max_parallel_workers > 1)` 整个块替换为下面的写法（写冲突检查的代码原样保留）：
 
-     ```text
-     parallel = []，serial = []，used = {}            # used：已进入并行组的串行模型
-     按原顺序遍历层内节点 id：
-       节点不是 parallel_safe                 → 加入 serial
-       models = 该节点绑定的串行模型集合       # 与原检查相同：model_bindings 中
-                                               # concurrency 为 kSerialized 的 model_id，去重
-       models 与 used 有交集                 → 加入 serial
-       否则                                   → 加入 parallel，used ∪= models
-     返回：parallel（非空时）作为一层，随后 serial 中每个节点各自一层
-     ```
+   ```cpp
+   if (parsed.max_parallel_workers > 1) {
+     // Nodes that must not share a wavefront run in their own layers instead of
+     // rejecting the plan. Write conflicts are still checked per original layer.
+     auto serialized_models = [&](const std::string& id) {
+       std::unordered_set<std::string> models;
+       for (const auto& binding : plan.node_plans[id].model_bindings) {
+         if (binding.model_id.empty()) continue;
+         auto it = model_concurrency.find(binding.model_id);
+         if (it != model_concurrency.end() &&
+             it->second == InferenceConcurrency::kSerialized) {
+           models.insert(binding.model_id);
+         }
+       }
+       return models;
+     };
+     std::vector<std::vector<std::string>> scheduled;
+     for (const auto& layer : report.topological_layers) {
+       std::unordered_map<std::string, std::string> writes;
+       std::vector<std::string> parallel;
+       std::vector<std::string> sequential;
+       std::unordered_set<std::string> used_models;
+       for (const auto& id : layer) {
+         auto def_it = def_by_id.find(id);
+         if (def_it == def_by_id.end() || !def_it->second->parallel_safe) {
+           sequential.push_back(id);
+         } else {
+           auto models = serialized_models(id);
+           const bool shares = std::any_of(
+               models.begin(), models.end(),
+               [&](const std::string& m) { return used_models.count(m) > 0; });
+           if (shares) {
+             sequential.push_back(id);
+           } else {
+             used_models.insert(models.begin(), models.end());
+             parallel.push_back(id);
+           }
+         }
+         if (def_it == def_by_id.end()) continue;
+         // 原有的 kParallelWriteConflict 检查（遍历 plan.node_plans[id].ports）原样放在这里。
+       }
+       if (!parallel.empty()) scheduled.push_back(std::move(parallel));
+       for (auto& id : sequential) scheduled.push_back({std::move(id)});
+     }
+     report.topological_layers = std::move(scheduled);
+     report.topological_order.clear();
+     for (const auto& layer : report.topological_layers) {
+       report.topological_order.insert(report.topological_order.end(),
+                                       layer.begin(), layer.end());
+     }
+   }
+   ```
 
-   - 循环结束后，用拆分结果替换 `report.topological_layers`；`topological_order` 不变。单节点层和 `max_parallel_workers == 1` 的计划都不变。
-2. `include/core/diagnostic_code.h`：保留两个诊断码及其名称，注释说明 Validator 不再产生它们。
-3. 执行器不改：`Pipeline` 仍只消费 `ValidatedPipelinePlan`，拆出的单节点层在主线程执行。
+   原块中产生 `kNodeNotParallelSafe` 和 `kSerializedModelConcurrency` 的代码全部删除。确认文件已包含 `<algorithm>` 和 `<unordered_set>`。
+2. `include/core/diagnostic_code.h`：两个诊断码及名称保留（码表不变），在这两行旁加注释
+   `// Retained for compatibility; the Validator now schedules such nodes in separate layers.`
+3. 其他文件不改。
 
 ### 测试
 
-- `tests/unit/core/test_validated_pipeline_plan.cpp` 中断言这两个诊断码的 3 个用例（按 `kSerializedModelConcurrency`、`kNodeNotParallelSafe` 搜索，
-  约在 `:480-515`、`:745-760`、`:990-1003`）：改为断言 `report.ok` 为真，并断言拆分后的层。
-  例如两个节点共享同一个串行模型时，得到 `[["node_a"], ["node_b"]]`；不安全的节点单独成层。
-- `tests/fixtures/pipelines/validation/invalid_pipeline_cases.json`：删除 `serialized_model_concurrency` 用例，
-  改写为 `PipelineValidatorTest` 中的正向用例，断言层为 `[["pre"], ["left"], ["right"], ["post"]]`，且 Operator Create 成功。
-- `DagPipelineTest` 新增：`max_parallel_workers = 4`，同一层有一个非 `parallel_safe` 节点和一个安全节点，`Execute` 成功，输出与 `max_parallel_workers = 1` 一致。
+都只改现有用例或在现有文件中新增，不新建测试文件。
+
+| 文件 / 用例 | 改为 |
+| --- | --- |
+| `tests/unit/core/test_validated_pipeline_plan.cpp` 的 `RejectsSharedSerializedModelInParallelLayer` | 改名为 `SplitsSharedSerializedModelIntoSequentialLayers`。`max_parallel_workers = 4` 时断言 `report.ok`，层为 `[["node_a"], ["node_b"]]`，`topological_order` 为 `["node_a", "node_b"]`；改为 1 时层为 `[["node_a", "node_b"]]`；保留"加 `depends_on` 后通过"的断言 |
+| 同文件 `MultiModelBindingsAndConcurrencyDeduplication` | 第 1 段补充断言层为 `[["multi_node", "parallel_node"]]`（独立实例仍并行）；第 2 段把"被拒绝"改为断言 `report.ok`，层为 `[["multi_node"], ["parallel_node"]]` |
+| 同文件 `WorkerBudgetControlsParallelSafetyChecks` | 改名为 `WorkerBudgetSchedulesUnsafeNodesSequentially`。`max_parallel_workers = 2` 时断言 `report.ok`，层为 `[["independent"], ["source"]]`（`PlanTestNode` 安全、`FlowContractProducerNode` 不安全），`topological_order` 为 `["independent", "source"]`；为 1 时层为 `[["source", "independent"]]` |
+| `tests/fixtures/pipelines/validation/invalid_pipeline_cases.json` | 删除 `serialized_model_concurrency` 用例（两个读取方按用例循环，不依赖用例数）；`parallel_write_conflict` 用例保留 |
+| `tests/integration/pipeline/test_pipeline_catalog_validator.cpp` | 新增 `PipelineValidatorTest.SerializedModelBranchesRunInSeparateLayers`：用被删除用例的 `pipeline`，断言 `report.ok`，层为 `[["pre"], ["left"], ["right"], ["post"]]` |
+| `tests/unit/core/test_dag_pipeline.cpp` | 新增不安全节点 `DagTestUnsafeNodeC`：继承 `DagTestNodeC`，另设 `kNodeType = "DagTestUnsafeNodeC"` 和 `Name()`；新增 `inline NodeDefinition MakeUnsafeDagNodeDef()`，调用 `MakeDagNodeDef(DagTestUnsafeNodeC::kNodeType, {{"node_a_out", "string"}}, {{"node_c_out", "string"}})` 后把 `parallel_safe` 置为 `false`，用 `REGISTER_NODE_WITH_DEFINITION(DagTestUnsafeNodeC, MakeUnsafeDagNodeDef())` 注册。新增 `UnsafeNodeRunsInOwnLayer`：复用 `ParallelWavefrontExecution` 的菱形配置，把 `node_c` 换成该类型；`max_parallel_workers` 为 4 时层为 `[["node_a"], ["node_b"], ["node_c"], ["node_d"]]`，`Execute` 返回 0，`final_dag_result` 与原用例相同；为 1 时结果相同 |
+
+`ParallelWavefrontExecution`、`test_engine_fault_tolerance_and_lifecycle.cpp` 中的深层 DAG 用例都只用安全节点、不共享串行模型，层不变，不用改。
 
 ### 文档与 CHANGELOG
 
-- `doc/dev_guide/custom_node_concepts.md:188-190`、`src/custom_nodes/README.md:37`、`.agents/skills/edgeflow-node-batch-developer/SKILL.md:59`、
-  `.agents/skills/llm-edgeflow-developer-guide/references/capability-nodes.md:49`、`doc/architecture.md:184`、
-  `.agents/skills/edgeflow-solution-planner/SKILL.md:61`：改为"不声明并发也能安全运行；框架把不安全的节点和共享串行模型的节点放到单独的层顺序执行；声明 `.ParallelSafe(true)` 后才可能并行"。
-- CHANGELOG：`max_parallel_workers > 1` 时，Validator 不再拒绝非 `parallel_safe` 节点或共享串行模型的并行层，改为把它们拆到单独的层顺序执行；原本 Create 返回 `-2` 的这类配置现在可以运行。
+- `doc/dev_guide/custom_node_concepts.md:188-190`：把"若该节点处于含多个节点的并行层，Validator 会拒绝这个计划；它不会自动加锁，也不会自动把那一层改成串行"
+  改为"框架把它放到单独的层顺序执行，不会自动加锁；声明 `.ParallelSafe(true)` 后才可能与同层节点并行。共享串行模型的节点也按同样方式分层"。
+- 其他提到并发的文档（`configs/README.md:46`、`doc/architecture.md:184`、`doc/developer_guide.md:110`、`src/custom_nodes/README.md:37`
+  以及 `.agents` 下三处）只说"大于 1 时启用并行调度和安全检查"或"确认安全后再设为 `true`"，改动后仍然成立，不用改。
+- CHANGELOG：`max_parallel_workers > 1` 时，Validator 不再以 `NODE_NOT_PARALLEL_SAFE`、`SERIALIZED_MODEL_CONCURRENCY` 拒绝计划，
+  而是把未声明并行安全的节点、以及会共享串行模型的节点拆到单独的层顺序执行；原本 Create 返回 `-2` 的这类配置现在可以运行。
+  两个诊断码保留但不再产生；`plan` 输出中的 `layers` 与 `topological_order` 反映拆分后的执行顺序。
 
 ### 验收
 
-- [ ] 基线对比（无额外参数）0 个差异：仓库内配置都是 `max_parallel_workers = 1`，`plan` 输出不变。
-- [ ] 聚焦测试通过：`ctest --test-dir build --output-on-failure -R "ValidatedPipelinePlanTest|DagPipelineTest|PipelineStudioTest|PipelineStudioServerTest"`。
-- [ ] 2.1 的外部契约检查通过（只有 D1 确认的这一项行为变化）；门禁通过。
+- [ ] 基线对比（附录 A，改动前在 `main` 上采集，无额外参数）0 个差异：仓库内配置都是默认 `max_parallel_workers = 1`。
+- [ ] `git grep -n "kNodeNotParallelSafe\|kSerializedModelConcurrency" -- src` 无输出（两个码只在 `include/core/diagnostic_code.h` 中定义）。
+- [ ] 聚焦测试通过：`ctest --test-dir build --output-on-failure -R "ValidatedPipelinePlanTest|DagPipelineTest|PipelineStudioTest|PipelineStudioServerTest"`
+  （`PipelineValidatorTest.*` 在 `PipelineStudioTest` 中运行，fixture 循环在 `PipelineStudioServerTest` 中运行）。
+- [ ] 2.1 的外部契约检查通过（只有 D1 这一项行为变化）；门禁通过。
 
-**回退**：还原本步骤的提交。
+**回退**：还原本步骤的提交；不涉及配置迁移。
 
 ## 6. 阶段完成
 
