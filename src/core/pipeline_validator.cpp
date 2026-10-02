@@ -19,6 +19,56 @@
 namespace llm_edgeflow {
 namespace {
 
+size_t LevenshteinDistance(std::string_view s1, std::string_view s2) {
+  const size_t m = s1.size();
+  const size_t n = s2.size();
+  std::vector<size_t> dp(n + 1);
+  for (size_t j = 0; j <= n; ++j) dp[j] = j;
+  for (size_t i = 1; i <= m; ++i) {
+    size_t prev = dp[0];
+    dp[0] = i;
+    for (size_t j = 1; j <= n; ++j) {
+      size_t temp = dp[j];
+      if (s1[i - 1] == s2[j - 1]) {
+        dp[j] = prev;
+      } else {
+        dp[j] = 1 + std::min({prev, dp[j], dp[j - 1]});
+      }
+      prev = temp;
+    }
+  }
+  return dp[n];
+}
+
+// Orders names by edit distance; ties use the name for deterministic output.
+std::vector<std::string> RankByEditDistance(std::string_view target,
+                                            std::vector<std::string> names) {
+  std::vector<std::pair<size_t, std::string>> ranked;
+  for (auto& name : names) {
+    const size_t distance = LevenshteinDistance(target, name);
+    ranked.emplace_back(distance, std::move(name));
+  }
+  std::sort(ranked.begin(), ranked.end());
+  names.clear();
+  for (auto& item : ranked) names.push_back(std::move(item.second));
+  return names;
+}
+
+std::vector<std::string> NearestNames(std::string_view target,
+                                      std::vector<std::string> names,
+                                      size_t limit = 3) {
+  auto ranked = RankByEditDistance(target, std::move(names));
+  std::vector<std::string> nearest;
+  const size_t threshold = std::max(size_t{2}, target.size() / 3);
+  for (auto& name : ranked) {
+    if (nearest.size() == limit ||
+        LevenshteinDistance(target, name) > threshold)
+      break;
+    nearest.push_back(std::move(name));
+  }
+  return nearest;
+}
+
 void Add(ValidationReport* report, DiagnosticCode code, std::string path,
          std::string message, std::string node_id = {}, std::string port = {},
          std::vector<std::string> related = {},
@@ -138,6 +188,8 @@ bool ValidateAndNormalizeConfig(
           for (const auto& field : schema) {
             diag.suggestions.push_back(field.name);
           }
+          diag.suggestions =
+              RankByEditDistance(err.field_name, std::move(diag.suggestions));
           break;
         case ConfigFieldErrorKind::kMissingField:
           diag.code = DiagnosticCode::kMissingConfigField;
@@ -262,27 +314,6 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
   return !invalid_reference;
 }
 
-size_t LevenshteinDistance(std::string_view s1, std::string_view s2) {
-  const size_t m = s1.size();
-  const size_t n = s2.size();
-  std::vector<size_t> dp(n + 1);
-  for (size_t j = 0; j <= n; ++j) dp[j] = j;
-  for (size_t i = 1; i <= m; ++i) {
-    size_t prev = dp[0];
-    dp[0] = i;
-    for (size_t j = 1; j <= n; ++j) {
-      size_t temp = dp[j];
-      if (s1[i - 1] == s2[j - 1]) {
-        dp[j] = prev;
-      } else {
-        dp[j] = 1 + std::min({prev, dp[j], dp[j - 1]});
-      }
-      prev = temp;
-    }
-  }
-  return dp[n];
-}
-
 bool ValueMatchesConfigKind(const nlohmann::json& value, ConfigValueKind kind) {
   switch (kind) {
     case ConfigValueKind::kString:
@@ -347,6 +378,65 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
   if (!diag || diag->remediation.has_value()) return;
   if (!root.is_object()) return;
 
+  if (diag->code == DiagnosticCode::kUnknownNodeType ||
+      diag->code == DiagnosticCode::kUnknownModelType ||
+      diag->code == DiagnosticCode::kUnknownBackend) {
+    const nlohmann::json::json_pointer pointer(diag->path);
+    if (!root.contains(pointer) || !root.at(pointer).is_string()) return;
+    const auto& item = root.at(nlohmann::json::json_pointer(
+        diag->path.substr(0, diag->path.rfind('/'))));
+    const std::string name = root.at(pointer).get<std::string>();
+    ValidationRemediation rem;
+    std::vector<std::string> names;
+    std::string candidates_key;
+    std::string next_step;
+    if (diag->code == DiagnosticCode::kUnknownNodeType) {
+      rem.cause = RemediationCause::kUnknownNodeType;
+      rem.facts["node_type"] = name;
+      candidates_key = "candidate_node_types";
+      for (const auto& def : catalog.nodes) names.push_back(def.node_type);
+      rem.summary = "节点 '" + diag->node_id + "' 的 node_type '" + name;
+      next_step = "新增的 Node 需要重新构建后才会注册。";
+    } else {
+      const std::string model_id = item.value("model_id", "");
+      rem.facts["model_id"] = model_id;
+      if (diag->code == DiagnosticCode::kUnknownModelType) {
+        rem.cause = RemediationCause::kUnknownModelType;
+        rem.facts["model_type"] = name;
+        candidates_key = "candidate_model_types";
+        for (const auto& def : PipelineCatalog::Models())
+          names.push_back(def.model_type);
+        std::sort(names.begin(), names.end());
+        rem.facts["registered_model_types"] = names;
+        rem.summary = "模型 '" + model_id + "' 的 model_type '" + name;
+      } else {
+        rem.cause = RemediationCause::kUnknownBackend;
+        rem.facts["backend"] = name;
+        candidates_key = "candidate_backends";
+        for (const auto& def : PipelineCatalog::Backends())
+          names.push_back(def.backend_type);
+        std::sort(names.begin(), names.end());
+        rem.facts["registered_backends"] = names;
+        rem.summary = "模型 '" + model_id + "' 的 backend '" + name;
+        next_step = "可选 Backend 需要在构建时启用。";
+      }
+    }
+    diag->suggestions = NearestNames(name, std::move(names));
+    rem.facts[candidates_key] = diag->suggestions;
+    rem.summary += "' 未在当前构建中注册。";
+    if (!diag->suggestions.empty()) {
+      rem.summary += "相近的已注册类型：";
+      for (size_t i = 0; i < diag->suggestions.size(); ++i) {
+        if (i) rem.summary += "、";
+        rem.summary += diag->suggestions[i];
+      }
+      rem.summary += "。";
+    }
+    rem.summary += next_step;
+    diag->remediation = std::move(rem);
+    return;
+  }
+
   if (diag->code == DiagnosticCode::kUnknownConfigField) {
     if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
         root["pipeline"].is_array()) {
@@ -373,21 +463,11 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
                           field_name + "'。";
             rem.facts["field"] = field_name;
 
-            std::vector<std::pair<size_t, std::string>> ranked;
-            for (const auto& field : def->config_fields) {
-              ranked.emplace_back(LevenshteinDistance(field_name, field.name),
-                                  field.name);
-            }
-            std::sort(ranked.begin(), ranked.end(),
-                      [](const auto& a, const auto& b) {
-                        if (a.first != b.first) return a.first < b.first;
-                        return a.second < b.second;
-                      });
-            std::vector<std::string> candidate_fields;
-            for (const auto& item : ranked) {
-              candidate_fields.push_back(item.second);
-            }
-            rem.facts["candidate_fields"] = candidate_fields;
+            std::vector<std::string> names;
+            for (const auto& field : def->config_fields)
+              names.push_back(field.name);
+            rem.facts["candidate_fields"] =
+                RankByEditDistance(field_name, std::move(names));
             diag->remediation = std::move(rem);
           }
         }
@@ -904,11 +984,14 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         "Backend registry contains registration conflicts");
   }
 
+  std::unordered_set<std::string> unresolved_model_ids;
+  std::unordered_set<std::string> reported_missing_outputs;
   std::unordered_map<std::string, std::string> model_capabilities;
   std::unordered_map<std::string, InferenceConcurrency> model_concurrency;
   for (const auto& model : parsed.models) {
     auto model_def_opt = ModelRegistry::Instance().Find(model.model_type);
     if (!model_def_opt) {
+      unresolved_model_ids.insert(model.model_id);
       Add(&report, DiagnosticCode::kUnknownModelType,
           "/models/" + std::to_string(model.source_index) + "/model_type",
           "Unknown model_type: " + model.model_type);
@@ -1094,8 +1177,10 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       std::string path = "/pipeline/" + std::to_string(node.source_index) +
                          "/config/" + EscapeJsonPointer(dep.config_field);
       if (model_id.empty() || capability == model_capabilities.end()) {
-        Add(&report, DiagnosticCode::kUnknownModelReference, path,
-            "Node references an unknown model_id: " + model_id, node.id);
+        if (!unresolved_model_ids.count(model_id)) {
+          Add(&report, DiagnosticCode::kUnknownModelReference, path,
+              "Node references an unknown model_id: " + model_id, node.id);
+        }
       } else if (capability->second != dep.capability) {
         Add(&report, DiagnosticCode::kModelCapabilityMismatch, path,
             "Node requires model capability '" + dep.capability +
@@ -1416,6 +1501,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
               "Pipeline does not produce required biz output: " +
                   consumer.blackboard_key,
               {}, consumer.blackboard_key);
+          reported_missing_outputs.insert(consumer.blackboard_key);
         }
         continue;
       }
@@ -1464,7 +1550,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           }
           continue;
         }
-        if (consumer.required) {
+        if (consumer.required &&
+            !reported_missing_outputs.count(consumer.blackboard_key)) {
           Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
               "Pipeline does not produce required IO boundary output: " +
                   consumer.blackboard_key,
