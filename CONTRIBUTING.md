@@ -26,6 +26,15 @@ Create `feat/*`, `fix/*`, `refactor/*`, `docs/*`, `test/*`, or `chore/*` before 
 Base it on the intended mainline revision. Do not silently pull, rebase, or merge remote changes
 into a dirty worktree.
 
+Deliver dependent stages one at a time: merge a stage and verify its exact main push CI before
+creating the next stage's delivery branch from the latest `origin/main`. Each PR branch must
+contain only that stage's linear commits above `origin/main`; do not merge main back into a
+working branch or merge other working branches into it. If main advances, explicitly rebase
+the branch onto the latest main or recreate it there with only the current PR's changes, then
+revalidate. Published history rewrites require explicit authorization and coordination with
+other users of the branch. The delivery script checks this history before the local gate and
+again before an authorized merge; it never rebases automatically.
+
 The branch itself is not evidence of quality; it provides isolation and a reviewable diff.
 
 ## 3. Design and current contracts
