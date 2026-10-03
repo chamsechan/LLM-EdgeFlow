@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+交付脚本要求 PR 分支从最新 `origin/main` 延伸线性提交，拒绝把 main 或其他工作分支合回
+PR 分支；正式合并前再次检查 main 是否推进。依赖阶段逐个合并并验证后，再创建下一阶段分支。
+
 Node 作者接口：Batch `Run`、`BuildPrompt`、`FormatAnswer` 签名不符时，编译期直接给出可接受的签名。
 两个 LLM 钩子统一返回值规则：接受能隐式转换为 `std::string` 的类型、`std::string_view` 及其 `NodeResult`。
 约束收紧：`FormatAnswer` 不再接受 `char`、`int` 等算术类型返回值（此前会被当作单个字符写入结果）。

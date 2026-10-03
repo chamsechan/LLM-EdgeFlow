@@ -64,13 +64,25 @@ case "${BRANCH_NAME}" in
     ;;
 esac
 
-echo "[1/5] Verifying branch ancestry against origin/main..."
-git fetch origin main
-if ! git merge-base --is-ancestor origin/main HEAD; then
-  echo "Error: origin/main is not an ancestor of ${BRANCH_NAME}."
-  echo "Resolve the update explicitly, then rerun; this script will not rewrite history."
-  exit 1
-fi
+verify_branch_history() {
+  git fetch origin main
+  if ! git merge-base --is-ancestor origin/main HEAD; then
+    echo "Error: origin/main is not an ancestor of ${BRANCH_NAME}."
+    echo "Explicitly rebase onto origin/main or recreate the branch there with only this PR's changes."
+    echo "Do not merge main into the working branch; this script will not rewrite history."
+    exit 1
+  fi
+  local branch_merges
+  branch_merges="$(git rev-list --merges origin/main..HEAD)"
+  if [[ -n "${branch_merges}" ]]; then
+    echo "Error: ${BRANCH_NAME} contains merge commits above origin/main."
+    echo "Recreate or explicitly rebase the branch with only this PR's linear commits, then rerun."
+    exit 1
+  fi
+}
+
+echo "[1/5] Verifying linear branch history on the latest origin/main..."
+verify_branch_history
 
 echo "[2/5] Running the canonical local quality gate..."
 "${SCRIPT_DIR}/run_all_tests.sh"
@@ -128,6 +140,8 @@ if [[ "${DELIVERY_MODE}" == "--pr-only" ]]; then
 fi
 
 PR_NUMBER="$(gh pr view "${BRANCH_NAME}" --json number --jq '.number')"
+echo "Rechecking branch history against the latest origin/main before merge..."
+verify_branch_history
 gh pr merge "${PR_NUMBER}" --merge --delete-branch
 if ! MERGE_SHA="$(gh pr view "${PR_NUMBER}" --json mergeCommit --jq '.mergeCommit.oid // empty')" || \
    [[ -z "${MERGE_SHA}" ]]; then
