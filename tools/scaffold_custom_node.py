@@ -767,16 +767,6 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 """
 
 
-def updated_cmakelists(cmake_path, filename):
-    content = cmake_path.read_text(encoding="utf-8")
-    if re.search(r"(?m)^\s*" + re.escape(filename) + r"\s*$", content):
-        return content
-    match = re.search(r"(target_sources\(edgeflow_capability_nodes_objects\s+PRIVATE[^)]*)(\))", content)
-    if not match:
-        raise ValueError(f"No edgeflow_capability_nodes_objects target_sources in {cmake_path}")
-    return content[:match.end(1)].rstrip() + f"\n  {filename}\n" + content[match.start(2):]
-
-
 class ChangePlan:
     """Publish without clobbering targets; retain displaced edits on conflict.
 
@@ -936,7 +926,6 @@ def main():
     parser.add_argument("--output-dir", default="src/custom_nodes")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("-f", "--force", action="store_true")
-    parser.add_argument("--add-to-cmake", action="store_true", help="Register the production Node source in CMake")
     parser.add_argument("--write-test", action="store_true", help="Write an automatically discovered test in tests/unit/nodes/test_<snake_name>.cpp")
     parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
     parser.add_argument("--self-test", action="store_true", help="Run the generator's Python tests")
@@ -967,7 +956,6 @@ def main():
         target = root / args.output_dir / (to_snake_case(name) + ".cpp")
         test_filename = f"test_{to_snake_case(name)}.cpp"
         test_target = root / "tests/unit/nodes" / test_filename
-        cmake_path = (target.parent / "CMakeLists.txt") if not args.write_test and args.output_dir != "src/custom_nodes" else (root / "src/custom_nodes/CMakeLists.txt")
 
         plan = ChangePlan()
         if args.force and target.exists():
@@ -979,11 +967,6 @@ def main():
                                                   args.kind, capability, in_port, out_port, args.control_id)
             plan.add_new_file(test_target, test_content)
 
-        if args.add_to_cmake:
-            orig_cmake = cmake_path.read_text(encoding="utf-8")
-            new_cmake = updated_cmakelists(cmake_path, target.name)
-            plan.add_modification(cmake_path, orig_cmake, new_cmake)
-
         if args.dry_run:
             if args.write_test:
                 print(f"--- {target} (new file) ---")
@@ -992,29 +975,24 @@ def main():
                 print(f"--- {test_target} (new test file) ---")
                 print(test_content)
                 print("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.")
-            if args.add_to_cmake:
-                print(f"--- {cmake_path} registration ---")
-                print(f"+  {target.name}")
             return 0
 
         plan.commit()
 
         print(f"Created {target}")
+        collected_dirs = ("src/custom_nodes", "src/common_nodes")
+        if any(target.resolve().is_relative_to((root / d).resolve()) for d in collected_dirs):
+            print("Sources under src/custom_nodes/ and src/common_nodes/ are compiled automatically on the next build.")
+        else:
+            print(f"Note: {target} is outside src/custom_nodes/ and src/common_nodes/, so the build does not collect it.")
         if args.write_test:
             print(f"Created {test_target}")
             print("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.")
-        if args.add_to_cmake:
-            print(f"Registered {target.name} in {cmake_path}")
-            if args.write_test:
-                print("Next steps:")
-                print("  Build command: cmake --build build --target edgeflow_test_nodes_runner")
-                print(f"  Test filter: CustomNodeCatalogTest.{name}_*")
-                print("  Run command: (cd build && ctest -R CommonNodesTest)")
-                print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"CustomNodeCatalogTest.{name}_*\")")
-
-        else:
-            print("Pending registrations:")
-            print(f"  Add {target.name} to {cmake_path}")
+            print("Next steps:")
+            print("  Build command: cmake --build build --target edgeflow_test_nodes_runner")
+            print(f"  Test filter: CustomNodeCatalogTest.{name}_*")
+            print("  Run command: (cd build && ctest -R CommonNodesTest)")
+            print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"CustomNodeCatalogTest.{name}_*\")")
 
         if args.control_id is not None:
             print("Next: edit ApplyPrefix for business logic and Parameters/Field for config and Control validation. Walkthrough: doc/dev_guide/first_control.md")
