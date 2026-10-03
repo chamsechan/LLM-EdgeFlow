@@ -48,7 +48,7 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
 转义的 NUL 可在解包后保留。输出按显式长度复制，二进制内容使用 `CompanyBuffer`。
 外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期；
-销毁和释放顺序见[业务接入](dev_guide/business_onboarding.md#6-输出容量与生命周期)。
+销毁和释放顺序见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 
 目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
 SOVERSION/ABI major 为 9。

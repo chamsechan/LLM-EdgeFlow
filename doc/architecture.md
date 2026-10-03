@@ -154,7 +154,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ```
 
 - 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
-- 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[输出容量与生命周期](dev_guide/business_onboarding.md#6-输出容量与生命周期)。
+- 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 - C++ Operator API 根据 Key 的最后一个点号解析外部槽位的 `key_suffix`；槽位的 `type_suffix` 再选择 `OperatorValueTypeRegistry` 中的外部 C++ 类型。不同槽位后缀可以复用同一类型。`IoBindingRegistry` 负责将转换器的逻辑端口映射到内部 Pipeline 端口，具体区别见[输出分配方案](dev_guide/operator_output_allocation.md)。
 - 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。

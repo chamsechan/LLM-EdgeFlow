@@ -1,5 +1,9 @@
-# Operator 多输出与嵌套载荷分配
+# Operator 宿主类型、输出池与生命周期
 
+本文写给三类读者：新增宿主类型或输出布局的作者、配置多输出与嵌套载荷的作者，以及直接调用
+SDK 的宿主集成方。只复用已有类型、编写转换器与绑定的业务开发者，见[业务接入指南](business_onboarding.md)。
+
+ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。
 普通业务复用已注册输出结构，只在需要时覆盖容量。新增标准结构时，通过
 `MakePooledOutputBinding<T>` 声明字段、默认/最大容量及标量重置；框架负责分配和释放。
 特殊嵌套结构才需要描述一份完整输出的布局与生命周期。框架负责创建
@@ -46,6 +50,14 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 | `params` | 由方案解释、校验并补齐的单份布局参数，例如嵌套枚举与数组容量 |
 | `capacities` / `meta_num` / `metadata_type_id` | 方案声明的标准字符串与 CompanyAny 容量字段 |
 
+转换器声明槽位时，`ExternalInputSlot<T>(slot)` / `ExternalOutputSlot<T>(slot)` 令
+`type_suffix = slot_name`，`key_suffix` 留空并回退到 `type_suffix`，只适用于必需槽且三个名称相同的
+常见约定；输入工厂的第二参数是 `value_type`，不能用来覆盖后缀。其他情况使用完整的
+`ExternalSlotDefinition`。例如逻辑槽名为 `result`、已注册类型后缀为 `entity_out`、外部 key 为
+`sdk.answer` 时，分别设置 `slot_name = "result"`、`type_suffix = "entity_out"`、`key_suffix = "answer"`。
+`schema_version`、输出 `cardinality`、`capacity_policy` 使用 Definition 的默认值时无需赋值；
+规则不同时显式填写。
+
 以下配置来自参与编译的
 [测试接入](../../tests/integration/operator/test_operator_api.cpp)和
 [嵌套结构实现](../../tests/support/operator_nested_output_fixture.h)。这些类型和业务只在
@@ -88,12 +100,18 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 ## 实现与注册
 
+新业务继续使用已注册宿主类型时，复用其 ValueType 与内存管理，载荷协议变化由转换器处理；
+已有 DTO 的 trait 也直接复用。只有需要新宿主类型或分配布局时，才执行本节步骤。
+当前环境的模拟宿主结构先在 `include/platform_mock/operator_data_types.h` 声明；真实公司定义
+在授权内网接入。
+
 包含 `adapter/operator_value_type.h`，在接入层自己的 `.cpp` 中建立
 `OperatorValueTypeBinding`。外层类型首次接入时调用 `RegisterOperatorValueType`；
 为该类型新增命名方案时调用 `RegisterOperatorOutputAllocator(name, binding)`。
 分别通过 `REGISTER_OPERATOR_VALUE_TYPE`、`REGISTER_OPERATOR_OUTPUT_ALLOCATOR`
-登记无参注册函数，并把源码加入接入层构建目标。不需要包含私有 registry 或 pool 头，
-也不需要在中央分发表增加业务判断。
+登记无参注册函数。源码放在 `src/adapter/input/`、`output/` 或 `biz/` 下会自动编入；
+放在 `src/adapter/operator/` 等框架机制目录时，需要在 `src/adapter/CMakeLists.txt` 中登记。
+不需要包含私有 registry 或 pool 头，也不需要在中央分发表增加业务判断。
 
 常见输出不需要手写以下生命周期回调。例如，假设接入的 DTO `SummaryOutput` 包含
 `CompanyString* summary` 和标量 `status` 时，先在接入层相关转换器共享的头文件中，
@@ -175,11 +193,48 @@ binding.normalize_parameters =
 
 框架在全部输出转换成功后发布 map；任何一项失败都会归还已经获取的输出租约。
 调用方读取时依照外部协议的枚举解释 `void*`；内存的实际清理依据已登记的所有权
-记录。输出引用不延长 handle 的有效期，销毁顺序沿用
-[输出容量与生命周期](business_onboarding.md#6-输出容量与生命周期)。
+记录。输出引用不延长 handle 的有效期，销毁顺序见下文
+[宿主调用与生命周期](#宿主调用与生命周期)。
 
 `alg_pipeline_tool resolve-conf` 在 `configuration.output_pools` 按逻辑槽位展示有效
 方案与框架容量，`params` 是交给结构体解析函数的**字符串**（例如
 `"{\"kind\":1,\"capacity\":8}"`），不包含该解析函数内部补齐的默认值。单输出同样通过 `output_pools` 按槽位读取。
 现有 Demo/Studio Profile 使用原单输出
 业务；新多输出业务由其宿主调用或相应 Demo 扩展验证。
+
+## 宿主调用与生命周期
+
+本节写给直接调用 SDK 的宿主程序。转换器作者需要的批次上限与输出容量配置见
+[业务接入指南](business_onboarding.md#6-输出容量)。
+
+**调用前提。** `Process` 的输入、输出批次必须非空且帧数相等，单次批次不超过有效上限，
+超出时直接失败，不会在门面中自动拆批。每帧按接入绑定提供必需的输入槽和输出槽，可选槽按契约省略。
+提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
+有效 key 后缀与宿主类型可通过 `catalog --io-binding <binding_id>` 查询，后缀与类型的区别见
+[选择参数](#选择参数)。
+
+**借用输入与输出租约。** `CompanyString` 用于文本，二进制使用 `CompanyBuffer`。
+宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回；库不跨调用保存输入指针。
+输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
+需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。
+不要累积所有输出租约后在同一线程继续同步 `Process`：池满时调用会等待空闲块，
+该线程也就无法返回释放旧租约。池深用于控制同时持有的输出数量，不是结果存储空间。
+
+**销毁顺序。** 等待所有 `Process` / `Control` 返回 → 释放输出引用 → `Destroy`。
+有效 handle 即使因未归还输出而在 `Destroy` 返回错误，也已被消费，不得重试或再访问
+旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_invoice_qa_demo.cpp) 和
+[公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
+
+**`Init`、`DeInit` 与并发。** `Init` 用于注册审计，应在创建实例前调用。同一 handle 的 `Process` 与
+`Control` 串行，不同 handle 可并行。`DeInit` 会清理该库实例中登记的**所有 handle**，不是单个调用方的
+局部清理。调用前须停止所有实例的新调用、等待在途调用返回并释放全部输出；不支持与 Create、Process、
+Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但已清理的 handle 和旧输出仍失效。
+
+**错误与诊断。** 常见门面错误包括无效 handle `-1`、非法创建参数/配置 `-2`、非法输入或批次 `-3`、
+输出槽/容量错误 `-4`。公开错误码见 [`error_codes.h`](../../include/platform_mock/error_codes.h)；
+Pipeline、Node 或 Model 的失败码也会向上传递，不能只按数值判断故障层。
+`Process` 失败后在当前线程读取 `GetOperatorLastError()` 并及时复制诊断；它返回的指针由库持有，
+后续调用可能更新内容。成功返回不代表已完成真实模型效果或生产验收。
+
+宿主可参考现有 [Operator runner](../../demo/common/operator_runner.h) 准备 required 输出 key，
+保持槽值为空并及时复制、释放结果。

@@ -45,6 +45,7 @@ Map、LLM、Batch 是同一 Node 框架的三种作者入口。`common/custom` �
 | [Node 作者的五个概念](dev_guide/custom_node_concepts.md) | 按需理解端口、来源、模型绑定、Definition 和并发 |
 | [第一个 Control](dev_guide/first_control.md) | 给节点增加运行时控制 |
 | [Adapter 参考实现](dev_guide/adapter_templates/README.md) | 按输入输出形态查阅已有转换实现 |
+| [Operator 宿主类型、输出池与生命周期](dev_guide/operator_output_allocation.md) | 新宿主类型、特殊输出布局与宿主调用规则 |
 | [模型、构建与效果验收](VERIFIABLE_SELECTION.md) · [模型资产说明](../models/README.md) | 准备模型、选择构建并验证效果 |
 | [架构设计](architecture.md) | 四层职责、编译依赖与运行时数据流 |
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |

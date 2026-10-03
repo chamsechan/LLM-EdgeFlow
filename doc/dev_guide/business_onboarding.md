@@ -1,7 +1,8 @@
 # 新业务接入：从平台结构到统一 Demo
 
-本指南面向需要新增或调整外部业务契约的 C++ 开发者。先按根目录
-[README](../../README.md#快速开始)完成快速开始构建；以下命令都从仓库根目录执行。
+本指南写给新增或调整外部业务契约的转换器作者。新宿主类型、输出池实现，以及宿主程序如何
+调用 SDK，见 [Operator 宿主类型、输出池与生命周期](operator_output_allocation.md)。
+先按根目录 [README](../../README.md#快速开始)完成快速开始构建；以下命令都从仓库根目录执行。
 公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)
 明确契约与设计，再开始实现。
 
@@ -84,9 +85,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
 | 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
-| 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、输出池租约填充及 `REGISTER_OUTPUT_CONVERTER` |
+| 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
 | 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合和非同名端口映射；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
-| Operator 类型注册 | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 为新宿主类型登记规范后缀、输入校验或输出分配/重置/释放 |
+| Operator 类型注册（仅新宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新宿主类型见[实现与注册](operator_output_allocation.md#实现与注册) |
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
@@ -137,7 +138,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 行函数返回的错误只需携带业务原因与字段路径，包装补充 converter 和样本位置。
 输入行全部通过后才开始发布；输出 writer、宿主指针和池内字符串均只在同步调用期间借用，不能保存。
-输出中途失败时 `written_count=0`；租用块可能已被写入，Operator 负责不发布并归还租约。
+输出中途失败时 `written_count=0`；已写入的输出块不会发布，由 Operator 统一回收。
 转换器字符串按显式长度处理，包括内部值和输出中的内嵌 NUL，不通过 `c_str()` 丢失长度。
 Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL；JSON 文本中的
 `\u0000` 转义仍可在解包后成为内部字符串的一部分。
@@ -152,16 +153,8 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
 `ExternalOutputSlot<T>(slot)`，类型由 traits 推导。
 输出容量字段由已注册 ValueType 的字符串容量字段决定；显式列出时必须与该 ValueType 的字段集合一致。
-这两个工厂令 `type_suffix = slot_name`，`key_suffix` 留空并通过 `KeySuffix()` 回退到 `type_suffix`；
-仅适用于必需槽且这三个名称相同的常见约定。输入工厂的第二参数是 `value_type`，不能用来覆盖后缀。
-不同后缀、可选槽或特殊布局使用完整 `ExternalSlotDefinition`，明确填写对应字段。
-例如逻辑槽名为 `result`、已注册类型后缀为 `entity_out`、外部 key 为 `sdk.answer` 时，
-分别设置 `slot_name = "result"`、`type_suffix = "entity_out"`、`key_suffix = "answer"`，不能直接套同名工厂。
-`schema_version`、输出 `cardinality`、`capacity_policy` 使用 Definition 已有默认值时无需再赋值；不同规则显式填写。
-多槽测试可直接把
-`ExternalInputBatchView` / `ExternalOutputBatchView` 交给 `AdapterHarness`，包含各槽类型和池规格。
-测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量（数组大小减去结尾 NUL 的一字节），
-或用 `TestOutputBatchView::SetCapacity` 描述实际存储；`CompanyString.length` 是内容长度，不能作为容量。
+槽名、类型后缀和外部 key 后缀不全相同、可选槽或特殊布局时，使用完整的 `ExternalSlotDefinition`，
+各字段含义和示例见[选择参数](operator_output_allocation.md#选择参数)。
 
 实现参考直接来自参与编译和测试的现有业务；公共辅助函数按适用范围使用，业务含义留在转换器中：
 
@@ -176,32 +169,11 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 | 多个外部槽 | [图像问题输入](../../src/adapter/input/image_query_input.cpp) / [票据输出](../../src/adapter/output/invoice_result_output.cpp) | frame 的请求 ID、票据与 OCR boxes |
 | 候选展开与排名 | [重排输入](../../src/adapter/input/rerank_input.cpp) / [重排输出](../../src/adapter/output/rerank_result_output.cpp) | sub_id、排名和原始索引恢复 |
 
-## 4. Operator 类型与输出池
+## 4. 需要新的宿主类型时
 
-**ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。**
-
-新业务继续使用已注册宿主类型时，复用其 ValueType 与内存管理；载荷协议变化由转换器处理。
-只有需要新宿主类型或分配布局时，才执行下面的相应步骤。
-
-1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明。
-   新输入、输出 DTO 均须在接入层共享头中包含 DTO 定义和 `adapter/io_converter.h`，
-   在 `llm_edgeflow` 命名空间声明 `DECLARE_EXTERNAL_TYPE_TRAITS(YourDto, "YourDto");`，
-   并保证该特化在所有转换器首次调用 `GetSlot<YourDto>` 前可见。
-   trait 名称须与 binding 的 `external_c_type_name`、外部槽位的 `type_id` 一致；
-   缺失或不一致会导致 `GetSlot` 返回空指针。已有 DTO 的 trait 直接复用。
-   类型实现包含 `adapter/operator_value_type.h`，通过 `RegisterOperatorValueType` 与
-   `REGISTER_OPERATOR_VALUE_TYPE` 在自己的源码中登记。
-   输入使用 `MakeTypedInputBinding<T>`，只需提供后缀、类型名及类型化校验函数。
-   标准字符串字段与可选 metadata 使用 `MakePooledOutputBinding<T>`：声明成员、
-   默认/最大容量及标量重置函数，复用内置预算、分配与释放实现；特殊布局才手写生命周期回调。
-2. 同一外层类型的不同嵌套布局可以注册命名分配方案，配置通过 `allocator` 和 `params`
-   选择；用 `MakeOutputParameterParser<T>` 注册自己普通参数结构的字符串解析函数。
-   配置只在最外层创建阶段读取，分配实现仅创建一份完整结构，不管理池深。
-
-`CompanyString` 用于文本，二进制使用 `CompanyBuffer`。输入借用指针不跨调用保存；
-输出提取时复制所需数据，具体生命周期按
-[Operator 接口](../../include/edgeflow/operator/interface.h)执行。
-上述转换都留在接入适配层，Node、Model 和 Backend 无需识别宿主结构。
+多数业务复用已注册的宿主类型和 ValueType，载荷协议变化只需修改转换器。确需新的平台结构或
+分配布局时，按[实现与注册](operator_output_allocation.md#实现与注册)声明结构、type traits 和
+ValueType。宿主类型的转换都留在接入适配层，Node、Model 和 Backend 无需识别宿主结构。
 
 ## 5. 统一 Demo 接入
 
@@ -232,49 +204,23 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 选项已删除。使用 `--profiles-file <path> --profile <name>` 选择自有配置。未选 Profile
 或未提供字段时使用 `cpu`、`0`、`1`、`1`。配置路径、数据集等其他 CLI 覆盖仍有效。
 
-## 6. 输出容量与生命周期
+## 6. 输出容量
 
-`Process` 的输入、输出批次必须非空且帧数相等。单次批次上限为有效输出池深与绑定业务
-批次上限的较小值；超出上限会直接失败，不会在门面中自动拆批。
-用 `alg_pipeline_tool resolve-conf <conf> --root <root> --depth <depth>` 查询
+`Process` 的单次批次上限为有效输出池深与绑定业务批次上限的较小值；超出上限会直接失败，
+不会在门面中自动拆批。用 `alg_pipeline_tool resolve-conf <conf> --root <root> --depth <depth>` 查询
 `effective_process_batch_limit`（单次有效批次）、`effective_frame_depth`（规范化池深）和
 `max_frame_depth_limit`（池深硬上限）。池深 0 使用默认 25；池深 100 配合标准 Binding 时，
 单次有效批次仍为 64。Demo 遇到批次或池深超限时提示同一查询命令。
-每帧按接入绑定提供必需的输入槽和
-输出槽，可选槽按契约省略。提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
-有效 key 后缀与宿主类型可通过 `catalog --io-binding <binding_id>` 查询，后缀与类型的区别见
-[输出分配方案](operator_output_allocation.md)。
-
-宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。
-输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
-需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。
-不要累积所有输出租约后在同一线程继续同步 `Process`：池满时调用会等待空闲块，
-该线程也就无法返回释放旧租约。池深用于控制同时持有的输出数量，不是结果存储空间。
-
-销毁顺序是：等待所有 `Process` / `Control` 返回 → 释放输出引用 → `Destroy`。
-有效 handle 即使因未归还输出而在 `Destroy` 返回错误，也已被消费，不得重试或再访问
-旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_invoice_qa_demo.cpp) 和
-[公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
-
-`Init` 用于注册审计，应在创建实例前调用。同一 handle 的 `Process` 与 `Control` 串行，
-不同 handle 可并行。`DeInit` 会清理该库实例中登记的**所有 handle**，不是单个调用方的局部清理。
-调用前须停止所有实例的新调用、等待在途调用返回并释放全部输出；不支持与 Create、Process、
-Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但已清理的 handle 和旧输出仍失效。
 
 Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.out_mem` 按逻辑
 槽位覆盖 `allocator`、`params` 和容量。类型从槽位注册定义获得，不在配置中重复声明。
 必需输出省略配置时使用注册默认值；可选输出需要显式槽配置来启用。
 每份配置都显式选择 `deployment.io.io_binding`，没有输出覆盖时可省略 `out_mem`。
-单份响应超过已配置字段容量时返回 `-4`，尚未发布的输出租约全部回滚。
+单份响应超过已配置字段容量时返回 `-4`，本批已占用的输出全部回滚，不会发布。
 全部转换成功后才向调用方发布本批输出；失败不发布新输出，也不通过输出槽回填所需容量。
-需要更大容量时修改 `out_mem` 并重新创建 handle。
-
-常见门面错误包括无效 handle `-1`、非法创建参数/配置 `-2`、非法输入或批次 `-3`、
-输出槽/容量错误 `-4`。公开错误码见 [`error_codes.h`](../../include/platform_mock/error_codes.h)；
-Pipeline、Node 或 Model 的失败码也会向上传递，不能只按数值判断故障层。
-`Process` 失败后在当前线程读取 `GetOperatorLastError()` 并及时复制诊断；它返回的指针由库持有，
-后续调用可能更新内容。成功返回不代表已完成真实模型效果或生产验收。
+需要更大容量时修改 `out_mem` 并重新创建 handle。其他门面错误码见
+[`error_codes.h`](../../include/platform_mock/error_codes.h)。
 
 在运行前查看生效的池规格与配置，`depth` 应与实际宿主一致：
 
@@ -284,8 +230,10 @@ Pipeline、Node 或 Model 的失败码也会向上传递，不能只按数值判
 
 输出中的 `output_pools` 包含各槽的类型、allocator、参数、metadata 和 capacities。
 复用已注册载体时只覆盖必要容量；特殊结构才需要自定义分配方案。预检证明配置与预算可以准备，
-无法预测任意未来模型响应的字节数。宿主可参考现有
-[Operator runner](../../demo/common/operator_runner.h)准备 required 输出 key，保持槽值为空并及时复制/释放结果。
+无法预测任意未来模型响应的字节数。
+
+宿主程序调用 SDK 时的槽位准备、借用输入、输出租约、销毁顺序、`Init` / `DeInit` 和错误诊断，
+见[宿主调用与生命周期](operator_output_allocation.md#宿主调用与生命周期)。
 
 ## 7. 最小验证
 
@@ -307,8 +255,26 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 | 验证范围 | 必须观察到的行为 | 参考测试 |
 | --- | --- | --- |
 | 转换器与契约安全 | 非法指针和长度被拒绝；结果乱序仍按来源返回，重复/缺失来源与失败结果被拒绝；输出容量越界严格拦截 | [Adapter 契约测试](../../tests/contract/abi/test_adapter_contract_security.cpp)、[Operator 安全测试](../../tests/contract/abi/test_operator_safety.cpp) |
-| Operator SDK | 初始化接受完整注册；在池容量内时输出完整，超池容量时无部分发布且后续请求可复用租约 | [Operator 基础测试](../../tests/integration/operator/test_operator_api.cpp)、[公开 SDK 消费者测试](../../tests/contract/abi/test_cpp_operator_sdk.cpp) |
+| Operator SDK | 初始化接受完整注册；在池容量内时输出完整，超池容量时无部分发布且后续请求可继续使用输出池 | [Operator 基础测试](../../tests/integration/operator/test_operator_api.cpp)、[公开 SDK 消费者测试](../../tests/contract/abi/test_cpp_operator_sdk.cpp) |
 | Pipeline / Demo | 新业务通过校验和计划，样例结果及错误路径符合预期 | [Catalog/Validator 测试](../../tests/integration/pipeline/test_pipeline_catalog_validator.cpp)、[Demo 测试](../../tests/integration/demo/test_demo_runner.cpp) |
+
+多槽测试可直接把 `ExternalInputBatchView` / `ExternalOutputBatchView` 交给 `AdapterHarness`，
+包含各槽类型和池规格。测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量
+（数组大小减去结尾 NUL 的一字节），或用 `TestOutputBatchView::SetCapacity` 描述实际存储；
+`CompanyString.length` 是内容长度，不能作为容量。
+
+开发过程中只构建并运行相关的测试 runner，把过滤器换成实际修改的套件；
+runner 的源码归属见 [tests/RuntimeTests.cmake](../../tests/RuntimeTests.cmake)：
+
+| 修改内容 | 构建目标 | 常用 GoogleTest 过滤器 |
+| --- | --- | --- |
+| 转换器、协议拷贝或 Operator 绑定 | `edgeflow_test_adapter_runner` | `IoBindingRegistryTest.*` / `OperatorApiTest.*` |
+| Demo 结果转换或 Pipeline 集成 | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
+
+```bash
+cmake --build build --target edgeflow_test_adapter_runner -j 4
+./build/edgeflow_test_adapter_runner --gtest_filter='IoBindingRegistryTest.*'
+```
 
 交付前执行 `./scripts/run_all_tests.sh`。真实模型效果与目标平台验收按
 [效果验收指南](../VERIFIABLE_SELECTION.md)另行记录；涉及公司内部 SDK 时遵循
