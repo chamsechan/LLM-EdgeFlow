@@ -63,6 +63,9 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(list(Path(temp).iterdir()), [])
             result = self.run_cli(*args)
             self.assertEqual(result.returncode, 0, result.stderr)
+            # Only collected source directories may claim automatic compilation.
+            self.assertIn("the build does not collect it", result.stdout)
+            self.assertNotIn("compiled automatically", result.stdout)
             node = Path(temp) / "example_node.cpp"
             node.write_text("user changes")
             self.assertNotEqual(self.run_cli(*args).returncode, 0)
