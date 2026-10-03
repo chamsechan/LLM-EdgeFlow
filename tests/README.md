@@ -34,35 +34,16 @@ required CTest inventory is also checked. Precompiled headers are optional throu
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
 when process isolation or an independent runtime lifecycle is part of the contract.
 
-## Fast feedback for solution authors
+## Fast feedback
 
-Use the default sharded runners below while developing; replace the filter with the suite/test
-you actually changed. Source paths and runner membership are together in `tests/RuntimeTests.cmake`.
-
-| Change | Build target | Typical GoogleTest filter |
-| --- | --- | --- |
-| Node algorithm, fields or Control handler | `edgeflow_test_nodes_runner` | `CommonNodesTest.*` or the affected Node suite |
-| Init/Process diagnostic or planning | `edgeflow_test_core_runner` | `NodeBaseContractsTest.*` / `PipelineConfigTest.*` |
-| Adapter, protocol copies or Operator binding | `edgeflow_test_adapter_runner` | `IoBindingRegistryTest.*` / `OperatorApiTest.*` |
-| Demo result conversion or Pipeline integration | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
-
-```bash
-cmake --build build --target edgeflow_test_nodes_runner -j 4
-./build/edgeflow_test_nodes_runner --gtest_list_tests
-./build/edgeflow_test_nodes_runner --gtest_filter='CommonNodesTest.*'
-```
-
-The [Node helper](support/node_test_utils.h) initializes a registered Node with a validated Plan and Session. Put
-request input into a fresh `AlgContext`, call Process, and assert actual outputs and
-`(req_id, sub_id)`; do not stop at factory creation. Cover the algorithm's empty/invalid input and
-failure behavior. The generator's `--write-test` creates a complete test file in
-`unit/nodes/`, automatically included in the Node runner and covered by the existing
-`CustomNodeCatalogTest` filter. Production sources are compiled automatically on the next build.
-Rebuild `alg_pipeline_tool`
-after a production registration/Definition change, and check
-the composed solution with the same build. The final gate covers the complete default configuration
-even when first practice used a minimal build. Follow [CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate)
-to run it directly for a local handoff or through the authorized PR delivery script.
+Solution authors use the per-runner commands in
+[the custom Node guide](../src/custom_nodes/README.md#本地快速验证) and
+[the business onboarding guide](../doc/dev_guide/business_onboarding.md#7-最小验证).
+Framework maintainers changing Init/Process diagnostics or planning build
+`edgeflow_test_core_runner` and filter on `NodeBaseContractsTest.*` / `PipelineConfigTest.*`.
+Source paths and runner membership are together in `tests/RuntimeTests.cmake`. The final gate
+covers the complete default configuration even when development used a minimal build; follow
+[CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate).
 
 Allocation-failure tests use `support/scoped_allocation_failure.*`, linked into the Core/Model,
 Node and Adapter runners. It replaces C++ allocation functions in those executables; the SDK,

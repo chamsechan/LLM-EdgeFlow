@@ -36,6 +36,25 @@ Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运
 脚手架只提供接口骨架，不判断模型资源是否存在，也不替代业务验收。
 默认 `parallel_safe=false`；确认业务函数与共享资源可并发使用后再改为 `true`。
 
+## 本地快速验证
+
+开发过程中只构建并运行节点测试 runner，把过滤器换成实际修改的套件：
+
+```bash
+cmake --build build --target edgeflow_test_nodes_runner -j 4
+./build/edgeflow_test_nodes_runner --gtest_list_tests
+./build/edgeflow_test_nodes_runner --gtest_filter='CommonNodesTest.*'
+```
+
+[Node 测试辅助](../../tests/support/node_test_utils.h)用已校验的 Plan 和 Session 初始化注册的 Node。
+把请求输入放进新的 `AlgContext`，调用 Process，断言实际输出和 `(req_id, sub_id)`，不要只检查
+工厂能否创建；还要覆盖空输入、非法输入和失败行为。脚手架的 `--write-test` 在
+`tests/unit/nodes/` 生成完整测试文件，节点 runner 自动收录，并由现有的 `CustomNodeCatalogTest`
+过滤器覆盖；自己新建的套件名需要在 [tests/RuntimeTests.cmake](../../tests/RuntimeTests.cmake) 中加入过滤器。
+修改注册或 Definition 后重新构建 `alg_pipeline_tool`，再用同一构建检查组合后的方案。
+即使首次练习用的是 minimal 构建，最终门禁也会覆盖完整默认配置；交付按
+[CONTRIBUTING](../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate) 执行。
+
 ### 端口与模型
 
 - 端口语法为 `name:Batch` 或 `name:Batch:1:1:preserve`；
