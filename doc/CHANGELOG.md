@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+业务源码自动收录：`src/custom_nodes/`、`src/common_nodes/`、`src/adapter/{input,output,biz}/`
+与 `demo/biz/` 下的 `.cpp`（含子目录）在下次构建时自动编入，不再需要修改 CMake。
+脚手架删除 `--add-to-cmake`，recipe 不再修改 CMakeLists。
+
 LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**，公共 **ABI major 为 9**；
 它们描述当前构建与接口基线，不代表已经交付的正式 Release。
 

@@ -38,11 +38,12 @@ class DevRecipeTest(unittest.TestCase):
         self.root = Path(self.temporary.name).resolve()
         for relative in ("configs", "demo/fixtures", "data", "tests/fixtures"):
             shutil.copytree(ROOT / relative, self.root / relative)
-        for relative in ("demo/profiles.json", "src/custom_nodes/CMakeLists.txt",
+        for relative in ("demo/profiles.json",
                          "models/asset_manifest.json"):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, destination)
+        (self.root / "src/custom_nodes").mkdir(parents=True, exist_ok=True)
         self.build = self.root / "build"
         self.build.mkdir()
         self.tool = self.build / TOOL.name
@@ -161,7 +162,7 @@ class DevRecipeTest(unittest.TestCase):
         self.assertEqual(generated["config"], {"bind_model": "entity_llm"})
         self.assertTrue((self.root / "src/custom_nodes/recipe_contract_node.cpp").is_file())
         self.assertTrue((self.root / "tests/unit/nodes/test_recipe_contract_node.cpp").is_file())
-        self.assertEqual((self.root / "src/custom_nodes/CMakeLists.txt").read_text().count("recipe_contract_node.cpp"), 1)
+        self.assertFalse((self.root / "src/custom_nodes/CMakeLists.txt").exists())
         self.assertEqual(list((self.root / "tests").glob("*.cmake")), [])
 
     def test_native_invalid_profile_and_unavailable_llm_rejected_before_writing(self):

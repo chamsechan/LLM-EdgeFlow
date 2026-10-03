@@ -29,7 +29,6 @@ add_custom_command(
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_custom_node.md"
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_control.md"
     "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
-    "${PROJECT_SOURCE_DIR}/src/custom_nodes/CMakeLists.txt"
   COMMENT "Generating custom Node snippets and standalone behavioral test fixtures"
   VERBATIM)
 

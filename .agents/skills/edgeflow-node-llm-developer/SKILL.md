@@ -20,11 +20,11 @@ description: 用 MakeLlmTextSpec 新增 LLM-EdgeFlow 文本 LLM Node，编写 Bu
 
 ```bash
 python3 tools/scaffold_custom_node.py ExtractFactsNode --kind model -m llm \
-  --add-to-cmake --write-test
+  --write-test
 ```
 
-名称按真实操作替换。脚手架写入 `src/custom_nodes/` 并登记源码及测试；中性 common
-操作仍使用同一 API，但登记到 common 的 CMake 并明确 category。
+名称按真实操作替换。脚手架写入 `src/custom_nodes/` 并生成测试；中性 common
+操作仍使用同一 API，但放在 `src/common_nodes/` 并明确 category。
 Spec 用 `REGISTER_FUNCTION_NODE` 注册，无需另写生命周期或 Definition。
 
 需要同时生成完整可运行方案时，可以使用
