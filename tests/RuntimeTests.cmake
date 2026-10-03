@@ -357,6 +357,10 @@ add_test(NAME ArchitectureDocsDriftGateSelfTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_architecture_docs_drift_gate.sh)
 add_test(NAME GovernanceConsistencyTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_governance.sh)
+add_test(NAME DocLinksTest
+  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/check_doc_links.py)
+add_test(NAME DocLinksSelfTest
+  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/check_doc_links.py --self-test)
 add_test(NAME DiagramAssetsCheckTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 add_test(NAME DiagramRenderGateSelfTest
@@ -366,7 +370,7 @@ add_test(NAME ScriptGeneratorDetectionTest
 set_tests_properties(
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
-  ScriptGeneratorDetectionTest
+  DocLinksTest DocLinksSelfTest ScriptGeneratorDetectionTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest

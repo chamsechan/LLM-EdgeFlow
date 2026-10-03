@@ -150,6 +150,8 @@ configuration and Profiles. Update current documentation and examples when renam
   history belongs in Git and PR discussions; do not accumulate dated implementation reports.
 - Distinguish supported behavior from proposed work and unverified effects or deployment
   environments. A passing default gate does not establish production readiness.
+- When moving or renaming documentation sections, update every link to them. `DocLinksTest`
+  (`scripts/check_doc_links.py`) checks relative Markdown links and heading anchors in the gate.
 
 ## 6. Run one canonical delivery gate
 
