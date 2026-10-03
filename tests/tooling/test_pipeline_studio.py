@@ -572,6 +572,32 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 
+    def test_production_tool_explains_unknown_registrations(self):
+        production = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
+        fixture = "demo/fixtures/mock/pipeline_entity_extract_custom.json"
+        for command in [("validate", fixture), ("plan", fixture),
+                        ("validate", fixture, "--explain"), ("plan", fixture, "--explain"),
+                        ("describe-model", "test_biz_llm"),
+                        ("describe-backend", "test_causal_lm_backend"),
+                        ("validate-io", "demo/fixtures/mock/pipeline_entity_extract_custom.conf"),
+                        ("resolve-conf", "demo/fixtures/mock/pipeline_entity_extract_custom.conf")]:
+            with self.subTest(command=command):
+                process = subprocess.run([str(production), *command], cwd=ROOT,
+                                         text=True, capture_output=True)
+                self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+                payload = json.loads(process.stdout)
+                self.assertFalse(payload["ok"])
+                if command[0] in ("validate", "plan"):
+                    self.assertEqual([d["code"] for d in payload["diagnostics"]],
+                                     ["UNKNOWN_MODEL_TYPE", "UNKNOWN_BACKEND"])
+                self.assertIn("alg_pipeline_tool_test", process.stderr)
+                self.assertEqual(process.stderr.count("提示："), 1)
+                test_process = subprocess.run([str(PIPELINE_TOOL), *command], cwd=ROOT,
+                                              text=True, capture_output=True)
+                self.assertEqual(test_process.returncode, 0, test_process.stdout + test_process.stderr)
+                self.assertTrue(json.loads(test_process.stdout)["ok"])
+                self.assertNotIn("提示：", test_process.stderr)
+
     def test_removed_dependency_repair_command_is_rejected_without_writing(self):
         original = (ROOT / "configs/pipeline_keyword_match_rules.json").read_bytes()
         with tempfile.TemporaryDirectory() as directory:
