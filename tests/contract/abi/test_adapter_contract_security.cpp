@@ -1311,4 +1311,86 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
   }
 }
 
+TEST_F(AdapterContractSecurityTest,
+       KeywordOperatorRuleMatchResponseIsByteStable) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-keyword-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(directory, error);
+    }
+  } cleanup{directory};
+  // Keyword and rule hits, typed rule constants, regex captures and the
+  // default hit all reach the external JSON response.
+  const nlohmann::json pipeline = nlohmann::json::parse(R"j({
+    "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
+    "models": [],
+    "pipeline": [{
+      "id": "rules", "node_type": "TextRuleMatchNode",
+      "inputs": {"text": "input_sentences"},
+      "outputs": {"matches": "rule_matches"},
+      "config": {
+        "categories": {"A": ["x"]},
+        "rules": [
+          {"id": "r_nav", "strategy": "regex", "pattern": "导航到(?<city>北京)",
+           "category": "NAV", "score": 0.75,
+           "constants": {"flag": true, "n": 3, "s": "v"}},
+          {"id": "r_y", "strategy": "contains", "pattern": "y",
+           "category": "B", "score": 0.5}],
+        "default_category": "FALLBACK", "default_score": 0.25}}]})j");
+  std::ofstream(directory / "pipeline.json") << pipeline.dump();
+  std::ofstream(directory / "pipeline.conf")
+      << "{\"pipe_path\":\"pipeline.json\"}";
+
+  operator_api::CreateParam create{};
+  create.model_path = directory.c_str();
+  create.cfg_file_name = "pipeline.conf";
+  create.compute_platform = operator_api::ComputePlatform::kCpu;
+  void* raw_handle = nullptr;
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(op.Create(&raw_handle, &create), 0);
+  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
+
+  std::string hit_text = "x 导航到北京y";
+  std::string fallback_text = "nothing";
+  CompanyString hit{static_cast<int32_t>(hit_text.size()), hit_text.data()};
+  CompanyString fallback{static_cast<int32_t>(fallback_text.size()),
+                         fallback_text.data()};
+  CompanyOperatorKeywordInput first{301, &hit};
+  CompanyOperatorKeywordInput second{302, &fallback};
+  operator_api::NamedIoBatch inputs(2), outputs(2);
+  inputs[0]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&first);
+  inputs[1]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&second);
+  outputs[0]["kw.keyword_out"] = nullptr;
+  outputs[1]["kw.keyword_out"] = nullptr;
+  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), 0)
+      << operator_api::GetOperatorLastError();
+
+  auto response = [&](size_t index) {
+    const auto* out = static_cast<CompanyOperatorKeywordOutput*>(
+        outputs[index]["kw.keyword_out"].get());
+    EXPECT_NE(out, nullptr);
+    EXPECT_EQ(out->is_hit, 1);
+    EXPECT_EQ(out->status_code, 0);
+    return std::string(out->match_result_json->data,
+                       out->match_result_json->length);
+  };
+  EXPECT_EQ(response(0),
+            R"j({"confidence":1.0,"intent":"A","matched_word":"x","matches":[)j"
+            R"j({"category":"A","matched_word":"x"},)j"
+            R"j({"category":"NAV","pattern":"导航到(?<city>北京)",)j"
+            R"j("rule_id":"r_nav","score":0.75},)j"
+            R"j({"category":"B","pattern":"y","rule_id":"r_y","score":0.5}],)j"
+            R"j("slots":{"city":"北京","flag":true,"n":3,"s":"v"}})j");
+  EXPECT_EQ(response(1),
+            R"j({"confidence":0.25,"intent":"FALLBACK","matched_word":"",)j"
+            R"j("matches":[],"slots":{"raw_query":"nothing"}})j");
+}
+
 }  // namespace llm_edgeflow

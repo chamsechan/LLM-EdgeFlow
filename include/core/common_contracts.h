@@ -59,7 +59,30 @@ struct RankedCandidate {
 using RankedTextBatch = std::vector<TraceableItem<RankedCandidate>>;
 
 /**
+ * @brief 规则匹配的命中来源
+ */
+enum class RuleMatchSource {
+  kKeyword,  // categories 词表命中，pattern 为命中的词
+  kRule,     // 结构化规则命中，pattern 为规则模式
+};
+
+/**
+ * @brief 一次规则或关键词命中 (RuleMatchHit)
+ */
+struct RuleMatchHit {
+  RuleMatchSource source = RuleMatchSource::kKeyword;
+  std::string category;
+  std::string rule_id;
+  std::string pattern;
+  float score = 1.0f;
+};
+
+/**
  * @brief 规则与关键词匹配结果载荷 (RuleMatchItem)
+ *
+ * 标量字段描述首个命中或默认命中；matches 按匹配顺序列出全部命中；slots 合并
+ * 正则捕获、保留 JSON 类型的规则常量和默认命中的 raw_query。外部响应格式由
+ * 各输出转换器生成，Node 不序列化。
  */
 struct RuleMatchItem {
   int is_hit = 0;
@@ -68,22 +91,18 @@ struct RuleMatchItem {
   std::string rule_id;
   std::string matched_word;
   float score = 0.0f;
-  std::unordered_map<std::string, std::string> captures;
-  std::unordered_map<std::string, std::string> constants;
-  std::string match_result_json;
-  nlohmann::json details = nlohmann::json::object();
+  std::vector<RuleMatchHit> matches;
+  nlohmann::json slots = nlohmann::json::object();
 
   RuleMatchItem() = default;
-  RuleMatchItem(int hit, std::string cat, std::string word,
-                std::string res_json = {}, float sc = 0.0f,
+  RuleMatchItem(int hit, std::string cat, std::string word, float sc = 0.0f,
                 std::string rid = {})
       : is_hit(hit),
         status_code(0),
         category(std::move(cat)),
         rule_id(std::move(rid)),
         matched_word(std::move(word)),
-        score(sc),
-        match_result_json(std::move(res_json)) {}
+        score(sc) {}
 };
 
 /**

@@ -7,6 +7,7 @@
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "edgeflow/operator/types.h"
@@ -68,8 +69,8 @@ int EncodeOperatorAudioResult(AlgContext* context,
     out->request_id = (*raw_req_ids)[i];
     out->status_code = intent_slots_by_request[i]->data.status_code;
 
-    const std::string& slot_json =
-        intent_slots_by_request[i]->data.match_result_json;
+    const std::string slot_json =
+        SerializeRuleMatchResponse(intent_slots_by_request[i]->data);
 
     if (!WriteOutputString(*destination, kOutputSlot, out->transcribed_text,
                            "transcribed_text", transcripts_by_request[i]->data,

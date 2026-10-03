@@ -196,7 +196,6 @@ TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
   EXPECT_FLOAT_EQ(matches->at(3).data.score, 0.25f);
   for (const auto& match : *matches) {
     EXPECT_TRUE(std::isfinite(match.data.score));
-    EXPECT_TRUE(match.data.details.at("confidence").is_number());
   }
 }
 
@@ -363,10 +362,10 @@ TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
   EXPECT_EQ((*matches)[0].req_id, 11u);
   EXPECT_EQ((*matches)[0].sub_id, 1u);
   EXPECT_EQ((*matches)[0].data.category, "AMOUNT");
-  EXPECT_EQ((*matches)[0].data.captures.at("amount"), "123");
+  EXPECT_EQ((*matches)[0].data.slots["amount"], "123");
   EXPECT_EQ((*matches)[1].data.is_hit, 0);
   EXPECT_EQ((*matches)[2].data.category, "RISK");
-  EXPECT_EQ((*matches)[2].data.captures.at("word"), "risk");
+  EXPECT_EQ((*matches)[2].data.slots["word"], "risk");
 }
 
 TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
@@ -392,7 +391,7 @@ TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
   ASSERT_EQ(matches->size(), 2u);
   EXPECT_EQ((*matches)[0].data.is_hit, 0);
   EXPECT_EQ((*matches)[1].data.is_hit, 1);
-  EXPECT_EQ((*matches)[1].data.captures.at("value"), "请帮我>联系");
+  EXPECT_EQ((*matches)[1].data.slots["value"], "请帮我>联系");
 }
 
 TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
@@ -501,14 +500,9 @@ TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {
       EXPECT_EQ((*output)[i].data.category, version);
       if (inputs[i].data == "world") {
         EXPECT_EQ((*output)[i].data.rule_id, version + "_rule");
-        EXPECT_EQ((*output)[i].data.captures.count(version), 1u);
-        const auto capture = (*output)[i].data.captures.find(version);
-        if (capture != (*output)[i].data.captures.end()) {
-          EXPECT_EQ(capture->second, "world");
-        }
-        EXPECT_EQ(
-            (*output)[i].data.captures.count(version == "OLD" ? "NEW" : "OLD"),
-            0u);
+        EXPECT_EQ((*output)[i].data.slots.value(version, ""), "world");
+        EXPECT_FALSE(
+            (*output)[i].data.slots.contains(version == "OLD" ? "NEW" : "OLD"));
       }
     }
   };

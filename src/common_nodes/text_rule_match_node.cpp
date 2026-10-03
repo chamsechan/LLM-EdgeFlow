@@ -99,8 +99,7 @@ struct RuleSpec {
   std::string pattern;
   std::string category;
   float score = kDefaultScore;
-  std::unordered_map<std::string, std::string> constants;
-  std::unordered_map<std::string, nlohmann::json> constants_json;
+  std::unordered_map<std::string, nlohmann::json> constants;
   std::shared_ptr<const CompiledTextRegex> compiled_regex;
 };
 
@@ -153,14 +152,7 @@ bool BuildRules(const nlohmann::json& rules_json,
     if (r_elem.contains("constants") && r_elem["constants"].is_object()) {
       for (auto it = r_elem["constants"].begin();
            it != r_elem["constants"].end(); ++it) {
-        spec.constants_json[it.key()] = it.value();
-        if (it.value().is_string()) {
-          spec.constants[it.key()] = it.value().get<std::string>();
-        } else if (it.value().is_boolean()) {
-          spec.constants[it.key()] = it.value().get<bool>() ? "true" : "false";
-        } else if (it.value().is_number()) {
-          spec.constants[it.key()] = it.value().dump();
-        }
+        spec.constants[it.key()] = it.value();
       }
     }
 
@@ -214,34 +206,26 @@ NodeResult<RuleMatchBatch> MatchRules(const RuleInputs& inputs,
 
   for (const auto& item : *text_items) {
     const std::string& sentence = item.data;
-    uint32_t req_id = item.req_id;
-    uint32_t sub_id = item.sub_id;
-
-    nlohmann::json matches_array = nlohmann::json::array();
-    std::string first_hit_category;
-    std::string first_hit_word;
-    std::string first_hit_rule_id;
-    float first_hit_score = 0.0f;
-    int is_hit = 0;
-    std::unordered_map<std::string, std::string> total_captures;
-    std::unordered_map<std::string, std::string> total_constants;
-    nlohmann::json slots_obj = nlohmann::json::object();
+    RuleMatchItem result;
+    // The first hit with a category names the result.
+    auto record_hit = [&](const std::string& category, const std::string& word,
+                          float score, const std::string& rule_id) {
+      result.is_hit = 1;
+      if (!result.category.empty()) return;
+      result.category = category;
+      result.matched_word = word;
+      result.score = score;
+      result.rule_id = rule_id;
+    };
 
     // 1. 匹配 categories (词表模式)
     for (const auto& [category, words] : state.category_keywords_list) {
       for (const auto& w : words) {
         if (w.empty()) continue;
         if (sentence.find(w) != std::string::npos) {
-          is_hit = 1;
-          if (first_hit_category.empty()) {
-            first_hit_category = category;
-            first_hit_word = w;
-            first_hit_score = 1.0f;
-          }
-          nlohmann::json match_elem;
-          match_elem["category"] = category;
-          match_elem["matched_word"] = w;
-          matches_array.push_back(std::move(match_elem));
+          record_hit(category, w, 1.0f, {});
+          result.matches.push_back(
+              {RuleMatchSource::kKeyword, category, {}, w, 1.0f});
         }
       }
     }
@@ -280,58 +264,20 @@ NodeResult<RuleMatchBatch> MatchRules(const RuleInputs& inputs,
       }
 
       if (rule_matched) {
-        is_hit = 1;
-        if (first_hit_category.empty()) {
-          first_hit_category = rule.category;
-          first_hit_word = rule.pattern;
-          first_hit_rule_id = rule.id;
-          first_hit_score = rule.score;
-        }
-        for (const auto& [k, v] : rule_captures) {
-          total_captures[k] = v;
-          slots_obj[k] = v;
-        }
-        for (const auto& [k, v] : rule.constants_json) {
-          slots_obj[k] = v;
-        }
-        for (const auto& [k, v] : rule.constants) {
-          total_constants[k] = v;
-        }
-
-        nlohmann::json match_elem;
-        match_elem["rule_id"] = rule.id;
-        match_elem["category"] = rule.category;
-        match_elem["pattern"] = rule.pattern;
-        match_elem["score"] = rule.score;
-        matches_array.push_back(std::move(match_elem));
+        record_hit(rule.category, rule.pattern, rule.score, rule.id);
+        for (const auto& [k, v] : rule_captures) result.slots[k] = v;
+        for (const auto& [k, v] : rule.constants) result.slots[k] = v;
+        result.matches.push_back({RuleMatchSource::kRule, rule.category,
+                                  rule.id, rule.pattern, rule.score});
       }
     }
 
-    if (!is_hit && !state.default_category.empty()) {
-      is_hit = 1;
-      first_hit_category = state.default_category;
-      first_hit_score = state.default_score;
-      first_hit_word = "";
-      slots_obj["raw_query"] = sentence;
+    if (!result.is_hit && !state.default_category.empty()) {
+      record_hit(state.default_category, "", state.default_score, {});
+      result.slots["raw_query"] = sentence;
     }
 
-    nlohmann::json result_json;
-    result_json["matches"] = matches_array;
-    if (is_hit && !first_hit_category.empty()) {
-      result_json["intent"] = first_hit_category;
-      result_json["matched_word"] = first_hit_word;
-      result_json["confidence"] = first_hit_score;
-      result_json["slots"] = slots_obj;
-    }
-
-    RuleMatchItem match_item(
-        is_hit, first_hit_category, first_hit_word, result_json.dump(),
-        is_hit ? first_hit_score : 0.0f, first_hit_rule_id);
-    match_item.captures = std::move(total_captures);
-    match_item.constants = std::move(total_constants);
-    match_item.details = result_json;
-
-    output_matches.emplace_back(req_id, sub_id, std::move(match_item));
+    output_matches.emplace_back(item.req_id, item.sub_id, std::move(result));
   }
 
   return NodeResult<RuleMatchBatch>::Success(std::move(output_matches));

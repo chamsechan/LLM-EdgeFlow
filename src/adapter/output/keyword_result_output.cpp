@@ -8,6 +8,7 @@
 #include "adapter/biz_results.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "edgeflow/operator/types.h"
 
@@ -22,7 +23,7 @@ AdapterStatus EncodeKeyword(const RuleMatchItem& result,
   output->is_hit = result.is_hit;
   output->status_code = result.status_code;
   return writer.Write(output->match_result_json, "match_result_json",
-                      result.match_result_json);
+                      SerializeRuleMatchResponse(result));
 }
 
 int EncodeOperatorKeywordResult(AlgContext* context,
