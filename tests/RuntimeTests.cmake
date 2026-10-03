@@ -341,6 +341,16 @@ add_test(NAME LayerGuardTest
           ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
 add_test(NAME LayerGuardSelfTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh --self-test)
+add_test(NAME SpecSignatureDiagnosticsTest
+  COMMAND ${CMAKE_COMMAND}
+          "-DLAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
+          "-DFIXTURE_DIR=${PROJECT_SOURCE_DIR}/tests/fixtures/spec_signatures"
+          "-DFUNCTION_NODE_HEADER=${PROJECT_SOURCE_DIR}/include/nodes/function_node.h"
+          "-DCONCEPTS_DOC=${PROJECT_SOURCE_DIR}/doc/dev_guide/custom_node_concepts.md"
+          -P "${PROJECT_SOURCE_DIR}/tests/contract/authoring/test_spec_signature_diagnostics.cmake")
+set_tests_properties(SpecSignatureDiagnosticsTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 add_test(NAME ArchitectureDocsDriftTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
 add_test(NAME ArchitectureDocsDriftGateSelfTest

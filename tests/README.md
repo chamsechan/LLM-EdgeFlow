@@ -5,6 +5,7 @@ Test paths describe ownership; CTest labels describe when and where a test runs.
 - `unit/` contains focused suites grouped by the owning runtime component.
 - `integration/` covers compositions that cross component or process boundaries.
 - `contract/` protects public ABI, executable Catalog and architecture governance.
+  `contract/authoring/` checks compile-time Node authoring contracts and signature documentation.
 - `tooling/` covers developer-facing CLI or Studio behavior.
 - `e2e/` contains opt-in physical model and hardware scenarios.
 - `support/` contains test-only helpers that do not register production capabilities.
