@@ -181,6 +181,7 @@ CLI 克隆默认返回包含 `pipeline` 的版本化响应。需要直接保存 
 
 正式配置使用目标构建的 `alg_pipeline_tool`；有意使用测试 Model/Backend 的 Smoke
 配置使用 `alg_pipeline_tool_test`，查询 Catalog、克隆、校验和计划都保持同一工具。
+生产工具遇到未注册的模型或 Backend 时，会在 stderr 提示检查构建变体或改用测试工具。
 例如自定义 Node 的测试样例：
 
 ```bash
