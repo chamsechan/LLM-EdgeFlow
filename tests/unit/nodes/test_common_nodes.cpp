@@ -232,10 +232,18 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   ASSERT_EQ(out->size(), 2u);
 
   // Sample 1 hits both GREETING and NAVIGATION
-  EXPECT_EQ((*out)[0].data.is_hit, 1);
-  EXPECT_EQ((*out)[0].data.captures.at("destination"), "北京天安门");
-  EXPECT_EQ((*out)[0].data.constants.at("avoid_toll"), "false");
-  EXPECT_EQ((*out)[0].data.details["slots"]["destination"], "北京天安门");
+  const auto& first = (*out)[0].data;
+  EXPECT_EQ(first.is_hit, 1);
+  EXPECT_EQ(first.category, "GREETING");
+  EXPECT_EQ(first.matched_word, "你好");
+  EXPECT_EQ(first.slots["destination"], "北京天安门");
+  EXPECT_EQ(first.slots["avoid_toll"], "false");
+  ASSERT_EQ(first.matches.size(), 2u);
+  EXPECT_EQ(first.matches[0].source, RuleMatchSource::kKeyword);
+  EXPECT_EQ(first.matches[0].pattern, "你好");
+  EXPECT_EQ(first.matches[1].source, RuleMatchSource::kRule);
+  EXPECT_EQ(first.matches[1].rule_id, "nav_dest");
+  EXPECT_EQ(first.matches[1].category, "NAVIGATION");
 
   // Sample 2 no hit
   EXPECT_EQ((*out)[1].data.is_hit, 0);
@@ -259,7 +267,7 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   const auto* out2 = ctx2.Read<RuleMatchBatch>("matches");
   ASSERT_NE(out2, nullptr);
   EXPECT_EQ((*out2)[0].data.is_hit, 1);
-  EXPECT_EQ((*out2)[0].data.captures.at("city"), "北京");
+  EXPECT_EQ((*out2)[0].data.slots["city"], "北京");
 }
 
 // 4. StructuredJsonParseNode: direct, markdown block, truncated input, failure

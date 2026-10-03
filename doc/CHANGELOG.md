@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+规则匹配结果：`TextRuleMatchNode` 只输出中性结果，`RuleMatchItem` 以 `matches` 列出全部命中、
+以 `slots` 保存带 JSON 类型的捕获与常量，删除 `match_result_json`、`details`、`captures` 和
+`constants`。关键词响应的 `match_result_json` 与音频响应的 `intent_slot_json` 改由输出转换器序列化，
+字段、类型、默认命中与字节内容保持不变。
+
 端口数量关系：输入端口的 cardinality 只描述节点如何消费，接受任意数量的上游数据；
 `TextChunkNode` 等拆分输出可以直接接逐项节点（如 `TextRuleMatchNode`）。Validator 改为沿 DAG
 推导每个数据名在请求内的条目数，仅在 `1:1` 业务/IO 边界收到多项，或同一节点的逐项输入无法配对时

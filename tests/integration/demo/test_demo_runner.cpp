@@ -47,7 +47,6 @@ class TestDemoStatusNode final : public NodeBase {
     for (const auto& item : *input) {
       RuleMatchItem result;
       result.status_code = item.data == "fail" ? -42 : 0;
-      result.match_result_json = "{}";
       results.emplace_back(item.req_id, item.sub_id, std::move(result));
     }
     output_.Set(context, std::move(results));
