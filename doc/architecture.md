@@ -198,7 +198,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，`AuthorNode` 负责生命周期、端口读写、结果检查及快照，业务作者无需覆写；
   3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
   4. **领域扩展与复用**：用户算法集中在 `src/custom_nodes/`，按操作命名文件，可跨方案复用。
-     全部 12 个生产 Node 共用函数式作者契约、能力节点层构建目标和注册机制；领域 Node 可完成前处理、声明绑定的
+     所有生产 Node 共用函数式作者契约、能力节点层构建目标和注册机制；领域 Node 可完成前处理、声明绑定的
      模型调用与后处理，平台结构转换仍属于 Adapter。Core、Engine 和通用 Node 不依赖
      自定义实现。接入步骤见[自定义 Node 指南](../src/custom_nodes/README.md)。
 

@@ -4,6 +4,7 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -129,22 +130,85 @@ auto InvokeBatch(const Fn& fn, const InputsT& inputs, const ParamsT& params,
     } else if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
                                              const ParamsT&, const ModelsT&>) {
       return (logic.*fn)(inputs, params, models);
-    } else {
+    } else if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
+                                             const ParamsT&>) {
       return (logic.*fn)(inputs, params);
     }
   } else {
-    if constexpr (std::is_invocable_v<Fn, const InputsT&, const ParamsT&,
+    if constexpr (std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
                                       const ModelsT&,
                                       const SessionResources&>) {
       return fn(inputs, params, models, resources);
-    } else if constexpr (std::is_invocable_v<Fn, const InputsT&, const ParamsT&,
-                                             const ModelsT&>) {
+    } else if constexpr (std::is_invocable_v<const Fn&, const InputsT&,
+                                             const ParamsT&, const ModelsT&>) {
       return fn(inputs, params, models);
-    } else {
+    } else if constexpr (std::is_invocable_v<const Fn&, const InputsT&,
+                                             const ParamsT&>) {
       return fn(inputs, params);
     }
   }
 }
+
+template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT>
+struct BatchRunSignature {
+  static constexpr bool kCallable = [] {
+    if constexpr (std::is_member_function_pointer_v<Fn>) {
+      using ClassT = typename MemberFunctionTraits<Fn>::ClassType;
+      return std::is_invocable_v<Fn, ClassT, const InputsT&, const ParamsT&,
+                                 const ModelsT&, const SessionResources&> ||
+             std::is_invocable_v<Fn, ClassT, const InputsT&, const ParamsT&,
+                                 const ModelsT&> ||
+             std::is_invocable_v<Fn, ClassT, const InputsT&, const ParamsT&>;
+    } else {
+      return std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
+                                 const ModelsT&, const SessionResources&> ||
+             std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
+                                 const ModelsT&> ||
+             std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&>;
+    }
+  }();
+  // InvokeBatch returns void when no signature matches, without instantiating
+  // an invalid call. Its dispatch order is the source of truth for Result.
+  using Result = decltype(InvokeBatch(
+      std::declval<const Fn&>(), std::declval<const InputsT&>(),
+      std::declval<const ParamsT&>(), std::declval<const ModelsT&>(),
+      std::declval<const SessionResources&>()));
+};
+
+template <typename Fn, typename ParamsT>
+auto InvokeTextHook(const Fn& fn, const std::string& text,
+                    const ParamsT& params) {
+  if constexpr (std::is_invocable_v<const Fn&, const std::string&,
+                                    const ParamsT&>) {
+    return fn(text, params);
+  } else if constexpr (std::is_invocable_v<const Fn&, const std::string&>) {
+    return fn(text);
+  }
+}
+
+// Both LLM hooks accept implicit string conversions and explicit string_view
+// copies. Arithmetic results must never become silently truncated characters.
+template <typename R>
+inline constexpr bool kIsHookText =
+    std::is_convertible_v<R, std::string> ||
+    std::is_same_v<std::decay_t<R>, std::string_view>;
+
+template <typename R>
+std::string ToHookText(R&& value) {
+  return std::string(std::forward<R>(value));
+}
+
+template <typename Fn, typename ParamsT>
+struct TextHookSignature {
+  static constexpr bool kCallable =
+      std::is_invocable_v<const Fn&, const std::string&, const ParamsT&> ||
+      std::is_invocable_v<const Fn&, const std::string&>;
+  using Result = decltype(InvokeTextHook(std::declval<const Fn&>(),
+                                         std::declval<const std::string&>(),
+                                         std::declval<const ParamsT&>()));
+  using Payload = typename IsNodeResult<std::decay_t<Result>>::ValueType;
+  static constexpr bool kReturnsText = kIsHookText<Payload>;
+};
 
 }  // namespace detail
 
@@ -1067,6 +1131,28 @@ class BatchSpec {
   using ModelsType = ModelsT;
   using RunFunctionType = RunFnT;
 
+  using RunSignature =
+      detail::BatchRunSignature<RunFnT, InputsT, ParamsT, ModelsT>;
+  using RunResult = std::decay_t<typename RunSignature::Result>;
+  static constexpr bool kRunResultValid =
+      IsNodeResult<RunResult>::value &&
+      std::is_convertible_v<typename IsNodeResult<RunResult>::ValueType,
+                            OutputBatchT>;
+  static constexpr bool kRunSignatureValid =
+      RunSignature::kCallable && kRunResultValid;
+  static_assert(RunSignature::kCallable,
+                "Batch Run must be callable as one of: "
+                "NodeResult<OutputBatch> Run(const Inputs&, const Params&) | "
+                "NodeResult<OutputBatch> Run(const Inputs&, const Params&, "
+                "const Models&) | "
+                "NodeResult<OutputBatch> Run(const Inputs&, const Params&, "
+                "const Models&, "
+                "const SessionResources&). Without Parameters<...>, Params is "
+                "NoParameters. See doc/dev_guide/custom_node_concepts.md");
+  static_assert(!RunSignature::kCallable || kRunResultValid,
+                "Batch Run must return NodeResult<OutputBatch> "
+                "(NodeResult<Outputs> for multiple outputs)");
+
   BatchSpec(InputsOf<InputsT> inputs, OutputsOf<OutputBatchT> output,
             Parameters<ParamsT> params, ModelsOf<ModelsT> models, RunFnT fn)
       : inputs_(std::move(inputs)),
@@ -1523,47 +1609,53 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
-    InputsT inputs{};
-    std::string err;
-    if (!spec_.Inputs().PopulateInputs(req_ctx, &inputs, &err)) {
-      return this->Fail(req_ctx, node_error::author_node::kMissingInput,
-                        err.empty() ? "Failed to populate inputs" : err);
-    }
-
-    std::shared_ptr<const typename SpecType::ParametersType> snapshot_guard;
-    const typename SpecType::ParametersType* params_ptr = nullptr;
-    if (spec_.HasControls()) {
-      snapshot_guard = snapshot_.Read();
-      if (!snapshot_guard) {
-        return this->Fail(req_ctx, node_error::author_node::kInternalError,
-                          this->Name() + ": snapshot not initialized");
+    if constexpr (SpecType::kRunSignatureValid) {
+      InputsT inputs{};
+      std::string err;
+      if (!spec_.Inputs().PopulateInputs(req_ctx, &inputs, &err)) {
+        return this->Fail(req_ctx, node_error::author_node::kMissingInput,
+                          err.empty() ? "Failed to populate inputs" : err);
       }
-      params_ptr = snapshot_guard.get();
+
+      std::shared_ptr<const typename SpecType::ParametersType> snapshot_guard;
+      const typename SpecType::ParametersType* params_ptr = nullptr;
+      if (spec_.HasControls()) {
+        snapshot_guard = snapshot_.Read();
+        if (!snapshot_guard) {
+          return this->Fail(req_ctx, node_error::author_node::kInternalError,
+                            this->Name() + ": snapshot not initialized");
+        }
+        params_ptr = snapshot_guard.get();
+      } else {
+        params_ptr = &parameters_;
+      }
+
+      auto res = detail::InvokeBatch(spec_.Function(), inputs, *params_ptr,
+                                     models_, resources_);
+      if (!res.ok()) {
+        auto failure = std::move(res).ExtractFailure();
+        int code = failure.cause_code != 0
+                       ? failure.cause_code
+                       : node_error::author_node::kBusinessError;
+        return this->Fail(
+            req_ctx, code,
+            failure.FormatDiagnostic(this->Name() + " process failed"));
+      }
+
+      OutputBatchT output = std::move(res).value();
+
+      if (auto failure =
+              spec_.Output().Validate(inputs, spec_.Inputs(), output)) {
+        return this->Fail(req_ctx, failure->cause_code,
+                          failure->FormatDiagnostic());
+      }
+      spec_.Output().Publish(req_ctx, std::move(output));
+      return 0;
     } else {
-      params_ptr = &parameters_;
+      // Unreachable in a valid program; avoid cascading template errors.
+      return this->Fail(req_ctx, node_error::author_node::kInternalError,
+                        "Invalid Batch Run signature");
     }
-
-    auto res = detail::InvokeBatch(spec_.Function(), inputs, *params_ptr,
-                                   models_, resources_);
-    if (!res.ok()) {
-      auto failure = std::move(res).ExtractFailure();
-      int code = failure.cause_code != 0
-                     ? failure.cause_code
-                     : node_error::author_node::kBusinessError;
-      return this->Fail(
-          req_ctx, code,
-          failure.FormatDiagnostic(this->Name() + " process failed"));
-    }
-
-    OutputBatchT output = std::move(res).value();
-
-    if (auto failure =
-            spec_.Output().Validate(inputs, spec_.Inputs(), output)) {
-      return this->Fail(req_ctx, failure->cause_code,
-                        failure->FormatDiagnostic());
-    }
-    spec_.Output().Publish(req_ctx, std::move(output));
-    return 0;
   }
 
  private:
@@ -1594,84 +1686,81 @@ inline auto MakeLlmTextSpec(Input<TextBatch> in_port,
                             BuildPromptFn build_prompt,
                             FormatAnswerFn format_answer,
                             GenerateOptions options = GenerateOptions{}) {
+  using PromptSignature = detail::TextHookSignature<BuildPromptFn, ParamsT>;
+  using AnswerSignature = detail::TextHookSignature<FormatAnswerFn, ParamsT>;
+  static_assert(
+      PromptSignature::kCallable,
+      "BuildPrompt must be callable as std::string BuildPrompt(const "
+      "std::string&) or std::string BuildPrompt(const std::string&, const "
+      "Params&)");
+  static_assert(
+      !PromptSignature::kCallable || PromptSignature::kReturnsText,
+      "BuildPrompt must return text: std::string, const char*, "
+      "std::string_view, "
+      "or NodeResult of one of them; char and integer results are rejected");
+  static_assert(
+      AnswerSignature::kCallable,
+      "FormatAnswer must be callable as std::string FormatAnswer(const "
+      "std::string&) or std::string FormatAnswer(const std::string&, const "
+      "Params&)");
+  static_assert(
+      !AnswerSignature::kCallable || AnswerSignature::kReturnsText,
+      "FormatAnswer must return text: std::string, const char*, "
+      "std::string_view, "
+      "or NodeResult of one of them; char and integer results are rejected");
+
   auto run_fn = [build_prompt = std::move(build_prompt),
                  format_answer = std::move(format_answer),
                  options = std::move(options)](
                     const LlmTextInputs& inputs, const ParamsT& parameters,
                     const LlmTextModels& models) -> NodeResult<TextBatch> {
-    if (!inputs.prompt || inputs.prompt->empty()) {
-      return NodeResult<TextBatch>::Success(TextBatch{});
-    }
+    if constexpr (PromptSignature::kCallable && PromptSignature::kReturnsText &&
+                  AnswerSignature::kCallable && AnswerSignature::kReturnsText) {
+      if (!inputs.prompt || inputs.prompt->empty()) {
+        return NodeResult<TextBatch>::Success(TextBatch{});
+      }
 
-    // Step 1: Build prompts
-    TextBatch prompts;
-    prompts.reserve(inputs.prompt->size());
-    for (const auto& item : *inputs.prompt) {
-      if constexpr (std::is_invocable_v<BuildPromptFn, const std::string&,
-                                        const ParamsT&>) {
-        auto res = build_prompt(item.data, parameters);
+      TextBatch prompts;
+      prompts.reserve(inputs.prompt->size());
+      for (const auto& item : *inputs.prompt) {
+        auto res = detail::InvokeTextHook(build_prompt, item.data, parameters);
         if constexpr (IsNodeResult<decltype(res)>::value) {
           if (!res.ok()) {
             return NodeResult<TextBatch>::Failure(
                 std::move(res).ExtractFailure());
           }
           prompts.emplace_back(item.req_id, item.sub_id,
-                               std::move(res).value());
+                               detail::ToHookText(std::move(res).value()));
         } else {
-          prompts.emplace_back(item.req_id, item.sub_id, std::move(res));
-        }
-      } else {
-        auto res = build_prompt(item.data);
-        if constexpr (IsNodeResult<decltype(res)>::value) {
-          if (!res.ok()) {
-            return NodeResult<TextBatch>::Failure(
-                std::move(res).ExtractFailure());
-          }
           prompts.emplace_back(item.req_id, item.sub_id,
-                               std::move(res).value());
-        } else {
-          prompts.emplace_back(item.req_id, item.sub_id, std::move(res));
+                               detail::ToHookText(std::move(res)));
         }
       }
-    }
 
-    // Step 2: Call LLM
-    auto llm_res = models.generator.Generate(prompts, options);
-    if (!llm_res.ok()) {
-      return llm_res;
-    }
+      auto llm_res = models.generator.Generate(prompts, options);
+      if (!llm_res.ok()) return llm_res;
 
-    // Format the owned model output in place; nothing is published until
-    // success.
-    auto outputs = std::move(llm_res).value();
-    for (auto& item : outputs) {
-      if constexpr (std::is_invocable_v<FormatAnswerFn, const std::string&,
-                                        const ParamsT&>) {
-        auto res = format_answer(std::as_const(item.data), parameters);
+      // Copy views before assigning to owned output, including views into
+      // item.data itself. No partial output is published on hook failure.
+      auto outputs = std::move(llm_res).value();
+      for (auto& item : outputs) {
+        auto res = detail::InvokeTextHook(format_answer,
+                                          std::as_const(item.data), parameters);
         if constexpr (IsNodeResult<decltype(res)>::value) {
           if (!res.ok()) {
             return NodeResult<TextBatch>::Failure(
                 std::move(res).ExtractFailure());
           }
-          item.data = std::move(res).value();
+          item.data = detail::ToHookText(std::move(res).value());
         } else {
-          item.data = std::move(res);
-        }
-      } else {
-        auto res = format_answer(std::as_const(item.data));
-        if constexpr (IsNodeResult<decltype(res)>::value) {
-          if (!res.ok()) {
-            return NodeResult<TextBatch>::Failure(
-                std::move(res).ExtractFailure());
-          }
-          item.data = std::move(res).value();
-        } else {
-          item.data = std::move(res);
+          item.data = detail::ToHookText(std::move(res));
         }
       }
+      return NodeResult<TextBatch>::Success(std::move(outputs));
+    } else {
+      return NodeResult<TextBatch>::Failure(NodeErrorKind::kInternalError,
+                                            "Invalid LLM hook signature");
     }
-
-    return NodeResult<TextBatch>::Success(std::move(outputs));
   };
 
   return MakeBatchSpec(
