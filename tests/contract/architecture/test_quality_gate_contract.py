@@ -33,6 +33,9 @@ mode = os.environ["EDGEFLOW_DELIVERY_MODE"]
 if name == "git":
     if args == ["branch", "--show-current"]: print("fix/delivery-test")
     if args == ["diff", "--quiet", "origin/main...HEAD"]: sys.exit(1)
+    if args == ["merge-base", "--is-ancestor", "origin/main", "HEAD"] and mode == "main-advanced":
+        calls = sum(json.loads(line)[:3] == ["git", "fetch", "origin"] for line in log.read_text().splitlines())
+        if calls > 1: sys.exit(1)
 elif name == "gh":
     if args[:2] == ["pr", "view"]:
         fields = args[args.index("--json") + 1]
@@ -59,7 +62,7 @@ elif name == "gh":
         path.write_text(mock)
         path.chmod(0o755)
     log = root / "delivery" / "commands.jsonl"
-    for mode in ("pr-only", "success", "failure", "cancelled", "missing-run", "missing-sha", "unconfirmed"):
+    for mode in ("pr-only", "success", "failure", "cancelled", "missing-run", "missing-sha", "unconfirmed", "main-advanced"):
         log.write_text("")
         env = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
                "EDGEFLOW_DELIVERY_COMMANDS": str(log), "EDGEFLOW_DELIVERY_MODE": mode}
@@ -71,9 +74,11 @@ elif name == "gh":
         assert sum(command[0] == "run_all_tests.sh" for command in commands) == 1
         run_lists = [command for command in commands if command[:3] == ["gh", "run", "list"]]
         watches = [command for command in commands if command[:3] == ["gh", "run", "watch"]]
-        if mode == "pr-only":
+        if mode in ("pr-only", "main-advanced"):
             assert not run_lists and not watches
             assert not any(command[:3] == ["gh", "pr", "merge"] for command in commands)
+            if mode == "main-advanced":
+                assert "origin/main is not an ancestor" in result.stdout
         elif mode == "missing-sha":
             assert not run_lists and not watches
             assert "cannot confirm the merge SHA" in result.stdout
@@ -88,6 +93,107 @@ elif name == "gh":
             else:
                 assert "is merged, but main CI run 123" in result.stdout
                 assert "main push CI passed" not in result.stdout
+
+
+def check_delivery_history_contract(root):
+    """Use real Git graphs and a local remote to prove the PR history policy."""
+    fixture = root / "delivery history"
+    project = fixture / "project"
+    project.mkdir(parents=True)
+    remote = fixture / "origin.git"
+    binary = fixture / "bin"
+    binary.mkdir()
+    log = fixture / "commands.jsonl"
+    env = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+           "EDGEFLOW_DELIVERY_COMMANDS": str(log)}
+
+    def git(*args):
+        result = run(["git", "-c", "commit.gpgsign=false", *args], cwd=project, env=env)
+        assert result.returncode == 0, (args, result.stdout, result.stderr)
+        return result.stdout.strip()
+
+    def commit_file(name, content):
+        (project / name).write_text(content)
+        git("add", name)
+        git("commit", "-qm", name)
+
+    mock = '''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+name, args = Path(sys.argv[0]).name, sys.argv[1:]
+with open(os.environ["EDGEFLOW_DELIVERY_COMMANDS"], "a") as stream:
+    stream.write(json.dumps([name, *args]) + "\\n")
+if name == "gh" and args[:2] == ["pr", "view"]:
+    fields = args[args.index("--json") + 1]
+    if fields == "number": print("94")
+    elif fields == "statusCheckRollup": print("1")
+'''
+    scripts = project / "scripts"
+    scripts.mkdir()
+    shutil.copy2(ROOT / "scripts/git_branch_upload.sh", scripts)
+    for path in (binary / "gh", scripts / "run_all_tests.sh"):
+        path.write_text(mock)
+        path.chmod(0o755)
+    git("init", "-q", "-b", "main")
+    git("config", "user.name", "History contract")
+    git("config", "user.email", "history@example.invalid")
+    git("add", "scripts")
+    git("commit", "-qm", "initial")
+    git("switch", "-c", "fix/prior")
+    commit_file("prior.txt", "already merged stage\n")
+    git("switch", "main")
+    git("merge", "--no-ff", "-m", "prior stage", "fix/prior")
+    git("init", "--bare", "-q", str(remote))
+    git("remote", "add", "origin", str(remote))
+    git("push", "-u", "origin", "main")
+    assert git("rev-list", "--merges", "origin/main"), "fixture main must contain a legitimate merge"
+
+    def deliver(accepted, error=None):
+        log.write_text("")
+        branch = git("branch", "--show-current")
+        original_main = git("ls-remote", "origin", "refs/heads/main")
+        result = run([str(scripts / "git_branch_upload.sh"), "fix(ci): history contract", "fix"],
+                     cwd=project, env=env, timeout=15)
+        assert (result.returncode == 0) == accepted, (branch, result.stdout, result.stderr)
+        commands = [json.loads(line) for line in log.read_text().splitlines()]
+        assert sum(command[0] == "run_all_tests.sh" for command in commands) == int(accepted)
+        assert not any(command[:3] == ["gh", "pr", "merge"] for command in commands)
+        remote_branch = git("ls-remote", "origin", "refs/heads/" + branch)
+        if accepted:
+            assert remote_branch.split()[0] == git("rev-parse", "HEAD"), remote_branch
+        else:
+            assert not commands and not remote_branch, (commands, remote_branch)
+            assert error in result.stdout, result.stdout
+        assert git("ls-remote", "origin", "refs/heads/main") == original_main
+
+    git("switch", "-c", "fix/clean", "origin/main")
+    commit_file("clean.txt", "first change\n")
+    commit_file("clean.txt", "first change\nsecond change\n")
+    deliver(True)
+
+    git("switch", "-c", "fix/outdated", "origin/main")
+    commit_file("outdated.txt", "current stage\n")
+    git("switch", "main")
+    commit_file("main-update.txt", "previous stage completed\n")
+    git("push", "origin", "main")
+    git("switch", "fix/outdated")
+    deliver(False, "origin/main is not an ancestor")
+
+    git("switch", "-c", "fix/reverse-merged")
+    git("merge", "--no-ff", "-m", "merge main into working branch", "origin/main")
+    deliver(False, "contains merge commits above origin/main")
+
+    git("switch", "-c", "fix/nested", "origin/main")
+    commit_file("nested.txt", "current stage\n")
+    git("switch", "-c", "fix/nested-side", "origin/main")
+    commit_file("nested-side.txt", "another stage\n")
+    git("switch", "fix/nested")
+    git("merge", "--no-ff", "-m", "merge another working branch", "fix/nested-side")
+    deliver(False, "contains merge commits above origin/main")
+
+    git("switch", "fix/outdated")
+    git("rebase", "origin/main")
+    deliver(True)
 
 MOCK_COMMAND = '''#!/usr/bin/env python3
 import json, os, sys
@@ -388,6 +494,7 @@ def main():
                              "whisper_asr_backend_and_real_profile": state,
                              "kitellm_private_release_and_real_gguf": "skipped"}
         check_delivery_contract(root)
+        check_delivery_history_contract(root)
     print("Build presets, stale cache resets, gate failures, real-model routing and delivery checks passed.")
 
 
