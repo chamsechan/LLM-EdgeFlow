@@ -92,6 +92,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 ## 2. 流程编排层：Pipeline 与静态校验计划
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
+
 - **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
@@ -103,6 +104,11 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
   共享结果或异常；失败不进入缓存，后续调用可重试。
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
   `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
+
+Validator 为未注册的 Node、Model 和 Backend 提供原因及按编辑距离排序的相近名称。
+已声明模型因 `model_type` 未注册而无法解析时，只报告根因；未知节点的显式输出键没有任何
+已知生产者或业务 ingress 时，抑制该键的缺少生产者诊断。已知来源的类型不符、重复生产者、
+ingress 冲突和模型能力不符仍照常报告。业务出口与 IO 边界的同一缺失键保留 `/pipeline` 的一条诊断。
 
 Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
