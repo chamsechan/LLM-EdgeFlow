@@ -214,6 +214,64 @@ REGISTER_NODE_WITH_DEFINITION(FlowContractProducerNode,
 REGISTER_NODE_WITH_DEFINITION(FlowContractConsumerNode,
                               MakeFlowContractConsumerDefinition());
 
+// Shape fixtures: one item-wise pair, one per-request group and one opaque
+// relation. Only their Definitions matter to the Validator.
+class ShapeFixtureNode : public INode {
+ public:
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = "ShapeFixtureNode";
+    return name;
+  }
+};
+
+class ItemPairNode : public ShapeFixtureNode {
+ public:
+  inline static constexpr char kNodeType[] = "ItemPairNode";
+};
+
+class RequestGroupNode : public ShapeFixtureNode {
+ public:
+  inline static constexpr char kNodeType[] = "RequestGroupNode";
+};
+
+class OpaqueFlowNode : public ShapeFixtureNode {
+ public:
+  inline static constexpr char kNodeType[] = "OpaqueFlowNode";
+};
+
+NodeDefinition MakeShapeFixtureDefinition(std::string node_type,
+                                          std::vector<NodePortDefinition> in,
+                                          std::vector<NodePortDefinition> out) {
+  NodeDefinition def;
+  def.node_type = std::move(node_type);
+  def.category = "test";
+  def.description = "Port shape fixture";
+  def.inputs = std::move(in);
+  def.outputs = std::move(out);
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(
+    ItemPairNode, MakeShapeFixtureDefinition(
+                      ItemPairNode::kNodeType,
+                      {NodePortDefinition{"left", "TextBatch", true},
+                       NodePortDefinition{"right", "TextBatch", false}},
+                      {NodePortDefinition{"paired", "TextBatch", true}}));
+REGISTER_NODE_WITH_DEFINITION(
+    RequestGroupNode,
+    MakeShapeFixtureDefinition(
+        RequestGroupNode::kNodeType,
+        {NodePortDefinition{"items", "TextBatch", true, "N:1", "aggregate"}},
+        {NodePortDefinition{"grouped", "TextBatch", true}}));
+REGISTER_NODE_WITH_DEFINITION(
+    OpaqueFlowNode,
+    MakeShapeFixtureDefinition(
+        OpaqueFlowNode::kNodeType,
+        {NodePortDefinition{"items", "TextBatch", true, "N:M"}},
+        {NodePortDefinition{"opaque", "TextBatch", true, "N:M"}}));
+
 class ValidatedPipelinePlanTest : public ::testing::Test {
  protected:
   void SetUp() override { RegisterTestBizs({"plan_fixture_biz"}); }
@@ -299,7 +357,6 @@ TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   EXPECT_FALSE(plan.report.ok);
   const std::unordered_set<DiagnosticCode> expected = {
-      DiagnosticCode::kPortCardinalityMismatch,
       DiagnosticCode::kPortProvenanceMismatch,
       DiagnosticCode::kPortLifetimeMismatch};
   std::unordered_set<DiagnosticCode> actual;
@@ -314,6 +371,139 @@ TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
     }
   }
   for (const auto code : expected) EXPECT_TRUE(actual.count(code));
+  // An item-wise input accepts split items; only provenance and lifetime fail.
+  EXPECT_FALSE(actual.count(DiagnosticCode::kPortCardinalityMismatch));
+}
+
+class PortShapeTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    if (!PipelineCatalog::FindBiz(kBiz)) {
+      BizDefinition biz;
+      biz.biz_name = kBiz;
+      biz.ingress = {BizPortDefinition{"request", "TextBatch", true}};
+      biz.egress = {BizPortDefinition{"result", "TextBatch", false, "1:1"},
+                    BizPortDefinition{"collection", "TextBatch", false, "N:1",
+                                      "aggregate"}};
+      ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz));
+    }
+  }
+
+  static nlohmann::json Node(const std::string& id, const std::string& type,
+                             nlohmann::json inputs, nlohmann::json outputs) {
+    return {{"id", id},
+            {"node_type", type},
+            {"inputs", std::move(inputs)},
+            {"outputs", std::move(outputs)}};
+  }
+
+  static nlohmann::json Split(const std::string& id, const std::string& key) {
+    return Node(id, FlowContractProducerNode::kNodeType,
+                nlohmann::json::object(), {{"flow", key}});
+  }
+
+  static ValidationReport Validate(nlohmann::json nodes) {
+    return PipelineValidator::Validate(
+        {{"biz_name", kBiz}, {"pipeline", std::move(nodes)}});
+  }
+
+  static std::vector<ValidationDiagnostic> CardinalityErrors(
+      const ValidationReport& report) {
+    std::vector<ValidationDiagnostic> found;
+    for (const auto& diagnostic : report.diagnostics) {
+      if (diagnostic.code == DiagnosticCode::kPortCardinalityMismatch)
+        found.push_back(diagnostic);
+    }
+    return found;
+  }
+
+  inline static constexpr char kBiz[] = "port_shape_fixture_biz";
+};
+
+TEST_F(PortShapeTest, ItemWiseNodeAcceptsSplitItems) {
+  const auto report =
+      Validate({Split("split", "parts"),
+                Node("pair", ItemPairNode::kNodeType, {{"left", "parts"}},
+                     {{"paired", "paired_parts"}})});
+  EXPECT_TRUE(report.ok) << report.ToJson().dump();
+}
+
+TEST_F(PortShapeTest, SplitItemsCannotReachOnePerRequestEgress) {
+  const auto report =
+      Validate({Split("split", "parts"),
+                Node("pair", ItemPairNode::kNodeType, {{"left", "parts"}},
+                     {{"paired", "result"}})});
+  const auto errors = CardinalityErrors(report);
+  ASSERT_EQ(errors.size(), 1u) << report.ToJson().dump();
+  EXPECT_EQ(errors[0].path, "/pipeline/1/outputs/paired");
+  EXPECT_EQ(errors[0].node_id, "pair");
+  EXPECT_EQ(errors[0].port, "result");
+  EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"$egress"}));
+  EXPECT_NE(errors[0].message.find("'split.flow'"), std::string::npos);
+}
+
+TEST_F(PortShapeTest, CollectionEgressAcceptsSplitItems) {
+  const auto report =
+      Validate({Split("split", "parts"),
+                Node("pair", ItemPairNode::kNodeType, {{"left", "parts"}},
+                     {{"paired", "collection"}})});
+  EXPECT_TRUE(report.ok) << report.ToJson().dump();
+}
+
+TEST_F(PortShapeTest, AggregatedItemsTransformItemWiseToOnePerRequest) {
+  const auto report =
+      Validate({Split("split", "parts"),
+                Node("group", RequestGroupNode::kNodeType, {{"items", "parts"}},
+                     {{"grouped", "grouped"}}),
+                Node("pair", ItemPairNode::kNodeType,
+                     {{"left", "grouped"}, {"right", "request"}},
+                     {{"paired", "result"}})});
+  EXPECT_TRUE(report.ok) << report.ToJson().dump();
+}
+
+TEST_F(PortShapeTest, MisalignedItemWiseInputsAreRejected) {
+  const auto report = Validate(
+      {Split("split", "parts"), Node("pair", ItemPairNode::kNodeType,
+                                     {{"left", "request"}, {"right", "parts"}},
+                                     {{"paired", "paired_parts"}})});
+  const auto errors = CardinalityErrors(report);
+  ASSERT_EQ(errors.size(), 1u) << report.ToJson().dump();
+  EXPECT_EQ(errors[0].path, "/pipeline/1/inputs/right");
+  EXPECT_EQ(errors[0].node_id, "pair");
+  EXPECT_EQ(errors[0].port, "right");
+  EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"split"}));
+  ASSERT_TRUE(errors[0].remediation.has_value());
+  EXPECT_EQ(errors[0].remediation->cause, RemediationCause::kPortFlowMismatch);
+}
+
+TEST_F(PortShapeTest, ItemWiseInputsPairOnlyWithinOneFanOut) {
+  const auto same_origin =
+      Validate({Split("split", "parts"),
+                Node("first", ItemPairNode::kNodeType, {{"left", "parts"}},
+                     {{"paired", "first_parts"}}),
+                Node("second", ItemPairNode::kNodeType, {{"left", "parts"}},
+                     {{"paired", "second_parts"}}),
+                Node("join", ItemPairNode::kNodeType,
+                     {{"left", "first_parts"}, {"right", "second_parts"}},
+                     {{"paired", "joined"}})});
+  EXPECT_TRUE(same_origin.ok) << same_origin.ToJson().dump();
+
+  const auto different_origins =
+      Validate({Split("split_a", "parts_a"), Split("split_b", "parts_b"),
+                Node("join", ItemPairNode::kNodeType,
+                     {{"left", "parts_a"}, {"right", "parts_b"}},
+                     {{"paired", "joined"}})});
+  const auto errors = CardinalityErrors(different_origins);
+  ASSERT_EQ(errors.size(), 1u) << different_origins.ToJson().dump();
+  EXPECT_EQ(errors[0].port, "right");
+}
+
+TEST_F(PortShapeTest, UnknownShapeIsLeftToRuntimeChecks) {
+  const auto report =
+      Validate({Split("split", "parts"),
+                Node("opaque", OpaqueFlowNode::kNodeType, {{"items", "parts"}},
+                     {{"opaque", "result"}})});
+  EXPECT_TRUE(report.ok) << report.ToJson().dump();
 }
 
 TEST_F(ValidatedPipelinePlanTest,

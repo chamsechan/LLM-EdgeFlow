@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+端口数量关系：输入端口的 cardinality 只描述节点如何消费，接受任意数量的上游数据；
+`TextChunkNode` 等拆分输出可以直接接逐项节点（如 `TextRuleMatchNode`）。Validator 改为沿 DAG
+推导每个数据名在请求内的条目数，仅在 `1:1` 业务/IO 边界收到多项，或同一节点的逐项输入无法配对时
+报告 `PORT_CARDINALITY_MISMATCH`。`TextEmbeddingNode` 的端口声明由 `N:M` 改为实际的 `1:1`。
+Pipeline JSON 与 Definition 字段不变，见[数量关系声明](dev_guide/custom_node_concepts.md#数量关系声明与-validator-检查)。
+
 文档链接检查：门禁新增 `DocLinksTest`，检查仓库内 Markdown 的相对链接、HTML `href`/`src`
 和标题锚点；没有扫描到文件或跨文件锚点时直接失败，不会空跑通过。
 
