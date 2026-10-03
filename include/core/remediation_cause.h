@@ -13,7 +13,10 @@ namespace llm_edgeflow {
   X(kDuplicateDependency, "duplicate_dependency")           \
   X(kUnknownDependency, "unknown_dependency")               \
   X(kMissingBizOutput, "missing_biz_output")                \
-  X(kPortFlowMismatch, "port_flow_mismatch")
+  X(kPortFlowMismatch, "port_flow_mismatch")                \
+  X(kUnknownNodeType, "unknown_node_type")                  \
+  X(kUnknownModelType, "unknown_model_type")                \
+  X(kUnknownBackend, "unknown_backend")
 
 enum class RemediationCause {
 #define LLM_EDGEFLOW_DEF_CAUSE(name, str) name,

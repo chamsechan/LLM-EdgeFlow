@@ -55,6 +55,37 @@ nlohmann::json ToolError(const std::string& code, const std::string& message,
                                                   {"severity", "error"}}})}};
 }
 
+// Keep build/test registration guidance in the CLI; SDK/Core diagnostics stay
+// tool-neutral. Wrapped deployment errors supply their original code
+// separately.
+void PrintRegistrationHint(const nlohmann::json& response,
+                           const std::string& source_code = {}) {
+#ifdef LLM_EDGEFLOW_TOOL_HAS_TEST_REGISTRATIONS
+  (void)response;
+  (void)source_code;
+#else
+  auto unknown_registration = [](const std::string& code) {
+    return code == "UNKNOWN_MODEL_TYPE" || code == "UNKNOWN_BACKEND";
+  };
+  bool needs_hint = unknown_registration(source_code);
+  auto diagnostics = response.find("diagnostics");
+  if (diagnostics != response.end() && diagnostics->is_array()) {
+    for (const auto& diagnostic : *diagnostics) {
+      if (unknown_registration(diagnostic.value("code", ""))) needs_hint = true;
+    }
+  }
+  if (needs_hint) {
+    std::cerr << "提示：当前 alg_pipeline_tool 只包含本次构建启用的生产注册。\n"
+              << "  - 可选 Backend 需要用对应的构建预设重新构建，见 "
+                 "doc/VERIFIABLE_SELECTION.md#构建变体。\n"
+              << "  - 使用测试 Model/Backend 的配置（例如 demo/fixtures/mock/ "
+                 "下的方案）"
+                 "请改用 alg_pipeline_tool_test，见 "
+                 "tools/pipeline_studio/README.md#校验工具选择。\n";
+  }
+#endif
+}
+
 bool ReadJson(const std::string& path, nlohmann::json* output,
               std::string* error) {
   try {
@@ -155,7 +186,7 @@ nlohmann::json OutputPoolsJson(const llm_edgeflow::ValidatedIoPlan& plan) {
 }
 
 nlohmann::json ResolveConf(const std::string& file, const std::string& root,
-                           uint32_t depth) {
+                           uint32_t depth, std::string* source_code) {
   using namespace llm_edgeflow;
   const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
   if (ops.Init != nullptr && ops.Init() != 0)
@@ -176,6 +207,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
         error.empty() ? (diag.message.empty() ? "Deployment configuration error"
                                               : diag.message)
                       : error;
+    *source_code = diag.code;
     return ToolError("DEPLOYMENT_CONFIG", message);
   }
   if (!resolved.io_plan || !resolved.io_plan->pipeline_plan)
@@ -186,6 +218,8 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
     const std::string message = plan.report.diagnostics.empty()
                                     ? "Pipeline validation failed"
                                     : plan.report.diagnostics.front().message;
+    if (!plan.report.diagnostics.empty())
+      *source_code = DiagnosticCodeName(plan.report.diagnostics.front().code);
     return ToolError("DEPLOYMENT_CONFIG", message);
   }
 
@@ -281,14 +315,16 @@ int main(int argc, char* argv[]) {
       }
     }
     nlohmann::json result;
+    std::string source_code;
     try {
-      result = ResolveConf(argv[2], root, depth);
+      result = ResolveConf(argv[2], root, depth, &source_code);
     } catch (const std::exception& error) {
       result = ToolError("DEPLOYMENT_CONFIG", error.what());
     } catch (...) {
       result = ToolError("DEPLOYMENT_CONFIG", "Unknown internal exception");
     }
     std::cout << result.dump(2) << std::endl;
+    PrintRegistrationHint(result, source_code);
     return result.value("ok", false) ? 0 : 1;
   }
 
@@ -376,18 +412,20 @@ int main(int argc, char* argv[]) {
     if (command == "describe-model") {
       const auto definition = PipelineCatalog::FindModel(argv[2]);
       if (!definition) {
-        std::cout
-            << PipelineError(DiagnosticCode::kUnknownModelType, argv[2]).dump(2)
-            << std::endl;
+        const auto error =
+            PipelineError(DiagnosticCode::kUnknownModelType, argv[2]);
+        std::cout << error.dump(2) << std::endl;
+        PrintRegistrationHint(error);
         return 1;
       }
       result = PipelineCatalog::ModelToJson(*definition);
     } else {
       const auto definition = PipelineCatalog::FindBackend(argv[2]);
       if (!definition) {
-        std::cout
-            << PipelineError(DiagnosticCode::kUnknownBackend, argv[2]).dump(2)
-            << std::endl;
+        const auto error =
+            PipelineError(DiagnosticCode::kUnknownBackend, argv[2]);
+        std::cout << error.dump(2) << std::endl;
+        PrintRegistrationHint(error);
         return 1;
       }
       result = PipelineCatalog::BackendToJson(*definition);
@@ -526,6 +564,7 @@ int main(int argc, char* argv[]) {
     try {
       auto result = llm_edgeflow::ValidatePipelineDocument(root, mode);
       std::cout << result.response.dump(2) << std::endl;
+      PrintRegistrationHint(result.response);
       return result.ok ? 0 : 1;
     } catch (const std::exception& error) {
       std::cout << ToolError("INTERNAL_EXCEPTION", error.what()).dump(2)
@@ -593,6 +632,7 @@ int main(int argc, char* argv[]) {
                                      {"message", diag_msg},
                                      {"severity", "error"}}})}};
         std::cout << err_res.dump(2) << std::endl;
+        PrintRegistrationHint(err_res, diag.code);
         return 1;
       }
 
