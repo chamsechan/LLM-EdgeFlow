@@ -980,7 +980,11 @@ def main():
         plan.commit()
 
         print(f"Created {target}")
-        print("Sources under src/custom_nodes/ are compiled automatically on the next build.")
+        collected_dirs = ("src/custom_nodes", "src/common_nodes")
+        if any(target.resolve().is_relative_to((root / d).resolve()) for d in collected_dirs):
+            print("Sources under src/custom_nodes/ and src/common_nodes/ are compiled automatically on the next build.")
+        else:
+            print(f"Note: {target} is outside src/custom_nodes/ and src/common_nodes/, so the build does not collect it.")
         if args.write_test:
             print(f"Created {test_target}")
             print("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.")
