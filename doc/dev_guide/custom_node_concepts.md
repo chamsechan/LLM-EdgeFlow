@@ -270,7 +270,7 @@ TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一�
 Context 指针。配置更新由包装提供一致快照；含外部资源的更新仍需明确资源生命周期。
 
 第一次测试可复用 [InitNodeForTest](../../tests/support/node_test_utils.h)，将断言加入现有
-Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-for-solution-authors)。
+Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
 先用两个不同请求、非零 `sub_id` 验证不会串结果，再检查算法自己的正常和失败输出。
 无需为了组织一个复杂 Node 再增加继承层、配置语言或专用测试执行器。
 
