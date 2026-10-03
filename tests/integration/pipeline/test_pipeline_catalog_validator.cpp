@@ -1133,31 +1133,68 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
   EXPECT_FALSE(proposed_broken_model);
 }
 
-TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
+TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
   nlohmann::json root = {
       {"biz_name", "keyword_match"},
-      {"models", nlohmann::json::array()},
       {"pipeline",
-       {{{"id", "producer"},
-         {"node_type", "TextCorpusSourceNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"outputs", {{"corpus", "corpus_text"}}},
-         {"config", {{"corpus", {"sample text"}}}}},
-        {{"id", "consumer"},
-         {"node_type", "TextTemplateNode"},
-         {"depends_on", {"producer"}},
-         {"inputs", {{"primary", "corpus_text"}}},
-         {"outputs", {{"text", "rendered_text"}}},
-         {"config", {{"template", "prefix: {{primary}}"}}}}}}};
+       {{{"id", "chunk"},
+         {"node_type", "TextChunkNode"},
+         {"config", {{"chunk_size", 4}}},
+         {"inputs", {{"text", "input_sentences"}}},
+         {"outputs",
+          {{"chunks", "sentence_chunks"},
+           {"chunk_counts", "sentence_chunk_counts"}}}},
+        {{"id", "rules_per_chunk"},
+         {"node_type", "TextRuleMatchNode"},
+         {"config", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
+         {"inputs", {{"text", "sentence_chunks"}}},
+         {"outputs", {{"matches", "chunk_matches"}}}},
+        {{"id", "rules_per_request"},
+         {"node_type", "TextRuleMatchNode"},
+         {"config", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
+         {"inputs", {{"text", "input_sentences"}}},
+         {"outputs", {{"matches", "rule_matches"}}}}}}};
+
+  const auto accepted = PipelineValidator::Validate(root);
+  EXPECT_TRUE(accepted.ok) << accepted.ToJson().dump();
+
+  // Per-chunk matches cannot become the one-row-per-request biz output.
+  root["pipeline"][1]["outputs"]["matches"] = "rule_matches";
+  root["pipeline"][2]["outputs"]["matches"] = "request_matches";
+  const auto rejected = PipelineValidator::Validate(root);
+  ASSERT_FALSE(rejected.ok);
+  ASSERT_EQ(rejected.diagnostics.size(), 1u) << rejected.ToJson().dump();
+  EXPECT_EQ(rejected.diagnostics[0].code,
+            DiagnosticCode::kPortCardinalityMismatch);
+  EXPECT_EQ(rejected.diagnostics[0].path, "/pipeline/1/outputs/matches");
+  EXPECT_EQ(rejected.diagnostics[0].port, "rule_matches");
+}
+
+TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
+  nlohmann::json root = {{"biz_name", "keyword_match"},
+                         {"models", nlohmann::json::array()},
+                         {"pipeline",
+                          {{{"id", "producer"},
+                            {"node_type", "TextChunkNode"},
+                            {"depends_on", nlohmann::json::array()},
+                            {"inputs", {{"text", "input_sentences"}}},
+                            {"outputs", {{"chunks", "chunk_text"}}}},
+                           {{"id", "consumer"},
+                            {"node_type", "TextEmbeddingNode"},
+                            {"depends_on", {"producer"}},
+                            {"inputs", {{"text", "chunk_text"}}},
+                            {"outputs", {{"embedding", "chunk_embeddings"}}},
+                            {"config", {{"lifetime", "session"}}}}}}};
 
   const auto report = PipelineValidator::Validate(root);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
+  // Request-scoped chunks cannot back a session-scoped embedding cache.
   const ValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
-    if (diag.code == DiagnosticCode::kPortCardinalityMismatch &&
-        diag.node_id == "consumer" && diag.port == "primary") {
+    if (diag.code == DiagnosticCode::kPortLifetimeMismatch &&
+        diag.node_id == "consumer" && diag.port == "text") {
       target_diag = &diag;
       break;
     }
@@ -1168,7 +1205,7 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   EXPECT_EQ(target_diag->remediation->cause,
             RemediationCause::kPortFlowMismatch);
   EXPECT_EQ(target_diag->remediation->facts.value("bound_key", ""),
-            "corpus_text");
+            "chunk_text");
   EXPECT_EQ(target_diag->remediation->facts.value("producer_id", ""),
             "producer");
 
