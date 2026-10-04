@@ -171,7 +171,9 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
 Model 继承 [`ModelIdentity<Model, 能力接口>`](../include/engine/model_identity.h)，只声明
 `kModelType` 与 `kConcurrency`，能力由接口推导；Definition 用 `MakeModelDefinition<Model>()`
-取得同一身份后再补协议和配置字段。创建时工厂仍逐项核对实例与 Definition。
+取得同一身份后再补协议和配置字段。Backend Provider 同样继承
+[`BackendIdentity<Backend>`](../include/engine/backend_identity.h)，Definition 从
+`MakeBackendDefinition<Backend>()` 开始。创建时工厂仍逐项核对实例、Session 与 Definition。
 
 Model 的字段类型、默认值和范围由 `config_fields` 声明；字段之间或文本内容的额外规则
 放在可选的 `ModelDefinition::validate_config` 中。Validator 与 ModelRuntimeFactory

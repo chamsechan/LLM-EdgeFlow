@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "engine/backend_identity.h"
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
 
@@ -38,14 +39,12 @@ bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
  * - 仅在 onnxruntime_backend.cpp 内部使用 onnxruntime_cxx_api.h；
  * - 上层 Model、Node、Pipeline 完全通过中性 TensorMap 交互。
  */
-class OnnxRuntimeBackend : public IInferenceBackend {
+class OnnxRuntimeBackend : public BackendIdentity<OnnxRuntimeBackend> {
  public:
   inline static constexpr char kBackendType[] = "onnxruntime";
 
   OnnxRuntimeBackend();
   ~OnnxRuntimeBackend() override;
-
-  const std::string& BackendType() const noexcept override;
 
   std::shared_ptr<IBackendSession> Load(
       const BackendLoadSpec& spec,
