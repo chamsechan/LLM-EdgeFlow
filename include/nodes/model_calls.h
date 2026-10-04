@@ -64,175 +64,142 @@ NodeResult<OutputBatchT> InvokeAlignedModel(
 
 }  // namespace detail
 
-class LlmCall {
+namespace detail {
+
+// Owns one bound model capability and its slot identity. Calls are move-only,
+// so each Node instance keeps exclusive ownership of its bindings.
+template <typename ModelT>
+class ModelCallBase {
  public:
-  using ModelType = ILlmModel;
+  using ModelType = ModelT;
+
+  const std::string& SlotName() const noexcept { return slot_name_; }
+  const std::string& ModelId() const noexcept { return model_id_; }
+  bool IsBound() const noexcept { return model_ != nullptr; }
+
+ protected:
+  ModelCallBase() = default;
+  ModelCallBase(std::shared_ptr<ModelT> model, std::string slot_name,
+                std::string model_id)
+      : model_(std::move(model)),
+        slot_name_(std::move(slot_name)),
+        model_id_(std::move(model_id)) {}
+  ModelCallBase(const ModelCallBase&) = delete;
+  ModelCallBase& operator=(const ModelCallBase&) = delete;
+  ModelCallBase(ModelCallBase&&) noexcept = default;
+  ModelCallBase& operator=(ModelCallBase&&) noexcept = default;
+  ~ModelCallBase() = default;
+
+  template <typename OutputBatchT, typename InputBatchT, typename InvokeT>
+  NodeResult<OutputBatchT> Invoke(const InputBatchT& inputs,
+                                  const char* model_name, const char* operation,
+                                  InvokeT invoke) const {
+    return InvokeAlignedModel<OutputBatchT>(
+        inputs, model_, model_name, operation, slot_name_, std::move(invoke));
+  }
+
+ private:
+  std::shared_ptr<ModelT> model_;
+  std::string slot_name_;
+  std::string model_id_;
+};
+
+}  // namespace detail
+
+class LlmCall : public detail::ModelCallBase<ILlmModel> {
+ public:
   LlmCall() = default;
   explicit LlmCall(std::shared_ptr<ModelType> model,
                    std::string slot_name = "generator",
                    std::string model_id = {})
-      : model_(std::move(model)),
-        slot_name_(std::move(slot_name)),
-        model_id_(std::move(model_id)) {}
-  LlmCall(const LlmCall&) = delete;
-  LlmCall& operator=(const LlmCall&) = delete;
-  LlmCall(LlmCall&&) noexcept = default;
-  LlmCall& operator=(LlmCall&&) noexcept = default;
+      : ModelCallBase(std::move(model), std::move(slot_name),
+                      std::move(model_id)) {}
 
   NodeResult<TextBatch> Generate(
       const TextBatch& inputs,
       const GenerateOptions& options = GenerateOptions{}) const {
-    return detail::InvokeAlignedModel<TextBatch>(
-        inputs, model_, "LLM", "generate", slot_name_,
+    return Invoke<TextBatch>(
+        inputs, "LLM", "generate",
         [&](ModelType& model, TextBatch* outputs, std::string* diagnostic) {
           return model.Generate(inputs, options, outputs, diagnostic);
         });
   }
-
-  const std::string& SlotName() const noexcept { return slot_name_; }
-  const std::string& ModelId() const noexcept { return model_id_; }
-  bool IsBound() const noexcept { return model_ != nullptr; }
-
- private:
-  std::shared_ptr<ModelType> model_;
-  std::string slot_name_;
-  std::string model_id_;
 };
 
-class EmbeddingCall {
+class EmbeddingCall : public detail::ModelCallBase<IEmbeddingModel> {
  public:
-  using ModelType = IEmbeddingModel;
   EmbeddingCall() = default;
   explicit EmbeddingCall(std::shared_ptr<ModelType> model,
                          std::string slot_name = "encoder",
                          std::string model_id = {})
-      : model_(std::move(model)),
-        slot_name_(std::move(slot_name)),
-        model_id_(std::move(model_id)) {}
-  EmbeddingCall(const EmbeddingCall&) = delete;
-  EmbeddingCall& operator=(const EmbeddingCall&) = delete;
-  EmbeddingCall(EmbeddingCall&&) noexcept = default;
-  EmbeddingCall& operator=(EmbeddingCall&&) noexcept = default;
+      : ModelCallBase(std::move(model), std::move(slot_name),
+                      std::move(model_id)) {}
 
   NodeResult<EmbeddingBatch> Embed(
       const TextBatch& inputs,
       const EmbeddingOptions& options = EmbeddingOptions{}) const {
-    return detail::InvokeAlignedModel<EmbeddingBatch>(
-        inputs, model_, "Embedding", "embed", slot_name_,
-        [&](ModelType& model, EmbeddingBatch* outputs,
-            std::string* diagnostic) {
-          return model.Embed(inputs, options, outputs, diagnostic);
-        });
+    return Invoke<EmbeddingBatch>(inputs, "Embedding", "embed",
+                                  [&](ModelType& model, EmbeddingBatch* outputs,
+                                      std::string* diagnostic) {
+                                    return model.Embed(inputs, options, outputs,
+                                                       diagnostic);
+                                  });
   }
-
-  const std::string& SlotName() const noexcept { return slot_name_; }
-  const std::string& ModelId() const noexcept { return model_id_; }
-  bool IsBound() const noexcept { return model_ != nullptr; }
-
- private:
-  std::shared_ptr<ModelType> model_;
-  std::string slot_name_;
-  std::string model_id_;
 };
 
-class AsrCall {
+class AsrCall : public detail::ModelCallBase<IAsrModel> {
  public:
-  using ModelType = IAsrModel;
   AsrCall() = default;
   explicit AsrCall(std::shared_ptr<ModelType> model,
                    std::string slot_name = "transcriber",
                    std::string model_id = {})
-      : model_(std::move(model)),
-        slot_name_(std::move(slot_name)),
-        model_id_(std::move(model_id)) {}
-  AsrCall(const AsrCall&) = delete;
-  AsrCall& operator=(const AsrCall&) = delete;
-  AsrCall(AsrCall&&) noexcept = default;
-  AsrCall& operator=(AsrCall&&) noexcept = default;
+      : ModelCallBase(std::move(model), std::move(slot_name),
+                      std::move(model_id)) {}
 
   NodeResult<TextBatch> Transcribe(const AudioPcmBatch& inputs) const {
-    return detail::InvokeAlignedModel<TextBatch>(
-        inputs, model_, "ASR", "transcribe", slot_name_,
+    return Invoke<TextBatch>(
+        inputs, "ASR", "transcribe",
         [&](ModelType& model, TextBatch* outputs, std::string* diagnostic) {
           return model.Transcribe(inputs, outputs, diagnostic);
         });
   }
-
-  const std::string& SlotName() const noexcept { return slot_name_; }
-  const std::string& ModelId() const noexcept { return model_id_; }
-  bool IsBound() const noexcept { return model_ != nullptr; }
-
- private:
-  std::shared_ptr<ModelType> model_;
-  std::string slot_name_;
-  std::string model_id_;
 };
 
-class OcrCall {
+class OcrCall : public detail::ModelCallBase<IOcrModel> {
  public:
-  using ModelType = IOcrModel;
   OcrCall() = default;
   explicit OcrCall(std::shared_ptr<ModelType> model,
                    std::string slot_name = "detector",
                    std::string model_id = {})
-      : model_(std::move(model)),
-        slot_name_(std::move(slot_name)),
-        model_id_(std::move(model_id)) {}
-  OcrCall(const OcrCall&) = delete;
-  OcrCall& operator=(const OcrCall&) = delete;
-  OcrCall(OcrCall&&) noexcept = default;
-  OcrCall& operator=(OcrCall&&) noexcept = default;
+      : ModelCallBase(std::move(model), std::move(slot_name),
+                      std::move(model_id)) {}
 
   NodeResult<OcrDocumentBatch> Recognize(const ImageRefBatch& inputs) const {
-    return detail::InvokeAlignedModel<OcrDocumentBatch>(
-        inputs, model_, "OCR", "recognize", slot_name_,
+    return Invoke<OcrDocumentBatch>(
+        inputs, "OCR", "recognize",
         [&](ModelType& model, OcrDocumentBatch* outputs,
             std::string* diagnostic) {
           return model.Recognize(inputs, outputs, diagnostic);
         });
   }
-
-  const std::string& SlotName() const noexcept { return slot_name_; }
-  const std::string& ModelId() const noexcept { return model_id_; }
-  bool IsBound() const noexcept { return model_ != nullptr; }
-
- private:
-  std::shared_ptr<ModelType> model_;
-  std::string slot_name_;
-  std::string model_id_;
 };
 
-class RerankCall {
+class RerankCall : public detail::ModelCallBase<IRerankModel> {
  public:
-  using ModelType = IRerankModel;
   RerankCall() = default;
   explicit RerankCall(std::shared_ptr<ModelType> model,
                       std::string slot_name = "reranker",
                       std::string model_id = {})
-      : model_(std::move(model)),
-        slot_name_(std::move(slot_name)),
-        model_id_(std::move(model_id)) {}
-  RerankCall(const RerankCall&) = delete;
-  RerankCall& operator=(const RerankCall&) = delete;
-  RerankCall(RerankCall&&) noexcept = default;
-  RerankCall& operator=(RerankCall&&) noexcept = default;
+      : ModelCallBase(std::move(model), std::move(slot_name),
+                      std::move(model_id)) {}
 
   NodeResult<ScoreBatch> Score(const QueryCandidatesBatch& inputs) const {
-    return detail::InvokeAlignedModel<ScoreBatch>(
-        inputs, model_, "Rerank", "score", slot_name_,
+    return Invoke<ScoreBatch>(
+        inputs, "Rerank", "score",
         [&](ModelType& model, ScoreBatch* outputs, std::string* diagnostic) {
           return model.Score(inputs, outputs, diagnostic);
         });
   }
-
-  const std::string& SlotName() const noexcept { return slot_name_; }
-  const std::string& ModelId() const noexcept { return model_id_; }
-  bool IsBound() const noexcept { return model_ != nullptr; }
-
- private:
-  std::shared_ptr<ModelType> model_;
-  std::string slot_name_;
-  std::string model_id_;
 };
 
 struct NoModels {};
