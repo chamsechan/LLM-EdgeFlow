@@ -124,30 +124,29 @@ IoBindingRegistry& IoBindingRegistry::Instance() {
 bool IoBindingRegistry::RegisterBinding(const IoBindingDefinition& def) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (def.binding_id.empty()) {
-    conflict_errors_.push_back("Empty binding_id in IoBindingDefinition");
+    conflicts_.Record("Empty binding_id in IoBindingDefinition");
     return false;
   }
   if (def.biz_name.empty()) {
-    conflict_errors_.push_back("Empty biz_name in IoBindingDefinition: " +
-                               def.binding_id);
+    conflicts_.Record("Empty biz_name in IoBindingDefinition: " +
+                      def.binding_id);
     return false;
   }
 
   if (def.input_converter_id.empty()) {
-    conflict_errors_.push_back(
-        "Empty input_converter_id in IoBindingDefinition: " + def.binding_id);
+    conflicts_.Record("Empty input_converter_id in IoBindingDefinition: " +
+                      def.binding_id);
     return false;
   }
   if (def.output_converter_id.empty()) {
-    conflict_errors_.push_back(
-        "Empty output_converter_id in IoBindingDefinition: " + def.binding_id);
+    conflicts_.Record("Empty output_converter_id in IoBindingDefinition: " +
+                      def.binding_id);
     return false;
   }
 
   auto it = bindings_.find(def.binding_id);
   if (it != bindings_.end()) {
-    conflict_errors_.push_back("Duplicate IoBinding registration: " +
-                               def.binding_id);
+    conflicts_.Record("Duplicate IoBinding registration: " + def.binding_id);
     return false;
   }
 
@@ -182,17 +181,17 @@ bool IoBindingRegistry::ValidateBizContract(const std::string& biz_name,
 
 bool IoBindingRegistry::HasConflict() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return !conflict_errors_.empty();
+  return conflicts_.HasConflict();
 }
 
 std::vector<std::string> IoBindingRegistry::GetConflictErrors() const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return conflict_errors_;
+  return conflicts_.Messages();
 }
 
 bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<std::string> errors = conflict_errors_;
+  std::vector<std::string> errors = conflicts_.Messages();
 
   const auto& conv_reg = IoConverterRegistry::Instance();
   if (conv_reg.HasConflict()) {
@@ -421,12 +420,12 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
 void IoBindingRegistry::ClearForTesting() {
   std::lock_guard<std::mutex> lock(mutex_);
   bindings_.clear();
-  conflict_errors_.clear();
+  conflicts_.Clear();
 }
 
 void IoBindingRegistry::ResetConflictForTesting() {
   std::lock_guard<std::mutex> lock(mutex_);
-  conflict_errors_.clear();
+  conflicts_.Clear();
 }
 
 }  // namespace llm_edgeflow

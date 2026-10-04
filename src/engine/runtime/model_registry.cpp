@@ -16,8 +16,7 @@ ModelRegistry& ModelRegistry::Instance() {
 }
 
 void ModelRegistry::RecordConflict(std::string_view error) noexcept {
-  registry_support::RecordConflict(mutex_, has_conflict_, conflict_errors_,
-                                   std::move(error));
+  registry_support::RecordConflict(mutex_, conflicts_, std::move(error));
 }
 
 bool ModelRegistry::Register(const ModelDefinition& definition,
@@ -61,11 +60,11 @@ bool ModelRegistry::Register(const ModelDefinition& definition,
     const bool inserted =
         entries_.emplace(definition.model_type, std::move(staged)).second;
     if (!inserted) {
-      has_conflict_ = true;
       try {
-        conflict_errors_.push_back("Duplicate model registration for type: " +
-                                   definition.model_type);
+        conflicts_.Record("Duplicate model registration for type: " +
+                          definition.model_type);
       } catch (...) {
+        conflicts_.Record(std::string());
       }
       ALG_LOG_ERROR("[ModelRegistry] Duplicate model registration: %s\n",
                     definition.model_type.c_str());
@@ -148,11 +147,11 @@ std::vector<ModelDefinition> ModelRegistry::ListDefinitions() const {
 }
 
 bool ModelRegistry::HasConflict() const noexcept {
-  return registry_support::HasConflict(mutex_, has_conflict_);
+  return registry_support::HasConflict(mutex_, conflicts_);
 }
 
 std::vector<std::string> ModelRegistry::GetConflictErrors() const {
-  return registry_support::GetConflictErrors(mutex_, conflict_errors_);
+  return registry_support::GetConflictErrors(mutex_, conflicts_);
 }
 
 }  // namespace llm_edgeflow

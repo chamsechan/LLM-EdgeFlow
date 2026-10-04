@@ -9,20 +9,21 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/registry_conflicts.h"
 
 namespace llm_edgeflow::registry_support {
 
 template <typename Mutex>
-void RecordConflict(Mutex& mutex, bool& has_conflict,
-                    std::vector<std::string>& errors,
+void RecordConflict(Mutex& mutex, RegistryConflicts& conflicts,
                     std::string_view error) noexcept {
   try {
     std::lock_guard<Mutex> lock(mutex);
-    has_conflict = true;
+    std::string message;
     try {
-      errors.emplace_back(error);
+      message.assign(error);
     } catch (...) {
     }
+    conflicts.Record(std::move(message));
   } catch (...) {
   }
 }
@@ -73,20 +74,20 @@ std::vector<Definition> ListDefinitions(Mutex& mutex, const EntryMap& entries,
 }
 
 template <typename Mutex>
-bool HasConflict(Mutex& mutex, const bool& has_conflict) noexcept {
+bool HasConflict(Mutex& mutex, const RegistryConflicts& conflicts) noexcept {
   try {
     std::lock_guard<Mutex> lock(mutex);
-    return has_conflict;
+    return conflicts.HasConflict();
   } catch (...) {
     return true;
   }
 }
 
 template <typename Mutex>
-std::vector<std::string> GetConflictErrors(
-    Mutex& mutex, const std::vector<std::string>& errors) {
+std::vector<std::string> GetConflictErrors(Mutex& mutex,
+                                           const RegistryConflicts& conflicts) {
   std::lock_guard<Mutex> lock(mutex);
-  return errors;
+  return conflicts.Messages();
 }
 
 }  // namespace llm_edgeflow::registry_support

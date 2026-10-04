@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "adapter/io_converter.h"
+#include "contracts/registry_conflicts.h"
 
 namespace llm_edgeflow {
 
@@ -37,7 +38,7 @@ class IoConverterRegistry {
   mutable std::mutex mutex_;
   std::unordered_map<std::string, InputConverterDefinition> input_converters_;
   std::unordered_map<std::string, OutputConverterDefinition> output_converters_;
-  std::vector<std::string> conflict_errors_;
+  RegistryConflicts conflicts_;
 };
 
 }  // namespace llm_edgeflow

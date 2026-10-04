@@ -7,6 +7,7 @@
 
 #include "adapter/io_binding.h"
 #include "adapter/io_converter.h"
+#include "contracts/registry_conflicts.h"
 
 namespace llm_edgeflow {
 
@@ -60,7 +61,7 @@ class IoBindingRegistry {
 
   mutable std::mutex mutex_;
   std::unordered_map<std::string, IoBindingDefinition> bindings_;
-  std::vector<std::string> conflict_errors_;
+  RegistryConflicts conflicts_;
 };
 
 }  // namespace llm_edgeflow

@@ -15,9 +15,11 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "contracts/registry_conflicts.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_config.h"
 #include "edgeflow/operator/interface.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -141,6 +143,32 @@ class IoBindingRegistryTest : public ::testing::Test {
   static inline std::vector<InputConverterDefinition> saved_inputs_;
   static inline std::vector<OutputConverterDefinition> saved_outputs_;
 };
+
+TEST_F(IoBindingRegistryTest, RegistryConflictsStayRecordedWithoutMessage) {
+  RegistryConflicts conflicts;
+  EXPECT_FALSE(conflicts.HasConflict());
+  EXPECT_TRUE(conflicts.Messages().empty());
+  conflicts.Record("duplicate");
+  EXPECT_TRUE(conflicts.HasConflict());
+  EXPECT_EQ(conflicts.Messages(), std::vector<std::string>{"duplicate"});
+  conflicts.Clear();
+  EXPECT_FALSE(conflicts.HasConflict());
+
+  // Losing the message to an allocation failure must not reopen the registry.
+  RegistryConflicts lossy;
+  std::string message = "lost";
+  bool allocation_failed = false;
+  {
+    test_support::ScopedAllocationFailure failure(0);
+    lossy.Record(std::move(message));
+    allocation_failed = failure.Triggered();
+  }
+  EXPECT_TRUE(allocation_failed);
+  EXPECT_TRUE(lossy.HasConflict());
+  ASSERT_EQ(lossy.Messages().size(), 1u);
+  EXPECT_NE(lossy.Messages()[0].find("without a stored message"),
+            std::string::npos);
+}
 
 TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
   auto& reg = IoBindingRegistry::Instance();
