@@ -21,7 +21,9 @@ description: 新增或修改 LLM-EdgeFlow Backend 的厂商 SDK、硬件运行�
 2. 明确资源创建/失败回收/销毁顺序、输入输出内存生命周期、执行协议、真实并发能力和
    BatchPolicy。`BackendLoadSpec::requested_protocol` 必须匹配，尽早拒绝不支持的协议。
    Session 实际协议仍需与声明一致。
-3. 注册 `BackendDefinition` 与 `REGISTER_BACKEND_WITH_DEFINITION`，声明全部字段、默认值、
+3. Provider 继承 `BackendIdentity<Backend>` 并只在 `kBackendType` 声明类型名；从
+   `MakeBackendDefinition<Backend>()` 开始注册 `BackendDefinition` 与
+   `REGISTER_BACKEND_WITH_DEFINITION`，声明全部字段、默认值、
    范围和协议；额外纯配置约束使用 `validate_config`，Load 复用同一解析规则。
    prompt 格式、图像解码、向量池化等模型语义交给 Model。
 

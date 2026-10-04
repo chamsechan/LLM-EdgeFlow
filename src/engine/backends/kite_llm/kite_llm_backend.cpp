@@ -463,11 +463,6 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
 
 }  // namespace
 
-const std::string& KiteLlmBackend::BackendType() const noexcept {
-  static const std::string type = kBackendType;
-  return type;
-}
-
 std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
@@ -601,8 +596,7 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
 
 #ifdef HAVE_KITELLM
 static const BackendDefinition kKiteLlmBackendDefinition = [] {
-  BackendDefinition definition;
-  definition.backend_type = KiteLlmBackend::kBackendType;
+  auto definition = MakeBackendDefinition<KiteLlmBackend>();
   definition.description =
       "kiteLLM text/image generation and generated-token embeddings (pinned "
       "CPU release; native "

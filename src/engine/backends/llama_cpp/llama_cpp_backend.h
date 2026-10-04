@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 
+#include "engine/backend_identity.h"
 #include "engine/backend_interface.h"
 
 namespace llm_edgeflow {
@@ -14,13 +15,11 @@ namespace llm_edgeflow {
  * This class owns no chat template, sampling, stop-word, or generation-loop
  * semantics.
  */
-class LlamaCppBackend final : public IInferenceBackend {
+class LlamaCppBackend final : public BackendIdentity<LlamaCppBackend> {
  public:
   inline static constexpr char kBackendType[] = "llama_cpp";
 
   ~LlamaCppBackend() override = default;
-
-  const std::string& BackendType() const noexcept override;
 
   std::shared_ptr<IBackendSession> Load(
       const BackendLoadSpec& spec,

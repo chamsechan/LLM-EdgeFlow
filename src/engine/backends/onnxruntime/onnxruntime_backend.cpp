@@ -551,11 +551,6 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
 OnnxRuntimeBackend::OnnxRuntimeBackend() = default;
 OnnxRuntimeBackend::~OnnxRuntimeBackend() = default;
 
-const std::string& OnnxRuntimeBackend::BackendType() const noexcept {
-  static const std::string type = kBackendType;
-  return type;
-}
-
 std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
@@ -732,8 +727,7 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
 
 #ifdef HAVE_ONNXRUNTIME
 static const BackendDefinition kOnnxRuntimeBackendDefinition = [] {
-  BackendDefinition def;
-  def.backend_type = OnnxRuntimeBackend::kBackendType;
+  auto def = MakeBackendDefinition<OnnxRuntimeBackend>();
   def.description = "Microsoft ONNX Runtime TensorGraph inference backend";
   def.supported_protocols = {ExecutionProtocol::kTensorGraph};
   def.concurrency = InferenceConcurrency::kConcurrent;
