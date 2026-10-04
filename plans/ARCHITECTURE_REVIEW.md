@@ -331,7 +331,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | D1 | Model 身份声明去重 | 第三节·模型执行层 | 已完成：6 个生产 Model 继承 `ModelIdentity`，身份只声明 `kModelType`/`kConcurrency`，能力由接口推导，Definition 用 `MakeModelDefinition`；工厂的实例核验保留，Catalog 逐字节不变。Backend 类型名随 D2 处理 |
 | D2 | Backend Provider 函数化注册 | 第三节·模型执行层 | 部分完成：4 个生产 Backend 继承 `BackendIdentity`，类型名只在 `kBackendType` 声明，Definition 用 `MakeBackendDefinition`。函数化注册不采纳：Provider 只是一个小类，异常屏障、诊断、Session 所有权和协议检查都在 `Load` 与工厂中，改为函数不会减少这些工作，却要改动 `BackendRegistry` 接口和所有测试替身 |
 | D3 | Model/Backend 配置声明与读取统一 | 第三节·模型执行层 | 已完成：`contracts` 新增 `ConfigValueOrDefault`，6 个 Model 与 2 个 Backend 的 33 处读取改为取 Definition 中声明的默认值（此前手写默认值均与声明一致），Catalog 逐字节不变。未把 Node 的 `Parameters<T>` 移入 contracts：Model 配置只在创建时读取一次，读取器已消除重复 |
-| D4 | Backend 条件编译由 CMake 收敛 | 第三节·模型执行层 | 待评估 |
+| D4 | Backend 条件编译由 CMake 收敛 | 第三节·模型执行层 | 不采纳：厂商头文件已只出现在各 Backend 源文件的受保护分支内，始终编译的中性工具已在 `*_detail` 中独立并有测试；每个文件只有 7–13 行预处理指令。改由 CMake 收录会让关闭的 Backend 缺少 Provider 定义，测试与注册还需额外按开关处理，并须验证 4 个开关各自开启和关闭的构建，成本高于可读性收益。新增可选 Backend 或受保护代码明显增多时再处理 |
 | D5 | 注册表公共操作抽取 | 第三节·横向 | 待评估 |
 | D6 | 运行时契约与编排实现目录分离 | 第三节·横向 | 待评估 |
 
