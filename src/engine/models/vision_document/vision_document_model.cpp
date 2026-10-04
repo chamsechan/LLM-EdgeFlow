@@ -59,17 +59,6 @@ std::shared_ptr<IModel> VisionDocumentModel::Create(
   }
 }
 
-const std::string& VisionDocumentModel::ModelType() const noexcept {
-  static const std::string value = "vision_document";
-  return value;
-}
-const std::string& VisionDocumentModel::Capability() const noexcept {
-  static const std::string value = "ocr";
-  return value;
-}
-InferenceConcurrency VisionDocumentModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
 int VisionDocumentModel::Recognize(const ImageRefBatch& images,
                                    OcrDocumentBatch* outputs,
                                    std::string* diagnostic) noexcept {
@@ -115,13 +104,10 @@ int VisionDocumentModel::Recognize(const ImageRefBatch& images,
 }
 
 static const ModelDefinition kVisionDocumentDefinition = [] {
-  ModelDefinition definition;
-  definition.model_type = "vision_document";
-  definition.capability = "ocr";
+  auto definition = MakeModelDefinition<VisionDocumentModel>();
   definition.description =
       "Image-to-text document recognition; text only, no detected boxes";
   definition.required_protocol = ExecutionProtocol::kImageTextGeneration;
-  definition.concurrency = InferenceConcurrency::kConcurrent;
   definition.validate_config = ValidateVisionConfig;
   definition.config_fields = {
       {"prompt",

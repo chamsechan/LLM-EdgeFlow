@@ -78,20 +78,6 @@ QwenCausalLmModel::QwenCausalLmModel(
       add_bos_(add_bos),
       random_seed_(random_seed) {}
 
-const std::string& QwenCausalLmModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
-  return type;
-}
-
-const std::string& QwenCausalLmModel::Capability() const noexcept {
-  static const std::string capability = kCapability;
-  return capability;
-}
-
-InferenceConcurrency QwenCausalLmModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
-
 std::string QwenCausalLmModel::ApplyChatTemplate(
     const std::string& prompt) const {
   std::string formatted;
@@ -182,13 +168,10 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
 }
 
 static const ModelDefinition kQwenCausalLmModelDefinition = [] {
-  ModelDefinition definition;
-  definition.model_type = QwenCausalLmModel::kModelType;
-  definition.capability = QwenCausalLmModel::kCapability;
+  auto definition = MakeModelDefinition<QwenCausalLmModel>();
   definition.description =
       "Qwen ChatML model using the unified text-generation protocol";
   definition.required_protocol = ExecutionProtocol::kTextGeneration;
-  definition.concurrency = InferenceConcurrency::kConcurrent;
   definition.config_fields = {
       {"system_prompt",
        ConfigValueKind::kString,

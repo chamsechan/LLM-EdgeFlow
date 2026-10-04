@@ -5,6 +5,7 @@
 #include <string>
 
 #include "engine/backend_interface.h"
+#include "engine/model_identity.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 
@@ -17,10 +18,12 @@ namespace llm_edgeflow {
  * sampling, generation loops and vendor resources belong below the unified
  * ITextGenerationSession boundary.
  */
-class QwenCausalLmModel final : public ILlmModel {
+class QwenCausalLmModel final
+    : public ModelIdentity<QwenCausalLmModel, ILlmModel> {
  public:
   inline static constexpr char kModelType[] = "qwen_causal_lm";
-  inline static constexpr char kCapability[] = "llm";
+  static constexpr InferenceConcurrency kConcurrency =
+      InferenceConcurrency::kConcurrent;
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext& ctx,
                                         std::string* diagnostic);
@@ -29,10 +32,6 @@ class QwenCausalLmModel final : public ILlmModel {
                     std::string system_prompt, bool add_bos,
                     int64_t random_seed);
   ~QwenCausalLmModel() override = default;
-
-  const std::string& ModelType() const noexcept override;
-  const std::string& Capability() const noexcept override;
-  InferenceConcurrency Concurrency() const noexcept override;
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs,

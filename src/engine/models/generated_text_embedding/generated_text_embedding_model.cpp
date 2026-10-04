@@ -54,17 +54,6 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
   }
 }
 
-const std::string& GeneratedTextEmbeddingModel::ModelType() const noexcept {
-  static const std::string type = "generated_text_embedding";
-  return type;
-}
-const std::string& GeneratedTextEmbeddingModel::Capability() const noexcept {
-  static const std::string capability = "embedding";
-  return capability;
-}
-InferenceConcurrency GeneratedTextEmbeddingModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
 int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
                                        const EmbeddingOptions& options,
                                        EmbeddingBatch* outputs,
@@ -147,14 +136,11 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
 }
 
 static const ModelDefinition kGeneratedTextEmbeddingDefinition = [] {
-  ModelDefinition definition;
-  definition.model_type = "generated_text_embedding";
-  definition.capability = "embedding";
+  auto definition = MakeModelDefinition<GeneratedTextEmbeddingModel>();
   definition.description =
       "Experimental text vectors from greedy generated-token hidden states; "
       "last/mean pooling, not encoder embeddings";
   definition.required_protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
-  definition.concurrency = InferenceConcurrency::kConcurrent;
   definition.config_fields = {
       {"embedding_dim",
        ConfigValueKind::kInteger,
