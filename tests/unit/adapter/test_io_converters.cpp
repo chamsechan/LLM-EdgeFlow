@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <string_view>
+#include <type_traits>
 
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
@@ -84,6 +85,13 @@ TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
   EXPECT_TRUE(out_bindings.HasKey("answers"));
   EXPECT_EQ(out_bindings.GetActualKey("unknown"), "");
   EXPECT_FALSE(out_bindings.HasKey("unknown"));
+  EXPECT_STREQ(out_bindings.Key<TextBatch>("unknown").name, "");
+
+  // Shared lookup keeps the direction in the type: decoders cannot receive
+  // output bindings and encoders cannot receive input bindings.
+  static_assert(!std::is_same_v<InputPortBindings, OutputPortBindings>);
+  static_assert(!std::is_convertible_v<OutputPortBindings, InputPortBindings>);
+  static_assert(!std::is_convertible_v<InputPortBindings, OutputPortBindings>);
 }
 
 TEST(IoConverterTest, RegisterAndFindInputConverter) {

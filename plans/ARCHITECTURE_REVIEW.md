@@ -318,7 +318,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | A3 | 错误码按阶段映射 | 第一节 1 | 已完成：Adapter 集中映射，`Pipeline::Control` 报告失败阶段；规则见[宿主调用与生命周期](../doc/dev_guide/operator_output_allocation.md#宿主调用与生命周期)，真实 SDK 目标码仍待内网核验 |
 | A4 | 致命错误与单条无效结果写入业务契约 | 第一节 4 | 已完成：保留整批回滚，各业务约定见[整批失败与单条结果](../doc/dev_guide/business_onboarding.md#整批失败与单条结果) |
 | B1 | 清理未使用的结果结构 | 第三节·接入适配层 | 已完成：删除 `biz_results.h`；自定义 allocator 测试改用夹具内的 `NestedOutputSource` |
-| B2 | 输入/输出端口绑定共用实现 | 第三节·接入适配层 | 待实施 |
+| B2 | 输入/输出端口绑定共用实现 | 第三节·接入适配层 | 已完成：`PortBindings<方向>` 共用查找，输入/输出仍是不可互换的类型 |
 | B3 | 输入限额统一规则来源 | 第三节·接入适配层 | 待实施 |
 | B4 | `RuntimeOptions` 死字段与测试便利接口 | 第三节·流程编排层 | 待实施 |
 | B5 | `NodeBase` 旧写法辅助函数收窄 | 第三节·能力节点层 | 待评估 |

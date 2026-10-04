@@ -146,12 +146,15 @@ struct OutputEncodeOptions {
 
 /**
  * @brief 逻辑端口到实际 Blackboard Key 的映射助手
+ *
+ * 输入与输出共用查找实现；方向参数使两者保持不同类型，解码只能拿到输入绑定，
+ * 编码只能拿到输出绑定。
  */
-class InputPortBindings {
+template <PortDirection kDirection>
+class PortBindings {
  public:
-  InputPortBindings() = default;
-  explicit InputPortBindings(
-      std::unordered_map<std::string, std::string> mapping)
+  PortBindings() = default;
+  explicit PortBindings(std::unordered_map<std::string, std::string> mapping)
       : mapping_(std::move(mapping)) {}
 
   bool HasKey(const std::string& logical_name) const {
@@ -160,12 +163,8 @@ class InputPortBindings {
 
   template <typename T>
   BlackboardKey<T> Key(const std::string& logical_name) const {
-    auto it = mapping_.find(logical_name);
-    if (it != mapping_.end()) {
-      return BlackboardKey<T>{it->second.c_str(),
-                              BlackboardTypeTraits<T>::TypeName()};
-    }
-    return BlackboardKey<T>{"", BlackboardTypeTraits<T>::TypeName()};
+    return BlackboardKey<T>{GetActualKey(logical_name).c_str(),
+                            BlackboardTypeTraits<T>::TypeName()};
   }
 
   // The token names a logical port; always resolve the actual key via bindings.
@@ -191,48 +190,8 @@ class InputPortBindings {
   std::unordered_map<std::string, std::string> mapping_;
 };
 
-class OutputPortBindings {
- public:
-  OutputPortBindings() = default;
-  explicit OutputPortBindings(
-      std::unordered_map<std::string, std::string> mapping)
-      : mapping_(std::move(mapping)) {}
-
-  bool HasKey(const std::string& logical_name) const {
-    return mapping_.find(logical_name) != mapping_.end();
-  }
-
-  template <typename T>
-  BlackboardKey<T> Key(const std::string& logical_name) const {
-    auto it = mapping_.find(logical_name);
-    if (it != mapping_.end()) {
-      return BlackboardKey<T>{it->second.c_str(),
-                              BlackboardTypeTraits<T>::TypeName()};
-    }
-    return BlackboardKey<T>{"", BlackboardTypeTraits<T>::TypeName()};
-  }
-
-  template <typename T>
-  BlackboardKey<T> Key(const BlackboardKey<T>& logical_port) const {
-    return Key<T>(logical_port.name);
-  }
-
-  const std::string& GetActualKey(const std::string& logical_name) const {
-    auto it = mapping_.find(logical_name);
-    if (it != mapping_.end()) {
-      return it->second;
-    }
-    static const std::string kEmpty;
-    return kEmpty;
-  }
-
-  const std::unordered_map<std::string, std::string>& All() const {
-    return mapping_;
-  }
-
- private:
-  std::unordered_map<std::string, std::string> mapping_;
-};
+using InputPortBindings = PortBindings<PortDirection::kInput>;
+using OutputPortBindings = PortBindings<PortDirection::kOutput>;
 
 /**
  * @brief 外部槽位定义 (Operator 槽位)
