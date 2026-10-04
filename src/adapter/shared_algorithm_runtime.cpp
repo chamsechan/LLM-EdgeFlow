@@ -112,7 +112,6 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     }
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
-    options.biz_name = io_plan->binding.biz_name;
 
     pipeline->GetSessionContext().SetRuntimeOptions(options);
 

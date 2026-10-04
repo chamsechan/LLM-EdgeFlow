@@ -18,6 +18,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
@@ -1292,8 +1293,8 @@ TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
   auto model1 = std::make_shared<CountingModel>();
   auto model2 = std::make_shared<CountingModel>();
 
-  EXPECT_TRUE(manager.RegisterModel("model_x", model1, "test-v1"));
-  EXPECT_FALSE(manager.RegisterModel("model_x", model2, "test-v2"))
+  EXPECT_TRUE(RegisterTestModel(manager, "model_x", model1, "test-v1"));
+  EXPECT_FALSE(RegisterTestModel(manager, "model_x", model2, "test-v2"))
       << "Duplicate model_id registration must return false without "
          "overwriting";
   EXPECT_EQ(manager.GetModel<CountingModel>("model_x"), model1);

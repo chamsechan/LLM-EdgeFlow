@@ -11,6 +11,7 @@
 #include "core/session_context.h"
 #include "dev_support/inference/test_capability_models.h"
 #include "nodes/node_error_codes.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -21,9 +22,9 @@ class AsrTranscribeNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
 
     asr_model_ = std::make_shared<test::TestAsrModel>();
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "asr_model_v1", asr_model_, "test-revision", "test_asr_model", "asr",
-        "test_tensor_backend"));
+    ASSERT_TRUE(RegisterTestModel(
+        session_ctx_->GetModelManager(), "asr_model_v1", asr_model_,
+        "test-revision", "test_asr_model", "asr", "test_tensor_backend"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<test::TestAsrModel> asr_model_;

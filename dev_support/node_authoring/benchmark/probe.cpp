@@ -137,8 +137,11 @@ int main(int argc, char** argv) {
   const int batch_size = 32, length = 1024;
   SessionContext session;
   auto mock = std::make_shared<EchoModel>();
-  if (!session.GetModelManager().RegisterModel("echo", mock, "probe-v1"))
-    return 2;
+  ModelRegistration registration;
+  registration.model_id = "echo";
+  registration.revision = "probe-v1";
+  registration.model = mock;
+  if (!session.GetModelManager().RegisterBatch({registration})) return 2;
   ValidatedNodePlan plan;
   std::unique_ptr<INode> node;
   if (mode == "old_map")

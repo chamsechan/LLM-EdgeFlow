@@ -39,10 +39,7 @@ class SessionResourceKey {
 struct RuntimeOptions {
   int device_id = -1;  // -1 表示未指定/默认，>=0 表示物理设备 ID
   bool has_device_id = false;
-  int biz_type = 0;
-  std::string biz_name;
   std::string chip_type = "UNKNOWN";
-  uint32_t depth_num = 1;
 };
 
 /**
@@ -121,24 +118,6 @@ class ModelManager {
     }
     registrations_.swap(new_registrations);
     return true;
-  }
-
-  /**
-   * @brief 注册单个模型实例
-   */
-  bool RegisterModel(const std::string& model_id, std::shared_ptr<IModel> model,
-                     std::string revision = {}, std::string model_type = {},
-                     std::string capability = {},
-                     std::string backend_type = {}) {
-    if (model_id.empty() || !model) return false;
-    ModelRegistration reg;
-    reg.model_id = model_id;
-    reg.model_type = std::move(model_type);
-    reg.capability = std::move(capability);
-    reg.backend_type = std::move(backend_type);
-    reg.revision = std::move(revision);
-    reg.model = std::move(model);
-    return RegisterBatch({std::move(reg)});
   }
 
   template <typename T>

@@ -31,6 +31,7 @@
 #include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "engine/models/common/embedding_numeric_support.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/pipeline_test_utils.h"
 
@@ -498,8 +499,8 @@ TEST_F(OnnxAndEmbeddingModelTest,
       {"[PAD]", "[UNK]", "[CLS]", "[SEP]", "hello"}, true));
   auto model = std::make_shared<BgeEmbeddingModel>(
       fake_session, tokenizer, 16, "cls", "last_hidden_state", 4, 2);
-  ASSERT_TRUE(
-      session_ctx.GetModelManager().RegisterModel("shared_bge", model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx.GetModelManager(), "shared_bge",
+                                model, "v1"));
   for (const std::string lifetime : {"request", "session"}) {
     for (const bool normalize : {true, false, true}) {
       SCOPED_TRACE(lifetime + (normalize ? ":normalized" : ":raw"));
@@ -846,8 +847,8 @@ TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {
       fake_session, tokenizer, /*max_length=*/16, "mean", "last_hidden_state",
       /*embedding_dim=*/4, /*max_batch_size=*/2);
 
-  session_ctx.GetModelManager().RegisterModel(
-      "test_bge", model, "v1", "bge_embedding", "embedding", "fake_ort");
+  RegisterTestModel(session_ctx.GetModelManager(), "test_bge", model, "v1",
+                    "bge_embedding", "embedding", "fake_ort");
 
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);

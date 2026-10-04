@@ -198,10 +198,8 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     llm_edgeflow::RuntimeOptions runtime_options;
     runtime_options.chip_type =
         ComputePlatformToString(param->compute_platform);
-    runtime_options.depth_num = effective_depth;
     runtime_options.device_id = param->device_id;
     runtime_options.has_device_id = (param->device_id >= 0);
-    runtime_options.biz_name = resolved_conf.biz_name;
 
     // 3. 构建内部共享运行时 (通过已验证的 IoPlan)
     std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
