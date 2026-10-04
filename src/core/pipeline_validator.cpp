@@ -27,7 +27,34 @@ void Add(ValidationReport* report, DiagnosticCode code, std::string path,
   report->diagnostics.push_back({code, std::move(path), std::move(message),
                                  "error", std::move(node_id), std::move(port),
                                  std::move(related), std::move(suggestions),
-                                 std::nullopt});
+                                 std::nullopt, nlohmann::json::object()});
+}
+
+nlohmann::json PortContractFacts(const PortContract& port) {
+  return {{"type_id", port.type_id},
+          {"cardinality", port.cardinality},
+          {"provenance_policy", port.provenance_policy},
+          {"lifetime", port.lifetime}};
+}
+
+void AddPortFlowDiagnostic(
+    ValidationReport* report, DiagnosticCode code, const std::string& path,
+    std::string message, const std::string& producer_id,
+    const std::string& consumer_id, PortDirection location,
+    const std::string& logical_port, const std::string& bound_key,
+    const PortContract& producer, const PortContract& consumer) {
+  // A node input diagnostic belongs to the consumer; boundary diagnostics
+  // belong to the producer. Preserve these locations and related-node IDs.
+  const bool boundary = location == PortDirection::kOutput;
+  Add(report, code, path, std::move(message),
+      boundary ? producer_id : consumer_id, logical_port,
+      {boundary ? consumer_id : producer_id});
+  report->diagnostics.back().facts = {
+      {"producer_id", producer_id},
+      {"consumer_id", consumer_id},
+      {"bound_key", bound_key},
+      {"actual", PortContractFacts(producer)},
+      {"expected", PortContractFacts(consumer)}};
 }
 
 NodePortDefinition EffectivePortDefinition(
@@ -87,6 +114,18 @@ std::string DescribeShape(const KeyShape& shape) {
   return "an unknown number of items per request";
 }
 
+nlohmann::json ShapeFacts(const KeyShape& shape) {
+  switch (shape.kind) {
+    case KeyShape::Kind::kPerRequest:
+      return {{"kind", "per_request"}};
+    case KeyShape::Kind::kMulti:
+      return {{"kind", "multi"}, {"origin", shape.origin}};
+    case KeyShape::Kind::kUnknown:
+      break;
+  }
+  return {{"kind", "unknown"}};
+}
+
 // Biz and IO boundary ports count items per request: "1:1" is exactly one
 // item, any other declaration is a collection belonging to the request.
 KeyShape BoundaryShape(const PortContract& port, std::string origin) {
@@ -102,19 +141,22 @@ KeyShape NodeOutputShape(const PortContract& output, const KeyShape& item_shape,
   return KeyShape::Unknown();
 }
 
-void ValidateBoundaryShape(const KeyShape& produced,
-                           const PortContract& consumer,
-                           const std::string& path, const std::string& node_id,
-                           const std::string& logical_port,
-                           const std::string& producer_id,
-                           ValidationReport* report) {
+void ValidateBoundaryShape(
+    const KeyShape& produced, const PortContract& producer,
+    const PortContract& consumer, const std::string& path,
+    const std::string& producer_id, const std::string& consumer_id,
+    const std::string& bound_key, ValidationReport* report) {
   if (consumer.cardinality != "1:1" || produced.kind != KeyShape::Kind::kMulti)
     return;
-  Add(report, DiagnosticCode::kPortCardinalityMismatch, path,
-      "Port cardinality mismatch: '" + logical_port +
-          "' requires one item per request but receives " +
-          DescribeShape(produced),
-      node_id, logical_port, {producer_id});
+  AddPortFlowDiagnostic(report, DiagnosticCode::kPortCardinalityMismatch, path,
+                        "Port cardinality mismatch: '" + bound_key +
+                            "' requires one item per request but receives " +
+                            DescribeShape(produced),
+                        producer_id, consumer_id, PortDirection::kOutput,
+                        bound_key, bound_key, producer, consumer);
+  auto& facts = report->diagnostics.back().facts;
+  facts["actual_shape"] = ShapeFacts(produced);
+  facts["expected_shape"] = ShapeFacts(KeyShape::PerRequest());
 }
 
 bool ProvenanceCompatible(const std::string& producer,
@@ -141,26 +183,29 @@ bool LifetimeCompatible(const std::string& producer,
   return LifetimeRank(producer) >= LifetimeRank(consumer);
 }
 
-void ValidatePortFlowContract(const PortContract& producer,
-                              const PortContract& consumer,
-                              const std::string& path,
-                              const std::string& node_id,
-                              const std::string& logical_port,
-                              const std::string& producer_id,
-                              ValidationReport* report) {
+void ValidatePortFlowContract(
+    const PortContract& producer, const PortContract& consumer,
+    const std::string& path, const std::string& producer_id,
+    const std::string& consumer_id, PortDirection location,
+    const std::string& logical_port, const std::string& bound_key,
+    ValidationReport* report) {
   if (!ProvenanceCompatible(producer.provenance_policy,
                             consumer.provenance_policy)) {
-    Add(report, DiagnosticCode::kPortProvenanceMismatch, path,
-        "Port provenance mismatch: producer policy '" +
-            producer.provenance_policy + "' cannot satisfy consumer policy '" +
-            consumer.provenance_policy + "'",
-        node_id, logical_port, {producer_id});
+    AddPortFlowDiagnostic(report, DiagnosticCode::kPortProvenanceMismatch, path,
+                          "Port provenance mismatch: producer policy '" +
+                              producer.provenance_policy +
+                              "' cannot satisfy consumer policy '" +
+                              consumer.provenance_policy + "'",
+                          producer_id, consumer_id, location, logical_port,
+                          bound_key, producer, consumer);
   }
   if (!LifetimeCompatible(producer.lifetime, consumer.lifetime)) {
-    Add(report, DiagnosticCode::kPortLifetimeMismatch, path,
+    AddPortFlowDiagnostic(
+        report, DiagnosticCode::kPortLifetimeMismatch, path,
         "Port lifetime mismatch: producer lifetime '" + producer.lifetime +
             "' is shorter than consumer lifetime '" + consumer.lifetime + "'",
-        node_id, logical_port, {producer_id});
+        producer_id, consumer_id, location, logical_port, bound_key, producer,
+        consumer);
   }
 }
 
@@ -600,13 +645,14 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                     "', got '" + it->second.type_id + "'",
                 "$io_input", req_in.blackboard_key);
           } else {
-            ValidatePortFlowContract(it->second, req_in, "/io/input",
-                                     "$io_input", req_in.blackboard_key,
-                                     "$ingress", &report);
+            ValidatePortFlowContract(
+                it->second, req_in, "/io/input", "$io_input", "$ingress",
+                PortDirection::kOutput, req_in.blackboard_key,
+                req_in.blackboard_key, &report);
             ValidateBoundaryShape(
                 BoundaryShape(it->second, "$ingress." + req_in.blackboard_key),
-                req_in, "/io/input", "$io_input", req_in.blackboard_key,
-                "$ingress", &report);
+                it->second, req_in, "/io/input", "$io_input", "$ingress",
+                req_in.blackboard_key, &report);
           }
         }
       }
@@ -705,6 +751,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     // single item per request.
     KeyShape item_shape = KeyShape::PerRequest();
     std::string item_shape_port;
+    std::string item_shape_key;
 
     ValidatedNodePlan node_plan;
     node_plan.node = node;
@@ -779,6 +826,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                                  input.lifetime, PortDirection::kInput});
       bool found = false;
       std::string source_id;
+      const PortContract* source_contract = nullptr;
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end() && producer_it->second.size() == 1 &&
           !ingress.count(actual_key)) {
@@ -786,8 +834,10 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         if (producer.second.type_id == input.type_id) {
           found = true;
           source_id = producer.first;
-          ValidatePortFlowContract(producer.second, input, input_path, id,
-                                   input.logical_name, producer.first, &report);
+          source_contract = &producer.second;
+          ValidatePortFlowContract(producer.second, input, input_path,
+                                   producer.first, id, PortDirection::kInput,
+                                   input.logical_name, actual_key, &report);
         }
       } else if (producer_it == producers.end()) {
         auto root_port = ingress.find(actual_key);
@@ -795,8 +845,10 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
             root_port->second.type_id == input.type_id) {
           found = true;
           source_id = "$ingress";
-          ValidatePortFlowContract(root_port->second, input, input_path, id,
-                                   input.logical_name, "$ingress", &report);
+          source_contract = &root_port->second;
+          ValidatePortFlowContract(root_port->second, input, input_path,
+                                   "$ingress", id, PortDirection::kInput,
+                                   input.logical_name, actual_key, &report);
         }
       }
       if (input.cardinality == "1:1") {
@@ -805,15 +857,23 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         if (item_shape_port.empty()) {
           item_shape = shape;
           item_shape_port = input.logical_name;
+          item_shape_key = actual_key;
         } else if (item_shape.Known() && shape.Known() &&
                    !(item_shape == shape)) {
-          Add(&report, DiagnosticCode::kPortCardinalityMismatch, input_path,
+          AddPortFlowDiagnostic(
+              &report, DiagnosticCode::kPortCardinalityMismatch, input_path,
               "Port cardinality mismatch: item-wise input '" +
                   input.logical_name + "' receives " + DescribeShape(shape) +
                   ", but item-wise input '" + item_shape_port + "' receives " +
                   DescribeShape(item_shape) +
                   "; item-wise inputs must pair item by item",
-              id, input.logical_name, {source_id});
+              source_id, id, PortDirection::kInput, input.logical_name,
+              actual_key, *source_contract, input);
+          auto& facts = report.diagnostics.back().facts;
+          facts["actual_shape"] = ShapeFacts(shape);
+          facts["expected_shape"] = ShapeFacts(item_shape);
+          facts["anchor_port"] = item_shape_port;
+          facts["anchor_key"] = item_shape_key;
           item_shape = KeyShape::Unknown();
         } else if (!shape.Known()) {
           item_shape = KeyShape::Unknown();
@@ -961,11 +1021,12 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         continue;
       }
       ValidatePortFlowContract(producer_port, consumer, output_path,
-                               producer_id, consumer.blackboard_key, "$egress",
+                               producer_id, "$egress", PortDirection::kOutput,
+                               consumer.blackboard_key, consumer.blackboard_key,
                                &report);
-      ValidateBoundaryShape(shape_of(consumer.blackboard_key), consumer,
-                            output_path, producer_id, consumer.blackboard_key,
-                            "$egress", &report);
+      ValidateBoundaryShape(shape_of(consumer.blackboard_key), producer_port,
+                            consumer, output_path, producer_id, "$egress",
+                            consumer.blackboard_key, &report);
     }
   }
 
@@ -983,12 +1044,14 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                     "'",
                 "$ingress", consumer.blackboard_key, {"$io_output"});
           } else {
-            ValidatePortFlowContract(ing_it->second, consumer, "/io/output",
-                                     "$ingress", consumer.blackboard_key,
-                                     "$io_output", &report);
-            ValidateBoundaryShape(
-                shape_of(consumer.blackboard_key), consumer, "/io/output",
-                "$ingress", consumer.blackboard_key, "$io_output", &report);
+            ValidatePortFlowContract(
+                ing_it->second, consumer, "/io/output", "$ingress",
+                "$io_output", PortDirection::kOutput, consumer.blackboard_key,
+                consumer.blackboard_key, &report);
+            ValidateBoundaryShape(shape_of(consumer.blackboard_key),
+                                  ing_it->second, consumer, "/io/output",
+                                  "$ingress", "$io_output",
+                                  consumer.blackboard_key, &report);
           }
           continue;
         }
@@ -1012,11 +1075,12 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         continue;
       }
       ValidatePortFlowContract(producer_port, consumer, "/io/output",
-                               producer_id, consumer.blackboard_key,
-                               "$io_output", &report);
-      ValidateBoundaryShape(shape_of(consumer.blackboard_key), consumer,
-                            "/io/output", producer_id, consumer.blackboard_key,
-                            "$io_output", &report);
+                               producer_id, "$io_output",
+                               PortDirection::kOutput, consumer.blackboard_key,
+                               consumer.blackboard_key, &report);
+      ValidateBoundaryShape(shape_of(consumer.blackboard_key), producer_port,
+                            consumer, "/io/output", producer_id, "$io_output",
+                            consumer.blackboard_key, &report);
     }
   }
 
@@ -1116,6 +1180,7 @@ nlohmann::json ValidationDiagnostic::ToJson() const {
   if (!port.empty()) item["port"] = port;
   if (!related_nodes.empty()) item["related_nodes"] = related_nodes;
   if (!suggestions.empty()) item["suggestions"] = suggestions;
+  if (!facts.empty()) item["facts"] = facts;
   if (remediation.has_value()) {
     item["remediation"] = remediation->ToJson();
   }

@@ -1162,4 +1162,34 @@ TEST_F(DefinitionSchemaValidationTest,
                nlohmann::json::exception);
 }
 
+TEST_F(DefinitionSchemaValidationTest,
+       ConfigValueOrDefaultRejectsSuppliedUndeclaredField) {
+  const std::vector<ConfigFieldDefinition> fields = {
+      {"threads", ConfigValueKind::kInteger, false, 2}};
+  const nlohmann::json config = {{"threads", 8}, {"undeclared", 42}};
+  EXPECT_THROW(ConfigValueOrDefault<int>(config, fields, "undeclared"),
+               std::invalid_argument);
+  EXPECT_THROW(ConfigValueOrDefault<int>(config, {}, "threads"),
+               std::invalid_argument);
+}
+
+TEST_F(DefinitionSchemaValidationTest,
+       ConfigValueOrDefaultRejectsNonObjectExceptNull) {
+  const std::vector<ConfigFieldDefinition> fields = {
+      {"threads", ConfigValueKind::kInteger, false, 2}};
+  const std::vector<nlohmann::json> invalid_configs = {
+      nlohmann::json::array(), nlohmann::json::array({8}), nlohmann::json(8),
+      nlohmann::json(2.5),     nlohmann::json("text"),     nlohmann::json(true),
+      nlohmann::json(false)};
+  for (const auto& config : invalid_configs) {
+    SCOPED_TRACE(config.dump());
+    EXPECT_THROW(ConfigValueOrDefault<int>(config, fields, "threads"),
+                 std::invalid_argument);
+  }
+  EXPECT_EQ(ConfigValueOrDefault<int>(nlohmann::json(), fields, "threads"), 2);
+  EXPECT_EQ(
+      ConfigValueOrDefault<int>(nlohmann::json::object(), fields, "threads"),
+      2);
+}
+
 }  // namespace llm_edgeflow

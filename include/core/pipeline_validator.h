@@ -47,6 +47,9 @@ struct ValidationDiagnostic {
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
   std::optional<ValidationRemediation> remediation;
+  // Neutral facts established by validation, including inferred item shapes.
+  // Tooling may explain these facts without repeating Validator rules.
+  nlohmann::json facts = nlohmann::json::object();
 
   nlohmann::json ToJson() const;
 };

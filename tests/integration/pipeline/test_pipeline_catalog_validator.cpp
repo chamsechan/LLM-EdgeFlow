@@ -1165,6 +1165,59 @@ TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
             DiagnosticCode::kPortCardinalityMismatch);
   EXPECT_EQ(rejected.diagnostics[0].path, "/pipeline/1/outputs/matches");
   EXPECT_EQ(rejected.diagnostics[0].port, "rule_matches");
+  const auto& egress = rejected.diagnostics[0];
+  ASSERT_TRUE(egress.remediation.has_value());
+  EXPECT_EQ(egress.remediation->cause, RemediationCause::kPortFlowMismatch);
+  EXPECT_NE(egress.remediation->summary.find("生产者 'rules_per_chunk'"),
+            std::string::npos);
+  EXPECT_NE(egress.remediation->summary.find("消费者 '$egress'"),
+            std::string::npos);
+  EXPECT_NE(egress.remediation->summary.find("chunk.chunks"),
+            std::string::npos);
+  EXPECT_NE(egress.remediation->summary.find("每请求一项"), std::string::npos);
+  const nlohmann::json declaration = {{"type_id", "RuleMatchBatch"},
+                                      {"cardinality", "1:1"},
+                                      {"provenance_policy", "preserve"},
+                                      {"lifetime", "request"}};
+  const nlohmann::json actual_shape = {{"kind", "multi"},
+                                       {"origin", "chunk.chunks"}};
+  const nlohmann::json expected_shape = {{"kind", "per_request"}};
+  const auto& facts = egress.remediation->facts;
+  EXPECT_EQ(facts.at("producer_id"), "rules_per_chunk");
+  EXPECT_EQ(facts.at("consumer_id"), "$egress");
+  EXPECT_EQ(facts.at("bound_key"), "rule_matches");
+  EXPECT_EQ(facts.at("actual"), declaration);
+  EXPECT_EQ(facts.at("expected"), declaration);
+  EXPECT_EQ(facts.at("actual_shape"), actual_shape);
+  EXPECT_EQ(facts.at("expected_shape"), expected_shape);
+  EXPECT_EQ(egress.facts, facts);
+  EXPECT_EQ(egress.ToJson().at("facts"), facts);
+
+  PipelineIoBoundary boundary;
+  boundary.output_consumed_ports = {
+      BizPortDefinition{"rule_matches", "RuleMatchBatch", true}};
+  const auto with_boundary = ValidateWithRemediation(root, &boundary);
+  const auto* io_output = FindDiagnostic(
+      with_boundary, DiagnosticCode::kPortCardinalityMismatch, "/io/output");
+  ASSERT_NE(io_output, nullptr) << with_boundary.ToJson().dump();
+  ASSERT_TRUE(io_output->remediation.has_value());
+  EXPECT_NE(io_output->remediation->summary.find("生产者 'rules_per_chunk'"),
+            std::string::npos);
+  EXPECT_NE(io_output->remediation->summary.find("消费者 '$io_output'"),
+            std::string::npos);
+  EXPECT_NE(io_output->remediation->summary.find("chunk.chunks"),
+            std::string::npos);
+  EXPECT_NE(io_output->remediation->summary.find("每请求一项"),
+            std::string::npos);
+  const auto& io_facts = io_output->remediation->facts;
+  EXPECT_EQ(io_facts.at("producer_id"), "rules_per_chunk");
+  EXPECT_EQ(io_facts.at("consumer_id"), "$io_output");
+  EXPECT_EQ(io_facts.at("bound_key"), "rule_matches");
+  EXPECT_EQ(io_facts.at("actual"), declaration);
+  EXPECT_EQ(io_facts.at("expected"), declaration);
+  EXPECT_EQ(io_facts.at("actual_shape"), actual_shape);
+  EXPECT_EQ(io_facts.at("expected_shape"), expected_shape);
+  EXPECT_EQ(io_output->facts, io_facts);
 }
 
 TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
@@ -1218,6 +1271,14 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   EXPECT_TRUE(actual.contains("cardinality"));
   EXPECT_TRUE(actual.contains("provenance_policy"));
   EXPECT_TRUE(actual.contains("lifetime"));
+  EXPECT_EQ(target_diag->remediation->facts.at("consumer_id"), "consumer");
+  EXPECT_EQ(expected.at("type_id"), "TextBatch");
+  EXPECT_EQ(actual.at("type_id"), "TextBatch");
+  EXPECT_EQ(expected.at("lifetime"), "session");
+  EXPECT_EQ(actual.at("lifetime"), "request");
+  EXPECT_EQ(expected.at("cardinality"), "1:1");
+  EXPECT_EQ(actual.at("cardinality"), "1:N");
+  EXPECT_EQ(target_diag->facts, target_diag->remediation->facts);
 }
 
 TEST(PipelineValidatorTest,

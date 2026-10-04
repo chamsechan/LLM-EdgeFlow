@@ -70,6 +70,15 @@ DiagnosticIdentity GetDiagnosticIdentity(const ValidationDiagnostic& d) {
   return id;
 }
 
+std::string DescribeItemShape(const nlohmann::json& shape) {
+  const auto kind = shape.value("kind", "unknown");
+  if (kind == "per_request") return "每请求一项";
+  if (kind == "multi") {
+    return "由 '" + shape.value("origin", "") + "' 产生的每请求零到多项";
+  }
+  return "每请求项数未知";
+}
+
 void PopulateBasicRemediation(ValidationDiagnostic* diag,
                               const nlohmann::json& root,
                               const PipelineCatalogSnapshot& catalog) {
@@ -544,97 +553,32 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
   } else if (diag->code == DiagnosticCode::kPortCardinalityMismatch ||
              diag->code == DiagnosticCode::kPortProvenanceMismatch ||
              diag->code == DiagnosticCode::kPortLifetimeMismatch) {
-    size_t consumer_idx = static_cast<size_t>(-1);
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      std::string idx_str = (idx_end == std::string::npos)
-                                ? diag->path.substr(10)
-                                : diag->path.substr(10, idx_end - 10);
-      try {
-        consumer_idx = std::stoul(idx_str);
-      } catch (...) {
-        consumer_idx = static_cast<size_t>(-1);
-      }
-    }
-    if (consumer_idx < root.value("pipeline", nlohmann::json::array()).size()) {
-      const auto& consumer_node = root["pipeline"][consumer_idx];
-      std::string consumer_type = consumer_node.value("node_type", "");
-      const auto* consumer_def = catalog.FindNode(consumer_type);
-      std::string port_name = diag->port;
-      std::string bound_key;
-      if (consumer_node.contains("inputs") &&
-          consumer_node["inputs"].contains(port_name)) {
-        bound_key = consumer_node["inputs"][port_name].get<std::string>();
-      }
-
-      PortContract expected_contract;
-      if (consumer_def) {
-        for (const auto& inp : consumer_def->inputs) {
-          if (inp.logical_name == port_name) {
-            expected_contract = inp;
-            break;
-          }
-        }
-      }
-
-      std::string producer_id =
-          diag->related_nodes.empty() ? "" : diag->related_nodes[0];
-      PortContract producer_contract;
-
-      if (producer_id == "$ingress") {
-        const auto* biz = catalog.FindBiz(root.value("biz_name", ""));
-        if (biz) {
-          for (const auto& ing : biz->ingress) {
-            if (ing.blackboard_key == bound_key) {
-              producer_contract = ing;
-              break;
-            }
-          }
-        }
+    // Validator owns direction, effective contracts and transitive shapes.
+    // A path can identify either a node input, its output or an IO boundary.
+    if (diag->facts.empty()) return;
+    ValidationRemediation rem;
+    rem.cause = RemediationCause::kPortFlowMismatch;
+    rem.facts = diag->facts;
+    const auto producer_id = rem.facts.value("producer_id", "");
+    const auto consumer_id = rem.facts.value("consumer_id", "");
+    rem.summary = "生产者 '" + producer_id + "' 与消费者 '" + consumer_id +
+                  "' 在端口 '" + diag->port + "' 上的流契约不兼容。";
+    if (rem.facts.contains("actual_shape") &&
+        rem.facts.contains("expected_shape")) {
+      const auto actual = DescribeItemShape(rem.facts["actual_shape"]);
+      const auto expected = DescribeItemShape(rem.facts["expected_shape"]);
+      if (rem.facts.contains("anchor_port")) {
+        rem.summary = "节点 '" + consumer_id + "' 的逐项输入 '" + diag->port +
+                      "' 接收" + actual + "，输入 '" +
+                      rem.facts["anchor_port"].get<std::string>() + "' 接收" +
+                      expected + "，无法逐项配对。";
       } else {
-        for (const auto& p_node : root["pipeline"]) {
-          if (p_node.value("id", "") == producer_id) {
-            std::string p_type = p_node.value("node_type", "");
-            const auto* p_def = catalog.FindNode(p_type);
-            if (p_def) {
-              for (const auto& out : p_def->outputs) {
-                std::string actual_out_key = out.logical_name;
-                if (p_node.contains("outputs") &&
-                    p_node["outputs"].contains(out.logical_name)) {
-                  actual_out_key =
-                      p_node["outputs"][out.logical_name].get<std::string>();
-                }
-                if (actual_out_key == bound_key) {
-                  producer_contract = out;
-                  break;
-                }
-              }
-            }
-            break;
-          }
-        }
+        rem.summary = "生产者 '" + producer_id + "' 在数据 '" +
+                      rem.facts.value("bound_key", "") + "' 上提供" + actual +
+                      "，消费者 '" + consumer_id + "' 要求" + expected + "。";
       }
-
-      ValidationRemediation rem;
-      rem.schema_version = 1;
-      rem.cause = RemediationCause::kPortFlowMismatch;
-      rem.summary = "生产者 '" + producer_id + "' 与消费者 '" + diag->node_id +
-                    "' 在端口 '" + port_name + "' 上的流契约不兼容。";
-      rem.facts["bound_key"] = bound_key;
-      rem.facts["producer_id"] = producer_id;
-      rem.facts["expected"] = {
-          {"type_id", expected_contract.type_id},
-          {"cardinality", expected_contract.cardinality},
-          {"provenance_policy", expected_contract.provenance_policy},
-          {"lifetime", expected_contract.lifetime}};
-      rem.facts["actual"] = {
-          {"type_id", producer_contract.type_id},
-          {"cardinality", producer_contract.cardinality},
-          {"provenance_policy", producer_contract.provenance_policy},
-          {"lifetime", producer_contract.lifetime}};
-      diag->remediation = std::move(rem);
     }
+    diag->remediation = std::move(rem);
   }
 }
 
