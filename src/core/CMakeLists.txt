@@ -1,5 +1,6 @@
 target_sources(edgeflow_orchestration_objects PRIVATE
   diagnostic_code.cpp
+  name_suggestions.cpp
   node_definition_validation.cpp
   node_registry.cpp
   pipeline.cpp

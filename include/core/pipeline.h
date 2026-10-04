@@ -18,6 +18,16 @@ namespace llm_edgeflow {
 class ThreadPool;
 
 /**
+ * @brief Control 失败发生的阶段，供接入适配层映射公开返回码
+ */
+enum class ControlFailureStage {
+  kNone,  ///< 成功，或 Pipeline 未就绪
+  kRequest,  ///< 信封、目标节点或载荷 schema 被拒绝，未更新任何节点
+  kUnsupported,  ///< 没有节点声明或处理该命令
+  kNode,         ///< 节点拒绝或未能应用更新
+};
+
+/**
  * @brief 算法管线调度核心引擎 (Pipeline)
  *
  * 支持数据依赖与额外顺序约束 (`depends_on`) 的 DAG (有向无环图)、
@@ -61,7 +71,8 @@ class Pipeline {
   // {"$edgeflow_control":1,"node_id":"id","payload":{...}} targets one
   // instance.
   int Control(int cmd, const std::string& json_param,
-              std::string* error = nullptr);
+              std::string* error = nullptr,
+              ControlFailureStage* failure_stage = nullptr);
 
   State GetState() const { return state_; }
   bool IsReady() const { return state_ == State::kReady; }

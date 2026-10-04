@@ -18,6 +18,7 @@
 #include "dev_support/inference/test_biz_models.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/pipeline_test_utils.h"
 #include "tests/support/scoped_allocation_failure.h"
 
@@ -102,12 +103,12 @@ TEST(TraceableItemTest, ProvenanceTracking) {
 // 3. 测试 ModelManager 的强类型多模型管理机制
 TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
-  ASSERT_TRUE(manager.RegisterModel(
-      "my_embed_v1", std::make_shared<test::TestBizEmbeddingModel>(128, 4),
-      "test-v1"));
-  ASSERT_TRUE(manager.RegisterModel(
-      "my_rerank_v1", std::make_shared<test::TestBizRerankModel>(4),
-      "test-v1"));
+  ASSERT_TRUE(RegisterTestModel(
+      manager, "my_embed_v1",
+      std::make_shared<test::TestBizEmbeddingModel>(128, 4), "test-v1"));
+  ASSERT_TRUE(RegisterTestModel(manager, "my_rerank_v1",
+                                std::make_shared<test::TestBizRerankModel>(4),
+                                "test-v1"));
 
   EXPECT_TRUE(manager.HasModel("my_embed_v1"));
   EXPECT_TRUE(manager.HasModel("my_rerank_v1"));

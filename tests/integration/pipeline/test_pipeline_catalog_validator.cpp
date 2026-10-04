@@ -14,6 +14,7 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "cli/pipeline_remediation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
@@ -110,8 +111,8 @@ TEST(PipelineValidatorTest,
   auto fixture = LoadRegistrationFixture(
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
   fixture.neutral_pipeline_json["models"][0]["model_type"] = "test_biz_llmm";
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
   const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownModelType);
   ASSERT_NE(d, nullptr);
@@ -136,8 +137,7 @@ TEST(PipelineValidatorTest, UndeclaredModelReferenceIsStillReported) {
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
   fixture.neutral_pipeline_json["pipeline"][0]["config"]["bind_model"] =
       "undeclared";
-  const auto report =
-      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownModelReference,
                            "/pipeline/0/config/bind_model"),
             nullptr);
@@ -148,8 +148,7 @@ TEST(PipelineValidatorTest, UnknownBackendHasRemediation) {
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
   fixture.neutral_pipeline_json["models"][0]["backend"] =
       "test_causal_lm_backnd";
-  const auto report =
-      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
   const auto& d = report.diagnostics.front();
   EXPECT_EQ(d.code, DiagnosticCode::kUnknownBackend);
@@ -169,8 +168,8 @@ TEST(PipelineValidatorTest, UnknownNodeTypeSuppressesMissingOutputCascade) {
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
   fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
       "TextRuleMatchNod";
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
   const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownNodeType);
   ASSERT_NE(d, nullptr);
@@ -186,8 +185,7 @@ TEST(PipelineValidatorTest, DistantUnknownNamesHaveNoSuggestions) {
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
   fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
       "ZZZZZZZZZZZZZZZZZZZZ";
-  const auto report =
-      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json);
   const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownNodeType);
   ASSERT_NE(d, nullptr);
   ASSERT_TRUE(d->remediation.has_value());
@@ -201,8 +199,8 @@ TEST(PipelineValidatorTest, MissingBizOutputIsReportedOnce) {
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
   fixture.neutral_pipeline_json["pipeline"] = {
       {{"id", "probe"}, {"node_type", "StudioCatalogProbeNode"}}};
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   const auto* d = FindDiagnostic(report, DiagnosticCode::kMissingBizOutput);
   ASSERT_NE(d, nullptr) << report.ToJson().dump(2);
   EXPECT_EQ(d->path, "/pipeline");
@@ -220,8 +218,7 @@ TEST(PipelineValidatorTest, UnknownConfigFieldSuggestionsAreRanked) {
   auto& config = fixture.neutral_pipeline_json["pipeline"][0]["config"];
   config["categoriess"] = config["categories"];
   config.erase("categories");
-  const auto report =
-      PipelineValidator::Validate(fixture.neutral_pipeline_json);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json);
   const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownConfigField);
   ASSERT_NE(d, nullptr);
   ASSERT_TRUE(d->remediation.has_value());
@@ -232,8 +229,8 @@ TEST(PipelineValidatorTest, UnknownConfigFieldSuggestionsAreRanked) {
 
 TEST(PipelineValidatorTest, UnknownNodeSoleProducerSuppressesConsumerCascade) {
   auto fixture = UnknownProducerFixture();
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
   EXPECT_EQ(report.diagnostics.front().code, DiagnosticCode::kUnknownNodeType);
   EXPECT_EQ(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer),
@@ -242,8 +239,8 @@ TEST(PipelineValidatorTest, UnknownNodeSoleProducerSuppressesConsumerCascade) {
 
 TEST(PipelineValidatorTest, UnknownNodeDoesNotHideKnownProducerTypeMismatch) {
   auto fixture = UnknownProducerFixture(1);
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
@@ -253,8 +250,8 @@ TEST(PipelineValidatorTest, UnknownNodeDoesNotHideKnownProducerTypeMismatch) {
 
 TEST(PipelineValidatorTest, UnknownNodeDoesNotHideDuplicateProducers) {
   auto fixture = UnknownProducerFixture(2);
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 3u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kDuplicatePortProducer,
@@ -274,8 +271,8 @@ TEST(PipelineValidatorTest, UnknownNodeDoesNotHideIngressTypeMismatch) {
   pipeline[2]["inputs"] = {{"queries", "input_sentences"},
                            {"candidates", "input_sentences"}};
   pipeline[2]["outputs"] = nlohmann::json::object();
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
                            "/pipeline/2/inputs/queries"),
@@ -290,8 +287,8 @@ TEST(PipelineValidatorTest,
   pipeline[1]["outputs"]["matches"] = "input_sentences";
   pipeline[2]["outputs"]["matches"] = "input_sentences";
   pipeline[3]["inputs"]["text"] = "input_sentences";
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 5u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kDuplicatePortProducer,
@@ -310,8 +307,8 @@ TEST(PipelineValidatorTest, UnknownNodeDoesNotHideUnrelatedMissingInput) {
   auto fixture = UnknownProducerFixture();
   fixture.neutral_pipeline_json["pipeline"][2]["inputs"]["text"] =
       "unrelated_key";
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
                            "/pipeline/2/inputs/text"),
@@ -326,8 +323,8 @@ TEST(PipelineValidatorTest,
       "TextRuleMatchNod";
   fixture.neutral_pipeline_json["pipeline"][0]["outputs"] =
       nlohmann::json::object();
-  const auto report = PipelineValidator::Validate(fixture.neutral_pipeline_json,
-                                                  &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(
       FindDiagnostic(report, DiagnosticCode::kMissingBizOutput, "/pipeline"),
@@ -346,7 +343,7 @@ TEST(PipelineValidatorTest, UnknownModelTypeDoesNotHideCapabilityMismatch) {
                             {"model_config", nlohmann::json::object()},
                             {"backend_config", nlohmann::json::object()}});
   root["pipeline"][0]["config"]["bind_model"] = "known_embedding";
-  const auto report = PipelineValidator::Validate(root, &fixture.io_boundary);
+  const auto report = ValidateWithRemediation(root, &fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownModelType), nullptr);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kModelCapabilityMismatch,
@@ -430,7 +427,7 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
       ++skipped_optional;
       continue;
     }
-    const auto direct_report = PipelineValidator::Validate(pipeline);
+    const auto direct_report = ValidateWithRemediation(pipeline);
     EXPECT_FALSE(direct_report.ok);
     EXPECT_TRUE(std::any_of(
         direct_report.diagnostics.begin(), direct_report.diagnostics.end(),
@@ -439,7 +436,7 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
                  diagnostic.path == "/deployment";
         }));
     const auto neutral = PrepareExternalFixtureForCore(pipeline);
-    const auto report = PipelineValidator::Validate(neutral);
+    const auto report = ValidateWithRemediation(neutral);
     EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
     ++validated;
   }
@@ -458,7 +455,7 @@ TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
   config["default_categories"] = config["categories"];
   config.erase("categories");
 
-  const auto report = PipelineValidator::Validate(pipeline);
+  const auto report = ValidateWithRemediation(pipeline);
   ASSERT_FALSE(report.ok);
   EXPECT_TRUE(std::any_of(
       report.diagnostics.begin(), report.diagnostics.end(),
@@ -480,7 +477,7 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
         std::string("missing/../artifact.bin"),
         std::filesystem::absolute("missing/artifact.bin").string()}) {
     pipeline["models"][0]["model_path"] = safe_path;
-    const auto report = PipelineValidator::Validate(pipeline);
+    const auto report = ValidateWithRemediation(pipeline);
     EXPECT_TRUE(report.ok) << safe_path << "\n" << report.ToJson().dump(2);
   }
 
@@ -488,7 +485,7 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
        {"..", "../artifact.bin", "missing/../../artifact.bin",
         "..\\artifact.bin"}) {
     pipeline["models"][0]["model_path"] = unsafe_path;
-    const auto report = PipelineValidator::Validate(pipeline);
+    const auto report = ValidateWithRemediation(pipeline);
     EXPECT_FALSE(report.ok) << unsafe_path;
     EXPECT_TRUE(
         std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
@@ -525,7 +522,7 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
         {{"id", "post"},
          {"node_type", "StructuredJsonParseNode"},
          {"depends_on", {"llm"}}}}}};
-  const auto report = PipelineValidator::Validate(pipeline);
+  const auto report = ValidateWithRemediation(pipeline);
   EXPECT_FALSE(report.ok);
   std::set<DiagnosticCode> codes;
   for (const auto& diagnostic : report.diagnostics)
@@ -620,7 +617,7 @@ TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
          {"inputs", {{"text", "ans_left"}}},
          {"outputs", {{"document", "extracted_entities"}}}}}}};
 
-  const auto report = PipelineValidator::Validate(config);
+  const auto report = ValidateWithRemediation(config);
   ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
   EXPECT_EQ(report.topological_layers,
             (std::vector<std::vector<std::string>>{
@@ -717,7 +714,7 @@ TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
   nlohmann::json pipeline;
   stream >> pipeline;
   pipeline = PrepareExternalFixtureForCore(pipeline);
-  const auto report = PipelineValidator::Validate(pipeline);
+  const auto report = ValidateWithRemediation(pipeline);
 #ifdef HAVE_WHISPERCPP
   EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
   const auto plan = PipelineValidator::ValidateAndPlan(pipeline);
@@ -760,7 +757,7 @@ TEST(PipelineValidatorTest,
                                 {"node_type", type},
                                 {"depends_on", nlohmann::json::array()},
                                 {"config", config}});
-    const auto report = PipelineValidator::Validate(root);
+    const auto report = ValidateWithRemediation(root);
     EXPECT_FALSE(report.ok);
     EXPECT_TRUE(
         std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
@@ -824,7 +821,7 @@ TEST(PipelineValidatorTest,
   root = PrepareExternalFixtureForCore(root);
   for (auto& node : root["pipeline"]) node.erase("depends_on");
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
   EXPECT_TRUE(report.diagnostics.empty());
   const auto plan = PipelineValidator::ValidateAndPlan(root);
@@ -845,7 +842,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   root["pipeline"][0]["config"]["temprature"] = 0.1;
   root["pipeline"][0]["config"].erase("temperature");
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -889,7 +886,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
 
   // Applying patch recovers a fully valid pipeline
   const auto patched = root.patch(fix.patch);
-  const auto verified_report = PipelineValidator::Validate(patched);
+  const auto verified_report = ValidateWithRemediation(patched);
   EXPECT_TRUE(verified_report.ok) << verified_report.ToJson().dump(2);
 }
 
@@ -916,7 +913,7 @@ TEST(PipelineValidatorTest, ExplainRespectsFixBounds) {
                                 {"config", {{"corpus", {"sample"}}}}});
   }
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_FALSE(report.ok);
 
   size_t total_fixes = 0;
@@ -942,7 +939,7 @@ TEST(PipelineValidatorTest, ExplainCleanPipelineReturnsOk) {
   stream >> root;
   root = PrepareExternalFixtureForCore(root);
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_TRUE(report.ok);
   EXPECT_TRUE(report.diagnostics.empty());
   EXPECT_FALSE(report.topological_order.empty());
@@ -967,7 +964,7 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   root["pipeline"][1]["config"]["field_types"] = {
       {"field_x", "unsupported_type"}};
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_FALSE(report.ok);
   ASSERT_GE(report.diagnostics.size(), 2U);
 
@@ -1002,7 +999,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   // Explicitly connect an input to a key with no producer.
   root["pipeline"][1]["inputs"]["text"] = "missing_result";
 
-  const auto report = PipelineValidator::Validate(root);
+  const auto report = ValidateWithRemediation(root);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -1068,7 +1065,7 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
       {"backend_config", nlohmann::json::object()},
   });
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_FALSE(report.ok);
 
   size_t total_fixes = 0;
@@ -1111,7 +1108,7 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
                               {"temperature", 0.1},
                               {"max_tokens", 64}}}}}}};
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_FALSE(report.ok);
 
   bool proposed_broken_model = false;
@@ -1133,31 +1130,121 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
   EXPECT_FALSE(proposed_broken_model);
 }
 
-TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
+TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
   nlohmann::json root = {
       {"biz_name", "keyword_match"},
-      {"models", nlohmann::json::array()},
       {"pipeline",
-       {{{"id", "producer"},
-         {"node_type", "TextCorpusSourceNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"outputs", {{"corpus", "corpus_text"}}},
-         {"config", {{"corpus", {"sample text"}}}}},
-        {{"id", "consumer"},
-         {"node_type", "TextTemplateNode"},
-         {"depends_on", {"producer"}},
-         {"inputs", {{"primary", "corpus_text"}}},
-         {"outputs", {{"text", "rendered_text"}}},
-         {"config", {{"template", "prefix: {{primary}}"}}}}}}};
+       {{{"id", "chunk"},
+         {"node_type", "TextChunkNode"},
+         {"config", {{"chunk_size", 4}}},
+         {"inputs", {{"text", "input_sentences"}}},
+         {"outputs",
+          {{"chunks", "sentence_chunks"},
+           {"chunk_counts", "sentence_chunk_counts"}}}},
+        {{"id", "rules_per_chunk"},
+         {"node_type", "TextRuleMatchNode"},
+         {"config", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
+         {"inputs", {{"text", "sentence_chunks"}}},
+         {"outputs", {{"matches", "chunk_matches"}}}},
+        {{"id", "rules_per_request"},
+         {"node_type", "TextRuleMatchNode"},
+         {"config", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
+         {"inputs", {{"text", "input_sentences"}}},
+         {"outputs", {{"matches", "rule_matches"}}}}}}};
 
-  const auto report = PipelineValidator::Validate(root);
+  const auto accepted = ValidateWithRemediation(root);
+  EXPECT_TRUE(accepted.ok) << accepted.ToJson().dump();
+
+  // Per-chunk matches cannot become the one-row-per-request biz output.
+  root["pipeline"][1]["outputs"]["matches"] = "rule_matches";
+  root["pipeline"][2]["outputs"]["matches"] = "request_matches";
+  const auto rejected = ValidateWithRemediation(root);
+  ASSERT_FALSE(rejected.ok);
+  ASSERT_EQ(rejected.diagnostics.size(), 1u) << rejected.ToJson().dump();
+  EXPECT_EQ(rejected.diagnostics[0].code,
+            DiagnosticCode::kPortCardinalityMismatch);
+  EXPECT_EQ(rejected.diagnostics[0].path, "/pipeline/1/outputs/matches");
+  EXPECT_EQ(rejected.diagnostics[0].port, "rule_matches");
+  const auto& egress = rejected.diagnostics[0];
+  ASSERT_TRUE(egress.remediation.has_value());
+  EXPECT_EQ(egress.remediation->cause, RemediationCause::kPortFlowMismatch);
+  EXPECT_NE(egress.remediation->summary.find("生产者 'rules_per_chunk'"),
+            std::string::npos);
+  EXPECT_NE(egress.remediation->summary.find("消费者 '$egress'"),
+            std::string::npos);
+  EXPECT_NE(egress.remediation->summary.find("chunk.chunks"),
+            std::string::npos);
+  EXPECT_NE(egress.remediation->summary.find("每请求一项"), std::string::npos);
+  const nlohmann::json declaration = {{"type_id", "RuleMatchBatch"},
+                                      {"cardinality", "1:1"},
+                                      {"provenance_policy", "preserve"},
+                                      {"lifetime", "request"}};
+  const nlohmann::json actual_shape = {{"kind", "multi"},
+                                       {"origin", "chunk.chunks"}};
+  const nlohmann::json expected_shape = {{"kind", "per_request"}};
+  const auto& facts = egress.remediation->facts;
+  EXPECT_EQ(facts.at("producer_id"), "rules_per_chunk");
+  EXPECT_EQ(facts.at("consumer_id"), "$egress");
+  EXPECT_EQ(facts.at("bound_key"), "rule_matches");
+  EXPECT_EQ(facts.at("actual"), declaration);
+  EXPECT_EQ(facts.at("expected"), declaration);
+  EXPECT_EQ(facts.at("actual_shape"), actual_shape);
+  EXPECT_EQ(facts.at("expected_shape"), expected_shape);
+  EXPECT_EQ(egress.facts, facts);
+  EXPECT_EQ(egress.ToJson().at("facts"), facts);
+
+  PipelineIoBoundary boundary;
+  boundary.output_consumed_ports = {
+      BizPortDefinition{"rule_matches", "RuleMatchBatch", true}};
+  const auto with_boundary = ValidateWithRemediation(root, &boundary);
+  const auto* io_output = FindDiagnostic(
+      with_boundary, DiagnosticCode::kPortCardinalityMismatch, "/io/output");
+  ASSERT_NE(io_output, nullptr) << with_boundary.ToJson().dump();
+  ASSERT_TRUE(io_output->remediation.has_value());
+  EXPECT_NE(io_output->remediation->summary.find("生产者 'rules_per_chunk'"),
+            std::string::npos);
+  EXPECT_NE(io_output->remediation->summary.find("消费者 '$io_output'"),
+            std::string::npos);
+  EXPECT_NE(io_output->remediation->summary.find("chunk.chunks"),
+            std::string::npos);
+  EXPECT_NE(io_output->remediation->summary.find("每请求一项"),
+            std::string::npos);
+  const auto& io_facts = io_output->remediation->facts;
+  EXPECT_EQ(io_facts.at("producer_id"), "rules_per_chunk");
+  EXPECT_EQ(io_facts.at("consumer_id"), "$io_output");
+  EXPECT_EQ(io_facts.at("bound_key"), "rule_matches");
+  EXPECT_EQ(io_facts.at("actual"), declaration);
+  EXPECT_EQ(io_facts.at("expected"), declaration);
+  EXPECT_EQ(io_facts.at("actual_shape"), actual_shape);
+  EXPECT_EQ(io_facts.at("expected_shape"), expected_shape);
+  EXPECT_EQ(io_output->facts, io_facts);
+}
+
+TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
+  nlohmann::json root = {{"biz_name", "keyword_match"},
+                         {"models", nlohmann::json::array()},
+                         {"pipeline",
+                          {{{"id", "producer"},
+                            {"node_type", "TextChunkNode"},
+                            {"depends_on", nlohmann::json::array()},
+                            {"inputs", {{"text", "input_sentences"}}},
+                            {"outputs", {{"chunks", "chunk_text"}}}},
+                           {{"id", "consumer"},
+                            {"node_type", "TextEmbeddingNode"},
+                            {"depends_on", {"producer"}},
+                            {"inputs", {{"text", "chunk_text"}}},
+                            {"outputs", {{"embedding", "chunk_embeddings"}}},
+                            {"config", {{"lifetime", "session"}}}}}}};
+
+  const auto report = ValidateWithRemediation(root);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
+  // Request-scoped chunks cannot back a session-scoped embedding cache.
   const ValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
-    if (diag.code == DiagnosticCode::kPortCardinalityMismatch &&
-        diag.node_id == "consumer" && diag.port == "primary") {
+    if (diag.code == DiagnosticCode::kPortLifetimeMismatch &&
+        diag.node_id == "consumer" && diag.port == "text") {
       target_diag = &diag;
       break;
     }
@@ -1168,7 +1255,7 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   EXPECT_EQ(target_diag->remediation->cause,
             RemediationCause::kPortFlowMismatch);
   EXPECT_EQ(target_diag->remediation->facts.value("bound_key", ""),
-            "corpus_text");
+            "chunk_text");
   EXPECT_EQ(target_diag->remediation->facts.value("producer_id", ""),
             "producer");
 
@@ -1184,6 +1271,14 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   EXPECT_TRUE(actual.contains("cardinality"));
   EXPECT_TRUE(actual.contains("provenance_policy"));
   EXPECT_TRUE(actual.contains("lifetime"));
+  EXPECT_EQ(target_diag->remediation->facts.at("consumer_id"), "consumer");
+  EXPECT_EQ(expected.at("type_id"), "TextBatch");
+  EXPECT_EQ(actual.at("type_id"), "TextBatch");
+  EXPECT_EQ(expected.at("lifetime"), "session");
+  EXPECT_EQ(actual.at("lifetime"), "request");
+  EXPECT_EQ(expected.at("cardinality"), "1:1");
+  EXPECT_EQ(actual.at("cardinality"), "1:N");
+  EXPECT_EQ(target_diag->facts, target_diag->remediation->facts);
 }
 
 TEST(PipelineValidatorTest,
@@ -1205,7 +1300,7 @@ TEST(PipelineValidatorTest,
          {"depends_on", {"dep_a", "dep_a", "dep_b", "dep_b"}},
          {"config", {{"corpus", {"c"}}}}}}}};
 
-  const auto report = PipelineValidator::Explain(root);
+  const auto report = ExplainPipeline(root);
   EXPECT_FALSE(report.ok);
 
   const ValidationDiagnostic* diag_a = nullptr;

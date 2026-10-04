@@ -12,6 +12,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -120,9 +121,8 @@ class DistinctMockEmbeddingModel : public IEmbeddingModel {
 
 TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
   SessionContext session_ctx;
-  session_ctx.GetModelManager().RegisterModel(
-      "embed_model_v2", std::make_shared<DistinctMockEmbeddingModel>(),
-      "test-v1");
+  RegisterTestModel(session_ctx.GetModelManager(), "embed_model_v2",
+                    std::make_shared<DistinctMockEmbeddingModel>(), "test-v1");
 
   auto embed_node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(embed_node, nullptr);

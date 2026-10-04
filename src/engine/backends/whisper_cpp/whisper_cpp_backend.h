@@ -4,17 +4,16 @@
 #include <memory>
 #include <string>
 
+#include "engine/backend_identity.h"
 #include "engine/backend_interface.h"
 
 namespace llm_edgeflow {
 
-class WhisperCppBackend final : public IInferenceBackend {
+class WhisperCppBackend final : public BackendIdentity<WhisperCppBackend> {
  public:
   inline static constexpr char kBackendType[] = "whisper_cpp";
 
   ~WhisperCppBackend() override = default;
-
-  const std::string& BackendType() const noexcept override;
 
   std::shared_ptr<IBackendSession> Load(
       const BackendLoadSpec& spec,

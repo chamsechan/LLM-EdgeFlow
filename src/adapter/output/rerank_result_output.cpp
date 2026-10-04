@@ -99,7 +99,6 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   def.converter_id = "rerank_result.plain.operator.v1";
 
   def.schema_id = "rerank_result.plain.response";
-  def.external_type = "CompanyOperatorRerankOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot)};

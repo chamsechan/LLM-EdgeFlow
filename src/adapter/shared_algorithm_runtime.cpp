@@ -112,7 +112,6 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     }
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
-    options.biz_name = io_plan->binding.biz_name;
 
     pipeline->GetSessionContext().SetRuntimeOptions(options);
 
@@ -146,19 +145,22 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
   }
 }
 
-int SharedAlgorithmRuntime::ExecuteControl(int cmd,
-                                           const std::string& json_param_str,
-                                           std::string* out_error) noexcept {
+int SharedAlgorithmRuntime::ExecuteControl(
+    int cmd, const std::string& json_param_str, std::string* out_error,
+    ControlFailureStage* failure_stage) noexcept {
+  if (failure_stage) *failure_stage = ControlFailureStage::kNone;
   try {
     if (!pipeline_) {
       if (out_error) *out_error = "Null pipeline in runtime instance";
       return COMPANY_ALG_ERR_INVALID_HANDLE;  // -1
     }
-    return pipeline_->Control(cmd, json_param_str, out_error);
+    return pipeline_->Control(cmd, json_param_str, out_error, failure_stage);
   } catch (const std::exception& e) {
+    if (failure_stage) *failure_stage = ControlFailureStage::kNone;
     SetDiagnosticNoexcept(out_error, e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
+    if (failure_stage) *failure_stage = ControlFailureStage::kNone;
     SetDiagnosticNoexcept(out_error, "Unknown exception");
     return COMPANY_ALG_ERR_UNKNOWN;
   }

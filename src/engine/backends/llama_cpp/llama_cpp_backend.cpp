@@ -433,11 +433,6 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
 
 }  // namespace
 
-const std::string& LlamaCppBackend::BackendType() const noexcept {
-  static const std::string type = kBackendType;
-  return type;
-}
-
 std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
@@ -548,8 +543,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
 
 #ifdef HAVE_LLAMACPP
 static const BackendDefinition kLlamaCppBackendDefinition = [] {
-  BackendDefinition def;
-  def.backend_type = LlamaCppBackend::kBackendType;
+  auto def = MakeBackendDefinition<LlamaCppBackend>();
   def.description = "llama.cpp GGUF text-generation backend";
   def.supported_protocols = {ExecutionProtocol::kTextGeneration};
   def.concurrency = InferenceConcurrency::kSerialized;

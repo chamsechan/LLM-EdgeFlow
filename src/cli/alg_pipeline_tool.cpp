@@ -173,14 +173,13 @@ nlohmann::json ProfilesJson(const std::string& biz_filter, std::string* error) {
 
 nlohmann::json OutputPoolsJson(const llm_edgeflow::ValidatedIoPlan& plan) {
   nlohmann::json output_pools = nlohmann::json::object();
-  for (const auto& [slot, pool] : plan.operator_output_specs) {
-    output_pools[slot] = {
-        {"type", pool.type},
-        {"allocator", pool.allocator},
-        {"params", plan.operator_output_parameter_texts.at(slot)},
-        {"meta_num", pool.meta_num},
-        {"metadata_type_id", pool.metadata_type_id},
-        {"capacities", pool.capacities}};
+  for (const auto& [slot, pool] : plan.output_specs) {
+    output_pools[slot] = {{"type", pool.type},
+                          {"allocator", pool.allocator},
+                          {"params", plan.output_parameter_texts.at(slot)},
+                          {"meta_num", pool.meta_num},
+                          {"metadata_type_id", pool.metadata_type_id},
+                          {"capacities", pool.capacities}};
   }
   return output_pools;
 }
@@ -242,8 +241,8 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                      {"source", "pipeline.models.model_path"},
                      {"resolved", model.resolved_model_path}});
   nlohmann::json configuration = {
-      {"biz_name", resolved.biz_name},
-      {"io_binding", resolved.io_binding},
+      {"biz_name", resolved.io_plan->binding.biz_name},
+      {"io_binding", resolved.io_plan->binding.binding_id},
       {"conf_path", resolved.conf_path.string()},
       {"pipeline_path", resolved.pipeline_path.string()},
       {"model_root", resolved.model_root_path.string()},

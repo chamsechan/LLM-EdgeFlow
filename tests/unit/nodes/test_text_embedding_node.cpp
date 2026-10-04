@@ -16,6 +16,7 @@
 #include "core/session_context.h"
 #include "engine/model_interface.h"
 #include "nodes/node_error_codes.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -70,8 +71,9 @@ class TextEmbeddingNodeTest : public ::testing::Test {
   void SetUp() override {
     session_ctx_ = std::make_unique<SessionContext>();
     counting_model_ = std::make_shared<CountingEmbeddingModel>();
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "embed_model_v1", counting_model_, "revision-1"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                  "embed_model_v1", counting_model_,
+                                  "revision-1"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<CountingEmbeddingModel> counting_model_;

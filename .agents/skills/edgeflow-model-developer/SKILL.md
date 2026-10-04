@@ -19,7 +19,9 @@ description: 新增或修改 LLM-EdgeFlow Model 的预处理、输出解释和�
   不进入 Model。需要新执行运行时，转 [Backend skill](../edgeflow-backend-developer/SKILL.md)；
   必须扩展中性协议时按跨层契约变更处理，不能直接引用具体 Backend。
 - 通过 `REGISTER_MODEL_WITH_DEFINITION` 注册完整 `ModelDefinition`，声明能力、执行协议、
-  并发约束及 `config_fields`。不要在 Web、skill 或 Node 再维护模型列表。
+  并发约束及 `config_fields`。身份只写一次：继承 `ModelIdentity<Model, 能力接口>` 并声明
+  `kModelType`、`kConcurrency`，Definition 从 `MakeModelDefinition<Model>()` 开始。
+  不要在 Web、skill 或 Node 再维护模型列表。
 - 额外配置语义写入纯函数 `validate_config`：输入已完成字段校验和默认值补齐，函数不做
   文件/资源 I/O；Validator 和 Factory 会在 Backend 创建/加载前执行。直接 Create 复用
   相同语义检查，资源存在性、Tensor metadata 和会话相关检查留在创建阶段。

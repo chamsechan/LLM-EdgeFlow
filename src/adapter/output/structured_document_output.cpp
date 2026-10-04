@@ -5,7 +5,6 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_results.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -44,7 +43,6 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.converter_id = "document.structured.operator.v1";
 
   def.schema_id = "document.structured.response";
-  def.external_type = "CompanyOperatorEntityOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};

@@ -19,6 +19,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp
   operator/operator_control_registry.cpp
+  operator/operator_error_mapping.cpp
   operator/operator_output_pool.cpp
   operator/operator_process_binding.cpp
   operator/operator_value_type.cpp

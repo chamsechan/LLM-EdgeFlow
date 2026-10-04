@@ -296,7 +296,8 @@ class MapSpec {
   const std::string& InputName() const noexcept { return in_.name; }
   const std::string& OutputName() const noexcept { return out_.name; }
   const Parameters<ParamsT>& ParametersSpec() const noexcept { return params_; }
-  const MapFnT& Function() const noexcept { return fn_; }
+  const MapFnT& Function() const& noexcept { return fn_; }
+  MapFnT&& Function() && noexcept { return std::move(fn_); }
 
   NodeDefinition BuildDefinition(std::string node_type) const {
     NodeDefinition def;
@@ -462,12 +463,14 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
         *init_ctx.plan, PortDirection::kInput, in_port_);
     if (result.status != detail::PortBindingStatus::kUnbound) {
       if (result.status == detail::PortBindingStatus::kTypeMismatch) {
-        return init_ctx.Fail("Input port type mismatch for '" + name_ + "'");
+        return init_ctx.Fail("Input port type mismatch for '" + name_ +
+                             "' (expected: " + in_port_.TypeId() +
+                             ", bound: " + result.binding->type_id + ")");
       }
     } else {
       if (required_) {
         return init_ctx.Fail("Required input port '" + name_ +
-                             "' is unbound in plan");
+                             "' has no binding in plan");
       }
       in_port_.Unbind();
     }
@@ -728,7 +731,8 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
                        "' has no binding in plan");
     if (result.status == detail::PortBindingStatus::kTypeMismatch)
       return init.Fail("Output port type mismatch for '" + port_.LogicalName() +
-                       "'");
+                       "' (expected: " + port_.TypeId() +
+                       ", bound: " + result.binding->type_id + ")");
     return true;
   }
   std::optional<NodeFailure> Validate(
@@ -1373,166 +1377,6 @@ inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
 template <typename SpecT, typename = void>
 class AuthorNode;
 
-// MapSpec Specialization
-template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
-          typename MapFnT>
-class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
-    : public NodeBase {
- public:
-  using SpecType = MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>;
-
-  AuthorNode(std::string node_name, SpecType spec)
-      : NodeBase(std::move(node_name)),
-        spec_(std::move(spec)),
-        in_port_(spec_.InputName()),
-        out_port_(spec_.OutputName()) {}
-
- protected:
-  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
-                SessionContext& session_ctx) override {
-    (void)session_ctx;
-    const auto in_result = detail::ResolvePortBinding(
-        *init_ctx.plan, PortDirection::kInput, in_port_);
-    if (in_result.status == detail::PortBindingStatus::kUnbound) {
-      return init_ctx.Fail("Required input port '" + spec_.InputName() +
-                           "' has no binding in plan");
-    }
-    if (in_result.status == detail::PortBindingStatus::kTypeMismatch) {
-      return init_ctx.Fail("Input port type mismatch for '" +
-                           spec_.InputName() +
-                           "' (expected: " + in_port_.TypeId() +
-                           ", bound: " + in_result.binding->type_id + ")");
-    }
-
-    const auto out_result = detail::ResolvePortBinding(
-        *init_ctx.plan, PortDirection::kOutput, out_port_);
-    if (out_result.status == detail::PortBindingStatus::kUnbound) {
-      return init_ctx.Fail("Output port '" + spec_.OutputName() +
-                           "' has no binding in plan");
-    }
-    if (out_result.status == detail::PortBindingStatus::kTypeMismatch) {
-      return init_ctx.Fail("Output port type mismatch for '" +
-                           spec_.OutputName() +
-                           "' (expected: " + out_port_.TypeId() +
-                           ", bound: " + out_result.binding->type_id + ")");
-    }
-
-    const auto& normalized = config;
-
-    binding_facts_ = MakeBindingFacts(init_ctx);
-
-    std::string err;
-    auto parsed = spec_.ParametersSpec().ParseNormalized(normalized,
-                                                         binding_facts_, &err);
-    if (!parsed) {
-      return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
-    }
-    if (spec_.HasControls()) {
-      snapshot_.Initialize(std::move(*parsed));
-    } else {
-      parameters_ = std::move(*parsed);
-    }
-    return true;
-  }
-
-  NodeControlResult ControlNode(int cmd,
-                                const std::string& json_param) override {
-    if (!spec_.HasControls()) {
-      return NodeControlResult::Unsupported();
-    }
-    if constexpr (std::is_copy_constructible_v<
-                      typename SpecType::ParametersType>) {
-      for (const auto& command : spec_.ControlCommands()) {
-        if (command.Id() == cmd) {
-          return command.Execute(spec_.ParametersSpec(), json_param,
-                                 binding_facts_, snapshot_);
-        }
-      }
-    }
-    return NodeControlResult::Unsupported();
-  }
-
-  int ProcessNode(AlgContext& req_ctx) override {
-    using OutputBatch = typename SpecType::OutputBatch;
-
-    const auto* inputs =
-        in_port_.Require(req_ctx, node_error::author_node::kMissingInput);
-    if (!inputs) {
-      return node_error::author_node::kMissingInput;
-    }
-
-    if (inputs->empty()) {
-      out_port_.Set(req_ctx, OutputBatch{});
-      return 0;
-    }
-
-    std::shared_ptr<const typename SpecType::ParametersType> snapshot_guard;
-    const typename SpecType::ParametersType* params_ptr = nullptr;
-    if (spec_.HasControls()) {
-      snapshot_guard = snapshot_.Read();
-      if (!snapshot_guard) {
-        return this->Fail(req_ctx, node_error::author_node::kInternalError,
-                          this->Name() + ": snapshot not initialized");
-      }
-      params_ptr = snapshot_guard.get();
-    } else {
-      params_ptr = &parameters_;
-    }
-    const auto& params = *params_ptr;
-
-    OutputBatch outputs;
-    outputs.reserve(inputs->size());
-
-    for (const auto& item : *inputs) {
-      if constexpr (SpecType::kReturnsNodeResult) {
-        auto res = detail::InvokeMapItem(spec_.Function(), item.data, params);
-        if (!res.ok()) {
-          auto failure = std::move(res).ExtractFailure();
-          if (!failure.batch_detail.has_value()) {
-            failure.batch_detail = BatchFailureDetail{
-                this->Name(), BatchFailureReason::kCallbackFailed,
-                TraceableItemKey{item.req_id, item.sub_id}};
-          }
-          int code = failure.cause_code != 0
-                         ? failure.cause_code
-                         : node_error::author_node::kBusinessError;
-          return this->Fail(
-              req_ctx, code,
-              failure.FormatDiagnostic(this->Name() + " map function failed"));
-        }
-        outputs.emplace_back(item.req_id, item.sub_id, std::move(res).value());
-      } else {
-        outputs.emplace_back(
-            item.req_id, item.sub_id,
-            detail::InvokeMapItem(spec_.Function(), item.data, params));
-      }
-    }
-
-    const auto alignment =
-        ValidatePreservedTraceableAlignment(*inputs, outputs);
-    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
-      return this->Fail(req_ctx, node_error::author_node::kOutputCountMismatch,
-                        this->Name() + " output count mismatch");
-    }
-    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
-      return this->Fail(req_ctx,
-                        node_error::author_node::kOutputProvenanceMismatch,
-                        this->Name() + " output provenance mismatch");
-    }
-
-    out_port_.Set(req_ctx, std::move(outputs));
-    return 0;
-  }
-
- private:
-  SpecType spec_;
-  BoundInput<typename SpecType::InputBatch> in_port_;
-  BoundOutput<typename SpecType::OutputBatch> out_port_;
-  typename SpecType::ParametersType parameters_{};
-  ConfigurationSnapshot<typename SpecType::ParametersType> snapshot_;
-  BindingFacts binding_facts_;
-};
-
 // BatchSpec Specialization
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
@@ -1665,6 +1509,83 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
   typename SpecType::ModelsType models_{};
   ConfigurationSnapshot<typename SpecType::ParametersType> snapshot_;
   BindingFacts binding_facts_;
+};
+
+namespace detail {
+
+template <typename InputBatchT>
+struct MapInputs {
+  const InputBatchT* items = nullptr;
+};
+
+// Runs a Map on the Batch runtime: one required anchor input, one preserved
+// output and a per-item loop that names the failing item.
+template <typename SpecT>
+auto MakeMapRuntimeSpec(std::string node_name, SpecT map) {
+  using InputBatch = typename SpecT::InputBatch;
+  using OutputBatch = typename SpecT::OutputBatch;
+  using ParamsT = typename SpecT::ParametersType;
+  using Inputs = MapInputs<InputBatch>;
+  auto run = [fn = std::move(map).Function(), name = std::move(node_name)](
+                 const Inputs& inputs,
+                 const ParamsT& params) -> NodeResult<OutputBatch> {
+    OutputBatch outputs;
+    outputs.reserve(inputs.items->size());
+    for (const auto& item : *inputs.items) {
+      if constexpr (SpecT::kReturnsNodeResult) {
+        auto res = InvokeMapItem(fn, item.data, params);
+        if (!res.ok()) {
+          auto failure = std::move(res).ExtractFailure();
+          if (!failure.batch_detail.has_value()) {
+            failure.batch_detail =
+                BatchFailureDetail{name, BatchFailureReason::kCallbackFailed,
+                                   TraceableItemKey{item.req_id, item.sub_id}};
+          }
+          if (failure.message.empty()) {
+            failure.message = name + " map function failed";
+          }
+          return NodeResult<OutputBatch>::Failure(std::move(failure));
+        }
+        outputs.emplace_back(item.req_id, item.sub_id, std::move(res).value());
+      } else {
+        outputs.emplace_back(item.req_id, item.sub_id,
+                             InvokeMapItem(fn, item.data, params));
+      }
+    }
+    return NodeResult<OutputBatch>::Success(std::move(outputs));
+  };
+  auto batch = MakeBatchSpec(
+      InputsOf<Inputs>({Required(map.InputName(), &Inputs::items)}),
+      PreservedOutput<OutputBatch>(map.OutputName(), map.InputName()),
+      map.ParametersSpec(), std::move(run));
+  if constexpr (std::is_copy_constructible_v<ParamsT>) {
+    if (map.HasControls()) {
+      return std::move(batch).WithControls(map.ControlCommands());
+    }
+  }
+  return batch;
+}
+
+}  // namespace detail
+
+// MapSpec Specialization: the Definition comes from MapSpec; execution,
+// parameters and Control share the Batch runtime.
+template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
+          typename MapFnT>
+class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
+    : public AuthorNode<decltype(detail::MakeMapRuntimeSpec(
+          std::declval<std::string>(),
+          std::declval<
+              MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>()))> {
+ public:
+  using SpecType = MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>;
+  using RuntimeSpec = decltype(detail::MakeMapRuntimeSpec(
+      std::declval<std::string>(), std::declval<SpecType>()));
+
+  AuthorNode(std::string node_name, SpecType spec)
+      : AuthorNode<RuntimeSpec>(
+            node_name, detail::MakeMapRuntimeSpec(node_name, std::move(spec))) {
+  }
 };
 
 // ---------------------------------------------------------------------------

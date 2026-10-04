@@ -144,7 +144,8 @@ add_executable(edgeflow_test_tooling_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime edgeflow_pipeline_tooling GTest::gtest
+  GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
 
 if(LLM_EDGEFLOW_HAS_WHISPERCPP)
@@ -215,7 +216,7 @@ edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
 edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
   "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
-  "ValidatedPipelinePlanTest.*" "${_edgeflow_tier1}")
+  "ValidatedPipelinePlanTest.*:PortShapeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(NodeBaseContractsTest edgeflow_test_core_runner
   "NodeBaseContractsTest.*:NodeErrorCodesTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner

@@ -91,7 +91,6 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   def.converter_id = "image_query.plain.operator.v1";
 
   def.schema_id = "image_query.plain.request";
-  def.external_type = "CompanyFrame,CompanyString";
 
   def.external_slots = {ExternalInputSlot<CompanyFrame>(kFrameSlot),
                         ExternalInputSlot<CompanyString>(kQuerySlot)};

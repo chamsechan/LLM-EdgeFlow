@@ -22,7 +22,10 @@ struct DeploymentPrepareOptions {
   std::string model_root_dir;
 };
 
-struct PreparedDeployment {
+// Converter selection, port mappings and output pool budgets resolved from a
+// deployment document. Preparation produces it; the validated Operator plan
+// keeps it unchanged.
+struct IoBindingSelection {
   IoBindingDefinition binding;
   const InputConverterDefinition* input_converter = nullptr;
   const OutputConverterDefinition* output_converter = nullptr;
@@ -32,22 +35,13 @@ struct PreparedDeployment {
 
   std::unordered_map<std::string, ResolvedOutputPoolSpec> output_specs;
   std::unordered_map<std::string, std::string> output_parameter_texts;
+};
 
+struct PreparedDeployment : IoBindingSelection {
   nlohmann::json neutral_pipeline_json;
   PipelineIoBoundary io_boundary;
 
-  void Clear() {
-    binding = IoBindingDefinition{};
-    input_converter = nullptr;
-    output_converter = nullptr;
-    input_port_bindings = InputPortBindings{};
-    output_port_bindings = OutputPortBindings{};
-    effective_max_batch_size = 0;
-    output_specs.clear();
-    output_parameter_texts.clear();
-    neutral_pipeline_json = nullptr;
-    io_boundary = PipelineIoBoundary{};
-  }
+  void Clear() { *this = PreparedDeployment{}; }
 };
 
 /**

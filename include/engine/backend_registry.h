@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "contracts/registry_conflicts.h"
 #include "edgeflow/log.h"
 #include "engine/backend_interface.h"
 #include "engine/inference_definition.h"
@@ -54,8 +55,7 @@ class BackendRegistry {
 
   mutable std::mutex mutex_;
   std::unordered_map<std::string, Entry> entries_;
-  bool has_conflict_ = false;
-  std::vector<std::string> conflict_errors_;
+  RegistryConflicts conflicts_;
 };
 
 #define REGISTER_BACKEND_WITH_DEFINITION(BackendClass, ...)            \

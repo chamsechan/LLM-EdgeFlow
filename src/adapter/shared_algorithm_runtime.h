@@ -41,7 +41,8 @@ class SharedAlgorithmRuntime {
    * @brief 运行时动态控制指令下发
    */
   int ExecuteControl(int cmd, const std::string& json_param_str,
-                     std::string* out_error = nullptr) noexcept;
+                     std::string* out_error = nullptr,
+                     ControlFailureStage* failure_stage = nullptr) noexcept;
 
   // Getters
   Pipeline* GetPipeline() { return pipeline_.get(); }

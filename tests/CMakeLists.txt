@@ -31,7 +31,8 @@ add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/cli/pipeline_document_validation.cpp
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
-target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime)
+target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime
+  edgeflow_pipeline_tooling)
 target_compile_definitions(alg_pipeline_tool_test PRIVATE
   LLM_EDGEFLOW_TOOL_HAS_TEST_REGISTRATIONS=1)
 target_include_directories(alg_pipeline_tool_test PRIVATE

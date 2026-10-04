@@ -25,6 +25,11 @@
 #endif
 
 namespace llm_edgeflow {
+
+#ifdef HAVE_KITELLM
+static const BackendDefinition& KiteLlmBackendDefinition();
+#endif
+
 namespace {
 
 bool IsCpuPlatform(const std::string& platform) {
@@ -463,11 +468,6 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
 
 }  // namespace
 
-const std::string& KiteLlmBackend::BackendType() const noexcept {
-  static const std::string type = kBackendType;
-  return type;
-}
-
 std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
@@ -513,8 +513,9 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
         return nullptr;
       }
     }
-    const std::string run_config_file =
-        spec.backend_config.value("run_config_file", "");
+    const std::string run_config_file = ConfigValueOrDefault<std::string>(
+        spec.backend_config, KiteLlmBackendDefinition().config_fields,
+        "run_config_file");
     std::string resolved_run_config;
     if (!ResolveRunConfig(spec.model_path, run_config_file,
                           &resolved_run_config, diagnostic)) {
@@ -600,32 +601,34 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
 }
 
 #ifdef HAVE_KITELLM
-static const BackendDefinition kKiteLlmBackendDefinition = [] {
-  BackendDefinition definition;
-  definition.backend_type = KiteLlmBackend::kBackendType;
-  definition.description =
-      "kiteLLM text/image generation and generated-token embeddings (pinned "
-      "CPU release; native "
-      "device ID)";
-  definition.supported_protocols = {
-      ExecutionProtocol::kTextGeneration,
-      ExecutionProtocol::kImageTextGeneration,
-      ExecutionProtocol::kGeneratedTokenEmbedding};
-  definition.concurrency = InferenceConcurrency::kSerialized;
-  definition.config_fields = {
-      {"run_config_file",
-       ConfigValueKind::kString,
-       false,
-       "",
-       std::nullopt,
-       std::nullopt,
-       {},
-       "Optional model-relative kiteLLM run-config file; device ID is passed "
-       "through the native parameter API"}};
+static const BackendDefinition& KiteLlmBackendDefinition() {
+  static const BackendDefinition definition = [] {
+    auto definition = MakeBackendDefinition<KiteLlmBackend>();
+    definition.description =
+        "kiteLLM text/image generation and generated-token embeddings (pinned "
+        "CPU release; native "
+        "device ID)";
+    definition.supported_protocols = {
+        ExecutionProtocol::kTextGeneration,
+        ExecutionProtocol::kImageTextGeneration,
+        ExecutionProtocol::kGeneratedTokenEmbedding};
+    definition.concurrency = InferenceConcurrency::kSerialized;
+    definition.config_fields = {
+        {"run_config_file",
+         ConfigValueKind::kString,
+         false,
+         "",
+         std::nullopt,
+         std::nullopt,
+         {},
+         "Optional model-relative kiteLLM run-config file; device ID is passed "
+         "through the native parameter API"}};
+    return definition;
+  }();
   return definition;
-}();
+}
 
-REGISTER_BACKEND_WITH_DEFINITION(KiteLlmBackend, kKiteLlmBackendDefinition);
+REGISTER_BACKEND_WITH_DEFINITION(KiteLlmBackend, KiteLlmBackendDefinition());
 #endif
 
 }  // namespace llm_edgeflow
