@@ -316,7 +316,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | A1 | 端口数量关系改为形状推导 | 第一节 2 | 已完成：Validator 推导形状；`TextEmbeddingNode` 改为 `1:1`；规则见[数量关系声明](../doc/dev_guide/custom_node_concepts.md#数量关系声明与-validator-检查) |
 | A2 | RuleMatch 外部响应序列化移到 Adapter | 第一节 3 | 已完成：`RuleMatchItem` 改为中性的全部命中与带类型槽位；两个转换器共用 Adapter 序列化，字节级契约测试覆盖 |
 | A3 | 错误码按阶段映射 | 第一节 1 | 已完成：Adapter 集中映射，`Pipeline::Control` 报告失败阶段；规则见[宿主调用与生命周期](../doc/dev_guide/operator_output_allocation.md#宿主调用与生命周期)，真实 SDK 目标码仍待内网核验 |
-| A4 | 致命错误与单条无效结果写入业务契约 | 第一节 4 | 待实施 |
+| A4 | 致命错误与单条无效结果写入业务契约 | 第一节 4 | 已完成：保留整批回滚，各业务约定见[整批失败与单条结果](../doc/dev_guide/business_onboarding.md#整批失败与单条结果) |
 | B1 | 清理未使用的结果结构 | 第三节·接入适配层 | 待实施 |
 | B2 | 输入/输出端口绑定共用实现 | 第三节·接入适配层 | 待实施 |
 | B3 | 输入限额统一规则来源 | 第三节·接入适配层 | 待实施 |
