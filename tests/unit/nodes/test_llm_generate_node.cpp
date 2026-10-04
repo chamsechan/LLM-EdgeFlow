@@ -16,6 +16,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_calls.h"
 #include "nodes/node_error_codes.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -78,8 +79,8 @@ class LlmGenerateNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
 
     model_ = std::make_shared<ContractLlmModel>();
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "llm_model_v1", model_, "test-v1"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                  "llm_model_v1", model_, "test-v1"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<ContractLlmModel> model_;

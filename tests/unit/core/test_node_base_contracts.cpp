@@ -17,6 +17,7 @@
 #include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/registry_test_access.h"
 
@@ -561,8 +562,8 @@ TEST(NodeBaseContractsTest, FunctionAsrWorkflow) {
 
   SessionContext session_ctx;
   auto model = std::make_shared<MockAsrModel>();
-  session_ctx.GetModelManager().RegisterModel("test_asr_model", model,
-                                              "test-v1");
+  RegisterTestModel(session_ctx.GetModelManager(), "test_asr_model", model,
+                    "test-v1");
 
   MockAsrNode node("MockAsrNode", MockAsrSpec());
   ASSERT_TRUE(

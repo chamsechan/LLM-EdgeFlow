@@ -14,6 +14,7 @@
 #include "edgeflow/operator/interface.h"
 #include "engine/model_interface.h"
 #include "nodes/node_error_codes.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/pipeline_test_utils.h"
 
@@ -83,9 +84,9 @@ class TextRerankNodeTest : public ::testing::Test {
 
     // 注册 Fake IRerankModel
     fake_model_ = std::make_shared<FakeRerankModel>();
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "fake_rerank_model", fake_model_, "v1", "fake_reranker", "rerank",
-        "mock"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                  "fake_rerank_model", fake_model_, "v1",
+                                  "fake_reranker", "rerank", "mock"));
   }
 
   std::shared_ptr<FakeRerankModel> fake_model_;
@@ -409,8 +410,8 @@ class TextRerankRankingTest : public ::testing::Test {
   void SetUp() override {
     operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
     mock_model_ = std::make_shared<ControllableMockRerankModel>();
-    session_ctx_.GetModelManager().RegisterModel("test_rerank_model",
-                                                 mock_model_, "test-v1");
+    RegisterTestModel(session_ctx_.GetModelManager(), "test_rerank_model",
+                      mock_model_, "test-v1");
     node_ = NodeRegistry::Instance().Create("TextRerankNode");
     ASSERT_NE(node_, nullptr);
   }

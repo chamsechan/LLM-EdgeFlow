@@ -21,6 +21,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_plan_fixture.h"
 
 namespace llm_edgeflow {
@@ -187,9 +188,9 @@ class NodeHarness {
 
     session_ctx_ = std::make_unique<SessionContext>();
     for (const auto& [mid, model] : models_) {
-      session_ctx_->GetModelManager().RegisterModel(
-          mid, model, "harness_rev", model ? model->ModelType() : "mock",
-          model ? model->Capability() : "llm", "mock");
+      RegisterTestModel(session_ctx_->GetModelManager(), mid, model,
+                        "harness_rev", model ? model->ModelType() : "mock",
+                        model ? model->Capability() : "llm", "mock");
     }
 
     input_keys_.clear();

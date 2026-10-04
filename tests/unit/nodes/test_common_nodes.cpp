@@ -19,6 +19,7 @@
 #include "dev_support/inference/test_capability_models.h"
 #include "engine/model_interface.h"
 #include "nodes/node_error_codes.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/pipeline_test_utils.h"
@@ -33,26 +34,27 @@ class CommonNodesTest : public ::testing::Test {
     options.device_id = 0;
     session_ctx_->SetRuntimeOptions(options);
 
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "embed_model_v1", std::make_shared<test::TestBizEmbeddingModel>(384, 4),
-        "test-v1"));
+    ASSERT_TRUE(RegisterTestModel(
+        session_ctx_->GetModelManager(), "embed_model_v1",
+        std::make_shared<test::TestBizEmbeddingModel>(384, 4), "test-v1"));
 
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "rerank_model_v1", std::make_shared<test::TestBizRerankModel>(4),
-        "test-v1"));
+    ASSERT_TRUE(RegisterTestModel(
+        session_ctx_->GetModelManager(), "rerank_model_v1",
+        std::make_shared<test::TestBizRerankModel>(4), "test-v1"));
 
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "llm_model_v1", std::make_shared<test::TestBizLlmModel>(2), "test-v1"));
+    ASSERT_TRUE(RegisterTestModel(
+        session_ctx_->GetModelManager(), "llm_model_v1",
+        std::make_shared<test::TestBizLlmModel>(2), "test-v1"));
 
     auto asr_model = std::make_shared<test::TestAsrModel>();
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "asr_model_v1", std::move(asr_model), "test-revision", "test_asr_model",
-        "asr", "test_tensor_backend"));
+    ASSERT_TRUE(RegisterTestModel(
+        session_ctx_->GetModelManager(), "asr_model_v1", std::move(asr_model),
+        "test-revision", "test_asr_model", "asr", "test_tensor_backend"));
 
     auto ocr_model = std::make_shared<test::TestOcrModel>();
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "ocr_model_v1", std::move(ocr_model), "test-revision", "test_ocr_model",
-        "ocr", "test_tensor_backend"));
+    ASSERT_TRUE(RegisterTestModel(
+        session_ctx_->GetModelManager(), "ocr_model_v1", std::move(ocr_model),
+        "test-revision", "test_ocr_model", "ocr", "test_tensor_backend"));
   }
 
   std::unique_ptr<SessionContext> session_ctx_;
@@ -588,8 +590,9 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
 // 7.2 TextEmbeddingNode single-flight session caching concurrency test
 TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   auto counting_model = std::make_shared<CountingEmbeddingModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-      "counting_embed_model", counting_model, "test-v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "counting_embed_model", counting_model,
+                                "test-v1"));
 
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
@@ -904,8 +907,8 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
 
 TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("generate_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "generate_contract", model, "v1"));
   for (bool custom_options : {false, true}) {
     SCOPED_TRACE(custom_options);
     auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
@@ -959,8 +962,8 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
 
 TEST_F(CommonNodesTest, LlmGeneratePreservesFailureCodesWithoutPublishing) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("generate_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "generate_contract", model, "v1"));
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "generate_contract"}},
@@ -1067,8 +1070,8 @@ TEST_F(CommonNodesTest,
 
 TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "prompt_contract", model, "v1"));
   auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
@@ -1113,8 +1116,8 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
 
 TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(
-      session_ctx_->GetModelManager().RegisterModel("entity_llm", model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
+                                model, "v1"));
   const nlohmann::json config = {{"bind_model", "entity_llm"}};
   auto document = CustomPipeline("entity_extract", "entity_extract");
   document["pipeline"][0]["config"] = config;
@@ -1154,8 +1157,8 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
 
 TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "prompt_contract", model, "v1"));
   const std::string value = "opaque {{input}} {context}";
   const std::vector<std::pair<std::string, std::string>> cases = {
       {"{{context}}|{{ context }}", value + "|" + value},
@@ -1190,8 +1193,8 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
 TEST_F(CommonNodesTest,
        PromptTemplateUnificationAcceptsJsonAndRejectsMalformedPlaceholders) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "prompt_contract", model, "v1"));
   // 1. Malformed templates are rejected at validation and Init
   for (const std::string pattern :
        {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
@@ -1227,8 +1230,8 @@ TEST_F(CommonNodesTest,
 
 TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "prompt_contract", model, "v1"));
   for (const char* name : {"PromptGuidedLlmNode", "ScaffoldModelLlmNode",
                            "ScaffoldTutorialLlmNode"}) {
     SCOPED_TRACE(name);
@@ -1263,8 +1266,8 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
 TEST_F(CommonNodesTest, PromptContextIsExplicitAndRequiredWhenUsed) {
   auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
   auto model = std::make_shared<PromptContractModel>();
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
-                                                            model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "prompt_contract", model, "v1"));
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "prompt_contract"}},
                               session_ctx_.get()));
   AlgContext implicit;
@@ -1346,8 +1349,9 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
         CustomPipeline(fixture, expected_biz));
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   }
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-      "entity_llm", std::make_shared<test::TestBizLlmModel>(2), "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
+                                std::make_shared<test::TestBizLlmModel>(2),
+                                "v1"));
   for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode"}) {
     auto doc = CustomPipeline("entity_extract", "entity_extract");
     doc["pipeline"][0]["node_type"] = name;
@@ -1373,8 +1377,8 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   auto model = std::make_shared<PromptContractModel>();
   model->response_prefix.clear();
   model->response_suffix = "\n\n";
-  ASSERT_TRUE(
-      session_ctx_->GetModelManager().RegisterModel("entity_llm", model, "v1"));
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
+                                model, "v1"));
   auto document = CustomPipeline("entity_extract", "entity_extract");
   document["pipeline"][0]["node_type"] = "ScaffoldTutorialLlmNode";
   document["pipeline"][0]["config"] = {{"bind_model", "entity_llm"}};
