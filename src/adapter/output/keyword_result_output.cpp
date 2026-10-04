@@ -40,7 +40,6 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   def.converter_id = "keyword.result.operator.v1";
 
   def.schema_id = "keyword.result.response";
-  def.external_type = "CompanyOperatorKeywordOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot)};

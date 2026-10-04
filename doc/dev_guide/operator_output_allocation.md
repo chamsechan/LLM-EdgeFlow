@@ -56,6 +56,7 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 `ExternalSlotDefinition`。例如逻辑槽名为 `result`、已注册类型后缀为 `entity_out`、外部 key 为
 `sdk.answer` 时，分别设置 `slot_name = "result"`、`type_suffix = "entity_out"`、`key_suffix = "answer"`。
 `schema_version`、输出 `cardinality`、`capacity_policy` 使用 Definition 的默认值时无需赋值；
+`external_type` 留空时由外部槽类型按声明顺序拼接（如 `CompanyFrame,CompanyString`）。
 规则不同时显式填写。
 
 以下配置来自参与编译的

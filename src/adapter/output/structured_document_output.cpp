@@ -43,7 +43,6 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.converter_id = "document.structured.operator.v1";
 
   def.schema_id = "document.structured.response";
-  def.external_type = "CompanyOperatorEntityOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};

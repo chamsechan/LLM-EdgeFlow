@@ -90,7 +90,6 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   def.converter_id = "doc_query.plain.operator.v1";
 
   def.schema_id = "doc_query.plain.request";
-  def.external_type = "CompanyOperatorDocInput";
 
   def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawDocs), OutputPort(kRawQueries)};

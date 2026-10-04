@@ -93,7 +93,6 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   def.converter_id = "audio_result.plain.operator.v1";
 
   def.schema_id = "audio_result.plain.response";
-  def.external_type = "CompanyOperatorAudioOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot)};
