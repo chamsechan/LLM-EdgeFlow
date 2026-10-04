@@ -13,6 +13,8 @@
 
 namespace llm_edgeflow {
 
+static const ModelDefinition& BgeRerankerModelDefinition();
+
 namespace {
 
 bool ValidateRerankOutput(const Tensor& tensor, size_t expected_batch,
@@ -62,10 +64,15 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
       RequireTensorGraphSession(ctx.backend_session, diagnostic);
   if (!tensor_session) return nullptr;
 
-  std::string tokenizer_file =
-      ctx.model_config.value("tokenizer_file", "vocab.txt");
-  bool do_lower_case = ctx.model_config.value("do_lower_case", true);
-  size_t max_length = ctx.model_config.value("max_length", 512);
+  std::string tokenizer_file = ConfigValueOrDefault<std::string>(
+      ctx.model_config, BgeRerankerModelDefinition().config_fields,
+      "tokenizer_file");
+  bool do_lower_case = ConfigValueOrDefault<bool>(
+      ctx.model_config, BgeRerankerModelDefinition().config_fields,
+      "do_lower_case");
+  size_t max_length = ConfigValueOrDefault<int>(
+      ctx.model_config, BgeRerankerModelDefinition().config_fields,
+      "max_length");
   if (max_length < 3 || max_length > 4096) {
     if (diagnostic) {
       *diagnostic = "Field 'max_length' must be in range [3, 4096], got: " +
@@ -74,9 +81,12 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  std::string output_name = ctx.model_config.value("output_name", "logits");
-  std::string score_activation =
-      ctx.model_config.value("score_activation", "sigmoid");
+  std::string output_name = ConfigValueOrDefault<std::string>(
+      ctx.model_config, BgeRerankerModelDefinition().config_fields,
+      "output_name");
+  std::string score_activation = ConfigValueOrDefault<std::string>(
+      ctx.model_config, BgeRerankerModelDefinition().config_fields,
+      "score_activation");
   if (score_activation != "sigmoid" && score_activation != "identity") {
     if (diagnostic) {
       *diagnostic =
@@ -86,7 +96,9 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  size_t max_batch_size = ctx.model_config.value("max_batch_size", 4);
+  size_t max_batch_size = ConfigValueOrDefault<int>(
+      ctx.model_config, BgeRerankerModelDefinition().config_fields,
+      "max_batch_size");
   if (max_batch_size == 0) {
     if (diagnostic) {
       *diagnostic = "Field 'max_batch_size' must be at least 1";
@@ -301,67 +313,72 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
   }
 }
 
-static const ModelDefinition kBgeRerankerModelDefinition = [] {
-  auto def = MakeModelDefinition<BgeRerankerModel>();
-  def.description =
-      "BGE cross-encoder reranker model using TensorGraph protocol";
-  def.required_protocol = ExecutionProtocol::kTensorGraph;
-  def.config_fields = {
-      {"tokenizer_file",
-       ConfigValueKind::kString,
-       false,
-       "vocab.txt",
-       std::nullopt,
-       std::nullopt,
-       {},
-       "匹配该重排权重的 BERT WordPiece 词表；相对路径基于模型资源目录，例如 "
-       "vocab.txt，也可使用绝对路径。"},
-      {"do_lower_case",
-       ConfigValueKind::kBoolean,
-       false,
-       true,
-       std::nullopt,
-       std::nullopt,
-       {},
-       "查询和候选分词前，将英文大写和全角英文字母归一为半角小写。"},
-      {"max_length",
-       ConfigValueKind::kInteger,
-       false,
-       512,
-       3.0,
-       4096.0,
-       {},
-       "查询与候选成对编码后的总 token 长度，包含 "
-       "[CLS]/[SEP]；截断和补齐后须匹配模型张量形状。"},
-      {"output_name",
-       ConfigValueKind::kString,
-       false,
-       "logits",
-       std::nullopt,
-       std::nullopt,
-       {},
-       "读取查询与候选评分的输出张量名，例如 logits，必须与模型导出名称一致。"},
-      {"score_activation",
-       ConfigValueKind::kString,
-       false,
-       "sigmoid",
-       std::nullopt,
-       std::nullopt,
-       {"sigmoid", "identity"},
-       "sigmoid 将模型原始分数映射至 [0,1]；identity 直接使用原始分数。"},
-      {"max_batch_size",
-       ConfigValueKind::kInteger,
-       false,
-       4,
-       1.0,
-       1024.0,
-       {},
-       "一次模型执行处理的查询与候选对数量上限；必须满足 Backend 的批次约束。"},
-  };
-  def.validate_config = ValidateBertModelConfig;
-  return def;
-}();
+static const ModelDefinition& BgeRerankerModelDefinition() {
+  static const ModelDefinition definition = [] {
+    auto def = MakeModelDefinition<BgeRerankerModel>();
+    def.description =
+        "BGE cross-encoder reranker model using TensorGraph protocol";
+    def.required_protocol = ExecutionProtocol::kTensorGraph;
+    def.config_fields = {
+        {"tokenizer_file",
+         ConfigValueKind::kString,
+         false,
+         "vocab.txt",
+         std::nullopt,
+         std::nullopt,
+         {},
+         "匹配该重排权重的 BERT WordPiece 词表；相对路径基于模型资源目录，例如 "
+         "vocab.txt，也可使用绝对路径。"},
+        {"do_lower_case",
+         ConfigValueKind::kBoolean,
+         false,
+         true,
+         std::nullopt,
+         std::nullopt,
+         {},
+         "查询和候选分词前，将英文大写和全角英文字母归一为半角小写。"},
+        {"max_length",
+         ConfigValueKind::kInteger,
+         false,
+         512,
+         3.0,
+         4096.0,
+         {},
+         "查询与候选成对编码后的总 token 长度，包含 "
+         "[CLS]/[SEP]；截断和补齐后须匹配模型张量形状。"},
+        {"output_name",
+         ConfigValueKind::kString,
+         false,
+         "logits",
+         std::nullopt,
+         std::nullopt,
+         {},
+         "读取查询与候选评分的输出张量名，例如 "
+         "logits，必须与模型导出名称一致。"},
+        {"score_activation",
+         ConfigValueKind::kString,
+         false,
+         "sigmoid",
+         std::nullopt,
+         std::nullopt,
+         {"sigmoid", "identity"},
+         "sigmoid 将模型原始分数映射至 [0,1]；identity 直接使用原始分数。"},
+        {"max_batch_size",
+         ConfigValueKind::kInteger,
+         false,
+         4,
+         1.0,
+         1024.0,
+         {},
+         "一次模型执行处理的查询与候选对数量上限；必须满足 Backend "
+         "的批次约束。"},
+    };
+    def.validate_config = ValidateBertModelConfig;
+    return def;
+  }();
+  return definition;
+}
 
-REGISTER_MODEL_WITH_DEFINITION(BgeRerankerModel, kBgeRerankerModelDefinition);
+REGISTER_MODEL_WITH_DEFINITION(BgeRerankerModel, BgeRerankerModelDefinition());
 
 }  // namespace llm_edgeflow

@@ -1137,3 +1137,29 @@ TEST_F(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
 }
 
 }  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+
+TEST_F(DefinitionSchemaValidationTest,
+       ConfigValueOrDefaultReadsDeclaredDefault) {
+  const std::vector<ConfigFieldDefinition> fields = {
+      {"threads", ConfigValueKind::kInteger, false, 2, 1.0, 64.0, {}, ""},
+      {"mode",
+       ConfigValueKind::kString,
+       false,
+       "all",
+       std::nullopt,
+       std::nullopt,
+       {},
+       ""}};
+  const nlohmann::json config = {{"threads", 8}};
+  EXPECT_EQ(ConfigValueOrDefault<int>(config, fields, "threads"), 8);
+  EXPECT_EQ(ConfigValueOrDefault<std::string>(config, fields, "mode"), "all");
+  EXPECT_EQ(ConfigValueOrDefault<int>(nlohmann::json(), fields, "threads"), 2);
+  EXPECT_THROW(ConfigValueOrDefault<int>(config, fields, "undeclared"),
+               std::invalid_argument);
+  EXPECT_THROW(ConfigValueOrDefault<std::string>(config, fields, "threads"),
+               nlohmann::json::exception);
+}
+
+}  // namespace llm_edgeflow

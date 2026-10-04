@@ -11,6 +11,9 @@
 #include "engine/text/utf8.h"
 
 namespace llm_edgeflow {
+
+static const ModelDefinition& WhisperAsrModelDefinition();
+
 namespace {
 
 inline std::string TrimAscii(std::string_view text) {
@@ -35,12 +38,15 @@ std::shared_ptr<IModel> WhisperAsrModel::Create(
           "whisper_asr requires an IAudioTranscriptionSession with batch "
           "policy {1, 0}");
     }
-    const std::string language =
-        context.model_config.value("language", std::string("zh"));
-    const int max_audio_seconds =
-        context.model_config.value("max_audio_seconds", 30);
-    const int max_output_bytes =
-        context.model_config.value("max_output_bytes", 65536);
+    const std::string language = ConfigValueOrDefault<std::string>(
+        context.model_config, WhisperAsrModelDefinition().config_fields,
+        "language");
+    const int max_audio_seconds = ConfigValueOrDefault<int>(
+        context.model_config, WhisperAsrModelDefinition().config_fields,
+        "max_audio_seconds");
+    const int max_output_bytes = ConfigValueOrDefault<int>(
+        context.model_config, WhisperAsrModelDefinition().config_fields,
+        "max_output_bytes");
 
     if (language != "zh" && language != "en" && language != "auto") {
       throw std::runtime_error("Invalid language for whisper_asr: " + language);
@@ -184,39 +190,42 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
   }
 }
 
-static const ModelDefinition kWhisperAsrModelDefinition = [] {
-  auto definition = MakeModelDefinition<WhisperAsrModel>();
-  definition.description =
-      "Whisper automatic speech recognition model for float32 PCM";
-  definition.required_protocol = ExecutionProtocol::kAudioTranscription;
-  definition.config_fields = {
-      ConfigFieldDefinition{"language",
-                            ConfigValueKind::kString,
-                            false,
-                            "zh",
-                            std::nullopt,
-                            std::nullopt,
-                            {"zh", "en", "auto"},
-                            "Target transcription language"},
-      ConfigFieldDefinition{"max_audio_seconds",
-                            ConfigValueKind::kInteger,
-                            false,
-                            30,
-                            1.0,
-                            60.0,
-                            {},
-                            "Maximum audio length in seconds"},
-      ConfigFieldDefinition{"max_output_bytes",
-                            ConfigValueKind::kInteger,
-                            false,
-                            65536,
-                            1.0,
-                            65536.0,
-                            {},
-                            "Maximum transcription output bytes"}};
+static const ModelDefinition& WhisperAsrModelDefinition() {
+  static const ModelDefinition definition = [] {
+    auto definition = MakeModelDefinition<WhisperAsrModel>();
+    definition.description =
+        "Whisper automatic speech recognition model for float32 PCM";
+    definition.required_protocol = ExecutionProtocol::kAudioTranscription;
+    definition.config_fields = {
+        ConfigFieldDefinition{"language",
+                              ConfigValueKind::kString,
+                              false,
+                              "zh",
+                              std::nullopt,
+                              std::nullopt,
+                              {"zh", "en", "auto"},
+                              "Target transcription language"},
+        ConfigFieldDefinition{"max_audio_seconds",
+                              ConfigValueKind::kInteger,
+                              false,
+                              30,
+                              1.0,
+                              60.0,
+                              {},
+                              "Maximum audio length in seconds"},
+        ConfigFieldDefinition{"max_output_bytes",
+                              ConfigValueKind::kInteger,
+                              false,
+                              65536,
+                              1.0,
+                              65536.0,
+                              {},
+                              "Maximum transcription output bytes"}};
+    return definition;
+  }();
   return definition;
-}();
+}
 
-REGISTER_MODEL_WITH_DEFINITION(WhisperAsrModel, kWhisperAsrModelDefinition);
+REGISTER_MODEL_WITH_DEFINITION(WhisperAsrModel, WhisperAsrModelDefinition());
 
 }  // namespace llm_edgeflow

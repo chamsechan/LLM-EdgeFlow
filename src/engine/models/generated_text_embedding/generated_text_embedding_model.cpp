@@ -10,6 +10,8 @@
 
 namespace llm_edgeflow {
 
+static const ModelDefinition& GeneratedTextEmbeddingDefinition();
+
 std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   try {
@@ -26,8 +28,9 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     auto model = std::make_shared<GeneratedTextEmbeddingModel>();
     model->session_ = std::move(session);
     const auto& dimension = context.model_config.at("embedding_dim");
-    const auto limit =
-        context.model_config.value("max_tokens", nlohmann::json(1));
+    const auto limit = ConfigValueOrDefault<nlohmann::json>(
+        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
+        "max_tokens");
     if (!dimension.is_number_integer() || dimension < 1 || dimension > 65536 ||
         !limit.is_number_integer() || limit < 1 || limit > 64) {
       throw std::runtime_error(
@@ -35,10 +38,18 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     }
     model->embedding_dim_ = dimension.get<int>();
     model->max_tokens_ = limit.get<int>();
-    model->pooling_ = context.model_config.value("pooling", "last");
-    model->prefix_ = context.model_config.value("prefix", "");
-    model->suffix_ = context.model_config.value("suffix", "");
-    model->add_bos_ = context.model_config.value("add_bos", false);
+    model->pooling_ = ConfigValueOrDefault<std::string>(
+        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
+        "pooling");
+    model->prefix_ = ConfigValueOrDefault<std::string>(
+        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
+        "prefix");
+    model->suffix_ = ConfigValueOrDefault<std::string>(
+        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
+        "suffix");
+    model->add_bos_ = ConfigValueOrDefault<bool>(
+        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
+        "add_bos");
     if (model->pooling_ != "last" && model->pooling_ != "mean") {
       throw std::runtime_error(
           "Invalid generated_text_embedding configuration");
@@ -135,67 +146,71 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
       outputs, diagnostic);
 }
 
-static const ModelDefinition kGeneratedTextEmbeddingDefinition = [] {
-  auto definition = MakeModelDefinition<GeneratedTextEmbeddingModel>();
-  definition.description =
-      "Experimental text vectors from greedy generated-token hidden states; "
-      "last/mean pooling, not encoder embeddings";
-  definition.required_protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
-  definition.config_fields = {
-      {"embedding_dim",
-       ConfigValueKind::kInteger,
-       true,
-       nullptr,
-       1.0,
-       65536.0,
-       {},
-       "生成 token 的隐藏向量维数，必须与 Backend 返回的每个 token "
-       "向量维度一致。"},
-      {"max_tokens",
-       ConfigValueKind::kInteger,
-       false,
-       1,
-       1.0,
-       64.0,
-       {},
-       "用于生成嵌入的 token 数上限；控制参与 last/mean 池化的生成 "
-       "token，不是输入文本长度。"},
-      {"pooling",
-       ConfigValueKind::kString,
-       false,
-       "last",
-       std::nullopt,
-       std::nullopt,
-       {"last", "mean"},
-       "last 取最后一个生成 token 的向量；mean 对全部生成 token 向量求均值。"},
-      {"prefix",
-       ConfigValueKind::kString,
-       false,
-       "",
-       std::nullopt,
-       std::nullopt,
-       {},
-       "直接拼接在输入文本之前的模型提示词，不自动插入分隔符。"},
-      {"suffix",
-       ConfigValueKind::kString,
-       false,
-       "",
-       std::nullopt,
-       std::nullopt,
-       {},
-       "直接拼接在输入文本之后的模型提示词，不自动插入分隔符。"},
-      {"add_bos",
-       ConfigValueKind::kBoolean,
-       false,
-       false,
-       std::nullopt,
-       std::nullopt,
-       {},
-       "编码输入时请求添加模型的 BOS 起始 "
-       "token，须与所选模型的分词约定一致。"}};
+static const ModelDefinition& GeneratedTextEmbeddingDefinition() {
+  static const ModelDefinition definition = [] {
+    auto definition = MakeModelDefinition<GeneratedTextEmbeddingModel>();
+    definition.description =
+        "Experimental text vectors from greedy generated-token hidden states; "
+        "last/mean pooling, not encoder embeddings";
+    definition.required_protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
+    definition.config_fields = {
+        {"embedding_dim",
+         ConfigValueKind::kInteger,
+         true,
+         nullptr,
+         1.0,
+         65536.0,
+         {},
+         "生成 token 的隐藏向量维数，必须与 Backend 返回的每个 token "
+         "向量维度一致。"},
+        {"max_tokens",
+         ConfigValueKind::kInteger,
+         false,
+         1,
+         1.0,
+         64.0,
+         {},
+         "用于生成嵌入的 token 数上限；控制参与 last/mean 池化的生成 "
+         "token，不是输入文本长度。"},
+        {"pooling",
+         ConfigValueKind::kString,
+         false,
+         "last",
+         std::nullopt,
+         std::nullopt,
+         {"last", "mean"},
+         "last 取最后一个生成 token 的向量；mean 对全部生成 token "
+         "向量求均值。"},
+        {"prefix",
+         ConfigValueKind::kString,
+         false,
+         "",
+         std::nullopt,
+         std::nullopt,
+         {},
+         "直接拼接在输入文本之前的模型提示词，不自动插入分隔符。"},
+        {"suffix",
+         ConfigValueKind::kString,
+         false,
+         "",
+         std::nullopt,
+         std::nullopt,
+         {},
+         "直接拼接在输入文本之后的模型提示词，不自动插入分隔符。"},
+        {"add_bos",
+         ConfigValueKind::kBoolean,
+         false,
+         false,
+         std::nullopt,
+         std::nullopt,
+         {},
+         "编码输入时请求添加模型的 BOS 起始 "
+         "token，须与所选模型的分词约定一致。"}};
+    return definition;
+  }();
   return definition;
-}();
+}
 REGISTER_MODEL_WITH_DEFINITION(GeneratedTextEmbeddingModel,
-                               kGeneratedTextEmbeddingDefinition);
+                               GeneratedTextEmbeddingDefinition());
 
 }  // namespace llm_edgeflow

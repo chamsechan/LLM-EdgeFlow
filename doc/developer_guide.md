@@ -175,7 +175,8 @@ Model 继承 [`ModelIdentity<Model, 能力接口>`](../include/engine/model_iden
 [`BackendIdentity<Backend>`](../include/engine/backend_identity.h)，Definition 从
 `MakeBackendDefinition<Backend>()` 开始。创建时工厂仍逐项核对实例、Session 与 Definition。
 
-Model 的字段类型、默认值和范围由 `config_fields` 声明；字段之间或文本内容的额外规则
+Model 的字段类型、默认值和范围由 `config_fields` 声明，创建时用 `ConfigValueOrDefault` 读取，
+默认值只写在声明中；字段之间或文本内容的额外规则
 放在可选的 `ModelDefinition::validate_config` 中。Validator 与 ModelRuntimeFactory
 均先完成字段校验和默认值补齐，再调用此纯函数；失败时不创建 Backend 或加载模型。
 该函数只检查配置，不读文件或创建会话。直接 Model 创建入口应复用相同语义检查；
