@@ -357,23 +357,44 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
   check(1);  // Updating the prefix preserves the matcher's new rules.
 
+  // Rejected requests are invalid parameters; the internal Core code stays in
+  // the diagnostic instead of colliding with the invalid-handle code.
   command.json_param_str =
       R"({"$edgeflow_control":1,"node_id":"missing","payload":{"prefix":"BAD:"}})";
-  EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
+            COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("missing"),
+            std::string::npos);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("Control request failed with internal code -1"),
             std::string::npos);
   check(1);
 
   command.json_param_str = R"({"prefix":1})";
-  EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
+            COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("node 'prefix'"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError()).find("prefix"),
             std::string::npos);
   payload = nlohmann::json{{"prefix", std::string(65, 'x')}}.dump();
   command.json_param_str = payload.c_str();
-  EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
+            COMPANY_ALG_ERR_UNKNOWN);
   EXPECT_NE(std::string(GetOperatorLastError()).find("64 UTF-8 bytes"),
+            std::string::npos);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("Control node update failed with internal code"),
+            std::string::npos);
+  check(1);
+
+  // A Node that rejects a well-formed payload reports an execution failure.
+  ControlJsonParam bad_regex{
+      llm_edgeflow::kControlCmdUpdateRules,
+      R"({"rules":[{"pattern":"(","strategy":"regex"}]})"};
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &bad_regex),
+            COMPANY_ALG_ERR_UNKNOWN);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("node 'matcher'"),
             std::string::npos);
   check(1);
 

@@ -518,15 +518,22 @@ int Pipeline::Execute(AlgContext* req_ctx) {
 }
 
 int Pipeline::Control(int cmd, const std::string& json_param,
-                      std::string* error) {
+                      std::string* error, ControlFailureStage* failure_stage) {
   if (error) error->clear();
-  const auto fail = [&](int code, const std::string& message) {
+  if (failure_stage) *failure_stage = ControlFailureStage::kNone;
+  const auto fail_at = [&](ControlFailureStage stage, int code,
+                           const std::string& message) {
     if (error) *error = message;
+    if (failure_stage) *failure_stage = stage;
     ALG_LOG_ERROR("[Pipeline] %s\n", message.c_str());
     return code;
   };
+  const auto fail = [&](int code, const std::string& message) {
+    return fail_at(ControlFailureStage::kRequest, code, message);
+  };
   if (state_ != State::kReady) {
-    return fail(-1, "Control requires a Ready Pipeline");
+    return fail_at(ControlFailureStage::kNone, -1,
+                   "Control requires a Ready Pipeline");
   }
 
   struct Target {
@@ -593,9 +600,10 @@ int Pipeline::Control(int cmd, const std::string& json_param,
     return fail(-1, "Unknown Control target node_id: '" + target_id + "'");
   }
   if (targets.empty()) {
-    return fail(-7,
-                "Unsupported control command: " + std::to_string(cmd) +
-                    (target_id.empty() ? "" : " for node '" + target_id + "'"));
+    return fail_at(
+        ControlFailureStage::kUnsupported, -7,
+        "Unsupported control command: " + std::to_string(cmd) +
+            (target_id.empty() ? "" : " for node '" + target_id + "'"));
   }
 
   // Broadcast remains best-effort: a later semantic failure does not undo an
@@ -615,10 +623,13 @@ int Pipeline::Control(int cmd, const std::string& json_param,
       handled = true;
     }
   }
-  if (first_failure != 0) return fail(first_failure, failures);
+  if (first_failure != 0) {
+    return fail_at(ControlFailureStage::kNode, first_failure, failures);
+  }
   if (handled) return 0;
-  return fail(
-      -7, "Declared control command was not handled: " + std::to_string(cmd));
+  return fail_at(
+      ControlFailureStage::kUnsupported, -7,
+      "Declared control command was not handled: " + std::to_string(cmd));
 }
 
 }  // namespace llm_edgeflow

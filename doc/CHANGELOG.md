@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+公开错误码：Operator 门面按失败阶段映射返回码，内部的 Pipeline、Node、Model 错误码不再直接返回给宿主。
+Create 阶段的配置、部署与模型/Backend 加载失败返回 `-2`（此前部分为 `-3`）；Process 中节点或模型
+执行失败返回 `-100`；Control 请求不合法返回 `-2`（此前为 `-1`），节点拒绝或未能应用更新返回 `-100`。
+`GetOperatorLastError()` 以 `<阶段> failed with internal code <内部码>: ...` 保留原始码与节点诊断，
+见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
+
 规则匹配结果：`TextRuleMatchNode` 只输出中性结果，`RuleMatchItem` 以 `matches` 列出全部命中、
 以 `slots` 保存带 JSON 类型的捕获与常量，删除 `match_result_json`、`details`、`captures` 和
 `constants`。关键词响应的 `match_result_json` 与音频响应的 `intent_slot_json` 改由输出转换器序列化，
