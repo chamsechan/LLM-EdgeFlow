@@ -22,7 +22,6 @@ struct ResolvedOperatorConfig {
   std::string biz_name;
   std::string io_binding;
   std::unique_ptr<ValidatedIoPlan> io_plan;
-  ResolvedInputLimits input_limits;
   uint32_t effective_frame_depth = 0;          // normalized output pool depth
   uint32_t effective_process_batch_limit = 0;  // min(pool depth, binding limit)
 };

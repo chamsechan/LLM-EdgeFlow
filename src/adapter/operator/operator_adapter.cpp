@@ -30,7 +30,6 @@ struct OperatorHandle {
   uint32_t effective_process_batch_limit = 25;
   const llm_edgeflow::InputConverterDefinition* input_converter = nullptr;
   const llm_edgeflow::OutputConverterDefinition* output_converter = nullptr;
-  llm_edgeflow::ResolvedInputLimits input_limits;
   std::unordered_map<std::string,
                      std::shared_ptr<llm_edgeflow::OutputPoolState>>
       output_pools;
@@ -262,7 +261,6 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     handle_instance->effective_process_batch_limit = effective_batch_limit;
     handle_instance->input_converter = runtime->GetIoPlan()->input_converter;
     handle_instance->output_converter = runtime->GetIoPlan()->output_converter;
-    handle_instance->input_limits = resolved_conf.input_limits;
     handle_instance->output_pools = std::move(pools);
     handle_instance->runtime = std::move(runtime);
 
@@ -333,7 +331,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     llm_edgeflow::ExternalInputBatchView in_view;
     std::string in_err;
     int in_ret = llm_edgeflow::ValidateAndExtractOperatorInputs(
-        inputs, *h->input_converter, h->input_limits, &in_view, &in_err);
+        inputs, *h->input_converter, llm_edgeflow::InputLimits{}, &in_view,
+        &in_err);
     if (in_ret != 0) {
       SetLastError(in_err);
       return in_ret;

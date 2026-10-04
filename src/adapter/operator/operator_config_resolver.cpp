@@ -345,7 +345,6 @@ int OperatorConfigResolver::Resolve(
     result->effective_process_batch_limit = static_cast<uint32_t>(
         std::min<size_t>(effective_depth, io_plan->effective_max_batch_size));
 
-    result->input_limits = ResolvedInputLimits{};
     result->io_plan = std::move(io_plan);
 
     return 0;

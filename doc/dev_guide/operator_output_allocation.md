@@ -139,7 +139,7 @@ RegisterOperatorValueType(binding);
 
 容量结构的顺序是默认值、最大值。成员声明同时用于配置校验、预算、分配和
 重置；标量回调必须 `noexcept`，只重置标量，不能覆盖嵌套指针。输入对应使用
-`MakeTypedInputBinding<T>`，回调直接接收 `const T&` 和 `ResolvedInputLimits`。
+`MakeTypedInputBinding<T>`，回调直接接收 `const T&` 和 `InputLimits`。
 完整可执行示例见[输出池测试](../../tests/unit/operator/test_operator_output_pool.cpp)。
 
 特殊嵌套布局的输出方案提供以下行为：

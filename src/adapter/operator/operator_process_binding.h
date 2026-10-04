@@ -28,7 +28,7 @@ struct AcquiredOutputBlock {
 
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
-    const InputConverterDefinition& in_conv, const ResolvedInputLimits& limits,
+    const InputConverterDefinition& in_conv, const InputLimits& limits,
     ExternalInputBatchView* out_view, std::string* error);
 
 int ResolveOperatorOutputs(

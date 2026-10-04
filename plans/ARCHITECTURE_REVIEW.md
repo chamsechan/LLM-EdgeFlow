@@ -161,14 +161,10 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 - **端口绑定实现重复，可抽公共实现**：`InputPortBindings` 和 `OutputPortBindings`
   （[io_converter.h:150](../include/adapter/io_converter.h#L150)、[io_converter.h:194](../include/adapter/io_converter.h#L194)）
   的查找与存储逻辑相同。保留输入/输出方向约束及错误诊断即可，不必扩展作者接口。
-- **输入限额检查重复，可统一规则来源**：值类型校验用 `ResolvedInputLimits`
-  （[operator_builtin_value_types.cpp:132](../src/adapter/operator/operator_builtin_value_types.cpp#L132)），
-  转换器再用常量重查一遍（[audit_input.cpp:45](../src/adapter/input/audit_input.cpp#L45)）。而 `ResolvedInputLimits`
-  从未被配置，始终是默认值（[operator_config_resolver.cpp:348](../src/adapter/operator/operator_config_resolver.cpp#L348)）；
-  当前两处限额均来自同一组默认常量，没有实际数值不一致的证据。
-  业务字段语义归 Converter，但值类型扫描宿主内存前必须保留安全字节上限、长度与指针校验，见
-  [operator_value_type_registry.cpp:281](../src/adapter/operator/operator_value_type_registry.cpp#L281)。
-  统一校验不能扩大读取范围，也不能无意改变错误优先级。
+- **输入限额检查（B3 已处理）**：值类型校验与转换器各查一次限额，但两处都取自 `biz_input` 常量，
+  分别负责读取宿主内存前的安全上限和业务字段语义，保留两层检查。原 `ResolvedInputLimits` 从未被配置，
+  已改名为 `InputLimits` 并移出部署配置与 handle；通用载体的 10 MiB 上限也改为具名常量，
+  读取范围和错误优先级不变。
 - **契约元数据应保留，可减少重复填写**：`schema_id`、`schema_version`、`external_type`、槽位 `value_type` 和
   `capacity_policy` 实际参与同一业务外部协议的一致性检查，不一致会拒绝接入，见
   [io_binding_registry.cpp:14](../src/adapter/io_binding_registry.cpp#L14)。其中部分已有默认值，并非每项都要手写。
@@ -319,7 +315,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | A4 | 致命错误与单条无效结果写入业务契约 | 第一节 4 | 已完成：保留整批回滚，各业务约定见[整批失败与单条结果](../doc/dev_guide/business_onboarding.md#整批失败与单条结果) |
 | B1 | 清理未使用的结果结构 | 第三节·接入适配层 | 已完成：删除 `biz_results.h`；自定义 allocator 测试改用夹具内的 `NestedOutputSource` |
 | B2 | 输入/输出端口绑定共用实现 | 第三节·接入适配层 | 已完成：`PortBindings<方向>` 共用查找，输入/输出仍是不可互换的类型 |
-| B3 | 输入限额统一规则来源 | 第三节·接入适配层 | 待实施 |
+| B3 | 输入限额统一规则来源 | 第三节·接入适配层 | 已完成：限额全部来自 `biz_input` 常量；`InputLimits` 不再伪装成部署配置，两层检查保留 |
 | B4 | `RuntimeOptions` 死字段与测试便利接口 | 第三节·流程编排层 | 待实施 |
 | B5 | `NodeBase` 旧写法辅助函数收窄 | 第三节·能力节点层 | 待评估 |
 | C1 | Map/Batch 生命周期合并 | 第三节·能力节点层 | 待评估 |

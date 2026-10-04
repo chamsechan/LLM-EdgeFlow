@@ -6,7 +6,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 1. string -> CompanyString
   RegisterBinding(MakeTypedInputBinding<CompanyString>(
       "string", "CompanyString",
-      [](const CompanyString& in, const ResolvedInputLimits& limits,
+      [](const CompanyString& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyString(&in, limits.max_text_bytes, "string", err);
       }));
@@ -14,7 +14,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 2. buffer -> CompanyBuffer
   RegisterBinding(MakeTypedInputBinding<CompanyBuffer>(
       "buffer", "CompanyBuffer",
-      [](const CompanyBuffer& in, const ResolvedInputLimits& limits,
+      [](const CompanyBuffer& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyBuffer(&in, limits.max_buffer_bytes, "buffer",
                                      err);
@@ -23,7 +23,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 3. any -> CompanyAny
   RegisterBinding(MakeTypedInputBinding<CompanyAny>(
       "any", "CompanyAny",
-      [](const CompanyAny& in, const ResolvedInputLimits& limits,
+      [](const CompanyAny& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyAnyPayload(&in, limits.max_any_bytes, "any", err);
       }));
@@ -31,7 +31,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 4. frame -> CompanyFrame
   RegisterBinding(MakeTypedInputBinding<CompanyFrame>(
       "frame", "CompanyFrame",
-      [](const CompanyFrame& in, const ResolvedInputLimits& limits,
+      [](const CompanyFrame& in, const InputLimits& limits,
          std::string* err) -> int {
         if (!in.image_uri) {
           if (err) *err = "CompanyFrame.image_uri is null";
@@ -63,8 +63,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 6. keyword_in -> CompanyOperatorKeywordInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorKeywordInput>(
       "keyword_in", "CompanyOperatorKeywordInput",
-      [](const CompanyOperatorKeywordInput& in,
-         const ResolvedInputLimits& limits, std::string* err) -> int {
+      [](const CompanyOperatorKeywordInput& in, const InputLimits& limits,
+         std::string* err) -> int {
         return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
                                      "sentence_text", err);
       }));
@@ -84,8 +84,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 8. entity_in -> CompanyOperatorEntityInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorEntityInput>(
       "entity_in", "CompanyOperatorEntityInput",
-      [](const CompanyOperatorEntityInput& in,
-         const ResolvedInputLimits& limits, std::string* err) -> int {
+      [](const CompanyOperatorEntityInput& in, const InputLimits& limits,
+         std::string* err) -> int {
         return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
                                      "sentence_text", err);
       }));
@@ -104,7 +104,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 10. doc_in -> CompanyOperatorDocInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorDocInput>(
       "doc_in", "CompanyOperatorDocInput",
-      [](const CompanyOperatorDocInput& in, const ResolvedInputLimits& limits,
+      [](const CompanyOperatorDocInput& in, const InputLimits& limits,
          std::string* err) -> int {
         int ret = ValidateCompanyString(in.query_text, limits.max_text_bytes,
                                         "query_text", err);
@@ -132,7 +132,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 12. audit_in -> CompanyOperatorAuditInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorAuditInput>(
       "audit_in", "CompanyOperatorAuditInput",
-      [](const CompanyOperatorAuditInput& in, const ResolvedInputLimits& limits,
+      [](const CompanyOperatorAuditInput& in, const InputLimits& limits,
          std::string* err) -> int {
         int ret = ValidateCompanyString(in.user_text, limits.max_text_bytes,
                                         "user_text", err);
@@ -165,7 +165,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 14. audio_in -> CompanyOperatorAudioInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorAudioInput>(
       "audio_in", "CompanyOperatorAudioInput",
-      [](const CompanyOperatorAudioInput& in, const ResolvedInputLimits& limits,
+      [](const CompanyOperatorAudioInput& in, const InputLimits& limits,
          std::string* err) -> int {
         if (in.sample_rate < limits.min_sample_rate ||
             in.sample_rate > limits.max_sample_rate) {
@@ -210,8 +210,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 16. rerank_in -> CompanyOperatorRerankInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorRerankInput>(
       "rerank_in", "CompanyOperatorRerankInput",
-      [](const CompanyOperatorRerankInput& in,
-         const ResolvedInputLimits& limits, std::string* err) -> int {
+      [](const CompanyOperatorRerankInput& in, const InputLimits& limits,
+         std::string* err) -> int {
         int ret = ValidateCompanyString(in.query_text, limits.max_text_bytes,
                                         "query_text", err);
         if (ret != 0) return ret;
