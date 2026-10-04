@@ -15,5 +15,8 @@ inline constexpr int32_t kMaxAudioPcmSamples = 16000 * 60;
 inline constexpr size_t kMaxAudioPcmBytes = 10 * 1024 * 1024;
 inline constexpr int32_t kMinSampleRate = 8000;
 inline constexpr int32_t kMaxSampleRate = 192000;
+// Generic carriers without business field semantics.
+inline constexpr size_t kMaxBufferBytes = 10 * 1024 * 1024;
+inline constexpr size_t kMaxAnyBytes = 10 * 1024 * 1024;
 
 }  // namespace llm_edgeflow::biz_input

@@ -11,12 +11,14 @@
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
+#include "dev_support/node_authoring/legacy_node_base.h"
 #include "engine/model_interface.h"
 #include "nodes/authoring.h"
 #include "nodes/node_base.h"
 #include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
+#include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/registry_test_access.h"
 
@@ -242,10 +244,10 @@ inline constexpr BlackboardKey<std::string> kTestInputKey{"test_input_key",
 inline constexpr BlackboardKey<std::string> kTestOutputKey{"test_output_key",
                                                            "string"};
 
-class HelperTestNode : public NodeBase {
+class HelperTestNode : public LegacyNodeBase {
  public:
   inline static constexpr char kNodeType[] = "HelperTestNode";
-  HelperTestNode() : NodeBase(kNodeType) {}
+  HelperTestNode() : LegacyNodeBase(kNodeType) {}
 
  protected:
   int ProcessNode(AlgContext& ctx) override {
@@ -306,9 +308,10 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   }
 }
 
-class BoundPortProbeNode : public NodeBase {
+class BoundPortProbeNode : public LegacyNodeBase {
  public:
-  BoundPortProbeNode() : NodeBase("BoundPortProbeNode"), input_("input") {}
+  BoundPortProbeNode()
+      : LegacyNodeBase("BoundPortProbeNode"), input_("input") {}
 
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json&,
@@ -336,7 +339,7 @@ TEST(NodeBaseContractsTest, BindingRejectsDefinitionRuntimeTypeDrift) {
   EXPECT_FALSE(node.Init(init_ctx));
 }
 
-class MultiPortProbeNode : public NodeBase {
+class MultiPortProbeNode : public LegacyNodeBase {
  public:
   inline static constexpr auto kFirst = MakeBlackboardKey<TextBatch>("first");
   inline static constexpr auto kOptional =
@@ -345,7 +348,7 @@ class MultiPortProbeNode : public NodeBase {
       MakeBlackboardKey<TextBatch>("combined");
   inline static constexpr auto kEcho = MakeBlackboardKey<TextBatch>("echo");
 
-  MultiPortProbeNode() : NodeBase("MultiPortProbeNode") {}
+  MultiPortProbeNode() : LegacyNodeBase("MultiPortProbeNode") {}
   bool OptionalIsBound() const { return optional_.IsBound(); }
   bool CombinedIsBound() const { return combined_.IsBound(); }
   bool EchoIsBound() const { return echo_.IsBound(); }
@@ -561,8 +564,8 @@ TEST(NodeBaseContractsTest, FunctionAsrWorkflow) {
 
   SessionContext session_ctx;
   auto model = std::make_shared<MockAsrModel>();
-  session_ctx.GetModelManager().RegisterModel("test_asr_model", model,
-                                              "test-v1");
+  RegisterTestModel(session_ctx.GetModelManager(), "test_asr_model", model,
+                    "test-v1");
 
   MockAsrNode node("MockAsrNode", MockAsrSpec());
   ASSERT_TRUE(

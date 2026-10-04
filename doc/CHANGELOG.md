@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+架构审查回归修复：Map 的回调通过移动交给运行时，支持捕获 `unique_ptr` 等不可复制状态；
+流契约错误由 Validator 提供生产者、消费者、有效端口契约与推导出的数量形状，CLI 据此解释
+节点输入、业务出口及 IO 边界错误，保留拆分来源并正确区分逐项配对与出口数量要求。
+`ConfigValueOrDefault` 始终核对字段声明，拒绝数组和标量配置，`null` 仍按省略配置读取声明默认值。
+
+源码扩展接口整理（随架构审查落地，不涉及 Operator ABI）：
+- Model 继承 `ModelIdentity<Model, 能力接口>`、Backend Provider 继承 `BackendIdentity<Backend>`，
+  身份只声明一次，Definition 从 `MakeModelDefinition` / `MakeBackendDefinition` 开始；
+  配置读取使用 `ConfigValueOrDefault`，默认值只写在 `config_fields`。
+- 转换器 `external_type` 留空时由外部槽类型推导；`InputPortBindings` / `OutputPortBindings`
+  共用 `PortBindings<方向>`；`ResolvedInputLimits` 更名为 `InputLimits` 且不再出现在部署配置中。
+- 删除 `include/adapter/biz_results.h`、`ModelManager::RegisterModel`（改用 `RegisterBatch`）和
+  `RuntimeOptions` 中只写不读的 `biz_type`、`depth_num`、`biz_name`；`NodeBase` 的类写法端口辅助
+  函数移到 `dev_support` 的 `LegacyNodeBase`。
+- Map Node 改在 Batch 运行时上执行，作者写法与 Definition 不变；Batch 端口绑定诊断补充期望与实际
+  类型。注册表冲突状态在消息无法保存时仍保持失败封闭。
+
+修复建议移出 Core：remediation 的原因、事实、中文摘要与经 Validator 复核的 JSON Patch 修复改由
+`alg_pipeline_tool` 生成，不再编入 SDK，也不在 Create 校验失败时执行。`PipelineValidator::Explain`
+删除；Validator 只返回中性诊断，未注册类型的相近名称仍在 `suggestions` 中给出。CLI 与 Studio 的
+`validate` / `--explain` 继续提供修复建议；流契约诊断与建议的 `facts` 包含有效声明，
+数量错误还附上 Validator 已推导的数量形状。
+
+公开错误码：Operator 门面按失败阶段映射返回码，内部的 Pipeline、Node、Model 错误码不再直接返回给宿主。
+Create 阶段的配置、部署与模型/Backend 加载失败返回 `-2`（此前部分为 `-3`）；Process 中节点或模型
+执行失败返回 `-100`；Control 请求不合法返回 `-2`（此前为 `-1`），节点拒绝或未能应用更新返回 `-100`。
+`GetOperatorLastError()` 以 `<阶段> failed with internal code <内部码>: ...` 保留原始码与节点诊断，
+见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
+
+规则匹配结果：`TextRuleMatchNode` 只输出中性结果，`RuleMatchItem` 以 `matches` 列出全部命中、
+以 `slots` 保存带 JSON 类型的捕获与常量，删除 `match_result_json`、`details`、`captures` 和
+`constants`。关键词响应的 `match_result_json` 与音频响应的 `intent_slot_json` 改由输出转换器序列化，
+字段、类型、默认命中与字节内容保持不变。
+
+端口数量关系：输入端口的 cardinality 只描述节点如何消费，接受任意数量的上游数据；
+`TextChunkNode` 等拆分输出可以直接接逐项节点（如 `TextRuleMatchNode`）。Validator 改为沿 DAG
+推导每个数据名在请求内的条目数，仅在 `1:1` 业务/IO 边界收到多项，或同一节点的逐项输入无法配对时
+报告 `PORT_CARDINALITY_MISMATCH`。`TextEmbeddingNode` 的端口声明由 `N:M` 改为实际的 `1:1`。
+Pipeline JSON 与 Definition 字段不变，见[数量关系声明](dev_guide/custom_node_concepts.md#数量关系声明与-validator-检查)。
+
 文档链接检查：门禁新增 `DocLinksTest`，检查仓库内 Markdown 的相对链接、HTML `href`/`src`
 和标题锚点；没有扫描到文件或跨文件锚点时直接失败，不会空跑通过。
 

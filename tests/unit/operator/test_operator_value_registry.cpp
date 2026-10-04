@@ -318,7 +318,7 @@ TEST(OperatorValueRegistryTest, BuiltinInputsPreserveNullDiagnostics) {
   const char* suffixes[] = {"string",     "buffer",    "any",    "frame",
                             "keyword_in", "entity_in", "doc_in", "audit_in",
                             "audio_in",   "rerank_in"};
-  ResolvedInputLimits limits;
+  InputLimits limits;
   for (const char* suffix : suffixes) {
     SCOPED_TRACE(suffix);
     const auto* binding =
@@ -965,7 +965,7 @@ TEST(OperatorValueRegistryTest, DirectionDoesNotDependOnSuffixNaming) {
   binding.canonical_suffix = "opaque_payload";
   binding.external_c_type_name = "OpaquePayload";
   binding.direction = IoDirection::kInput;
-  binding.validate_external = [](const void*, const ResolvedInputLimits&,
+  binding.validate_external = [](const void*, const InputLimits&,
                                  std::string*) { return 0; };
 
   ASSERT_TRUE(reg.RegisterBinding(binding));
@@ -1082,7 +1082,7 @@ TEST(OperatorValueRegistryTest,
   ASSERT_NE(binding, nullptr);
   ASSERT_TRUE(binding->validate_external);
 
-  ResolvedInputLimits limits;
+  InputLimits limits;
   limits.min_sample_rate = 8000;
   limits.max_sample_rate = 48000;
   limits.max_audio_pcm_samples = 160000;
@@ -1204,7 +1204,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               test.valid);
   }
-  ResolvedInputLimits limits;
+  InputLimits limits;
   limits.max_audio_pcm_bytes = sizeof(float);
   CompanyOperatorAudioInput input{7, samples.data(), 2, 16000};
   EXPECT_NE(binding->validate_external(&input, limits, nullptr), 0);
@@ -1216,7 +1216,7 @@ TEST(OperatorValueRegistryTest,
     std::string type_name = "BusinessInput";
     auto result = MakeTypedInputBinding<BusinessInput>(
         "test_business_input", type_name.c_str(),
-        [](const BusinessInput& input, const ResolvedInputLimits& limits,
+        [](const BusinessInput& input, const InputLimits& limits,
            std::string* error) -> int {
           if (input.text_bytes <= limits.max_text_bytes) return 0;
           if (error) *error = "business text exceeds configured limit";
@@ -1237,7 +1237,7 @@ TEST(OperatorValueRegistryTest,
   view.slot_types["input"] = "DifferentInput";
   EXPECT_EQ(view.GetSlot<BusinessInput>("input", 0), nullptr);
   view.slot_types["input"] = binding.external_c_type_name;
-  ResolvedInputLimits limits;
+  InputLimits limits;
   limits.max_text_bytes = 8;
   std::string error;
   EXPECT_EQ(binding.validate_external(decoded, limits, &error), -3);

@@ -75,7 +75,7 @@ NodeResult<EmbeddingBatch> EmbedText(const EmbeddingInputs& inputs,
 }
 
 auto TextEmbeddingSpec() {
-  const PortFlow flow{"N:M", "preserve", "request", "lifetime"};
+  const PortFlow flow{"1:1", "preserve", "request", "lifetime"};
   return MakeBatchSpec(
              InputsOf<EmbeddingInputs>(
                  {Required("text", &EmbeddingInputs::text, flow)}),

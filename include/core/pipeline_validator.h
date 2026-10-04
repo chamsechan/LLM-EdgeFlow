@@ -25,6 +25,8 @@ struct ValidationFix {
   nlohmann::json ToJson() const;
 };
 
+// Filled by developer tooling (alg_pipeline_tool); the Validator itself only
+// reports neutral diagnostics.
 struct ValidationRemediation {
   int schema_version = 1;
   RemediationCause cause = RemediationCause::kUnknownConfigField;
@@ -45,6 +47,9 @@ struct ValidationDiagnostic {
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
   std::optional<ValidationRemediation> remediation;
+  // Neutral facts established by validation, including inferred item shapes.
+  // Tooling may explain these facts without repeating Validator rules.
+  nlohmann::json facts = nlohmann::json::object();
 
   nlohmann::json ToJson() const;
 };
@@ -91,10 +96,6 @@ class PipelineValidator {
       const PipelineIoBoundary* io_boundary = nullptr);
 
   static ValidationReport Validate(
-      const nlohmann::json& root,
-      const PipelineIoBoundary* io_boundary = nullptr);
-
-  static ValidationReport Explain(
       const nlohmann::json& root,
       const PipelineIoBoundary* io_boundary = nullptr);
 };

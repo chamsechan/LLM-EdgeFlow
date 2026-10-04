@@ -11,7 +11,6 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_results.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
@@ -99,6 +98,27 @@ class TranslationProbeModel final : public ILlmModel {
   std::string response;
   int failure = 0;
 };
+
+// Fails during model creation so Operator Create reaches the loading stage.
+class FailingCreateModel {
+ public:
+  inline static constexpr char kModelType[] = "test_failing_create_model";
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string* error) {
+    if (error) *error = "probe model refused to load";
+    return nullptr;
+  }
+};
+
+REGISTER_MODEL_WITH_DEFINITION(FailingCreateModel, [] {
+  ModelDefinition definition;
+  definition.model_type = FailingCreateModel::kModelType;
+  definition.capability = "llm";
+  definition.description = "Test-only model whose creation fails";
+  definition.required_protocol = ExecutionProtocol::kTextGeneration;
+  definition.concurrency = InferenceConcurrency::kSerialized;
+  return definition;
+}());
 
 REGISTER_MODEL_WITH_DEFINITION(TranslationProbeModel, [] {
   ModelDefinition definition;
@@ -259,8 +279,14 @@ TEST_F(AdapterContractSecurityTest,
   model->response.assign(2200, 'x');
   EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(model->calls.size(), before_invalid + 1);
+  // Model codes stay in diagnostics; the host sees the execution category.
   model->failure = -731;
-  EXPECT_EQ(process("{\"query\":\"hello\"}"), -731);
+  EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_UNKNOWN);
+  const std::string model_error = operator_api::GetOperatorLastError();
+  EXPECT_NE(model_error.find("Pipeline execution failed with internal code "
+                             "-731: Node '"),
+            std::string::npos)
+      << model_error;
   EXPECT_EQ(model->calls.size(), before_invalid + 2);
   model->failure = 0;
   model->response = "你好";
@@ -1309,6 +1335,168 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
               : "Validation failed for input key test.frame: "
                 "CompanyFrame.image_uri length 4097 exceeds max limit 4096");
   }
+}
+
+TEST_F(AdapterContractSecurityTest,
+       KeywordOperatorRuleMatchResponseIsByteStable) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-keyword-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(directory, error);
+    }
+  } cleanup{directory};
+  // Keyword and rule hits, typed rule constants, regex captures and the
+  // default hit all reach the external JSON response.
+  const nlohmann::json pipeline = nlohmann::json::parse(R"j({
+    "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
+    "models": [],
+    "pipeline": [{
+      "id": "rules", "node_type": "TextRuleMatchNode",
+      "inputs": {"text": "input_sentences"},
+      "outputs": {"matches": "rule_matches"},
+      "config": {
+        "categories": {"A": ["x"]},
+        "rules": [
+          {"id": "r_nav", "strategy": "regex", "pattern": "导航到(?<city>北京)",
+           "category": "NAV", "score": 0.75,
+           "constants": {"flag": true, "n": 3, "s": "v"}},
+          {"id": "r_y", "strategy": "contains", "pattern": "y",
+           "category": "B", "score": 0.5}],
+        "default_category": "FALLBACK", "default_score": 0.25}}]})j");
+  std::ofstream(directory / "pipeline.json") << pipeline.dump();
+  std::ofstream(directory / "pipeline.conf")
+      << "{\"pipe_path\":\"pipeline.json\"}";
+
+  operator_api::CreateParam create{};
+  create.model_path = directory.c_str();
+  create.cfg_file_name = "pipeline.conf";
+  create.compute_platform = operator_api::ComputePlatform::kCpu;
+  void* raw_handle = nullptr;
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(op.Create(&raw_handle, &create), 0);
+  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
+
+  std::string hit_text = "x 导航到北京y";
+  std::string fallback_text = "nothing";
+  CompanyString hit{static_cast<int32_t>(hit_text.size()), hit_text.data()};
+  CompanyString fallback{static_cast<int32_t>(fallback_text.size()),
+                         fallback_text.data()};
+  CompanyOperatorKeywordInput first{301, &hit};
+  CompanyOperatorKeywordInput second{302, &fallback};
+  operator_api::NamedIoBatch inputs(2), outputs(2);
+  inputs[0]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&first);
+  inputs[1]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&second);
+  outputs[0]["kw.keyword_out"] = nullptr;
+  outputs[1]["kw.keyword_out"] = nullptr;
+  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), 0)
+      << operator_api::GetOperatorLastError();
+
+  auto response = [&](size_t index) {
+    const auto* out = static_cast<CompanyOperatorKeywordOutput*>(
+        outputs[index]["kw.keyword_out"].get());
+    EXPECT_NE(out, nullptr);
+    EXPECT_EQ(out->is_hit, 1);
+    EXPECT_EQ(out->status_code, 0);
+    return std::string(out->match_result_json->data,
+                       out->match_result_json->length);
+  };
+  EXPECT_EQ(response(0),
+            R"j({"confidence":1.0,"intent":"A","matched_word":"x","matches":[)j"
+            R"j({"category":"A","matched_word":"x"},)j"
+            R"j({"category":"NAV","pattern":"导航到(?<city>北京)",)j"
+            R"j("rule_id":"r_nav","score":0.75},)j"
+            R"j({"category":"B","pattern":"y","rule_id":"r_y","score":0.5}],)j"
+            R"j("slots":{"city":"北京","flag":true,"n":3,"s":"v"}})j");
+  EXPECT_EQ(response(1),
+            R"j({"confidence":0.25,"intent":"FALLBACK","matched_word":"",)j"
+            R"j("matches":[],"slots":{"raw_query":"nothing"}})j");
+}
+
+TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-stage-codes-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(directory, error);
+    }
+  } cleanup{directory};
+  nlohmann::json pipeline = nlohmann::json::parse(R"j({
+    "deployment": {"io": {"io_binding": "entity_extract.operator.v1"}},
+    "models": [{"model_id": "llm", "model_type": "qwen_causal_lm",
+                "backend": "test_causal_lm_backend",
+                "model_path": "neutral-llm.fixture",
+                "model_config": {}, "backend_config": {}}],
+    "pipeline": [
+      {"id": "gen", "node_type": "LlmGenerateNode",
+       "config": {"bind_model": "llm"},
+       "inputs": {"prompt": "input_sentences"}, "outputs": {"text": "raw"}},
+      {"id": "parse", "node_type": "StructuredJsonParseNode",
+       "config": {"failure_policy": "fail"},
+       "inputs": {"text": "raw"},
+       "outputs": {"document": "extracted_entities"}}]})j");
+  std::ofstream(directory / "pipeline.conf")
+      << "{\"pipe_path\":\"pipeline.json\"}";
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  auto create = [&](const nlohmann::json& document, void** handle) {
+    std::ofstream(directory / "pipeline.json") << document.dump();
+    operator_api::CreateParam param{};
+    param.model_path = directory.c_str();
+    param.cfg_file_name = "pipeline.conf";
+    param.compute_platform = operator_api::ComputePlatform::kCpu;
+    return op.Create(handle, &param);
+  };
+
+  // Validation and model loading failures are creation parameter errors.
+  void* handle = nullptr;
+  auto invalid = pipeline;
+  invalid["pipeline"][1]["node_type"] = "MissingNodeType";
+  EXPECT_EQ(create(invalid, &handle), COMPANY_ALG_ERR_INVALID_PARAM);
+  EXPECT_NE(std::string(operator_api::GetOperatorLastError())
+                .find("Create preparation failed with internal code -3: "),
+            std::string::npos)
+      << operator_api::GetOperatorLastError();
+  auto unloadable = pipeline;
+  unloadable["models"][0]["model_type"] = FailingCreateModel::kModelType;
+  EXPECT_EQ(create(unloadable, &handle), COMPANY_ALG_ERR_INVALID_PARAM);
+  const std::string load_error = operator_api::GetOperatorLastError();
+  EXPECT_NE(load_error.find("Create preparation failed with internal code -3"),
+            std::string::npos)
+      << load_error;
+  EXPECT_NE(load_error.find("MODEL_MATERIALIZATION_FAILED"), std::string::npos)
+      << load_error;
+  EXPECT_EQ(handle, nullptr);
+
+  ASSERT_EQ(create(pipeline, &handle), 0)
+      << operator_api::GetOperatorLastError();
+  std::unique_ptr<void, int (*)(void*)> owner(handle, op.Destroy);
+
+  // The test backend returns plain text, so the fail policy rejects it.
+  std::string text = "张三在北京";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorEntityInput input{11, &sentence};
+  operator_api::NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["e.entity_in"] = operator_api::MakeBorrowedOperatorInput(&input);
+  outputs[0]["e.entity_out"] = nullptr;
+  EXPECT_EQ(op.Process(handle, inputs, outputs), COMPANY_ALG_ERR_UNKNOWN);
+  const std::string error = operator_api::GetOperatorLastError();
+  EXPECT_NE(error.find("Pipeline execution failed with internal code -6102: "
+                       "Node 'parse' (StructuredJsonParseNode)"),
+            std::string::npos)
+      << error;
+  EXPECT_EQ(outputs[0]["e.entity_out"], nullptr);
 }
 
 }  // namespace llm_edgeflow

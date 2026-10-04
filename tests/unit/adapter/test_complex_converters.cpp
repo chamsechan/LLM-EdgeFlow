@@ -350,10 +350,10 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   ctx.Publish("transcripts", std::move(transcripts));
 
   RuleMatchBatch slots;
-  RuleMatchItem m;
-  m.status_code = 0;
-  m.match_result_json =
-      "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}";
+  RuleMatchItem m(1, "open_door", "open", 1.0f, "r1");
+  m.matches.push_back(
+      {RuleMatchSource::kRule, "open_door", "r1", "open", 0.5f});
+  m.slots["target"] = "front";
   slots.emplace_back(0, 0, m);
   ctx.Publish("intent_slots", std::move(slots));
 
@@ -389,7 +389,10 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   EXPECT_STREQ(audio_out.transcribed_text->data, "open the front door");
   ASSERT_NE(audio_out.intent_slot_json, nullptr);
   EXPECT_STREQ(audio_out.intent_slot_json->data,
-               "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}");
+               "{\"confidence\":1.0,\"intent\":\"open_door\","
+               "\"matched_word\":\"open\",\"matches\":[{\"category\":"
+               "\"open_door\",\"pattern\":\"open\",\"rule_id\":\"r1\","
+               "\"score\":0.5}],\"slots\":{\"target\":\"front\"}}");
 }
 
 // ==================== OcrInvoiceQa ====================

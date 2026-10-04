@@ -83,7 +83,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 环节 | 样例文件 | 需要补齐时落实的内容 |
 | --- | --- | --- |
 | 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
-| 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
+| 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[中性结果类型](../../include/core/common_contracts.h) | ingress/egress typed key 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
 | 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合和非同名端口映射；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
@@ -168,6 +168,32 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 | 音频、两路结果 | [音频输入](../../src/adapter/input/audio_input.cpp) / [音频输出](../../src/adapter/output/audio_result_output.cpp) | PCM 与采样率、转写/意图组合 |
 | 多个外部槽 | [图像问题输入](../../src/adapter/input/image_query_input.cpp) / [票据输出](../../src/adapter/output/invoice_result_output.cpp) | frame 的请求 ID、票据与 OCR boxes |
 | 候选展开与排名 | [重排输入](../../src/adapter/input/rerank_input.cpp) / [重排输出](../../src/adapter/output/rerank_result_output.cpp) | sub_id、排名和原始索引恢复 |
+
+### 整批失败与单条结果
+
+致命错误使整批不发布新输出：输入转换失败、任一 Node 返回非零、输出转换器拒绝结果或容量不足时，
+本批已租用的输出全部归还，宿主按阶段收到公开返回码，见
+[宿主调用与生命周期](operator_output_allocation.md#宿主调用与生命周期)。框架不提供部分成功通道。
+
+单条结果是否"无效但仍可返回"由各业务的输出契约决定。Node 可以按自身契约产出逐项状态，例如
+`StructuredJsonParseNode` 的 `is_valid`、`parse_status`、`diagnostic`，以及
+`emit_diagnostic` / `configured_fallback` 策略下不触发节点失败的坏项；输出转换器决定接受这些项、
+用 `status_code` 表达，还是拒绝整批。`status_code` 是宿主结构中的业务状态，不恒为 0。
+新契约在转换器中写明这三项含义，并在契约测试中覆盖。现有业务的约定：
+
+| 业务（输出转换器） | `status_code` | 单条结果不满足契约时 |
+| --- | --- | --- |
+| `keyword_match`（`keyword.result.operator.v1`） | 复制规则结果的 `status_code`；`TextRuleMatchNode` 写 0 | 未命中是正常结果（`is_hit=0`），没有无效项 |
+| `audio_asr_intent`（`audio_result.plain.operator.v1`） | 复制意图结果的 `status_code` | 缺少转写或意图结果时整批失败 |
+| `doc_qa`（`doc_answer.plain.operator.v1`） | 复制意图结果的 `status_code` | 缺少回答、意图或片段数时整批失败 |
+| `entity_extract`（`document.structured.operator.v1`） | 0 | 解析失败或使用 fallback 的文档使整批失败 |
+| `ocr_invoice_qa`（`invoice_result.plain.operator.v1`） | 0 | 同上 |
+| `dialogue_audit`（`audit_result.plain.operator.v1`） | 0 | 判定解析失败或使用 fallback、首要策略排名不为 1、`risk_level` 不在 `SAFE`/`LOW_RISK`/`MEDIUM_RISK`/`HIGH_RISK`，或 `risk_score` 不在 [0, 1] 时整批失败 |
+| `cross_rerank`（`rerank_result.plain.operator.v1`） | 0 | 排名不连续、超过 8 项或候选编号越界时整批失败；无候选时 `count=0` |
+| `translate`（`translate.json.operator.v1`） | 0 | 译文无法序列化为 JSON（如非法 UTF-8）时整批失败 |
+
+需要让某个业务在单条无效时仍返回其他请求的结果，应先设计该业务的外部表达
+（例如非零 `status_code` 与诊断字段）和测试，再修改对应转换器；不要在框架中跳过失败项。
 
 ## 4. 需要新的宿主类型时
 

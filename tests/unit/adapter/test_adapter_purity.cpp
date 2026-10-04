@@ -178,8 +178,7 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   harness.Publish("llm_answers", std::move(answers));
 
   RuleMatchBatch intents;
-  intents.emplace_back(0, 0,
-                       RuleMatchItem(1, "GENERAL_QA", "query", "{}", 0.95f));
+  intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "query", 0.95f));
   harness.Publish("intent_matches", std::move(intents));
 
   Int32Batch chunk_counts;
@@ -219,9 +218,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   RuleMatchBatch matches;
-  matches.emplace_back(
-      0, 0,
-      RuleMatchItem(1, "TEST_CAT", "测试", "{\"intent\":\"TEST_CAT\"}", 0.9f));
+  matches.emplace_back(0, 0, RuleMatchItem(1, "TEST_CAT", "测试", 0.5f));
   harness.Publish("rule_matches", std::move(matches));
 
   KeywordOutputFixture kw_fix;
@@ -231,7 +228,9 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   EXPECT_EQ(outputs[0].request_id, 1002u);
   EXPECT_EQ(outputs[0].is_hit, 1);
   ASSERT_NE(outputs[0].match_result_json, nullptr);
-  EXPECT_STREQ(outputs[0].match_result_json->data, "{\"intent\":\"TEST_CAT\"}");
+  EXPECT_STREQ(outputs[0].match_result_json->data,
+               "{\"confidence\":0.5,\"intent\":\"TEST_CAT\",\"matched_word\":"
+               "\"测试\",\"matches\":[],\"slots\":{}}");
 }
 
 // 1.3 EntityExtractConverter Purity (Biz 3)
@@ -410,8 +409,7 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   harness.Publish("transcripts", std::move(transcripts));
 
   RuleMatchBatch intent_slots;
-  intent_slots.emplace_back(
-      0, 0, RuleMatchItem(1, "NAV", "", "{\"intent\":\"NAV\"}", 0.99f));
+  intent_slots.emplace_back(0, 0, RuleMatchItem(1, "NAV", "", 0.5f));
   harness.Publish("intent_slots", std::move(intent_slots));
 
   AudioOutputFixture audio_fix;
@@ -422,7 +420,9 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   ASSERT_NE(outputs[0].transcribed_text, nullptr);
   EXPECT_STREQ(outputs[0].transcribed_text->data, "turn left");
   ASSERT_NE(outputs[0].intent_slot_json, nullptr);
-  EXPECT_STREQ(outputs[0].intent_slot_json->data, "{\"intent\":\"NAV\"}");
+  EXPECT_STREQ(outputs[0].intent_slot_json->data,
+               "{\"confidence\":0.5,\"intent\":\"NAV\",\"matched_word\":\"\","
+               "\"matches\":[],\"slots\":{}}");
 }
 
 // 1.7 CrossRerankConverter Purity (Biz 7)
@@ -554,7 +554,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("llm_answers", std::move(answers));
     RuleMatchBatch intents;
-    intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f));
+    intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", 0.9f));
     harness.Publish("intent_matches", std::move(intents));
     DocOutputFixture fix;
     std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
@@ -569,7 +569,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("llm_answers", std::move(answers));
     RuleMatchBatch intents;
-    intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f));
+    intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", 0.9f));
     harness.Publish("intent_matches", std::move(intents));
     Int32Batch chunk_counts;
     chunk_counts.emplace_back(0, 0, 1);
@@ -730,7 +730,7 @@ TEST_F(AdapterPurityTest,
   const std::vector<uint64_t> request_ids{10};
   ctx.Publish("llm_answers", TextBatch{{0, 0, long_answer}});
   ctx.Publish("intent_matches",
-              RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f)}});
+              RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
   ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
 
   const auto* op_conv = IoConverterRegistry::Instance().FindOutputConverter(
@@ -814,9 +814,8 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
     AlgContext context;
     context.Publish(kLlmAnswers,
                     TextBatch{{0, 0, overflow ? "12345" : "1234"}});
-    context.Publish(
-        kIntentMatches,
-        RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f)}});
+    context.Publish(kIntentMatches,
+                    RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
     context.Publish(kDocChunkCounts, Int32Batch{{0, 0, 3}});
 
     // Capacities count payload bytes; storage also reserves the terminator.
@@ -960,8 +959,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
 
   // Perturbed order: index 1 published before index 0
   TextBatch answers{{1, 0, "Answer 1"}, {0, 0, "Answer 0"}};
-  RuleMatchBatch intents{{0, 0, RuleMatchItem(1, "INTENT_0", "", "{}", 0.9f)},
-                         {1, 0, RuleMatchItem(2, "INTENT_1", "", "{}", 0.8f)}};
+  RuleMatchBatch intents{{0, 0, RuleMatchItem(1, "INTENT_0", "", 0.9f)},
+                         {1, 0, RuleMatchItem(2, "INTENT_1", "", 0.8f)}};
   Int32Batch chunks{{0, 0, 3}, {1, 0, 5}};
 
   harness.Publish("llm_answers", std::move(answers));
@@ -1242,16 +1241,16 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     test::AdapterHarness harness(
         out_b, OutputPortBindings({{"rule_matches", "rule_matches"}}));
     harness.SetRequestIds(std::vector<uint64_t>{5001});
-    harness.Publish(
-        "rule_matches",
-        RuleMatchBatch{{0, 0,
-                        RuleMatchItem(1, "URGENT", "急",
-                                      "{\"flag\":\"urgent\"}", 0.99f)}});
+    RuleMatchItem urgent(1, "URGENT", "急", 1.0f);
+    urgent.slots["flag"] = "urgent";
+    harness.Publish("rule_matches", RuleMatchBatch{{0, 0, urgent}});
     ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
     EXPECT_EQ(outputs[0].request_id, 5001U);
     EXPECT_EQ(outputs[0].is_hit, 1);
     ASSERT_NE(outputs[0].match_result_json, nullptr);
-    EXPECT_STREQ(outputs[0].match_result_json->data, "{\"flag\":\"urgent\"}");
+    EXPECT_STREQ(outputs[0].match_result_json->data,
+                 "{\"confidence\":1.0,\"intent\":\"URGENT\",\"matched_word\":"
+                 "\"急\",\"matches\":[],\"slots\":{\"flag\":\"urgent\"}}");
   }
 }
 

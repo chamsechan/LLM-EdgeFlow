@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -159,6 +160,20 @@ auto FailableSpec() {
 
 REGISTER_FUNCTION_NODE(FailableMapNode, FailableSpec());
 
+// Fails without its own message, so the framework names the Map function.
+auto SilentFailureSpec() {
+  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
+                     [](const std::string& in) {
+                       if (in == "FAIL") {
+                         return NodeResult<std::string>::Failure(
+                             NodeErrorKind::kBusinessError, "");
+                       }
+                       return NodeResult<std::string>::Success(in);
+                     });
+}
+
+REGISTER_FUNCTION_NODE(SilentFailureMapNode, SilentFailureSpec());
+
 // Node without parameters returning plain string
 std::string UpperFn(const std::string& in) {
   std::string out = in;
@@ -173,6 +188,40 @@ auto UpperSpec() {
 }
 
 REGISTER_FUNCTION_NODE(UpperMapNode, UpperSpec());
+
+int move_only_map_calls = 0;
+int move_only_map_instances = 0;
+
+// The callable owns its immutable resource; parameters remain copyable.
+auto MoveOnlyMapSpec() {
+  auto transform =
+      [owned = std::make_unique<std::string>(
+           "owned:" + std::to_string(++move_only_map_instances) + ":")](
+          const std::string& input, const CleanParams& params) {
+        ++move_only_map_calls;
+        return params.prefix + *owned + input;
+      };
+  static_assert(!std::is_copy_constructible_v<decltype(transform)>);
+  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
+                     CleanConfig(), std::move(transform))
+      .WithControls({PatchFields(3005, "patch_prefix", {"prefix"})});
+}
+REGISTER_FUNCTION_NODE(MoveOnlyMapNode, MoveOnlyMapSpec());
+
+auto MoveOnlyResultMapSpec() {
+  auto transform = [owned = std::make_unique<std::string>("result:")](
+                       const std::string& input) -> NodeResult<std::string> {
+    if (input == "FAIL") {
+      return NodeResult<std::string>::Failure(
+          NodeErrorKind::kBusinessError, "move-only callback failure", -9998);
+    }
+    return NodeResult<std::string>::Success(*owned + input);
+  };
+  static_assert(!std::is_copy_constructible_v<decltype(transform)>);
+  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
+                     std::move(transform));
+}
+REGISTER_FUNCTION_NODE(MoveOnlyResultMapNode, MoveOnlyResultMapSpec());
 
 // ---------------------------------------------------------------------------
 // Batch Fixtures
@@ -913,6 +962,110 @@ TEST(FunctionNodeTest, MapPreservesOrderingAndProvenanceAcrossRequests) {
             (std::vector<std::string>{"PRE:first", "PRE:second", "PRE:third"}));
 }
 
+// Every capability call shares one move-only ownership contract.
+template <typename CallT, typename ModelT>
+void ExpectModelCallContract(const char* default_slot) {
+  static_assert(std::is_same_v<typename CallT::ModelType, ModelT>);
+  static_assert(!std::is_copy_constructible_v<CallT>);
+  static_assert(!std::is_copy_assignable_v<CallT>);
+  static_assert(std::is_nothrow_move_constructible_v<CallT>);
+  static_assert(std::is_nothrow_move_assignable_v<CallT>);
+  CallT unbound;
+  EXPECT_FALSE(unbound.IsBound());
+  CallT named(nullptr);
+  EXPECT_EQ(named.SlotName(), default_slot);
+  EXPECT_TRUE(named.ModelId().empty());
+}
+
+TEST(FunctionNodeTest, MoveOnlyMapCallbackOwnsResourceAndPreservesProvenance) {
+  const TextBatch input = {
+      {1001, 3, "first"}, {1001, 8, "second"}, {2002, 5, "third"}};
+  NodeHarness first("MoveOnlyMapNode");
+  first.TextInputWithBatch("input", input);
+  const auto result = first.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<TextBatch>("output");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), input.size());
+  const auto prefix = (*output)[0].data.substr(
+      0, (*output)[0].data.size() - input[0].data.size());
+  EXPECT_EQ(prefix.find("owned:"), 0u);
+  for (size_t i = 0; i < input.size(); ++i) {
+    EXPECT_EQ((*output)[i].req_id, input[i].req_id);
+    EXPECT_EQ((*output)[i].sub_id, input[i].sub_id);
+    EXPECT_EQ((*output)[i].data, prefix + input[i].data);
+  }
+
+  NodeHarness second("MoveOnlyMapNode");
+  second.TextInputWithBatch("input", input);
+  const auto independent = second.Run();
+  ASSERT_TRUE(independent.ok()) << independent.diagnostic();
+  EXPECT_NE(independent.TextValues("output"), result.TextValues("output"));
+
+  const auto repeated = first.Run();
+  ASSERT_TRUE(repeated.ok()) << repeated.diagnostic();
+  EXPECT_EQ(repeated.TextValues("output"), result.TextValues("output"));
+  const auto* original = result.Context()->Read<TextBatch>("bk_in_input");
+  ASSERT_NE(original, nullptr);
+  ASSERT_EQ(original->size(), input.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    EXPECT_EQ((*original)[i].data, input[i].data);
+  }
+}
+
+TEST(FunctionNodeTest, MoveOnlyMapCallbackSkipsEmptyBatchAndSurvivesControl) {
+  NodeHarness harness("MoveOnlyMapNode");
+  harness.TextInput("input", {"hello"});
+  const auto initial = harness.Run();
+  ASSERT_TRUE(initial.ok()) << initial.diagnostic();
+  const auto initial_values = initial.TextValues("output");
+  const int calls_before_empty = move_only_map_calls;
+  harness.TextInput("input", {});
+  const auto empty = harness.Run();
+  ASSERT_TRUE(empty.ok()) << empty.diagnostic();
+  ASSERT_NE(empty.Output<TextBatch>("output"), nullptr);
+  EXPECT_TRUE(empty.TextValues("output").empty());
+  EXPECT_EQ(move_only_map_calls, calls_before_empty);
+
+  const auto control = harness.Control(3005, R"({"prefix":"patched:"})");
+  ASSERT_EQ(control.status, NodeControlStatus::kHandled) << control.message;
+  harness.TextInput("input", {"hello"});
+  const auto patched = harness.Run();
+  ASSERT_TRUE(patched.ok()) << patched.diagnostic();
+  EXPECT_EQ(patched.TextValues("output"),
+            (std::vector<std::string>{"patched:" + initial_values[0]}));
+}
+
+TEST(FunctionNodeTest, MoveOnlyMapCallbackSupportsNodeResultAndFailure) {
+  NodeHarness harness("MoveOnlyResultMapNode");
+  const TextBatch input = {{111, 4, "a"}, {222, 9, "b"}};
+  harness.TextInputWithBatch("input", input);
+  const auto success = harness.Run();
+  ASSERT_TRUE(success.ok()) << success.diagnostic();
+  const auto* output = success.Output<TextBatch>("output");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), input.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    EXPECT_EQ((*output)[i].req_id, input[i].req_id);
+    EXPECT_EQ((*output)[i].sub_id, input[i].sub_id);
+    EXPECT_EQ((*output)[i].data, "result:" + input[i].data);
+  }
+
+  harness.TextInput("input", {"a", "FAIL", "b"});
+  const auto failure = harness.Run();
+  EXPECT_FALSE(failure.ok());
+  EXPECT_EQ(failure.process_code(), -9998);
+  EXPECT_EQ(failure.Output<TextBatch>("output"), nullptr);
+}
+
+TEST(FunctionNodeTest, ModelCallsShareOwnershipContract) {
+  ExpectModelCallContract<LlmCall, ILlmModel>("generator");
+  ExpectModelCallContract<EmbeddingCall, IEmbeddingModel>("encoder");
+  ExpectModelCallContract<AsrCall, IAsrModel>("transcriber");
+  ExpectModelCallContract<OcrCall, IOcrModel>("detector");
+  ExpectModelCallContract<RerankCall, IRerankModel>("reranker");
+}
+
 TEST(FunctionNodeTest, EmptyBatchReturnsEmptyWithoutCallingFunction) {
   NodeHarness harness("CleanTextMapNode");
   harness.TextInput("input", {});
@@ -932,6 +1085,40 @@ TEST(FunctionNodeTest, IntermediateFailureProducesNoOutput) {
 
   const auto* out = result.Output<TextBatch>("output");
   EXPECT_EQ(out, nullptr);
+}
+
+TEST(FunctionNodeTest, MapItemFailureNamesNodeAndItem) {
+  NodeHarness harness("FailableMapNode");
+  harness.TextInput("input", {"ok1", "FAIL", "ok3"});
+  auto result = harness.Run();
+  ASSERT_FALSE(result.ok());
+  EXPECT_EQ(result.process_code(), -9999);
+  EXPECT_NE(result.diagnostic().find("Forced failure on keyword FAIL"),
+            std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("FailableMapNode"), std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("sub_id=0"), std::string::npos)
+      << result.diagnostic();
+
+  NodeHarness silent("SilentFailureMapNode");
+  silent.TextInput("input", {"ok", "FAIL"});
+  auto silent_result = silent.Run();
+  ASSERT_FALSE(silent_result.ok());
+  EXPECT_EQ(silent_result.process_code(),
+            node_error::author_node::kBusinessError);
+  EXPECT_NE(silent_result.diagnostic().find(
+                "SilentFailureMapNode map function failed"),
+            std::string::npos)
+      << silent_result.diagnostic();
+  EXPECT_EQ(silent_result.Output<TextBatch>("output"), nullptr);
+
+  NodeHarness empty("SilentFailureMapNode");
+  empty.TextInput("input", {});
+  auto empty_result = empty.Run();
+  ASSERT_TRUE(empty_result.ok()) << empty_result.diagnostic();
+  ASSERT_NE(empty_result.Output<TextBatch>("output"), nullptr);
+  EXPECT_TRUE(empty_result.TextValues("output").empty());
 }
 
 // A5: 重复 output key 保留旧值且失败；最终业务失败不发布新输出
@@ -1558,19 +1745,24 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
        "Output port type mismatch for 'output' (expected: TextBatch, bound: "
        "integer)"},
       {"BindingTestNode", "texts", 0,
-       "Required input port 'texts' is unbound in plan"},
+       "Required input port 'texts' has no binding in plan"},
       {"BindingTestNode", "texts", 1,
-       "Required input port 'texts' is unbound in plan"},
-      {"BindingTestNode", "texts", 2, "Input port type mismatch for 'texts'"},
+       "Required input port 'texts' has no binding in plan"},
+      {"BindingTestNode", "texts", 2,
+       "Input port type mismatch for 'texts' (expected: TextBatch, bound: "
+       "integer)"},
       {"BindingTestNode", "mask", 0, ""},
       {"BindingTestNode", "mask", 1, ""},
-      {"BindingTestNode", "mask", 2, "Input port type mismatch for 'mask'"},
+      {"BindingTestNode", "mask", 2,
+       "Input port type mismatch for 'mask' (expected: TextBatch, bound: "
+       "integer)"},
       {"BindingTestNode", "output", 0,
        "Output port 'output' has no binding in plan"},
       {"BindingTestNode", "output", 1,
        "Output port 'output' has no binding in plan"},
       {"BindingTestNode", "output", 2,
-       "Output port type mismatch for 'output'"},
+       "Output port type mismatch for 'output' (expected: TextBatch, bound: "
+       "integer)"},
   };
   for (const auto& test : cases) {
     SCOPED_TRACE(test.node);

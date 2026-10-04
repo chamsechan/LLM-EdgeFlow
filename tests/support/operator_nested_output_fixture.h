@@ -6,11 +6,16 @@
 #include <memory>
 #include <string>
 
-#include "adapter/biz_results.h"
 #include "adapter/operator_value_type.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow::test_support {
+
+// Internal result that the nested-output fixture converts.
+struct NestedOutputSource {
+  uint64_t request_id = 0;
+  int is_hit = 0;
+};
 
 struct NestedOutputParameters {
   int32_t kind = 1;
@@ -123,7 +128,7 @@ inline OperatorValueTypeBinding MakeNestedOutputBinding(int32_t tag = 1) {
 inline int ConvertNestedOutput(const void* internal, void* external,
                                const ResolvedOutputPoolSpec& spec,
                                std::string* error) {
-  const auto& result = *static_cast<const KeywordResult*>(internal);
+  const auto& result = *static_cast<const NestedOutputSource*>(internal);
   const auto& parameters = spec.Parameters<NestedOutputParameters>();
   auto& root = *static_cast<NestedOutputEnvelope*>(external);
   auto& payload = *static_cast<NestedOutputPayload*>(root.payload);

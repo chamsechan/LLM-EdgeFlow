@@ -4,6 +4,7 @@
 
 #include "adapter/deployment_preparation.h"
 #include "core/pipeline_validator.h"
+#include "pipeline_remediation.h"
 
 namespace llm_edgeflow {
 
@@ -39,12 +40,11 @@ DocumentValidationResult ValidatePipelineDocument(
       return result;
     }
   }
-  auto report =
-      mode == DocumentValidationMode::kExplain
-          ? PipelineValidator::Explain(prepared.neutral_pipeline_json,
-                                       &prepared.io_boundary)
-          : PipelineValidator::Validate(prepared.neutral_pipeline_json,
-                                        &prepared.io_boundary);
+  auto report = mode == DocumentValidationMode::kExplain
+                    ? ExplainPipeline(prepared.neutral_pipeline_json,
+                                      &prepared.io_boundary)
+                    : ValidateWithRemediation(prepared.neutral_pipeline_json,
+                                              &prepared.io_boundary);
   ProjectDeploymentDiagnostics(&report);
   result.ok = report.ok;
   result.response = report.ToJson();

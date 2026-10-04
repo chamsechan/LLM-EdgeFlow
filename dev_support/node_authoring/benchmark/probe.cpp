@@ -8,6 +8,7 @@
 #include "baseline_starter.cpp"
 #include "contracts/config_schema_validation.h"
 #include "current_starter.cpp"
+#include "dev_support/node_authoring/legacy_node_base.h"
 #include "nodes/authoring.h"
 
 namespace {
@@ -54,9 +55,9 @@ class EchoModel final : public ILlmModel {
     return 0;
   }
 };
-class ExplicitMap final : public NodeBase {
+class ExplicitMap final : public LegacyNodeBase {
  public:
-  ExplicitMap() : NodeBase("ExplicitMap") {}
+  ExplicitMap() : LegacyNodeBase("ExplicitMap") {}
 
  protected:
   bool InitNode(const NodeInitContext& init, const nlohmann::json&,
@@ -137,8 +138,11 @@ int main(int argc, char** argv) {
   const int batch_size = 32, length = 1024;
   SessionContext session;
   auto mock = std::make_shared<EchoModel>();
-  if (!session.GetModelManager().RegisterModel("echo", mock, "probe-v1"))
-    return 2;
+  ModelRegistration registration;
+  registration.model_id = "echo";
+  registration.revision = "probe-v1";
+  registration.model = mock;
+  if (!session.GetModelManager().RegisterBatch({registration})) return 2;
   ValidatedNodePlan plan;
   std::unique_ptr<INode> node;
   if (mode == "old_map")

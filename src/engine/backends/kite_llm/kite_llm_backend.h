@@ -3,16 +3,16 @@
 #include <memory>
 #include <string>
 
+#include "engine/backend_identity.h"
 #include "engine/backend_interface.h"
 
 namespace llm_edgeflow {
 
-class KiteLlmBackend final : public IInferenceBackend {
+class KiteLlmBackend final : public BackendIdentity<KiteLlmBackend> {
  public:
   inline static constexpr char kBackendType[] = "kite_llm";
 
   ~KiteLlmBackend() override = default;
-  const std::string& BackendType() const noexcept override;
   std::shared_ptr<IBackendSession> Load(
       const BackendLoadSpec& spec,
       std::string* diagnostic = nullptr) noexcept override;

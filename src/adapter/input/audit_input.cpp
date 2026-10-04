@@ -91,7 +91,6 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
   def.converter_id = "audit.plain.operator.v1";
 
   def.schema_id = "audit.plain.request";
-  def.external_type = "CompanyOperatorAuditInput";
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};

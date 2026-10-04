@@ -6,13 +6,17 @@
 #include "engine/models/vision_document/image_decode.h"
 
 namespace llm_edgeflow {
+
+static const ModelDefinition& VisionDocumentDefinition();
+
 namespace {
 constexpr char kPrompt[] =
     "Read all text visible in this image. Return only the transcribed text.";
 
 bool ValidateVisionConfig(const nlohmann::json& config,
                           std::string* diagnostic) {
-  const auto prompt = config.value("prompt", std::string(kPrompt));
+  const auto prompt = ConfigValueOrDefault<std::string>(
+      config, VisionDocumentDefinition().config_fields, "prompt");
   if (prompt.empty() || prompt.find('\0') != std::string::npos) {
     SetDiagnosticNoexcept(
         diagnostic, "Field 'prompt' must be non-empty and contain no NUL");
@@ -37,10 +41,18 @@ std::shared_ptr<IModel> VisionDocumentModel::Create(
     }
     auto model = std::make_shared<VisionDocumentModel>();
     model->session_ = std::move(session);
-    model->prompt_ = context.model_config.value("prompt", std::string(kPrompt));
-    model->patch_size_ = context.model_config.value("patch_size", 16);
-    const int max_pixels = context.model_config.value("max_pixels", 4194304);
-    model->options_.max_tokens = context.model_config.value("max_tokens", 512);
+    model->prompt_ = ConfigValueOrDefault<std::string>(
+        context.model_config, VisionDocumentDefinition().config_fields,
+        "prompt");
+    model->patch_size_ = ConfigValueOrDefault<int>(
+        context.model_config, VisionDocumentDefinition().config_fields,
+        "patch_size");
+    const int max_pixels = ConfigValueOrDefault<int>(
+        context.model_config, VisionDocumentDefinition().config_fields,
+        "max_pixels");
+    model->options_.max_tokens = ConfigValueOrDefault<int>(
+        context.model_config, VisionDocumentDefinition().config_fields,
+        "max_tokens");
     if (model->patch_size_ < 1 || model->patch_size_ > 256 || max_pixels < 1 ||
         max_pixels > 16777216 || model->options_.max_tokens < 1 ||
         model->options_.max_tokens > 4096) {
@@ -59,17 +71,6 @@ std::shared_ptr<IModel> VisionDocumentModel::Create(
   }
 }
 
-const std::string& VisionDocumentModel::ModelType() const noexcept {
-  static const std::string value = "vision_document";
-  return value;
-}
-const std::string& VisionDocumentModel::Capability() const noexcept {
-  static const std::string value = "ocr";
-  return value;
-}
-InferenceConcurrency VisionDocumentModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
 int VisionDocumentModel::Recognize(const ImageRefBatch& images,
                                    OcrDocumentBatch* outputs,
                                    std::string* diagnostic) noexcept {
@@ -114,51 +115,51 @@ int VisionDocumentModel::Recognize(const ImageRefBatch& images,
       outputs, diagnostic);
 }
 
-static const ModelDefinition kVisionDocumentDefinition = [] {
-  ModelDefinition definition;
-  definition.model_type = "vision_document";
-  definition.capability = "ocr";
-  definition.description =
-      "Image-to-text document recognition; text only, no detected boxes";
-  definition.required_protocol = ExecutionProtocol::kImageTextGeneration;
-  definition.concurrency = InferenceConcurrency::kConcurrent;
-  definition.validate_config = ValidateVisionConfig;
-  definition.config_fields = {
-      {"prompt",
-       ConfigValueKind::kString,
-       false,
-       kPrompt,
-       std::nullopt,
-       std::nullopt,
-       {},
-       "图像转文本的识别指令；须为非空文本，识别输出作为文档全文。"},
-      {"patch_size",
-       ConfigValueKind::kInteger,
-       false,
-       16,
-       1.0,
-       256.0,
-       {},
-       "图像块边长，单位为像素；解码后宽高补齐到其整数倍，须符合图像模型约定"
-       "。"},
-      {"max_pixels",
-       ConfigValueKind::kInteger,
-       false,
-       4194304,
-       1.0,
-       16777216.0,
-       {},
-       "允许的图像总像素数上限，同时检查原图与按 patch_size 补齐后的图像。"},
-      {"max_tokens",
-       ConfigValueKind::kInteger,
-       false,
-       512,
-       1.0,
-       4096.0,
-       {},
-       "每张图像识别时最多生成的文本 token 数；该路径使用贪心生成。"}};
+static const ModelDefinition& VisionDocumentDefinition() {
+  static const ModelDefinition definition = [] {
+    auto definition = MakeModelDefinition<VisionDocumentModel>();
+    definition.description =
+        "Image-to-text document recognition; text only, no detected boxes";
+    definition.required_protocol = ExecutionProtocol::kImageTextGeneration;
+    definition.validate_config = ValidateVisionConfig;
+    definition.config_fields = {
+        {"prompt",
+         ConfigValueKind::kString,
+         false,
+         kPrompt,
+         std::nullopt,
+         std::nullopt,
+         {},
+         "图像转文本的识别指令；须为非空文本，识别输出作为文档全文。"},
+        {"patch_size",
+         ConfigValueKind::kInteger,
+         false,
+         16,
+         1.0,
+         256.0,
+         {},
+         "图像块边长，单位为像素；解码后宽高补齐到其整数倍，须符合图像模型约定"
+         "。"},
+        {"max_pixels",
+         ConfigValueKind::kInteger,
+         false,
+         4194304,
+         1.0,
+         16777216.0,
+         {},
+         "允许的图像总像素数上限，同时检查原图与按 patch_size 补齐后的图像。"},
+        {"max_tokens",
+         ConfigValueKind::kInteger,
+         false,
+         512,
+         1.0,
+         4096.0,
+         {},
+         "每张图像识别时最多生成的文本 token 数；该路径使用贪心生成。"}};
+    return definition;
+  }();
   return definition;
-}();
-REGISTER_MODEL_WITH_DEFINITION(VisionDocumentModel, kVisionDocumentDefinition);
+}
+REGISTER_MODEL_WITH_DEFINITION(VisionDocumentModel, VisionDocumentDefinition());
 
 }  // namespace llm_edgeflow

@@ -204,8 +204,7 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
 };
 
 static const BackendDefinition kWhisperCppBackendDefinition = [] {
-  BackendDefinition def;
-  def.backend_type = WhisperCppBackend::kBackendType;
+  auto def = MakeBackendDefinition<WhisperCppBackend>();
   def.description = "whisper.cpp ASR inference backend";
   def.supported_protocols = {ExecutionProtocol::kAudioTranscription};
   def.concurrency = InferenceConcurrency::kSerialized;
@@ -225,11 +224,6 @@ REGISTER_BACKEND_WITH_DEFINITION(WhisperCppBackend,
 #endif
 
 }  // namespace
-
-const std::string& WhisperCppBackend::BackendType() const noexcept {
-  static const std::string type = kBackendType;
-  return type;
-}
 
 std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {

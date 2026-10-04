@@ -135,7 +135,6 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   def.converter_id = "audit_result.plain.operator.v1";
 
   def.schema_id = "audit_result.plain.response";
-  def.external_type = "CompanyOperatorAuditOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot)};
