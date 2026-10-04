@@ -420,6 +420,18 @@ class PortShapeTest : public ::testing::Test {
   inline static constexpr char kBiz[] = "port_shape_fixture_biz";
 };
 
+TEST_F(ValidatedPipelinePlanTest, SerializesFactsOnlyWhenPresent) {
+  ValidationDiagnostic diagnostic;
+  EXPECT_TRUE(diagnostic.facts.is_object());
+  EXPECT_TRUE(diagnostic.facts.empty());
+  EXPECT_FALSE(diagnostic.ToJson().contains("facts"));
+  EXPECT_FALSE(diagnostic.ToJson().contains("remediation"));
+
+  diagnostic.facts = {{"actual_shape", {{"kind", "unknown"}}}};
+  EXPECT_EQ(diagnostic.ToJson().at("facts"), diagnostic.facts);
+  EXPECT_FALSE(diagnostic.ToJson().contains("remediation"));
+}
+
 TEST_F(PortShapeTest, ItemWiseNodeAcceptsSplitItems) {
   const auto report =
       Validate({Split("split", "parts"),
@@ -440,6 +452,22 @@ TEST_F(PortShapeTest, SplitItemsCannotReachOnePerRequestEgress) {
   EXPECT_EQ(errors[0].port, "result");
   EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"$egress"}));
   EXPECT_NE(errors[0].message.find("'split.flow'"), std::string::npos);
+  EXPECT_FALSE(errors[0].remediation.has_value());
+  const nlohmann::json declaration = {{"type_id", "TextBatch"},
+                                      {"cardinality", "1:1"},
+                                      {"provenance_policy", "preserve"},
+                                      {"lifetime", "request"}};
+  EXPECT_EQ(errors[0].facts.at("producer_id"), "pair");
+  EXPECT_EQ(errors[0].facts.at("consumer_id"), "$egress");
+  EXPECT_EQ(errors[0].facts.at("bound_key"), "result");
+  EXPECT_EQ(errors[0].facts.at("actual"), declaration);
+  EXPECT_EQ(errors[0].facts.at("expected"), declaration);
+  EXPECT_EQ(errors[0].facts.at("actual_shape"),
+            (nlohmann::json{{"kind", "multi"}, {"origin", "split.flow"}}));
+  EXPECT_EQ(errors[0].facts.at("expected_shape"),
+            (nlohmann::json{{"kind", "per_request"}}));
+  EXPECT_EQ(errors[0].ToJson().at("facts"), errors[0].facts);
+  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
 }
 
 TEST_F(PortShapeTest, CollectionEgressAcceptsSplitItems) {
@@ -472,6 +500,18 @@ TEST_F(PortShapeTest, MisalignedItemWiseInputsAreRejected) {
   EXPECT_EQ(errors[0].node_id, "pair");
   EXPECT_EQ(errors[0].port, "right");
   EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"split"}));
+  EXPECT_FALSE(errors[0].remediation.has_value());
+  EXPECT_EQ(errors[0].facts.at("producer_id"), "split");
+  EXPECT_EQ(errors[0].facts.at("consumer_id"), "pair");
+  EXPECT_EQ(errors[0].facts.at("bound_key"), "parts");
+  EXPECT_EQ(errors[0].facts.at("anchor_port"), "left");
+  EXPECT_EQ(errors[0].facts.at("anchor_key"), "request");
+  EXPECT_EQ(errors[0].facts.at("actual").at("cardinality"), "1:N");
+  EXPECT_EQ(errors[0].facts.at("expected").at("cardinality"), "1:1");
+  EXPECT_EQ(errors[0].facts.at("actual_shape"),
+            (nlohmann::json{{"kind", "multi"}, {"origin", "split.flow"}}));
+  EXPECT_EQ(errors[0].facts.at("expected_shape"),
+            (nlohmann::json{{"kind", "per_request"}}));
 }
 
 TEST_F(PortShapeTest, ItemWiseInputsPairOnlyWithinOneFanOut) {
@@ -494,6 +534,132 @@ TEST_F(PortShapeTest, ItemWiseInputsPairOnlyWithinOneFanOut) {
   const auto errors = CardinalityErrors(different_origins);
   ASSERT_EQ(errors.size(), 1u) << different_origins.ToJson().dump();
   EXPECT_EQ(errors[0].port, "right");
+  EXPECT_FALSE(errors[0].remediation.has_value());
+  EXPECT_EQ(errors[0].facts.at("producer_id"), "split_b");
+  EXPECT_EQ(errors[0].facts.at("consumer_id"), "join");
+  EXPECT_EQ(errors[0].facts.at("bound_key"), "parts_b");
+  EXPECT_EQ(errors[0].facts.at("anchor_port"), "left");
+  EXPECT_EQ(errors[0].facts.at("anchor_key"), "parts_a");
+  EXPECT_EQ(errors[0].facts.at("actual_shape"),
+            (nlohmann::json{{"kind", "multi"}, {"origin", "split_b.flow"}}));
+  EXPECT_EQ(errors[0].facts.at("expected_shape"),
+            (nlohmann::json{{"kind", "multi"}, {"origin", "split_a.flow"}}));
+}
+
+TEST_F(PortShapeTest,
+       DollarPrefixedConsumerIdsKeepNodeInputDiagnosticLocation) {
+  for (const std::string id :
+       {"$consumer", "$egress", "$io_output", "$ingress"}) {
+    SCOPED_TRACE(id);
+    const auto shape_report =
+        Validate({Split("split", "parts"),
+                  Node(id, ItemPairNode::kNodeType,
+                       {{"left", "request"}, {"right", "parts"}},
+                       {{"paired", "paired_parts"}})});
+    const auto shape_errors = CardinalityErrors(shape_report);
+    ASSERT_EQ(shape_errors.size(), 1u) << shape_report.ToJson().dump();
+    const auto& shape = shape_errors[0];
+    EXPECT_EQ(shape.node_id, id);
+    EXPECT_EQ(shape.related_nodes, std::vector<std::string>({"split"}));
+    EXPECT_EQ(shape.path, "/pipeline/1/inputs/right");
+    EXPECT_EQ(shape.port, "right");
+    EXPECT_EQ(shape.facts.at("producer_id"), "split");
+    EXPECT_EQ(shape.facts.at("consumer_id"), id);
+    EXPECT_EQ(shape.facts.at("bound_key"), "parts");
+    EXPECT_FALSE(shape.remediation.has_value());
+
+    const auto flow_report =
+        Validate({Split("split", "parts"),
+                  Node(id, FlowContractConsumerNode::kNodeType,
+                       {{"flow", "parts"}}, nlohmann::json::object())});
+    ASSERT_EQ(flow_report.diagnostics.size(), 2u)
+        << flow_report.ToJson().dump();
+    for (const auto& flow : flow_report.diagnostics) {
+      EXPECT_TRUE(flow.code == DiagnosticCode::kPortProvenanceMismatch ||
+                  flow.code == DiagnosticCode::kPortLifetimeMismatch);
+      EXPECT_EQ(flow.node_id, id);
+      EXPECT_EQ(flow.related_nodes, std::vector<std::string>({"split"}));
+      EXPECT_EQ(flow.path, "/pipeline/1/inputs/flow");
+      EXPECT_EQ(flow.port, "flow");
+      EXPECT_EQ(flow.facts.at("producer_id"), "split");
+      EXPECT_EQ(flow.facts.at("consumer_id"), id);
+      EXPECT_EQ(flow.facts.at("bound_key"), "parts");
+      EXPECT_FALSE(flow.remediation.has_value());
+    }
+  }
+}
+
+TEST_F(PortShapeTest, IoInputMultiShapeReportsNeutralIngressFacts) {
+  PipelineIoBoundary boundary;
+  boundary.input_published_ports = {BizPortDefinition{
+      "request", "TextBatch", true, "1:N", "generate_sub_id"}};
+  const auto report = PipelineValidator::Validate(
+      {{"biz_name", kBiz},
+       {"pipeline",
+        {Node("probe", PlanTestNode::kNodeType, nlohmann::json::object(),
+              nlohmann::json::object())}}},
+      &boundary);
+  const auto errors = CardinalityErrors(report);
+  ASSERT_EQ(errors.size(), 1u) << report.ToJson().dump();
+  const auto& diagnostic = errors[0];
+  EXPECT_EQ(diagnostic.path, "/io/input");
+  EXPECT_EQ(diagnostic.node_id, "$io_input");
+  EXPECT_EQ(diagnostic.related_nodes, std::vector<std::string>({"$ingress"}));
+  EXPECT_EQ(diagnostic.port, "request");
+  EXPECT_EQ(diagnostic.facts.at("producer_id"), "$io_input");
+  EXPECT_EQ(diagnostic.facts.at("consumer_id"), "$ingress");
+  EXPECT_EQ(diagnostic.facts.at("bound_key"), "request");
+  EXPECT_EQ(diagnostic.facts.at("actual"),
+            (nlohmann::json{{"type_id", "TextBatch"},
+                            {"cardinality", "1:N"},
+                            {"provenance_policy", "generate_sub_id"},
+                            {"lifetime", "request"}}));
+  EXPECT_EQ(diagnostic.facts.at("expected"),
+            (nlohmann::json{{"type_id", "TextBatch"},
+                            {"cardinality", "1:1"},
+                            {"provenance_policy", "preserve"},
+                            {"lifetime", "request"}}));
+  EXPECT_EQ(
+      diagnostic.facts.at("actual_shape"),
+      (nlohmann::json{{"kind", "multi"}, {"origin", "$ingress.request"}}));
+  EXPECT_EQ(diagnostic.facts.at("expected_shape"),
+            (nlohmann::json{{"kind", "per_request"}}));
+  EXPECT_FALSE(diagnostic.remediation.has_value());
+  EXPECT_EQ(diagnostic.ToJson().at("facts"), diagnostic.facts);
+  EXPECT_FALSE(diagnostic.ToJson().contains("remediation"));
+}
+
+TEST_F(PortShapeTest, IngressPassthroughReportsNeutralIoOutputFacts) {
+  PipelineIoBoundary boundary;
+  boundary.input_published_ports = {BizPortDefinition{
+      "request", "TextBatch", true, "1:N", "generate_sub_id"}};
+  boundary.output_consumed_ports = {
+      BizPortDefinition{"request", "TextBatch", true}};
+  const auto report = PipelineValidator::Validate(
+      {{"biz_name", kBiz},
+       {"pipeline",
+        {Node("probe", PlanTestNode::kNodeType, nlohmann::json::object(),
+              nlohmann::json::object())}}},
+      &boundary);
+  const auto errors = CardinalityErrors(report);
+  const auto output =
+      std::find_if(errors.begin(), errors.end(),
+                   [](const auto& d) { return d.path == "/io/output"; });
+  ASSERT_NE(output, errors.end()) << report.ToJson().dump();
+  EXPECT_EQ(output->node_id, "$ingress");
+  EXPECT_EQ(output->related_nodes, std::vector<std::string>({"$io_output"}));
+  EXPECT_EQ(output->port, "request");
+  EXPECT_EQ(output->facts.at("producer_id"), "$ingress");
+  EXPECT_EQ(output->facts.at("consumer_id"), "$io_output");
+  EXPECT_EQ(output->facts.at("bound_key"), "request");
+  EXPECT_EQ(output->facts.at("actual").at("type_id"), "TextBatch");
+  EXPECT_EQ(output->facts.at("expected").at("type_id"), "TextBatch");
+  EXPECT_EQ(
+      output->facts.at("actual_shape"),
+      (nlohmann::json{{"kind", "multi"}, {"origin", "$ingress.request"}}));
+  EXPECT_EQ(output->facts.at("expected_shape"),
+            (nlohmann::json{{"kind", "per_request"}}));
+  EXPECT_FALSE(output->remediation.has_value());
 }
 
 TEST_F(PortShapeTest, UnknownShapeIsLeftToRuntimeChecks) {

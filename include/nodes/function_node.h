@@ -296,7 +296,8 @@ class MapSpec {
   const std::string& InputName() const noexcept { return in_.name; }
   const std::string& OutputName() const noexcept { return out_.name; }
   const Parameters<ParamsT>& ParametersSpec() const noexcept { return params_; }
-  const MapFnT& Function() const noexcept { return fn_; }
+  const MapFnT& Function() const& noexcept { return fn_; }
+  MapFnT&& Function() && noexcept { return std::move(fn_); }
 
   NodeDefinition BuildDefinition(std::string node_type) const {
     NodeDefinition def;
@@ -1520,12 +1521,12 @@ struct MapInputs {
 // Runs a Map on the Batch runtime: one required anchor input, one preserved
 // output and a per-item loop that names the failing item.
 template <typename SpecT>
-auto MakeMapRuntimeSpec(std::string node_name, const SpecT& map) {
+auto MakeMapRuntimeSpec(std::string node_name, SpecT map) {
   using InputBatch = typename SpecT::InputBatch;
   using OutputBatch = typename SpecT::OutputBatch;
   using ParamsT = typename SpecT::ParametersType;
   using Inputs = MapInputs<InputBatch>;
-  auto run = [fn = map.Function(), name = std::move(node_name)](
+  auto run = [fn = std::move(map).Function(), name = std::move(node_name)](
                  const Inputs& inputs,
                  const ParamsT& params) -> NodeResult<OutputBatch> {
     OutputBatch outputs;
@@ -1575,15 +1576,16 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
     : public AuthorNode<decltype(detail::MakeMapRuntimeSpec(
           std::declval<std::string>(),
           std::declval<
-              const MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>&>()))> {
+              MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>()))> {
  public:
   using SpecType = MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>;
   using RuntimeSpec = decltype(detail::MakeMapRuntimeSpec(
-      std::declval<std::string>(), std::declval<const SpecType&>()));
+      std::declval<std::string>(), std::declval<SpecType>()));
 
-  AuthorNode(std::string node_name, const SpecType& spec)
-      : AuthorNode<RuntimeSpec>(node_name,
-                                detail::MakeMapRuntimeSpec(node_name, spec)) {}
+  AuthorNode(std::string node_name, SpecType spec)
+      : AuthorNode<RuntimeSpec>(
+            node_name, detail::MakeMapRuntimeSpec(node_name, std::move(spec))) {
+  }
 };
 
 // ---------------------------------------------------------------------------

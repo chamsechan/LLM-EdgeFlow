@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+架构审查回归修复：Map 的回调通过移动交给运行时，支持捕获 `unique_ptr` 等不可复制状态；
+流契约错误由 Validator 提供生产者、消费者、有效端口契约与推导出的数量形状，CLI 据此解释
+节点输入、业务出口及 IO 边界错误，保留拆分来源并正确区分逐项配对与出口数量要求。
+`ConfigValueOrDefault` 始终核对字段声明，拒绝数组和标量配置，`null` 仍按省略配置读取声明默认值。
+
 源码扩展接口整理（随架构审查落地，不涉及 Operator ABI）：
 - Model 继承 `ModelIdentity<Model, 能力接口>`、Backend Provider 继承 `BackendIdentity<Backend>`，
   身份只声明一次，Definition 从 `MakeModelDefinition` / `MakeBackendDefinition` 开始；
@@ -17,7 +22,8 @@
 修复建议移出 Core：remediation 的原因、事实、中文摘要与经 Validator 复核的 JSON Patch 修复改由
 `alg_pipeline_tool` 生成，不再编入 SDK，也不在 Create 校验失败时执行。`PipelineValidator::Explain`
 删除；Validator 只返回中性诊断，未注册类型的相近名称仍在 `suggestions` 中给出。CLI 与 Studio 的
-`validate` / `--explain` 输出不变。
+`validate` / `--explain` 继续提供修复建议；流契约诊断与建议的 `facts` 包含有效声明，
+数量错误还附上 Validator 已推导的数量形状。
 
 公开错误码：Operator 门面按失败阶段映射返回码，内部的 Pipeline、Node、Model 错误码不再直接返回给宿主。
 Create 阶段的配置、部署与模型/Backend 加载失败返回 `-2`（此前部分为 `-3`）；Process 中节点或模型
