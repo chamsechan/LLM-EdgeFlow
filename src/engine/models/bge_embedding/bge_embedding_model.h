@@ -6,6 +6,7 @@
 
 #include "engine/backend_interface.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/model_identity.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
@@ -24,10 +25,12 @@ namespace llm_edgeflow {
  * - 负责池化 (Pooling: CLS / Mean) 与 L2 归一化；
  * - 使用 FixedBatchExecutor 驱动批次并保持 (req_id, sub_id) 溯源。
  */
-class BgeEmbeddingModel final : public IEmbeddingModel {
+class BgeEmbeddingModel final
+    : public ModelIdentity<BgeEmbeddingModel, IEmbeddingModel> {
  public:
   inline static constexpr char kModelType[] = "bge_embedding";
-  inline static constexpr char kCapability[] = "embedding";
+  static constexpr InferenceConcurrency kConcurrency =
+      InferenceConcurrency::kConcurrent;
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext& ctx,
                                         std::string* diagnostic);
@@ -38,10 +41,6 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
                     size_t embedding_dim, size_t max_batch_size);
 
   ~BgeEmbeddingModel() override = default;
-
-  const std::string& ModelType() const noexcept override;
-  const std::string& Capability() const noexcept override;
-  InferenceConcurrency Concurrency() const noexcept override;
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
             EmbeddingBatch* outputs,

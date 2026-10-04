@@ -6,6 +6,7 @@
 
 #include "engine/backend_interface.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/model_identity.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
@@ -24,10 +25,12 @@ namespace llm_edgeflow {
  * - 负责 logit 校验与 score 激活 (sigmoid / identity)；
  * - 使用 FixedBatchExecutor 驱动批次并保持 (req_id, sub_id) 溯源。
  */
-class BgeRerankerModel final : public IRerankModel {
+class BgeRerankerModel final
+    : public ModelIdentity<BgeRerankerModel, IRerankModel> {
  public:
   inline static constexpr char kModelType[] = "bge_reranker";
-  inline static constexpr char kCapability[] = "rerank";
+  static constexpr InferenceConcurrency kConcurrency =
+      InferenceConcurrency::kConcurrent;
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext& ctx,
                                         std::string* diagnostic);
@@ -38,10 +41,6 @@ class BgeRerankerModel final : public IRerankModel {
                    size_t max_batch_size);
 
   ~BgeRerankerModel() override = default;
-
-  const std::string& ModelType() const noexcept override;
-  const std::string& Capability() const noexcept override;
-  InferenceConcurrency Concurrency() const noexcept override;
 
   int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override;

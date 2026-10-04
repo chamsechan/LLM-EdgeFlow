@@ -192,20 +192,6 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
       max_batch_size);
 }
 
-const std::string& BgeEmbeddingModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
-  return type;
-}
-
-const std::string& BgeEmbeddingModel::Capability() const noexcept {
-  static const std::string cap = kCapability;
-  return cap;
-}
-
-InferenceConcurrency BgeEmbeddingModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
-
 int BgeEmbeddingModel::Embed(const TextBatch& inputs,
                              const EmbeddingOptions& options,
                              EmbeddingBatch* outputs,
@@ -405,12 +391,9 @@ int BgeEmbeddingModel::RawEmbedSlice(
 }
 
 static const ModelDefinition kBgeEmbeddingModelDefinition = [] {
-  ModelDefinition def;
-  def.model_type = BgeEmbeddingModel::kModelType;
-  def.capability = BgeEmbeddingModel::kCapability;
+  auto def = MakeModelDefinition<BgeEmbeddingModel>();
   def.description = "BGE text embedding model using TensorGraph protocol";
   def.required_protocol = ExecutionProtocol::kTensorGraph;
-  def.concurrency = InferenceConcurrency::kConcurrent;
   def.config_fields = {
       {"tokenizer_file",
        ConfigValueKind::kString,

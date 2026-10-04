@@ -71,20 +71,6 @@ std::shared_ptr<IModel> WhisperAsrModel::Create(
   }
 }
 
-const std::string& WhisperAsrModel::ModelType() const noexcept {
-  static const std::string value = "whisper_asr";
-  return value;
-}
-
-const std::string& WhisperAsrModel::Capability() const noexcept {
-  static const std::string value = "asr";
-  return value;
-}
-
-InferenceConcurrency WhisperAsrModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
-
 int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
                                 std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
@@ -199,13 +185,10 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
 }
 
 static const ModelDefinition kWhisperAsrModelDefinition = [] {
-  ModelDefinition definition;
-  definition.model_type = "whisper_asr";
-  definition.capability = "asr";
+  auto definition = MakeModelDefinition<WhisperAsrModel>();
   definition.description =
       "Whisper automatic speech recognition model for float32 PCM";
   definition.required_protocol = ExecutionProtocol::kAudioTranscription;
-  definition.concurrency = InferenceConcurrency::kConcurrent;
   definition.config_fields = {
       ConfigFieldDefinition{"language",
                             ConfigValueKind::kString,

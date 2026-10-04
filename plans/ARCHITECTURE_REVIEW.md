@@ -328,7 +328,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | C8 | 部署信息转存与命名 | 第三节·接入适配层 | 已完成：`PreparedDeployment` 与 `ValidatedIoPlan` 共用 `IoBindingSelection`，逐字段转存改为一次移动，输出池字段同名；handle 不再另存转换器指针，`ResolvedOperatorConfig` 不再重复绑定标识。预检与资源加载的阶段边界不变 |
 | C9 | 契约元数据减少重复填写 | 第三节·接入适配层 | 已完成：`external_type` 缺省时由外部槽类型推导，16 个生产转换器删除手写值，Catalog 输出逐字节不变；`schema_id`、版本、槽位 `value_type` 与容量策略检查保留 |
 | C10 | 宿主类型分散注册 | 第三节·接入适配层 | 不采纳：宿主结构是多个转换器共用的平台定义（如 `CompanyOperatorEntityInput` 同时用于文本与翻译输入），类型特征和布局每个类型需要唯一所有者，目前两个集中文件就是所有者；按类型拆分只增加文件而不减少步骤。真实 SDK 类型只能在授权内网接入，现在重设该接缝属于推测 |
-| D1 | Model 身份声明去重 | 第三节·模型执行层 | 待评估 |
+| D1 | Model 身份声明去重 | 第三节·模型执行层 | 已完成：6 个生产 Model 继承 `ModelIdentity`，身份只声明 `kModelType`/`kConcurrency`，能力由接口推导，Definition 用 `MakeModelDefinition`；工厂的实例核验保留，Catalog 逐字节不变。Backend 类型名随 D2 处理 |
 | D2 | Backend Provider 函数化注册 | 第三节·模型执行层 | 待评估 |
 | D3 | Model/Backend 配置声明与读取统一 | 第三节·模型执行层 | 待评估 |
 | D4 | Backend 条件编译由 CMake 收敛 | 第三节·模型执行层 | 待评估 |

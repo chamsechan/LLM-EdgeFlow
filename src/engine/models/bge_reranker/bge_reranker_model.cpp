@@ -137,20 +137,6 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
       std::move(output_name), std::move(score_activation), max_batch_size);
 }
 
-const std::string& BgeRerankerModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
-  return type;
-}
-
-const std::string& BgeRerankerModel::Capability() const noexcept {
-  static const std::string cap = kCapability;
-  return cap;
-}
-
-InferenceConcurrency BgeRerankerModel::Concurrency() const noexcept {
-  return InferenceConcurrency::kConcurrent;
-}
-
 int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
                             ScoreBatch* outputs,
                             std::string* diagnostic) noexcept {
@@ -316,13 +302,10 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
 }
 
 static const ModelDefinition kBgeRerankerModelDefinition = [] {
-  ModelDefinition def;
-  def.model_type = BgeRerankerModel::kModelType;
-  def.capability = BgeRerankerModel::kCapability;
+  auto def = MakeModelDefinition<BgeRerankerModel>();
   def.description =
       "BGE cross-encoder reranker model using TensorGraph protocol";
   def.required_protocol = ExecutionProtocol::kTensorGraph;
-  def.concurrency = InferenceConcurrency::kConcurrent;
   def.config_fields = {
       {"tokenizer_file",
        ConfigValueKind::kString,

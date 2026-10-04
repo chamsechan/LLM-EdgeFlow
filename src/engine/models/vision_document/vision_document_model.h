@@ -1,18 +1,20 @@
 #pragma once
 
 #include "engine/backend_interface.h"
+#include "engine/model_identity.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 
 namespace llm_edgeflow {
 
-class VisionDocumentModel final : public IOcrModel {
+class VisionDocumentModel final
+    : public ModelIdentity<VisionDocumentModel, IOcrModel> {
  public:
+  inline static constexpr char kModelType[] = "vision_document";
+  static constexpr InferenceConcurrency kConcurrency =
+      InferenceConcurrency::kConcurrent;
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
-  const std::string& ModelType() const noexcept override;
-  const std::string& Capability() const noexcept override;
-  InferenceConcurrency Concurrency() const noexcept override;
   int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
                 std::string* diagnostic = nullptr) noexcept override;
 
