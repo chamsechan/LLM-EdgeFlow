@@ -1039,7 +1039,7 @@ TEST_F(OperatorApiTest, CompanyBufferAndAnyValidation) {
   ASSERT_NE(buf_binding, nullptr);
   ASSERT_TRUE(buf_binding->validate_external);
 
-  ResolvedInputLimits limits;
+  InputLimits limits;
   std::string err;
 
   // CompanyBuffer: null pointer

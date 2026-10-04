@@ -18,9 +18,12 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 输入限制配置
+ * @brief 宿主输入的安全上限
+ *
+ * 值类型在读取宿主内存前用这些上限检查指针与长度；默认值全部来自
+ * biz_input 常量，Operator 不提供配置项。测试和自定义值类型可传入更小的上限。
  */
-struct ResolvedInputLimits {
+struct InputLimits {
   size_t max_text_bytes = biz_input::kMaxTextBytes;
   size_t max_doc_text_bytes = biz_input::kMaxDocTextBytes;
   size_t max_image_uri_bytes = biz_input::kMaxImageUriBytes;
@@ -29,8 +32,8 @@ struct ResolvedInputLimits {
   size_t max_audio_pcm_bytes = biz_input::kMaxAudioPcmBytes;  // 10 MiB
   int32_t min_sample_rate = biz_input::kMinSampleRate;
   int32_t max_sample_rate = biz_input::kMaxSampleRate;
-  size_t max_buffer_bytes = 10 * 1024 * 1024;  // 10 MiB
-  size_t max_any_bytes = 10 * 1024 * 1024;     // 10 MiB
+  size_t max_buffer_bytes = biz_input::kMaxBufferBytes;
+  size_t max_any_bytes = biz_input::kMaxAnyBytes;
 };
 
 struct OutputCapacityFieldConfig {
@@ -124,7 +127,7 @@ struct OwnedExternalBlock {
 };
 
 using ValidateExternalFn = std::function<int(
-    const void* ptr, const ResolvedInputLimits& limits, std::string* err)>;
+    const void* ptr, const InputLimits& limits, std::string* err)>;
 
 using AllocateExternalFn =
     std::function<int(const ResolvedOutputPoolSpec& spec,
@@ -205,8 +208,7 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
   binding.external_c_type_name = type_name;
   binding.direction = IoDirection::kInput;
   binding.validate_external = [type_name = std::string(type_name), validate](
-                                  const void* ptr,
-                                  const ResolvedInputLimits& limits,
+                                  const void* ptr, const InputLimits& limits,
                                   std::string* err) -> int {
     if (!ptr) {
       if (err) *err = std::string(type_name) + " pointer is null";
