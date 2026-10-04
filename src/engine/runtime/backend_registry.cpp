@@ -17,8 +17,7 @@ BackendRegistry& BackendRegistry::Instance() {
 }
 
 void BackendRegistry::RecordConflict(std::string_view error) noexcept {
-  registry_support::RecordConflict(mutex_, has_conflict_, conflict_errors_,
-                                   std::move(error));
+  registry_support::RecordConflict(mutex_, conflicts_, std::move(error));
 }
 
 bool BackendRegistry::Register(const BackendDefinition& definition,
@@ -73,11 +72,11 @@ bool BackendRegistry::Register(const BackendDefinition& definition,
     const bool inserted =
         entries_.emplace(definition.backend_type, std::move(staged)).second;
     if (!inserted) {
-      has_conflict_ = true;
       try {
-        conflict_errors_.push_back("Duplicate backend registration for type: " +
-                                   definition.backend_type);
+        conflicts_.Record("Duplicate backend registration for type: " +
+                          definition.backend_type);
       } catch (...) {
+        conflicts_.Record(std::string());
       }
       ALG_LOG_ERROR("[BackendRegistry] Duplicate backend registration: %s\n",
                     definition.backend_type.c_str());
@@ -160,11 +159,11 @@ std::vector<BackendDefinition> BackendRegistry::ListDefinitions() const {
 }
 
 bool BackendRegistry::HasConflict() const noexcept {
-  return registry_support::HasConflict(mutex_, has_conflict_);
+  return registry_support::HasConflict(mutex_, conflicts_);
 }
 
 std::vector<std::string> BackendRegistry::GetConflictErrors() const {
-  return registry_support::GetConflictErrors(mutex_, conflict_errors_);
+  return registry_support::GetConflictErrors(mutex_, conflicts_);
 }
 
 }  // namespace llm_edgeflow
