@@ -159,6 +159,20 @@ auto FailableSpec() {
 
 REGISTER_FUNCTION_NODE(FailableMapNode, FailableSpec());
 
+// Fails without its own message, so the framework names the Map function.
+auto SilentFailureSpec() {
+  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
+                     [](const std::string& in) {
+                       if (in == "FAIL") {
+                         return NodeResult<std::string>::Failure(
+                             NodeErrorKind::kBusinessError, "");
+                       }
+                       return NodeResult<std::string>::Success(in);
+                     });
+}
+
+REGISTER_FUNCTION_NODE(SilentFailureMapNode, SilentFailureSpec());
+
 // Node without parameters returning plain string
 std::string UpperFn(const std::string& in) {
   std::string out = in;
@@ -934,6 +948,40 @@ TEST(FunctionNodeTest, IntermediateFailureProducesNoOutput) {
   EXPECT_EQ(out, nullptr);
 }
 
+TEST(FunctionNodeTest, MapItemFailureNamesNodeAndItem) {
+  NodeHarness harness("FailableMapNode");
+  harness.TextInput("input", {"ok1", "FAIL", "ok3"});
+  auto result = harness.Run();
+  ASSERT_FALSE(result.ok());
+  EXPECT_EQ(result.process_code(), -9999);
+  EXPECT_NE(result.diagnostic().find("Forced failure on keyword FAIL"),
+            std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("FailableMapNode"), std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("sub_id=0"), std::string::npos)
+      << result.diagnostic();
+
+  NodeHarness silent("SilentFailureMapNode");
+  silent.TextInput("input", {"ok", "FAIL"});
+  auto silent_result = silent.Run();
+  ASSERT_FALSE(silent_result.ok());
+  EXPECT_EQ(silent_result.process_code(),
+            node_error::author_node::kBusinessError);
+  EXPECT_NE(silent_result.diagnostic().find(
+                "SilentFailureMapNode map function failed"),
+            std::string::npos)
+      << silent_result.diagnostic();
+  EXPECT_EQ(silent_result.Output<TextBatch>("output"), nullptr);
+
+  NodeHarness empty("SilentFailureMapNode");
+  empty.TextInput("input", {});
+  auto empty_result = empty.Run();
+  ASSERT_TRUE(empty_result.ok()) << empty_result.diagnostic();
+  ASSERT_NE(empty_result.Output<TextBatch>("output"), nullptr);
+  EXPECT_TRUE(empty_result.TextValues("output").empty());
+}
+
 // A5: 重复 output key 保留旧值且失败；最终业务失败不发布新输出
 TEST(FunctionNodeTest, DuplicateOutputKeyFailsAndKeepsExistingValue) {
   auto node = NodeRegistry::Instance().Create("UpperMapNode");
@@ -1558,19 +1606,24 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
        "Output port type mismatch for 'output' (expected: TextBatch, bound: "
        "integer)"},
       {"BindingTestNode", "texts", 0,
-       "Required input port 'texts' is unbound in plan"},
+       "Required input port 'texts' has no binding in plan"},
       {"BindingTestNode", "texts", 1,
-       "Required input port 'texts' is unbound in plan"},
-      {"BindingTestNode", "texts", 2, "Input port type mismatch for 'texts'"},
+       "Required input port 'texts' has no binding in plan"},
+      {"BindingTestNode", "texts", 2,
+       "Input port type mismatch for 'texts' (expected: TextBatch, bound: "
+       "integer)"},
       {"BindingTestNode", "mask", 0, ""},
       {"BindingTestNode", "mask", 1, ""},
-      {"BindingTestNode", "mask", 2, "Input port type mismatch for 'mask'"},
+      {"BindingTestNode", "mask", 2,
+       "Input port type mismatch for 'mask' (expected: TextBatch, bound: "
+       "integer)"},
       {"BindingTestNode", "output", 0,
        "Output port 'output' has no binding in plan"},
       {"BindingTestNode", "output", 1,
        "Output port 'output' has no binding in plan"},
       {"BindingTestNode", "output", 2,
-       "Output port type mismatch for 'output'"},
+       "Output port type mismatch for 'output' (expected: TextBatch, bound: "
+       "integer)"},
   };
   for (const auto& test : cases) {
     SCOPED_TRACE(test.node);
