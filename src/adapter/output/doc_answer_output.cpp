@@ -97,7 +97,6 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   def.converter_id = "doc_answer.plain.operator.v1";
 
   def.schema_id = "doc_answer.plain.response";
-  def.external_type = "CompanyOperatorDocOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorDocOutput>(kOutputSlot)};

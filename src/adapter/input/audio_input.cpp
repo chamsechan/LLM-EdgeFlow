@@ -56,7 +56,6 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
   def.converter_id = "audio.pcm.operator.v1";
 
   def.schema_id = "audio.pcm.request";
-  def.external_type = "CompanyOperatorAudioInput";
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot)};

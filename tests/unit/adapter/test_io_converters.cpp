@@ -144,6 +144,33 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   EXPECT_EQ(found->converter_id, "test.output.operator.v1");
 }
 
+TEST(IoConverterTest, ExternalTypeDefaultsToSlotTypesInOrder) {
+  InputConverterDefinition input;
+  input.converter_id = "derived.external_type.in";
+  input.schema_id = "test";
+  input.external_slots = {
+      ExternalSlotDefinition("frame", "CompanyFrame", PortDirection::kInput,
+                             true, "frame", "frame"),
+      ExternalSlotDefinition("query", "CompanyString", PortDirection::kInput,
+                             true, "string", "query")};
+  input.logical_ports = {NodePortDefinition("texts", "TextBatch", true)};
+  input.decode_fn = &DummyDecode;
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  EXPECT_EQ(IoConverterRegistry::Instance()
+                .FindInputConverter(input.converter_id)
+                ->external_type,
+            "CompanyFrame,CompanyString");
+
+  // An explicit protocol label is kept as declared.
+  input.converter_id = "labeled.external_type.in";
+  input.external_type = "custom.carrier";
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
+  EXPECT_EQ(IoConverterRegistry::Instance()
+                .FindInputConverter(input.converter_id)
+                ->external_type,
+            "custom.carrier");
+}
+
 TEST(IoConverterTest, RejectsInvalidDefinitions) {
   InputConverterDefinition bad_in;
   bad_in.converter_id = "";
@@ -172,13 +199,8 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.schema_version = 0;
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  // 缺少 external_type
-  bad_in.schema_version = 1;
-  bad_in.external_type = "";
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
-
   // 缺少 external_slots
-  bad_in.external_type = "int";
+  bad_in.schema_version = 1;
   bad_in.external_slots.clear();
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 

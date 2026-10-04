@@ -41,7 +41,6 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   def.converter_id = "translate.json.operator.v1";
 
   def.schema_id = "translate.json.response";
-  def.external_type = "CompanyOperatorEntityOutput";
 
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};

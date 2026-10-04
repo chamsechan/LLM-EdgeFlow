@@ -92,7 +92,6 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   def.converter_id = "invoice_result.plain.operator.v1";
 
   def.schema_id = "invoice_result.plain.response";
-  def.external_type = "CompanyOdOutput";
 
   def.external_slots = {ExternalOutputSlot<CompanyOdOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kExtractedInvoiceJson),

@@ -114,7 +114,6 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
   def.converter_id = "rerank.plain.operator.v1";
 
   def.schema_id = "rerank.plain.request";
-  def.external_type = "CompanyOperatorRerankInput";
 
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot)};
