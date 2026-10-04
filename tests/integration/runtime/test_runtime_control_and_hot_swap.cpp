@@ -156,18 +156,30 @@ TEST_F(RuntimeControlAndHotSwapTest,
   for (const auto& [payload, field] : invalid) {
     SCOPED_TRACE(payload.dump());
     std::string error;
-    EXPECT_NE(pipeline.Control(kControlCmdUpdateRules, payload.dump(), &error),
+    ControlFailureStage stage = ControlFailureStage::kNone;
+    EXPECT_NE(pipeline.Control(kControlCmdUpdateRules, payload.dump(), &error,
+                               &stage),
               0);
     EXPECT_NE(error.find(field), std::string::npos) << error;
+    // Only the regex compile happens inside the Node; schema checks run first.
+    EXPECT_EQ(stage, field == "rules_a" ? ControlFailureStage::kNode
+                                        : ControlFailureStage::kRequest);
     ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
   }
   std::string error;
+  ControlFailureStage stage = ControlFailureStage::kNone;
   EXPECT_EQ(pipeline.Control(kControlCmdUpdateRules,
                              TargetedRules("template", "WRONG_TARGET").dump(),
-                             &error),
+                             &error, &stage),
             -7);
+  EXPECT_EQ(stage, ControlFailureStage::kUnsupported);
   EXPECT_NE(error.find("template"), std::string::npos) << error;
   ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
+  EXPECT_EQ(pipeline.Control(kControlCmdUpdateRules,
+                             TargetedRules("rules_a", "UPDATED").dump(), &error,
+                             &stage),
+            0);
+  EXPECT_EQ(stage, ControlFailureStage::kNone);
 }
 
 // 1. 关键词库运行时动态热更新与立即生效测试

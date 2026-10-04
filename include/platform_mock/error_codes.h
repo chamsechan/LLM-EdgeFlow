@@ -7,7 +7,8 @@
 #define COMPANY_ALG_SUCCESS (0)              // 成功
 #define COMPANY_ALG_ERR_INVALID_HANDLE (-1)  // 无效句柄 (nullptr 或野指针)
 #define COMPANY_ALG_ERR_INVALID_PARAM \
-  (-2)  // 参数非法 (如空字符串、缺少必填参数)
+  (-2)  // 参数非法 (空字符串、缺少必填参数；创建时配置、部署或模型加载失败；
+        // Control 请求不合法)
 #define COMPANY_ALG_ERR_INVALID_INPUT \
   (-3)  // 输入数据非法 (空指针槽位、批大小超限或字段语义错误)
 #define COMPANY_ALG_ERR_BUFFER_TOO_SMALL \
@@ -17,6 +18,7 @@
 #define COMPANY_ALG_ERR_REGISTRY_CONFLICT (-6)  // 注册表冲突 (fail-closed 拦截)
 #define COMPANY_ALG_ERR_UNSUPPORTED_CONTROL (-7)  // 不支持或未声明的控制命令
 #define COMPANY_ALG_ERR_EXCEPTION (-99)  // 运行时捕获到 std::exception 异常
-#define COMPANY_ALG_ERR_UNKNOWN (-100)  // 运行时捕获到未知异常
+#define COMPANY_ALG_ERR_UNKNOWN \
+  (-100)  // 未分类的运行时失败 (节点/模型执行失败或捕获到未知异常)
 
 #endif  // EDGEFLOW_PLATFORM_MOCK_ERROR_CODES_H_

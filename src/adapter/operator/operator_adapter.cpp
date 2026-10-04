@@ -7,6 +7,7 @@
 
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_control_registry.h"
+#include "adapter/operator/operator_error_mapping.h"
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
@@ -184,8 +185,11 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
         param->model_path, param->cfg_file_name, &resolved_conf, &resolve_err,
         effective_depth);
     if (res_code != 0) {
-      SetLastError("OperatorConfigResolver failed: " + resolve_err);
-      return res_code;
+      SetLastError(llm_edgeflow::DescribeOperatorFailure(
+          llm_edgeflow::OperatorFailureStage::kCreatePreparation, res_code,
+          "OperatorConfigResolver failed: " + resolve_err));
+      return llm_edgeflow::PublicFailureCode(
+          llm_edgeflow::OperatorFailureStage::kCreatePreparation, res_code);
     }
 
     // 2. 组装运行时参数
@@ -207,9 +211,11 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
         std::move(resolved_conf.io_plan), param->device_id, &runtime_options,
         &runtime, &create_err);
     if (create_ret != 0) {
-      SetLastError("SharedAlgorithmRuntime::CreateFromIoPlan failed: " +
-                   create_err);
-      return create_ret;
+      SetLastError(llm_edgeflow::DescribeOperatorFailure(
+          llm_edgeflow::OperatorFailureStage::kCreatePreparation, create_ret,
+          "SharedAlgorithmRuntime::CreateFromIoPlan failed: " + create_err));
+      return llm_edgeflow::PublicFailureCode(
+          llm_edgeflow::OperatorFailureStage::kCreatePreparation, create_ret);
     }
 
     // 4. 预分配输出内存池
@@ -387,9 +393,11 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     // 5. 执行 Pipeline 计算
     int exec_ret = h->runtime->GetPipeline()->Execute(&req_ctx);
     if (exec_ret != 0) {
-      SetLastError("Pipeline::Execute failed with code " +
-                   std::to_string(exec_ret) + ": " + req_ctx.GetErrorMessage());
-      return exec_ret;
+      SetLastError(llm_edgeflow::DescribeOperatorFailure(
+          llm_edgeflow::OperatorFailureStage::kProcessExecution, exec_ret,
+          req_ctx.GetErrorMessage()));
+      return llm_edgeflow::PublicFailureCode(
+          llm_edgeflow::OperatorFailureStage::kProcessExecution, exec_ret);
     }
 
     // 6. 执行统一输出编码 (将结果写入已租用的外部结构块)
@@ -476,10 +484,16 @@ int Operator_Control(void* handle, ControlCommand command,
     }
 
     std::string exec_err;
-    int exec_ret = h->runtime->ExecuteControl(cmd_id, json_str, &exec_err);
+    llm_edgeflow::ControlFailureStage control_stage =
+        llm_edgeflow::ControlFailureStage::kNone;
+    int exec_ret =
+        h->runtime->ExecuteControl(cmd_id, json_str, &exec_err, &control_stage);
     if (exec_ret != 0) {
-      SetLastError("ExecuteControl failed: " + exec_err);
-      return exec_ret;
+      const auto stage =
+          llm_edgeflow::ControlFailureToOperatorStage(control_stage);
+      SetLastError(
+          llm_edgeflow::DescribeOperatorFailure(stage, exec_ret, exec_err));
+      return llm_edgeflow::PublicFailureCode(stage, exec_ret);
     }
 
     return 0;

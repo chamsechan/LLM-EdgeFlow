@@ -230,9 +230,24 @@ binding.normalize_parameters =
 局部清理。调用前须停止所有实例的新调用、等待在途调用返回并释放全部输出；不支持与 Create、Process、
 Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但已清理的 handle 和旧输出仍失效。
 
-**错误与诊断。** 常见门面错误包括无效 handle `-1`、非法创建参数/配置 `-2`、非法输入或批次 `-3`、
-输出槽/容量错误 `-4`。公开错误码见 [`error_codes.h`](../../include/platform_mock/error_codes.h)；
-Pipeline、Node 或 Model 的失败码也会向上传递，不能只按数值判断故障层。
+**错误与诊断。** 门面自身的检查返回无效 handle `-1`、非法创建参数/配置 `-2`、非法输入或批次 `-3`、
+输出槽/容量错误 `-4` 和不支持的 Control 命令 `-7`。门面之下的失败按阶段映射为公开返回码，
+内部的 Pipeline、Node、Model 错误码不直接返回给宿主：
+
+| 失败阶段 | 返回码 |
+| --- | --- |
+| Create：配置与部署校验、模型或 Backend 加载 | `-2`；不支持的业务 `-5`、注册冲突 `-6` 保持原类别 |
+| Process：节点或模型执行失败 | `-100` |
+| Control：信封、目标节点或载荷 schema 不合法 | `-2` |
+| Control：没有节点声明或处理该命令 | `-7` |
+| Control：节点拒绝或未能应用更新 | `-100` |
+| 异常屏障捕获异常 | `-99`（`std::exception`）或 `-100`（未知异常） |
+
+`GetOperatorLastError()` 以 `<阶段> failed with internal code <内部码>: <诊断>` 保留原始码；
+执行失败的诊断还包含节点 ID 与类型，模型调用失败时包含模型操作和模型返回码。`-100` 不区分
+执行失败与未知异常，需结合诊断判断故障层。公开错误码见
+[`error_codes.h`](../../include/platform_mock/error_codes.h)，它是外网环境的替身，真实 SDK 的
+目标码须在授权内网核验。
 `Process` 失败后在当前线程读取 `GetOperatorLastError()` 并及时复制诊断；它返回的指针由库持有，
 后续调用可能更新内容。成功返回不代表已完成真实模型效果或生产验收。
 

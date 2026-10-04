@@ -82,7 +82,8 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 `ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
 `AsrCall`、`OcrCall`、`RerankCall` 分别提供 `Generate`、`Embed`、`Transcribe`、`Recognize`、`Score`。
 它们处理空批次、模型错误诊断及返回数量和来源检查，结果统一为 `NodeResult`。
-模型失败直接传播，不为旧节点错误码再做一层映射。Node 不加载模型文件或创建厂商运行时。
+模型失败直接传播，不为旧节点错误码再做一层映射；宿主收到的返回码由接入适配层按失败阶段映射，
+内部码保留在诊断中。Node 不加载模型文件或创建厂商运行时。
 
 下面几个字段承担不同职责：
 
@@ -311,7 +312,7 @@ Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本
 | Catalog 找不到新节点 | 文件是否位于 `src/custom_nodes/`、是否重新构建、执行的是否是刚构建的工具 |
 | 未知参数或缺失 `bind_model` | 当前 Definition、节点 config、`models[].model_id` |
 | 输入类型或生产者不匹配 | `inputs` / `outputs` 两端的类型、实际数据名和唯一生产者 |
-| 模型调用返回错误 | 节点报告的错误码、所绑定模型的日志和资产配置 |
+| 模型调用返回错误 | `GetOperatorLastError()` 中的内部错误码、所绑定模型的日志和资产配置 |
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |
 | 并行计划被拆层 | 节点声明以及同层所使用模型的并发能力 |
 
