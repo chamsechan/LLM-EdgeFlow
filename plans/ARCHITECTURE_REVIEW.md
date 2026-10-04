@@ -319,7 +319,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | B4 | `RuntimeOptions` 死字段与测试便利接口 | 第三节·流程编排层 | 已完成：删除只写不读的 `biz_type`、`depth_num`、`biz_name`；单模型注册移到测试支持 `RegisterTestModel`。读取接口、`UpdateModelRevision` 与 `SetResource`/`GetResource` 保留，它们证明原子注册、按版本区分缓存和资源类型检查 |
 | B5 | `NodeBase` 旧写法辅助函数收窄 | 第三节·能力节点层 | 已完成：`BindPort`/`Require`/`Publish` 等移到 `dev_support` 的 `LegacyNodeBase`，供直接驱动 NodeBase 的测试与作者基准的历史基线使用；`NodeBase` 只保留生命周期与异常屏障 |
 | C1 | Map/Batch 生命周期合并 | 第三节·能力节点层 | 已完成：`AuthorNode<MapSpec>` 改为 Batch 运行时的包装，作者写法与 Definition 不变；逐项失败诊断、空批和绑定诊断有测试覆盖，Batch 绑定诊断补充期望/实际类型 |
-| C2 | 端口声明与实例状态分离 | 第三节·能力节点层 | 待评估 |
+| C2 | 端口声明与实例状态分离 | 第三节·能力节点层 | 不采纳：`REGISTER_FUNCTION_NODE` 每次构造实例都重新求值 Spec，不存在跨实例复制；模型与参数已在 `AuthorNode` 上，绑定内的实例状态只剩解析后的 key。拆出 key 需要为每类绑定增加并行的实例表并改动全部绑定接口，类型擦除仍然需要。Spec 需要跨实例共享或创建成本成为瓶颈时再设计 |
 | C3 | 模型调用类共用持有实现 | 第三节·能力节点层 | 待评估 |
 | C4 | 修复建议生成移到工具层 | 第三节·流程编排层 | 待评估 |
 | C5 | 业务审计与图校验分离 | 第三节·流程编排层 | 待评估 |
