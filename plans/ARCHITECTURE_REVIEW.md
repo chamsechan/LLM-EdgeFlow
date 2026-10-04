@@ -317,7 +317,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | B2 | 输入/输出端口绑定共用实现 | 第三节·接入适配层 | 已完成：`PortBindings<方向>` 共用查找，输入/输出仍是不可互换的类型 |
 | B3 | 输入限额统一规则来源 | 第三节·接入适配层 | 已完成：限额全部来自 `biz_input` 常量；`InputLimits` 不再伪装成部署配置，两层检查保留 |
 | B4 | `RuntimeOptions` 死字段与测试便利接口 | 第三节·流程编排层 | 已完成：删除只写不读的 `biz_type`、`depth_num`、`biz_name`；单模型注册移到测试支持 `RegisterTestModel`。读取接口、`UpdateModelRevision` 与 `SetResource`/`GetResource` 保留，它们证明原子注册、按版本区分缓存和资源类型检查 |
-| B5 | `NodeBase` 旧写法辅助函数收窄 | 第三节·能力节点层 | 待评估 |
+| B5 | `NodeBase` 旧写法辅助函数收窄 | 第三节·能力节点层 | 已完成：`BindPort`/`Require`/`Publish` 等移到 `dev_support` 的 `LegacyNodeBase`，供直接驱动 NodeBase 的测试与作者基准的历史基线使用；`NodeBase` 只保留生命周期与异常屏障 |
 | C1 | Map/Batch 生命周期合并 | 第三节·能力节点层 | 待评估 |
 | C2 | 端口声明与实例状态分离 | 第三节·能力节点层 | 待评估 |
 | C3 | 模型调用类共用持有实现 | 第三节·能力节点层 | 待评估 |
