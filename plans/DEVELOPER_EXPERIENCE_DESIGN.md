@@ -1097,7 +1097,6 @@ f"Compiled test '{test}' in '{exe.name}' is not covered by any CTest filter. "
 /src/adapter/output/                    @chamsechan
 /src/adapter/biz/                       @chamsechan
 /include/adapter/biz_blackboard_keys.h  @chamsechan
-/include/adapter/biz_results.h          @chamsechan
 /demo/biz/                              @chamsechan
 /demo/profiles*.json                    @chamsechan
 /configs/                               @chamsechan

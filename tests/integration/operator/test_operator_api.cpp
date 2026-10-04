@@ -2394,7 +2394,7 @@ int EncodeNestedOutput(AlgContext* context, const OutputPortBindings& bindings,
   size_t count = req_ids->size();
 
   for (size_t i = 0; i < count; ++i) {
-    KeywordResult result;
+    NestedOutputSource result;
     result.request_id = (*req_ids)[i];
     result.is_hit = 0;
     for (const auto& m : *matches) {

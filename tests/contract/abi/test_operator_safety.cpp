@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_results.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 #include "edgeflow/operator/interface.h"

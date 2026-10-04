@@ -822,7 +822,7 @@ TEST_F(OperatorOutputPoolTest,
   ASSERT_NE(payload, nullptr);
   ASSERT_EQ(payload->capacity, 3u);
   void* original_values = payload->values;
-  KeywordResult result;
+  NestedOutputSource result;
   result.request_id = 42;
   result.is_hit = 1;
   ASSERT_EQ(ConvertNestedOutput(&result, block, pool->Spec(), &error), 0)

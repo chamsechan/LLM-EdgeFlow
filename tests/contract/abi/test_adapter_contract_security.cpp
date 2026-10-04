@@ -11,7 +11,6 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_results.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
