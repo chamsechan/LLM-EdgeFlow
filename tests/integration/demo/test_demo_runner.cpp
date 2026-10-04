@@ -14,6 +14,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "dev_support/node_authoring/legacy_node_base.h"
 #include "edgeflow/log.h"
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
@@ -27,11 +28,11 @@ using namespace llm_edgeflow::operator_api;
 namespace llm_edgeflow::test {
 namespace {
 
-class TestDemoStatusNode final : public NodeBase {
+class TestDemoStatusNode final : public LegacyNodeBase {
  public:
   inline static constexpr char kNodeType[] = "TestDemoStatusNode";
   TestDemoStatusNode()
-      : NodeBase(kNodeType), input_("text"), output_("matches") {}
+      : LegacyNodeBase(kNodeType), input_("text"), output_("matches") {}
 
  protected:
   bool InitNode(const NodeInitContext& init, const nlohmann::json&,

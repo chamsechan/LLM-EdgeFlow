@@ -8,6 +8,7 @@
 #include "baseline_starter.cpp"
 #include "contracts/config_schema_validation.h"
 #include "current_starter.cpp"
+#include "dev_support/node_authoring/legacy_node_base.h"
 #include "nodes/authoring.h"
 
 namespace {
@@ -54,9 +55,9 @@ class EchoModel final : public ILlmModel {
     return 0;
   }
 };
-class ExplicitMap final : public NodeBase {
+class ExplicitMap final : public LegacyNodeBase {
  public:
-  ExplicitMap() : NodeBase("ExplicitMap") {}
+  ExplicitMap() : LegacyNodeBase("ExplicitMap") {}
 
  protected:
   bool InitNode(const NodeInitContext& init, const nlohmann::json&,
