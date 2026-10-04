@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -925,6 +926,29 @@ TEST(FunctionNodeTest, MapPreservesOrderingAndProvenanceAcrossRequests) {
 
   EXPECT_EQ(result.TextValues("output"),
             (std::vector<std::string>{"PRE:first", "PRE:second", "PRE:third"}));
+}
+
+// Every capability call shares one move-only ownership contract.
+template <typename CallT, typename ModelT>
+void ExpectModelCallContract(const char* default_slot) {
+  static_assert(std::is_same_v<typename CallT::ModelType, ModelT>);
+  static_assert(!std::is_copy_constructible_v<CallT>);
+  static_assert(!std::is_copy_assignable_v<CallT>);
+  static_assert(std::is_nothrow_move_constructible_v<CallT>);
+  static_assert(std::is_nothrow_move_assignable_v<CallT>);
+  CallT unbound;
+  EXPECT_FALSE(unbound.IsBound());
+  CallT named(nullptr);
+  EXPECT_EQ(named.SlotName(), default_slot);
+  EXPECT_TRUE(named.ModelId().empty());
+}
+
+TEST(FunctionNodeTest, ModelCallsShareOwnershipContract) {
+  ExpectModelCallContract<LlmCall, ILlmModel>("generator");
+  ExpectModelCallContract<EmbeddingCall, IEmbeddingModel>("encoder");
+  ExpectModelCallContract<AsrCall, IAsrModel>("transcriber");
+  ExpectModelCallContract<OcrCall, IOcrModel>("detector");
+  ExpectModelCallContract<RerankCall, IRerankModel>("reranker");
 }
 
 TEST(FunctionNodeTest, EmptyBatchReturnsEmptyWithoutCallingFunction) {
