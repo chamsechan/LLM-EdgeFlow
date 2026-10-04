@@ -144,7 +144,8 @@ add_executable(edgeflow_test_tooling_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime edgeflow_pipeline_tooling GTest::gtest
+  GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
 
 if(LLM_EDGEFLOW_HAS_WHISPERCPP)

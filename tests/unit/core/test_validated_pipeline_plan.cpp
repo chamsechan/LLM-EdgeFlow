@@ -472,8 +472,6 @@ TEST_F(PortShapeTest, MisalignedItemWiseInputsAreRejected) {
   EXPECT_EQ(errors[0].node_id, "pair");
   EXPECT_EQ(errors[0].port, "right");
   EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"split"}));
-  ASSERT_TRUE(errors[0].remediation.has_value());
-  EXPECT_EQ(errors[0].remediation->cause, RemediationCause::kPortFlowMismatch);
 }
 
 TEST_F(PortShapeTest, ItemWiseInputsPairOnlyWithinOneFanOut) {

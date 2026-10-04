@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+修复建议移出 Core：remediation 的原因、事实、中文摘要与经 Validator 复核的 JSON Patch 修复改由
+`alg_pipeline_tool` 生成，不再编入 SDK，也不在 Create 校验失败时执行。`PipelineValidator::Explain`
+删除；Validator 只返回中性诊断，未注册类型的相近名称仍在 `suggestions` 中给出。CLI 与 Studio 的
+`validate` / `--explain` 输出不变。
+
 公开错误码：Operator 门面按失败阶段映射返回码，内部的 Pipeline、Node、Model 错误码不再直接返回给宿主。
 Create 阶段的配置、部署与模型/Backend 加载失败返回 `-2`（此前部分为 `-3`）；Process 中节点或模型
 执行失败返回 `-100`；Control 请求不合法返回 `-2`（此前为 `-1`），节点拒绝或未能应用更新返回 `-100`。
