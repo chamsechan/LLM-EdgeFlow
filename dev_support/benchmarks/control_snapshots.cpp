@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
     } else {
       auto* out = ctx.Read<RuleMatchBatch>("matches");
       if (!out || out->size() != 50 || (*out)[0].data.category != "GREETING" ||
-          (*out)[0].data.captures.at("tail") != "world")
+          (*out)[0].data.slots.at("tail") != "world")
         return 6;
     }
   }

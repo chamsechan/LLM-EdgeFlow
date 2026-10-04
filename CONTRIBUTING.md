@@ -33,7 +33,9 @@ working branch or merge other working branches into it. If main advances, explic
 the branch onto the latest main or recreate it there with only the current PR's changes, then
 revalidate. Published history rewrites require explicit authorization and coordination with
 other users of the branch. The delivery script checks this history before the local gate and
-again before an authorized merge; it never rebases automatically.
+again before an authorized merge; it never rebases automatically. Before merging, the remote
+PR head must match the locally verified commit; the script validates that exact SHA and binds
+the merge to it so a concurrent branch update stops delivery.
 
 The branch itself is not evidence of quality; it provides isolation and a reviewable diff.
 

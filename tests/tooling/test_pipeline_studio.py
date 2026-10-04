@@ -598,6 +598,49 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertTrue(json.loads(test_process.stdout)["ok"])
                 self.assertNotIn("提示：", test_process.stderr)
 
+    def test_edit_explains_unknown_registrations(self):
+        production = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
+        fixture = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract_custom.json").read_text())
+        for require_valid in (False, True):
+            with self.subTest(require_valid=require_valid):
+                request = {
+                    "schema_version": 1, "pipeline": fixture, "require_valid": require_valid,
+                    "operation": {"kind": "rename_node", "node_id": "custom_prompt",
+                                  "new_id": "renamed_prompt"},
+                }
+                process = subprocess.run([str(production), "edit", "--stdin"], cwd=ROOT,
+                                         input=json.dumps(request), text=True, capture_output=True)
+                payload = json.loads(process.stdout)
+                self.assertEqual(process.returncode, int(require_valid), payload)
+                self.assertEqual(payload["ok"], not require_valid)
+                self.assertEqual("pipeline" in payload, not require_valid)
+                self.assertFalse(payload["validation"]["ok"])
+                self.assertEqual([d["code"] for d in payload["validation"]["diagnostics"]],
+                                 ["UNKNOWN_MODEL_TYPE", "UNKNOWN_BACKEND"])
+                self.assertIn("alg_pipeline_tool_test", process.stderr)
+                self.assertIn("构建变体", process.stderr)
+                self.assertEqual(process.stderr.count("提示："), 1)
+                test_process = subprocess.run([str(PIPELINE_TOOL), "edit", "--stdin"], cwd=ROOT,
+                                              input=json.dumps(request), text=True, capture_output=True)
+                test_payload = json.loads(test_process.stdout)
+                self.assertEqual(test_process.returncode, 0, test_payload)
+                self.assertTrue(test_payload["validation"]["ok"])
+                self.assertNotIn("提示：", test_process.stderr)
+
+        keyword = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
+        node_id = keyword["pipeline"][0]["id"]
+        for operation in ({"kind": "rename_node", "node_id": node_id, "new_id": "renamed_rule"},
+                          {"kind": "remove_node", "node_id": node_id}):
+            with self.subTest(operation=operation):
+                request = {"schema_version": 1, "pipeline": keyword, "require_valid": False,
+                           "operation": operation}
+                process = subprocess.run([str(production), "edit", "--stdin"], cwd=ROOT,
+                                         input=json.dumps(request), text=True, capture_output=True)
+                payload = json.loads(process.stdout)
+                self.assertEqual(process.returncode, 0, payload)
+                self.assertEqual(payload["validation"]["ok"], operation["kind"] == "rename_node")
+                self.assertNotIn("提示：", process.stderr)
+
     def test_removed_dependency_repair_command_is_rejected_without_writing(self):
         original = (ROOT / "configs/pipeline_keyword_match_rules.json").read_bytes()
         with tempfile.TemporaryDirectory() as directory:

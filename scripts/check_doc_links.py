@@ -4,6 +4,7 @@
 import argparse
 from pathlib import Path
 import re
+import string
 import subprocess
 import tempfile
 import unicodedata
@@ -11,13 +12,65 @@ from urllib.parse import unquote
 
 
 ATX_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+INLINE_LINK_START = re.compile(r"\]\(")
+INLINE_LINK_END = re.compile(
+    r'''(?:[ \t]+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?[ \t]*\)''')
 HTML_TARGET = re.compile(r"\b(?:href|src)=\"([^\"]+)\"")
 HTML_ANCHOR = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
 INLINE_CODE = re.compile(r"`[^`]*`")
 URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 FENCE = re.compile(r"^\s*(```|~~~)")
 WALK_EXCLUDES = {".git", "3rdparty", "results", "output", "Testing"}
+
+
+def link_destination(text, position):
+    """Read an angle-delimited or balanced bare destination and its end offset."""
+    angle_delimited = text[position:position + 1] == "<"
+    if angle_delimited:
+        position += 1
+    destination, depth = [], 0
+    while position < len(text):
+        char = text[position]
+        if char == "\\" and position + 1 < len(text) and text[position + 1] in string.punctuation:
+            destination.append(text[position + 1])
+            position += 2
+            continue
+        if angle_delimited:
+            if char == ">":
+                return "".join(destination), position + 1
+            if char in "<\r\n":
+                return None
+        elif char <= " " or char == "\x7f":
+            break
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        destination.append(char)
+        position += 1
+    if angle_delimited or depth:
+        return None
+    return "".join(destination), position
+
+
+def inline_link_targets(text):
+    """Yield single-line inline destinations, excluding optional link titles."""
+    position = 0
+    while match := INLINE_LINK_START.search(text, position):
+        position = match.end()
+        start = position
+        while start < len(text) and text[start] in " \t":
+            start += 1
+        parsed = link_destination(text, start)
+        if parsed is None:
+            continue
+        destination, end = parsed
+        suffix = INLINE_LINK_END.match(text, end)
+        if suffix:
+            position = suffix.end()
+            yield destination
 
 
 def slugify(heading):
@@ -90,7 +143,7 @@ def check(root):
         relative = path.relative_to(root)
         for number, line in prose_lines(path):
             prose = INLINE_CODE.sub("", line)
-            for target in INLINE_LINK.findall(prose) + HTML_TARGET.findall(prose):
+            for target in [*inline_link_targets(prose), *HTML_TARGET.findall(prose)]:
                 if URL_SCHEME.match(target) or target.startswith("//"):
                     continue
                 counters["links"] += 1
@@ -144,12 +197,39 @@ def self_test():
         # Seven inline links and one img src; the https link is skipped.
         assert counters == {"files": 2, "links": 8, "anchor_links": 4}, counters
 
-        write(root, "broken.md", "[x](guide/missing.md) [y](guide/target.md#nope) [z](../outside.md)\n")
+        write(root, "guide/guide_(old).md", "# Heading\n")
+        write(root, "guide/guide_(old_(nested_(v1))).md", "# Heading\n")
+        write(root, "guide/file space.md", "# Heading\n")
+        valid_links = [
+            '[x](guide/guide_(old).md#heading)',
+            '[x](guide/guide_(old_(nested_(v1))).md#heading)',
+            r'[x](guide/guide_\(old\).md#heading)',
+            "[x](<guide/file space.md#heading> 'caption')",
+            "[x](guide/target.md 'caption')",
+            '[x](guide/target.md (caption))',
+            r'''[x](guide/target.md "say \"hello\"")''',
+            '[x](guide/target.md "title [skip](missing.md)")',
+        ]
+        write(root, "syntax.md", "\n".join(valid_links) + "\n"
+              "[literal](guide_(unbalanced.md)\n"
+              "[literal](<guide/target.md>'missing separator')\n"
+              "[literal](guide/target.md (nested(title)))\n")
+        errors, counters = check(root)
+        assert errors == [], errors
+        assert counters["links"] == 8 + len(valid_links), counters
+
+        write(root, "broken.md",
+              "[x](guide/missing.md) [y](guide/target.md#nope) [z](../outside.md)\n"
+              "[single](missing.md 'caption') [paren](missing.md (caption))\n"
+              "[balanced](missing_(old).md) [angle](<missing file.md> 'caption')\n")
         errors, _ = check(root)
-        assert len(errors) == 3, errors
+        assert len(errors) == 7, errors
         assert "missing link target" in errors[0], errors
         assert "missing heading anchor" in errors[1], errors
         assert "leaves the repository" in errors[2], errors
+        for error, target in zip(errors[3:],
+                                 ("missing.md", "missing.md", "missing_(old).md", "missing file.md")):
+            assert error.endswith("missing link target: " + target), errors
 
     with tempfile.TemporaryDirectory(prefix="doc-links-empty-") as directory:
         errors, _ = check(Path(directory))
