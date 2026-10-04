@@ -7,8 +7,9 @@
 
 namespace llm_edgeflow::json_structure {
 
-// Shallow structural predicates, shared by the existing ordered parsers and
-// their editor schema. No recursive validation, normalization or diagnostics.
+// Shallow JSON Schema keyword predicates, shared by the ordered parsers, their
+// editor schema and Control payload validation. No recursive validation,
+// normalization or diagnostics; each caller keeps its own error contract.
 using Json = nlohmann::json;
 
 inline Json Object(Json properties, Json required = Json::array()) {

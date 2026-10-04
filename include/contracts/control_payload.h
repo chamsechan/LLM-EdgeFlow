@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/json_structure.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
@@ -98,22 +99,14 @@ inline bool ValidateValue(const nlohmann::json& payload,
     if (err_msg) *err_msg = message;
     return false;
   };
-  if (schema.contains("type") && schema["type"].is_string()) {
-    const std::string type = schema["type"].get<std::string>();
-    const bool matches = (type == "object" && payload.is_object()) ||
-                         (type == "array" && payload.is_array()) ||
-                         (type == "string" && payload.is_string()) ||
-                         (type == "boolean" && payload.is_boolean()) ||
-                         (type == "number" && payload.is_number()) ||
-                         (type == "integer" && payload.is_number_integer()) ||
-                         (type == "null" && payload.is_null());
-    if (!matches)
-      return fail("Control payload does not match type '" + type + "'");
+  if (schema.contains("type") && schema["type"].is_string() &&
+      !json_structure::HasType(payload, schema)) {
+    return fail("Control payload does not match type '" +
+                schema["type"].get<std::string>() + "'");
   }
 
   if (schema.contains("enum") && schema["enum"].is_array() &&
-      std::find(schema["enum"].begin(), schema["enum"].end(), payload) ==
-          schema["enum"].end()) {
+      !json_structure::AllowsValue(payload, schema)) {
     return fail("Control payload value is not in the allowed enum");
   }
 
@@ -121,12 +114,10 @@ inline bool ValidateValue(const nlohmann::json& payload,
     const auto number = payload.get<long double>();
     if (!std::isfinite(number))
       return fail("Control payload number must be finite");
-    if (schema.contains("minimum") &&
-        number < schema["minimum"].get<long double>())
+    if (json_structure::BelowMinimum(number, schema))
       return fail("Control payload number is below minimum " +
                   schema["minimum"].dump());
-    if (schema.contains("maximum") &&
-        number > schema["maximum"].get<long double>())
+    if (json_structure::AboveMaximum(number, schema))
       return fail("Control payload number is above maximum " +
                   schema["maximum"].dump());
   }
