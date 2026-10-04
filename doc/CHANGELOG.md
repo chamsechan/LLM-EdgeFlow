@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+开发工具修复：Markdown 链接检查支持单引号与圆括号标题、带空格的尖括号目标及平衡或转义的
+目标圆括号；生产版 `alg_pipeline_tool edit` 根据 `validation.diagnostics` 提示构建变体与测试工具。
+交付脚本要求远端 PR head 与已验证提交一致，以该 SHA 复核历史，并通过 `--match-head-commit`
+阻止检查后的并发更新进入合并。Control 快照基准改用当前 `slots` DTO，仅测量当前源码，删除历史
+源码对比和 `--baseline` 参数。
+
 架构审查回归修复：Map 的回调通过移动交给运行时，支持捕获 `unique_ptr` 等不可复制状态；
 流契约错误由 Validator 提供生产者、消费者、有效端口契约与推导出的数量形状，CLI 据此解释
 节点输入、业务出口及 IO 边界错误，保留拆分来源并正确区分逐项配对与出口数量要求。

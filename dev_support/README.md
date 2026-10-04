@@ -17,3 +17,14 @@ runner compiles these examples directly. No starter file is linked into a produc
 
 `benchmarks/` and `node_authoring/benchmark/` contain opt-in development measurements. They are
 separate from the default runtime and correctness suites.
+
+After running `./scripts/run_all_tests.sh`, measure the current template and rule snapshot
+Nodes, with and without concurrent Control updates, using an empty output directory:
+
+```bash
+python3 dev_support/benchmarks/control_snapshots.py --output-dir /tmp/edgeflow-control-snapshots --rounds 1
+```
+
+The script saves request timing, Control allocation counts, command logs and median summaries
+in that directory. It compiles only current sources; historical source comparisons and the
+`--baseline` option have been removed.

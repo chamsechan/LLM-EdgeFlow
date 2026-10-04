@@ -65,15 +65,16 @@ case "${BRANCH_NAME}" in
 esac
 
 verify_branch_history() {
+  local checked_head="${1:-HEAD}"
   git fetch origin main
-  if ! git merge-base --is-ancestor origin/main HEAD; then
+  if ! git merge-base --is-ancestor origin/main "${checked_head}"; then
     echo "Error: origin/main is not an ancestor of ${BRANCH_NAME}."
     echo "Explicitly rebase onto origin/main or recreate the branch there with only this PR's changes."
     echo "Do not merge main into the working branch; this script will not rewrite history."
     exit 1
   fi
   local branch_merges
-  branch_merges="$(git rev-list --merges origin/main..HEAD)"
+  branch_merges="$(git rev-list --merges "origin/main..${checked_head}")"
   if [[ -n "${branch_merges}" ]]; then
     echo "Error: ${BRANCH_NAME} contains merge commits above origin/main."
     echo "Recreate or explicitly rebase the branch with only this PR's linear commits, then rerun."
@@ -107,6 +108,7 @@ if git diff --quiet origin/main...HEAD; then
 fi
 
 echo "[4/5] Pushing branch and creating or reusing its PR..."
+VERIFIED_HEAD="$(git rev-parse HEAD)"
 git push -u origin "${BRANCH_NAME}"
 if ! gh pr view "${BRANCH_NAME}" --json number >/dev/null 2>&1; then
   gh pr create \
@@ -140,9 +142,19 @@ if [[ "${DELIVERY_MODE}" == "--pr-only" ]]; then
 fi
 
 PR_NUMBER="$(gh pr view "${BRANCH_NAME}" --json number --jq '.number')"
+if ! PR_HEAD_SHA="$(gh pr view "${PR_NUMBER}" --json headRefOid --jq '.headRefOid')" || \
+   [[ ! "${PR_HEAD_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "Error: cannot confirm the head SHA of PR #${PR_NUMBER}; merge was not attempted."
+  exit 1
+fi
+if [[ "${PR_HEAD_SHA}" != "${VERIFIED_HEAD}" ]]; then
+  echo "Error: PR #${PR_NUMBER} head changed since the verified branch was pushed."
+  echo "Fetch the updated branch and rerun verification before merging."
+  exit 1
+fi
 echo "Rechecking branch history against the latest origin/main before merge..."
-verify_branch_history
-gh pr merge "${PR_NUMBER}" --merge --delete-branch
+verify_branch_history "${PR_HEAD_SHA}"
+gh pr merge "${PR_NUMBER}" --merge --delete-branch --match-head-commit "${PR_HEAD_SHA}"
 if ! MERGE_SHA="$(gh pr view "${PR_NUMBER}" --json mergeCommit --jq '.mergeCommit.oid // empty')" || \
    [[ -z "${MERGE_SHA}" ]]; then
   echo "Error: cannot confirm the merge SHA of PR #${PR_NUMBER}; main CI was not verified."

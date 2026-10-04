@@ -67,12 +67,21 @@ void PrintRegistrationHint(const nlohmann::json& response,
   auto unknown_registration = [](const std::string& code) {
     return code == "UNKNOWN_MODEL_TYPE" || code == "UNKNOWN_BACKEND";
   };
-  bool needs_hint = unknown_registration(source_code);
-  auto diagnostics = response.find("diagnostics");
-  if (diagnostics != response.end() && diagnostics->is_array()) {
+  auto has_unknown_registration = [&](const nlohmann::json& report) {
+    auto diagnostics = report.find("diagnostics");
+    if (diagnostics == report.end() || !diagnostics->is_array()) return false;
     for (const auto& diagnostic : *diagnostics) {
-      if (unknown_registration(diagnostic.value("code", ""))) needs_hint = true;
+      if (diagnostic.is_object() &&
+          unknown_registration(diagnostic.value("code", "")))
+        return true;
     }
+    return false;
+  };
+  bool needs_hint =
+      unknown_registration(source_code) || has_unknown_registration(response);
+  auto validation = response.find("validation");
+  if (validation != response.end() && validation->is_object()) {
+    needs_hint = needs_hint || has_unknown_registration(*validation);
   }
   if (needs_hint) {
     std::cerr << "提示：当前 alg_pipeline_tool 只包含本次构建启用的生产注册。\n"
@@ -717,7 +726,9 @@ int main(int argc, char* argv[]) {
     }
     try {
       auto result = llm_edgeflow::PipelineAuthoring::ApplyRequest(request);
-      std::cout << result.ToJson().dump(2) << std::endl;
+      auto response = result.ToJson();
+      std::cout << response.dump(2) << std::endl;
+      PrintRegistrationHint(response);
       return result.ok ? 0 : 1;
     } catch (const std::exception& error) {
       std::cout << ToolError("AUTHORING_ERROR", error.what()).dump(2)
