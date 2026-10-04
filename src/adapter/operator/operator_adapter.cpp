@@ -28,8 +28,6 @@ void SetLastError(std::string_view err) noexcept {
 struct OperatorHandle {
   std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
   uint32_t effective_process_batch_limit = 25;
-  const llm_edgeflow::InputConverterDefinition* input_converter = nullptr;
-  const llm_edgeflow::OutputConverterDefinition* output_converter = nullptr;
   std::unordered_map<std::string,
                      std::shared_ptr<llm_edgeflow::OutputPoolState>>
       output_pools;
@@ -222,9 +220,8 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     for (const auto& out_slot :
          runtime->GetIoPlan()->output_converter->external_slots) {
       if (out_slot.direction != llm_edgeflow::PortDirection::kOutput) continue;
-      auto pit =
-          runtime->GetIoPlan()->operator_output_specs.find(out_slot.slot_name);
-      if (pit == runtime->GetIoPlan()->operator_output_specs.end()) {
+      auto pit = runtime->GetIoPlan()->output_specs.find(out_slot.slot_name);
+      if (pit == runtime->GetIoPlan()->output_specs.end()) {
         if (out_slot.required) {
           SetLastError("Missing output pool configuration for slot " +
                        out_slot.slot_name);
@@ -257,8 +254,6 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
 
     auto handle_instance = std::make_unique<OperatorHandle>();
     handle_instance->effective_process_batch_limit = effective_batch_limit;
-    handle_instance->input_converter = runtime->GetIoPlan()->input_converter;
-    handle_instance->output_converter = runtime->GetIoPlan()->output_converter;
     handle_instance->output_pools = std::move(pools);
     handle_instance->runtime = std::move(runtime);
 
@@ -319,17 +314,20 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
 
     std::lock_guard<std::mutex> lock(h->mutex);
 
-    if (!h->runtime || !h->input_converter || !h->output_converter) {
+    const auto* plan = h->runtime ? h->runtime->GetIoPlan() : nullptr;
+    if (!plan || !plan->input_converter || !plan->output_converter) {
       SetLastError(
           "Handle runtime or converter definitions are null in Process");
       return -1;
     }
+    const auto* input_converter = plan->input_converter;
+    const auto* output_converter = plan->output_converter;
 
     // 1. 验证并提取外部输入槽
     llm_edgeflow::ExternalInputBatchView in_view;
     std::string in_err;
     int in_ret = llm_edgeflow::ValidateAndExtractOperatorInputs(
-        inputs, *h->input_converter, llm_edgeflow::InputLimits{}, &in_view,
+        inputs, *input_converter, llm_edgeflow::InputLimits{}, &in_view,
         &in_err);
     if (in_ret != 0) {
       SetLastError(in_err);
@@ -341,7 +339,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
         frame_out_bindings;
     std::string out_err;
     int out_ret = llm_edgeflow::ResolveOperatorOutputs(
-        outputs, *h->output_converter, &frame_out_bindings, &out_err);
+        outputs, *output_converter, &frame_out_bindings, &out_err);
     if (out_ret != 0) {
       SetLastError(out_err);
       return out_ret;
@@ -353,22 +351,21 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     std::vector<uint64_t> request_ids;
     llm_edgeflow::InputDecodeOptions in_options;
 
-    in_options.converter_id = h->input_converter->converter_id;
+    in_options.converter_id = input_converter->converter_id;
     in_options.max_batch_size = h->effective_process_batch_limit;
     in_options.request_ids = &request_ids;
 
     llm_edgeflow::AdapterStatus decode_status;
-    int decode_ret = h->input_converter->decode_fn(
-        in_view, in_options, h->runtime->GetIoPlan()->input_port_bindings,
-        &req_ctx, &decode_status);
+    int decode_ret = input_converter->decode_fn(in_view, in_options,
+                                                plan->input_port_bindings,
+                                                &req_ctx, &decode_status);
     if (decode_ret != 0) {
-      SetLastError("DecodeInput failed for " +
-                   h->input_converter->converter_id + ": " +
-                   decode_status.ToString());
+      SetLastError("DecodeInput failed for " + input_converter->converter_id +
+                   ": " + decode_status.ToString());
       return decode_ret;
     }
     if (request_ids.size() != inputs.size()) {
-      SetLastError("DecodeInput for " + h->input_converter->converter_id +
+      SetLastError("DecodeInput for " + input_converter->converter_id +
                    " recorded " + std::to_string(request_ids.size()) +
                    " request ids for " + std::to_string(inputs.size()) +
                    " inputs");
@@ -400,7 +397,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     // 6. 执行统一输出编码 (将结果写入已租用的外部结构块)
     llm_edgeflow::ExternalOutputBatchView out_view;
     out_view.count = inputs.size();
-    for (const auto& slot : h->output_converter->external_slots) {
+    for (const auto& slot : output_converter->external_slots) {
       if (slot.direction == PortDirection::kOutput) {
         out_view.slot_types[slot.slot_name] = slot.type_id;
         auto pool = h->output_pools.find(slot.slot_name);
@@ -414,18 +411,17 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
 
     llm_edgeflow::OutputEncodeOptions out_options;
 
-    out_options.converter_id = h->output_converter->converter_id;
+    out_options.converter_id = output_converter->converter_id;
     out_options.request_ids = &request_ids;
 
     size_t written_count = 0;
     llm_edgeflow::AdapterStatus encode_status;
-    int encode_ret = h->output_converter->encode_fn(
-        &req_ctx, h->runtime->GetIoPlan()->output_port_bindings, out_options,
-        &out_view, &written_count, &encode_status);
+    int encode_ret = output_converter->encode_fn(
+        &req_ctx, plan->output_port_bindings, out_options, &out_view,
+        &written_count, &encode_status);
     if (encode_ret != 0) {
-      SetLastError("EncodeOutput failed for " +
-                   h->output_converter->converter_id + ": " +
-                   encode_status.ToString());
+      SetLastError("EncodeOutput failed for " + output_converter->converter_id +
+                   ": " + encode_status.ToString());
       return encode_ret;
     }
     if (written_count != inputs.size()) {
@@ -604,7 +600,7 @@ int ResolveOperatorConfigBiz(const char* model_path, const char* cfg_file_name,
       return ret;
     }
 
-    *out_biz_name = resolved.biz_name;
+    *out_biz_name = resolved.io_plan->binding.biz_name;
     return 0;
   } catch (const std::exception& e) {
     if (out_biz_name) out_biz_name->clear();

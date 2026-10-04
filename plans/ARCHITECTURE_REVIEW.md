@@ -325,7 +325,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | C5 | 业务审计与图校验分离 | 第三节·流程编排层 | 不采纳：Init 时的绑定全量审计已检查转换器与业务端口的 key 和类型；Validator 中剩余的交叉检查负责流契约一致性，以及业务可选、但某个转换器必需的输出，需要转换器视图或组合后的边界。把业务定义移到 Adapter 会牵动 Catalog、CLI/Studio 和 Pipeline 文档的 `biz_name`，目前没有缺陷驱动；跨请求状态改变边界语义时再一并设计 |
 | C6 | Control 载荷复用 | 第三节·流程编排层 | 不采纳：Control 是低频配置更新，第二次解析只增加微秒级开销；Core 的广播预检（任何节点更新前完成）与 Node 对直接调用的校验职责不同，都需保留。复用解析结果需要修改 `INode::Control` 签名及全部节点与测试，收益不足 |
 | C7 | JSON 基础检查共用 | 第三节·流程编排层 | 已完成：Control 载荷校验改用 `json_structure` 的 type/enum/minimum/maximum 判定，诊断文案不变；配置字段使用类型化定义，默认值补齐与错误定位契约不同，保持独立 |
-| C8 | 部署信息转存与命名 | 第三节·接入适配层 | 待评估 |
+| C8 | 部署信息转存与命名 | 第三节·接入适配层 | 已完成：`PreparedDeployment` 与 `ValidatedIoPlan` 共用 `IoBindingSelection`，逐字段转存改为一次移动，输出池字段同名；handle 不再另存转换器指针，`ResolvedOperatorConfig` 不再重复绑定标识。预检与资源加载的阶段边界不变 |
 | C9 | 契约元数据减少重复填写 | 第三节·接入适配层 | 待评估 |
 | C10 | 宿主类型分散注册 | 第三节·接入适配层 | 待评估 |
 | D1 | Model 身份声明去重 | 第三节·模型执行层 | 待评估 |

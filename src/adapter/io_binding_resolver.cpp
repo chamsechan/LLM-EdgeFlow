@@ -223,15 +223,8 @@ int IoBindingResolver::ResolveFromPipelineJson(
 
   // 组装不可变接入计划
   auto io_plan = std::make_unique<ValidatedIoPlan>();
-  io_plan->binding = std::move(prepared.binding);
-  io_plan->input_converter = prepared.input_converter;
-  io_plan->output_converter = prepared.output_converter;
-  io_plan->input_port_bindings = std::move(prepared.input_port_bindings);
-  io_plan->output_port_bindings = std::move(prepared.output_port_bindings);
-  io_plan->effective_max_batch_size = prepared.effective_max_batch_size;
-  io_plan->operator_output_specs = std::move(prepared.output_specs);
-  io_plan->operator_output_parameter_texts =
-      std::move(prepared.output_parameter_texts);
+  static_cast<IoBindingSelection&>(*io_plan) =
+      std::move(static_cast<IoBindingSelection&>(prepared));
   io_plan->resolved_pipeline_json = std::move(prepared.neutral_pipeline_json);
   io_plan->resolved_pipeline_json.erase("biz_name");
   io_plan->resolved_pipeline_json["deployment"] =
