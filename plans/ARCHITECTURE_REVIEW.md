@@ -178,8 +178,8 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
   数组容量及分配/释放。`allocator`、`params` 也是现有 Pipeline 配置字段，见
   [输出分配方案](../doc/dev_guide/operator_output_allocation.md#选择参数)。测试正在证明这条接入路径。
   删除属于撤销能力，并非死代码清理；本文不建议删除。
-- **未使用结果结构可清理，但保留测试扩展所需类型**：[biz_results.h](../include/adapter/biz_results.h) 中
-  6 个结构没有类型引用，可核实后删除；`KeywordResult` 用于输出池与自定义 allocator 测试，须保留或移到测试夹具。
+- **未使用结果结构已清理（B1）**：原 `include/adapter/biz_results.h` 中 6 个结构没有类型引用，已随文件删除；
+  `KeywordResult` 只用于输出池与自定义 allocator 测试，已改为测试夹具中的 `NestedOutputSource`。
 - **宿主类型集中登记可研究分散注册**：类型清单写在框架头里（[io_converter.h:35](../include/adapter/io_converter.h#L35)），
   内置值类型集中在 [operator_builtin_value_types.cpp](../src/adapter/operator/operator_builtin_value_types.cpp)，
   新增宿主结构要改这两个集中文件。收敛注册步骤须保留类型与布局核验，不把宿主类型带入下层；
@@ -317,7 +317,7 @@ Definition、Catalog、Validator、节点运行时及工具的解释须一致。
 | A2 | RuleMatch 外部响应序列化移到 Adapter | 第一节 3 | 已完成：`RuleMatchItem` 改为中性的全部命中与带类型槽位；两个转换器共用 Adapter 序列化，字节级契约测试覆盖 |
 | A3 | 错误码按阶段映射 | 第一节 1 | 已完成：Adapter 集中映射，`Pipeline::Control` 报告失败阶段；规则见[宿主调用与生命周期](../doc/dev_guide/operator_output_allocation.md#宿主调用与生命周期)，真实 SDK 目标码仍待内网核验 |
 | A4 | 致命错误与单条无效结果写入业务契约 | 第一节 4 | 已完成：保留整批回滚，各业务约定见[整批失败与单条结果](../doc/dev_guide/business_onboarding.md#整批失败与单条结果) |
-| B1 | 清理未使用的结果结构 | 第三节·接入适配层 | 待实施 |
+| B1 | 清理未使用的结果结构 | 第三节·接入适配层 | 已完成：删除 `biz_results.h`；自定义 allocator 测试改用夹具内的 `NestedOutputSource` |
 | B2 | 输入/输出端口绑定共用实现 | 第三节·接入适配层 | 待实施 |
 | B3 | 输入限额统一规则来源 | 第三节·接入适配层 | 待实施 |
 | B4 | `RuntimeOptions` 死字段与测试便利接口 | 第三节·流程编排层 | 待实施 |

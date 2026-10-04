@@ -83,7 +83,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 环节 | 样例文件 | 需要补齐时落实的内容 |
 | --- | --- | --- |
 | 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
-| 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
+| 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[中性结果类型](../../include/core/common_contracts.h) | ingress/egress typed key 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
 | 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition`、转换器组合和非同名端口映射；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |

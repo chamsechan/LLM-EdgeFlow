@@ -5,7 +5,6 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_results.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/output/rule_match_response.h"
