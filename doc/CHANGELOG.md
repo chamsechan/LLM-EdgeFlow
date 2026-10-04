@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+源码扩展接口整理（随架构审查落地，不涉及 Operator ABI）：
+- Model 继承 `ModelIdentity<Model, 能力接口>`、Backend Provider 继承 `BackendIdentity<Backend>`，
+  身份只声明一次，Definition 从 `MakeModelDefinition` / `MakeBackendDefinition` 开始；
+  配置读取使用 `ConfigValueOrDefault`，默认值只写在 `config_fields`。
+- 转换器 `external_type` 留空时由外部槽类型推导；`InputPortBindings` / `OutputPortBindings`
+  共用 `PortBindings<方向>`；`ResolvedInputLimits` 更名为 `InputLimits` 且不再出现在部署配置中。
+- 删除 `include/adapter/biz_results.h`、`ModelManager::RegisterModel`（改用 `RegisterBatch`）和
+  `RuntimeOptions` 中只写不读的 `biz_type`、`depth_num`、`biz_name`；`NodeBase` 的类写法端口辅助
+  函数移到 `dev_support` 的 `LegacyNodeBase`。
+- Map Node 改在 Batch 运行时上执行，作者写法与 Definition 不变；Batch 端口绑定诊断补充期望与实际
+  类型。注册表冲突状态在消息无法保存时仍保持失败封闭。
+
 修复建议移出 Core：remediation 的原因、事实、中文摘要与经 Validator 复核的 JSON Patch 修复改由
 `alg_pipeline_tool` 生成，不再编入 SDK，也不在 Create 校验失败时执行。`PipelineValidator::Explain`
 删除；Validator 只返回中性诊断，未注册类型的相近名称仍在 `suggestions` 中给出。CLI 与 Studio 的
