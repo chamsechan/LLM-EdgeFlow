@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -68,6 +69,24 @@ inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
     default:
       return "unknown";
   }
+}
+
+// Reads a declared configuration field: the configured value when present,
+// otherwise the default from its declaration, so each default is written once
+// in the Definition. Throws for undeclared fields or a configured value of the
+// wrong type, like nlohmann::json::value.
+template <typename T>
+T ConfigValueOrDefault(const nlohmann::json& config,
+                       const std::vector<ConfigFieldDefinition>& fields,
+                       const std::string& name) {
+  if (config.is_object()) {
+    const auto it = config.find(name);
+    if (it != config.end()) return it->template get<T>();
+  }
+  for (const auto& field : fields) {
+    if (field.name == name) return field.default_value.template get<T>();
+  }
+  throw std::invalid_argument("Undeclared configuration field: " + name);
 }
 
 }  // namespace llm_edgeflow
