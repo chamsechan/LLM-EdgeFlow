@@ -339,8 +339,6 @@ int OperatorConfigResolver::Resolve(
     result->conf_path = full_cfg;
     result->pipeline_path = dep_config.resolved_pipe_path;
     result->model_root_path = canon_root;
-    result->biz_name = io_plan->binding.biz_name;
-    result->io_binding = io_plan->binding.binding_id;
     result->effective_frame_depth = effective_depth;
     result->effective_process_batch_limit = static_cast<uint32_t>(
         std::min<size_t>(effective_depth, io_plan->effective_max_batch_size));

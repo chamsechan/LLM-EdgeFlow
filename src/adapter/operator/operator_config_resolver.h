@@ -19,8 +19,6 @@ struct ResolvedOperatorConfig {
   std::filesystem::path conf_path;
   std::filesystem::path pipeline_path;
   std::filesystem::path model_root_path;
-  std::string biz_name;
-  std::string io_binding;
   std::unique_ptr<ValidatedIoPlan> io_plan;
   uint32_t effective_frame_depth = 0;          // normalized output pool depth
   uint32_t effective_process_batch_limit = 0;  // min(pool depth, binding limit)

@@ -2625,12 +2625,12 @@ TEST_F(OperatorApiTest,
       SCOPED_TRACE(slot);
       const auto& source = expected_alloc.at(slot).at("params");
       EXPECT_FALSE(source.contains("reject_hit"));
-      EXPECT_EQ(resolved.io_plan->operator_output_parameter_texts.at(slot),
+      EXPECT_EQ(resolved.io_plan->output_parameter_texts.at(slot),
                 source.dump());
-      EXPECT_EQ(resolved.io_plan->operator_output_parameter_texts.at(slot).find(
-                    "reject_hit"),
-                std::string::npos);
-      EXPECT_FALSE(resolved.io_plan->operator_output_specs.at(slot)
+      EXPECT_EQ(
+          resolved.io_plan->output_parameter_texts.at(slot).find("reject_hit"),
+          std::string::npos);
+      EXPECT_FALSE(resolved.io_plan->output_specs.at(slot)
                        .Parameters<NestedOutputParameters>()
                        .reject_hit);
     }
