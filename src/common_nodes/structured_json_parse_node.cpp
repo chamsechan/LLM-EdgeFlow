@@ -67,7 +67,6 @@ const std::vector<ConfigFieldDefinition>& StructuredJsonParseConfigFields() {
                             "输出备用值并标记已使用回退。"}};
   return fields;
 }
-}  // namespace
 
 /**
  * @brief 结构化 JSON 解析与文本提取受控算子 (StructuredJsonParseNode)
@@ -165,7 +164,6 @@ struct Params {
   std::unordered_map<std::string, std::string> field_types_;
 };
 
-namespace {
 struct Inputs {
   const TextBatch* text = nullptr;
 };

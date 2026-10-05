@@ -116,8 +116,28 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。LLM 模板用 `GenerateParameters(128)` 声明 `max_tokens`、
-`temperature` 等生成参数，节点配置可以直接调整；还需要自有配置时，参考
-[PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 把生成参数放进自己的参数结构。
+`temperature` 等生成参数，节点配置可以直接调整。还需要自有配置时，把生成参数放进自己的
+`Params`，用下面的 `MakeParams()` 替换 Spec 中的 `GenerateParameters(128)`：
+
+```cpp
+struct Params {
+  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters 相同
+  std::string prefix;          // 自有参数
+};
+
+auto MakeParams() {
+  auto params =
+      Parameters<Params>({Field("prefix", &Params::prefix).Default("")});
+  params.WithParser(NodeConfigParser<Params>(
+      GenerateOptionsFields(128),
+      [](const nlohmann::json& config, Params* p, std::string* error) {
+        return ParseGenerateOptions(config, &p->generation, error);
+      }));
+  return params;
+}
+```
+
+`Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。
 
 ## 3. Definition：让连线工具和运行器看懂你的操作
 
