@@ -141,7 +141,7 @@ const nlohmann::json& TemplateControlSchema() {
          {{"type", "string"}, {"enum", {"fail", "empty", "preserve"}}}}}}};
   return schema;
 }
-struct TemplateState {
+struct Params {
   std::string template_str = kDefaultTemplate;
   std::string separator = kDefaultSeparator;
   size_t max_length = kDefaultMaxLength;
@@ -188,7 +188,7 @@ inline bool CompileTemplate(
   return ok;
 }
 
-bool BuildTemplateState(TemplateState* state,
+bool BuildTemplateState(Params* state,
                         const std::unordered_set<std::string>* connected_inputs,
                         std::string* diagnostic) {
   std::vector<TextTemplateToken> tokens;
@@ -205,10 +205,10 @@ bool BuildTemplateState(TemplateState* state,
   return true;
 }
 
-inline NodeResult<TemplateState> BuildNextTemplate(
-    const TemplateState& current, const TemplateUpdate& update,
-    const BindingFacts& bindings) {
-  TemplateState next = current;
+inline NodeResult<Params> BuildNextTemplate(const Params& current,
+                                            const TemplateUpdate& update,
+                                            const BindingFacts& bindings) {
+  Params next = current;
   if (update.template_str) next.template_str = *update.template_str;
   if (update.prompt_id) next.prompt_id = *update.prompt_id;
   if (update.missing_variable_policy) {
@@ -227,17 +227,17 @@ inline NodeResult<TemplateState> BuildNextTemplate(
   if (!BuildTemplateState(
           &next, bindings.has_bindings ? &bindings.connected_inputs : nullptr,
           &diagnostic)) {
-    return NodeResult<TemplateState>::Failure(
+    return NodeResult<Params>::Failure(
         NodeErrorKind::kBusinessError,
         diagnostic.empty()
             ? "Invalid template placeholders or syntax in Control"
             : diagnostic,
         node_error::control::kInvalidRequest);
   }
-  return NodeResult<TemplateState>::Success(std::move(next));
+  return NodeResult<Params>::Success(std::move(next));
 }
 
-struct TemplateInputs {
+struct Inputs {
   const TextBatch* primary = nullptr;
   const RankedTextBatch* context = nullptr;
   const TextBatch* context_text = nullptr;
@@ -247,8 +247,7 @@ struct TemplateInputs {
   const TextAttributesBatch* attributes = nullptr;
 };
 
-NodeResult<TextBatch> RenderTemplate(const TemplateInputs& inputs,
-                                     const TemplateState& state) {
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
   const auto* primary_items = inputs.primary;
   const auto* context_items = inputs.context;
   const auto* context_text_items = inputs.context_text;
@@ -460,9 +459,9 @@ NodeResult<TextBatch> RenderTemplate(const TemplateInputs& inputs,
   return NodeResult<TextBatch>::Success(std::move(output_batch));
 }
 
-NodeResult<TemplateState> UpdateTemplate(const TemplateState& current,
-                                         const nlohmann::json& root,
-                                         const BindingFacts& bindings) {
+NodeResult<Params> UpdateTemplate(const Params& current,
+                                  const nlohmann::json& root,
+                                  const BindingFacts& bindings) {
   TemplateUpdate update;
   if (root.contains("template"))
     update.template_str = root["template"].get<std::string>();
@@ -486,13 +485,12 @@ NodeResult<TemplateState> UpdateTemplate(const TemplateState& current,
   return BuildNextTemplate(current, update, bindings);
 }
 
-auto MakeTextTemplateSpec() {
+auto Spec() {
   auto parameters =
-      Parameters<TemplateState>{}
-          .WithParser(NodeConfigParser<TemplateState>(
+      Parameters<Params>{}
+          .WithParser(NodeConfigParser<Params>(
               TextTemplateConfigFields(),
-              [](const nlohmann::json& config, TemplateState* state,
-                 std::string*) {
+              [](const nlohmann::json& config, Params* state, std::string*) {
                 state->template_str = config.at("template").get<std::string>();
                 state->separator = config.at("separator").get<std::string>();
                 state->max_length = config.at("max_length").get<size_t>();
@@ -507,7 +505,7 @@ auto MakeTextTemplateSpec() {
                       config.at("values").get<decltype(state->static_values)>();
                 return true;
               }))
-          .Prepare([](TemplateState* state, const BindingFacts& bindings,
+          .Prepare([](Params* state, const BindingFacts& bindings,
                       std::string* diagnostic) {
             state->allow_dynamic_attrs = state->allow_dynamic_attrs ||
                                          bindings.IsConnected("attributes");
@@ -518,22 +516,22 @@ auto MakeTextTemplateSpec() {
       kControlCmdUpdatePrompt, "update_prompt",
       "Update template string dynamically", TemplateControlSchema(), true);
   control.shared_id = true;
-  return MakeBatchSpec(
-             InputsOf<TemplateInputs>{
-                 OptionalValue("primary", &TemplateInputs::primary),
-                 OptionalValue("context", &TemplateInputs::context,
+  return MakeNodeSpec(
+             InputsOf<Inputs>{
+                 OptionalValue("primary", &Inputs::primary),
+                 OptionalValue("context", &Inputs::context,
                                InputFlow::AggregateByRequest),
-                 OptionalValue("context_text", &TemplateInputs::context_text,
+                 OptionalValue("context_text", &Inputs::context_text,
                                InputFlow::AggregateByRequest),
-                 OptionalValue("matches", &TemplateInputs::matches,
+                 OptionalValue("matches", &Inputs::matches,
                                InputFlow::AggregateByRequest),
-                 OptionalValue("document", &TemplateInputs::document,
+                 OptionalValue("document", &Inputs::document,
                                InputFlow::AggregateByRequest),
-                 OptionalValue("document_text", &TemplateInputs::document_text,
+                 OptionalValue("document_text", &Inputs::document_text,
                                InputFlow::AggregateByRequest),
-                 OptionalValue("attributes", &TemplateInputs::attributes)},
+                 OptionalValue("attributes", &Inputs::attributes)},
              ProducedBatch<TextBatch>("text", PortFlow{}),
-             std::move(parameters), RenderTemplate)
+             std::move(parameters), Run)
       .Category("common")
       .Description(
           "Text template rendering: {{name}} substitutes variables; "
@@ -549,6 +547,6 @@ auto MakeTextTemplateSpec() {
 }
 }  // namespace
 
-REGISTER_FUNCTION_NODE(TextTemplateNode, MakeTextTemplateSpec());
+REGISTER_FUNCTION_NODE(TextTemplateNode, Spec());
 
 }  // namespace llm_edgeflow

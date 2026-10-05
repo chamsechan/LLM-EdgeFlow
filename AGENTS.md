@@ -17,15 +17,13 @@ sections before editing or delivering.
   [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md).
 - Complete JSON request → prompt processing → JSON response solutions:
   [json-prompt-solution](.agents/skills/json-prompt-solution/SKILL.md), then its relevant route.
-- Component implementation: choose the smallest authoring path below. Common/custom Node
-  ownership is independent of Map/LLM/Batch authoring; shared contracts remain in the linked guides.
+- Component implementation: choose the skill below. Common and custom Nodes share one
+  authoring structure; shared contracts remain in the linked guides.
 
   | Component / task | Skill |
   | :--- | :--- |
   | Operator input/output, Converter, IoBinding | [edgeflow-adapter-developer](.agents/skills/edgeflow-adapter-developer/SKILL.md) |
-  | Node: pure per-item 1:1 transform | [edgeflow-node-map-developer](.agents/skills/edgeflow-node-map-developer/SKILL.md) |
-  | Node: text preparation, one LLM call, text result processing | [edgeflow-node-llm-developer](.agents/skills/edgeflow-node-llm-developer/SKILL.md) |
-  | Node: batch/multi-port/model algorithms, derived output, dynamic sampling | [edgeflow-node-batch-developer](.agents/skills/edgeflow-node-batch-developer/SKILL.md) |
+  | Node: item transforms, text LLM, multi-port/model algorithms, derived output | [edgeflow-node-developer](.agents/skills/edgeflow-node-developer/SKILL.md) |
   | Model semantics and preprocessing | [edgeflow-model-developer](.agents/skills/edgeflow-model-developer/SKILL.md) |
   | Backend runtime and resources | [edgeflow-backend-developer](.agents/skills/edgeflow-backend-developer/SKILL.md) |
 

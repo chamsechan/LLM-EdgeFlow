@@ -74,7 +74,6 @@ def get_item_type_for_batch(batch):
 def render_map_node(name, description, in_port, out_port):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
-    spec_func = f"{name}Spec"
     return f"""#include <string>
 
 #include "nodes/authoring.h"
@@ -82,21 +81,29 @@ def render_map_node(name, description, in_port, out_port):
 namespace llm_edgeflow {{
 namespace custom_nodes {{
 namespace {{
-// Map 入门模板：逐条独立转换输入，并保留来源信息。
+// 逐条转换入门模板：每条输入得到一条输出，来源编号由框架保留。
 static std::string Transform(const std::string& input) {{
   // TODO: 替换为你的领域逻辑。
   return input;
 }}
 
-auto {spec_func}() {{
-  return MakeMapSpec(
-      Input<{in_type}>({cpp_string(in_name)}),
-      Output<{out_type}>({cpp_string(out_name)}),
-      &Transform)
+struct Inputs {{
+  const {in_type}* input = nullptr;
+}};
+
+NodeResult<{out_type}> Run(const Inputs& inputs) {{
+  return MapPayloads(*inputs.input, &Transform);
+}}
+
+auto Spec() {{
+  return MakeNodeSpec(
+      InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::input)}},
+      PreservedOutput<{out_type}>({cpp_string(out_name)}, {cpp_string(in_name)}),
+      &Run)
       .Description({cpp_string(description)});
 }}
 
-REGISTER_FUNCTION_NODE({name}, {spec_func}());
+REGISTER_FUNCTION_NODE({name}, Spec());
 
 }}  // namespace
 }}  // namespace custom_nodes
@@ -107,7 +114,6 @@ REGISTER_FUNCTION_NODE({name}, {spec_func}());
 def render_llm_starter(name, description, in_name, out_name):
     source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
     source = source.replace("StarterLlmNode", name)
-    source = source.replace("StarterLlmSpec", f"{name}Spec")
     literals = {
         '"input"': cpp_string(in_name),
         '"output"': cpp_string(out_name),
@@ -131,22 +137,21 @@ struct Models {{
   EmbeddingCall encoder;
 }};
 
-static NodeResult<EmbeddingBatch> Run(const Inputs& input, const NoParameters&,
-                                      const Models& models) {{
+static NodeResult<EmbeddingBatch> Run(const Inputs& input, const Models& models) {{
   // TODO: 按需添加领域预处理或后处理。
   return models.encoder.Embed(*input.texts);
 }}
 
-auto {name}Spec() {{
-  return MakeBatchSpec(
+auto Spec() {{
+  return MakeNodeSpec(
       InputsOf<Inputs>({{Required({cpp_string(in_name)}, &Inputs::texts)}}),
       PreservedOutput<EmbeddingBatch>({cpp_string(out_name)}, {cpp_string(in_name)}),
-      ModelsOf<Models>({{Embedding("encoder", "bind_model", &Models::encoder)}}),
+      ModelsOf<Models>({{Model("encoder", "bind_model", &Models::encoder)}}),
       &Run)
       .Description({cpp_string(description)});
 }}
 
-REGISTER_FUNCTION_NODE({name}, {name}Spec());
+REGISTER_FUNCTION_NODE({name}, Spec());
 
 }}  // namespace
 }}  // namespace custom_nodes
@@ -194,13 +199,13 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
               if preserved else
               f"ProducedBatch<{out_type}>({cpp_string(out_name)}, PortFlow{{{cpp_string(out_card)}, {cpp_string(out_prov)}}})")
     models = ""
-    model_binding = "ModelsOf<NoModels>{}"
-    model_type = "NoModels"
+    run_models = ""
+    model_binding = ""
     if kind == "model":
         call, _, _, method = CAPABILITY_MAP[capability]
         models = f"struct Models {{ {call} model; }};\n"
-        model_type = "Models"
-        model_binding = 'ModelsOf<Models>{Model("model", "bind_model", &Models::model)}'
+        run_models = ", const Models& models"
+        model_binding = '\n      ModelsOf<Models>{Model("model", "bind_model", &Models::model)},'
         processing = f"  return models.model.{method}(*inputs.items);"
     elif preserved and in_type == out_type:
         processing = f"  return NodeResult<{out_type}>::Success(*inputs.items);"
@@ -217,20 +222,19 @@ namespace custom_nodes {{
 namespace {{
 struct Inputs {{ const {in_type}* items = nullptr; }};
 {models}
-static NodeResult<{out_type}> Run(const Inputs& inputs, const NoParameters&,
-                                 const {model_type}&{ " models" if kind == "model" else ""}) {{
+static NodeResult<{out_type}> Run(const Inputs& inputs{run_models}) {{
 {processing}
 }}
 
-auto {name}Spec() {{
-  return MakeBatchSpec(
+auto Spec() {{
+  return MakeNodeSpec(
       InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::items{input_flow})}},
-      {output},
-      {model_binding}, &Run)
+      {output},{model_binding}
+      &Run)
       .Description({cpp_string(description)});
 }}
 
-REGISTER_FUNCTION_NODE({name}, {name}Spec());
+REGISTER_FUNCTION_NODE({name}, Spec());
 }}  // namespace
 }}  // namespace custom_nodes
 }}  // namespace llm_edgeflow

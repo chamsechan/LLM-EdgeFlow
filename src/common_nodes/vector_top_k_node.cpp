@@ -10,12 +10,12 @@
 
 namespace llm_edgeflow {
 namespace {
-struct VectorInputs {
+struct Inputs {
   const EmbeddingBatch* queries = nullptr;
   const EmbeddingBatch* candidates = nullptr;
   const TextBatch* candidate_texts = nullptr;
 };
-struct VectorParams {
+struct Params {
   std::string candidate_scope;
   int top_k{};
   float min_score{};
@@ -43,8 +43,7 @@ float DotProduct(const std::vector<float>& v1, const std::vector<float>& v2) {
   return dot;
 }
 
-NodeResult<RankedTextBatch> RankVectors(const VectorInputs& inputs,
-                                        const VectorParams& params) {
+NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   const auto* queries = inputs.queries;
   const auto* candidates = inputs.candidates;
   const auto* candidate_texts = inputs.candidate_texts;
@@ -160,43 +159,42 @@ NodeResult<RankedTextBatch> RankVectors(const VectorInputs& inputs,
   return NodeResult<RankedTextBatch>::Success(std::move(ranked_batch));
 }
 
-auto VectorTopKSpec() {
-  return MakeBatchSpec(
-             InputsOf<VectorInputs>(
-                 {Required("queries", &VectorInputs::queries),
-                  Required("candidates", &VectorInputs::candidates,
+auto Spec() {
+  return MakeNodeSpec(
+             InputsOf<Inputs>(
+                 {Required("queries", &Inputs::queries),
+                  Required("candidates", &Inputs::candidates,
                            PortFlow{"N:1", "preserve", "request"}),
-                  OptionalValue("candidate_texts",
-                                &VectorInputs::candidate_texts,
+                  OptionalValue("candidate_texts", &Inputs::candidate_texts,
                                 PortFlow{"N:1", "preserve", "request"})}),
              ProducedBatch<RankedTextBatch>(
                  "ranked", PortFlow{"1:N", "generate_sub_id", "request"}),
-             Parameters<VectorParams>(
-                 {Field("candidate_scope", &VectorParams::candidate_scope)
+             Parameters<Params>(
+                 {Field("candidate_scope", &Params::candidate_scope)
                       .Default("request")
                       .Enum({"request", "shared"})
                       .Description("request 只检索相同 req_id 的候选；shared "
                                    "使用所有 req_id=0 的共享候选。"),
-                  Field("top_k", &VectorParams::top_k)
+                  Field("top_k", &Params::top_k)
                       .Default(1)
                       .Range(1, 1000)
                       .Description("每条查询按向量相似度降序返回的候选条数上限"
                                    "，在 min_score 过滤之后应用。"),
-                  Field("min_score", &VectorParams::min_score)
+                  Field("min_score", &Params::min_score)
                       .Default(0.0f)
                       .Range(-100, 100)
                       .Description("保留相似度大于等于此值的候选；分数含义随 "
                                    "metric 变化。"),
-                  Field("metric", &VectorParams::metric)
+                  Field("metric", &Params::metric)
                       .Default("cosine")
                       .Enum({"cosine", "dot_product"})
                       .Description("cosine 使用余弦相似度；dot_product "
                                    "使用原始向量点积，分数受向量模长影响。")}),
-             &RankVectors)
+             &Run)
       .Category("common")
       .Description("Vector Top-K search and ranking node")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(VectorTopKNode, VectorTopKSpec());
+REGISTER_FUNCTION_NODE(VectorTopKNode, Spec());
 }  // namespace llm_edgeflow

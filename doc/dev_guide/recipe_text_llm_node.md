@@ -24,7 +24,9 @@ python3 tools/dev_recipe.py prepare text-llm-node \
 
 源 Node 的逻辑端口（如 prompt/text）会映射为新模板的 input/output，实际键保持不变。
 新模板不会自动复制被替换 Custom Node 的业务算法；替换自带提示词构造或结果加工的节点时，
-应在新的业务函数中实现所需行为，效果验收会检测行为差异。
+应在新的业务函数中实现所需行为，效果验收会检测行为差异。新节点的配置只写 `bind_model`，
+`max_tokens`、`temperature` 等生成参数使用默认值；源节点调过的采样字段不会复制，需要时在
+方案配置中补上。
 
 ## 编辑与验证
 

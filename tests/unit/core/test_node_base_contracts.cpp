@@ -537,14 +537,13 @@ struct MockAsrModels {
 };
 
 auto MockAsrSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<MockAsrInputs>{
           Required(kTestAudioInputs.name, &MockAsrInputs::audio)},
       PreservedOutput<TextBatch>(kTestTranscripts.name, kTestAudioInputs.name),
       ModelsOf<MockAsrModels>{
           Model("transcriber", "bind_model", &MockAsrModels::transcriber)},
-      [](const MockAsrInputs& inputs, const NoParameters&,
-         const MockAsrModels& models) {
+      [](const MockAsrInputs& inputs, const MockAsrModels& models) {
         return models.transcriber.Transcribe(*inputs.audio);
       });
 }

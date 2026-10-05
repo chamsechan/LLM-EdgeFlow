@@ -33,7 +33,14 @@ auto MapPayloads(const std::vector<TraceableItem<InT>>& input, MapFn&& fn) {
     for (const auto& item : input) {
       auto res = fn(item.data);
       if (!res.ok()) {
-        return NodeResult<OutBatch>::Failure(std::move(res).ExtractFailure());
+        // 诊断指出失败的条目；回调已给出的结构化细节优先。
+        auto failure = std::move(res).ExtractFailure();
+        if (!failure.batch_detail.has_value()) {
+          failure.batch_detail = BatchFailureDetail{
+              "MapPayloads", BatchFailureReason::kCallbackFailed,
+              TraceableItemKey{item.req_id, item.sub_id}};
+        }
+        return NodeResult<OutBatch>::Failure(std::move(failure));
       }
       outputs.emplace_back(item.req_id, item.sub_id, std::move(res).value());
     }

@@ -84,7 +84,6 @@ struct NodeDefinition {
   NodeConfigValidator validate_config;
   std::vector<NodeModelDependency> model_dependencies;
   bool parallel_safe = false;
-  std::vector<std::string> biz_names;
 };
 
 const char* PortConstraintKindName(PortConstraintKind kind);

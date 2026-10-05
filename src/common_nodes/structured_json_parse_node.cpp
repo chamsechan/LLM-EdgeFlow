@@ -72,7 +72,7 @@ const std::vector<ConfigFieldDefinition>& StructuredJsonParseConfigFields() {
 /**
  * @brief 结构化 JSON 解析与文本提取受控算子 (StructuredJsonParseNode)
  */
-struct StructuredJsonOptions {
+struct Params {
   bool Load(const nlohmann::json& config) {
     const auto& normalized = config;
     fallback_json_ =
@@ -166,13 +166,12 @@ struct StructuredJsonOptions {
 };
 
 namespace {
-struct StructuredInputs {
+struct Inputs {
   const TextBatch* text = nullptr;
 };
 
-bool ParseOrExtractJson(const StructuredJsonOptions& options,
-                        const std::string& input, std::string* out_json,
-                        nlohmann::json* out_structured,
+bool ParseOrExtractJson(const Params& options, const std::string& input,
+                        std::string* out_json, nlohmann::json* out_structured,
                         JsonParseStatus* out_status, std::string* out_diag) {
   if (input.empty()) {
     *out_diag = "Empty input string";
@@ -248,8 +247,8 @@ bool ParseOrExtractJson(const StructuredJsonOptions& options,
   return false;
 }
 
-NodeResult<StructuredDocumentBatch> ParseStructuredJson(
-    const StructuredInputs& inputs, const StructuredJsonOptions& options) {
+NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
+                                        const Params& options) {
   const auto* text_items = inputs.text;
   StructuredDocumentBatch output_docs;
   output_docs.reserve(text_items->size());
@@ -299,26 +298,24 @@ NodeResult<StructuredDocumentBatch> ParseStructuredJson(
   return NodeResult<StructuredDocumentBatch>::Success(std::move(output_docs));
 }
 
-auto StructuredJsonParseSpec() {
-  auto params = Parameters<StructuredJsonOptions>{}.WithParser(
-      NodeConfigParser<StructuredJsonOptions>(
-          StructuredJsonParseConfigFields(),
-          [](const nlohmann::json& config, StructuredJsonOptions* options,
-             std::string* diagnostic) {
-            const bool ok = options->Load(config);
-            if (!ok && diagnostic)
-              *diagnostic = "Invalid structured JSON fields, types or fallback";
-            return ok;
-          }));
-  return MakeBatchSpec(
-             InputsOf<StructuredInputs>(
-                 {Required("text", &StructuredInputs::text)}),
+auto Spec() {
+  auto params = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
+      StructuredJsonParseConfigFields(),
+      [](const nlohmann::json& config, Params* options,
+         std::string* diagnostic) {
+        const bool ok = options->Load(config);
+        if (!ok && diagnostic)
+          *diagnostic = "Invalid structured JSON fields, types or fallback";
+        return ok;
+      }));
+  return MakeNodeSpec(
+             InputsOf<Inputs>({Required("text", &Inputs::text)}),
              PreservedOutput<StructuredDocumentBatch>("document", "text"),
-             std::move(params), &ParseStructuredJson)
+             std::move(params), &Run)
       .Category("common")
       .Description("Complete JSON parsing and block extraction without repair")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(StructuredJsonParseNode, StructuredJsonParseSpec());
+REGISTER_FUNCTION_NODE(StructuredJsonParseNode, Spec());
 }  // namespace llm_edgeflow

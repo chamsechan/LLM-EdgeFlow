@@ -15,14 +15,14 @@ inline auto InputsContract() {
   return InputsOf<Inputs>({Required("input", &Inputs::input)});
 }
 inline auto ModelContract() {
-  return ModelsOf<Models>({Llm("generator", "bind_model", &Models::generator)});
+  return ModelsOf<Models>(
+      {Model("generator", "bind_model", &Models::generator)});
 }
 template <typename Fn>
-auto Batch(Fn fn) {
-  return MakeBatchSpec(InputsContract(),
-                       PreservedOutput<TextBatch>("output", "input"),
-                       Parameters<Options>{}, ModelContract(), fn);
+auto ParamsAndModels(Fn fn) {
+  return MakeNodeSpec(InputsContract(),
+                      PreservedOutput<TextBatch>("output", "input"),
+                      Parameters<Options>{}, ModelContract(), fn);
 }
-inline std::string Text(const std::string& text) { return text; }
 }  // namespace signature_fixture
 using namespace signature_fixture;

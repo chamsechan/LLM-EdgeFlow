@@ -14,7 +14,8 @@ python3 dev_support/node_authoring/benchmark/run.py \
   `summary.json` 的 `baseline_helper_revision` 记录该版本。
 - 旧基类依赖的类写法端口辅助函数已移出 `NodeBase`，由
   [legacy_node_base.h](../legacy_node_base.h) 的 `LegacyNodeBase` 提供；脚本提取旧头文件时改为继承它。
-- 旧 Map 为等价显式 `LegacyNodeBase` 透传实现的重建，不冒充历史生产 Node。
+- `old_map` 为等价显式 `LegacyNodeBase` 透传实现的重建，不冒充历史生产 Node；
+  `new_map` 用 `MakeNodeSpec` 与 `MapPayloads` 实现同样的逐条透传。
 - 每批 32 条、每条 1024 字节，固定 Echo mock；预热 100 次，每个进程测 10000 次，独立重复 5 次。
 - 测量 `Process` 的线程 CPU 时间及 C++ `new/new[]` 请求次数、字节数；不包含输入发布和输出断言，
   也不代表全部 malloc、存活堆或峰值 RSS。每次校验文本及 req/sub，记录实际模型调用次数。

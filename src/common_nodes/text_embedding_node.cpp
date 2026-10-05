@@ -8,14 +8,14 @@
 
 namespace llm_edgeflow {
 namespace {
-struct EmbeddingInputs {
+struct Inputs {
   const TextBatch* text = nullptr;
 };
-struct EmbeddingParams {
+struct Params {
   bool normalize{};
   std::string lifetime;
 };
-struct EmbeddingModels {
+struct Models {
   EmbeddingCall encoder;
 };
 
@@ -45,10 +45,9 @@ std::string ConstructSessionCacheKey(const std::string& model_id,
   return key;
 }
 
-NodeResult<EmbeddingBatch> EmbedText(const EmbeddingInputs& inputs,
-                                     const EmbeddingParams& params,
-                                     const EmbeddingModels& models,
-                                     const SessionResources& resources) {
+NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
+                               const Models& models,
+                               const SessionResources& resources) {
   const auto& text = *inputs.text;
   if (text.empty()) return NodeResult<EmbeddingBatch>::Success({});
   EmbeddingOptions options;
@@ -74,31 +73,30 @@ NodeResult<EmbeddingBatch> EmbedText(const EmbeddingInputs& inputs,
   return NodeResult<EmbeddingBatch>::Success(*cached.value());
 }
 
-auto TextEmbeddingSpec() {
+auto Spec() {
   const PortFlow flow{"1:1", "preserve", "request", "lifetime"};
-  return MakeBatchSpec(
-             InputsOf<EmbeddingInputs>(
-                 {Required("text", &EmbeddingInputs::text, flow)}),
+  return MakeNodeSpec(
+             InputsOf<Inputs>({Required("text", &Inputs::text, flow)}),
              PreservedOutput<EmbeddingBatch>("embedding", "text", flow),
-             Parameters<EmbeddingParams>(
-                 {Field("normalize", &EmbeddingParams::normalize)
+             Parameters<Params>(
+                 {Field("normalize", &Params::normalize)
                       .Default(true)
                       .Description("要求模型对输出向量做 L2 归一化。"),
-                  Field("lifetime", &EmbeddingParams::lifetime)
+                  Field("lifetime", &Params::lifetime)
                       .Default("request")
                       .Enum({"request", "session"})
                       .Description("request 每次请求计算；session "
                                    "按模型版本、归一化选项和输入缓存向量，输入"
                                    "须满足 session 生命周期契约。")}),
-             ModelsOf<EmbeddingModels>(
-                 {Model("encoder", "bind_model", &EmbeddingModels::encoder,
+             ModelsOf<Models>(
+                 {Model("encoder", "bind_model", &Models::encoder,
                         "引用 models[].model_id；所选模型必须提供 embedding "
                         "文本向量能力。")}),
-             &EmbedText)
+             &Run)
       .Category("common")
       .Description("Text embedding extraction node")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextEmbeddingNode, TextEmbeddingSpec());
+REGISTER_FUNCTION_NODE(TextEmbeddingNode, Spec());
 }  // namespace llm_edgeflow

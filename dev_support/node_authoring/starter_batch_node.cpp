@@ -11,7 +11,7 @@ struct Inputs {
   const TextBatch* context = nullptr;
 };
 
-struct Options {
+struct Params {
   bool retry_once = false;
 };
 
@@ -20,7 +20,7 @@ struct Models {
 };
 
 // 所有请求值都只在这个普通业务函数内使用。
-NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
                           const Models& models) {
   TextBatch prompts;
   prompts.reserve(inputs.questions->size());
@@ -35,7 +35,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
                          prompt + question.data);
   }
   auto result = models.generator.Generate(prompts);
-  if (!result.ok() && options.retry_once &&
+  if (!result.ok() && params.retry_once &&
       result.failure().kind == NodeErrorKind::kModelCallError) {
     return models.generator.Generate(prompts);
   }
@@ -43,18 +43,18 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
 }
 
 auto Spec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
              InputsOf<Inputs>({
                  Required("questions", &Inputs::questions),
                  Optional("context", &Inputs::context,
                           InputFlow::AggregateByRequest),
              }),
              PreservedOutput<TextBatch>("output", "questions"),
-             Parameters<Options>({
-                 Field("retry_once", &Options::retry_once).Default(false),
+             Parameters<Params>({
+                 Field("retry_once", &Params::retry_once).Default(false),
              }),
              ModelsOf<Models>({
-                 Llm("generator", "bind_model", &Models::generator),
+                 Model("generator", "bind_model", &Models::generator),
              }),
              &Run)
       .Description("Batch starter with optional request context and one retry");
