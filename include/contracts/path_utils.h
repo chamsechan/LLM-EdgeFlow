@@ -4,8 +4,8 @@
 
 namespace llm_edgeflow {
 
-// Pure lexical helpers: callers own normalization, platform-specific policies,
-// deployment roots, existence checks, and symlink resolution.
+// 纯词法辅助函数：归一化、平台策略、部署根目录、存在性检查和符号链接解析
+// 均由调用方负责。
 inline bool HasParentPathComponent(const std::filesystem::path& path) {
   for (const auto& component : path) {
     if (component == "..") return true;
@@ -13,8 +13,8 @@ inline bool HasParentPathComponent(const std::filesystem::path& path) {
   return false;
 }
 
-// Compare normalized/canonical paths by components, including the root itself.
-// A string prefix is insufficient: /root/models_extra is outside /root/models.
+// 按路径分量比较已归一化/规范化的路径 (含根目录本身)。字符串前缀比较不够：
+// /root/models_extra 不在 /root/models 内。
 inline bool IsPathWithinRoot(const std::filesystem::path& root,
                              const std::filesystem::path& candidate) {
   auto root_it = root.begin();

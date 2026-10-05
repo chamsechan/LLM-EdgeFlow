@@ -1,5 +1,4 @@
-# Framework mechanisms stay explicit; business converters and bindings are
-# collected recursively and compiled on the next build.
+# 框架机制显式列出；业务 Converter 与 binding 递归收集，下次构建时编译。
 file(GLOB_RECURSE EDGEFLOW_ADAPTER_BIZ_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/input/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/output/*.cpp"

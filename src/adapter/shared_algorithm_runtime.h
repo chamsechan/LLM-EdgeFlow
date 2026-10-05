@@ -44,7 +44,6 @@ class SharedAlgorithmRuntime {
                      std::string* out_error = nullptr,
                      ControlFailureStage* failure_stage = nullptr) noexcept;
 
-  // Getters
   Pipeline* GetPipeline() { return pipeline_.get(); }
   const Pipeline* GetPipeline() const { return pipeline_.get(); }
   const ValidatedIoPlan* GetIoPlan() const { return io_plan_.get(); }

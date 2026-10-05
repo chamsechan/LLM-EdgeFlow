@@ -146,7 +146,7 @@ TEST_F(OnnxAndEmbeddingModelTest, TokenizerCaseAndSidecarSecurity) {
   ASSERT_TRUE(tokenizer.LoadFromTokens(tokens, /*do_lower_case=*/false, &diag));
   std::vector<int64_t> ids, mask;
   EXPECT_TRUE(tokenizer.Encode("Hello", 4, &ids, &mask));
-  EXPECT_EQ(ids[1], 5);  // Matches "Hello"
+  EXPECT_EQ(ids[1], 5);  // 匹配 "Hello"
 
   // 词表文件存在性与路径安全
   auto vocab_file = temp_dir_ / "vocab.txt";
@@ -560,7 +560,7 @@ TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
                                      "hello", "world", "bge",   "model"};
   ASSERT_TRUE(tokenizer.LoadFromTokens(tokens, true));
 
-  // 1. CLS Pooling
+  // 1. CLS 池化
   BgeEmbeddingModel model_cls(fake_session_3d, tokenizer, /*max_length=*/16,
                               /*pooling_strategy=*/"cls",
                               /*output_name=*/"last_hidden_state",
@@ -586,7 +586,7 @@ TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
   for (float v : outputs[0].data) sum_sq += v * v;
   EXPECT_NEAR(std::sqrt(sum_sq), 1.0f, 1e-4f);
 
-  // 2. Mean Pooling
+  // 2. Mean 池化
   BgeEmbeddingModel model_mean(fake_session_3d, tokenizer, 16, "mean",
                                "last_hidden_state", 4, 2);
   EXPECT_EQ(model_mean.Embed(inputs, opts, &outputs), 0);
@@ -1120,9 +1120,8 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
       vocab_path.string();
   pipeline_config["models"][0]["model_config"]["max_length"] = 32;
   pipeline_config["models"][0]["model_config"]["embedding_dim"] = 128;
-  // This test proves the ONNX embedding path and must not depend on an
-  // external GGUF asset. Keep the same LLM node, but replace only its test
-  // model registration with an explicit typed Model/Backend fixture.
+  // 本测试验证 ONNX embedding 路径，不得依赖外部 GGUF 资源。保留同一个
+  // LLM Node，只把它的测试模型注册替换为显式类型化的 Model/Backend 夹具。
   pipeline_config["models"][1] = {
       {"model_id", "llm_model_llamacpp"},
       {"model_type", "test_biz_llm"},
@@ -1252,7 +1251,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeBackendNegativeValidation) {
 TEST_F(OnnxAndEmbeddingModelTest, FinalizeEmbeddingVectorPrecisionAndBoundary) {
   std::vector<float> output;
 
-  // 1. Valid normalized vector: unit norm
+  // 1. 合法的归一化向量：单位范数
   std::vector<float> input = {3.0f, 4.0f};
   EXPECT_TRUE(embedding_support::FinalizeEmbeddingVector(input, true, &output));
   ASSERT_EQ(output.size(), 2u);
@@ -1261,25 +1260,25 @@ TEST_F(OnnxAndEmbeddingModelTest, FinalizeEmbeddingVectorPrecisionAndBoundary) {
   float norm = std::sqrt(output[0] * output[0] + output[1] * output[1]);
   EXPECT_NEAR(norm, 1.0f, 1e-6);
 
-  // 2. Unnormalized vector: preserves values
+  // 2. 未归一化向量：保留原值
   EXPECT_TRUE(
       embedding_support::FinalizeEmbeddingVector(input, false, &output));
   ASSERT_EQ(output.size(), 2u);
   EXPECT_FLOAT_EQ(output[0], 3.0f);
   EXPECT_FLOAT_EQ(output[1], 4.0f);
 
-  // 3. Zero vector with normalize=true fails
+  // 3. normalize=true 时零向量失败
   std::vector<float> zero_vec = {0.0f, 0.0f, 0.0f};
   EXPECT_FALSE(
       embedding_support::FinalizeEmbeddingVector(zero_vec, true, &output));
 
-  // 4. Zero vector with normalize=false succeeds
+  // 4. normalize=false 时零向量成功
   EXPECT_TRUE(
       embedding_support::FinalizeEmbeddingVector(zero_vec, false, &output));
   ASSERT_EQ(output.size(), 3u);
   EXPECT_FLOAT_EQ(output[0], 0.0f);
 
-  // 5. Non-finite values fail
+  // 5. 非有限值失败
   std::vector<float> nan_vec = {1.0f, std::numeric_limits<float>::quiet_NaN()};
   EXPECT_FALSE(
       embedding_support::FinalizeEmbeddingVector(nan_vec, true, &output));
@@ -1292,7 +1291,7 @@ TEST_F(OnnxAndEmbeddingModelTest, FinalizeEmbeddingVectorPrecisionAndBoundary) {
   EXPECT_FALSE(
       embedding_support::FinalizeEmbeddingVector(inf_vec, false, &output));
 
-  // 6. Null output or empty input fails
+  // 6. 输出为空或输入为空时失败
   EXPECT_FALSE(
       embedding_support::FinalizeEmbeddingVector(input, true, nullptr));
   std::vector<float> empty_vec;
@@ -1301,7 +1300,7 @@ TEST_F(OnnxAndEmbeddingModelTest, FinalizeEmbeddingVectorPrecisionAndBoundary) {
   EXPECT_FALSE(embedding_support::FinalizeEmbeddingVector(
       static_cast<const float*>(nullptr), 2, true, &output));
 
-  // 7. Double precision accumulation handles large elements
+  // 7. 双精度累加可处理很大的元素
   std::vector<double> large_vec = {1e20, 1e20};
   EXPECT_TRUE(
       embedding_support::FinalizeEmbeddingVector(large_vec, true, &output));

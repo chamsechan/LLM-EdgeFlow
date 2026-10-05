@@ -40,7 +40,7 @@ ScopedAllocationFailure::~ScopedAllocationFailure() { current_ = previous_; }
 void ScopedAllocationFailure::BeforeAllocation() {
   if (!current_ || current_->remaining_ < 0) return;
   if (current_->remaining_-- == 0) {
-    // One-shot failure allows diagnostics and exception cleanup to allocate.
+    // 单次失败允许诊断信息和异常清理继续分配内存。
     current_->triggered_ = true;
     throw std::bad_alloc();
   }

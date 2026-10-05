@@ -19,7 +19,6 @@ class TextCorpusSourceNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
-// 1. Process Static Corpus Emission
 TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
   auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
@@ -37,7 +36,6 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
   EXPECT_EQ((*out)[1].data, "Clause 2: Security");
 }
 
-// 2. Empty Corpus Config
 TEST_F(TextCorpusSourceNodeTest, EmptyCorpusConfig) {
   auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);

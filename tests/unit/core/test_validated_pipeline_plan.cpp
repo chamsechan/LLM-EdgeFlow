@@ -214,8 +214,8 @@ REGISTER_NODE_WITH_DEFINITION(FlowContractProducerNode,
 REGISTER_NODE_WITH_DEFINITION(FlowContractConsumerNode,
                               MakeFlowContractConsumerDefinition());
 
-// Shape fixtures: one item-wise pair, one per-request group and one opaque
-// relation. Only their Definitions matter to the Validator.
+// 形状夹具：一个逐条配对、一个按请求分组、一个不透明关系。
+// Validator 只关心它们的 Definition。
 class ShapeFixtureNode : public INode {
  public:
   bool Init(const NodeInitContext&) override { return true; }
@@ -371,7 +371,7 @@ TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
     }
   }
   for (const auto code : expected) EXPECT_TRUE(actual.count(code));
-  // An item-wise input accepts split items; only provenance and lifetime fail.
+  // 逐条输入接受拆分后的条目；只有 provenance 和 lifetime 校验失败。
   EXPECT_FALSE(actual.count(DiagnosticCode::kPortCardinalityMismatch));
 }
 
@@ -800,7 +800,7 @@ TEST_F(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
 }
 
 TEST_F(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
-  // Test DAG Wavefront layers calculation
+  // 测试 DAG 波前分层计算
   nlohmann::json dag_json = {
       {"biz_name", "plan_fixture_biz"},
       {"models", nlohmann::json::array()},
@@ -820,9 +820,9 @@ TEST_F(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
   auto plan = PipelineValidator::ValidateAndPlan(dag_json);
   EXPECT_TRUE(plan.report.ok);
   ASSERT_EQ(plan.report.topological_layers.size(), 2u);
-  // Layer 0 has node_a and node_b
+  // 第 0 层为 node_a 和 node_b
   EXPECT_EQ(plan.report.topological_layers[0].size(), 2u);
-  // Layer 1 has node_c
+  // 第 1 层为 node_c
   EXPECT_EQ(plan.report.topological_layers[1].size(), 1u);
   EXPECT_EQ(plan.report.topological_layers[1][0], "node_c");
 }
@@ -957,8 +957,7 @@ TEST_F(ValidatedPipelinePlanTest,
                                {"outputs", {{"ranked", "ranked_results"}}},
                                {"config", {{"bind_model", "m_rel"}}}}})}};
 
-  // Orchestration only performs deterministic lexical normalization. Deployment
-  // roots are an Integration concern.
+  // 流程编排层只做确定性的词法归一化。部署根目录由接入适配层负责。
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
   EXPECT_EQ(plan.models[0].resolved_model_path, "models/sub/model.onnx");
@@ -974,7 +973,7 @@ TEST_F(ValidatedPipelinePlanTest,
   EXPECT_EQ(plan_repeat.models[2].resolved_model_path,
             plan.models[2].resolved_model_path);
 
-  // Parent traversal remains invalid even before deployment resolution.
+  // 即使尚未解析部署，父目录遍历仍然非法。
   nlohmann::json escape_json = pipeline_json;
   escape_json["models"][0]["model_path"] = "../escape.onnx";
   auto plan_escape = PipelineValidator::ValidateAndPlan(escape_json);

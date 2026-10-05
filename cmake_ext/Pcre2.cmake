@@ -39,8 +39,8 @@ if(_PCRE2_CACHE_VALID AND
 else()
   include(FetchContent)
 
-  # TextRuleMatchNode uses PCRE2 for Unicode-aware lookbehind and named captures.
-  # Keep the dependency private, source-built, pinned, and checksum-verified.
+  # TextRuleMatchNode 使用 PCRE2 实现 Unicode 感知的后行断言和命名捕获。
+  # 该依赖须保持私有、源码构建、版本固定并经校验和验证。
   set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "Build PCRE2 8-bit library" FORCE)
   set(PCRE2_BUILD_PCRE2_16 OFF CACHE BOOL "Disable PCRE2 16-bit library" FORCE)
   set(PCRE2_BUILD_PCRE2_32 OFF CACHE BOOL "Disable PCRE2 32-bit library" FORCE)
@@ -60,8 +60,8 @@ else()
 
   FetchContent_MakeAvailable(pcre2)
 
-  # PCRE2 is an implementation detail of alg_sdk. Do not leak its C symbols from
-  # the public shared-library surface when statically linking on ELF/Mach-O.
+  # PCRE2 是 alg_sdk 的实现细节。在 ELF/Mach-O 上静态链接时，
+  # 不得从公开共享库导出其 C 符号。
   if(TARGET pcre2-8-static AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(pcre2-8-static PRIVATE -fvisibility=hidden)
   endif()
@@ -69,9 +69,8 @@ else()
   if(NOT TARGET edgeflow_pcre2)
     add_library(edgeflow_pcre2 INTERFACE)
     if(APPLE)
-      # Apple ld can mark every symbol pulled from a static archive as private.
-      # Link the archive by name so -hidden-l applies to the complete PCRE2 object
-      # set instead of exporting it through company_alg_sdk.dylib.
+      # Apple ld 可能把从静态归档拉入的符号全部设为私有。按名称链接该归档，
+      # 让 -hidden-l 作用于整个 PCRE2 目标文件集，而不是经由 company_alg_sdk.dylib 导出。
       add_dependencies(edgeflow_pcre2 pcre2-8-static)
       target_include_directories(
           edgeflow_pcre2 SYSTEM INTERFACE "${pcre2_BINARY_DIR}/interface")

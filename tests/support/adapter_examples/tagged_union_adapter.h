@@ -28,7 +28,7 @@ typedef struct {
 
 typedef struct {
   uint64_t request_id;
-  int payload_type;  // 1: Text, 2: Image
+  int payload_type;  // 1：文本，2：图像
   union {
     TemplateTextPayload text;
     TemplateImagePayload image;

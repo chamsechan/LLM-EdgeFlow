@@ -86,7 +86,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     return false;
   }
 
-  // A single worker budget controls sequential and parallel execution.
+  // 同一个 worker 预算同时控制串行和并行执行。
   if (root.contains("max_parallel_workers")) {
     if (!shape::HasType(root["max_parallel_workers"],
                         shape::Property(structure, "max_parallel_workers"))) {
@@ -367,7 +367,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       return false;
     }
 
-    // Input connections and output names use the same explicit mapping shape.
+    // 输入连接和输出名称使用相同的显式映射结构。
     for (const char* direction : {"inputs", "outputs"}) {
       if (!node_elem.contains(direction)) continue;
       const auto& bindings = node_elem[direction];
@@ -438,8 +438,8 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
     seen_node_ids.insert(node_cfg.id);
 
-    // Optional additional ordering constraints. Data dependencies are planned
-    // by PipelineValidator from input/output bindings.
+    // 可选的附加顺序约束。数据依赖由 PipelineValidator
+    // 根据输入/输出绑定规划。
     if (node_elem.contains("depends_on")) {
       if (!shape::HasType(node_elem["depends_on"],
                           shape::Property(node_shape, "depends_on"))) {

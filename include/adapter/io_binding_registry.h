@@ -11,21 +11,18 @@
 
 namespace llm_edgeflow {
 
-// Declared entries are kept as written; converter logical ports without an
-// entry map to the same key. Computed on use, independent of registration
-// order.
+// 已声明的条目原样保留；未声明的 Converter 逻辑端口映射到同名键。
+// 使用时计算，与注册顺序无关。
 std::unordered_map<std::string, std::string> EffectivePortMapping(
     const std::unordered_map<std::string, std::string>& declared,
     const std::vector<NodePortDefinition>& logical_ports);
 
-// Output slots with no capacity_fields inherit the string capacity fields of
-// their registered ValueType, in lexicographic order. Input slots and unknown
-// ValueTypes return the declared list unchanged.
+// 未声明 capacity_fields 的输出槽位，按字典序继承其已注册 ValueType 的
+// 字符串容量字段。输入槽位和未知 ValueType 原样返回声明列表。
 std::vector<std::string> EffectiveCapacityFields(
     const ExternalSlotDefinition& slot);
 
-// Smallest positive limit among the binding and its converters; zero when none
-// of them declares one.
+// binding 及其 Converter 中最小的正上限；均未声明时为 0。
 size_t EffectiveMaxBatchSize(const IoBindingDefinition& binding,
                              const InputConverterDefinition& input,
                              const OutputConverterDefinition& output);
@@ -40,7 +37,7 @@ class IoBindingRegistry {
 
   std::vector<IoBindingDefinition> AllBindings() const;
 
-  // A biz identifies one complete external contract across its bindings.
+  // 一个 biz 通过其全部 binding 标识一份完整的外部契约。
   bool ValidateBizContract(const std::string& biz_name,
                            std::string* error = nullptr) const;
 

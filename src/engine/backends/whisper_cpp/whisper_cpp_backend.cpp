@@ -97,7 +97,7 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
             diagnostic, "Audio duration too short (< 100ms / 1600 samples)");
         return -1;
       }
-      if (n_samples > 960000) {  // 60 seconds
+      if (n_samples > 960000) {  // 60 秒
         SetDiagnosticNoexcept(diagnostic, "Audio duration exceeds 60s limit");
         return -1;
       }
@@ -325,7 +325,7 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     } context_guard{raw_ctx};
 
     auto session = std::make_shared<WhisperCppSession>(raw_ctx, n_threads);
-    context_guard.ctx = nullptr;  // ownership transferred successfully
+    context_guard.ctx = nullptr;  // 所有权已成功转移
     return session;
 #endif
   } catch (const std::exception& e) {

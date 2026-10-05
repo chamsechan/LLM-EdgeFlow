@@ -133,10 +133,9 @@ struct AudioOutputFixture {
 };
 
 // =========================================================================
-// 1. All 8 Businesses Converter Purity
+// 1. 全部 8 个业务的 Converter 纯净性
 // =========================================================================
 
-// 1.1 DocQaConverter Purity (Biz 1)
 TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "doc_query.plain.operator.v1");
@@ -172,7 +171,7 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   EXPECT_EQ((*docs)[0].data, "Doc Content");
   EXPECT_EQ((*queries)[0].data, "Query Question");
 
-  // Output encoding
+  // 输出编码
   TextBatch answers;
   answers.emplace_back(0, 0, "Model Generated Answer");
   harness.Publish("llm_answers", std::move(answers));
@@ -198,7 +197,6 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   EXPECT_STREQ(outputs[0].answer_text->data, "Model Generated Answer");
 }
 
-// 1.2 KeywordMatchConverter Purity (Biz 2)
 TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "text.plain.operator.v1");
@@ -233,7 +231,6 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
                "\"测试\",\"matches\":[],\"slots\":{}}");
 }
 
-// 1.3 EntityExtractConverter Purity (Biz 3)
 TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "text.plain.operator.v1");
@@ -267,7 +264,6 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   EXPECT_STREQ(outputs[0].entities_json->data, "[\"E1\"]");
 }
 
-// 1.4 DialogueAuditConverter Purity (Biz 4)
 TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audit.plain.operator.v1");
@@ -314,7 +310,6 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   EXPECT_STREQ(outputs[0].matched_policy_clause->data, "Clause 1");
 }
 
-// 1.5 OcrInvoiceQaConverter Purity (Biz 5)
 TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "image_query.plain.operator.v1");
@@ -385,7 +380,6 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   EXPECT_STREQ(od_fix.out.result_json->data, "{\"total\":99.9}");
 }
 
-// 1.6 AudioAsrIntentConverter Purity (Biz 6)
 TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audio.pcm.operator.v1");
@@ -425,7 +419,6 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
                "\"matches\":[],\"slots\":{}}");
 }
 
-// 1.7 CrossRerankConverter Purity (Biz 7)
 TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "rerank.plain.operator.v1");
@@ -475,7 +468,6 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   EXPECT_EQ(outputs[0].sorted_indices[1], 0);
 }
 
-// 1.8 TranslateConverter Purity (Biz 8)
 TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "translate.json.operator.v1");
@@ -511,7 +503,7 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
 }
 
 // =========================================================================
-// 2. Contract Invariants and Security Edge Cases
+// 2. 契约不变量与安全边界情形
 // =========================================================================
 
 TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
@@ -523,7 +515,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
                                    {"intent_matches", "intent_matches"},
                                    {"doc_chunk_counts", "doc_chunk_counts"}});
 
-  // Case 1: missing llm_answers
+  // 情形 1：缺少 llm_answers
   {
     test::AdapterHarness harness(out_conv, out_bindings);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
@@ -532,7 +524,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     EXPECT_NE(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
   }
 
-  // Case 2: has llm_answers but missing intent_matches -> MUST fail-closed
+  // 情形 2：有 llm_answers 但缺少 intent_matches -> 必须 fail-closed
   {
     test::AdapterHarness harness(out_conv, out_bindings);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
@@ -545,8 +537,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 
-  // Case 3: has intent_matches but missing explicit chunk counts -> MUST
-  // fail-closed
+  // 情形 3：有 intent_matches 但缺少显式分块计数 -> 必须 fail-closed
   {
     test::AdapterHarness harness(out_conv, out_bindings);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
@@ -562,7 +553,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 
-  // Case 4: all outputs exist but the request id table is absent
+  // 情形 4：所有输出都存在，但缺少请求 ID 表
   {
     test::AdapterHarness harness(out_conv, out_bindings);
     TextBatch answers;
@@ -607,7 +598,7 @@ TEST_F(AdapterPurityTest,
   test::AdapterHarness harness(out_conv, out_bindings);
   harness.SetRequestIds(std::vector<uint64_t>{1001});
 
-  // structured_verdicts missing required field 'risk_level' -> MUST fail-closed
+  // structured_verdicts 缺少必填字段 'risk_level' -> 必须 fail-closed
   StructuredDocumentBatch verdicts;
   nlohmann::json incomplete_obj = {{"only_verdict", "合规"}};
   verdicts.emplace_back(
@@ -703,7 +694,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
   CompanyString cs_query{static_cast<int32_t>(query_str.size()),
                          query_str.data()};
 
-  // Valid length <= 256
+  // 合法长度 <= 256
   {
     test::AdapterHarness harness(in_conv, in_bindings);
     CompanyString cs_chan{static_cast<int32_t>(valid_channel.size()),
@@ -712,7 +703,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
     EXPECT_EQ(harness.DecodeOperator({&in}), COMPANY_ALG_SUCCESS);
   }
 
-  // Oversized length > 256
+  // 超长 > 256
   {
     test::AdapterHarness harness(in_conv, in_bindings);
     CompanyString cs_chan{static_cast<int32_t>(oversized_channel.size()),
@@ -744,7 +735,7 @@ TEST_F(AdapterPurityTest,
   options.request_ids = &request_ids;
   options.converter_id = op_conv->converter_id;
 
-  // 1. Operator buffer with small capacity (500) -> BUFFER_TOO_SMALL
+  // 1. Operator 缓冲区容量较小 (500) -> BUFFER_TOO_SMALL
   {
     CompanyOperatorDocOutput small_out{};
     std::vector<char> ans_buf(500);
@@ -768,8 +759,7 @@ TEST_F(AdapterPurityTest,
     EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   }
 
-  // 2. Operator variable buffer: 6000 bytes of storage, preserve
-  // full answer
+  // 2. Operator 可变缓冲区：6000 字节存储，保留完整答案
   {
     CompanyOperatorDocOutput op_out{};
     std::vector<char> ans_buf(6000);
@@ -818,7 +808,7 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
                     RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
     context.Publish(kDocChunkCounts, Int32Batch{{0, 0, 3}});
 
-    // Capacities count payload bytes; storage also reserves the terminator.
+    // 容量按 payload 字节计；存储还需为结束符预留空间。
     char answer[6] = {'o', 'l', 'd', '\0', '#', '!'};
     char intent[4] = {'?', '?', '?', '!'};
     CompanyString answer_string{3, answer};
@@ -871,7 +861,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
 
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
-  // Overwrite external buffer
+  // 覆写外部缓冲区
   buffer[11] = 'X';
   buffer[12] = 'X';
 
@@ -940,7 +930,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
   EXPECT_EQ(harness.DecodeOperator({&in0, &in1}),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // Neither the request id table nor business values may be published.
+  // 请求 ID 表和业务值都不得发布。
   EXPECT_TRUE(harness.RequestIds().empty());
   EXPECT_EQ(harness.Context().Read<TextBatch>("input_sentences"), nullptr);
 }
@@ -957,7 +947,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
 
   harness.SetRequestIds(std::vector<uint64_t>{1001, 2002});
 
-  // Perturbed order: index 1 published before index 0
+  // 打乱顺序：索引 1 先于索引 0 发布
   TextBatch answers{{1, 0, "Answer 1"}, {0, 0, "Answer 0"}};
   RuleMatchBatch intents{{0, 0, RuleMatchItem(1, "INTENT_0", "", 0.9f)},
                          {1, 0, RuleMatchItem(2, "INTENT_1", "", 0.8f)}};
@@ -986,11 +976,11 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
 }
 
 // =========================================================================
-// 3. Section 13.1 Independent Reuse Proofs
+// 3. 独立复用证明 (第 13.1 节)
 // =========================================================================
 
-// Proof 1: Input Converters Match Biz Declared Host Types & Prove Reuse via
-// Test Binding
+// 证明 1：输入 Converter 与业务声明的宿主类型匹配，
+// 并通过测试 binding 证明可复用
 TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   const auto* entity_binding =
       IoBindingRegistry::Instance().FindBinding("entity_extract.operator.v1");
@@ -1012,7 +1002,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   ASSERT_NE(keyword_conv, nullptr);
   EXPECT_EQ(keyword_conv->external_type, "CompanyOperatorKeywordInput");
 
-  // Decode input with entity binding
+  // 用 entity binding 解码输入
   {
     test::AdapterHarness harness(
         entity_conv,
@@ -1029,7 +1019,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
     EXPECT_EQ((*sentences)[0].data, "entity sentence");
   }
 
-  // Decode input with keyword binding
+  // 用 keyword binding 解码输入
   {
     test::AdapterHarness harness(
         keyword_conv,
@@ -1066,7 +1056,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   }
 }
 
-// Proof 2: Output Converter Reused Across Pipelines
+// 证明 2：输出 Converter 可跨 Pipeline 复用
 TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
       "document.structured.operator.v1");
@@ -1074,7 +1064,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
 
   OutputPortBindings bindings({{"extracted_entities", "extracted_entities"}});
 
-  // Context A: Entity Extraction pipeline output
+  // 上下文 A：实体抽取 Pipeline 的输出
   {
     test::AdapterHarness harness(out_conv, bindings);
     harness.SetRequestIds(std::vector<uint64_t>{9001});
@@ -1092,7 +1082,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
     EXPECT_STREQ(outputs[0].entities_json->data, "[\"PERSON: Alice\"]");
   }
 
-  // Context B: Generic structured JSON pipeline output producing same schema
+  // 上下文 B：产出相同 schema 的通用结构化 JSON Pipeline 输出
   {
     test::AdapterHarness harness(out_conv, bindings);
     harness.SetRequestIds(std::vector<uint64_t>{9002});
@@ -1111,7 +1101,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   }
 }
 
-// Proof 3: Multiple External Input Formats Driving Same Pipeline
+// 证明 3：多种外部输入格式驱动同一 Pipeline
 TEST_F(AdapterPurityTest,
        ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
   InputConverterDefinition custom_in_def;
@@ -1150,7 +1140,7 @@ TEST_F(AdapterPurityTest,
   EXPECT_TRUE(
       IoConverterRegistry::Instance().RegisterInputConverter(custom_in_def));
 
-  // Format A: CompanyOperatorEntityInput via text.plain.operator.v1
+  // 格式 A：经 text.plain.operator.v1 的 CompanyOperatorEntityInput
   AlgContext ctx_a;
   {
     const auto* in_a = IoConverterRegistry::Instance().FindInputConverter(
@@ -1175,7 +1165,7 @@ TEST_F(AdapterPurityTest,
     ASSERT_EQ(in_a->decode_fn(view, opts, bindings, &ctx_a, &st), 0);
   }
 
-  // Format B: CustomMultiFieldInput via test.multi_field.operator.v1
+  // 格式 B：经 test.multi_field.operator.v1 的 CustomMultiFieldInput
   AlgContext ctx_b;
   {
     const auto* in_b = IoConverterRegistry::Instance().FindInputConverter(
@@ -1205,9 +1195,9 @@ TEST_F(AdapterPurityTest,
   EXPECT_EQ((*texts_a)[0].data, "AI: Revolution in robotics");
 }
 
-// Proof 4: Independently Switch Output Formats for Same Pipeline
+// 证明 4：同一 Pipeline 可独立切换输出格式
 TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
-  // Binding Output A: document.structured.operator.v1 ->
+  // 输出 binding A：document.structured.operator.v1 ->
   // CompanyOperatorEntityOutput
   {
     const auto* out_a = IoConverterRegistry::Instance().FindOutputConverter(
@@ -1230,7 +1220,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     EXPECT_STREQ(outputs[0].entities_json->data, "[\"item_1\"]");
   }
 
-  // Binding Output B: keyword.result.operator.v1 ->
+  // 输出 binding B：keyword.result.operator.v1 ->
   // CompanyOperatorKeywordOutput
   {
     const auto* out_b = IoConverterRegistry::Instance().FindOutputConverter(
@@ -1254,7 +1244,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
   }
 }
 
-// Proof 5: Same Carrier with Different Schemas
+// 证明 5：同一载体承载不同 schema
 TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   const auto* plain_conv = IoConverterRegistry::Instance().FindInputConverter(
       "text.plain.operator.v1");
@@ -1263,7 +1253,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
       "translate.json.operator.v1");
   ASSERT_NE(json_conv, nullptr);
 
-  // Payload 1: Pure plain text "Hello plain text"
+  // Payload 1：纯文本 "Hello plain text"
   std::string plain_str = "Hello plain text";
   CompanyString cs_plain{static_cast<int32_t>(plain_str.size()),
                          plain_str.data()};
@@ -1279,7 +1269,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   InputDecodeOptions opts;
   opts.request_ids = &request_ids;
 
-  // text.plain.operator.v1 accepts it as plain text
+  // text.plain.operator.v1 将其作为纯文本接受
   {
     AlgContext ctx;
     AdapterStatus st;
@@ -1290,7 +1280,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     EXPECT_EQ((*s)[0].data, "Hello plain text");
   }
 
-  // translate.json.operator.v1 rejects it because it is not JSON
+  // translate.json.operator.v1 因其不是 JSON 而拒绝
   {
     AlgContext ctx;
     AdapterStatus st;
@@ -1300,7 +1290,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     EXPECT_EQ(st.FieldPath(), "json");
   }
 
-  // Payload 2: JSON formatted string "{\"query\": \"Hello JSON\"}"
+  // Payload 2：JSON 格式字符串 "{\"query\": \"Hello JSON\"}"
   std::string json_str = "{\"query\": \"Hello JSON\"}";
   CompanyString cs_json{static_cast<int32_t>(json_str.size()), json_str.data()};
   CompanyOperatorEntityInput json_req{102, &cs_json};
@@ -1309,7 +1299,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   json_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   json_view.count = 1;
 
-  // translate.json.operator.v1 succeeds and extracts "query"
+  // translate.json.operator.v1 解析成功并提取 "query"
   {
     AlgContext ctx;
     AdapterStatus st;
@@ -1321,7 +1311,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   }
 }
 
-// Proof 6: Negative Combinations Rejected
+// 证明 6：拒绝非法组合
 TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   nlohmann::json valid_pipeline = nlohmann::json::array(
       {{{"id", "node_0_TextRuleMatchNode"},
@@ -1333,7 +1323,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
          {{"categories",
            {{"SYSTEM_INIT", nlohmann::json::array({"init"})}}}}}}});
 
-  // 1. Unknown or unregistered io_binding
+  // 1. 未知或未注册的 io_binding
   nlohmann::json bad_binding_json = {
       {"deployment",
        {{"io",
@@ -1353,7 +1343,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   EXPECT_NE(error.find("Unknown or unregistered io_binding"),
             std::string::npos);
 
-  // 3. DeploymentIoConfig schema validation rejects invalid / old format
+  // 3. DeploymentIoConfig schema 校验拒绝非法/旧格式
   nlohmann::json invalid_version_json = {
       {"schema_version", 999},
       {"data",
@@ -1364,7 +1354,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
                                          &error));
   EXPECT_NE(error.find("Unknown field"), std::string::npos);
 
-  // 4. Operator config with unknown output slot rejected by parity check
+  // 4. 一致性检查拒绝含未知输出槽位的 Operator 配置
   nlohmann::json unknown_out_json = {
       {"deployment",
        {{"io",
@@ -1378,7 +1368,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
             std::string::npos);
 
-  // 5. Removed deployment model_paths is rejected as an unknown field
+  // 5. 已移除的部署字段 model_paths 作为未知字段被拒绝
   nlohmann::json unknown_mid_json = {
       {"deployment",
        {{"model_paths", {{"non_existent_model", "dummy_path"}}},
@@ -1399,8 +1389,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
       << "actual error was: " << error;
 }
 
-// Proof 7: Validation Before Initialization (probe model not loaded on invalid
-// binding)
+// 证明 7：初始化前校验 (binding 非法时不加载探测模型)
 TEST_F(AdapterPurityTest, ReuseProof_7_ValidationBeforeInitialization) {
   operator_api::CreateParam param{};
   param.cfg_file_name = "non_existent_path.conf";

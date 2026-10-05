@@ -8,7 +8,7 @@ set(ENABLE_KITELLM OFF CACHE BOOL "" FORCE)
 set(ENABLE_WHISPERCPP OFF CACHE BOOL "" FORCE)
 add_subdirectory("${EDGEFLOW_SOURCE}" edgeflow EXCLUDE_FROM_ALL)
 add_executable(node_authoring_probe probe.cpp)
-# Retired authoring helpers belong only to the historical comparison baseline.
+# 已退役的编写辅助只用于历史对比基线。
 target_include_directories(node_authoring_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/baseline_include")
 target_link_libraries(node_authoring_probe PRIVATE llm_edgeflow::internal_runtime)
 set_target_properties(node_authoring_probe PROPERTIES CXX_VISIBILITY_PRESET hidden)

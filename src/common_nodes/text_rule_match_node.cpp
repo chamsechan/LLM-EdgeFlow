@@ -207,7 +207,7 @@ NodeResult<RuleMatchBatch> MatchRules(const RuleInputs& inputs,
   for (const auto& item : *text_items) {
     const std::string& sentence = item.data;
     RuleMatchItem result;
-    // The first hit with a category names the result.
+    // 首个带类别的命中决定结果名称。
     auto record_hit = [&](const std::string& category, const std::string& word,
                           float score, const std::string& rule_id) {
       result.is_hit = 1;

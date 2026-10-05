@@ -5,8 +5,8 @@
 
 namespace llm_edgeflow {
 
-// Diagnostic allocation must not turn a recoverable failure into terminate.
-// Pass exception.what() or a literal in catch blocks, not a temporary string.
+// 诊断信息分配失败不得把可恢复错误变成 terminate。catch 块中应传入
+// exception.what() 或字面量，而不是临时 string。
 inline void SetDiagnosticNoexcept(std::string* output,
                                   std::string_view message) noexcept {
   if (!output) return;

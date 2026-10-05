@@ -76,7 +76,7 @@ download_verified() {
   echo "✓ ${filename} (${expected_sha})"
 }
 
-# File names, hashes and upstream URLs share the selection manifest.
+# 文件名、哈希和上游 URL 共用同一份选型清单。
 MANIFEST_ROWS="$(mktemp)"
 trap 'rm -f "$MANIFEST_ROWS"' EXIT
 python3 - "$PROJECT_ROOT/models/asset_manifest.json" "$MODE" > "$MANIFEST_ROWS" <<'MANIFEST'

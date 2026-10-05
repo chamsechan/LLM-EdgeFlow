@@ -7,9 +7,8 @@
 
 namespace llm_edgeflow {
 
-// Business-facing request and response slots belong to the Integration
-// adapters. Lower layers consume logical port bindings and neutral value
-// contracts only.
+// 业务请求/响应槽位归接入适配层所有；
+// 下层只消费逻辑端口绑定和中性值契约。
 inline constexpr auto kInputSentences =
     MakeBlackboardKey<TextBatch>("input_sentences");
 inline constexpr auto kRuleMatches =
@@ -31,7 +30,7 @@ inline constexpr auto kStructuredVerdicts =
     MakeBlackboardKey<StructuredDocumentBatch>("structured_verdicts");
 inline constexpr auto kMatchedPolicy =
     MakeBlackboardKey<RankedTextBatch>("matched_policy");
-// The output converter's logical port differs from the business blackboard key.
+// 输出 Converter 的逻辑端口名与业务 Blackboard 键不同。
 inline constexpr auto kMatchedPolicies =
     MakeBlackboardKey<RankedTextBatch>("matched_policies");
 inline constexpr auto kImagePaths =

@@ -87,8 +87,8 @@ TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
   EXPECT_FALSE(out_bindings.HasKey("unknown"));
   EXPECT_STREQ(out_bindings.Key<TextBatch>("unknown").name, "");
 
-  // Shared lookup keeps the direction in the type: decoders cannot receive
-  // output bindings and encoders cannot receive input bindings.
+  // 共享查找把方向编码进类型：解码器不能接收输出 binding，
+  // 编码器不能接收输入 binding。
   static_assert(!std::is_same_v<InputPortBindings, OutputPortBindings>);
   static_assert(!std::is_convertible_v<OutputPortBindings, InputPortBindings>);
   static_assert(!std::is_convertible_v<InputPortBindings, OutputPortBindings>);
@@ -161,7 +161,7 @@ TEST(IoConverterTest, ExternalTypeDefaultsToSlotTypesInOrder) {
                 ->external_type,
             "CompanyFrame,CompanyString");
 
-  // An explicit protocol label is kept as declared.
+  // 显式的协议标签按声明保留。
   input.converter_id = "labeled.external_type.in";
   input.external_type = "custom.carrier";
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
@@ -234,7 +234,7 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
 }
 
 TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
-  // 1. shared_ptr (slots) path
+  // 1. shared_ptr (slots) 路径
   ExternalInputBatchView v;
   v.count = 1;
 
@@ -242,11 +242,11 @@ TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
   v.slots["channel.slot"] = {b_ptr};
   v.slot_types["channel.slot"] = "ReproB";
 
-  // Exact lookup with correct type succeeds
+  // 类型正确的精确查找成功
   EXPECT_EQ(v.GetSlot<ReproB>("channel.slot", 0), b_ptr.get());
-  // Exact lookup with wrong type returns nullptr
+  // 类型错误的精确查找返回 nullptr
   EXPECT_EQ(v.GetSlot<ReproA>("channel.slot", 0), nullptr);
-  // Short suffix lookup must NOT fallback: returns nullptr
+  // 短后缀查找不得回退：返回 nullptr
   EXPECT_EQ(v.GetSlot<ReproB>("slot", 0), nullptr);
   EXPECT_EQ(v.GetSlot<ReproA>("slot", 0), nullptr);
 
@@ -266,7 +266,7 @@ TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
   EXPECT_EQ(output.GetSlotCapacity("channel.slot", "bytes"), 512U);
   EXPECT_EQ(output.GetSlotCapacity("slot", "bytes", 7), 7U);
 
-  // 3. Multi-slot ambiguity resolution: distinct logical slots of same type
+  // 3. 多槽位歧义消解：同一类型的不同逻辑槽位
   ExternalInputBatchView multi;
   multi.count = 1;
   auto left = std::make_shared<ReproA>();
@@ -289,7 +289,7 @@ TEST(IoConverterTest,
      RejectsEmptyTypeSuffixAndSupportsMultipleSlotsOfSameType) {
   auto& reg = IoConverterRegistry::Instance();
 
-  // 1. Input converter with empty type_suffix must be rejected
+  // 1. type_suffix 为空的输入 Converter 必须被拒绝
   InputConverterDefinition bad_in;
   bad_in.converter_id = "test.empty_suffix.in";
 
@@ -305,7 +305,7 @@ TEST(IoConverterTest,
 
   EXPECT_FALSE(reg.RegisterInputConverter(bad_in));
 
-  // 2. Output converter with empty type_suffix must be rejected
+  // 2. type_suffix 为空的输出 Converter 必须被拒绝
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "test.empty_suffix.out";
 
@@ -321,8 +321,7 @@ TEST(IoConverterTest,
 
   EXPECT_FALSE(reg.RegisterOutputConverter(bad_out));
 
-  // 3. Multiple slots of same ValueType with distinct slot names can register
-  // successfully
+  // 3. 同一 ValueType 的多个槽位使用不同槽位名时可以注册成功
   InputConverterDefinition multi_in;
   multi_in.converter_id = "test.multi_slot.in";
 
@@ -698,7 +697,7 @@ TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
             std::string::npos);
   EXPECT_FALSE(limited.Has("actual_texts"));
 
-  // Zero means the caller did not pass a limit; only emptiness is checked.
+  // 0 表示调用方未传上限；只检查是否为空。
   AlgContext unlimited;
   AdapterStatus unlimited_status;
   EXPECT_EQ(decode(0, &unlimited, &unlimited_status), COMPANY_ALG_SUCCESS);

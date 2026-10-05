@@ -20,7 +20,6 @@ class VectorTopKNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
-// 1. Init & Config Validation
 TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
   auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
@@ -44,7 +43,6 @@ TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
       InitNodeForTest(*invalid_node3, {{"top_k", 2.5}}, session_ctx_.get()));
 }
 
-// 2. Process Top-K Ranking with Shared Candidates
 TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
@@ -79,7 +77,6 @@ TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   EXPECT_EQ((*ranked)[1].data.text, "Doc C (Mid Sim)");
 }
 
-// 3. Missing Queries Fails Closed
 TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);

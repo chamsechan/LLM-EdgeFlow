@@ -74,7 +74,7 @@ TEST(ParameterBindingTest, SuccessfulParseWithDefaultsAndOverrides) {
           .Description("List of tags"),
   });
 
-  // Empty config -> defaults apply
+  // 空配置 -> 使用默认值
   std::string err;
   auto default_params = schema.Parse(nlohmann::json::object(), &err);
   ASSERT_TRUE(default_params.has_value()) << err;
@@ -86,7 +86,7 @@ TEST(ParameterBindingTest, SuccessfulParseWithDefaultsAndOverrides) {
   ASSERT_EQ(default_params->tags.size(), 1u);
   EXPECT_EQ(default_params->tags[0], "default_tag");
 
-  // Custom values
+  // 自定义值
   nlohmann::json custom = {
       {"mode", "slow"}, {"count", 42},     {"big_id", 99999999999LL},
       {"ratio", 0.75},  {"enabled", true}, {"tags", {"a", "b"}},
@@ -179,7 +179,7 @@ TEST(ParameterBindingTest, RejectsIntegerOverflowFor32Bit) {
   });
 
   std::string err;
-  // Int64 overflow for 32-bit int
+  // Int64 值超出 32 位 int 范围
   int64_t overflow_val =
       static_cast<int64_t>(std::numeric_limits<int>::max()) + 100LL;
   auto res = schema.Parse({{"count", overflow_val}}, &err);
@@ -187,7 +187,7 @@ TEST(ParameterBindingTest, RejectsIntegerOverflowFor32Bit) {
 }
 
 TEST(ParameterBindingTest, RejectsInvalidDefaultAtConstruction) {
-  // Out-of-range default throws during construction
+  // 超出范围的默认值在构造时抛异常
   EXPECT_THROW(
       {
         auto schema = Parameters<SampleParams>({
@@ -244,16 +244,16 @@ TEST(ParameterBindingTest, SemanticValidatorAndBindingsHook) {
   });
 
   std::string err;
-  // Semantic validation failure
+  // 语义校验失败
   auto res = schema.Parse({{"mode", "custom"}, {"count", 5}}, &err);
   EXPECT_FALSE(res.has_value());
   EXPECT_EQ(err, "custom mode requires count >= 10");
 
-  // Semantic validation pass
+  // 语义校验通过
   res = schema.Parse({{"mode", "custom"}, {"count", 15}}, &err);
   EXPECT_TRUE(res.has_value());
 
-  // Binding validation check
+  // 绑定校验
   nlohmann::json norm = {{"mode", "custom"}, {"count", 15}};
   bool bind_ok = schema.ValidateWithBindings(norm, {"other_input"}, &err);
   EXPECT_FALSE(bind_ok);
@@ -319,7 +319,7 @@ TEST(ParameterBindingTest,
 
   std::string err;
   nlohmann::json norm = {{"mode", "custom"}};
-  // Connected inputs is empty set {} - must still enforce binding validation!
+  // 已连接输入为空集 {} 时仍须执行绑定校验！
   bool bind_ok = schema.ValidateWithBindings(norm, {}, &err);
   EXPECT_FALSE(bind_ok);
   EXPECT_NE(err.find("custom mode requires context port"), std::string::npos);

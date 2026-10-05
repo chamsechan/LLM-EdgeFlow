@@ -41,11 +41,10 @@ class ITensorGraphSession : public IBackendSession {
 };
 
 /**
- * @brief Vendor-neutral synchronous text generation session.
+ * @brief 与厂商无关的同步文本生成会话。
  *
- * The Model supplies an already formatted prompt. A concrete Backend may
- * delegate the whole operation to a managed engine or use an internal
- * autoregressive decoder and the shared sampler.
+ * Model 提供已格式化的 prompt。具体 Backend 可以把整个操作委托给托管
+ * 引擎，也可以使用内部自回归解码器和共享采样器。
  */
 class ITextGenerationSession : public IBackendSession {
  public:
@@ -56,15 +55,15 @@ class ITextGenerationSession : public IBackendSession {
 };
 
 /**
- * @brief Vendor-neutral execution target selected by the deployment ingress.
+ * @brief 由部署入口选定的、与厂商无关的执行目标。
  */
 struct ExecutionTarget {
   std::optional<int> device_id;
   std::string platform;
 };
 
-// Model-prepared RGB planes. The patch size describes the model's spatial
-// input layout; no vendor types or encoded image files cross this boundary.
+// Model 预处理好的 RGB 平面。patch 尺寸描述模型的空间输入布局；
+// 厂商类型和编码后的图像文件均不跨越此边界。
 struct ImageTextInput {
   std::string prompt;
   int width = 0;
@@ -80,9 +79,9 @@ class IImageTextGenerationSession : public IBackendSession {
                        std::string* diagnostic = nullptr) noexcept = 0;
 };
 
-// Owned, unpooled hidden states of generated tokens, in generation order.
-// These are not input-token states or a sentence embedding. Each row matches
-// one token_id; early EOS may return fewer rows than the requested limit.
+// 生成 token 的隐藏状态，自有且不池化，按生成顺序排列。它们既不是输入
+// token 的状态，也不是句向量。每行对应一个 token_id；提前遇到 EOS 时，
+// 行数可能少于请求上限。
 struct GeneratedTokenEmbeddings {
   std::vector<int32_t> token_ids;
   std::vector<std::vector<float>> values;
@@ -90,9 +89,8 @@ struct GeneratedTokenEmbeddings {
 
 class IGeneratedTokenEmbeddingSession : public IBackendSession {
  public:
-  // Greedy generation, without an implicit chat template. max_tokens: 1..64.
-  // Clear output on failure. Empty output is valid for immediate EOS; the
-  // consuming Model decides whether that represents a usable feature.
+  // 贪心生成，不隐式套用 chat 模板。max_tokens 取 1..64。失败时清空输出。
+  // 立即遇到 EOS 时输出为空也合法，由消费方 Model 决定其是否为可用特征。
   virtual int GenerateEmbeddings(
       const std::string& formatted_prompt, bool add_bos, int max_tokens,
       GeneratedTokenEmbeddings* output,

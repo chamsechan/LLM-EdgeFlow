@@ -71,7 +71,7 @@ target_include_directories(edgeflow_public_headers INTERFACE
     $<BUILD_INTERFACE:${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${edgeflow_public_include_dir}>)
 
-# Source extensions use authoring contracts; they are not the dynamic SDK ABI.
+# 源码扩展使用编写契约，不属于动态 SDK ABI。
 add_library(edgeflow_extension_headers INTERFACE)
 target_include_directories(edgeflow_extension_headers INTERFACE
     "${PROJECT_SOURCE_DIR}/include")
@@ -114,9 +114,8 @@ include(cmake_ext/Pcre2.cmake)
 # 引入第三方开源推理引擎 (ONNX Runtime & llama.cpp) 自动下载配置
 include(cmake_ext/ThirdPartyEngines.cmake)
 
-# Keep repository executables at build/ even though their CMake ownership is
-# delegated to source subdirectories. Public commands and CI scripts rely on
-# this stable artifact layout.
+# 即使 CMake 归属已下放到各源码子目录，仓库可执行文件仍统一输出到 build/。
+# 公开命令和 CI 脚本依赖这一稳定的产物布局。
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # 轻量运行时契约位于所有实现层下方；各层依赖 interface 只向下传播。
@@ -166,8 +165,8 @@ endfunction()
 
 edgeflow_add_runtime_object_target(edgeflow_model_execution_objects
     edgeflow_model_execution_dependencies)
-# Vendor compilation stays inside the Backend implementations, including
-# headers and definitions carried by imported runtime targets.
+# 厂商编译只发生在 Backend 实现内部，
+# 包括导入运行时目标携带的头文件和编译定义。
 edgeflow_add_runtime_object_target(edgeflow_model_execution_backends_objects
     edgeflow_model_execution_dependencies)
 target_include_directories(edgeflow_model_execution_backends_objects PRIVATE

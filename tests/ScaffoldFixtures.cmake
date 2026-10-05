@@ -1,4 +1,4 @@
-# Generated extensions belong only to tests, never the SDK or production Catalog.
+# 生成的扩展只属于测试，绝不进入 SDK 或生产 Catalog。
 set(EDGEFLOW_CONTROL_FIXTURE_SOURCE
   "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/control/test_control_node.cpp")
 get_filename_component(_control_fixture_dir "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}" DIRECTORY)
@@ -32,7 +32,7 @@ add_custom_command(
   COMMENT "Generating custom Node snippets and standalone behavioral test fixtures"
   VERBATIM)
 
-# Compile the exact function examples in test runners, never the SDK Catalog.
+# 在测试 runner 中编译文档里的原样函数示例，绝不进入 SDK Catalog。
 list(APPEND EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_node.cpp"
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_multi_model_node.cpp"

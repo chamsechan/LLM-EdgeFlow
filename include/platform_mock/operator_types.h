@@ -1,8 +1,8 @@
 #ifndef EDGEFLOW_PLATFORM_MOCK_OPERATOR_TYPES_H_
 #define EDGEFLOW_PLATFORM_MOCK_OPERATOR_TYPES_H_
 
-// Local platform mock declarations for this repository's Demo and tests.
-// These are existing external-environment substitutes, not company SDK headers.
+// 本仓库 Demo 和测试使用的本地平台 mock 声明。
+// 它们是现有外部环境的替代品，不是公司 SDK 头文件。
 
 #include <cstdint>
 #include <memory>
@@ -17,7 +17,7 @@ namespace llm_edgeflow::operator_api {
  */
 enum class ComputePlatform : int32_t {
   kUnknown = 0,
-  kAx650 = 1,       // AX650 NPU
+  kAx650 = 1,       // 爱芯元智 AX650 NPU
   kAscend310P = 2,  // 华为昇腾 310P NPU
   kAscend910B = 3,  // 华为昇腾 910B NPU
   kRk3588 = 4,      // 瑞芯微 RK3588 NPU

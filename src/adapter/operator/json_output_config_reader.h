@@ -5,8 +5,8 @@
 
 namespace llm_edgeflow {
 
-// Borrows one output object only for the resolver's Create-time work. Returned
-// strings own their storage; the document never enters the output pools.
+// 仅在解析器 Create 期间借用单个输出对象。返回的字符串自有存储，
+// 该文档不会进入输出池。
 class JsonOutputConfigReader final : public OutputConfigReader {
  public:
   explicit JsonOutputConfigReader(const nlohmann::json& config)

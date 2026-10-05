@@ -57,8 +57,8 @@ struct BadAuthoringParameters {
   int count = 0;
 };
 
-// This declaration executes before main. Each CTest selects a separate process
-// so an authoring failure cannot contaminate the existing registry scenarios.
+// 该声明在 main 之前执行。每个 CTest 选择独立进程，
+// 因此编写期失败不会污染现有的注册表场景。
 const bool kAuthoringStartupAttempted = [] {
   const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
   if (!selected) return false;

@@ -1,6 +1,6 @@
-# Codex-only runtime and model mapping.
-# Shared roles and delegation-context policy are defined once in ../AGENTS.md.
-# Keep this file compatible with Codex CLI 0.144.0-alpha.4 strict config.
+# 仅供 Codex 使用的运行时与模型映射。
+# 共享角色与委派上下文策略统一定义在 ../AGENTS.md。
+# 本文件须兼容 Codex CLI 0.144.0-alpha.4 的严格配置校验。
 
 [features]
 multi_agent = true

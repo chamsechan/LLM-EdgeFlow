@@ -1,4 +1,4 @@
-# Sharded Google Test runners and label-driven development test matrix.
+# 分片的 Google Test runner 与按标签驱动的开发测试矩阵。
 
 include(${CMAKE_CURRENT_LIST_DIR}/ScaffoldFixtures.cmake)
 
@@ -35,14 +35,14 @@ function(edgeflow_add_runner_test test_name runner_name gtest_filter labels)
     LABELS "${labels}")
 endfunction()
 
-# Discover only each runner's owned test directories. Keep generated sources,
-# process-isolated contracts and opt-in E2E targets explicit. CONFIGURE_DEPENDS
-# makes additions/removals trigger regeneration on the next build (CMake 3.19).
+# 只扫描每个 runner 自有的测试目录。生成的源码、进程隔离的契约测试和
+# 需显式开启的 E2E 目标保持显式列出。CONFIGURE_DEPENDS 使增删文件在下次
+# 构建时触发重新生成 (CMake 3.19)。
 file(GLOB EDGEFLOW_TEST_CORE_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/core/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/engine/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/logging/test_*.cpp")
-# Pipeline integration tests have different runner dependencies.
+# Pipeline 集成测试的 runner 依赖不同。
 list(APPEND EDGEFLOW_TEST_CORE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_model_backend_pipeline.cpp")
 add_executable(edgeflow_test_core_runner
@@ -170,8 +170,7 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   add_dependencies(alg_demo edgeflow_generated_model_fixtures)
 endif()
 
-# Process-isolated targets. Registry conflict intentionally runs each dirty
-# singleton scenario in its own process.
+# 进程隔离的目标。注册表冲突测试有意让每个污染单例的场景运行在独立进程中。
 add_executable(test_cpp_operator_sdk "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_cpp_operator_sdk.cpp")
 set_target_properties(test_cpp_operator_sdk PROPERTIES LINK_LIBRARIES "llm_edgeflow::sdk")
 
@@ -297,8 +296,8 @@ edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
-# This suite exercises Validator, typed Blackboard and Pipeline::Execute.
-# Its runner grouping does not make it tooling-only coverage.
+# 该测试套件覆盖 Validator、类型化 Blackboard 和 Pipeline::Execute。
+# 放在工具 runner 中并不意味着它只是工具测试。
 edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
   "PipelineCatalogTest.*:PipelineValidatorTest.*"
   "${_edgeflow_tier3}")
@@ -335,7 +334,7 @@ edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
 edgeflow_add_runner_test(WhisperCppBackendTest edgeflow_test_core_runner
   "WhisperCppBackendTest.*" "${_edgeflow_tier1}")
 
-# Architecture and source-governance gates.
+# 架构与源码治理门禁。
 add_test(NAME LayerGuardTest
   COMMAND ${CMAKE_COMMAND} -E env
           "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
@@ -492,12 +491,11 @@ set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   RegistryAuthoringStartup_duplicate_member
   RegistryAuthoringStartup_factory_exception
   PROPERTIES TIMEOUT 5)
-# The opt-in real Kite deployment suite loads text, ONNX and vision models.
+# 需显式开启的真实 Kite 部署测试会加载文本、ONNX 和视觉模型。
 set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
 
-# Required runtime contract suites for the canonical runner assembly.
-# Smoke and tooling tests may extend this set; the assembly must not silently
-# omit any of these core contracts.
+# 规范 runner 组装必须包含的运行时契约测试。
+# 冒烟测试和工具测试可以扩展此集合，但组装时不得静默遗漏其中任何一项。
 set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   QualityGateScriptsContractTest
   BatchExecutorTest

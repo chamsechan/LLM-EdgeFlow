@@ -24,8 +24,8 @@ class OperatorTestFixture : public ::testing::Test {
   operator_api::OperatorFunc ops_{};
 };
 
-// Declare before output containers so their leases are returned before cleanup,
-// including when a fatal assertion returns early from a test.
+// 在输出容器之前声明，使其租约先于清理归还，
+// 包括致命断言提前从测试返回的情况。
 class ScopedTestOperator {
  public:
   explicit ScopedTestOperator(operator_api::OperatorFunc ops) : ops_(ops) {}
@@ -60,7 +60,7 @@ class ScopedTestOperator {
 
   int Close() {
     if (!handle_) return 0;
-    // Destroy consumes a handle even when it reports an error.
+    // 即使报告错误，Destroy 也会消耗句柄。
     void* handle = std::exchange(handle_, nullptr);
     const int code = ops_.Destroy(handle);
     close_diagnostic_ = operator_api::GetOperatorLastError();

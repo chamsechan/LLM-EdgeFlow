@@ -108,7 +108,7 @@ int VisionDocumentModel::Recognize(const ImageRefBatch& images,
               reason.empty() ? "Image generation returned empty text" : reason);
           return -1;
         }
-        // Generative recognition has no measured boxes or confidence scores.
+        // 生成式识别没有实测的框或置信度。
         *output = std::move(document);
         return 0;
       },

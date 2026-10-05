@@ -3,7 +3,7 @@
 namespace llm_edgeflow {
 namespace node_error {
 
-// Shared authoring failures and operation-specific business failures.
+// 共享的编写期失败码和各操作专属的业务失败码。
 namespace control {
 inline constexpr int kInvalidRequest = -1;
 }  // namespace control

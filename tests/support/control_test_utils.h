@@ -7,7 +7,7 @@
 
 namespace llm_edgeflow::test {
 
-// Uses the compiled authoring starter and the existing keyword I/O contract.
+// 使用已编译的编写入门模板和现有的 keyword I/O 契约。
 inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
   const nlohmann::json pipeline = {
       {"deployment",

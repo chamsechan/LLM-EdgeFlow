@@ -4,7 +4,7 @@ export const initialPipeline = fragment.get("pipeline") || "";
 export async function api(path, options = {}) {
   const { allowFalse = false, ...fetchOptions } = options;
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-  // Keep the page's directory prefix when Studio is opened through a port proxy.
+  // 通过端口代理打开 Studio 时，保留页面的目录前缀。
   const url = new URL(`api/v1${path}`, location.href);
   let response;
   try { response = await fetch(url, { ...fetchOptions, headers }); }

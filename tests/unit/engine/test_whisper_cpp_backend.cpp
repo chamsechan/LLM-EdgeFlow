@@ -91,8 +91,8 @@ TEST(WhisperCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
 TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
   WhisperCppBackend backend;
 
-  // Set a terminate handler to verify std::terminate is never called
-  // (reproducing the exit code 86 scenario)
+  // 设置 terminate handler，验证 std::terminate 从未被调用
+  // (复现退出码 86 的场景)
   static bool terminate_invoked = false;
   terminate_invoked = false;
   auto old_terminate = std::set_terminate([] {
@@ -108,8 +108,7 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = "./models/does-not-exist.bin";
 
-  // 1. bad_alloc exception at entrypoint (reproduces allocation failure during
-  // NormalizePlatform / string copies)
+  // 1. 入口处抛 bad_alloc (复现 NormalizePlatform / 字符串拷贝期间的分配失败)
   {
     backend.SetLoadHook([] { throw std::bad_alloc(); });
     std::string diagnostic;
@@ -120,14 +119,14 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
     EXPECT_FALSE(terminate_invoked);
   }
 
-  // 2. bad_alloc with nullptr diagnostic
+  // 2. 诊断指针为空时抛 bad_alloc
   {
     backend.SetLoadHook([] { throw std::bad_alloc(); });
     EXPECT_EQ(backend.Load(spec, nullptr), nullptr);
     EXPECT_FALSE(terminate_invoked);
   }
 
-  // 3. standard runtime_error at entrypoint
+  // 3. 入口处抛标准 runtime_error
   {
     backend.SetLoadHook(
         [] { throw std::runtime_error("simulated entrypoint failure"); });
@@ -138,7 +137,7 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
     EXPECT_FALSE(terminate_invoked);
   }
 
-  // 4. non-std exception at entrypoint
+  // 4. 入口处抛非 std 异常
   {
     backend.SetLoadHook([] { throw 42; });
     std::string diagnostic;
@@ -148,7 +147,7 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
     EXPECT_FALSE(terminate_invoked);
   }
 
-  // 5. Clean hook reset allows normal failure handling
+  // 5. 清除钩子后恢复正常的失败处理
   backend.SetLoadHook(nullptr);
   std::string diagnostic;
   EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
@@ -201,7 +200,7 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
   EXPECT_TRUE(asr_session->SupportsLanguage("auto"));
   EXPECT_FALSE(asr_session->SupportsLanguage("unknown_lang"));
 
-  // 1. Empty audio returns empty string
+  // 1. 空音频返回空字符串
   AudioPcmPayload empty_audio;
   empty_audio.sample_rate = 16000;
   std::string output;
@@ -212,27 +211,27 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
             0);
   EXPECT_TRUE(output.empty());
 
-  // 2. Audio with wrong sample rate fails
+  // 2. 采样率错误的音频失败
   AudioPcmPayload wrong_rate;
   wrong_rate.sample_rate = 8000;
   wrong_rate.pcm_data = std::vector<float>(16000, 0.01f);
   EXPECT_NE(asr_session->Transcribe(wrong_rate, opts, &output, &diagnostic), 0);
 
-  // 3. Audio too short (< 1600 samples) fails
+  // 3. 音频过短 (< 1600 个采样点) 时失败
   AudioPcmPayload short_audio;
   short_audio.sample_rate = 16000;
   short_audio.pcm_data = std::vector<float>(1500, 0.01f);
   EXPECT_NE(asr_session->Transcribe(short_audio, opts, &output, &diagnostic),
             0);
 
-  // 4. Null output pointer fails
+  // 4. 输出指针为空时失败
   AudioPcmPayload valid_audio;
   valid_audio.sample_rate = 16000;
   valid_audio.pcm_data = std::vector<float>(16000, 0.01f);
   EXPECT_NE(asr_session->Transcribe(valid_audio, opts, nullptr, &diagnostic),
             0);
 
-  // 5. Valid audio transcription
+  // 5. 合法音频转写
   const std::string audio_path = "data/audio/nav_001.f32";
   if (std::filesystem::is_regular_file(audio_path)) {
     std::ifstream ifs(audio_path, std::ios::binary);
@@ -250,14 +249,14 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
               0);
     EXPECT_FALSE(output.empty());
 
-    // 6. Max output bytes boundary test
+    // 6. max_output_bytes 边界测试
     opts.max_output_bytes = 2;
     output.clear();
     EXPECT_NE(asr_session->Transcribe(jfk_audio, opts, &output, &diagnostic),
               0);
     EXPECT_TRUE(output.empty());
 
-    // 7. Concurrent calls on same session (serialized by session mutex)
+    // 7. 同一会话上的并发调用 (由会话互斥锁串行化)
     opts.max_output_bytes = 65536;
     auto f1 = std::async(std::launch::async, [&]() {
       std::string out1, diag1;

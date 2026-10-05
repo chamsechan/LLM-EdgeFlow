@@ -23,7 +23,7 @@ run_fixture_renderer() {
 
 ./scripts/render_architecture_diagrams.sh --check >/dev/null 2>&1
 
-# A syntactically valid source change must make the committed asset stale.
+# 语法合法的源文件改动必须使已提交的资源过期。
 if sed --version >/dev/null 2>&1; then
   sed -i '/@enduml/i class SourceDriftProbe' \
     "${FIXTURE_DOC_ROOT}/architecture_classes.puml"
@@ -38,7 +38,7 @@ if run_fixture_renderer --check; then
 fi
 cp doc/architecture_classes.puml "${FIXTURE_DOC_ROOT}/architecture_classes.puml"
 
-# A committed asset that does not match the generated result must fail.
+# 已提交的资源与生成结果不一致时必须失败。
 echo "corrupted svg" > \
   "${FIXTURE_DOC_ROOT}/assets/architecture_class_diagram.svg"
 if run_fixture_renderer --check; then
@@ -46,7 +46,7 @@ if run_fixture_renderer --check; then
   exit 1
 fi
 
-# Generate must repair only the temporary fixture, then check must pass.
+# generate 只能修复临时夹具，之后 check 必须通过。
 run_fixture_renderer --generate
 run_fixture_renderer --check
 

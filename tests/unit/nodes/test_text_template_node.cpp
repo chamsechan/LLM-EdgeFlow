@@ -38,7 +38,6 @@ std::string ResolveConfigPath(const std::string& relative) {
   return "../" + relative;
 }
 
-// 1. Process Multi-Input Aggregation
 TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
@@ -73,7 +72,6 @@ TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
   EXPECT_NE((*out)[0].data.find("ACCOUNT_UPGRADE"), std::string::npos);
 }
 
-// 2. Missing Required Variable Fails Closed
 TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
@@ -83,7 +81,7 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
                         {"missing_variable_policy", "fail"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
-  // Attributes missing required variable 'user_name'
+  // 属性中缺少必填变量 'user_name'
   AlgContext ctx;
   TextAttributesBatch attrs;
   attrs.emplace_back(
@@ -94,7 +92,6 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
   EXPECT_EQ(node->Process(&ctx), -6202);
 }
 
-// 3. Dynamic Attribute Successfully Rendered
 TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
@@ -116,13 +113,12 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
   EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
 }
 
-// 4. Single Braces Treated As Literal Text
 TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
-  // Single braces like {user_name} and JSON objects {"k": 1} must remain
-  // literal text. Only double braces {{var}} are treated as template variables.
+  // {user_name} 这样的单花括号和 JSON 对象 {"k": 1} 必须保持为字面文本。
+  // 只有双花括号 {{var}} 才是模板变量。
   nlohmann::json cfg = {
       {"template",
        "Literal: {user_name}, JSON: {\"key\": 1}, Var: {{user_name}}"},
@@ -143,7 +139,6 @@ TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
             "Literal: {user_name}, JSON: {\"key\": 1}, Var: Alice");
 }
 
-// 5. Malformed Placeholders Rejected At Initialization
 TEST_F(TextTemplateNodeTest, MalformedPlaceholderFailsInit) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
@@ -197,21 +192,20 @@ TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
   EXPECT_EQ(ctx.Read<TextBatch>("text"), nullptr);
 }
 
-// 4. Control Command Hot-Swap & Bogus Rejection
 TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
                               session_ctx_.get()));
 
-  // Valid update
+  // 合法更新
   nlohmann::json valid_update = {
       {"template", "Updated: {{primary}} [{{context}}]"}};
   NodeControlResult res =
       node->Control(kControlCmdUpdatePrompt, valid_update.dump());
   EXPECT_EQ(res.status, NodeControlStatus::kHandled);
 
-  // Operator metadata is accepted independently of a template change.
+  // Operator 元数据与模板变更相互独立，可单独接受。
   NodeControlResult prompt_id_res = node->Control(
       kControlCmdUpdatePrompt, nlohmann::json{{"prompt_id", "qa-v2"}}.dump());
   EXPECT_EQ(prompt_id_res.status, NodeControlStatus::kHandled);
@@ -226,7 +220,7 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
       nlohmann::json{{"missing_variable_policy", "invent"}}.dump());
   EXPECT_EQ(invalid_policy_res.status, NodeControlStatus::kFailed);
 
-  // Bogus update with no valid fields -> Rejected
+  // 没有任何合法字段的无效更新 -> 拒绝
   nlohmann::json bogus_update = {{"bogus_field", 123}};
   NodeControlResult bogus_res =
       node->Control(kControlCmdUpdatePrompt, bogus_update.dump());
@@ -442,9 +436,8 @@ TEST_F(TextTemplateNodeTest, DirectConcurrentProcessAndControl) {
   test_support::NodeProcessPause pause;
   int process_result = -1;
   std::exception_ptr reader_error;
-  // On this valid Process path, the first heap allocation follows
-  // snapshot.Read: the template grouping container. Pause with that old
-  // snapshot retained.
+  // 在这条合法的 Process 路径上，snapshot.Read 之后的第一次堆分配是
+  // 模板分组容器。在保留旧快照的状态下暂停。
   std::thread reader([&] {
     try {
       test_support::ScopedNextAllocationCallback callback(

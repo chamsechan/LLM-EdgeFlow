@@ -401,13 +401,13 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
     if ((cfg_file == "configs/pipeline_doc_qa_cpu.json" ||
          cfg_file == "configs/pipeline_cross_rerank_cpu.json") &&
         !BackendRegistry::Instance().Find("onnxruntime").has_value()) {
-      // Optional backend is deliberately absent in ONNX-disabled builds.
+      // 禁用 ONNX 的构建中有意不包含该可选 Backend。
       continue;
     }
     if ((cfg_file == "configs/pipeline_entity_extract_cpu.json" ||
          cfg_file == "configs/pipeline_doc_qa_cpu.json") &&
         !BackendRegistry::Instance().Find("llama_cpp").has_value()) {
-      // Optional backend is absent in llama.cpp-disabled builds.
+      // 禁用 llama.cpp 的构建中不包含该可选 Backend。
       continue;
     }
 
@@ -1360,7 +1360,7 @@ TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
   ASSERT_EQ(parsed_cfg.models.size(), 2u);
 
-  // Model 0: Model/Backend Dialect (Full)
+  // Model 0：Model/Backend 完整写法
   const auto& m1 = parsed_cfg.models[0];
   EXPECT_EQ(m1.model_id, "m_mb_full");
   EXPECT_EQ(m1.model_type, "bge_embedding");
@@ -1372,7 +1372,7 @@ TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
   EXPECT_EQ(m1.backend_config.value("device", ""), "cpu");
   EXPECT_EQ(m1.source_index, 0u);
 
-  // Model 1: Minimal with default empty configs
+  // Model 1：最简写法，配置默认为空
   const auto& m2 = parsed_cfg.models[1];
   EXPECT_EQ(m2.model_id, "m_mb_minimal");
   EXPECT_EQ(m2.model_type, "bge_reranker");

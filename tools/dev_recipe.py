@@ -53,7 +53,7 @@ SUPPORTED_RECIPES = {
 }
 
 UNSUPPORTED_RECIPE_DEPLOYMENT = "UNSUPPORTED_RECIPE_DEPLOYMENT"
-# These are labelled task fixtures, not an alternate capability catalog.
+# 这些是带标签的任务夹具，不是另一份能力 Catalog。
 DEFAULT_EFFECTS = {
     "keyword_match_rules": "tests/fixtures/effects/keyword_exact.json",
     "entity_extract_mock": "tests/fixtures/effects/entity_mock_exact.json",
@@ -78,7 +78,7 @@ def absolute(path, root):
 
 
 def require_deployment(conf_path, tool, root):
-    """Check the effective output slots through the native I/O resolver."""
+    """通过原生 I/O 解析器检查有效的输出槽位。"""
     conf = read_json_file(conf_path)
     pipe_path = conf.get("pipe_path")
     if not pipe_path or not isinstance(pipe_path, str):
@@ -92,7 +92,7 @@ def require_deployment(conf_path, tool, root):
         raise RecipeError(
             "This recipe supports only single-output deployment; use the native Operator workflow for other output layouts.",
             code=UNSUPPORTED_RECIPE_DEPLOYMENT)
-    # Persist only authored overrides; required slot defaults stay in native code.
+    # 只持久化作者显式覆盖的值；必填槽位的默认值保留在原生代码中。
     doc = read_json_file(pipeline_file)
     return doc.get("deployment", {}).get("io", {}).get("out_mem", {})
 
@@ -308,8 +308,8 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         spec = copy.deepcopy(spec)
         spec["name"] = name + "_effects"
         spec["dataset"] = os.path.relpath(dataset, effects_target.parent)
-        # Check deployment fields against the compiled source graph. A newly generated
-        # Node becomes visible to native validation only after verify rebuilds the tool.
+        # 对照已编译的源码图检查部署字段。新生成的 Node 只有在 verify
+        # 重新构建工具后，才对原生校验可见。
         bundle = deployment_root(root, target, models)
         with tempfile.TemporaryDirectory(prefix=".recipe-preview-", dir=root) as temporary:
             temp = Path(temporary)
@@ -403,7 +403,7 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
         configuration = resolved["configuration"]
         if Path(configuration["pipeline_path"]).resolve() != pipeline_path:
             raise RecipeError("Deployment points to a different Pipeline than --pipeline")
-        # Compare the effective model paths with the asset selection used by evaluate.
+        # 将有效模型路径与 evaluate 使用的资源选型进行比较。
         effective = configuration["effective_pipeline"]
         for model in effective.get("models", []):
             original = next(m for m in pipeline["models"] if m["model_id"] == model["model_id"])

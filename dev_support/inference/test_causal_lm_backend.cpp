@@ -28,8 +28,8 @@ int TestCausalLmSession::Generate(const std::string& formatted_prompt,
       if (diagnostic) *diagnostic = "Prompt is empty";
       return -1;
     }
-    // The fixture proves protocol composition and lifetime only. Business test
-    // Models that bind it own their deterministic response semantics.
+    // 该夹具只验证协议组合与生命周期。
+    // 绑定它的业务测试 Model 自行负责确定性的响应语义。
     *output = "test-generation";
     return 0;
   } catch (...) {

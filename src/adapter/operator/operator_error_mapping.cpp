@@ -44,8 +44,7 @@ OperatorFailureStage ControlFailureToOperatorStage(
 int PublicFailureCode(OperatorFailureStage stage, int internal_code) noexcept {
   switch (stage) {
     case OperatorFailureStage::kCreatePreparation:
-      // Adapter-owned categories keep their meaning; every other preparation
-      // failure is an invalid creation parameter or configuration.
+      // Adapter 自有类别保持原义；其余准备阶段失败均视为非法的创建参数或配置。
       switch (internal_code) {
         case COMPANY_ALG_ERR_UNSUPPORTED_BIZ:
         case COMPANY_ALG_ERR_REGISTRY_CONFLICT:
@@ -65,7 +64,7 @@ int PublicFailureCode(OperatorFailureStage stage, int internal_code) noexcept {
     case OperatorFailureStage::kControlRuntime:
       break;
   }
-  // Runtime guards and exception barriers already return public codes.
+  // 运行时守卫和异常屏障已返回公开错误码。
   return internal_code;
 }
 

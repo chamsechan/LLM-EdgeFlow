@@ -1,4 +1,4 @@
-# Developer build acceleration options shared by first-party and fetched targets.
+# 第一方目标与拉取的依赖目标共用的开发构建加速选项。
 
 set(LLM_EDGEFLOW_LINKER "auto" CACHE STRING
     "Linker selection: auto, mold, lld, or system")

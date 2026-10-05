@@ -193,7 +193,7 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
     ++SchemaProbeBackend::s_validate_count;
     SchemaProbeBackend::s_validated_config = config;
     const int device_id = config.at("device_id").get<int>();
-    // Exercise both exception barriers using otherwise valid field values.
+    // 使用其余均合法的字段值覆盖两种异常屏障。
     if (device_id == 15) throw std::runtime_error("probe validation exception");
     if (device_id == 16) throw 16;
     if (device_id == 0 && config.at("precision") == "int8") {
@@ -463,7 +463,7 @@ TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
 }
 
 TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
-  // 1. Duplicate field names
+  // 1. 字段名重复
   NodeDefinition dup_field_def;
   dup_field_def.node_type = "InvalidDupFieldNode";
   dup_field_def.config_fields = {
@@ -481,7 +481,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_range_def));
 
-  // 3. Default value kind mismatch
+  // 3. 默认值类型不匹配
   NodeDefinition default_mismatch_def;
   default_mismatch_def.node_type = "DefaultMismatchNode";
   default_mismatch_def.config_fields = {
@@ -490,7 +490,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(default_mismatch_def));
 
-  // 4. Default value not in enum
+  // 4. 默认值不在 enum 中
   NodeDefinition enum_mismatch_def;
   enum_mismatch_def.node_type = "EnumMismatchNode";
   enum_mismatch_def.config_fields = {
@@ -504,7 +504,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(enum_mismatch_def));
 
-  // 5. Duplicate enum values
+  // 5. enum 值重复
   NodeDefinition dup_enum_def;
   dup_enum_def.node_type = "DupEnumNode";
   dup_enum_def.config_fields = {
@@ -518,7 +518,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_enum_def));
 
-  // 6. Non-numeric field carrying minimum/maximum (CR-005)
+  // 6. 非数值字段带有 minimum/maximum
   NodeDefinition string_range_def;
   string_range_def.node_type = "StringRangeNode";
   string_range_def.config_fields = {
@@ -535,7 +535,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(bool_range_def));
 
-  // 7. Node declares model_dependencies with empty config_field
+  // 7. Node 声明了 model_dependencies，但 config_field 为空
   NodeDefinition missing_model_field_def;
   missing_model_field_def.node_type = "MissingModelFieldNode";
   missing_model_field_def.model_dependencies = {{"generator", "llm", ""}};
@@ -544,7 +544,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(missing_model_field_def));
 
-  // 8. Node declares model_dependencies but field not in config_fields
+  // 8. Node 声明了 model_dependencies，但字段不在 config_fields 中
   NodeDefinition unlisted_model_field_def;
   unlisted_model_field_def.node_type = "UnlistedModelFieldNode";
   unlisted_model_field_def.model_dependencies = {
@@ -554,7 +554,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(unlisted_model_field_def));
 
-  // 9. Node declares model_dependencies but config_field is not string
+  // 9. Node 声明了 model_dependencies，但 config_field 不是 string
   NodeDefinition nonstring_model_field_def;
   nonstring_model_field_def.node_type = "NonStringModelFieldNode";
   nonstring_model_field_def.model_dependencies = {
@@ -564,7 +564,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(nonstring_model_field_def));
 
-  // 9b. Node declares duplicate slot name or duplicate config field
+  // 9b. Node 声明了重复的槽位名或重复的配置字段
   NodeDefinition dup_slot_def;
   dup_slot_def.node_type = "DupSlotNode";
   dup_slot_def.model_dependencies = {
@@ -588,7 +588,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_dep_field_def));
 
-  // 10. Port constraints referencing undeclared ports
+  // 10. 端口约束引用了未声明的端口
   NodeDefinition invalid_constraint_def;
   invalid_constraint_def.node_type = "InvalidConstraintNode";
   invalid_constraint_def.inputs = {
@@ -598,15 +598,14 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                           std::vector<std::string>{"text", "unknown_port"})};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_constraint_def));
 
-  // 11. Invalid control command definition
+  // 11. 非法的 Control 命令定义
   NodeDefinition invalid_cmd_def;
   invalid_cmd_def.node_type = "InvalidCmdNode";
   invalid_cmd_def.control_commands = {
       ControlCommandDefinition(0, "invalid_cmd")};  // id <= 0
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_cmd_def));
 
-  // 12. A dynamic lifetime must reference a declared string enum containing
-  // only framework lifetimes.
+  // 12. 动态 lifetime 必须引用已声明的 string enum，且其中只含框架 lifetime。
   NodeDefinition invalid_lifetime_override;
   invalid_lifetime_override.node_type = "InvalidLifetimeOverrideNode";
   invalid_lifetime_override.inputs = {NodePortDefinition{
@@ -898,42 +897,42 @@ TEST_F(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
 }
 
 TEST_F(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
-  // Empty key
+  // 空键
   NodeDefinition empty_key_node;
   empty_key_node.node_type = "EmptyKeyPortNode";
   empty_key_node.inputs = {
       NodePortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(empty_key_node));
 
-  // Empty type_id
+  // 空 type_id
   NodeDefinition empty_type_node;
   empty_type_node.node_type = "EmptyTypePortNode";
   empty_type_node.inputs = {
       NodePortDefinition{"text", "", true, "1:1", "preserve", "request"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(empty_type_node));
 
-  // Invalid cardinality
+  // 非法 cardinality
   NodeDefinition invalid_card_node;
   invalid_card_node.node_type = "InvalidCardPortNode";
   invalid_card_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
                                                  "3:3", "preserve", "request"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_card_node));
 
-  // Invalid provenance
+  // 非法 provenance
   NodeDefinition invalid_prov_node;
   invalid_prov_node.node_type = "InvalidProvPortNode";
   invalid_prov_node.inputs = {
       NodePortDefinition{"text", "TextBatch", true, "1:1", "magic", "request"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_prov_node));
 
-  // Invalid lifetime
+  // 非法 lifetime
   NodeDefinition invalid_life_node;
   invalid_life_node.node_type = "InvalidLifePortNode";
   invalid_life_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
                                                  "1:1", "preserve", "eternal"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_life_node));
 
-  // Duplicate input port key
+  // 输入端口键重复
   NodeDefinition dup_key_node;
   dup_key_node.node_type = "DupKeyPortNode";
   dup_key_node.inputs = {NodePortDefinition{"text", "TextBatch", true, "1:1",
@@ -942,7 +941,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
                                             "preserve", "request"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_key_node));
 
-  // Biz definition with invalid port
+  // 含非法端口的 Biz 定义
   BizDefinition invalid_biz;
   invalid_biz.biz_name = "invalid_port_biz";
   invalid_biz.ingress = {
@@ -973,7 +972,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
 
 TEST_F(DefinitionSchemaValidationTest,
        ValidateConfigExceptionMappingAndShortCircuit) {
-  // Case 1: Field validation fails -> validate_config must NOT be called
+  // 情形 1：字段校验失败 -> 不得调用 validate_config
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 1;
   nlohmann::json pipeline_field_fail = {
@@ -988,8 +987,8 @@ TEST_F(DefinitionSchemaValidationTest,
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_FALSE(ThrowingValidateConfigNode::s_called);
 
-  // Case 2: Field validation passes, validate_config throws std::runtime_error
-  // -> mapped to kInvalidCombination
+  // 情形 2：字段校验通过，validate_config 抛出 std::runtime_error
+  // -> 映射为 kInvalidCombination
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 1;
   nlohmann::json pipeline_std_throw = {
@@ -1012,8 +1011,8 @@ TEST_F(DefinitionSchemaValidationTest,
   EXPECT_NE(it2->message.find("simulated config validation crash"),
             std::string::npos);
 
-  // Case 3: Field validation passes, validate_config throws non-std exception
-  // -> mapped to kInvalidCombination
+  // 情形 3：字段校验通过，validate_config 抛出非 std 异常
+  // -> 映射为 kInvalidCombination
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 2;
   auto plan3 = PipelineValidator::ValidateAndPlan(pipeline_std_throw);

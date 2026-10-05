@@ -7,9 +7,8 @@
 
 namespace llm_edgeflow {
 
-// Pools generated-token hidden states. This is a distinct vector space from
-// encoder embeddings: callers must evaluate retrieval quality and rebuild
-// indexes when changing the model, prompt, generation limit or pooling.
+// 对生成 token 的隐藏状态做池化。其向量空间不同于编码器 embedding：
+// 更换模型、prompt、生成上限或池化方式时，调用方须评估检索质量并重建索引。
 class GeneratedTextEmbeddingModel final
     : public ModelIdentity<GeneratedTextEmbeddingModel, IEmbeddingModel> {
  public:

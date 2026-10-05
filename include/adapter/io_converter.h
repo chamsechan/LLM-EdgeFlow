@@ -86,7 +86,7 @@ class ExternalInputBatchView {
   }
 };
 
-/** Synchronous Encode borrows slots and immutable specs from leased pools. */
+/** 同步 Encode 借用租约池中的槽位和不可变规格。 */
 class ExternalOutputBatchView {
  public:
   size_t count = 0;
@@ -128,10 +128,10 @@ class ExternalOutputBatchView {
  */
 struct InputDecodeOptions {
   std::string converter_id;
-  // Effective batch limit filled by the Operator; zero skips the upper bound.
+  // 由 Operator 填入的有效批大小上限；0 表示不检查上限。
   size_t max_batch_size = 0;
-  // Per-call table owned by the Operator. Despite const options, converters
-  // write each input row's external request ID here, in input order.
+  // 每次调用独有的表，归 Operator 所有。尽管 options 为 const，Converter
+  // 仍按输入顺序在此写入每行的外部请求 ID。
   std::vector<uint64_t>* request_ids = nullptr;
 };
 
@@ -140,7 +140,7 @@ struct InputDecodeOptions {
  */
 struct OutputEncodeOptions {
   std::string converter_id;
-  // The same per-call table, read-only: index i is input row i's external ID.
+  // 同一张调用表的只读视图：第 i 项是第 i 个输入行的外部 ID。
   const std::vector<uint64_t>* request_ids = nullptr;
 };
 
@@ -167,7 +167,7 @@ class PortBindings {
                             BlackboardTypeTraits<T>::TypeName()};
   }
 
-  // The token names a logical port; always resolve the actual key via bindings.
+  // token 表示逻辑端口；实际键始终通过 bindings 解析。
   template <typename T>
   BlackboardKey<T> Key(const BlackboardKey<T>& logical_port) const {
     return Key<T>(logical_port.name);
@@ -251,7 +251,7 @@ struct InputConverterDefinition {
   std::string external_type;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
-  // Optional converter-specific limit; zero adds no bound.
+  // 可选的 Converter 专属上限；0 表示不设上限。
   size_t max_batch_size = 0;
 
   DecodeInputFn decode_fn = nullptr;
@@ -269,7 +269,7 @@ struct OutputConverterDefinition {
   std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
   std::vector<ExternalSlotDefinition> external_slots;
   std::string cardinality = "1:1";
-  // Optional converter-specific limit; zero adds no bound.
+  // 可选的 Converter 专属上限；0 表示不设上限。
   size_t max_batch_size = 0;
   std::string capacity_policy = "reject_overflow";
 

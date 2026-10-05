@@ -291,7 +291,7 @@ class DiagnosticAllocationException final : public std::exception {
       : failure_(failure) {}
 
   const char* what() const noexcept override {
-    // The test owns the scope across both the first append and its fallback.
+    // 测试在首次 append 及其回退期间都持有该作用域。
     if (failure_ && !failure_->has_value()) failure_->emplace(0);
     return kReason;
   }
@@ -696,7 +696,7 @@ TEST_F(ModelConfigValidationTest,
     EXPECT_EQ(ModelValidationBackend::provider_calls, 0);
     EXPECT_EQ(ModelValidationBackend::load_calls, 0);
 
-    // The probe intentionally stops at Load, without weights or resource I/O.
+    // 探针有意止步于 Load，不涉及权重或资源 I/O。
     std::string diagnostic;
     EXPECT_EQ(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr);
     EXPECT_EQ(ModelValidationBackend::provider_calls, 1);
@@ -837,9 +837,8 @@ TEST_F(ModelConfigValidationTest,
   ConfigValidatedEmbeddingModel::diagnostic_failure = &failure;
   std::string diagnostic;
 
-  // what() arms the next allocation only after Factory enters its catch block;
-  // the long reason forces append to allocate. No allocation failure is active
-  // during definition lookup, normalization or validation.
+  // what() 在 Factory 进入 catch 块后才启用下一次分配失败；较长的原因使 append
+  // 必须分配内存。查找 Definition、归一化和校验期间都未启用分配失败。
   auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
   const bool injected = failure.has_value() && failure->Triggered();
   failure.reset();
@@ -869,7 +868,7 @@ TEST_F(ModelConfigValidationTest, DirectBgeCreationRejectsInvalidStringFields) {
       SCOPED_TRACE(field);
       for (const auto& value : invalid_values) {
         SCOPED_TRACE(value.dump());
-        // No Backend session or model resource exists; type validation wins.
+        // 不存在 Backend 会话或模型资源；类型校验优先。
         ModelCreateContext context;
         context.model_config[field] = value;
         std::string diagnostic;
@@ -1372,48 +1371,48 @@ TEST(ModelBackendDecouplingTest,
 
   std::string error;
 
-  // 1. Successful creation with defaults
+  // 1. 使用默认值成功创建
   auto model = WhisperAsrModel::Create(context, &error);
   ASSERT_NE(model, nullptr) << error;
   EXPECT_EQ(model->ModelType(), "whisper_asr");
   EXPECT_EQ(model->Capability(), "asr");
   EXPECT_EQ(model->Concurrency(), InferenceConcurrency::kConcurrent);
 
-  // 2. Null session
+  // 2. 会话为空
   ModelCreateContext null_ctx;
   EXPECT_EQ(WhisperAsrModel::Create(null_ctx, &error), nullptr);
 
-  // 3. Wrong protocol
+  // 3. 协议错误
   session->protocol = ExecutionProtocol::kTextGeneration;
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   session->protocol = ExecutionProtocol::kAudioTranscription;
 
-  // 4. Incompatible batch policy
+  // 4. 批策略不兼容
   session->policy = {2, 0};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   session->policy = {1, 1};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   session->policy = {1, 0};
 
-  // 5. Config validation: invalid language
+  // 5. 配置校验：非法 language
   context.model_config = {{"language", "fr"}};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   context.model_config = {{"language", ""}};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
 
-  // 6. Unsupported language by session
+  // 6. 会话不支持该语言
   session->supported_languages = {"en"};
   context.model_config = {{"language", "zh"}};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   session->supported_languages = {"zh", "en", "auto"};
 
-  // 7. Config validation: max_audio_seconds bounds [1, 60]
+  // 7. 配置校验：max_audio_seconds 范围 [1, 60]
   context.model_config = {{"max_audio_seconds", 0}};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   context.model_config = {{"max_audio_seconds", 61}};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
 
-  // 8. Config validation: max_output_bytes bounds [1, 65536]
+  // 8. 配置校验：max_output_bytes 范围 [1, 65536]
   context.model_config = {{"max_output_bytes", 0}};
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   context.model_config = {{"max_output_bytes", 65537}};
@@ -1434,17 +1433,17 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
       WhisperAsrModel::Create(context, &error));
   ASSERT_NE(model, nullptr) << error;
 
-  // 1. Null outputs pointer returns -1
+  // 1. outputs 指针为空时返回 -1
   AudioPcmBatch audio;
   EXPECT_EQ(model->Transcribe(audio, nullptr), -1);
 
-  // 2. Empty batch returns 0, no session calls
+  // 2. 空批次返回 0，且不调用会话
   TextBatch outputs;
   EXPECT_EQ(model->Transcribe(audio, &outputs), 0);
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
 
-  // 3. Item with empty PCM returns empty string, preserving req_id and sub_id
+  // 3. PCM 为空的条目返回空字符串，并保留 req_id 和 sub_id
   audio.emplace_back(10, 1, AudioPcmPayload({}, 16000));
   EXPECT_EQ(model->Transcribe(audio, &outputs), 0);
   ASSERT_EQ(outputs.size(), 1U);
@@ -1452,9 +1451,9 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_EQ(outputs[0].sub_id, 1U);
   EXPECT_EQ(outputs[0].data, "");
   EXPECT_EQ(session->transcribe_call_count,
-            0U);  // empty pcm skips backend call
+            0U);  // 空 PCM 跳过 Backend 调用
 
-  // 4. Sample rate != 16000 fails closed before session call
+  // 4. 采样率 != 16000 时，在调用会话前 fail-closed
   audio.clear();
   outputs.clear();
   audio.emplace_back(11, 0,
@@ -1463,7 +1462,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
 
-  // 5. Audio < 1600 samples (100ms) fails closed before session call
+  // 5. 音频少于 1600 个采样点 (100 毫秒) 时，在调用会话前 fail-closed
   audio.clear();
   audio.emplace_back(12, 0,
                      AudioPcmPayload(std::vector<float>(1599, 0.0f), 16000));
@@ -1471,7 +1470,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
 
-  // 6. Audio > max_audio_seconds fails closed before session call
+  // 6. 音频超过 max_audio_seconds 时，在调用会话前 fail-closed
   audio.clear();
   audio.emplace_back(
       13, 0, AudioPcmPayload(std::vector<float>(30 * 16000 + 1, 0.0f), 16000));
@@ -1479,7 +1478,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
 
-  // 7. Non-finite sample fails closed
+  // 7. 含非有限采样值时 fail-closed
   audio.clear();
   std::vector<float> nan_pcm(1600, 0.0f);
   nan_pcm[10] = std::numeric_limits<float>::quiet_NaN();
@@ -1488,7 +1487,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
 
-  // 8. Sample outside [-1, 1] fails closed
+  // 8. 采样值超出 [-1, 1] 时 fail-closed
   audio.clear();
   std::vector<float> overflow_pcm(1600, 0.0f);
   overflow_pcm[5] = 1.05f;
@@ -1497,7 +1496,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
 
-  // 9. Valid audio transcribes and trims whitespace
+  // 9. 合法音频完成转写并去除首尾空白
   audio.clear();
   audio.emplace_back(20, 0,
                      AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
@@ -1508,28 +1507,28 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_EQ(outputs[0].data, "你好世界");
   EXPECT_EQ(session->transcribe_call_count, 1U);
 
-  // 10. Embedded NUL byte in output rejected and cleared
+  // 10. 输出中嵌入 NUL 字节时拒绝并清空
   session->return_embedded_nul = true;
   outputs.clear();
   EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
   EXPECT_TRUE(outputs.empty());
   session->return_embedded_nul = false;
 
-  // 11. Invalid UTF-8 in output rejected and cleared
+  // 11. 输出含非法 UTF-8 时拒绝并清空
   session->return_invalid_utf8 = true;
   outputs.clear();
   EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
   EXPECT_TRUE(outputs.empty());
   session->return_invalid_utf8 = false;
 
-  // 12. Output exceeds max_output_bytes rejected and cleared
+  // 12. 输出超过 max_output_bytes 时拒绝并清空
   session->transcript_to_return = std::string(2000, 'A');
   outputs.clear();
   EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
   EXPECT_TRUE(outputs.empty());
   session->transcript_to_return = "你好世界";
 
-  // 13. Multi-item batch preserves ordering and provenance
+  // 13. 多条目批次保持顺序和来源
   audio.clear();
   audio.emplace_back(100, 0,
                      AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
@@ -1549,7 +1548,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_EQ(outputs[2].sub_id, 0U);
   EXPECT_EQ(session->transcribe_call_count, 3U);
 
-  // 14. Second item fails during inference -> all outputs cleared (rollback)
+  // 14. 第二个条目推理失败 -> 清空所有输出 (回滚)
   session->fail_on_call_index = 2;
   session->transcribe_call_count = 0;
   outputs.clear();
@@ -1563,7 +1562,7 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_TRUE(diagnostic.empty());
   ASSERT_EQ(outputs.size(), audio.size());
 
-  // 15. Pre-validation on 3rd item failure -> session called 0 times
+  // 15. 第 3 个条目预校验失败 -> 会话调用 0 次
   audio[2].data.sample_rate = 8000;
   session->transcribe_call_count = 0;
   outputs.clear();

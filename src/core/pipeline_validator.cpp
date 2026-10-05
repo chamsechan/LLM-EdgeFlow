@@ -43,8 +43,8 @@ void AddPortFlowDiagnostic(
     const std::string& consumer_id, PortDirection location,
     const std::string& logical_port, const std::string& bound_key,
     const PortContract& producer, const PortContract& consumer) {
-  // A node input diagnostic belongs to the consumer; boundary diagnostics
-  // belong to the producer. Preserve these locations and related-node IDs.
+  // Node 输入诊断归属消费者，边界诊断归属生产者。
+  // 保留这些位置和相关 Node ID。
   const bool boundary = location == PortDirection::kOutput;
   Add(report, code, path, std::move(message),
       boundary ? producer_id : consumer_id, logical_port,
@@ -79,16 +79,14 @@ NodePortDefinition EffectivePortDefinition(
   return effective;
 }
 
-// Number of items one request has under a Blackboard key. Node cardinality
-// states the node's own relation: inputs say how items are consumed ("1:1"
-// item by item, "N:1" grouped by request, "N:M" arbitrarily) and accept any
-// shape; outputs say how produced items relate to the item-wise inputs. The
-// shape is derived along the DAG and checked only where it matters: a boundary
-// requiring one item per request, and item-wise inputs that must pair up.
+// 一个请求在某 Blackboard 键下的条目数。Node 的 cardinality 描述 Node 自身的
+// 关系：输入表示条目的消费方式 ("1:1" 逐条，"N:1" 按请求分组，"N:M" 任意)，
+// 且接受任意形状；输出表示产出条目与逐条输入之间的关系。形状沿 DAG 推导，
+// 只在关键处检查：要求每请求一个条目的边界，以及必须两两配对的逐条输入。
 struct KeyShape {
   enum class Kind { kUnknown, kPerRequest, kMulti };
   Kind kind = Kind::kUnknown;
-  std::string origin;  // Fan-out that generated the items of a kMulti shape.
+  std::string origin;  // 生成 kMulti 形状条目的扇出来源。
 
   static KeyShape Unknown() { return {}; }
   static KeyShape PerRequest() { return {Kind::kPerRequest, {}}; }
@@ -126,8 +124,8 @@ nlohmann::json ShapeFacts(const KeyShape& shape) {
   return {{"kind", "unknown"}};
 }
 
-// Biz and IO boundary ports count items per request: "1:1" is exactly one
-// item, any other declaration is a collection belonging to the request.
+// Biz 和 IO 边界端口按请求计数："1:1" 恰为一个条目，
+// 其他声明均为归属该请求的集合。
 KeyShape BoundaryShape(const PortContract& port, std::string origin) {
   return port.cardinality == "1:1" ? KeyShape::PerRequest()
                                    : KeyShape::Multi(std::move(origin));
@@ -173,8 +171,8 @@ int LifetimeRank(const std::string& lifetime) {
 }
 
 bool TraversesParent(const std::filesystem::path& path) {
-  // Retain the portable leading Windows-parent check even on hosts whose
-  // native filesystem treats backslashes as ordinary filename characters.
+  // 即使宿主文件系统把反斜杠视为普通文件名字符，
+  // 仍保留可移植的 Windows 前导父目录检查。
   return HasParentPathComponent(path) || path.string().rfind("..\\", 0) == 0;
 }
 
@@ -505,8 +503,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         }
       }
 
-      // 8. Orchestration only performs environment-neutral lexical path checks.
-      // Deployment roots are resolved by Integration before runtime validation.
+      // 流程编排层只做与环境无关的词法路径检查。
+      // 部署根目录由接入适配层在运行时校验前解析。
       const auto normalized_path =
           std::filesystem::path(model.model_path).lexically_normal();
       if (!normalized_path.is_absolute() && TraversesParent(normalized_path)) {
@@ -664,7 +662,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortContract>>>
       producers;
-  // Resolve ownership before ordering. Array order never selects a producer.
+  // 先确定归属再排序。数组顺序从不决定生产者。
   for (const auto& node : nodes) {
     auto def_it = def_by_id.find(node.id);
     if (def_it == def_by_id.end()) continue;
@@ -715,9 +713,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
-  // Missing-producer errors cascade only when an unregistered node's
-  // explicit mapping is the sole possible source. Known producers or ingress
-  // still permit independent type/uniqueness/conflict checks.
+  // 仅当未注册 Node 的显式映射是唯一可能来源时，缺失生产者错误才会级联。
+  // 已知生产者或入口仍允许独立进行类型/唯一性/冲突检查。
   auto has_only_unresolved_source = [&](const std::string& key) {
     auto it = producers.find(key);
     return unresolved_output_keys.count(key) &&
@@ -747,8 +744,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     const auto& definition = *def_it->second;
     const auto& node = *node_by_id[id];
     const nlohmann::json& normalized_config = normalized_config_by_node.at(id);
-    // Shape shared by the bound item-wise inputs; a node without one emits a
-    // single item per request.
+    // 已绑定逐条输入共享的形状；没有逐条输入的 Node 每个请求只产出一个条目。
     KeyShape item_shape = KeyShape::PerRequest();
     std::string item_shape_port;
     std::string item_shape_key;
@@ -1085,8 +1081,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   }
 
   if (parsed.max_parallel_workers > 1) {
-    // Split unsafe nodes and users of shared serialized models into their own
-    // layers. Write conflicts are still checked against each original layer.
+    // 将非线程安全 Node 和共享串行模型的使用者拆分到各自的层。
+    // 写冲突仍按原始层检查。
     auto serialized_models = [&](const std::string& id) {
       std::unordered_set<std::string> models;
       for (const auto& binding : plan.node_plans[id].model_bindings) {

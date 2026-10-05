@@ -13,10 +13,10 @@
 namespace alg_demo {
 
 /**
- * @brief Apply the optional LLMEDGEFLOW_LEVEL environment setting.
+ * @brief 应用可选的 LLMEDGEFLOW_LEVEL 环境变量。
  *
- * Valid decimal values are 0 (Fatal) through 5 (Verbose). Missing or invalid
- * values silently preserve the current process-wide log level.
+ * 合法值为十进制 0 (Fatal) 到 5 (Verbose)。缺失或非法时静默保留当前的
+ * 进程级日志级别。
  */
 void ConfigureLogLevelFromEnvironment() noexcept;
 
@@ -24,14 +24,14 @@ void ConfigureLogLevelFromEnvironment() noexcept;
  * @brief Demo 运行参数对象 (由命令行参数、Profile 配置与默认安全值合并而成)
  */
 struct DemoOptions {
-  std::string profiles_file;  // Optional deployment-specific profile document
+  std::string profiles_file;  // 可选的部署专属 Profile 文档
   std::string profile;        // 预定义运行配置 Profile 标识
   std::string biz;            // SDK 从所选配置解析出的业务身份
   std::string config_path;    // Operator .conf 路径
   std::string dataset_path;   // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
-  // Execution settings are configured only by Profile JSON (or defaults).
+  // 执行参数只能由 Profile JSON 配置 (或使用默认值)。
   int batch_size = alg_demo::kDemoBatchSize;  // 最大批大小 (支持按批分块分发)
   int device_id = alg_demo::kDemoDeviceId;  // 设备 ID
   std::string chip = alg_demo::kDemoChip;   // 计算平台芯片类型字符串
@@ -41,7 +41,7 @@ struct DemoOptions {
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
   std::optional<int> control_cmd;  // 节点命令 ID；必须配合 control_file
   std::string suite;               // 执行套件 ("smoke", "real", "all")
-  bool example_control = false;    // Explicitly apply the Demo example update.
+  bool example_control = false;    // 显式应用 Demo 示例更新。
   bool append = false;             // 结果文件是否追加模式
   bool allow_fallback_sample = false;  // 测试集缺失时是否允许使用内置样例
   bool list_only = false;  // 是否仅列出可用 Business 和 Profile
@@ -91,8 +91,8 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
                                     nlohmann::json* out_root,
                                     std::string* error_msg);
 
-// Select and merge only documents returned by LoadAndValidateProfilesDocument.
-// These operations reuse the same validated snapshot without reopening files.
+// 只选择并合并 LoadAndValidateProfilesDocument 返回的文档。
+// 这些操作复用同一份已校验快照，不会重新打开文件。
 std::vector<std::string> SelectProfilesForSuite(const nlohmann::json& root,
                                                 const std::string& suite_name);
 int MergeProfileOptions(const nlohmann::json& root,

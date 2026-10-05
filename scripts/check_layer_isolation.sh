@@ -11,7 +11,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   TMP_TEST_DIR=$(mktemp -d /tmp/layerguard_test_XXXXXX)
   trap 'rm -rf "${TMP_TEST_DIR}"' EXIT
 
-  # Test Case 1: Missing directory must cause script to fail
+  # 用例 1：缺少目录时脚本必须失败
   mkdir -p "${TMP_TEST_DIR}/empty_repo"
   set +e
   REPO_ROOT="${TMP_TEST_DIR}/empty_repo" bash "${SCRIPT_PATH}" >/dev/null 2>&1
@@ -22,7 +22,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
 
-  # Test Case 2: Injected illegal include must cause script to fail
+  # 用例 2：注入非法 include 时脚本必须失败
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/common_nodes"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/custom_nodes"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/biz"
@@ -40,7 +40,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
 
-  # Test Case 3: Lower layers must not regain business-owned Blackboard keys.
+  # 用例 3：下层不得重新引入业务专属的 Blackboard 键。
   : > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/core"
   echo '#include "adapter/biz_blackboard_keys.h"' > \
@@ -56,7 +56,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
 
-  # Test Case 4: The direct Kite SDK header must remain in its own Backend.
+  # 用例 4：Kite SDK 头文件只能直接出现在其自身的 Backend 中。
   : > "${TMP_TEST_DIR}/violation_repo/src/core/bad_core.cpp"
   for KITE_INJECTION_PATH in \
     "include/engine/bad_model.h" \
@@ -85,7 +85,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     : > "${KITE_INJECTION_FILE}"
   done
 
-  # Test Case 5: The direct whisper.h header must remain in its own Backend.
+  # 用例 5：whisper.h 头文件只能直接出现在其自身的 Backend 中。
   for WHISPER_INJECTION_PATH in \
     "include/engine/bad_model.h" \
     "src/engine/models/whisper_asr/bad_model.cpp" \
@@ -113,7 +113,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     : > "${WHISPER_INJECTION_FILE}"
   done
 
-  # Test Case 6: Custom Nodes obey the same platform boundary as common Nodes.
+  # 用例 6：自定义 Node 与通用 Node 遵守相同的平台边界。
   for CUSTOM_INCLUDE in \
     '#include "edgeflow/operator/interface.h"' \
     '# include "../adapter/biz_blackboard_keys.h"' \
@@ -134,7 +134,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   done
   : > "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/bad_node.cpp"
 
-  # Test Case 7: Reusable framework code must not depend on custom implementations.
+  # 用例 7：可复用的框架代码不得依赖自定义实现。
   for CUSTOM_CONSUMER in \
     "src/common_nodes/bad_node.cpp" \
     "include/nodes/bad_support.h" \
@@ -162,7 +162,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     : > "${CUSTOM_CONSUMER_FILE}"
   done
 
-  # Test Case 8: Custom source ownership is checked even before any nodes exist.
+  # 用例 8：即使尚无任何 Node，也要检查自定义源码的归属。
   mkdir -p "${TMP_TEST_DIR}/violation_repo/include/nodes"
   cp "${REPO_ROOT}/include/nodes/node_base.h" \
     "${TMP_TEST_DIR}/violation_repo/include/nodes/node_base.h"
@@ -193,7 +193,7 @@ echo "======================================================================"
 echo " [LayerGuard] Checking Integration / Orchestration / Capability Nodes / Model Execution Boundaries..."
 echo "======================================================================"
 
-# Rule 1: All capability nodes must keep platform structs and conversion in Integration.
+# 规则 1：所有能力节点都须把平台结构及其转换留在接入适配层。
 NODE_SOURCE_PATHS=("$REPO_ROOT/src/common_nodes" "$REPO_ROOT/src/custom_nodes")
 for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
   if [ ! -d "$NODE_SOURCE_PATH" ]; then
@@ -213,7 +213,7 @@ if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Capability Nodes -> Integration reverse include violations."
 
-# Rule 2: Integration Adapters (src/adapter/biz/) MUST NEVER directly include Model Execution Engine headers
+# 规则 2：接入适配层 (src/adapter/biz/) 绝不能直接 include 模型执行层头文件
 VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/biz" || true)
 
 if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
@@ -224,7 +224,7 @@ if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Integration -> Model Execution illegal engine include violations."
 
-# Rule 3: Common Nodes (src/common_nodes/) MUST NEVER depend on biz-specific nodes
+# 规则 3：通用 Node (src/common_nodes/) 绝不能依赖业务专属 Node
 VIOLATIONS_COMMON_BIZ=$(grep -rnE '#include\s*["<](biz/|src/biz/|business/|src/business/)' "$REPO_ROOT/src/common_nodes" || true)
 
 if [ -n "$VIOLATIONS_COMMON_BIZ" ]; then
@@ -234,7 +234,7 @@ if [ -n "$VIOLATIONS_COMMON_BIZ" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Common Node -> Biz Node reverse include violations."
 
-# Rule 3b: Framework code cannot acquire a dependency on custom Node implementations.
+# 规则 3b：框架代码不得依赖自定义 Node 实现。
 VIOLATIONS_CUSTOM_DEPENDENCY=$(grep -rnE \
   '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?custom_nodes/' \
   "$REPO_ROOT/src/common_nodes" "$REPO_ROOT/include/nodes" \
@@ -247,8 +247,8 @@ if [ -n "$VIOLATIONS_CUSTOM_DEPENDENCY" ]; then
 fi
 echo "✅ [LayerGuard PASS] Framework code does not depend on custom Node implementations."
 
-# Rule 4: Integration owns business-facing Blackboard key names. Orchestration, Capability Nodes and Model Execution may
-# depend only on neutral value contracts and resolved logical port bindings.
+# 规则 4：业务 Blackboard 键名归接入适配层所有。流程编排层、能力节点层和
+# 模型执行层只能依赖中性值契约和已解析的逻辑端口绑定。
 LOWER_LAYER_PATHS=(
   "$REPO_ROOT/include/core" "$REPO_ROOT/src/core"
   "$REPO_ROOT/include/nodes" "${NODE_SOURCE_PATHS[@]}"
@@ -264,8 +264,8 @@ if [ -n "$VIOLATIONS_BIZ_KEYS" ]; then
 fi
 echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Integration."
 
-# Rule 4b: The direct Kite SDK belongs only to its concrete Backend. Check
-# before build-specific guards so the isolation self-test needs no SDK/build.
+# 规则 4b：Kite SDK 只能直接出现在其具体 Backend 中。在构建相关的守卫之前
+# 检查，使隔离自测无需 SDK 或构建。
 KITE_VENDOR_OUTSIDE_BACKEND=$(grep -rnE \
   '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?kiteLLM\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" 2>/dev/null | \
@@ -277,7 +277,7 @@ if [ -n "$KITE_VENDOR_OUTSIDE_BACKEND" ]; then
 fi
 echo "✅ [LayerGuard PASS] The kiteLLM vendor header stays inside its concrete Backend."
 
-# Rule 4c: The direct whisper.h header belongs only to its concrete Backend.
+# 规则 4c：whisper.h 头文件只能直接出现在其具体 Backend 中。
 WHISPER_VENDOR_OUTSIDE_BACKEND=$(grep -rnE \
   '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?whisper\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" 2>/dev/null | \
@@ -289,7 +289,7 @@ if [ -n "$WHISPER_VENDOR_OUTSIDE_BACKEND" ]; then
 fi
 echo "✅ [LayerGuard PASS] The whisper.h vendor header stays inside its concrete Backend."
 
-# Rule 5: The neutral TraceableItem contract has one canonical include path.
+# 规则 5：中性的 TraceableItem 契约只有一个规范 include 路径。
 LEGACY_TRACEABLE_HEADER="$REPO_ROOT/include/core/traceable_item.h"
 LEGACY_TRACEABLE_INCLUDES=$(grep -rnE \
   '#include\s*["<]core/traceable_item\.h[">]' \
@@ -302,8 +302,8 @@ if [ -e "$LEGACY_TRACEABLE_HEADER" ] || [ -n "$LEGACY_TRACEABLE_INCLUDES" ]; the
 fi
 echo "✅ [LayerGuard PASS] TraceableItem uses the neutral contracts include path."
 
-# Rule 6: Node support consumes the extracted validated-node plan, not the full
-# Orchestration validator implementation contract.
+# 规则 6：Node 支持代码只消费抽取出的已校验 Node 计划，
+# 而不是完整的编排层 Validator 实现契约。
 NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_base.h"
 if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
    ! grep -q 'core/validated_node_plan.h' "$NODE_SUPPORT_HEADER" || \
@@ -313,8 +313,7 @@ if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
 fi
 echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
 
-# Rule 7: Source ownership in CMake must preserve the four compile-time layers
-# and the explicit composition root.
+# 规则 7：CMake 中的源码归属必须保持四个编译期分层和显式的组合根。
 for OWNERSHIP in \
   "src/engine/CMakeLists.txt:edgeflow_model_execution_objects" \
   "src/common_nodes/CMakeLists.txt:edgeflow_capability_nodes_objects" \
@@ -347,7 +346,7 @@ if ! grep -q 'target_sources(edgeflow_composition_objects' \
 fi
 echo "✅ [LayerGuard PASS] CMake source ownership preserves all four layers and the composition root."
 
-# Rule 8: Pure C11 Syntax & ABI Compliance Check via standard C compiler
+# 规则 8：用标准 C 编译器检查纯 C11 语法与 ABI 合规性
 GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
 cleanup_generated_version() {
   rm -rf "${GENERATED_VERSION_INCLUDE}"
@@ -388,7 +387,7 @@ if [[ -n "${C11_COMPILER}" ]]; then
     edgeflow/log.h edgeflow/operator/types.h \
     platform_mock/error_codes.h \
     platform_mock/operator_data_types.h; do
-    # A macro-only header is valid; provide a translation unit for -pedantic.
+    # 纯宏头文件也合法；为 -pedantic 提供一个翻译单元。
     printf '#include "%s"\nint main(void) { return 0; }\n' "${C11_HEADER}" | \
       "${C11_COMPILER}" -std=c11 -pedantic-errors -fsyntax-only -x c \
         -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" -
@@ -398,7 +397,8 @@ else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
 
-# Rule 9: Demo Layer (demo/) MUST NEVER directly include internal SDK headers (adapter/, core/, biz/, business/, engine/, src/)
+# 规则 9：Demo 层 (demo/) 绝不能直接 include SDK 内部头文件
+# (adapter/、core/、biz/、business/、engine/、src/)
 VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|business/|engine/|src/)' "$REPO_ROOT/demo" || true)
 
 if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
@@ -409,7 +409,7 @@ if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
 
-# Rule 10: LLM vendor runtime and model semantic boundary.
+# 规则 10：LLM 厂商运行时与模型语义边界。
 LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" \
   --exclude-dir=backends 2>/dev/null || true)

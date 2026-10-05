@@ -20,7 +20,6 @@ class StructuredJsonParseNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
-// 1. Process Markdown JSON Block Extraction
 TEST_F(StructuredJsonParseNodeTest, ProcessMarkdownJsonBlockExtraction) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
@@ -152,7 +151,6 @@ TEST_F(StructuredJsonParseNodeTest, ExtractionModeControlsSurroundingText) {
   }
 }
 
-// 2. Required Fields and Field Types Validation
 TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
@@ -163,7 +161,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
       {"failure_policy", "fail"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
-  // Valid sample
+  // 合法样本
   {
     AlgContext ctx;
     TextBatch inputs;
@@ -172,7 +170,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     EXPECT_EQ(node->Process(&ctx), 0);
   }
 
-  // Type mismatch: risk_score is string instead of number
+  // 类型不匹配：risk_score 是字符串而非数字
   {
     AlgContext ctx;
     TextBatch inputs;
@@ -182,7 +180,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     EXPECT_EQ(node->Process(&ctx), -6102);
   }
 
-  // Missing required field
+  // 缺少必填字段
   {
     AlgContext ctx;
     TextBatch inputs;
@@ -202,7 +200,6 @@ TEST_F(StructuredJsonParseNodeTest, MissingInputFailsClosed) {
   EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
-// 3. Fallback Policy on Malformed Input
 TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);

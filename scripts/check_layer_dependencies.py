@@ -7,8 +7,8 @@ import re
 import tempfile
 
 
-# Header-only runtime and authoring contracts intentionally shared with Nodes.
-# Additions require an explicit ownership decision, not a directory-wide exemption.
+# 有意与 Node 共享的纯头文件运行时及编写契约。
+# 新增条目需要明确的归属决定，而不是按目录整体豁免。
 NODE_CORE_CONTRACTS = set(
     (Path(__file__).resolve().parents[1] / "cmake_ext/node_core_contracts.txt")
     .read_text(encoding="utf-8").splitlines())
@@ -39,7 +39,7 @@ def forbidden(source, target):
     src, dst = owner(source), owner(target)
     if src in {"Contracts", "Integration", "Orchestration", "Capability Nodes", "Model Execution"} and dst == "Support":
         return True
-    # Shared contracts must not conceal a dependency on orchestration internals.
+    # 共享契约不得隐藏对编排内部实现的依赖。
     if source in NODE_CORE_PATHS and dst == "Orchestration" and target not in NODE_CORE_PATHS:
         return True
     if src == "Contracts" and dst not in {"Contracts", "Support"}:
@@ -109,13 +109,13 @@ def check(root):
                 if vendors and not any(relative.startswith(f"src/engine/backends/{vendor}/") for vendor in vendors):
                     errors.append(f"{prefix}: vendor header outside its concrete Backend")
                     continue
-                # Respect quoted local includes, root-relative paths, public
-                # include paths and private src paths, including ../ aliases.
+                # 支持带引号的本地 include、根相对路径、公共 include 路径
+                # 和私有 src 路径，包括 ../ 别名。
                 candidates = (source.parent / include, root / include,
                               root / "include" / include, root / "src" / include)
                 target = next((p.resolve() for p in candidates if p.is_file()), None)
                 if target is None or root not in target.parents:
-                    continue  # standard library / fetched dependencies
+                    continue  # 标准库 / 拉取的依赖
                 target_name = target.relative_to(root).as_posix()
                 if forbidden(relative, target_name):
                     errors.append(f"{prefix}: {owner(relative)} -> {owner(target_name)} forbidden ({target_name})")
@@ -175,7 +175,7 @@ def self_test():
                 file = write(path, directive + "\n")
                 assert check(root), (path, directive)
                 file.unlink()
-        # A local helper must not conceal a reverse dependency.
+        # 本地辅助文件不得隐藏反向依赖。
         write("src/engine/models/demo/model.cpp", '#include "helper.h"\n')
         helper = write("src/engine/models/demo/helper.h", '#include "adapter/io_converter.h"\n')
         assert check(root)

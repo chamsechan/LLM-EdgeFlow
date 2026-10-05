@@ -44,8 +44,8 @@ inline bool IsValidConfigValueKind(ConfigValueKind kind) noexcept {
 
 namespace detail {
 
-// Exclusive integer upper bounds are exactly representable in double;
-// converting INT64_MAX/UINT64_MAX to double rounds up to these values.
+// 不含端点的整数上界可在 double 中精确表示；
+// INT64_MAX/UINT64_MAX 转为 double 时会向上舍入到这些值。
 inline constexpr double kInt64UpperBound = 9223372036854775808.0;    // 2^63
 inline constexpr double kUint64UpperBound = 18446744073709551616.0;  // 2^64
 

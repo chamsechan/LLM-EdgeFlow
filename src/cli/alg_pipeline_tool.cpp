@@ -55,9 +55,8 @@ nlohmann::json ToolError(const std::string& code, const std::string& message,
                                                   {"severity", "error"}}})}};
 }
 
-// Keep build/test registration guidance in the CLI; SDK/Core diagnostics stay
-// tool-neutral. Wrapped deployment errors supply their original code
-// separately.
+// 构建/测试注册指引保留在 CLI 中；SDK/Core 诊断保持与工具无关。
+// 被包装的部署错误另行提供其原始错误码。
 void PrintRegistrationHint(const nlohmann::json& response,
                            const std::string& source_code = {}) {
 #ifdef LLM_EDGEFLOW_TOOL_HAS_TEST_REGISTRATIONS

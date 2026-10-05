@@ -18,7 +18,7 @@ namespace llm_edgeflow {
  * @brief 已验证的不可变接入计划 (同时包含 I/O 转换器绑定与内部 Pipeline 计划)
  */
 struct ValidatedIoPlan : IoBindingSelection {
-  // External document snapshot with resolved model paths, without derived biz.
+  // 外部文档快照，模型路径已解析，不含推导出的 biz。
   nlohmann::json resolved_pipeline_json;
 
   std::unique_ptr<ValidatedPipelinePlan> pipeline_plan;

@@ -57,9 +57,8 @@ COMMON_CMAKE_ARGS=(
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
   -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 )
-# Reuse already-fetched source trees when available. This keeps sanitizer
-# builds deterministic in restricted/offline development environments while
-# preserving FetchContent's normal download behavior on a clean checkout.
+# 优先复用已拉取的源码树。这样在受限/离线开发环境中 sanitizer 构建保持确定，
+# 在干净检出时仍保留 FetchContent 的正常下载行为。
 if [[ -d "${PROJECT_ROOT}/build/_deps/nlohmann_json-src" ]]; then
   COMMON_CMAKE_ARGS+=(
     -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON="${PROJECT_ROOT}/build/_deps/nlohmann_json-src"
@@ -100,8 +99,8 @@ NCPU="${LLM_EDGEFLOW_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null 
 if [[ "${MODE}" == "fast" ]]; then
   cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"${NCPU}"
 elif [[ "${MODE}" == "ci-runtime" ]]; then
-  # Build only executables run by sanitizer-runtime tests. Tooling binaries such as
-  # alg_pipeline_tool and alg_show are tier4-only; a missing target here fails CTest.
+  # 只构建 sanitizer-runtime 测试会运行的可执行文件。alg_pipeline_tool、
+  # alg_show 等工具二进制只属于 tier4；这里缺少目标会导致 CTest 失败。
   cmake --build "${BUILD_DIR}" -j"${NCPU}" --target \
     alg_demo \
     edgeflow_test_core_runner \

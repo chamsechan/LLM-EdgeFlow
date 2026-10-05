@@ -8,12 +8,11 @@
 namespace llm_edgeflow {
 
 /**
- * @brief Resolve deployment model references before entering Orchestration.
+ * @brief 进入流程编排层前解析部署中的模型引用。
  *
- * A non-empty model_root_dir denotes the directory that directly contains
- * model artifacts and sidecars. Relative model_path values are resolved under
- * that directory and cannot escape it. With an empty root, deployment model
- * paths must already be absolute.
+ * 非空的 model_root_dir 表示直接存放模型文件及其附属文件的目录。相对的
+ * model_path 在该目录下解析，且不能越出该目录。根目录为空时，部署中的
+ * 模型路径必须已是绝对路径。
  */
 bool ResolveDeploymentModelPaths(
     const nlohmann::json& pipeline_json, const std::string& model_root_dir,
