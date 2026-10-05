@@ -359,11 +359,6 @@ class FieldBuilder {
     return *this;
   }
 
-  FieldBuilder& Semantic(std::string sem) {
-    semantic_ = std::move(sem);
-    return *this;
-  }
-
   std::unique_ptr<ParameterFieldBinding<ParamsT>> Build() const {
     if (required_ == has_default_) {
       throw std::invalid_argument(
