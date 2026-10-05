@@ -208,8 +208,8 @@ ValueType。宿主类型的转换都留在接入适配层，Node、Model 和 Bac
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
 新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
 Pipeline 只选择 `io_binding`，Demo 调用 `ResolveOperatorConfigBiz` 解析业务身份并选择 runner。
-Profile 不填写业务名。SDK 预检与注册审计共用同业务 binding 的外部协议（Converter 的 `schema_id`）、载体及槽位一致性检查。Demo 按该契约准备载体，
-不能仅因宿主类型相同就复用另一业务契约；同一业务也不能登记载体或协议不兼容的 binding。
+Profile 不填写业务名。每个业务只注册一个 binding，业务名唯一确定外部协议、载体及槽位。Demo 按该契约准备载体，
+不能仅因宿主类型相同就复用另一业务契约；外部协议不同的输入或输出属于另一个业务。
 这里的数据转换仅指载体构造和结果展示，外部协议的解包、
 字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
 新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：

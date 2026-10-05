@@ -339,10 +339,13 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   EXPECT_TRUE(reg.Audit(&errors));
   EXPECT_TRUE(errors.empty());
 
-  // 2. 注册未被选择使用的非法绑定：输入 Converter 的端口不在业务契约中
+  // 2. 为另一业务注册未被选用的非法绑定：输入端口不在业务契约中
+  auto unselected_biz = *PipelineCatalog::FindBiz("test_biz_v1");
+  unselected_biz.biz_name = "unselected_biz";
+  ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(unselected_biz));
   IoBindingDefinition illegal_binding;
   illegal_binding.binding_id = "unselected_bad.operator.v1";
-  illegal_binding.biz_name = "test_biz_v1";
+  illegal_binding.biz_name = unselected_biz.biz_name;
 
   illegal_binding.input_converter_id = RegisterUnmatchedInputConverter();
   illegal_binding.output_converter_id = "test.out.operator";
@@ -563,36 +566,6 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
             fs::canonical(base_dir / "pipeline.json").string());
 
   fs::remove_all(root_dir);
-}
-
-TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
-  auto& reg = IoBindingRegistry::Instance();
-
-  // 注册合法绑定
-  IoBindingDefinition valid_binding;
-  valid_binding.binding_id = "test_biz.operator.v1";
-  valid_binding.biz_name = "test_biz_v1";
-
-  valid_binding.input_converter_id = "test.in.operator";
-  valid_binding.output_converter_id = "test.out.operator";
-  EXPECT_TRUE(reg.RegisterBinding(valid_binding));
-
-  // 注册一个未被任何配置选中的非法绑定 (输入端口不覆盖必需入口)
-  IoBindingDefinition unselected_bad_binding;
-  unselected_bad_binding.binding_id = "unselected_bad.operator.v1";
-  unselected_bad_binding.biz_name = "test_biz_v1";
-
-  unselected_bad_binding.input_converter_id = RegisterUnmatchedInputConverter();
-  unselected_bad_binding.output_converter_id = "test.out.operator";
-  EXPECT_TRUE(reg.RegisterBinding(unselected_bad_binding));
-
-  // 全量 Audit 必须对所有已注册绑定实行 Fail-Closed 检查
-  std::vector<std::string> audit_errors;
-  EXPECT_FALSE(reg.Audit(&audit_errors));
-  EXPECT_FALSE(audit_errors.empty());
-
-  // GlobalInit 必须失败并返回 -6 (COMPANY_ALG_ERR_REGISTRY_CONFLICT)
-  EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(), -6);
 }
 
 TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
@@ -1011,10 +984,11 @@ TEST_F(IoBindingRegistryTest, OutputMemoryOverridesRemainOptional) {
 
 TEST_F(IoBindingRegistryTest,
        ExplicitBindingSelectsRegisteredBusinessWithoutNameInference) {
-  RegisterTestBizBinding();
-  auto alternate =
-      *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
+  IoBindingDefinition alternate;
   alternate.binding_id = "unrelated_name.for.explicit_selection";
+  alternate.biz_name = "test_biz_v1";
+  alternate.input_converter_id = "test.in.operator";
+  alternate.output_converter_id = "test.out.operator";
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(alternate));
   nlohmann::json document = {
       {"deployment", {{"io", {{"io_binding", alternate.binding_id}}}}},
@@ -1087,170 +1061,52 @@ TEST_F(IoBindingRegistryTest, DefaultsAndOverridesKeepOptionalOutputOptIn) {
   EXPECT_EQ(prepared.output_specs.at("second").type, "entity_out");
 }
 
-TEST_F(IoBindingRegistryTest,
-       SameSuffixDifferentCarrierIsRejectedBeforeConversion) {
-  const auto root =
-      fs::temp_directory_path() / "edgeflow_biz_contract_preflight";
-  fs::create_directories(root);
-  for (bool incompatible_input : {true, false}) {
-    SCOPED_TRACE(incompatible_input ? "input carrier" : "output carrier");
-    IoBindingRegistry::Instance().ClearForTesting();
-    RegisterTestBizBinding();
-    auto alternate =
-        *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
-    alternate.binding_id =
-        incompatible_input ? "incompatible.input" : "incompatible.output";
-    if (incompatible_input) {
-      auto converter = *IoConverterRegistry::Instance().FindInputConverter(
-          "test.in.operator");
-      converter.converter_id = "incompatible.input.converter";
-      auto& slot = converter.external_slots.front();
-      slot.type_id = "CompanyOperatorKeywordInput";
-      slot.type_suffix = "keyword_in";
-      slot.key_suffix = "entity_in";
-      ASSERT_EQ(slot.KeySuffix(), "entity_in");
-      ASSERT_TRUE(
-          IoConverterRegistry::Instance().RegisterInputConverter(converter));
-      alternate.input_converter_id = converter.converter_id;
-    } else {
-      auto converter = *IoConverterRegistry::Instance().FindOutputConverter(
-          "test.out.operator");
-      converter.converter_id = "incompatible.output.converter";
-      auto& slot = converter.external_slots.front();
-      slot.type_id = "CompanyOperatorKeywordOutput";
-      slot.type_suffix = "keyword_out";
-      slot.key_suffix = "entity_out";
-      ASSERT_EQ(slot.KeySuffix(), "entity_out");
-      ASSERT_TRUE(
-          IoConverterRegistry::Instance().RegisterOutputConverter(converter));
-      alternate.output_converter_id = converter.converter_id;
-    }
-    ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(alternate));
-    const int decoded_before = dummy_decode_calls;
-    const int encoded_before = dummy_encode_calls;
-    std::vector<std::string> errors;
-    EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
-    ASSERT_EQ(errors.size(), 1U) << "Alternate carriers must pass the existing "
-                                    "registration and layout checks";
-    EXPECT_TRUE(
-        std::any_of(errors.begin(), errors.end(), [](const auto& error) {
-          return error.find("different external I/O contracts") !=
-                 std::string::npos;
-        }));
-
-    nlohmann::json document = {
-        {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
-        {"pipeline", DefaultPipelineNodes()}};
-    PreparedDeployment prepared;
-    DeploymentDiagnostic diagnostic;
-    EXPECT_FALSE(
-        PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
-    EXPECT_EQ(diagnostic.code, "BIZ_IO_CONTRACT_MISMATCH");
-    EXPECT_EQ(diagnostic.path, "/deployment/io/io_binding");
-    EXPECT_EQ(prepared.input_converter, nullptr);
-    EXPECT_EQ(prepared.output_converter, nullptr);
-    document["deployment"]["io"]["io_binding"] = alternate.binding_id;
-    EXPECT_FALSE(
-        PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
-    EXPECT_EQ(diagnostic.code, "BIZ_IO_CONTRACT_MISMATCH");
-
-    // 公开预检必须在不执行 Init 的情况下强制载体契约。
-    std::ofstream(root / "pipeline.json") << document;
-    std::ofstream(root / "pipeline.conf")
-        << nlohmann::json{{"pipe_path", "pipeline.json"}};
-    char error[512]{};
-    std::string resolved_biz = "stale";
-    EXPECT_EQ(operator_api::ResolveOperatorConfigBiz(
-                  root.string().c_str(), "pipeline.conf", &resolved_biz, error,
-                  sizeof(error)),
-              -2);
-    EXPECT_TRUE(resolved_biz.empty());
-    EXPECT_NE(std::string(error).find("different external I/O contracts"),
-              std::string::npos);
-    EXPECT_EQ(dummy_decode_calls, decoded_before);
-    EXPECT_EQ(dummy_encode_calls, encoded_before);
-
-    // 其他业务有自己的载体契约，不受影响。
-    auto independent = *PipelineCatalog::FindBiz("test_biz_v1");
-    independent.biz_name =
-        incompatible_input ? "separate_input_biz" : "separate_output_biz";
-    ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(independent));
-    alternate.biz_name = independent.biz_name;
-    alternate.binding_id += ".separate";
-    ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(alternate));
-
-    document["deployment"]["io"]["io_binding"] = alternate.binding_id;
-    ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
-        << diagnostic.message;
-    EXPECT_EQ(prepared.binding.biz_name, independent.biz_name);
-    EXPECT_EQ(prepared.output_specs.at("entity_out").type,
-              incompatible_input ? "entity_out" : "keyword_out");
-  }
-  fs::remove_all(root);
-}
-
-TEST_F(IoBindingRegistryTest,
-       EquivalentCarriersAllowConverterOrderAndBatchChanges) {
-  auto input =
-      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
-  input.converter_id = "equivalent.input.first";
-  auto input_aux = input.external_slots.front();
-  input_aux.slot_name = "extra_input";
-  input_aux.key_suffix = "extra_input";
-  input_aux.required = false;
-  input.external_slots.push_back(input_aux);
-  auto output =
+TEST_F(IoBindingRegistryTest, SecondBindingForSameBizIsRejected) {
+  RegisterTestBizBinding();
+  auto converter =
       *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
-  output.converter_id = "equivalent.output.first";
-  auto output_aux = output.external_slots.front();
-  output_aux.slot_name = "audit";
-  output_aux.key_suffix = "audit";
-  output_aux.required = false;
-  output.external_slots.push_back(output_aux);
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
-  IoBindingDefinition first;
-  first.binding_id = "equivalent.first";
-  first.biz_name = "test_biz_v1";
-  first.input_converter_id = input.converter_id;
-  first.output_converter_id = output.converter_id;
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(first));
+  converter.converter_id = "keyword.output.converter";
+  auto& slot = converter.external_slots.front();
+  slot.type_id = "CompanyOperatorKeywordOutput";
+  slot.type_suffix = "keyword_out";
+  slot.key_suffix = "entity_out";
+  ASSERT_TRUE(
+      IoConverterRegistry::Instance().RegisterOutputConverter(converter));
+  auto second =
+      *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
+  second.binding_id = "second.binding";
+  second.output_converter_id = converter.converter_id;
 
-  input.converter_id = "equivalent.input.second";
-  output.converter_id = "equivalent.output.second";
-  input.max_batch_size = 8;
-  output.max_batch_size = 16;
-  std::reverse(input.external_slots.begin(), input.external_slots.end());
-  std::reverse(output.external_slots.begin(), output.external_slots.end());
-  for (auto& slot : input.external_slots)
-    slot.slot_name = "renamed_" + slot.slot_name;
-  for (auto& slot : output.external_slots)
-    slot.slot_name = "renamed_" + slot.slot_name;
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
-  auto second = first;
-  second.binding_id = "equivalent.second";
-  second.input_converter_id = input.converter_id;
-  second.output_converter_id = output.converter_id;
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(second));
+  // 同一业务只有一份外部契约：第二个 binding 不论载体是否兼容都在注册时被拒绝。
+  EXPECT_FALSE(IoBindingRegistry::Instance().RegisterBinding(second));
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(second.binding_id),
+            nullptr);
   std::vector<std::string> errors;
-  EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
-  EXPECT_TRUE(errors.empty());
+  EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
+  EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const auto& error) {
+    return error.find("Duplicate IoBinding for biz_name 'test_biz_v1'") !=
+           std::string::npos;
+  }));
+  IoBindingRegistry::Instance().ResetConflictForTesting();
 
-  nlohmann::json document = {{"pipeline", DefaultPipelineNodes()}};
+  // 另一业务可以使用自己的载体契约。
+  auto separate = *PipelineCatalog::FindBiz("test_biz_v1");
+  separate.biz_name = "separate_output_biz";
+  ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(separate));
+  second.biz_name = separate.biz_name;
+  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(second));
+  EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors))
+      << (errors.empty() ? "" : errors.front());
+
+  nlohmann::json document = {
+      {"deployment", {{"io", {{"io_binding", second.binding_id}}}}},
+      {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
-  for (const auto& binding : {first, second}) {
-    SCOPED_TRACE(binding.binding_id);
-    document["deployment"]["io"]["io_binding"] = binding.binding_id;
-    ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
-        << diagnostic.message;
-    EXPECT_EQ(prepared.binding.binding_id, binding.binding_id);
-    EXPECT_EQ(prepared.effective_max_batch_size,
-              binding.binding_id == first.binding_id ? 64U : 8U);
-    ASSERT_EQ(prepared.output_specs.size(), 1U);
-    EXPECT_EQ(prepared.output_specs.begin()->second.type, "entity_out");
-  }
+  ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
+      << diagnostic.message;
+  EXPECT_EQ(prepared.binding.biz_name, separate.biz_name);
+  EXPECT_EQ(prepared.output_specs.at("entity_out").type, "keyword_out");
 }
 
 TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIncludesBindingBound) {

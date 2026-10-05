@@ -477,6 +477,13 @@ TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
       std::filesystem::remove_all(directory, error);
     }
   } cleanup{registry.AllBindings(), directory};
+  // 每个业务只有一个 binding：用收紧批次的副本替换原 binding。
+  registry.ClearForTesting();
+  for (const auto& saved : cleanup.bindings) {
+    if (saved.biz_name != binding.biz_name) {
+      ASSERT_TRUE(registry.RegisterBinding(saved));
+    }
+  }
   ASSERT_TRUE(registry.RegisterBinding(binding));
   std::filesystem::create_directory(directory);
   std::ifstream source("configs/pipeline_keyword_match_rules.json");

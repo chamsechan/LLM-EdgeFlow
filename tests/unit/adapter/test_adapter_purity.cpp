@@ -963,16 +963,23 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
     EXPECT_EQ((*sentences)[0].data, "keyword sentence");
   }
 
-  // 跨业务复用证明：在测试专用绑定中复用 text.plain.operator.v1
+  // 跨业务复用证明：在测试专用业务的绑定中复用 text.plain.operator.v1
   {
+    auto reuse_biz = *PipelineCatalog::FindBiz("entity_extract");
+    reuse_biz.biz_name = "test_purity_reuse";
+    PipelineCatalog::RegisterBizDefinition(reuse_biz);
     IoBindingDefinition test_reuse_binding;
     test_reuse_binding.binding_id = "test_purity_reuse.operator.v1";
-    test_reuse_binding.biz_name = "entity_extract";
+    test_reuse_binding.biz_name = reuse_biz.biz_name;
 
     test_reuse_binding.input_converter_id = "text.plain.operator.v1";
     test_reuse_binding.output_converter_id = "document.structured.operator.v1";
     test_reuse_binding.max_batch_size = 64;
-    IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
+    if (!IoBindingRegistry::Instance().FindBinding(
+            test_reuse_binding.binding_id)) {
+      ASSERT_TRUE(
+          IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding));
+    }
 
     const auto* b_test = IoBindingRegistry::Instance().FindBinding(
         "test_purity_reuse.operator.v1");

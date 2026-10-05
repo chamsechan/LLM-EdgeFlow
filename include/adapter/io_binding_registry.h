@@ -31,10 +31,6 @@ class IoBindingRegistry {
 
   std::vector<IoBindingDefinition> AllBindings() const;
 
-  // 一个 biz 通过其全部 binding 标识一份完整的外部契约。
-  bool ValidateBizContract(const std::string& biz_name,
-                           std::string* error = nullptr) const;
-
   bool HasConflict() const;
   std::vector<std::string> GetConflictErrors() const;
 

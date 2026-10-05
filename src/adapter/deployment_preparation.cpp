@@ -125,17 +125,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
-  std::string contract_error;
-  if (!IoBindingRegistry::Instance().ValidateBizContract(binding->biz_name,
-                                                         &contract_error)) {
-    if (diagnostic) {
-      diagnostic->code = "BIZ_IO_CONTRACT_MISMATCH";
-      diagnostic->path = "/deployment/io/io_binding";
-      diagnostic->message = contract_error;
-    }
-    return false;
-  }
-
   const size_t max_batch = EffectiveMaxBatchSize(*binding, *in_conv, *out_conv);
   if (max_batch == 0) {
     if (diagnostic) {
