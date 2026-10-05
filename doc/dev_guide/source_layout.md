@@ -156,7 +156,7 @@ src/engine/
 | 位置 | 形式 | 示例 |
 | --- | --- | --- |
 | `biz_name`、`REGISTER_DEMO_BIZ` | `<词根>`，不带版本号 | `dialogue_audit` |
-| `binding_id` | `<词根>.operator.v<N>`；外部契约不兼容变化时新增版本 | `dialogue_audit.operator.v1` |
+| `binding_id` | `<词根>.operator.v1`，每个业务一个 | `dialogue_audit.operator.v1` |
 | 绑定源码与 Demo 源码 | `src/adapter/biz/<词根>_bindings.cpp`、`demo/biz/<词根>_demo.cpp` | `dialogue_audit_bindings.cpp` |
 | 方案、数据集与 Profile | `pipeline_<词根>_<变体>`、`corpus_<词根>`、`<词根>_<变体>` | `pipeline_dialogue_audit_kite.json` |
 | 中文名 | `BizDefinition.display_name`，Demo 标题使用同一名称 | 对话合规审核 |

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <nlohmann/json.hpp>
 
 #include "adapter/adapter_status.h"
@@ -9,6 +10,7 @@
 #include "adapter/io_converter_registry.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
+#include "core/pipeline_catalog.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/operator_data_types.h"
 #include "tests/support/adapter_test_views.h"
@@ -184,16 +186,23 @@ TEST_F(TextConvertersTest, ProductionBindingsUseDeclaredHostTypes) {
 }
 
 TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
-  // 证明同一个转换器 ID 可以在不同绑定间复用：通过测试专用绑定
+  // 证明同一个转换器 ID 可以在不同业务的绑定间复用：通过测试专用业务
+  auto reuse_biz = *PipelineCatalog::FindBiz("entity_extract");
+  reuse_biz.biz_name = "test_text_reuse";
+  PipelineCatalog::RegisterBizDefinition(reuse_biz);
   IoBindingDefinition test_reuse_binding;
   test_reuse_binding.binding_id = "test_text_reuse.operator.v1";
-  test_reuse_binding.biz_name = "entity_extract";
+  test_reuse_binding.biz_name = reuse_biz.biz_name;
 
   test_reuse_binding.input_converter_id = "text.plain.operator.v1";
   test_reuse_binding.output_converter_id = "document.structured.operator.v1";
   test_reuse_binding.max_batch_size = 64;
 
-  IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
+  if (!IoBindingRegistry::Instance().FindBinding(
+          test_reuse_binding.binding_id)) {
+    ASSERT_TRUE(
+        IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding));
+  }
 
   const auto* b1 =
       IoBindingRegistry::Instance().FindBinding("entity_extract.operator.v1");
@@ -233,21 +242,20 @@ TEST_F(TextConvertersTest, SameCarrierDifferentPayloadBindingIsRejected) {
   ASSERT_EQ(decode("translate.json.operator.v1", request), "hello");
   ASSERT_EQ(decode("text.plain.operator.v1", request), request);
 
+  // 同一业务只登记一个 binding：translate 不能再挂另一协议的 Converter。
   auto& bindings = IoBindingRegistry::Instance();
-  const auto saved = bindings.AllBindings();
   auto alternate = *bindings.FindBinding("translate.operator.v1");
   alternate.binding_id = "translate.plain_text_input";
   alternate.input_converter_id = "text.plain.operator.v1";
-  ASSERT_TRUE(bindings.RegisterBinding(alternate));
-
-  std::string error;
-  EXPECT_FALSE(bindings.ValidateBizContract("translate", &error));
-  EXPECT_NE(error.find("different external I/O contracts"), std::string::npos);
+  EXPECT_FALSE(bindings.RegisterBinding(alternate));
+  EXPECT_EQ(bindings.FindBinding(alternate.binding_id), nullptr);
   std::vector<std::string> errors;
   EXPECT_FALSE(bindings.Audit(&errors));
-
-  bindings.ClearForTesting();
-  for (const auto& binding : saved) bindings.RegisterBinding(binding);
+  EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const auto& error) {
+    return error.find("Duplicate IoBinding for biz_name 'translate'") !=
+           std::string::npos;
+  }));
+  bindings.ResetConflictForTesting();
 }
 
 TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {

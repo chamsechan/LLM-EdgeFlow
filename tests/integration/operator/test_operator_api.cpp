@@ -2537,8 +2537,15 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   const auto* nested = IoBindingRegistry::Instance().FindBinding(
       "nested_output_test.operator.v1");
   ASSERT_NE(nested, nullptr);
+  // 每个业务只有一个 binding，测试 binding 使用复制出的独立业务。
+  auto biz = *PipelineCatalog::FindBiz(nested->biz_name);
+  biz.biz_name = "test_request_id_count";
+  if (!PipelineCatalog::FindBiz(biz.biz_name)) {
+    ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz));
+  }
   auto binding = *nested;
   binding.binding_id = "request_id_count_test.operator.v1";
+  binding.biz_name = biz.biz_name;
   binding.input_converter_id = input.converter_id;
   if (!IoBindingRegistry::Instance().FindBinding(binding.binding_id))
     ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));

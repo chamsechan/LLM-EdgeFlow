@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+每个业务只注册一个 IoBinding：同一 `biz_name` 的第二个 binding 在注册时被拒绝并记为注册冲突
+（SDK 初始化返回 -6），删除同业务多 binding 的外部契约比对与部署诊断 `BIZ_IO_CONTRACT_MISMATCH`。
+发布后外部契约不兼容的变化原地修改并随新 SDK 版本发布，新旧契约须并存时新增业务，不再新增带版本的 binding。
+
 转换器回调去掉 `InputPortBindings` / `OutputPortBindings` 参数：`DecodeInputFn` / `EncodeOutputFn`、
 `DecodeRequestRows`、`EncodeResultRows` 与 `ReadOutputValue` 直接使用端口常量读写 `AlgContext`。
 写入未声明端口不再被静默发布到空键名。
@@ -17,8 +21,7 @@ Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）�
 `schema_version`、`external_type`、输出 `cardinality` 与 `capacity_policy`，以及槽位的 `value_type` 与
 `capacity_fields`。输出槽容量字段只由 ValueType 决定，`ExternalInputSlot` / `ExternalOutputSlot`
 只接受槽名。Catalog 的 Converter 不再导出上述元数据，`external_type` 改由槽位类型推导。
-`schema_id` 保留为外部协议 ID：载体相同的 Converter 可能解析语义不同，同业务 binding 的一致性检查
-继续比较它。
+`schema_id` 保留为外部协议 ID：载体相同的 Converter 可能解析语义不同。
 
 开发工具修复：Markdown 链接检查支持单引号与圆括号标题、带空格的尖括号目标及平衡或转义的
 目标圆括号；生产版 `alg_pipeline_tool edit` 根据 `validation.diagnostics` 提示构建变体与测试工具。
