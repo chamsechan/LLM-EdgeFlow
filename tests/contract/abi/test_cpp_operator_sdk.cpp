@@ -1,10 +1,9 @@
 /**
  * @file test_cpp_operator_sdk.cpp
- * @brief Public C++ Operator SDK consumer test.
+ * @brief 公开 C++ Operator SDK 的消费方测试。
  *
- * This file verifies that an external C++ consumer can link against
- * llm_edgeflow::sdk using solely the public SDK headers, without any
- * internal headers, runtime objects, or test mocks.
+ * 验证外部 C++ 消费方只使用公开 SDK 头文件即可链接 llm_edgeflow::sdk，
+ * 不依赖任何内部头文件、运行时对象或测试 mock。
  */
 
 #include <cstdio>
@@ -23,7 +22,7 @@
 #include "platform_mock/operator_data_types.h"
 #include "platform_mock/operator_types.h"
 
-// Public layout and contract assertions
+// 公开布局与契约断言
 static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
                                            (sizeof(char*) == 8 ? 4 : 0),
               "CompanyString memory layout check");
@@ -36,7 +35,7 @@ static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
               "Verbose log level must remain 5");
 
 int main() {
-  // 1. Version contract check
+  // 1. 版本契约检查
   if (std::strcmp(COMPANY_ALG_PRODUCT_VERSION, "11.0.0") != 0 ||
       std::strcmp(COMPANY_ALG_ABI_VERSION, "9.0.0") != 0 ||
       COMPANY_ALG_ABI_VERSION_MAJOR != 9) {
@@ -45,7 +44,7 @@ int main() {
     return 1;
   }
 
-  // 2. Logging API check
+  // 2. 日志 API 检查
   if (AlgBase_getLogLevelByName("LLM_EDGEFLOW") !=
       E_ALG_BASE_LOG_LEVEL_WARNING) {
     std::fprintf(stderr,
@@ -63,7 +62,7 @@ int main() {
   ALG_LOG_DEBUG("This debug record is filtered\n");
   ALG_LOG_WARNING("[SDK Consumer Test] Public log macro is operational\n");
 
-  // 3. Operator table inspection
+  // 3. 检查 Operator 函数表
   auto op = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
   if (!op.Init || !op.Create || !op.Process || !op.Control || !op.Destroy ||
       !op.DeInit) {
@@ -79,7 +78,7 @@ int main() {
     return 5;
   }
 
-  // Locate configs directory
+  // 定位 configs 目录
   const char* root_candidates[] = {".", "..", "../.."};
   const char* config_rel = "configs/pipeline_keyword_match_rules.conf";
   std::string root_dir;
@@ -162,7 +161,7 @@ int main() {
     return 11;
   }
 
-  // 8. Control: update rule categories
+  // 8. Control：更新规则类别
   llm_edgeflow::operator_api::ControlUpdateRulesParam rules_param{
       "{\"categories\":{\"URGENT\":[\"加急\"]}}"};
   if (op.Control(handle,
@@ -173,7 +172,7 @@ int main() {
     return 12;
   }
 
-  // 9. Process again and verify rule change took effect
+  // 9. 再次 Process，验证规则变更已生效
   outputs[0]["client_channel.keyword_out"] = nullptr;
   if (op.Process(handle, inputs, outputs) != 0) {
     std::fprintf(stderr, "[SDK Consumer Test] Second op.Process failed: %s\n",
@@ -188,7 +187,7 @@ int main() {
     return 14;
   }
 
-  // 10. Copy fields and release all leases before destroy
+  // 10. 复制字段，并在 Destroy 前释放所有租约
   std::string match_copy;
   if (out_dto->match_result_json && out_dto->match_result_json->data) {
     match_copy.assign(out_dto->match_result_json->data,
@@ -198,7 +197,7 @@ int main() {
   outputs.clear();
   inputs.clear();
 
-  // 11. Destroy handle
+  // 11. Destroy 句柄
   if (op.Destroy(handle) != 0) {
     std::fprintf(stderr, "[SDK Consumer Test] op.Destroy failed: %s\n",
                  llm_edgeflow::operator_api::GetOperatorLastError());

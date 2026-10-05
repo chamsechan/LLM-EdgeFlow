@@ -74,7 +74,7 @@ class TraceableBatchOperationsTest : public ::testing::Test {
 };
 
 // ============================================================================
-// 1. JoinByItem Tests
+// 1. JoinByItem 测试
 // ============================================================================
 
 TEST_F(TraceableBatchOperationsTest, JoinByItemExactMatchingOrderPreserved) {
@@ -90,7 +90,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemExactMatchingOrderPreserved) {
   ASSERT_EQ(view.size(), 3u);
   EXPECT_FALSE(view.empty());
 
-  // Strict left order
+  // 严格保持 left 顺序
   EXPECT_EQ(view[0].req_id(), 1u);
   EXPECT_EQ(view[0].sub_id(), 0u);
   EXPECT_EQ(view[0].left_payload(), "q1");
@@ -154,7 +154,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemRightExtraKeyFailsBothModes) {
   std::vector<TraceableItem<std::string>> right = {{1, 0, "a1"},
                                                    {99, 0, "extra"}};
 
-  // Exact mode fails
+  // Exact 模式失败
   auto exact_res = JoinByItem(left, right, JoinMode::kExact);
   ASSERT_FALSE(exact_res.ok());
   ASSERT_TRUE(exact_res.failure().batch_detail.has_value());
@@ -163,7 +163,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemRightExtraKeyFailsBothModes) {
   ASSERT_TRUE(exact_res.failure().batch_detail->key.has_value());
   EXPECT_EQ(exact_res.failure().batch_detail->key->req_id, 99u);
 
-  // Left mode also fails on unknown right key
+  // Left 模式遇到 right 中的未知键同样失败
   auto left_res = JoinByItem(left, right, JoinMode::kLeft);
   ASSERT_FALSE(left_res.ok());
   ASSERT_TRUE(left_res.failure().batch_detail.has_value());
@@ -174,7 +174,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemRightExtraKeyFailsBothModes) {
 }
 
 TEST_F(TraceableBatchOperationsTest, JoinByItemDuplicateKeysFail) {
-  // Duplicate in left
+  // left 中有重复
   std::vector<TraceableItem<std::string>> left_dup = {{1, 0, "q1"},
                                                       {1, 0, "q1_dup"}};
   std::vector<TraceableItem<std::string>> right = {{1, 0, "a1"}};
@@ -186,7 +186,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemDuplicateKeysFail) {
             BatchFailureReason::kDuplicate);
   EXPECT_EQ(res1.failure().batch_detail->key->req_id, 1u);
 
-  // Duplicate in right
+  // right 中有重复
   std::vector<TraceableItem<std::string>> left = {{1, 0, "q1"}};
   std::vector<TraceableItem<std::string>> right_dup = {{1, 0, "a1"},
                                                        {1, 0, "a1_dup"}};
@@ -202,7 +202,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemEmptyCombinations) {
   std::vector<TraceableItem<std::string>> empty;
   std::vector<TraceableItem<std::string>> non_empty = {{1, 0, "q1"}};
 
-  // Both empty: succeeds in both modes
+  // 两侧都为空：两种模式均成功
   auto res_both_empty_exact = JoinByItem(empty, empty, JoinMode::kExact);
   EXPECT_TRUE(res_both_empty_exact.ok());
   EXPECT_TRUE(res_both_empty_exact.value().empty());
@@ -211,7 +211,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemEmptyCombinations) {
   EXPECT_TRUE(res_both_empty_left.ok());
   EXPECT_TRUE(res_both_empty_left.value().empty());
 
-  // Left empty, right non-empty: fails in both modes
+  // left 为空、right 非空：两种模式均失败
   auto res_left_empty_exact = JoinByItem(empty, non_empty, JoinMode::kExact);
   EXPECT_FALSE(res_left_empty_exact.ok());
   EXPECT_EQ(res_left_empty_exact.failure().batch_detail->reason,
@@ -222,7 +222,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemEmptyCombinations) {
   EXPECT_EQ(res_left_empty_left.failure().batch_detail->reason,
             BatchFailureReason::kUnknown);
 
-  // Left non-empty, right empty: exact fails, left succeeds
+  // left 非空、right 为空：exact 失败，left 成功
   auto res_right_empty_exact = JoinByItem(non_empty, empty, JoinMode::kExact);
   EXPECT_FALSE(res_right_empty_exact.ok());
   EXPECT_EQ(res_right_empty_exact.failure().batch_detail->reason,
@@ -235,7 +235,7 @@ TEST_F(TraceableBatchOperationsTest, JoinByItemEmptyCombinations) {
 }
 
 // ============================================================================
-// 2. GroupByRequest Tests
+// 2. GroupByRequest 测试
 // ============================================================================
 
 TEST_F(TraceableBatchOperationsTest, GroupByRequestAnchorFirstAppearanceOrder) {
@@ -251,16 +251,16 @@ TEST_F(TraceableBatchOperationsTest, GroupByRequestAnchorFirstAppearanceOrder) {
   const auto& view = res.value();
   ASSERT_EQ(view.size(), 2u);
 
-  // First appearance in anchor: req 10, then req 20
+  // 在锚点中首次出现的顺序：先 req 10，后 req 20
   EXPECT_EQ(view[0].req_id(), 10u);
   EXPECT_EQ(view[1].req_id(), 20u);
 
-  // Group 10 anchors
+  // 分组 10 的锚点
   ASSERT_EQ(view[0].anchor_count(), 2u);
   EXPECT_EQ(view[0].anchors()[0].get().data, "A0");
   EXPECT_EQ(view[0].anchors()[1].get().data, "A1");
 
-  // Group 20 anchors
+  // 分组 20 的锚点
   ASSERT_EQ(view[1].anchor_count(), 1u);
   EXPECT_EQ(view[1].anchors()[0].get().data, "B0");
 }
@@ -268,7 +268,7 @@ TEST_F(TraceableBatchOperationsTest, GroupByRequestAnchorFirstAppearanceOrder) {
 TEST_F(TraceableBatchOperationsTest,
        GroupByRequestMembersRelativeOrderPreserved) {
   std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"}};
-  // Members have sub_id 5 then 2 (unsorted!)
+  // 成员的 sub_id 依次为 5 和 2 (未排序！)
   std::vector<TraceableItem<std::string>> members = {{10, 5, "m5"},
                                                      {10, 2, "m2"}};
 
@@ -315,7 +315,7 @@ TEST_F(TraceableBatchOperationsTest, GroupByRequestUnknownMemberReqIdFails) {
 }
 
 TEST_F(TraceableBatchOperationsTest, GroupByRequestDuplicatesFail) {
-  // Duplicate in anchor
+  // 锚点中有重复
   std::vector<TraceableItem<std::string>> anchor_dup = {{10, 0, "A0"},
                                                         {10, 0, "A0_dup"}};
   std::vector<TraceableItem<std::string>> members = {{10, 0, "m0"}};
@@ -324,7 +324,7 @@ TEST_F(TraceableBatchOperationsTest, GroupByRequestDuplicatesFail) {
   EXPECT_EQ(res1.failure().batch_detail->reason,
             BatchFailureReason::kDuplicate);
 
-  // Duplicate in members
+  // 成员中有重复
   std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"}};
   std::vector<TraceableItem<std::string>> members_dup = {{10, 0, "m0"},
                                                          {10, 0, "m0_dup"}};
@@ -338,12 +338,12 @@ TEST_F(TraceableBatchOperationsTest, GroupByRequestEmptyCombinations) {
   std::vector<TraceableItem<std::string>> empty;
   std::vector<TraceableItem<std::string>> members = {{10, 0, "m"}};
 
-  // Empty anchor + empty members: success
+  // 锚点和成员都为空：成功
   auto res_empty = GroupByRequest(empty, empty);
   EXPECT_TRUE(res_empty.ok());
   EXPECT_TRUE(res_empty.value().empty());
 
-  // Empty anchor + non-empty members: failure
+  // 锚点为空、成员非空：失败
   auto res_fail = GroupByRequest(empty, members);
   EXPECT_FALSE(res_fail.ok());
   EXPECT_EQ(res_fail.failure().batch_detail->reason,
@@ -352,7 +352,7 @@ TEST_F(TraceableBatchOperationsTest, GroupByRequestEmptyCombinations) {
 
 TEST_F(TraceableBatchOperationsTest,
        GroupByRequestPreservesOriginalAnchorOrderFor1to1) {
-  // Anchor is A0, B0, A1
+  // 锚点为 A0, B0, A1
   std::vector<TraceableItem<std::string>> anchor = {
       {10, 0, "A0"}, {20, 0, "B0"}, {10, 1, "A1"}};
   std::vector<TraceableItem<std::string>> members = {
@@ -363,7 +363,7 @@ TEST_F(TraceableBatchOperationsTest,
 
   const auto& view = res.value();
 
-  // Generate 1:1 output using GroupByAnchorIndex
+  // 用 GroupByAnchorIndex 生成 1:1 输出
   std::vector<TraceableItem<std::string>> output;
   output.reserve(anchor.size());
   for (size_t i = 0; i < anchor.size(); ++i) {
@@ -377,7 +377,7 @@ TEST_F(TraceableBatchOperationsTest,
     output.emplace_back(item.req_id, item.sub_id, std::move(combined));
   }
 
-  // Verify output strictly matches anchor order: A0, B0, A1
+  // 输出必须严格按锚点顺序：A0, B0, A1
   ASSERT_EQ(output.size(), 3u);
   EXPECT_EQ(output[0].req_id, 10u);
   EXPECT_EQ(output[0].sub_id, 0u);
@@ -393,7 +393,7 @@ TEST_F(TraceableBatchOperationsTest,
 }
 
 // ============================================================================
-// 3. SelectBatch and ScatterReplace Tests
+// 3. SelectBatch 与 ScatterReplace 测试
 // ============================================================================
 
 TEST_F(TraceableBatchOperationsTest, SelectAndScatterAllSelected) {
@@ -447,14 +447,14 @@ TEST_F(TraceableBatchOperationsTest,
   std::vector<TraceableItem<std::string>> anchor = {
       {1, 0, "apple"}, {2, 0, "banana"}, {3, 0, "cherry"}};
 
-  // Select items with length > 5: "banana" (index 1) and "cherry" (index 2)
+  // 选出长度 > 5 的条目："banana" (索引 1) 和 "cherry" (索引 2)
   auto sel_res = SelectBatch(
       anchor, [](const std::string& text) { return text.size() > 5; });
   ASSERT_TRUE(sel_res.ok());
   const auto& selection = sel_res.value();
   ASSERT_EQ(selection.size(), 2u);
 
-  // Provide replacements in REVERSE order
+  // 以逆序提供替换项
   std::vector<TraceableItem<std::string>> replacements = {{3, 0, "CHERRY"},
                                                           {2, 0, "BANANA"}};
 
@@ -463,15 +463,15 @@ TEST_F(TraceableBatchOperationsTest,
   const auto& full = scatter_res.value();
   ASSERT_EQ(full.size(), 3u);
 
-  // Unselected item 0 remains "apple"
+  // 未选中的条目 0 仍为 "apple"
   EXPECT_EQ(full[0].req_id, 1u);
   EXPECT_EQ(full[0].data, "apple");
 
-  // Selected item 1 updated to "BANANA"
+  // 选中的条目 1 更新为 "BANANA"
   EXPECT_EQ(full[1].req_id, 2u);
   EXPECT_EQ(full[1].data, "BANANA");
 
-  // Selected item 2 updated to "CHERRY"
+  // 选中的条目 2 更新为 "CHERRY"
   EXPECT_EQ(full[2].req_id, 3u);
   EXPECT_EQ(full[2].data, "CHERRY");
 }
@@ -480,7 +480,7 @@ TEST_F(TraceableBatchOperationsTest, SelectBatchPredicateFailures) {
   std::vector<TraceableItem<std::string>> anchor = {
       {1, 0, "ok"}, {2, 0, "fail"}, {3, 0, "ok"}};
 
-  // Predicate returning NodeResult failure
+  // 谓词返回失败的 NodeResult
   auto res =
       SelectBatch(anchor, [](const std::string& text) -> NodeResult<bool> {
         if (text == "fail") {
@@ -497,7 +497,7 @@ TEST_F(TraceableBatchOperationsTest, SelectBatchPredicateFailures) {
   ASSERT_TRUE(res.failure().batch_detail->key.has_value());
   EXPECT_EQ(res.failure().batch_detail->key->req_id, 2u);
 
-  // Predicate throwing exception
+  // 谓词抛异常
   auto throw_res = SelectBatch(anchor, [](const std::string& text) -> bool {
     if (text == "fail") throw std::runtime_error("Unexpected error");
     return true;
@@ -517,7 +517,7 @@ TEST_F(TraceableBatchOperationsTest, ScatterReplaceErrorValidations) {
   ASSERT_TRUE(sel_res.ok());
   const auto& selection = sel_res.value();
 
-  // 1. Duplicate in replacements
+  // 1. 替换项中有重复
   std::vector<TraceableItem<std::string>> dup_repl = {{2, 0, "b1"},
                                                       {2, 0, "b2"}};
   auto res_dup = ScatterReplace(selection, dup_repl);
@@ -525,8 +525,7 @@ TEST_F(TraceableBatchOperationsTest, ScatterReplaceErrorValidations) {
   EXPECT_EQ(res_dup.failure().batch_detail->reason,
             BatchFailureReason::kDuplicate);
 
-  // 2. Replacement has unselected key (e.g. 1:0 which is in anchor but not
-  // selected)
+  // 2. 替换项含未选中的键 (如 1:0 在锚点中但未被选中)
   std::vector<TraceableItem<std::string>> unselected_repl = {
       {1, 0, "new_apple"}};
   auto res_unsel = ScatterReplace(selection, unselected_repl);
@@ -534,14 +533,14 @@ TEST_F(TraceableBatchOperationsTest, ScatterReplaceErrorValidations) {
   EXPECT_EQ(res_unsel.failure().batch_detail->reason,
             BatchFailureReason::kUnknown);
 
-  // 3. Replacement has unknown key (not in anchor)
+  // 3. 替换项含未知键 (不在锚点中)
   std::vector<TraceableItem<std::string>> unknown_repl = {{99, 0, "ghost"}};
   auto res_unk = ScatterReplace(selection, unknown_repl);
   ASSERT_FALSE(res_unk.ok());
   EXPECT_EQ(res_unk.failure().batch_detail->reason,
             BatchFailureReason::kUnknown);
 
-  // 4. Replacement missing selected key
+  // 4. 替换项缺少选中的键
   std::vector<TraceableItem<std::string>> empty_repl;
   auto res_miss = ScatterReplace(selection, empty_repl);
   ASSERT_FALSE(res_miss.ok());
@@ -550,7 +549,7 @@ TEST_F(TraceableBatchOperationsTest, ScatterReplaceErrorValidations) {
 }
 
 // ============================================================================
-// 4. SplitPayloads Tests
+// 4. SplitPayloads 测试
 // ============================================================================
 
 TEST_F(TraceableBatchOperationsTest,
@@ -579,9 +578,9 @@ TEST_F(TraceableBatchOperationsTest,
   ASSERT_TRUE(res.ok()) << res.failure().message;
   const auto& result = res.value();
 
-  // Children check
+  // 检查子条目
   ASSERT_EQ(result.children.size(), 6u);
-  // req 1 item 0: 2 words -> sub_id 0, 1
+  // req 1 条目 0：2 个词 -> sub_id 0, 1
   EXPECT_EQ(result.children[0].req_id, 1u);
   EXPECT_EQ(result.children[0].sub_id, 0u);
   EXPECT_EQ(result.children[0].data, "hello");
@@ -590,12 +589,12 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_EQ(result.children[1].sub_id, 1u);
   EXPECT_EQ(result.children[1].data, "world");
 
-  // req 1 item 1: 1 word -> sub_id 2 (continuous for req 1!)
+  // req 1 条目 1：1 个词 -> sub_id 2 (req 1 内连续！)
   EXPECT_EQ(result.children[2].req_id, 1u);
   EXPECT_EQ(result.children[2].sub_id, 2u);
   EXPECT_EQ(result.children[2].data, "single");
 
-  // req 2 item 0: 3 words -> sub_id starts at 0 for req 2!
+  // req 2 条目 0：3 个词 -> req 2 的 sub_id 从 0 开始！
   EXPECT_EQ(result.children[3].req_id, 2u);
   EXPECT_EQ(result.children[3].sub_id, 0u);
   EXPECT_EQ(result.children[3].data, "foo");
@@ -608,7 +607,7 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_EQ(result.children[5].sub_id, 2u);
   EXPECT_EQ(result.children[5].data, "baz");
 
-  // Counts check
+  // 检查计数
   ASSERT_EQ(result.counts.size(), 3u);
   EXPECT_EQ(result.counts[0].req_id, 1u);
   EXPECT_EQ(result.counts[0].sub_id, 5u);
@@ -651,7 +650,7 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_EQ(children[2].req_id, 2u);
   EXPECT_EQ(children[2].sub_id, 0u);
 
-  // req 1 resumed: sub_id must be 2, 3!
+  // req 1 继续：sub_id 必须为 2, 3！
   EXPECT_EQ(children[3].req_id, 1u);
   EXPECT_EQ(children[3].sub_id, 2u);
 
@@ -660,7 +659,7 @@ TEST_F(TraceableBatchOperationsTest,
 }
 
 TEST_F(TraceableBatchOperationsTest, SplitPayloadsZeroChildrenAndEmptyInput) {
-  // Zero children is legal
+  // 零个子条目是合法的
   std::vector<TraceableItem<std::string>> input = {{1, 0, "empty"}};
   auto res = SplitPayloads(
       input, [](const std::string&) { return std::vector<std::string>{}; });
@@ -669,7 +668,7 @@ TEST_F(TraceableBatchOperationsTest, SplitPayloadsZeroChildrenAndEmptyInput) {
   ASSERT_EQ(res.value().counts.size(), 1u);
   EXPECT_EQ(res.value().counts[0].data, 0);
 
-  // Empty input
+  // 空输入
   std::vector<TraceableItem<std::string>> empty_input;
   auto empty_res = SplitPayloads(empty_input, [](const std::string&) {
     return std::vector<std::string>{"never"};
@@ -708,14 +707,14 @@ TEST_F(TraceableBatchOperationsTest,
 TEST_F(TraceableBatchOperationsTest, SplitPayloadsSubIdOverflowSeam) {
   std::vector<TraceableItem<std::string>> input = {{1, 0, "split"}};
 
-  // Set near-boundary sub_id using internal test seam
+  // 通过内部测试接缝设置接近边界的 sub_id
   std::unordered_map<uint32_t, uint64_t> initial = {
       {1, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())}};
 
   auto res = detail::SplitPayloadsInternal(
       input,
       [](const std::string&) {
-        // Generates 2 children: first fits at UINT32_MAX, second overflows!
+        // 生成 2 个子条目：第一个恰好用到 UINT32_MAX，第二个溢出！
         return std::vector<std::string>{"chunk1", "chunk2"};
       },
       initial);
@@ -786,10 +785,10 @@ TEST_F(TraceableBatchOperationsTest,
 }
 
 // ============================================================================
-// 5. View and Ownership Tests
+// 5. 视图与所有权测试
 // ============================================================================
 
-// SFINAE probes to detect deleted overloads for factory functions
+// 用 SFINAE 探测工厂函数被删除的重载
 template <typename L, typename R, typename = void>
 struct CanJoinByItem : std::false_type {};
 template <typename L, typename R>
@@ -834,7 +833,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
   using Item = TraceableItem<std::string>;
   using Group = RequestGroup<std::string, std::string>;
 
-  // ItemJoinView must reject non-const and const rvalues
+  // ItemJoinView 必须拒绝非 const 和 const 右值
   static_assert(
       std::is_constructible_v<ItemJoinView<std::string, std::string>,
                               const Batch&, const Batch&,
@@ -883,7 +882,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
           std::vector<JoinedRow<std::string, std::string>>>,
       "ItemJoinView must reject both const rvalues");
 
-  // JoinByItem factory function must reject non-const and const rvalues
+  // JoinByItem 工厂函数必须拒绝非 const 和 const 右值
   static_assert(CanJoinByItem<const Batch&, const Batch&>::value,
                 "JoinByItem must accept const lvalues");
   static_assert(CanJoinByItem<Batch&, Batch&>::value,
@@ -909,7 +908,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
   static_assert(!CanJoinByItem<const Batch&&, const Batch&&>::value,
                 "JoinByItem must reject both const rvalues");
 
-  // RequestGroupView must reject non-const and const rvalues
+  // RequestGroupView 必须拒绝非 const 和 const 右值
   static_assert(
       std::is_constructible_v<
           RequestGroupView<std::string, std::string>, const Batch&,
@@ -970,7 +969,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
           std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
       "RequestGroupView must reject both const rvalues");
 
-  // GroupByRequest factory function must reject non-const and const rvalues
+  // GroupByRequest 工厂函数必须拒绝非 const 和 const 右值
   static_assert(CanGroupByRequest<const Batch&, const Batch&>::value,
                 "GroupByRequest must accept const lvalues");
   static_assert(CanGroupByRequest<Batch&, Batch&>::value,
@@ -998,7 +997,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
   static_assert(!CanGroupByRequest<const Batch&&, const Batch&&>::value,
                 "GroupByRequest must reject both const rvalues");
 
-  // Selection must reject non-const and const rvalues
+  // Selection 必须拒绝非 const 和 const 右值
   static_assert(!std::is_constructible_v<Selection<std::string>, Batch&&,
                                          std::vector<size_t>>,
                 "Selection must reject rvalue anchor");
@@ -1006,7 +1005,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
                                          std::vector<size_t>>,
                 "Selection must reject const rvalue anchor");
 
-  // SelectBatch factory function must reject non-const and const rvalues
+  // SelectBatch 工厂函数必须拒绝非 const 和 const 右值
   static_assert(CanSelectBatch<const Batch&, Pred>::value,
                 "SelectBatch must accept const lvalue");
   static_assert(CanSelectBatch<Batch&, Pred>::value,
@@ -1016,7 +1015,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
   static_assert(!CanSelectBatch<const Batch&&, Pred>::value,
                 "SelectBatch must reject const rvalue anchor");
 
-  // RequestGroup AddAnchor and AddMember must reject rvalue items
+  // RequestGroup 的 AddAnchor 和 AddMember 必须拒绝右值条目
   static_assert(CanAddAnchor<Group&, const Item&>::value,
                 "AddAnchor must accept const lvalue item");
   static_assert(CanAddAnchor<Group&, Item&>::value,
@@ -1035,7 +1034,7 @@ TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
   static_assert(!CanAddMember<Group&, const Item&&>::value,
                 "AddMember must reject const rvalue item");
 
-  // JoinedRow must reject rvalue left items
+  // JoinedRow 必须拒绝右值 left 条目
   static_assert(std::is_constructible_v<JoinedRow<std::string, std::string>,
                                         const Item&, const Item*>,
                 "JoinedRow must accept const lvalue left");
@@ -1059,14 +1058,14 @@ TEST_F(TraceableBatchOperationsTest,
     ASSERT_TRUE(sel_res.ok());
     materialized = sel_res.value().Materialize();
   }
-  // sel_res and Selection are now out of scope
+  // sel_res 和 Selection 此时已离开作用域
   ASSERT_EQ(materialized.size(), 1u);
   EXPECT_EQ(materialized[0].req_id, 1u);
   EXPECT_EQ(materialized[0].data, "persist_me");
 }
 
 // ============================================================================
-// 6. Starter Nodes Verification with Mock LLM
+// 6. 使用 Mock LLM 验证入门 Node
 // ============================================================================
 
 TEST_F(TraceableBatchOperationsTest, StarterBatchJoinNodeHarness) {
@@ -1094,10 +1093,10 @@ TEST_F(TraceableBatchOperationsTest, StarterBatchGroupNodeHarness) {
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_llm);
 
-  // Interleaved queries
+  // 交错的 query
   harness.CustomInput("queries",
                       TextBatch{{10, 0, "q1"}, {20, 0, "q2"}, {10, 1, "q3"}});
-  // Aggregated references
+  // 聚合的参考资料
   harness.CustomInput(
       "references",
       TextBatch{{10, 0, "ref1"}, {10, 1, "ref2"}, {20, 0, "ref3"}});
@@ -1108,17 +1107,17 @@ TEST_F(TraceableBatchOperationsTest, StarterBatchGroupNodeHarness) {
   EXPECT_EQ(mock_llm->call_count, 1);
   const auto& prompts = mock_llm->last_prompts;
   ASSERT_EQ(prompts.size(), 3u);
-  // req 10 query 0: context ref1 + ref2
+  // req 10 query 0：上下文 ref1 + ref2
   EXPECT_EQ(prompts[0].req_id, 10u);
   EXPECT_EQ(prompts[0].sub_id, 0u);
   EXPECT_EQ(prompts[0].data, "ref1\nref2\nq1");
 
-  // req 20 query 0: context ref3
+  // req 20 query 0：上下文 ref3
   EXPECT_EQ(prompts[1].req_id, 20u);
   EXPECT_EQ(prompts[1].sub_id, 0u);
   EXPECT_EQ(prompts[1].data, "ref3\nq2");
 
-  // req 10 query 1: context ref1 + ref2
+  // req 10 query 1：上下文 ref1 + ref2
   EXPECT_EQ(prompts[2].req_id, 10u);
   EXPECT_EQ(prompts[2].sub_id, 1u);
   EXPECT_EQ(prompts[2].data, "ref1\nref2\nq3");
@@ -1135,14 +1134,14 @@ TEST_F(TraceableBatchOperationsTest,
   harness.BindModel("test_gen_llm", generator);
   harness.BindModel("test_pol_llm", polisher);
 
-  // Generator produces answers without [POLISH]
+  // 生成器产出的答案不含 [POLISH]
   harness.TextInput("input", {"hello", "world"});
 
   auto result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
 
   EXPECT_EQ(generator->call_count, 1);
-  EXPECT_EQ(polisher->call_count, 0);  // Second call skipped!
+  EXPECT_EQ(polisher->call_count, 0);  // 跳过了第二次调用！
   EXPECT_EQ(result.TextValues("output"),
             (std::vector<std::string>{"ans:hello", "ans:world"}));
 }
@@ -1173,13 +1172,13 @@ TEST_F(TraceableBatchOperationsTest,
         outputs->clear();
         for (const auto& item : prompts) {
           if (is_generator) {
-            // If item has "bad", output with [POLISH]
+            // 条目含 "bad" 时，输出带 [POLISH]
             std::string text = (item.data.find("bad") != std::string::npos)
                                    ? (item.data + " [POLISH]")
                                    : ("clean:" + item.data);
             outputs->emplace_back(item.req_id, item.sub_id, std::move(text));
           } else {
-            // Polisher: replace [POLISH] with polished version
+            // 润色器：把 [POLISH] 替换为润色后的版本
             std::string text = item.data;
             size_t tag = text.find(" [POLISH]");
             if (tag != std::string::npos) text.erase(tag);
@@ -1206,25 +1205,24 @@ TEST_F(TraceableBatchOperationsTest,
   harness.BindModel("test_gen_llm", generator);
   harness.BindModel("test_pol_llm", polisher);
 
-  // Input 1 is clean, input 2 is bad, input 3 is clean
+  // 输入 1 正常，输入 2 有问题，输入 3 正常
   harness.TextInput("input", {"good1", "bad2", "good3"});
 
   auto result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
 
-  // Generator called once with all 3 items
+  // 生成器对全部 3 个条目只调用一次
   EXPECT_EQ(generator->call_count, 1);
   EXPECT_EQ(generator->last_prompts.size(), 3u);
 
-  // Polisher called once ONLY on the 1 selected item ("bad2 [POLISH]")
+  // 润色器只对选中的 1 个条目 ("bad2 [POLISH]") 调用一次
   EXPECT_EQ(polisher->call_count, 1);
   ASSERT_EQ(polisher->last_prompts.size(), 1u);
   EXPECT_EQ(polisher->last_prompts[0].req_id, 102u);
   EXPECT_EQ(polisher->last_prompts[0].sub_id, 0u);
   EXPECT_EQ(polisher->last_prompts[0].data, "bad2 [POLISH]");
 
-  // Full output has clean items unchanged, polished item replaced, in original
-  // order
+  // 完整输出按原顺序排列：正常条目不变，润色条目被替换
   auto outputs = result.TextValues("output");
   ASSERT_EQ(outputs.size(), 3u);
   EXPECT_EQ(outputs[0], "clean:good1");
@@ -1238,7 +1236,7 @@ TEST_F(TraceableBatchOperationsTest,
   auto polisher = std::make_shared<CountingMockLlmModel>();
   polisher->always_fail = true;
 
-  // Custom node with polish_tag = "ans:" so generator outputs get selected
+  // 自定义 Node 设置 polish_tag = "ans:"，使生成器的输出被选中
   NodeHarness harness("StarterBatchSelectScatterNode");
   harness.Config({{"bind_model", "test_gen_llm"},
                   {"polish_model", "test_pol_llm"},
@@ -1255,7 +1253,7 @@ TEST_F(TraceableBatchOperationsTest,
 }
 
 // ============================================================================
-// 7. Functional Integration & Provenance Assertions
+// 7. 功能集成与来源断言
 // ============================================================================
 
 struct DirectSubBatchInputs {
@@ -1273,8 +1271,8 @@ NodeResult<TextBatch> RunDirectSubBatch(const DirectSubBatchInputs& in,
   if (!sel.ok()) {
     return NodeResult<TextBatch>::Failure(std::move(sel).ExtractFailure());
   }
-  // Intentionally return sub-batch without ScatterReplace to test fail-closed
-  // PreservedOutput count validation.
+  // 有意不经 ScatterReplace 直接返回子批次，
+  // 以测试 PreservedOutput 数量校验的 fail-closed 行为。
   return sel.value().Materialize();
 }
 
@@ -1374,7 +1372,7 @@ TEST_F(TraceableBatchOperationsTest,
   std::vector<TraceableItem<std::string>> anchor = {
       {1, 0, "alpha"}, {2, 0, "beta"}, {3, 0, "gamma"}};
 
-  // 1. Predicate taking const TraceableItem<Payload>& returning bool
+  // 1. 谓词接受 const TraceableItem<Payload>& 并返回 bool
   auto res_bool = SelectBatch(
       anchor,
       [](const TraceableItem<std::string>& item) { return item.req_id == 2; });
@@ -1382,8 +1380,7 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_EQ(res_bool.value().size(), 1u);
   EXPECT_EQ(res_bool.value()[0].data, "beta");
 
-  // 2. Predicate taking const TraceableItem<Payload>& returning
-  // NodeResult<bool>
+  // 2. 谓词接受 const TraceableItem<Payload>& 并返回 NodeResult<bool>
   auto res_node = SelectBatch(
       anchor, [](const TraceableItem<std::string>& item) -> NodeResult<bool> {
         if (item.sub_id != 0) {
@@ -1399,7 +1396,7 @@ TEST_F(TraceableBatchOperationsTest,
 }
 
 TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
-  // 1. Failure with batch_detail containing key
+  // 1. batch_detail 含键的失败
   NodeFailure f1(
       NodeErrorKind::kBusinessError, "predicate failed",
       BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
@@ -1409,8 +1406,7 @@ TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
       f1.FormatDiagnostic("fallback"),
       "SelectBatch callback_failed for req_id=42, sub_id=9: predicate failed");
 
-  // 2. Failure where message already contains req_id - avoid redundant
-  // formatting
+  // 2. 消息已含 req_id 的失败，避免重复格式化
   NodeFailure f2(
       NodeErrorKind::kInputError,
       "JoinByItem right batch missing key present in left: req_id=2, sub_id=0",
@@ -1420,11 +1416,11 @@ TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
       f2.FormatDiagnostic("fallback"),
       "JoinByItem right batch missing key present in left: req_id=2, sub_id=0");
 
-  // 3. Failure without batch_detail
+  // 3. 不含 batch_detail 的失败
   NodeFailure f3(NodeErrorKind::kBusinessError, "plain error", -1234);
   EXPECT_EQ(f3.FormatDiagnostic("fallback"), "plain error");
 
-  // 4. Failure with empty message and batch_detail with key
+  // 4. 消息为空、batch_detail 含键的失败
   NodeFailure f4(
       NodeErrorKind::kBusinessError, "",
       BatchFailureDetail{"SplitPayloads", BatchFailureReason::kCallbackFailed,
@@ -1433,8 +1429,7 @@ TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
   EXPECT_EQ(f4.FormatDiagnostic("fallback"),
             "SplitPayloads callback_failed for req_id=10, sub_id=3: fallback");
 
-  // 5. Message with different req_id substring collision (req_id=4 vs
-  // req_id=400)
+  // 5. 消息中 req_id 子串冲突 (req_id=4 与 req_id=400)
   NodeFailure f5(
       NodeErrorKind::kBusinessError, "failed on req_id=400",
       BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
@@ -1444,7 +1439,7 @@ TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
             "SelectBatch callback_failed for req_id=4, sub_id=9: failed on "
             "req_id=400");
 
-  // 6. Message contains req_id but lacks sub_id
+  // 6. 消息含 req_id 但缺少 sub_id
   NodeFailure f6(
       NodeErrorKind::kBusinessError, "failed on req_id=42",
       BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
@@ -1454,8 +1449,7 @@ TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
             "SelectBatch callback_failed for req_id=42, sub_id=9: failed on "
             "req_id=42");
 
-  // 7. Message already contains full structured detail - avoids redundant
-  // double formatting
+  // 7. 消息已含完整结构化细节，避免重复格式化
   NodeFailure f7(
       NodeErrorKind::kBusinessError,
       "SelectBatch callback_failed for req_id=42, sub_id=9: predicate failed",
@@ -1500,8 +1494,7 @@ NodeResult<TextBatch> RunBatchSelectFail(const BatchSelectFailInputs& in,
   if (!in.input || in.input->empty()) {
     return NodeResult<TextBatch>::Success(TextBatch{});
   }
-  // Item (42, 9) triggers failure with cause_code = -7788 and message =
-  // "predicate failed"
+  // 条目 (42, 9) 触发失败，cause_code = -7788，message = "predicate failed"
   auto sel =
       SelectBatch(*in.input, [](const std::string& s) -> NodeResult<bool> {
         if (s == "trigger_partial_key_failure") {

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Recipe contracts with the real native Catalog, Validator and Demo.
+"""使用真实原生 Catalog、Validator 和 Demo 的 Recipe 契约测试。
 
-Only incremental-build and focused-test boundaries are stubbed when exercising
-their failure decisions. This suite never starts a competing CMake build.
+只在测试增量构建和定向测试的失败决策时对这两个边界打桩。
+本测试套件从不启动与之竞争的 CMake 构建。
 """
 import contextlib
 import importlib.util

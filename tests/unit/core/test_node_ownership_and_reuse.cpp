@@ -47,7 +47,7 @@ TEST(NodeOwnershipAndReuseTest, TestFixtureRetainsPlanForNodeLifetime) {
   RetainedPlanProbeNode node;
   ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session));
   EXPECT_EQ(node.Process(nullptr), 17);
-  // A second initialization cannot invalidate the first node's stored pointer.
+  // 第二次初始化不能使第一个 Node 保存的指针失效。
   RetainedPlanProbeNode second;
   ASSERT_TRUE(InitNodeForTest(second, {{"value", 29}}, &session));
   EXPECT_EQ(second.Process(nullptr), 29);
@@ -55,7 +55,7 @@ TEST(NodeOwnershipAndReuseTest, TestFixtureRetainsPlanForNodeLifetime) {
 }
 
 TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
-  // Common nodes in Phase 1
+  // 通用 Node
   const auto llm_gen = PipelineCatalog::FindNode("LlmGenerateNode");
   ASSERT_TRUE(llm_gen.has_value());
   EXPECT_EQ(llm_gen->category, "common");
@@ -77,8 +77,7 @@ TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
   EXPECT_EQ(text_rerank->category, "common");
 }
 
-// Mock Embedding Engine that computes distinct vector based on string hash /
-// features
+// 根据字符串哈希特征计算不同向量的 Mock Embedding 引擎
 class DistinctMockEmbeddingModel : public IEmbeddingModel {
  public:
   const std::string& ModelType() const noexcept override {

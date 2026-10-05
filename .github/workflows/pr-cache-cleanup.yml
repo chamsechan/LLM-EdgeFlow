@@ -1,7 +1,7 @@
 name: PR Cache Cleanup
 
-# Pull request caches are only reachable from that pull request. Delete them once it closes so
-# they do not push main snapshots out of the repository's Actions cache quota.
+# PR 缓存只能被该 PR 访问。PR 关闭后即删除，
+# 避免占用仓库 Actions 缓存配额而把 main 快照挤出去。
 on:
   pull_request:
     types: [ closed ]

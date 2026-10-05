@@ -208,7 +208,7 @@ TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
   EXPECT_EQ(pool->FreeBlockCount(), 3u);
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
 
-  // Leave block1 queued; return the other two out of checkout order.
+  // block1 留在队列中；另外两个以不同于取出的顺序归还。
   void *block2 = nullptr, *block3 = nullptr;
   ASSERT_EQ(pool->Acquire(&block2), 0);
   ASSERT_EQ(pool->Acquire(&block3), 0);
@@ -217,7 +217,7 @@ TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
   EXPECT_NE(block2, block3);
   pool->ReturnBlock(block3);
   pool->ReturnBlock(block2);
-  // Repeated rotations preserve FIFO addresses without allocating.
+  // 反复轮转保持 FIFO 地址且不分配内存。
   for (int round = 0; round < 3; ++round) {
     for (void* expected : {block1, block3, block2}) {
       ASSERT_GT(pool->FreeBlockCount(), 0u);
@@ -398,7 +398,7 @@ void CheckMultiStringOutputReuse(const char* suffix,
     EXPECT_EQ(str->data, buffers[i]);
     EXPECT_EQ(str->length, 0);
     EXPECT_EQ(str->data[0], '\0');
-    // The whole configured buffer remains available after reuse.
+    // 复用后整个配置的缓冲区仍可用。
     std::memset(str->data, 'y', 17);
     str->data[17] = '\0';
   }
@@ -718,7 +718,7 @@ TEST_F(OperatorOutputPoolTest,
           NormalizeOutputParameters(*binding, "{}", &spec.params, &error))
           << error;
     }
-    // Multiple blocks exercise rollback after earlier blocks have succeeded.
+    // 多个块用于验证前面的块已成功后的回滚。
     for (uint32_t depth : {1u, 3u}) {
       bool completed = false;
       for (int step = 0; step < 4096; ++step) {
@@ -739,8 +739,8 @@ TEST_F(OperatorOutputPoolTest,
               result = OutputPoolState::Create(suffix, depth, spec, binding,
                                                &pool, &error);
             } catch (const std::bad_alloc&) {
-              // Preflight allocations may propagate to the Operator exception
-              // barrier; they must also leave no pool or leaked allocations.
+              // 预检分配失败可能传播到 Operator 异常屏障；
+              // 此时也不得留下池或泄漏的分配。
             }
             failure.DisableFailure();
             published = pool != nullptr;
@@ -951,7 +951,7 @@ TEST_F(OperatorOutputPoolTest,
         all_null &= !frame.begin()->second;
         all_present &= static_cast<bool>(frame.begin()->second);
       }
-      // The same guard used by Process rolls back any unpublished leases.
+      // Process 使用的同一守卫会回滚所有未发布的租约。
       lease.Rollback();
       outputs.clear();
       injected = failure.Triggered();
@@ -1017,7 +1017,7 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_TRUE(worker_ok);
   EXPECT_TRUE(inner_threw && inner_injected);
   EXPECT_TRUE(outer_threw && outer_injected);
-  // Unwinding an armed scope restores the default allocation behavior too.
+  // 展开已启用的作用域也会恢复默认分配行为。
   try {
     test_support::ScopedAllocationFailure failure(0);
     throw 1;
@@ -1051,7 +1051,7 @@ TEST_F(OperatorOutputPoolTest,
       void* failed = ::operator new(17, std::nothrow);
       nothrow_failed = failed == nullptr && nested.Triggered();
       ::operator delete(failed);
-      // Deallocation in a nested scope must also update its parent's ledger.
+      // 嵌套作用域中的释放也必须更新父作用域的账本。
       ::operator delete(scalar, size_t{17});
       ::operator delete[](array);
       ::operator delete(storage, size_t{65}, std::align_val_t{64});

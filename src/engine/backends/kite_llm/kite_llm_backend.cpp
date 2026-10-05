@@ -73,7 +73,7 @@ bool ValidateCpuRunConfig(const std::string& platform,
   std::transform(normalized.begin(), normalized.end(), normalized.begin(),
                  [](unsigned char c) { return std::toupper(c); });
   if (!IsCpuPlatform(normalized)) return true;
-  // Only enforce the explicit CPU constraint; the SDK owns its full schema.
+  // 只强制显式的 CPU 约束；完整 schema 归 SDK 所有。
   if (config.is_object() && config.contains("model") &&
       config["model"].is_object()) {
     const auto& model = config["model"];
@@ -133,8 +133,7 @@ bool ResolveRunConfig(const std::string& model_path,
   return true;
 }
 
-// Runtime must outlive every model handle, including failed session
-// construction.
+// Runtime 的生命周期必须长于所有模型句柄，包括会话构造失败的情况。
 class KiteRuntime final {
  public:
   KiteRuntime() { kiteLLM_Init(); }
@@ -190,8 +189,8 @@ class KiteSession : public Interface {
         prompt.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
       throw std::runtime_error("Invalid kiteLLM prompt length");
     }
-    // The Model owns formatting. Preserve special tokens and the BOS policy
-    // using token input, avoiding a second vendor chat template.
+    // 格式化归 Model 负责。使用 token 输入以保留特殊 token 和 BOS 策略，
+    // 避免再套一层厂商 chat 模板。
     int count = 0;
     const int probe = kiteLLM_Tokenizer_Encode(
         handle_.get(), prompt.data(), static_cast<int>(prompt.size()), nullptr,

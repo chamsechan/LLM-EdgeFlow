@@ -280,7 +280,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
           return -1;
         }
       } else {
-        // Dummy padding item
+        // 填充用的空条目
         tokenizer_.Encode("", max_length_, &sample_ids, &sample_mask, nullptr);
       }
 

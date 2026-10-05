@@ -1,4 +1,4 @@
-"""Current Demo Profile fields shared with the native build."""
+"""与原生构建共享的当前 Demo Profile 字段。"""
 
 import json
 from pathlib import Path

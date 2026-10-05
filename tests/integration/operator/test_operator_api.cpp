@@ -73,7 +73,7 @@ class OperatorApiTest : public ::testing::Test {
   CreateParam DefaultCreateParam(const char* config_file) const {
     CreateParam param{};
     param.model_path = config_root_.c_str();
-    // Callers below use string literals; the root is owned by this fixture.
+    // 下方调用方使用字符串字面量；根目录归本夹具所有。
     param.cfg_file_name = config_file;
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
@@ -321,7 +321,7 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   param.compute_platform = ComputePlatform::kCpu;
   void* handle = nullptr;
   ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
-  // Ensure Destroy also runs if a fatal assertion exits this test early.
+  // 确保即使致命断言提前退出本测试，也会执行 Destroy。
   const auto owner =
       std::shared_ptr<void>(handle, [this](void* h) { ops_.Destroy(h); });
   const auto check = [&](int expected_hit) {
@@ -343,10 +343,10 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   std::string payload = R"({"prefix":"VIP:"})";
   ControlJsonParam command{2000000041, payload.c_str()};
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
-  payload.assign(payload.size(), 'x');  // Caller memory is no longer needed.
+  payload.assign(payload.size(), 'x');  // 调用方内存已不再需要。
   check(1);
 
-  // Different command IDs update their own Nodes in the same Pipeline.
+  // 不同的命令 ID 更新同一 Pipeline 中各自的 Node。
   ControlJsonParam rules{
       llm_edgeflow::kControlCmdUpdateRules,
       R"({"categories":{"AFTER_RULE_UPDATE":["NEW:sample"]}})"};
@@ -355,10 +355,10 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   command.json_param_str =
       R"({"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"NEW:"}})";
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
-  check(1);  // Updating the prefix preserves the matcher's new rules.
+  check(1);  // 更新 prefix 会保留匹配器的新规则。
 
-  // Rejected requests are invalid parameters; the internal Core code stays in
-  // the diagnostic instead of colliding with the invalid-handle code.
+  // 被拒绝的请求属于非法参数；内部 Core 错误码保留在诊断信息中，
+  // 不会与无效句柄错误码冲突。
   command.json_param_str =
       R"({"$edgeflow_control":1,"node_id":"missing","payload":{"prefix":"BAD:"}})";
   EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
@@ -388,7 +388,7 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
             std::string::npos);
   check(1);
 
-  // A Node that rejects a well-formed payload reports an execution failure.
+  // Node 拒绝格式正确的 payload 时报告执行失败。
   ControlJsonParam bad_regex{
       llm_edgeflow::kControlCmdUpdateRules,
       R"({"rules":[{"pattern":"(","strategy":"regex"}]})"};
@@ -1042,24 +1042,24 @@ TEST_F(OperatorApiTest, CompanyBufferAndAnyValidation) {
   InputLimits limits;
   std::string err;
 
-  // CompanyBuffer: null pointer
+  // CompanyBuffer：空指针
   EXPECT_EQ(buf_binding->validate_external(nullptr, limits, &err), -3);
 
-  // CompanyBuffer: negative length
+  // CompanyBuffer：负长度
   uint8_t dummy_data[] = {0x01, 0x02, 0x03};
   CompanyBuffer buf_neg{-1, dummy_data};
   EXPECT_EQ(buf_binding->validate_external(&buf_neg, limits, &err), -3);
 
-  // CompanyBuffer: length > max
+  // CompanyBuffer：length > max
   CompanyBuffer buf_toolarge{static_cast<int32_t>(limits.max_buffer_bytes + 1),
                              dummy_data};
   EXPECT_EQ(buf_binding->validate_external(&buf_toolarge, limits, &err), -3);
 
-  // CompanyBuffer: length > 0 with null data
+  // CompanyBuffer：length > 0 但 data 为空
   CompanyBuffer buf_nulldata{10, nullptr};
   EXPECT_EQ(buf_binding->validate_external(&buf_nulldata, limits, &err), -3);
 
-  // CompanyBuffer: valid binary
+  // CompanyBuffer：合法二进制数据
   CompanyBuffer buf_valid{3, dummy_data};
   EXPECT_EQ(buf_binding->validate_external(&buf_valid, limits, &err), 0);
 
@@ -1069,14 +1069,14 @@ TEST_F(OperatorApiTest, CompanyBufferAndAnyValidation) {
   ASSERT_NE(any_binding, nullptr);
   ASSERT_TRUE(any_binding->validate_external);
 
-  // CompanyAny: null pointer
+  // CompanyAny：空指针
   EXPECT_EQ(any_binding->validate_external(nullptr, limits, &err), -3);
 
-  // CompanyAny: negative count / length
+  // CompanyAny：负的 count / length
   CompanyAny any_neg{1, -1, 10, dummy_data};
   EXPECT_EQ(any_binding->validate_external(&any_neg, limits, &err), -3);
 
-  // CompanyAny: byte_length > max
+  // CompanyAny：byte_length > max
   CompanyAny any_toolarge{1, 10, static_cast<int32_t>(limits.max_any_bytes + 1),
                           dummy_data};
   EXPECT_EQ(any_binding->validate_external(&any_toolarge, limits, &err), -3);
@@ -1110,17 +1110,16 @@ TEST_F(OperatorApiTest, InputSharedPtrUseCountNotRetained) {
   in_b[0]["chan.keyword_in"] = in_ptr;
   out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
 
-  // Before process: in_ptr is held by in_ptr and in_b[0] (use_count == 2)
+  // process 前：in_ptr 由 in_ptr 和 in_b[0] 持有 (use_count == 2)
   EXPECT_EQ(in_ptr.use_count(), 2);
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  // After process: in_ptr is still held only by in_ptr and in_b[0] (use_count
-  // == 2)
+  // process 后：in_ptr 仍只由 in_ptr 和 in_b[0] 持有 (use_count == 2)
   EXPECT_EQ(in_ptr.use_count(), 2);
 
   in_b.clear();
-  // Now only in_ptr holds it (use_count == 1)
+  // 现在只有 in_ptr 持有 (use_count == 1)
   EXPECT_EQ(in_ptr.use_count(), 1);
 
   out_b.clear();
@@ -1318,7 +1317,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                 .find("Unknown field at /deployment/io/mem_que"),
             std::string::npos);
 
-  // 1. Missing out_mem uses the registered required output defaults.
+  // 1. 缺少 out_mem 时使用注册的必需输出默认值。
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
                           "configs/pipeline_keyword_match_rules.json");
@@ -1332,7 +1331,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
   handle = nullptr;
 
-  // 2. Removed output allocation type is rejected even when it matches.
+  // 2. 已移除的输出分配 type 字段即使匹配也会被拒绝。
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
                           "configs/pipeline_keyword_match_rules.json");
@@ -1412,7 +1411,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                 .find("Unknown field at /deployment/model_path"),
             std::string::npos);
 
-  // 6b. Removed model_paths is rejected even when empty or redundant.
+  // 6b. 已移除的 model_paths 即使为空或冗余也会被拒绝。
   for (const auto& legacy_value :
        nlohmann::json::array({nlohmann::json::object(),
                               {{"unused_model", "models/unused.bin"}}})) {
@@ -1543,7 +1542,7 @@ TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   // 8. 对 Create 接口同样严格拦截非普通文件与不存在文件
   CreateParam bad_param{};
   bad_param.model_path = root_dir.c_str();
-  bad_param.cfg_file_name = "configs";  // Directory
+  bad_param.cfg_file_name = "configs";  // 目录
   void* handle = nullptr;
   EXPECT_EQ(ops_.Create(&handle, &bad_param), -2);
   EXPECT_EQ(handle, nullptr);
@@ -2091,9 +2090,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     EXPECT_FALSE(std::filesystem::exists(resolved_model));
   }
 
-  // Current model resolution accepts canonical absolute paths within the root,
-  // and rejects relative traversal or symlink escape even for missing
-  // artifacts.
+  // 当前的模型解析接受根目录内的规范绝对路径；即使文件不存在，
+  // 也拒绝相对路径遍历和符号链接逃逸。
   {
     auto resolve = [&](const std::string& reference, nlohmann::json* resolved) {
       return llm_edgeflow::ResolveDeploymentModelPaths(
@@ -2256,8 +2254,7 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
         EXPECT_EQ(outputs[0]["chan.keyword_out"], nullptr);
       }
     }
-    // Failed conversion must return the sole lease so a later small result
-    // works.
+    // 转换失败时必须归还唯一的租约，以便之后的小结果能正常写入。
     std::string short_word = "no match";
     text = {static_cast<int32_t>(short_word.size()), short_word.data()};
     EXPECT_EQ(ops_.Process(handle, inputs, outputs), 0)
@@ -2276,7 +2273,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
           "configs/pipeline_keyword_match_rules.json",
       root / "configs/pipeline_keyword_match_rules.json");
 
-  // 1. Unsigned integer > INT32_MAX
+  // 1. 无符号整数 > INT32_MAX
   {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
@@ -2299,7 +2296,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     EXPECT_NE(err.find("exceeds int32 range"), std::string::npos);
   }
 
-  // 2. Negative integer < INT32_MIN
+  // 2. 负整数 < INT32_MIN
   {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
@@ -2322,7 +2319,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     EXPECT_NE(err.find("exceeds int32 range"), std::string::npos);
   }
 
-  // 3. Non-integer (floating point or string)
+  // 3. 非整数 (浮点数或字符串)
   {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
@@ -2553,7 +2550,7 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
     if (ret == 0) options.request_ids->resize(1);
     return ret;
   };
-  // The registries are process-global; register once so the test can repeat.
+  // 注册表是进程级全局的；只注册一次，以便测试可重复运行。
   if (!IoConverterRegistry::Instance().FindInputConverter(input.converter_id))
     ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
   const auto* nested = IoBindingRegistry::Instance().FindBinding(
@@ -2597,7 +2594,7 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
     EXPECT_EQ(frame.at("test.result"), nullptr);
     EXPECT_EQ(frame.at("test.audit"), nullptr);
   }
-  // Returning an acquired block resets it, even when no output was published.
+  // 归还已取出的块会将其重置，即使没有发布任何输出。
   EXPECT_EQ(nested_resets, resets_before);
 }
 
@@ -2650,8 +2647,7 @@ TEST_F(OperatorApiTest,
       EXPECT_EQ(ops_.Destroy(ptr), 0) << GetOperatorLastError();
     });
   }
-  // Two handles, two output slots each, and two single-object allocations per
-  // pool.
+  // 两个句柄，每个两个输出槽位，每个池两次单对象分配。
   ASSERT_EQ(nested_allocations - allocations_before, 8);
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
@@ -2688,7 +2684,7 @@ TEST_F(OperatorApiTest,
         previous[i][0] = outputs[i].at("chan.result").get();
         previous[i][1] = outputs[i].at("chan.audit").get();
       }
-      // Return in frame order so each independent pool reuses its FIFO order.
+      // 按帧顺序归还，使每个独立的池复用其 FIFO 顺序。
       for (auto& output : outputs) output.clear();
     }
   }
@@ -2936,7 +2932,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   ASSERT_EQ(ops_.Create(&entity_handle, &param), 0);
   ASSERT_NE(entity_handle, nullptr);
 
-  // 1. Plain text: valid for Entity Extract, but invalid for Translate schema
+  // 1. 纯文本：对实体抽取合法，但不符合翻译的 schema
   std::string plain_text = "普通中文句子非JSON格式";
   CompanyString cs_plain{static_cast<int32_t>(plain_text.size()),
                          const_cast<char*>(plain_text.data())};
@@ -2946,12 +2942,11 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in_plain);
   out_b[0]["nlp.entity_out"] = std::shared_ptr<void>();
 
-  // Entity Extract accepts plain text
+  // 实体抽取接受纯文本
   EXPECT_EQ(ops_.Process(entity_handle, in_b, out_b), 0);
   out_b.clear();
 
-  // Translate adapter rejects plain text because it requires JSON object with
-  // "query"
+  // 翻译 Adapter 要求带 "query" 的 JSON 对象，因此拒绝纯文本
   const auto* translate_in_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindInputConverter(
           "translate.json.operator.v1");
@@ -2975,7 +2970,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
                                          &ctx, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // 2. JSON text: Translate accepts and extracts "query"
+  // 2. JSON 文本：翻译接受并提取 "query"
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
   CompanyString cs_json{static_cast<int32_t>(json_text.size()),
                         const_cast<char*>(json_text.data())};

@@ -146,8 +146,8 @@ export function modelAvailability(backends, modelDefinition) {
   };
 }
 
-// Check only the container shapes consumed by the viewer. Catalog/Validator
-// still owns IDs, ports, fields, graph legality and model compatibility.
+// 只检查查看器使用的容器结构。ID、端口、字段、图合法性和模型兼容性
+// 仍由 Catalog/Validator 负责。
 export function assertBrowsablePipeline(pipeline) {
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   if (!object(pipeline) || !Array.isArray(pipeline.pipeline)) throw new Error("方案必须是包含 pipeline 数组的 JSON 对象");

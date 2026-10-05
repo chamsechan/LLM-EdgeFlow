@@ -7,9 +7,8 @@
 
 namespace llm_edgeflow::test_support {
 
-// A bounded handshake: timeout must fail the caller, never silently allow a
-// Process to finish before the publication under test. Always resume and join
-// the reader before fatal GoogleTest assertions.
+// 有界握手：超时必须使调用方失败，绝不能静默放任 Process 在被测发布之前
+// 完成。在 GoogleTest 致命断言前务必恢复并 join 读线程。
 class NodeProcessPause {
  public:
   explicit NodeProcessPause(

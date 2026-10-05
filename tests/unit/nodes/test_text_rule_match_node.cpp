@@ -28,7 +28,6 @@ class TextRuleMatchNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
-// 1. Process Keyword and Category Matching
 TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
   auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
@@ -134,7 +133,7 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
         }))
         << report.ToJson().dump(2);
 
-    // Direct authoring initialization reports the same offending nested value.
+    // 直接通过编写接口初始化时，报告同一个出错的嵌套值。
     auto fresh = NodeRegistry::Instance().Create("TextRuleMatchNode");
     std::string diagnostic;
     EXPECT_FALSE(InitNodeForTest(*fresh, invalid.config, session_ctx_.get(),
@@ -230,21 +229,21 @@ TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
   EXPECT_EQ(matches->at(2).data.is_hit, 0);
 }
 
-// 2. Control Command Dynamic Rule Hot-Swap & Bogus Rejection
+// Control 命令动态热替换规则，并拒绝无效更新
 TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
   auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
-  // Valid update
+  // 合法更新
   nlohmann::json update_payload = {
       {"categories", {{"SECURITY", {"密码", "漏洞", "盗号"}}}}};
   NodeControlResult res =
       node->Control(kControlCmdUpdateRules, update_payload.dump());
   EXPECT_EQ(res.status, NodeControlStatus::kHandled);
 
-  // Bogus update -> Rejected
+  // 无效更新 -> 拒绝
   nlohmann::json bogus_payload = {{"bogus_field", 123}};
   NodeControlResult bogus_res =
       node->Control(kControlCmdUpdateRules, bogus_payload.dump());
@@ -424,7 +423,6 @@ TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
   EXPECT_EQ(ctx.Read<RuleMatchBatch>("matches"), nullptr);
 }
 
-// 3. Missing Input Fails Closed
 TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
@@ -448,7 +446,7 @@ TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {
   };
   ASSERT_TRUE(InitNodeForTest(*node, configuration("OLD"), session_ctx_.get()));
   const auto update = configuration("NEW");
-  // Both category keywords and compiled regex captures distinguish versions.
+  // 类别关键词和已编译的正则捕获都能区分版本。
   const TextBatch inputs{{101, 2, "hello"},
                          {101, 7, "world"},
                          {202, 3, "hello"},
@@ -458,9 +456,8 @@ TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {
   test_support::NodeProcessPause pause;
   int process_result = -1;
   std::exception_ptr reader_error;
-  // On this valid Process path, the first heap allocation follows
-  // snapshot.Read: the output batch reserve. Pause with that old snapshot
-  // retained.
+  // 在这条合法的 Process 路径上，snapshot.Read 之后的第一次堆分配是
+  // 输出批次的 reserve。在保留旧快照的状态下暂停。
   std::thread reader([&] {
     try {
       test_support::ScopedNextAllocationCallback callback(

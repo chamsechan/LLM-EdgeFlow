@@ -1,5 +1,5 @@
-# User-authorized private GitHub dependency. Authentication remains in gh's
-# credential store or GH_TOKEN; never materialize tokens in CMake/cache files.
+# 经用户授权的私有 GitHub 依赖。认证信息保留在 gh 凭据存储或 GH_TOKEN 中；
+# 绝不能把 token 写入 CMake 文件或缓存。
 option(ENABLE_KITELLM "Download and link the pinned kiteLLM static release" OFF)
 set(LLM_EDGEFLOW_HAS_KITELLM OFF)
 if(NOT ENABLE_KITELLM)
@@ -29,7 +29,7 @@ set(_kite_asset "kiteLLM-${_kite_platform}.tar.gz")
 set(_kite_cache "${LLM_EDGEFLOW_3RDPARTY_DIR}/kite_llm/${_kite_release}/${_kite_platform}")
 set(_kite_archive "${_kite_cache}/${_kite_asset}")
 file(MAKE_DIRECTORY "${_kite_cache}")
-# Separate build directories share this archive cache.
+# 不同构建目录共享此归档缓存。
 file(LOCK "${_kite_cache}/.download.lock" GUARD PROCESS TIMEOUT 60)
 if(NOT EXISTS "${_kite_archive}")
   find_program(KITELLM_GH_EXECUTABLE NAMES gh)
@@ -39,8 +39,8 @@ if(NOT EXISTS "${_kite_archive}")
       "with repository read access (CI: set GH_TOKEN).")
   endif()
   message(STATUS "[kiteLLM] Downloading chamsechan/kiteLLM ${_kite_release}/${_kite_asset}")
-  # Download into a staging directory so interrupted downloads never become a
-  # reusable archive. The checksum below is authoritative even if a tag moves.
+  # 先下载到暂存目录，避免中断的下载变成可复用的归档。
+  # 即使 tag 被移动，也以下方校验和为准。
   set(_kite_download "${_kite_cache}/download")
   file(MAKE_DIRECTORY "${_kite_download}")
   execute_process(
@@ -66,8 +66,8 @@ if(NOT _kite_actual_sha256 STREQUAL _kite_sha256)
     "Cached kiteLLM SHA-256 mismatch. Remove ${_kite_archive} and configure again.")
 endif()
 
-# Re-extract only verified bytes into this build, avoiding stale/tampered headers
-# or libraries and machine-specific absolute paths from previous environments.
+# 只把已校验的字节重新解压到本构建，避免残留或被篡改的头文件/库，
+# 以及旧环境遗留的机器相关绝对路径。
 set(_kite_extract "${CMAKE_BINARY_DIR}/_deps/kite_llm_release")
 file(MAKE_DIRECTORY "${_kite_extract}")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xzf "${_kite_archive}"

@@ -147,7 +147,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   }
   ASSERT_TRUE(std::filesystem::is_regular_file(model_path));
   KiteDemoDirectory temporary;
-  // Keep the artifact inside the deployment root without a symlink escape.
+  // 产物保留在部署根目录内，不能通过符号链接逃逸。
   std::error_code ec;
   std::filesystem::create_hard_link(std::filesystem::absolute(model_path),
                                     temporary.path / "model.gguf", ec);
@@ -297,7 +297,7 @@ TEST(DemoRunnerTest, ConfigAloneResolvesRegisteredRunner) {
   ASSERT_NE(DemoRegistry::Instance().Find(options.biz), nullptr);
 }
 
-// CLI errors retain exit code 2.
+// CLI 错误保持退出码 2。
 TEST(DemoRunnerTest, CommandLineParsingErrors) {
   DemoOptions opts;
   std::string err;
@@ -360,7 +360,7 @@ TEST(DemoRunnerTest, ComputePlatformWhitelistValidation) {
   EXPECT_EQ(type, ComputePlatform::kUnknown);
 }
 
-// 3. Profile loading and remaining CLI overrides.
+// 3. Profile 加载及其余 CLI 覆盖。
 TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   DemoOptions cli_opts;
   cli_opts.profile = "entity_extract_mock";
@@ -572,7 +572,7 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
     }
   } restore{reg.ListDescriptors()};
 
-  // Demo dispatch uses the Pipeline business identity directly.
+  // Demo 分派直接使用 Pipeline 的业务标识。
   for (const char* biz :
        {"entity_extract", "keyword_match", "doc_qa", "dialogue_audit",
         "ocr_invoice_qa", "audio_asr_intent", "cross_rerank", "translate"}) {
@@ -582,7 +582,7 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
     EXPECT_EQ(descriptor->biz_name, biz);
     EXPECT_NE(descriptor->run, nullptr);
   }
-  // Retired identifiers are not kept as aliases.
+  // 已退役的标识符不保留为别名。
   for (const char* retired :
        {"entity_extract_v1", "keyword_match_v1", "smart_doc_qa_v1",
         "dialogue_compliance_audit_v1", "multimodal_ocr_invoice_qa",
@@ -625,7 +625,7 @@ TEST(DemoRunnerTest,
     ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
               0)
         << error;
-    options.batch_size = 2;  // Exercise multi-request custom-node execution.
+    options.batch_size = 2;  // 覆盖多请求的自定义 Node 执行。
     std::string resolution_error;
     ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
         << resolution_error;
@@ -789,7 +789,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   }
 }
 
-// Native resolution supplies the business identity and clears stale results.
+// 原生解析提供业务标识，并清除过期结果。
 TEST(DemoRunnerTest, ConfigBizResolution) {
   std::string error;
   for (const auto& entry : std::vector<std::pair<std::string, std::string>>{
@@ -892,7 +892,7 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   EXPECT_NE(record.dump().find("PREFIX_APPLIED"), std::string::npos);
   options.control_file.reset();
   EXPECT_EQ(demo->run(options),
-            3);  // Never substitute a default rules payload.
+            3);  // 绝不替换为默认规则 payload。
   options.control_file = (temporary.path / "control.json").string();
   options.control_cmd = 19999;
   EXPECT_EQ(demo->run(options), 5);
@@ -1057,7 +1057,7 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   const auto control_path = temporary.path / "control.json";
   std::ofstream(control_path) << R"({"template":"提取实体：{{primary}}"})";
   options.control_file = control_path.string();
-  // OCR defaults to its registered prompt update command when no ID is given.
+  // 未指定 ID 时，OCR 默认使用其注册的 prompt 更新命令。
   ASSERT_EQ(demo->run(options), 0);
   const auto updated = read_sample();
   EXPECT_EQ(updated["status"], 0);

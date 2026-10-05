@@ -158,8 +158,8 @@ struct NodeFailure {
       }
       return false;
     };
-    // Only omit the prefix when the complete key is already present. A request
-    // alone, or a numeric prefix of another item's key, does not identify it.
+    // 仅当完整键已出现时才省略前缀。仅有请求号，或另一条目键的数字前缀，
+    // 都不足以标识该条目。
     if (detail.operation.empty() || contains_token(detail.operation)) {
       if (!detail.key.has_value() ||
           contains_token("req_id=" + std::to_string(detail.key->req_id) +
@@ -195,10 +195,9 @@ struct NodeFailure {
 template <typename T>
 class [[nodiscard]] NodeResult {
  public:
-  // Disallow default construction to avoid uninitialized / ambiguous states.
+  // 禁止默认构造，避免未初始化或语义不明的状态。
   NodeResult() = delete;
 
-  // Construct from value
   NodeResult(T value) : storage_(std::move(value)) {}  // NOLINT
 
   static NodeResult<T> Success(T value) {

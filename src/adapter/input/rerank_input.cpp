@@ -17,9 +17,8 @@ namespace {
 
 constexpr const char* kInputSlot = "rerank_in";
 
-// Converter-level business limit. The Operator admits passages up to
-// max_doc_text_bytes; this stricter bound is the effective limit today and
-// awaits the solution owner's confirmation.
+// Converter 级业务上限。Operator 允许的段落上限为 max_doc_text_bytes；
+// 当前以这个更严格的上限为准，尚待方案负责人确认。
 constexpr size_t kMaxCandidatePassageBytes = biz_input::kMaxTextBytes;
 
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,

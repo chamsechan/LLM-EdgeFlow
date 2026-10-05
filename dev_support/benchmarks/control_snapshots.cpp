@@ -13,9 +13,8 @@
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "tests/support/node_test_utils.h"
-// Counts ordinary C++ new/new[] on the calling thread only. Aligned
-// allocations, direct malloc calls, and allocations on other threads are not
-// included.
+// 仅统计调用线程上普通的 C++ new/new[]。
+// 不包括对齐分配、直接调用 malloc 以及其他线程上的分配。
 thread_local bool count_on = false;
 thread_local size_t alloc_count = 0, alloc_bytes = 0;
 void* operator new(size_t n) {
@@ -58,7 +57,7 @@ int main(int argc, char** argv) {
   std::string update =
       tpl ? R"({"template":"V1: {{primary}} / {{role}}","prompt_id":"pid_1"})"
           : R"({"categories":{"GREETING":["hello","hi"],"EXTRA":["absent"]}})";
-  node->Control(cmd, update);  // warm schema statics
+  node->Control(cmd, update);  // 预热 schema 静态变量
   for (int a = 0; a < 5; ++a) {
     alloc_count = alloc_bytes = 0;
     count_on = true;

@@ -30,7 +30,7 @@ def positive_integer(value):
 
 
 def runner_link_command(commands):
-    """Keep compiler/launcher arguments while stripping Ninja shell wrappers."""
+    """保留编译器/启动器参数，去掉 Ninja 的 shell 包装。"""
     for line in reversed(commands.splitlines()):
         tokens = shlex.split(line)
         if "-o" not in tokens or not all(
@@ -114,7 +114,7 @@ def main():
         )]
         executable = output / "bench_current"
         command[command.index("-o") + 1] = str(executable)
-        # Put replacement objects ahead of static libraries for normal linkers.
+        # 对普通链接器，把替换的目标文件放在静态库之前。
         command[command.index("-o"):command.index("-o")] = objects + [str(benchmark_object)]
         run(command, cwd=build)
 

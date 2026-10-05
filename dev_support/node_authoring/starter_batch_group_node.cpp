@@ -35,7 +35,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& /*options*/,
   TextBatch prompts;
   prompts.reserve(inputs.queries->size());
 
-  // Preserve anchor order for 1:1 PreservedOutput alignment
+  // 保持锚点顺序，以便 PreservedOutput 按 1:1 对齐
   for (size_t i = 0; i < inputs.queries->size(); ++i) {
     const auto& query_item = (*inputs.queries)[i];
     const auto& group = view.GroupByAnchorIndex(i);

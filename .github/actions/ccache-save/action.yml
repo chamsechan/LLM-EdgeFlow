@@ -53,8 +53,7 @@ runs:
           echo "::warning::Cannot list Actions caches; skipped pruning."
           exit 0
         fi
-        # Never prune unless the snapshot just saved is visible; otherwise the ref would lose
-        # its only warm cache.
+        # 仅当刚保存的快照可见时才清理，否则该 ref 会失去唯一的热缓存。
         if ! awk -v key="${CACHE_KEY}" '$2 == key { found = 1 } END { exit !found }' <<< "${entries}"; then
           echo "::notice::Saved snapshot ${CACHE_KEY} is not listed yet; skipped pruning."
           exit 0

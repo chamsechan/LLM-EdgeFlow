@@ -2,15 +2,15 @@ include_guard(GLOBAL)
 
 include(CMakeParseArguments)
 
-# Older CMake already preserves archive timestamps; the explicit switch was
-# introduced in 3.24. Keep the same extraction behavior on every supported version.
+# 较旧的 CMake 本就保留归档时间戳；显式开关在 3.24 才引入。
+# 在所有支持的版本上保持相同的解压行为。
 set(EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
   set(EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 endif()
 
-# Prepare an inspectable cache marker and report whether an existing cache was
-# produced for the same pinned source and ABI-relevant build environment.
+# 准备可检查的缓存标记，并报告现有缓存是否由相同的固定源码
+# 和 ABI 相关构建环境生成。
 function(edgeflow_prepare_third_party_cache)
   set(_one_value_args
       NAME VERSION SOURCE_SHA256 CACHE_DIR KIND MARKER_ROOT OUT_VALID OUT_MARKER)

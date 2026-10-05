@@ -4,8 +4,8 @@
 
 namespace llm_edgeflow {
 
-// Offline editor assistance for the capabilities of the selected tool build.
-// Semantic validation remains in ValidatePipelineDocument / PipelineValidator.
+// 为所选工具构建的能力提供离线编辑辅助。
+// 语义校验仍由 ValidatePipelineDocument / PipelineValidator 负责。
 nlohmann::json BuildPipelineJsonSchema(const nlohmann::json& catalog);
 
 }  // namespace llm_edgeflow

@@ -1,8 +1,8 @@
 #ifndef EDGEFLOW_PLATFORM_MOCK_OPERATOR_DATA_TYPES_H_
 #define EDGEFLOW_PLATFORM_MOCK_OPERATOR_DATA_TYPES_H_
 
-// Local platform mock declarations for this repository's Demo and tests.
-// These are existing external-environment substitutes, not company SDK headers.
+// 本仓库 Demo 和测试使用的本地平台 mock 声明。
+// 它们是现有外部环境的替代品，不是公司 SDK 头文件。
 
 #include <stddef.h>
 #include <stdint.h>

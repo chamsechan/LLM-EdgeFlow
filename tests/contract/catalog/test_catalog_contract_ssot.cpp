@@ -26,7 +26,7 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   const auto nodes = PipelineCatalog::Nodes();
   EXPECT_GE(nodes.size(), 11U);
 
-  // R1: NodeRegistry::ListDefinitions() equals PipelineCatalog::Nodes()
+  // R1：NodeRegistry::ListDefinitions() 等于 PipelineCatalog::Nodes()
   const auto reg_defs = NodeRegistry::Instance().ListDefinitions();
   EXPECT_EQ(reg_defs.size(), nodes.size());
   EXPECT_TRUE(

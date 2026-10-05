@@ -32,25 +32,25 @@ typedef enum {
 #endif
 
 /**
- * @brief Set the process-wide log level.
- * @param name Compatibility name for the AlgBase logging contract.
- * @param level Integer log level in the inclusive range [0, 5].
- * @return 0 on success, -1 when level is outside [0, 5].
+ * @brief 设置进程级日志级别。
+ * @param name 为兼容 AlgBase 日志契约保留的名称。
+ * @param level 整数日志级别，闭区间 [0, 5]。
+ * @return 成功返回 0；level 超出 [0, 5] 时返回 -1。
  */
 COMPANY_ALG_API int AlgBase_setLogLevelByName(const char* name,
                                               int level) ALG_LOG_NOEXCEPT;
 
 /**
- * @brief Return the current process-wide log level.
- * @param name Compatibility name for the AlgBase logging contract.
+ * @brief 返回当前进程级日志级别。
+ * @param name 为兼容 AlgBase 日志契约保留的名称。
  */
 COMPANY_ALG_API int AlgBase_getLogLevelByName(const char* name)
     ALG_LOG_NOEXCEPT;
 
 /**
- * @brief Write one formatted log record to stderr.
+ * @brief 向 stderr 写入一条格式化日志。
  *
- * The function preserves fmt exactly and does not append a newline.
+ * 原样保留 fmt，不追加换行符。
  */
 ALG_LOG_PRINTF_ATTRIBUTE(3, 4)
 COMPANY_ALG_API void AlgBase_logPrint(const char* level_label, const char* name,

@@ -1,8 +1,8 @@
 #ifndef EDGEFLOW_PLATFORM_MOCK_ERROR_CODES_H_
 #define EDGEFLOW_PLATFORM_MOCK_ERROR_CODES_H_
 
-// Local platform mock declarations for this repository's Demo and tests.
-// These are existing external-environment substitutes, not company SDK headers.
+// 本仓库 Demo 和测试使用的本地平台 mock 声明。
+// 它们是现有外部环境的替代品，不是公司 SDK 头文件。
 
 #define COMPANY_ALG_SUCCESS (0)              // 成功
 #define COMPANY_ALG_ERR_INVALID_HANDLE (-1)  // 无效句柄 (nullptr 或野指针)

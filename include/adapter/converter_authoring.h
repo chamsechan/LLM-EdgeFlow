@@ -17,7 +17,7 @@
 
 namespace llm_edgeflow {
 
-// Both sides must carry the same C++ value type. Identity mapping is explicit.
+// 两侧必须是同一 C++ 值类型；恒等映射需显式声明。
 template <typename T>
 inline std::pair<std::string, std::string> BindIoPort(
     const BlackboardKey<T>& logical_port, const BlackboardKey<T>& actual_key) {
@@ -30,9 +30,8 @@ inline std::pair<std::string, std::string> BindIoPort(
   return BindIoPort(port, port);
 }
 
-// Common convention: required slot, type_suffix = slot_name, and an empty
-// key_suffix that falls back to type_suffix. For other suffixes or optional
-// slots, use ExternalSlotDefinition's explicit fields.
+// 常用约定：必填槽位，type_suffix = slot_name，key_suffix 为空时回退到
+// type_suffix。其他后缀或可选槽位请使用 ExternalSlotDefinition 的显式字段。
 template <typename T>
 inline ExternalSlotDefinition ExternalInputSlot(
     std::string slot_name,
@@ -45,8 +44,8 @@ inline ExternalSlotDefinition ExternalInputSlot(
           slot_name};
 }
 
-// Omitted capacity fields are derived from the registered ValueType; an
-// explicit list must match that ValueType.
+// 省略容量字段时由已注册的 ValueType 推导；
+// 显式列表必须与该 ValueType 一致。
 template <typename T>
 inline ExternalSlotDefinition ExternalOutputSlot(
     std::string slot_name, std::vector<std::string> capacity_fields = {}) {
@@ -59,8 +58,8 @@ inline ExternalSlotDefinition ExternalOutputSlot(
           std::move(capacity_fields)};
 }
 
-// Operator checks carriers and the effective batch limit before decoding and
-// passes that limit in options; this repeats the bound defensively.
+// Operator 在解码前已检查载体和有效批大小上限，并通过 options 传入；
+// 此处防御性地再检查一次。
 inline bool ValidateDecodeRequest(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
                                   AlgContext* context, AdapterStatus* status) {
@@ -102,20 +101,19 @@ inline const T* ReadInputSlot(const ExternalInputBatchView& source,
   return value;
 }
 
-// Structural safety only; size limits and optional-field semantics stay at the
-// call site so existing diagnostics and validation order remain unchanged.
+// 仅做结构安全检查；大小上限和可选字段语义留在调用处，
+// 以保持现有诊断信息和校验顺序不变。
 inline bool IsValidInputString(const CompanyString* value) {
   return value && value->length >= 0 && (value->length == 0 || value->data);
 }
 
-// Call after validation. Empty strings may legitimately have a null data
-// pointer.
+// 须在校验后调用。空字符串的 data 指针可以为空。
 inline std::string CopyInputString(const CompanyString& value) {
   return value.length == 0 ? std::string{}
                            : std::string(value.data, value.length);
 }
 
-// Call after every row passes validation, before publishing business values.
+// 所有行校验通过后、发布业务值前调用。
 inline bool PublishRequestIds(const InputDecodeOptions& options,
                               std::vector<uint64_t> ids,
                               AdapterStatus* status) {
@@ -187,8 +185,8 @@ inline int CopyToOperatorString(std::string_view src, CompanyString* dest,
   }
 }
 
-// The view must describe the actual leased storage. Never infer capacity from
-// CompanyString.length (content length) or a converter-local fallback.
+// view 必须描述实际租用的存储。不得从 CompanyString.length (内容长度)
+// 或 Converter 本地的回退值推断容量。
 inline bool WriteOutputString(const ExternalOutputBatchView& view,
                               const char* slot, CompanyString* destination,
                               const char* field, std::string_view value,
@@ -219,8 +217,8 @@ inline bool WriteOutputString(const ExternalOutputBatchView& view,
   return false;
 }
 
-// Add runtime location to a business error without making the business function
-// depend on converter IDs, batch indices, or port bindings.
+// 为业务错误补充运行时位置，使业务函数无需依赖 Converter ID、批内索引或
+// 端口绑定。
 inline int ReturnRowStatus(const AdapterStatus& result, const std::string& id,
                            size_t index, AdapterStatus* status) {
   if (status) {
@@ -230,7 +228,7 @@ inline int ReturnRowStatus(const AdapterStatus& result, const std::string& id,
   return result.Code();
 }
 
-// A synchronous borrowed writer. Do not retain it or any destination pointers.
+// 同步借用的写入器，不得保留它或任何目标指针。
 class OutputStringWriter {
  public:
   OutputStringWriter(const ExternalOutputBatchView& view, const char* slot,
@@ -252,9 +250,8 @@ class OutputStringWriter {
   size_t index_;
 };
 
-// One required host slot -> one owned payload per request. Callback validates
-// and copies borrowed host fields; publication starts only after every row
-// passes.
+// 每个请求：一个必填宿主槽位 -> 一个自有 payload。回调负责校验并复制借用的
+// 宿主字段；所有行校验通过后才开始发布。
 template <typename Host, typename Payload, typename Decode>
 int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
@@ -286,8 +283,8 @@ int DecodeRequestRows(
   return COMPANY_ALG_SUCCESS;
 }
 
-// Exactly one result (sub_id == 0) per request, in any internal order. The
-// framework restores external IDs; callback owns business fields/serialization.
+// 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架负责恢复外部 ID，
+// 回调负责业务字段与序列化。
 template <typename Host, typename Payload, typename Encode>
 int EncodeResultRows(
     AlgContext* context, const OutputPortBindings& bindings,

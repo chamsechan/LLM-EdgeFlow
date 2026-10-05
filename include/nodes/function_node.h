@@ -167,8 +167,8 @@ struct BatchRunSignature {
              std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&>;
     }
   }();
-  // InvokeBatch returns void when no signature matches, without instantiating
-  // an invalid call. Its dispatch order is the source of truth for Result.
+  // 无签名匹配时 InvokeBatch 返回 void，且不会实例化非法调用。
+  // Result 以其分派顺序为准。
   using Result = decltype(InvokeBatch(
       std::declval<const Fn&>(), std::declval<const InputsT&>(),
       std::declval<const ParamsT&>(), std::declval<const ModelsT&>(),
@@ -186,8 +186,8 @@ auto InvokeTextHook(const Fn& fn, const std::string& text,
   }
 }
 
-// Both LLM hooks accept implicit string conversions and explicit string_view
-// copies. Arithmetic results must never become silently truncated characters.
+// 两个 LLM 钩子都接受可隐式转换为 string 的值和显式的 string_view 拷贝。
+// 算术结果绝不能被静默截断为字符。
 template <typename R>
 inline constexpr bool kIsHookText =
     std::is_convertible_v<R, std::string> ||
@@ -213,7 +213,7 @@ struct TextHookSignature {
 }  // namespace detail
 
 // ---------------------------------------------------------------------------
-// Map Entrypoint
+// Map 入口
 // ---------------------------------------------------------------------------
 
 template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
@@ -360,7 +360,7 @@ inline auto MakeMapSpec(Input<InputBatchT> in, Output<OutputBatchT> out,
 }
 
 // ---------------------------------------------------------------------------
-// Batch Entrypoint
+// Batch 入口
 // ---------------------------------------------------------------------------
 
 enum class InputFlow {
@@ -368,8 +368,7 @@ enum class InputFlow {
   AggregateByRequest,
 };
 
-// Flow metadata describes the existing port contract; it does not transform
-// data.
+// 流元数据描述现有的端口契约，不转换数据。
 struct PortFlow {
   std::string cardinality = "1:1";
   std::string provenance = "preserve";
@@ -603,8 +602,8 @@ inline InputBindingHolder<InputsT> Optional(std::string name,
           std::move(name), member_ptr, false, flow));
 }
 
-// Optional connection whose absent request value is handled by the algorithm
-// (e.g. template missing-variable policy or conditionally used context).
+// 可选连接：请求中缺失的值由算法处理
+// (例如模板缺失变量策略或按条件使用的上下文)。
 template <typename InputsT, typename BatchT>
 inline InputBindingHolder<InputsT> OptionalValue(
     std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {
@@ -1330,7 +1329,7 @@ class BatchSpec {
   std::vector<std::string> biz_names_;
 };
 
-// Batch overloads
+// Batch 重载
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
 inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
@@ -1371,13 +1370,13 @@ inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
 }
 
 // ---------------------------------------------------------------------------
-// AuthorNode definition: supports both MapSpec and BatchSpec
+// AuthorNode 定义：同时支持 MapSpec 和 BatchSpec
 // ---------------------------------------------------------------------------
 
 template <typename SpecT, typename = void>
 class AuthorNode;
 
-// BatchSpec Specialization
+// BatchSpec 特化
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
 class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
@@ -1496,7 +1495,7 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       spec_.Output().Publish(req_ctx, std::move(output));
       return 0;
     } else {
-      // Unreachable in a valid program; avoid cascading template errors.
+      // 合法程序中不可达；避免引发连锁模板错误。
       return this->Fail(req_ctx, node_error::author_node::kInternalError,
                         "Invalid Batch Run signature");
     }
@@ -1518,8 +1517,8 @@ struct MapInputs {
   const InputBatchT* items = nullptr;
 };
 
-// Runs a Map on the Batch runtime: one required anchor input, one preserved
-// output and a per-item loop that names the failing item.
+// 在 Batch 运行时上执行 Map：一个必需的锚点输入、一个保序输出，
+// 以及能指出失败条目的逐条循环。
 template <typename SpecT>
 auto MakeMapRuntimeSpec(std::string node_name, SpecT map) {
   using InputBatch = typename SpecT::InputBatch;
@@ -1568,8 +1567,8 @@ auto MakeMapRuntimeSpec(std::string node_name, SpecT map) {
 
 }  // namespace detail
 
-// MapSpec Specialization: the Definition comes from MapSpec; execution,
-// parameters and Control share the Batch runtime.
+// MapSpec 特化：Definition 来自 MapSpec；执行、参数和 Control 共用
+// Batch 运行时。
 template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
           typename MapFnT>
 class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
@@ -1589,7 +1588,7 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
 };
 
 // ---------------------------------------------------------------------------
-// LLM Text Shortcut Spec Factory
+// LLM 文本快捷 Spec 工厂
 // ---------------------------------------------------------------------------
 
 struct LlmTextInputs {
@@ -1661,8 +1660,8 @@ inline auto MakeLlmTextSpec(Input<TextBatch> in_port,
       auto llm_res = models.generator.Generate(prompts, options);
       if (!llm_res.ok()) return llm_res;
 
-      // Copy views before assigning to owned output, including views into
-      // item.data itself. No partial output is published on hook failure.
+      // 赋值给自有输出前先复制 view，包括指向 item.data 自身的 view。
+      // 钩子失败时不发布部分输出。
       auto outputs = std::move(llm_res).value();
       for (auto& item : outputs) {
         auto res = detail::InvokeTextHook(format_answer,

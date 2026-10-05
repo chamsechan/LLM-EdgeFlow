@@ -9,11 +9,10 @@
 namespace llm_edgeflow {
 
 /**
- * @brief llama.cpp GGUF provider for the neutral text-generation protocol.
+ * @brief 面向中性文本生成协议的 llama.cpp GGUF 提供者。
  *
- * Vendor declarations are intentionally hidden in the implementation file.
- * This class owns no chat template, sampling, stop-word, or generation-loop
- * semantics.
+ * 厂商声明有意隐藏在实现文件中。本类不承担 chat 模板、采样、停止词或
+ * 生成循环语义。
  */
 class LlamaCppBackend final : public BackendIdentity<LlamaCppBackend> {
  public:

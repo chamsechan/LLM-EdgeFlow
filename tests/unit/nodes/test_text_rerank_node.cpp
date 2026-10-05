@@ -93,7 +93,7 @@ class TextRerankNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
-// 1. Process Queries + Candidates (Group 2)
+// 组合 2：queries + candidates
 TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -199,7 +199,7 @@ TEST_F(TextRerankNodeTest, RejectsCandidatesWithConnectedEmptyQueries) {
   }
 }
 
-// 2. Process Pairs (Group 1)
+// 组合 1：pairs
 TEST_F(TextRerankNodeTest, ProcessPairsInput) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -222,7 +222,7 @@ TEST_F(TextRerankNodeTest, ProcessPairsInput) {
   EXPECT_EQ((*ranked)[0].data.original_sub_id, 20u);
 }
 
-// 3. Process Queries + CandidateTexts (Group 3)
+// 组合 3：queries + candidate_texts
 TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -252,7 +252,6 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
   EXPECT_EQ((*ranked)[1].data.original_sub_id, 6u);
 }
 
-// 4. Multi Request Grouping
 TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -282,7 +281,6 @@ TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
   EXPECT_EQ((*ranked)[1].data.text, "Q2 HIGH");
 }
 
-// 5. Typed Model pair-input path
 TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -302,7 +300,6 @@ TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
   ASSERT_EQ(ranked->size(), 1u);
 }
 
-// 6. Failures and Error Handling
 TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -317,23 +314,22 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
   };
   ctx.Publish("pairs", pairs);
 
-  // Score error
+  // 打分出错
   fake_model_->fail_score_ = true;
   EXPECT_EQ(node->Process(&ctx), -1);
 
-  // Score count mismatch
+  // 打分数量不一致
   fake_model_->fail_score_ = false;
   fake_model_->return_wrong_count_ = true;
   EXPECT_EQ(node->Process(&ctx), node_error::author_node::kOutputCountMismatch);
 
-  // Score provenance mismatch
+  // 打分来源不一致
   fake_model_->return_wrong_count_ = false;
   fake_model_->corrupt_provenance_ = true;
   EXPECT_EQ(node->Process(&ctx),
             node_error::author_node::kOutputProvenanceMismatch);
 }
 
-// 7. Port Constraints Validation Check
 TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
   RegisterTestBizs(
       {"rerank_port_constraint_fixture"},
@@ -346,7 +342,7 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
                        });
   };
 
-  // Missing query when candidates is bound -> Fail
+  // 绑定了 candidates 却缺少 query -> 失败
   nlohmann::json bad_pipeline = {
       {"biz_name", "rerank_port_constraint_fixture"},
       {"models",

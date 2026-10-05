@@ -45,7 +45,7 @@ auto ComplexConfig() {
           return false;
         }
         params->prefix = nested["prefix"].get<std::string>();
-        params->limit = -1;  // The basic member binding must override this.
+        params->limit = -1;  // 基础成员绑定必须覆盖此值。
         return true;
       });
   auto config = Parameters<ComplexParams>({
@@ -143,7 +143,7 @@ auto CleanSpec() {
 
 REGISTER_FUNCTION_NODE(CleanTextMapNode, CleanSpec());
 
-// Node returning NodeResult with failure on specific keyword
+// 遇到特定关键字时返回失败 NodeResult 的 Node
 NodeResult<std::string> FailableCleanFn(const std::string& in) {
   if (in == "FAIL") {
     return NodeResult<std::string>::Failure(
@@ -160,7 +160,7 @@ auto FailableSpec() {
 
 REGISTER_FUNCTION_NODE(FailableMapNode, FailableSpec());
 
-// Fails without its own message, so the framework names the Map function.
+// 失败时不带自身消息，由框架给出 Map 函数名。
 auto SilentFailureSpec() {
   return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
                      [](const std::string& in) {
@@ -174,7 +174,7 @@ auto SilentFailureSpec() {
 
 REGISTER_FUNCTION_NODE(SilentFailureMapNode, SilentFailureSpec());
 
-// Node without parameters returning plain string
+// 无参数、返回普通 string 的 Node
 std::string UpperFn(const std::string& in) {
   std::string out = in;
   for (auto& c : out) c = static_cast<char>(toupper(c));
@@ -192,7 +192,7 @@ REGISTER_FUNCTION_NODE(UpperMapNode, UpperSpec());
 int move_only_map_calls = 0;
 int move_only_map_instances = 0;
 
-// The callable owns its immutable resource; parameters remain copyable.
+// 可调用对象持有其不可变资源；参数仍可拷贝。
 auto MoveOnlyMapSpec() {
   auto transform =
       [owned = std::make_unique<std::string>(
@@ -224,7 +224,7 @@ auto MoveOnlyResultMapSpec() {
 REGISTER_FUNCTION_NODE(MoveOnlyResultMapNode, MoveOnlyResultMapSpec());
 
 // ---------------------------------------------------------------------------
-// Batch Fixtures
+// Batch 夹具
 // ---------------------------------------------------------------------------
 
 class CountingMockLlmModel final : public ILlmModel {
@@ -404,7 +404,7 @@ NodeDefinition TwoStageDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(TwoStageHarnessNode, TwoStageDefinition());
 
-// Object logic batch node
+// 对象逻辑 Batch Node
 struct LogicAnswerParams {
   std::string tag = "logic";
 };
@@ -445,7 +445,7 @@ auto LogicBatchSpec() {
 
 REGISTER_FUNCTION_NODE(LogicBatchNode, LogicBatchSpec());
 
-// LLM Text shortcut node
+// LLM 文本快捷 Node
 struct ShortcutParams {
   std::string suffix = "!";
 };
@@ -705,7 +705,7 @@ inline auto ControlledMapSpec() {
 REGISTER_FUNCTION_NODE(ControlledMapNode, ControlledMapSpec());
 
 // ---------------------------------------------------------------------------
-// Non-Copyable Params (holding unique_ptr) without Controls (Problem 1)
+// 不可拷贝的参数 (持有 unique_ptr)，不带 Control
 // ---------------------------------------------------------------------------
 struct NonCopyableMapParams {
   std::string prefix;
@@ -771,7 +771,7 @@ inline auto NonCopyableBatchSpec() {
 REGISTER_FUNCTION_NODE(NonCopyableBatchNode, NonCopyableBatchSpec());
 
 // ---------------------------------------------------------------------------
-// Strict Unplanned Fact Checking Node (Problem 2)
+// 严格的无计划事实检查 Node
 // ---------------------------------------------------------------------------
 
 struct ControlledBatchInputs {
@@ -924,7 +924,7 @@ REGISTER_FUNCTION_NODE(ComplexStateControlAuthorNode,
 }  // namespace
 
 // ===========================================================================
-// Tests
+// 测试
 // ===========================================================================
 
 // A1: Map 多请求/非零 sub_id 保序、输入未修改、空批次不调用；中间项失败无输出
@@ -962,7 +962,7 @@ TEST(FunctionNodeTest, MapPreservesOrderingAndProvenanceAcrossRequests) {
             (std::vector<std::string>{"PRE:first", "PRE:second", "PRE:third"}));
 }
 
-// Every capability call shares one move-only ownership contract.
+// 所有能力调用共享同一份仅可移动的所有权契约。
 template <typename CallT, typename ModelT>
 void ExpectModelCallContract(const char* default_slot) {
   static_assert(std::is_same_v<typename CallT::ModelType, ModelT>);
@@ -1249,7 +1249,7 @@ TEST(FunctionNodeTest, BatchOptionalPortUnconnectedGivesNullptr) {
 
   auto result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
-  // Without context, output won't have [CTX:...]
+  // 无上下文时，输出不含 [CTX:...]
   EXPECT_EQ(result.TextValues("output"),
             (std::vector<std::string>{"final:ans:What is AI?"}));
   EXPECT_EQ(mock_model->call_count, 1);
@@ -1277,7 +1277,7 @@ TEST(FunctionNodeTest, BatchOptionalPortConnectedButMissingFailsClosed) {
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {"What is AI?"});
-  // context is in plan, but NOT supplied to AlgContext
+  // 计划中有 context，但未提供给 AlgContext
 
   auto result = harness.Run();
   EXPECT_FALSE(result.ok());
@@ -1408,7 +1408,7 @@ TEST(FunctionNodeTest, BatchSingleModelCallAndOptionsPassing) {
 
 // M2: Model 返回失败、少项、乱序、错 req/sub 全部失败无输出
 TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
-  // Case 1: Model returns inference failure
+  // 情形 1：模型返回推理失败
   {
     auto mock_model = std::make_shared<CountingMockLlmModel>();
     mock_model->always_fail = true;
@@ -1423,7 +1423,7 @@ TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
     EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
   }
 
-  // Case 2: Model returns wrong count (fewer items)
+  // 情形 2：模型返回的条目数不对 (偏少)
   {
     auto mock_model = std::make_shared<CountingMockLlmModel>();
     mock_model->return_wrong_count = true;
@@ -1438,7 +1438,7 @@ TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
     EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
   }
 
-  // Case 3: Model returns corrupt provenance
+  // 情形 3：模型返回损坏的来源信息
   {
     auto mock_model = std::make_shared<CountingMockLlmModel>();
     mock_model->corrupt_provenance = true;
@@ -1457,7 +1457,7 @@ TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
 // M3: 条件二次调用、失败后显式重试成功、耗尽后失败；Context 最终错误一致
 TEST(FunctionNodeTest, BatchModelCallRetrySucceedsWithoutPollutingContext) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  mock_model->fail_first_n = 1;  // Fails on attempt 1, succeeds on attempt 2
+  mock_model->fail_first_n = 1;  // 第 1 次失败，第 2 次成功
 
   NodeHarness harness("AnswerBatchNode");
   harness.Config({{"bind_model", "test_llm"}, {"max_revisions", 2}});
@@ -1471,11 +1471,11 @@ TEST(FunctionNodeTest, BatchModelCallRetrySucceedsWithoutPollutingContext) {
   EXPECT_EQ(result.TextValues("output"),
             (std::vector<std::string>{"final:ans:Q1"}));
 
-  // Ensure AlgContext is completely clean!
+  // AlgContext 必须完全干净
   EXPECT_TRUE(result.Context()->IsOk());
 }
 
-// Ordinary logic object Run
+// 普通逻辑对象的 Run
 TEST(FunctionNodeTest, BatchLogicClassExecutesPerRequest) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
   NodeHarness harness("LogicBatchNode");
@@ -1489,7 +1489,7 @@ TEST(FunctionNodeTest, BatchLogicClassExecutesPerRequest) {
             (std::vector<std::string>{"ans:my_tag:hello"}));
 }
 
-// MakeLlmTextSpec shortcut
+// MakeLlmTextSpec 快捷方式
 TEST(FunctionNodeTest,
      LlmFormattingFailureDoesNotPublishPartiallyFormattedBatch) {
   for (const char* name : {"FailingFormatNode", "FailingParameterFormatNode"}) {
@@ -1506,7 +1506,7 @@ TEST(FunctionNodeTest,
     EXPECT_EQ(result.process_code(), -9876);
     EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
     EXPECT_EQ(formatting_calls,
-              2);  // First succeeded; second stopped the batch.
+              2);  // 第一个成功；第二个中止了批次。
     EXPECT_EQ(model->call_count, 1);
   }
 }
@@ -1618,19 +1618,19 @@ TEST(FunctionNodeTest, ProcessFailedPreservesAlgContextForOutputInspection) {
 }
 
 TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
-  // Map node test
+  // Map Node 测试
   const auto map_def = PipelineCatalog::FindNode("BindingMapNode");
   ASSERT_TRUE(map_def.has_value());
   ASSERT_TRUE(map_def->validate_config);
 
-  // 1. Map Definition preflight rejects configuration when extra port missing
+  // 1. 缺少额外端口时，Map Definition 预检拒绝配置
   std::string map_diag;
   EXPECT_FALSE(map_def->validate_config({{"require_extra", true}}, {"input"},
                                         &map_diag));
   EXPECT_NE(map_diag.find("require_extra requires extra port"),
             std::string::npos);
 
-  // 2. Map Unplanned Init fails when extra port missing
+  // 2. 缺少额外端口时，无计划的 Map Init 失败
   auto map_unplanned = NodeRegistry::Instance().Create("BindingMapNode");
   ASSERT_NE(map_unplanned, nullptr);
   nlohmann::json invalid_map_cfg = {{"require_extra", true}};
@@ -1644,7 +1644,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   EXPECT_FALSE(map_unplanned->Init(init_ctx_map_unplanned));
   EXPECT_NE(map_init_diag.find("ValidatedNodePlan"), std::string::npos);
 
-  // 3. Map Manual Plan Init fails when extra port missing
+  // 3. 缺少额外端口时，手动计划的 Map Init 失败
   auto map_manual = NodeRegistry::Instance().Create("BindingMapNode");
   ASSERT_NE(map_manual, nullptr);
   ValidatedNodePlan manual_map_plan;
@@ -1665,17 +1665,17 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   EXPECT_NE(manual_map_diag.find("require_extra requires extra port"),
             std::string::npos);
 
-  // 4. Batch node tests
+  // 4. Batch Node 测试
   const auto def = PipelineCatalog::FindNode("BindingTestNode");
   ASSERT_TRUE(def.has_value());
   ASSERT_TRUE(def->validate_config);
 
-  // Batch Definition preflight rejects configuration when mask is missing
+  // 缺少 mask 时，Batch Definition 预检拒绝配置
   std::string diag;
   EXPECT_FALSE(def->validate_config({{"check_mask", true}}, {"texts"}, &diag));
   EXPECT_NE(diag.find("check_mask requires mask port"), std::string::npos);
 
-  // Batch Manual Plan Init fails when mask is not connected
+  // mask 未连接时，手动计划的 Batch Init 失败
   auto node_manual = NodeRegistry::Instance().Create("BindingTestNode");
   ASSERT_NE(node_manual, nullptr);
   ValidatedNodePlan manual_plan;
@@ -1697,7 +1697,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   EXPECT_NE(manual_diag.find("check_mask requires mask port"),
             std::string::npos);
 
-  // 5. NodeHarness fails Init when optional port is omitted
+  // 5. 省略可选端口时 NodeHarness 的 Init 失败
   NodeHarness harness_fail("BindingTestNode");
   harness_fail.Config({{"check_mask", true}});
   harness_fail.OmitPortFromPlan("mask");
@@ -1708,7 +1708,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   EXPECT_NE(result_fail.diagnostic().find("check_mask requires mask port"),
             std::string::npos);
 
-  // 6. NodeHarness succeeds when mask is connected
+  // 6. 连接 mask 后 NodeHarness 成功
   NodeHarness harness_ok("BindingTestNode");
   harness_ok.Config({{"check_mask", true}});
   harness_ok.TextInput("texts", {"hello"});
@@ -1723,8 +1723,7 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
   struct Case {
     const char* node;
     const char* port;
-    int fault;  // 0: absent, 1: empty key and wrong type, 2: wrong type, 3:
-                // valid.
+    int fault;  // 0: 缺失，1: 空键且类型错误，2: 类型错误，3: 合法
     const char* expected;
   };
   const Case cases[] = {
@@ -1782,7 +1781,7 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
            broken ? "integer" : "TextBatch", "1:1", "preserve", "request",
            name == "output" ? PortDirection::kOutput : PortDirection::kInput});
     }
-    // An input error must win even when the later output is invalid too.
+    // 即使后面的输出也非法，也必须优先报告输入错误。
     if (std::string(test.port) != "output" && *test.expected != '\0') {
       plan.ports.back().type_id = "integer";
     }
@@ -1846,7 +1845,7 @@ TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
       EXPECT_EQ(init_error, preflight_error);
       continue;
     }
-    // Neither the caller's document nor the plan may remain the Params owner.
+    // 调用方的文档和计划都不能继续持有 Params。
     config["nested"]["prefix"] = "changed:";
     plan.normalized_config["nested"]["prefix"] = "changed:";
     AlgContext context;
@@ -1879,7 +1878,7 @@ TEST(FunctionNodeTest, LogicObjectIsRecreatedForEachProcessOnSameNode) {
 }
 
 // ---------------------------------------------------------------------------
-// ConfigurationSnapshot & Direct Concurrency
+// ConfigurationSnapshot 与直接并发
 // ---------------------------------------------------------------------------
 
 TEST(ConfigurationSnapshotTest, UninitializedAndNullStateHandled) {
@@ -1908,9 +1907,8 @@ TEST(ConfigurationSnapshotTest, InitializeAndRead) {
 }
 
 TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
-  // writer A updates prefix, writer B updates suffix.
-  // Both successful updates are preserved; B cannot submit based on stale pre-A
-  // state.
+  // 写者 A 更新 prefix，写者 B 更新 suffix。
+  // 两次成功更新都会保留；B 不能基于 A 之前的过期状态提交。
   struct TwoFields {
     std::string prefix;
     std::string suffix;
@@ -1924,7 +1922,7 @@ TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
 
   std::atomic<bool> b_saw_a_prefix{false};
 
-  // Writer A holds the writer lock while B attempts to run
+  // 写者 A 持有写锁时 B 尝试运行
   std::thread thread_a([&]() {
     snapshot.Update([&](const TwoFields& cur) {
       a_entered_lock.set_value();
@@ -1937,7 +1935,7 @@ TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
 
   a_entered_lock.get_future().wait();
 
-  // Writer B attempts to update suffix while A is in Update callback
+  // A 处于 Update 回调中时，写者 B 尝试更新 suffix
   std::thread thread_b([&]() {
     b_called.set_value();
     snapshot.Update([&](const TwoFields& cur) {
@@ -1951,10 +1949,10 @@ TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
   });
 
   b_called.get_future().wait();
-  // A owns the transaction before B is launched. No timing assumption is
-  // needed: B must observe A's published value whenever it acquires the lock.
+  // B 启动前 A 已持有事务。无需时序假设：
+  // B 获取锁时必然看到 A 已发布的值。
 
-  // Release A so it publishes its update
+  // 放行 A，使其发布更新
   release_a.set_value();
 
   thread_a.join();
@@ -1968,8 +1966,8 @@ TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
 }
 
 TEST(ConfigurationSnapshotTest, FailedWriterRollbackPreservesActiveState) {
-  // Writer fails during validation / candidate generation -> no new snapshot
-  // published; old state remains active and intact.
+  // 写者在校验/候选生成阶段失败 -> 不发布新快照；
+  // 旧状态保持生效且完好。
   struct State {
     std::string val;
     int rev;
@@ -1989,7 +1987,7 @@ TEST(ConfigurationSnapshotTest, FailedWriterRollbackPreservesActiveState) {
   EXPECT_EQ(cur->val, "original");
   EXPECT_EQ(cur->rev, 1);
 
-  // Also test exception in candidate building
+  // 同时测试候选构建中的异常
   auto res_ex = snapshot.Update([](const State&) -> NodeResult<State> {
     throw std::runtime_error("candidate throw");
   });
@@ -1998,9 +1996,8 @@ TEST(ConfigurationSnapshotTest, FailedWriterRollbackPreservesActiveState) {
 }
 
 TEST(ConfigurationSnapshotTest, ReaderHoldsOldSnapshotWhileWriterPublishes) {
-  // Reader holding old snapshot is isolated from concurrent writer publication;
-  // old reader completes safely with old version; subsequent reader sees new
-  // version.
+  // 持有旧快照的读者不受并发写者发布的影响；旧读者使用旧版本安全完成，
+  // 后续读者看到新版本。
   struct State {
     std::string val;
     int rev;
@@ -2101,7 +2098,7 @@ TEST(ConfigurationSnapshotTest, MoveOnlyStateHandled) {
 }
 
 // ---------------------------------------------------------------------------
-// Functional Spec WithControls & NodeHarness Tests
+// 函数式 Spec 的 WithControls 与 NodeHarness 测试
 // ---------------------------------------------------------------------------
 
 TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
@@ -2115,29 +2112,29 @@ TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
   EXPECT_EQ(res1.TextValues("output"),
             (std::vector<std::string>{"init_p:payload:init_s"}));
 
-  // 1. ReplaceFields missing multiplier -> rejected
+  // 1. ReplaceFields 缺少 multiplier -> 拒绝
   auto bad_replace = harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
   EXPECT_EQ(bad_replace.status, NodeControlStatus::kFailed);
   EXPECT_NE(bad_replace.message.find("multiplier"), std::string::npos);
 
-  // State preserved
+  // 状态保持不变
   auto res2 = harness.Run();
   ASSERT_TRUE(res2.ok());
   EXPECT_EQ(res2.TextValues("output"),
             (std::vector<std::string>{"init_p:payload:init_s"}));
 
-  // 2. ReplaceFields with all declared fields -> handled
+  // 2. ReplaceFields 带齐所有声明字段 -> 处理成功
   auto good_replace =
       harness.Control(kCmdReplaceMap, R"({"prefix":"rep_p:","multiplier":2})");
   EXPECT_EQ(good_replace.status, NodeControlStatus::kHandled);
 
-  // Undeclared suffix remains ":init_s", prefix and multiplier updated
+  // 未声明的 suffix 仍为 ":init_s"，prefix 和 multiplier 已更新
   auto res3 = harness.Run();
   ASSERT_TRUE(res3.ok());
   EXPECT_EQ(res3.TextValues("output"),
             (std::vector<std::string>{"rep_p:payloadpayload:init_s"}));
 
-  // 3. PatchFields with subset of fields -> handled
+  // 3. PatchFields 只带部分字段 -> 处理成功
   auto good_patch = harness.Control(kCmdPatchMap, R"({"suffix":":patch_s"})");
   EXPECT_EQ(good_patch.status, NodeControlStatus::kHandled);
 
@@ -2146,11 +2143,11 @@ TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
   EXPECT_EQ(res4.TextValues("output"),
             (std::vector<std::string>{"rep_p:payloadpayload:patch_s"}));
 
-  // 4. PatchFields with empty object -> rejected
+  // 4. PatchFields 传空对象 -> 拒绝
   auto empty_patch = harness.Control(kCmdPatchMap, R"({})");
   EXPECT_EQ(empty_patch.status, NodeControlStatus::kFailed);
 
-  // 5. Semantic validator failure -> rejected and state rolled back
+  // 5. 语义校验失败 -> 拒绝并回滚状态
   auto invalid_prefix =
       harness.Control(kCmdPatchMap, R"({"prefix":"INVALID"})");
   EXPECT_EQ(invalid_prefix.status, NodeControlStatus::kFailed);
@@ -2162,7 +2159,7 @@ TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
   EXPECT_EQ(res5.TextValues("output"),
             (std::vector<std::string>{"rep_p:payloadpayload:patch_s"}));
 
-  // 6. Unknown command -> unsupported
+  // 6. 未知命令 -> 不支持
   auto unk = harness.Control(9999, R"({})");
   EXPECT_EQ(unk.status, NodeControlStatus::kUnsupported);
 }
@@ -2177,7 +2174,7 @@ TEST(FunctionNodeTest, FunctionalBatchSpecWithControlsAndValidation) {
   EXPECT_EQ(res1.TextValues("output"),
             (std::vector<std::string>{"H:abc", "H:def"}));
 
-  // Replace update with uppercase = true
+  // 用 uppercase = true 做 Replace 更新
   auto ctrl1 =
       harness.Control(kCmdReplaceBatch, R"({"header":"G:","uppercase":true})");
   EXPECT_EQ(ctrl1.status, NodeControlStatus::kHandled);
@@ -2187,13 +2184,13 @@ TEST(FunctionNodeTest, FunctionalBatchSpecWithControlsAndValidation) {
   EXPECT_EQ(res2.TextValues("output"),
             (std::vector<std::string>{"G:ABC", "G:DEF"}));
 
-  // Semantic rejection
+  // 语义拒绝
   auto ctrl2 = harness.Control(kCmdReplaceBatch,
                                R"({"header":"REJECT","uppercase":true})");
   EXPECT_EQ(ctrl2.status, NodeControlStatus::kFailed);
   EXPECT_NE(ctrl2.message.find("Rejected header"), std::string::npos);
 
-  // Preserved on failure
+  // 失败时保持不变
   auto res3 = harness.Run();
   ASSERT_TRUE(res3.ok());
   EXPECT_EQ(res3.TextValues("output"),
@@ -2233,8 +2230,8 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
   old_ctx.Publish("bk_in_input", batch);
   test_support::NodeProcessPause pause;
   auto reader = std::async(std::launch::async, [&] {
-    // The first allocation is outputs.reserve, after AuthorNode has acquired
-    // its parameter snapshot. The callback is confined to this reader thread.
+    // 第一次分配是 outputs.reserve，发生在 AuthorNode 获取参数快照之后。
+    // 回调仅限于该读者线程。
     test_support::ScopedNextAllocationCallback callback(
         &test_support::NodeProcessPause::OnAllocation, &pause);
     return node->Process(&old_ctx);
@@ -2288,7 +2285,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
   old_ctx.Publish("bk_in_texts", batch);
   test_support::NodeProcessPause pause;
   auto reader = std::async(std::launch::async, [&] {
-    // ControlledBatchFn reserves output after AuthorNode acquires its snapshot.
+    // ControlledBatchFn 在 AuthorNode 获取快照后预留输出。
     test_support::ScopedNextAllocationCallback callback(
         &test_support::NodeProcessPause::OnAllocation, &pause);
     return node->Process(&old_ctx);
@@ -2328,7 +2325,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
 
 TEST(FunctionNodeTest,
      SpecWithNonCopyableParamsCompilesAndExecutesWithoutControls) {
-  // Verifies MapSpec with non-copyable ParamsT (containing unique_ptr)
+  // 验证 ParamsT 不可拷贝 (含 unique_ptr) 的 MapSpec
   NodeHarness map_harness("NonCopyableMapNode");
   map_harness.Config({{"prefix", "map_nc:"}});
   map_harness.TextInput("input", {"hello", "world"});
@@ -2340,7 +2337,7 @@ TEST(FunctionNodeTest,
   auto ctrl_map = map_harness.Control(1001, R"({})");
   EXPECT_EQ(ctrl_map.status, NodeControlStatus::kUnsupported);
 
-  // Verifies BatchSpec with non-copyable ParamsT (containing unique_ptr)
+  // 验证 ParamsT 不可拷贝 (含 unique_ptr) 的 BatchSpec
   NodeHarness batch_harness("NonCopyableBatchNode");
   batch_harness.Config({{"tag", "batch_nc:"}});
   batch_harness.TextInput("texts", {"foo", "bar"});
@@ -2373,42 +2370,42 @@ TEST(FunctionNodeTest, DeclarationValidationRejectsInvalidControlCommands) {
     });
   };
 
-  // 1. Invalid command ID (<= 0)
+  // 1. 非法命令 ID (<= 0)
   EXPECT_THROW(ValidateControlCommands({ReplaceFields(0, "set_text", {"text"})},
                                        make_params()),
                std::invalid_argument);
 
-  // 2. Empty command name
+  // 2. 命令名为空
   EXPECT_THROW(ValidateControlCommands({ReplaceFields(1001, "", {"text"})},
                                        make_params()),
                std::invalid_argument);
 
-  // 3. Duplicate command ID
+  // 3. 命令 ID 重复
   EXPECT_THROW(
       ValidateControlCommands({ReplaceFields(1001, "cmd_a", {"text"}),
                                ReplaceFields(1001, "cmd_b", {"count"})},
                               make_params()),
       std::invalid_argument);
 
-  // 4. Duplicate command name
+  // 4. 命令名重复
   EXPECT_THROW(
       ValidateControlCommands({ReplaceFields(1001, "same_name", {"text"}),
                                ReplaceFields(1002, "same_name", {"count"})},
                               make_params()),
       std::invalid_argument);
 
-  // 5. Empty field names
+  // 5. 字段名为空
   EXPECT_THROW(
       ValidateControlCommands({ReplaceFields(1001, "cmd", {})}, make_params()),
       std::invalid_argument);
 
-  // 6. Duplicate field name in same command
+  // 6. 同一命令内字段名重复
   EXPECT_THROW(
       ValidateControlCommands({ReplaceFields(1001, "cmd", {"text", "text"})},
                               make_params()),
       std::invalid_argument);
 
-  // 7. Unbound field name
+  // 7. 字段名未绑定
   EXPECT_THROW(
       ValidateControlCommands({ReplaceFields(1001, "cmd", {"non_existent"})},
                               make_params()),
@@ -2524,12 +2521,12 @@ TEST(FunctionNodeTest, WithParserWithControlsRequiresExplicitPrepare) {
                               })
           .WithParser(std::move(parser));
 
-  // HasParser() == true, commands not empty, HasPrepare() == false -> throws
+  // HasParser() == true、commands 非空且 HasPrepare() == false -> 抛异常
   EXPECT_THROW(ValidateControlCommands(
                    {ReplaceFields(1001, "set_text", {"text"})}, params),
                std::invalid_argument);
 
-  // Adding Prepare allows validation to pass
+  // 加上 Prepare 后校验通过
   params.Prepare(
       [](DummyParams*, const BindingFacts&, std::string*) { return true; });
   EXPECT_NO_THROW(ValidateControlCommands(
@@ -2595,7 +2592,7 @@ inline auto BindingFactsProbeSpec() {
 REGISTER_FUNCTION_NODE(BindingFactsProbeNode, BindingFactsProbeSpec());
 
 TEST(FunctionNodeTest, AuthorNodeInitPassesRealBindingFactsToPrepare) {
-  // Test planned execution: plan_seen must be true, input must be connected
+  // 测试有计划的执行：plan_seen 必须为 true，且输入必须已连接
   NodeHarness harness_planned("BindingFactsProbeNode");
   harness_planned.TextInput("input", {"hello"});
   auto res_planned = harness_planned.Run();
@@ -2615,7 +2612,7 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
   const auto start = start_signal.get_future().share();
   std::atomic<int> successful_processes{0};
 
-  // Writer thread 1: rapid ReplaceFields
+  // 写线程 1：快速 ReplaceFields
   std::thread writer1([&]() {
     start.wait();
     for (int i = 1; i <= 30; ++i) {
@@ -2628,7 +2625,7 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
     }
   });
 
-  // Writer thread 2: rapid PatchFields
+  // 写线程 2：快速 PatchFields
   std::thread writer2([&]() {
     start.wait();
     for (int i = 1; i <= 30; ++i) {
@@ -2639,7 +2636,7 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
     }
   });
 
-  // Multiple reader threads: concurrent Process calls with multi-item batches
+  // 多个读线程：用多条目批次并发调用 Process
   std::vector<std::thread> readers;
   for (int r = 0; r < 4; ++r) {
     readers.emplace_back([&, r]() {
@@ -2659,9 +2656,9 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
         ASSERT_NE(out, nullptr);
         ASSERT_EQ(out->size(), 8u);
 
-        // Verify intra-batch snapshot consistency:
-        // Item format: prefix + (multiplier * "payload_i") + suffix
-        // Extract prefix, suffix, multiplier from item 0:
+        // 验证批内快照一致性：
+        // 条目格式：prefix + (multiplier * "payload_i") + suffix
+        // 从条目 0 提取 prefix、suffix 和 multiplier：
         const std::string& item0 = (*out)[0].data;
         auto pos0 = item0.find("payload_0");
         ASSERT_NE(pos0, std::string::npos);
@@ -2675,8 +2672,7 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
           multiplier++;
           sp += std::string("payload_0").size();
         }
-        // Every other item in this batch must match the exact same snapshot
-        // parameters:
+        // 本批中其他条目必须与同一份快照参数完全一致：
         for (int i = 1; i < 8; ++i) {
           std::string expected = prefix;
           for (int m = 0; m < multiplier; ++m) {
@@ -2700,7 +2696,7 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
 
   EXPECT_EQ(successful_processes.load(), 4 * 30);
 
-  // Verify node remains in a coherent final state
+  // 验证 Node 最终仍处于一致状态
   AlgContext final_ctx;
   final_ctx.Publish("bk_in_input", TextBatch{{999, 0, "final"}});
   ASSERT_EQ(node->Process(&final_ctx), 0);

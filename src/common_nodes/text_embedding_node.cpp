@@ -69,8 +69,8 @@ NodeResult<EmbeddingBatch> EmbedText(const EmbeddingInputs& inputs,
         "TextEmbeddingNode: single-flight inference failed",
         node_error::text_embedding::kSessionInferenceFailed);
   }
-  // The model facade validated the cached result; PreservedOutput checks the
-  // returned copy again before publishing it for this request.
+  // 模型 facade 已校验缓存结果；PreservedOutput 在为本请求发布前
+  // 会再次检查返回的副本。
   return NodeResult<EmbeddingBatch>::Success(*cached.value());
 }
 

@@ -223,7 +223,7 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
           return -1;
         }
       } else {
-        // Dummy padding item
+        // 填充用的空条目
         if (!tokenizer_.EncodePair("", "", max_length_, &sample_ids,
                                    &sample_mask, &sample_type, &diag)) {
           ALG_LOG_ERROR("[BgeRerankerModel] Dummy EncodePair error: %s\n",

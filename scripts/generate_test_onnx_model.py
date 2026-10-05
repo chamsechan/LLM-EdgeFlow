@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Generate a deterministic, dependency-free ONNX Runtime test fixture.
+"""生成确定性、无外部依赖的 ONNX Runtime 测试夹具。
 
-The graph is intentionally small and is not a pretrained BGE model. It proves
-the real ONNX Runtime Load/Run boundary used by ``BgeEmbeddingModel``:
+该计算图有意保持很小，并非预训练的 BGE 模型。它用于验证
+``BgeEmbeddingModel`` 使用的真实 ONNX Runtime Load/Run 边界：
 
   input_ids[int64, batch, sequence]
     -> Cast -> Unsqueeze -> Mul(scale) -> Add(bias)
     -> last_hidden_state[float32, batch, sequence, 128]
 
-Only Python's standard library is used. The minimal ONNX protobuf is encoded
-directly so a clean checkout does not require the ``onnx`` or ``numpy`` wheels.
+只使用 Python 标准库。直接编码最小的 ONNX protobuf，
+因此干净的检出无需安装 ``onnx`` 或 ``numpy`` wheel。
 """
 
 from __future__ import annotations
@@ -161,7 +161,7 @@ def generate_onnx_model(model_path: Path, hidden_dim: int = 128) -> None:
     model += _int_field(1, 8)  # ModelProto.ir_version
     model += _string_field(2, "edgeflow_test_generator")
     model += _message_field(7, bytes(graph))
-    model += _message_field(8, _int_field(2, 13))  # default opset 13
+    model += _message_field(8, _int_field(2, 13))  # 默认 opset 13
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model_path.write_bytes(model)
@@ -218,7 +218,7 @@ def generate_rerank_onnx_model(model_path: Path) -> None:
     model += _int_field(1, 8)  # ModelProto.ir_version
     model += _string_field(2, "edgeflow_test_generator")
     model += _message_field(7, bytes(graph))
-    model += _message_field(8, _int_field(2, 13))  # default opset 13
+    model += _message_field(8, _int_field(2, 13))  # 默认 opset 13
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model_path.write_bytes(model)

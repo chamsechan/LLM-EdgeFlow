@@ -123,7 +123,6 @@ TEST_F(LlmGenerateNodeTest, ConcurrentModelCallsKeepIndependentReasons) {
             std::string::npos);
 }
 
-// 1. Process Batch Prompt Inference
 TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
@@ -181,7 +180,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
       {{"top_k", -1}},
       {{"top_p", 1.0e-10}},
       {{"repetition_penalty", 0.0}}};
-  // No Model construction is needed to check the Node's preflight diagnostics.
+  // 检查 Node 的预检诊断无需构造 Model。
   for (auto config : invalid) {
     SCOPED_TRACE(config.dump());
     config["bind_model"] = "llm_model_v1";
@@ -215,7 +214,6 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
       << diagnostic;
 }
 
-// 2. Missing Prompt Fails Closed
 TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);

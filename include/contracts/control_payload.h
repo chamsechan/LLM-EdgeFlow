@@ -12,10 +12,9 @@
 
 namespace llm_edgeflow {
 
-// Supported validation keywords: type, enum, required, properties,
-// minProperties, additionalProperties, homogeneous items, minimum and maximum.
-// Documentary annotations do not change validation or apply defaults. Reject
-// unsupported or malformed declarations at registration and in this helper.
+// 支持的校验关键字：type、enum、required、properties、minProperties、
+// additionalProperties、同构 items、minimum 和 maximum。说明性注解不影响
+// 校验，也不填充默认值。注册时和本函数都会拒绝不支持或格式错误的声明。
 inline bool ValidateControlSchema(const nlohmann::json& schema,
                                   std::string* error = nullptr) {
   if (error) error->clear();
@@ -183,7 +182,7 @@ inline bool ValidateValue(const nlohmann::json& payload,
 
 }  // namespace control_payload_detail
 
-// Structural validation only; Nodes still validate domain semantics.
+// 仅做结构校验；Node 仍需校验领域语义。
 inline bool ValidateControlPayload(const nlohmann::json& payload,
                                    const nlohmann::json& schema,
                                    std::string* error = nullptr) {
@@ -191,8 +190,8 @@ inline bool ValidateControlPayload(const nlohmann::json& payload,
   return control_payload_detail::ValidateValue(payload, schema, error);
 }
 
-// Owns the parsed payload; no borrowed platform buffers survive this call.
-// The output is replaced only after parsing and structural validation succeed.
+// 持有解析后的 payload；调用返回后不再引用借用的平台缓冲区。
+// 仅在解析和结构校验都成功后才替换输出。
 inline bool ParseControlPayload(const std::string& text,
                                 const nlohmann::json& schema,
                                 nlohmann::json* payload,

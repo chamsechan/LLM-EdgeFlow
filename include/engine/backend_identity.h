@@ -7,9 +7,8 @@
 
 namespace llm_edgeflow {
 
-// Declares a Backend provider's type once through Derived::kBackendType. The
-// runtime factory still compares the provider and every loaded session with
-// the requested Definition.
+// 通过 Derived::kBackendType 一次性声明 Backend 提供者的类型。运行时工厂
+// 仍会将提供者及每个已加载会话与所请求的 Definition 比对。
 template <typename Derived>
 class BackendIdentity : public IInferenceBackend {
  public:
@@ -19,8 +18,8 @@ class BackendIdentity : public IInferenceBackend {
   }
 };
 
-// Definition carrying BackendClass's type; callers add protocols,
-// concurrency, configuration fields and validator.
+// 携带 BackendClass 类型的 Definition；调用方补充协议、并发度、配置字段
+// 和校验器。
 template <typename BackendClass>
 BackendDefinition MakeBackendDefinition() {
   BackendDefinition definition;

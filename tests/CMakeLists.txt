@@ -1,12 +1,12 @@
 link_libraries(edgeflow_internal_headers)
 if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
-  # Match runtime type visibility for std::any Blackboard payloads. With default
-  # visibility, TextTemplateNodeTest/CommonNodesTest fail to read attributes.
+  # 与 std::any 类型的 Blackboard payload 保持一致的运行时类型可见性。使用默认
+  # 可见性时，TextTemplateNodeTest/CommonNodesTest 无法读取属性。
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 endif()
 
-# Allocation replacement is confined to the focused test executables. It is
-# never linked into runtime objects, the SDK, demos or repository tools.
+# 分配替换仅限于相关的测试可执行文件，
+# 绝不链接进运行时对象、SDK、Demo 或仓库工具。
 add_library(edgeflow_test_allocation_failure OBJECT
   support/scoped_allocation_failure.cpp)
 target_include_directories(edgeflow_test_allocation_failure PUBLIC
@@ -22,8 +22,7 @@ if(UNIX AND NOT APPLE)
     LABELS "tier2;static-gate;dev-fast;sanitizer-compatible")
 endif()
 
-# Validation parity uses deterministic registrations without contaminating the
-# production CLI or shared SDK.
+# 校验一致性测试使用确定性注册，不污染生产 CLI 或共享 SDK。
 add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/cli/alg_pipeline_tool.cpp
   ${PROJECT_SOURCE_DIR}/src/cli/pipeline_authoring.cpp
@@ -38,7 +37,7 @@ target_compile_definitions(alg_pipeline_tool_test PRIVATE
 target_include_directories(alg_pipeline_tool_test PRIVATE
   "${PROJECT_BINARY_DIR}/generated/internal")
 
-# GNU-compatible link wrapping is confined to the existing model test runner.
+# GNU 兼容的链接包装仅限于现有的模型测试 runner。
 function(edgeflow_enable_aligned_allocation_failure target_name)
   if(UNIX AND NOT APPLE)
     target_compile_definitions(${target_name} PRIVATE

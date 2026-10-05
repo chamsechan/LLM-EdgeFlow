@@ -254,11 +254,11 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
 
   const auto& layers = pipeline.GetTopologicalLayers();
   ASSERT_EQ(layers.size(), 5);
-  EXPECT_EQ(layers[0].size(), 2);  // Layer 0: R1, R2
-  EXPECT_EQ(layers[1].size(), 3);  // Layer 1: A1, A2, A3
-  EXPECT_EQ(layers[2].size(), 2);  // Layer 2: M1, M2
-  EXPECT_EQ(layers[3].size(), 3);  // Layer 3: B1, B2, B3
-  EXPECT_EQ(layers[4].size(), 1);  // Layer 4: Final
+  EXPECT_EQ(layers[0].size(), 2);  // 第 0 层：R1、R2
+  EXPECT_EQ(layers[1].size(), 3);  // 第 1 层：A1、A2、A3
+  EXPECT_EQ(layers[2].size(), 2);  // 第 2 层：M1、M2
+  EXPECT_EQ(layers[3].size(), 3);  // 第 3 层：B1、B2、B3
+  EXPECT_EQ(layers[4].size(), 1);  // 第 4 层：Final
 
   AlgContext req_ctx;
   ResetDeepDagTrace();

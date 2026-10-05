@@ -77,7 +77,7 @@ def pipeline_binding(pipeline):
 
 
 def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, pipeline_root=None):
-    """Preserve model paths, rebasing only when the explicit host root changes."""
+    """保留模型路径，仅在显式指定的宿主根目录变化时重定位。"""
     bundle_root = Path(bundle_root).resolve()
     within(bundle_root, model_root)
     source_root = Path(pipeline_root).resolve() if pipeline_root is not None else bundle_root
@@ -110,7 +110,7 @@ def validate_manifest(manifest):
 
 
 def build_variants():
-    # Build-only presets and hidden inheritance defaults are not asset selections.
+    # 仅用于构建的 preset 和隐藏的继承默认值不属于资源选型。
     return [item for item in read_json(PRESETS)["configurePresets"]
             if not item.get("hidden", False)
             and "llm-edgeflow/selection" in item.get("vendor", {})]
@@ -258,8 +258,8 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo, 
     model_root = Path(model_root).resolve()
     bundle_root = Path(pipeline_root).resolve()
     execution_pipeline = copy.deepcopy(pipeline)
-    # Use a temporary configuration inside the existing asset bundle; no model
-    # weights are copied and no path escapes the Operator deployment root.
+    # 在现有资源包内使用临时配置；不复制模型权重，
+    # 也没有路径越出 Operator 部署根目录。
     with tempfile.TemporaryDirectory(prefix=".selection-", dir=bundle_root) as directory:
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
@@ -322,7 +322,7 @@ def main():
             if not args.effects or not args.output:
                 parser.error("evaluate requires --effects and --output")
             report = evaluate(pipeline, report, args.tool, args.model_root, args.effects, conf, args.demo, args.pipeline_root)
-            # Re-hash assets after inference to detect mid-run changes.
+            # 推理后重新计算资源哈希，以检测运行期间的变更。
             if inspect_selection(pipeline, args.tool, args.model_root, args.manifest, args.variant, args.pipeline_root)["selection_fingerprint"] != report["selection_fingerprint"]:
                 raise ValueError("Selection assets changed during execution")
             ok = report["metrics"]["status"] == "passed"

@@ -265,9 +265,8 @@ void ProjectDeploymentDiagnostics(ValidationReport* report) {
                                [](const ValidationFix& fix) {
                                  if (!fix.patch.is_array()) return false;
                                  for (const auto& op : fix.patch) {
-                                   // Business identity is derived, not editable
-                                   // in the external document. Model paths
-                                   // remain editable.
+                                   // 业务标识由推导得出，外部文档不可编辑；
+                                   // 模型路径仍可编辑。
                                    if (op.is_object() && op.contains("path") &&
                                        op["path"] == "/biz_name") {
                                      return true;

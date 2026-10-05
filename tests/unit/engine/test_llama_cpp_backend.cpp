@@ -75,7 +75,7 @@ TEST(LlamaCppBackendTest, ConfigPreflightAndLoadShareCombinationValidation) {
               "decode_batch_size must not exceed context_size");
     BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
     spec.backend_config = config;
-    // The config error is returned even without a path, before model access.
+    // 即使没有路径，也会在访问模型前返回配置错误。
     std::string load_diagnostic;
     EXPECT_EQ(backend->Load(spec, &load_diagnostic), nullptr);
     EXPECT_EQ(load_diagnostic, preflight_diagnostic);
@@ -212,7 +212,7 @@ TEST(LlamaCppBackendTest, KiteAcceptsCpuAndUnspecifiedExecutionTargets) {
                               std::optional<int>{0}}) {
       spec.execution_target.device_id = device;
       EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
-      // A valid target reaches model validation (or the unavailable SDK).
+      // 合法的目标会进入模型校验 (或 SDK 不可用)。
       EXPECT_TRUE(diagnostic.find("regular file") != std::string::npos ||
                   diagnostic.find("not compiled") != std::string::npos)
           << diagnostic;
@@ -238,7 +238,7 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   spec.backend_config = {{"run_config_file", "gpu.json"}};
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("conflicts"), std::string::npos);
-  // A CPU-compatible file reaches the native model loader.
+  // CPU 兼容的文件会进入原生模型加载器。
   std::ofstream(temporary.path / "cpu.json")
       << R"({"schema_version":1,"model":{"gpu_layers":0}})";
   spec.backend_config = {{"run_config_file", "cpu.json"}};
@@ -338,7 +338,7 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   EXPECT_EQ(first.get(), baseline);
   EXPECT_EQ(second.get(), baseline);
 
-  // Releasing one session must not deinitialize a second live model handle.
+  // 释放一个会话不得反初始化另一个仍存活的模型句柄。
   auto another = std::dynamic_pointer_cast<ITextGenerationSession>(
       backend->Load(spec, &diagnostic));
   ASSERT_NE(another, nullptr) << diagnostic;
@@ -352,8 +352,8 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   another.reset();
   EXPECT_NE(backend->Load(spec, &diagnostic), nullptr) << diagnostic;
 
-  // Exercise the native setter, both with and without an optional run-config.
-  // Release each session before changing native load parameters for this model.
+  // 分别在带和不带可选 run-config 的情况下调用原生 setter。
+  // 修改该模型的原生加载参数前，先释放每个会话。
   for (const bool with_config : {true, false}) {
     if (!with_config) spec.backend_config = nlohmann::json::object();
     spec.execution_target.platform = "CPU";
@@ -370,7 +370,7 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   spec.execution_target.platform.clear();
   spec.execution_target.device_id = -1;
   EXPECT_NE(backend->Load(spec, &diagnostic), nullptr) << diagnostic;
-  // A nonexistent native index must fail instead of silently using the CPU.
+  // 不存在的原生设备索引必须失败，而不是静默回退到 CPU。
   spec.execution_target.device_id = std::numeric_limits<int>::max();
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);

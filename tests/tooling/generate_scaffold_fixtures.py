@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build-only test fixtures: exercise the public CLI and compile its exact output."""
+"""仅用于构建的测试夹具：调用公开 CLI，并编译其原样输出。"""
 from pathlib import Path
 import os
 import json
@@ -21,7 +21,7 @@ cases.append(("ScaffoldControlNode", ["--control-id", "2000000042"]))
 
 
 def apply_documented_text_functions(code):
-    """Compile the exact two business function bodies taught in the walkthrough."""
+    """编译教程中讲解的两个业务函数体原文。"""
     guide = (root / "doc/dev_guide/first_custom_node.md").read_text(encoding="utf-8")
     for function in ("BuildPrompt", "FormatAnswer"):
         snippet = re.search(r"<!-- starter-example:" + function + r" -->\s*```cpp\n(.*?)\n```",
@@ -59,7 +59,7 @@ with output.open("w", encoding="utf-8") as stream:
             code = source.read_text(encoding="utf-8")
             if source.name == "scaffold_tutorial_llm_node.cpp":
                 code = apply_documented_text_functions(code)
-            # Preserve each source file's anonymous namespace isolation in this amalgamation.
+            # 在合并后的源码中保留各源文件匿名命名空间的隔离性。
             code = code.replace("namespace {", f"namespace {source.stem} {{", 1)
             stream.write(code)
         for test in sorted((fixture_root / "tests/unit/nodes").glob("test_*.cpp")):
@@ -68,8 +68,8 @@ with output.open("w", encoding="utf-8") as stream:
                 code = code.replace('mock_answer:', 'mock_answer:实体抽取：\\n')
             stream.write(code)
 
-# Keep the runnable Control deployment in the walkthrough under native validation.
-# Only the tutorial node type is replaced with its isolated generated equivalent.
+# 让教程中可运行的 Control 部署继续接受原生校验。
+# 只把教程 Node 类型替换为隔离生成的等价类型。
 guide = (root / "doc/dev_guide/first_control.md").read_text(encoding="utf-8")
 json_blocks = re.findall(r"```json\n(.*?)\n```", guide, re.DOTALL)
 if len(json_blocks) < 2:

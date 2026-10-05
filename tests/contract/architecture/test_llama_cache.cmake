@@ -1,5 +1,5 @@
-# Exercise the production configure/import/archive paths with tiny local targets.
-# No llama.cpp download or target-platform compiler is needed for these checks.
+# 用很小的本地目标覆盖生产环境的 configure/import/archive 路径。
+# 这些检查无需下载 llama.cpp，也无需目标平台编译器。
 set(_llama_fixture "${TEST_ROOT}/llama_fixture")
 file(MAKE_DIRECTORY "${_llama_fixture}/upstream/include"
                     "${_llama_fixture}/upstream/ggml/include")
@@ -20,7 +20,7 @@ endif()
 file(WRITE "${_llama_fixture}/CMakeLists.txt" [=[
 cmake_minimum_required(VERSION 3.16)
 project(llama_cache_fixture C CXX)
-# Simulate platform defaults only; compilation still uses the host toolchain.
+# 只模拟平台默认值；编译仍使用宿主工具链。
 set(APPLE ${TEST_APPLE})
 include("${EDGEFLOW_SOURCE_DIR}/cmake_ext/ThirdPartyEngines.cmake")
 if(NOT "${_LLAMA_FOUND}" STREQUAL "${EXPECT_FOUND}")
@@ -98,8 +98,8 @@ function(check_llama_cache _case_name _apple _blas)
   configure_llama_case(changed_vendor OFF ${_blas} ${ARGN}
                        -DGGML_BLAS_VENDOR=FixtureVendor)
 
-  # Recreate a parent-revision marker: identical source/toolchain, no BLAS fields.
-  # Keep every archive present so rejection depends on the metadata alone.
+  # 重建父 revision 的标记：源码/工具链相同，但不含 BLAS 字段。
+  # 保留所有归档，使拒绝只取决于元数据。
   set(_marker "${_cache}/.edgeflow-cache-fingerprint")
   file(READ "${_marker}" _legacy)
   string(REGEX REPLACE "GGML_BLAS=[^,\n]*," "" _legacy "${_legacy}")

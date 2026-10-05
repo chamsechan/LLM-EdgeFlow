@@ -1,5 +1,5 @@
-// Execute the application's real repair handler and history. Rendering/network
-// boundaries are replaced; application state transitions remain production code.
+// 执行应用真实的修复处理函数和历史记录。只替换渲染/网络边界，
+// 应用状态转换仍是生产代码。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -133,8 +133,8 @@ await handleApplyFix(fix);
 assert.equal(previewCalls, 0, "Do not preview a repair against unapplied form buffers");
 
 
-// The application must route graph changes through the native endpoint and treat
-// its complete candidate as one undoable operation, including retained ordering.
+// 应用必须通过原生接口提交图修改，并把完整候选 (含保留的顺序)
+// 视为一次可撤销的操作。
 reset();
 const graphInitial = { ...initial, pipeline: [{ id: "a" }, { id: "b", depends_on: ["a"], inputs: { text: "shared" } }] };
 state.pipeline = structuredClone(graphInitial);
@@ -173,8 +173,8 @@ for (const change of [
   assert.equal(history.canUndo, false);
 }
 
-// Page review can last arbitrarily long: reject draft edits and changed tools
-// before committing the reviewed candidate.
+// 页面审阅可能持续任意时长：提交已审阅的候选前，
+// 拒绝草稿编辑和已变化的工具。
 reset();
 await handleApplyFix(fix);
 state.pipeline.comment = "edited while reviewing";
@@ -217,7 +217,7 @@ for (const change of [
 }
 console.log("Studio native authoring, page approval and preflight snapshot regressions passed");
 
-// Render the actual diagnostic card for unsupported wire-format versions.
+// 为不支持的线格式版本渲染实际的诊断卡片。
 const { appendDiagnostic } = modules.get("editor.js").namespace;
 for (const schema_version of [0, 2, 999]) {
   const container = new Element();
@@ -230,7 +230,7 @@ for (const schema_version of [0, 2, 999]) {
 }
 console.log("Studio real repair handler, history, late response and schema-version checks passed");
 
-// Exercise both Catalog entry paths and the real validation guard.
+// 覆盖两条 Catalog 入口路径和真实的校验守卫。
 for (const opened of [false, true]) {
   reset();
   if (!opened) state.pipeline = null;

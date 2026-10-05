@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Terminal viewer and local Pipeline Studio server for LLM-EdgeFlow."""
+"""LLM-EdgeFlow 的终端查看器和本地 Pipeline Studio 服务器。"""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class StudioError(RuntimeError):
 
 
 class StudioHttpServer(http.server.ThreadingHTTPServer):
-    """Loopback HTTP server without reverse-DNS lookup during bind."""
+    """绑定时不做反向 DNS 查询的回环 HTTP 服务器。"""
 
     def server_bind(self) -> None:
         socketserver.TCPServer.server_bind(self)
@@ -186,14 +186,14 @@ def get_tool_fingerprint() -> str:
 
 
 class WorkbenchService:
-    """State and filesystem boundary behind /api/v1."""
+    """/api/v1 背后的状态与文件系统边界。"""
 
     def __init__(self, config_root: Path = CONFIG_ROOT, initial: Path | None = None):
         self.config_root = config_root.resolve()
         self.jobs: dict[str, dict[str, Any]] = {}
         self.job_lock = threading.Lock()
         self.solution_lock = threading.Lock()
-        # Ownership is limited to pairs created by this server session.
+        # 所有权仅限于本服务器会话创建的配对。
         self.generated_solutions: dict[str, dict[str, Any]] = {}
         self.initial_document = None
         if initial is not None:
@@ -201,7 +201,7 @@ class WorkbenchService:
             self.initial_document = json_result(
                 True, filename=initial.name, revision="", pipeline=pipeline, imported=True
             )
-            # Only the existing managed file contract grants overwrite access.
+            # 只有现有的托管文件契约才授予覆盖权限。
             try:
                 managed = self.managed_path(initial.name, must_exist=True)
                 if initial.resolve() == managed.resolve():
@@ -521,8 +521,8 @@ class WorkbenchService:
                 staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
                 configuration = self.resolve_run_conf(staged_conf, profile)
 
-                # Native validation used the staged JSON; installed paths have
-                # the same model mappings and normalized node configuration.
+                # 原生校验使用的是暂存 JSON；安装后的路径具有相同的模型映射
+                # 和归一化后的 Node 配置。
                 configuration["conf_path"] = str(conf_path)
                 configuration["pipeline_path"] = str(path)
                 staged_conf.write_bytes(conf_encoded)
@@ -580,7 +580,7 @@ class WorkbenchService:
         self, pipeline: Any, profile_name: str = "", model_root: str = "models",
         filename: str = "", conf_name: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Build one deployment snapshot shared by preview, run and save."""
+        """构建一份供预览、运行和保存共用的部署快照。"""
         if conf_name:
             requested_conf = self.managed_conf_path(conf_name, must_exist=True)
             if not filename:
@@ -624,7 +624,7 @@ class WorkbenchService:
 
     @staticmethod
     def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path, configuration: dict[str, Any]) -> list[str]:
-        # Snapshot only settings previously passed to Demo, not runtime Control.
+        # 只快照之前传给 Demo 的设置，不含运行时 Control。
         name = configuration["biz_name"]
         run_profile = {
             "config": str(conf_path),

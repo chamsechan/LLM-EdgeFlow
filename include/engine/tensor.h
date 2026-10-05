@@ -120,8 +120,7 @@ struct NativeTypeTraits<uint8_t> {
  */
 class HostTensorBuffer : public ITensorBuffer {
  public:
-  // Retain the requested size on failure so a failed allocation is never
-  // mistaken for a valid zero-length buffer.
+  // 失败时保留请求的大小，避免把分配失败误认为合法的零长度缓冲区。
   explicit HostTensorBuffer(size_t byte_size) : size_(byte_size) {
     if (byte_size > 0) {
       size_t alignment = 64;

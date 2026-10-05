@@ -522,10 +522,10 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
 
   const auto& layers = pipeline.GetTopologicalLayers();
   ASSERT_EQ(layers.size(), 3);
-  EXPECT_EQ(layers[0].size(), 1);  // Layer 0: node_a
+  EXPECT_EQ(layers[0].size(), 1);  // 第 0 层：node_a
   EXPECT_EQ(layers[1].size(),
-            2);  // Layer 1: node_b, node_c (Parallel Wavefront)
-  EXPECT_EQ(layers[2].size(), 1);  // Layer 2: node_d
+            2);                    // 第 1 层：node_b、node_c (并行波前)
+  EXPECT_EQ(layers[2].size(), 1);  // 第 2 层：node_d
 
   AlgContext req_ctx;
   ResetExecutionTrace();

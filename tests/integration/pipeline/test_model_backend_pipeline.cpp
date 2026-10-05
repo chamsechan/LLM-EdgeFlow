@@ -21,14 +21,14 @@
 namespace llm_edgeflow {
 namespace test_mb {
 
-// Counters to verify zero side-effects in validator
+// 用于验证 Validator 无副作用的计数器
 static std::atomic<int> g_backend_create_count{0};
 static std::atomic<int> g_backend_load_count{0};
 static std::atomic<int> g_model_create_count{0};
 static BackendLoadSpec g_last_backend_load_spec{
     ExecutionProtocol::kTensorGraph};
 
-// Mock Backend Session
+// Mock Backend 会话
 class MockBackendSession : public IBackendSession {
  public:
   MockBackendSession(std::string backend_type, ExecutionProtocol protocol,
@@ -126,7 +126,7 @@ class MockEmbeddingModel : public IModel {
   nlohmann::json model_config_;
 };
 
-// Mock Model Bound Node
+// 绑定 Mock Model 的 Node
 class MockEmbeddingConsumerNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "MockEmbeddingConsumerNode";
@@ -225,7 +225,7 @@ class ModelBackendPipelineTest : public ::testing::Test {
   void TearDown() override {}
 };
 
-// 1. ValidateAndNormalizeConfig Unit Tests
+// 1. ValidateAndNormalizeConfig 单元测试
 TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigSuccessAndDefaults) {
   std::vector<ConfigFieldDefinition> schema = {
       {"str_field", ConfigValueKind::kString, false, "default_str"},
@@ -258,7 +258,7 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigSuccessAndDefaults) {
   EXPECT_EQ(normalized["bool_field"], true);
   EXPECT_EQ(normalized["enum_field"], "opt_a");
 
-  // Verify input was not modified
+  // 验证输入未被修改
   EXPECT_FALSE(input.contains("str_field"));
 }
 
@@ -292,7 +292,7 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
        {"opt_a", "opt_b"}},
   };
 
-  // Below min
+  // 低于最小值
   {
     nlohmann::json input = {{"int_field", 2}};
     std::vector<ValidationDiagnostic> diags;
@@ -302,7 +302,7 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
     EXPECT_EQ(diags[0].code, DiagnosticCode::kConfigFieldRange);
   }
 
-  // Above max
+  // 高于最大值
   {
     nlohmann::json input = {{"int_field", 50}};
     std::vector<ValidationDiagnostic> diags;
@@ -312,7 +312,7 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
     EXPECT_EQ(diags[0].code, DiagnosticCode::kConfigFieldRange);
   }
 
-  // Invalid enum
+  // 非法 enum
   {
     nlohmann::json input = {{"enum_field", "opt_c"}};
     std::vector<ValidationDiagnostic> diags;
@@ -323,7 +323,7 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
   }
 }
 
-// 2. PipelineValidator and ValidatedModelPlan Tests
+// 2. PipelineValidator 与 ValidatedModelPlan 测试
 TEST_F(ModelBackendPipelineTest,
        ValidatorInfersModelCapabilityWithZeroSideEffects) {
   nlohmann::json cfg = {
@@ -360,14 +360,13 @@ TEST_F(ModelBackendPipelineTest,
   EXPECT_EQ(mp.protocol, ExecutionProtocol::kTensorGraph);
   EXPECT_EQ(mp.effective_concurrency, InferenceConcurrency::kConcurrent);
 
-  // Check normalized configs with injected defaults
+  // 检查注入默认值后的归一化配置
   EXPECT_EQ(mp.normalized_model_config["max_length"], 256);
-  EXPECT_EQ(mp.normalized_model_config["normalize"], true);  // injected default
+  EXPECT_EQ(mp.normalized_model_config["normalize"], true);  // 注入的默认值
   EXPECT_EQ(mp.normalized_backend_config["device"], "cpu");
-  EXPECT_EQ(mp.normalized_backend_config["threads"], 4);  // injected default
+  EXPECT_EQ(mp.normalized_backend_config["threads"], 4);  // 注入的默认值
 
-  // CRITICAL INVARIANT: Validator must NOT call backend create, load, or model
-  // create!
+  // 关键不变量：Validator 不得创建或加载 Backend，也不得创建 Model！
   EXPECT_EQ(g_backend_create_count.load(), 0);
   EXPECT_EQ(g_backend_load_count.load(), 0);
   EXPECT_EQ(g_model_create_count.load(), 0);
@@ -441,7 +440,7 @@ TEST_F(ModelBackendPipelineTest,
 }
 
 TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
-  // Register a backend that only supports text generation.
+  // 注册一个只支持文本生成的 Backend。
   BackendDefinition bdef;
   bdef.backend_type = "text_generation_only_backend";
   bdef.supported_protocols = {ExecutionProtocol::kTextGeneration};
@@ -454,13 +453,12 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
 
   nlohmann::json cfg = {
       {"biz_name", "proto_mismatch_test"},
-      {"models",
-       nlohmann::json::array({{
-           {"model_id", "emb_model"},
-           {"model_type", "mock_bge_embedding"},  // requires kTensorGraph
-           {"backend", "text_generation_only_backend"},
-           {"model_path", "./model.bin"},
-       }})},
+      {"models", nlohmann::json::array({{
+                     {"model_id", "emb_model"},
+                     {"model_type", "mock_bge_embedding"},  // 需要 kTensorGraph
+                     {"backend", "text_generation_only_backend"},
+                     {"model_path", "./model.bin"},
+                 }})},
       {"pipeline", nlohmann::json::array({{
                        {"id", "node1"},
                        {"node_type", "MockEmbeddingConsumerNode"},
@@ -489,9 +487,8 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsRemovedCapabilityField) {
       {"models",
        nlohmann::json::array({{
            {"model_id", "emb_model"},
-           {"capability",
-            "rerank"},  // Removed field is rejected regardless of value.
-           {"model_type", "mock_bge_embedding"},  // definition is embedding
+           {"capability", "rerank"},  // 已移除的字段无论取值都会被拒绝。
+           {"model_type", "mock_bge_embedding"},  // Definition 为 embedding
            {"backend", "mock_test_backend"},
            {"model_path", "./model.onnx"},
        }})},
@@ -515,7 +512,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsRemovedCapabilityField) {
   EXPECT_TRUE(found_removed_field);
 }
 
-// 3. Pipeline Build and Atomic Materialization Tests
+// 3. Pipeline 构建与原子化实例化测试
 TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   nlohmann::json cfg = {
       {"biz_name", "pipeline_build_success"},
@@ -541,12 +538,12 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   EXPECT_TRUE(ok) << diag.message;
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 
-  // Verify backend and model creation
+  // 验证 Backend 和 Model 的创建
   EXPECT_EQ(g_backend_create_count.load(), 1);
   EXPECT_EQ(g_backend_load_count.load(), 1);
   EXPECT_EQ(g_model_create_count.load(), 1);
 
-  // Verify model is accessible in session ModelManager
+  // 验证可通过会话 ModelManager 访问 Model
   auto model = pipeline.GetSessionContext().GetModelManager().GetModel<IModel>(
       "emb_model");
   ASSERT_NE(model, nullptr);
@@ -556,12 +553,12 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   auto mock_model = std::dynamic_pointer_cast<MockEmbeddingModel>(model);
   ASSERT_NE(mock_model, nullptr);
   EXPECT_EQ(mock_model->ModelConfig()["max_length"], 128);
-  EXPECT_EQ(mock_model->ModelConfig()["normalize"], true);  // default injected
+  EXPECT_EQ(mock_model->ModelConfig()["normalize"], true);  // 注入的默认值
 }
 
 TEST_F(ModelBackendPipelineTest,
        PipelineBuildAtomicRollbackOnSecondModelFailure) {
-  // Register second backend that fails to load
+  // 注册第二个加载会失败的 Backend
   BackendDefinition bdef_fail;
   bdef_fail.backend_type = "failing_backend";
   bdef_fail.supported_protocols = {ExecutionProtocol::kTensorGraph};
@@ -606,14 +603,12 @@ TEST_F(ModelBackendPipelineTest,
   EXPECT_FALSE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
 
-  // Verify that failing_backend truly attempted to load (preventing false
-  // positives)
+  // 验证 failing_backend 确实尝试了加载 (避免误判)
   EXPECT_EQ(g_backend_create_count.load(), 2);
   EXPECT_EQ(g_backend_load_count.load(), 2);
   EXPECT_EQ(g_model_create_count.load(), 1);
 
-  // Verify that good_model is NOT registered in ModelManager due to atomic
-  // staging!
+  // 验证由于原子暂存，good_model 未注册到 ModelManager！
   EXPECT_EQ(pipeline.GetSessionContext().GetModelManager().GetModel<IModel>(
                 "good_model"),
             nullptr);
@@ -747,9 +742,8 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   EXPECT_TRUE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 
-  // Session registration retains model identity metadata, while the
-  // execution target remains transient and is captured at the Backend load
-  // boundary below.
+  // 会话注册保留模型标识元数据，而执行目标是临时的，
+  // 在下方 Backend 加载边界处捕获。
   auto reg =
       pipeline.GetSessionContext().GetModelManager().GetModelRegistration(
           "emb_model");

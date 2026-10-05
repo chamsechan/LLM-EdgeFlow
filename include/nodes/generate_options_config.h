@@ -12,7 +12,7 @@
 
 namespace llm_edgeflow {
 
-// Shared sampling fields for Nodes; each caller chooses its token default.
+// Node 共享的采样字段；各调用方自行选择 token 默认值。
 inline std::vector<ConfigFieldDefinition> GenerateOptionsFields(
     int default_max_tokens) {
   return {
@@ -72,7 +72,7 @@ inline std::vector<ConfigFieldDefinition> GenerateOptionsFields(
                             "\"<END>\"]；命中后输出不包含停止文本。"}};
 }
 
-// Consume fields already validated and defaulted by NodeConfigParser.
+// 消费已由 NodeConfigParser 校验并填充默认值的字段。
 inline bool ParseGenerateOptions(const nlohmann::json& config,
                                  GenerateOptions* options,
                                  std::string* diagnostic) {

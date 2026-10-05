@@ -103,9 +103,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Render SVGs directly to isolated temporary directory in a single pass with
-# parallel threads and fast TieredCompilation startup. Syntax errors are caught
-# immediately via -failfast2 without polluting workspace.
+# 单次运行、多线程并以快速 TieredCompilation 启动，直接把 SVG 渲染到隔离的
+# 临时目录。语法错误通过 -failfast2 立即捕获，不会污染工作区。
 "${JAVA_BIN}" -Djava.awt.headless=true -XX:+TieredCompilation \
   -XX:TieredStopAtLevel=1 \
   -jar "${PLANTUML_JAR}" -nbthread auto \
@@ -186,10 +185,9 @@ if [[ "${MODE}" == "--generate" ]]; then
   install -m 0644 "${GENERATED_FLOW}" "${FLOW_ASSET}"
   echo "✅ Generated source-provenance-locked architecture SVG assets."
 else
-  # PlantUML layout coordinates can differ across CPU architectures and font
-  # stacks even with the same Jar. The committed asset is therefore locked to
-  # the exact source SHA and generator version, while a fresh render above
-  # proves syntax/renderability and both outputs are checked semantically.
+  # 即使使用同一个 Jar，PlantUML 的布局坐标也可能因 CPU 架构和字体栈而不同。
+  # 因此提交的资源锁定到确切的源文件 SHA 和生成器版本；上面的全新渲染用于
+  # 验证语法和可渲染性，两份输出都会做语义检查。
   validate_committed_asset "${CLASS_ASSET}" "${CLASS_PROVENANCE}" \
     SharedAlgorithmRuntime Pipeline AlgContext NodeBase FixedBatchExecutor
   validate_committed_asset "${FLOW_ASSET}" "${FLOW_PROVENANCE}" \

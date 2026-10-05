@@ -8,10 +8,9 @@
 
 namespace llm_edgeflow {
 
-// Declares a Model's identity once. Derived supplies kModelType and
-// kConcurrency; the capability follows from the implemented interface. The
-// registered Definition starts from the same values, and the runtime factory
-// still checks every created instance against its Definition.
+// 一次性声明 Model 的标识。Derived 提供 kModelType 和 kConcurrency，
+// 能力由所实现的接口决定。注册的 Definition 以相同的值为起点，运行时工厂
+// 仍会将每个创建的实例与其 Definition 比对。
 template <typename Derived, typename CapabilityInterface>
 class ModelIdentity : public CapabilityInterface {
  public:
@@ -31,8 +30,8 @@ class ModelIdentity : public CapabilityInterface {
   }
 };
 
-// Definition carrying ModelClass's identity; callers add the description,
-// protocol, configuration fields and validator.
+// 携带 ModelClass 标识的 Definition；调用方补充描述、协议、配置字段
+// 和校验器。
 template <typename ModelClass>
 ModelDefinition MakeModelDefinition() {
   ModelDefinition definition;
