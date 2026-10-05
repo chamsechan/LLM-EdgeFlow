@@ -1283,10 +1283,10 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
             std::string::npos);
 
-  // 5. 已移除的部署字段 model_paths 作为未知字段被拒绝
+  // 5. 部署段的未知字段被拒绝
   nlohmann::json unknown_mid_json = {
       {"deployment",
-       {{"model_paths", {{"non_existent_model", "dummy_path"}}},
+       {{"unknown_field", 1},
         {"io",
          {{"io_binding", "keyword_match"},
           {"out_mem",
@@ -1299,7 +1299,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "./models",
                                                    &plan, &error);
   EXPECT_EQ(ret, -2);
-  EXPECT_NE(error.find("Unknown field at /deployment/model_paths"),
+  EXPECT_NE(error.find("Unknown field at /deployment/unknown_field"),
             std::string::npos)
       << "actual error was: " << error;
 }

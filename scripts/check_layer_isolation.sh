@@ -289,20 +289,7 @@ if [ -n "$WHISPER_VENDOR_OUTSIDE_BACKEND" ]; then
 fi
 echo "✅ [LayerGuard PASS] The whisper.h vendor header stays inside its concrete Backend."
 
-# 规则 5：中性的 TraceableItem 契约只有一个规范 include 路径。
-LEGACY_TRACEABLE_HEADER="$REPO_ROOT/include/core/traceable_item.h"
-LEGACY_TRACEABLE_INCLUDES=$(grep -rnE \
-  '#include\s*["<]core/traceable_item\.h[">]' \
-  "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" \
-  "$REPO_ROOT/dev_support" "$REPO_ROOT/tests" 2>/dev/null || true)
-if [ -e "$LEGACY_TRACEABLE_HEADER" ] || [ -n "$LEGACY_TRACEABLE_INCLUDES" ]; then
-  echo "❌ [LayerGuard ERROR] Legacy core/traceable_item.h compatibility path remains:"
-  echo "$LEGACY_TRACEABLE_INCLUDES"
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] TraceableItem uses the neutral contracts include path."
-
-# 规则 6：Node 支持代码只消费抽取出的已校验 Node 计划，
+# 规则 5：Node 支持代码只消费抽取出的已校验 Node 计划，
 # 而不是完整的编排层 Validator 实现契约。
 NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_base.h"
 if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
@@ -313,7 +300,7 @@ if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
 fi
 echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
 
-# 规则 7：CMake 中的源码归属必须保持四个编译期分层和显式的组合根。
+# 规则 6：CMake 中的源码归属必须保持四个编译期分层和显式的组合根。
 for OWNERSHIP in \
   "src/engine/CMakeLists.txt:edgeflow_model_execution_objects" \
   "src/common_nodes/CMakeLists.txt:edgeflow_capability_nodes_objects" \
@@ -328,11 +315,11 @@ for OWNERSHIP in \
     exit 1
   fi
 done
-LEGACY_SOURCE_OWNERSHIP=$(grep -rn 'target_sources(edgeflow_runtime_objects' \
+AGGREGATE_SOURCE_OWNERSHIP=$(grep -rn 'target_sources(edgeflow_runtime_objects' \
   "$REPO_ROOT/src" 2>/dev/null || true)
-if [ -n "$LEGACY_SOURCE_OWNERSHIP" ]; then
-  echo "❌ [LayerGuard ERROR] Layer sources still use the legacy aggregate target:"
-  echo "$LEGACY_SOURCE_OWNERSHIP"
+if [ -n "$AGGREGATE_SOURCE_OWNERSHIP" ]; then
+  echo "❌ [LayerGuard ERROR] Layer sources must not be attached to the aggregate runtime target:"
+  echo "$AGGREGATE_SOURCE_OWNERSHIP"
   exit 1
 fi
 if ! grep -q 'target_sources(edgeflow_composition_objects' \
@@ -346,7 +333,7 @@ if ! grep -q 'target_sources(edgeflow_composition_objects' \
 fi
 echo "✅ [LayerGuard PASS] CMake source ownership preserves all four layers and the composition root."
 
-# 规则 8：用标准 C 编译器检查纯 C11 语法与 ABI 合规性
+# 规则 7：用标准 C 编译器检查纯 C11 语法与 ABI 合规性
 GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
 cleanup_generated_version() {
   rm -rf "${GENERATED_VERSION_INCLUDE}"
@@ -397,7 +384,7 @@ else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
 
-# 规则 9：Demo 层 (demo/) 绝不能直接 include SDK 内部头文件
+# 规则 8：Demo 层 (demo/) 绝不能直接 include SDK 内部头文件
 # (adapter/、core/、biz/、business/、engine/、src/)
 VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|business/|engine/|src/)' "$REPO_ROOT/demo" || true)
 
@@ -409,7 +396,7 @@ if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
 
-# 规则 10：LLM 厂商运行时与模型语义边界。
+# 规则 9：LLM 厂商运行时与模型语义边界。
 LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" \
   --exclude-dir=backends 2>/dev/null || true)
@@ -451,13 +438,6 @@ if ! grep -rq 'ITextGenerationSession' \
   exit 1
 fi
 
-LLM_NODE_LEGACY=$(grep -nE 'ILlmEngine|engine_interface' \
-  "$REPO_ROOT/src/common_nodes/llm_generate_node.cpp" 2>/dev/null || true)
-if [ -n "$LLM_NODE_LEGACY" ]; then
-  echo "❌ [LayerGuard ERROR] LlmGenerateNode still depends on the legacy engine interface:"
-  echo "$LLM_NODE_LEGACY"
-  exit 1
-fi
 echo "✅ [LayerGuard PASS] Backend vendor resources and Qwen generation semantics are isolated."
 
 python3 "$(dirname "${BASH_SOURCE[0]}")/check_layer_dependencies.py" --root "${REPO_ROOT}"

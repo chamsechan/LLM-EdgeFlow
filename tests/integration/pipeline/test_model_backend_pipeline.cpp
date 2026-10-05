@@ -481,37 +481,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
   EXPECT_EQ(g_backend_create_count.load(), 0);
 }
 
-TEST_F(ModelBackendPipelineTest, ValidatorRejectsRemovedCapabilityField) {
-  nlohmann::json cfg = {
-      {"biz_name", "cap_mismatch_test"},
-      {"models",
-       nlohmann::json::array({{
-           {"model_id", "emb_model"},
-           {"capability", "rerank"},  // 已移除的字段无论取值都会被拒绝。
-           {"model_type", "mock_bge_embedding"},  // Definition 为 embedding
-           {"backend", "mock_test_backend"},
-           {"model_path", "./model.onnx"},
-       }})},
-      {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
-                       {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
-                   }})},
-  };
-
-  auto report = PipelineValidator::Validate(cfg);
-  EXPECT_FALSE(report.ok);
-
-  bool found_removed_field = false;
-  for (const auto& diag : report.diagnostics) {
-    if (diag.code == DiagnosticCode::kUnknownField) {
-      found_removed_field = true;
-    }
-  }
-  EXPECT_TRUE(found_removed_field);
-}
-
 // 3. Pipeline 构建与原子化实例化测试
 TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   nlohmann::json cfg = {

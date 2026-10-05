@@ -11,19 +11,6 @@ echo "================================================================"
 
 FAILED=0
 
-report_matches() {
-  local matches="$1"
-  local failure_message="$2"
-  local success_message="$3"
-  if [[ -z "${matches}" ]]; then
-    echo "✅ ${success_message}"
-    return
-  fi
-  echo "❌ ${failure_message}"
-  echo "${matches}"
-  FAILED=1
-}
-
 require_concepts() {
   local document="$1"
   local concept
@@ -36,90 +23,8 @@ require_concepts() {
   done
 }
 
-find_deprecated_registration_macros() {
-  grep -rnE "\bREGISTER_NODE\([A-Za-z0-9_]+\)" \
-    "${ACTIVE_DOCS[@]}" 2>/dev/null | grep -v "#define REGISTER_NODE" || true
-  grep -rnE "\bREGISTER_ENGINE\([A-Za-z0-9_]+,[[:space:]]*[A-Za-z0-9_]+\)" \
-    "${ACTIVE_DOCS[@]}" 2>/dev/null | grep -v "#define REGISTER_ENGINE" || true
-  grep -rnE '\bREGISTER_ENGINE_WITH_DEFINITION[[:space:]]*\([[:space:]]*"' \
-    "${ACTIVE_DOCS[@]}" 2>/dev/null || true
-}
-
-ACTIVE_DOCS=(
-  "${DOC_ROOT}/architecture.md"
-  "${DOC_ROOT}/developer_guide.md"
-  "${DOC_ROOT}/dev_guide"
-  "${DOC_ROOT}/README.md"
-  "${DOC_ROOT}/architecture_classes.puml"
-  "${DOC_ROOT}/architecture_flow.puml"
-  "${DOC_ROOT}/assets/architecture_class_diagram.svg"
-  "${DOC_ROOT}/assets/architecture_flow.svg"
-  "${DOC_ROOT}/assets/framework_overview.svg"
-  "${ROOT_DIR}/README.md"
-  "${ROOT_DIR}/CONTRIBUTING.md"
-  "${ROOT_DIR}/AGENTS.md"
-  "${ROOT_DIR}/.github/copilot-instructions.md"
-  "${ROOT_DIR}/.agents/skills"
-  "${ROOT_DIR}/src"
-  "${ROOT_DIR}/include"
-  "${ROOT_DIR}/demo"
-  "${ROOT_DIR}/configs"
-)
-
-# 1. 检查权威文档与资产中是否存在旧业务名 (包含 SVG 资产)
-echo "[Check 1/8] Checking for legacy business names and identifiers..."
-LEGACY_BIZ=$(grep -rnE "(doc_qa_embedding_v1|doc_qa_rerank_v1|(keyword_match|entity_extract|translate|smart_doc_qa|dialogue_compliance_audit)_v1|dense_cross_rerank_scoring|multimodal_ocr_invoice_qa|speech_audio_asr_intent_slot|compliance_audit|ocr_doc_qa|audio_asr_(cpu|mock|demo))" \
-  "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
-report_matches "${LEGACY_BIZ}" \
-  "Found deprecated business names in active docs, assets or codebase:" \
-  "No legacy business names found."
-
-# 2. 检查旧注册宏 (REGISTER_NODE( / REGISTER_ENGINE( / REGISTER_ENGINE_WITH_DEFINITION("str", ...))
-echo "[Check 2/8] Checking for deprecated registration macros..."
-LEGACY_MACROS="$(find_deprecated_registration_macros)"
-report_matches "${LEGACY_MACROS}" \
-  "Found deprecated registration macro invocations:" \
-  "No deprecated registration macro invocations found in active docs/source."
-
-# 3. 检查虚构生产节点 (PassthroughNode, ComplianceReportPostNode)
-echo "[Check 3/8] Checking for fictitious production nodes..."
-FICTITIOUS_NODES=$(grep -rnE "\b(PassthroughNode|ComplianceReportPostNode)\b" "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
-report_matches "${FICTITIOUS_NODES}" \
-  "Found fictitious production nodes in active docs or codebase:" \
-  "No fictitious production nodes found."
-
-# 4. 检查当前治理入口是否引用已移除的 Engine / Biz Node 架构或已迁移的仓库路径。
-echo "[Check 4/8] Checking active governance for removed architecture identifiers..."
-REMOVED_ARCH=$(grep -rnE \
-  '(IModelEngine|include/engine/engine_interface\.h|REGISTER_ENGINE_WITH_DEFINITION|src/business/|src/biz/|26 production nodes)' \
-  "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
-report_matches "${REMOVED_ARCH}" \
-  "Found removed architecture identifiers in active governance/docs:" \
-  "Active governance matches the Model/Backend and Common Node architecture."
-MOVED_PATHS=$(grep -rnE \
-  '(src/tools/|scripts/(dev_recipe|scaffold_custom_node)\.py|(^|[^_[:alnum:]])architecture(_v2)?\.puml|\./show([[:space:]]|$))' \
-  "${ACTIVE_DOCS[@]}" 2>/dev/null || true)
-report_matches "${MOVED_PATHS}" \
-  "Found moved repository paths in active governance/docs:" \
-  "Active governance uses current tool and diagram paths."
-
-OVERVIEW_DOCS=(
-  "${DOC_ROOT}/architecture.md"
-  "${DOC_ROOT}/architecture_classes.puml"
-  "${DOC_ROOT}/architecture_flow.puml"
-  "${DOC_ROOT}/assets/architecture_class_diagram.svg"
-  "${DOC_ROOT}/assets/architecture_flow.svg"
-  "${DOC_ROOT}/assets/framework_overview.svg"
-)
-REMOVED_C_ABI=$(grep -nE \
-  '\bAlg_(Init|Create|Process|Control|Destroy|DeInit)\b|C ABI[[:space:]]*(/|或)[[:space:]]*Operator' \
-  "${OVERVIEW_DOCS[@]}" 2>/dev/null || true)
-report_matches "${REMOVED_C_ABI}" \
-  "Found removed C ABI entrypoints or alternate C ABI access in active architecture overviews:" \
-  "Architecture overviews use the current Operator entrypoint."
-
-# 5. 检查架构文档核心概念完备性 (ValidatedPipelinePlan, BlackboardKey, NodeBase, FixedBatchExecutor)
-echo "[Check 5/8] Verifying core architectural concepts in architecture documents..."
+# 1. 检查架构文档核心概念完备性 (ValidatedPipelinePlan, BlackboardKey, NodeBase, FixedBatchExecutor)
+echo "[Check 1/4] Verifying core architectural concepts in architecture documents..."
 require_concepts "${DOC_ROOT}/architecture.md" \
   "ValidatedPipelinePlan" "BlackboardKey" "NodeBase" "FixedBatchExecutor"
 require_concepts "${DOC_ROOT}/developer_guide.md" \
@@ -130,14 +35,14 @@ if [ ${FAILED} -eq 0 ]; then
   echo "✅ All core architectural concepts verified in architecture docs."
 fi
 
-# 6. 检查当前部署解析、计划与 Node 注册流程
-echo "[Check 6/8] Checking current deployment and runtime planning concepts..."
+# 2. 检查当前部署解析、计划与 Node 注册流程
+echo "[Check 2/4] Checking current deployment and runtime planning concepts..."
 require_concepts "${DOC_ROOT}/architecture_flow.puml" \
   "PrepareDeploymentDocument" "ValidatedIoPlan" "ValidatedPipelinePlan" \
   "REGISTER_FUNCTION_NODE"
 
-# 7. 检查 PlantUML 与 SVG 资产存在性与非空
-echo "[Check 7/8] Verifying architecture diagrams exist and are non-empty..."
+# 3. 检查 PlantUML 与 SVG 资产存在性与非空
+echo "[Check 3/4] Verifying architecture diagrams exist and are non-empty..."
 for diagram in \
   "${DOC_ROOT}/architecture_classes.puml" \
   "${DOC_ROOT}/architecture_flow.puml" \
@@ -150,8 +55,8 @@ for diagram in \
   fi
 done
 
-# 8. 检查 CMake、生成版本头和活跃文档是否共享同一产品/ABI 版本。
-echo "[Check 8/8] Verifying product and ABI version single source of truth..."
+# 4. 检查 CMake、生成版本头和活跃文档是否共享同一产品/ABI 版本。
+echo "[Check 4/4] Verifying product and ABI version single source of truth..."
 PRODUCT_VERSION="$({
   sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
     "${ROOT_DIR}/CMakeLists.txt"

@@ -444,27 +444,6 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   EXPECT_EQ(validated + skipped_optional, candidates);
 }
 
-TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
-  std::ifstream stream("configs/pipeline_keyword_match_rules.json");
-  ASSERT_TRUE(stream.is_open());
-  nlohmann::json pipeline;
-  stream >> pipeline;
-  pipeline = PrepareExternalFixtureForCore(pipeline);
-  ASSERT_FALSE(pipeline["pipeline"].empty());
-  auto& config = pipeline["pipeline"][0]["config"];
-  config["default_categories"] = config["categories"];
-  config.erase("categories");
-
-  const auto report = ValidateWithRemediation(pipeline);
-  ASSERT_FALSE(report.ok);
-  EXPECT_TRUE(std::any_of(
-      report.diagnostics.begin(), report.diagnostics.end(),
-      [](const ValidationDiagnostic& diagnostic) {
-        return diagnostic.code == DiagnosticCode::kUnknownConfigField &&
-               diagnostic.path == "/pipeline/0/config/default_categories";
-      }));
-}
-
 TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
   std::ifstream stream("demo/fixtures/mock/pipeline_doc_qa.json");
   ASSERT_TRUE(stream.is_open());

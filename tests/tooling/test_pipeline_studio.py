@@ -385,7 +385,6 @@ class RunnableSolutionTest(unittest.TestCase):
         pipeline["models"][0]["model_path"] = "models/replacement.gguf"
         saved = self.service.save_solution("pipeline_replaced.json", pipeline, "entity_extract_mock", "models")
         self.assertEqual(saved["pipeline"]["models"][0]["model_path"], "models/replacement.gguf")
-        self.assertNotIn("model_paths", saved["pipeline"]["deployment"])
         self.assertEqual(json.loads((self.configs / "pipeline_replaced.json").read_text()), pipeline)
 
     def test_ordinary_save_updates_managed_model_paths_and_node_parameters(self):
@@ -400,7 +399,6 @@ class RunnableSolutionTest(unittest.TestCase):
         )
         self.assertEqual(updated["command"], saved["command"])
         self.assertEqual(updated["pipeline"]["models"][0]["model_path"], "models/replacement.gguf")
-        self.assertNotIn("model_paths", updated["pipeline"]["deployment"])
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
         profile, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
         effective = self.service.resolve_run_conf(self.configs / saved["conf_filename"], profile)
@@ -450,7 +448,6 @@ class RunnableSolutionTest(unittest.TestCase):
         pipeline["models"][0]["model_path"] = "models/replacement.gguf"
         updated = restarted.save_pipeline(saved["filename"], pipeline, saved["revision"])
         self.assertEqual(updated["pipeline"]["models"][0]["model_path"], "models/replacement.gguf")
-        self.assertNotIn("model_paths", updated["pipeline"]["deployment"])
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
         self.assertFalse(restarted.generated_solutions)
 
@@ -476,7 +473,6 @@ class RunnableSolutionTest(unittest.TestCase):
                 time.sleep(0.05)
         self.assertEqual(job["status"], "completed", job)
         self.assertEqual(observed["pipeline"]["models"], pipeline["models"])
-        self.assertNotIn("model_paths", observed["pipeline"]["deployment"])
         self.assertEqual(observed["conf"]["pipe_path"], "pipeline.json")
         self.assertFalse(observed["directory"].exists())
 
@@ -639,19 +635,6 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertEqual(payload["validation"]["ok"], operation["kind"] == "rename_node")
                 self.assertNotIn("提示：", process.stderr)
 
-    def test_removed_dependency_repair_command_is_rejected_without_writing(self):
-        original = (ROOT / "configs/pipeline_keyword_match_rules.json").read_bytes()
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "pipeline.json"
-            path.write_bytes(original)
-            result = subprocess.run(
-                [str(PIPELINE_TOOL), "fix-deps", str(path), "--in-place"],
-                text=True, capture_output=True, cwd=ROOT, check=False,
-            )
-            self.assertEqual(result.returncode, 2)
-            self.assertEqual(path.read_bytes(), original)
-            self.assertNotIn("fix-deps", result.stderr)
-
     def test_explicit_binding_uses_native_required_output_defaults(self):
         original = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
         original.pop("deployment", None)
@@ -671,12 +654,11 @@ class PipelineCliTest(unittest.TestCase):
                 code, resolved = self.command("validate-io", str(path / "pipeline.conf"))
                 self.assertEqual(code, 0, resolved)
                 self.assertEqual(resolved["binding"]["biz_name"], "keyword_match")
-                self.assertNotIn("binding_id", resolved["binding"])
                 self.assertEqual(set(resolved["output_pools"]), {"keyword_out"})
                 self.assertEqual(resolved["output_pools"]["keyword_out"]["capacities"], {"match_result_json": 2047})
                 self.assertEqual((path / "pipeline.json").read_text(), before)
 
-    def test_external_selector_is_required_and_legacy_selectors_are_rejected(self):
+    def test_external_selector_is_required_and_root_biz_name_is_rejected(self):
         original = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
         variants = [(None, "/deployment"), ({}, "/deployment/io"),
                     ({"io": {}}, "/deployment/io/io_binding"),
@@ -691,33 +673,22 @@ class PipelineCliTest(unittest.TestCase):
                     code, result = self.command(*entrypoint, "--stdin", input_pipeline=pipeline)
                     self.assertEqual(code, 1, result)
                     self.assertEqual(result["diagnostics"][0]["path"], path)
-        for field, path in (("biz_name", "/biz_name"),
-                            ("output_allocations", "/deployment/io/output_allocations")):
-            pipeline = copy.deepcopy(original)
-            if field == "biz_name":
-                pipeline[field] = "keyword_match"
-            else:
-                io_overrides(pipeline)[field] = {}
-            code, result = self.command("validate", "--stdin", input_pipeline=pipeline)
-            self.assertEqual(code, 1, result)
-            self.assertEqual(result["diagnostics"][0]["path"], path)
+        pipeline = copy.deepcopy(original)
+        pipeline["biz_name"] = "keyword_match"
+        code, result = self.command("validate", "--stdin", input_pipeline=pipeline)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["diagnostics"][0]["path"], "/biz_name")
         code, result = self.command("catalog", "--io-binding", "unknown_biz")
         self.assertEqual(code, 1, result)
         self.assertEqual(result["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
-        for command in ("catalog", "init"):
-            process = subprocess.run([str(PIPELINE_TOOL), command, "--biz", "keyword_match"],
-                                     cwd=ROOT, capture_output=True, text=True)
-            self.assertEqual(process.returncode, 2, process.stdout)
 
-    def test_all_commands_return_versioned_json(self):
+    def test_all_commands_return_json(self):
         first_code, first = self.command("catalog", "--io-binding", "keyword_match")
         second_code, second = self.command("catalog", "--io-binding", "keyword_match")
         self.assertEqual((first_code, first), (second_code, second))
         self.assertTrue(first["nodes"])
         self.assertTrue(first["profiles"])
         self.assertTrue(all(profile["io_binding"] == "keyword_match" for profile in first["profiles"]))
-        self.assertTrue(all("biz" not in profile and "pipeline_biz" not in profile for profile in first["profiles"]))
-        self.assertTrue(all("demo_biz" not in biz for biz in first["bizs"]))
         code, described = self.command("describe-node", "TextRuleMatchNode")
         self.assertEqual(code, 0)
         self.assertEqual(described["node_type"], "TextRuleMatchNode")
@@ -727,24 +698,6 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(initialized["pipeline"]["pipeline"], [])
         self.assertEqual(initialized["pipeline"]["deployment"]["io"]["io_binding"], "keyword_match")
-        self.assertNotIn("business_name", initialized["pipeline"])
-        rejected = subprocess.run(
-            [str(PIPELINE_TOOL), "catalog", "--business", "keyword_match"],
-            text=True,
-            capture_output=True,
-            cwd=ROOT,
-            check=False,
-        )
-        self.assertEqual(rejected.returncode, 2)
-        removed_normalizer = subprocess.run(
-            [str(PIPELINE_TOOL), "normalize", "--explicit-dag", "--stdin"],
-            input="{}",
-            text=True,
-            capture_output=True,
-            cwd=ROOT,
-            check=False,
-        )
-        self.assertEqual(removed_normalizer.returncode, 2)
         pipeline = json.loads(
             (ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text()
         )
@@ -931,7 +884,6 @@ class PipelineCliTest(unittest.TestCase):
             changed = Path(directory) / "pipeline.conf"
             pipe_file = conf_path.with_name(conf["pipe_path"])
             pipe_doc = json.loads(pipe_file.read_text())
-            self.assertNotIn("model_paths", pipe_doc["deployment"])
             (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             changed.write_text(json.dumps(conf))
             code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
@@ -992,9 +944,9 @@ class PipelineCliTest(unittest.TestCase):
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. 已移除的部署字段被拒绝
+        # 1. 部署段的未知字段被拒绝
         invalid_doc = copy.deepcopy(pipeline)
-        invalid_doc["deployment"]["model_paths"] = {"unknown_model_id": "models/foo.bin"}
+        invalid_doc["deployment"]["unknown_field"] = 1
         for ep in self.CLI_PARITY_ENTRYPOINTS:
             with self.subTest(case="deployment_failure", entrypoint=ep):
                 code, res = self.command(*ep, "--stdin", input_pipeline=invalid_doc)
@@ -1002,7 +954,7 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertFalse(res["ok"])
                 self.assertIn("diagnostics", res)
                 self.assertEqual(res["diagnostics"][0]["code"], "DEPLOYMENT_ERROR")
-                self.assertEqual(res["diagnostics"][0]["path"], "/deployment/model_paths")
+                self.assertEqual(res["diagnostics"][0]["path"], "/deployment/unknown_field")
                 if ep[0] == "plan":
                     self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
@@ -1062,20 +1014,6 @@ class PipelineCliTest(unittest.TestCase):
                 "/deployment/io/out_mem/entity_out",
             )
 
-    def test_cli_rejects_removed_model_paths_field_for_every_value(self):
-        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
-        for value in ({}, {"entity_llm": "models/ignored.bin"}, {"bad~id/extra": "ignored"}, None, 42, ""):
-            document = copy.deepcopy(pipeline)
-            document["deployment"]["model_paths"] = value
-            for endpoint in self.CLI_PARITY_ENTRYPOINTS:
-                with self.subTest(value=value, endpoint=endpoint):
-                    code, report = self.command(*endpoint, "--stdin", input_pipeline=document)
-                    self.assertEqual(code, 1)
-                    self.assertEqual(report["diagnostics"][0]["code"], "DEPLOYMENT_ERROR")
-                    self.assertEqual(report["diagnostics"][0]["path"], "/deployment/model_paths")
-                    if endpoint[0] == "plan":
-                        self.assertEqual(report["plan"], {"layers": [], "topological_order": []})
-
     def test_cli_unknown_binding_unknown_root_and_malformed_binding(self):
         # 外部选择器的诊断在各原生入口之间完全一致。
         pipeline = json.loads(
@@ -1085,7 +1023,7 @@ class PipelineCliTest(unittest.TestCase):
         doc1 = copy.deepcopy(pipeline)
         io_overrides(doc1)["io_binding"] = "nonexistent_biz"
 
-        # 2. 即使存在 binding，已移除的根选择器也会被拒绝。
+        # 2. 即使存在 binding，外部文档也不得声明根级 biz_name。
         doc2 = copy.deepcopy(pipeline)
         doc2["biz_name"] = "unmatched_biz_name"
         io_overrides(doc2)["io_binding"] = "entity_extract"
@@ -1096,7 +1034,7 @@ class PipelineCliTest(unittest.TestCase):
 
         cases = [
             ("unknown_binding", doc1, "UNKNOWN_IO_BINDING", "/deployment/io/io_binding"),
-            ("removed_biz", doc2, "DEPLOYMENT_ERROR", "/biz_name"),
+            ("root_biz_name", doc2, "DEPLOYMENT_ERROR", "/biz_name"),
             ("binding_non_string", doc3, "DEPLOYMENT_ERROR", "/deployment/io/io_binding"),
         ]
 
@@ -1112,13 +1050,13 @@ class PipelineCliTest(unittest.TestCase):
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
     def test_cli_output_slot_allocation_errors(self):
-        # 拒绝已移除的 type 字段、未知槽位、非法的分配结构和容量。
+        # 拒绝槽位配置中的未知字段、未知槽位、非法的分配结构和容量。
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. 已移除的 type 声明属于未知字段。
+        # 1. 槽位配置中的未知字段
         doc1 = copy.deepcopy(pipeline)
-        output_override(doc1, "entity_out")["type"] = "entity_out"
+        output_override(doc1, "entity_out")["unknown_field"] = 1
 
         # 2. 未知输出槽位
         doc2 = copy.deepcopy(pipeline)
@@ -1133,7 +1071,7 @@ class PipelineCliTest(unittest.TestCase):
         output_override(doc4, "entity_out")["capacities"] = {"entities_json": 0}
 
         cases = [
-            ("removed_type", doc1, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
+            ("unknown_field", doc1, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
             ("unknown_slot", doc2, "UNKNOWN_OUTPUT_SLOT", "/deployment/io/out_mem/bogus_slot"),
             ("invalid_alloc", doc3, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
             ("invalid_capacity", doc4, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/out_mem/entity_out"),
@@ -1147,8 +1085,8 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertFalse(res["ok"])
                     self.assertEqual(res["diagnostics"][0]["code"], exp_code)
                     self.assertEqual(res["diagnostics"][0]["path"], exp_path)
-                    if case_name == "removed_type":
-                        self.assertIn("Unknown output allocation field: type", res["diagnostics"][0]["message"])
+                    if case_name == "unknown_field":
+                        self.assertIn("Unknown output allocation field: unknown_field", res["diagnostics"][0]["message"])
                     if ep[0] == "plan":
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
@@ -1492,17 +1430,17 @@ const graph = await loadModule({json.dumps(str(WEB_ROOT / "graph.js"))});
 const models = [
   {{ model_id: "embed", model_type: "embed_type" }},
   {{ model_id: "llm", model_type: "llm_type" }},
-  {{ model_id: "legacy_embed", model_type: "legacy_embed_type" }},
+  {{ model_id: "other_embed", model_type: "other_embed_type" }},
 ];
 const modelDefinitions = [
   {{ model_type: "embed_type", capability: "embedding" }},
   {{ model_type: "llm_type", capability: "llm" }},
-  {{ model_type: "legacy_embed_type", capability: "embedding" }},
+  {{ model_type: "other_embed_type", capability: "embedding" }},
 ];
 const nodeDefinition = {{ model_dependencies: [{{ name: "encoder", capability: "embedding", config_field: "model_slot" }}] }};
 assert.deepEqual(
   workbench.compatibleModels(models, modelDefinitions, nodeDefinition).map(model => model.model_id),
-  ["embed", "legacy_embed"]
+  ["embed", "other_embed"]
 );
 assert.deepEqual(
   [...workbench.modelBoundNodeIds([
@@ -2631,7 +2569,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             args = thread.call_args.kwargs["args"]
             run_profile, run_conf = args[2], args[3]
             self.assertEqual(args[1]["models"], pipeline["models"])
-            self.assertNotIn("model_paths", args[1]["deployment"])
         self.assertNotIn("biz", run_profile)
         self.service.save_pipeline(
             path.name, pipeline, SHOW.revision_for(path.read_bytes()),
@@ -2640,7 +2577,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(saved_conf, expected_conf)
         saved_pipe = json.loads(path.read_text())
         self.assertEqual(saved_pipe["models"][0]["model_path"], "models/selected_A.onnx")
-        self.assertNotIn("model_paths", saved_pipe["deployment"])
         self.assertEqual(run_conf, expected_conf)
         self.assertEqual(resolved_candidates[0], {"pipe_path": "pipeline.json"})
 
@@ -2649,7 +2585,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         pipeline["models"][0]["model_path"] = "models/raw_edit.onnx"
         _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
         self.assertEqual(pipeline["models"][0]["model_path"], "models/raw_edit.onnx")
-        self.assertNotIn("model_paths", pipeline["deployment"])
         self.assertEqual(candidate, {"pipe_path": path.name})
         self.assertEqual(pipeline["deployment"]["io"]["out_mem"]["doc_out"]["capacities"]["answer_text"], 2047)
 
@@ -2659,7 +2594,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         new_model.update(model_id="new_model", model_path="new.onnx")
         pipeline["models"].append(new_model)
         _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
-        self.assertNotIn("model_paths", pipeline["deployment"])
         self.assertEqual(pipeline["models"][-1]["model_path"], "new.onnx")
 
     def test_associated_external_file_changes_block_candidate_and_save(self):

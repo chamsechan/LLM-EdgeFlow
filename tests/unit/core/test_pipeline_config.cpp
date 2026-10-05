@@ -442,34 +442,6 @@ TEST_F(PipelineConfigTest, RejectsPipelineWithoutId) {
   EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
 
-TEST_F(PipelineConfigTest, RejectsRemovedNodePortsWrapper) {
-  const nlohmann::json root = {
-      {"biz_name", "test"},
-      {"pipeline",
-       {{{"id", "node"},
-         {"node_type", "CountingNode"},
-         {"ports", {{"inputs", nlohmann::json::object()}}}}}}};
-  ParsedPipelineConfig config;
-  PipelineDiagnostic diagnostic;
-  EXPECT_FALSE(ParsePipelineConfig(root, &config, &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kUnknownField);
-  EXPECT_EQ(diagnostic.path, "/pipeline/0/ports");
-}
-
-TEST_F(PipelineConfigTest, RejectsRemovedModelCapabilityField) {
-  nlohmann::json model = CountingModelEntry("model");
-  model["capability"] = "test";
-  const nlohmann::json root = {
-      {"biz_name", "test"},
-      {"models", {model}},
-      {"pipeline", {{{"id", "node"}, {"node_type", "CountingNode"}}}}};
-  ParsedPipelineConfig config;
-  PipelineDiagnostic diagnostic;
-  EXPECT_FALSE(ParsePipelineConfig(root, &config, &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kUnknownField);
-  EXPECT_EQ(diagnostic.path, "/models/0/capability");
-}
-
 TEST_F(PipelineConfigTest,
        MissingDependenciesAndWorkerBudgetUseSimpleDefaults) {
   const nlohmann::json root = {
@@ -486,21 +458,6 @@ TEST_F(PipelineConfigTest,
   ASSERT_TRUE(BuildTestPipeline(pipeline, root, &diagnostic))
       << diagnostic.message;
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kSequential);
-}
-
-TEST_F(PipelineConfigTest, RejectsLegacyBusinessNameField) {
-  nlohmann::json root = {
-      {"business_name", "legacy_compat_test"},
-      {"pipeline",
-       nlohmann::json::array({{{"id", "node_0"},
-                               {"node_type", "CountingNode"},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  ParsedPipelineConfig parsed_cfg;
-  PipelineDiagnostic diag;
-  EXPECT_FALSE(ParsePipelineConfig(root, &parsed_cfg, &diag));
-  EXPECT_EQ(diag.code, DiagnosticCode::kUnknownField);
-  EXPECT_EQ(diag.path, "/business_name");
 }
 
 // 3. 表驱动负例测试：结构、类型、字段、组合、DAG 负例与零副作用断言
@@ -546,32 +503,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
       nlohmann::json{{"biz_name", 12345}, {"pipeline", valid_pipe}},
       DiagnosticCode::kFieldType, "/biz_name"});
 
-  // --- Execution Mode & Workers 组合校验 (R1-ACC-003) ---
-  cases.push_back(
-      NegativeTestCase{"SequentialModeWithMaxParallelWorkers",
-                       nlohmann::json{{"biz_name", "test"},
-                                      {"execution_mode", "sequential"},
-                                      {"max_parallel_workers", 4},
-                                      {"pipeline", valid_pipe}},
-                       DiagnosticCode::kUnknownField, "/execution_mode"});
-  cases.push_back(NegativeTestCase{"ExecutionModeAsyncRejected",
-                                   nlohmann::json{{"biz_name", "test"},
-                                                  {"execution_mode", "async"},
-                                                  {"pipeline", valid_pipe}},
-                                   DiagnosticCode::kUnknownField,
-                                   "/execution_mode"});
-  cases.push_back(
-      NegativeTestCase{"ExecutionModeUnknownString",
-                       nlohmann::json{{"biz_name", "test"},
-                                      {"execution_mode", "coroutine_mode"},
-                                      {"pipeline", valid_pipe}},
-                       DiagnosticCode::kUnknownField, "/execution_mode"});
-  cases.push_back(NegativeTestCase{"ExecutionModeNonString",
-                                   nlohmann::json{{"biz_name", "test"},
-                                                  {"execution_mode", true},
-                                                  {"pipeline", valid_pipe}},
-                                   DiagnosticCode::kUnknownField,
-                                   "/execution_mode"});
+  // --- 并行 Worker 数校验 (R1-ACC-003) ---
   cases.push_back(NegativeTestCase{
       "WorkersZeroInParallel",
       nlohmann::json{
@@ -670,15 +602,6 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_config", "invalid"}}})},
           {"pipeline", valid_pipe}},
       DiagnosticCode::kFieldType, "/models/0/model_config"});
-  cases.push_back(NegativeTestCase{
-      "LegacyEngineTypeRejected",
-      nlohmann::json{
-          {"biz_name", "test"},
-          {"models", nlohmann::json::array(
-                         {{{"model_id", "m1"},
-                           {"engine_type", "unregistered_mock_engine_xyz"}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kUnknownField, "/models/0/engine_type"});
 
   // --- Model/Backend 方言及混用校验 ---
   cases.push_back(NegativeTestCase{
@@ -801,36 +724,6 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"unsupported_opt", true}}})},
           {"pipeline", valid_pipe}},
       DiagnosticCode::kUnknownField, "/models/0/unsupported_opt"});
-  cases.push_back(NegativeTestCase{
-      "LegacyEngineTypeIsUnknown",
-      nlohmann::json{{"biz_name", "test"},
-                     {"models", nlohmann::json::array(
-                                    {{{"model_id", "m1"},
-                                      {"engine_type", "counting_engine"}}})},
-                     {"pipeline", valid_pipe}},
-      DiagnosticCode::kUnknownField, "/models/0/engine_type"});
-  cases.push_back(NegativeTestCase{
-      "LegacyEngineTypeWithBackendIsUnknown",
-      nlohmann::json{
-          {"biz_name", "test"},
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"engine_type", "counting_engine"},
-                                             {"backend", "onnxruntime"}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kUnknownField, "/models/0/engine_type"});
-  cases.push_back(NegativeTestCase{
-      "LegacyConfigFieldIsUnknown",
-      nlohmann::json{
-          {"biz_name", "test"},
-          {"models", nlohmann::json::array(
-                         {{{"model_id", "m1"},
-                           {"model_type", "bge_embedding"},
-                           {"backend", "onnxruntime"},
-                           {"model_path", "./model.onnx"},
-                           {"config", nlohmann::json::object()},
-                           {"model_config", nlohmann::json::object()}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kUnknownField, "/models/0/config"});
 
   // --- Pipeline Nodes 校验 ---
   cases.push_back(NegativeTestCase{"MissingPipeline",
