@@ -555,14 +555,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
     def_by_id[node.id] = definition;
 
-    if (biz && !definition->biz_names.empty() &&
-        std::find(definition->biz_names.begin(), definition->biz_names.end(),
-                  parsed.biz_name) == definition->biz_names.end()) {
-      Add(&report, DiagnosticCode::kNodeBizMismatch,
-          "/pipeline/" + std::to_string(node.source_index) + "/node_type",
-          "Node type is not declared for biz: " + parsed.biz_name, node.id);
-    }
-
     bool node_fields_valid = false;
     auto normalized_config = ValidateConfigFields(
         definition->config_fields, node.config,

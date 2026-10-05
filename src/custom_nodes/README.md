@@ -9,8 +9,9 @@
 [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md) 完成生成、修改、编译和运行。
 [按需参考](../../doc/dev_guide/custom_node_concepts.md)解释端口、来源、模型、Catalog 和并发。
 
-所有生产 Node 使用 `REGISTER_FUNCTION_NODE` 从 Spec 生成绑定、Definition 和执行包装。
-Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运行机制，不是业务作者的另一个入口。
+所有 Node 使用同一结构（`Inputs`、可选的 `Params` 与 `Models`、`Run`、`Spec`），通过
+`REGISTER_FUNCTION_NODE` 从 Spec 生成绑定、Definition 和执行包装。`NodeBase` 是框架内部运行机制，
+不是业务作者的另一个入口。
 
 ## 通用开发步骤速查
 

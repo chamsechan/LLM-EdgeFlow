@@ -1,48 +1,55 @@
 # 自定义 Node：常用写法与按需参考
 
-普通逐条处理只需要选择输入输出类型、编写业务函数，并在使用模型时明确引用模型实例。
-纯计算使用已有 `MakeMapSpec`；文本 LLM 前后处理使用 `MakeLlmTextSpec`。
-它们自动保持数量、顺序与来源，作者函数只处理载荷，无需接触来源编号、`PortFlow` 或并发声明。
+每个 Node 使用同一结构：`Inputs` 声明输入，可选的 `Params` 与 `Models` 声明配置和模型，
+`Run` 写全部处理逻辑，`Spec` 用 `MakeNodeSpec` 把它们登记给框架，再用
+`REGISTER_FUNCTION_NODE` 注册。逐项处理在 `Run` 中调用 `MapPayloads`，数量、顺序与来源编号由它保持。
 
 先完成[第一个自定义 Node](first_custom_node.md)。下面前三节解释常用声明；仅在改变数据关系、
 增加共享资源或启用并行执行时，阅读后面的对应部分。
 
-## 三种写法速查
+## 结构与签名速查
 
-| 写法 | 适用场景 | 工厂 | 业务函数签名 | 返回 |
-| --- | --- | --- | --- | --- |
-| Map | 逐项纯计算，数量与来源不变 | `MakeMapSpec(Input<InBatch>, Output<OutBatch>, [Parameters<P>], &Transform)` | `Out Transform(const In&)`<br>`Out Transform(const In&, const Params&)` | `Out` 或 `NodeResult<Out>` |
-| LLM 两函数 | 文本前处理 → 一次生成 → 文本后处理 | `MakeLlmTextSpec(Input<TextBatch>, Output<TextBatch>, [Parameters<P>], &BuildPrompt, &FormatAnswer)` | `std::string BuildPrompt(const std::string&)`<br>`std::string BuildPrompt(const std::string&, const Params&)`<br>`std::string FormatAnswer(const std::string&)`<br>`std::string FormatAnswer(const std::string&, const Params&)` | 文本：`std::string`、`const char*`、`std::string_view`，或它们的 `NodeResult`；不接受 `char`、`int` 等算术类型 |
-| Batch | 多输入多输出、拆分聚合、多模型、会话缓存 | `MakeBatchSpec(InputsOf<Inputs>, <输出声明>, [Parameters<P>], [ModelsOf<M>], &Run)` | `NodeResult<OutputBatch> Run(const Inputs&, const Params&)`<br>`NodeResult<OutputBatch> Run(const Inputs&, const Params&, const Models&)`<br>`NodeResult<OutputBatch> Run(const Inputs&, const Params&, const Models&, const SessionResources&)` | `NodeResult<OutputBatch>`；多输出为 `NodeResult<Outputs>` |
+```cpp
+struct Inputs { const TextBatch* input = nullptr; };  // 要哪些输入
+struct Params { std::string prefix; };               // 要哪些配置（可省）
+struct Models { LlmCall generator; };                // 要哪些模型（可省）
 
-没有 `Parameters<...>` 时，`Params` 是 `NoParameters`。Batch 的 `Run` 仍然要写这个参数，
-例如 `Run(const Inputs&, const NoParameters&, const Models&)`，见
-[多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。
-LLM 两个钩子也接受能隐式转换为 `std::string` 的类型；`std::string_view` 会先复制为自有字符串。
-返回失败用 `NodeResult<T>::Failure(...)`，成功用 `NodeResult<T>::Success(...)`。
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
+                          const Models& models);     // 全部处理逻辑
+
+auto Spec() {                                        // 把上面三者登记给框架
+  return MakeNodeSpec(InputsOf<Inputs>{...}, <输出声明>,
+                      [Parameters<Params>{...}], [ModelsOf<Models>{...}], &Run);
+}
+REGISTER_FUNCTION_NODE(MyNode, Spec());
+```
+
+| 项目 | 规则 |
+| --- | --- |
+| `Run` 签名 | `NodeResult<OutputBatch> Run(const Inputs&[, const Params&][, const Models&][, const SessionResources&])` |
+| 参数顺序 | 依次为 Inputs、Params、Models；Spec 没有 `Parameters<...>` 就不写 Params，没有 `ModelsOf<...>` 就不写 Models；用到会话缓存时再追加 `SessionResources` |
+| 返回值 | `NodeResult<OutputBatch>`；多输出为 `NodeResult<Outputs>`。成功可直接返回结果，失败用 `NodeResult<T>::Failure(...)` |
+| 逐项处理 | `MapPayloads(*inputs.input, &Transform)`：`Transform` 接收一条载荷，返回新载荷或 `NodeResult`；失败时诊断指出是哪一条 |
+| 生成参数 | 只需生成参数时用 `GenerateParameters(默认 max_tokens)`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate` |
 
 ## 常见编译错误对照
 
 | 报错包含 | 原因 | 处理 |
 | --- | --- | --- |
-| `Map function must accept either` | `Transform` 的参数不支持 `const In&`（可再带 `const Params&`） | 改成表中签名 |
-| `Map function return payload type must match` | 返回类型与输出批的元素类型不同 | 返回 `Out` 或 `NodeResult<Out>` |
-| `BuildPrompt must be callable as` / `FormatAnswer must be callable as` | 参数不支持 `const std::string&`（可再带 `const Params&`） | 改成表中签名；函数对象的调用操作符应为 const |
-| `BuildPrompt must return` / `FormatAnswer must return` | 返回了非文本类型，例如 `char`、`int` | 返回 `std::string`（或 `const char*`、`std::string_view`），失败时返回 `NodeResult<std::string>` |
-| `Batch Run must be callable as one of` | 参数顺序不对、使用了非 const 引用，或漏写 `const NoParameters&` | 改成表中三种形式之一；函数对象的调用操作符应为 const |
-| `Batch Run must return NodeResult<OutputBatch>` | 直接返回批次，或结果类型与输出声明不匹配 | `return NodeResult<OutputBatch>::Success(std::move(output));` |
+| `Node Run must be callable as` | 参数顺序不对、使用了非 const 引用、多写了 Spec 未声明的 Params/Models（例如 `const NoParameters&`），或传入了类成员函数 | 按上表规则写成普通函数或 lambda；函数对象的调用操作符应为 const |
+| `Node Run must return NodeResult<OutputBatch>` | 结果类型与输出声明不匹配，或 lambda 推导出了普通批次 | 普通函数声明返回 `NodeResult<OutputBatch>`；lambda 写 `-> NodeResult<OutputBatch>` |
 
 ## 1. 类型端口：这个操作接收什么、产生什么
 
 把一个 Node 看作批量处理函数。输入端口是函数参数，输出端口是返回值；`TextBatch`
 表示一组带来源编号的文本，而不是任意可以强制转换的内存。
 
-在[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Input<TextBatch>("input")`
-和 `Output<TextBatch>("output")` 声明逻辑名字和类型。Spec 同时生成运行时绑定与 Definition，
+在[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Required("input", &Inputs::input)`
+和 `PreservedOutput<TextBatch>("output", "input")` 声明逻辑名字和类型。Spec 同时生成运行时绑定与 Definition，
 业务函数不直接读写 Blackboard。多输入使用 `InputsOf` 绑定普通输入结构，
 多输出使用 `OutputsOf` / `Produced` 绑定普通结果结构；类型和逻辑端口只声明一次。
 `Optional` 允许不连接端口；如果连接后当前请求仍可缺值，显式使用 `OptionalValue`，
-由算法处理这个状态。普通 Map 和保序输出已确定数量与来源，不重复填写 `PortFlow`；
+由算法处理这个状态。保序输出已确定数量与来源，不重复填写 `PortFlow`；
 只有非默认关系才声明它。可选性独立于数量关系，不另建 flow preset。
 
 有三个名字容易混淆：
@@ -78,8 +85,7 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 
 ## 2. 模型绑定：拿到一个已经准备好的模型能力
 
-你需要的是“生成文本”的能力。`MakeLlmTextSpec` 组合一次模型调用；Batch 通过
-`ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
+你需要的是“生成文本”的能力。`ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
 `AsrCall`、`OcrCall`、`RerankCall` 分别提供 `Generate`、`Embed`、`Transcribe`、`Recognize`、`Score`。
 它们处理空批次、模型错误诊断及返回数量和来源检查，结果统一为 `NodeResult`。
 模型失败直接传播，不为旧节点错误码再做一层映射；宿主收到的返回码由接入适配层按失败阶段映射，
@@ -109,9 +115,9 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
-仍适合新模型，要用实际数据确认。轻量模板使用 `GenerateOptions{}` 的默认采样参数；
-需要调参时，使用带参数的 Spec / 自由 Batch，在普通函数中构造 options 并传给 `LlmCall`；
-用 `Parameters` 的 `Field` 绑定结构成员与配置字段。
+仍适合新模型，要用实际数据确认。LLM 模板用 `GenerateParameters(128)` 声明 `max_tokens`、
+`temperature` 等生成参数，节点配置可以直接调整；还需要自有配置时，参考
+[PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 把生成参数放进自己的参数结构。
 
 ## 3. Definition：让连线工具和运行器看懂你的操作
 
@@ -126,14 +132,12 @@ LLM”。`NodeDefinition` 就是把这些要求写成框架能读取的接口说
 | `inputs`、`outputs` | 哪些端口必需、类型是什么、数量与来源如何变化 |
 | `config_fields` | 接受哪些参数、是否必填、默认值和范围是什么 |
 | `model_dependencies` | 需要哪些模型能力槽位、哪个字段引用各模型实例 |
-| `biz_names` | 是否确有必要限制某些外部业务契约；通常留空便于复用 |
 
-轻量模板只声明必填的 `bind_model`。因此复制完整样例的配置时，需要移除
+LLM 模板声明必填的 `bind_model` 和生成参数。复制完整样例的配置时，需要移除
 `prompt_template`、`strip_markdown` 等它没有声明的字段。未知字段被拒绝，能尽早发现
 “代码根本没有使用这个配置”的问题。
 
-所有生产 Node 用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明。Map、Batch、
-LLM 便利组合使用同一契约；`NodeBase` 仅是框架内部运行机制。构建之后，Catalog、
+所有 Node 用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明；`NodeBase` 仅是框架内部运行机制。构建之后，Catalog、
 Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点列表。
 
 **什么时候需要改 Definition？** 只改提示词构造或输出文本格式、接口保持不变时，通常
@@ -141,7 +145,7 @@ Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点�
 
 `Parameters<T>` 将字段声明、默认值和结构成员绑定在一处；语义校验用
 `Validate` / `ValidateBindings`，由预检与初始化共用。参考
-[自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
+[多输入 starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
 
 Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。
 Validator 根据 Definition 字段列表一次性校验未知字段、类型、范围和枚举，并填入默认值。
@@ -163,7 +167,7 @@ Control 更新单独归一化参数、构造下一状态后发布。
 
 ## 改变数量或顺序时：来源编号
 
-普通 Map/LLM 模板已自动维护这些编号；过滤、拆分、聚合、重排和多路合并时才需要了解来源关系。
+用 `MapPayloads` 逐项处理时这些编号自动保持；过滤、拆分、聚合、重排和多路合并时才需要了解来源关系。
 
 `TextBatch` 中每一项是 `TraceableItem<std::string>`，包含三部分：
 
@@ -177,7 +181,7 @@ Control 更新单独归一化参数、构造下一状态后发布。
 标记 `(101, 0)`。循环下标 `0`、`1` 只代表本批中的位置，不能拿来替换请求编号。
 一个请求拆成多个片段时，可能出现 `(101, 0)`、`(101, 1)`；它们仍属于同一个请求。
 
-轻量模板自动生成 `1:1` / `preserve` 关系：**输入一项，输出一项，顺序与两个编号都保持一致**。
+`MapPayloads` 与 `PreservedOutput` 对应 `1:1` / `preserve` 关系：**输入一项，输出一项，顺序与两个编号都保持一致**。
 在一般的批处理代码中，构造输出的写法是：
 
 ```cpp
@@ -187,9 +191,9 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 模型可能在内部切批或补齐批次，框架的模型执行路径负责处理这些细节。模型调用门面负责验证
 返回数量与来源，因为“模型调用返回成功”不能证明每条回答都对应正确请求。
 
-轻量模板把这项检查留在固定结构中。`BuildPrompt` 和 `FormatAnswer` 只接收文本，不接收
-编号，因此常规业务修改可以集中在载荷上。需要过滤、拆分或聚合时，改用能表达该算法的
-批处理实现，并同步声明数量和来源规则；不能让 1:1 模板悄悄丢掉一条输入。
+LLM 模板中的 `BuildPrompt` 和 `FormatAnswer` 只接收文本，不接收编号，因此常规业务修改可以
+集中在载荷上。需要过滤、拆分或聚合时，在 `Run` 中按算法构造输出，并同步声明数量和来源规则；
+不能让保序输出悄悄丢掉一条输入。
 
 ### 数量关系声明与 Validator 检查
 
@@ -287,7 +291,7 @@ TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一�
 拒绝临时批次；使用期间输入必须存活且不修改、不移动。视图仅用于本次请求内的同步算法，
 不能保存到 Node/Session 或异步任务。`Materialize`、Scatter 和 Split 的输出拥有数据。
 错误在 AuthorNode 边界统一写入诊断，保留回调错误码、内容及完整来源 key；普通算法不提前
-写 Context。工具要求完整 key 唯一，不改变未使用这些工具的 Map/模型重复 key 行为。
+写 Context。工具要求完整 key 唯一，不改变未使用这些工具的逐项处理/模型重复 key 行为。
 
 先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号；“每个问题
 取前三个候选”要按请求分组并声明排名来源，不能用整个 batch 的前三项代替。

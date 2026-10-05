@@ -25,8 +25,9 @@
 调度、模型加载和平台数据拷贝继续由框架承担。Node 返回内部文本，Adapter 在方案执行
 完成后将最终值转换到平台结构。你不用在 Node 中操作平台指针或输出池。
 
-[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)由两个文本函数、Spec 声明
-和注册宏组成，默认做文本透传和模型调用。脚手架直接使用这份文件，
+[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)由两个文本函数和所有 Node
+共用的统一结构（`Inputs`、`Models`、`Run`、`Spec`、注册宏）组成，默认做文本透传和模型调用。
+脚手架直接使用这份文件，
 生成的源码会进入现有测试 runner 编译。
 先关注 `BuildPrompt` 和 `FormatAnswer` 两个普通函数；其余部分可结合
 [按需参考](custom_node_concepts.md)逐步阅读。
@@ -49,12 +50,13 @@
 ./tools/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --write-test
 ```
 
-打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成三部分：
+打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成四部分：
 
 | 位置 | 第一次开发时怎么处理 |
 | --- | --- |
 | 顶部 `BuildPrompt` / `FormatAnswer` | 填写业务逻辑：接收一个字符串，返回一个字符串 |
-| `MakeLlmTextSpec` | 声明输入输出，组合两个文本函数与一次 LLM 调用 |
+| `Inputs` / `Models` / `Run` | 逐条调用 `BuildPrompt`，整批调用一次模型，再逐条调用 `FormatAnswer`；第一次不用改 |
+| `Spec` | 用 `MakeNodeSpec` 声明输入输出、生成参数和模型 |
 | `REGISTER_FUNCTION_NODE` | 从同一 Spec 注册构造方法和 Definition |
 
 两个文本函数是源文件内的普通函数，不需要继承节点类。你可以根据业务继续拆分小函数。
@@ -81,8 +83,9 @@ return answer;
 你只处理 `text`；框架自动保留每条输入与回答的对应关系，无需在业务函数中传递或填写来源编号。前处理从只读输入构造新文本，不修改其他节点共享的输入。
 
 这里没有模板语言、参数解析或 Markdown 解析器；需要时再使用已有通用节点。
-需要多个输入、条件二次推理、多种模型能力或拆分聚合时，改用 Batch 写法：三种写法的签名与
-常见编译错误见[写法速查](custom_node_concepts.md#三种写法速查)，第 7 节列出了对应的示例。
+需要多个输入、条件二次推理、多种模型能力或拆分聚合时，仍在同一结构里修改 `Inputs`、`Models`
+和 `Run`：签名规则与常见编译错误见[结构与签名速查](custom_node_concepts.md#结构与签名速查)，
+第 7 节列出了对应的示例。
 外部请求的字段选择与响应组装属于 Adapter，见[输入输出边界](business_onboarding.md#输入输出以-operator-接口为边界)。
 
 ## 4. 编译，让工具能够找到新节点
@@ -112,8 +115,8 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
 编辑 `pipeline_first_node.json` 中 `id` 为 `custom_prompt` 的节点，做两处修改：
 
 - `node_type` 改成 `MyBusinessLlmNode`。
-- 将整个 `config` 对象替换为下面的内容。轻量节点只声明了模型绑定，不接受完整样例的
-  模板、清洗和采样配置字段。
+- 将整个 `config` 对象替换为下面的内容。新节点声明了模型绑定和 `max_tokens`、`temperature`
+  等生成参数（不写时使用默认值），不接受完整样例的模板和清洗字段。
 
 ```json
 {"bind_model": "entity_llm"}
@@ -172,7 +175,7 @@ flowchart LR
 | 接下来遇到的问题 | 去哪里看 |
 | --- | --- |
 | 端口、编号、模型绑定、Definition、并发是什么意思 | [按需参考](custom_node_concepts.md) |
-| 需要多个输入或条件重试 | [自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp) |
+| 需要多个输入或条件重试 | [多输入 starter](../../dev_support/node_authoring/starter_batch_node.cpp) |
 | 需要 LLM 与 Embedding 两种能力 | [多模型 starter](../../dev_support/node_authoring/starter_multi_model_node.cpp) |
 | 需要配置化模板或复杂后处理 | [复杂算法的组织与现有辅助函数](custom_node_concepts.md#复杂算法仍按普通-c-函数组织) |
 | 需要接入全新的平台结构 | [业务接入指南](business_onboarding.md) |

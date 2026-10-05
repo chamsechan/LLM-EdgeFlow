@@ -26,15 +26,13 @@
 | 已有能力的配置与运行 | [pipeline-composer](../.agents/skills/pipeline-composer/SKILL.md) |
 | 完整 JSON 输入、提示词处理、完整 JSON 输出 | [json-prompt-solution](../.agents/skills/json-prompt-solution/SKILL.md) |
 | Adapter、转换器、业务绑定与输出容量 | [edgeflow-adapter-developer](../.agents/skills/edgeflow-adapter-developer/SKILL.md) |
-| Node：逐项纯计算、数量和来源不变 | [edgeflow-node-map-developer](../.agents/skills/edgeflow-node-map-developer/SKILL.md) |
-| Node：文本前处理、一次 LLM 生成、文本后处理 | [edgeflow-node-llm-developer](../.agents/skills/edgeflow-node-llm-developer/SKILL.md) |
-| Node：多输入输出、拆分聚合、动态采样、各类模型能力 | [edgeflow-node-batch-developer](../.agents/skills/edgeflow-node-batch-developer/SKILL.md) |
+| Node：逐项变换、文本 LLM、多输入输出、拆分聚合、各类模型能力 | [edgeflow-node-developer](../.agents/skills/edgeflow-node-developer/SKILL.md) |
 | Model：预处理与模型语义 | [edgeflow-model-developer](../.agents/skills/edgeflow-model-developer/SKILL.md) |
 | Backend：运行时与厂商资源 | [edgeflow-backend-developer](../.agents/skills/edgeflow-backend-developer/SKILL.md) |
 | Core、Demo 与跨组件开发 | [llm-edgeflow-developer-guide](../.agents/skills/llm-edgeflow-developer-guide/SKILL.md) |
 
-Map、LLM、Batch 是同一 Node 框架的三种作者入口。`common/custom` 按中性操作或领域算法
-选择代码归属；Embedding、ASR、OCR、Rerank 复用 Batch 的能力声明，不各自维护生命周期。
+所有 Node 使用同一种写法（`MakeNodeSpec`）。`common/custom` 按中性操作或领域算法
+选择代码归属；Embedding、ASR、OCR、Rerank 复用同一套能力声明，不各自维护生命周期。
 例如：“用 `$edgeflow-solution-planner` 分析此请求和响应，列出需要新增的部件与 DAG”；
 或“用 `$edgeflow-adapter-developer` 为现有算法补齐新的 JSON 输入输出契约”。
 

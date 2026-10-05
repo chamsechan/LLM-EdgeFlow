@@ -15,17 +15,15 @@ start with current guides and affected code/tests.
 | :--- | :--- |
 | Business requirements needing component selection and a DAG | [Solution planner](../edgeflow-solution-planner/SKILL.md) |
 | Operator SDK, external payload, Converter, IoBinding | [Adapter developer](../edgeflow-adapter-developer/SKILL.md) |
-| One input item to one output item, pure computation | [Map Node developer](../edgeflow-node-map-developer/SKILL.md) |
-| Text preprocessing → one LLM call → text postprocessing | [LLM Node developer](../edgeflow-node-llm-developer/SKILL.md) |
-| Multiple ports/models, derived outputs, configurable sampling, batch algorithms | [Batch Node developer](../edgeflow-node-batch-developer/SKILL.md) |
+| Capability Node algorithms, from item transforms and text LLM to multi-port/model batches | [Node developer](../edgeflow-node-developer/SKILL.md) |
 | Model preprocessing, semantics and capabilities | [Model developer](../edgeflow-model-developer/SKILL.md) |
 | Vendor runtime, execution protocol implementation and resources | [Backend developer](../edgeflow-backend-developer/SKILL.md) |
 | Pipeline lifecycle, Validator/planning, typed Blackboard, sessions | [Orchestration](references/orchestration.md) |
 | Demo carriers, dataset, registration, result display | [Demo onboarding](../../../doc/dev_guide/business_onboarding.md#5-统一-demo-接入) |
 
-Map, LLM and Batch are authoring forms of the same runtime. Common versus custom identifies
+Every Node uses one authoring structure (`MakeNodeSpec`). Common versus custom identifies
 ownership, not a second set of authoring interfaces. For existing Node parameter/Control work,
-read [shared Node contracts](references/capability-nodes.md) and only the applicable form;
+read [shared Node contracts](references/capability-nodes.md);
 use the [compiled Control example](../../../doc/dev_guide/first_control.md) when needed.
 
 External field selection/response assembly is Integration work even when the carrier layout

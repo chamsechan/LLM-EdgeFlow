@@ -24,7 +24,7 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 | :--- | :--- | :--- | :--- |
 | **接入适配层（Integration）** | 新增输入/输出结构、转换器与业务绑定 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp`<br>`src/adapter/biz/<biz>_bindings.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`IoBindingDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER`<br>`REGISTER_IO_BINDING` |
 | **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
-| **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `MakeBatchSpec` / `MakeMapSpec`<br>`REGISTER_FUNCTION_NODE(NodeName, spec)` |
+| **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `MakeNodeSpec`<br>`REGISTER_FUNCTION_NODE(NodeName, spec)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
@@ -133,18 +133,18 @@ typed port 契约时才新增 Node。Node 必须：
 - 使用 `REGISTER_FUNCTION_NODE`，由同一 Spec 生成完整 `NodeDefinition` 并注册；
 - 在 Catalog 可见，并覆盖非法配置、端口缺失/类型错误、输出、provenance 和并发声明。
 
-入门默认使用[轻量 LLM 模板](../dev_support/node_authoring/starter_llm_node.cpp)：
-脚手架生成后，先编写 `BuildPrompt` 和 `FormatAnswer` 两个普通文本函数；端口与来源
-处理保留在固定结构中。完整步骤见[第一个自定义 Node](dev_guide/first_custom_node.md)。
+入门默认使用 [LLM 模板](../dev_support/node_authoring/starter_llm_node.cpp)：
+脚手架生成后，先编写 `BuildPrompt` 和 `FormatAnswer` 两个普通文本函数；端口、来源与生成参数
+处理保留在所有 Node 共用的统一结构中。完整步骤见[第一个自定义 Node](dev_guide/first_custom_node.md)。
 
 熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
-组合 LLM 采样参数时可复用 [`GenerateOptionsFields` / `ParseGenerateOptions`](../include/nodes/generate_options_config.h)，
+LLM 采样参数复用 [`GenerateParameters` / `GenerateOptionsFields`](../include/nodes/generate_options_config.h)，
 显式指定该节点的 `max_tokens` 默认值，其余字段约束与解析共用同一实现。
 
-自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，沿用现有
-`MakeBatchSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；仅在存在
-真实业务契约限制时设置 `biz_names`。平台结构转换留在 Adapter，Core、Engine 和通用
+自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，与所有 Node 一样
+使用 `MakeNodeSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；Node 不绑定特定业务。
+平台结构转换留在 Adapter，Core、Engine 和通用
 Node 不依赖自定义实现。编写、构建和复用步骤见
 [自定义 Node 接入指南](../src/custom_nodes/README.md)。
 

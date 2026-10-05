@@ -29,6 +29,34 @@
 namespace llm_edgeflow {
 namespace {
 
+struct TextInputs {
+  const TextBatch* input = nullptr;
+};
+
+// 逐条文本转换夹具：与作者用 MapPayloads 编写的 Run 相同。
+template <typename Fn>
+auto TextMapSpec(Fn fn) {
+  return MakeNodeSpec(
+      InputsOf<TextInputs>({Required("input", &TextInputs::input)}),
+      PreservedOutput<TextBatch>("output", "input"),
+      [fn = std::move(fn)](const TextInputs& inputs) -> NodeResult<TextBatch> {
+        return MapPayloads(*inputs.input, fn);
+      });
+}
+
+template <typename ParamsT, typename Fn>
+auto TextMapSpec(Parameters<ParamsT> params, Fn fn) {
+  return MakeNodeSpec(
+      InputsOf<TextInputs>({Required("input", &TextInputs::input)}),
+      PreservedOutput<TextBatch>("output", "input"), std::move(params),
+      [fn = std::move(fn)](const TextInputs& inputs,
+                           const ParamsT& params) -> NodeResult<TextBatch> {
+        return MapPayloads(*inputs.input, [&](const std::string& text) {
+          return fn(text, params);
+        });
+      });
+}
+
 struct ComplexParams {
   std::string prefix;
   int limit = 0;
@@ -77,43 +105,18 @@ struct ComplexInputs {
 };
 
 auto ComplexSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<ComplexInputs>({Required("input", &ComplexInputs::input),
                                Optional("context", &ComplexInputs::context)}),
       PreservedOutput<TextBatch>("output", "input"), ComplexConfig(),
-      ModelsOf<NoModels>{},
-      [](const ComplexInputs& input, const ComplexParams& params,
-         const NoModels&) -> NodeResult<TextBatch> {
+      [](const ComplexInputs& input,
+         const ComplexParams& params) -> NodeResult<TextBatch> {
         return MapPayloads(*input.input, [&](const std::string& text) {
           return params.prefix + text;
         });
       });
 }
 REGISTER_FUNCTION_NODE(ComplexParserNode, ComplexSpec());
-
-int local_logic_constructions = 0;
-class RequestLocalLogic {
- public:
-  RequestLocalLogic() { ++local_logic_constructions; }
-  NodeResult<TextBatch> Run(const ComplexInputs& inputs, const NoParameters&,
-                            const NoModels&) {
-    return MapPayloads(*inputs.input, [&](const std::string& text) {
-      accumulated_ += text;
-      return accumulated_;
-    });
-  }
-
- private:
-  std::string accumulated_;
-};
-
-auto RequestLocalSpec() {
-  return MakeBatchSpec(
-      InputsOf<ComplexInputs>({Required("input", &ComplexInputs::input)}),
-      PreservedOutput<TextBatch>("output", "input"), Parameters<NoParameters>{},
-      ModelsOf<NoModels>{}, &RequestLocalLogic::Run);
-}
-REGISTER_FUNCTION_NODE(RequestLocalNode, RequestLocalSpec());
 
 struct CleanParams {
   std::string prefix;
@@ -136,8 +139,7 @@ std::string CleanTextFn(const std::string& in, const CleanParams& params) {
 }
 
 auto CleanSpec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     CleanConfig(), &CleanTextFn)
+  return TextMapSpec(CleanConfig(), &CleanTextFn)
       .Description("Clean text map node");
 }
 
@@ -153,23 +155,20 @@ NodeResult<std::string> FailableCleanFn(const std::string& in) {
 }
 
 auto FailableSpec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     &FailableCleanFn)
-      .Description("Failable map node");
+  return TextMapSpec(&FailableCleanFn).Description("Failable map node");
 }
 
 REGISTER_FUNCTION_NODE(FailableMapNode, FailableSpec());
 
 // 失败时不带自身消息，由框架给出 Map 函数名。
 auto SilentFailureSpec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     [](const std::string& in) {
-                       if (in == "FAIL") {
-                         return NodeResult<std::string>::Failure(
-                             NodeErrorKind::kBusinessError, "");
-                       }
-                       return NodeResult<std::string>::Success(in);
-                     });
+  return TextMapSpec([](const std::string& in) {
+    if (in == "FAIL") {
+      return NodeResult<std::string>::Failure(NodeErrorKind::kBusinessError,
+                                              "");
+    }
+    return NodeResult<std::string>::Success(in);
+  });
 }
 
 REGISTER_FUNCTION_NODE(SilentFailureMapNode, SilentFailureSpec());
@@ -182,9 +181,7 @@ std::string UpperFn(const std::string& in) {
 }
 
 auto UpperSpec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     &UpperFn)
-      .Description("Uppercase map node");
+  return TextMapSpec(&UpperFn).Description("Uppercase map node");
 }
 
 REGISTER_FUNCTION_NODE(UpperMapNode, UpperSpec());
@@ -202,8 +199,7 @@ auto MoveOnlyMapSpec() {
         return params.prefix + *owned + input;
       };
   static_assert(!std::is_copy_constructible_v<decltype(transform)>);
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     CleanConfig(), std::move(transform))
+  return TextMapSpec(CleanConfig(), std::move(transform))
       .WithControls({ReplaceFields(3005, "set_prefix", {"prefix"})});
 }
 REGISTER_FUNCTION_NODE(MoveOnlyMapNode, MoveOnlyMapSpec());
@@ -218,8 +214,7 @@ auto MoveOnlyResultMapSpec() {
     return NodeResult<std::string>::Success(*owned + input);
   };
   static_assert(!std::is_copy_constructible_v<decltype(transform)>);
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     std::move(transform));
+  return TextMapSpec(std::move(transform));
 }
 REGISTER_FUNCTION_NODE(MoveOnlyResultMapNode, MoveOnlyResultMapSpec());
 
@@ -324,17 +319,17 @@ NodeResult<TextBatch> AnswerBatchFn(const AnswerInputs& inputs,
 }
 
 auto AnswerBatchSpec() {
-  return MakeBatchSpec(InputsOf<AnswerInputs>({
-                           Required("questions", &AnswerInputs::questions),
-                           Optional("context", &AnswerInputs::context,
-                                    InputFlow::AggregateByRequest),
-                       }),
-                       PreservedOutput<TextBatch>("output", "questions"),
-                       AnswerConfig(),
-                       ModelsOf<AnswerModels>({
-                           Llm("generator", "bind_model", &AnswerModels::llm),
-                       }),
-                       &AnswerBatchFn)
+  return MakeNodeSpec(InputsOf<AnswerInputs>({
+                          Required("questions", &AnswerInputs::questions),
+                          Optional("context", &AnswerInputs::context,
+                                   InputFlow::AggregateByRequest),
+                      }),
+                      PreservedOutput<TextBatch>("output", "questions"),
+                      AnswerConfig(),
+                      ModelsOf<AnswerModels>({
+                          Model("generator", "bind_model", &AnswerModels::llm),
+                      }),
+                      &AnswerBatchFn)
       .Description("Batch answering node with retry");
 }
 
@@ -348,15 +343,13 @@ struct OptionalValueInputs {
 std::atomic<int> optional_value_run_count{0};
 
 auto OptionalValueSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<OptionalValueInputs>({
           Required("input", &OptionalValueInputs::input),
           OptionalValue("context", &OptionalValueInputs::context),
       }),
-      PreservedOutput<TextBatch>("output", "input"), Parameters<NoParameters>{},
-      ModelsOf<NoModels>{},
-      [](const OptionalValueInputs& inputs, const NoParameters&,
-         const NoModels&) -> NodeResult<TextBatch> {
+      PreservedOutput<TextBatch>("output", "input"),
+      [](const OptionalValueInputs& inputs) -> NodeResult<TextBatch> {
         ++optional_value_run_count;
         std::string prefix = "[no-context] ";
         if (inputs.context) {
@@ -377,14 +370,14 @@ struct TwoStageModels {
 };
 
 auto TwoStageSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<AnswerInputs>({Required("questions", &AnswerInputs::questions)}),
       PreservedOutput<TextBatch>("output", "questions"),
       ModelsOf<TwoStageModels>({
-          Llm("draft", "draft_model", &TwoStageModels::draft),
-          Llm("revise", "revise_model", &TwoStageModels::revise),
+          Model("draft", "draft_model", &TwoStageModels::draft),
+          Model("revise", "revise_model", &TwoStageModels::revise),
       }),
-      [](const AnswerInputs& inputs, const NoParameters&,
+      [](const AnswerInputs& inputs,
          const TwoStageModels& models) -> NodeResult<TextBatch> {
         auto draft = models.draft.Generate(*inputs.questions);
         if (!draft.ok()) return draft;
@@ -404,166 +397,17 @@ NodeDefinition TwoStageDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(TwoStageHarnessNode, TwoStageDefinition());
 
-// 对象逻辑 Batch Node
-struct LogicAnswerParams {
-  std::string tag = "logic";
-};
-
-auto LogicAnswerConfig() {
-  return Parameters<LogicAnswerParams>({
-      Field("tag", &LogicAnswerParams::tag).Default("logic"),
-  });
-}
-
-class AnswerLogic {
- public:
-  NodeResult<TextBatch> Run(const AnswerInputs& inputs,
-                            const LogicAnswerParams& params,
-                            const AnswerModels& models) const {
-    if (!inputs.questions || inputs.questions->empty()) {
-      return NodeResult<TextBatch>::Success(TextBatch{});
-    }
-    auto prompts = MapPayloads(*inputs.questions, [&](const std::string& text) {
-      return params.tag + ":" + text;
-    });
-    return models.llm.Generate(prompts);
-  }
-};
-
-auto LogicBatchSpec() {
-  return MakeBatchSpec(InputsOf<AnswerInputs>({
-                           Required("questions", &AnswerInputs::questions),
-                       }),
-                       PreservedOutput<TextBatch>("output", "questions"),
-                       LogicAnswerConfig(),
-                       ModelsOf<AnswerModels>({
-                           Llm("generator", "bind_model", &AnswerModels::llm),
-                       }),
-                       &AnswerLogic::Run)
-      .Description("Logic class batch node");
-}
-
-REGISTER_FUNCTION_NODE(LogicBatchNode, LogicBatchSpec());
-
-// LLM 文本快捷 Node
-struct ShortcutParams {
-  std::string suffix = "!";
-};
-
-auto ShortcutConfig() {
-  return Parameters<ShortcutParams>({
-      Field("suffix", &ShortcutParams::suffix).Default("!"),
-  });
-}
-
-auto ShortcutSpec() {
-  return MakeLlmTextSpec(
-      Input<TextBatch>("prompt"), Output<TextBatch>("text"), ShortcutConfig(),
-      [](const std::string& in, const ShortcutParams&) {
-        return "prompt:" + in;
-      },
-      [](const std::string& out, const ShortcutParams& p) {
-        return out + p.suffix;
-      });
-}
-
-REGISTER_FUNCTION_NODE(LlmShortcutNode, ShortcutSpec());
-
-int formatting_calls = 0;
-NodeResult<std::string> FormatUntilSecond(const std::string& text) {
-  ++formatting_calls;
-  if (text == "ans:second") {
-    return NodeResult<std::string>::Failure(NodeErrorKind::kBusinessError,
-                                            "second answer rejected", -9876);
-  }
-  return "formatted:" + text;
-}
-
-struct ConstOnlyFormatter {
-  NodeResult<std::string> operator()(const std::string& text) const {
-    return FormatUntilSecond(text);
-  }
-  NodeResult<std::string> operator()(std::string&) const = delete;
-};
-
-struct ConstOnlyParameterFormatter {
-  NodeResult<std::string> operator()(const std::string& text,
-                                     const ShortcutParams&) const {
-    return FormatUntilSecond(text);
-  }
-  NodeResult<std::string> operator()(std::string&,
-                                     const ShortcutParams&) const = delete;
-};
-
-auto FailingFormatSpec() {
-  return MakeLlmTextSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"),
-      [](const std::string& text) { return text; }, ConstOnlyFormatter{});
-}
-REGISTER_FUNCTION_NODE(FailingFormatNode, FailingFormatSpec());
-
-auto FailingParameterFormatSpec() {
-  return MakeLlmTextSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"), ShortcutConfig(),
-      [](const std::string& text) { return text; },
-      ConstOnlyParameterFormatter{});
-}
-REGISTER_FUNCTION_NODE(FailingParameterFormatNode,
-                       FailingParameterFormatSpec());
-
-static std::string StarterBuildPrompt(const std::string& text) {
-  return "prompt:" + text;
-}
-static std::string StarterFormatAnswer(const std::string& text) {
-  return "formatted:" + text;
-}
-
-auto StarterLlmTestSpec() {
-  return MakeLlmTextSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                         &StarterBuildPrompt, &StarterFormatAnswer);
-}
-REGISTER_FUNCTION_NODE(StarterLlmTestNode, StarterLlmTestSpec());
-
-auto ViewHooksSpec() {
-  return MakeLlmTextSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"),
-      [](const std::string& text) { return std::string_view(text).substr(1); },
-      [](const std::string& text) -> NodeResult<std::string_view> {
-        return std::string_view(text).substr(4);
-      });
-}
-REGISTER_FUNCTION_NODE(ViewHooksNode, ViewHooksSpec());
-
-auto ResultViewHooksSpec() {
-  return MakeLlmTextSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"), ShortcutConfig(),
-      [](const std::string& text,
-         const ShortcutParams&) -> NodeResult<std::string_view> {
-        if (text == "REJECT") {
-          return NodeResult<std::string_view>::Failure(
-              NodeErrorKind::kBusinessError, "prompt rejected", -8765);
-        }
-        return std::string_view(text).substr(1);
-      },
-      [](const std::string& text, const ShortcutParams&) {
-        return std::string_view(text).substr(4);
-      });
-}
-REGISTER_FUNCTION_NODE(ResultViewHooksNode, ResultViewHooksSpec());
-
 struct TextToScoreInputs {
   const TextBatch* texts = nullptr;
 };
 
 auto TextToScoreSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<TextToScoreInputs>({
           Required("texts", &TextToScoreInputs::texts),
       }),
       PreservedOutput<ScoreBatch>("scores", "texts"),
-      Parameters<NoParameters>{}, ModelsOf<NoModels>({}),
-      [](const TextToScoreInputs& in, const NoParameters&,
-         const NoModels&) -> NodeResult<ScoreBatch> {
+      [](const TextToScoreInputs& in) -> NodeResult<ScoreBatch> {
         ScoreBatch scores;
         if (!in.texts) return NodeResult<ScoreBatch>::Success(scores);
         scores.reserve(in.texts->size());
@@ -580,16 +424,15 @@ struct ContextPollutionInputs {
 };
 
 auto FailingAfterPublishSpec() {
-  return MakeBatchSpec(InputsOf<ContextPollutionInputs>({
-                           Required("input", &ContextPollutionInputs::input),
-                       }),
-                       PreservedOutput<TextBatch>("output", "input"),
-                       Parameters<NoParameters>{}, ModelsOf<NoModels>({}),
-                       [](const ContextPollutionInputs&, const NoParameters&,
-                          const NoModels&) -> NodeResult<TextBatch> {
-                         return NodeResult<TextBatch>::Failure(
-                             NodeErrorKind::kBusinessError, "forced error");
-                       });
+  return MakeNodeSpec(
+      InputsOf<ContextPollutionInputs>({
+          Required("input", &ContextPollutionInputs::input),
+      }),
+      PreservedOutput<TextBatch>("output", "input"),
+      [](const ContextPollutionInputs&) -> NodeResult<TextBatch> {
+        return NodeResult<TextBatch>::Failure(NodeErrorKind::kBusinessError,
+                                              "forced error");
+      });
 }
 REGISTER_FUNCTION_NODE(FailingAfterPublishNode, FailingAfterPublishSpec());
 
@@ -603,7 +446,7 @@ struct BindingTestInputs {
 };
 
 inline auto BindingTestSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<BindingTestInputs>({
           Required("texts", &BindingTestInputs::texts),
           Optional("mask", &BindingTestInputs::mask),
@@ -623,9 +466,8 @@ inline auto BindingTestSpec() {
             }
             return true;
           }),
-      ModelsOf<NoModels>{},
-      [](const BindingTestInputs& in, const BindingTestParams&,
-         const NoModels&) -> NodeResult<TextBatch> {
+      [](const BindingTestInputs& in,
+         const BindingTestParams&) -> NodeResult<TextBatch> {
         return NodeResult<TextBatch>::Success(*in.texts);
       });
 }
@@ -636,8 +478,7 @@ struct BindingMapParams {
 };
 
 inline auto BindingMapSpec() {
-  return MakeMapSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"),
+  return TextMapSpec(
       Parameters<BindingMapParams>(
           {
               Field("require_extra", &BindingMapParams::require_extra)
@@ -676,8 +517,7 @@ inline std::string ControlledMapFn(const std::string& in,
 }
 
 inline auto ControlledMapSpec() {
-  return MakeMapSpec(
-             Input<TextBatch>("input"), Output<TextBatch>("output"),
+  return TextMapSpec(
              Parameters<ControlledMapParams>(
                  {
                      Field("prefix", &ControlledMapParams::prefix).Default(""),
@@ -712,8 +552,7 @@ struct NonCopyableMapParams {
 };
 
 inline auto NonCopyableMapSpec() {
-  return MakeMapSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"),
+  return TextMapSpec(
       Parameters<NonCopyableMapParams>(
           {
               Field("prefix", &NonCopyableMapParams::prefix).Default("nc:"),
@@ -740,7 +579,7 @@ struct NonCopyableBatchParams {
 };
 
 inline auto NonCopyableBatchSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<NonCopyableBatchInputs>({
           Required("texts", &NonCopyableBatchInputs::texts),
       }),
@@ -801,7 +640,7 @@ inline NodeResult<TextBatch> ControlledBatchFn(
 }
 
 inline auto ControlledBatchSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
              InputsOf<ControlledBatchInputs>({
                  Required("texts", &ControlledBatchInputs::texts),
              }),
@@ -840,7 +679,7 @@ struct ImageSummaryParams {
   std::string fault;
 };
 auto ImageSummarySpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<ImageSummaryInputs>{
           Required("images", &ImageSummaryInputs::images)},
       OutputsOf<ImageSummaryOutputs>{
@@ -848,8 +687,8 @@ auto ImageSummarySpec() {
           Produced("lengths", &ImageSummaryOutputs::lengths, "images")},
       Parameters<ImageSummaryParams>{
           Field("fault", &ImageSummaryParams::fault).Default("")},
-      [](const ImageSummaryInputs& inputs, const ImageSummaryParams& params,
-         const NoModels&) -> NodeResult<ImageSummaryOutputs> {
+      [](const ImageSummaryInputs& inputs,
+         const ImageSummaryParams& params) -> NodeResult<ImageSummaryOutputs> {
         ImageSummaryOutputs output;
         for (const auto& image : *inputs.images) {
           output.names.emplace_back(image.req_id, image.sub_id, image.data);
@@ -869,11 +708,10 @@ REGISTER_FUNCTION_NODE(ImageSummaryAuthorNode, ImageSummarySpec());
 
 struct SourceInputs {};
 auto SourceSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<SourceInputs>{},
       ProducedBatch<TextBatch>("chunks", {"1:N", "generate_sub_id", "session"}),
-      [](const SourceInputs&, const NoParameters&,
-         const NoModels&) -> NodeResult<TextBatch> {
+      [](const SourceInputs&) -> NodeResult<TextBatch> {
         return TextBatch{{41, 0, "first"}, {41, 1, "second"}, {41, 2, "third"}};
       });
 }
@@ -891,13 +729,13 @@ auto ComplexStateControlSpec() {
           {"required", {"prefix"}},
           {"additionalProperties", false},
           {"properties", {{"prefix", {{"type", "string"}}}}}}}}}};
-  return MakeBatchSpec(
+  return MakeNodeSpec(
              InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
              PreservedOutput<TextBatch>("output", "input"),
              Parameters<CleanParams>{
                  Field("prefix", &CleanParams::prefix).Default("old:")},
-             [](const ComplexInputs& input, const CleanParams& params,
-                const NoModels&) -> NodeResult<TextBatch> {
+             [](const ComplexInputs& input,
+                const CleanParams& params) -> NodeResult<TextBatch> {
                return MapPayloads(*input.input, [&](const std::string& value) {
                  return params.prefix + value;
                });
@@ -1086,7 +924,7 @@ TEST(FunctionNodeTest, IntermediateFailureProducesNoOutput) {
   EXPECT_EQ(out, nullptr);
 }
 
-TEST(FunctionNodeTest, MapItemFailureNamesNodeAndItem) {
+TEST(FunctionNodeTest, MapPayloadsFailureNamesItem) {
   NodeHarness harness("FailableMapNode");
   harness.TextInput("input", {"ok1", "FAIL", "ok3"});
   auto result = harness.Run();
@@ -1095,7 +933,7 @@ TEST(FunctionNodeTest, MapItemFailureNamesNodeAndItem) {
   EXPECT_NE(result.diagnostic().find("Forced failure on keyword FAIL"),
             std::string::npos)
       << result.diagnostic();
-  EXPECT_NE(result.diagnostic().find("FailableMapNode"), std::string::npos)
+  EXPECT_NE(result.diagnostic().find("MapPayloads"), std::string::npos)
       << result.diagnostic();
   EXPECT_NE(result.diagnostic().find("sub_id=0"), std::string::npos)
       << result.diagnostic();
@@ -1106,9 +944,11 @@ TEST(FunctionNodeTest, MapItemFailureNamesNodeAndItem) {
   ASSERT_FALSE(silent_result.ok());
   EXPECT_EQ(silent_result.process_code(),
             node_error::author_node::kBusinessError);
-  EXPECT_NE(silent_result.diagnostic().find(
-                "SilentFailureMapNode map function failed"),
-            std::string::npos)
+  EXPECT_NE(
+      silent_result.diagnostic().find("SilentFailureMapNode process failed"),
+      std::string::npos)
+      << silent_result.diagnostic();
+  EXPECT_NE(silent_result.diagnostic().find("MapPayloads"), std::string::npos)
       << silent_result.diagnostic();
   EXPECT_EQ(silent_result.Output<TextBatch>("output"), nullptr);
 
@@ -1474,115 +1314,6 @@ TEST(FunctionNodeTest, BatchModelCallRetrySucceedsWithoutPollutingContext) {
   EXPECT_TRUE(result.Context()->IsOk());
 }
 
-// 普通逻辑对象的 Run
-TEST(FunctionNodeTest, BatchLogicClassExecutesPerRequest) {
-  auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("LogicBatchNode");
-  harness.Config({{"bind_model", "test_llm"}, {"tag", "my_tag"}});
-  harness.BindModel("test_llm", mock_model);
-  harness.TextInput("questions", {"hello"});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  EXPECT_EQ(result.TextValues("output"),
-            (std::vector<std::string>{"ans:my_tag:hello"}));
-}
-
-// MakeLlmTextSpec 快捷方式
-TEST(FunctionNodeTest,
-     LlmFormattingFailureDoesNotPublishPartiallyFormattedBatch) {
-  for (const char* name : {"FailingFormatNode", "FailingParameterFormatNode"}) {
-    SCOPED_TRACE(name);
-    formatting_calls = 0;
-    auto model = std::make_shared<CountingMockLlmModel>();
-    NodeHarness harness(name);
-    harness.Config({{"bind_model", "formatter_llm"}});
-    harness.BindModel("formatter_llm", model);
-    harness.TextInput("input", {"first", "second", "third"});
-    auto result = harness.Run();
-    EXPECT_FALSE(result.ok());
-    EXPECT_FALSE(result.init_failed()) << result.diagnostic();
-    EXPECT_EQ(result.process_code(), -9876);
-    EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
-    EXPECT_EQ(formatting_calls,
-              2);  // 第一个成功；第二个中止了批次。
-    EXPECT_EQ(model->call_count, 1);
-  }
-}
-
-TEST(FunctionNodeTest, LlmShortcutNodeExecutesPipeline) {
-  auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("LlmShortcutNode");
-  harness.Config({{"bind_model", "test_llm"}, {"suffix", "!!!"}});
-  harness.BindModel("test_llm", mock_model);
-  harness.TextInput("prompt", {"world"});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  // BuildPrompt: prompt:world -> Llm: ans:prompt:world -> FormatAnswer:
-  // ans:prompt:world!!!
-  EXPECT_EQ(result.TextValues("text"),
-            (std::vector<std::string>{"ans:prompt:world!!!"}));
-}
-
-TEST(FunctionNodeTest, FourArgMakeLlmTextSpecExecutesProperly) {
-  auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("StarterLlmTestNode");
-  harness.Config({{"bind_model", "test_llm"}});
-  harness.BindModel("test_llm", mock_model);
-  harness.TextInput("input", {"hello"});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  EXPECT_EQ(result.TextValues("output"),
-            (std::vector<std::string>{"formatted:ans:prompt:hello"}));
-}
-
-TEST(FunctionNodeTest, LlmViewHooksCopyAliasedTextAndPreserveProvenance) {
-  const TextBatch input{{17, 3, std::string("xhello\0world", 12)}, {8, 5, "x"}};
-  for (const auto* node_type : {"ViewHooksNode", "ResultViewHooksNode"}) {
-    SCOPED_TRACE(node_type);
-    auto model = std::make_shared<CountingMockLlmModel>();
-    NodeHarness harness(node_type);
-    harness.Config({{"bind_model", "test_llm"}});
-    harness.BindModel("test_llm", model);
-    harness.CustomInput("input", input);
-    auto result = harness.Run();
-    ASSERT_TRUE(result.ok()) << result.diagnostic();
-    const auto* output = result.Output<TextBatch>("output");
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), input.size());
-    ASSERT_EQ(model->last_prompts.size(), input.size());
-    ASSERT_NE(result.Context(), nullptr);
-    const auto* snapshot = result.Context()->Read<TextBatch>("bk_in_input");
-    ASSERT_NE(snapshot, nullptr);
-    ASSERT_EQ(snapshot->size(), input.size());
-    for (size_t i = 0; i < input.size(); ++i) {
-      EXPECT_EQ(output->at(i).data, input[i].data.substr(1));
-      EXPECT_EQ(model->last_prompts[i].data, input[i].data.substr(1));
-      EXPECT_EQ(output->at(i).req_id, input[i].req_id);
-      EXPECT_EQ(output->at(i).sub_id, input[i].sub_id);
-      EXPECT_EQ(snapshot->at(i).data, input[i].data);
-      EXPECT_EQ(snapshot->at(i).req_id, input[i].req_id);
-      EXPECT_EQ(snapshot->at(i).sub_id, input[i].sub_id);
-    }
-  }
-}
-
-TEST(FunctionNodeTest, LlmResultViewPromptFailureStopsBeforeModelCall) {
-  auto model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("ResultViewHooksNode");
-  harness.Config({{"bind_model", "test_llm"}});
-  harness.BindModel("test_llm", model);
-  harness.TextInput("input", {"xfirst", "REJECT"});
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_FALSE(result.init_failed()) << result.diagnostic();
-  EXPECT_EQ(result.process_code(), -8765);
-  EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
-  EXPECT_EQ(model->call_count, 0);
-}
-
 TEST(FunctionNodeTest, BatchCrossTypeOutputAlignmentSucceeds) {
   NodeHarness harness("TextToScoreNode");
   harness.TextInput("texts", {"query1", "query2"});
@@ -1597,7 +1328,7 @@ TEST(FunctionNodeTest, BatchCrossTypeOutputAlignmentSucceeds) {
 }
 
 TEST(FunctionNodeTest, NodeHarnessFailsInitOnInvalidConfig) {
-  NodeHarness harness("LlmShortcutNode");
+  NodeHarness harness("AnswerBatchNode");
   harness.Config({{"bind_model", "test_llm"}, {"unknown_field", 123}});
   auto result = harness.Run();
   EXPECT_FALSE(result.ok());
@@ -1858,24 +1589,6 @@ TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
   }
 }
 
-TEST(FunctionNodeTest, LogicObjectIsRecreatedForEachProcessOnSameNode) {
-  auto node = NodeRegistry::Instance().Create("RequestLocalNode");
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
-  const int before = local_logic_constructions;
-  for (const std::string text : {"first", "second", "third"}) {
-    AlgContext context;
-    context.Publish("input", TextBatch{{7, 2, text}});
-    ASSERT_EQ(node->Process(&context), 0);
-    const auto* output = context.Read<TextBatch>("output");
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 1u);
-    EXPECT_EQ((*output)[0].data, text);
-  }
-  EXPECT_EQ(local_logic_constructions, before + 3);
-}
-
 // ---------------------------------------------------------------------------
 // ConfigurationSnapshot 与直接并发
 // ---------------------------------------------------------------------------
@@ -2100,7 +1813,7 @@ TEST(ConfigurationSnapshotTest, MoveOnlyStateHandled) {
 // 函数式 Spec 的 WithControls 与 NodeHarness 测试
 // ---------------------------------------------------------------------------
 
-TEST(FunctionNodeTest, FunctionalMapSpecWithControls) {
+TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
   NodeHarness harness("ControlledMapNode");
   harness.Config(
       {{"prefix", "init_p:"}, {"suffix", ":init_s"}, {"multiplier", 1}});
@@ -2163,7 +1876,7 @@ TEST(FunctionNodeTest, FunctionalMapSpecWithControls) {
   EXPECT_EQ(unk.status, NodeControlStatus::kUnsupported);
 }
 
-TEST(FunctionNodeTest, FunctionalBatchSpecWithControlsAndValidation) {
+TEST(FunctionNodeTest, BatchNodeWithControlsAndValidation) {
   NodeHarness harness("ControlledBatchNode");
   harness.Config({{"header", "H:"}, {"uppercase", false}});
   harness.TextInput("texts", {"abc", "def"});
@@ -2269,7 +1982,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
   }
 }
 
-TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
+TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchNode) {
   NodeHarness harness("ControlledBatchNode");
   harness.Config({{"header", "old:"}, {"uppercase", false}});
   ASSERT_TRUE(harness.EnsureInitialized());
@@ -2479,11 +2192,11 @@ TEST(FunctionNodeTest, OutputDeclarationsStillRejectDuplicatePortNames) {
 
 TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
   auto make_spec = [] {
-    return MakeBatchSpec(
+    return MakeNodeSpec(
         InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
         PreservedOutput<TextBatch>("output", "input"), CleanConfig(),
-        [](const ComplexInputs& inputs, const CleanParams&,
-           const NoModels&) -> NodeResult<TextBatch> { return *inputs.input; });
+        [](const ComplexInputs& inputs, const CleanParams&)
+            -> NodeResult<TextBatch> { return *inputs.input; });
   };
   auto update = [](const CleanParams& current, const nlohmann::json&,
                    const BindingFacts&) -> NodeResult<CleanParams> {
@@ -2571,8 +2284,7 @@ struct BindingFactsProbeParams {
 };
 
 inline auto BindingFactsProbeSpec() {
-  return MakeMapSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"),
+  return TextMapSpec(
       Parameters<BindingFactsProbeParams>(
           {
               Field("mode", &BindingFactsProbeParams::mode).Default("base"),

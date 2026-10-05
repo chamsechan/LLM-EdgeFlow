@@ -103,7 +103,7 @@ struct RuleSpec {
   std::shared_ptr<const CompiledTextRegex> compiled_regex;
 };
 
-struct RuleMatchState {
+struct Params {
   CategoryList category_keywords_list;
   std::vector<RuleSpec> rules_list;
   std::string default_category;
@@ -174,7 +174,7 @@ bool BuildRules(const nlohmann::json& rules_json,
   return true;
 }
 
-bool BuildRuleMatchState(const nlohmann::json& config, RuleMatchState* state,
+bool BuildRuleMatchState(const nlohmann::json& config, Params* state,
                          std::string* diagnostic) {
   if (diagnostic) diagnostic->clear();
   CategoryList categories;
@@ -194,12 +194,11 @@ bool BuildRuleMatchState(const nlohmann::json& config, RuleMatchState* state,
   return true;
 }
 
-struct RuleInputs {
+struct Inputs {
   const TextBatch* text = nullptr;
 };
 
-NodeResult<RuleMatchBatch> MatchRules(const RuleInputs& inputs,
-                                      const RuleMatchState& state) {
+NodeResult<RuleMatchBatch> Run(const Inputs& inputs, const Params& state) {
   const auto* text_items = inputs.text;
   RuleMatchBatch output_matches;
   output_matches.reserve(text_items->size());
@@ -283,39 +282,35 @@ NodeResult<RuleMatchBatch> MatchRules(const RuleInputs& inputs,
   return NodeResult<RuleMatchBatch>::Success(std::move(output_matches));
 }
 
-NodeResult<RuleMatchState> UpdateRules(const RuleMatchState& current,
-                                       const nlohmann::json& root,
-                                       const BindingFacts&) {
+NodeResult<Params> UpdateRules(const Params& current,
+                               const nlohmann::json& root,
+                               const BindingFacts&) {
   std::string error;
-  RuleMatchState next = current;
+  Params next = current;
   if (!BuildRuleMatchState(root, &next, &error)) {
-    return NodeResult<RuleMatchState>::Failure(
-        NodeErrorKind::kBusinessError, error,
-        node_error::control::kInvalidRequest);
+    return NodeResult<Params>::Failure(NodeErrorKind::kBusinessError, error,
+                                       node_error::control::kInvalidRequest);
   }
-  return NodeResult<RuleMatchState>::Success(std::move(next));
+  return NodeResult<Params>::Success(std::move(next));
 }
 
-auto MakeTextRuleMatchSpec() {
-  auto parameters =
-      Parameters<RuleMatchState>{}.WithParser(NodeConfigParser<RuleMatchState>(
-          TextRuleMatchConfigFields(),
-          [](const nlohmann::json& config, RuleMatchState* state,
-             std::string* diagnostic) {
-            state->default_category =
-                config.at("default_category").get<std::string>();
-            state->default_score = config.at("default_score").get<float>();
-            return BuildRuleMatchState(config, state, diagnostic);
-          }));
+auto Spec() {
+  auto parameters = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
+      TextRuleMatchConfigFields(),
+      [](const nlohmann::json& config, Params* state, std::string* diagnostic) {
+        state->default_category =
+            config.at("default_category").get<std::string>();
+        state->default_score = config.at("default_score").get<float>();
+        return BuildRuleMatchState(config, state, diagnostic);
+      }));
   auto control = ControlCommandDefinition(
       kControlCmdUpdateRules, "update_rules",
       "Update matching rules and categories dynamically", RuleControlSchema(),
       true);
   control.shared_id = true;
-  return MakeBatchSpec(
-             InputsOf<RuleInputs>{Required("text", &RuleInputs::text)},
-             PreservedOutput<RuleMatchBatch>("matches", "text"),
-             std::move(parameters), MatchRules)
+  return MakeNodeSpec(InputsOf<Inputs>{Required("text", &Inputs::text)},
+                      PreservedOutput<RuleMatchBatch>("matches", "text"),
+                      std::move(parameters), Run)
       .Category("common")
       .Description(
           "Keyword and Unicode regex matching with lookbehind and named "
@@ -325,6 +320,6 @@ auto MakeTextRuleMatchSpec() {
 }
 }  // namespace
 
-REGISTER_FUNCTION_NODE(TextRuleMatchNode, MakeTextRuleMatchSpec());
+REGISTER_FUNCTION_NODE(TextRuleMatchNode, Spec());
 
 }  // namespace llm_edgeflow
