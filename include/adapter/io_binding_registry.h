@@ -17,8 +17,8 @@ std::unordered_map<std::string, std::string> EffectivePortMapping(
     const std::unordered_map<std::string, std::string>& declared,
     const std::vector<NodePortDefinition>& logical_ports);
 
-// 未声明 capacity_fields 的输出槽位，按字典序继承其已注册 ValueType 的
-// 字符串容量字段。输入槽位和未知 ValueType 原样返回声明列表。
+// 输出槽位按字典序返回其已注册 ValueType 的字符串容量字段；
+// 输入槽位和未知 ValueType 返回空列表。
 std::vector<std::string> EffectiveCapacityFields(
     const ExternalSlotDefinition& slot);
 

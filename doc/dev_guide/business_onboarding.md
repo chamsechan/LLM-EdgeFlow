@@ -152,7 +152,7 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 
 外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
 `ExternalOutputSlot<T>(slot)`，类型由 traits 推导。
-输出容量字段由已注册 ValueType 的字符串容量字段决定；显式列出时必须与该 ValueType 的字段集合一致。
+输出容量字段由已注册 ValueType 的字符串容量字段决定，不在槽位上声明。
 槽名、类型后缀和外部 key 后缀不全相同、可选槽或特殊布局时，使用完整的 `ExternalSlotDefinition`，
 各字段含义和示例见[选择参数](operator_output_allocation.md#选择参数)。
 
@@ -206,8 +206,8 @@ ValueType。宿主类型的转换都留在接入适配层，Node、Model 和 Bac
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
 新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
 Pipeline 只选择 `io_binding`，Demo 调用 `ResolveOperatorConfigBiz` 解析业务身份并选择 runner。
-Profile 不填写业务名。SDK 预检与注册审计共用同业务 binding 的外部协议、载体及槽位一致性检查。Demo 按该契约准备载体，
-不能仅因宿主类型相同就复用另一业务契约；同一业务也不能登记不兼容的载体。
+Profile 不填写业务名。SDK 预检与注册审计共用同业务 binding 的外部协议（Converter 的 `schema_id`）、载体及槽位一致性检查。Demo 按该契约准备载体，
+不能仅因宿主类型相同就复用另一业务契约；同一业务也不能登记载体或协议不兼容的 binding。
 这里的数据转换仅指载体构造和结果展示，外部协议的解包、
 字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
 新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：

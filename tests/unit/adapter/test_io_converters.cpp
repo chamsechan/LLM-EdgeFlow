@@ -101,10 +101,8 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
   def.converter_id = "test.input.operator.v1";
 
   def.schema_id = "test_input";
-  def.schema_version = 1;
-  def.external_type = "int";
   def.external_slots = {ExternalSlotDefinition(
-      "inputs", "int", PortDirection::kInput, true, "int", "inputs")};
+      "inputs", "int", PortDirection::kInput, true, "inputs")};
   def.max_batch_size = 64;
   def.logical_ports = {NodePortDefinition("texts", "TextBatch", true, "1:1")};
   def.decode_fn = &DummyDecode;
@@ -129,10 +127,8 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   def.converter_id = "test.output.operator.v1";
 
   def.schema_id = "test_output";
-  def.schema_version = 1;
-  def.external_type = "int";
   def.external_slots = {ExternalSlotDefinition(
-      "answers", "int", PortDirection::kOutput, true, "int", "answers")};
+      "answers", "int", PortDirection::kOutput, true, "answers")};
   def.max_batch_size = 64;
   def.logical_ports = {NodePortDefinition("answers", "TextBatch", true, "1:1")};
   def.encode_fn = &DummyEncode;
@@ -144,31 +140,14 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   EXPECT_EQ(found->converter_id, "test.output.operator.v1");
 }
 
-TEST(IoConverterTest, ExternalTypeDefaultsToSlotTypesInOrder) {
-  InputConverterDefinition input;
-  input.converter_id = "derived.external_type.in";
-  input.schema_id = "test";
-  input.external_slots = {
+TEST(IoConverterTest, ExternalTypeJoinsSlotTypesInOrder) {
+  const std::vector<ExternalSlotDefinition> slots = {
       ExternalSlotDefinition("frame", "CompanyFrame", PortDirection::kInput,
-                             true, "frame", "frame"),
+                             true, "frame"),
       ExternalSlotDefinition("query", "CompanyString", PortDirection::kInput,
-                             true, "string", "query")};
-  input.logical_ports = {NodePortDefinition("texts", "TextBatch", true)};
-  input.decode_fn = &DummyDecode;
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  EXPECT_EQ(IoConverterRegistry::Instance()
-                .FindInputConverter(input.converter_id)
-                ->external_type,
-            "CompanyFrame,CompanyString");
-
-  // 显式的协议标签按声明保留。
-  input.converter_id = "labeled.external_type.in";
-  input.external_type = "custom.carrier";
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  EXPECT_EQ(IoConverterRegistry::Instance()
-                .FindInputConverter(input.converter_id)
-                ->external_type,
-            "custom.carrier");
+                             true, "query")};
+  EXPECT_EQ(ExternalType(slots), "CompanyFrame,CompanyString");
+  EXPECT_EQ(ExternalType({}), "");
 }
 
 TEST(IoConverterTest, RejectsInvalidDefinitions) {
@@ -179,10 +158,8 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
 
   bad_in.converter_id = "bad.in";
   bad_in.schema_id = "test";
-  bad_in.schema_version = 1;
-  bad_in.external_type = "int";
   bad_in.external_slots = {ExternalSlotDefinition(
-      "inputs", "int", PortDirection::kInput, true, "int", "inputs")};
+      "inputs", "int", PortDirection::kInput, true, "inputs")};
   bad_in.max_batch_size = 64;
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -194,19 +171,14 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.schema_id = "";
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  // schema_version < 1
-  bad_in.schema_id = "test";
-  bad_in.schema_version = 0;
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
-
   // 缺少 external_slots
-  bad_in.schema_version = 1;
+  bad_in.schema_id = "test";
   bad_in.external_slots.clear();
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
   // 缺少 logical_ports
   bad_in.external_slots = {ExternalSlotDefinition(
-      "inputs", "int", PortDirection::kInput, true, "int", "inputs")};
+      "inputs", "int", PortDirection::kInput, true, "inputs")};
   bad_in.logical_ports.clear();
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
@@ -221,10 +193,8 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_out.converter_id = "bad.out";
 
   bad_out.schema_id = "test";
-  bad_out.schema_version = 1;
-  bad_out.external_type = "int";
   bad_out.external_slots = {ExternalSlotDefinition(
-      "answers", "int", PortDirection::kOutput, true, "int", "answers")};
+      "answers", "int", PortDirection::kOutput, true, "answers")};
   bad_out.max_batch_size = 64;
   bad_out.logical_ports = {
       NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -294,10 +264,8 @@ TEST(IoConverterTest,
   bad_in.converter_id = "test.empty_suffix.in";
 
   bad_in.schema_id = "test_schema";
-  bad_in.schema_version = 1;
-  bad_in.external_type = "int";
-  bad_in.external_slots = {ExternalSlotDefinition(
-      "slot1", "int", PortDirection::kInput, true, "int", "")};
+  bad_in.external_slots = {
+      ExternalSlotDefinition("slot1", "int", PortDirection::kInput, true, "")};
   bad_in.max_batch_size = 64;
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -310,10 +278,8 @@ TEST(IoConverterTest,
   bad_out.converter_id = "test.empty_suffix.out";
 
   bad_out.schema_id = "test_schema";
-  bad_out.schema_version = 1;
-  bad_out.external_type = "int";
-  bad_out.external_slots = {ExternalSlotDefinition(
-      "slot1", "int", PortDirection::kOutput, true, "int", "")};
+  bad_out.external_slots = {
+      ExternalSlotDefinition("slot1", "int", PortDirection::kOutput, true, "")};
   bad_out.max_batch_size = 64;
   bad_out.logical_ports = {
       NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -326,13 +292,11 @@ TEST(IoConverterTest,
   multi_in.converter_id = "test.multi_slot.in";
 
   multi_in.schema_id = "test_schema";
-  multi_in.schema_version = 1;
-  multi_in.external_type = "int";
   multi_in.external_slots = {
       ExternalSlotDefinition("slot_first", "int", PortDirection::kInput, true,
-                             "int", "int_suffix"),
+                             "int_suffix"),
       ExternalSlotDefinition("slot_second", "int", PortDirection::kInput, true,
-                             "int", "int_suffix")};
+                             "int_suffix")};
   multi_in.max_batch_size = 64;
   multi_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -350,22 +314,11 @@ TEST(IoConverterTest,
 
 TEST(IoConverterTest, OptionalInputSlotsPreserveEveryFramePosition) {
   InputConverterDefinition converter;
-  converter.external_slots = {{"required",
-                               "CompanyOperatorEntityInput",
-                               PortDirection::kInput,
-                               true,
-                               "CompanyOperatorEntityInput",
-                               "entity_in",
-                               {},
-                               "required"},
-                              {"optional",
-                               "CompanyOperatorEntityInput",
-                               PortDirection::kInput,
-                               false,
-                               "CompanyOperatorEntityInput",
-                               "entity_in",
-                               {},
-                               "optional"}};
+  converter.external_slots = {
+      {"required", "CompanyOperatorEntityInput", PortDirection::kInput, true,
+       "entity_in", "required"},
+      {"optional", "CompanyOperatorEntityInput", PortDirection::kInput, false,
+       "entity_in", "optional"}};
   char text[] = "hello";
   CompanyString sentence{5, text};
   operator_api::NamedIoBatch inputs(5);
@@ -455,7 +408,6 @@ TEST(IoConverterTest, HarnessPreservesNamedSlotsTypesAndPoolCapacities) {
 
 TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   InputConverterDefinition input;
-  input.external_type = "aggregate.input";
   input.external_slots = {{"value", "ReproA"}};
   input.decode_fn = [](const ExternalInputBatchView& view,
                        const InputDecodeOptions&, const InputPortBindings&,
@@ -463,7 +415,6 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
     return view.GetSlot<ReproA>("value", 0) ? 0 : -3;
   };
   OutputConverterDefinition output;
-  output.external_type = "aggregate.output";
   output.external_slots = {{"value", "ReproB", PortDirection::kOutput}};
   output.encode_fn = [](AlgContext*, const OutputPortBindings&,
                         const OutputEncodeOptions&,

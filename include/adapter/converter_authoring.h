@@ -33,29 +33,16 @@ inline std::pair<std::string, std::string> BindIoPort(
 // 常用约定：必填槽位，type_suffix = slot_name，key_suffix 为空时回退到
 // type_suffix。其他后缀或可选槽位请使用 ExternalSlotDefinition 的显式字段。
 template <typename T>
-inline ExternalSlotDefinition ExternalInputSlot(
-    std::string slot_name,
-    std::string value_type = ExternalTypeTraits<T>::TypeName()) {
-  return {slot_name,
-          ExternalTypeTraits<T>::TypeName(),
-          PortDirection::kInput,
-          true,
-          std::move(value_type),
-          slot_name};
+inline ExternalSlotDefinition ExternalInputSlot(std::string slot_name) {
+  return {slot_name, ExternalTypeTraits<T>::TypeName(), PortDirection::kInput,
+          true, slot_name};
 }
 
-// 省略容量字段时由已注册的 ValueType 推导；
-// 显式列表必须与该 ValueType 一致。
+// 容量字段由已注册的 ValueType 决定。
 template <typename T>
-inline ExternalSlotDefinition ExternalOutputSlot(
-    std::string slot_name, std::vector<std::string> capacity_fields = {}) {
-  return {slot_name,
-          ExternalTypeTraits<T>::TypeName(),
-          PortDirection::kOutput,
-          true,
-          ExternalTypeTraits<T>::TypeName(),
-          slot_name,
-          std::move(capacity_fields)};
+inline ExternalSlotDefinition ExternalOutputSlot(std::string slot_name) {
+  return {slot_name, ExternalTypeTraits<T>::TypeName(), PortDirection::kOutput,
+          true, slot_name};
 }
 
 // Operator 在解码前已检查载体和有效批大小上限，并通过 options 传入；

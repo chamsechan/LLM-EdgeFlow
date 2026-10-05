@@ -18,7 +18,6 @@ nlohmann::json SlotJson(const ExternalSlotDefinition& slot) {
           {"key_suffix", slot.KeySuffix()},
           {"direction",
            slot.direction == PortDirection::kInput ? "input" : "output"},
-          {"value_type", slot.value_type},
           {"required", slot.required},
           {"capacity_fields", EffectiveCapacityFields(slot)}};
 }
@@ -33,8 +32,7 @@ nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {
   return {{"converter_id", conv.converter_id},
           {"transport", "operator"},
           {"schema_id", conv.schema_id},
-          {"schema_version", conv.schema_version},
-          {"external_type", conv.external_type},
+          {"external_type", ExternalType(conv.external_slots)},
           {"max_batch_size", conv.max_batch_size},
           {"external_slots", std::move(slots)},
           {"logical_ports", std::move(ports)}};
@@ -50,11 +48,8 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
   return {{"converter_id", conv.converter_id},
           {"transport", "operator"},
           {"schema_id", conv.schema_id},
-          {"schema_version", conv.schema_version},
-          {"external_type", conv.external_type},
+          {"external_type", ExternalType(conv.external_slots)},
           {"max_batch_size", conv.max_batch_size},
-          {"cardinality", conv.cardinality},
-          {"capacity_policy", conv.capacity_policy},
           {"external_slots", std::move(slots)},
           {"logical_ports", std::move(ports)}};
 }

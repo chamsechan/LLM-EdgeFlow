@@ -1,7 +1,6 @@
 #include "adapter/io_binding_registry.h"
 
 #include <algorithm>
-#include <set>
 #include <tuple>
 
 #include "adapter/io_converter_registry.h"
@@ -11,19 +10,16 @@
 namespace llm_edgeflow {
 namespace {
 
+// 容量字段由 type_suffix 对应的 ValueType 决定，无需单独比较。
 bool SameExternalSlots(const std::vector<ExternalSlotDefinition>& left,
                        const std::vector<ExternalSlotDefinition>& right) {
   const auto signature = [](const auto& slots) {
     using Slot =
-        std::tuple<std::string, std::string, std::string, PortDirection, bool,
-                   std::string, std::vector<std::string>>;
+        std::tuple<std::string, std::string, std::string, PortDirection, bool>;
     std::vector<Slot> result;
     for (const auto& slot : slots) {
-      auto capacities = EffectiveCapacityFields(slot);
-      std::sort(capacities.begin(), capacities.end());
       result.emplace_back(slot.KeySuffix(), slot.type_id, slot.type_suffix,
-                          slot.direction, slot.required, slot.value_type,
-                          std::move(capacities));
+                          slot.direction, slot.required);
     }
     std::sort(result.begin(), result.end());
     return result;
@@ -31,11 +27,10 @@ bool SameExternalSlots(const std::vector<ExternalSlotDefinition>& left,
   return signature(left) == signature(right);
 }
 
+// 载体与槽位相同的 Converter 仍可能按不同协议解析，须同时比较 schema_id。
 template <typename Converter>
 bool SameExternalContract(const Converter& left, const Converter& right) {
   return left.schema_id == right.schema_id &&
-         left.schema_version == right.schema_version &&
-         left.external_type == right.external_type &&
          SameExternalSlots(left.external_slots, right.external_slots);
 }
 
@@ -60,11 +55,8 @@ bool CheckBizContract(std::vector<IoBindingDefinition> bindings,
                  "' references an unregistered converter";
       return false;
     }
-    if (first_input &&
-        (!SameExternalContract(*first_input, *input) ||
-         !SameExternalContract(*first_output, *output) ||
-         first_output->cardinality != output->cardinality ||
-         first_output->capacity_policy != output->capacity_policy)) {
+    if (first_input && (!SameExternalContract(*first_input, *input) ||
+                        !SameExternalContract(*first_output, *output))) {
       if (error)
         *error = "Bindings '" + first_binding + "' and '" + binding.binding_id +
                  "' for biz_name '" + biz_name +
@@ -82,11 +74,10 @@ bool CheckBizContract(std::vector<IoBindingDefinition> bindings,
 
 std::vector<std::string> EffectiveCapacityFields(
     const ExternalSlotDefinition& slot) {
-  if (slot.direction != PortDirection::kOutput || !slot.capacity_fields.empty())
-    return slot.capacity_fields;
+  if (slot.direction != PortDirection::kOutput) return {};
   const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
       slot.type_suffix, "");
-  if (!binding) return slot.capacity_fields;
+  if (!binding) return {};
   std::vector<std::string> fields;
   for (const auto& [name, config] :
        binding->output_layout.string_capacity_fields)
@@ -393,19 +384,6 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
           errors.push_back(
               "Binding '" + binding_id + "' output slot '" + slot.slot_name +
               "' uses unregistered ValueType suffix: " + slot.type_suffix);
-        } else if (!slot.capacity_fields.empty()) {
-          std::set<std::string> expected;
-          for (const auto& [name, config] :
-               val_binding->output_layout.string_capacity_fields)
-            expected.insert(name);
-          const std::set<std::string> declared(slot.capacity_fields.begin(),
-                                               slot.capacity_fields.end());
-          if (declared != expected) {
-            errors.push_back("Binding '" + binding_id + "' output slot '" +
-                             slot.slot_name +
-                             "' capacity_fields do not match ValueType '" +
-                             slot.type_suffix + "'");
-          }
         }
       }
     }
