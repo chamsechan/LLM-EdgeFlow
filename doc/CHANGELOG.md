@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+示例 Pipeline 配置、Demo 夹具与资产清单中的模型实例名去掉版本后缀（如 `embed_model_v1` /
+`embed_model_v2` 改为 `embed_model`，`llm_model_v1` 改为 `llm_model`）；Pipeline Studio 的 HTTP 接口
+由 `/api/v1/...` 改为 `/api/...`。
+
 开发工具 JSON 不再携带 `schema_version`：`alg_pipeline_tool` 各命令输出、Catalog、校验报告与
 remediation、`edit` 请求与响应、Pipeline Studio 接口、Demo 的 Profile 文件与结果文件、
 `dev_recipe` / `verify_selection` 报告、效果规格、资产清单和验收证据都删除该字段及对应的版本检查；

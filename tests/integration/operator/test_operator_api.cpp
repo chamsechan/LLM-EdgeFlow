@@ -247,12 +247,12 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
       0);
 
   // 3.2 ControlSwitchPromptParam 测试
-  ControlSwitchPromptParam prompt_param_null{"prompt_v1", nullptr};
+  ControlSwitchPromptParam prompt_param_null{"test_prompt", nullptr};
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_null),
       -2);
 
-  ControlSwitchPromptParam prompt_param_valid{"prompt_v2",
+  ControlSwitchPromptParam prompt_param_valid{"test_prompt",
                                               "用户提问：{query}，请回答："};
   // KeywordMatch 不含 TextTemplateNode，返回 -7
   // (COMPANY_ALG_ERR_UNSUPPORTED_CONTROL)
@@ -303,7 +303,7 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   ASSERT_EQ(ops_.Create(&entity_handle, &entity_param), 0);
   ASSERT_NE(entity_handle, nullptr);
 
-  ControlSwitchPromptParam entity_prompt{"prompt_v2", "{{primary}}"};
+  ControlSwitchPromptParam entity_prompt{"test_prompt", "{{primary}}"};
   EXPECT_EQ(ops_.Control(entity_handle, ControlCommand::kSwitchPrompt,
                          &entity_prompt),
             0);

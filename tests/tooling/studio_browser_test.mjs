@@ -19,8 +19,8 @@ const errors = [];
 const authoringRequests = [];
 const initializationRequests = [];
 page.on("request", request => {
-  if (request.url().endsWith("/api/v1/authoring/preview")) authoringRequests.push(request.postDataJSON());
-  if (request.url().endsWith("/api/v1/init")) initializationRequests.push(request.postDataJSON());
+  if (request.url().endsWith("/api/authoring/preview")) authoringRequests.push(request.postDataJSON());
+  if (request.url().endsWith("/api/init")) initializationRequests.push(request.postDataJSON());
 });
 page.on("pageerror", error => errors.push(error.message));
 const screenshot = async name => { if (screenshotRoot) await page.screenshot({ path: join(screenshotRoot, `${name}.png`) }); };
@@ -107,7 +107,7 @@ try {
   "Contract labels and identifiers must wrap within their fields");
   await screenshot("390-contract-details");
   await page.setViewportSize({ width: 1366, height: 768 });
-  await page.route("**/api/v1/catalog?io_binding=keyword_match", async route => {
+  await page.route("**/api/catalog?io_binding=keyword_match", async route => {
     const response = await route.fetch();
     const catalog = await response.json();
     for (const converter of [...catalog.input_converters, ...catalog.output_converters]) {
@@ -150,7 +150,7 @@ try {
   let releasePreflight, sawPreflight;
   const heldPreflight = new Promise(resolve => { releasePreflight = resolve; });
   const preflightStarted = new Promise(resolve => { sawPreflight = resolve; });
-  await page.route("**/api/v1/preflight", async route => {
+  await page.route("**/api/preflight", async route => {
     sawPreflight(); await heldPreflight;
     await route.fulfill({ json: { ok: true, summary: { status: "ready", next_step: "STALE_PREFLIGHT_SENTINEL" } } });
   });
@@ -159,7 +159,7 @@ try {
   releasePreflight();
   await page.waitForFunction(() => !document.querySelector("#preflightSummary").classList.contains("loading"));
   assert.doesNotMatch(await page.locator("#preflightSummary").textContent(), /STALE_PREFLIGHT_SENTINEL/);
-  await page.unroute("**/api/v1/preflight");
+  await page.unroute("**/api/preflight");
   await page.locator("#runModelRoot").fill(modelRootBefore);
 
   await screenshot("run-results");
@@ -255,11 +255,11 @@ try {
   let releaseStart, started;
   const heldStart = new Promise(resolve => { releaseStart = resolve; });
   const sawStart = new Promise(resolve => { started = resolve; });
-  await page.route('**/api/v1/runs', async route => {
+  await page.route('**/api/runs', async route => {
     started(); await heldStart;
     await route.fulfill({ json: { ok: true, job_id: 'delayed', status: 'queued' } });
   });
-  await page.route('**/api/v1/runs/delayed', route => route.fulfill({ json: { ok: true, job: {
+  await page.route('**/api/runs/delayed', route => route.fulfill({ json: { ok: true, job: {
     status: 'completed', logs: 'ONLY_A', result: { 'results.jsonl': [{ request_id: 999, status: 0, output: { answer: 'ONLY_A' } }] },
   } } }));
   await page.click('#openRunButton'); await page.click('#runButton'); await sawStart;
@@ -269,7 +269,7 @@ try {
   assert.equal(await page.locator('#runResult').textContent(), '');
   assert.equal(await page.locator('.run-sample').count(), 0);
   assert.doesNotMatch(await page.locator('#runLog').textContent(), /ONLY_A/);
-  await page.unroute('**/api/v1/runs'); await page.unroute('**/api/v1/runs/delayed');
+  await page.unroute('**/api/runs'); await page.unroute('**/api/runs/delayed');
   await page.click('#runButton');
   await page.waitForFunction(() => document.querySelector('#runSummary').textContent.includes('运行已完成'));
   assert.equal(await page.locator('.run-sample').count(), 2);
@@ -327,7 +327,7 @@ try {
   // 启动失败信息在超过旧的 2.6 秒超时后仍必须可读。
   const startupPage = await browser.newPage();
   try {
-    await startupPage.route('**/api/v1/assets', route => route.fulfill({ status: 503,
+    await startupPage.route('**/api/assets', route => route.fulfill({ status: 503,
       json: { ok: false, error: { code: 'ASSET_CATALOG_FAILED', message: '启动故障测试' } },
     }));
     await startupPage.goto(url);
@@ -338,7 +338,7 @@ try {
     assert.match(await startupPage.locator('#toast').textContent(), /启动故障测试/);
     await startupPage.click('#toastDismiss');
     assert.equal(await startupPage.locator('#toast').evaluate(el => el.classList.contains('show')), false);
-    await startupPage.unroute('**/api/v1/assets'); await startupPage.reload();
+    await startupPage.unroute('**/api/assets'); await startupPage.reload();
     await startupPage.waitForFunction(() => document.querySelector('#pipelineSelect').options.length > 1);
     assert.equal(await startupPage.locator('#toast').evaluate(el => el.classList.contains('error')), false);
   } finally { await startupPage.close(); }

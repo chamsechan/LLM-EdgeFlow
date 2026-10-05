@@ -79,8 +79,8 @@ class LlmGenerateNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
 
     model_ = std::make_shared<ContractLlmModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
-                                  "llm_model_v1", model_, "test-v1"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "llm_model",
+                                  model_, "test-v1"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<ContractLlmModel> model_;
@@ -90,7 +90,7 @@ TEST_F(LlmGenerateNodeTest, ModelReasonReachesRequestErrorWithoutOutput) {
   model_->fail_with_input_reason = true;
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model"}},
                               session_ctx_.get()));
   AlgContext ctx;
   ctx.Publish("prompt", TextBatch{{0, 0, "backend context capacity exceeded"}});
@@ -127,7 +127,7 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "llm_model_v1"},
+  nlohmann::json cfg = {{"bind_model", "llm_model"},
                         {"temperature", 0.7},
                         {"max_tokens", 128},
                         {"top_k", 32},
@@ -159,14 +159,13 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
 TEST_F(LlmGenerateNodeTest, RejectsInvalidUnifiedGenerationOptions) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  EXPECT_FALSE(InitNodeForTest(*node,
-                               {{"bind_model", "llm_model_v1"}, {"top_k", -1}},
-                               session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(
+      *node, {{"bind_model", "llm_model"}, {"top_k", -1}}, session_ctx_.get()));
 
   node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   EXPECT_FALSE(InitNodeForTest(
-      *node, {{"bind_model", "llm_model_v1"}, {"repetition_penalty", 0.0}},
+      *node, {{"bind_model", "llm_model"}, {"repetition_penalty", 0.0}},
       session_ctx_.get()));
 }
 
@@ -183,7 +182,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
   // 检查 Node 的预检诊断无需构造 Model。
   for (auto config : invalid) {
     SCOPED_TRACE(config.dump());
-    config["bind_model"] = "llm_model_v1";
+    config["bind_model"] = "llm_model";
     const nlohmann::json pipeline = {
         {"biz_name", "entity_extract"},
         {"pipeline", nlohmann::json::array({{{"id", "generate"},
@@ -205,7 +204,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
   std::string diagnostic;
   EXPECT_NE(
       PrepareNodePlanForTest("LlmGenerateNode",
-                             {{"bind_model", "llm_model_v1"},
+                             {{"bind_model", "llm_model"},
                               {"stop_words", nlohmann::json::array({"END"})},
                               {"max_tokens", 32768},
                               {"top_p", 1.0e-9}},
@@ -217,7 +216,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
 TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model"}},
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
@@ -227,7 +226,7 @@ TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
 TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model"}},
                               session_ctx_.get()));
 
   AlgContext ctx;
@@ -242,7 +241,7 @@ TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
 TEST_F(LlmGenerateNodeTest, InvalidModelOutputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model"}},
                               session_ctx_.get()));
 
   TextBatch prompts = {{3, 0, "first"}, {3, 1, "second"}};

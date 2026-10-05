@@ -502,7 +502,7 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
       {"biz_name", "entity_extract"},
       {"models",
-       {{{"model_id", "llm_model_v1"},
+       {{{"model_id", "llm_model"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_path", "fixture.bin"},
@@ -516,7 +516,7 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
          {"node_type", "LlmGenerateNode"},
          {"depends_on", {"pre"}},
          {"config",
-          {{"bind_model", "llm_model_v1"},
+          {{"bind_model", "llm_model"},
            {"max_tokens", 0},
            {"invented", true}}}},
         {{"id", "post"},

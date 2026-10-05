@@ -599,10 +599,10 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
   reg.ResetForTesting();
   EXPECT_EQ(reg.Find("entity_extract"), nullptr);
   EXPECT_TRUE(reg.Register(
-      {"new_domain_v1", "Domain", [](const DemoOptions&) { return 0; }}));
-  const auto* added = reg.Find("new_domain_v1");
+      {"new_domain", "Domain", [](const DemoOptions&) { return 0; }}));
+  const auto* added = reg.Find("new_domain");
   ASSERT_NE(added, nullptr);
-  EXPECT_EQ(added->biz_name, "new_domain_v1");
+  EXPECT_EQ(added->biz_name, "new_domain");
   EXPECT_EQ(reg.Find("entity_extract"), nullptr);
 }
 

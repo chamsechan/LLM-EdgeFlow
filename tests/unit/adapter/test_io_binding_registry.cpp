@@ -1218,7 +1218,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
   // 情形 2：即使 binding 存在，已移除的根业务标识也会被拒绝。
   {
     nlohmann::json doc = base_doc;
-    doc["biz_name"] = "other_biz_v1";
+    doc["biz_name"] = "other_biz";
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
     EXPECT_EQ(diag.path, "/biz_name");

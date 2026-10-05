@@ -15,7 +15,7 @@
       "backend_config": {
         "max_batch_size": 4
       },
-      "model_id": "embed_model_v1",
+      "model_id": "embed_model",
       "model_path": "models/bge_base_zh_v1.5.onnx"
     },
     {
@@ -27,7 +27,7 @@
       "backend_config": {
         "run_config_file": "kite_text_run.json"
       },
-      "model_id": "llm_model_v1",
+      "model_id": "llm_model",
       "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
@@ -50,7 +50,7 @@
       "id": "node_1_QueryEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v1"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "raw_queries"
@@ -63,7 +63,7 @@
       "id": "node_2_ChunkEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v1"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "doc_chunks"
@@ -141,7 +141,7 @@
       "id": "node_6_LlmGenerateNode",
       "node_type": "LlmGenerateNode",
       "config": {
-        "bind_model": "llm_model_v1",
+        "bind_model": "llm_model",
         "max_tokens": 128,
         "temperature": 0.0
       },

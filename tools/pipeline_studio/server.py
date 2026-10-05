@@ -186,7 +186,7 @@ def get_tool_fingerprint() -> str:
 
 
 class WorkbenchService:
-    """/api/v1 背后的状态与文件系统边界。"""
+    """/api 背后的状态与文件系统边界。"""
 
     def __init__(self, config_root: Path = CONFIG_ROOT, initial: Path | None = None):
         self.config_root = config_root.resolve()
@@ -1074,34 +1074,34 @@ def make_handler(service: WorkbenchService):
             body: dict[str, Any] = {}
             if method in ("POST", "PUT", "DELETE"):
                 body = self._body()
-            if method == "GET" and path == "/api/v1/catalog":
+            if method == "GET" and path == "/api/catalog":
                 payload = service.catalog(query.get("io_binding", [""])[0])
-            elif method == "GET" and path == "/api/v1/assets":
+            elif method == "GET" and path == "/api/assets":
                 payload = service.assets()
-            elif method == "POST" and path == "/api/v1/selection":
+            elif method == "POST" and path == "/api/selection":
                 payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""), body.get("model_root", "models"))
-            elif method == "GET" and path == "/api/v1/profiles":
+            elif method == "GET" and path == "/api/profiles":
                 payload = service.profiles()
-            elif method == "GET" and path == "/api/v1/pipelines":
+            elif method == "GET" and path == "/api/pipelines":
                 payload = service.pipelines()
-            elif method == "GET" and path == "/api/v1/pipeline":
+            elif method == "GET" and path == "/api/pipeline":
                 payload = service.open_pipeline(query.get("filename", [""])[0])
-            elif method == "GET" and path == "/api/v1/initial":
+            elif method == "GET" and path == "/api/initial":
                 payload = service.initial_pipeline()
-            elif method == "GET" and path.startswith("/api/v1/runs/"):
+            elif method == "GET" and path.startswith("/api/runs/"):
                 payload = service.run_status(path.rsplit("/", 1)[-1])
-            elif method == "POST" and path == "/api/v1/validate":
+            elif method == "POST" and path == "/api/validate":
                 payload = service.validate(
                     body.get("pipeline"), body.get("explain", False)
                 )
-            elif method == "POST" and path == "/api/v1/fixes/preview":
+            elif method == "POST" and path == "/api/fixes/preview":
                 payload = service.preview_fix(
                     body.get("pipeline"),
                     body.get("patch", []),
                     body.get("revision") or body.get("expected_revision"),
                     body.get("tool_fingerprint"),
                 )
-            elif method == "POST" and path == "/api/v1/authoring/preview":
+            elif method == "POST" and path == "/api/authoring/preview":
                 allowed = {"pipeline", "operation", "operations", "require_valid",
                            "revision", "expected_revision", "tool_fingerprint"}
                 unknown = set(body) - allowed
@@ -1118,7 +1118,7 @@ def make_handler(service: WorkbenchService):
                     expected_revision=body.get("revision") or body.get("expected_revision"),
                     tool_fingerprint=body.get("tool_fingerprint"),
                 )
-            elif method == "POST" and path == "/api/v1/preflight":
+            elif method == "POST" and path == "/api/preflight":
                 payload = service.preflight(
                     body.get("pipeline"),
                     profile_name=body.get("profile", ""),
@@ -1126,27 +1126,27 @@ def make_handler(service: WorkbenchService):
                     model_root=body.get("model_root", "models"),
                     filename=body.get("filename", ""),
                 )
-            elif method == "POST" and path == "/api/v1/deployment/associate":
+            elif method == "POST" and path == "/api/deployment/associate":
                 payload = service.associate_deployment(
                     body.get("pipeline_name", "") or body.get("filename", ""),
                     body.get("conf_name", "") or body.get("conf_path", ""),
                     model_root=body.get("model_root", "models"),
                     profile_name=body.get("profile", ""),
                 )
-            elif method == "POST" and path == "/api/v1/init":
+            elif method == "POST" and path == "/api/init":
 
                 payload = service.init_pipeline(
                     body.get("io_binding", ""), body.get("profile", ""), body.get("empty", False)
                 )
-            elif method == "POST" and path == "/api/v1/pipelines":
+            elif method == "POST" and path == "/api/pipelines":
                 payload = service.save_pipeline(
                     body.get("filename", ""), body.get("pipeline"), None, save_as=True
                 )
-            elif method == "POST" and path == "/api/v1/solutions":
+            elif method == "POST" and path == "/api/solutions":
                 payload = service.save_solution(
                     body.get("filename", ""), body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models")
                 )
-            elif method == "PUT" and path == "/api/v1/pipeline":
+            elif method == "PUT" and path == "/api/pipeline":
                 payload = service.save_pipeline(
                     body.get("filename", ""),
                     body.get("pipeline"),
@@ -1155,12 +1155,12 @@ def make_handler(service: WorkbenchService):
                     profile_name=body.get("profile", ""),
                     model_root=body.get("model_root", "models"),
                 )
-            elif method == "POST" and path == "/api/v1/runs":
+            elif method == "POST" and path == "/api/runs":
                 payload = service.start_run(
                     body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models"),
                     filename=body.get("filename", ""), conf_name=body.get("conf_name", ""),
                 )
-            elif method == "DELETE" and path.startswith("/api/v1/runs/"):
+            elif method == "DELETE" and path.startswith("/api/runs/"):
                 payload = service.cancel_run(path.rsplit("/", 1)[-1])
             else:
                 raise StudioError("NOT_FOUND", path, 404)

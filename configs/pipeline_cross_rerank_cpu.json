@@ -6,7 +6,7 @@
   },
   "models": [
     {
-      "model_id": "rerank_model_v1",
+      "model_id": "rerank_model",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
       "model_path": "./models/ms_marco_tinybert_l2_v2_quantized.onnx",
@@ -31,7 +31,7 @@
       "id": "node_0_TextRerankNode",
       "node_type": "TextRerankNode",
       "config": {
-        "bind_model": "rerank_model_v1",
+        "bind_model": "rerank_model",
         "top_k": 8
       },
       "inputs": {
