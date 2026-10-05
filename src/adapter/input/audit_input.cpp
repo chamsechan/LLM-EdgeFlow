@@ -18,7 +18,6 @@ constexpr const char* kInputSlot = "audit_in";
 
 int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
-                             const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -75,10 +74,10 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kUserTexts), std::move(user_texts),
+          *context, kUserTexts, std::move(user_texts),
           options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kChannelNames), std::move(channel_names),
+          *context, kChannelNames, std::move(channel_names),
           options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }

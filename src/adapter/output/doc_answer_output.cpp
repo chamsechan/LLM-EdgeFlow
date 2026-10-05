@@ -17,7 +17,6 @@ namespace {
 constexpr const char* kOutputSlot = "doc_out";
 
 int EncodeOperatorDocAnswer(AlgContext* context,
-                            const OutputPortBindings& bindings,
                             const OutputEncodeOptions& options,
                             ExternalOutputBatchView* destination,
                             size_t* written_count, AdapterStatus* status) {
@@ -27,19 +26,19 @@ int EncodeOperatorDocAnswer(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* answers = ReadOutputValue(*context, bindings, kLlmAnswers,
-                                        options, status, "answers");
+  const auto* answers =
+      ReadOutputValue(*context, kLlmAnswers, options, status, "answers");
   if (!answers) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_matches =
-      ReadOutputValue(*context, bindings, kIntentMatches, options, status);
+      ReadOutputValue(*context, kIntentMatches, options, status);
   if (!intent_matches) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* chunk_counts =
-      ReadOutputValue(*context, bindings, kDocChunkCounts, options, status);
+      ReadOutputValue(*context, kDocChunkCounts, options, status);
   if (!chunk_counts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = answers->size();

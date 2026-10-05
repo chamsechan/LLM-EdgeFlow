@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+转换器回调去掉 `InputPortBindings` / `OutputPortBindings` 参数：`DecodeInputFn` / `EncodeOutputFn`、
+`DecodeRequestRows`、`EncodeResultRows` 与 `ReadOutputValue` 直接使用端口常量读写 `AlgContext`。
+写入未声明端口不再被静默发布到空键名。
+
 删除 IoBinding 的端口改名映射（`input_ports` / `output_ports`、`BindIoPort`、`EffectivePortMapping`）：
 转换器逻辑端口名即业务 Blackboard Key，注册审计直接按端口名核对业务出入口与类型；Catalog 与
 `validate-io` 不再输出 `*_port_mapping`。业务接入指南补充端口命名约定。Pipeline JSON 不变。
@@ -31,8 +35,7 @@ Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）�
 - Model 继承 `ModelIdentity<Model, 能力接口>`、Backend Provider 继承 `BackendIdentity<Backend>`，
   身份只声明一次，Definition 从 `MakeModelDefinition` / `MakeBackendDefinition` 开始；
   配置读取使用 `ConfigValueOrDefault`，默认值只写在 `config_fields`。
-- `InputPortBindings` / `OutputPortBindings` 共用 `PortBindings<方向>`；`ResolvedInputLimits`
-  更名为 `InputLimits` 且不再出现在部署配置中。
+- `ResolvedInputLimits` 更名为 `InputLimits` 且不再出现在部署配置中。
 - 删除 `include/adapter/biz_results.h`、`ModelManager::RegisterModel`（改用 `RegisterBatch`）和
   `RuntimeOptions` 中只写不读的 `biz_type`、`depth_num`、`biz_name`；`NodeBase` 的类写法端口辅助
   函数移到 `dev_support` 的 `LegacyNodeBase`。
@@ -112,7 +115,6 @@ Pipeline 配置格式保持不变。
 声明一次：转换器的 `max_batch_size` 默认改为 0（不设限），有效上限取绑定与两个转换器中正值的
 最小值，三者显式为 0 时注册审计和部署准备报错。Binding 现默认使用框架标准批次上限 64，
 只有实测确需更小值时才覆盖 `max_batch_size`。
-绑定的 `input_ports` / `output_ports` 可以省略同名映射，需要完整映射的代码改用 `EffectivePortMapping`。
 `ValidateDecodeRequest`、`DecodeRequestRows` 删除批次上限参数，改读 Operator 填入的
 `InputDecodeOptions::max_batch_size`。Catalog 中生产转换器的 `max_batch_size` 由 64 变为 0；各业务的
 有效批次上限、Pipeline 配置格式与公共 Operator ABI 不变。

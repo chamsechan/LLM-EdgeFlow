@@ -18,7 +18,6 @@ constexpr const char* kInputSlot = "doc_in";
 
 int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
-                                const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -74,10 +73,10 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawDocs), std::move(raw_docs),
-          options.converter_id.c_str(), status) ||
+          *context, kRawDocs, std::move(raw_docs), options.converter_id.c_str(),
+          status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRawQueries), std::move(raw_queries),
+          *context, kRawQueries, std::move(raw_queries),
           options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }

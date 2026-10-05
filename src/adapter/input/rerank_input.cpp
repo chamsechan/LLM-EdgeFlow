@@ -23,7 +23,6 @@ constexpr size_t kMaxCandidatePassageBytes = biz_input::kMaxTextBytes;
 
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
-                              const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -94,13 +93,13 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRerankQueries), std::move(queries),
+          *context, kRerankQueries, std::move(queries),
           options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRerankCandidates), std::move(candidates),
+          *context, kRerankCandidates, std::move(candidates),
           options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kRerankPairs), std::move(pairs),
+          *context, kRerankPairs, std::move(pairs),
           options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }

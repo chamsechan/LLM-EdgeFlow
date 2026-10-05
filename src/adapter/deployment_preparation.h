@@ -22,14 +22,12 @@ struct DeploymentPrepareOptions {
   std::string model_root_dir;
 };
 
-// 从部署文档解析出的 Converter 选择、端口映射和输出池预算。
+// 从部署文档解析出的 Converter 选择和输出池预算。
 // 由准备阶段生成，经校验的 Operator 计划保持不变。
 struct IoBindingSelection {
   IoBindingDefinition binding;
   const InputConverterDefinition* input_converter = nullptr;
   const OutputConverterDefinition* output_converter = nullptr;
-  InputPortBindings input_port_bindings;
-  OutputPortBindings output_port_bindings;
   size_t effective_max_batch_size = 0;
 
   std::unordered_map<std::string, ResolvedOutputPoolSpec> output_specs;

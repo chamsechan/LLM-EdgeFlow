@@ -20,7 +20,6 @@ namespace {
 constexpr const char* kOutputSlot = "rerank_out";
 
 int EncodeOperatorRerankResult(AlgContext* context,
-                               const OutputPortBindings& bindings,
                                const OutputEncodeOptions& options,
                                ExternalOutputBatchView* destination,
                                size_t* written_count, AdapterStatus* status) {
@@ -30,8 +29,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* res =
-      ReadOutputValue(*context, bindings, kRankedResults, options, status);
+  const auto* res = ReadOutputValue(*context, kRankedResults, options, status);
   if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);

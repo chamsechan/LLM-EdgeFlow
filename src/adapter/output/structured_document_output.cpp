@@ -28,14 +28,13 @@ AdapterStatus EncodeDocument(const JsonDocumentItem& result,
 }
 
 int EncodeOperatorStructuredDocument(AlgContext* context,
-                                     const OutputPortBindings& bindings,
                                      const OutputEncodeOptions& options,
                                      ExternalOutputBatchView* destination,
                                      size_t* written_count,
                                      AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
-      context, bindings, options, destination, written_count, status,
-      kOutputSlot, kExtractedEntities, &EncodeDocument);
+      context, options, destination, written_count, status, kOutputSlot,
+      kExtractedEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {

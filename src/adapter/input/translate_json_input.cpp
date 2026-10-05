@@ -49,10 +49,9 @@ AdapterStatus DecodeTranslateQuery(const CompanyOperatorEntityInput& input,
 
 int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
-                                const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kInputSlot, kInputSentences,
+      source, options, context, status, kInputSlot, kInputSentences,
       &DecodeTranslateQuery);
 }
 

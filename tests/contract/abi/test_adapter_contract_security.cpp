@@ -311,7 +311,6 @@ TEST_F(AdapterContractSecurityTest,
   AlgContext large;
   std::vector<uint64_t> request_ids{123};
   large.Publish(kLlmAnswers, TextBatch{{0, 0, translation}});
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
   options.request_ids = &request_ids;
@@ -330,9 +329,9 @@ TEST_F(AdapterContractSecurityTest,
   fixed_view.SetCapacity("entity_out", "entities_json", 2047);
   size_t written = 0;
 
-  EXPECT_EQ(converter->encode_fn(&large, bindings, options, &fixed_view,
-                                 &written, &status),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(
+      converter->encode_fn(&large, options, &fixed_view, &written, &status),
+      COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
   // 重排后的内部结果必须映射回外部请求 ID。
   AlgContext reordered;
@@ -352,8 +351,8 @@ TEST_F(AdapterContractSecurityTest,
   reordered_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
   reordered_view.SetCapacity("entity_out", "entities_json", 511);
 
-  ASSERT_EQ(converter->encode_fn(&reordered, bindings, options, &reordered_view,
-                                 &written, &status),
+  ASSERT_EQ(converter->encode_fn(&reordered, options, &reordered_view, &written,
+                                 &status),
             0);
   EXPECT_EQ(written, 2U);
   EXPECT_EQ(first.request_id, 999U);
@@ -364,8 +363,8 @@ TEST_F(AdapterContractSecurityTest,
             nlohmann::json({{"translated", "第二句"}}));
 
   reordered_view.count = 1;
-  EXPECT_EQ(converter->encode_fn(&reordered, bindings, options, &reordered_view,
-                                 &written, &status),
+  EXPECT_EQ(converter->encode_fn(&reordered, options, &reordered_view, &written,
+                                 &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
   for (const TextBatch& invalid :
@@ -377,9 +376,9 @@ TEST_F(AdapterContractSecurityTest,
     AlgContext ctx;
     ctx.Publish(kLlmAnswers, invalid);
     reordered_view.count = 2;
-    EXPECT_EQ(converter->encode_fn(&ctx, bindings, options, &reordered_view,
-                                   &written, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(
+        converter->encode_fn(&ctx, options, &reordered_view, &written, &status),
+        COMPANY_ALG_ERR_INVALID_INPUT);
   }
   for (bool publish_ids : {false, true}) {
     AlgContext missing;
@@ -390,8 +389,8 @@ TEST_F(AdapterContractSecurityTest,
       missing.Publish(kLlmAnswers, TextBatch{{0, 0, "你好"}});
     }
     reordered_view.count = 1;
-    EXPECT_EQ(converter->encode_fn(&missing, bindings, options, &reordered_view,
-                                   &written, &status),
+    EXPECT_EQ(converter->encode_fn(&missing, options, &reordered_view, &written,
+                                   &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 }
@@ -698,7 +697,6 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   in_view.count = 1;
   in_view.slots["keyword_in"] = llm_edgeflow::BorrowInputForTest({&in_struct});
   in_view.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
-  InputPortBindings in_bindings({{"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "keyword.plain.operator.v1";
   std::vector<uint64_t> request_ids;
@@ -706,8 +704,7 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int unpack_ret =
-      input_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
+  int unpack_ret = input_conv->decode_fn(in_view, in_options, &ctx, &status);
   ASSERT_EQ(unpack_ret, COMPANY_ALG_SUCCESS);
 
   // 立即篡改调用方内存 Buffer (例如 memset 覆盖为 'X')
@@ -895,13 +892,12 @@ TEST_F(AdapterContractSecurityTest,
       llm_edgeflow::BorrowInputForTest({&in_carrier});
   carrier_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  InputPortBindings bindings({{"input_sentences", "input_sentences"}});
   InputDecodeOptions options;
   options.converter_id = "translate.json.operator.v1";
 
   AlgContext carrier_ctx;
   AdapterStatus carrier_status;
-  int ret = converter->decode_fn(carrier_view, options, bindings, &carrier_ctx,
+  int ret = converter->decode_fn(carrier_view, options, &carrier_ctx,
                                  &carrier_status);
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(carrier_status.SampleIndex(), 0);
@@ -919,9 +915,8 @@ TEST_F(AdapterContractSecurityTest,
 
   AlgContext biz_ctx;
   AdapterStatus biz_status;
-  EXPECT_EQ(
-      converter->decode_fn(biz_view, options, bindings, &biz_ctx, &biz_status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(converter->decode_fn(biz_view, options, &biz_ctx, &biz_status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(biz_status.AdapterName(), "translate.json.operator.v1");
   EXPECT_EQ(biz_status.FieldPath(), "json");
 }
@@ -943,15 +938,13 @@ TEST_F(AdapterContractSecurityTest,
   view.leased_slots["entity_out"] = {&out};
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
   options.request_ids = &request_ids;
 
   size_t written = 0;
   AdapterStatus status;
-  int ret =
-      converter->encode_fn(&ctx, bindings, options, &view, &written, &status);
+  int ret = converter->encode_fn(&ctx, options, &view, &written, &status);
 
   // 缺少内部数据属于非法输入，与输出容量无关。
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
@@ -977,7 +970,6 @@ TEST_F(AdapterContractSecurityTest,
   view.leased_slots["entity_out"] = {&out};
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
   options.request_ids = &request_ids;
@@ -987,9 +979,8 @@ TEST_F(AdapterContractSecurityTest,
 
   // Encode 中先序列化再校验容量；
   // 未处理的 dump 异常会从 encode_fn 抛出
-  EXPECT_THROW(
-      converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
-      std::exception);
+  EXPECT_THROW(converter->encode_fn(&ctx, options, &view, &written, &status),
+               std::exception);
 }
 
 // 翻译在 AlgContext 为空时的诊断
@@ -1011,21 +1002,19 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   in_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&input});
   in_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  InputPortBindings in_bindings({{"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "translate.json.operator.v1";
 
   AdapterStatus unpack_status;
-  int unpack_ret = in_conv->decode_fn(in_view, in_options, in_bindings, nullptr,
-                                      &unpack_status);
+  int unpack_ret =
+      in_conv->decode_fn(in_view, in_options, nullptr, &unpack_status);
   EXPECT_EQ(unpack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.FieldPath(), "context");
   EXPECT_EQ(unpack_status.AdapterName(), "translate.json.operator.v1");
 
-  EXPECT_EQ(
-      in_conv->decode_fn(in_view, in_options, in_bindings, nullptr, nullptr),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(in_conv->decode_fn(in_view, in_options, nullptr, nullptr),
+            COMPANY_ALG_ERR_INVALID_INPUT);
 
   // 2. context 为空时 Encode 必须返回 INVALID_INPUT (-3)，字段为 "context"
   CompanyOperatorEntityOutput output{};
@@ -1034,22 +1023,21 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   out_view.leased_slots["entity_out"] = {&output};
   out_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
-  OutputPortBindings out_bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = "translate.json.operator.v1";
 
   size_t written = 0;
   AdapterStatus pack_status;
-  int pack_ret = out_conv->encode_fn(nullptr, out_bindings, out_options,
-                                     &out_view, &written, &pack_status);
+  int pack_ret = out_conv->encode_fn(nullptr, out_options, &out_view, &written,
+                                     &pack_status);
   EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.FieldPath(), "context");
   EXPECT_EQ(pack_status.AdapterName(), "translate.json.operator.v1");
 
-  EXPECT_EQ(out_conv->encode_fn(nullptr, out_bindings, out_options, &out_view,
-                                &written, nullptr),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(
+      out_conv->encode_fn(nullptr, out_options, &out_view, &written, nullptr),
+      COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 TEST_F(AdapterContractSecurityTest,
@@ -1071,10 +1059,7 @@ TEST_F(AdapterContractSecurityTest,
   in_options.converter_id = input->converter_id;
   AlgContext context;
   AdapterStatus status;
-  EXPECT_EQ(input->decode_fn(
-                source, in_options,
-                InputPortBindings({{"input_sentences", "input_sentences"}}),
-                &context, &status),
+  EXPECT_EQ(input->decode_fn(source, in_options, &context, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");
   EXPECT_EQ(status.AdapterName(), input->converter_id);
@@ -1092,9 +1077,7 @@ TEST_F(AdapterContractSecurityTest,
   destination.slot_types["keyword_out"] = "CompanyOperatorKeywordOutput";
   size_t written = 99;
   EXPECT_EQ(
-      output->encode_fn(&context,
-                        OutputPortBindings({{"rule_matches", "rule_matches"}}),
-                        out_options, &destination, &written, &status),
+      output->encode_fn(&context, out_options, &destination, &written, &status),
       COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");
   EXPECT_EQ(status.AdapterName(), output->converter_id);
@@ -1196,8 +1179,7 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
       options.converter_id = id;
       std::vector<uint64_t> request_ids;
       options.request_ids = &request_ids;
-      const int result = converter->decode_fn(
-          view, options, InputPortBindings(mapping), &context, &status);
+      const int result = converter->decode_fn(view, options, &context, &status);
       EXPECT_EQ(result, extra == 0 ? 0 : COMPANY_ALG_ERR_INVALID_INPUT);
       EXPECT_EQ(status.ToString(),
                 extra == 0 ? "OK"

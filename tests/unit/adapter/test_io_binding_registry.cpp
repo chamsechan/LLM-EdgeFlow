@@ -30,14 +30,14 @@ int dummy_decode_calls = 0;
 int dummy_encode_calls = 0;
 
 int DummyDecode(const ExternalInputBatchView&, const InputDecodeOptions&,
-                const InputPortBindings&, AlgContext*, AdapterStatus*) {
+                AlgContext*, AdapterStatus*) {
   ++dummy_decode_calls;
   return 0;
 }
 
-int DummyEncode(AlgContext*, const OutputPortBindings&,
-                const OutputEncodeOptions&, ExternalOutputBatchView*,
-                size_t* written_count, AdapterStatus*) {
+int DummyEncode(AlgContext*, const OutputEncodeOptions&,
+                ExternalOutputBatchView*, size_t* written_count,
+                AdapterStatus*) {
   ++dummy_encode_calls;
   if (written_count) *written_count = 1;
   return 0;
@@ -1488,8 +1488,6 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   EXPECT_TRUE(prepared.binding.binding_id.empty());
   EXPECT_EQ(prepared.input_converter, nullptr);
   EXPECT_EQ(prepared.output_converter, nullptr);
-  EXPECT_TRUE(prepared.input_port_bindings.All().empty());
-  EXPECT_TRUE(prepared.output_port_bindings.All().empty());
   EXPECT_EQ(prepared.effective_max_batch_size, 0u);
   EXPECT_TRUE(prepared.output_specs.empty());
   EXPECT_TRUE(prepared.output_parameter_texts.empty());
@@ -1519,8 +1517,6 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   EXPECT_TRUE(prepared.binding.binding_id.empty());
   EXPECT_EQ(prepared.input_converter, nullptr);
   EXPECT_EQ(prepared.output_converter, nullptr);
-  EXPECT_TRUE(prepared.input_port_bindings.All().empty());
-  EXPECT_TRUE(prepared.output_port_bindings.All().empty());
   EXPECT_EQ(prepared.effective_max_batch_size, 0u);
   EXPECT_TRUE(prepared.output_specs.empty());
   EXPECT_TRUE(prepared.output_parameter_texts.empty());
