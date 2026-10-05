@@ -45,7 +45,6 @@ NodeDefinition StudioCatalogProbeDefinition() {
   definition.node_type = StudioCatalogProbeNode::kNodeType;
   definition.category = "test";
   definition.description = "Catalog auto-discovery probe";
-  definition.biz_names = {"keyword_match"};
   return definition;
 }
 

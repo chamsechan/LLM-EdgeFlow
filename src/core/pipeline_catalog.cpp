@@ -238,8 +238,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
           {"port_constraints", std::move(constraints)},
           {"control_commands", std::move(commands)},
           {"config_fields", std::move(fields)},
-          {"model_dependencies", std::move(model_deps)},
-          {"biz_names", definition.biz_names}};
+          {"model_dependencies", std::move(model_deps)}};
 }
 
 nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
@@ -281,11 +280,6 @@ nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
                                        const std::string& biz_filter) {
   nlohmann::json nodes = nlohmann::json::array();
   for (const auto& item : snapshot.nodes) {
-    if (!biz_filter.empty() && !item.biz_names.empty() &&
-        std::find(item.biz_names.begin(), item.biz_names.end(), biz_filter) ==
-            item.biz_names.end()) {
-      continue;
-    }
     nodes.push_back(NodeToJson(item));
   }
 

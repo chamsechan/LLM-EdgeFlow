@@ -10,22 +10,21 @@
 
 namespace llm_edgeflow {
 namespace {
-struct RerankInputs {
+struct Inputs {
   const TextBatch* queries = nullptr;
   const RankedTextBatch* candidates = nullptr;
   const TextBatch* candidate_texts = nullptr;
   const QueryCandidatesBatch* pairs = nullptr;
 };
-struct RerankParams {
+struct Params {
   int top_k{};
 };
-struct RerankModels {
+struct Models {
   RerankCall reranker;
 };
 
-NodeResult<RankedTextBatch> RerankText(const RerankInputs& inputs,
-                                       const RerankParams& params,
-                                       const RerankModels& models) {
+NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
+                                const Models& models) {
   const auto* queries = inputs.queries;
   const auto* candidates = inputs.candidates;
   const auto* candidate_texts = inputs.candidate_texts;
@@ -133,30 +132,29 @@ NodeResult<RankedTextBatch> RerankText(const RerankInputs& inputs,
   return NodeResult<RankedTextBatch>::Success(std::move(refined_batch));
 }
 
-auto TextRerankSpec() {
-  return MakeBatchSpec(
-             InputsOf<RerankInputs>(
-                 {OptionalValue("queries", &RerankInputs::queries),
-                  OptionalValue("candidates", &RerankInputs::candidates,
+auto Spec() {
+  return MakeNodeSpec(
+             InputsOf<Inputs>(
+                 {OptionalValue("queries", &Inputs::queries),
+                  OptionalValue("candidates", &Inputs::candidates,
                                 PortFlow{"N:1", "preserve", "request"}),
-                  OptionalValue("candidate_texts",
-                                &RerankInputs::candidate_texts,
+                  OptionalValue("candidate_texts", &Inputs::candidate_texts,
                                 PortFlow{"N:1", "preserve", "request"}),
-                  OptionalValue("pairs", &RerankInputs::pairs)}),
+                  OptionalValue("pairs", &Inputs::pairs)}),
              ProducedBatch<RankedTextBatch>(
                  "ranked", PortFlow{"1:N", "generate_sub_id", "request"}),
-             Parameters<RerankParams>(
-                 {Field("top_k", &RerankParams::top_k)
+             Parameters<Params>(
+                 {Field("top_k", &Params::top_k)
                       .Default(1)
                       .Range(1, 1000)
                       .Description(
                           "按 req_id "
                           "分组，用重排模型分数降序保留的候选条数上限。")}),
-             ModelsOf<RerankModels>(
-                 {Model("reranker", "bind_model", &RerankModels::reranker,
+             ModelsOf<Models>(
+                 {Model("reranker", "bind_model", &Models::reranker,
                         "引用 models[].model_id；所选模型必须提供 rerank "
                         "查询与候选评分能力。")}),
-             &RerankText)
+             &Run)
       .PortConstraints({PortGroupConstraint::Groups(
           PortConstraintKind::kExactOneGroupOf,
           {{"pairs"},
@@ -169,5 +167,5 @@ auto TextRerankSpec() {
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextRerankNode, TextRerankSpec());
+REGISTER_FUNCTION_NODE(TextRerankNode, Spec());
 }  // namespace llm_edgeflow

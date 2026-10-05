@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+所有 Node 只保留一种写法：`MakeBatchSpec` 改名为 `MakeNodeSpec`，删除 `MakeMapSpec` 与
+`MakeLlmTextSpec`；每个 Node 统一由 `Inputs`、可选的 `Params` 与 `Models`、`Run`、`Spec` 组成，
+12 个生产 Node 按此命名。`Run` 只接收 Spec 实际声明的部分（不再写 `const NoParameters&` 或
+`const NoModels&`），删除成员函数形式的 `Run`；模型槽统一用 `Model(...)` 声明，删除 `Llm(...)` 与
+`Embedding(...)` 别名。逐项处理改用 `MapPayloads`，失败诊断会标出失败条目的 `req_id` / `sub_id`。
+LLM 入门模板与脚手架生成的 LLM 节点改为从节点配置读取 `max_tokens`、`temperature` 等生成参数
+（新增 `GenerateParameters`，默认值与原来一致）。删除 Node 的 `biz_names` 限制、Catalog 中的该字段
+和诊断 `NODE_BIZ_MISMATCH`。三个 Node skill 合并为 `edgeflow-node-developer`。
+
 门禁与测试不再甄别历史名称：文档漂移检查只保留核心概念、架构图和版本一致性检查，删除旧业务名、
 旧注册宏、已移除接口与路径的黑名单；LayerGuard 和治理检查删除针对已不存在头文件、接口和旧术语的
 规则；固定已删除字段、命令或参数名的测试改为通用的未知字段检查或删除。元测试删除对 `ci.yml`

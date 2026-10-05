@@ -8,14 +8,14 @@
 
 namespace llm_edgeflow {
 namespace {
-struct ChunkInputs {
+struct Inputs {
   const TextBatch* text = nullptr;
 };
-struct ChunkParams {
+struct Params {
   int64_t chunk_size{};
   int64_t overlap{};
 };
-struct ChunkOutputs {
+struct Outputs {
   TextBatch chunks;
   Int32Batch counts;
 };
@@ -49,47 +49,46 @@ NodeResult<std::vector<std::string>> SplitText(const std::string& str,
   return NodeResult<std::vector<std::string>>::Success(std::move(chunks));
 }
 
-NodeResult<ChunkOutputs> ChunkText(const ChunkInputs& inputs,
-                                   const ChunkParams& params) {
+NodeResult<Outputs> Run(const Inputs& inputs, const Params& params) {
   auto result = SplitPayloads(*inputs.text, [&](const std::string& text) {
     return SplitText(text, static_cast<size_t>(params.chunk_size),
                      static_cast<size_t>(params.overlap));
   });
-  if (!result.ok()) return NodeResult<ChunkOutputs>::Failure(result.failure());
+  if (!result.ok()) return NodeResult<Outputs>::Failure(result.failure());
   auto split = std::move(result).value();
-  return NodeResult<ChunkOutputs>::Success(
+  return NodeResult<Outputs>::Success(
       {std::move(split.children), std::move(split.counts)});
 }
 
-auto TextChunkSpec() {
-  auto params = Parameters<ChunkParams>(
-      {Field("chunk_size", &ChunkParams::chunk_size)
+auto Spec() {
+  auto params = Parameters<Params>(
+      {Field("chunk_size", &Params::chunk_size)
            .Default(100)
            .Range(1, 1000000)
            .Description("每块最多包含的 Unicode 码点数；按 UTF-8 "
                         "字符边界切分，不是字节数或模型 token 数。"),
-       Field("overlap", &ChunkParams::overlap)
+       Field("overlap", &Params::overlap)
            .Default(0)
            .Range(0, 100000)
            .Description("相邻块重叠的 Unicode 码点数，必须小于 chunk_size；0 "
                         "表示无重叠。")});
-  params.Validate([](const ChunkParams& value, std::string* diagnostic) {
+  params.Validate([](const Params& value, std::string* diagnostic) {
     if (value.overlap < value.chunk_size) return true;
     if (diagnostic) *diagnostic = "overlap must be smaller than chunk_size";
     return false;
   });
-  return MakeBatchSpec(
-             InputsOf<ChunkInputs>({Required("text", &ChunkInputs::text)}),
-             OutputsOf<ChunkOutputs>(
-                 {Produced("chunks", &ChunkOutputs::chunks,
+  return MakeNodeSpec(
+             InputsOf<Inputs>({Required("text", &Inputs::text)}),
+             OutputsOf<Outputs>(
+                 {Produced("chunks", &Outputs::chunks,
                            PortFlow{"1:N", "generate_sub_id", "request"}),
-                  Produced("chunk_counts", &ChunkOutputs::counts, "text")}),
-             std::move(params), &ChunkText)
+                  Produced("chunk_counts", &Outputs::counts, "text")}),
+             std::move(params), &Run)
       .Category("common")
       .Description(
           "UTF-8 code-point-safe text chunking with overlap and provenance")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextChunkNode, TextChunkSpec());
+REGISTER_FUNCTION_NODE(TextChunkNode, Spec());
 }  // namespace llm_edgeflow

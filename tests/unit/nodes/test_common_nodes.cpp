@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/config_schema_validation.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -870,18 +871,21 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
   ASSERT_NE(node, nullptr);
   // 解析后的键与逻辑名不同：同时覆盖类型化绑定。
   ValidatedNodePlan plan;
-  plan.normalized_config = {{"bind_model", model}};
   plan.ports = {{"input", "source", BlackboardTypeTraits<Input>::TypeName(),
                  "1:1", "preserve", "request", PortDirection::kInput},
                 {"output", "result", BlackboardTypeTraits<Output>::TypeName(),
                  "1:1", "preserve", "request", PortDirection::kOutput}};
   const auto def = PipelineCatalog::FindNode(name);
-  if (def) {
-    for (const auto& dep : def->model_dependencies) {
-      plan.model_bindings.push_back(
-          {dep.name, dep.capability, dep.config_field, model});
-    }
+  ASSERT_TRUE(def.has_value());
+  nlohmann::json config = nlohmann::json::object();
+  for (const auto& dep : def->model_dependencies) {
+    config[dep.config_field] = model;
+    plan.model_bindings.push_back(
+        {dep.name, dep.capability, dep.config_field, model});
   }
+  // 与 Validator 相同：按 Definition 字段填入默认值。
+  ASSERT_TRUE(ValidateAndNormalizeFields(def->config_fields, config,
+                                         &plan.normalized_config, nullptr));
   ASSERT_TRUE(node->Init({&plan, session}));
   Input input;
   for (const auto& id :
@@ -1258,6 +1262,30 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
     ASSERT_NE(empty.Read<TextBatch>("output"), nullptr);
     EXPECT_TRUE(empty.Read<TextBatch>("output")->empty());
     EXPECT_EQ(model->calls, before);
+  }
+}
+
+TEST_F(CommonNodesTest, GeneratedLlmNodeReadsGenerationOptionsFromConfig) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                "prompt_contract", model, "v1"));
+  // 未配置时使用默认生成参数；配置后原样传给模型。
+  const std::vector<std::tuple<nlohmann::json, int, float>> cases = {
+      {nlohmann::json{{"bind_model", "prompt_contract"}}, 128, 0.7f},
+      {nlohmann::json{{"bind_model", "prompt_contract"},
+                      {"max_tokens", 2048},
+                      {"temperature", 0.0}},
+       2048, 0.0f}};
+  for (const auto& [config, max_tokens, temperature] : cases) {
+    SCOPED_TRACE(config.dump());
+    auto node = NodeRegistry::Instance().Create("ScaffoldModelLlmNode");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get()));
+    AlgContext ctx;
+    ctx.Publish("input", TextBatch{{17, 4, "a"}});
+    ASSERT_EQ(node->Process(&ctx), 0) << ctx.GetErrorMessage();
+    EXPECT_EQ(model->last_options.max_tokens, max_tokens);
+    EXPECT_FLOAT_EQ(model->last_options.temperature, temperature);
   }
 }
 

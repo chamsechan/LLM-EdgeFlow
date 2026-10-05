@@ -313,7 +313,6 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kConfigFieldRange, "CONFIG_FIELD_RANGE"},
       {DiagnosticCode::kConfigFieldEnum, "CONFIG_FIELD_ENUM"},
       {DiagnosticCode::kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE"},
-      {DiagnosticCode::kNodeBizMismatch, "NODE_BIZ_MISMATCH"},
       {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
       {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
       {DiagnosticCode::kMissingBizOutput, "MISSING_BIZ_OUTPUT"},
@@ -329,7 +328,7 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kInvalidBuildState, "INVALID_BUILD_STATE"},
   };
 
-  EXPECT_EQ(cases.size(), 42u);
+  EXPECT_EQ(cases.size(), 41u);
   std::unordered_set<std::string> names;
   for (const auto& item : cases) {
     std::string name = DiagnosticCodeName(item.code);
@@ -863,46 +862,6 @@ TEST_F(ValidatedPipelinePlanTest,
   pipeline_json["max_parallel_workers"] = 4;
   pipeline_json["pipeline"][1]["depends_on"] = {"node_a"};
   EXPECT_TRUE(PipelineValidator::Validate(pipeline_json).ok);
-}
-
-class RestrictedBusinessNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "RestrictedBusinessNode";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string n = kNodeType;
-    return n;
-  }
-};
-
-inline NodeDefinition MakeRestrictedNodeDef() {
-  NodeDefinition def;
-  def.node_type = RestrictedBusinessNode::kNodeType;
-  def.category = "biz";
-  def.biz_names = {"restricted_only_biz"};
-  def.description = "Restricted test node";
-  return def;
-}
-REGISTER_NODE_WITH_DEFINITION(RestrictedBusinessNode, MakeRestrictedNodeDef());
-
-TEST_F(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
-  nlohmann::json pipeline_json = {
-      {"biz_name", "doc_qa"},
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"id", "wrong_business_node"},
-                               {"node_type", "RestrictedBusinessNode"},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
-  EXPECT_FALSE(plan.report.ok);
-  EXPECT_NE(std::find_if(plan.report.diagnostics.begin(),
-                         plan.report.diagnostics.end(),
-                         [](const auto& item) {
-                           return item.code == DiagnosticCode::kNodeBizMismatch;
-                         }),
-            plan.report.diagnostics.end());
 }
 
 TEST_F(ValidatedPipelinePlanTest,

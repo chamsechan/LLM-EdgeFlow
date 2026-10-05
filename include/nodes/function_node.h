@@ -4,7 +4,6 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -34,48 +33,6 @@
 namespace llm_edgeflow {
 
 template <typename T>
-struct BatchItemTraits {
-  static constexpr bool kIsTraceableBatch = false;
-  using PayloadType = void;
-  using ItemType = void;
-  using BatchType = T;
-};
-
-template <typename PayloadT>
-struct BatchItemTraits<std::vector<TraceableItem<PayloadT>>> {
-  static constexpr bool kIsTraceableBatch = true;
-  using PayloadType = PayloadT;
-  using ItemType = TraceableItem<PayloadT>;
-  using BatchType = std::vector<TraceableItem<PayloadT>>;
-};
-
-template <>
-struct BatchItemTraits<ImageRefBatch>
-    : BatchItemTraits<std::vector<TraceableItem<std::string>>> {};
-
-template <typename BatchT>
-struct Input {
-  static_assert(BatchItemTraits<BatchT>::kIsTraceableBatch,
-                "Input batch type must be a vector of TraceableItem<T>");
-  using BatchType = BatchT;
-  using PayloadType = typename BatchItemTraits<BatchT>::PayloadType;
-
-  std::string name;
-  explicit Input(std::string port_name) : name(std::move(port_name)) {}
-};
-
-template <typename BatchT>
-struct Output {
-  static_assert(BatchItemTraits<BatchT>::kIsTraceableBatch,
-                "Output batch type must be a vector of TraceableItem<T>");
-  using BatchType = BatchT;
-  using PayloadType = typename BatchItemTraits<BatchT>::PayloadType;
-
-  std::string name;
-  explicit Output(std::string port_name) : name(std::move(port_name)) {}
-};
-
-template <typename T>
 struct IsNodeResult : std::false_type {
   using ValueType = T;
 };
@@ -87,280 +44,72 @@ struct IsNodeResult<NodeResult<T>> : std::true_type {
 
 namespace detail {
 
-template <typename Fn, typename InT, typename ParamsT>
-auto InvokeMapItem(const Fn& fn, const InT& item, const ParamsT& params) {
-  if constexpr (std::is_invocable_v<Fn, const InT&, const ParamsT&>) {
-    return fn(item, params);
-  } else if constexpr (std::is_invocable_v<Fn, const InT&>) {
-    return fn(item);
+template <typename ParamsT>
+inline constexpr bool kHasParameters = !std::is_same_v<ParamsT, NoParameters>;
+template <typename ModelsT>
+inline constexpr bool kHasModels = !std::is_same_v<ModelsT, NoModels>;
+
+// Run 的参数依次为 Inputs、Params、Models，只包含 Spec 实际声明的部分；
+// 需要会话缓存时再追加 SessionResources。
+template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT,
+          typename... Tail>
+inline constexpr bool kRunInvocable = [] {
+  if constexpr (kHasParameters<ParamsT> && kHasModels<ModelsT>) {
+    return std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
+                               const ModelsT&, Tail...>;
+  } else if constexpr (kHasParameters<ParamsT>) {
+    return std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
+                               Tail...>;
+  } else if constexpr (kHasModels<ModelsT>) {
+    return std::is_invocable_v<const Fn&, const InputsT&, const ModelsT&,
+                               Tail...>;
   } else {
-    static_assert(
-        std::is_invocable_v<Fn, const InT&, const ParamsT&> ||
-            std::is_invocable_v<Fn, const InT&>,
-        "Map function must accept either (const InPayload&, const Params&) "
-        "or (const InPayload&)");
+    return std::is_invocable_v<const Fn&, const InputsT&, Tail...>;
   }
-}
+}();
 
-template <typename T>
-struct MemberFunctionTraits;
-
-template <typename Class, typename Ret, typename... Args>
-struct MemberFunctionTraits<Ret (Class::*)(Args...) const> {
-  using ClassType = Class;
-  using ReturnType = Ret;
-};
-
-template <typename Class, typename Ret, typename... Args>
-struct MemberFunctionTraits<Ret (Class::*)(Args...)> {
-  using ClassType = Class;
-  using ReturnType = Ret;
-};
-
-template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT>
-auto InvokeBatch(const Fn& fn, const InputsT& inputs, const ParamsT& params,
-                 const ModelsT& models, const SessionResources& resources) {
-  if constexpr (std::is_member_function_pointer_v<Fn>) {
-    using ClassT = typename MemberFunctionTraits<Fn>::ClassType;
-    ClassT logic{};
-    if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
-                                      const ParamsT&, const ModelsT&,
-                                      const SessionResources&>) {
-      return (logic.*fn)(inputs, params, models, resources);
-    } else if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
-                                             const ParamsT&, const ModelsT&>) {
-      return (logic.*fn)(inputs, params, models);
-    } else if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
-                                             const ParamsT&>) {
-      return (logic.*fn)(inputs, params);
-    }
+template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT,
+          typename... Tail>
+auto CallRun(const Fn& fn, const InputsT& inputs, const ParamsT& params,
+             const ModelsT& models, const Tail&... tail) {
+  if constexpr (kHasParameters<ParamsT> && kHasModels<ModelsT>) {
+    return fn(inputs, params, models, tail...);
+  } else if constexpr (kHasParameters<ParamsT>) {
+    return fn(inputs, params, tail...);
+  } else if constexpr (kHasModels<ModelsT>) {
+    return fn(inputs, models, tail...);
   } else {
-    if constexpr (std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
-                                      const ModelsT&,
-                                      const SessionResources&>) {
-      return fn(inputs, params, models, resources);
-    } else if constexpr (std::is_invocable_v<const Fn&, const InputsT&,
-                                             const ParamsT&, const ModelsT&>) {
-      return fn(inputs, params, models);
-    } else if constexpr (std::is_invocable_v<const Fn&, const InputsT&,
-                                             const ParamsT&>) {
-      return fn(inputs, params);
-    }
+    return fn(inputs, tail...);
   }
 }
 
 template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT>
-struct BatchRunSignature {
-  static constexpr bool kCallable = [] {
-    if constexpr (std::is_member_function_pointer_v<Fn>) {
-      using ClassT = typename MemberFunctionTraits<Fn>::ClassType;
-      return std::is_invocable_v<Fn, ClassT, const InputsT&, const ParamsT&,
-                                 const ModelsT&, const SessionResources&> ||
-             std::is_invocable_v<Fn, ClassT, const InputsT&, const ParamsT&,
-                                 const ModelsT&> ||
-             std::is_invocable_v<Fn, ClassT, const InputsT&, const ParamsT&>;
-    } else {
-      return std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
-                                 const ModelsT&, const SessionResources&> ||
-             std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&,
-                                 const ModelsT&> ||
-             std::is_invocable_v<const Fn&, const InputsT&, const ParamsT&>;
-    }
-  }();
-  // 无签名匹配时 InvokeBatch 返回 void，且不会实例化非法调用。
-  // Result 以其分派顺序为准。
-  using Result = decltype(InvokeBatch(
+auto InvokeRun(const Fn& fn, const InputsT& inputs, const ParamsT& params,
+               const ModelsT& models, const SessionResources& resources) {
+  if constexpr (kRunInvocable<Fn, InputsT, ParamsT, ModelsT,
+                              const SessionResources&>) {
+    return CallRun(fn, inputs, params, models, resources);
+  } else if constexpr (kRunInvocable<Fn, InputsT, ParamsT, ModelsT>) {
+    return CallRun(fn, inputs, params, models);
+  }
+}
+
+template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT>
+struct RunSignature {
+  static constexpr bool kCallable =
+      kRunInvocable<Fn, InputsT, ParamsT, ModelsT, const SessionResources&> ||
+      kRunInvocable<Fn, InputsT, ParamsT, ModelsT>;
+  // 无签名匹配时 InvokeRun 返回 void，且不会实例化非法调用。
+  using Result = decltype(InvokeRun(
       std::declval<const Fn&>(), std::declval<const InputsT&>(),
       std::declval<const ParamsT&>(), std::declval<const ModelsT&>(),
       std::declval<const SessionResources&>()));
 };
 
-template <typename Fn, typename ParamsT>
-auto InvokeTextHook(const Fn& fn, const std::string& text,
-                    const ParamsT& params) {
-  if constexpr (std::is_invocable_v<const Fn&, const std::string&,
-                                    const ParamsT&>) {
-    return fn(text, params);
-  } else if constexpr (std::is_invocable_v<const Fn&, const std::string&>) {
-    return fn(text);
-  }
-}
-
-// 两个 LLM 钩子都接受可隐式转换为 string 的值和显式的 string_view 拷贝。
-// 算术结果绝不能被静默截断为字符。
-template <typename R>
-inline constexpr bool kIsHookText =
-    std::is_convertible_v<R, std::string> ||
-    std::is_same_v<std::decay_t<R>, std::string_view>;
-
-template <typename R>
-std::string ToHookText(R&& value) {
-  return std::string(std::forward<R>(value));
-}
-
-template <typename Fn, typename ParamsT>
-struct TextHookSignature {
-  static constexpr bool kCallable =
-      std::is_invocable_v<const Fn&, const std::string&, const ParamsT&> ||
-      std::is_invocable_v<const Fn&, const std::string&>;
-  using Result = decltype(InvokeTextHook(std::declval<const Fn&>(),
-                                         std::declval<const std::string&>(),
-                                         std::declval<const ParamsT&>()));
-  using Payload = typename IsNodeResult<std::decay_t<Result>>::ValueType;
-  static constexpr bool kReturnsText = kIsHookText<Payload>;
-};
-
 }  // namespace detail
 
 // ---------------------------------------------------------------------------
-// Map 入口
-// ---------------------------------------------------------------------------
-
-template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
-          typename MapFnT>
-class MapSpec {
- public:
-  using InputBatch = InputBatchT;
-  using OutputBatch = OutputBatchT;
-  using ParametersType = ParamsT;
-  using InPayload = typename BatchItemTraits<InputBatchT>::PayloadType;
-  using OutPayload = typename BatchItemTraits<OutputBatchT>::PayloadType;
-  using RawResult = decltype(detail::InvokeMapItem(
-      std::declval<MapFnT>(), std::declval<const InPayload&>(),
-      std::declval<const ParamsT&>()));
-  using UnwrappedResult = typename IsNodeResult<RawResult>::ValueType;
-  static constexpr bool kReturnsNodeResult = IsNodeResult<RawResult>::value;
-
-  static_assert(std::is_same_v<UnwrappedResult, OutPayload>,
-                "Map function return payload type must match OutputBatch "
-                "element payload type");
-
-  MapSpec(Input<InputBatchT> in, Output<OutputBatchT> out,
-          Parameters<ParamsT> params, MapFnT fn)
-      : in_(std::move(in)),
-        out_(std::move(out)),
-        params_(std::move(params)),
-        fn_(std::move(fn)) {}
-
-  MapSpec& Description(std::string desc) & {
-    description_ = std::move(desc);
-    return *this;
-  }
-  MapSpec Description(std::string desc) && {
-    description_ = std::move(desc);
-    return std::move(*this);
-  }
-
-  MapSpec& Category(std::string cat) & {
-    category_ = std::move(cat);
-    return *this;
-  }
-  MapSpec Category(std::string cat) && {
-    category_ = std::move(cat);
-    return std::move(*this);
-  }
-
-  MapSpec& ParallelSafe(bool safe) & {
-    parallel_safe_ = safe;
-    return *this;
-  }
-  MapSpec ParallelSafe(bool safe) && {
-    parallel_safe_ = safe;
-    return std::move(*this);
-  }
-
-  MapSpec& BizNames(std::vector<std::string> biz_names) {
-    biz_names_ = std::move(biz_names);
-    return *this;
-  }
-
-  MapSpec WithControls(std::vector<FieldControlCommand> commands) && {
-    static_assert(std::is_copy_constructible_v<ParamsT>,
-                  "WithControls requires copy-constructible ParametersType");
-    ValidateControlCommands(commands, params_);
-    control_commands_ = std::move(commands);
-    return std::move(*this);
-  }
-
-  MapSpec WithControls(std::initializer_list<FieldControlCommand> commands) && {
-    return std::move(*this).WithControls(
-        std::vector<FieldControlCommand>(commands));
-  }
-
-  bool HasControls() const noexcept { return !control_commands_.empty(); }
-
-  const std::vector<FieldControlCommand>& ControlCommands() const noexcept {
-    return control_commands_;
-  }
-
-  const std::string& InputName() const noexcept { return in_.name; }
-  const std::string& OutputName() const noexcept { return out_.name; }
-  const Parameters<ParamsT>& ParametersSpec() const noexcept { return params_; }
-  const MapFnT& Function() const& noexcept { return fn_; }
-  MapFnT&& Function() && noexcept { return std::move(fn_); }
-
-  NodeDefinition BuildDefinition(std::string node_type) const {
-    NodeDefinition def;
-    def.node_type = std::move(node_type);
-    def.category = category_;
-    def.description = description_;
-    def.parallel_safe = parallel_safe_;
-    def.biz_names = biz_names_;
-    def.inputs = {NodePortDefinition{
-        in_.name, BlackboardTypeTraits<InputBatchT>::TypeName(), true, "1:1",
-        "preserve", "request"}};
-    def.outputs = {NodePortDefinition{
-        out_.name, BlackboardTypeTraits<OutputBatchT>::TypeName(), true, "1:1",
-        "preserve", "request"}};
-    def.config_fields = params_.Fields();
-    def.validate_config = [params = params_](
-                              const nlohmann::json& cfg,
-                              const std::unordered_set<std::string>& conn,
-                              std::string* err) {
-      return params.ValidateWithBindings(cfg, conn, err);
-    };
-    for (const auto& cmd : control_commands_) {
-      def.control_commands.push_back(cmd.ToCommandDefinition(params_));
-    }
-    return def;
-  }
-
- private:
-  Input<InputBatchT> in_;
-  Output<OutputBatchT> out_;
-  Parameters<ParamsT> params_;
-  MapFnT fn_;
-  std::vector<FieldControlCommand> control_commands_;
-  std::string category_ = "custom";
-  std::string description_;
-  bool parallel_safe_ = false;
-  std::vector<std::string> biz_names_;
-};
-
-template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
-          typename MapFnT>
-inline auto MakeMapSpec(Input<InputBatchT> in, Output<OutputBatchT> out,
-                        Parameters<ParamsT> params, MapFnT fn) {
-  return MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>(
-      std::move(in), std::move(out), std::move(params), std::move(fn));
-}
-
-template <typename InputBatchT, typename OutputBatchT, typename MapFnT>
-inline auto MakeMapSpec(Input<InputBatchT> in, Output<OutputBatchT> out,
-                        NoParameters, MapFnT fn) {
-  return MapSpec<InputBatchT, OutputBatchT, NoParameters, MapFnT>(
-      std::move(in), std::move(out), Parameters<NoParameters>{}, std::move(fn));
-}
-
-template <typename InputBatchT, typename OutputBatchT, typename MapFnT>
-inline auto MakeMapSpec(Input<InputBatchT> in, Output<OutputBatchT> out,
-                        MapFnT fn) {
-  return MapSpec<InputBatchT, OutputBatchT, NoParameters, MapFnT>(
-      std::move(in), std::move(out), Parameters<NoParameters>{}, std::move(fn));
-}
-
-// ---------------------------------------------------------------------------
-// Batch 入口
+// Node Spec
 // ---------------------------------------------------------------------------
 
 enum class InputFlow {
@@ -1027,17 +776,6 @@ inline ModelSlotBindingHolder<ModelsT> Model(std::string slot,
 }
 
 template <typename ModelsT>
-inline ModelSlotBindingHolder<ModelsT> Llm(std::string slot, std::string field,
-                                           LlmCall ModelsT::*member) {
-  return Model(std::move(slot), std::move(field), member);
-}
-template <typename ModelsT>
-inline ModelSlotBindingHolder<ModelsT> Embedding(
-    std::string slot, std::string field, EmbeddingCall ModelsT::*member) {
-  return Model(std::move(slot), std::move(field), member);
-}
-
-template <typename ModelsT>
 class ModelsOf {
  public:
   ModelsOf() = default;
@@ -1126,7 +864,7 @@ class ModelsOf<NoModels> {
 
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
-class BatchSpec {
+class NodeSpec {
  public:
   using InputsType = InputsT;
   using OutputBatch = OutputBatchT;
@@ -1134,8 +872,7 @@ class BatchSpec {
   using ModelsType = ModelsT;
   using RunFunctionType = RunFnT;
 
-  using RunSignature =
-      detail::BatchRunSignature<RunFnT, InputsT, ParamsT, ModelsT>;
+  using RunSignature = detail::RunSignature<RunFnT, InputsT, ParamsT, ModelsT>;
   using RunResult = std::decay_t<typename RunSignature::Result>;
   static constexpr bool kRunResultValid =
       IsNodeResult<RunResult>::value &&
@@ -1144,20 +881,17 @@ class BatchSpec {
   static constexpr bool kRunSignatureValid =
       RunSignature::kCallable && kRunResultValid;
   static_assert(RunSignature::kCallable,
-                "Batch Run must be callable as one of: "
-                "NodeResult<OutputBatch> Run(const Inputs&, const Params&) | "
-                "NodeResult<OutputBatch> Run(const Inputs&, const Params&, "
-                "const Models&) | "
-                "NodeResult<OutputBatch> Run(const Inputs&, const Params&, "
-                "const Models&, "
-                "const SessionResources&). Without Parameters<...>, Params is "
-                "NoParameters. See doc/dev_guide/custom_node_concepts.md");
+                "Node Run must be callable as NodeResult<OutputBatch> "
+                "Run(const Inputs&[, const Params&][, const Models&][, const "
+                "SessionResources&]); write Params only with Parameters<...> "
+                "and Models only with ModelsOf<...>. See "
+                "doc/dev_guide/custom_node_concepts.md");
   static_assert(!RunSignature::kCallable || kRunResultValid,
-                "Batch Run must return NodeResult<OutputBatch> "
+                "Node Run must return NodeResult<OutputBatch> "
                 "(NodeResult<Outputs> for multiple outputs)");
 
-  BatchSpec(InputsOf<InputsT> inputs, OutputsOf<OutputBatchT> output,
-            Parameters<ParamsT> params, ModelsOf<ModelsT> models, RunFnT fn)
+  NodeSpec(InputsOf<InputsT> inputs, OutputsOf<OutputBatchT> output,
+           Parameters<ParamsT> params, ModelsOf<ModelsT> models, RunFnT fn)
       : inputs_(std::move(inputs)),
         output_(std::move(output)),
         params_(std::move(params)),
@@ -1166,43 +900,34 @@ class BatchSpec {
     output_.CheckAnchors(inputs_);
   }
 
-  BatchSpec& Description(std::string desc) & {
+  NodeSpec& Description(std::string desc) & {
     description_ = std::move(desc);
     return *this;
   }
-  BatchSpec Description(std::string desc) && {
+  NodeSpec Description(std::string desc) && {
     description_ = std::move(desc);
     return std::move(*this);
   }
 
-  BatchSpec& Category(std::string cat) & {
+  NodeSpec& Category(std::string cat) & {
     category_ = std::move(cat);
     return *this;
   }
-  BatchSpec Category(std::string cat) && {
+  NodeSpec Category(std::string cat) && {
     category_ = std::move(cat);
     return std::move(*this);
   }
 
-  BatchSpec& ParallelSafe(bool safe) & {
+  NodeSpec& ParallelSafe(bool safe) & {
     parallel_safe_ = safe;
     return *this;
   }
-  BatchSpec ParallelSafe(bool safe) && {
+  NodeSpec ParallelSafe(bool safe) && {
     parallel_safe_ = safe;
     return std::move(*this);
   }
 
-  BatchSpec& BizNames(std::vector<std::string> biz_names) & {
-    biz_names_ = std::move(biz_names);
-    return *this;
-  }
-  BatchSpec BizNames(std::vector<std::string> biz_names) && {
-    biz_names_ = std::move(biz_names);
-    return std::move(*this);
-  }
-
-  BatchSpec WithControls(std::vector<FieldControlCommand> commands) && {
+  NodeSpec WithControls(std::vector<FieldControlCommand> commands) && {
     static_assert(std::is_copy_constructible_v<ParamsT>,
                   "WithControls requires copy-constructible ParametersType");
     ValidateControlCommands(commands, params_, &models_);
@@ -1216,24 +941,24 @@ class BatchSpec {
     return std::move(*this);
   }
 
-  BatchSpec WithControls(
+  NodeSpec WithControls(
       std::initializer_list<FieldControlCommand> commands) && {
     return std::move(*this).WithControls(
         std::vector<FieldControlCommand>(commands));
   }
 
-  BatchSpec& PortConstraints(std::vector<PortGroupConstraint> constraints) & {
+  NodeSpec& PortConstraints(std::vector<PortGroupConstraint> constraints) & {
     port_constraints_ = std::move(constraints);
     return *this;
   }
-  BatchSpec PortConstraints(std::vector<PortGroupConstraint> constraints) && {
+  NodeSpec PortConstraints(std::vector<PortGroupConstraint> constraints) && {
     port_constraints_ = std::move(constraints);
     return std::move(*this);
   }
   using ControlUpdater = std::function<NodeResult<ParamsT>(
       const ParamsT&, const nlohmann::json&, const BindingFacts&)>;
-  BatchSpec WithControl(ControlCommandDefinition definition,
-                        ControlUpdater update) && {
+  NodeSpec WithControl(ControlCommandDefinition definition,
+                       ControlUpdater update) && {
     for (const auto& cmd : control_commands_) {
       if (cmd.Id() == definition.cmd_id)
         throw std::invalid_argument("Duplicate Control command");
@@ -1283,7 +1008,6 @@ class BatchSpec {
     def.category = category_;
     def.description = description_;
     def.parallel_safe = parallel_safe_;
-    def.biz_names = biz_names_;
     def.inputs = inputs_.ToPortDefinitions();
     def.outputs = output_.ToPortDefinitions();
     def.port_constraints = port_constraints_;
@@ -1326,63 +1050,61 @@ class BatchSpec {
   std::string category_ = "custom";
   std::string description_;
   bool parallel_safe_ = false;
-  std::vector<std::string> biz_names_;
 };
 
-// Batch 重载
+// Parameters 与 ModelsOf 可省略；省略的部分也不出现在 Run 的参数中。
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
-inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          OutputsOf<OutputBatchT> output,
-                          Parameters<ParamsT> params, ModelsOf<ModelsT> models,
-                          RunFnT fn) {
-  return BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>(
+inline auto MakeNodeSpec(InputsOf<InputsT> inputs,
+                         OutputsOf<OutputBatchT> output,
+                         Parameters<ParamsT> params, ModelsOf<ModelsT> models,
+                         RunFnT fn) {
+  return NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>(
       std::move(inputs), std::move(output), std::move(params),
       std::move(models), std::move(fn));
 }
 
 template <typename InputsT, typename OutputBatchT, typename ModelsT,
           typename RunFnT>
-inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          OutputsOf<OutputBatchT> output,
-                          ModelsOf<ModelsT> models, RunFnT fn) {
-  return BatchSpec<InputsT, OutputBatchT, NoParameters, ModelsT, RunFnT>(
+inline auto MakeNodeSpec(InputsOf<InputsT> inputs,
+                         OutputsOf<OutputBatchT> output,
+                         ModelsOf<ModelsT> models, RunFnT fn) {
+  return NodeSpec<InputsT, OutputBatchT, NoParameters, ModelsT, RunFnT>(
       std::move(inputs), std::move(output), Parameters<NoParameters>{},
       std::move(models), std::move(fn));
 }
 
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename RunFnT>
-inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          OutputsOf<OutputBatchT> output,
-                          Parameters<ParamsT> params, RunFnT fn) {
-  return BatchSpec<InputsT, OutputBatchT, ParamsT, NoModels, RunFnT>(
+inline auto MakeNodeSpec(InputsOf<InputsT> inputs,
+                         OutputsOf<OutputBatchT> output,
+                         Parameters<ParamsT> params, RunFnT fn) {
+  return NodeSpec<InputsT, OutputBatchT, ParamsT, NoModels, RunFnT>(
       std::move(inputs), std::move(output), std::move(params),
       ModelsOf<NoModels>{}, std::move(fn));
 }
 
 template <typename InputsT, typename OutputBatchT, typename RunFnT>
-inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          OutputsOf<OutputBatchT> output, RunFnT fn) {
-  return BatchSpec<InputsT, OutputBatchT, NoParameters, NoModels, RunFnT>(
+inline auto MakeNodeSpec(InputsOf<InputsT> inputs,
+                         OutputsOf<OutputBatchT> output, RunFnT fn) {
+  return NodeSpec<InputsT, OutputBatchT, NoParameters, NoModels, RunFnT>(
       std::move(inputs), std::move(output), Parameters<NoParameters>{},
       ModelsOf<NoModels>{}, std::move(fn));
 }
 
 // ---------------------------------------------------------------------------
-// AuthorNode 定义：同时支持 MapSpec 和 BatchSpec
+// AuthorNode：由 NodeSpec 生成 NodeBase 运行时
 // ---------------------------------------------------------------------------
 
-template <typename SpecT, typename = void>
+template <typename SpecT>
 class AuthorNode;
 
-// BatchSpec 特化
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
-class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
+class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     : public NodeBase {
  public:
-  using SpecType = BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>;
+  using SpecType = NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>;
 
   AuthorNode(std::string node_name, SpecType spec)
       : NodeBase(std::move(node_name)), spec_(std::move(spec)) {}
@@ -1473,8 +1195,8 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
         params_ptr = &parameters_;
       }
 
-      auto res = detail::InvokeBatch(spec_.Function(), inputs, *params_ptr,
-                                     models_, resources_);
+      auto res = detail::InvokeRun(spec_.Function(), inputs, *params_ptr,
+                                   models_, resources_);
       if (!res.ok()) {
         auto failure = std::move(res).ExtractFailure();
         int code = failure.cause_code != 0
@@ -1497,7 +1219,7 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     } else {
       // 合法程序中不可达；避免引发连锁模板错误。
       return this->Fail(req_ctx, node_error::author_node::kInternalError,
-                        "Invalid Batch Run signature");
+                        "Invalid Node Run signature");
     }
   }
 
@@ -1509,221 +1231,6 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
   ConfigurationSnapshot<typename SpecType::ParametersType> snapshot_;
   BindingFacts binding_facts_;
 };
-
-namespace detail {
-
-template <typename InputBatchT>
-struct MapInputs {
-  const InputBatchT* items = nullptr;
-};
-
-// 在 Batch 运行时上执行 Map：一个必需的锚点输入、一个保序输出，
-// 以及能指出失败条目的逐条循环。
-template <typename SpecT>
-auto MakeMapRuntimeSpec(std::string node_name, SpecT map) {
-  using InputBatch = typename SpecT::InputBatch;
-  using OutputBatch = typename SpecT::OutputBatch;
-  using ParamsT = typename SpecT::ParametersType;
-  using Inputs = MapInputs<InputBatch>;
-  auto run = [fn = std::move(map).Function(), name = std::move(node_name)](
-                 const Inputs& inputs,
-                 const ParamsT& params) -> NodeResult<OutputBatch> {
-    OutputBatch outputs;
-    outputs.reserve(inputs.items->size());
-    for (const auto& item : *inputs.items) {
-      if constexpr (SpecT::kReturnsNodeResult) {
-        auto res = InvokeMapItem(fn, item.data, params);
-        if (!res.ok()) {
-          auto failure = std::move(res).ExtractFailure();
-          if (!failure.batch_detail.has_value()) {
-            failure.batch_detail =
-                BatchFailureDetail{name, BatchFailureReason::kCallbackFailed,
-                                   TraceableItemKey{item.req_id, item.sub_id}};
-          }
-          if (failure.message.empty()) {
-            failure.message = name + " map function failed";
-          }
-          return NodeResult<OutputBatch>::Failure(std::move(failure));
-        }
-        outputs.emplace_back(item.req_id, item.sub_id, std::move(res).value());
-      } else {
-        outputs.emplace_back(item.req_id, item.sub_id,
-                             InvokeMapItem(fn, item.data, params));
-      }
-    }
-    return NodeResult<OutputBatch>::Success(std::move(outputs));
-  };
-  auto batch = MakeBatchSpec(
-      InputsOf<Inputs>({Required(map.InputName(), &Inputs::items)}),
-      PreservedOutput<OutputBatch>(map.OutputName(), map.InputName()),
-      map.ParametersSpec(), std::move(run));
-  if constexpr (std::is_copy_constructible_v<ParamsT>) {
-    if (map.HasControls()) {
-      return std::move(batch).WithControls(map.ControlCommands());
-    }
-  }
-  return batch;
-}
-
-}  // namespace detail
-
-// MapSpec 特化：Definition 来自 MapSpec；执行、参数和 Control 共用
-// Batch 运行时。
-template <typename InputBatchT, typename OutputBatchT, typename ParamsT,
-          typename MapFnT>
-class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
-    : public AuthorNode<decltype(detail::MakeMapRuntimeSpec(
-          std::declval<std::string>(),
-          std::declval<
-              MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>()))> {
- public:
-  using SpecType = MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>;
-  using RuntimeSpec = decltype(detail::MakeMapRuntimeSpec(
-      std::declval<std::string>(), std::declval<SpecType>()));
-
-  AuthorNode(std::string node_name, SpecType spec)
-      : AuthorNode<RuntimeSpec>(
-            node_name, detail::MakeMapRuntimeSpec(node_name, std::move(spec))) {
-  }
-};
-
-// ---------------------------------------------------------------------------
-// LLM 文本快捷 Spec 工厂
-// ---------------------------------------------------------------------------
-
-struct LlmTextInputs {
-  const TextBatch* prompt = nullptr;
-};
-
-struct LlmTextModels {
-  LlmCall generator;
-};
-
-template <typename ParamsT, typename BuildPromptFn, typename FormatAnswerFn>
-inline auto MakeLlmTextSpec(Input<TextBatch> in_port,
-                            Output<TextBatch> out_port,
-                            Parameters<ParamsT> params,
-                            BuildPromptFn build_prompt,
-                            FormatAnswerFn format_answer,
-                            GenerateOptions options = GenerateOptions{}) {
-  using PromptSignature = detail::TextHookSignature<BuildPromptFn, ParamsT>;
-  using AnswerSignature = detail::TextHookSignature<FormatAnswerFn, ParamsT>;
-  static_assert(
-      PromptSignature::kCallable,
-      "BuildPrompt must be callable as std::string BuildPrompt(const "
-      "std::string&) or std::string BuildPrompt(const std::string&, const "
-      "Params&)");
-  static_assert(
-      !PromptSignature::kCallable || PromptSignature::kReturnsText,
-      "BuildPrompt must return text: std::string, const char*, "
-      "std::string_view, "
-      "or NodeResult of one of them; char and integer results are rejected");
-  static_assert(
-      AnswerSignature::kCallable,
-      "FormatAnswer must be callable as std::string FormatAnswer(const "
-      "std::string&) or std::string FormatAnswer(const std::string&, const "
-      "Params&)");
-  static_assert(
-      !AnswerSignature::kCallable || AnswerSignature::kReturnsText,
-      "FormatAnswer must return text: std::string, const char*, "
-      "std::string_view, "
-      "or NodeResult of one of them; char and integer results are rejected");
-
-  auto run_fn = [build_prompt = std::move(build_prompt),
-                 format_answer = std::move(format_answer),
-                 options = std::move(options)](
-                    const LlmTextInputs& inputs, const ParamsT& parameters,
-                    const LlmTextModels& models) -> NodeResult<TextBatch> {
-    if constexpr (PromptSignature::kCallable && PromptSignature::kReturnsText &&
-                  AnswerSignature::kCallable && AnswerSignature::kReturnsText) {
-      if (!inputs.prompt || inputs.prompt->empty()) {
-        return NodeResult<TextBatch>::Success(TextBatch{});
-      }
-
-      TextBatch prompts;
-      prompts.reserve(inputs.prompt->size());
-      for (const auto& item : *inputs.prompt) {
-        auto res = detail::InvokeTextHook(build_prompt, item.data, parameters);
-        if constexpr (IsNodeResult<decltype(res)>::value) {
-          if (!res.ok()) {
-            return NodeResult<TextBatch>::Failure(
-                std::move(res).ExtractFailure());
-          }
-          prompts.emplace_back(item.req_id, item.sub_id,
-                               detail::ToHookText(std::move(res).value()));
-        } else {
-          prompts.emplace_back(item.req_id, item.sub_id,
-                               detail::ToHookText(std::move(res)));
-        }
-      }
-
-      auto llm_res = models.generator.Generate(prompts, options);
-      if (!llm_res.ok()) return llm_res;
-
-      // 赋值给自有输出前先复制 view，包括指向 item.data 自身的 view。
-      // 钩子失败时不发布部分输出。
-      auto outputs = std::move(llm_res).value();
-      for (auto& item : outputs) {
-        auto res = detail::InvokeTextHook(format_answer,
-                                          std::as_const(item.data), parameters);
-        if constexpr (IsNodeResult<decltype(res)>::value) {
-          if (!res.ok()) {
-            return NodeResult<TextBatch>::Failure(
-                std::move(res).ExtractFailure());
-          }
-          item.data = detail::ToHookText(std::move(res).value());
-        } else {
-          item.data = detail::ToHookText(std::move(res));
-        }
-      }
-      return NodeResult<TextBatch>::Success(std::move(outputs));
-    } else {
-      return NodeResult<TextBatch>::Failure(NodeErrorKind::kInternalError,
-                                            "Invalid LLM hook signature");
-    }
-  };
-
-  return MakeBatchSpec(
-      InputsOf<LlmTextInputs>({
-          Required(in_port.name, &LlmTextInputs::prompt),
-      }),
-      PreservedOutput<TextBatch>(out_port.name, in_port.name),
-      std::move(params),
-      ModelsOf<LlmTextModels>({
-          Llm("generator", "bind_model", &LlmTextModels::generator),
-      }),
-      std::move(run_fn));
-}
-
-template <typename ParamsT, typename BuildPromptFn, typename FormatAnswerFn>
-inline auto MakeLlmTextSpec(Parameters<ParamsT> params,
-                            BuildPromptFn build_prompt,
-                            FormatAnswerFn format_answer,
-                            GenerateOptions options = GenerateOptions{}) {
-  return MakeLlmTextSpec(Input<TextBatch>("prompt"), Output<TextBatch>("text"),
-                         std::move(params), std::move(build_prompt),
-                         std::move(format_answer), std::move(options));
-}
-
-template <typename BuildPromptFn, typename FormatAnswerFn>
-inline auto MakeLlmTextSpec(BuildPromptFn build_prompt,
-                            FormatAnswerFn format_answer,
-                            GenerateOptions options = GenerateOptions{}) {
-  return MakeLlmTextSpec(Input<TextBatch>("prompt"), Output<TextBatch>("text"),
-                         Parameters<NoParameters>{}, std::move(build_prompt),
-                         std::move(format_answer), std::move(options));
-}
-
-template <typename BuildPromptFn, typename FormatAnswerFn>
-inline auto MakeLlmTextSpec(Input<TextBatch> in_port,
-                            Output<TextBatch> out_port,
-                            BuildPromptFn build_prompt,
-                            FormatAnswerFn format_answer,
-                            GenerateOptions options = GenerateOptions{}) {
-  return MakeLlmTextSpec(std::move(in_port), std::move(out_port),
-                         Parameters<NoParameters>{}, std::move(build_prompt),
-                         std::move(format_answer), std::move(options));
-}
 
 #define REGISTER_FUNCTION_NODE(NodeType, ...)                              \
   struct NodeType final : public ::llm_edgeflow::AuthorNode<               \

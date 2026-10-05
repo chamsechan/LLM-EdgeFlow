@@ -38,9 +38,7 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 | --- | --- |
 | 端口、业务契约与能力均匹配，只调整提示词/连线/模型实例 | [pipeline-composer](../pipeline-composer/SKILL.md) |
 | 外部字段提取、序列化、容量、载体或业务契约不同 | [edgeflow-adapter-developer](../edgeflow-adapter-developer/SKILL.md) |
-| 新增单输入逐项纯变换，数量和来源保持 | [edgeflow-node-map-developer](../edgeflow-node-map-developer/SKILL.md) |
-| 新增单文本前处理、一次 LLM 调用、文本后处理 | [edgeflow-node-llm-developer](../edgeflow-node-llm-developer/SKILL.md) |
-| 多输入/输出、拆分/聚合/排名、动态采样或其他模型调用算法 | [edgeflow-node-batch-developer](../edgeflow-node-batch-developer/SKILL.md) |
+| 新增逐项变换、文本 LLM 前后处理、多输入/输出、拆分/聚合/排名或其他模型调用算法 | [edgeflow-node-developer](../edgeflow-node-developer/SKILL.md) |
 | 现有运行协议可用，缺少模型预处理或输出语义 | [edgeflow-model-developer](../edgeflow-model-developer/SKILL.md) |
 | 缺少厂商运行时/硬件执行支持 | [edgeflow-backend-developer](../edgeflow-backend-developer/SKILL.md) |
 | 现有调度、类型或生命周期机制不能表达必要契约 | [developer guide](../llm-edgeflow-developer-guide/SKILL.md) 的 Core 路径，先举证缺口 |

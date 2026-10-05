@@ -36,15 +36,14 @@ bool ValidateCorpusEntries(const nlohmann::json& config,
   return true;
 }
 
-struct CorpusInputs {
+struct Inputs {
   const TextBatch* trigger = nullptr;
 };
-struct CorpusParams {
+struct Params {
   std::vector<std::string> corpus;
 };
 
-NodeResult<TextBatch> ProduceCorpus(const CorpusInputs&,
-                                    const CorpusParams& params) {
+NodeResult<TextBatch> Run(const Inputs&, const Params& params) {
   TextBatch output;
   output.reserve(params.corpus.size());
   for (size_t i = 0; i < params.corpus.size(); ++i) {
@@ -53,28 +52,24 @@ NodeResult<TextBatch> ProduceCorpus(const CorpusInputs&,
   return NodeResult<TextBatch>::Success(std::move(output));
 }
 
-auto TextCorpusSourceSpec() {
-  auto params =
-      Parameters<CorpusParams>{}.WithParser(NodeConfigParser<CorpusParams>(
-          TextCorpusSourceConfigFields(),
-          [](const nlohmann::json& config, CorpusParams* value,
-             std::string* diagnostic) {
-            if (!ValidateCorpusEntries(config, diagnostic)) return false;
-            if (config.contains("corpus"))
-              value->corpus =
-                  config.at("corpus").get<std::vector<std::string>>();
-            return true;
-          }));
-  return MakeBatchSpec(
-             InputsOf<CorpusInputs>(
-                 {OptionalValue("trigger", &CorpusInputs::trigger)}),
+auto Spec() {
+  auto params = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
+      TextCorpusSourceConfigFields(),
+      [](const nlohmann::json& config, Params* value, std::string* diagnostic) {
+        if (!ValidateCorpusEntries(config, diagnostic)) return false;
+        if (config.contains("corpus"))
+          value->corpus = config.at("corpus").get<std::vector<std::string>>();
+        return true;
+      }));
+  return MakeNodeSpec(
+             InputsOf<Inputs>({OptionalValue("trigger", &Inputs::trigger)}),
              ProducedBatch<TextBatch>(
                  "corpus", PortFlow{"1:N", "generate_sub_id", "session"}),
-             std::move(params), &ProduceCorpus)
+             std::move(params), &Run)
       .Category("common")
       .Description("Static text corpus and knowledge database source node")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextCorpusSourceNode, TextCorpusSourceSpec());
+REGISTER_FUNCTION_NODE(TextCorpusSourceNode, Spec());
 }  // namespace llm_edgeflow

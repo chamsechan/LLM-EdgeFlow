@@ -42,9 +42,9 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 
 | 声明点 | 作用 |
 | --- | --- |
-| `PrefixControlNodeParams` / `Field("prefix", ...)` | 声明业务参数结构体，绑定初值默认空字符串、字段说明与 64 字节业务校验 |
+| `Params` / `Field("prefix", ...)` | 声明业务参数结构体，绑定初值默认空字符串、字段说明与 64 字节业务校验 |
 | `kUpdatePrefix` / `ReplaceFields(...)` | 声明具名命令 ID 与受控字段集合，自动投影 Control payload schema |
-| `ApplyPrefix(...)` | 纯业务转换函数，接收普通数据与参数，无需接触锁或平台结构 |
+| `Run(...)` | 业务处理函数，用 `MapPayloads` 逐条加前缀；接收普通数据与参数，无需接触锁或平台结构 |
 | `WithControls(...)` | 将受控命令挂载到 Spec，框架自动管理不可变快照与并发更新事务 |
 
 `WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架复用 `Parameters` 已绑定的字段类型、默认值和业务校验规则自动生成 Control payload schema。初始配置写在节点的 `config`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；Control 下发新值时通过相同校验规则验证，并通过不可变快照原子发布。非法初始配置会在预检拒绝，直接 Init 也返回具体原因。

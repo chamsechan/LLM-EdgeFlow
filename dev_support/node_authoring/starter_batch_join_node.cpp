@@ -11,14 +11,11 @@ struct Inputs {
   const TextBatch* attributes = nullptr;
 };
 
-struct Options {};
-
 struct Models {
   LlmCall generator;
 };
 
-NodeResult<TextBatch> Run(const Inputs& inputs, const Options& /*options*/,
-                          const Models& models) {
+NodeResult<TextBatch> Run(const Inputs& inputs, const Models& models) {
   if (!inputs.questions || inputs.questions->empty()) {
     return NodeResult<TextBatch>::Success(TextBatch{});
   }
@@ -44,16 +41,15 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& /*options*/,
 }
 
 auto Spec() {
-  return MakeBatchSpec(InputsOf<Inputs>({
-                           Required("questions", &Inputs::questions),
-                           Optional("attributes", &Inputs::attributes),
-                       }),
-                       PreservedOutput<TextBatch>("output", "questions"),
-                       Parameters<Options>({}),
-                       ModelsOf<Models>({
-                           Llm("generator", "bind_model", &Models::generator),
-                       }),
-                       &Run)
+  return MakeNodeSpec(InputsOf<Inputs>({
+                          Required("questions", &Inputs::questions),
+                          Optional("attributes", &Inputs::attributes),
+                      }),
+                      PreservedOutput<TextBatch>("output", "questions"),
+                      ModelsOf<Models>({
+                          Model("generator", "bind_model", &Models::generator),
+                      }),
+                      &Run)
       .Description("Batch starter with traceable Left Join across inputs");
 }
 

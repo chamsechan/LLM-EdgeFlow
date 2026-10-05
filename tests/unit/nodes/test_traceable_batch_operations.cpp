@@ -1277,12 +1277,11 @@ NodeResult<TextBatch> RunDirectSubBatch(const DirectSubBatchInputs& in,
 }
 
 auto DirectSubBatchSpec() {
-  return MakeBatchSpec(InputsOf<DirectSubBatchInputs>({
-                           Required("input", &DirectSubBatchInputs::input),
-                       }),
-                       PreservedOutput<TextBatch>("output", "input"),
-                       Parameters<DirectSubBatchOptions>({}),
-                       &RunDirectSubBatch)
+  return MakeNodeSpec(InputsOf<DirectSubBatchInputs>({
+                          Required("input", &DirectSubBatchInputs::input),
+                      }),
+                      PreservedOutput<TextBatch>("output", "input"),
+                      Parameters<DirectSubBatchOptions>({}), &RunDirectSubBatch)
       .Description("Test fixture for unscattered sub-batch rejection");
 }
 
@@ -1515,12 +1514,12 @@ NodeResult<TextBatch> RunBatchSelectFail(const BatchSelectFailInputs& in,
 }
 
 auto BatchSelectFailSpec() {
-  return MakeBatchSpec(InputsOf<BatchSelectFailInputs>({
-                           Required("input", &BatchSelectFailInputs::input),
-                       }),
-                       PreservedOutput<TextBatch>("output", "input"),
-                       Parameters<BatchSelectFailOptions>({}),
-                       &RunBatchSelectFail)
+  return MakeNodeSpec(InputsOf<BatchSelectFailInputs>({
+                          Required("input", &BatchSelectFailInputs::input),
+                      }),
+                      PreservedOutput<TextBatch>("output", "input"),
+                      Parameters<BatchSelectFailOptions>({}),
+                      &RunBatchSelectFail)
       .Description(
           "Test fixture for SelectBatch failure diagnostic formatting");
 }
@@ -1586,12 +1585,11 @@ NodeResult<TextBatch> RunBatchSplitFail(const BatchSplitFailInputs& in,
 }
 
 auto BatchSplitFailSpec() {
-  return MakeBatchSpec(InputsOf<BatchSplitFailInputs>({
-                           Required("input", &BatchSplitFailInputs::input),
-                       }),
-                       PreservedOutput<TextBatch>("output", "input"),
-                       Parameters<BatchSplitFailOptions>({}),
-                       &RunBatchSplitFail)
+  return MakeNodeSpec(InputsOf<BatchSplitFailInputs>({
+                          Required("input", &BatchSplitFailInputs::input),
+                      }),
+                      PreservedOutput<TextBatch>("output", "input"),
+                      Parameters<BatchSplitFailOptions>({}), &RunBatchSplitFail)
       .Description(
           "Test fixture for SplitPayloads failure diagnostic formatting");
 }
@@ -1623,16 +1621,28 @@ inline NodeResult<std::string> RunMapItemFail(const std::string& s) {
   return NodeResult<std::string>::Success(s);
 }
 
+struct MapItemFailInputs {
+  const TextBatch* input = nullptr;
+};
+
+inline NodeResult<TextBatch> RunMapItemFailBatch(const MapItemFailInputs& in) {
+  return MapPayloads(*in.input, &RunMapItemFail);
+}
+
 inline auto MapItemFailSpec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     &RunMapItemFail)
-      .Description("Test fixture for MapSpec failure diagnostic formatting");
+  return MakeNodeSpec(InputsOf<MapItemFailInputs>({
+                          Required("input", &MapItemFailInputs::input),
+                      }),
+                      PreservedOutput<TextBatch>("output", "input"),
+                      &RunMapItemFailBatch)
+      .Description(
+          "Test fixture for MapPayloads failure diagnostic formatting");
 }
 
 REGISTER_FUNCTION_NODE(MapItemFailTestNode, MapItemFailSpec());
 
 TEST_F(TraceableBatchOperationsTest,
-       AuthorNodeFormatsMapSpecFailureDiagnostic) {
+       AuthorNodeFormatsMapPayloadsFailureDiagnostic) {
   NodeHarness harness("MapItemFailTestNode");
   TextBatch batch = {{1, 0, "ok"}, {7, 3, "trigger_map_failure"}};
   harness.TextInputWithBatch("input", std::move(batch));
@@ -1642,7 +1652,7 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_EQ(result.process_code(), -5544);
   const auto& diag = result.diagnostic();
   EXPECT_NE(diag.find("Process returned -5544"), std::string::npos);
-  EXPECT_NE(diag.find("MapItemFailTestNode"), std::string::npos);
+  EXPECT_NE(diag.find("MapPayloads"), std::string::npos);
   EXPECT_NE(diag.find("map item failed"), std::string::npos);
   EXPECT_NE(diag.find("req_id=7"), std::string::npos);
   EXPECT_NE(diag.find("sub_id=3"), std::string::npos);

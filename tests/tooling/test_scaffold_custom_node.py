@@ -84,14 +84,14 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             "StarterLlmNode", "LLM authoring starter", "llm",
             ("input", "TextBatch", "1:1", "preserve"),
             ("output", "TextBatch", "1:1", "preserve"))
-        self.assertEqual(generated, source.replace("StarterLlmSpec", "StarterLlmNodeSpec"))
+        self.assertEqual(generated, source)
         result = self.run_cli("SwappedNode", "--kind", "model", "-m", "llm",
                               "--in-port", "output:TextBatch", "--out-port", "input:TextBatch",
                               "--description", 'StarterLlmNode "input"\n', "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('Input<TextBatch>("output")', result.stdout)
-        self.assertIn('Output<TextBatch>("input")', result.stdout)
-        self.assertIn('MakeLlmTextSpec', result.stdout)
+        self.assertIn('Required("output", &Inputs::input)', result.stdout)
+        self.assertIn('PreservedOutput<TextBatch>("input", "output")', result.stdout)
+        self.assertIn('GenerateParameters(', result.stdout)
         self.assertIn('REGISTER_FUNCTION_NODE(SwappedNode', result.stdout)
 
     def test_control_starter_and_business_test_generation(self):
@@ -144,8 +144,8 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             source_file = Path(temp) / "src" / "custom_nodes" / "awesome_feature_node.cpp"
             self.assertTrue(source_file.exists())
             source_content = source_file.read_text(encoding="utf-8")
-            self.assertIn("REGISTER_FUNCTION_NODE(AwesomeFeatureNode, AwesomeFeatureNodeSpec());", source_content)
-            self.assertIn("MakeMapSpec", source_content)
+            self.assertIn("REGISTER_FUNCTION_NODE(AwesomeFeatureNode, Spec());", source_content)
+            self.assertIn("MapPayloads(*inputs.input, &Transform)", source_content)
 
             # 检查在 tests/unit/nodes/test_awesome_feature_node.cpp 生成的测试文件
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_awesome_feature_node.cpp"
@@ -179,7 +179,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             source_file = Path(temp) / "src" / "custom_nodes" / "dry_run_node.cpp"
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_dry_run_node.cpp"
             self.assertIn(f"--- {source_file} (new file) ---", result.stdout)
-            self.assertIn("REGISTER_FUNCTION_NODE(DryRunNode, DryRunNodeSpec());", result.stdout)
+            self.assertIn("REGISTER_FUNCTION_NODE(DryRunNode, Spec());", result.stdout)
             self.assertIn(f"--- {test_file} (new test file) ---", result.stdout)
             self.assertIn("TEST(CustomNodeCatalogTest, DryRunNode_", result.stdout)
             self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
@@ -335,7 +335,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(second.read_text(), "second user edit")
 
     def test_all_model_capabilities_use_function_contracts(self):
-        for capability, call in (("llm", "MakeLlmTextSpec"),
+        for capability, call in (("llm", "LlmCall"),
                                  ("embedding", "EmbeddingCall"),
                                  ("asr", "AsrCall"), ("ocr", "OcrCall"),
                                  ("rerank", "RerankCall")):
@@ -344,16 +344,17 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                                       capability, "--dry-run", "--write-test")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(call, result.stdout)
+                self.assertIn("MakeNodeSpec", result.stdout)
                 self.assertIn("REGISTER_FUNCTION_NODE", result.stdout)
                 self.assertNotIn("ProcessNode", result.stdout)
                 self.assertNotIn("ModelBoundNode", result.stdout)
 
-    def test_conversion_and_flow_contracts_use_batch_spec(self):
+    def test_conversion_and_flow_contracts_use_node_spec(self):
         for options in (["--out-port", "output:Int32Batch"],
                         ["--in-port", "input:TextBatch:1:N:generate_sub_id"]):
             result = self.run_cli("SelectedNode", *options, "--dry-run", "--write-test")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("MakeBatchSpec", result.stdout)
+            self.assertIn("MakeNodeSpec", result.stdout)
             self.assertIn("domain transformation is not implemented", result.stdout)
             self.assertIn("UnimplementedDomainLogicFailsCleanly", result.stdout)
             self.assertNotIn("ProcessNode", result.stdout)
@@ -365,7 +366,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         for expected in ['Required("texts", &Inputs::texts)',
                          'PreservedOutput<EmbeddingBatch>("vectors", "texts")',
-                         'Embedding("encoder", "bind_model", &Models::encoder)',
+                         'Model("encoder", "bind_model", &Models::encoder)',
                          'models.encoder.Embed(*input.texts)',
                          'EncoderNode_ControlledExecutionAndModelFailure']:
             self.assertIn(expected, result.stdout)
@@ -377,14 +378,15 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
     def test_generates_function_nodes(self):
         result = self.run_cli("BasicMapNode", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("MakeMapSpec", result.stdout)
-        self.assertIn("REGISTER_FUNCTION_NODE(BasicMapNode, BasicMapNodeSpec());", result.stdout)
+        self.assertIn("MakeNodeSpec", result.stdout)
+        self.assertIn("REGISTER_FUNCTION_NODE(BasicMapNode, Spec());", result.stdout)
         self.assertIn("Transform(const std::string& input)", result.stdout)
+        self.assertIn("NodeResult<TextBatch> Run(const Inputs& inputs)", result.stdout)
 
         result = self.run_cli("BasicLlmNode", "--kind", "model", "-m", "llm", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("MakeLlmTextSpec", result.stdout)
-        self.assertIn("REGISTER_FUNCTION_NODE(BasicLlmNode, BasicLlmNodeSpec());", result.stdout)
+        self.assertIn("MakeNodeSpec", result.stdout)
+        self.assertIn("REGISTER_FUNCTION_NODE(BasicLlmNode, Spec());", result.stdout)
         self.assertIn("BuildPrompt", result.stdout)
         self.assertIn("FormatAnswer", result.stdout)
 
