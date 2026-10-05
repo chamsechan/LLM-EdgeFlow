@@ -130,10 +130,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    在 `IoBindingDefinition` 中指定 `biz_name`、`input_converter_id`、`output_converter_id`，
    使用 `REGISTER_IO_BINDING` 注册；每个业务只注册一个绑定，Pipeline 以业务名选择它。
    转换器的逻辑端口名就是 Blackboard Key，绑定不做改名；命名遵循本节后文的端口命名约定。
-   Binding 的批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
-   转换器只在自身确有限制时才声明上限，0 表示不设限。
-   有效上限取绑定与两个转换器中正值的最小值，Operator 再按实际输出池深收紧；
-   三者都为 0 时，注册审计和部署准备都会报错。
+   批次上限只在 Binding 上声明，默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
+   转换器不声明上限。Operator 再按实际输出池深收紧；上限为 0 时，注册审计和部署准备都会报错。
 
 行函数返回的错误只需携带业务原因与字段路径，包装补充 converter 和样本位置。
 输入行全部通过后才开始发布；输出 writer、宿主指针和池内字符串均只在同步调用期间借用，不能保存。

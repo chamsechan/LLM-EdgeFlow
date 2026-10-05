@@ -30,10 +30,8 @@ nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {
     ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
 
   return {{"converter_id", conv.converter_id},
-          {"transport", "operator"},
           {"schema_id", conv.schema_id},
           {"external_type", ExternalType(conv.external_slots)},
-          {"max_batch_size", conv.max_batch_size},
           {"external_slots", std::move(slots)},
           {"logical_ports", std::move(ports)}};
 }
@@ -46,17 +44,14 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
     ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
 
   return {{"converter_id", conv.converter_id},
-          {"transport", "operator"},
           {"schema_id", conv.schema_id},
           {"external_type", ExternalType(conv.external_slots)},
-          {"max_batch_size", conv.max_batch_size},
           {"external_slots", std::move(slots)},
           {"logical_ports", std::move(ports)}};
 }
 
 nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
   return {{"biz_name", b.biz_name},
-          {"transport", "operator"},
           {"input_converter_id", b.input_converter_id},
           {"output_converter_id", b.output_converter_id},
           {"max_batch_size", b.max_batch_size}};

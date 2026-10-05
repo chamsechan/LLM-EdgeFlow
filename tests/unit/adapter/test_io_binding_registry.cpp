@@ -90,7 +90,6 @@ class IoBindingRegistryTest : public ::testing::Test {
     in_def.external_slots = {
         ExternalSlotDefinition("entity_in", "CompanyOperatorEntityInput",
                                PortDirection::kInput, true, "entity_in")};
-    in_def.max_batch_size = 64;
     in_def.logical_ports = {
         NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
     in_def.decode_fn = &DummyDecode;
@@ -103,7 +102,6 @@ class IoBindingRegistryTest : public ::testing::Test {
     out_def.external_slots = {
         ExternalSlotDefinition("entity_out", "CompanyOperatorEntityOutput",
                                PortDirection::kOutput, true, "entity_out")};
-    out_def.max_batch_size = 64;
     out_def.logical_ports = {
         NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
     out_def.encode_fn = &DummyEncode;
@@ -122,7 +120,8 @@ class IoBindingRegistryTest : public ::testing::Test {
     IoBindingRegistry::Instance().ClearForTesting();
   }
 
-  void RegisterTestBizBinding(size_t max_batch_size = 0) {
+  void RegisterTestBizBinding(
+      size_t max_batch_size = kDefaultIoBindingMaxBatchSize) {
     IoBindingDefinition binding;
     binding.biz_name = "test_biz";
 
@@ -235,15 +234,6 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
 
 TEST_F(IoBindingRegistryTest,
        AuditAndPreparationRejectBindingWithoutBatchLimit) {
-  auto input =
-      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
-  auto output =
-      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
-  IoConverterRegistry::Instance().ClearForTesting();
-  input.max_batch_size = 0;
-  output.max_batch_size = 0;
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
   RegisterTestBizBinding(0);
 
   std::vector<std::string> errors;
@@ -263,19 +253,10 @@ TEST_F(IoBindingRegistryTest,
 }
 
 TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
-  auto input =
-      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
-  auto output =
-      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
-  IoConverterRegistry::Instance().ClearForTesting();
-  input.max_batch_size = 0;
-  output.max_batch_size = 0;
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
   IoBindingDefinition binding;
   binding.biz_name = "test_biz";
-  binding.input_converter_id = input.converter_id;
-  binding.output_converter_id = output.converter_id;
+  binding.input_converter_id = "test.in.operator";
+  binding.output_converter_id = "test.out.operator";
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
   std::vector<std::string> errors;
   EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
@@ -1088,44 +1069,20 @@ TEST_F(IoBindingRegistryTest, SecondBindingForSameBizIsRejected) {
   EXPECT_EQ(prepared.output_specs.at("entity_out").type, "keyword_out");
 }
 
-TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIncludesBindingBound) {
-  // 0 表示该来源不设上限；取最小的正值。
-  struct Limits {
-    size_t binding;
-    size_t input;
-    size_t output;
-    size_t expected;
-  };
-  const Limits cases[] = {
-      {1, 64, 64, 1},    {0, 64, 64, 64}, {0, 8, 16, 8},
-      {128, 64, 64, 64}, {128, 8, 64, 8}, {128, 64, 16, 16},
-      {64, 0, 0, 64},    {0, 0, 16, 16},  {32, 0, 64, 32},
-  };
-  auto input =
-      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
-  auto output =
-      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
+TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIsBindingLimit) {
   const nlohmann::json document = {
       {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"pipeline", DefaultPipelineNodes()}};
-  for (const auto& limits : cases) {
-    SCOPED_TRACE(::testing::Message()
-                 << "binding=" << limits.binding << ", input=" << limits.input
-                 << ", output=" << limits.output);
+  for (size_t limit : {1U, 32U, 128U}) {
+    SCOPED_TRACE(::testing::Message() << "binding=" << limit);
     IoBindingRegistry::Instance().ClearForTesting();
-    IoConverterRegistry::Instance().ClearForTesting();
-    input.max_batch_size = limits.input;
-    output.max_batch_size = limits.output;
-    ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-    ASSERT_TRUE(
-        IoConverterRegistry::Instance().RegisterOutputConverter(output));
-    RegisterTestBizBinding(limits.binding);
+    RegisterTestBizBinding(limit);
 
     PreparedDeployment prepared;
     DeploymentDiagnostic diagnostic;
     ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
         << diagnostic.message;
-    EXPECT_EQ(prepared.effective_max_batch_size, limits.expected);
+    EXPECT_EQ(prepared.effective_max_batch_size, limit);
   }
 }
 
