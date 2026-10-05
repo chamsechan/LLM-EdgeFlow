@@ -83,26 +83,27 @@ class ExplicitMap final : public LegacyNodeBase {
   BoundOutput<TextBatch> output_{"output"};
 };
 std::string Identity(const std::string& s) { return s; }
-auto ProbeMapSpec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
-                     &Identity);
-}
 struct Inputs {
   const TextBatch* input{};
 };
+NodeResult<TextBatch> RunMap(const Inputs& in) {
+  return MapPayloads(*in.input, &Identity);
+}
+auto ProbeMapSpec() {
+  return MakeNodeSpec(InputsOf<Inputs>({Required("input", &Inputs::input)}),
+                      PreservedOutput<TextBatch>("output", "input"), &RunMap);
+}
 struct Models {
   LlmCall llm;
 };
-NodeResult<TextBatch> RunBatch(const Inputs& in, const NoParameters&,
-                               const Models& models) {
+NodeResult<TextBatch> RunBatch(const Inputs& in, const Models& models) {
   if (in.input->empty()) return TextBatch{};
   auto prompts = MapPayloads(*in.input, &Identity);
   auto answer = models.llm.Generate(prompts, GenerateOptions{});
   if (!answer.ok()) return answer;
   return MapPayloads(answer.value(), &Identity);
 }
-NodeResult<TextBatch> RunBatchInPlace(const Inputs& in, const NoParameters&,
-                                      const Models& models) {
+NodeResult<TextBatch> RunBatchInPlace(const Inputs& in, const Models& models) {
   if (in.input->empty()) return TextBatch{};
   auto prompts = MapPayloads(*in.input, &Identity);
   auto answer = models.llm.Generate(prompts, GenerateOptions{});
@@ -112,16 +113,16 @@ NodeResult<TextBatch> RunBatchInPlace(const Inputs& in, const NoParameters&,
   return output;
 }
 auto ProbeBatchSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<Inputs>({Required("input", &Inputs::input)}),
       PreservedOutput<TextBatch>("output", "input"),
-      ModelsOf<Models>({Llm("llm", "bind_model", &Models::llm)}), &RunBatch);
+      ModelsOf<Models>({Model("llm", "bind_model", &Models::llm)}), &RunBatch);
 }
 auto ProbeBatchInPlaceSpec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
       InputsOf<Inputs>({Required("input", &Inputs::input)}),
       PreservedOutput<TextBatch>("output", "input"),
-      ModelsOf<Models>({Llm("llm", "bind_model", &Models::llm)}),
+      ModelsOf<Models>({Model("llm", "bind_model", &Models::llm)}),
       &RunBatchInPlace);
 }
 REGISTER_FUNCTION_NODE(ProbeBatchInPlace, ProbeBatchInPlaceSpec());

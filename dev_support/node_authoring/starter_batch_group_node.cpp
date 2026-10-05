@@ -11,14 +11,11 @@ struct Inputs {
   const TextBatch* references = nullptr;
 };
 
-struct Options {};
-
 struct Models {
   LlmCall generator;
 };
 
-NodeResult<TextBatch> Run(const Inputs& inputs, const Options& /*options*/,
-                          const Models& models) {
+NodeResult<TextBatch> Run(const Inputs& inputs, const Models& models) {
   if (!inputs.queries || inputs.queries->empty()) {
     return NodeResult<TextBatch>::Success(TextBatch{});
   }
@@ -54,17 +51,16 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& /*options*/,
 }
 
 auto Spec() {
-  return MakeBatchSpec(InputsOf<Inputs>({
-                           Required("queries", &Inputs::queries),
-                           Optional("references", &Inputs::references,
-                                    InputFlow::AggregateByRequest),
-                       }),
-                       PreservedOutput<TextBatch>("output", "queries"),
-                       Parameters<Options>({}),
-                       ModelsOf<Models>({
-                           Llm("generator", "bind_model", &Models::generator),
-                       }),
-                       &Run)
+  return MakeNodeSpec(InputsOf<Inputs>({
+                          Required("queries", &Inputs::queries),
+                          Optional("references", &Inputs::references,
+                                   InputFlow::AggregateByRequest),
+                      }),
+                      PreservedOutput<TextBatch>("output", "queries"),
+                      ModelsOf<Models>({
+                          Model("generator", "bind_model", &Models::generator),
+                      }),
+                      &Run)
       .Description(
           "Batch starter with traceable GroupByRequest reference aggregation");
 }

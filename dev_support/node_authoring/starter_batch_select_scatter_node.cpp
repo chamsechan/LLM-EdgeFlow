@@ -10,7 +10,7 @@ struct Inputs {
   const TextBatch* input = nullptr;
 };
 
-struct Options {
+struct Params {
   std::string polish_tag = "[POLISH]";
 };
 
@@ -19,7 +19,7 @@ struct Models {
   LlmCall polisher;
 };
 
-NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
                           const Models& models) {
   if (!inputs.input || inputs.input->empty()) {
     return NodeResult<TextBatch>::Success(TextBatch{});
@@ -35,7 +35,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
 
   // 第 2 步：选出需要润色的条目 (包含 polish_tag)
   auto selection_res = SelectBatch(drafts, [&](const std::string& text) {
-    return text.find(options.polish_tag) != std::string::npos;
+    return text.find(params.polish_tag) != std::string::npos;
   });
   if (!selection_res.ok()) {
     return NodeResult<TextBatch>::Failure(
@@ -62,17 +62,17 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
 }
 
 auto Spec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
              InputsOf<Inputs>({
                  Required("input", &Inputs::input),
              }),
              PreservedOutput<TextBatch>("output", "input"),
-             Parameters<Options>({
-                 Field("polish_tag", &Options::polish_tag).Default("[POLISH]"),
+             Parameters<Params>({
+                 Field("polish_tag", &Params::polish_tag).Default("[POLISH]"),
              }),
              ModelsOf<Models>({
-                 Llm("generator", "bind_model", &Models::generator),
-                 Llm("polisher", "polish_model", &Models::polisher),
+                 Model("generator", "bind_model", &Models::generator),
+                 Model("polisher", "polish_model", &Models::polisher),
              }),
              &Run)
       .Description(

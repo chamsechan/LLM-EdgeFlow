@@ -52,13 +52,12 @@ endforeach()
 # 本脚本自身不维护重复的签名列表。
 file(READ "${FUNCTION_NODE_HEADER}" contract_text)
 string(REGEX REPLACE "\"[ \t\r\n]+\"" "" contract_text "${contract_text}")
-string(REGEX MATCHALL
-  "(NodeResult<OutputBatch> Run|std::string (BuildPrompt|FormatAnswer))\\([^)]*\\)"
+string(REGEX MATCHALL "NodeResult<OutputBatch> Run\\([^)]*\\)"
   signatures "${contract_text}")
 list(REMOVE_DUPLICATES signatures)
 list(LENGTH signatures signature_count)
-if(signature_count LESS 7)
-  message(FATAL_ERROR "Extracted only ${signature_count} canonical signatures; require at least 7")
+if(signature_count LESS 1)
+  message(FATAL_ERROR "No canonical Run signature found in ${FUNCTION_NODE_HEADER}")
 endif()
 file(READ "${CONCEPTS_DOC}" concepts_text)
 foreach(signature IN LISTS signatures)

@@ -13,8 +13,7 @@ struct Models {
   OcrCall detector;
 };
 
-NodeResult<Outputs> Recognize(const Inputs& inputs, const NoParameters&,
-                              const Models& models) {
+NodeResult<Outputs> Run(const Inputs& inputs, const Models& models) {
   auto result = models.detector.Recognize(*inputs.images);
   if (!result.ok()) return NodeResult<Outputs>::Failure(result.failure());
   Outputs outputs;
@@ -27,22 +26,21 @@ NodeResult<Outputs> Recognize(const Inputs& inputs, const NoParameters&,
   return NodeResult<Outputs>::Success(std::move(outputs));
 }
 
-auto OcrDetectSpec() {
-  return MakeBatchSpec(
+auto Spec() {
+  return MakeNodeSpec(
              InputsOf<Inputs>{Required("images", &Inputs::images)},
              OutputsOf<Outputs>(
                  {Produced("document", &Outputs::document, "images"),
                   Produced("text", &Outputs::text, "images")}),
-             Parameters<NoParameters>{},
              ModelsOf<Models>{Model("detector", "bind_model", &Models::detector,
                                     "引用 models[].model_id；所选模型必须提供 "
                                     "ocr 文档识别能力。")},
-             &Recognize)
+             &Run)
       .Category("common")
       .ParallelSafe(true)
       .Description("OCR visual document detection and text recognition node");
 }
 
-REGISTER_FUNCTION_NODE(OcrDetectNode, OcrDetectSpec());
+REGISTER_FUNCTION_NODE(OcrDetectNode, Spec());
 }  // namespace
 }  // namespace llm_edgeflow

@@ -32,7 +32,6 @@ namespace llm_edgeflow {
   X(kConfigFieldRange, "CONFIG_FIELD_RANGE")                     \
   X(kConfigFieldEnum, "CONFIG_FIELD_ENUM")                       \
   X(kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE")           \
-  X(kNodeBizMismatch, "NODE_BIZ_MISMATCH")                       \
   X(kMissingInputProducer, "MISSING_INPUT_PRODUCER")             \
   X(kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER")           \
   X(kMissingBizOutput, "MISSING_BIZ_OUTPUT")                     \

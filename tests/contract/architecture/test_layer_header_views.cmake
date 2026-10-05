@@ -158,28 +158,25 @@ function(check_authoring_snippet case_name body expected_diagnostic)
   endif()
 endfunction()
 
-check_authoring_snippet(valid_map [=[
+check_authoring_snippet(valid_node [=[
+struct Inputs { const TextBatch* input = nullptr; };
 std::string Clean(const std::string& input) { return input; }
-auto Spec() {
-  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"), &Clean);
+NodeResult<TextBatch> Run(const Inputs& inputs) {
+  return MapPayloads(*inputs.input, &Clean);
 }
-REGISTER_FUNCTION_NODE(HeaderOnlyMapNode, Spec());
+auto Spec() {
+  return MakeNodeSpec(InputsOf<Inputs>{Required("input", &Inputs::input)},
+                      PreservedOutput<TextBatch>("output", "input"), &Run);
+}
+REGISTER_FUNCTION_NODE(HeaderOnlyNode, Spec());
 ]=] "")
 
-check_authoring_snippet(wrong_map_signature [=[
-std::string Wrong(int input) { return std::to_string(input); }
-auto spec = MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"), &Wrong);
-]=] "Map function must accept either")
-
-check_authoring_snippet(unknown_batch [=[
-struct UnknownBatch {};
-Input<UnknownBatch> input("input");
-]=] "Input batch type must be a vector of TraceableItem<T>")
-
-check_authoring_snippet(wrong_model_member [=[
-struct Models { EmbeddingCall generator; };
-auto slot = Llm("generator", "bind_model", &Models::generator);
-]=] "no matching function" "LlmCall")
+check_authoring_snippet(wrong_run_signature [=[
+struct Inputs { const TextBatch* input = nullptr; };
+NodeResult<TextBatch> Run(int input) { return TextBatch{}; }
+auto spec = MakeNodeSpec(InputsOf<Inputs>{Required("input", &Inputs::input)},
+                         PreservedOutput<TextBatch>("output", "input"), &Run);
+]=] "Node Run must be callable as")
 
 # 通过增量、无依赖的夹具验证实际的 CMake 模块。
 # 复用常规生成器，包括父项目使用 multi-config 的情况。

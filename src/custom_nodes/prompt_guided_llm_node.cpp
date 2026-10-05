@@ -15,7 +15,7 @@ namespace custom_nodes {
 namespace {
 
 // 初始化后供处理阶段使用的普通自有配置。
-struct PromptConfig {
+struct Params {
   std::vector<TextTemplateToken> prompt_parts;
   bool uses_context = false;
   std::string prompt_prefix;
@@ -25,7 +25,7 @@ struct PromptConfig {
 
 // 字段已校验并填充默认值。此处只保留本 Node 的语义转换；
 // 请求值从不进入配置解析。
-bool ParsePromptConfig(const nlohmann::json& config, PromptConfig* parameters,
+bool ParsePromptConfig(const nlohmann::json& config, Params* parameters,
                        std::string* error) {
   auto reject = [&](const std::string& message) {
     if (error) *error = message;
@@ -90,9 +90,9 @@ std::vector<ConfigFieldDefinition> PromptConfigFields() {
   return fields;
 }
 
-const NodeConfigParser<PromptConfig>& PromptConfiguration() {
-  static const NodeConfigParser<PromptConfig> parser(PromptConfigFields(),
-                                                     ParsePromptConfig);
+const NodeConfigParser<Params>& PromptConfiguration() {
+  static const NodeConfigParser<Params> parser(PromptConfigFields(),
+                                               ParsePromptConfig);
   return parser;
 }
 
@@ -148,9 +148,8 @@ struct Models {
   LlmCall generator;
 };
 
-NodeResult<TextBatch> GeneratePrompt(const Inputs& inputs,
-                                     const PromptConfig& params,
-                                     const Models& models) {
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
+                          const Models& models) {
   if (inputs.input->empty()) return NodeResult<TextBatch>::Success({});
   if (params.uses_context && !inputs.context) {
     return NodeResult<TextBatch>::Failure(
@@ -181,9 +180,9 @@ NodeResult<TextBatch> GeneratePrompt(const Inputs& inputs,
   return result;
 }
 
-auto PromptGuidedSpec() {
-  auto params = Parameters<PromptConfig>{}.WithParser(PromptConfiguration());
-  params.ValidateBindings([](const PromptConfig& config,
+auto Spec() {
+  auto params = Parameters<Params>{}.WithParser(PromptConfiguration());
+  params.ValidateBindings([](const Params& config,
                              const std::unordered_set<std::string>& inputs,
                              std::string* error) {
     if (config.uses_context && inputs.count("context") == 0) {
@@ -193,7 +192,7 @@ auto PromptGuidedSpec() {
     }
     return true;
   });
-  return MakeBatchSpec(
+  return MakeNodeSpec(
              InputsOf<Inputs>{Required("input", &Inputs::input),
                               OptionalValue("context", &Inputs::context,
                                             InputFlow::AggregateByRequest)},
@@ -202,7 +201,7 @@ auto PromptGuidedSpec() {
                                     &Models::generator,
                                     "引用 models[].model_id；所选模型必须提供 "
                                     "llm 文本生成能力。")},
-             &GeneratePrompt)
+             &Run)
       .Category("custom")
       .ParallelSafe(true)
       .Description(
@@ -210,7 +209,7 @@ auto PromptGuidedSpec() {
           "and response post-processing using {{input}}/{{context}} templates");
 }
 
-REGISTER_FUNCTION_NODE(PromptGuidedLlmNode, PromptGuidedSpec());
+REGISTER_FUNCTION_NODE(PromptGuidedLlmNode, Spec());
 
 }  // namespace
 }  // namespace custom_nodes

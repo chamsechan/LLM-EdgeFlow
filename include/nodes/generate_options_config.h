@@ -9,6 +9,7 @@
 
 #include "contracts/config_schema.h"
 #include "contracts/inference_payloads.h"
+#include "nodes/parameter_binding.h"
 
 namespace llm_edgeflow {
 
@@ -102,6 +103,14 @@ inline bool ParseGenerateOptions(const nlohmann::json& config,
   } catch (const std::exception& error) {
     return reject(error.what());
   }
+}
+
+// 参数只有生成选项的 LLM Node 使用：生成参数由节点配置提供。
+inline Parameters<GenerateOptions> GenerateParameters(int default_max_tokens) {
+  Parameters<GenerateOptions> params;
+  params.WithParser(NodeConfigParser<GenerateOptions>(
+      GenerateOptionsFields(default_max_tokens), ParseGenerateOptions));
+  return params;
 }
 
 }  // namespace llm_edgeflow

@@ -6,7 +6,11 @@ namespace llm_edgeflow {
 namespace custom_nodes {
 namespace StarterControlNode_impl {
 
-struct StarterControlNodeParams {
+struct Inputs {
+  const TextBatch* input = nullptr;
+};
+
+struct Params {
   std::string prefix;
 };
 
@@ -14,24 +18,25 @@ struct StarterControlNodeParams {
 inline constexpr int kUpdatePrefix = 1001;
 
 // 业务逻辑处理普通数据，而非平台结构。
-static std::string ApplyPrefix(const std::string& input,
-                               const StarterControlNodeParams& params) {
-  return params.prefix + input;
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params) {
+  return MapPayloads(*inputs.input, [&params](const std::string& text) {
+    return params.prefix + text;
+  });
 }
 
-auto StarterControlNodeSpec() {
-  return MakeMapSpec(
-             Input<TextBatch>("input"), Output<TextBatch>("output"),
-             Parameters<StarterControlNodeParams>(
+auto Spec() {
+  return MakeNodeSpec(
+             InputsOf<Inputs>{Required("input", &Inputs::input)},
+             PreservedOutput<TextBatch>("output", "input"),
+             Parameters<Params>(
                  {
-                     Field("prefix", &StarterControlNodeParams::prefix)
+                     Field("prefix", &Params::prefix)
                          .Default("")
                          .Description(
                              "Text prepended to each input; at most 64 UTF-8 "
                              "bytes. Control replaces this initial value."),
                  })
-                 .Validate([](const StarterControlNodeParams& params,
-                              std::string* diagnostic) {
+                 .Validate([](const Params& params, std::string* diagnostic) {
                    if (params.prefix.size() > 64) {
                      if (diagnostic) {
                        *diagnostic = "prefix exceeds 64 UTF-8 bytes";
@@ -40,7 +45,7 @@ auto StarterControlNodeSpec() {
                    }
                    return true;
                  }),
-             &ApplyPrefix)
+             &Run)
       .Description("Control authoring starter")
       .WithControls({
           ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"},
@@ -48,7 +53,7 @@ auto StarterControlNodeSpec() {
       });
 }
 
-REGISTER_FUNCTION_NODE(StarterControlNode, StarterControlNodeSpec());
+REGISTER_FUNCTION_NODE(StarterControlNode, Spec());
 
 }  // namespace StarterControlNode_impl
 }  // namespace custom_nodes

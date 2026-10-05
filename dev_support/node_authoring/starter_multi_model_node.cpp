@@ -16,8 +16,7 @@ struct Models {
   EmbeddingCall encoder;
 };
 
-NodeResult<TextBatch> Run(const Inputs& inputs, const NoParameters&,
-                          const Models& models) {
+NodeResult<TextBatch> Run(const Inputs& inputs, const Models& models) {
   auto embeddings = models.encoder.Embed(*inputs.questions);
   if (!embeddings.ok()) {
     return NodeResult<TextBatch>::Failure(
@@ -41,12 +40,12 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const NoParameters&,
 }
 
 auto Spec() {
-  return MakeBatchSpec(
+  return MakeNodeSpec(
              InputsOf<Inputs>({Required("questions", &Inputs::questions)}),
              PreservedOutput<TextBatch>("output", "questions"),
              ModelsOf<Models>({
-                 Llm("generator", "bind_llm", &Models::generator),
-                 Embedding("encoder", "bind_embedding", &Models::encoder),
+                 Model("generator", "bind_llm", &Models::generator),
+                 Model("encoder", "bind_embedding", &Models::encoder),
              }),
              &Run)
       .Description(
