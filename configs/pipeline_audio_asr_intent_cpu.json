@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "audio_asr_intent.operator.v1"
+      "io_binding": "audio_asr_intent"
     }
   },
   "models": [

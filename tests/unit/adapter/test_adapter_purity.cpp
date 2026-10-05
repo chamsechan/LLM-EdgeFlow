@@ -137,11 +137,11 @@ struct AudioOutputFixture {
 // =========================================================================
 
 TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "doc_query.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("doc_query.plain");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -192,11 +192,11 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "text.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "keyword.result.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -223,11 +223,11 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "text.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "document.structured.operator.v1");
+      "document.structured");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -253,11 +253,11 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audit.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_result.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -294,11 +294,11 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "image_query.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("image_query.plain");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "invoice_result.plain.operator.v1");
+      "invoice_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   std::string path_str = "/path/invoice.jpg";
@@ -357,11 +357,11 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audio.pcm.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audio.pcm");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audio_result.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("audio_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -393,11 +393,11 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "rerank.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("rerank.plain");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "rerank_result.plain.operator.v1");
+      "rerank_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -437,11 +437,11 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
 }
 
 TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "translate.json.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("translate.json");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "translate.json.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -472,8 +472,8 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
 // =========================================================================
 
 TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(out_conv, nullptr);
 
   // 情形 1：缺少 llm_answers
@@ -548,8 +548,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 
 TEST_F(AdapterPurityTest,
        DialogueAuditAdapter_FailClosedWhenMissingStructuredFields) {
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_result.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(out_conv);
@@ -574,8 +574,8 @@ TEST_F(AdapterPurityTest,
 }
 
 TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_result.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   for (const auto parse_status :
@@ -612,8 +612,8 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
 }
 
 TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "keyword.result.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
   ASSERT_NE(out_conv, nullptr);
 
   for (const auto& ids :
@@ -632,8 +632,8 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
 }
 
 TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audit.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
   ASSERT_NE(in_conv, nullptr);
 
   const std::string valid_channel(256, 'c');
@@ -672,8 +672,8 @@ TEST_F(AdapterPurityTest,
               RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
   ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
 
-  const auto* op_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* op_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(op_conv, nullptr);
 
   OutputEncodeOptions options;
@@ -731,8 +731,8 @@ TEST_F(AdapterPurityTest,
 }
 
 TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
-  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* converter =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(converter, nullptr);
   const std::vector<uint64_t> request_ids{42};
   OutputEncodeOptions options;
@@ -787,8 +787,8 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
 }
 
 TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "translate.json.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("translate.json");
   ASSERT_NE(in_conv, nullptr);
 
   test::AdapterHarness harness(in_conv);
@@ -809,11 +809,11 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
 }
 
 TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "translate.json.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("translate.json");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "translate.json.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -847,8 +847,8 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
 }
 
 TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "translate.json.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("translate.json");
   ASSERT_NE(in_conv, nullptr);
 
   test::AdapterHarness harness(in_conv);
@@ -870,8 +870,8 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
 }
 
 TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(out_conv);
@@ -914,23 +914,23 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
 // 并通过测试 binding 证明可复用
 TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   const auto* entity_binding =
-      IoBindingRegistry::Instance().FindBinding("entity_extract.operator.v1");
+      IoBindingRegistry::Instance().FindBinding("entity_extract");
   ASSERT_NE(entity_binding, nullptr);
   const auto* keyword_binding =
-      IoBindingRegistry::Instance().FindBinding("keyword_match.operator.v1");
+      IoBindingRegistry::Instance().FindBinding("keyword_match");
   ASSERT_NE(keyword_binding, nullptr);
 
-  EXPECT_EQ(entity_binding->input_converter_id, "text.plain.operator.v1");
-  EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain.operator.v1");
+  EXPECT_EQ(entity_binding->input_converter_id, "text.plain");
+  EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain");
 
-  const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "text.plain.operator.v1");
+  const auto* entity_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain");
   ASSERT_NE(entity_conv, nullptr);
   EXPECT_EQ(ExternalType(entity_conv->external_slots),
             "CompanyOperatorEntityInput");
 
-  const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "keyword.plain.operator.v1");
+  const auto* keyword_conv =
+      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
   ASSERT_NE(keyword_conv, nullptr);
   EXPECT_EQ(ExternalType(keyword_conv->external_slots),
             "CompanyOperatorKeywordInput");
@@ -963,26 +963,25 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
     EXPECT_EQ((*sentences)[0].data, "keyword sentence");
   }
 
-  // 跨业务复用证明：在测试专用业务的绑定中复用 text.plain.operator.v1
+  // 跨业务复用证明：在测试专用业务的绑定中复用 text.plain
   {
     auto reuse_biz = *PipelineCatalog::FindBiz("entity_extract");
     reuse_biz.biz_name = "test_purity_reuse";
     PipelineCatalog::RegisterBizDefinition(reuse_biz);
     IoBindingDefinition test_reuse_binding;
-    test_reuse_binding.binding_id = "test_purity_reuse.operator.v1";
     test_reuse_binding.biz_name = reuse_biz.biz_name;
 
-    test_reuse_binding.input_converter_id = "text.plain.operator.v1";
-    test_reuse_binding.output_converter_id = "document.structured.operator.v1";
+    test_reuse_binding.input_converter_id = "text.plain";
+    test_reuse_binding.output_converter_id = "document.structured";
     test_reuse_binding.max_batch_size = 64;
     if (!IoBindingRegistry::Instance().FindBinding(
-            test_reuse_binding.binding_id)) {
+            test_reuse_binding.biz_name)) {
       ASSERT_TRUE(
           IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding));
     }
 
-    const auto* b_test = IoBindingRegistry::Instance().FindBinding(
-        "test_purity_reuse.operator.v1");
+    const auto* b_test =
+        IoBindingRegistry::Instance().FindBinding("test_purity_reuse");
     ASSERT_NE(b_test, nullptr);
     EXPECT_EQ(b_test->input_converter_id, entity_binding->input_converter_id);
   }
@@ -991,7 +990,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
 // 证明 2：输出 Converter 可跨 Pipeline 复用
 TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "document.structured.operator.v1");
+      "document.structured");
   ASSERT_NE(out_conv, nullptr);
 
   // 上下文 A：实体抽取 Pipeline 的输出
@@ -1035,7 +1034,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
 TEST_F(AdapterPurityTest,
        ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
   InputConverterDefinition custom_in_def;
-  custom_in_def.converter_id = "test.multi_field.operator.v1";
+  custom_in_def.converter_id = "test.multi_field";
 
   custom_in_def.schema_id = "multi_field.request";
   custom_in_def.external_slots = {
@@ -1066,11 +1065,11 @@ TEST_F(AdapterPurityTest,
   EXPECT_TRUE(
       IoConverterRegistry::Instance().RegisterInputConverter(custom_in_def));
 
-  // 格式 A：经 text.plain.operator.v1 的 CompanyOperatorEntityInput
+  // 格式 A：经 text.plain 的 CompanyOperatorEntityInput
   AlgContext ctx_a;
   {
-    const auto* in_a = IoConverterRegistry::Instance().FindInputConverter(
-        "text.plain.operator.v1");
+    const auto* in_a =
+        IoConverterRegistry::Instance().FindInputConverter("text.plain");
     ASSERT_NE(in_a, nullptr);
     std::string text_str = "AI: Revolution in robotics";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
@@ -1090,11 +1089,11 @@ TEST_F(AdapterPurityTest,
     ASSERT_EQ(in_a->decode_fn(view, opts, &ctx_a, &st), 0);
   }
 
-  // 格式 B：经 test.multi_field.operator.v1 的 CustomMultiFieldInput
+  // 格式 B：经 test.multi_field 的 CustomMultiFieldInput
   AlgContext ctx_b;
   {
-    const auto* in_b = IoConverterRegistry::Instance().FindInputConverter(
-        "test.multi_field.operator.v1");
+    const auto* in_b =
+        IoConverterRegistry::Instance().FindInputConverter("test.multi_field");
     ASSERT_NE(in_b, nullptr);
     CustomMultiFieldInput req_b{777, "AI", "Revolution in robotics"};
     ExternalInputBatchView view;
@@ -1121,11 +1120,11 @@ TEST_F(AdapterPurityTest,
 
 // 证明 4：同一 Pipeline 可独立切换输出格式
 TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
-  // 输出 binding A：document.structured.operator.v1 ->
+  // 输出 binding A：document.structured ->
   // CompanyOperatorEntityOutput
   {
     const auto* out_a = IoConverterRegistry::Instance().FindOutputConverter(
-        "document.structured.operator.v1");
+        "document.structured");
     ASSERT_NE(out_a, nullptr);
     EntityOutputFixture fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {fix.out};
@@ -1142,11 +1141,11 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     EXPECT_STREQ(outputs[0].entities_json->data, "[\"item_1\"]");
   }
 
-  // 输出 binding B：keyword.result.operator.v1 ->
+  // 输出 binding B：keyword.result ->
   // CompanyOperatorKeywordOutput
   {
-    const auto* out_b = IoConverterRegistry::Instance().FindOutputConverter(
-        "keyword.result.operator.v1");
+    const auto* out_b =
+        IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
     ASSERT_NE(out_b, nullptr);
     KeywordOutputFixture fix;
     std::vector<CompanyOperatorKeywordOutput> outputs = {fix.out};
@@ -1167,11 +1166,11 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
 
 // 证明 5：同一载体承载不同 schema
 TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
-  const auto* plain_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "text.plain.operator.v1");
+  const auto* plain_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain");
   ASSERT_NE(plain_conv, nullptr);
-  const auto* json_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "translate.json.operator.v1");
+  const auto* json_conv =
+      IoConverterRegistry::Instance().FindInputConverter("translate.json");
   ASSERT_NE(json_conv, nullptr);
 
   // Payload 1：纯文本 "Hello plain text"
@@ -1189,7 +1188,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   InputDecodeOptions opts;
   opts.request_ids = &request_ids;
 
-  // text.plain.operator.v1 将其作为纯文本接受
+  // text.plain 将其作为纯文本接受
   {
     AlgContext ctx;
     AdapterStatus st;
@@ -1200,7 +1199,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     EXPECT_EQ((*s)[0].data, "Hello plain text");
   }
 
-  // translate.json.operator.v1 因其不是 JSON 而拒绝
+  // translate.json 因其不是 JSON 而拒绝
   {
     AlgContext ctx;
     AdapterStatus st;
@@ -1219,7 +1218,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   json_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   json_view.count = 1;
 
-  // translate.json.operator.v1 解析成功并提取 "query"
+  // translate.json 解析成功并提取 "query"
   {
     AlgContext ctx;
     AdapterStatus st;
@@ -1247,7 +1246,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   nlohmann::json bad_binding_json = {
       {"deployment",
        {{"io",
-         {{"io_binding", "non_existent.binding.v999"},
+         {{"io_binding", "non_existent_biz"},
           {"out_mem",
            {{"keyword_out",
              {{"meta_num", 0},
@@ -1266,9 +1265,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   // 3. DeploymentIoConfig schema 校验拒绝非法/旧格式
   nlohmann::json invalid_version_json = {
       {"schema_version", 999},
-      {"data",
-       {{"pipe_path", "test.json"},
-        {"io_binding", "keyword_match.operator.v1"}}}};
+      {"data", {{"pipe_path", "test.json"}, {"io_binding", "keyword_match"}}}};
   DeploymentIoConfig parsed_cfg;
   EXPECT_FALSE(DeploymentIoConfig::Parse(invalid_version_json, ".", &parsed_cfg,
                                          &error));
@@ -1278,7 +1275,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   nlohmann::json unknown_out_json = {
       {"deployment",
        {{"io",
-         {{"io_binding", "keyword_match.operator.v1"},
+         {{"io_binding", "keyword_match"},
           {"out_mem", {{"unknown_slot", nlohmann::json::object()}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", valid_pipeline}};
@@ -1293,7 +1290,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
       {"deployment",
        {{"model_paths", {{"non_existent_model", "dummy_path"}}},
         {"io",
-         {{"io_binding", "keyword_match.operator.v1"},
+         {{"io_binding", "keyword_match"},
           {"out_mem",
            {{"keyword_out",
              {{"meta_num", 0},

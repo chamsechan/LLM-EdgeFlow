@@ -229,7 +229,7 @@ class DevRecipeTest(unittest.TestCase):
         report = self.prepare()
         self.assertTrue(report["ok"], report)
         generated = json.loads(self.target.read_text())
-        self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match.operator.v1"})
+        self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match"})
         self.assertTrue(self.verify()["ok"])
 
     def test_legacy_mem_que_deployment_rejected_as_missing_outputs(self):
@@ -245,7 +245,7 @@ class DevRecipeTest(unittest.TestCase):
         for invalid in (
             dict(labelled, samples=[{"request_id": 20001, "expected": {"/status": 0}}]),
             dict(labelled, samples=[labelled["samples"][0], labelled["samples"][0]]),
-            dict(labelled, io_binding="entity_extract.operator.v1"),
+            dict(labelled, io_binding="entity_extract"),
         ):
             with self.subTest(spec=invalid):
                 source.write_text(json.dumps(invalid))

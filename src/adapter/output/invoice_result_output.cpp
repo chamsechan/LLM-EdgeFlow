@@ -87,7 +87,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "invoice_result.plain.operator.v1";
+  def.converter_id = "invoice_result.plain";
 
   def.schema_id = "invoice_result.plain.response";
 

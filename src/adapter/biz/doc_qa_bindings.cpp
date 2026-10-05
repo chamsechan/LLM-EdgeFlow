@@ -28,11 +28,9 @@ const bool g_reg_doc_qa_biz = []() {
 
 IoBindingDefinition MakeDocQaOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "doc_qa.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "doc_query.plain.operator.v1";
-  def.output_converter_id = "doc_answer.plain.operator.v1";
+  def.input_converter_id = "doc_query.plain";
+  def.output_converter_id = "doc_answer.plain";
   return def;
 }
 

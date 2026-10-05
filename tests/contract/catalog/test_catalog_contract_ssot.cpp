@@ -308,7 +308,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   ASSERT_EQ(catalog.at("output_converters").size(), 1U);
 
   const auto& input = catalog.at("input_converters").at(0);
-  EXPECT_EQ(input.at("converter_id"), "keyword.plain.operator.v1");
+  EXPECT_EQ(input.at("converter_id"), "keyword.plain");
   EXPECT_EQ(input.at("schema_id"), "text.plain.request");
   EXPECT_EQ(input.at("external_type"), "CompanyOperatorKeywordInput");
   ASSERT_EQ(input.at("external_slots").size(), 1U);
@@ -322,7 +322,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   EXPECT_EQ(input_slot.at("capacity_fields"), nlohmann::json::array());
 
   const auto& output = catalog.at("output_converters").at(0);
-  EXPECT_EQ(output.at("converter_id"), "keyword.result.operator.v1");
+  EXPECT_EQ(output.at("converter_id"), "keyword.result");
   EXPECT_EQ(output.at("schema_id"), "keyword.result.response");
   EXPECT_EQ(output.at("external_type"), "CompanyOperatorKeywordOutput");
   ASSERT_EQ(output.at("external_slots").size(), 1U);
@@ -356,10 +356,8 @@ TEST_F(CatalogContractSsotTest,
     }
   } scoped{registry.AllInputConverters(), registry.AllOutputConverters()};
 
-  const auto* original_input =
-      registry.FindInputConverter("keyword.plain.operator.v1");
-  const auto* original_output =
-      registry.FindOutputConverter("keyword.result.operator.v1");
+  const auto* original_input = registry.FindInputConverter("keyword.plain");
+  const auto* original_output = registry.FindOutputConverter("keyword.result");
   ASSERT_NE(original_input, nullptr);
   ASSERT_NE(original_output, nullptr);
   auto input = *original_input;

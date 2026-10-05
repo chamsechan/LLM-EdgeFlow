@@ -12,7 +12,7 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
   const nlohmann::json pipeline = {
       {"deployment",
        {{"io",
-         {{"io_binding", "keyword_match.operator.v1"},
+         {{"io_binding", "keyword_match"},
           {"out_mem",
            {{"keyword_out",
              {{"meta_num", 0},

@@ -29,11 +29,9 @@ const bool g_reg_dialogue_audit_biz = []() {
 
 IoBindingDefinition MakeDialogueAuditOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "dialogue_audit.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "audit.plain.operator.v1";
-  def.output_converter_id = "audit_result.plain.operator.v1";
+  def.input_converter_id = "audit.plain";
+  def.output_converter_id = "audit_result.plain";
   return def;
 }
 

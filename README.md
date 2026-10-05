@@ -76,7 +76,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 
 ```bash
 # 查询当前构建中可用的业务契约与节点
-./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
+./build/alg_pipeline_tool catalog --io-binding keyword_match
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 
 # 查看经过校验的执行计划

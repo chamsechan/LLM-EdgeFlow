@@ -39,7 +39,7 @@
 先查询当前构建，确认要复用的业务和节点：
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding entity_extract.operator.v1
+./build/alg_pipeline_tool catalog --io-binding entity_extract
 ./build/alg_pipeline_tool describe-node StructuredJsonParseNode
 ```
 

@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "dialogue_audit.operator.v1"
+      "io_binding": "dialogue_audit"
     }
   },
   "models": [

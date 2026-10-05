@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "cross_rerank.operator.v1"
+      "io_binding": "cross_rerank"
     }
   },
   "models": [

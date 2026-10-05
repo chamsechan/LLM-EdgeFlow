@@ -27,11 +27,9 @@ const bool g_reg_translate_biz = []() {
 
 IoBindingDefinition MakeTranslateOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "translate.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "translate.json.operator.v1";
-  def.output_converter_id = "translate.json.operator.v1";
+  def.input_converter_id = "translate.json";
+  def.output_converter_id = "translate.json";
   return def;
 }
 

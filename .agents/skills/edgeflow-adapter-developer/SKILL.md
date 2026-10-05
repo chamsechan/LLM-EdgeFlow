@@ -50,7 +50,7 @@ biz。Binding 的批次限制及池深收紧由共享 Integration 规则处理�
 ```bash
 cmake --build build --target edgeflow_test_adapter_runner alg_pipeline_tool -j 4
 ./build/edgeflow_test_adapter_runner --gtest_list_tests
-./build/alg_pipeline_tool catalog --io-binding <binding_id>
+./build/alg_pipeline_tool catalog --io-binding <biz_name>
 ```
 
 按改动运行列出的实际测试过滤器；业务契约测试须直接调用 Operator `Process`。

@@ -24,11 +24,11 @@ class ComplexConvertersTest : public ::testing::Test {};
 
 // ==================== DocQA ====================
 TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "doc_query.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("doc_query.plain");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(out_conv, nullptr);
 
   std::string doc_text = "Sample document text";
@@ -105,8 +105,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 
 TEST_F(ComplexConvertersTest,
        DocQaOutputPreservesEmbeddedNullAndRejectsSmallPool) {
-  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
-      "doc_answer.plain.operator.v1");
+  const auto* converter =
+      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
   ASSERT_NE(converter, nullptr);
   const std::string answer("a\0b", 3);
   AlgContext ctx;
@@ -148,11 +148,11 @@ TEST_F(ComplexConvertersTest,
 
 // ==================== CrossRerank ====================
 TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "rerank.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("rerank.plain");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "rerank_result.plain.operator.v1");
+      "rerank_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   std::string query_text = "how to rerank?";
@@ -215,11 +215,11 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
 
 // ==================== DialogueAudit ====================
 TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audit.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_result.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   std::string dialogue = "User text violating rules";
@@ -297,11 +297,11 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
 // ==================== AudioAsrIntent ====================
 TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audio.pcm.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audio.pcm");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audio_result.plain.operator.v1");
+  const auto* out_conv =
+      IoConverterRegistry::Instance().FindOutputConverter("audio_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<float> pcm = {0.1f, 0.2f, -0.1f};
@@ -371,11 +371,11 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
 // ==================== OcrInvoiceQa ====================
 TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "image_query.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("image_query.plain");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "invoice_result.plain.operator.v1");
+      "invoice_result.plain");
   ASSERT_NE(out_conv, nullptr);
 
   // 准备 Operator 输入：frame 和 string
@@ -481,7 +481,7 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
 // 审核输出 Converter 的逻辑端口与业务出口同名。
 TEST_F(ComplexConvertersTest, ComplianceBindingUsesBizPortNames) {
   const auto* binding =
-      IoBindingRegistry::Instance().FindBinding("dialogue_audit.operator.v1");
+      IoBindingRegistry::Instance().FindBinding("dialogue_audit");
   ASSERT_NE(binding, nullptr);
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
       binding->output_converter_id);

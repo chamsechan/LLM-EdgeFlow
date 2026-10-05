@@ -109,7 +109,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorRerankInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "rerank.plain.operator.v1";
+  def.converter_id = "rerank.plain";
 
   def.schema_id = "rerank.plain.request";
 

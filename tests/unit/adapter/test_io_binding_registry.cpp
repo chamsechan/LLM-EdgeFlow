@@ -111,7 +111,7 @@ class IoBindingRegistryTest : public ::testing::Test {
 
     // 注册业务契约
     BizDefinition biz;
-    biz.biz_name = "test_biz_v1";
+    biz.biz_name = "test_biz";
     biz.ingress = {BizPortDefinition("input_sentences", "TextBatch", true)};
     biz.egress = {BizPortDefinition("llm_answers", "TextBatch", true)};
     PipelineCatalog::RegisterBizDefinition(biz);
@@ -124,8 +124,7 @@ class IoBindingRegistryTest : public ::testing::Test {
 
   void RegisterTestBizBinding(size_t max_batch_size = 0) {
     IoBindingDefinition binding;
-    binding.binding_id = "test_biz.operator.v1";
-    binding.biz_name = "test_biz_v1";
+    binding.biz_name = "test_biz";
 
     binding.input_converter_id = "test.in.operator";
     binding.output_converter_id = "test.out.operator";
@@ -180,8 +179,7 @@ TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
   auto& reg = IoBindingRegistry::Instance();
 
   IoBindingDefinition binding;
-  binding.binding_id = "test_biz.operator.v1";
-  binding.biz_name = "test_biz_v1";
+  binding.biz_name = "test_biz";
 
   binding.input_converter_id = "test.in.operator";
   binding.output_converter_id = "test.out.operator";
@@ -198,7 +196,6 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
 
   // 1. 引用不存在的 biz_name
   IoBindingDefinition bad_biz;
-  bad_biz.binding_id = "bad_biz.binding";
   bad_biz.biz_name = "non_existent_biz";
 
   bad_biz.input_converter_id = "test.in.operator";
@@ -219,8 +216,7 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
 
   // 2. 引用不存在的转换器
   IoBindingDefinition bad_conv;
-  bad_conv.binding_id = "bad_conv.binding";
-  bad_conv.biz_name = "test_biz_v1";
+  bad_conv.biz_name = "test_biz";
 
   bad_conv.input_converter_id = "non_existent_input";
   bad_conv.output_converter_id = "test.out.operator";
@@ -257,7 +253,7 @@ TEST_F(IoBindingRegistryTest,
   }));
 
   const nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
@@ -277,8 +273,7 @@ TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
   IoBindingDefinition binding;
-  binding.binding_id = "test_biz.operator.v1";
-  binding.biz_name = "test_biz_v1";
+  binding.biz_name = "test_biz";
   binding.input_converter_id = input.converter_id;
   binding.output_converter_id = output.converter_id;
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
@@ -286,7 +281,7 @@ TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
   EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
   EXPECT_TRUE(errors.empty());
   const nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", binding.binding_id}}}}},
+      {"deployment", {{"io", {{"io_binding", binding.biz_name}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
@@ -327,8 +322,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 
   // 1. 注册合法绑定
   IoBindingDefinition valid_binding;
-  valid_binding.binding_id = "test_biz.operator.v1";
-  valid_binding.biz_name = "test_biz_v1";
+  valid_binding.biz_name = "test_biz";
 
   valid_binding.input_converter_id = "test.in.operator";
   valid_binding.output_converter_id = "test.out.operator";
@@ -340,11 +334,10 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   EXPECT_TRUE(errors.empty());
 
   // 2. 为另一业务注册未被选用的非法绑定：输入端口不在业务契约中
-  auto unselected_biz = *PipelineCatalog::FindBiz("test_biz_v1");
+  auto unselected_biz = *PipelineCatalog::FindBiz("test_biz");
   unselected_biz.biz_name = "unselected_biz";
   ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(unselected_biz));
   IoBindingDefinition illegal_binding;
-  illegal_binding.binding_id = "unselected_bad.operator.v1";
   illegal_binding.biz_name = unselected_biz.biz_name;
 
   illegal_binding.input_converter_id = RegisterUnmatchedInputConverter();
@@ -390,8 +383,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   // 2. 拒绝旧 Schema 1 包装 (schema_version + data)
   nlohmann::json old_schema1 = {
       {"schema_version", 1},
-      {"data",
-       {{"pipe_path", "test.json"}, {"io_binding", "test_biz.operator.v1"}}}};
+      {"data", {{"pipe_path", "test.json"}, {"io_binding", "test_biz"}}}};
   EXPECT_FALSE(DeploymentIoConfig::Parse(old_schema1, tmp_dir, &parsed, &err));
   EXPECT_NE(err.find("Unknown field"), std::string::npos);
 
@@ -571,14 +563,14 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
 TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
   RegisterTestBizBinding();
   nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models", nlohmann::json::array()},
       {"max_parallel_workers", 2},
       {"pipeline", DefaultPipelineNodes()}};
   PipelineDocumentSplit split;
   std::string error;
   ASSERT_TRUE(SplitPipelineDocument(document, &split, &error)) << error;
-  EXPECT_EQ(split.deployment.io.io_binding, "test_biz.operator.v1");
+  EXPECT_EQ(split.deployment.io.io_binding, "test_biz");
   EXPECT_EQ(split.deployment.io.out_mem, nlohmann::json::object());
   EXPECT_FALSE(split.neutral_pipeline_json.contains("deployment"));
   EXPECT_FALSE(split.neutral_pipeline_json.contains("biz_name"));
@@ -590,7 +582,7 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
   DeploymentDiagnostic diagnostic;
   ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
       << diagnostic.message;
-  EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz_v1");
+  EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz");
   EXPECT_FALSE(document.contains("biz_name"));
   ParsedPipelineConfig parsed;
   PipelineDiagnostic core_diagnostic;
@@ -599,7 +591,7 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
   EXPECT_EQ(core_diagnostic.path, "/deployment");
   EXPECT_TRUE(ParsePipelineConfig(prepared.neutral_pipeline_json, &parsed,
                                   &core_diagnostic));
-  EXPECT_EQ(parsed.biz_name, "test_biz_v1");
+  EXPECT_EQ(parsed.biz_name, "test_biz");
   EXPECT_EQ(parsed.max_parallel_workers, 2);
 
   for (const char* field : {"unknown_key", "model_path"}) {
@@ -626,7 +618,7 @@ TEST_F(IoBindingRegistryTest,
        UnknownExternalRootFieldsAreRejectedWithEscapedPointers) {
   RegisterTestBizBinding();
   const nlohmann::json valid_document = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   struct UnknownRootField {
     const char* name;
@@ -641,7 +633,7 @@ TEST_F(IoBindingRegistryTest,
   for (const auto& field : fields) {
     SCOPED_TRACE(field.name);
     auto document = valid_document;
-    document[field.name] = "test_biz_v1";
+    document[field.name] = "test_biz";
     const std::string expected_message =
         std::string("Unknown field at ") + field.pointer;
     PipelineDocumentSplit split;
@@ -660,7 +652,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
     EXPECT_EQ(diagnostic.path, field.pointer);
     EXPECT_NE(error.find(expected_message), std::string::npos);
-    EXPECT_EQ(document[field.name], "test_biz_v1");
+    EXPECT_EQ(document[field.name], "test_biz");
   }
 }
 
@@ -669,7 +661,7 @@ TEST_F(IoBindingRegistryTest, EscapedJsonPointerInOutputSlots) {
   nlohmann::json slot_doc = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"out_mem", {{"slot~0/bad", nlohmann::json::object()}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", DefaultPipelineNodes()}};
@@ -688,7 +680,7 @@ TEST_F(IoBindingRegistryTest, EscapedJsonPointerInOutputSlots) {
 TEST_F(IoBindingRegistryTest, ModelPathResolutionFailurePointsToModelEntry) {
   RegisterTestBizBinding();
   nlohmann::json doc = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models",
        {{{"model_id", "mid~test/path"},
          {"model_type", "test_biz_embedding"},
@@ -713,7 +705,7 @@ TEST_F(IoBindingRegistryTest,
        PrepareDeploymentSuccessAndBoundaryExtraction_T01) {
   RegisterTestBizBinding();
   nlohmann::json doc = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
@@ -737,9 +729,9 @@ TEST_F(IoBindingRegistryTest,
   ASSERT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag))
       << diag.message;
   EXPECT_FALSE(prepared.neutral_pipeline_json.contains("deployment"));
-  EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz_v1");
+  EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz");
   EXPECT_EQ(prepared.neutral_pipeline_json["models"], doc["models"]);
-  EXPECT_EQ(prepared.binding.binding_id, "test_biz.operator.v1");
+  EXPECT_EQ(prepared.binding.biz_name, "test_biz");
   ASSERT_NE(prepared.input_converter, nullptr);
   ASSERT_NE(prepared.output_converter, nullptr);
   EXPECT_EQ(prepared.output_specs.count("entity_out"), 1u);
@@ -761,7 +753,7 @@ TEST_F(IoBindingRegistryTest,
 TEST_F(IoBindingRegistryTest,
        ExternalBindingIsRequiredWhileCoreUsesNeutralBusiness) {
   RegisterTestBizBinding();
-  const nlohmann::json neutral = {{"biz_name", "test_biz_v1"},
+  const nlohmann::json neutral = {{"biz_name", "test_biz"},
                                   {"pipeline", DefaultPipelineNodes()}};
   ParsedPipelineConfig parsed;
   PipelineDiagnostic core_diagnostic;
@@ -781,14 +773,14 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diagnostic.path, variant == 0   ? "/deployment"
                                : variant == 1 ? "/deployment/io"
                                               : "/deployment/io/io_binding");
-    EXPECT_TRUE(prepared.binding.binding_id.empty());
+    EXPECT_TRUE(prepared.binding.biz_name.empty());
   }
 }
 
 TEST_F(IoBindingRegistryTest, ModelPathMissingEmptyOrWrongTypeRejected_T03) {
   RegisterTestBizBinding();
   const nlohmann::json base_doc = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
@@ -833,7 +825,7 @@ TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
     nlohmann::json doc = {
         {"deployment",
          {{"io",
-           {{"io_binding", "test_biz.operator.v1"},
+           {{"io_binding", "test_biz"},
             {"out_mem", {{"entity_out", nlohmann::json::object()}}}}}}},
         {"models", {{"mid_1", "not_an_array"}}},
         {"pipeline", DefaultPipelineNodes()}};
@@ -847,7 +839,7 @@ TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
     nlohmann::json doc = {
         {"deployment",
          {{"io",
-           {{"io_binding", "test_biz.operator.v1"},
+           {{"io_binding", "test_biz"},
             {"out_mem", {{"entity_out", nlohmann::json::object()}}}}}}},
         {"models",
          {{{"model_id", "mid_1"},
@@ -864,7 +856,7 @@ TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
     nlohmann::json doc = {
         {"deployment",
          {{"io",
-           {{"io_binding", "test_biz.operator.v1"},
+           {{"io_binding", "test_biz"},
             {"out_mem", {{"entity_out", nlohmann::json::object()}}}}}}},
         {"models",
          {{{"model_id", "mid_1"},
@@ -889,7 +881,7 @@ TEST_F(IoBindingRegistryTest, ModelPathNonexistentOnDiskIsAllowed_T05) {
   const auto missing_path = temp_dir / "missing_dir/model.bin";
   ASSERT_FALSE(fs::exists(missing_path));
   const nlohmann::json doc = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
@@ -916,7 +908,7 @@ TEST_F(IoBindingRegistryTest, ModelPathNonexistentOnDiskIsAllowed_T05) {
 TEST_F(IoBindingRegistryTest, RemovedModelPathsIsAlwaysUnknownField_T06) {
   RegisterTestBizBinding();
   const nlohmann::json base_doc = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models",
        {{{"model_id", "mid_1"},
          {"model_type", "test_biz_embedding"},
@@ -950,7 +942,7 @@ TEST_F(IoBindingRegistryTest, RemovedModelPathsIsAlwaysUnknownField_T06) {
     EXPECT_NE(diag.message.find("Unknown field at /deployment/model_paths"),
               std::string::npos);
     EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
-    EXPECT_TRUE(prepared.binding.binding_id.empty());
+    EXPECT_TRUE(prepared.binding.biz_name.empty());
     EXPECT_EQ(doc, original);
   }
 }
@@ -959,7 +951,7 @@ TEST_F(IoBindingRegistryTest, OutputMemoryOverridesRemainOptional) {
   RegisterTestBizBinding();
   for (int variant = 0; variant < 3; ++variant) {
     nlohmann::json document = {
-        {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+        {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
         {"pipeline", DefaultPipelineNodes()}};
     if (variant == 1)
       document["deployment"]["io"]["out_mem"] = nlohmann::json::object();
@@ -971,7 +963,7 @@ TEST_F(IoBindingRegistryTest, OutputMemoryOverridesRemainOptional) {
     DeploymentDiagnostic diagnostic;
     ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
         << diagnostic.message;
-    EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz_v1");
+    EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz");
     ASSERT_EQ(prepared.output_specs.size(), 1U);
     const auto& spec = prepared.output_specs.at("entity_out");
     EXPECT_EQ(spec.type, "entity_out");
@@ -982,28 +974,22 @@ TEST_F(IoBindingRegistryTest, OutputMemoryOverridesRemainOptional) {
   }
 }
 
-TEST_F(IoBindingRegistryTest,
-       ExplicitBindingSelectsRegisteredBusinessWithoutNameInference) {
-  IoBindingDefinition alternate;
-  alternate.binding_id = "unrelated_name.for.explicit_selection";
-  alternate.biz_name = "test_biz_v1";
-  alternate.input_converter_id = "test.in.operator";
-  alternate.output_converter_id = "test.out.operator";
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(alternate));
+TEST_F(IoBindingRegistryTest, ExplicitIoBindingSelectsRegisteredBusiness) {
+  RegisterTestBizBinding();
   nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", alternate.binding_id}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
   ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
       << diagnostic.message;
-  EXPECT_EQ(prepared.binding.binding_id, alternate.binding_id);
-  EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz_v1");
+  EXPECT_EQ(prepared.binding.biz_name, "test_biz");
+  EXPECT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz");
   EXPECT_FALSE(document.contains("biz_name"));
   document["deployment"]["io"].erase("io_binding");
   EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
   EXPECT_EQ(diagnostic.path, "/deployment/io/io_binding");
-  document["deployment"]["io"]["io_binding"] = "unknown.explicit.binding";
+  document["deployment"]["io"]["io_binding"] = "unknown_biz";
   EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
   EXPECT_EQ(diagnostic.code, "UNKNOWN_IO_BINDING");
   EXPECT_EQ(diagnostic.path, "/deployment/io/io_binding");
@@ -1025,14 +1011,13 @@ TEST_F(IoBindingRegistryTest, DefaultsAndOverridesKeepOptionalOutputOptIn) {
   ASSERT_TRUE(
       IoConverterRegistry::Instance().RegisterOutputConverter(converter));
   IoBindingDefinition binding;
-  binding.binding_id = "multiple.outputs";
-  binding.biz_name = "test_biz_v1";
+  binding.biz_name = "test_biz";
   binding.input_converter_id = "test.in.operator";
   binding.output_converter_id = converter.converter_id;
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
 
   nlohmann::json document = {{"pipeline", DefaultPipelineNodes()}};
-  document["deployment"]["io"]["io_binding"] = binding.binding_id;
+  document["deployment"]["io"]["io_binding"] = binding.biz_name;
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
   ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
@@ -1072,25 +1057,25 @@ TEST_F(IoBindingRegistryTest, SecondBindingForSameBizIsRejected) {
   slot.key_suffix = "entity_out";
   ASSERT_TRUE(
       IoConverterRegistry::Instance().RegisterOutputConverter(converter));
-  auto second =
-      *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
-  second.binding_id = "second.binding";
+  auto second = *IoBindingRegistry::Instance().FindBinding("test_biz");
   second.output_converter_id = converter.converter_id;
 
   // 同一业务只有一份外部契约：第二个 binding 不论载体是否兼容都在注册时被拒绝。
   EXPECT_FALSE(IoBindingRegistry::Instance().RegisterBinding(second));
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(second.binding_id),
-            nullptr);
+  EXPECT_EQ(IoBindingRegistry::Instance()
+                .FindBinding("test_biz")
+                ->output_converter_id,
+            "test.out.operator");
   std::vector<std::string> errors;
   EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
   EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const auto& error) {
-    return error.find("Duplicate IoBinding for biz_name 'test_biz_v1'") !=
+    return error.find("Duplicate IoBinding for biz_name: test_biz") !=
            std::string::npos;
   }));
   IoBindingRegistry::Instance().ResetConflictForTesting();
 
   // 另一业务可以使用自己的载体契约。
-  auto separate = *PipelineCatalog::FindBiz("test_biz_v1");
+  auto separate = *PipelineCatalog::FindBiz("test_biz");
   separate.biz_name = "separate_output_biz";
   ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(separate));
   second.biz_name = separate.biz_name;
@@ -1099,7 +1084,7 @@ TEST_F(IoBindingRegistryTest, SecondBindingForSameBizIsRejected) {
       << (errors.empty() ? "" : errors.front());
 
   nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", second.binding_id}}}}},
+      {"deployment", {{"io", {{"io_binding", second.biz_name}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
@@ -1127,7 +1112,7 @@ TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIncludesBindingBound) {
   auto output =
       *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
   const nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   for (const auto& limits : cases) {
     SCOPED_TRACE(::testing::Message()
@@ -1155,7 +1140,7 @@ TEST_F(IoBindingRegistryTest, RemovedAllocationFieldIsRejected) {
   const nlohmann::json document = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"output_allocations", nlohmann::json::object()}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
@@ -1172,7 +1157,7 @@ TEST_F(IoBindingRegistryTest,
   fs::create_directories(directory);
   const std::string root = directory.string();
   nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"pipeline",
        {{{"id", "copy"},
          {"node_type", "TextTemplateNode"},
@@ -1190,16 +1175,16 @@ TEST_F(IoBindingRegistryTest,
                 root.c_str(), "pipeline.conf", &biz, error, sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "test_biz_v1");
+  EXPECT_EQ(biz, "test_biz");
   EXPECT_EQ(dummy_decode_calls, decoded_before);
   EXPECT_EQ(dummy_encode_calls, encoded_before);
-  document["deployment"]["io"]["io_binding"] = "unknown.binding";
+  document["deployment"]["io"]["io_binding"] = "unknown_biz";
   std::ofstream(directory / "pipeline.json") << document;
   EXPECT_EQ(operator_api::ResolveOperatorConfigBiz(
                 root.c_str(), "pipeline.conf", &biz, error, sizeof(error)),
             -2);
   EXPECT_TRUE(biz.empty());
-  EXPECT_NE(std::string(error).find("unknown.binding"), std::string::npos);
+  EXPECT_NE(std::string(error).find("unknown_biz"), std::string::npos);
   EXPECT_EQ(operator_api::ResolveOperatorConfigBiz(
                 root.c_str(), "pipeline.conf", nullptr, error, sizeof(error)),
             -2);
@@ -1212,7 +1197,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
   nlohmann::json base_doc = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"out_mem",
            {{"entity_out",
              {{"meta_num", 0},
@@ -1252,7 +1237,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
   nlohmann::json base_doc = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"out_mem",
            {{"entity_out",
              {{"meta_num", 0},
@@ -1302,7 +1287,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   nlohmann::json valid_doc = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"out_mem",
            {{"entity_out",
              {{"meta_num", 0},
@@ -1326,7 +1311,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
 
   // 1. 首次准备成功
   ASSERT_TRUE(PrepareDeploymentDocument(valid_doc, options, &prepared, &diag));
-  EXPECT_FALSE(prepared.binding.binding_id.empty());
+  EXPECT_FALSE(prepared.binding.biz_name.empty());
   EXPECT_NE(prepared.input_converter, nullptr);
   EXPECT_NE(prepared.output_converter, nullptr);
   EXPECT_FALSE(prepared.neutral_pipeline_json.is_null());
@@ -1334,14 +1319,14 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
 
   // 2. 在失败的文档上复用同一个 prepared 实例
   nlohmann::json invalid_doc = valid_doc;
-  invalid_doc["deployment"]["io"]["io_binding"] = "unknown.binding";
+  invalid_doc["deployment"]["io"]["io_binding"] = "unknown_biz";
   const nlohmann::json invalid_doc_copy = invalid_doc;
 
   EXPECT_FALSE(
       PrepareDeploymentDocument(invalid_doc, options, &prepared, &diag));
 
   // 验证 prepared 的所有字段都已完全重置
-  EXPECT_TRUE(prepared.binding.binding_id.empty());
+  EXPECT_TRUE(prepared.binding.biz_name.empty());
   EXPECT_EQ(prepared.input_converter, nullptr);
   EXPECT_EQ(prepared.output_converter, nullptr);
   EXPECT_EQ(prepared.effective_max_batch_size, 0u);
@@ -1370,7 +1355,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
       PrepareDeploymentDocument(invalid_doc, options, &prepared, &diag));
   EXPECT_EQ(diag.code, "INVALID_MODEL_PATH");
   EXPECT_EQ(diag.path, "/models/1/model_path");
-  EXPECT_TRUE(prepared.binding.binding_id.empty());
+  EXPECT_TRUE(prepared.binding.biz_name.empty());
   EXPECT_EQ(prepared.input_converter, nullptr);
   EXPECT_EQ(prepared.output_converter, nullptr);
   EXPECT_EQ(prepared.effective_max_batch_size, 0u);
@@ -1433,7 +1418,7 @@ TEST_F(IoBindingRegistryTest,
        ProjectDerivedBusinessDiagnosticsKeepsOnlyExternalFixes) {
   RegisterTestBizBinding();
   const nlohmann::json external_document = {
-      {"deployment", {{"io", {{"io_binding", "test_biz.operator.v1"}}}}},
+      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", DefaultPipelineNodes()}};
   DeploymentPrepareOptions options;
@@ -1442,13 +1427,13 @@ TEST_F(IoBindingRegistryTest,
   DeploymentDiagnostic deployment_diagnostic;
   ASSERT_TRUE(PrepareDeploymentDocument(external_document, options, &prepared,
                                         &deployment_diagnostic));
-  ASSERT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz_v1");
+  ASSERT_EQ(prepared.neutral_pipeline_json["biz_name"], "test_biz");
   ASSERT_FALSE(external_document.contains("biz_name"));
 
   ValidationFix derived_business_fix;
   derived_business_fix.id = "edit_derived_business";
   derived_business_fix.patch = nlohmann::json::array(
-      {{{"op", "add"}, {"path", "/biz_name"}, {"value", "test_biz_v1"}}});
+      {{{"op", "add"}, {"path", "/biz_name"}, {"value", "test_biz"}}});
 
   ValidationFix node_fix;
   node_fix.id = "correct_rule_keyword";
@@ -1506,7 +1491,7 @@ TEST_F(IoBindingRegistryTest,
   nlohmann::json t03_doc = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"out_mem",
            {{"entity_out",
              {{"meta_num", 0},
@@ -1544,7 +1529,7 @@ TEST_F(IoBindingRegistryTest,
   // T07：经 IoBindingResolver 的未知 binding
   nlohmann::json t07_doc = t03_doc;
   t07_doc["models"][0]["model_path"] = "models/original.bin";
-  t07_doc["deployment"]["io"]["io_binding"] = "nonexistent.binding";
+  t07_doc["deployment"]["io"]["io_binding"] = "nonexistent_biz";
   rc = IoBindingResolver::ResolveFromPipelineJson(t07_doc, "./models", &plan,
                                                   &err, &diag);
   EXPECT_EQ(rc, -2);
@@ -1599,7 +1584,7 @@ TEST_F(IoBindingRegistryTest,
   nlohmann::json base_pipeline = {
       {"deployment",
        {{"io",
-         {{"io_binding", "test_biz.operator.v1"},
+         {{"io_binding", "test_biz"},
           {"out_mem",
            {{"entity_out",
              {{"meta_num", 0},
@@ -1660,7 +1645,7 @@ TEST_F(IoBindingRegistryTest,
   // 4. 经文件的 T07：未知 io_binding
   {
     nlohmann::json t07_pipe = base_pipeline;
-    t07_pipe["deployment"]["io"]["io_binding"] = "unregistered.binding";
+    t07_pipe["deployment"]["io"]["io_binding"] = "unregistered_biz";
     write_file(pipe_path, t07_pipe);
 
     rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
