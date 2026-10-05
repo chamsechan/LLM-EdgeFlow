@@ -26,14 +26,13 @@ AdapterStatus EncodeTranslation(const std::string& result,
 }
 
 int EncodeOperatorTranslationJson(AlgContext* context,
-                                  const OutputPortBindings& bindings,
                                   const OutputEncodeOptions& options,
                                   ExternalOutputBatchView* destination,
                                   size_t* written_count,
                                   AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
-      context, bindings, options, destination, written_count, status,
-      kOutputSlot, kLlmAnswers, &EncodeTranslation);
+      context, options, destination, written_count, status, kOutputSlot,
+      kLlmAnswers, &EncodeTranslation);
 }
 
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {

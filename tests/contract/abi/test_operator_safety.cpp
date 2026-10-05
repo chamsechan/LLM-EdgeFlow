@@ -641,12 +641,10 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   options.converter_id = out_conv->converter_id;
   options.request_ids = &request_ids;
 
-  llm_edgeflow::OutputPortBindings bindings(
-      {{"extracted_entities", "extracted_entities"}});
   size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
-  int ret = out_conv->encode_fn(&ctx, bindings, options, &out_view,
-                                &written_count, &status);
+  int ret =
+      out_conv->encode_fn(&ctx, options, &out_view, &written_count, &status);
 
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(out0.request_id, 1001u);

@@ -649,8 +649,6 @@ int main(int argc, char* argv[]) {
           {"transport", "operator"},
           {"input_converter_id", plan->binding.input_converter_id},
           {"output_converter_id", plan->binding.output_converter_id},
-          {"input_port_mapping", plan->input_port_bindings.All()},
-          {"output_port_mapping", plan->output_port_bindings.All()},
           {"effective_max_batch_size", plan->effective_max_batch_size},
           {"external_input_type",
            plan->input_converter

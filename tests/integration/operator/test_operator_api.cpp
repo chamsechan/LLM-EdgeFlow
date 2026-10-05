@@ -2378,15 +2378,13 @@ void RegisterNestedOutputTestTypes() {
 
 REGISTER_OPERATOR_VALUE_TYPE(RegisterNestedOutputTestTypes);
 
-int EncodeNestedOutput(AlgContext* context, const OutputPortBindings& bindings,
-                       const OutputEncodeOptions& options,
+int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
                        ExternalOutputBatchView* destination,
                        size_t* written_count, AdapterStatus* status) {
   if (written_count) *written_count = 0;
   if (!context || !destination) return -1;
   const auto* req_ids = RequestIds(options, status);
-  const auto* matches =
-      context->Read<RuleMatchBatch>(bindings.GetActualKey("rule_matches"));
+  const auto* matches = context->Read(kRuleMatches);
   if (!req_ids || !matches) return -3;
   size_t count = req_ids->size();
 
@@ -2451,8 +2449,6 @@ const bool g_reg_nested_output_components = []() {
 
   bind.input_converter_id = "keyword.plain.operator.v1";
   bind.output_converter_id = "test_nested_output.operator.v1";
-  bind.input_ports = {{"input_sentences", "input_sentences"}};
-  bind.output_ports = {{"rule_matches", "rule_matches"}};
   bind.max_batch_size = 64;
   IoBindingRegistry::Instance().RegisterBinding(bind);
   return true;
@@ -2527,13 +2523,11 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   auto input = *production;
   input.converter_id = "test_partial_request_ids.operator.v1";
   input.decode_fn = [](const ExternalInputBatchView& source,
-                       const InputDecodeOptions& options,
-                       const InputPortBindings& bindings, AlgContext* context,
+                       const InputDecodeOptions& options, AlgContext* context,
                        AdapterStatus* status) {
     const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
         "keyword.plain.operator.v1");
-    const int ret =
-        converter->decode_fn(source, options, bindings, context, status);
+    const int ret = converter->decode_fn(source, options, context, status);
     if (ret == 0) options.request_ids->resize(1);
     return ret;
   };
@@ -2946,16 +2940,14 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   view_plain.slots["entity_in"] =
       llm_edgeflow::BorrowInputForTest({&c_in_plain});
   view_plain.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-  llm_edgeflow::InputPortBindings port_bindings(
-      {{"input_sentences", "input_sentences"}});
   llm_edgeflow::InputDecodeOptions decode_opts;
   decode_opts.converter_id = translate_in_conv->converter_id;
   std::vector<uint64_t> request_ids;
   decode_opts.request_ids = &request_ids;
 
-  EXPECT_EQ(translate_in_conv->decode_fn(view_plain, decode_opts, port_bindings,
-                                         &ctx, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(
+      translate_in_conv->decode_fn(view_plain, decode_opts, &ctx, &status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
 
   // 2. JSON 文本：翻译接受并提取 "query"
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
@@ -2967,9 +2959,9 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   view_json.count = 1;
   view_json.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&c_in_json});
   view_json.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-  EXPECT_EQ(translate_in_conv->decode_fn(view_json, decode_opts, port_bindings,
-                                         &valid_ctx, &status),
-            COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(
+      translate_in_conv->decode_fn(view_json, decode_opts, &valid_ctx, &status),
+      COMPANY_ALG_SUCCESS);
   const auto* queries = valid_ctx.Read(llm_edgeflow::kInputSentences);
   ASSERT_NE(queries, nullptr);
   EXPECT_EQ((*queries)[0].data, "有效翻译查询");

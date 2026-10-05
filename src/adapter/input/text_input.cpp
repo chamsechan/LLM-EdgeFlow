@@ -34,19 +34,17 @@ AdapterStatus DecodeSentence(const Host& input, std::string* text) {
 
 int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
-                              const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, bindings, context, status, kEntitySlot, kInputSentences,
+      source, options, context, status, kEntitySlot, kInputSentences,
       &DecodeSentence<CompanyOperatorEntityInput>);
 }
 
 int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputDecodeOptions& options,
-                               const InputPortBindings& bindings,
                                AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorKeywordInput>(
-      source, options, bindings, context, status, kKeywordSlot, kInputSentences,
+      source, options, context, status, kKeywordSlot, kInputSentences,
       &DecodeSentence<CompanyOperatorKeywordInput>);
 }
 

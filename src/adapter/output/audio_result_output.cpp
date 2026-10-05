@@ -18,7 +18,6 @@ namespace {
 constexpr const char* kOutputSlot = "audio_out";
 
 int EncodeOperatorAudioResult(AlgContext* context,
-                              const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
@@ -29,11 +28,11 @@ int EncodeOperatorAudioResult(AlgContext* context,
   }
 
   const auto* transcripts =
-      ReadOutputValue(*context, bindings, kTranscripts, options, status);
+      ReadOutputValue(*context, kTranscripts, options, status);
   if (!transcripts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_slots =
-      ReadOutputValue(*context, bindings, kIntentSlots, options, status);
+      ReadOutputValue(*context, kIntentSlots, options, status);
   if (!intent_slots) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);

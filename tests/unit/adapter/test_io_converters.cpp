@@ -16,13 +16,13 @@ namespace llm_edgeflow {
 namespace {
 
 int DummyDecode(const ExternalInputBatchView&, const InputDecodeOptions&,
-                const InputPortBindings&, AlgContext*, AdapterStatus*) {
+                AlgContext*, AdapterStatus*) {
   return 0;
 }
 
-int DummyEncode(AlgContext*, const OutputPortBindings&,
-                const OutputEncodeOptions&, ExternalOutputBatchView*,
-                size_t* written_count, AdapterStatus*) {
+int DummyEncode(AlgContext*, const OutputEncodeOptions&,
+                ExternalOutputBatchView*, size_t* written_count,
+                AdapterStatus*) {
   if (written_count) *written_count = 1;
   return 0;
 }
@@ -38,7 +38,7 @@ struct ReproB {
 DECLARE_EXTERNAL_TYPE_TRAITS(ReproA, "ReproA");
 DECLARE_EXTERNAL_TYPE_TRAITS(ReproB, "ReproB");
 
-TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
+TEST(IoConverterTest, ViewAccessors) {
   // 1. ExternalInputBatchView Slot 访问
   ExternalInputBatchView in_view;
   int sample_int = 42;
@@ -69,29 +69,6 @@ TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
   EXPECT_EQ(out_view.GetSlot<float>("out_slot", 0), nullptr);
   EXPECT_EQ(out_view.GetSlotCapacity("out_slot", "field_1"), 1024U);
   EXPECT_EQ(out_view.GetSlotCapacity("out_slot", "unknown", 42), 42U);
-
-  // 3. PortBindings
-  InputPortBindings in_bindings({{"texts", "input_sentences"}});
-  auto key = in_bindings.Key<TextBatch>("texts");
-  EXPECT_STREQ(key.name, "input_sentences");
-  EXPECT_EQ(in_bindings.GetActualKey("texts"), "input_sentences");
-  EXPECT_TRUE(in_bindings.HasKey("texts"));
-  EXPECT_EQ(in_bindings.GetActualKey("unknown"), "");
-  EXPECT_FALSE(in_bindings.HasKey("unknown"));
-
-  OutputPortBindings out_bindings({{"answers", "llm_answers"}});
-  auto out_key = out_bindings.Key<TextBatch>("answers");
-  EXPECT_STREQ(out_key.name, "llm_answers");
-  EXPECT_TRUE(out_bindings.HasKey("answers"));
-  EXPECT_EQ(out_bindings.GetActualKey("unknown"), "");
-  EXPECT_FALSE(out_bindings.HasKey("unknown"));
-  EXPECT_STREQ(out_bindings.Key<TextBatch>("unknown").name, "");
-
-  // 共享查找把方向编码进类型：解码器不能接收输出 binding，
-  // 编码器不能接收输入 binding。
-  static_assert(!std::is_same_v<InputPortBindings, OutputPortBindings>);
-  static_assert(!std::is_convertible_v<OutputPortBindings, InputPortBindings>);
-  static_assert(!std::is_convertible_v<InputPortBindings, OutputPortBindings>);
 }
 
 TEST(IoConverterTest, RegisterAndFindInputConverter) {
@@ -360,16 +337,15 @@ TEST(IoConverterTest, OptionalInputSlotsPreserveEveryFramePosition) {
 TEST(IoConverterTest, HarnessPreservesNamedSlotsTypesAndPoolCapacities) {
   InputConverterDefinition input;
   input.decode_fn = [](const ExternalInputBatchView& view,
-                       const InputDecodeOptions&, const InputPortBindings&,
-                       AlgContext* context, AdapterStatus*) -> int {
+                       const InputDecodeOptions&, AlgContext* context,
+                       AdapterStatus*) -> int {
     const auto* a = view.GetSlot<ReproA>("left", 0);
     const auto* b = view.GetSlot<ReproB>("right", 0);
     if (!a || !b || view.GetSlot<ReproB>("left", 0)) return -3;
     return context->Publish("sum", a->a + static_cast<int>(b->b)) ? 0 : -3;
   };
   OutputConverterDefinition output;
-  output.encode_fn = [](AlgContext* context, const OutputPortBindings&,
-                        const OutputEncodeOptions&,
+  output.encode_fn = [](AlgContext* context, const OutputEncodeOptions&,
                         ExternalOutputBatchView* view, size_t* written,
                         AdapterStatus*) -> int {
     auto* a = view->GetSlot<ReproA>("left", 0);
@@ -410,14 +386,13 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   InputConverterDefinition input;
   input.external_slots = {{"value", "ReproA"}};
   input.decode_fn = [](const ExternalInputBatchView& view,
-                       const InputDecodeOptions&, const InputPortBindings&,
-                       AlgContext*, AdapterStatus*) -> int {
+                       const InputDecodeOptions&, AlgContext*,
+                       AdapterStatus*) -> int {
     return view.GetSlot<ReproA>("value", 0) ? 0 : -3;
   };
   OutputConverterDefinition output;
   output.external_slots = {{"value", "ReproB", PortDirection::kOutput}};
-  output.encode_fn = [](AlgContext*, const OutputPortBindings&,
-                        const OutputEncodeOptions&,
+  output.encode_fn = [](AlgContext*, const OutputEncodeOptions&,
                         ExternalOutputBatchView* view, size_t* written,
                         AdapterStatus*) -> int {
     if (!view->GetSlot<ReproB>("value", 0)) return -3;
@@ -430,24 +405,6 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   std::vector<ReproB> outputs(2);
   EXPECT_EQ(harness.EncodeOperator(&outputs), 0);
   EXPECT_EQ(outputs.size(), 1U);
-}
-
-TEST(IoConverterTest, TypedBindingsResolveNonIdentityPorts) {
-  constexpr auto logical = MakeBlackboardKey<TextBatch>("logical_text");
-  constexpr auto actual = MakeBlackboardKey<TextBatch>("storage_text");
-  InputPortBindings inputs({BindIoPort(logical, actual)});
-  OutputPortBindings outputs({BindIoPort(logical, actual)});
-  AlgContext context;
-  ASSERT_TRUE(context.Publish(inputs.Key(logical), TextBatch{{0, 0, "hello"}}));
-  const auto* value = context.Read(outputs.Key(logical));
-  ASSERT_NE(value, nullptr);
-  ASSERT_EQ(value->size(), 1U);
-  EXPECT_EQ(value->front().data, "hello");
-  EXPECT_EQ(context.Read(logical), nullptr);
-  EXPECT_STREQ(inputs.Key(logical).name, "storage_text");
-  EXPECT_STREQ(outputs.Key(logical).name, "storage_text");
-  EXPECT_EQ(BindIoPort(logical), std::make_pair(std::string("logical_text"),
-                                                std::string("logical_text")));
 }
 
 TEST(IoConverterTest, OutputWriterRequiresExplicitFieldCapacityWithoutWriting) {
@@ -559,20 +516,18 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
   options.max_batch_size = 2;
   std::vector<uint64_t> request_ids;
   options.request_ids = &request_ids;
-  InputPortBindings bindings({{"texts", "actual_texts"}});
   AlgContext context;
   AdapterStatus status;
-  ASSERT_EQ(
-      DecodeRequestRows<CompanyOperatorKeywordInput>(
-          source, options, bindings, &context, &status, "input", kRowTexts,
-          [](const CompanyOperatorKeywordInput& row, std::string* value) {
-            *value = CopyInputString(*row.sentence_text);
-            return AdapterStatus::Ok();
-          }),
-      COMPANY_ALG_SUCCESS);
+  ASSERT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
+                source, options, &context, &status, "input", kRowTexts,
+                [](const CompanyOperatorKeywordInput& row, std::string* value) {
+                  *value = CopyInputString(*row.sentence_text);
+                  return AdapterStatus::Ok();
+                }),
+            COMPANY_ALG_SUCCESS);
   bytes[0] = 'x';
   EXPECT_EQ(request_ids, (std::vector<uint64_t>{42, 42}));
-  const auto* texts = context.Read<TextBatch>("actual_texts");
+  const auto* texts = context.Read(kRowTexts);
   ASSERT_NE(texts, nullptr);
   ASSERT_EQ(texts->size(), 2U);
   for (size_t i = 0; i < texts->size(); ++i) {
@@ -580,7 +535,6 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
     EXPECT_EQ((*texts)[i].sub_id, 0U);
     EXPECT_EQ((*texts)[i].data, std::string("a\0b", 3));
   }
-  EXPECT_FALSE(context.Has("texts"));
 }
 
 TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
@@ -594,26 +548,24 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   options.max_batch_size = 2;
   std::vector<uint64_t> request_ids;
   options.request_ids = &request_ids;
-  InputPortBindings bindings({{"texts", "actual_texts"}});
   AlgContext context;
   AdapterStatus status;
-  EXPECT_EQ(
-      DecodeRequestRows<CompanyOperatorKeywordInput>(
-          source, options, bindings, &context, &status, "input", kRowTexts,
-          [](const CompanyOperatorKeywordInput& row, std::string* value) {
-            if (row.request_id == 2)
-              return AdapterStatus::InvalidInput("bad sentence",
-                                                 "sentence_text");
-            *value = "accepted";
-            return AdapterStatus::Ok();
-          }),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(DecodeRequestRows<CompanyOperatorKeywordInput>(
+                source, options, &context, &status, "input", kRowTexts,
+                [](const CompanyOperatorKeywordInput& row, std::string* value) {
+                  if (row.request_id == 2)
+                    return AdapterStatus::InvalidInput("bad sentence",
+                                                       "sentence_text");
+                  *value = "accepted";
+                  return AdapterStatus::Ok();
+                }),
+            COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.AdapterName(), options.converter_id);
   EXPECT_EQ(status.SampleIndex(), 1);
   EXPECT_EQ(status.FieldPath(), "sentence_text");
   EXPECT_EQ(status.Message(), "bad sentence");
   EXPECT_TRUE(request_ids.empty());
-  EXPECT_FALSE(context.Has("actual_texts"));
+  EXPECT_FALSE(context.Has(kRowTexts.name));
 }
 
 TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
@@ -624,7 +576,6 @@ TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
   source.count = 2;
   source.slots["input"] = BorrowInputForTest({&first, &second});
   source.slot_types["input"] = "CompanyOperatorKeywordInput";
-  InputPortBindings bindings({{"texts", "actual_texts"}});
   const auto decode = [&](size_t limit, AlgContext* context,
                           AdapterStatus* status) {
     InputDecodeOptions options;
@@ -633,7 +584,7 @@ TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
     return DecodeRequestRows<CompanyOperatorKeywordInput>(
-        source, options, bindings, context, status, "input", kRowTexts,
+        source, options, context, status, "input", kRowTexts,
         [](const CompanyOperatorKeywordInput& row, std::string* value) {
           *value = CopyInputString(*row.sentence_text);
           return AdapterStatus::Ok();
@@ -646,21 +597,20 @@ TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_NE(limited_status.Message().find("Batch size out of range [1, 1]"),
             std::string::npos);
-  EXPECT_FALSE(limited.Has("actual_texts"));
+  EXPECT_FALSE(limited.Has(kRowTexts.name));
 
   // 0 表示调用方未传上限；只检查是否为空。
   AlgContext unlimited;
   AdapterStatus unlimited_status;
   EXPECT_EQ(decode(0, &unlimited, &unlimited_status), COMPANY_ALG_SUCCESS);
-  EXPECT_TRUE(unlimited.Has("actual_texts"));
+  EXPECT_TRUE(unlimited.Has(kRowTexts.name));
 }
 
 TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   AlgContext context;
   const std::vector<uint64_t> request_ids{91, 17};
-  context.Publish("actual_texts",
+  context.Publish(kRowTexts,
                   TextBatch{{1, 0, "two"}, {0, 0, std::string("a\0b", 3)}});
-  OutputPortBindings bindings({{"texts", "actual_texts"}});
   OutputEncodeOptions options;
   options.converter_id = "test.rows.output";
   options.request_ids = &request_ids;
@@ -682,7 +632,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   AdapterStatus status;
   size_t written = 99;
   ASSERT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
-                &context, bindings, options, &view, &written, &status, "output",
+                &context, options, &view, &written, &status, "output",
                 kRowTexts, encode),
             COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 2U);
@@ -698,7 +648,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   view.SetCapacity("output", "entities_json", 1);
   written = 99;
   EXPECT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
-                &context, bindings, options, &view, &written, &status, "output",
+                &context, options, &view, &written, &status, "output",
                 kRowTexts, encode),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(written, 0U);
@@ -707,17 +657,17 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   EXPECT_EQ(status.FieldPath(), "entities_json");
 
   written = 99;
-  EXPECT_EQ(EncodeResultRows<CompanyOperatorEntityOutput>(
-                &context, bindings, options, &view, &written, &status, "output",
-                kRowTexts,
-                [](const std::string&, CompanyOperatorEntityOutput* row,
-                   const OutputStringWriter&) {
-                  return row->request_id == 17
-                             ? AdapterStatus::InvalidInput("cannot encode",
-                                                           "business_field")
-                             : AdapterStatus::Ok();
-                }),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(
+      EncodeResultRows<CompanyOperatorEntityOutput>(
+          &context, options, &view, &written, &status, "output", kRowTexts,
+          [](const std::string&, CompanyOperatorEntityOutput* row,
+             const OutputStringWriter&) {
+            return row->request_id == 17
+                       ? AdapterStatus::InvalidInput("cannot encode",
+                                                     "business_field")
+                       : AdapterStatus::Ok();
+          }),
+      COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(written, 0U);
   EXPECT_EQ(status.AdapterName(), options.converter_id);
   EXPECT_EQ(status.SampleIndex(), 1);

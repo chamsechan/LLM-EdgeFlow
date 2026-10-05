@@ -38,7 +38,6 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
   view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&s1, &s2});
   view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  InputPortBindings bindings({{"input_sentences", "input_sentences"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions options;
   options.request_ids = &request_ids;
@@ -46,7 +45,7 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = conv->decode_fn(view, options, bindings, &ctx, &status);
+  int ret = conv->decode_fn(view, options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   ASSERT_EQ(request_ids.size(), 2U);
@@ -77,7 +76,6 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   valid_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&valid_s});
   valid_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  InputPortBindings bindings({{"input_sentences", "input_sentences"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions options;
   options.request_ids = &request_ids;
@@ -85,7 +83,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = conv->decode_fn(valid_view, options, bindings, &ctx, &status);
+  int ret = conv->decode_fn(valid_view, options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   const auto* sentences = ctx.Read<TextBatch>("input_sentences");
@@ -107,7 +105,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 
   AlgContext bad_ctx;
   AdapterStatus bad_status;
-  ret = conv->decode_fn(invalid_view, options, bindings, &bad_ctx, &bad_status);
+  ret = conv->decode_fn(invalid_view, options, &bad_ctx, &bad_status);
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(bad_status.FieldPath(), "json");
 }
@@ -134,14 +132,13 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   dest.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
   dest.SetCapacity("entity_out", "entities_json", sizeof(buf) - 1);
 
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.request_ids = &req_ids;
   options.converter_id = conv->converter_id;
 
   size_t written = 0;
   AdapterStatus status;
-  int ret = conv->encode_fn(&ctx, bindings, options, &dest, &written, &status);
+  int ret = conv->encode_fn(&ctx, options, &dest, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(out_struct.request_id, 3001U);
@@ -194,9 +191,6 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
 
   test_reuse_binding.input_converter_id = "text.plain.operator.v1";
   test_reuse_binding.output_converter_id = "document.structured.operator.v1";
-  test_reuse_binding.input_ports = {{"input_sentences", "input_sentences"}};
-  test_reuse_binding.output_ports = {
-      {"extracted_entities", "extracted_entities"}};
   test_reuse_binding.max_batch_size = 64;
 
   IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
@@ -229,10 +223,7 @@ TEST_F(TextConvertersTest, SameCarrierDifferentPayloadBindingIsRejected) {
     options.converter_id = conv->converter_id;
     AlgContext context;
     AdapterStatus status;
-    EXPECT_EQ(conv->decode_fn(
-                  view, options,
-                  InputPortBindings({{"input_sentences", "input_sentences"}}),
-                  &context, &status),
+    EXPECT_EQ(conv->decode_fn(view, options, &context, &status),
               COMPANY_ALG_SUCCESS);
     const auto* sentences = context.Read<TextBatch>("input_sentences");
     return sentences && sentences->size() == 1 ? sentences->front().data
@@ -263,31 +254,26 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
       "translate.json.operator.v1");
   ASSERT_NE(conv, nullptr);
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = conv->converter_id;
   AlgContext context;
   TestOutputBatchView destination;
   AdapterStatus status;
   size_t written = 0;
-  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
-                            &status),
+  EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   ASSERT_TRUE(context.Publish("llm_answers", TextBatch{{0, 0, "hello"}}));
-  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
-                            &status),
+  EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");
   const std::vector<uint64_t> request_ids{42};
   options.request_ids = &request_ids;
-  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
-                            &status),
+  EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.FieldPath(), "destination");
   destination.count = 1;
-  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
-                            &status),
+  EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.FieldPath(), "entity_out");
   char bytes[2] = {};
@@ -297,8 +283,7 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   destination.leased_slots["entity_out"] = {&output};
   destination.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
   destination.SetCapacity("entity_out", "entities_json", 1);
-  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
-                            &status),
+  EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.FieldPath(), "entities_json");

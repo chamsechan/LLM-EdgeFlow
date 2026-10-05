@@ -42,8 +42,8 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistry` 注册
 外部类型、规范后缀及校验/分配生命周期；`InputConverter` 负责读取和深拷贝完整请求，
-`OutputConverter` 使用 Create 期输出池组装完整响应。`IoBindingDefinition` 声明业务、
-转换器、逻辑槽位与内部端口映射，注册审计检查类型和契约一致性。
+`OutputConverter` 使用 Create 期输出池组装完整响应。`IoBindingDefinition` 声明业务与
+转换器，注册审计检查端口、类型和契约一致性。
 
 `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
 转义的 NUL 可在解包后保留。输出按显式长度复制，二进制内容使用 `CompanyBuffer`。
@@ -81,7 +81,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
    `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
 4. 在 `src/adapter/biz/` 声明 `BizDefinition` 并实现 `IoBinding` 绑定：选择转换器、
-   批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖；逻辑端口默认映射到同名 Blackboard Key，只写不同名的映射。
+   批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖；转换器逻辑端口名即 Blackboard Key，绑定不做改名。
 5. 解码与编码使用 `core/common_contracts.h` 中的中性值类型，并在
    `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
    Core、Node 和 Engine 不得包含该业务 key 头。

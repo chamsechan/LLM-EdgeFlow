@@ -25,25 +25,14 @@ namespace test {
 class AdapterHarness {
  public:
   AdapterHarness(const InputConverterDefinition* input_conv,
-                 const OutputConverterDefinition* output_conv,
-                 InputPortBindings in_bindings = {},
-                 OutputPortBindings out_bindings = {})
-      : in_conv_(input_conv),
-        out_conv_(output_conv),
-        in_bindings_(std::move(in_bindings)),
-        out_bindings_(std::move(out_bindings)) {}
+                 const OutputConverterDefinition* output_conv)
+      : in_conv_(input_conv), out_conv_(output_conv) {}
 
-  explicit AdapterHarness(const InputConverterDefinition* input_conv,
-                          InputPortBindings in_bindings = {})
-      : in_conv_(input_conv),
-        out_conv_(nullptr),
-        in_bindings_(std::move(in_bindings)) {}
+  explicit AdapterHarness(const InputConverterDefinition* input_conv)
+      : in_conv_(input_conv), out_conv_(nullptr) {}
 
-  explicit AdapterHarness(const OutputConverterDefinition* output_conv,
-                          OutputPortBindings out_bindings = {})
-      : in_conv_(nullptr),
-        out_conv_(output_conv),
-        out_bindings_(std::move(out_bindings)) {}
+  explicit AdapterHarness(const OutputConverterDefinition* output_conv)
+      : in_conv_(nullptr), out_conv_(output_conv) {}
 
   AlgContext& Context() { return ctx_; }
   const AlgContext& Context() const { return ctx_; }
@@ -76,7 +65,7 @@ class AdapterHarness {
     options.converter_id = in_conv_->converter_id;
     options.request_ids = &request_ids_;
 
-    return in_conv_->decode_fn(view, options, in_bindings_, &ctx_, &status_);
+    return in_conv_->decode_fn(view, options, &ctx_, &status_);
   }
 
   template <typename COutput>
@@ -114,8 +103,7 @@ class AdapterHarness {
     OutputEncodeOptions options;
     options.converter_id = out_conv_->converter_id;
     options.request_ids = &request_ids_;
-    return out_conv_->encode_fn(&ctx_, out_bindings_, options, view,
-                                written_count, &status_);
+    return out_conv_->encode_fn(&ctx_, options, view, written_count, &status_);
   }
 
   template <typename T>
@@ -175,8 +163,6 @@ class AdapterHarness {
  private:
   const InputConverterDefinition* in_conv_ = nullptr;
   const OutputConverterDefinition* out_conv_ = nullptr;
-  InputPortBindings in_bindings_;
-  OutputPortBindings out_bindings_;
   AlgContext ctx_;
   AdapterStatus status_;
   std::vector<uint64_t> request_ids_;
