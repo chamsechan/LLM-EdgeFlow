@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Compare configuration snapshot node implementations on an otherwise idle machine.
+"""Measure current configuration snapshot nodes on an otherwise idle machine.
 
 Run the canonical gate/build first. This script reuses its Ninja node-runner
-runtime objects and libraries without building the repository. Only the two node
-translation units are replaced for the baseline; this is not a full historical
-checkout benchmark. Both versions use C++17, -O3 and -DNDEBUG. Each invocation
-processes 2,000 requests of 50 samples; writer updates are spaced by 100 us.
+runtime objects and libraries without building the repository. The benchmark
+and the two current node translation units use C++17, -O3 and -DNDEBUG; historical
+sources are not compiled. Each invocation processes 2,000 requests of 50 samples;
+writer updates are spaced by 100 us.
 Ordinary C++ allocation counts are measured separately from request timing.
 """
 
@@ -60,7 +60,6 @@ def main():
     parser.add_argument("--build-dir", type=Path, default=ROOT / "build")
     parser.add_argument("--output-dir", type=Path, required=True,
                         help="empty temporary directory for binaries and all evidence")
-    parser.add_argument("--baseline", default="7a6ca02")
     parser.add_argument("--rounds", type=positive_integer, default=7)
     args = parser.parse_args()
     build = args.build_dir.resolve()
@@ -91,7 +90,6 @@ def main():
         environment = "".join(run(command) for command in (
             ["uname", "-a"], ["c++", "--version"], ["lscpu"],
             ["git", "rev-parse", "HEAD"], ["git", "status", "--short"],
-            ["git", "rev-parse", args.baseline],
         ))
         environment += f"\narguments: {vars(args)}\n"
         (output / "environment.txt").write_text(environment)
@@ -105,54 +103,46 @@ def main():
         ))
         benchmark_object = output / "bench.o"
         run(flags + ["-c", Path(__file__).with_suffix(".cpp"), "-o", benchmark_object])
-        for version in ("baseline", "current"):
-            objects = []
-            for node in NODES:
-                relative_source = f"src/common_nodes/{node}.cpp"
-                source = output / f"{version}_{node}.cpp"
-                source.write_text(
-                    run(["git", "show", f"{args.baseline}:{relative_source}"])
-                    if version == "baseline" else (ROOT / relative_source).read_text()
-                )
-                obj = output / f"{version}_{node}.o"
-                run(flags + ["-c", source, "-o", obj])
-                objects.append(str(obj))
-            command = [token for token in link if not any(
-                token.endswith(f"/{node}.cpp.o") for node in NODES
-            )]
-            command[command.index("-o") + 1] = str(output / f"bench_{version}")
-            # Put replacement objects ahead of static libraries for normal linkers.
-            command[command.index("-o"):command.index("-o")] = objects + [str(benchmark_object)]
-            run(command, cwd=build)
+        objects = []
+        for node in NODES:
+            source = ROOT / f"src/common_nodes/{node}.cpp"
+            obj = output / f"{node}.o"
+            run(flags + ["-c", source, "-o", obj])
+            objects.append(str(obj))
+        command = [token for token in link if not any(
+            token.endswith(f"/{node}.cpp.o") for node in NODES
+        )]
+        executable = output / "bench_current"
+        command[command.index("-o") + 1] = str(executable)
+        # Put replacement objects ahead of static libraries for normal linkers.
+        command[command.index("-o"):command.index("-o")] = objects + [str(benchmark_object)]
+        run(command, cwd=build)
 
         records = []
         for round_index in range(args.rounds):
             for node in ("template", "rules"):
                 for concurrent in (0, 1):
-                    versions = ("baseline", "current") if round_index % 2 == 0 else ("current", "baseline")
-                    for version in versions:
-                        stdout = run([output / f"bench_{version}", node, concurrent])
-                        (output / f"{round_index}_{node}_{concurrent}_{version}.log").write_text(stdout)
-                        result = next(line.split() for line in stdout.splitlines() if line.startswith("RESULT "))
-                        allocation = next(line.split() for line in stdout.splitlines() if line.startswith("ALLOC "))
-                        records.append(dict(
-                            round=round_index, node=node, concurrent=concurrent, version=version,
-                            us=float(result[3]), updates=int(result[4]),
-                            allocations=int(allocation[1]), bytes=int(allocation[2]),
-                        ))
-                        (output / "results.json").write_text(json.dumps(records, indent=2) + "\n")
+                    stdout = run([executable, node, concurrent])
+                    (output / f"{round_index}_{node}_{concurrent}.log").write_text(stdout)
+                    result = next(line.split() for line in stdout.splitlines() if line.startswith("RESULT "))
+                    allocation = next(line.split() for line in stdout.splitlines() if line.startswith("ALLOC "))
+                    records.append(dict(
+                        round=round_index, node=node, concurrent=concurrent,
+                        us=float(result[3]), updates=int(result[4]),
+                        allocations=int(allocation[1]), bytes=int(allocation[2]),
+                    ))
+                    (output / "results.json").write_text(json.dumps(records, indent=2) + "\n")
             print(f"Completed round {round_index + 1}/{args.rounds}", flush=True)
 
         summary = []
         for node in ("template", "rules"):
             for concurrent in (0, 1):
-                medians = {version: statistics.median(
-                    record["us"] for record in records
+                selected = [record for record in records
                     if record["node"] == node and record["concurrent"] == concurrent
-                    and record["version"] == version
-                ) for version in ("baseline", "current")}
-                change = 100 * (medians["current"] / medians["baseline"] - 1)
-                summary.append(f"{node} concurrent={concurrent}: {medians}, change_pct={change}\n")
+                ]
+                medians = {key: statistics.median(record[key] for record in selected)
+                           for key in ("us", "allocations", "bytes")}
+                summary.append(f"{node} concurrent={concurrent}: medians={medians}\n")
         (output / "summary.txt").write_text("".join(summary))
         print("".join(summary), end="")
 
