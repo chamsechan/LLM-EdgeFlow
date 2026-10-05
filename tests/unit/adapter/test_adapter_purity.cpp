@@ -1262,13 +1262,12 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   EXPECT_NE(error.find("Unknown or unregistered io_binding"),
             std::string::npos);
 
-  // 3. DeploymentIoConfig schema 校验拒绝非法/旧格式
-  nlohmann::json invalid_version_json = {
-      {"schema_version", 999},
-      {"data", {{"pipe_path", "test.json"}, {"io_binding", "keyword_match"}}}};
+  // 3. DeploymentIoConfig schema 校验拒绝未知字段
+  nlohmann::json unknown_field_json = {{"pipe_path", "test.json"},
+                                       {"extra_field", 1}};
   DeploymentIoConfig parsed_cfg;
-  EXPECT_FALSE(DeploymentIoConfig::Parse(invalid_version_json, ".", &parsed_cfg,
-                                         &error));
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(unknown_field_json, ".", &parsed_cfg, &error));
   EXPECT_NE(error.find("Unknown field"), std::string::npos);
 
   // 4. 一致性检查拒绝含未知输出槽位的 Operator 配置

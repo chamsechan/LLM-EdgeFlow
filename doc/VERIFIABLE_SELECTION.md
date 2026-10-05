@@ -65,7 +65,7 @@ python3 tools/verify_selection.py check \
 该 preset 的匹配产物。`--variant` 只校验 Backend 集合，不选择可执行文件；使用 preset
 时需显式传入对应目录的 `--tool`，执行效果验收时还需指定同目录的 `--demo`。
 
-报告使用 `schema_version=2`；报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_biz`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
+报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_biz`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
 
 ## 构建变体
 

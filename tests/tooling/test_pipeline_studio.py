@@ -568,8 +568,6 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         payload = json.loads(process.stdout)
-        expected_schema = 4 if args[0] == "catalog" and payload.get("ok") else (3 if args[0] == "describe-node" and payload.get("ok") else 1)
-        self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 
     def test_production_tool_explains_unknown_registrations(self):
@@ -604,7 +602,7 @@ class PipelineCliTest(unittest.TestCase):
         for require_valid in (False, True):
             with self.subTest(require_valid=require_valid):
                 request = {
-                    "schema_version": 1, "pipeline": fixture, "require_valid": require_valid,
+                    "pipeline": fixture, "require_valid": require_valid,
                     "operation": {"kind": "rename_node", "node_id": "custom_prompt",
                                   "new_id": "renamed_prompt"},
                 }
@@ -632,7 +630,7 @@ class PipelineCliTest(unittest.TestCase):
         for operation in ({"kind": "rename_node", "node_id": node_id, "new_id": "renamed_rule"},
                           {"kind": "remove_node", "node_id": node_id}):
             with self.subTest(operation=operation):
-                request = {"schema_version": 1, "pipeline": keyword, "require_valid": False,
+                request = {"pipeline": keyword, "require_valid": False,
                            "operation": operation}
                 process = subprocess.run([str(production), "edit", "--stdin"], cwd=ROOT,
                                          input=json.dumps(request), text=True, capture_output=True)
@@ -792,7 +790,7 @@ class PipelineCliTest(unittest.TestCase):
             profile_path = root / "demo/profiles.json"
             for profile, expected, field in cases:
                 with self.subTest(profile=profile):
-                    profile_path.write_text(json.dumps({"schema_version": 2, "profiles": {"invalid": profile}}))
+                    profile_path.write_text(json.dumps({"profiles": {"invalid": profile}}))
                     for args in (("catalog",), ("init", "--io-binding", "keyword_match", "--profile", "invalid")):
                         process = subprocess.run([str(PIPELINE_TOOL), *args], cwd=root, capture_output=True, text=True)
                         self.assertEqual(process.returncode, 1, process.stderr)
@@ -823,7 +821,7 @@ class PipelineCliTest(unittest.TestCase):
                 with self.subTest(command=command, name=definition[type_field]):
                     code, described = self.command(command, definition[type_field])
                     self.assertEqual(code, 0)
-                    self.assertEqual(described, {**definition, "schema_version": 1, "ok": True})
+                    self.assertEqual(described, {**definition, "ok": True})
 
     def test_describe_models_and_backends_reject_unknown_names(self):
         for command, diagnostic in (
@@ -1203,7 +1201,6 @@ class PipelineCliTest(unittest.TestCase):
 
         # 情形 1：require_valid=false -> 返回修改后的草稿，validation.ok=false
         req_false = {
-            "schema_version": 1,
             "pipeline": invalid_doc,
             "operation": op,
             "require_valid": False,
@@ -1220,7 +1217,6 @@ class PipelineCliTest(unittest.TestCase):
 
         # 情形 2：require_valid=true -> 拒绝，且不返回修改后的 Pipeline
         req_true = {
-            "schema_version": 1,
             "pipeline": invalid_doc,
             "operation": op,
             "require_valid": True,
@@ -1240,7 +1236,6 @@ class PipelineCliTest(unittest.TestCase):
         code, res = self.command("validate-io", "nonexistent_config_file.conf")
         self.assertEqual(code, 1)
         self.assertFalse(res["ok"])
-        self.assertEqual(res["schema_version"], 1)
         self.assertEqual(res["diagnostics"][0]["code"], "IO_VALIDATION_ERROR")
         self.assertIn("nonexistent_config_file.conf", res["diagnostics"][0]["message"])
 
@@ -1248,7 +1243,6 @@ class PipelineCliTest(unittest.TestCase):
         code, res = self.command("resolve-conf", "nonexistent_config_file.conf", "--root", str(ROOT))
         self.assertEqual(code, 1)
         self.assertFalse(res["ok"])
-        self.assertEqual(res["schema_version"], 1)
         self.assertEqual(res["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
         self.assertEqual(res["diagnostics"][0]["path"], "/")
 
@@ -1256,7 +1250,6 @@ class PipelineCliTest(unittest.TestCase):
         code, res = self.command("validate", "nonexistent_pipeline.json")
         self.assertEqual(code, 1)
         self.assertFalse(res["ok"])
-        self.assertEqual(res["schema_version"], 1)
         self.assertEqual(res["diagnostics"][0]["code"], "JSON_READ")
 
     def test_native_viewer_shows_data_mappings_and_extra_order(self):
@@ -1395,7 +1388,6 @@ class HttpApiTest(unittest.TestCase):
         with self.post() as response:
             payload = json.load(response)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["schema_version"], 1)
 
     def test_initial_endpoint_only_exposes_explicit_startup_document(self):
         with urllib.request.urlopen(self.base + "/initial?filename=/etc/passwd", timeout=5) as response:
@@ -1689,7 +1681,6 @@ process.stdout.write(JSON.stringify(pipeline));
             / "invalid_pipeline_cases.json"
         )
         fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
-        self.assertEqual(fixtures["schema_version"], 1)
 
         for case in fixtures["cases"]:
             with self.subTest(case=case["name"]):
@@ -1822,7 +1813,7 @@ class SelectionVerificationTest(unittest.TestCase):
             (root / "weights.bin").write_bytes(b"test weights")
             (root / "vocab.txt").write_bytes(b"tokenizer")
             model = {"model_id": "m", "model_type": "bge_embedding", "backend": "onnxruntime", "model_path": "weights.bin", "model_config": {"tokenizer_file": "vocab.txt"}}
-            manifest = {"schema_version": 1, "selections": [{"id": "test", "model": json.loads(json.dumps(model)), "paths": {"/model_path": "weights.bin", "/model_config/tokenizer_file": "vocab.txt"}, "files": ["weights.bin", "vocab.txt"]}], "artifacts": {name: {"sha256": selection.file_digest(root / name)} for name in ("weights.bin", "vocab.txt")}}
+            manifest = {"selections": [{"id": "test", "model": json.loads(json.dumps(model)), "paths": {"/model_path": "weights.bin", "/model_config/tokenizer_file": "vocab.txt"}, "files": ["weights.bin", "vocab.txt"]}], "artifacts": {name: {"sha256": selection.file_digest(root / name)} for name in ("weights.bin", "vocab.txt")}}
             pipeline = {"models": [model]}
             incomplete = json.loads(json.dumps(manifest))
             incomplete["selections"][0]["files"] = []
@@ -1852,7 +1843,7 @@ class SelectionVerificationTest(unittest.TestCase):
             template = copy.deepcopy(model)
             template["model_path"] = "nested/weights.bin"
             template["model_config"]["tokenizer_file"] = "nested/vocab.txt"
-            manifest = {"schema_version": 1, "selections": [{"id": "nested", "model": template,
+            manifest = {"selections": [{"id": "nested", "model": template,
                 "paths": {"/model_path": "nested/weights.bin", "/model_config/tokenizer_file": "nested/vocab.txt"},
                 "files": ["nested/weights.bin", "nested/vocab.txt"]}],
                 "artifacts": {name: {"sha256": selection.file_digest(assets / name)}
@@ -1901,14 +1892,12 @@ process.stdout.write(JSON.stringify(assetModel(asset, 'models')));
         report = selection.inspect_selection(pipeline, tool, ROOT / "models")
         self.assertTrue(report["ok"])
         self.assertFalse(report["ready_for_biz"])
-        self.assertEqual(report["schema_version"], 2)
         self.assertNotIn("ready_for_business", report)
         # 当前规范构建启用了若干 Backend；声明为空的 minimal 变体必须失败，
         # 与这个无模型的 Pipeline 无关。
         mismatched = selection.inspect_selection(pipeline, tool, ROOT / "models", variant="minimal" if report["build"]["enabled_backends"] else "default-cpu")
         self.assertFalse(mismatched["ok"])
         receipt = selection.evaluate(pipeline, report, tool, ROOT / "models", spec, conf, demo)
-        self.assertEqual(receipt["schema_version"], 2)
         self.assertEqual(receipt["metrics"]["pass_rate"], 1.0)
         self.assertEqual(receipt["metrics"]["total"], 4)
         with tempfile.TemporaryDirectory() as directory:
@@ -2052,7 +2041,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         pipe["pipeline"] = [source, existing, consumer]
         self.assertTrue(self.service.validate(pipe)["ok"])
         code, result = self.run_edit({
-            "schema_version": 1, "pipeline": pipe, "require_valid": True,
+            "pipeline": pipe, "require_valid": True,
             "operation": {"kind": "connect",
                           "source": {"node_id": "a", "port": "text"},
                           "target": {"node_id": "c", "port": "text"}},
@@ -2086,7 +2075,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             for require_valid in (False, True):
                 with self.subTest(operation=operation["kind"], require_valid=require_valid):
                     code, result = self.run_edit({
-                        "schema_version": 1, "pipeline": pipe,
+                        "pipeline": pipe,
                         "require_valid": require_valid, "operation": operation,
                     })
                     self.assertEqual(code, 1 if require_valid else 0, result)
@@ -2115,7 +2104,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         for source, target in cases:
             with self.subTest(source=source, target=target):
                 self.assert_edit_rejected({
-                    "schema_version": 1, "pipeline": pipe,
+                    "pipeline": pipe,
                     "operation": {"kind": "disconnect", "source": source, "target": target},
                 }, 0)
 
@@ -2133,15 +2122,14 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         ]
         for operation in operations:
             with self.subTest(operation=operation):
-                self.assert_edit_rejected({"schema_version": 1, "pipeline": pipe,
+                self.assert_edit_rejected({"pipeline": pipe,
                                            "operation": operation}, 0)
 
     def test_authoring_rejects_invalid_request_fields_without_crashing(self):
-        base = {"schema_version": 1, "pipeline": self.keyword,
+        base = {"pipeline": self.keyword,
                 "operation": {"kind": "add_node", "node_type": "TextTemplateNode"}}
         requests = [
             dict(base, requrie_valid=True), dict(base, require_valid="true"),
-            dict(base, schema_version=True), dict(base, schema_version=1.0),
             dict(base, operations=None), dict(base, operation=None, operations=[base["operation"]]),
             dict(base, operations={}), dict(base, pipeline=[]),
         ]
@@ -2165,7 +2153,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         for operation in invalid_operations:
             with self.subTest(operation=operation):
                 self.assert_edit_rejected({
-                    "schema_version": 1, "pipeline": self.keyword,
+                    "pipeline": self.keyword,
                     "operations": [
                         {"kind": "add_node", "node_type": "TextTemplateNode", "id": "added"},
                         operation,
@@ -2174,7 +2162,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_add_node_explicit_auto_id_and_collision(self):
         req = {
-            "schema_version": 1,
             "pipeline": {"deployment": {"io": {"io_binding": "keyword_match"}}, "models": [], "pipeline": []},
             "operation": {
                 "kind": "add_node",
@@ -2193,7 +2180,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 拒绝重复 ID
         req2 = {
-            "schema_version": 1,
             "pipeline": res["pipeline"],
             "operation": {
                 "kind": "add_node",
@@ -2208,7 +2194,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 自动分配 ID
         req3 = {
-            "schema_version": 1,
             "pipeline": res["pipeline"],
             "operation": {
                 "kind": "add_node",
@@ -2222,7 +2207,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 未知 Node 类型
         req4 = {
-            "schema_version": 1,
             "pipeline": res["pipeline"],
             "operation": {"kind": "add_node", "node_type": "NonExistentNode"},
         }
@@ -2253,7 +2237,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {"kind": "remove_node", "node_id": "template"},
         }
@@ -2290,7 +2273,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {
                 "kind": "rename_node",
@@ -2311,7 +2293,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 拒绝重复 ID
         req_dup = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {"kind": "rename_node", "node_id": "template", "new_id": "rule"},
         }
@@ -2342,7 +2323,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         }
         # 入口到 Node
         req1 = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {
                 "kind": "connect",
@@ -2360,7 +2340,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # Node 到 Node
         req2 = {
-            "schema_version": 1,
             "pipeline": res1["pipeline"],
             "operation": {
                 "kind": "connect",
@@ -2378,7 +2357,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 环检测：把 rule 连到 template 会形成环
         req_cycle = {
-            "schema_version": 1,
             "pipeline": res2["pipeline"],
             "operation": {
                 "kind": "connect",
@@ -2414,7 +2392,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         }
         # 把 rule.matches 连接到 $egress rule_matches
         req_egress = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {
                 "kind": "connect",
@@ -2431,7 +2408,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 断开 rule.matches 与 $egress rule_matches 的连接
         req_disc = {
-            "schema_version": 1,
             "pipeline": res_egress["pipeline"],
             "operation": {
                 "kind": "disconnect",
@@ -2469,7 +2445,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         }
         # 断开数据端口时保留执行依赖 (回归用例 1)
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {
                 "kind": "disconnect",
@@ -2485,7 +2460,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # remove_dependency 移除执行依赖
         req_rm_dep = {
-            "schema_version": 1,
             "pipeline": res["pipeline"],
             "operation": {
                 "kind": "remove_dependency",
@@ -2500,7 +2474,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
     def test_authoring_batch_operations_and_atomic_rollback(self):
         pipe = {"deployment": {"io": {"io_binding": "keyword_match"}}, "models": [], "pipeline": []}
         req_valid = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operations": [
                 {"kind": "add_node", "node_type": "TextTemplateNode", "id": "t1", "config": {"template": "{{primary}}"}},
@@ -2519,7 +2492,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 批处理中途失败时丢弃所有修改
         req_fail = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operations": [
                 {"kind": "add_node", "node_type": "TextTemplateNode", "id": "t1"},
@@ -2535,7 +2507,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
         # 批大小超过 128
         req_oversize = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operations": [{"kind": "add_node", "node_type": "TextTemplateNode"}] * 129,
         }
@@ -2546,7 +2517,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
     def test_authoring_regression_case_2_key_allocation_no_collision(self):
         pipe = {"deployment": {"io": {"io_binding": "keyword_match"}}, "models": [], "pipeline": []}
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operations": [
                 {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "foo"},
@@ -2755,7 +2725,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         pipe = {"deployment": {"io": {"io_binding": "keyword_match"}}, "models": [], "pipeline": []}
         large_comment = "x" * (4 * 1024 * 1024 + 100)
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {"kind": "add_node", "node_type": "TextRuleMatchNode"},
             "comment": large_comment,
@@ -2768,7 +2737,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
     def test_authoring_reserved_node_ids_rejected(self):
         pipe = {"deployment": {"io": {"io_binding": "keyword_match"}}, "models": [], "pipeline": []}
         req_add_ingress = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "$ingress"},
         }
@@ -2785,7 +2753,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req_rename_egress = {
-            "schema_version": 1,
             "pipeline": pipe2,
             "operation": {"kind": "rename_node", "node_id": "node_a", "new_id": "$egress"},
         }
@@ -2817,7 +2784,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req_disc = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {
                 "kind": "disconnect",
@@ -2845,7 +2811,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req_ing_disc = {
-            "schema_version": 1,
             "pipeline": pipe_ing,
             "operation": {
                 "kind": "disconnect",
@@ -2882,7 +2847,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {
                 "kind": "disconnect",
@@ -2921,7 +2885,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             ],
         }
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {"kind": "remove_node", "node_id": "rule"},
         }
@@ -2943,7 +2906,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         }
         # 添加 c 依赖 a：a 已经通过 b 成为 c 的间接祖先
         req = {
-            "schema_version": 1,
             "pipeline": pipe,
             "operation": {"kind": "add_dependency", "node_id": "c", "depends_on_id": "a"},
         }

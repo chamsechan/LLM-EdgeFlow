@@ -316,7 +316,7 @@ int OperatorConfigResolver::Resolve(
       return ret;
     }
 
-    // 读取并解析部署配置文件 (Schema 1)
+    // 读取并解析部署配置文件
     DeploymentIoConfig dep_config;
     std::string dep_err;
     if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), &dep_config,

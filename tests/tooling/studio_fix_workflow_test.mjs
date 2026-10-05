@@ -30,7 +30,6 @@ const document = {
   addEventListener() {}, documentElement: new Element(), body: new Element(),
 };
 let previewResponse, previewCalls = 0, confirmations = 0, validationCalls = 0;
-let catalogVersion = 4;
 let authoringResponse, authoringCalls = [], preflightResponse;
 const requests = [];
 const context = vm.createContext({
@@ -41,7 +40,7 @@ const context = vm.createContext({
     location: { search: "", hash: "" } },
   Option: class extends Element { constructor(text, value) { super("option"); this.textContent = text; this.value = value; } },
   async testApi(path) {
-    if (path.startsWith("/catalog")) return { schema_version: catalogVersion, nodes: [], models: [], profiles: [], bizs: [], io_bindings: [] };
+    if (path.startsWith("/catalog")) return { nodes: [], models: [], profiles: [], bizs: [], io_bindings: [] };
     if (path === "/profiles") return { profiles: [] };
     if (path === "/pipelines") return { pipelines: [] };
     if (path === "/assets") return { selections: [], variants: [] };
@@ -86,7 +85,7 @@ function reset() {
     editing: true, catalogReady: true, pipelineVersion: 1, documentVersion: 1,
     savedPipeline: JSON.stringify(initial), dirty: false, deployment: null, modelPathActions: {}, preflight: null,
     validationReport: { revision: "revision-1", tool_fingerprint: "tool-1", diagnostics: [
-      { code: "TEST", remediation: { schema_version: 1, fixes: [fix] } },
+      { code: "TEST", remediation: { fixes: [fix] } },
     ] },
   });
   drafts.clear(); history.reset({ pipeline: state.pipeline, selected: "" });
@@ -216,33 +215,3 @@ for (const change of [
     "Delayed preflight must not display a result for another draft or deployment");
 }
 console.log("Studio native authoring, page approval and preflight snapshot regressions passed");
-
-// 为不支持的线格式版本渲染实际的诊断卡片。
-const { appendDiagnostic } = modules.get("editor.js").namespace;
-for (const schema_version of [0, 2, 999]) {
-  const container = new Element();
-  appendDiagnostic(container, { code: "TEST", message: "Readable old diagnostic", suggestions: ["Manual action"],
-    remediation: { schema_version, summary: "future schema", fixes: [fix] } }, () => {}, () => {});
-  const flatten = node => [node, ...node.children.flatMap(flatten)];
-  assert.equal(flatten(container).filter(node => node.tagName === "BUTTON").length, 0,
-    "Unknown remediation versions must not expose an Apply button");
-  assert.ok(flatten(container).some(node => node.textContent === "Readable old diagnostic"));
-}
-console.log("Studio real repair handler, history, late response and schema-version checks passed");
-
-// 覆盖两条 Catalog 入口路径和真实的校验守卫。
-for (const opened of [false, true]) {
-  reset();
-  if (!opened) state.pipeline = null;
-  catalogVersion = 3;
-  const beforeCalls = validationCalls;
-  await app.namespace.refreshLists();
-  assert.equal(state.catalogReady, false, "Reject old Catalog on startup and on an open document");
-  assert.match(elements.get("#toast").children[0].textContent, /Catalog v4/);
-  assert.equal(await app.namespace.validate(), false);
-  assert.equal(validationCalls, beforeCalls, "No request after an incompatible Catalog");
-  catalogVersion = 4;
-  await app.namespace.loadCatalog();
-  assert.equal(state.catalogReady, true, "A compatible Catalog restores readiness");
-}
-console.log("Studio Catalog version rejection and recovery passed");

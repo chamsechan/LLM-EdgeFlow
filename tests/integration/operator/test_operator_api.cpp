@@ -1282,16 +1282,11 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
 
   void* handle = nullptr;
 
-  // 0. 旧 Schema 1 配置格式严格拒绝 -> -2
+  // 0. .conf 只允许 pipe_path，未知字段严格拒绝 -> -2
   {
     std::ofstream ofs(conf_path);
-    ofs << R"({
-      "schema_version": 1,
-      "data": {
-        "pipe_path": "pipeline_keyword_match_rules.json",
-        "io_binding": "keyword_match"
-      }
-    })";
+    ofs << R"({"pipe_path": "pipeline_keyword_match_rules.json",
+              "extra_field": 1})";
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
   EXPECT_NE(std::string(GetOperatorLastError()).find("Unknown field"),

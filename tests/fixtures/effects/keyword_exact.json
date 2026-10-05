@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "name": "keyword-selected-config",
   "io_binding": "keyword_match",
   "dataset": "keyword_inputs.txt",

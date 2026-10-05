@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "name": "entity-neutral-model-contract",
   "io_binding": "entity_extract",
   "dataset": "../../../data/corpus_entity_extract.txt",

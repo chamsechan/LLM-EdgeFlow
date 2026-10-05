@@ -119,7 +119,6 @@ nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
   }
 
   auto result = PipelineCatalog::ToJson(snapshot, biz_filter);
-  result["schema_version"] = 4;
   result["input_converters"] = std::move(input_converters);
   result["output_converters"] = std::move(output_converters);
   result["io_bindings"] = std::move(io_bindings);

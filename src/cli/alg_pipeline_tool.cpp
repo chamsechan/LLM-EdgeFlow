@@ -36,8 +36,7 @@ using llm_edgeflow::PipelineValidator;
 namespace fs = std::filesystem;
 
 nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
-  return {{"schema_version", 1},
-          {"ok", false},
+  return {{"ok", false},
           {"diagnostics",
            nlohmann::json::array({{{"code", DiagnosticCodeName(code)},
                                    {"path", "/"},
@@ -47,8 +46,7 @@ nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
 
 nlohmann::json ToolError(const std::string& code, const std::string& message,
                          const std::string& path = "/") {
-  return {{"schema_version", 1},
-          {"ok", false},
+  return {{"ok", false},
           {"diagnostics", nlohmann::json::array({{{"code", code},
                                                   {"path", path},
                                                   {"message", message},
@@ -260,9 +258,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
       {"effective_pipeline", std::move(effective)},
       {"model_paths", std::move(paths)},
       {"output_pools", OutputPoolsJson(*resolved.io_plan)}};
-  return {{"schema_version", 1},
-          {"ok", true},
-          {"configuration", std::move(configuration)}};
+  return {{"ok", true}, {"configuration", std::move(configuration)}};
 }
 
 void Usage() {
@@ -404,7 +400,6 @@ int main(int argc, char* argv[]) {
       return 1;
     }
     auto result = PipelineCatalog::NodeToJson(*definition);
-    result["schema_version"] = 3;
     result["ok"] = true;
     std::cout << result.dump(2) << std::endl;
     return 0;
@@ -437,7 +432,6 @@ int main(int argc, char* argv[]) {
       }
       result = PipelineCatalog::BackendToJson(*definition);
     }
-    result["schema_version"] = 1;
     result["ok"] = true;
     std::cout << result.dump(2) << std::endl;
     return 0;
@@ -509,10 +503,9 @@ int main(int argc, char* argv[]) {
         return 1;
       }
     }
-    auto result = raw ? std::move(pipeline)
-                      : nlohmann::json({{"schema_version", 1},
-                                        {"ok", true},
-                                        {"pipeline", std::move(pipeline)}});
+    auto result =
+        raw ? std::move(pipeline)
+            : nlohmann::json({{"ok", true}, {"pipeline", std::move(pipeline)}});
     std::cout << result.dump(2) << std::endl;
     return 0;
   }
@@ -631,7 +624,6 @@ int main(int argc, char* argv[]) {
         std::string diag_path = diag.path.empty() ? "/" : diag.path;
         std::string diag_msg = error.empty() ? diag.message : error;
         nlohmann::json err_res = {
-            {"schema_version", 1},
             {"ok", false},
             {"diagnostics",
              nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
@@ -658,8 +650,7 @@ int main(int argc, char* argv[]) {
                ? ExternalType(plan->output_converter->external_slots)
                : ""}};
 
-      nlohmann::json result = {{"schema_version", 1},
-                               {"ok", true},
+      nlohmann::json result = {{"ok", true},
                                {"binding", std::move(binding_info)},
                                {"output_pools", OutputPoolsJson(*plan)},
                                {"diagnostics", nlohmann::json::array()}};
@@ -705,7 +696,6 @@ int main(int argc, char* argv[]) {
       input_str.append(buffer, std::cin.gcount());
       if (input_str.size() > 4 * 1024 * 1024) {
         nlohmann::json err_res = {
-            {"schema_version", 1},
             {"ok", false},
             {"diagnostics",
              {{{"code", "AUTHORING_ERROR"},

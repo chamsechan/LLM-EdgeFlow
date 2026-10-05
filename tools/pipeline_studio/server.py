@@ -72,7 +72,7 @@ class StudioHttpServer(http.server.ThreadingHTTPServer):
 
 
 def json_result(ok: bool, **values: Any) -> dict[str, Any]:
-    return {"schema_version": 1, "ok": ok, **values}
+    return {"ok": ok, **values}
 
 
 def revision_for(data: bytes) -> str:
@@ -409,7 +409,6 @@ class WorkbenchService:
             raise StudioError("TOOL_OUTDATED", "操作期间工具已更新，请重新加载", 409)
 
         req: dict[str, Any] = {
-            "schema_version": 1,
             "pipeline": pipeline,
             "require_valid": require_valid,
         }
@@ -637,7 +636,7 @@ class WorkbenchService:
         profile_path = output_dir / "demo-profile.json"
         if profile_path.is_symlink():
             raise StudioError("SYMLINK_REJECTED", "拒绝覆盖符号链接运行 Profile", 409)
-        profile_path.write_text(json.dumps({"schema_version": 2, "profiles": {name: run_profile}},
+        profile_path.write_text(json.dumps({"profiles": {name: run_profile}},
                                           ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return [
             str(DEMO_BINARY), "--profiles-file", str(profile_path), "--profile", name,
