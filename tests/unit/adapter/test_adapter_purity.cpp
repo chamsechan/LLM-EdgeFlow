@@ -1040,7 +1040,6 @@ TEST_F(AdapterPurityTest,
   custom_in_def.external_slots = {
       ExternalSlotDefinition("inputs", "CustomMultiFieldInput",
                              PortDirection::kInput, true, "custom_input")};
-  custom_in_def.max_batch_size = 64;
   custom_in_def.logical_ports = {OutputPort(kInputSentences)};
   custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
                                const InputDecodeOptions& options,

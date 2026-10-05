@@ -204,7 +204,7 @@ auto MoveOnlyMapSpec() {
   static_assert(!std::is_copy_constructible_v<decltype(transform)>);
   return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"),
                      CleanConfig(), std::move(transform))
-      .WithControls({PatchFields(3005, "patch_prefix", {"prefix"})});
+      .WithControls({ReplaceFields(3005, "set_prefix", {"prefix"})});
 }
 REGISTER_FUNCTION_NODE(MoveOnlyMapNode, MoveOnlyMapSpec());
 
@@ -664,7 +664,7 @@ struct ControlledMapParams {
 };
 
 inline constexpr int kCmdReplaceMap = 3001;
-inline constexpr int kCmdPatchMap = 3002;
+inline constexpr int kCmdSuffixMap = 3002;
 
 inline std::string ControlledMapFn(const std::string& in,
                                    const ControlledMapParams& p) {
@@ -698,8 +698,7 @@ inline auto ControlledMapSpec() {
       .WithControls({
           ReplaceFields(kCmdReplaceMap, "replace_map",
                         {"prefix", "multiplier"}),
-          PatchFields(kCmdPatchMap, "patch_map",
-                      {"prefix", "suffix", "multiplier"}),
+          ReplaceFields(kCmdSuffixMap, "replace_suffix", {"suffix"}),
       });
 }
 REGISTER_FUNCTION_NODE(ControlledMapNode, ControlledMapSpec());
@@ -2101,7 +2100,7 @@ TEST(ConfigurationSnapshotTest, MoveOnlyStateHandled) {
 // 函数式 Spec 的 WithControls 与 NodeHarness 测试
 // ---------------------------------------------------------------------------
 
-TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
+TEST(FunctionNodeTest, FunctionalMapSpecWithControls) {
   NodeHarness harness("ControlledMapNode");
   harness.Config(
       {{"prefix", "init_p:"}, {"suffix", ":init_s"}, {"multiplier", 1}});
@@ -2134,22 +2133,22 @@ TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
   EXPECT_EQ(res3.TextValues("output"),
             (std::vector<std::string>{"rep_p:payloadpayload:init_s"}));
 
-  // 3. PatchFields 只带部分字段 -> 处理成功
-  auto good_patch = harness.Control(kCmdPatchMap, R"({"suffix":":patch_s"})");
-  EXPECT_EQ(good_patch.status, NodeControlStatus::kHandled);
+  // 3. 另一命令只控制 suffix -> 处理成功，其余字段不变
+  auto good_suffix = harness.Control(kCmdSuffixMap, R"({"suffix":":patch_s"})");
+  EXPECT_EQ(good_suffix.status, NodeControlStatus::kHandled);
 
   auto res4 = harness.Run();
   ASSERT_TRUE(res4.ok());
   EXPECT_EQ(res4.TextValues("output"),
             (std::vector<std::string>{"rep_p:payloadpayload:patch_s"}));
 
-  // 4. PatchFields 传空对象 -> 拒绝
-  auto empty_patch = harness.Control(kCmdPatchMap, R"({})");
-  EXPECT_EQ(empty_patch.status, NodeControlStatus::kFailed);
+  // 4. 空对象缺少受控字段 -> 拒绝
+  auto empty_payload = harness.Control(kCmdSuffixMap, R"({})");
+  EXPECT_EQ(empty_payload.status, NodeControlStatus::kFailed);
 
   // 5. 语义校验失败 -> 拒绝并回滚状态
   auto invalid_prefix =
-      harness.Control(kCmdPatchMap, R"({"prefix":"INVALID"})");
+      harness.Control(kCmdReplaceMap, R"({"prefix":"INVALID","multiplier":2})");
   EXPECT_EQ(invalid_prefix.status, NodeControlStatus::kFailed);
   EXPECT_NE(invalid_prefix.message.find("Invalid prefix disallowed"),
             std::string::npos);
@@ -2494,11 +2493,11 @@ TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
   EXPECT_THROW(
       make_spec()
           .WithControl(custom, update)
-          .WithControls({PatchFields(4988, "patch_prefix", {"prefix"})}),
+          .WithControls({ReplaceFields(4988, "set_prefix", {"prefix"})}),
       std::invalid_argument);
   EXPECT_THROW(
       make_spec()
-          .WithControls({PatchFields(4988, "patch_prefix", {"prefix"})})
+          .WithControls({ReplaceFields(4988, "set_prefix", {"prefix"})})
           .WithControl(custom, update),
       std::invalid_argument);
 }
@@ -2625,12 +2624,12 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
     }
   });
 
-  // 写线程 2：快速 PatchFields
+  // 写线程 2：快速替换 suffix
   std::thread writer2([&]() {
     start.wait();
     for (int i = 1; i <= 30; ++i) {
       std::string payload = "{\"suffix\":\":s" + std::to_string(i) + "\"}";
-      auto res = node->Control(kCmdPatchMap, payload);
+      auto res = node->Control(kCmdSuffixMap, payload);
       EXPECT_EQ(res.status, NodeControlStatus::kHandled);
       std::this_thread::yield();
     }

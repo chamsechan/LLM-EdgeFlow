@@ -29,10 +29,9 @@ slot configurations, allocator and capacities. It is not a Pipeline Node and doe
 6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
 
 Bindings default to the framework standard batch bound of 64; override
-`IoBindingDefinition::max_batch_size` only when measurements require a smaller bound. Converters declare a limit only
-when they have one of their own, and zero adds no bound. The effective limit is the smallest
-positive value among the binding and its converters, and a binding where all three are zero fails
-the registry audit and [deployment preparation](../../../../src/adapter/deployment_preparation.cpp).
+`IoBindingDefinition::max_batch_size` only when measurements require a smaller bound. The binding is
+the only source of this limit; converters do not declare one. A binding limit of zero fails the
+registry audit and [deployment preparation](../../../../src/adapter/deployment_preparation.cpp).
 [Operator creation](../../../../src/adapter/operator/operator_adapter.cpp) further caps the effective
 Process batch limit at the output pool depth; a larger binding limit cannot relax another limit.
 

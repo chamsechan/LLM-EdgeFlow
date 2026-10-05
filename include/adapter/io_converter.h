@@ -204,8 +204,6 @@ struct InputConverterDefinition {
   std::string schema_id;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
-  // 可选的 Converter 专属上限；0 表示不设上限。
-  size_t max_batch_size = 0;
 
   DecodeInputFn decode_fn = nullptr;
 };
@@ -220,8 +218,6 @@ struct OutputConverterDefinition {
   std::string schema_id;
   std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
   std::vector<ExternalSlotDefinition> external_slots;
-  // 可选的 Converter 专属上限；0 表示不设上限。
-  size_t max_batch_size = 0;
 
   EncodeOutputFn encode_fn = nullptr;
 };

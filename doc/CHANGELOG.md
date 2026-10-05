@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+精简未使用的扩展点：批次上限只在 IoBinding 上声明，删除 Converter 的 `max_batch_size`（及
+`EffectiveMaxBatchSize`），Catalog 的 Converter 不再导出该字段；字段 Control 只保留整体替换的
+`ReplaceFields`，删除 `PatchFields` 及其策略枚举；端口存活期只接受 `request` 与 `session`，删除
+未使用的 `global`；Catalog 与 `validate-io` 删除恒为 `operator` 的 `transport` 字段。
+
 示例 Pipeline 配置、Demo 夹具与资产清单中的模型实例名去掉版本后缀（如 `embed_model_v1` /
 `embed_model_v2` 改为 `embed_model`，`llm_model_v1` 改为 `llm_model`）；Pipeline Studio 的 HTTP 接口
 由 `/api/v1/...` 改为 `/api/...`。

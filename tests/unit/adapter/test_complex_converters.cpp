@@ -470,11 +470,8 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
         converters.FindOutputConverter(binding->output_converter_id);
     ASSERT_NE(input, nullptr) << biz;
     ASSERT_NE(output, nullptr) << biz;
-    // 生产代码只在 binding 上声明一次上限。
+    // 生产 binding 使用框架标准批次上限。
     EXPECT_EQ(binding->max_batch_size, 64U) << biz;
-    EXPECT_EQ(input->max_batch_size, 0U) << biz;
-    EXPECT_EQ(output->max_batch_size, 0U) << biz;
-    EXPECT_EQ(EffectiveMaxBatchSize(*binding, *input, *output), 64U) << biz;
   }
 }
 
