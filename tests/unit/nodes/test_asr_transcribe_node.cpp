@@ -30,7 +30,6 @@ class AsrTranscribeNodeTest : public ::testing::Test {
   std::shared_ptr<test::TestAsrModel> asr_model_;
 };
 
-// 1. Process Audio Transcription
 TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
@@ -53,7 +52,7 @@ TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
   EXPECT_EQ((*out)[0].data, "transcript:16000:16000");
 }
 
-// 2. Empty Audio Yields Empty Transcript
+// 空音频产出空转写结果
 TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
@@ -69,7 +68,6 @@ TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
   EXPECT_TRUE(out->empty());
 }
 
-// 3. Missing Audio Fails Closed
 TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);

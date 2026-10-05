@@ -25,7 +25,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
     return NodeResult<TextBatch>::Success(TextBatch{});
   }
 
-  // Round 1: Generate initial drafts for all inputs
+  // 第 1 轮：为所有输入生成初稿
   auto first_res = models.generator.Generate(*inputs.input);
   if (!first_res.ok()) {
     return first_res;
@@ -33,7 +33,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
 
   const auto& drafts = first_res.value();
 
-  // Step 2: Select items that require polishing (contain polish_tag)
+  // 第 2 步：选出需要润色的条目 (包含 polish_tag)
   auto selection_res = SelectBatch(drafts, [&](const std::string& text) {
     return text.find(options.polish_tag) != std::string::npos;
   });
@@ -44,20 +44,20 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
 
   const auto& selection = selection_res.value();
   if (selection.empty()) {
-    // Skip second model call when no items need polishing
+    // 没有条目需要润色时跳过第二次模型调用
     return first_res;
   }
 
-  // Materialize owned sub-batch for the second model call
+  // 为第二次模型调用物化自有子批次
   TextBatch sub_batch = selection.Materialize();
 
-  // Round 2: Call polisher model only on selected sub-batch
+  // 第 2 轮：只对选中的子批次调用润色模型
   auto second_res = models.polisher.Generate(sub_batch);
   if (!second_res.ok()) {
     return second_res;
   }
 
-  // Step 3: Scatter-replace polished items back into full draft batch
+  // 第 3 步：把润色后的条目散回完整的初稿批次
   return ScatterReplace(selection, second_res.value());
 }
 

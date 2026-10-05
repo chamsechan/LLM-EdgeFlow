@@ -553,8 +553,8 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
   } else if (diag->code == DiagnosticCode::kPortCardinalityMismatch ||
              diag->code == DiagnosticCode::kPortProvenanceMismatch ||
              diag->code == DiagnosticCode::kPortLifetimeMismatch) {
-    // Validator owns direction, effective contracts and transitive shapes.
-    // A path can identify either a node input, its output or an IO boundary.
+    // 方向、有效契约和传递形状由 Validator 负责。
+    // 路径可指向 Node 输入、其输出或 IO 边界。
     if (diag->facts.empty()) return;
     ValidationRemediation rem;
     rem.cause = RemediationCause::kPortFlowMismatch;

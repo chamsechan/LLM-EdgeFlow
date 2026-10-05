@@ -405,8 +405,7 @@ NodeResult<TextBatch> RenderTemplate(const TemplateInputs& inputs,
         if (var == "primary") {
           if (p_it != primary_by_sample.end()) value = &primary_str;
         } else if (var == "context" || var == "context_text") {
-          // A present aggregate batch may contain no results for this
-          // request.
+          // 已存在的聚合批次中可能没有本请求的结果。
           if (context_items || context_text_items) value = &context_str;
         } else if (var == "matches") {
           if (matches_items) value = &matches_str;

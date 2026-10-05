@@ -8,7 +8,7 @@ namespace llm_edgeflow {
 
 enum class TextRegexSearchStatus { kMatched, kNotMatched, kError };
 
-// Move-only RAII wrapper that keeps PCRE2 details out of capability Nodes.
+// 仅可移动的 RAII 包装，使 PCRE2 细节不进入能力节点。
 class CompiledTextRegex final {
  public:
   CompiledTextRegex();

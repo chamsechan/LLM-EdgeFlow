@@ -66,7 +66,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->decode_fn, nullptr);
 
-  // 1. Valid JSON with query field
+  // 1. 含 query 字段的合法 JSON
   std::string valid_json = "{\"query\": \"Translate me!\", \"lang\": \"en\"}";
   CompanyString cs_valid{static_cast<int32_t>(valid_json.size()),
                          const_cast<char*>(valid_json.data())};
@@ -93,7 +93,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   ASSERT_EQ(sentences->size(), 1U);
   EXPECT_EQ((*sentences)[0].data, "Translate me!");
 
-  // 2. Invalid JSON without query
+  // 2. 不含 query 的非法 JSON
   std::string invalid_json = "{\"text\": \"No query field\"}";
   CompanyString cs_invalid{static_cast<int32_t>(invalid_json.size()),
                            const_cast<char*>(invalid_json.data())};
@@ -163,22 +163,22 @@ TEST_F(TextConvertersTest, ProductionBindingsUseDeclaredHostTypes) {
       IoBindingRegistry::Instance().FindBinding("keyword_match.operator.v1");
   ASSERT_NE(keyword_binding, nullptr);
 
-  // Entity extract uses CompanyOperatorEntityInput via text.plain.operator.v1
+  // 实体抽取经 text.plain.operator.v1 使用 CompanyOperatorEntityInput
   EXPECT_EQ(entity_binding->input_converter_id, "text.plain.operator.v1");
   const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
       entity_binding->input_converter_id);
   ASSERT_NE(entity_conv, nullptr);
   EXPECT_EQ(entity_conv->external_type, "CompanyOperatorEntityInput");
 
-  // Keyword match uses CompanyOperatorKeywordInput via
-  // keyword.plain.operator.v1
+  // 关键词匹配经 keyword.plain.operator.v1 使用
+  // CompanyOperatorKeywordInput
   EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain.operator.v1");
   const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
       keyword_binding->input_converter_id);
   ASSERT_NE(keyword_conv, nullptr);
   EXPECT_EQ(keyword_conv->external_type, "CompanyOperatorKeywordInput");
 
-  // Output converters are distinct
+  // 输出 Converter 互不相同
   EXPECT_EQ(entity_binding->output_converter_id,
             "document.structured.operator.v1");
   EXPECT_EQ(keyword_binding->output_converter_id, "keyword.result.operator.v1");

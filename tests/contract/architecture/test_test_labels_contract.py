@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Enforce CTest label contracts to prevent CI scope drift.
+"""强制 CTest 标签契约，防止 CI 覆盖范围漂移。
 
-Validates that:
-- Static gates and tooling tests do not run under sanitizer-runtime.
-- Core C/C++ runtime suites carry sanitizer-runtime.
-- Kite-specific tests carry kite and kite-real labels as appropriate.
-- Tests with kite-real also carry kite.
+校验：
+- 静态门禁和工具测试不在 sanitizer-runtime 下运行。
+- 核心 C/C++ 运行时测试套件带有 sanitizer-runtime 标签。
+- Kite 专属测试按需带有 kite 和 kite-real 标签。
+- 带 kite-real 的测试也带有 kite。
 """
 
 import argparse
@@ -74,9 +74,9 @@ def parse_gtest_list_tests_output(output: str) -> list:
         if not line or line.isspace():
             continue
         if not line[0].isspace():
-            # Strip trailing comment, e.g. "TypedSuite/0.  # TypeParam = int"
+            # 去掉行尾注释，如 "TypedSuite/0.  # TypeParam = int"
             suite_part = line.split("#", 1)[0].strip()
-            # Valid suite names must end with "." and contain no spaces, and not just "."
+            # 合法的套件名必须以 "." 结尾、不含空格，且不能只是 "."
             if (
                 len(suite_part) <= 1
                 or not suite_part.endswith(".")
@@ -87,10 +87,10 @@ def parse_gtest_list_tests_output(output: str) -> list:
         else:
             if not current_suite:
                 continue
-            # Strip trailing comment, e.g. "TestCase  # GetParam() = 1"
+            # 去掉行尾注释，如 "TestCase  # GetParam() = 1"
             test_part = line.split("#", 1)[0].strip()
             test_words = test_part.split()
-            # Valid test cases are single identifiers without whitespace
+            # 合法的测试用例是不含空白的单个标识符
             if len(test_words) != 1:
                 continue
             test_case = test_words[0]
@@ -100,7 +100,7 @@ def parse_gtest_list_tests_output(output: str) -> list:
 
 def match_gtest_filter(test_name: str, gtest_filter: str) -> bool:
     if not gtest_filter or not gtest_filter.strip():
-        # An empty filter (e.g. --gtest_filter=) matches nothing in GoogleTest.
+        # 空过滤器 (如 --gtest_filter=) 在 GoogleTest 中不匹配任何测试。
         return False
     clean_filter = gtest_filter.strip()
     if (clean_filter.startswith('"') and clean_filter.endswith('"')) or (
@@ -115,8 +115,8 @@ def match_gtest_filter(test_name: str, gtest_filter: str) -> bool:
     pos_pats = [p for p in pos_part.split(":") if p]
     neg_pats = [p for p in neg_part.split(":") if p]
 
-    # If positive patterns are omitted but negative patterns exist (e.g. "-Excluded.*"),
-    # GoogleTest defaults positive matching to "*".
+    # 省略正向模式但存在反向模式 (如 "-Excluded.*") 时，
+    # GoogleTest 默认正向匹配 "*"。
     if pos_pats:
         pos_match = any(fnmatch.fnmatchcase(test_name, pat) for pat in pos_pats)
     else:
@@ -193,7 +193,7 @@ def verify_compiled_gtest_coverage(
         exe = resolve_command_executable(cmd, resolved_build_dir)
 
         if filt is not None:
-            # Explicit GoogleTest target
+            # 显式的 GoogleTest 目标
             if not exe:
                 errors.append(
                     f"Failed to enumerate GoogleTest cases from '{test_name}': "
@@ -208,7 +208,7 @@ def verify_compiled_gtest_coverage(
                 continue
             exec_filters.setdefault(exe, []).append(filt)
         elif exe:
-            # Check if this executable is a GoogleTest binary
+            # 检查该可执行文件是否为 GoogleTest 二进制
             is_gtest = (
                 is_gtest_fn(exe)
                 if is_gtest_fn is not None
@@ -272,7 +272,7 @@ def verify_compiled_gtest_coverage(
 
 
 def run_self_tests():
-    # 1. Issue 1: Typed test parsing with "# TypeParam = ..." and comment stripping
+    # 1. 问题 1：解析带 "# TypeParam = ..." 的类型化测试并去除注释
     sample_typed = """
 Running main() from /path/to/gtest_main.cc
 Note: Random seed = 12345.
@@ -300,13 +300,13 @@ ValueParamSuite/Inst.
     ]
     assert parsed == expected, f"Parsed tests mismatch: {parsed} != {expected}"
 
-    # Typed tests must not be falsely covered by a predecessor suite filter
+    # 类型化测试不能被前一个套件的过滤器误判为已覆盖
     assert not match_gtest_filter("TypedSuite/0.TypedTestA", "NormalSuite.*")
     assert match_gtest_filter("TypedSuite/0.TypedTestA", "TypedSuite/*")
     assert match_gtest_filter("TypedSuite/0.TypedTestA", "TypedSuite/0.*")
     assert not match_gtest_filter("TypedSuite/0.TypedTestA", "TypedSuite/1.*")
 
-    # 2. Issue 2: Empty filter "--gtest_filter=" does not select any test
+    # 2. 问题 2：空过滤器 "--gtest_filter=" 不选中任何测试
     assert not match_gtest_filter("AnySuite.AnyTest", "")
     assert not match_gtest_filter("AnySuite.AnyTest", "   ")
     assert not match_gtest_filter("AnySuite.AnyTest", '""')
@@ -317,18 +317,18 @@ ValueParamSuite/Inst.
     assert is_test_covered("AnySuite.AnyTest", ["", "AnySuite.*"])
     assert not is_test_covered("OtherSuite.AnyTest", ["", "AnySuite.*"])
 
-    # Filter case sensitivity
+    # 过滤器区分大小写
     assert not match_gtest_filter("AnySuite.AnyTest", "anysuite.*")
     assert match_gtest_filter("AnySuite.AnyTest", "AnySuite.*")
 
-    # Negative pattern handling
+    # 反向模式处理
     assert match_gtest_filter("Suite.Good", "-Suite.Bad")
     assert not match_gtest_filter("Suite.Bad", "-Suite.Bad")
     assert match_gtest_filter("Suite.Good", "Suite.*:-Suite.Bad")
     assert not match_gtest_filter("Suite.Bad", "Suite.*:-Suite.Bad")
     assert not match_gtest_filter("Suite.Good", "-*")
 
-    # 3. Issue 3: Enumeration failure on explicit GoogleTest target must report errors
+    # 3. 问题 3：显式 GoogleTest 目标枚举失败时必须报告错误
     class FakeProc:
         def __init__(self, returncode, stdout="", stderr=""):
             self.returncode = returncode
@@ -338,7 +338,7 @@ ValueParamSuite/Inst.
     fake_build = Path("/fake/build")
     fake_exe = fake_build / "fake_test_runner"
 
-    # 3a. Target with explicit --gtest_filter fails enumeration (exit code)
+    # 3a. 带显式 --gtest_filter 的目标枚举失败 (退出码)
     mock_ctest_explicit = {
         "tests": [
             {
@@ -360,7 +360,7 @@ ValueParamSuite/Inst.
     ), errs
     assert any("exit code 2" in e for e in errs), errs
 
-    # 3b. Target returns 0 but produces no test cases
+    # 3b. 目标返回 0 但没有产出测试用例
     errs = []
     verify_compiled_gtest_coverage(
         fake_build,
@@ -370,7 +370,7 @@ ValueParamSuite/Inst.
     )
     assert any("no test cases discovered" in e for e in errs), errs
 
-    # 3c. Target execution raises an exception
+    # 3c. 执行目标时抛异常
     errs = []
     def crashing_runner(cmd):
         raise RuntimeError("Subprocess timeout or spawn failure")
@@ -382,7 +382,7 @@ ValueParamSuite/Inst.
     )
     assert any("Failed to execute 'fake_test_runner --gtest_list_tests'" in e for e in errs), errs
 
-    # 3d. Wrapped command resolution with runner_fn (e.g. cmake -E env)
+    # 3d. 通过 runner_fn 解析被包装的命令 (如 cmake -E env)
     called_cmds = []
     def recording_runner(cmd):
         called_cmds.append(cmd)
@@ -413,7 +413,7 @@ ValueParamSuite/Inst.
     assert not errs, errs
     assert called_cmds == [[str(fake_exe), "--gtest_list_tests"]], called_cmds
 
-    # 3e. Explicit GoogleTest target with missing or unresolvable executable reports error
+    # 3e. 显式 GoogleTest 目标的可执行文件缺失或无法解析时报告错误
     errs = []
     mock_ctest_missing_exe = {
         "tests": [
@@ -446,7 +446,7 @@ ValueParamSuite/Inst.
     )
     assert any("could not resolve executable" in e for e in errs), errs
 
-    # 3f. Explicit --gtest_filter= (empty) must fail coverage check if tests exist
+    # 3f. 存在测试时，显式的 --gtest_filter= (空) 必须使覆盖检查失败
     errs = []
     mock_ctest_empty_filter = {
         "tests": [
@@ -466,7 +466,7 @@ ValueParamSuite/Inst.
     assert any("tests/RuntimeTests.cmake" in e and "edgeflow_add_runner_test" in e
                and "CustomNodeCatalogTest" in e for e in errs), errs
 
-    # 3g. Typed test omission reproduction (reproducing missed typed suite)
+    # 3g. 复现类型化测试被遗漏的问题
     mock_ctest_typed = {
         "tests": [
             {
@@ -496,7 +496,7 @@ def main():
 
     build_dir = args.build_dir
     if not build_dir.is_dir():
-        # Fallback to looking relative to script root if build dir is relative
+        # 构建目录为相对路径时，回退为相对脚本根目录查找
         candidate = Path(__file__).resolve().parents[3] / build_dir
         if candidate.is_dir():
             build_dir = candidate
@@ -536,7 +536,7 @@ def main():
     if not tooling_tests:
         errors.append("Expected non-empty tooling test set.")
 
-    # Rule 1: static-gate and tooling tests must NOT be in sanitizer-runtime
+    # 规则 1：静态门禁和工具测试不得属于 sanitizer-runtime
     for name in static_tests:
         if name in sanitizer_runtime_tests:
             errors.append(
@@ -548,12 +548,12 @@ def main():
                 f"Tooling test '{name}' must not have 'sanitizer-runtime' label."
             )
 
-    # Rule 2: kite-real tests must also carry kite label
+    # 规则 2：kite-real 测试必须同时带有 kite 标签
     for name in kite_real_tests:
         if name not in kite_tests:
             errors.append(f"Kite real test '{name}' must also have 'kite' label.")
 
-    # Rule 3: Key kite targets must be labeled
+    # 规则 3：关键的 kite 目标必须带标签
     required_kite = {
         "CatalogContractSsotTest",
         "ModelBackendDecouplingTest",
@@ -573,8 +573,8 @@ def main():
         if target in inventory and target not in kite_real_tests:
             errors.append(f"Expected test '{target}' to be labeled with 'kite-real'.")
 
-    # Rule 4: Orchestration runtime coverage must survive CI label filtering.
-    # Check names explicitly: a non-empty runtime set cannot detect one omission.
+    # 规则 4：编排层运行时覆盖必须经得起 CI 标签过滤。
+    # 显式检查名称：仅检查运行时集合非空无法发现单个遗漏。
     required_sanitizer_runtime = {"PipelineStudioTest"}
     for target in sorted(required_sanitizer_runtime):
         if target not in inventory:
@@ -585,8 +585,8 @@ def main():
                 "with 'sanitizer-runtime'."
             )
 
-    # Rule 5: All compiled GoogleTest test cases in binaries executed by CTest
-    # must be covered by at least one CTest filter.
+    # 规则 5：CTest 执行的二进制中所有已编译的 GoogleTest 用例
+    # 都必须至少被一个 CTest 过滤器覆盖。
     covered_gtest_count = verify_compiled_gtest_coverage(
         build_dir, ctest_data, errors
     )

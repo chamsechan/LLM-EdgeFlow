@@ -6,8 +6,8 @@
 
 namespace llm_edgeflow {
 
-// Serializes a rule match result as the JSON object used by the keyword
-// response (match_result_json) and the audio response (intent_slot_json).
+// 将规则匹配结果序列化为 JSON 对象，供关键词响应 (match_result_json)
+// 和音频响应 (intent_slot_json) 使用。
 std::string SerializeRuleMatchResponse(const RuleMatchItem& result);
 
 }  // namespace llm_edgeflow

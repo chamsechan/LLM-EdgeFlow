@@ -79,7 +79,6 @@ class TextEmbeddingNodeTest : public ::testing::Test {
   std::shared_ptr<CountingEmbeddingModel> counting_model_;
 };
 
-// 1. Init & Process Request Lifetime
 TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
@@ -100,7 +99,6 @@ TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
   EXPECT_EQ(counting_model_->infer_calls.load(), 1);
 }
 
-// 2. Session Caching Single-Flight & Invalidation
 TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
@@ -139,7 +137,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
   EXPECT_EQ(success_count.load(), kNumThreads);
   EXPECT_EQ(counting_model_->infer_calls.load(), 1);
 
-  // Invalidation test: changing corpus triggers recomputation
+  // 失效测试：更换语料会触发重新计算
   {
     AlgContext ctx;
     TextBatch updated_corpus;
@@ -151,8 +149,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
     EXPECT_EQ(counting_model_->infer_calls.load(), 2);
   }
 
-  // A model hot update changes the revision and invalidates otherwise
-  // identical session cache entries.
+  // 模型热更新会改变 revision，使其余完全相同的会话缓存条目失效。
   ASSERT_TRUE(session_ctx_->GetModelManager().UpdateModelRevision(
       "embed_model_v1", "revision-2"));
   {
@@ -166,7 +163,6 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
   }
 }
 
-// 3. Missing Input Fails Closed
 TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
@@ -286,7 +282,7 @@ TEST_F(TextEmbeddingNodeTest,
     if (std::string(lifetime) == "session") {
       EXPECT_LT(counting_model_->infer_calls.load() - calls_before, 8);
     }
-    // All workers have joined before changing model behavior.
+    // 修改模型行为前，所有 worker 都已 join。
     counting_model_->fail_inference = false;
     const int calls_before_retry = counting_model_->infer_calls.load();
     AlgContext retry;
@@ -304,7 +300,6 @@ TEST_F(TextEmbeddingNodeTest,
   }
 }
 
-// 4. Session Cache Collision Reproduction Defeated (C01)
 TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   auto node_a = NodeRegistry::Instance().Create("TextEmbeddingNode");
   auto node_b = NodeRegistry::Instance().Create("TextEmbeddingNode");
@@ -317,8 +312,8 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
       *node_b, {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}},
       session_ctx_.get()));
 
-  // Corpus A: ["a", "b\0\1c"]
-  // Corpus B: ["a\0\1b", "c"]
+  // 语料 A：["a", "b\0\1c"]
+  // 语料 B：["a\0\1b", "c"]
   std::string s_b_nul_c = std::string("b") + '\0' + '\1' + "c";
   std::string s_a_nul_b = std::string("a") + '\0' + '\1' + "b";
   ASSERT_EQ(s_b_nul_c.size(), 4u);
@@ -345,9 +340,8 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   AlgContext ctx_b;
   ctx_b.Publish("text", corpus_b);
   EXPECT_EQ(node_b->Process(&ctx_b), 0);
-  // In the old implementation, corpus_b collided with corpus_a, returning
-  // cached [1.0f, 4.0f] with infer_calls staying at 1. With the fix,
-  // infer_calls must be 2 and out_b has [4.0f, 1.0f]!
+  // 旧实现中 corpus_b 会与 corpus_a 冲突，返回缓存的 [1.0f, 4.0f]，
+  // infer_calls 仍为 1。修复后 infer_calls 必须为 2，out_b 为 [4.0f, 1.0f]！
   EXPECT_EQ(counting_model_->infer_calls.load(), 2);
   const auto* out_b = ctx_b.Read<EmbeddingBatch>("embedding");
   ASSERT_NE(out_b, nullptr);
@@ -355,7 +349,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_FLOAT_EQ((*out_b)[0].data[0], 4.0f);
   EXPECT_FLOAT_EQ((*out_b)[1].data[0], 1.0f);
 
-  // Subsequent call with corpus_a should hit cache (infer_calls remains 2)
+  // 随后用 corpus_a 调用应命中缓存 (infer_calls 仍为 2)
   AlgContext ctx_a2;
   ctx_a2.Publish("text", corpus_a);
   EXPECT_EQ(node_a->Process(&ctx_a2), 0);
@@ -365,8 +359,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_FLOAT_EQ((*out_a2)[0].data[0], 1.0f);
   EXPECT_FLOAT_EQ((*out_a2)[1].data[0], 4.0f);
 
-  // Changing order, sub_id, req_id, or normalize option creates distinct
-  // entries
+  // 改变顺序、sub_id、req_id 或 normalize 选项都会产生不同的条目
   TextBatch corpus_a_reordered;
   corpus_a_reordered.emplace_back(0, 0, s_b_nul_c);
   corpus_a_reordered.emplace_back(0, 1, "a");
@@ -383,7 +376,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_EQ(node_a->Process(&ctx_sub_id), 0);
   EXPECT_EQ(counting_model_->infer_calls.load(), 4);
 
-  // Different normalize option creates distinct cache entry
+  // 不同的 normalize 选项产生不同的缓存条目
   auto node_no_norm = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_TRUE(InitNodeForTest(*node_no_norm,
                               {{"bind_model", "embed_model_v1"},

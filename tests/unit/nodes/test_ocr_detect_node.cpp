@@ -30,7 +30,6 @@ class OcrDetectNodeTest : public ::testing::Test {
   std::shared_ptr<test::TestOcrModel> ocr_model_;
 };
 
-// 1. Process OCR Document Detection
 TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
@@ -54,7 +53,6 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
   EXPECT_EQ((*out_text)[0].data, "recognized:mock_invoice.jpg");
 }
 
-// 2. Missing Input Images Fails Closed
 TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);

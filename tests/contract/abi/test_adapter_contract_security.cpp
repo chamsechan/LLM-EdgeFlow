@@ -50,8 +50,8 @@ class AdapterContractSecurityTest : public ::testing::Test {
 
 namespace {
 
-// This fixture records actual generation calls while the test executes the
-// shipped translation Pipeline through Operator API. It does no JSON handling.
+// 测试通过 Operator API 执行随附的翻译 Pipeline，该夹具记录实际的生成调用，
+// 不做任何 JSON 处理。
 class TranslationProbeModel final : public ILlmModel {
  public:
   inline static constexpr char kModelType[] = "test_translation_probe";
@@ -99,7 +99,7 @@ class TranslationProbeModel final : public ILlmModel {
   int failure = 0;
 };
 
-// Fails during model creation so Operator Create reaches the loading stage.
+// 在模型创建时失败，使 Operator Create 进入加载阶段。
 class FailingCreateModel {
  public:
   inline static constexpr char kModelType[] = "test_failing_create_model";
@@ -152,8 +152,8 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
   source >> pipeline;
-  // Keep the production graph and port bindings. Substitute only model
-  // execution so these assertions require neither model assets nor a Demo.
+  // 保留生产计算图和端口绑定，只替换模型执行，
+  // 使这些断言既不需要模型资源也不需要 Demo。
   ASSERT_EQ(pipeline.at("pipeline").size(), 1U);
   EXPECT_EQ(pipeline["pipeline"][0]["node_type"], "LlmGenerateNode");
   ASSERT_EQ(pipeline.at("models").size(), 1U);
@@ -254,8 +254,8 @@ TEST_F(AdapterContractSecurityTest,
                 nlohmann::json({{"translated", translations[i]}}));
     }
   }
-  // Text that happens to resemble JSON or Markdown is still the original
-  // model result: no JSON parsing, field extraction, stripping, or retries.
+  // 看起来像 JSON 或 Markdown 的文本仍是原始模型结果：
+  // 不做 JSON 解析、字段抽取、裁剪或重试。
   for (const std::string text :
        {R"({"translated":"literal","extra":42})",
         "```json\n{\"translated\":\"literal\"}\n```"}) {
@@ -279,7 +279,7 @@ TEST_F(AdapterContractSecurityTest,
   model->response.assign(2200, 'x');
   EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(model->calls.size(), before_invalid + 1);
-  // Model codes stay in diagnostics; the host sees the execution category.
+  // Model 错误码保留在诊断中；宿主看到的是执行阶段类别。
   model->failure = -731;
   EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_UNKNOWN);
   const std::string model_error = operator_api::GetOperatorLastError();
@@ -295,8 +295,8 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(nlohmann::json::parse(out_entities_json),
             nlohmann::json({{"translated", "你好"}}));
 
-  // Invalid UTF-8 in model response causes JSON dump to throw, mapping to
-  // COMPANY_ALG_ERR_EXCEPTION (-99) through the public Operator Process barrier
+  // 模型响应中的非法 UTF-8 会使 JSON dump 抛异常，经公开的 Operator Process
+  // 屏障映射为 COMPANY_ALG_ERR_EXCEPTION (-99)
   model->response = "prefix\xFF\xFFsuffix";
   EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_EXCEPTION);
   model->response = "你好";
@@ -334,7 +334,7 @@ TEST_F(AdapterContractSecurityTest,
                                  &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
-  // Reordered internal results must map back to external request IDs.
+  // 重排后的内部结果必须映射回外部请求 ID。
   AlgContext reordered;
   request_ids = {999, 123};
   reordered.Publish(kLlmAnswers, TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
@@ -876,14 +876,14 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
   }
 }
 
-// Cross-sample carrier error vs biz decode error priority
+// 跨样本的载体错误与 biz 解码错误的优先级
 TEST_F(AdapterContractSecurityTest,
        TranslationCrossSampleCarrierVsBizErrorPriority) {
   const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
       "translate.json.operator.v1");
   ASSERT_NE(converter, nullptr);
 
-  // Sample 0 has carrier error (oversized string)
+  // 样本 0 有载体错误 (字符串超长)
   std::string oversized(64 * 1024 + 1, 'z');
   CompanyString cs_oversized{static_cast<int32_t>(oversized.size()),
                              const_cast<char*>(oversized.data())};
@@ -907,7 +907,7 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(carrier_status.SampleIndex(), 0);
   EXPECT_EQ(carrier_status.FieldPath(), "sentence_text");
 
-  // Pure biz decode error retains translate.json.operator.v1 converter name
+  // 纯 biz 解码错误保留 translate.json.operator.v1 Converter 名称
   std::string bad_json = "{\"wrong_field\":123}";
   CompanyString cs_biz{static_cast<int32_t>(bad_json.size()),
                        const_cast<char*>(bad_json.data())};
@@ -926,14 +926,14 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(biz_status.FieldPath(), "json");
 }
 
-// Return code and AdapterStatus independence
+// 返回码与 AdapterStatus 相互独立
 TEST_F(AdapterContractSecurityTest,
        TranslationReturnCodeAndAdapterStatusIndependence) {
   const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
       "translate.json.operator.v1");
   ASSERT_NE(converter, nullptr);
 
-  // A request ID table is present, but answers are missing
+  // 存在请求 ID 表，但缺少答案
   AlgContext ctx;
   const std::vector<uint64_t> request_ids{1001};
 
@@ -953,21 +953,19 @@ TEST_F(AdapterContractSecurityTest,
   int ret =
       converter->encode_fn(&ctx, bindings, options, &view, &written, &status);
 
-  // Missing internal data is invalid input, independently of output capacity.
+  // 缺少内部数据属于非法输入，与输出容量无关。
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
-// Translate serialization failure (invalid UTF-8) priority
-// over capacity check
+// 翻译序列化失败 (非法 UTF-8) 优先于容量检查
 TEST_F(AdapterContractSecurityTest,
        TranslationSerializationFailurePriorityOverCapacity) {
   const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
       "translate.json.operator.v1");
   ASSERT_NE(converter, nullptr);
 
-  // A request ID table is present, but the answer has invalid UTF-8 byte
-  // sequence
+  // 存在请求 ID 表，但答案含非法 UTF-8 字节序列
   AlgContext ctx;
   const std::vector<uint64_t> request_ids{1001};
   std::string invalid_utf8 = "prefix\xFF\xFFsuffix";
@@ -987,14 +985,14 @@ TEST_F(AdapterContractSecurityTest,
   size_t written = 0;
   AdapterStatus status;
 
-  // Serialization in Encode precedes capacity validation;
-  // unhandled dump exception propagates out of encode_fn
+  // Encode 中先序列化再校验容量；
+  // 未处理的 dump 异常会从 encode_fn 抛出
   EXPECT_THROW(
       converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
       std::exception);
 }
 
-// Translate null AlgContext diagnostics
+// 翻译在 AlgContext 为空时的诊断
 TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "translate.json.operator.v1");
@@ -1003,8 +1001,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
       "translate.json.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  // 1. Decode with null context: must return INVALID_INPUT (-3) with field
-  // "context"
+  // 1. context 为空时 Decode 必须返回 INVALID_INPUT (-3)，字段为 "context"
   std::string query_json = "{\"query\":\"test\"}";
   CompanyString cs{static_cast<int32_t>(query_json.size()),
                    const_cast<char*>(query_json.data())};
@@ -1030,8 +1027,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
       in_conv->decode_fn(in_view, in_options, in_bindings, nullptr, nullptr),
       COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // 2. Encode with null context: must return INVALID_INPUT (-3) with field
-  // "context"
+  // 2. context 为空时 Encode 必须返回 INVALID_INPUT (-3)，字段为 "context"
   CompanyOperatorEntityOutput output{};
   ExternalOutputBatchView out_view;
   out_view.count = 1;
@@ -1114,7 +1110,7 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
     size_t limit;
     const char* message;
   };
-  // Keep numeric expectations independent of the implementation constants.
+  // 数值期望与实现中的常量保持独立。
   const Boundary boundaries[] = {
       {"keyword.plain.operator.v1", "sentence_text", 65536,
        "sentence_text length exceeds 64 KiB limit"},
@@ -1248,7 +1244,7 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
     ASSERT_EQ(ops.Create(&raw_handle, &param), 0) << GetOperatorLastError();
     const auto destroy = [ops](void* handle) { ops.Destroy(handle); };
     std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
-    // Successful calls preserve the existing thread-local last error.
+    // 成功的调用保留现有的线程局部 last error。
     const std::string previous_error = GetOperatorLastError();
     EXPECT_EQ(ops.Process(handle.get(), inputs, outputs), expected)
         << GetOperatorLastError();
@@ -1278,8 +1274,8 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
                 "sentence_text length 65537 exceeds max limit 65536");
   }
 
-  // Use the production graph with test model execution; neither rejection
-  // path should reach model inference, and no external model assets are needed.
+  // 使用生产计算图和测试模型执行；两条拒绝路径都不应到达模型推理，
+  // 也不需要外部模型资源。
   std::ifstream source(GetConfigPath("configs/pipeline_cross_rerank_cpu.json"));
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
@@ -1352,8 +1348,8 @@ TEST_F(AdapterContractSecurityTest,
       std::filesystem::remove_all(directory, error);
     }
   } cleanup{directory};
-  // Keyword and rule hits, typed rule constants, regex captures and the
-  // default hit all reach the external JSON response.
+  // 关键词和规则命中、类型化规则常量、正则捕获以及默认命中
+  // 都会进入外部 JSON 响应。
   const nlohmann::json pipeline = nlohmann::json::parse(R"j({
     "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
     "models": [],
@@ -1459,7 +1455,7 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
     return op.Create(handle, &param);
   };
 
-  // Validation and model loading failures are creation parameter errors.
+  // 校验失败和模型加载失败都属于创建参数错误。
   void* handle = nullptr;
   auto invalid = pipeline;
   invalid["pipeline"][1]["node_type"] = "MissingNodeType";
@@ -1483,7 +1479,7 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
       << operator_api::GetOperatorLastError();
   std::unique_ptr<void, int (*)(void*)> owner(handle, op.Destroy);
 
-  // The test backend returns plain text, so the fail policy rejects it.
+  // 测试 Backend 返回纯文本，因此 fail 策略会拒绝它。
   std::string text = "张三在北京";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
   CompanyOperatorEntityInput input{11, &sentence};

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Apply a native CMake preset while preserving an existing build's generator.
+# 应用原生 CMake preset，同时保留已有构建目录的生成器。
 if [[ $# -lt 3 ]]; then
   echo "Usage: $0 <source-dir> <build-dir> <preset> [cmake options...]" >&2
   exit 2

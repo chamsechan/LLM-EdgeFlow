@@ -22,9 +22,8 @@ struct DeploymentPrepareOptions {
   std::string model_root_dir;
 };
 
-// Converter selection, port mappings and output pool budgets resolved from a
-// deployment document. Preparation produces it; the validated Operator plan
-// keeps it unchanged.
+// 从部署文档解析出的 Converter 选择、端口映射和输出池预算。
+// 由准备阶段生成，经校验的 Operator 计划保持不变。
 struct IoBindingSelection {
   IoBindingDefinition binding;
   const InputConverterDefinition* input_converter = nullptr;

@@ -1,5 +1,5 @@
-# Deterministic runtime registrations used by mock Demo profiles and tests.
-# OBJECT libraries keep every registration translation unit in each consumer.
+# mock Demo Profile 和测试使用的确定性运行时注册。
+# OBJECT 库确保每个消费者都包含全部注册翻译单元。
 add_library(edgeflow_test_backend_fixtures OBJECT
   inference/test_tensor_backend.cpp
   inference/test_causal_lm_backend.cpp)

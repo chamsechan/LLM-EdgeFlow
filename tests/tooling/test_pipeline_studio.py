@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""API and filesystem boundary tests for the local Pipeline Studio."""
+"""本地 Pipeline Studio 的 API 与文件系统边界测试。"""
 
 import copy
 import importlib.util
@@ -232,21 +232,21 @@ class PreviewFixTest(unittest.TestCase):
     def test_preview_fix_requires_expected_revision(self):
         valid_fp = self._valid_fingerprint()
 
-        # Omitted expected_revision (None) raises REVISION_CONFLICT
+        # 省略 expected_revision (None) 时抛出 REVISION_CONFLICT
         with self.assertRaises(SHOW.StudioError) as err_none:
             self.service.preview_fix(
                 self.keyword, self.patch, expected_revision=None, tool_fingerprint=valid_fp
             )
         self.assertEqual(err_none.exception.code, "REVISION_CONFLICT")
 
-        # Omitted expected_revision (empty string) raises REVISION_CONFLICT
+        # 省略 expected_revision (空字符串) 时抛出 REVISION_CONFLICT
         with self.assertRaises(SHOW.StudioError) as err_empty:
             self.service.preview_fix(
                 self.keyword, self.patch, expected_revision="", tool_fingerprint=valid_fp
             )
         self.assertEqual(err_empty.exception.code, "REVISION_CONFLICT")
 
-        # Mismatched expected_revision raises REVISION_CONFLICT
+        # expected_revision 不匹配时抛出 REVISION_CONFLICT
         with self.assertRaises(SHOW.StudioError) as err_mismatch:
             self.service.preview_fix(
                 self.keyword, self.patch, expected_revision="mismatched_revision", tool_fingerprint=valid_fp
@@ -257,21 +257,21 @@ class PreviewFixTest(unittest.TestCase):
         raw = json.dumps(self.keyword, sort_keys=True).encode("utf-8")
         valid_rev = SHOW.revision_for(raw)
 
-        # Omitted tool_fingerprint (None) raises TOOL_OUTDATED
+        # 省略 tool_fingerprint (None) 时抛出 TOOL_OUTDATED
         with self.assertRaises(SHOW.StudioError) as err_none:
             self.service.preview_fix(
                 self.keyword, self.patch, expected_revision=valid_rev, tool_fingerprint=None
             )
         self.assertEqual(err_none.exception.code, "TOOL_OUTDATED")
 
-        # Omitted tool_fingerprint (empty string) raises TOOL_OUTDATED
+        # 省略 tool_fingerprint (空字符串) 时抛出 TOOL_OUTDATED
         with self.assertRaises(SHOW.StudioError) as err_empty:
             self.service.preview_fix(
                 self.keyword, self.patch, expected_revision=valid_rev, tool_fingerprint=""
             )
         self.assertEqual(err_empty.exception.code, "TOOL_OUTDATED")
 
-        # Mismatched tool_fingerprint raises TOOL_OUTDATED
+        # tool_fingerprint 不匹配时抛出 TOOL_OUTDATED
         with self.assertRaises(SHOW.StudioError) as err_mismatch:
             self.service.preview_fix(
                 self.keyword, self.patch, expected_revision=valid_rev, tool_fingerprint="mismatched_tool_fingerprint"
@@ -440,7 +440,7 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(error.exception.code, "SAVE_FAILED")
         self.assertEqual({path: path.read_bytes() for path in paths}, originals)
         self.assertEqual(set(self.configs.iterdir()), set(paths))
-        # A recovered failure must not advance either revision.
+        # 已恢复的失败不得推进任何一个 revision。
         self.assertTrue(self.service.save_pipeline(saved["filename"], self.keyword, saved["revision"])["ok"])
 
     def test_restarted_service_saves_model_path_without_shadowed_values(self):
@@ -898,8 +898,8 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertEqual(process.stdout, "")
 
     def test_resolve_conf_exposes_model_sources_defaults_and_native_pool_errors(self):
-        # Resolver semantics must run in every backend variant, including Kite
-        # and minimal builds where llama.cpp is deliberately unavailable.
+        # 解析器语义必须在所有 Backend 变体中运行，
+        # 包括 Kite 构建和有意不含 llama.cpp 的最小构建。
         conf_path = ROOT / "demo/fixtures/mock/pipeline_entity_extract.conf"
         code, report = self.command("resolve-conf", str(conf_path.relative_to(ROOT)), "--root", str(ROOT), "--depth", "1")
         self.assertEqual(code, 0, report)
@@ -989,12 +989,12 @@ class PipelineCliTest(unittest.TestCase):
                         self.assertEqual(report["plan"], {"layers": [], "topological_order": []})
 
     def test_cli_plan_envelopes_across_entrypoints(self):
-        # Plan returns envelope with diagnostics on deployment preparation failure,
-        # partial plan on Core failure, and full topological order on success, with CLI parity.
+        # 部署准备失败时 plan 返回带诊断的信封，Core 失败时返回部分计划，
+        # 成功时返回完整拓扑顺序，且与 CLI 一致。
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. Removed deployment field is rejected
+        # 1. 已移除的部署字段被拒绝
         invalid_doc = copy.deepcopy(pipeline)
         invalid_doc["deployment"]["model_paths"] = {"unknown_model_id": "models/foo.bin"}
         for ep in self.CLI_PARITY_ENTRYPOINTS:
@@ -1008,7 +1008,7 @@ class PipelineCliTest(unittest.TestCase):
                 if ep[0] == "plan":
                     self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
-        # 2. Core failure with valid deployment
+        # 2. 部署合法但 Core 失败
         invalid_core = copy.deepcopy(pipeline)
         invalid_core["pipeline"].append({
             "id": "bad_node",
@@ -1025,7 +1025,7 @@ class PipelineCliTest(unittest.TestCase):
                 if ep[0] == "plan":
                     self.assertIn("plan", res)
 
-        # 3. Valid pipeline plan
+        # 3. 合法的 Pipeline 计划
         for ep in self.CLI_PARITY_ENTRYPOINTS:
             with self.subTest(case="valid_plan", entrypoint=ep):
                 code, res = self.command(*ep, "--stdin", input_pipeline=pipeline)
@@ -1037,11 +1037,11 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertTrue(res["plan"]["topological_order"])
 
     def test_cli_plan_envelopes_repeat(self):
-        # Repeat the full CLI parity matrix.
+        # 重复执行完整的 CLI 一致性矩阵。
         self.test_cli_plan_envelopes_across_entrypoints()
 
     def test_cli_validate_io_exact_diagnostic_pointer(self):
-        # validate-io returns structured diagnostics with the exact JSON pointer.
+        # validate-io 返回带精确 JSON 指针的结构化诊断。
         conf_path = ROOT / "demo/fixtures/mock/pipeline_entity_extract.conf"
         conf = json.loads(conf_path.read_text())
         pipe_file = conf_path.with_name(conf["pipe_path"])
@@ -1050,7 +1050,7 @@ class PipelineCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="validate-io-", dir=ROOT / "build") as directory:
             changed_conf = Path(directory) / "pipeline.conf"
             changed_pipe = Path(directory) / conf["pipe_path"]
-            # Explicit malformed allocation retains its exact native pointer.
+            # 显式的错误分配保留其精确的原生指针。
             output_override(pipe_doc, "entity_out")["capacities"] = {"entities_json": 0}
             changed_pipe.write_text(json.dumps(pipe_doc))
             changed_conf.write_text(json.dumps(conf))
@@ -1079,20 +1079,20 @@ class PipelineCliTest(unittest.TestCase):
                         self.assertEqual(report["plan"], {"layers": [], "topological_order": []})
 
     def test_cli_unknown_binding_unknown_root_and_malformed_binding(self):
-        # External selector diagnostics are identical across native entrypoints.
+        # 外部选择器的诊断在各原生入口之间完全一致。
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. Unknown io_binding
+        # 1. 未知 io_binding
         doc1 = copy.deepcopy(pipeline)
         io_overrides(doc1)["io_binding"] = "nonexistent.binding.v99"
 
-        # 2. Removed root selector is rejected even when a binding is present.
+        # 2. 即使存在 binding，已移除的根选择器也会被拒绝。
         doc2 = copy.deepcopy(pipeline)
         doc2["biz_name"] = "unmatched_biz_name"
         io_overrides(doc2)["io_binding"] = "entity_extract.operator.v1"
 
-        # 3. Binding must be a nonempty string.
+        # 3. binding 必须是非空字符串。
         doc3 = copy.deepcopy(pipeline)
         io_overrides(doc3)["io_binding"] = 12345
 
@@ -1114,23 +1114,23 @@ class PipelineCliTest(unittest.TestCase):
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
     def test_cli_output_slot_allocation_errors(self):
-        # Reject removed type fields, unknown slots, invalid allocation shapes and capacities.
+        # 拒绝已移除的 type 字段、未知槽位、非法的分配结构和容量。
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # 1. A removed type declaration is an unknown field.
+        # 1. 已移除的 type 声明属于未知字段。
         doc1 = copy.deepcopy(pipeline)
         output_override(doc1, "entity_out")["type"] = "entity_out"
 
-        # 2. Unknown output slot
+        # 2. 未知输出槽位
         doc2 = copy.deepcopy(pipeline)
         io_overrides(doc2)["out_mem"] = {"bogus_slot": {}}
 
-        # 3. Invalid output allocation shape
+        # 3. 非法的输出分配结构
         doc3 = copy.deepcopy(pipeline)
         io_overrides(doc3)["out_mem"] = {"entity_out": []}
 
-        # 4. Invalid output allocation capacity (non-positive capacity value 0)
+        # 4. 非法的输出分配容量 (非正数容量 0)
         doc4 = copy.deepcopy(pipeline)
         output_override(doc4, "entity_out")["capacities"] = {"entities_json": 0}
 
@@ -1155,12 +1155,12 @@ class PipelineCliTest(unittest.TestCase):
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
 
     def test_cli_multiple_core_errors_with_deployment(self):
-        # Valid deployment, but Core has multiple Node errors.
-        # All diagnostics must be preserved in the response array across all CLI entrypoints.
+        # 部署合法，但 Core 有多个 Node 错误。
+        # 所有 CLI 入口的响应数组都必须保留全部诊断。
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
-        # Add two invalid nodes to pipeline
+        # 向 Pipeline 添加两个非法 Node
         doc = copy.deepcopy(pipeline)
         doc["pipeline"].append({
             "id": "bad_node_1",
@@ -1179,7 +1179,7 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertFalse(res["ok"])
                 self.assertIn("diagnostics", res)
-                # Must retain multiple diagnostics, not compressed
+                # 必须保留多条诊断，不能合并
                 self.assertGreaterEqual(len(res["diagnostics"]), 2)
                 diag_codes = [d["code"] for d in res["diagnostics"]]
                 self.assertIn("UNKNOWN_NODE_TYPE", diag_codes)
@@ -1187,7 +1187,7 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertIn("plan", res)
 
     def test_cli_edit_invalid_deployment_validation_policy(self):
-        # Edit invalid deployment with require_valid=false vs require_valid=true.
+        # 分别以 require_valid=false 和 require_valid=true 编辑非法部署。
         pipeline = json.loads(
             (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
         )
@@ -1201,7 +1201,7 @@ class PipelineCliTest(unittest.TestCase):
             "config": {"template": "{{input}}"},
         }
 
-        # Case 1: require_valid=false -> returns modified draft with validation.ok=false
+        # 情形 1：require_valid=false -> 返回修改后的草稿，validation.ok=false
         req_false = {
             "schema_version": 1,
             "pipeline": invalid_doc,
@@ -1218,7 +1218,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertFalse(res_false["validation"]["ok"])
         self.assertEqual(res_false["validation"]["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
 
-        # Case 2: require_valid=true -> rejects without returning modified pipeline
+        # 情形 2：require_valid=true -> 拒绝，且不返回修改后的 Pipeline
         req_true = {
             "schema_version": 1,
             "pipeline": invalid_doc,
@@ -1235,8 +1235,8 @@ class PipelineCliTest(unittest.TestCase):
 
 
     def test_cli_file_failures_return_json_diagnostics(self):
-        # Missing files produce schema-compliant JSON diagnostics through CLI entrypoints.
-        # 1. validate-io on non-existent config file
+        # 文件缺失时，各 CLI 入口产出符合 schema 的 JSON 诊断。
+        # 1. 对不存在的配置文件执行 validate-io
         code, res = self.command("validate-io", "nonexistent_config_file.conf")
         self.assertEqual(code, 1)
         self.assertFalse(res["ok"])
@@ -1244,7 +1244,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(res["diagnostics"][0]["code"], "IO_VALIDATION_ERROR")
         self.assertIn("nonexistent_config_file.conf", res["diagnostics"][0]["message"])
 
-        # 2. resolve-conf on non-existent file
+        # 2. 对不存在的文件执行 resolve-conf
         code, res = self.command("resolve-conf", "nonexistent_config_file.conf", "--root", str(ROOT))
         self.assertEqual(code, 1)
         self.assertFalse(res["ok"])
@@ -1252,7 +1252,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(res["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
         self.assertEqual(res["diagnostics"][0]["path"], "/")
 
-        # 3. validate on non-existent file
+        # 3. 对不存在的文件执行 validate
         code, res = self.command("validate", "nonexistent_pipeline.json")
         self.assertEqual(code, 1)
         self.assertFalse(res["ok"])
@@ -1702,7 +1702,7 @@ process.stdout.write(JSON.stringify(pipeline));
                     case = {**case, "primary_code": "UNKNOWN_IO_BINDING",
                             "primary_path": "/deployment/io/io_binding", "required_codes": ["UNKNOWN_IO_BINDING"]}
                 elif case["primary_code"] == "UNKNOWN_FIELD" and case["primary_path"].count("/") == 1:
-                    # The external envelope rejects unknown root fields before Core.
+                    # 外部信封在进入 Core 前拒绝未知的根字段。
                     case = {**case, "primary_code": "DEPLOYMENT_ERROR",
                             "required_codes": ["DEPLOYMENT_ERROR"]}
                 proc_val = subprocess.run(
@@ -1734,8 +1734,7 @@ process.stdout.write(JSON.stringify(pipeline));
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     api_val = json.load(resp)
 
-                # Web is a byte-semantic pass-through of the CLI/Validator
-                # report; all optional diagnostic fields are compared.
+                # Web 按字节语义透传 CLI/Validator 报告；所有可选诊断字段都会比较。
                 self.assertEqual(api_val, cli_val)
 
                 proc_plan = subprocess.run(
@@ -1748,8 +1747,8 @@ process.stdout.write(JSON.stringify(pipeline));
                 )
                 self.assertEqual(proc_plan.returncode, 1)
                 cli_plan = json.loads(proc_plan.stdout)
-                # Preparation errors have an explicit empty plan envelope;
-                # diagnostics remain identical to validate and the HTTP API.
+                # 准备阶段错误带显式的空 plan 信封；
+                # 诊断与 validate 和 HTTP API 保持一致。
                 if "plan" not in cli_val:
                     self.assertEqual(cli_plan.pop("plan"), {"layers": [], "topological_order": []})
                 self.assertEqual(cli_plan, cli_val)
@@ -1903,8 +1902,8 @@ process.stdout.write(JSON.stringify(assetModel(asset, 'models')));
         self.assertFalse(report["ready_for_biz"])
         self.assertEqual(report["schema_version"], 2)
         self.assertNotIn("ready_for_business", report)
-        # Current canonical build has enabled backends; claiming the empty
-        # minimal variant must fail independently of this model-free Pipeline.
+        # 当前规范构建启用了若干 Backend；声明为空的 minimal 变体必须失败，
+        # 与这个无模型的 Pipeline 无关。
         mismatched = selection.inspect_selection(pipeline, tool, ROOT / "models", variant="minimal" if report["build"]["enabled_backends"] else "default-cpu")
         self.assertFalse(mismatched["ok"])
         receipt = selection.evaluate(pipeline, report, tool, ROOT / "models", spec, conf, demo)
@@ -2039,7 +2038,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         existing = pipe["pipeline"][0]
         existing["id"] = "b"
         existing.pop("depends_on", None)
-        existing["inputs"] = {"text": "text"}  # Explicit input uses the default output key.
+        existing["inputs"] = {"text": "text"}  # 显式输入使用默认输出键。
         source = {
             "id": "a", "node_type": "TextTemplateNode", "depends_on": [],
             "inputs": {"primary": "input_sentences"}, "outputs": {},
@@ -2191,7 +2190,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertNotIn("depends_on", added)
         self.assertEqual(added["inputs"], {})
 
-        # Duplicate ID rejection
+        # 拒绝重复 ID
         req2 = {
             "schema_version": 1,
             "pipeline": res["pipeline"],
@@ -2206,7 +2205,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertFalse(res2["ok"])
         self.assertIn("DUPLICATE_NODE_ID", res2["diagnostics"][0]["message"])
 
-        # Auto ID allocation
+        # 自动分配 ID
         req3 = {
             "schema_version": 1,
             "pipeline": res["pipeline"],
@@ -2220,7 +2219,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertTrue(res3["ok"])
         self.assertNotEqual(res3["pipeline"]["pipeline"][1]["id"], "custom_rule")
 
-        # Unknown node type
+        # 未知 Node 类型
         req4 = {
             "schema_version": 1,
             "pipeline": res["pipeline"],
@@ -2263,9 +2262,9 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(len(res["pipeline"]["pipeline"]), 1)
         rule_node = res["pipeline"]["pipeline"][0]
         self.assertEqual(rule_node["id"], "rule")
-        # depends_on detached
+        # depends_on 已解除
         self.assertEqual(rule_node["depends_on"], [])
-        # Required input is absent after its producer is removed.
+        # 生产者被移除后，必需输入随之缺失。
         self.assertNotIn("text", rule_node["inputs"])
 
     def test_authoring_rename_node_syncs_dependencies_and_preserves_keys(self):
@@ -2304,12 +2303,12 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         tpl = res["pipeline"]["pipeline"][0]
         rule = res["pipeline"]["pipeline"][1]
         self.assertEqual(tpl["id"], "new_template")
-        # Data keys are preserved
+        # 数据键保持不变
         self.assertEqual(tpl["outputs"]["text"], "tpl_text")
-        # depends_on updated
+        # depends_on 已更新
         self.assertEqual(rule["depends_on"], ["new_template"])
 
-        # Duplicate ID rejection
+        # 拒绝重复 ID
         req_dup = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2340,7 +2339,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
                 },
             ],
         }
-        # Ingress to node
+        # 入口到 Node
         req1 = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2358,7 +2357,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         )
         self.assertEqual(res1["pipeline"]["pipeline"][0]["depends_on"], [])
 
-        # Node to node
+        # Node 到 Node
         req2 = {
             "schema_version": 1,
             "pipeline": res1["pipeline"],
@@ -2376,7 +2375,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(rule["inputs"]["text"], tpl_key)
         self.assertEqual(rule["depends_on"], [])
 
-        # Cycle detection: connecting rule to template creates cycle
+        # 环检测：把 rule 连到 template 会形成环
         req_cycle = {
             "schema_version": 1,
             "pipeline": res2["pipeline"],
@@ -2412,7 +2411,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
                 },
             ],
         }
-        # Connect rule.matches to $egress rule_matches
+        # 把 rule.matches 连接到 $egress rule_matches
         req_egress = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2429,7 +2428,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(rule_out, "rule_matches")
         self.assertEqual(audit_in, "rule_matches")
 
-        # Disconnect rule.matches from $egress rule_matches
+        # 断开 rule.matches 与 $egress rule_matches 的连接
         req_disc = {
             "schema_version": 1,
             "pipeline": res_egress["pipeline"],
@@ -2467,7 +2466,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
                 },
             ],
         }
-        # Disconnecting data port preserves execution dependency (Regression Case 1)
+        # 断开数据端口时保留执行依赖 (回归用例 1)
         req = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2483,7 +2482,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(rule["depends_on"], ["tpl"])
         self.assertNotIn("text", rule["inputs"])
 
-        # remove_dependency removes execution dependency
+        # remove_dependency 移除执行依赖
         req_rm_dep = {
             "schema_version": 1,
             "pipeline": res["pipeline"],
@@ -2517,7 +2516,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertTrue(res_valid["validation"]["ok"])
         self.assertEqual(len(res_valid["pipeline"]["pipeline"]), 2)
 
-        # Failure mid-batch discards changes
+        # 批处理中途失败时丢弃所有修改
         req_fail = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2533,7 +2532,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(res_fail["failed_operation_index"], 1)
         self.assertNotIn("pipeline", res_fail)
 
-        # Batch limit > 128
+        # 批大小超过 128
         req_oversize = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -2579,7 +2578,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("tool_fingerprint", res)
         self.assertEqual(res["pipeline"]["pipeline"][0]["id"], "n1")
 
-        # Stale revision conflict
+        # 过期 revision 冲突
         with self.assertRaises(SHOW.StudioError) as ctx:
             self.service.preview_authoring(
                 pipe,
@@ -2618,7 +2617,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("tools", summary)
         self.assertIn("pipeline_snapshot", summary)
         self.assertIn("status", summary)
-        # Verify no user file was written
+        # 验证没有写入任何用户文件
         self.assertFalse((self.configs / "pipeline_preflight_leak.json").exists())
 
     def associated_doc_qa(self):
@@ -2640,7 +2639,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         pipeline["models"][0]["model_path"] = "models/selected_A.onnx"
         model_id = pipeline["models"][0]["model_id"]
         expected_conf = {"pipe_path": path.name}
-        # Spy on real native resolution so this checks exactly what preflight resolves.
+        # 监视真实的原生解析，确保检查的正是预检所解析的内容。
         resolved_candidates = []
         resolve = self.service.resolve_run_conf
 
@@ -2709,18 +2708,17 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
                 self.assertEqual((path.read_bytes(), conf_path.read_bytes()), originals)
 
     def test_studio_deployment_associate_and_model_path_update(self):
-        # Create pipeline in configs
+        # 在 configs 中创建 Pipeline
         pipe_path = self.configs / "pipeline_doc_qa_assoc.json"
         doc_qa_pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text())
         output_override(doc_qa_pipe, "doc_out")["capacities"] = {"answer_text": 2047}
         pipe_path.write_text(json.dumps(doc_qa_pipe, indent=2))
 
-        # Create conf in configs pointing to this pipeline
+        # 在 configs 中创建指向该 Pipeline 的 conf
         conf_path = self.configs / "pipeline_doc_qa_assoc.conf"
         doc_qa_conf = {"pipe_path": pipe_path.name}
         conf_path.write_text(json.dumps(doc_qa_conf, indent=2))
 
-        # Associate
         assoc_res = self.service.associate_deployment(
             "pipeline_doc_qa_assoc.json", "pipeline_doc_qa_assoc.conf"
         )
@@ -2728,9 +2726,9 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(assoc_res["conf_name"], "pipeline_doc_qa_assoc.conf")
         self.assertIn("pipeline_doc_qa_assoc.conf", self.service.save_targets(pipe_path))
 
-        # Now update pipeline models and save
+        # 更新 Pipeline 模型并保存
         modified_pipe = copy.deepcopy(doc_qa_pipe)
-        # Update model_path of first model
+        # 更新第一个模型的 model_path
         modified_pipe["models"][0]["model_path"] = "models/new_embed_model.onnx"
         pipe_raw = pipe_path.read_bytes()
         pipe_rev = SHOW.revision_for(pipe_raw)
@@ -2740,13 +2738,13 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         )
         self.assertTrue(save_res["ok"])
 
-        # Verify the model entry owns the effective path
+        # 验证模型条目持有有效路径
         updated_pipe = json.loads(pipe_path.read_text())
         self.assertEqual(
             updated_pipe["models"][0]["model_path"],
             "models/new_embed_model.onnx",
         )
-        # Verify non-model conf settings preserved
+        # 验证 conf 中与模型无关的设置保持不变
         self.assertEqual(updated_pipe["deployment"]["io"]["out_mem"],
                          {"doc_out": {"capacities": {"answer_text": 2047}}})
         updated_conf = json.loads(conf_path.read_text())
@@ -2796,7 +2794,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("RESERVED_NODE_ID", res2["diagnostics"][0]["message"])
 
     def test_authoring_disconnect_requires_explicit_binding(self):
-        # A same-name output plus explicit order must not create an input binding.
+        # 同名输出加显式顺序不得产生输入绑定。
         pipe = {
             "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
@@ -2831,7 +2829,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("连线不存在", res["diagnostics"][0]["message"])
 
-        # Ingress disconnect
+        # 断开入口连接
         pipe_ing = {
             "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
             "models": [],
@@ -2942,7 +2940,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
                 {"id": "c", "node_type": "TextRuleMatchNode", "depends_on": ["b"], "inputs": {}, "outputs": {}, "config": {}},
             ],
         }
-        # Adding c depends on a: a is already an indirect ancestor of c via b
+        # 添加 c 依赖 a：a 已经通过 b 成为 c 的间接祖先
         req = {
             "schema_version": 1,
             "pipeline": pipe,
@@ -3098,7 +3096,7 @@ class PipelineJsonSchemaTest(unittest.TestCase):
                                   "metadata_type_id", "capacities"})
                 self.assertEqual(allocation["required"], [])
                 self.assertFalse(allocation["additionalProperties"])
-                # Array and scalar params are interpreted by the allocator.
+                # 数组和标量参数由分配器解释。
                 params = allocation["properties"]["params"]
                 self.assertNotIn("type", params)
                 self.assertNotIn("enum", params)

@@ -11,7 +11,7 @@
 
 namespace llm_edgeflow::test_support {
 
-// Internal result that the nested-output fixture converts.
+// 嵌套输出夹具要转换的内部结果。
 struct NestedOutputSource {
   uint64_t request_id = 0;
   int is_hit = 0;
@@ -23,7 +23,7 @@ struct NestedOutputParameters {
   bool reject_hit = false;
 };
 
-// Neutral test carrier: the same outer type can contain either nested layout.
+// 中性的测试载体：同一外层类型可以容纳任一种嵌套布局。
 struct NestedOutputPayload {
   uint32_t capacity = 0;
   uint32_t count = 0;
@@ -137,7 +137,7 @@ inline int ConvertNestedOutput(const void* internal, void* external,
     if (error) *error = "Allocation, conversion and reset contracts disagree";
     return -4;
   }
-  // Fail after modifying this slot, so rollback must reset every acquired slot.
+  // 修改该槽位后才失败，因此回滚必须重置每个已取出的槽位。
   root.request_id = result.request_id;
   payload.count = payload.capacity;
   if (parameters.reject_hit && result.is_hit) {

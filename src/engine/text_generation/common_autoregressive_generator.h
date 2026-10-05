@@ -11,8 +11,8 @@
 namespace llm_edgeflow {
 namespace text_generation {
 
-// Backend-private, vendor-neutral state for one autoregressive request. It is
-// intentionally not a Pipeline/Catalog execution protocol.
+// Backend 私有、与厂商无关的单次自回归请求状态。
+// 有意不作为 Pipeline/Catalog 执行协议。
 class IAutoregressiveDecoder {
  public:
   virtual ~IAutoregressiveDecoder() = default;
@@ -25,8 +25,8 @@ class IAutoregressiveDecoder {
   virtual bool IsEndToken(int32_t token) const noexcept = 0;
   virtual size_t MaxContextTokens() const noexcept = 0;
 
-  // The first call receives the complete prompt. Later calls receive only the
-  // newly sampled token; the concrete decoder owns its incremental state.
+  // 首次调用接收完整 prompt，后续调用只接收新采样的 token；
+  // 增量状态由具体解码器维护。
   virtual int Evaluate(const std::vector<int32_t>& incremental_tokens,
                        std::vector<float>* logits,
                        std::string* diagnostic = nullptr) noexcept = 0;

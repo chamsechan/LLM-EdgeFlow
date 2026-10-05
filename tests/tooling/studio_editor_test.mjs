@@ -44,8 +44,8 @@ drafts.clear();
 assert.equal(drafts.pending, false);
 console.log("Studio document history and pending editor buffer checks passed");
 
-// Keep the browser value-sanitization behavior that caused the original bug:
-// text inputs remove newlines; textarea values normalize CR/CRLF to LF.
+// 保留导致原始缺陷的浏览器值清洗行为：
+// 文本输入框会去掉换行；textarea 的值会把 CR/CRLF 规范化为 LF。
 class FormElement {
   constructor(tag) {
     this.tagName = tag.toUpperCase(); this.type = "text"; this.dataset = {};

@@ -40,7 +40,7 @@ TEST(PipelineTest, ThreadPoolConstructionFailureCleansUpAndAllowsRetry) {
       failure.DisableFailure();
     }
     EXPECT_EQ(threw, triggered) << "allocation position " << fail_after;
-    // A new pool must still execute work after every failed construction.
+    // 每次构造失败后，新建的线程池仍必须能执行任务。
     ThreadPool recovered(2);
     EXPECT_EQ(recovered.Submit([] { return 42; }).get(), 42);
     if (!triggered) {
@@ -175,8 +175,7 @@ TEST(SessionContextTest, SingleFlightSharesFactoryFailureAndAllowsRetry) {
         context.GetOrCreateResource<std::string>(
             key, [&]() -> std::shared_ptr<std::string> {
               ++factory_calls;
-              // Keep the flight open long enough for concurrent callers to
-              // join.
+              // 让 flight 保持足够长的时间，以便并发调用方加入。
               std::this_thread::sleep_for(std::chrono::milliseconds(50));
               throw std::runtime_error("resource factory unavailable");
             });
@@ -192,8 +191,7 @@ TEST(SessionContextTest, SingleFlightSharesFactoryFailureAndAllowsRetry) {
               std::future_status::ready);
     EXPECT_EQ(worker.get(), "resource factory unavailable");
   }
-  // At least one caller received the exception as a waiter, not a factory
-  // owner.
+  // 至少有一个调用方是作为等待者 (而非工厂所有者) 收到异常的。
   EXPECT_LT(factory_calls.load(), 8);
   EXPECT_EQ(context.GetResource(key), nullptr);
   auto recovered = context.GetOrCreateResource<std::string>(key, [&] {

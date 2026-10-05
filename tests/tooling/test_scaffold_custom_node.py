@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generator CLI/file contracts. Generated C++ also compiles in the Node runner."""
+"""生成器 CLI/文件契约测试。生成的 C++ 也会在 Node runner 中编译。"""
 import importlib.util
 import contextlib
 import io
@@ -63,7 +63,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(list(Path(temp).iterdir()), [])
             result = self.run_cli(*args)
             self.assertEqual(result.returncode, 0, result.stderr)
-            # Only collected source directories may claim automatic compilation.
+            # 只有被收集的源码目录才能声明自动编译。
             self.assertIn("the build does not collect it", result.stdout)
             self.assertNotIn("compiled automatically", result.stdout)
             node = Path(temp) / "example_node.cpp"
@@ -141,21 +141,21 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             result = self.run_cli("AwesomeFeatureNode", "--write-test", env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-            # Check custom node source generated under src/custom_nodes/awesome_feature_node.cpp
+            # 检查在 src/custom_nodes/awesome_feature_node.cpp 生成的自定义 Node 源文件
             source_file = Path(temp) / "src" / "custom_nodes" / "awesome_feature_node.cpp"
             self.assertTrue(source_file.exists())
             source_content = source_file.read_text(encoding="utf-8")
             self.assertIn("REGISTER_FUNCTION_NODE(AwesomeFeatureNode, AwesomeFeatureNodeSpec());", source_content)
             self.assertIn("MakeMapSpec", source_content)
 
-            # Check test file generated under tests/unit/nodes/test_awesome_feature_node.cpp
+            # 检查在 tests/unit/nodes/test_awesome_feature_node.cpp 生成的测试文件
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_awesome_feature_node.cpp"
             self.assertTrue(test_file.exists())
             test_content = test_file.read_text(encoding="utf-8")
             self.assertIn("TEST(CustomNodeCatalogTest, AwesomeFeatureNode_RegistrationAndInstantiation)", test_content)
             self.assertIn("TEST(CustomNodeCatalogTest, AwesomeFeatureNode_MapPreservesInputData)", test_content)
 
-            # Output reporting
+            # 检查输出报告
             self.assertIn(f"Created {source_file}", result.stdout)
             self.assertIn(f"Created {test_file}", result.stdout)
             self.assertIn("compiled automatically", result.stdout)
@@ -176,7 +176,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
 
-            # Check preview output
+            # 检查预览输出
             source_file = Path(temp) / "src" / "custom_nodes" / "dry_run_node.cpp"
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_dry_run_node.cpp"
             self.assertIn(f"--- {source_file} (new file) ---", result.stdout)
@@ -186,7 +186,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
             self.assertNotIn("+  test_dry_run_node.cpp", result.stdout)
 
-            # Verify no files were created or modified
+            # 验证没有创建或修改任何文件
             self.assertFalse(source_file.exists())
             self.assertFalse(test_file.exists())
             self.assertEqual(list(Path(temp).rglob("CMakeLists.txt")), [])
@@ -210,7 +210,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected_error, result.stderr)
 
-            # Ensure no files were touched in any directory
+            # 确保所有目录中的文件都未被改动
             source_file = Path(temp) / "src" / "custom_nodes" / "rejected_node.cpp"
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_rejected_node.cpp"
             self.assertFalse(source_file.exists())
@@ -221,7 +221,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)
 
-            # Case 1: Target source file already exists
+            # 情形 1：目标源文件已存在
             conflict_source = Path(temp) / "src" / "custom_nodes" / "conflict_source_node.cpp"
             conflict_source.write_text("existing custom node source", encoding="utf-8")
             res_source_conflict = self.run_cli(
@@ -234,7 +234,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(list(Path(temp).rglob("CMakeLists.txt")), [])
             self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
 
-            # Case 2: Target test file already exists
+            # 情形 2：目标测试文件已存在
             conflict_test = Path(temp) / "tests" / "unit" / "nodes" / "test_conflict_test_node.cpp"
             conflict_test.write_text("existing custom node test", encoding="utf-8")
             res_test_conflict = self.run_cli(
@@ -250,7 +250,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
     def test_change_plan_rollback_preserves_concurrent_edit(self):
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)
-            # Generic modifications remain transactional even without source manifests.
+            # 即使没有源码清单，通用修改仍保持事务性。
             plan = SCAFFOLD.ChangePlan()
             new_file = Path(temp) / "src" / "custom_nodes" / "rollback_probe.cpp"
             new_test = Path(temp) / "tests" / "unit" / "nodes" / "test_rollback_probe.cpp"
@@ -260,11 +260,11 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             plan.add_new_file(new_file, "// rollback probe content")
             plan.add_new_file(new_test, "// rollback test probe content")
             plan.add_modification(mod_target, mod_orig, mod_orig + "\n# Modified\n")
-            # Simulate concurrent modification to mod_target before commit
+            # 在提交前模拟对 mod_target 的并发修改
             mod_target.write_text(mod_orig + "\n# Concurrent user edit\n", encoding="utf-8")
             with self.assertRaises(RuntimeError):
                 plan.commit()
-            # Verify new_file was unlinked and mod_target was not clobbered
+            # 验证 new_file 已被删除，且 mod_target 未被覆盖
             self.assertFalse(new_file.exists())
             self.assertFalse(new_test.exists())
             self.assertEqual(mod_target.read_text(encoding="utf-8"), mod_orig + "\n# Concurrent user edit\n")

@@ -6,8 +6,8 @@
 
 namespace llm_edgeflow {
 
-// Fail-closed conflict state of one registry. The registry guards it with its
-// own mutex; a conflict stays recorded even if its message cannot be stored.
+// 单个注册表的 fail-closed 冲突状态，由注册表自身的互斥锁保护；
+// 即使消息无法保存，冲突也会被记录。
 class RegistryConflicts {
  public:
   void Record(std::string message) noexcept {
@@ -20,7 +20,7 @@ class RegistryConflicts {
 
   bool HasConflict() const noexcept { return has_conflict_; }
 
-  // Recorded messages; never empty while a conflict is recorded.
+  // 已记录的消息；存在冲突时绝不为空。
   std::vector<std::string> Messages() const {
     if (has_conflict_ && messages_.empty()) {
       return {"Registry conflict recorded without a stored message"};

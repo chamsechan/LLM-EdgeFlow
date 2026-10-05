@@ -19,7 +19,7 @@ struct Models {
   LlmCall generator;
 };
 
-// All request values stay local to this ordinary business function.
+// 所有请求值都只在这个普通业务函数内使用。
 NodeResult<TextBatch> Run(const Inputs& inputs, const Options& options,
                           const Models& models) {
   TextBatch prompts;

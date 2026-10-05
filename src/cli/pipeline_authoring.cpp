@@ -59,7 +59,7 @@ std::optional<std::string> GetEffectiveInputKey(const nlohmann::json& node,
   return std::nullopt;
 }
 
-// Validate the transient editing protocol, not the persisted Pipeline schema.
+// 校验临时编辑协议，而非持久化的 Pipeline schema。
 void CheckFields(const nlohmann::json& value,
                  std::initializer_list<const char*> allowed) {
   if (!value.is_object()) throw std::invalid_argument("字段必须是对象");
@@ -700,7 +700,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
         return false;
       }
 
-      // Check conflict: does any other node produce tgt_port?
+      // 检查冲突：是否有其他 Node 产出 tgt_port？
       for (const auto& other : (*pipeline)["pipeline"]) {
         if (!other.is_object()) continue;
         std::string o_id = other.value("id", "");
@@ -734,7 +734,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
         current_key = (*src_node)["outputs"][src_port].get<std::string>();
       }
 
-      // Check if current_key is already mapped to another egress port
+      // 检查 current_key 是否已映射到其他出口端口
       for (const auto& eg : biz->egress) {
         if (eg.blackboard_key != tgt_port && eg.blackboard_key == current_key) {
           if (error) {
@@ -777,7 +777,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       return true;
     }
 
-    // Node to Node
+    // Node 到 Node
     if (src_id == tgt_id) {
       if (error) *error = "连线会形成环";
       return false;
@@ -837,7 +837,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       return false;
     }
 
-    // Ordinary fan-out never renames the producer's existing effective key.
+    // 普通扇出从不重命名生产者现有的有效键。
     std::string key = GetEffectiveOutputKey(*src_node, src_port);
     if (!(*tgt_node).contains("inputs")) {
       (*tgt_node)["inputs"] = nlohmann::json::object();
@@ -936,7 +936,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
       return true;
     }
 
-    // Normal node to Normal node
+    // 普通 Node 到普通 Node
     auto* src_node = FindNodeById(pipeline, src_id);
     auto* tgt_node = FindNodeById(pipeline, tgt_id);
     if (!src_node) {
@@ -997,7 +997,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     }
 
     if (IsAncestor(dep_id, node_id, dep_graph)) {
-      // Already an ancestor; do not add a redundant edge.
+      // 已是祖先，不再添加冗余边。
       if (changes) {
         changes->push_back({"add_dependency",
                             node_id,
@@ -1080,7 +1080,6 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
       return result;
     }
 
-    // Check the 4 MiB payload limit.
     if (request.dump().size() > 4 * 1024 * 1024) {
       result.ok = false;
       result.diagnostics.push_back(

@@ -8,8 +8,7 @@
 
 namespace llm_edgeflow {
 
-// Registers one test model through the same atomic batch path that Pipeline
-// uses for a deployment's models.
+// 通过与 Pipeline 注册部署模型相同的原子批处理路径注册一个测试模型。
 inline bool RegisterTestModel(ModelManager& manager, std::string model_id,
                               std::shared_ptr<IModel> model,
                               std::string revision = {},

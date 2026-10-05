@@ -203,15 +203,14 @@ bool ParseOrExtractJson(const StructuredJsonOptions& options,
       *out_diag = "Unclosed JSON markdown block";
       return false;
     }
-    // An invalid fenced value must not fall through to extracting its
-    // children.
+    // 围栏内的值非法时，不得转而提取其子元素。
     return parse_candidate(
         input.substr(content_start, code_block_end - content_start),
         JsonParseStatus::kExtractedFromMarkdown);
   }
 
-  // Preserve the first outer container, including arrays of objects. Never
-  // extract a valid child from a malformed or truncated parent container.
+  // 保留第一个外层容器 (含对象数组)。绝不从格式错误或被截断的父容器中
+  // 提取合法的子元素。
   const size_t start = input.find_first_of("[{");
   if (start == std::string::npos) return false;
   std::vector<char> delimiters;

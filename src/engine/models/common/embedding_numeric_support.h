@@ -9,16 +9,14 @@ namespace llm_edgeflow {
 namespace embedding_support {
 
 /**
- * @brief Finalize and optionally L2-normalize an embedding vector in double
- * precision.
+ * @brief 以双精度完成 embedding 向量计算，并可选做 L2 归一化。
  *
- * Enforces:
- * - Non-empty dimensions.
- * - All inputs and outputs must be finite.
- * - When normalize == true, zero-norm vectors fail (cannot normalize to unit
- * direction).
- * - When normalize == false, finite zero vectors are allowed.
- * - Double accumulation avoids float overflow for bounded float model rows.
+ * 保证：
+ * - 维度非空。
+ * - 所有输入和输出必须是有限值。
+ * - normalize == true 时，零范数向量失败 (无法归一化为单位方向)。
+ * - normalize == false 时，允许有限的零向量。
+ * - 双精度累加避免有界 float 模型行溢出。
  */
 template <typename T>
 inline bool FinalizeEmbeddingVector(const T* values, size_t dim, bool normalize,

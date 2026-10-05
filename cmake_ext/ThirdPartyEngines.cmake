@@ -23,8 +23,7 @@ if(ENABLE_ONNXRUNTIME)
     set(ORT_LIB_NAME "libonnxruntime.so")
   endif()
 
-  # Select the pinned official package before inspecting the persistent cache,
-  # so the cache marker is tied to the exact platform archive.
+  # 先选定固定的官方包，再检查持久缓存，使缓存标记与具体平台归档对应。
   if(APPLE)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
       set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-arm64-1.17.3.tgz")
@@ -113,8 +112,8 @@ if(ENABLE_LLAMACPP)
       "70adb1b4cea5ee39f867792c78dc59320921eda7")
   set(_LLAMA_SOURCE_SHA256
       "94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4")
-  # Resolve the pinned upstream BLAS defaults before inspecting the cache.
-  # These options must describe both source builds and imported archives.
+  # 先解析固定上游版本的 BLAS 默认值，再检查缓存。
+  # 这些选项须同时描述源码构建和导入的归档。
   if(APPLE)
     set(_llama_blas_default ON)
     set(_llama_blas_vendor_default Apple)

@@ -7,7 +7,7 @@
 
 namespace llm_edgeflow {
 
-// Shared flow properties, independent of how a port is named.
+// 与端口命名方式无关的共享流属性。
 struct PortContract {
   std::string type_id;
   bool required = true;

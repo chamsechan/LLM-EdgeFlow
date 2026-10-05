@@ -1,4 +1,4 @@
-# Compile author-facing contracts using the target's evaluated include view.
+# 使用目标求值后的 include 视图编译面向作者的契约。
 include("${LAYER_COMPILE_MANIFEST}")
 set(compile_flags ${layer_cxx_flags})
 foreach(directory IN LISTS capability_nodes_includes)
@@ -48,8 +48,8 @@ foreach(fixture IN LISTS valid_fixtures invalid_fixtures)
   endif()
 endforeach()
 
-# Join adjacent C++ string literals before extracting the canonical signatures.
-# The script carries no duplicate signature list of its own.
+# 提取规范签名前先拼接相邻的 C++ 字符串字面量。
+# 本脚本自身不维护重复的签名列表。
 file(READ "${FUNCTION_NODE_HEADER}" contract_text)
 string(REGEX REPLACE "\"[ \t\r\n]+\"" "" contract_text "${contract_text}")
 string(REGEX MATCHALL

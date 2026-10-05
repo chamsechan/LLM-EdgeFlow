@@ -177,7 +177,7 @@ TEST(NodeErrorCodesTest, ActiveBusinessAndAuthoringErrorsAreDistinct) {
             codes.size());
 }
 
-// 1. Exception Test Node
+// 1. 抛异常的测试 Node
 class ExceptionThrowingNode : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "ExceptionThrowingNode";
@@ -238,7 +238,7 @@ TEST(NodeBaseContractsTest, InitAndProcessExceptionSafety) {
               std::string::npos);
 }
 
-// 2. Require / Publish Helper Test
+// 2. Require / Publish 辅助函数测试
 inline constexpr BlackboardKey<std::string> kTestInputKey{"test_input_key",
                                                           "string"};
 inline constexpr BlackboardKey<std::string> kTestOutputKey{"test_output_key",
@@ -265,7 +265,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   plan.normalized_config = nlohmann::json::object();
   ASSERT_TRUE(node.Init({&plan, &session_ctx}));
 
-  // Missing input key
+  // 缺少输入键
   {
     AlgContext ctx;
     int ret = node.Process(&ctx);
@@ -275,7 +275,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
                 std::string::npos);
   }
 
-  // Success path
+  // 成功路径
   {
     AlgContext ctx;
     ctx.Publish(kTestInputKey, std::string("hello"));
@@ -285,8 +285,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
     ASSERT_NE(out_val, nullptr);
     EXPECT_EQ(*out_val, "hello_processed");
 
-    // A second producer invocation in the same request cannot silently
-    // overwrite the already published output.
+    // 同一请求内第二次调用生产者，不能静默覆盖已发布的输出。
     EXPECT_EQ(node.Process(&ctx),
               static_cast<int>(NodeRuntimeCode::kUnhandledException));
     EXPECT_EQ(*out_val, "hello_processed");
@@ -294,7 +293,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
                 std::string::npos);
   }
 
-  // Existing key with an incompatible runtime type.
+  // 键已存在但运行时类型不兼容。
   {
     AlgContext ctx;
     ctx.Publish(std::string(kTestInputKey.name), 42);
@@ -459,8 +458,7 @@ TEST(NodeBaseContractsTest, OutputBindingRejectsMissingKeysBeforeTypeMismatch) {
     SCOPED_TRACE(fault);
     ValidatedNodePlan plan;
     plan.normalized_config = nlohmann::json::object();
-    // The runtime base permits unbound inputs; the author contract validates
-    // required inputs.
+    // 运行时基类允许输入不绑定；必需输入由编写契约校验。
     plan.ports.push_back({"optional", "", "integer", "1:1", "preserve",
                           "request", PortDirection::kInput});
     if (fault != 0) {
@@ -484,7 +482,7 @@ TEST(NodeBaseContractsTest, OutputBindingRejectsMissingKeysBeforeTypeMismatch) {
   }
 }
 
-// 3. Unified function authoring with a model capability
+// 3. 使用模型能力的统一函数式编写
 class MockAsrModel : public IAsrModel {
  public:
   const std::string& ModelType() const noexcept override {

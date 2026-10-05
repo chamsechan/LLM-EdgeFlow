@@ -53,7 +53,7 @@ if(_valid)
   message(FATAL_ERROR "A modified cache marker must not be accepted")
 endif()
 
-# Dependency failures must be diagnosed before package loading or network I/O.
+# 依赖失败必须在加载包或访问网络之前诊断出来。
 function(expect_kite_failure expected)
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -DENABLE_KITELLM=ON
@@ -87,8 +87,8 @@ expect_whisper_failure("cannot coexist with ENABLE_KITELLM=ON" -DENABLE_LLAMACPP
 
 include("${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_llama_cache.cmake")
 
-# Exercise the uncached archive path on the running CMake version. Reusing
-# prebuilt libraries alone would not catch unsupported FetchContent options.
+# 在当前运行的 CMake 版本上覆盖无缓存的归档路径。
+# 仅复用预构建库无法发现不受支持的 FetchContent 选项。
 set(_archive_source "${TEST_ROOT}/archive-source")
 set(_archive_project "${TEST_ROOT}/archive-project")
 file(MAKE_DIRECTORY "${_archive_source}" "${_archive_project}")

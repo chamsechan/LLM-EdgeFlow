@@ -443,8 +443,8 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       struct SubmittedNodesGuard {
         std::vector<std::future<NodeExecutionResult>>& futures;
         ~SubmittedNodesGuard() {
-          // Diagnostic construction can also throw. Never let submitted tasks
-          // retain the caller's context after Execute has unwound.
+          // 构造诊断信息也可能抛异常。Execute 栈展开后，
+          // 已提交的任务绝不能继续持有调用方的上下文。
           for (auto& future : futures) {
             if (future.valid()) future.wait();
           }
@@ -566,8 +566,8 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   }
   bool target_found = false;
   size_t node_index = 0;
-  // Materialization uses this same layer/instance order. Keep diagnostics tied
-  // to instance IDs even when several instances have the same Node type.
+  // 实例化使用相同的层/实例顺序。即使多个实例属于同一 Node 类型，
+  // 诊断也要关联到实例 ID。
   for (const auto& layer : plan_->report.topological_layers) {
     for (const auto& id : layer) {
       auto* node = nodes_[node_index++].get();
@@ -606,8 +606,8 @@ int Pipeline::Control(int cmd, const std::string& json_param,
             (target_id.empty() ? "" : " for node '" + target_id + "'"));
   }
 
-  // Broadcast remains best-effort: a later semantic failure does not undo an
-  // earlier update. Report each failure instead of hiding it behind an int.
+  // 广播仍是尽力而为：后续语义失败不会撤销之前的更新。
+  // 逐个报告失败，而不是只用一个 int 掩盖。
   bool handled = false;
   int first_failure = 0;
   std::string failures;

@@ -14,7 +14,7 @@ export function nodeSize(definition = {}) {
   return { width: WIDTH, height: rows ? PORT_TOP + (rows - 1) * PORT_STEP + 24 : 76 };
 }
 
-// Layout uses the displayed node dimensions; no business or validation semantics live here.
+// 布局使用显示出的 Node 尺寸；此处不含业务或校验语义。
 export function layeredPositions(nodes, sizes = {}) {
   const byId = new Map(nodes.map(node => [node.id, node]));
   const indegree = new Map(nodes.map(node => [node.id, 0]));
@@ -104,8 +104,8 @@ function simplify(points) {
   return result;
 }
 
-// A visibility grid routes horizontal/vertical segments around padded node rectangles.
-// Direction is part of the search state so a shorter but zigzagging path loses to a clean one.
+// 可见性网格让水平/垂直线段绕开加了边距的 Node 矩形。
+// 方向是搜索状态的一部分，因此较短但曲折的路径会输给整洁的路径。
 export function routeOrthogonal(source, target, obstacles, lane = 0) {
   const clearance = 12 + lane % 3 * 4;
   const start = { x: source.x + clearance + 10, y: source.y };
@@ -118,7 +118,7 @@ export function routeOrthogonal(source, target, obstacles, lane = 0) {
   const startIndex = ys.indexOf(start.y) * nx + xs.indexOf(start.x);
   const endIndex = ys.indexOf(end.y) * nx + xs.indexOf(end.x);
   const pointAt = index => ({ x: xs[index % nx], y: ys[Math.floor(index / nx)] });
-  const startState = startIndex * 2; // horizontal start/end stubs
+  const startState = startIndex * 2; // 水平的起止短线
   const costs = new Map([[startState, 0]]), parents = new Map();
   const heap = [];
   const push = entry => {
@@ -169,7 +169,7 @@ export function routeOrthogonal(source, target, obstacles, lane = 0) {
     }
   }
   if (finalState === undefined) {
-    // Manually overlapping cards can leave a port completely enclosed. Keep that binding visible.
+    // 手动重叠的卡片可能把端口完全遮住，此时仍保持该连线可见。
     const y = Math.min(source.y, target.y, ...rectangles.map(rect => rect.top)) - 24;
     return simplify([source, start, { x: start.x, y }, { x: end.x, y }, end, target]);
   }
@@ -183,7 +183,7 @@ function edgeKey(binding) {
 }
 
 function textLabel(value, maxWidth, fontSize) {
-  // A conservative character estimate also works before SVG is attached or fonts finish loading.
+  // 保守的字符宽度估算在 SVG 挂载或字体加载完成前也能使用。
   let width = 0, label = "";
   for (const char of String(value || "")) {
     width += /[^\x00-\x7f]/.test(char) ? fontSize : fontSize * .59;
@@ -330,7 +330,7 @@ export class GraphView {
     const reopened = this.lastPositions !== this.positions;
     if (!this.editable) this.cancelConnection();
     const renderKey = JSON.stringify([nodes, definitions, edges, [...errorIds], [...modelIds], this.editable]);
-    // Keep DOM targets stable during selection so double-click and keyboard focus survive.
+    // 选择期间保持 DOM 目标稳定，使双击和键盘焦点得以保留。
     if (!reopened && !this.needsFit && this.renderKey === renderKey) {
       for (const group of this.nodeLayer.children) group.classList.toggle("selected", group.dataset.nodeId === selectedId);
       this.setSelectedEdge(selectedEdge);

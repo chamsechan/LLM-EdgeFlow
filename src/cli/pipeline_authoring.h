@@ -33,35 +33,32 @@ struct AuthoringResult {
 
 class PipelineAuthoring {
  public:
-  // Applies a single authoring request containing {schema_version, pipeline,
-  // operation/operations, require_valid}.
+  // 应用单个编辑请求，包含 {schema_version, pipeline, operation/operations,
+  // require_valid}。
   static AuthoringResult ApplyRequest(const nlohmann::json& request);
 
-  // Applies one authoring operation to an in-memory pipeline document.
+  // 将一个编辑操作应用到内存中的 Pipeline 文档。
   static bool ApplyOperation(nlohmann::json* pipeline,
                              const nlohmann::json& operation,
                              std::vector<AuthoringChange>* changes,
                              std::string* error);
 
-  // Collects all occupied blackboard keys in document (explicit mappings,
-  // default outputs, ingress, egress).
+  // 收集文档中所有已占用的 Blackboard 键
+  // (显式映射、默认输出、ingress、egress)。
   static std::unordered_set<std::string> GetOccupiedKeys(
       const nlohmann::json& pipeline);
 
-  // Allocates a unique key based on base name without colliding with occupied
-  // keys.
+  // 基于 base 名称分配一个不与已占用键冲突的唯一键。
   static std::string AllocateKey(
       const std::string& base, const std::unordered_set<std::string>& occupied);
 
-  // Checks whether potential_ancestor is a direct or transitive dependency of
-  // node_id.
+  // 检查 potential_ancestor 是否为 node_id 的直接或传递依赖。
   static bool IsAncestor(
       const std::string& potential_ancestor, const std::string& node_id,
       const std::unordered_map<std::string, std::vector<std::string>>&
           dep_graph);
 
-  // Builds a depends_on adjacency graph mapping node_id to its listed
-  // dependencies.
+  // 构建 depends_on 邻接图：node_id -> 其列出的依赖。
   static std::unordered_map<std::string, std::vector<std::string>>
   BuildDependencyGraph(const nlohmann::json& pipeline);
 };

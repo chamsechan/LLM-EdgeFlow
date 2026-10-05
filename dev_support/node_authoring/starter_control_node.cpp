@@ -10,10 +10,10 @@ struct StarterControlNodeParams {
   std::string prefix;
 };
 
-// Choose a stable, unused custom ID using the current Catalog.
+// 根据当前 Catalog 选择一个稳定且未被占用的自定义 ID。
 inline constexpr int kUpdatePrefix = 1001;
 
-// Business logic works on ordinary data, not platform structures.
+// 业务逻辑处理普通数据，而非平台结构。
 static std::string ApplyPrefix(const std::string& input,
                                const StarterControlNodeParams& params) {
   return params.prefix + input;

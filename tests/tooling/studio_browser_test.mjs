@@ -1,5 +1,5 @@
-// Optional browser coverage, invoked by the existing Python Studio suite.
-// Supply an installed Playwright module and, optionally, a Chromium executable.
+// 可选的浏览器覆盖测试，由现有的 Python Studio 测试套件调用。
+// 需提供已安装的 Playwright 模块，Chromium 可执行文件可选。
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -52,7 +52,7 @@ try {
   });
   page.once("dialog", dialog => dialog.accept());
   await open("pipeline_browser.json");
-  await page.click("#editModeButton"); // browse
+  await page.click("#editModeButton"); // 浏览模式
   for (const width of [1280, 1366, 1920]) {
     await page.setViewportSize({ width, height: width === 1920 ? 1080 : 768 });
     for (const filename of ["pipeline_browser.json", "pipeline_browser_multi.json"]) {
@@ -230,7 +230,7 @@ try {
   assert.equal(await page.locator('#nodeId').inputValue(), 'browser_renamed');
   assert.ok(!(await json()).pipeline.some(n => n.id === 'discarded_name'));
   await page.click('#undoButton'); assert.ok(!(await json()).pipeline.some(n => n.id === 'browser_renamed'));
-  // Validation applies model and raw JSON buffers in the same action.
+  // 校验在同一个动作中应用模型缓冲和原始 JSON 缓冲。
   const originalMulti = await json();
   await page.click('[data-tab="models"]');
   await page.selectOption('#modelSelect', originalMulti.models[0].model_id);
@@ -252,8 +252,8 @@ try {
   assert.equal((await json()).comment, 'browser JSON');
   await page.click('#undoButton'); assert.deepEqual(await json(), originalMulti);
   await open('pipeline_browser.json');
-  // Hold the POST response until another document is open. Even this earliest
-  // race must retain the originating document identity, not the active editor.
+  // 在打开另一个文档前挂起 POST 响应。即使是最早的这种竞争，也必须保留
+  // 发起请求的文档标识，而不是当前活动的编辑器。
   let releaseStart, started;
   const heldStart = new Promise(resolve => { releaseStart = resolve; });
   const sawStart = new Promise(resolve => { started = resolve; });
@@ -279,8 +279,8 @@ try {
   await page.locator("#nodeForm details > summary").click();
   assert.equal(await page.locator("#nodeBindings button").filter({ hasText: "恢复默认绑定" }).count(), 0);
 
-  // Dependency controls are graph actions, not node-property draft buffers.
-  // Add an independent node so the new ordering is observable and acyclic.
+  // 依赖控件属于图操作，而非 Node 属性草稿缓冲。
+  // 添加一个独立 Node，使新的顺序可观察且无环。
   const beforeAdd = await json();
   if (!(await page.locator("#operatorSearch").isVisible())) await page.click("#operatorsToggle");
   await page.locator("#operatorSearch").fill("TextTemplateNode");
@@ -307,7 +307,7 @@ try {
   assert.deepEqual(await json(), beforeAdd, "The preceding undo removes the added node");
   await page.locator("#operatorSearch").fill("");
 
-  // Data connections need no explicit ordering or dependency repair.
+  // 数据连接无需显式排序或依赖修复。
   await open("pipeline_browser_multi.json");
   const inferredDependencies = await json();
   for (const node of inferredDependencies.pipeline) delete node.depends_on;
@@ -317,7 +317,7 @@ try {
   await page.waitForFunction(() => document.querySelector("#validationOutput").textContent.includes("校验通过"));
   assert.equal(await page.locator("#validationOutput .fix-apply-btn").count(), 0);
   await open("pipeline_browser_other.json");
-  // Native Validator reports use an object-valued error.message.
+  // 原生 Validator 报告中的 error.message 是对象值。
   await page.click('[data-tab="json"]');
   const invalidPipeline = await json(); invalidPipeline.pipeline[0].node_type = 'MissingNode';
   await page.locator('#rawJson').fill(JSON.stringify(invalidPipeline, null, 2));
@@ -326,7 +326,7 @@ try {
   assert.equal(await page.locator('#validationTab').isVisible(), true);
   assert.match(await page.locator('#operationFeedback').textContent(), /方案校验未通过/);
   await page.click('#undoButton');
-  // Startup failures must remain readable after the old 2.6-second timeout.
+  // 启动失败信息在超过旧的 2.6 秒超时后仍必须可读。
   const startupPage = await browser.newPage();
   try {
     await startupPage.route('**/api/v1/assets', route => route.fulfill({ status: 503,

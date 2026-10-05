@@ -7,16 +7,15 @@
 
 namespace llm_edgeflow {
 
-// Failures that originate below the Operator facade. Their internal Pipeline,
-// Node and Model codes are reported through GetOperatorLastError() only; the
-// host receives the public code of the failure stage.
+// 源于 Operator facade 之下的失败。其内部 Pipeline、Node 和 Model 错误码
+// 只通过 GetOperatorLastError() 报告；宿主收到的是失败阶段的公开错误码。
 enum class OperatorFailureStage {
-  kCreatePreparation,   // configuration, deployment, model and backend loading
-  kProcessExecution,    // a Node or Model failed in Pipeline::Execute
-  kControlRequest,      // Control envelope, target or payload was rejected
-  kControlUnsupported,  // no Node declares or handles the command
-  kControlExecution,    // a Node rejected or failed to apply the update
-  kControlRuntime,      // no ready runtime, or an exception barrier fired
+  kCreatePreparation,   // 配置、部署、模型和 Backend 加载
+  kProcessExecution,    // Pipeline::Execute 中 Node 或 Model 失败
+  kControlRequest,      // Control 信封、目标或 payload 被拒绝
+  kControlUnsupported,  // 没有 Node 声明或处理该命令
+  kControlExecution,    // Node 拒绝或未能应用更新
+  kControlRuntime,      // 无就绪运行时，或触发了异常屏障
 };
 
 OperatorFailureStage ControlFailureToOperatorStage(

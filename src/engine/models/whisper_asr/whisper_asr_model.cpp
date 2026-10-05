@@ -104,7 +104,7 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
       if (n_samples == 0) {
         continue;
       }
-      if (n_samples < 1600) {  // 100 ms
+      if (n_samples < 1600) {  // 100 毫秒
         ALG_LOG_ERROR(
             "[WhisperAsrModel] Audio sample count %zu < 1600 (100 ms)\n",
             n_samples);

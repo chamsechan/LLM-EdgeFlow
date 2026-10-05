@@ -49,8 +49,8 @@ def main():
         header = run(["git", "-C", str(root), "show",
                       BASELINE_HELPER_REVISION + ":include/nodes/" + name],
                      capture_output=True).stdout
-        # The retired base relied on class-style port helpers that NodeBase no
-        # longer carries; LegacyNodeBase keeps them for this comparison only.
+        # 已退役的基类依赖 NodeBase 不再提供的类式端口辅助函数；
+        # LegacyNodeBase 仅为此对比保留它们。
         header = header.replace('#include "nodes/node_base.h"',
                                 '#include "dev_support/node_authoring/legacy_node_base.h"')
         header = header.replace("public NodeBase", "public LegacyNodeBase")

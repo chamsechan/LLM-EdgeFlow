@@ -132,7 +132,7 @@ TEST(FixedBatchExecutorTest, ErrorPropagationFromKernel) {
 TEST(FixedBatchExecutorTest, StrictOutputsAndRollback) {
   std::vector<TraceableItem<int>> inputs = {
       {1, 0, 10}, {1, 1, 20}, {2, 0, 30}, {2, 1, 40}, {3, 0, 50}};
-  BatchPolicy policy{2, 0};  // dynamic max batch size = 2
+  BatchPolicy policy{2, 0};  // 动态批大小上限 = 2
   std::vector<TraceableItem<int>> outputs;
 
   // 1. 正常执行

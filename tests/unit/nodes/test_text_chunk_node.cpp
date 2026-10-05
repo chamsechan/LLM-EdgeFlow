@@ -20,16 +20,15 @@ class TextChunkNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
-// 1. Init & Config Validation
 TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
   auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
 
-  // Default config
+  // 默认配置
   EXPECT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
-  // Custom valid config
+  // 自定义合法配置
   nlohmann::json cfg = {{"chunk_size", 50}, {"overlap", 10}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
@@ -55,7 +54,6 @@ TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
                                session_ctx_.get()));
 }
 
-// 2. Process Single and Batch Chunks with ChunkCounts
 TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
   auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
@@ -65,10 +63,10 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
 
   AlgContext ctx;
   TextBatch input_batch;
-  // Item 0: 50 chars -> 3 chunks (20, 20, 10)
+  // 条目 0：50 个字符 -> 3 个分块 (20, 20, 10)
   input_batch.emplace_back(
       101, 0, "12345678901234567890123456789012345678901234567890");
-  // Item 1: 10 chars -> 1 chunk
+  // 条目 1：10 个字符 -> 1 个分块
   input_batch.emplace_back(102, 0, "1234567890");
   ctx.Publish("text", input_batch);
 
@@ -141,7 +139,6 @@ TEST_F(TextChunkNodeTest, OverlappingFinalPartialChunkIsEmittedOnce) {
   EXPECT_EQ(counts->at(0).data, 2);
 }
 
-// 3. Process Empty Input Strings
 TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
   auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
@@ -209,7 +206,6 @@ TEST_F(TextChunkNodeTest, InvalidUtf8FailsClosed) {
   EXPECT_EQ(ctx.Read<Int32Batch>("chunk_counts"), nullptr);
 }
 
-// 4. Missing Input Fails Closed
 TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
@@ -248,11 +244,11 @@ TEST_F(TextChunkNodeTest,
 
   AlgContext ctx;
   TextBatch input_batch;
-  // Request 10: item 0 has sub_id 5, produces 2 chunks (20 chars)
+  // 请求 10：条目 0 的 sub_id 为 5，产出 2 个分块 (20 个字符)
   input_batch.emplace_back(10, 5, "12345678901234567890");
-  // Request 10: item 1 has sub_id 9, produces 1 chunk (10 chars)
+  // 请求 10：条目 1 的 sub_id 为 9，产出 1 个分块 (10 个字符)
   input_batch.emplace_back(10, 9, "abcdefghij");
-  // Request 20: item 0 has sub_id 1, produces 1 chunk
+  // 请求 20：条目 0 的 sub_id 为 1，产出 1 个分块
   input_batch.emplace_back(20, 1, "hello");
   ctx.Publish("text", input_batch);
 
@@ -261,18 +257,18 @@ TEST_F(TextChunkNodeTest,
   const auto* chunks = ctx.Read<TextBatch>("chunks");
   ASSERT_NE(chunks, nullptr);
   ASSERT_EQ(chunks->size(), 4u);
-  // Request 10 chunks must have continuous sub_ids: 0, 1, 2
+  // 请求 10 的分块 sub_id 必须连续：0, 1, 2
   EXPECT_EQ((*chunks)[0].req_id, 10u);
   EXPECT_EQ((*chunks)[0].sub_id, 0u);
   EXPECT_EQ((*chunks)[1].req_id, 10u);
   EXPECT_EQ((*chunks)[1].sub_id, 1u);
   EXPECT_EQ((*chunks)[2].req_id, 10u);
   EXPECT_EQ((*chunks)[2].sub_id, 2u);
-  // Request 20 chunks must have sub_id: 0
+  // 请求 20 的分块 sub_id 必须为 0
   EXPECT_EQ((*chunks)[3].req_id, 20u);
   EXPECT_EQ((*chunks)[3].sub_id, 0u);
 
-  // chunk_counts must preserve parent (req_id, sub_id)
+  // chunk_counts 必须保留父条目的 (req_id, sub_id)
   const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
   ASSERT_NE(counts, nullptr);
   ASSERT_EQ(counts->size(), 3u);
@@ -297,11 +293,11 @@ TEST_F(TextChunkNodeTest, InterleavedRequestsContinuousSubIdAcrossParents) {
 
   AlgContext ctx;
   TextBatch input_batch;
-  // Req 10, sub 0: 20 chars -> 2 chunks
+  // 请求 10，sub 0：20 个字符 -> 2 个分块
   input_batch.emplace_back(10, 0, "12345678901234567890");
-  // Interleaved Req 20, sub 0: 10 chars -> 1 chunk
+  // 交错的请求 20，sub 0：10 个字符 -> 1 个分块
   input_batch.emplace_back(20, 0, "abcdefghij");
-  // Resumed Req 10, sub 1: 10 chars -> 1 chunk
+  // 继续请求 10，sub 1：10 个字符 -> 1 个分块
   input_batch.emplace_back(10, 1, "klmnopqrst");
   ctx.Publish("text", input_batch);
 
@@ -311,7 +307,7 @@ TEST_F(TextChunkNodeTest, InterleavedRequestsContinuousSubIdAcrossParents) {
   ASSERT_NE(chunks, nullptr);
   ASSERT_EQ(chunks->size(), 4u);
 
-  // Req 10 first batch
+  // 请求 10 的第一批
   EXPECT_EQ((*chunks)[0].req_id, 10u);
   EXPECT_EQ((*chunks)[0].sub_id, 0u);
   EXPECT_EQ((*chunks)[0].data, "1234567890");
@@ -320,12 +316,12 @@ TEST_F(TextChunkNodeTest, InterleavedRequestsContinuousSubIdAcrossParents) {
   EXPECT_EQ((*chunks)[1].sub_id, 1u);
   EXPECT_EQ((*chunks)[1].data, "1234567890");
 
-  // Interleaved Req 20 starts at 0
+  // 交错的请求 20 从 0 开始
   EXPECT_EQ((*chunks)[2].req_id, 20u);
   EXPECT_EQ((*chunks)[2].sub_id, 0u);
   EXPECT_EQ((*chunks)[2].data, "abcdefghij");
 
-  // Resumed Req 10 must continue at sub_id 2 (not reset!)
+  // 继续的请求 10 必须从 sub_id 2 接续 (不能重置！)
   EXPECT_EQ((*chunks)[3].req_id, 10u);
   EXPECT_EQ((*chunks)[3].sub_id, 2u);
   EXPECT_EQ((*chunks)[3].data, "klmnopqrst");

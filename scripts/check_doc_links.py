@@ -24,7 +24,7 @@ WALK_EXCLUDES = {".git", "3rdparty", "results", "output", "Testing"}
 
 
 def link_destination(text, position):
-    """Read an angle-delimited or balanced bare destination and its end offset."""
+    """读取尖括号包裹或括号平衡的裸目标地址及其结束偏移。"""
     angle_delimited = text[position:position + 1] == "<"
     if angle_delimited:
         position += 1
@@ -56,7 +56,7 @@ def link_destination(text, position):
 
 
 def inline_link_targets(text):
-    """Yield single-line inline destinations, excluding optional link titles."""
+    """逐个产出单行内联链接目标，不含可选的链接标题。"""
     position = 0
     while match := INLINE_LINK_START.search(text, position):
         position = match.end()
@@ -74,7 +74,7 @@ def inline_link_targets(text):
 
 
 def slugify(heading):
-    """GitHub heading anchor: lowercase, drop punctuation/symbols, spaces to '-'."""
+    """GitHub 标题锚点：转小写，去掉标点/符号，空格转为 '-'。"""
     text = re.sub(r"`([^`]*)`", r"\1", heading)
     text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"<[^>]+>", "", text)
@@ -90,7 +90,7 @@ def slugify(heading):
 
 
 def prose_lines(path):
-    """Yield (line number, text) outside fenced code blocks."""
+    """产出代码围栏之外的 (行号, 文本)。"""
     fence = None
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         match = FENCE.match(line)
@@ -134,7 +134,7 @@ def markdown_files(root):
 
 
 def check(root):
-    """Return (errors, counters) for every relative link in the Markdown files."""
+    """返回 Markdown 文件中所有相对链接的 (errors, counters)。"""
     root = root.resolve()
     errors, cache = [], {}
     counters = {"files": 0, "links": 0, "anchor_links": 0}
@@ -194,7 +194,7 @@ def self_test():
               "```markdown\n[skip](missing.md)\n```\n## Local\n")
         errors, counters = check(root)
         assert errors == [], errors
-        # Seven inline links and one img src; the https link is skipped.
+        # 七个内联链接和一个 img src；https 链接会被跳过。
         assert counters == {"files": 2, "links": 8, "anchor_links": 4}, counters
 
         write(root, "guide/guide_(old).md", "# Heading\n")
