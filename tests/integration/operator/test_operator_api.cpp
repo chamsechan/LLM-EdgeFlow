@@ -2451,8 +2451,6 @@ const bool g_reg_nested_output_components = []() {
 
   bind.input_converter_id = "keyword.plain.operator.v1";
   bind.output_converter_id = "test_nested_output.operator.v1";
-  bind.input_ports = {{"input_sentences", "input_sentences"}};
-  bind.output_ports = {{"rule_matches", "rule_matches"}};
   bind.max_batch_size = 64;
   IoBindingRegistry::Instance().RegisterBinding(bind);
   return true;

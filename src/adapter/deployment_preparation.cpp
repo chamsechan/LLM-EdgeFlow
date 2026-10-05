@@ -13,6 +13,18 @@
 #include "core/pipeline_config.h"
 
 namespace llm_edgeflow {
+namespace {
+
+// Converter 的逻辑端口名就是 Blackboard 键。
+std::unordered_map<std::string, std::string> SameNamedKeys(
+    const std::vector<NodePortDefinition>& ports) {
+  std::unordered_map<std::string, std::string> keys;
+  for (const auto& port : ports)
+    keys.emplace(port.logical_name, port.logical_name);
+  return keys;
+}
+
+}  // namespace
 
 bool PrepareDeploymentDocument(const nlohmann::json& document,
                                const DeploymentPrepareOptions& options,
@@ -214,33 +226,28 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     resolved_neutral_json = std::move(doc_split.neutral_pipeline_json);
   }
 
-  // S6: 构造中性 I/O 边界，发布准备结果（未显式映射的端口按同名映射）
-  auto input_mapping =
-      EffectivePortMapping(binding->input_ports, in_conv->logical_ports);
-  auto output_mapping =
-      EffectivePortMapping(binding->output_ports, out_conv->logical_ports);
+  // S6: 构造中性 I/O 边界，发布准备结果；Converter 端口名即 Blackboard 键
   PipelineIoBoundary io_boundary;
   for (const auto& port : in_conv->logical_ports) {
     io_boundary.input_published_ports.emplace_back(
-        input_mapping.at(port.logical_name), port.type_id, port.required,
-        port.cardinality, port.provenance_policy, port.lifetime,
-        port.lifetime_config_field);
+        port.logical_name, port.type_id, port.required, port.cardinality,
+        port.provenance_policy, port.lifetime, port.lifetime_config_field);
   }
 
   for (const auto& port : out_conv->logical_ports) {
     io_boundary.output_consumed_ports.emplace_back(
-        output_mapping.at(port.logical_name), port.type_id, port.required,
-        port.cardinality, port.provenance_policy, port.lifetime,
-        port.lifetime_config_field);
+        port.logical_name, port.type_id, port.required, port.cardinality,
+        port.provenance_policy, port.lifetime, port.lifetime_config_field);
   }
 
   PreparedDeployment local_prep;
   local_prep.binding = *binding;
   local_prep.input_converter = in_conv;
   local_prep.output_converter = out_conv;
-  local_prep.input_port_bindings = InputPortBindings(std::move(input_mapping));
+  local_prep.input_port_bindings =
+      InputPortBindings(SameNamedKeys(in_conv->logical_ports));
   local_prep.output_port_bindings =
-      OutputPortBindings(std::move(output_mapping));
+      OutputPortBindings(SameNamedKeys(out_conv->logical_ports));
   local_prep.effective_max_batch_size = max_batch;
   local_prep.output_specs = std::move(local_output_specs);
   local_prep.output_parameter_texts = std::move(local_output_params);

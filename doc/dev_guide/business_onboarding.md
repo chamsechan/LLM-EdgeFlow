@@ -22,7 +22,7 @@
 | `InputConverterDefinition::decode_fn` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值发布至 `AlgContext` |
 | Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
 | `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应并写入已租用输出池 |
-| `IoBinding` | 声明业务逻辑端口与 Pipeline Blackboard Key 的映射关系，将转换器与业务编排关联 |
+| `IoBinding` | 选择输入/输出转换器并关联业务契约；转换器端口名即 Pipeline Blackboard Key |
 
 Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
 字段改名、响应组装或默认成功结果。宿主程序直接调用 Operator SDK 就应获得约定响应。
@@ -56,7 +56,7 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 “结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
 
-当前共享 SDK 的 Operator 初始化会全量审计**所有已注册的绑定**：转换器、端口映射、
+当前共享 SDK 的 Operator 初始化会全量审计**所有已注册的绑定**：转换器、端口、
 业务契约和批次上限必须完整一致，任何一个绑定不合格，SDK 全局初始化都会失败。
 业务能否部署取决于是否注册了绑定；配置引用不存在的绑定时，部署准备报 `UNKNOWN_IO_BINDING`。
 
@@ -91,8 +91,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
-配置作者只选择 `io_binding`（`keyword_match.operator.v1`）。它关联注册的内部业务边界、
-输入/输出转换器和端口映射；Demo 从配置自动选择运行入口。Operator 槽位后缀
+配置作者只选择 `io_binding`（`keyword_match.operator.v1`）。它关联注册的内部业务边界
+和输入/输出转换器；Demo 从配置自动选择运行入口。Operator 槽位后缀
 （`keyword_in` / `keyword_out`）属于宿主调用契约，由绑定关联到已注册宿主类型。
 
 ## 3. 实现并注册转换器与绑定
@@ -129,8 +129,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
    在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`input_converter_id`、
    `output_converter_id`，使用 `REGISTER_IO_BINDING` 注册。
-   转换器的逻辑端口默认映射到同名的 Blackboard Key，`input_ports` / `output_ports`
-   只写不同名的映射。
+   转换器的逻辑端口名就是 Blackboard Key，绑定不做改名；命名遵循本节后文的端口命名约定。
    Binding 的批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
    转换器只在自身确有限制时才声明上限，0 表示不设限。
    有效上限取绑定与两个转换器中正值的最小值，Operator 再按实际输出池深收紧；
@@ -143,12 +142,15 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL；JSON 文本中的
 `\u0000` 转义仍可在解包后成为内部字符串的一部分。
 
-共享端口用 `MakeBlackboardKey<T>(name)` 定义一次；转换器 Definition 使用
-`RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`
-读取或发布，不能绕过绑定直接读写实际 key。转换器端口直接使用业务出入口的键名，绑定中无需声明；
-不要为命名差异引入映射。确需非同名映射时使用 `BindIoPort(logical_port, actual_key)`，
-两端的 C++ 类型必须一致。
-需要完整映射的代码调用 `EffectivePortMapping`，不要直接读取绑定的端口表。
+共享端口用 `MakeBlackboardKey<T>(name)` 在 `adapter/biz_blackboard_keys.h` 定义一次；转换器
+Definition 使用 `RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`
+读取或发布。转换器端口名就是业务出入口的 Blackboard Key，绑定不做改名。端口命名约定：
+
+- 同一业务内同名即同一份数据、同一类型；复用已定义的常量，不重复手写字符串。
+- 可被多个业务复用的转换器使用中性、按角色命名的端口（如 `input_sentences`、`llm_answers`），
+  不使用业务专属名称；其他业务复用它时沿用这些名字。
+- 输入侧与输出侧的端口不重名；只有输出转换器有意回传请求数据时才读取入口键。
+- 业务专属转换器直接使用业务键名，例如审核输入的 `user_texts`、`channel_names`。
 
 外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
 `ExternalOutputSlot<T>(slot)`，类型由 traits 推导。
@@ -164,7 +166,7 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 | 规则匹配 | [关键词输入](../../src/adapter/input/text_input.cpp) / [关键词输出](../../src/adapter/output/keyword_result_output.cpp) | 命中与业务状态 |
 | 完整 JSON 请求响应 | [翻译输入](../../src/adapter/input/translate_json_input.cpp) / [翻译输出](../../src/adapter/output/translation_json_output.cpp) | JSON 字段与响应协议 |
 | 可选字段、三路结果 | [文档输入](../../src/adapter/input/doc_query_input.cpp) / [文档输出](../../src/adapter/output/doc_answer_output.cpp) | 文档缺省、回答/意图/片段数关联 |
-| 风险判定、非同名端口 | [审核输入](../../src/adapter/input/audit_input.cpp) / [审核输出](../../src/adapter/output/audit_result_output.cpp) | 风险分数/枚举与排名校验 |
+| 风险判定、排名首项 | [审核输入](../../src/adapter/input/audit_input.cpp) / [审核输出](../../src/adapter/output/audit_result_output.cpp) | 风险分数/枚举与排名校验 |
 | 音频、两路结果 | [音频输入](../../src/adapter/input/audio_input.cpp) / [音频输出](../../src/adapter/output/audio_result_output.cpp) | PCM 与采样率、转写/意图组合 |
 | 多个外部槽 | [图像问题输入](../../src/adapter/input/image_query_input.cpp) / [票据输出](../../src/adapter/output/invoice_result_output.cpp) | frame 的请求 ID、票据与 OCR boxes |
 | 候选展开与排名 | [重排输入](../../src/adapter/input/rerank_input.cpp) / [重排输出](../../src/adapter/output/rerank_result_output.cpp) | sub_id、排名和原始索引恢复 |

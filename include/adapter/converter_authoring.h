@@ -17,19 +17,6 @@
 
 namespace llm_edgeflow {
 
-// 两侧必须是同一 C++ 值类型；恒等映射需显式声明。
-template <typename T>
-inline std::pair<std::string, std::string> BindIoPort(
-    const BlackboardKey<T>& logical_port, const BlackboardKey<T>& actual_key) {
-  return {logical_port.name, actual_key.name};
-}
-
-template <typename T>
-inline std::pair<std::string, std::string> BindIoPort(
-    const BlackboardKey<T>& port) {
-  return BindIoPort(port, port);
-}
-
 // 常用约定：必填槽位，type_suffix = slot_name，key_suffix 为空时回退到
 // type_suffix。其他后缀或可选槽位请使用 ExternalSlotDefinition 的显式字段。
 template <typename T>

@@ -432,24 +432,6 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   EXPECT_EQ(outputs.size(), 1U);
 }
 
-TEST(IoConverterTest, TypedBindingsResolveNonIdentityPorts) {
-  constexpr auto logical = MakeBlackboardKey<TextBatch>("logical_text");
-  constexpr auto actual = MakeBlackboardKey<TextBatch>("storage_text");
-  InputPortBindings inputs({BindIoPort(logical, actual)});
-  OutputPortBindings outputs({BindIoPort(logical, actual)});
-  AlgContext context;
-  ASSERT_TRUE(context.Publish(inputs.Key(logical), TextBatch{{0, 0, "hello"}}));
-  const auto* value = context.Read(outputs.Key(logical));
-  ASSERT_NE(value, nullptr);
-  ASSERT_EQ(value->size(), 1U);
-  EXPECT_EQ(value->front().data, "hello");
-  EXPECT_EQ(context.Read(logical), nullptr);
-  EXPECT_STREQ(inputs.Key(logical).name, "storage_text");
-  EXPECT_STREQ(outputs.Key(logical).name, "storage_text");
-  EXPECT_EQ(BindIoPort(logical), std::make_pair(std::string("logical_text"),
-                                                std::string("logical_text")));
-}
-
 TEST(IoConverterTest, OutputWriterRequiresExplicitFieldCapacityWithoutWriting) {
   TestOutputBatchView view;
   OutputEncodeOptions options;

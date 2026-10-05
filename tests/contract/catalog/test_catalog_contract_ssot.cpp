@@ -300,15 +300,6 @@ TEST_F(CatalogContractSsotTest, CatalogHasNoRequestIdPort) {
       }
     }
   }
-  for (const auto& binding : catalog.at("io_bindings")) {
-    for (const char* kind : {"input_port_mapping", "output_port_mapping"}) {
-      for (const auto& mapping : binding.at(kind).items()) {
-        EXPECT_NE(mapping.key(), "raw_request_ids") << binding.at("binding_id");
-        EXPECT_NE(mapping.value(), "raw_request_ids")
-            << binding.at("binding_id");
-      }
-    }
-  }
 }
 
 TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {

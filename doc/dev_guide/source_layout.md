@@ -86,8 +86,8 @@ src/adapter/
 常见单槽、每请求一行的回调使用 `DecodeRequestRows` / `EncodeResultRows` 调用普通业务函数，
 批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
 各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
-端口 Definition、回调的 `bindings.Key(port)` 和 `BindIoPort` 映射共用 typed 声明；
-非同名映射显式传入逻辑端口与实际 key。常见必需槽可用 `ExternalInputSlot<T>` /
+端口 Definition 与回调的 `bindings.Key(port)` 共用 typed 声明，端口名即业务键名，
+绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>` /
 `ExternalOutputSlot<T>` 推导类型和默认同名后缀，输出容量字段由已注册 ValueType 决定；
 特殊布局仍使用完整定义。
 业务专属实现可按修改关联同文件组织，共享 converter 保留独立引用；不要求为每个业务创建聚合宏或新注册表。

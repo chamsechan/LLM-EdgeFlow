@@ -510,13 +510,11 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   }
 }
 
-// 审核输出 Converter 的逻辑端口与业务出口同名，Binding 不声明映射。
+// 审核输出 Converter 的逻辑端口与业务出口同名。
 TEST_F(ComplexConvertersTest, ComplianceBindingUsesBizPortNames) {
   const auto* binding =
       IoBindingRegistry::Instance().FindBinding("dialogue_audit.operator.v1");
   ASSERT_NE(binding, nullptr);
-  EXPECT_TRUE(binding->input_ports.empty());
-  EXPECT_TRUE(binding->output_ports.empty());
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
       binding->output_converter_id);
   ASSERT_NE(output, nullptr);

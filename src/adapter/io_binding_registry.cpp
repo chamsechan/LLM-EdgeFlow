@@ -86,16 +86,6 @@ std::vector<std::string> EffectiveCapacityFields(
   return fields;
 }
 
-std::unordered_map<std::string, std::string> EffectivePortMapping(
-    const std::unordered_map<std::string, std::string>& declared,
-    const std::vector<NodePortDefinition>& logical_ports) {
-  auto mapping = declared;
-  for (const auto& port : logical_ports) {
-    mapping.emplace(port.logical_name, port.logical_name);
-  }
-  return mapping;
-}
-
 size_t EffectiveMaxBatchSize(const IoBindingDefinition& binding,
                              const InputConverterDefinition& input,
                              const OutputConverterDefinition& output) {
@@ -216,134 +206,96 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
           "' references unregistered biz_name: " + binding.biz_name);
     }
 
-    // 2. 检查 input converter；未显式映射的逻辑端口按同名映射
+    // 2. 检查 input converter：逻辑端口名即业务入口键
     const auto* in_conv =
         conv_reg.FindInputConverter(binding.input_converter_id);
     if (!in_conv) {
       errors.push_back("Binding '" + binding_id +
                        "' references unregistered input_converter: " +
                        binding.input_converter_id);
-    } else {
-      for (const auto& entry : binding.input_ports) {
-        const auto& logical_name = entry.first;
-        const bool advertised = std::any_of(
-            in_conv->logical_ports.begin(), in_conv->logical_ports.end(),
-            [&logical_name](const auto& p) {
-              return p.logical_name == logical_name;
-            });
-        if (!advertised) {
-          errors.push_back(
-              "Binding '" + binding_id +
-              "' maps unadvertised input logical port: " + logical_name);
+    } else if (biz_def) {
+      for (const auto& port : in_conv->logical_ports) {
+        const auto& target_key = port.logical_name;
+        auto ingress_it =
+            std::find_if(biz_def->ingress.begin(), biz_def->ingress.end(),
+                         [&target_key](const auto& p) {
+                           return p.blackboard_key == target_key;
+                         });
+        if (ingress_it == biz_def->ingress.end()) {
+          errors.push_back("Binding '" + binding_id + "' input port '" +
+                           port.logical_name + "' is not a biz ingress key");
+        } else if (port.type_id != ingress_it->type_id) {
+          errors.push_back("Binding '" + binding_id + "' input port '" +
+                           port.logical_name + "' type '" + port.type_id +
+                           "' does not match biz ingress key '" + target_key +
+                           "' type '" + ingress_it->type_id + "'");
         }
       }
 
-      const auto mapping =
-          EffectivePortMapping(binding.input_ports, in_conv->logical_ports);
-      if (biz_def) {
-        for (const auto& port : in_conv->logical_ports) {
-          const auto& target_key = mapping.at(port.logical_name);
-          auto ingress_it =
-              std::find_if(biz_def->ingress.begin(), biz_def->ingress.end(),
-                           [&target_key](const auto& p) {
-                             return p.blackboard_key == target_key;
-                           });
-          if (ingress_it == biz_def->ingress.end()) {
-            errors.push_back(
-                "Binding '" + binding_id + "' input port '" +
-                port.logical_name +
-                "' maps to non-existent biz ingress key: " + target_key);
-          } else if (port.type_id != ingress_it->type_id) {
-            errors.push_back("Binding '" + binding_id + "' input port '" +
-                             port.logical_name + "' type '" + port.type_id +
-                             "' does not match biz ingress key '" + target_key +
-                             "' type '" + ingress_it->type_id + "'");
-          }
-        }
-
-        for (const auto& ingress_port : biz_def->ingress) {
-          if (!ingress_port.required) continue;
-          const bool covered = std::any_of(
-              mapping.begin(), mapping.end(), [&ingress_port](const auto& kv) {
-                return kv.second == ingress_port.blackboard_key;
-              });
-          if (!covered) {
-            errors.push_back("Binding '" + binding_id +
-                             "' missing required biz ingress port: " +
-                             ingress_port.blackboard_key);
-          }
+      for (const auto& ingress_port : biz_def->ingress) {
+        if (!ingress_port.required) continue;
+        const bool covered = std::any_of(
+            in_conv->logical_ports.begin(), in_conv->logical_ports.end(),
+            [&ingress_port](const auto& port) {
+              return port.logical_name == ingress_port.blackboard_key;
+            });
+        if (!covered) {
+          errors.push_back("Binding '" + binding_id +
+                           "' missing required biz ingress port: " +
+                           ingress_port.blackboard_key);
         }
       }
     }
 
-    // 3. 检查 output converter；未显式映射的逻辑端口按同名映射
+    // 3. 检查 output converter：逻辑端口名即业务出口（或入口）键
     const auto* out_conv =
         conv_reg.FindOutputConverter(binding.output_converter_id);
     if (!out_conv) {
       errors.push_back("Binding '" + binding_id +
                        "' references unregistered output_converter: " +
                        binding.output_converter_id);
-    } else {
-      for (const auto& entry : binding.output_ports) {
-        const auto& logical_name = entry.first;
-        const bool advertised = std::any_of(
-            out_conv->logical_ports.begin(), out_conv->logical_ports.end(),
-            [&logical_name](const auto& p) {
-              return p.logical_name == logical_name;
-            });
-        if (!advertised) {
-          errors.push_back(
-              "Binding '" + binding_id +
-              "' maps unadvertised output logical port: " + logical_name);
+    } else if (biz_def) {
+      for (const auto& port : out_conv->logical_ports) {
+        const auto& target_key = port.logical_name;
+        const auto matches_key = [&target_key](const auto& p) {
+          return p.blackboard_key == target_key;
+        };
+        auto egress_it = std::find_if(biz_def->egress.begin(),
+                                      biz_def->egress.end(), matches_key);
+        auto ingress_it = std::find_if(biz_def->ingress.begin(),
+                                       biz_def->ingress.end(), matches_key);
+        if (egress_it != biz_def->egress.end()) {
+          if (port.type_id != egress_it->type_id) {
+            errors.push_back("Binding '" + binding_id + "' output port '" +
+                             port.logical_name + "' type '" + port.type_id +
+                             "' does not match biz egress key '" + target_key +
+                             "' type '" + egress_it->type_id + "'");
+          }
+        } else if (ingress_it != biz_def->ingress.end()) {
+          if (port.type_id != ingress_it->type_id) {
+            errors.push_back("Binding '" + binding_id + "' output port '" +
+                             port.logical_name + "' type '" + port.type_id +
+                             "' does not match biz ingress key '" + target_key +
+                             "' type '" + ingress_it->type_id + "'");
+          }
+        } else {
+          errors.push_back("Binding '" + binding_id + "' output port '" +
+                           port.logical_name +
+                           "' is not a biz egress or ingress key");
         }
       }
 
-      const auto mapping =
-          EffectivePortMapping(binding.output_ports, out_conv->logical_ports);
-      if (biz_def) {
-        for (const auto& port : out_conv->logical_ports) {
-          const auto& target_key = mapping.at(port.logical_name);
-          const auto matches_key = [&target_key](const auto& p) {
-            return p.blackboard_key == target_key;
-          };
-          auto egress_it = std::find_if(biz_def->egress.begin(),
-                                        biz_def->egress.end(), matches_key);
-          auto ingress_it = std::find_if(biz_def->ingress.begin(),
-                                         biz_def->ingress.end(), matches_key);
-          if (egress_it != biz_def->egress.end()) {
-            if (port.type_id != egress_it->type_id) {
-              errors.push_back("Binding '" + binding_id + "' output port '" +
-                               port.logical_name + "' type '" + port.type_id +
-                               "' does not match biz egress key '" +
-                               target_key + "' type '" + egress_it->type_id +
-                               "'");
-            }
-          } else if (ingress_it != biz_def->ingress.end()) {
-            if (port.type_id != ingress_it->type_id) {
-              errors.push_back("Binding '" + binding_id + "' output port '" +
-                               port.logical_name + "' type '" + port.type_id +
-                               "' does not match biz ingress key '" +
-                               target_key + "' type '" + ingress_it->type_id +
-                               "'");
-            }
-          } else {
-            errors.push_back("Binding '" + binding_id + "' output port '" +
-                             port.logical_name +
-                             "' maps to non-existent biz key: " + target_key);
-          }
-        }
-
-        for (const auto& egress_port : biz_def->egress) {
-          if (!egress_port.required) continue;
-          const bool covered = std::any_of(
-              mapping.begin(), mapping.end(), [&egress_port](const auto& kv) {
-                return kv.second == egress_port.blackboard_key;
-              });
-          if (!covered) {
-            errors.push_back("Binding '" + binding_id +
-                             "' missing required biz egress port: " +
-                             egress_port.blackboard_key);
-          }
+      for (const auto& egress_port : biz_def->egress) {
+        if (!egress_port.required) continue;
+        const bool covered = std::any_of(
+            out_conv->logical_ports.begin(), out_conv->logical_ports.end(),
+            [&egress_port](const auto& port) {
+              return port.logical_name == egress_port.blackboard_key;
+            });
+        if (!covered) {
+          errors.push_back("Binding '" + binding_id +
+                           "' missing required biz egress port: " +
+                           egress_port.blackboard_key);
         }
       }
     }

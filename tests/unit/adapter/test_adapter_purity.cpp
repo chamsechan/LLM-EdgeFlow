@@ -1008,8 +1008,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   {
     test::AdapterHarness harness(
         entity_conv,
-        InputPortBindings(EffectivePortMapping(entity_binding->input_ports,
-                                               entity_conv->logical_ports)));
+        InputPortBindings({{"input_sentences", "input_sentences"}}));
     std::string text_str = "entity sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
@@ -1025,8 +1024,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   {
     test::AdapterHarness harness(
         keyword_conv,
-        InputPortBindings(EffectivePortMapping(keyword_binding->input_ports,
-                                               keyword_conv->logical_ports)));
+        InputPortBindings({{"input_sentences", "input_sentences"}}));
     std::string text_str = "keyword sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
@@ -1046,8 +1044,6 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
 
     test_reuse_binding.input_converter_id = "text.plain.operator.v1";
     test_reuse_binding.output_converter_id = "document.structured.operator.v1";
-    test_reuse_binding.input_ports = entity_binding->input_ports;
-    test_reuse_binding.output_ports = entity_binding->output_ports;
     test_reuse_binding.max_batch_size = 64;
     IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
 

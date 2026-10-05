@@ -194,9 +194,6 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
 
   test_reuse_binding.input_converter_id = "text.plain.operator.v1";
   test_reuse_binding.output_converter_id = "document.structured.operator.v1";
-  test_reuse_binding.input_ports = {{"input_sentences", "input_sentences"}};
-  test_reuse_binding.output_ports = {
-      {"extracted_entities", "extracted_entities"}};
   test_reuse_binding.max_batch_size = 64;
 
   IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
