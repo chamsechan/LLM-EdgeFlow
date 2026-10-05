@@ -35,25 +35,25 @@ class CommonNodesTest : public ::testing::Test {
     session_ctx_->SetRuntimeOptions(options);
 
     ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "embed_model_v1",
+        session_ctx_->GetModelManager(), "embed_model",
         std::make_shared<test::TestBizEmbeddingModel>(384, 4), "test-v1"));
 
     ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "rerank_model_v1",
+        session_ctx_->GetModelManager(), "rerank_model",
         std::make_shared<test::TestBizRerankModel>(4), "test-v1"));
 
-    ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "llm_model_v1",
-        std::make_shared<test::TestBizLlmModel>(2), "test-v1"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "llm_model",
+                                  std::make_shared<test::TestBizLlmModel>(2),
+                                  "test-v1"));
 
     auto asr_model = std::make_shared<test::TestAsrModel>();
     ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "asr_model_v1", std::move(asr_model),
+        session_ctx_->GetModelManager(), "asr_model", std::move(asr_model),
         "test-revision", "test_asr_model", "asr", "test_tensor_backend"));
 
     auto ocr_model = std::make_shared<test::TestOcrModel>();
     ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "ocr_model_v1", std::move(ocr_model),
+        session_ctx_->GetModelManager(), "ocr_model", std::move(ocr_model),
         "test-revision", "test_ocr_model", "ocr", "test_tensor_backend"));
   }
 
@@ -314,7 +314,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model_v1"},
+  nlohmann::json cfg = {{"bind_model", "embed_model"},
                         {"normalize", true},
                         {"lifetime", "session"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
@@ -383,7 +383,7 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "rerank_model_v1"}, {"top_k", 1}};
+  nlohmann::json cfg = {{"bind_model", "rerank_model"}, {"top_k", 1}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
                               {"pairs", "candidate_texts"}));
 
@@ -428,14 +428,14 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
          {"inputs", {{"pairs", "any_pairs"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan_pairs = PipelineValidator::ValidateAndPlan(valid_pipeline_pairs);
   EXPECT_TRUE(plan_pairs.report.ok);
 
@@ -445,7 +445,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
@@ -453,7 +453,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
          {"inputs",
           {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan_qc = PipelineValidator::ValidateAndPlan(valid_pipeline_qc);
   EXPECT_TRUE(plan_qc.report.ok);
 
@@ -463,7 +463,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
@@ -472,7 +472,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
           {{"queries", "any_queries"},
            {"candidate_texts", "any_candidate_texts"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan_qct = PipelineValidator::ValidateAndPlan(valid_pipeline_qct);
   EXPECT_TRUE(plan_qct.report.ok);
 
@@ -482,14 +482,14 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
          {"inputs", {{"candidates", "some_cand"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1);
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_TRUE(has_constraint_err(plan1.report));
@@ -500,14 +500,14 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
          {"inputs", {{"queries", "some_queries"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2);
   EXPECT_FALSE(plan2.report.ok);
   EXPECT_TRUE(has_constraint_err(plan2.report));
@@ -518,14 +518,14 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
          {"inputs", {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan3 = PipelineValidator::ValidateAndPlan(bad_pipeline_3);
   EXPECT_FALSE(plan3.report.ok);
   EXPECT_TRUE(has_constraint_err(plan3.report));
@@ -536,7 +536,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
@@ -546,7 +546,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
            {"candidates", "any_candidates"},
            {"candidate_texts", "any_candidate_texts"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
   auto plan4 = PipelineValidator::ValidateAndPlan(bad_pipeline_4);
   EXPECT_FALSE(plan4.report.ok);
   EXPECT_TRUE(has_constraint_err(plan4.report));
@@ -648,7 +648,7 @@ TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
-      {"bind_model", "llm_model_v1"}, {"temperature", 0.5}, {"max_tokens", 64}};
+      {"bind_model", "llm_model"}, {"temperature", 0.5}, {"max_tokens", 64}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -668,7 +668,7 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
+  nlohmann::json cfg = {{"bind_model", "asr_model"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -689,7 +689,7 @@ TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "ocr_model_v1"}};
+  nlohmann::json cfg = {{"bind_model", "ocr_model"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -1318,7 +1318,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     doc["pipeline"][0]["config"] = config;
     const auto preflight = PipelineValidator::ValidateAndPlan(doc);
     EXPECT_FALSE(preflight.report.ok);
-    config["bind_model"] = "llm_model_v1";
+    config["bind_model"] = "llm_model";
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_NE(node, nullptr);
     std::string init_error;
@@ -1412,16 +1412,16 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
 TEST_F(CommonNodesTest, GeneratedCapabilityTemplatesCompileBindAndExecute) {
   CheckScaffoldExecution<TextBatch, TextBatch>("ScaffoldComputeNode", "",
                                                session_ctx_.get());
-  CheckScaffoldExecution<TextBatch, TextBatch>(
-      "ScaffoldModelLlmNode", "llm_model_v1", session_ctx_.get());
+  CheckScaffoldExecution<TextBatch, TextBatch>("ScaffoldModelLlmNode",
+                                               "llm_model", session_ctx_.get());
   CheckScaffoldExecution<TextBatch, EmbeddingBatch>(
-      "ScaffoldModelEmbeddingNode", "embed_model_v1", session_ctx_.get());
+      "ScaffoldModelEmbeddingNode", "embed_model", session_ctx_.get());
   CheckScaffoldExecution<AudioPcmBatch, TextBatch>(
-      "ScaffoldModelAsrNode", "asr_model_v1", session_ctx_.get());
+      "ScaffoldModelAsrNode", "asr_model", session_ctx_.get());
   CheckScaffoldExecution<QueryCandidatesBatch, ScoreBatch>(
-      "ScaffoldModelRerankNode", "rerank_model_v1", session_ctx_.get());
+      "ScaffoldModelRerankNode", "rerank_model", session_ctx_.get());
   CheckScaffoldExecution<ImageRefBatch, OcrDocumentBatch>(
-      "ScaffoldModelOcrNode", "ocr_model_v1", session_ctx_.get());
+      "ScaffoldModelOcrNode", "ocr_model", session_ctx_.get());
   auto node = NodeRegistry::Instance().Create("ScaffoldConversionNode");
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));

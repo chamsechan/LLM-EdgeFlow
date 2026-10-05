@@ -218,7 +218,7 @@ Pipeline 配置只使用 Model/Backend 语法：
 
 ```json
 {
-  "model_id": "embedding_v1",
+  "model_id": "embed_model",
   "model_type": "my_embedding_model",
   "backend": "my_tensor_backend",
   "model_path": "embedding/model.bin",

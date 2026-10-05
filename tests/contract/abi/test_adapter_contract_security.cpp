@@ -512,15 +512,14 @@ TEST_F(AdapterContractSecurityTest,
       << runtime_err;
   ASSERT_NE(runtime, nullptr);
 
-  const auto embedding_registration =
-      runtime->GetPipeline()
-          ->GetSessionContext()
-          .GetModelManager()
-          .GetModelRegistration("embed_model_v1");
+  const auto embedding_registration = runtime->GetPipeline()
+                                          ->GetSessionContext()
+                                          .GetModelManager()
+                                          .GetModelRegistration("embed_model");
   const auto llm_registration = runtime->GetPipeline()
                                     ->GetSessionContext()
                                     .GetModelManager()
-                                    .GetModelRegistration("llm_model_v1");
+                                    .GetModelRegistration("llm_model");
   ASSERT_TRUE(embedding_registration.has_value());
   ASSERT_TRUE(llm_registration.has_value());
   EXPECT_EQ(embedding_registration->resolved_model_path,

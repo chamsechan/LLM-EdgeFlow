@@ -72,7 +72,7 @@ class TextEmbeddingNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
     counting_model_ = std::make_shared<CountingEmbeddingModel>();
     ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
-                                  "embed_model_v1", counting_model_,
+                                  "embed_model", counting_model_,
                                   "revision-1"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
@@ -83,7 +83,7 @@ TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model_v1"}, {"normalize", true}};
+  nlohmann::json cfg = {{"bind_model", "embed_model"}, {"normalize", true}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -103,7 +103,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model_v1"},
+  nlohmann::json cfg = {{"bind_model", "embed_model"},
                         {"normalize", true},
                         {"lifetime", "session"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
@@ -151,7 +151,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
 
   // 模型热更新会改变 revision，使其余完全相同的会话缓存条目失效。
   ASSERT_TRUE(session_ctx_->GetModelManager().UpdateModelRevision(
-      "embed_model_v1", "revision-2"));
+      "embed_model", "revision-2"));
   {
     AlgContext ctx;
     TextBatch original_corpus;
@@ -166,7 +166,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
 TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
@@ -176,7 +176,7 @@ TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
 TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
                               session_ctx_.get()));
 
   AlgContext ctx;
@@ -191,7 +191,7 @@ TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
 TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
                               session_ctx_.get()));
 
   TextBatch inputs = {{8, 0, "first"}, {8, 1, "second"}};
@@ -216,7 +216,7 @@ TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(
-      *node, {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}},
+      *node, {{"bind_model", "embed_model"}, {"lifetime", "session"}},
       session_ctx_.get()));
 
   TextBatch inputs = {{9, 0, "static first"}, {9, 1, "static second"}};
@@ -243,7 +243,7 @@ TEST_F(TextEmbeddingNodeTest,
     auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
     ASSERT_NE(node, nullptr);
     ASSERT_TRUE(InitNodeForTest(
-        *node, {{"bind_model", "embed_model_v1"}, {"lifetime", lifetime}},
+        *node, {{"bind_model", "embed_model"}, {"lifetime", lifetime}},
         session_ctx_.get()));
     counting_model_->fail_inference = true;
     const int calls_before = counting_model_->infer_calls.load();
@@ -306,10 +306,10 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   ASSERT_NE(node_a, nullptr);
   ASSERT_NE(node_b, nullptr);
   ASSERT_TRUE(InitNodeForTest(
-      *node_a, {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}},
+      *node_a, {{"bind_model", "embed_model"}, {"lifetime", "session"}},
       session_ctx_.get()));
   ASSERT_TRUE(InitNodeForTest(
-      *node_b, {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}},
+      *node_b, {{"bind_model", "embed_model"}, {"lifetime", "session"}},
       session_ctx_.get()));
 
   // 语料 A：["a", "b\0\1c"]
@@ -379,7 +379,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   // 不同的 normalize 选项产生不同的缓存条目
   auto node_no_norm = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_TRUE(InitNodeForTest(*node_no_norm,
-                              {{"bind_model", "embed_model_v1"},
+                              {{"bind_model", "embed_model"},
                                {"lifetime", "session"},
                                {"normalize", false}},
                               session_ctx_.get()));
@@ -405,7 +405,7 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
   "biz_name": "keyword_match",
   "models": [
     {
-      "model_id": "embed_model_v1",
+      "model_id": "embed_model",
       "model_type": "bge_embedding",
       "backend": "onnxruntime",
       "model_path": "demo/fixtures/mock/artifacts/neutral-embedding.fixture",
@@ -435,7 +435,7 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
       "id": "embed_a",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v1",
+        "bind_model": "embed_model",
         "lifetime": "session"
       },
       "inputs": {
@@ -464,7 +464,7 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
       "id": "embed_b",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v1",
+        "bind_model": "embed_model",
         "lifetime": "session"
       },
       "inputs": {

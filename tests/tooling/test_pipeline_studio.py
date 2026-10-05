@@ -1322,7 +1322,7 @@ class HttpApiTest(unittest.TestCase):
             self.skipTest("sandbox forbids binding a loopback test socket")
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.base = f"http://127.0.0.1:{self.server.server_address[1]}/api/v1"
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}/api"
 
     def tearDown(self):
         self.server.shutdown()
@@ -1369,7 +1369,7 @@ class HttpApiTest(unittest.TestCase):
                     authoring.assert_not_called()
 
     def test_local_development_api_and_static_modules(self):
-        origin = self.base.removesuffix("/api/v1")
+        origin = self.base.removesuffix("/api")
         with urllib.request.urlopen(origin + "/index.html", timeout=5) as response:
             index = response.read().decode()
         self.assertIn('type="module" src="app.js"', index)
@@ -1439,15 +1439,15 @@ for (const base of ["http://127.0.0.1:8080/", "https://studio.example/proxy/8080
   for (const page of ["", "index.html?view=1#pipeline=chosen"]) {
     location.href = base + page;
     assert.equal((await api("/pipelines")).pipelines[0].filename, "pipeline_test.json");
-    assert.equal(requested, base + "api/v1/pipelines");
+    assert.equal(requested, base + "api/pipelines");
     await api("/catalog?io_binding=doc_qa");
-    assert.equal(requested, base + "api/v1/catalog?io_binding=doc_qa");
+    assert.equal(requested, base + "api/catalog?io_binding=doc_qa");
   }
 }
 body = JSON.stringify({ ok: false, error: { code: "INVALID_JSON", message: "invalid pipeline" } });
 status = 400;
 await assert.rejects(api("/pipeline"), error => error.status === 400 &&
-  error.message.includes("invalid pipeline") && error.message.includes("/api/v1/pipeline") &&
+  error.message.includes("invalid pipeline") && error.message.includes("/api/pipeline") &&
   error.message.includes("HTTP 400") && error.message.includes("INVALID_JSON") && error.payload.error.code === "INVALID_JSON");
 status = 200;
 await assert.rejects(api("/validate"), /invalid pipeline/);
@@ -1462,13 +1462,13 @@ for (const [code, text, summary] of [[404, "Not Found", "Not Found"],
     [200, '{"incomplete":', "incomplete"]]) {
   status = code; body = text;
   await assert.rejects(api("/initial"), error => error.status === code &&
-    error.message.includes("/workspace/proxy/8080/api/v1/initial") &&
+    error.message.includes("/workspace/proxy/8080/api/initial") &&
     error.message.includes(`HTTP ${code}`) && error.message.includes(summary));
 }
 status = 500; body = "Not Found " + "x".repeat(1000) + "END_OF_BODY";
 await assert.rejects(api("/initial"), error => !error.message.includes("END_OF_BODY"));
 globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
-await assert.rejects(api("/catalog"), error => error.message.includes("/api/v1/catalog") && error.message.includes("Failed to fetch"));
+await assert.rejects(api("/catalog"), error => error.message.includes("/api/catalog") && error.message.includes("Failed to fetch"));
 """
         process = subprocess.run(
             [shutil.which("node"), "--input-type=module", "-e", script, str(WEB_ROOT / "api.js")],
