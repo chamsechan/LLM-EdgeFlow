@@ -201,32 +201,37 @@ struct ExternalSlotDefinition {
   std::string type_id;
   PortDirection direction = PortDirection::kInput;
   bool required = true;
-  std::string value_type;
   std::string type_suffix;  // Operator ValueType 规范后缀 (如 "plain_text",
                             // "entity_out")
-  std::vector<std::string> capacity_fields;
   std::string key_suffix;  // 外部 map key 后缀 (为空时使用 type_suffix)
 
   ExternalSlotDefinition() = default;
   ExternalSlotDefinition(std::string slot_name, std::string type_id,
                          PortDirection direction = PortDirection::kInput,
-                         bool required = true, std::string value_type = "",
-                         std::string type_suffix = "",
-                         std::vector<std::string> capacity_fields = {},
+                         bool required = true, std::string type_suffix = "",
                          std::string key_suffix = "")
       : slot_name(std::move(slot_name)),
         type_id(std::move(type_id)),
         direction(direction),
         required(required),
-        value_type(std::move(value_type)),
         type_suffix(std::move(type_suffix)),
-        capacity_fields(std::move(capacity_fields)),
         key_suffix(std::move(key_suffix)) {}
 
   const std::string& KeySuffix() const {
     return !key_suffix.empty() ? key_suffix : type_suffix;
   }
 };
+
+// 外部载体类型标签：按声明顺序拼接槽位类型，如 "CompanyFrame,CompanyString"。
+inline std::string ExternalType(
+    const std::vector<ExternalSlotDefinition>& slots) {
+  std::string joined;
+  for (const auto& slot : slots) {
+    if (!joined.empty()) joined += ",";
+    joined += slot.type_id;
+  }
+  return joined;
+}
 
 // 统一输入/输出转换回调函数指针类型
 using DecodeInputFn = int (*)(const ExternalInputBatchView& source,
@@ -246,9 +251,8 @@ using EncodeOutputFn = int (*)(AlgContext* context,
 struct InputConverterDefinition {
   std::string converter_id;
 
+  // 外部载荷协议 ID。载体相同时，同一 biz 的多个 Binding 依靠它区分解析语义。
   std::string schema_id;
-  int schema_version = 1;
-  std::string external_type;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
   // 可选的 Converter 专属上限；0 表示不设上限。
@@ -263,15 +267,12 @@ struct InputConverterDefinition {
 struct OutputConverterDefinition {
   std::string converter_id;
 
+  // 外部响应协议 ID，规则同 InputConverterDefinition::schema_id。
   std::string schema_id;
-  int schema_version = 1;
-  std::string external_type;
   std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
   std::vector<ExternalSlotDefinition> external_slots;
-  std::string cardinality = "1:1";
   // 可选的 Converter 专属上限；0 表示不设上限。
   size_t max_batch_size = 0;
-  std::string capacity_policy = "reject_overflow";
 
   EncodeOutputFn encode_fn = nullptr;
 };

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）：删除没有运行时作用的
+`schema_version`、`external_type`、输出 `cardinality` 与 `capacity_policy`，以及槽位的 `value_type` 与
+`capacity_fields`。输出槽容量字段只由 ValueType 决定，`ExternalInputSlot` / `ExternalOutputSlot`
+只接受槽名。Catalog 的 Converter 不再导出上述元数据，`external_type` 改由槽位类型推导。
+`schema_id` 保留为外部协议 ID：载体相同的 Converter 可能解析语义不同，同业务 binding 的一致性检查
+继续比较它。
+
 开发工具修复：Markdown 链接检查支持单引号与圆括号标题、带空格的尖括号目标及平衡或转义的
 目标圆括号；生产版 `alg_pipeline_tool edit` 根据 `validation.diagnostics` 提示构建变体与测试工具。
 交付脚本要求远端 PR head 与已验证提交一致，以该 SHA 复核历史，并通过 `--match-head-commit`
@@ -17,8 +24,8 @@
 - Model 继承 `ModelIdentity<Model, 能力接口>`、Backend Provider 继承 `BackendIdentity<Backend>`，
   身份只声明一次，Definition 从 `MakeModelDefinition` / `MakeBackendDefinition` 开始；
   配置读取使用 `ConfigValueOrDefault`，默认值只写在 `config_fields`。
-- 转换器 `external_type` 留空时由外部槽类型推导；`InputPortBindings` / `OutputPortBindings`
-  共用 `PortBindings<方向>`；`ResolvedInputLimits` 更名为 `InputLimits` 且不再出现在部署配置中。
+- `InputPortBindings` / `OutputPortBindings` 共用 `PortBindings<方向>`；`ResolvedInputLimits`
+  更名为 `InputLimits` 且不再出现在部署配置中。
 - 删除 `include/adapter/biz_results.h`、`ModelManager::RegisterModel`（改用 `RegisterBatch`）和
   `RuntimeOptions` 中只写不读的 `biz_type`、`depth_num`、`biz_name`；`NodeBase` 的类写法端口辅助
   函数移到 `dev_support` 的 `LegacyNodeBase`。

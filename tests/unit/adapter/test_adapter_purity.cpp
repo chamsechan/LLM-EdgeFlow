@@ -995,12 +995,14 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
       "text.plain.operator.v1");
   ASSERT_NE(entity_conv, nullptr);
-  EXPECT_EQ(entity_conv->external_type, "CompanyOperatorEntityInput");
+  EXPECT_EQ(ExternalType(entity_conv->external_slots),
+            "CompanyOperatorEntityInput");
 
   const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
       "keyword.plain.operator.v1");
   ASSERT_NE(keyword_conv, nullptr);
-  EXPECT_EQ(keyword_conv->external_type, "CompanyOperatorKeywordInput");
+  EXPECT_EQ(ExternalType(keyword_conv->external_slots),
+            "CompanyOperatorKeywordInput");
 
   // 用 entity binding 解码输入
   {
@@ -1108,11 +1110,9 @@ TEST_F(AdapterPurityTest,
   custom_in_def.converter_id = "test.multi_field.operator.v1";
 
   custom_in_def.schema_id = "multi_field.request";
-  custom_in_def.schema_version = 1;
-  custom_in_def.external_type = "CustomMultiFieldInput";
-  custom_in_def.external_slots = {ExternalSlotDefinition(
-      "inputs", "CustomMultiFieldInput", PortDirection::kInput, true,
-      "CustomMultiFieldInput", "custom_input")};
+  custom_in_def.external_slots = {
+      ExternalSlotDefinition("inputs", "CustomMultiFieldInput",
+                             PortDirection::kInput, true, "custom_input")};
   custom_in_def.max_batch_size = 64;
   custom_in_def.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};

@@ -57,7 +57,7 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
   def.schema_id = "text.plain.request";
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot, kEntitySlot)};
+      ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot)};
   def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
@@ -69,8 +69,8 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
 
   def.schema_id = "text.plain.request";
 
-  def.external_slots = {ExternalInputSlot<CompanyOperatorKeywordInput>(
-      kKeywordSlot, kKeywordSlot)};
+  def.external_slots = {
+      ExternalInputSlot<CompanyOperatorKeywordInput>(kKeywordSlot)};
   def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;

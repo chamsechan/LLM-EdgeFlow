@@ -168,7 +168,8 @@ TEST_F(TextConvertersTest, ProductionBindingsUseDeclaredHostTypes) {
   const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
       entity_binding->input_converter_id);
   ASSERT_NE(entity_conv, nullptr);
-  EXPECT_EQ(entity_conv->external_type, "CompanyOperatorEntityInput");
+  EXPECT_EQ(ExternalType(entity_conv->external_slots),
+            "CompanyOperatorEntityInput");
 
   // 关键词匹配经 keyword.plain.operator.v1 使用
   // CompanyOperatorKeywordInput
@@ -176,7 +177,8 @@ TEST_F(TextConvertersTest, ProductionBindingsUseDeclaredHostTypes) {
   const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
       keyword_binding->input_converter_id);
   ASSERT_NE(keyword_conv, nullptr);
-  EXPECT_EQ(keyword_conv->external_type, "CompanyOperatorKeywordInput");
+  EXPECT_EQ(ExternalType(keyword_conv->external_slots),
+            "CompanyOperatorKeywordInput");
 
   // 输出 Converter 互不相同
   EXPECT_EQ(entity_binding->output_converter_id,
@@ -206,6 +208,55 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
   ASSERT_NE(b1, nullptr);
   ASSERT_NE(b2, nullptr);
   EXPECT_EQ(b1->input_converter_id, b2->input_converter_id);
+}
+
+TEST_F(TextConvertersTest, SameCarrierDifferentPayloadBindingIsRejected) {
+  // 两个输入转换器槽位与载体完全相同，但对同一请求的解析语义不同。
+  const auto decode = [](const char* converter_id, std::string text) {
+    const auto* conv =
+        IoConverterRegistry::Instance().FindInputConverter(converter_id);
+    EXPECT_NE(conv, nullptr);
+    if (!conv) return std::string();
+    CompanyString value{static_cast<int32_t>(text.size()), text.data()};
+    CompanyOperatorEntityInput input{1, &value};
+    ExternalInputBatchView view;
+    view.count = 1;
+    view.slots["entity_in"] = BorrowInputForTest({&input});
+    view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
+    std::vector<uint64_t> request_ids;
+    InputDecodeOptions options;
+    options.request_ids = &request_ids;
+    options.converter_id = conv->converter_id;
+    AlgContext context;
+    AdapterStatus status;
+    EXPECT_EQ(conv->decode_fn(
+                  view, options,
+                  InputPortBindings({{"input_sentences", "input_sentences"}}),
+                  &context, &status),
+              COMPANY_ALG_SUCCESS);
+    const auto* sentences = context.Read<TextBatch>("input_sentences");
+    return sentences && sentences->size() == 1 ? sentences->front().data
+                                               : std::string();
+  };
+  const std::string request = R"({"query":"hello"})";
+  ASSERT_EQ(decode("translate.json.operator.v1", request), "hello");
+  ASSERT_EQ(decode("text.plain.operator.v1", request), request);
+
+  auto& bindings = IoBindingRegistry::Instance();
+  const auto saved = bindings.AllBindings();
+  auto alternate = *bindings.FindBinding("translate.operator.v1");
+  alternate.binding_id = "translate.plain_text_input";
+  alternate.input_converter_id = "text.plain.operator.v1";
+  ASSERT_TRUE(bindings.RegisterBinding(alternate));
+
+  std::string error;
+  EXPECT_FALSE(bindings.ValidateBizContract("translate", &error));
+  EXPECT_NE(error.find("different external I/O contracts"), std::string::npos);
+  std::vector<std::string> errors;
+  EXPECT_FALSE(bindings.Audit(&errors));
+
+  bindings.ClearForTesting();
+  for (const auto& binding : saved) bindings.RegisterBinding(binding);
 }
 
 TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
