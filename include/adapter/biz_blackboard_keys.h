@@ -30,9 +30,6 @@ inline constexpr auto kStructuredVerdicts =
     MakeBlackboardKey<StructuredDocumentBatch>("structured_verdicts");
 inline constexpr auto kMatchedPolicy =
     MakeBlackboardKey<RankedTextBatch>("matched_policy");
-// 输出 Converter 的逻辑端口名与业务 Blackboard 键不同。
-inline constexpr auto kMatchedPolicies =
-    MakeBlackboardKey<RankedTextBatch>("matched_policies");
 inline constexpr auto kImagePaths =
     MakeBlackboardKey<ImageRefBatch>("image_paths");
 inline constexpr auto kUserQueries =

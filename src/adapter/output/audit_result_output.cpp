@@ -33,9 +33,9 @@ int EncodeOperatorAuditResult(AlgContext* context,
       *context, bindings, kStructuredVerdicts, options, status, "verdicts");
   if (!verdicts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* matched_policies =
-      ReadOutputValue(*context, bindings, kMatchedPolicies, options, status);
-  if (!matched_policies) return COMPANY_ALG_ERR_INVALID_INPUT;
+  const auto* matched_policy =
+      ReadOutputValue(*context, bindings, kMatchedPolicy, options, status);
+  if (!matched_policy) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -47,10 +47,10 @@ int EncodeOperatorAuditResult(AlgContext* context,
         "destination", options.converter_id.c_str());
   }
 
-  if (matched_policies->size() < count) {
+  if (matched_policy->size() < count) {
     return AdapterValidationHelper::ReturnInvalidInput(
-        status, "matched_policies count mismatch in AlgContext",
-        "matched_policies", options.converter_id.c_str());
+        status, "matched_policy count mismatch in AlgContext", "matched_policy",
+        options.converter_id.c_str());
   }
 
   std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
@@ -59,9 +59,9 @@ int EncodeOperatorAuditResult(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  std::vector<const RankedTextBatch::value_type*> matched_policies_by_request;
-  if (!IndexResults(matched_policies, raw_req_ids, &matched_policies_by_request,
-                    "matched_policies", options.converter_id.c_str(), status,
+  std::vector<const RankedTextBatch::value_type*> matched_policy_by_request;
+  if (!IndexResults(matched_policy, raw_req_ids, &matched_policy_by_request,
+                    "matched_policy", options.converter_id.c_str(), status,
                     true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -78,7 +78,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
     out->request_id = (*raw_req_ids)[i];
 
     const auto& verdict_item = verdicts_by_request[i]->data;
-    if (matched_policies_by_request[i]->data.rank != 1 ||
+    if (matched_policy_by_request[i]->data.rank != 1 ||
         !IsSuccessfulDocument(verdict_item) ||
         !verdict_item.structured_data.contains("risk_level") ||
         !verdict_item.structured_data.contains("risk_score") ||
@@ -103,7 +103,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
     }
 
     const std::string& verdict_json = verdict_item.json_payload;
-    std::string policy_clause = matched_policies_by_request[i]->data.text;
+    std::string policy_clause = matched_policy_by_request[i]->data.text;
 
     out->risk_score = risk_score;
     out->status_code = 0;
@@ -139,7 +139,7 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kStructuredVerdicts),
-                       RequiredInputPort(kMatchedPolicies, "N:1")};
+                       RequiredInputPort(kMatchedPolicy, "N:1")};
   def.encode_fn = &EncodeOperatorAuditResult;
   return def;
 }
