@@ -348,14 +348,14 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model_v1"},
+         {"model_id", "rerank_model"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
          {"inputs", {{"candidates", "doc_candidates"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+         {"config", {{"bind_model", "rerank_model"}}}}}}};
 
   auto plan = PipelineValidator::ValidateAndPlan(bad_pipeline);
   EXPECT_FALSE(plan.report.ok);

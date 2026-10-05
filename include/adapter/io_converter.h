@@ -200,7 +200,7 @@ using EncodeOutputFn = int (*)(AlgContext* context,
 struct InputConverterDefinition {
   std::string converter_id;
 
-  // 外部载荷协议 ID。载体相同时，同一 biz 的多个 Binding 依靠它区分解析语义。
+  // 外部载荷协议 ID，由 Catalog 导出；载体相同的 Converter 可按不同协议解析。
   std::string schema_id;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口

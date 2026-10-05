@@ -36,7 +36,7 @@ int EncodeOperatorKeywordResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "keyword.result.operator.v1";
+  def.converter_id = "keyword.result";
 
   def.schema_id = "keyword.result.response";
 

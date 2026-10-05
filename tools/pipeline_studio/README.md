@@ -107,12 +107,12 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 从无需模型的关键词方案开始，先查询实际契约：
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
+./build/alg_pipeline_tool catalog --io-binding keyword_match
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 ./tools/pipeline_studio/server.py --web
 ```
 
-1. 点击顶部“新建”，选择 I/O 契约 `keyword_match.operator.v1`，
+1. 点击顶部“新建”，选择 I/O 契约 `keyword_match`，
    从 `keyword_match_rules` Profile 克隆并点击“新建方案”。
 2. 在画布检查“业务输入”的 `input_sentences` → 节点 `text`，以及节点 `matches` →
    “业务输出”的 `rule_matches`。可选中连线后点击“删除连线”，再从输出端口拖到
@@ -132,7 +132,7 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 在“运行”页展开“接入契约”，可核对当前方案的 `io_binding`、输入/输出 Converter
 及槽位名称。Pipeline 只通过 `deployment.io.io_binding` 选择外部 I/O 契约；
 Demo 从 SDK 解析结果选择运行函数，Profile 仅保存配置、数据集和运行选项。
-Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` 和有效
+Catalog 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` 和有效
 `key_suffix`，分别表示逻辑槽、宿主类型、类型注册后缀和外部键后缀。工具未提供的字段
 显示为“未提供”；应使用与工作区匹配的 `alg_pipeline_tool`。详情中的内部端口
 与槽位类型不代表外部 JSON 载荷协议，完整请求响应仍以对应 Converter 契约为准。
@@ -140,14 +140,14 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 ## 自动化 CLI
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding doc_qa.operator.v1
+./build/alg_pipeline_tool catalog --io-binding doc_qa
 ./build/alg_pipeline_tool describe-node TextEmbeddingNode
 ./build/alg_pipeline_tool validate configs/pipeline_doc_qa_default.json
 ./build/alg_pipeline_tool plan configs/pipeline_doc_qa_default.json
 ```
 
-可将版本化编辑请求交给 `alg_pipeline_tool edit --stdin`，返回候选 Pipeline、变更和校验报告；
-请求包含整数 `schema_version: 1`、完整 Pipeline 文档 `pipeline`，以及互斥的单动作对象
+可将编辑请求交给 `alg_pipeline_tool edit --stdin`，返回候选 Pipeline、变更和校验报告；
+请求包含完整 Pipeline 文档 `pipeline`，以及互斥的单动作对象
 `operation` 或非空动作数组 `operations`。可选布尔字段 `require_valid` 默认为 `false`；
 设为 `true` 时要求最终候选合法。单次最多 128 个动作、4 MiB。
 
@@ -175,8 +175,8 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 
 ### 校验工具选择
 
-CLI 克隆默认返回包含 `pipeline` 的版本化响应。需要直接保存 Pipeline JSON 时使用
-`init --io-binding <binding_id> --profile <profile_name> --raw`，确认命令成功后再对保存文件执行
+CLI 克隆默认返回包含 `ok` 与 `pipeline` 的响应。需要直接保存 Pipeline JSON 时使用
+`init --io-binding <biz_name> --profile <profile_name> --raw`，确认命令成功后再对保存文件执行
 `validate`。`--empty --raw` 生成待填写草稿；`--empty` 与 `--profile` 不能同时指定。
 
 正式配置使用目标构建的 `alg_pipeline_tool`；有意使用测试 Model/Backend 的 Smoke

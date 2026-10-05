@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "artifacts": {
     "demo/fixtures/mock/artifacts/neutral-llm.fixture": {
       "sha256": "1082efc03cb9ab1c572b7cf4dfe0388949c93c0be791da3d96308546542c928f",

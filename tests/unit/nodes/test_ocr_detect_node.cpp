@@ -22,9 +22,9 @@ class OcrDetectNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
 
     ocr_model_ = std::make_shared<test::TestOcrModel>();
-    ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "ocr_model_v1", ocr_model_,
-        "test-revision", "test_ocr_model", "ocr", "test_tensor_backend"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "ocr_model",
+                                  ocr_model_, "test-revision", "test_ocr_model",
+                                  "ocr", "test_tensor_backend"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<test::TestOcrModel> ocr_model_;
@@ -34,7 +34,7 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "ocr_model_v1"}};
+  nlohmann::json cfg = {{"bind_model", "ocr_model"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -56,7 +56,7 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
 TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
@@ -66,7 +66,7 @@ TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
 TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
                               session_ctx_.get()));
 
   ImageRefBatch images;

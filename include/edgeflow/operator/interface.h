@@ -60,7 +60,7 @@ COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
 
 /**
  * @brief 解析部署配置并返回由 I/O 绑定确定的业务契约名。
- * 只读预检，不加载模型、不执行转换；同业务的绑定须有一致的外部契约。
+ * 只读预检，不加载模型、不执行转换；每个业务只有一个绑定。
  * @param out_biz_name 必需的结果指针；失败时为空，成功时为完整业务名。
  * @return 0 成功，-2 参数/配置错误，其他负值为验证或内部异常。
  */

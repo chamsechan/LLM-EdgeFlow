@@ -732,7 +732,7 @@ TEST_F(ValidatedPipelinePlanTest,
   nlohmann::json pipeline_json = {
       {"biz_name", "doc_qa"},
       {"models",
-       nlohmann::json::array({{{"model_id", "embed_model_v1"},
+       nlohmann::json::array({{{"model_id", "embed_model"},
                                {"model_type", "test_biz_embedding"},
                                {"backend", "test_tensor_backend"},
                                {"model_path", "fixture.bin"},
@@ -745,7 +745,7 @@ TEST_F(ValidatedPipelinePlanTest,
              {"depends_on", nlohmann::json::array()},
              {"inputs", {{"text", "raw_queries"}}},
              {"config",
-              {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}}}}})}};
+              {{"bind_model", "embed_model"}, {"lifetime", "session"}}}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   auto diagnostic =

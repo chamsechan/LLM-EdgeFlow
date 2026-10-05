@@ -639,7 +639,7 @@ TEST_F(DefinitionSchemaValidationTest,
 
   auto with_default = definition;
   with_default.node_type = "DefaultModelReferenceNode";
-  with_default.config_fields.front().default_value = "llm_model_v1";
+  with_default.config_fields.front().default_value = "llm_model";
   EXPECT_FALSE(ValidateNodeDefinitionStructure(with_default));
   EXPECT_FALSE(NodeRegistry::Instance().Register(
       with_default.node_type, []() { return nullptr; }, with_default));

@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "entity_extract.operator.v1"
+      "io_binding": "entity_extract"
     }
   },
   "models": [

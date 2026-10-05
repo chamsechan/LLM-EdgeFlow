@@ -107,7 +107,7 @@ Json Models(const Json& catalog) {
 Json Deployment(const Json& catalog) {
   auto result = DeploymentStructure();
   result["properties"]["io"]["properties"]["io_binding"] =
-      Choices(catalog.at("io_bindings"), "binding_id");
+      Choices(catalog.at("io_bindings"), "biz_name");
   return result;
 }
 }  // namespace

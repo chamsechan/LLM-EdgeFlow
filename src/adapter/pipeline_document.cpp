@@ -108,7 +108,7 @@ bool SplitPipelineDocument(const nlohmann::json& root,
       if (out_error_path) *out_error_path = "/deployment/io/io_binding";
       return false;
     }
-    std::string binding_id = io["io_binding"].get<std::string>();
+    std::string io_binding = io["io_binding"].get<std::string>();
     if (structure::TooShort(io["io_binding"],
                             structure::Property(io_shape, "io_binding"))) {
       if (out_error) {
@@ -117,7 +117,7 @@ bool SplitPipelineDocument(const nlohmann::json& root,
       if (out_error_path) *out_error_path = "/deployment/io/io_binding";
       return false;
     }
-    out_split->deployment.io.io_binding = std::move(binding_id);
+    out_split->deployment.io.io_binding = std::move(io_binding);
   }
 
   if (io.contains("out_mem")) {

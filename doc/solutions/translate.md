@@ -8,7 +8,7 @@
 
 ## 直接调用 Operator API
 
-翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在 `deployment.io` 中配置 `io_binding` 为 `translate.operator.v1`，框架据此解析业务边界与输入/输出转换器。
+翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在 `deployment.io` 中配置 `io_binding` 为 `translate`，框架据此解析业务边界与输入/输出转换器。
 输入/输出复用已有文本载体，因此结构字段仍叫 `sentence_text` / `entities_json`。
 传入的是完整对象文本，不是 `query` 子串，也不是双重 JSON 编码后的字符串：
 
@@ -123,7 +123,7 @@ Operator 的 JSON 输出池在本配置中为 8191 字节。当前上下文为 2
 ## 验证与后续需求
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding translate.operator.v1
+./build/alg_pipeline_tool catalog --io-binding translate
 ./build/alg_pipeline_tool validate configs/pipeline_translate_cpu.json
 ./build/alg_pipeline_tool plan configs/pipeline_translate_cpu.json
 ./build/alg_pipeline_tool resolve-conf configs/pipeline_translate_cpu.conf --root . --depth 1

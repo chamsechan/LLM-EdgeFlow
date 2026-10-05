@@ -79,8 +79,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
                      std::string* error_msg);
 
 /**
- * @brief 解析并严格校验 profiles.json 文档 (校验 schema_version, profiles
- * 结构与所有字段)
+ * @brief 解析并严格校验 profiles.json 文档 (校验 profiles 结构与所有字段)
  * @param profiles_path profiles.json 路径 (支持相对或绝对路径，为空默认使用
  * demo/profiles.json)
  * @param out_root 输出解析并校验通过的 JSON 对象

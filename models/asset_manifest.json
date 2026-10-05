@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "artifacts": {
     "qwen2.5-0.5b-instruct-q4_k_m.gguf": {
       "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
@@ -96,7 +95,7 @@
         "backend_config": {
           "max_batch_size": 4
         },
-        "model_id": "embed_model_v1",
+        "model_id": "embed_model",
         "model_path": "bge_base_zh_v1.5.onnx"
       },
       "paths": {
@@ -127,7 +126,7 @@
           "n_gpu_layers": 0,
           "check_tensors": false
         },
-        "model_id": "llm_model_v1",
+        "model_id": "llm_model",
         "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
       },
       "paths": {
@@ -141,7 +140,7 @@
       "id": "bge_reranker-onnxruntime",
       "label": "bge_reranker / onnxruntime",
       "model": {
-        "model_id": "rerank_model_v1",
+        "model_id": "rerank_model",
         "model_type": "bge_reranker",
         "backend": "onnxruntime",
         "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
@@ -182,7 +181,7 @@
         "backend_config": {
           "run_config_file": "kite_vision_run.json"
         },
-        "model_id": "ocr_model_v1",
+        "model_id": "ocr_model",
         "model_path": "SmolVLM-256M-Instruct-Q8_0.gguf"
       },
       "paths": {
@@ -207,7 +206,7 @@
         "backend_config": {
           "run_config_file": "kite_text_run.json"
         },
-        "model_id": "llm_model_v1",
+        "model_id": "llm_model",
         "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
       },
       "paths": {
@@ -223,7 +222,7 @@
       "id": "whisper_asr-whisper_cpp",
       "label": "whisper_asr / whisper_cpp",
       "model": {
-        "model_id": "asr_model_v1",
+        "model_id": "asr_model",
         "model_type": "whisper_asr",
         "backend": "whisper_cpp",
         "model_path": "ggml-base.bin",
@@ -260,7 +259,7 @@
         "backend_config": {
           "run_config_file": "kite_text_run.json"
         },
-        "model_id": "embed_model_v1",
+        "model_id": "embed_model",
         "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
       },
       "paths": {
@@ -276,7 +275,7 @@
       "id": "whisper_asr-whisper_cpp-tiny",
       "label": "Whisper tiny Q5 / whisper_cpp",
       "model": {
-        "model_id": "asr_model_v1",
+        "model_id": "asr_model",
         "model_type": "whisper_asr",
         "backend": "whisper_cpp",
         "model_path": "ggml-tiny-q5_1.bin",

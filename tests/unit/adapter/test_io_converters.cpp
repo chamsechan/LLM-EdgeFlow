@@ -75,7 +75,7 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
   auto& reg = IoConverterRegistry::Instance();
 
   InputConverterDefinition def;
-  def.converter_id = "test.input.operator.v1";
+  def.converter_id = "test.input";
 
   def.schema_id = "test_input";
   def.external_slots = {ExternalSlotDefinition(
@@ -86,9 +86,9 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
 
   EXPECT_TRUE(reg.RegisterInputConverter(def));
 
-  const auto* found = reg.FindInputConverter("test.input.operator.v1");
+  const auto* found = reg.FindInputConverter("test.input");
   ASSERT_NE(found, nullptr);
-  EXPECT_EQ(found->converter_id, "test.input.operator.v1");
+  EXPECT_EQ(found->converter_id, "test.input");
 
   EXPECT_EQ(found->logical_ports.size(), 1U);
 
@@ -101,7 +101,7 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   auto& reg = IoConverterRegistry::Instance();
 
   OutputConverterDefinition def;
-  def.converter_id = "test.output.operator.v1";
+  def.converter_id = "test.output";
 
   def.schema_id = "test_output";
   def.external_slots = {ExternalSlotDefinition(
@@ -112,9 +112,9 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
 
   EXPECT_TRUE(reg.RegisterOutputConverter(def));
 
-  const auto* found = reg.FindOutputConverter("test.output.operator.v1");
+  const auto* found = reg.FindOutputConverter("test.output");
   ASSERT_NE(found, nullptr);
-  EXPECT_EQ(found->converter_id, "test.output.operator.v1");
+  EXPECT_EQ(found->converter_id, "test.output");
 }
 
 TEST(IoConverterTest, ExternalTypeJoinsSlotTypesInOrder) {

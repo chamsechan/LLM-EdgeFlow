@@ -22,7 +22,7 @@
   ],
   "deployment": {
     "io": {
-      "io_binding": "keyword_match.operator.v1"
+      "io_binding": "keyword_match"
     }
   }
 }

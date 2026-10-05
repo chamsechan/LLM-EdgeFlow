@@ -20,7 +20,6 @@ struct AuthoringChange {
 };
 
 struct AuthoringResult {
-  int schema_version = 1;
   bool ok = false;
   std::optional<nlohmann::json> pipeline;
   std::vector<AuthoringChange> changes;
@@ -33,8 +32,7 @@ struct AuthoringResult {
 
 class PipelineAuthoring {
  public:
-  // 应用单个编辑请求，包含 {schema_version, pipeline, operation/operations,
-  // require_valid}。
+  // 应用单个编辑请求，包含 {pipeline, operation/operations, require_valid}。
   static AuthoringResult ApplyRequest(const nlohmann::json& request);
 
   // 将一个编辑操作应用到内存中的 Pipeline 文档。

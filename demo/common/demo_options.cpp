@@ -213,23 +213,6 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
     return 3;
   }
 
-  if (!root.contains("schema_version") ||
-      !root["schema_version"].is_number_integer()) {
-    if (error_msg)
-      *error_msg = "Missing or invalid 'schema_version' in profiles file: " +
-                   resolved_path;
-    return 3;
-  }
-
-  if (root["schema_version"].get<int>() != 2) {
-    if (error_msg) {
-      *error_msg = "Unsupported schema_version: " +
-                   std::to_string(root["schema_version"].get<int>()) +
-                   " (Expected: 2)";
-    }
-    return 3;
-  }
-
   if (!root.contains("profiles") || !root["profiles"].is_object()) {
     if (error_msg)
       *error_msg =

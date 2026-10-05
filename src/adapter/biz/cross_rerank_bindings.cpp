@@ -32,11 +32,9 @@ const bool g_reg_cross_rerank_biz = []() {
 
 IoBindingDefinition MakeCrossRerankOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "cross_rerank.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "rerank.plain.operator.v1";
-  def.output_converter_id = "rerank_result.plain.operator.v1";
+  def.input_converter_id = "rerank.plain";
+  def.output_converter_id = "rerank_result.plain";
   return def;
 }
 

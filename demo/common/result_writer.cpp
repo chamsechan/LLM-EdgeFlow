@@ -71,7 +71,6 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
       run_latencies_sum += sample.latency_ms;
 
       nlohmann::json record;
-      record["schema_version"] = 1;
       record["profile"] = profile_name;
       record["biz"] = options_.biz;
       record["request_id"] = sample.request_id;
@@ -149,7 +148,6 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
     }
 
     nlohmann::json summary;
-    summary["schema_version"] = 1;
     summary["profile"] = profile_name;
     summary["biz"] = options_.biz;
     summary["config_path"] = options_.config_path;

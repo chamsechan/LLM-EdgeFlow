@@ -1,5 +1,4 @@
 {
-  "schema_version": 2,
   "profiles": {
     "entity_extract_mock": {
       "config": "demo/fixtures/mock/pipeline_entity_extract.conf",

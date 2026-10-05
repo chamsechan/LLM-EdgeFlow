@@ -36,8 +36,8 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 字符串通过 `OutputStringWriter` 按实际容量和长度写入，不保存借用指针。
 
 请求字段解析和最终协议组装留在 Converter；不向 Operator 中央分发添加业务分支，
-也不把这些操作放进 Demo、Node 或 Core。同一 biz 的多个 Binding 必须保持外部 schema、
-载体与 slot 契约一致。Binding 的批次限制及池深收紧由共享 Integration 规则处理。
+也不把这些操作放进 Demo、Node 或 Core。每个 biz 只注册一个 Binding；外部契约不同就是另一个
+biz。Binding 的批次限制及池深收紧由共享 Integration 规则处理。
 若需 Demo，只补载体、调用与展示注册，不复制业务转换。
 
 ## 验证新增路径
@@ -50,7 +50,7 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 ```bash
 cmake --build build --target edgeflow_test_adapter_runner alg_pipeline_tool -j 4
 ./build/edgeflow_test_adapter_runner --gtest_list_tests
-./build/alg_pipeline_tool catalog --io-binding <binding_id>
+./build/alg_pipeline_tool catalog --io-binding <biz_name>
 ```
 
 按改动运行列出的实际测试过滤器；业务契约测试须直接调用 Operator `Process`。

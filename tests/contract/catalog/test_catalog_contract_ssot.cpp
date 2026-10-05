@@ -223,7 +223,6 @@ TEST_F(CatalogContractSsotTest,
 // 5. 验证 PipelineCatalog::ToJson 序列化规范性与过滤逻辑
 TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   auto full_catalog = PipelineCatalog::ToJson();
-  EXPECT_FALSE(full_catalog.contains("schema_version"));
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_FALSE(full_catalog.contains("engines"));
   EXPECT_TRUE(full_catalog["models"].is_array());
@@ -246,7 +245,6 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
 
   // 业务过滤查询
   auto km_catalog = PipelineCatalog::ToJson("keyword_match");
-  EXPECT_FALSE(km_catalog.contains("schema_version"));
   EXPECT_FALSE(km_catalog["nodes"].empty());
   EXPECT_EQ(km_catalog["bizs"].size(), 1U);
   EXPECT_EQ(km_catalog["bizs"][0]["biz_name"], "keyword_match");
@@ -263,10 +261,9 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_TRUE(found_match_node);
 }
 
-// 5b. 验证 IoCatalog Schema 4 聚合与对外规范性
-TEST_F(CatalogContractSsotTest, IoCatalogSchema4SerializationAndFiltering) {
+// 5b. 验证 IoCatalog 聚合与对外规范性
+TEST_F(CatalogContractSsotTest, IoCatalogSerializationAndFiltering) {
   auto full_catalog = IoCatalog::ToJson();
-  EXPECT_EQ(full_catalog["schema_version"], 4);
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_TRUE(full_catalog["models"].is_array());
   EXPECT_TRUE(full_catalog["backends"].is_array());
@@ -277,7 +274,6 @@ TEST_F(CatalogContractSsotTest, IoCatalogSchema4SerializationAndFiltering) {
 
   // 业务过滤查询
   auto km_catalog = IoCatalog::ToJson("keyword_match");
-  EXPECT_EQ(km_catalog["schema_version"], 4);
   EXPECT_TRUE(km_catalog["bizs"].is_array());
   EXPECT_TRUE(km_catalog["nodes"].is_array());
   EXPECT_TRUE(km_catalog["input_converters"].is_array());
@@ -308,7 +304,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   ASSERT_EQ(catalog.at("output_converters").size(), 1U);
 
   const auto& input = catalog.at("input_converters").at(0);
-  EXPECT_EQ(input.at("converter_id"), "keyword.plain.operator.v1");
+  EXPECT_EQ(input.at("converter_id"), "keyword.plain");
   EXPECT_EQ(input.at("schema_id"), "text.plain.request");
   EXPECT_EQ(input.at("external_type"), "CompanyOperatorKeywordInput");
   ASSERT_EQ(input.at("external_slots").size(), 1U);
@@ -322,7 +318,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   EXPECT_EQ(input_slot.at("capacity_fields"), nlohmann::json::array());
 
   const auto& output = catalog.at("output_converters").at(0);
-  EXPECT_EQ(output.at("converter_id"), "keyword.result.operator.v1");
+  EXPECT_EQ(output.at("converter_id"), "keyword.result");
   EXPECT_EQ(output.at("schema_id"), "keyword.result.response");
   EXPECT_EQ(output.at("external_type"), "CompanyOperatorKeywordOutput");
   ASSERT_EQ(output.at("external_slots").size(), 1U);
@@ -356,10 +352,8 @@ TEST_F(CatalogContractSsotTest,
     }
   } scoped{registry.AllInputConverters(), registry.AllOutputConverters()};
 
-  const auto* original_input =
-      registry.FindInputConverter("keyword.plain.operator.v1");
-  const auto* original_output =
-      registry.FindOutputConverter("keyword.result.operator.v1");
+  const auto* original_input = registry.FindInputConverter("keyword.plain");
+  const auto* original_output = registry.FindOutputConverter("keyword.result");
   ASSERT_NE(original_input, nullptr);
   ASSERT_NE(original_output, nullptr);
   auto input = *original_input;
@@ -380,7 +374,6 @@ TEST_F(CatalogContractSsotTest,
   ASSERT_TRUE(registry.RegisterOutputConverter(output));
 
   const auto catalog = IoCatalog::ToJson();
-  EXPECT_EQ(catalog.at("schema_version"), 4);
   const auto& inputs = catalog.at("input_converters");
   const auto input_it = std::find_if(
       inputs.begin(), inputs.end(), [](const nlohmann::json& converter) {

@@ -27,7 +27,6 @@ struct ValidationFix {
 
 // 由开发工具 (alg_pipeline_tool) 填写；Validator 本身只报告中性诊断。
 struct ValidationRemediation {
-  int schema_version = 1;
   RemediationCause cause = RemediationCause::kUnknownConfigField;
   std::string summary;
   nlohmann::json facts = nlohmann::json::object();

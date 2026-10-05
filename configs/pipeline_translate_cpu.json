@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "translate.operator.v1",
+      "io_binding": "translate",
       "out_mem": {
         "entity_out": {
           "capacities": {

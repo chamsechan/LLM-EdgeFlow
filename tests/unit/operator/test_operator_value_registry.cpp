@@ -1125,8 +1125,8 @@ TEST(OperatorValueRegistryTest,
 TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audit_in");
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audit.plain.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
   ASSERT_NE(binding, nullptr);
   ASSERT_NE(in_conv, nullptr);
   std::string query = "hello";
@@ -1157,8 +1157,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
 TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audio_in");
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "audio.pcm.operator.v1");
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audio.pcm");
   ASSERT_NE(binding, nullptr);
   ASSERT_NE(in_conv, nullptr);
   std::vector<float> samples(biz_input::kMaxAudioPcmSamples, 0);

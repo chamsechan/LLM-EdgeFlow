@@ -27,11 +27,9 @@ const bool g_reg_keyword_match_biz = []() {
 
 IoBindingDefinition MakeKeywordMatchOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "keyword_match.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "keyword.plain.operator.v1";
-  def.output_converter_id = "keyword.result.operator.v1";
+  def.input_converter_id = "keyword.plain";
+  def.output_converter_id = "keyword.result";
   return def;
 }
 

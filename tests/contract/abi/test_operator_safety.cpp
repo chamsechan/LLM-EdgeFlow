@@ -312,17 +312,16 @@ TEST_F(OperatorSafetyTest,
 // 6. 测试 IoBinding 注册冲突防护与定义机器可读性
 TEST_F(OperatorSafetyTest, IoBindingRegistryConflictDetectionAndDescriptor) {
   auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  const auto* binding = registry.FindBinding("keyword_match.operator.v1");
+  const auto* binding = registry.FindBinding("keyword_match");
   ASSERT_NE(binding, nullptr);
 
-  EXPECT_EQ(binding->binding_id, "keyword_match.operator.v1");
   EXPECT_EQ(binding->biz_name, "keyword_match");
 
   EXPECT_GT(binding->max_batch_size, 0);
 
   // 测试重复 binding 注册拦截
   bool reg_dup_ret = registry.RegisterBinding(*binding);
-  EXPECT_FALSE(reg_dup_ret) << "Duplicate binding_id registration must fail";
+  EXPECT_FALSE(reg_dup_ret) << "Duplicate biz binding registration must fail";
   registry.ResetConflictForTesting();
 }
 
@@ -360,37 +359,45 @@ TEST_F(OperatorSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
   EXPECT_NE(ret, 0);
   EXPECT_EQ(handle, nullptr);
 
-  // 2) 传入缺失 io_binding 的配置
-  std::string bad_cfg = "./results/test_missing_binding.conf";
-  std::filesystem::create_directories("./results");
-  {
-    std::ofstream ofs(bad_cfg);
-    ofs << R"({"schema_version": 1, "data": {"pipe_path": "pipeline_keyword_match_rules.json"}})";
-  }
-  param.cfg_file_name = bad_cfg.c_str();
-  ret = op.Create(&handle, &param);
-  EXPECT_NE(ret, 0);
-  EXPECT_EQ(handle, nullptr);
+  // 2) 缺失 io_binding、3) 未知业务名；有效业务名作为对照可以创建。
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-io-binding-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  std::ifstream source("configs/pipeline_keyword_match_rules.json");
+  ASSERT_TRUE(source.is_open());
+  nlohmann::json pipeline;
+  source >> pipeline;
+  std::ofstream(directory / "pipeline.conf")
+      << nlohmann::json({{"pipe_path", "pipeline.json"}}).dump();
+  const std::string model_path = directory.string();
+  param.model_path = model_path.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.max_frame_depth = 8;
+  const auto create_with = [&](const nlohmann::json& document) {
+    std::ofstream(directory / "pipeline.json") << document.dump();
+    void* created = nullptr;
+    const int code = op.Create(&created, &param);
+    if (created) op.Destroy(created);
+    return code;
+  };
 
-  // 3) 传入未知 io_binding
-  {
-    std::ofstream ofs(bad_cfg);
-    ofs << R"({"schema_version": 1, "data": {"pipe_path": "pipeline_keyword_match_rules.json", "io_binding": "unknown.binding.v999"}})";
-  }
-  ret = op.Create(&handle, &param);
-  EXPECT_NE(ret, 0);
-  EXPECT_EQ(handle, nullptr);
+  auto missing = pipeline;
+  missing["deployment"]["io"].erase("io_binding");
+  EXPECT_NE(create_with(missing), 0);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("io_binding"),
+            std::string::npos);
 
-  // 4) 传入旧 cabi 绑定
-  {
-    std::ofstream ofs(bad_cfg);
-    ofs << R"({"schema_version": 1, "data": {"pipe_path": "pipeline_keyword_match_rules.json", "io_binding": "keyword_match.cabi.v1"}})";
-  }
-  ret = op.Create(&handle, &param);
-  EXPECT_NE(ret, 0);
-  EXPECT_EQ(handle, nullptr);
+  auto unknown = pipeline;
+  unknown["deployment"]["io"]["io_binding"] = "unknown_biz";
+  EXPECT_NE(create_with(unknown), 0);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("unknown_biz"),
+            std::string::npos);
 
-  std::filesystem::remove(bad_cfg);
+  EXPECT_EQ(create_with(pipeline), 0) << GetOperatorLastError();
+  std::filesystem::remove_all(directory);
 }
 
 // 9. 测试 Registry 冲突 fail-closed 导致 Init 失败
@@ -403,7 +410,7 @@ TEST_F(OperatorSafetyTest, FailClosedRegistryConflictAndInitFailure) {
   EXPECT_EQ(op.Init(), 0);
 
   // 注册冲突（重复注册 binding）
-  const auto* binding = registry.FindBinding("keyword_match.operator.v1");
+  const auto* binding = registry.FindBinding("keyword_match");
   ASSERT_NE(binding, nullptr);
   bool reg_ret = registry.RegisterBinding(*binding);
   EXPECT_FALSE(reg_ret);
@@ -454,10 +461,9 @@ TEST_F(OperatorSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
 
 TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
   auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  const auto* original = registry.FindBinding("keyword_match.operator.v1");
+  const auto* original = registry.FindBinding("keyword_match");
   ASSERT_NE(original, nullptr);
   auto binding = *original;
-  binding.binding_id = "test.keyword_match.single.operator.v1";
   binding.max_batch_size = 1;
 
   const auto directory =
@@ -477,13 +483,20 @@ TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
       std::filesystem::remove_all(directory, error);
     }
   } cleanup{registry.AllBindings(), directory};
+  // 每个业务只有一个 binding：用收紧批次的副本替换原 binding。
+  registry.ClearForTesting();
+  for (const auto& saved : cleanup.bindings) {
+    if (saved.biz_name != binding.biz_name) {
+      ASSERT_TRUE(registry.RegisterBinding(saved));
+    }
+  }
   ASSERT_TRUE(registry.RegisterBinding(binding));
   std::filesystem::create_directory(directory);
   std::ifstream source("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
   source >> pipeline;
-  pipeline["deployment"]["io"]["io_binding"] = binding.binding_id;
+  pipeline["deployment"]["io"]["io_binding"] = binding.biz_name;
   std::ofstream(directory / "pipeline.json") << pipeline.dump();
   std::ofstream(directory / "pipeline.conf")
       << nlohmann::json({{"pipe_path", "pipeline.json"}}).dump();
@@ -600,7 +613,7 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
 TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   const auto* out_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindOutputConverter(
-          "document.structured.operator.v1");
+          "document.structured");
   ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;

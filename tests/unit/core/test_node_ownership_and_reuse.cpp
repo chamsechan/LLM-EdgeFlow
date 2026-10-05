@@ -120,13 +120,13 @@ class DistinctMockEmbeddingModel : public IEmbeddingModel {
 
 TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
   SessionContext session_ctx;
-  RegisterTestModel(session_ctx.GetModelManager(), "embed_model_v2",
+  RegisterTestModel(session_ctx.GetModelManager(), "embed_model",
                     std::make_shared<DistinctMockEmbeddingModel>(), "test-v1");
 
   auto embed_node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(embed_node, nullptr);
 
-  nlohmann::json node_cfg = {{"bind_model", "embed_model_v2"},
+  nlohmann::json node_cfg = {{"bind_model", "embed_model"},
                              {"normalize", true}};
   ASSERT_TRUE(InitNodeForTest(*embed_node, node_cfg, &session_ctx));
 

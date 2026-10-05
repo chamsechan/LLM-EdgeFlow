@@ -93,7 +93,7 @@ int EncodeOperatorDocAnswer(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "doc_answer.plain.operator.v1";
+  def.converter_id = "doc_answer.plain";
 
   def.schema_id = "doc_answer.plain.response";
 

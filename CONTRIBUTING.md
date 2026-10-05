@@ -69,9 +69,10 @@ its last stage merges; delete the plan then. A plan describes intended changes, 
 
 Until the first production release there are no compatibility consumers. Rename or remove
 identifiers, fields, parameters and diagnostic codes in place and update every reference in the
-same change; do not keep aliases, retired values or migration shims. After release, an
-incompatible external contract change adds a new versioned IoBinding instead of changing an
-existing ID.
+same change; do not keep aliases, retired values or migration shims. Each biz has exactly one
+IoBinding and therefore one external contract. After release, an incompatible external contract
+change is made in place and shipped in a new SDK release; add a new biz only when the old and new
+contracts must be served side by side.
 
 Use framework defaults for platform limits and scheduling values when a conservative value
 is correct for every supported scenario, even if slower, or an independent runtime hard
