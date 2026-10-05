@@ -63,7 +63,7 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   def.schema_id = "translate.json.request";
 
   def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot, kInputSlot)};
+      ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;

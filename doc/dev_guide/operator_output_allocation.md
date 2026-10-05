@@ -52,12 +52,11 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 转换器声明槽位时，`ExternalInputSlot<T>(slot)` / `ExternalOutputSlot<T>(slot)` 令
 `type_suffix = slot_name`，`key_suffix` 留空并回退到 `type_suffix`，只适用于必需槽且三个名称相同的
-常见约定；输入工厂的第二参数是 `value_type`，不能用来覆盖后缀。其他情况使用完整的
-`ExternalSlotDefinition`。例如逻辑槽名为 `result`、已注册类型后缀为 `entity_out`、外部 key 为
-`sdk.answer` 时，分别设置 `slot_name = "result"`、`type_suffix = "entity_out"`、`key_suffix = "answer"`。
-`schema_version`、输出 `cardinality`、`capacity_policy` 使用 Definition 的默认值时无需赋值；
-`external_type` 留空时由外部槽类型按声明顺序拼接（如 `CompanyFrame,CompanyString`）。
-规则不同时显式填写。
+常见约定。其他情况使用完整的 `ExternalSlotDefinition`。例如逻辑槽名为 `result`、已注册类型后缀为
+`entity_out`、外部 key 为 `sdk.answer` 时，分别设置 `slot_name = "result"`、
+`type_suffix = "entity_out"`、`key_suffix = "answer"`。
+输出槽的容量字段由 `type_suffix` 对应的 ValueType 决定，不在槽位上重复声明；Catalog 中的
+`external_type` 由外部槽类型按声明顺序拼接（如 `CompanyFrame,CompanyString`）。
 
 以下配置来自参与编译的
 [测试接入](../../tests/integration/operator/test_operator_api.cpp)和

@@ -2,21 +2,6 @@
 
 namespace llm_edgeflow {
 
-namespace {
-
-// 默认协议载体标签：按声明顺序列出外部槽位类型，
-// 如 "CompanyFrame,CompanyString"。
-std::string JoinedSlotTypes(const std::vector<ExternalSlotDefinition>& slots) {
-  std::string joined;
-  for (const auto& slot : slots) {
-    if (!joined.empty()) joined += ",";
-    joined += slot.type_id;
-  }
-  return joined;
-}
-
-}  // namespace
-
 IoConverterRegistry& IoConverterRegistry::Instance() {
   static IoConverterRegistry instance;
   return instance;
@@ -38,12 +23,6 @@ bool IoConverterRegistry::RegisterInputConverter(
   if (def.schema_id.empty()) {
     conflicts_.Record("Empty schema_id in InputConverterDefinition for: " +
                       def.converter_id);
-    return false;
-  }
-  if (def.schema_version < 1) {
-    conflicts_.Record("Invalid schema_version (" +
-                      std::to_string(def.schema_version) +
-                      ") in InputConverterDefinition for: " + def.converter_id);
     return false;
   }
   if (def.external_slots.empty()) {
@@ -87,11 +66,7 @@ bool IoConverterRegistry::RegisterInputConverter(
     return false;
   }
 
-  auto& stored = input_converters_[def.converter_id];
-  stored = def;
-  if (stored.external_type.empty()) {
-    stored.external_type = JoinedSlotTypes(stored.external_slots);
-  }
+  input_converters_.emplace(def.converter_id, def);
   return true;
 }
 
@@ -111,12 +86,6 @@ bool IoConverterRegistry::RegisterOutputConverter(
   if (def.schema_id.empty()) {
     conflicts_.Record("Empty schema_id in OutputConverterDefinition for: " +
                       def.converter_id);
-    return false;
-  }
-  if (def.schema_version < 1) {
-    conflicts_.Record(
-        "Invalid schema_version (" + std::to_string(def.schema_version) +
-        ") in OutputConverterDefinition for: " + def.converter_id);
     return false;
   }
   if (def.external_slots.empty()) {
@@ -161,11 +130,7 @@ bool IoConverterRegistry::RegisterOutputConverter(
     return false;
   }
 
-  auto& stored = output_converters_[def.converter_id];
-  stored = def;
-  if (stored.external_type.empty()) {
-    stored.external_type = JoinedSlotTypes(stored.external_slots);
-  }
+  output_converters_.emplace(def.converter_id, def);
   return true;
 }
 

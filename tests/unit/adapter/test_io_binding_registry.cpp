@@ -87,11 +87,9 @@ class IoBindingRegistryTest : public ::testing::Test {
     in_def.converter_id = "test.in.operator";
 
     in_def.schema_id = "in_schema";
-    in_def.schema_version = 1;
-    in_def.external_type = "CompanyOperatorEntityInput";
-    in_def.external_slots = {ExternalSlotDefinition(
-        "entity_in", "CompanyOperatorEntityInput", PortDirection::kInput, true,
-        "CompanyOperatorEntityInput", "entity_in")};
+    in_def.external_slots = {
+        ExternalSlotDefinition("entity_in", "CompanyOperatorEntityInput",
+                               PortDirection::kInput, true, "entity_in")};
     in_def.max_batch_size = 64;
     in_def.logical_ports = {
         NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -102,11 +100,9 @@ class IoBindingRegistryTest : public ::testing::Test {
     out_def.converter_id = "test.out.operator";
 
     out_def.schema_id = "out_schema";
-    out_def.schema_version = 1;
-    out_def.external_type = "CompanyOperatorEntityOutput";
-    out_def.external_slots = {ExternalSlotDefinition(
-        "entity_out", "CompanyOperatorEntityOutput", PortDirection::kOutput,
-        true, "CompanyOperatorEntityOutput", "entity_out", {"entities_json"})};
+    out_def.external_slots = {
+        ExternalSlotDefinition("entity_out", "CompanyOperatorEntityOutput",
+                               PortDirection::kOutput, true, "entity_out")};
     out_def.max_batch_size = 64;
     out_def.logical_ports = {
         NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -303,7 +299,6 @@ TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
   // 保留夹具的逻辑契约，并使用已注册的 keyword 布局。
   output.external_slots = {
       ExternalOutputSlot<CompanyOperatorKeywordOutput>("keyword_out")};
-  output.external_type = "CompanyOperatorKeywordOutput";
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
   const auto catalog = IoCatalog::ToJson();
   ASSERT_EQ(catalog["output_converters"].size(), 1U);
@@ -319,38 +314,6 @@ TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
   auto unknown = inferred;
   unknown.type_suffix = "unregistered";
   EXPECT_TRUE(EffectiveCapacityFields(unknown).empty());
-
-  // 同一布局的显式声明与推导声明相互兼容。
-  RegisterTestBizBinding();
-  auto binding =
-      *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
-  output.converter_id = "explicit.out.operator";
-  output.external_slots[0].capacity_fields = {"match_result_json"};
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
-  binding.binding_id = "explicit.binding";
-  binding.output_converter_id = output.converter_id;
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
-  std::vector<std::string> errors;
-  EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
-  EXPECT_TRUE(errors.empty());
-}
-
-TEST_F(IoBindingRegistryTest, AuditRejectsCapacityFieldsMismatch) {
-  auto input =
-      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
-  auto output =
-      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
-  IoConverterRegistry::Instance().ClearForTesting();
-  output.external_slots[0].capacity_fields = {"unknown_capacity"};
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
-  RegisterTestBizBinding();
-  std::vector<std::string> errors;
-  EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
-  EXPECT_NE(std::find(errors.begin(), errors.end(),
-                      "Binding 'test_biz.operator.v1' output slot 'entity_out' "
-                      "capacity_fields do not match ValueType 'entity_out'"),
-            errors.end());
 }
 
 TEST_F(IoBindingRegistryTest, OmittedPortMappingsUseConverterPortNames) {
@@ -1222,7 +1185,6 @@ TEST_F(IoBindingRegistryTest,
       converter.converter_id = "incompatible.input.converter";
       auto& slot = converter.external_slots.front();
       slot.type_id = "CompanyOperatorKeywordInput";
-      slot.value_type = "CompanyOperatorKeywordInput";
       slot.type_suffix = "keyword_in";
       slot.key_suffix = "entity_in";
       ASSERT_EQ(slot.KeySuffix(), "entity_in");
@@ -1235,10 +1197,8 @@ TEST_F(IoBindingRegistryTest,
       converter.converter_id = "incompatible.output.converter";
       auto& slot = converter.external_slots.front();
       slot.type_id = "CompanyOperatorKeywordOutput";
-      slot.value_type = "CompanyOperatorKeywordOutput";
       slot.type_suffix = "keyword_out";
       slot.key_suffix = "entity_out";
-      slot.capacity_fields = {"match_result_json"};
       ASSERT_EQ(slot.KeySuffix(), "entity_out");
       ASSERT_TRUE(
           IoConverterRegistry::Instance().RegisterOutputConverter(converter));
