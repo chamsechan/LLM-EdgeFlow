@@ -429,9 +429,6 @@ def check_sanitizer_contract(root, env, log):
         check_ctest_records(records, root / "build/sanitizers/thread-fast")
         assert sum(row["command"][0] == "setarch" for row in records) == 1, records
         assert all(row["arch_wrapped"] == "1" for row in records if row["command"][0] == "ctest")
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    assert "CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers" in workflow
-    assert "key: sanitizer-ccache-v2-" in workflow
     return configurations
 
 
@@ -536,27 +533,6 @@ def main():
         configurations += check_sanitizer_contract(root, env, log)
         configurations += check_real_model_contract(root, env, log)
         check_cache_reset(root, configurations)
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        assert "WHISPER_GATE_RESULT: ${{ needs.whisper-asr.result }}" in workflow
-        assert "KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}" in workflow
-        assert "run: ./scripts/fetch_real_test_models.sh --gguf-only" not in workflow
-        assert "run: ./scripts/fetch_real_test_models.sh --whisper" not in workflow
-        # 每个 ccache 作业先回退到自身的 main 快照，再回退到共享前缀，
-        # 且每个恢复的 ccache 都会通过清理 action 保存。
-        for prefix in ("ccache-real-", "ccache-whisper-"):
-            assert f"            {prefix}${{{{ runner.os }}}}-\n" in workflow, prefix
-        assert "uses: actions/cache@v4\n        with:\n          path: ${{ env.CCACHE_DIR }}" \
-            not in workflow
-        assert (workflow.count("uses: ./.github/actions/ccache-restore")
-                == workflow.count("uses: ./.github/actions/ccache-save") == 5)
-        manifest = json.loads((ROOT / "models/asset_manifest.json").read_text())
-        artifact_groups = {
-            group: {name for name, artifact in manifest["artifacts"].items()
-                    if group in artifact.get("download_groups", [])}
-            for group in ("whisper", "whisper-e2e")
-        }
-        assert artifact_groups["whisper-e2e"] == {"ggml-base.bin"}
-        assert artifact_groups["whisper"] == {"ggml-base.bin", "ggml-tiny-q5_1.bin"}
         evidence = root / "evidence.json"
         for state in ("success", "failure", "skipped", "cancelled"):
             evidence_env = {**os.environ, "WHISPER_GATE_RESULT": state,

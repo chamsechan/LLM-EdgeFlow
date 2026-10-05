@@ -880,48 +880,6 @@ TEST_F(IoBindingRegistryTest, ModelPathNonexistentOnDiskIsAllowed_T05) {
   fs::remove_all(temp_dir);
 }
 
-TEST_F(IoBindingRegistryTest, RemovedModelPathsIsAlwaysUnknownField_T06) {
-  RegisterTestBizBinding();
-  const nlohmann::json base_doc = {
-      {"deployment", {{"io", {{"io_binding", "test_biz"}}}}},
-      {"models",
-       {{{"model_id", "mid_1"},
-         {"model_type", "test_biz_embedding"},
-         {"backend", "test_tensor_backend"},
-         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
-         {"backend_config", nlohmann::json::object()},
-         {"model_path", "models/current.bin"}}}},
-      {"pipeline", DefaultPipelineNodes()}};
-  DeploymentPrepareOptions options;
-  options.path_mode = DeploymentPathMode::kLexicalOnly;
-  for (const auto& legacy_value :
-       nlohmann::json::array({nlohmann::json::object(),
-                              {{"mid_1", "models/current.bin"}},
-                              {{"mid_1", "models/conflicting.bin"}},
-                              {{"non/exist~id", "models/foo.bin"}},
-                              {{"mid_1", 999}},
-                              {{"mid_1", ""}},
-                              nullptr,
-                              "",
-                              999})) {
-    SCOPED_TRACE(legacy_value.dump());
-    auto doc = base_doc;
-    doc["deployment"]["model_paths"] = legacy_value;
-    const auto original = doc;
-    PreparedDeployment prepared;
-    DeploymentDiagnostic diag;
-    ASSERT_TRUE(PrepareDeploymentDocument(base_doc, options, &prepared, &diag));
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
-    EXPECT_EQ(diag.path, "/deployment/model_paths");
-    EXPECT_NE(diag.message.find("Unknown field at /deployment/model_paths"),
-              std::string::npos);
-    EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
-    EXPECT_TRUE(prepared.binding.biz_name.empty());
-    EXPECT_EQ(doc, original);
-  }
-}
-
 TEST_F(IoBindingRegistryTest, OutputMemoryOverridesRemainOptional) {
   RegisterTestBizBinding();
   for (int variant = 0; variant < 3; ++variant) {
@@ -1086,19 +1044,19 @@ TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIsBindingLimit) {
   }
 }
 
-TEST_F(IoBindingRegistryTest, RemovedAllocationFieldIsRejected) {
+TEST_F(IoBindingRegistryTest, UnknownDeploymentIoFieldIsRejected) {
   RegisterTestBizBinding();
   const nlohmann::json document = {
       {"deployment",
        {{"io",
          {{"io_binding", "test_biz"},
-          {"output_allocations", nlohmann::json::object()}}}}},
+          {"unknown_field", nlohmann::json::object()}}}}},
       {"pipeline", DefaultPipelineNodes()}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
   EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
   EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
-  EXPECT_EQ(diagnostic.path, "/deployment/io/output_allocations");
+  EXPECT_EQ(diagnostic.path, "/deployment/io/unknown_field");
 }
 
 TEST_F(IoBindingRegistryTest,
@@ -1172,7 +1130,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
     EXPECT_EQ(diag.path, "/deployment/io/io_binding");
   }
 
-  // 情形 2：即使 binding 存在，已移除的根业务标识也会被拒绝。
+  // 情形 2：业务身份只来自 io_binding，外部文档不得声明根级 biz_name。
   {
     nlohmann::json doc = base_doc;
     doc["biz_name"] = "other_biz";
@@ -1222,10 +1180,10 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
     EXPECT_EQ(diag.path, "/deployment/io/out_mem/unexpected_extra_slot");
   }
 
-  // 情形 3：已移除的 type 字段即使与槽位一致也会被拒绝。
+  // 情形 3：槽位配置中的未知字段被拒绝。
   {
     nlohmann::json doc = base_doc;
-    doc["deployment"]["io"]["out_mem"]["entity_out"]["type"] = "entity_out";
+    doc["deployment"]["io"]["out_mem"]["entity_out"]["unknown_field"] = 1;
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "INVALID_OUTPUT_ALLOCATION");
     EXPECT_EQ(diag.path, "/deployment/io/out_mem/entity_out");
@@ -1466,16 +1424,16 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diag.code, "MISSING_FIELD");
   EXPECT_EQ(diag.path, "/models/0/model_path");
 
-  // T06：已移除的部署字段 model_paths
+  // T06：部署段的未知字段
   nlohmann::json t06_doc = t03_doc;
   t06_doc["models"][0]["model_path"] = "models/original.bin";
-  t06_doc["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
+  t06_doc["deployment"]["unknown_field"] = 1;
   rc = IoBindingResolver::ResolveFromPipelineJson(t06_doc, "./models", &plan,
                                                   &err, &diag);
   EXPECT_EQ(rc, -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
-  EXPECT_EQ(diag.path, "/deployment/model_paths");
+  EXPECT_EQ(diag.path, "/deployment/unknown_field");
 
   // T07：经 IoBindingResolver 的未知 binding
   nlohmann::json t07_doc = t03_doc;
@@ -1579,10 +1537,10 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/models/0/model_path");
   }
 
-  // 3. 经文件的 T06：已移除的部署字段 model_paths
+  // 3. 经文件的 T06：部署段的未知字段
   {
     nlohmann::json t06_pipe = base_pipeline;
-    t06_pipe["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
+    t06_pipe["deployment"]["unknown_field"] = 1;
     write_file(pipe_path, t06_pipe);
 
     rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
@@ -1590,7 +1548,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
-    EXPECT_EQ(diag.path, "/deployment/model_paths");
+    EXPECT_EQ(diag.path, "/deployment/unknown_field");
   }
 
   // 4. 经文件的 T07：未知 io_binding

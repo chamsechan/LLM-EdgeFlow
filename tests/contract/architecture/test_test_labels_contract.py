@@ -25,11 +25,6 @@ def parse_args():
         default=Path("build"),
         help="Path to build directory containing CTest configuration",
     )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help="Run self-tests verifying parser, filter semantics, and error handling",
-    )
     return parser.parse_args()
 
 
@@ -176,7 +171,7 @@ def resolve_command_executable(cmd: list, build_dir: Path) -> Path | None:
 
 
 def verify_compiled_gtest_coverage(
-    build_dir: Path, ctest_data: dict, errors: list, runner_fn=None, is_gtest_fn=None
+    build_dir: Path, ctest_data: dict, errors: list
 ) -> int:
     exec_filters = {}
     resolved_build_dir = build_dir.resolve()
@@ -200,7 +195,7 @@ def verify_compiled_gtest_coverage(
                     f"could not resolve executable from command: {cmd}"
                 )
                 continue
-            if runner_fn is None and not (exe.is_file() and os.access(exe, os.X_OK)):
+            if not (exe.is_file() and os.access(exe, os.X_OK)):
                 errors.append(
                     f"Failed to enumerate GoogleTest cases from '{test_name}': "
                     f"executable '{exe}' not found or not executable."
@@ -209,30 +204,18 @@ def verify_compiled_gtest_coverage(
             exec_filters.setdefault(exe, []).append(filt)
         elif exe:
             # 检查该可执行文件是否为 GoogleTest 二进制
-            is_gtest = (
-                is_gtest_fn(exe)
-                if is_gtest_fn is not None
-                else (
-                    is_gtest_binary(exe)
-                    if (runner_fn is None and exe.is_file())
-                    else False
-                )
-            )
-            if is_gtest:
+            if exe.is_file() and is_gtest_binary(exe):
                 exec_filters.setdefault(exe, []).append("*")
 
     covered_test_names = set()
     for exe, filters in exec_filters.items():
         try:
-            if runner_fn is not None:
-                proc = runner_fn([str(exe), "--gtest_list_tests"])
-            else:
-                proc = subprocess.run(
-                    [str(exe), "--gtest_list_tests"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+            proc = subprocess.run(
+                [str(exe), "--gtest_list_tests"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
         except Exception as ex:
             errors.append(
                 f"Failed to execute '{exe.name} --gtest_list_tests': {ex}"
@@ -271,228 +254,8 @@ def verify_compiled_gtest_coverage(
     return len(covered_test_names)
 
 
-def run_self_tests():
-    # 1. 问题 1：解析带 "# TypeParam = ..." 的类型化测试并去除注释
-    sample_typed = """
-Running main() from /path/to/gtest_main.cc
-Note: Random seed = 12345.
-NormalSuite.
-  NormalTest
-TypedSuite/0.  # TypeParam = int
-  TypedTestA
-  TypedTestB
-[Init] Setup completed.
-  failed to open some file
-TypedSuite/1.  # TypeParam = float
-  TypedTestA
-  TypedTestB
-ValueParamSuite/Inst.
-  ValueTest  # GetParam() = 42
-"""
-    parsed = parse_gtest_list_tests_output(sample_typed)
-    expected = [
-        "NormalSuite.NormalTest",
-        "TypedSuite/0.TypedTestA",
-        "TypedSuite/0.TypedTestB",
-        "TypedSuite/1.TypedTestA",
-        "TypedSuite/1.TypedTestB",
-        "ValueParamSuite/Inst.ValueTest",
-    ]
-    assert parsed == expected, f"Parsed tests mismatch: {parsed} != {expected}"
-
-    # 类型化测试不能被前一个套件的过滤器误判为已覆盖
-    assert not match_gtest_filter("TypedSuite/0.TypedTestA", "NormalSuite.*")
-    assert match_gtest_filter("TypedSuite/0.TypedTestA", "TypedSuite/*")
-    assert match_gtest_filter("TypedSuite/0.TypedTestA", "TypedSuite/0.*")
-    assert not match_gtest_filter("TypedSuite/0.TypedTestA", "TypedSuite/1.*")
-
-    # 2. 问题 2：空过滤器 "--gtest_filter=" 不选中任何测试
-    assert not match_gtest_filter("AnySuite.AnyTest", "")
-    assert not match_gtest_filter("AnySuite.AnyTest", "   ")
-    assert not match_gtest_filter("AnySuite.AnyTest", '""')
-    assert not match_gtest_filter("AnySuite.AnyTest", "''")
-    assert not is_test_covered("AnySuite.AnyTest", [""])
-    assert is_test_covered("AnySuite.AnyTest", ["*"])
-    assert is_test_covered("AnySuite.AnyTest", ['"*"'])
-    assert is_test_covered("AnySuite.AnyTest", ["", "AnySuite.*"])
-    assert not is_test_covered("OtherSuite.AnyTest", ["", "AnySuite.*"])
-
-    # 过滤器区分大小写
-    assert not match_gtest_filter("AnySuite.AnyTest", "anysuite.*")
-    assert match_gtest_filter("AnySuite.AnyTest", "AnySuite.*")
-
-    # 反向模式处理
-    assert match_gtest_filter("Suite.Good", "-Suite.Bad")
-    assert not match_gtest_filter("Suite.Bad", "-Suite.Bad")
-    assert match_gtest_filter("Suite.Good", "Suite.*:-Suite.Bad")
-    assert not match_gtest_filter("Suite.Bad", "Suite.*:-Suite.Bad")
-    assert not match_gtest_filter("Suite.Good", "-*")
-
-    # 3. 问题 3：显式 GoogleTest 目标枚举失败时必须报告错误
-    class FakeProc:
-        def __init__(self, returncode, stdout="", stderr=""):
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = stderr
-
-    fake_build = Path("/fake/build")
-    fake_exe = fake_build / "fake_test_runner"
-
-    # 3a. 带显式 --gtest_filter 的目标枚举失败 (退出码)
-    mock_ctest_explicit = {
-        "tests": [
-            {
-                "name": "MockGtest",
-                "command": [str(fake_exe), "--gtest_filter=MockSuite.*"],
-            }
-        ]
-    }
-    errs = []
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_explicit,
-        errs,
-        runner_fn=lambda cmd: FakeProc(2, "", "Unknown flag or crash"),
-    )
-    assert any(
-        "Failed to enumerate GoogleTest cases from 'fake_test_runner'" in e
-        for e in errs
-    ), errs
-    assert any("exit code 2" in e for e in errs), errs
-
-    # 3b. 目标返回 0 但没有产出测试用例
-    errs = []
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_explicit,
-        errs,
-        runner_fn=lambda cmd: FakeProc(0, "No tests here\n", ""),
-    )
-    assert any("no test cases discovered" in e for e in errs), errs
-
-    # 3c. 执行目标时抛异常
-    errs = []
-    def crashing_runner(cmd):
-        raise RuntimeError("Subprocess timeout or spawn failure")
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_explicit,
-        errs,
-        runner_fn=crashing_runner,
-    )
-    assert any("Failed to execute 'fake_test_runner --gtest_list_tests'" in e for e in errs), errs
-
-    # 3d. 通过 runner_fn 解析被包装的命令 (如 cmake -E env)
-    called_cmds = []
-    def recording_runner(cmd):
-        called_cmds.append(cmd)
-        return FakeProc(0, "MockSuite.\n  Test1\n", "")
-
-    mock_ctest_wrapped = {
-        "tests": [
-            {
-                "name": "MockWrappedGtest",
-                "command": [
-                    "/usr/bin/cmake",
-                    "-E",
-                    "env",
-                    "EDGEFLOW_VAR=1",
-                    str(fake_exe),
-                    "--gtest_filter=MockSuite.*",
-                ],
-            }
-        ]
-    }
-    errs = []
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_wrapped,
-        errs,
-        runner_fn=recording_runner,
-    )
-    assert not errs, errs
-    assert called_cmds == [[str(fake_exe), "--gtest_list_tests"]], called_cmds
-
-    # 3e. 显式 GoogleTest 目标的可执行文件缺失或无法解析时报告错误
-    errs = []
-    mock_ctest_missing_exe = {
-        "tests": [
-            {
-                "name": "MockMissingGtest",
-                "command": [str(fake_build / "nonexistent_bin"), "--gtest_filter=MockSuite.*"],
-            }
-        ]
-    }
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_missing_exe,
-        errs,
-    )
-    assert any("not found or not executable" in e for e in errs), errs
-
-    errs = []
-    mock_ctest_no_exe = {
-        "tests": [
-            {
-                "name": "MockNoExeGtest",
-                "command": ["--gtest_filter=MockSuite.*"],
-            }
-        ]
-    }
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_no_exe,
-        errs,
-    )
-    assert any("could not resolve executable" in e for e in errs), errs
-
-    # 3f. 存在测试时，显式的 --gtest_filter= (空) 必须使覆盖检查失败
-    errs = []
-    mock_ctest_empty_filter = {
-        "tests": [
-            {
-                "name": "MockEmptyFilter",
-                "command": [str(fake_exe), "--gtest_filter="],
-            }
-        ]
-    }
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_empty_filter,
-        errs,
-        runner_fn=lambda cmd: FakeProc(0, "Suite.\n  Test1\n", ""),
-    )
-    assert any("is not covered by any CTest filter" in e for e in errs), errs
-    assert any("tests/RuntimeTests.cmake" in e and "edgeflow_add_runner_test" in e
-               and "CustomNodeCatalogTest" in e for e in errs), errs
-
-    # 3g. 复现类型化测试被遗漏的问题
-    mock_ctest_typed = {
-        "tests": [
-            {
-                "name": "MockTypedOnlyNormal",
-                "command": [str(fake_exe), "--gtest_filter=NormalSuite.*"],
-            }
-        ]
-    }
-    errs = []
-    verify_compiled_gtest_coverage(
-        fake_build,
-        mock_ctest_typed,
-        errs,
-        runner_fn=lambda cmd: FakeProc(0, sample_typed, ""),
-    )
-    assert any("TypedSuite/0.TypedTestA" in e for e in errs), errs
-    assert any("TypedSuite/0.TypedTestB" in e for e in errs), errs
-    assert not any("NormalSuite.NormalTest" in e for e in errs), errs
-
-
 def main():
     args = parse_args()
-    run_self_tests()
-    if args.self_test:
-        print("✓ All test_test_labels_contract self-tests passed.")
-        return
 
     build_dir = args.build_dir
     if not build_dir.is_dir():

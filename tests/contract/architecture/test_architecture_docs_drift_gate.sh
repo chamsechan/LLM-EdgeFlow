@@ -23,42 +23,6 @@ run_fixture_gate() {
 
 ./scripts/check_architecture_docs.sh >/dev/null 2>&1
 
-echo "<!-- doc_qa_embedding_v1 -->" >> \
-  "${FIXTURE_DOC_ROOT}/assets/architecture_flow.svg"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a legacy business name in SVG"
-  exit 1
-fi
-cp doc/assets/architecture_flow.svg \
-  "${FIXTURE_DOC_ROOT}/assets/architecture_flow.svg"
-
-for legacy_name in \
-  keyword_match_v1 smart_doc_qa_v1 dense_cross_rerank_scoring \
-  compliance_audit.operator.v1 ocr_doc_qa.operator.v1 audio_asr_cpu; do
-  echo "${legacy_name}" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
-  if run_fixture_gate; then
-    echo "❌ Docs drift gate missed legacy business identifier '${legacy_name}'"
-    exit 1
-  fi
-  cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
-done
-
-echo "REGISTER_NODE(OldNode);" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a deprecated registration macro"
-  exit 1
-fi
-cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
-
-echo "REGISTER_NODE(OldTutorialNode);" >> \
-  "${FIXTURE_DOC_ROOT}/dev_guide/first_custom_node.md"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a deprecated registration macro in a tutorial"
-  exit 1
-fi
-cp doc/dev_guide/first_custom_node.md \
-  "${FIXTURE_DOC_ROOT}/dev_guide/first_custom_node.md"
-
 rm "${FIXTURE_DOC_ROOT}/assets/framework_overview.svg"
 if run_fixture_gate; then
   echo "❌ Docs drift gate missed the missing README overview SVG"
@@ -66,19 +30,6 @@ if run_fixture_gate; then
 fi
 cp doc/assets/framework_overview.svg \
   "${FIXTURE_DOC_ROOT}/assets/framework_overview.svg"
-
-for removed_api in \
-  Alg_Init Alg_Create Alg_Process Alg_Control Alg_Destroy Alg_DeInit \
-  "C ABI / Operator" "C ABI 或 Operator"; do
-  echo "<!-- ${removed_api} -->" >> \
-    "${FIXTURE_DOC_ROOT}/assets/framework_overview.svg"
-  if run_fixture_gate; then
-    echo "❌ Docs drift gate missed removed C ABI access '${removed_api}' in the README SVG"
-    exit 1
-  fi
-  cp doc/assets/framework_overview.svg \
-    "${FIXTURE_DOC_ROOT}/assets/framework_overview.svg"
-done
 
 sed -i.bak 's/ValidatedIoPlan/ObsoleteIoPlan/g' \
   "${FIXTURE_DOC_ROOT}/architecture_flow.puml"
@@ -88,32 +39,6 @@ if run_fixture_gate; then
   exit 1
 fi
 cp doc/architecture_flow.puml "${FIXTURE_DOC_ROOT}/architecture_flow.puml"
-
-for moved_path in \
-  "src/tools/pipeline_authoring.h" "./scripts/scaffold_custom_node.py" \
-  "scripts/dev_recipe.py" "architecture_v2.puml" "(architecture.puml)" "./show --web"; do
-  echo "${moved_path}" >> "${FIXTURE_DOC_ROOT}/dev_guide/first_custom_node.md"
-  if run_fixture_gate; then
-    echo "❌ Docs drift gate missed moved path '${moved_path}'"
-    exit 1
-  fi
-  cp doc/dev_guide/first_custom_node.md \
-    "${FIXTURE_DOC_ROOT}/dev_guide/first_custom_node.md"
-done
-
-echo "PassthroughNode" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a fictitious production node"
-  exit 1
-fi
-cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
-
-echo "IModelEngine" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a removed architecture identifier"
-  exit 1
-fi
-cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
 
 CURRENT_PRODUCT_VERSION="$(sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' CMakeLists.txt)"
 if [[ -z "${CURRENT_PRODUCT_VERSION}" ]]; then

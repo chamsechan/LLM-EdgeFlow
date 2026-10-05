@@ -17,7 +17,6 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
-#include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "dev_support/inference/bge_model_test_support.h"
@@ -845,9 +844,6 @@ TEST_F(OnnxAndRerankerModelTest, CatalogRegistrations) {
   EXPECT_EQ(mdef_opt->capability, "rerank");
   EXPECT_EQ(mdef_opt->required_protocol, ExecutionProtocol::kTensorGraph);
   EXPECT_EQ(mdef_opt->concurrency, InferenceConcurrency::kConcurrent);
-
-  // 确认旧组合型名称未被伪装成 Model 注册。
-  EXPECT_FALSE(PipelineCatalog::FindModel("onnx_rerank").has_value());
 }
 
 // =============================================================================

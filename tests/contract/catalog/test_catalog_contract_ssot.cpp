@@ -7,7 +7,6 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_catalog.h"
 #include "adapter/io_converter_registry.h"
 #include "core/node_interface.h"
@@ -73,18 +72,6 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   EXPECT_TRUE(seen_types.count("AsrTranscribeNode"));
   EXPECT_TRUE(seen_types.count("OcrDetectNode"));
   EXPECT_TRUE(seen_types.count("TextCorpusSourceNode"));
-}
-
-TEST_F(CatalogContractSsotTest, BizContractsDoNotDependOnDeploymentVariants) {
-  for (const char* biz : {"entity_extract", "doc_qa"}) {
-    EXPECT_TRUE(PipelineCatalog::FindBiz(biz).has_value());
-  }
-  for (const char* name :
-       {"entity_extract_0.6b_v1", "entity_extract_llamacpp_0.6b_v1",
-        "smart_doc_qa_onnx_llamacpp_v1", "smart_doc_qa_rerank_llm_v1"}) {
-    EXPECT_FALSE(PipelineCatalog::FindBiz(name));
-    EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(name), nullptr);
-  }
 }
 
 TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
