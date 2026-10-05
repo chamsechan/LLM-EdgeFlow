@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+示例 Pipeline 配置、Demo 夹具与资产清单中的模型实例名去掉版本后缀（如 `embed_model_v1` /
+`embed_model_v2` 改为 `embed_model`，`llm_model_v1` 改为 `llm_model`）；Pipeline Studio 的 HTTP 接口
+由 `/api/v1/...` 改为 `/api/...`。
+
+开发工具 JSON 不再携带 `schema_version`：`alg_pipeline_tool` 各命令输出、Catalog、校验报告与
+remediation、`edit` 请求与响应、Pipeline Studio 接口、Demo 的 Profile 文件与结果文件、
+`dev_recipe` / `verify_selection` 报告、效果规格、资产清单和验收证据都删除该字段及对应的版本检查；
+`edit` 请求携带 `schema_version` 时按未知字段拒绝。kiteLLM 的 run config 属于第三方格式，保持不变。
+
+IoBinding 改以业务名标识：删除 `IoBindingDefinition::binding_id`，Pipeline 的 `deployment.io.io_binding`
+直接填写业务名（如 `keyword_match`），`catalog` / `init` 的 `--io-binding` 同样接受业务名。转换器 ID
+去掉 `.operator.v1` 后缀（如 `text.plain`）。Catalog 的 `io_bindings` 与 `validate-io` 不再输出
+`binding_id`。全部 Pipeline 配置与 Demo 夹具已同步更新。
+
+每个业务只注册一个 IoBinding：同一 `biz_name` 的第二个 binding 在注册时被拒绝并记为注册冲突
+（SDK 初始化返回 -6），删除同业务多 binding 的外部契约比对与部署诊断 `BIZ_IO_CONTRACT_MISMATCH`。
+发布后外部契约不兼容的变化原地修改并随新 SDK 版本发布，新旧契约须并存时新增业务，不再新增带版本的 binding。
+
 转换器回调去掉 `InputPortBindings` / `OutputPortBindings` 参数：`DecodeInputFn` / `EncodeOutputFn`、
 `DecodeRequestRows`、`EncodeResultRows` 与 `ReadOutputValue` 直接使用端口常量读写 `AlgContext`。
 写入未声明端口不再被静默发布到空键名。
@@ -17,8 +35,7 @@ Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）�
 `schema_version`、`external_type`、输出 `cardinality` 与 `capacity_policy`，以及槽位的 `value_type` 与
 `capacity_fields`。输出槽容量字段只由 ValueType 决定，`ExternalInputSlot` / `ExternalOutputSlot`
 只接受槽名。Catalog 的 Converter 不再导出上述元数据，`external_type` 改由槽位类型推导。
-`schema_id` 保留为外部协议 ID：载体相同的 Converter 可能解析语义不同，同业务 binding 的一致性检查
-继续比较它。
+`schema_id` 保留为外部协议 ID：载体相同的 Converter 可能解析语义不同。
 
 开发工具修复：Markdown 链接检查支持单引号与圆括号标题、带空格的尖括号目标及平衡或转义的
 目标圆括号；生产版 `alg_pipeline_tool edit` 根据 `validation.diagnostics` 提示构建变体与测试工具。
@@ -158,10 +175,8 @@ Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `reque
 启动，参数不变。C++ 命令行工具源码由 `src/tools/` 改名为 `src/cli/`，可执行文件仍输出到
 `build/`。架构图源文件改名为 `doc/architecture_classes.puml` 与 `doc/architecture_flow.puml`。
 
-业务标识统一：每个业务的配置与 Demo 文件名、IoBinding ID（`<词根>.operator.v1`）和
-`biz_name`（`<词根>`，不带版本号）使用同一词根，中文名统一使用 BizDefinition 的显示名。
+业务标识统一：每个业务的配置与 Demo 文件名和 `biz_name`（`<词根>`，不带版本号）使用同一词根，
+中文名统一使用 BizDefinition 的显示名。
 `biz_name` 变更为 `keyword_match`、`entity_extract`、`translate`、`doc_qa`、`cross_rerank`、
-`dialogue_audit`、`ocr_invoice_qa`、`audio_asr_intent`；IoBinding `compliance_audit.operator.v1`
-改为 `dialogue_audit.operator.v1`，`ocr_doc_qa.operator.v1` 改为 `ocr_invoice_qa.operator.v1`；
-OCR 与语音方案的配置、Demo、数据集和 Profile 改用 `ocr_invoice_qa`、`audio_asr_intent` 词根。
+`dialogue_audit`、`ocr_invoice_qa`、`audio_asr_intent`；OCR 与语音方案的配置、Demo、数据集和 Profile 改用 `ocr_invoice_qa`、`audio_asr_intent` 词根。
 Demo 结果目录随 `biz_name` 变化。正式上线前不保留旧名别名。

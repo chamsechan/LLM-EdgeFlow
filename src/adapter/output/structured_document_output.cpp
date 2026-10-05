@@ -39,7 +39,7 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "document.structured.operator.v1";
+  def.converter_id = "document.structured";
 
   def.schema_id = "document.structured.response";
 

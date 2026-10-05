@@ -75,7 +75,7 @@ mkdir -p build/control_tutorial
 
 ```json
 {
-  "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
+  "deployment": {"io": {"io_binding": "keyword_match"}},
   "models": [],
   "pipeline": [
     {

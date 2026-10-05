@@ -22,9 +22,9 @@ class AsrTranscribeNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
 
     asr_model_ = std::make_shared<test::TestAsrModel>();
-    ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "asr_model_v1", asr_model_,
-        "test-revision", "test_asr_model", "asr", "test_tensor_backend"));
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "asr_model",
+                                  asr_model_, "test-revision", "test_asr_model",
+                                  "asr", "test_tensor_backend"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<test::TestAsrModel> asr_model_;
@@ -34,7 +34,7 @@ TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
+  nlohmann::json cfg = {{"bind_model", "asr_model"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -56,7 +56,7 @@ TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
 TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
                               session_ctx_.get()));
 
   AlgContext ctx;
@@ -71,7 +71,7 @@ TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
 TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
@@ -81,7 +81,7 @@ TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
 TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model_v1"}},
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
                               session_ctx_.get()));
 
   AudioPcmBatch audio;

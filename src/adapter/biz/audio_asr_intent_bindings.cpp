@@ -27,11 +27,9 @@ const bool g_reg_audio_asr_intent_biz = []() {
 
 IoBindingDefinition MakeAudioAsrIntentOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "audio_asr_intent.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "audio.pcm.operator.v1";
-  def.output_converter_id = "audio_result.plain.operator.v1";
+  def.input_converter_id = "audio.pcm";
+  def.output_converter_id = "audio_result.plain";
   return def;
 }
 

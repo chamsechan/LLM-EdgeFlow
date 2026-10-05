@@ -143,27 +143,27 @@ src/engine/
 | 名称 | 含义 |
 | --- | --- |
 | `InputConverterDefinition.converter_id` / `OutputConverterDefinition.converter_id` | 独立输入、输出转换器标识 |
-| `IoBindingDefinition.binding_id` | 连接业务、转换器及外部逻辑槽位的接入绑定 |
-| `BizDefinition.biz_name` | 框架内部业务边界 ID，由绑定关联，例如 `doc_qa` |
+| `BizDefinition.biz_name` | 业务 ID，例如 `doc_qa`；每个业务只有一个 `IoBindingDefinition`，同样以它标识 |
 | `NodePortDefinition.logical_name` | Node 的逻辑端口名称，由 Pipeline 映射到具体黑板键 |
 | `BizPortDefinition.blackboard_key` | 业务 ingress/egress 使用的实际黑板键 |
 
-普通配置只填写 `deployment.io.io_binding`；业务边界由框架沿该绑定的注册关系获得。
+普通配置只在 `deployment.io.io_binding` 填写业务名；框架沿该业务的绑定获得业务边界。
 框架沿注册关系选择转换器和槽位，不按名字拼写推导载体类型。
 
 一个业务只使用一个 `snake_case` 词根，按 I/O 契约的实际语义命名，例如 `ocr_invoice_qa`：
 
 | 位置 | 形式 | 示例 |
 | --- | --- | --- |
-| `biz_name`、`REGISTER_DEMO_BIZ` | `<词根>`，不带版本号 | `dialogue_audit` |
-| `binding_id` | `<词根>.operator.v<N>`；外部契约不兼容变化时新增版本 | `dialogue_audit.operator.v1` |
+| `biz_name`、`deployment.io.io_binding`、`REGISTER_DEMO_BIZ` | `<词根>` | `dialogue_audit` |
 | 绑定源码与 Demo 源码 | `src/adapter/biz/<词根>_bindings.cpp`、`demo/biz/<词根>_demo.cpp` | `dialogue_audit_bindings.cpp` |
 | 方案、数据集与 Profile | `pipeline_<词根>_<变体>`、`corpus_<词根>`、`<词根>_<变体>` | `pipeline_dialogue_audit_kite.json` |
 | 中文名 | `BizDefinition.display_name`，Demo 标题使用同一名称 | 对话合规审核 |
 
-转换器按数据形态命名，可被多个业务复用，不使用业务词根。
+转换器按数据形态命名，例如 `text.plain`，可被多个业务复用，不使用业务词根。
+业务名与转换器 ID 都不带版本号：发布前直接改名，发布后的不兼容变化见
+[CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
 
-外部槽名在所属转换器 `.cpp` 内声明一次，回调与 Definition 复用；仅用一次的 schema ID、binding ID 保持原位。
+外部槽名在所属转换器 `.cpp` 内声明一次，回调与 Definition 复用；仅用一次的 schema ID 保持原位。
 
 业务端口使用 `RequiredBizInput`、`OptionalBizInput`、`BizOutput`；Node 端口使用
 `RequiredInputPort`、`OptionalInputPort`、`OutputPort`。两种端口类型不可相互隐式转换。

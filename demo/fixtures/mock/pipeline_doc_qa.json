@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "doc_qa.operator.v1"
+      "io_binding": "doc_qa"
     }
   },
   "models": [
@@ -13,7 +13,7 @@
         "max_batch_size": 4
       },
       "backend_config": {},
-      "model_id": "embed_model_v1",
+      "model_id": "embed_model",
       "model_path": "./models/bge_base_npu.bin"
     },
     {
@@ -24,7 +24,7 @@
         "max_seq_len": 1024
       },
       "backend_config": {},
-      "model_id": "llm_model_v1",
+      "model_id": "llm_model",
       "model_path": "./models/qwen_1.5b_npu.bin"
     }
   ],
@@ -47,7 +47,7 @@
       "id": "node_1_QueryEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v1"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "raw_queries"
@@ -60,7 +60,7 @@
       "id": "node_2_ChunkEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v1"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "doc_chunks"
@@ -138,7 +138,7 @@
       "id": "node_6_LlmGenerateNode",
       "node_type": "LlmGenerateNode",
       "config": {
-        "bind_model": "llm_model_v1",
+        "bind_model": "llm_model",
         "max_tokens": 128,
         "temperature": 0.3
       },

@@ -390,7 +390,7 @@ TEST(DemoRunnerTest, ProfileOwnsExecutionSettings) {
       {"depth", 8}};
   auto write_profile = [&](const nlohmann::json& value) {
     std::ofstream(path) << nlohmann::json(
-        {{"schema_version", 2}, {"profiles", {{"execution", value}}}});
+        {{"profiles", {{"execution", value}}}});
   };
   write_profile(profile);
   DemoOptions cli, merged;
@@ -462,8 +462,7 @@ TEST(DemoRunnerTest, ProfileRejectsUnknownFieldsAndInvalidShapes) {
       {nullptr, "must be an object"}};
   for (const auto& [profile, diagnostic] : cases) {
     SCOPED_TRACE(profile.dump());
-    std::ofstream(path) << nlohmann::json{{"schema_version", 2},
-                                          {"profiles", {{"invalid", profile}}}};
+    std::ofstream(path) << nlohmann::json{{"profiles", {{"invalid", profile}}}};
     nlohmann::json profiles;
     std::string error;
     EXPECT_EQ(LoadAndValidateProfilesDocument(path.string(), &profiles, &error),
@@ -489,10 +488,10 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   std::string temp_invalid_json = "./results/invalid_profile.json";
   std::filesystem::create_directories("./results");
 
-  // Case 1: 缺少 schema_version
+  // Case 1: 缺少 profiles 映射
   {
     std::ofstream ofs(temp_invalid_json);
-    ofs << "{\"profiles\": {}}";
+    ofs << "{}";
   }
   DemoOptions cli_opts;
   cli_opts.profile = "foo";
@@ -500,12 +499,12 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   std::string err;
   EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
             3);
+  EXPECT_NE(err.find("profiles"), std::string::npos);
 
   // Case 2: 非法 suite 字符串
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
-      "schema_version": 2,
       "profiles": {
         "bad_prof": {
           "config": "demo/fixtures/mock/pipeline_entity_extract.conf",
@@ -524,7 +523,6 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
-      "schema_version": 2,
       "profiles": {
         "bad_suite_type": {
           "config": "configs/pipeline_keyword_match_rules.conf",
@@ -542,7 +540,6 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
-      "schema_version": 2,
       "profiles": {
         "overflow_prof": {
           "config": "demo/fixtures/mock/pipeline_entity_extract.conf",
@@ -602,10 +599,10 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
   reg.ResetForTesting();
   EXPECT_EQ(reg.Find("entity_extract"), nullptr);
   EXPECT_TRUE(reg.Register(
-      {"new_domain_v1", "Domain", [](const DemoOptions&) { return 0; }}));
-  const auto* added = reg.Find("new_domain_v1");
+      {"new_domain", "Domain", [](const DemoOptions&) { return 0; }}));
+  const auto* added = reg.Find("new_domain");
   ASSERT_NE(added, nullptr);
-  EXPECT_EQ(added->biz_name, "new_domain_v1");
+  EXPECT_EQ(added->biz_name, "new_domain");
   EXPECT_EQ(reg.Find("entity_extract"), nullptr);
 }
 
@@ -737,7 +734,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
     if (!line.empty()) {
       count++;
       auto obj = nlohmann::json::parse(line);
-      EXPECT_EQ(obj["schema_version"], 1);
       EXPECT_EQ(obj["profile"], "test_profile_unit");
       EXPECT_EQ(obj["biz"], "unit_test");
       if (obj["request_id"] == 9002) {
@@ -753,7 +749,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
     std::ifstream s_ifs(summary_path);
     nlohmann::json summary_obj;
     s_ifs >> summary_obj;
-    EXPECT_EQ(summary_obj["schema_version"], 1);
     EXPECT_EQ(summary_obj["biz"], "unit_test");
     EXPECT_EQ(summary_obj["total_samples"], 2);
     EXPECT_EQ(summary_obj["success_count"], 1);
@@ -1079,7 +1074,6 @@ TEST(DemoRunnerTest, ControlCommandCliAndProfilePrecedence) {
   KiteDemoDirectory temporary;
   auto write_profile = [&](const nlohmann::json& cmd) {
     const nlohmann::json document = {
-        {"schema_version", 2},
         {"profiles",
          {{"control",
            {{"config", "configs/pipeline_keyword_match_rules.conf"},

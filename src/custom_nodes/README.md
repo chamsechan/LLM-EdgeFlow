@@ -14,7 +14,7 @@ Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运
 
 ## 通用开发步骤速查
 
-1. 查询 `build/alg_pipeline_tool catalog --io-binding <binding_id>` 和 `describe-node`，确认已有能力。
+1. 查询 `build/alg_pipeline_tool catalog --io-binding <biz_name>` 和 `describe-node`，确认已有能力。
 2. 生成普通函数、Spec 和对应测试：
 
    ```bash

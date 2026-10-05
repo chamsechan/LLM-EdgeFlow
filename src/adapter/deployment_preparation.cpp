@@ -70,14 +70,14 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   }
 
   // S2: 从明确的 I/O 绑定取得内部业务身份。
-  const auto& binding_id = doc_split.deployment.io.io_binding;
-  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  const auto& io_binding = doc_split.deployment.io.io_binding;
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(io_binding);
   if (!binding) {
     if (diagnostic) {
       diagnostic->code = "UNKNOWN_IO_BINDING";
       diagnostic->path = "/deployment/io/io_binding";
       diagnostic->message =
-          "Unknown or unregistered io_binding: " + binding_id +
+          "Unknown or unregistered io_binding: " + io_binding +
           " (at /deployment/io/io_binding)";
     }
     return false;
@@ -125,24 +125,13 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
-  std::string contract_error;
-  if (!IoBindingRegistry::Instance().ValidateBizContract(binding->biz_name,
-                                                         &contract_error)) {
-    if (diagnostic) {
-      diagnostic->code = "BIZ_IO_CONTRACT_MISMATCH";
-      diagnostic->path = "/deployment/io/io_binding";
-      diagnostic->message = contract_error;
-    }
-    return false;
-  }
-
   const size_t max_batch = EffectiveMaxBatchSize(*binding, *in_conv, *out_conv);
   if (max_batch == 0) {
     if (diagnostic) {
       diagnostic->code = "DEPLOYMENT_ERROR";
       diagnostic->path = "/deployment/io/io_binding";
       diagnostic->message =
-          "Binding '" + binding->binding_id +
+          "Binding '" + binding->biz_name +
           "' declares no batch limit on the binding or its converters";
     }
     return false;

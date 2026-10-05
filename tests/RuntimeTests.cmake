@@ -469,7 +469,7 @@ foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
 endforeach()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  catalog --io-binding keyword_match.operator.v1)
+  catalog --io-binding keyword_match)
 add_test(NAME PipelineToolValidateTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
   validate ${PROJECT_SOURCE_DIR}/configs/pipeline_keyword_match_rules.json)
 set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest

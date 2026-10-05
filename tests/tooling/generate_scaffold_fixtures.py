@@ -102,7 +102,7 @@ TEST(CustomNodeCatalogTest, ControlTutorialDeploymentUsesCurrentNativeContracts)
   ASSERT_EQ(IoBindingResolver::ResolveFromConfig(
                 parsed, directory.string(), &plan, &error), 0) << error;
   ASSERT_NE(plan, nullptr);
-  EXPECT_EQ(plan->binding.binding_id, "keyword_match.operator.v1");
+  EXPECT_EQ(plan->binding.biz_name, "keyword_match");
 }
 }  // namespace llm_edgeflow
 ''')

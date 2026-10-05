@@ -1,12 +1,12 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "cross_rerank.operator.v1"
+      "io_binding": "cross_rerank"
     }
   },
   "models": [
     {
-      "model_id": "rerank_model_v1",
+      "model_id": "rerank_model",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
       "model_path": "missing_rerank_fixture.onnx",
@@ -32,7 +32,7 @@
       "node_type": "TextRerankNode",
       "depends_on": [],
       "config": {
-        "bind_model": "rerank_model_v1",
+        "bind_model": "rerank_model",
         "top_k": 8
       },
       "inputs": {

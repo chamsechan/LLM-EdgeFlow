@@ -53,7 +53,6 @@ import json
 import os
 
 evidence = {
-    "schema_version": 3,
     "scope": os.environ["EVIDENCE_SCOPE"],
     "generated_at_utc": datetime.datetime.now(
         datetime.timezone.utc).isoformat(),

@@ -10,9 +10,10 @@ inline constexpr size_t kDefaultIoBindingMaxBatchSize = 64;
 
 /**
  * @brief 接入绑定定义 (将外部输入/输出转换器与内部 Pipeline 业务契约显式关联)
+ *
+ * 每个业务只有一个 binding，以 biz_name 标识。
  */
 struct IoBindingDefinition {
-  std::string binding_id;
   std::string biz_name;
 
   std::string input_converter_id;

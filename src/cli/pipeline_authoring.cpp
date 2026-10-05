@@ -173,7 +173,7 @@ nlohmann::json AuthoringChange::ToJson() const {
 }
 
 nlohmann::json AuthoringResult::ToJson() const {
-  nlohmann::json j = {{"schema_version", schema_version}, {"ok", ok}};
+  nlohmann::json j = {{"ok", ok}};
   if (pipeline.has_value()) {
     j["pipeline"] = *pipeline;
   }
@@ -1087,18 +1087,11 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
       return result;
     }
 
-    CheckFields(request, {"schema_version", "pipeline", "operation",
-                          "operations", "require_valid"});
+    CheckFields(request,
+                {"pipeline", "operation", "operations", "require_valid"});
     if (request.contains("require_valid") &&
         !request["require_valid"].is_boolean())
       throw std::invalid_argument("require_valid 必须是布尔值");
-    if (!request.contains("schema_version") ||
-        !request["schema_version"].is_number_integer() ||
-        request["schema_version"] != 1) {
-      result.ok = false;
-      result.diagnostics.push_back("schema_version 必须为 1");
-      return result;
-    }
     if (!request.contains("pipeline") || !request["pipeline"].is_object()) {
       result.ok = false;
       result.diagnostics.push_back("缺少 pipeline 对象");

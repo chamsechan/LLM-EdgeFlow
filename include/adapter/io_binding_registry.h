@@ -27,13 +27,10 @@ class IoBindingRegistry {
 
   bool RegisterBinding(const IoBindingDefinition& def);
 
-  const IoBindingDefinition* FindBinding(const std::string& binding_id) const;
+  // Pipeline 的 deployment.io.io_binding 填写业务名，按其查找唯一的 binding。
+  const IoBindingDefinition* FindBinding(const std::string& biz_name) const;
 
   std::vector<IoBindingDefinition> AllBindings() const;
-
-  // 一个 biz 通过其全部 binding 标识一份完整的外部契约。
-  bool ValidateBizContract(const std::string& biz_name,
-                           std::string* error = nullptr) const;
 
   bool HasConflict() const;
   std::vector<std::string> GetConflictErrors() const;
@@ -51,7 +48,8 @@ class IoBindingRegistry {
   ~IoBindingRegistry() = default;
 
   mutable std::mutex mutex_;
-  std::unordered_map<std::string, IoBindingDefinition> bindings_;
+  std::unordered_map<std::string, IoBindingDefinition>
+      bindings_;  // 按 biz_name
   RegistryConflicts conflicts_;
 };
 

@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "dialogue_audit.operator.v1"
+      "io_binding": "dialogue_audit"
     }
   },
   "models": [
@@ -13,7 +13,7 @@
         "max_batch_size": 4
       },
       "backend_config": {},
-      "model_id": "embed_model_v2",
+      "model_id": "embed_model",
       "model_path": "./models/bge_m3_npu.bin"
     },
     {
@@ -23,7 +23,7 @@
         "max_batch_size": 4
       },
       "backend_config": {},
-      "model_id": "rerank_model_v1",
+      "model_id": "rerank_model",
       "model_path": "./models/bge_reranker_large_npu.bin"
     },
     {
@@ -34,7 +34,7 @@
         "max_seq_len": 1024
       },
       "backend_config": {},
-      "model_id": "audit_llm_v1",
+      "model_id": "audit_llm",
       "model_path": "./models/qwen_1_8b_npu.bin"
     }
   ],
@@ -79,7 +79,7 @@
       "id": "node_2_QueryEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v2"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "user_texts"
@@ -92,7 +92,7 @@
       "id": "node_3_PolicyEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_v2",
+        "bind_model": "embed_model",
         "lifetime": "session"
       },
       "inputs": {
@@ -122,7 +122,7 @@
       "id": "node_5_TextRerankNode",
       "node_type": "TextRerankNode",
       "config": {
-        "bind_model": "rerank_model_v1",
+        "bind_model": "rerank_model",
         "top_k": 1
       },
       "inputs": {
@@ -152,7 +152,7 @@
       "id": "node_7_LlmGenerateNode",
       "node_type": "LlmGenerateNode",
       "config": {
-        "bind_model": "audit_llm_v1",
+        "bind_model": "audit_llm",
         "max_tokens": 256,
         "temperature": 0.1
       },

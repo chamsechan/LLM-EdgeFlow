@@ -120,7 +120,7 @@ Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64�
 
 ## 3. 能力节点层：如何新增通用或自定义 Node
 
-先运行 `alg_pipeline_tool catalog --io-binding <binding_id>` 和 `describe-node`。只有现有操作无法闭合
+先运行 `alg_pipeline_tool catalog --io-binding <biz_name>` 和 `describe-node`。只有现有操作无法闭合
 typed port 契约时才新增 Node。Node 必须：
 
 - 通用操作放在 `src/common_nodes/`；领域算法与特定前后处理放在 `src/custom_nodes/`，
@@ -218,7 +218,7 @@ Pipeline 配置只使用 Model/Backend 语法：
 
 ```json
 {
-  "model_id": "embedding_v1",
+  "model_id": "embed_model",
   "model_type": "my_embedding_model",
   "backend": "my_tensor_backend",
   "model_path": "embedding/model.bin",

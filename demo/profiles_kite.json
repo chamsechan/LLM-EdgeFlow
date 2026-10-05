@@ -1,5 +1,4 @@
 {
-  "schema_version": 2,
   "profiles": {
     "entity_extract_kite": {
       "config": "configs/pipeline_entity_extract_kite.conf",

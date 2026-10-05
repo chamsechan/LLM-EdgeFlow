@@ -115,7 +115,7 @@ def get_profile_data(profile_name, root=ROOT):
 
 def list_recipes(as_json=False):
     if as_json:
-        print(json.dumps({"schema_version": 1, "ok": True, "recipes": SUPPORTED_RECIPES}))
+        print(json.dumps({"ok": True, "recipes": SUPPORTED_RECIPES}))
     else:
         for name, recipe in SUPPORTED_RECIPES.items():
             print(f"{name}: {recipe['title']}\n  {recipe['description']}")
@@ -132,10 +132,6 @@ def native(tool, arguments, root, document=None):
         raise RecipeError(f"Native tool returned no JSON: {process.stdout}\n{process.stderr}") from error
     if process.returncode or not report.get("ok", False):
         raise RecipeError("Native " + arguments[0] + " failed", report)
-    if arguments and arguments[0] == "catalog":
-        schema_version = report.get("schema_version")
-        if schema_version != 4:
-            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v4", report)
     return report
 
 
@@ -178,7 +174,7 @@ def command(description, argv):
 
 
 def result(recipe, completed, pending, artifacts=(), error=None, step=None, **extra):
-    report = {"schema_version": 1, "ok": error is None, "recipe": recipe,
+    report = {"ok": error is None, "recipe": recipe,
               "completed_steps": completed, "pending_steps": pending,
               "failed_step": step if error is not None else None,
               "artifacts": [str(p) for p in artifacts], "next_commands": []}
@@ -211,8 +207,8 @@ def effects_inputs(profile_name, pipeline, root, effects_path, model_root, manif
 
 def check_effects(spec):
     samples = spec.get("samples", [])
-    if spec.get("schema_version") != 1 or not samples:
-        raise RecipeError("Effects requires schema_version=1 and nonempty labelled samples")
+    if not samples:
+        raise RecipeError("Effects requires nonempty labelled samples")
     ids = set()
     for sample in samples:
         request_id = sample.get("request_id")

@@ -36,8 +36,7 @@ using llm_edgeflow::PipelineValidator;
 namespace fs = std::filesystem;
 
 nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
-  return {{"schema_version", 1},
-          {"ok", false},
+  return {{"ok", false},
           {"diagnostics",
            nlohmann::json::array({{{"code", DiagnosticCodeName(code)},
                                    {"path", "/"},
@@ -47,8 +46,7 @@ nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
 
 nlohmann::json ToolError(const std::string& code, const std::string& message,
                          const std::string& path = "/") {
-  return {{"schema_version", 1},
-          {"ok", false},
+  return {{"ok", false},
           {"diagnostics", nlohmann::json::array({{{"code", code},
                                                   {"path", path},
                                                   {"message", message},
@@ -163,7 +161,7 @@ nlohmann::json ProfilesJson(const std::string& biz_filter, std::string* error) {
       if (!biz_filter.empty() && binding->biz_name != biz_filter) continue;
       result.push_back(
           {{"name", name},
-           {"io_binding", binding->binding_id},
+           {"io_binding", binding->biz_name},
            {"biz_name", binding->biz_name},
            {"config", profile.value("config", "")},
            {"dataset", profile.value("dataset", "")},
@@ -250,7 +248,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                      {"resolved", model.resolved_model_path}});
   nlohmann::json configuration = {
       {"biz_name", resolved.io_plan->binding.biz_name},
-      {"io_binding", resolved.io_plan->binding.binding_id},
+      {"io_binding", resolved.io_plan->binding.biz_name},
       {"conf_path", resolved.conf_path.string()},
       {"pipeline_path", resolved.pipeline_path.string()},
       {"model_root", resolved.model_root_path.string()},
@@ -260,19 +258,17 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
       {"effective_pipeline", std::move(effective)},
       {"model_paths", std::move(paths)},
       {"output_pools", OutputPoolsJson(*resolved.io_plan)}};
-  return {{"schema_version", 1},
-          {"ok", true},
-          {"configuration", std::move(configuration)}};
+  return {{"ok", true}, {"configuration", std::move(configuration)}};
 }
 
 void Usage() {
   std::cerr << "Usage:\n"
-            << "  alg_pipeline_tool catalog [--io-binding ID]\n"
+            << "  alg_pipeline_tool catalog [--io-binding BIZ]\n"
             << "  alg_pipeline_tool export-schema\n"
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
             << "  alg_pipeline_tool describe-model MODEL_TYPE\n"
             << "  alg_pipeline_tool describe-backend BACKEND_TYPE\n"
-            << "  alg_pipeline_tool init --io-binding ID [--profile "
+            << "  alg_pipeline_tool init --io-binding BIZ [--profile "
                "NAME|--empty] [--raw]\n"
             << "  alg_pipeline_tool validate FILE|--stdin [--explain]\n"
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
@@ -404,7 +400,6 @@ int main(int argc, char* argv[]) {
       return 1;
     }
     auto result = PipelineCatalog::NodeToJson(*definition);
-    result["schema_version"] = 3;
     result["ok"] = true;
     std::cout << result.dump(2) << std::endl;
     return 0;
@@ -437,14 +432,13 @@ int main(int argc, char* argv[]) {
       }
       result = PipelineCatalog::BackendToJson(*definition);
     }
-    result["schema_version"] = 1;
     result["ok"] = true;
     std::cout << result.dump(2) << std::endl;
     return 0;
   }
 
   if (command == "init") {
-    std::string binding_id;
+    std::string io_binding;
     std::string profile;
     bool empty = false;
     bool raw = false;
@@ -452,8 +446,8 @@ int main(int argc, char* argv[]) {
       std::string arg = argv[i];
       const bool has_value =
           i + 1 < argc && argv[i + 1][0] != '\0' && argv[i + 1][0] != '-';
-      if (arg == "--io-binding" && binding_id.empty() && has_value)
-        binding_id = argv[++i];
+      if (arg == "--io-binding" && io_binding.empty() && has_value)
+        io_binding = argv[++i];
       else if (arg == "--profile" && profile.empty() && has_value)
         profile = argv[++i];
       else if (arg == "--empty" && !empty)
@@ -465,19 +459,19 @@ int main(int argc, char* argv[]) {
         return 2;
       }
     }
-    if (binding_id.empty() || (empty && !profile.empty())) {
+    if (io_binding.empty() || (empty && !profile.empty())) {
       Usage();
       return 2;
     }
     const auto* binding =
-        llm_edgeflow::IoBindingRegistry::Instance().FindBinding(binding_id);
+        llm_edgeflow::IoBindingRegistry::Instance().FindBinding(io_binding);
     if (!binding) {
-      std::cout << ToolError("UNKNOWN_IO_BINDING", binding_id).dump(2)
+      std::cout << ToolError("UNKNOWN_IO_BINDING", io_binding).dump(2)
                 << std::endl;
       return 1;
     }
     nlohmann::json pipeline = {
-        {"deployment", {{"io", {{"io_binding", binding_id}}}}},
+        {"deployment", {{"io", {{"io_binding", io_binding}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline", nlohmann::json::array()}};
     if (!profile.empty()) {
@@ -500,7 +494,7 @@ int main(int argc, char* argv[]) {
       }
       if (!path || !ReadJson(path->string(), &pipeline, &error) ||
           !DocumentBinding(pipeline) ||
-          DocumentBinding(pipeline)->binding_id != binding_id) {
+          DocumentBinding(pipeline)->biz_name != io_binding) {
         std::cout << ToolError("PROFILE_MISMATCH",
                                "Profile is unavailable or belongs to another "
                                "I/O binding")
@@ -509,10 +503,9 @@ int main(int argc, char* argv[]) {
         return 1;
       }
     }
-    auto result = raw ? std::move(pipeline)
-                      : nlohmann::json({{"schema_version", 1},
-                                        {"ok", true},
-                                        {"pipeline", std::move(pipeline)}});
+    auto result =
+        raw ? std::move(pipeline)
+            : nlohmann::json({{"ok", true}, {"pipeline", std::move(pipeline)}});
     std::cout << result.dump(2) << std::endl;
     return 0;
   }
@@ -631,7 +624,6 @@ int main(int argc, char* argv[]) {
         std::string diag_path = diag.path.empty() ? "/" : diag.path;
         std::string diag_msg = error.empty() ? diag.message : error;
         nlohmann::json err_res = {
-            {"schema_version", 1},
             {"ok", false},
             {"diagnostics",
              nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
@@ -644,7 +636,6 @@ int main(int argc, char* argv[]) {
       }
 
       nlohmann::json binding_info = {
-          {"binding_id", plan->binding.binding_id},
           {"biz_name", plan->binding.biz_name},
           {"transport", "operator"},
           {"input_converter_id", plan->binding.input_converter_id},
@@ -659,8 +650,7 @@ int main(int argc, char* argv[]) {
                ? ExternalType(plan->output_converter->external_slots)
                : ""}};
 
-      nlohmann::json result = {{"schema_version", 1},
-                               {"ok", true},
+      nlohmann::json result = {{"ok", true},
                                {"binding", std::move(binding_info)},
                                {"output_pools", OutputPoolsJson(*plan)},
                                {"diagnostics", nlohmann::json::array()}};
@@ -706,7 +696,6 @@ int main(int argc, char* argv[]) {
       input_str.append(buffer, std::cin.gcount());
       if (input_str.size() > 4 * 1024 * 1024) {
         nlohmann::json err_res = {
-            {"schema_version", 1},
             {"ok", false},
             {"diagnostics",
              {{{"code", "AUTHORING_ERROR"},

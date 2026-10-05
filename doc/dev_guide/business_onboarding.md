@@ -66,7 +66,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 先确认实际注册，再运行一次完整路径：
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
+./build/alg_pipeline_tool catalog --io-binding keyword_match
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
@@ -91,8 +91,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
-配置作者只选择 `io_binding`（`keyword_match.operator.v1`）。它关联注册的内部业务边界
-和输入/输出转换器；Demo 从配置自动选择运行入口。Operator 槽位后缀
+配置作者只在 `io_binding` 填写业务名（`keyword_match`）。它选择该业务唯一的绑定，
+从而关联业务边界和输入/输出转换器；Demo 从配置自动选择运行入口。Operator 槽位后缀
 （`keyword_in` / `keyword_out`）属于宿主调用契约，由绑定关联到已注册宿主类型。
 
 ## 3. 实现并注册转换器与绑定
@@ -127,8 +127,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    新 `biz_name` 先定义 `BizDefinition`，声明业务名称及完整 ingress/egress typed 端口，
    业务词根与各标识符的命名见[源码布局与命名](source_layout.md#标识符与定义)；
    调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
-   在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`input_converter_id`、
-   `output_converter_id`，使用 `REGISTER_IO_BINDING` 注册。
+   在 `IoBindingDefinition` 中指定 `biz_name`、`input_converter_id`、`output_converter_id`，
+   使用 `REGISTER_IO_BINDING` 注册；每个业务只注册一个绑定，Pipeline 以业务名选择它。
    转换器的逻辑端口名就是 Blackboard Key，绑定不做改名；命名遵循本节后文的端口命名约定。
    Binding 的批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
    转换器只在自身确有限制时才声明上限，0 表示不设限。
@@ -185,14 +185,14 @@ Definition 使用 `RequiredInputPort(port)` / `OutputPort(port)`，回调直接�
 
 | 业务（输出转换器） | `status_code` | 单条结果不满足契约时 |
 | --- | --- | --- |
-| `keyword_match`（`keyword.result.operator.v1`） | 复制规则结果的 `status_code`；`TextRuleMatchNode` 写 0 | 未命中是正常结果（`is_hit=0`），没有无效项 |
-| `audio_asr_intent`（`audio_result.plain.operator.v1`） | 复制意图结果的 `status_code` | 缺少转写或意图结果时整批失败 |
-| `doc_qa`（`doc_answer.plain.operator.v1`） | 复制意图结果的 `status_code` | 缺少回答、意图或片段数时整批失败 |
-| `entity_extract`（`document.structured.operator.v1`） | 0 | 解析失败或使用 fallback 的文档使整批失败 |
-| `ocr_invoice_qa`（`invoice_result.plain.operator.v1`） | 0 | 同上 |
-| `dialogue_audit`（`audit_result.plain.operator.v1`） | 0 | 判定解析失败或使用 fallback、首要策略排名不为 1、`risk_level` 不在 `SAFE`/`LOW_RISK`/`MEDIUM_RISK`/`HIGH_RISK`，或 `risk_score` 不在 [0, 1] 时整批失败 |
-| `cross_rerank`（`rerank_result.plain.operator.v1`） | 0 | 排名不连续、超过 8 项或候选编号越界时整批失败；无候选时 `count=0` |
-| `translate`（`translate.json.operator.v1`） | 0 | 译文无法序列化为 JSON（如非法 UTF-8）时整批失败 |
+| `keyword_match`（`keyword.result`） | 复制规则结果的 `status_code`；`TextRuleMatchNode` 写 0 | 未命中是正常结果（`is_hit=0`），没有无效项 |
+| `audio_asr_intent`（`audio_result.plain`） | 复制意图结果的 `status_code` | 缺少转写或意图结果时整批失败 |
+| `doc_qa`（`doc_answer.plain`） | 复制意图结果的 `status_code` | 缺少回答、意图或片段数时整批失败 |
+| `entity_extract`（`document.structured`） | 0 | 解析失败或使用 fallback 的文档使整批失败 |
+| `ocr_invoice_qa`（`invoice_result.plain`） | 0 | 同上 |
+| `dialogue_audit`（`audit_result.plain`） | 0 | 判定解析失败或使用 fallback、首要策略排名不为 1、`risk_level` 不在 `SAFE`/`LOW_RISK`/`MEDIUM_RISK`/`HIGH_RISK`，或 `risk_score` 不在 [0, 1] 时整批失败 |
+| `cross_rerank`（`rerank_result.plain`） | 0 | 排名不连续、超过 8 项或候选编号越界时整批失败；无候选时 `count=0` |
+| `translate`（`translate.json`） | 0 | 译文无法序列化为 JSON（如非法 UTF-8）时整批失败 |
 
 需要让某个业务在单条无效时仍返回其他请求的结果，应先设计该业务的外部表达
 （例如非零 `status_code` 与诊断字段）和测试，再修改对应转换器；不要在框架中跳过失败项。
@@ -208,8 +208,8 @@ ValueType。宿主类型的转换都留在接入适配层，Node、Model 和 Bac
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
 新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
 Pipeline 只选择 `io_binding`，Demo 调用 `ResolveOperatorConfigBiz` 解析业务身份并选择 runner。
-Profile 不填写业务名。SDK 预检与注册审计共用同业务 binding 的外部协议（Converter 的 `schema_id`）、载体及槽位一致性检查。Demo 按该契约准备载体，
-不能仅因宿主类型相同就复用另一业务契约；同一业务也不能登记载体或协议不兼容的 binding。
+Profile 不填写业务名。每个业务只注册一个 binding，业务名唯一确定外部协议、载体及槽位。Demo 按该契约准备载体，
+不能仅因宿主类型相同就复用另一业务契约；外部协议不同的输入或输出属于另一个业务。
 这里的数据转换仅指载体构造和结果展示，外部协议的解包、
 字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
 新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：

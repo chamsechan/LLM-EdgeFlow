@@ -104,20 +104,20 @@ TEST(TraceableItemTest, ProvenanceTracking) {
 TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
   ASSERT_TRUE(RegisterTestModel(
-      manager, "my_embed_v1",
+      manager, "my_embed",
       std::make_shared<test::TestBizEmbeddingModel>(128, 4), "test-v1"));
-  ASSERT_TRUE(RegisterTestModel(manager, "my_rerank_v1",
+  ASSERT_TRUE(RegisterTestModel(manager, "my_rerank",
                                 std::make_shared<test::TestBizRerankModel>(4),
                                 "test-v1"));
 
-  EXPECT_TRUE(manager.HasModel("my_embed_v1"));
-  EXPECT_TRUE(manager.HasModel("my_rerank_v1"));
+  EXPECT_TRUE(manager.HasModel("my_embed"));
+  EXPECT_TRUE(manager.HasModel("my_rerank"));
   EXPECT_FALSE(manager.HasModel("unknown_model"));
 
-  auto retrieved = manager.GetModel<IRerankModel>("my_rerank_v1");
+  auto retrieved = manager.GetModel<IRerankModel>("my_rerank");
   ASSERT_NE(retrieved, nullptr);
   EXPECT_EQ(retrieved->Capability(), "rerank");
-  EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank_v1"), nullptr);
+  EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank"), nullptr);
 }
 
 TEST(SessionContextTest, TypedDynamicResourcesRejectMismatchedAccess) {

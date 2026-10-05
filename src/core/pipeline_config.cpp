@@ -66,7 +66,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   ParsedPipelineConfig result;
 
-  // 3. biz_name 是 v6 唯一业务标识字段，必须存在且为非空字符串。
+  // 3. biz_name 是唯一业务标识字段，必须存在且为非空字符串。
   if (shape::MissingRequired(root, structure, "biz_name")) {
     SetDiag(diagnostic, DiagnosticCode::kMissingField, "/biz_name",
             "Missing required field 'biz_name'");

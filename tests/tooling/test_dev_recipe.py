@@ -99,7 +99,6 @@ class DevRecipeTest(unittest.TestCase):
         with contextlib.redirect_stdout(stream):
             self.assertEqual(RECIPE.list_recipes(True), 0)
         report = json.loads(stream.getvalue())
-        self.assertEqual(report["schema_version"], 1)
         self.assertTrue(report["ok"])
         self.assertEqual(set(report["recipes"]), {"prompt-config", "text-llm-node"})
 
@@ -127,17 +126,6 @@ class DevRecipeTest(unittest.TestCase):
         self.assertEqual(Path(command[command.index("--model-root") + 1]), self.root)
         result = self.verify()
         self.assertTrue(result["ok"], result)
-
-    def test_native_requires_current_catalog(self):
-        for version in (None, 3, 4, 5):
-            report = {"ok": True, "schema_version": version}
-            result = subprocess.CompletedProcess([], 0, json.dumps(report), "")
-            with self.subTest(version=version), mock.patch.object(RECIPE.subprocess, "run", return_value=result):
-                if version == 4:
-                    self.assertEqual(RECIPE.native(TOOL, ["catalog"], self.root), report)
-                else:
-                    with self.assertRaisesRegex(RECIPE.RecipeError, "requires Catalog v4"):
-                        RECIPE.native(TOOL, ["catalog"], self.root)
 
     def test_effect_conf_requires_exact_nonempty_pipe_path(self):
         spec = self.root / "effect.json"
@@ -229,7 +217,7 @@ class DevRecipeTest(unittest.TestCase):
         report = self.prepare()
         self.assertTrue(report["ok"], report)
         generated = json.loads(self.target.read_text())
-        self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match.operator.v1"})
+        self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match"})
         self.assertTrue(self.verify()["ok"])
 
     def test_legacy_mem_que_deployment_rejected_as_missing_outputs(self):
@@ -245,7 +233,7 @@ class DevRecipeTest(unittest.TestCase):
         for invalid in (
             dict(labelled, samples=[{"request_id": 20001, "expected": {"/status": 0}}]),
             dict(labelled, samples=[labelled["samples"][0], labelled["samples"][0]]),
-            dict(labelled, io_binding="entity_extract.operator.v1"),
+            dict(labelled, io_binding="entity_extract"),
         ):
             with self.subTest(spec=invalid):
                 source.write_text(json.dumps(invalid))

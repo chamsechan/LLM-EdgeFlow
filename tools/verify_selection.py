@@ -90,8 +90,8 @@ def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, pipeli
 
 
 def validate_manifest(manifest):
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
-        raise ValueError("Unsupported asset manifest version")
+    if not isinstance(manifest, dict):
+        raise ValueError("Asset manifest must be a JSON object")
     artifacts = manifest["artifacts"]
     for name, artifact in artifacts.items():
         if Path(name).is_absolute() or ".." in Path(name).parts or not re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]):
@@ -186,7 +186,7 @@ def inspect_selection(pipeline, tool, model_root, manifest=MANIFEST, variant=Non
         build.update(expected_backends=expected, status="verified" if enabled == expected else "variant_mismatch")
     ok = validation.get("ok", False) and all(item["status"] == "verified" for item in assets) and build["status"] != "variant_mismatch"
     fingerprint = digest({"pipeline": pipeline, "assets": assets, "build": build})
-    return {"schema_version": 2, "ok": bool(ok), "selection_fingerprint": fingerprint,
+    return {"ok": bool(ok), "selection_fingerprint": fingerprint,
             "configuration": validation, "build": build, "models": assets,
             "effects": {"status": "unverified"}, "ready_for_biz": False}
 
@@ -279,7 +279,7 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo, 
     if digest(effect_inputs(spec_path, conf_path, demo, pipeline_root)[3]) != test_fingerprint:
         raise ValueError("Effect inputs or binaries changed during execution")
     metrics = compare_samples(records, spec)
-    return {"schema_version": 2, "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    return {"generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "selection_fingerprint": selection["selection_fingerprint"], "test_fingerprint": test_fingerprint,
             "pipeline": execution_pipeline, "selection": selection, "test_inputs": test_inputs,
             "metrics": metrics, "records": records}

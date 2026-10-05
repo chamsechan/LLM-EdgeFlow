@@ -250,7 +250,7 @@
       "inputs":  { "mode": "state.mode", "normal": "normal_matches", "strict": "strict_matches" },
       "outputs": { "matches": "rule_matches" } }
   ],
-  "deployment": { "io": { "io_binding": "keyword_match.operator.v1" } }
+  "deployment": { "io": { "io_binding": "keyword_match" } }
 }
 ```
 

@@ -94,7 +94,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "rerank_result.plain.operator.v1";
+  def.converter_id = "rerank_result.plain";
 
   def.schema_id = "rerank_result.plain.response";
 

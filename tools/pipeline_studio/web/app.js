@@ -258,12 +258,11 @@ function renderBizContract() {
   ]);
   if (!state.catalogReady) return;
   const bindings = (state.catalog.io_bindings || []).filter(binding =>
-    binding.binding_id === bindingId);
+    binding.biz_name === bindingId);
   for (const binding of bindings) {
     const heading = document.createElement("h3");
     heading.textContent = "接入绑定";
     container.append(heading);
-    fields(container, [["Binding ID", binding.binding_id]]);
     for (const [direction, label] of [["input", "输入"], ["output", "输出"]]) {
       const converterId = binding[`${direction}_converter_id`];
       const converter = state.catalog[`${direction}_converters`]?.find(item => item.converter_id === converterId);
@@ -304,15 +303,6 @@ async function loadCatalog(binding = "") {
   return catalogRequests.run(
     () => api(`/catalog${binding ? `?io_binding=${encodeURIComponent(binding)}` : ""}`),
     catalog => {
-      if (catalog.schema_version !== 4) {
-        state.catalogReady = false;
-        const msg = `不支持的 Catalog 版本 (v${catalog.schema_version})，Pipeline Studio 要求 Catalog v4。请升级或重新构建后端工具。`;
-        toast(msg, true);
-        clearValidation(msg);
-        renderOperators();
-        renderAll();
-        return;
-      }
       state.catalog = catalog; state.catalogReady = true; renderOperators(); renderAll();
     }
   );
@@ -412,7 +402,7 @@ async function refreshLists() {
   state.profiles = profiles.profiles;
   state.catalogProfiles = allCatalog.profiles || [];
   const bindingSelect = $("#bindingSelect"); bindingSelect.replaceChildren();
-  for (const item of allCatalog.io_bindings || []) bindingSelect.add(new Option(item.binding_id, item.binding_id));
+  for (const item of allCatalog.io_bindings || []) bindingSelect.add(new Option(item.biz_name, item.biz_name));
   if (state.pipeline) bindingSelect.value = pipelineBinding(state.pipeline);
   const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
   for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.io_binding}`, item.filename));
@@ -427,15 +417,6 @@ async function refreshLists() {
     await loadCatalog(pipelineBinding(state.pipeline));
   } else {
     catalogRequests.invalidate();
-    if (allCatalog.schema_version !== 4) {
-      state.catalogReady = false;
-      const msg = `不支持的 Catalog 版本 (v${allCatalog.schema_version})，Pipeline Studio 要求 Catalog v4。请升级或重新构建后端工具。`;
-      toast(msg, true);
-      clearValidation(msg);
-      renderOperators();
-      renderAll();
-      return;
-    }
     state.catalog = allCatalog;
     state.catalogReady = true;
     renderOperators();

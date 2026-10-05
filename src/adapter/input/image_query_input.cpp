@@ -87,7 +87,7 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "image_query.plain.operator.v1";
+  def.converter_id = "image_query.plain";
 
   def.schema_id = "image_query.plain.request";
 

@@ -27,11 +27,9 @@ const bool g_reg_ocr_invoice_qa_biz = []() {
 
 IoBindingDefinition MakeOcrInvoiceQaOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "ocr_invoice_qa.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "image_query.plain.operator.v1";
-  def.output_converter_id = "invoice_result.plain.operator.v1";
+  def.input_converter_id = "image_query.plain";
+  def.output_converter_id = "invoice_result.plain";
   return def;
 }
 

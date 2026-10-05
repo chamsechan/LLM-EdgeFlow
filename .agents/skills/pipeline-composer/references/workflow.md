@@ -16,7 +16,7 @@ Build the tool if unavailable/stale, and rebuild after registration changes. Que
 biz contract and its filtered assets:
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding <binding_id>
+./build/alg_pipeline_tool catalog --io-binding <biz_name>
 ```
 
 Use the production tool for the target build. For fixtures deliberately using test-only
@@ -38,8 +38,8 @@ For an existing solution, edit the requested files instead of initializing anoth
 Reuse registered nodes; cloning a Pipeline does not retarget the source Profile.
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <binding_id> --profile <profile_name>
-./build/alg_pipeline_tool init --io-binding <binding_id> --empty
+./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name>
+./build/alg_pipeline_tool init --io-binding <biz_name> --empty
 ```
 
 `init` normally returns a versioned response containing `pipeline`. To save a
@@ -47,7 +47,7 @@ runtime document directly, use `--raw` and a new destination (do not overwrite
 an existing solution):
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <binding_id> --profile <profile_name> --raw > <new_pipeline.json>
+./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
 ```
 
 Check the command's exit status before using the file, then validate the saved

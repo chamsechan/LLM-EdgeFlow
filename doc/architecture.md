@@ -168,8 +168,8 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
   SOVERSION/ABI major 为 9。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
-  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；配置必须选择 `deployment.io.io_binding`，
-  接入适配层据此派生内部业务边界，外部文档不保存根级 `biz_name`。模型路径只在
+  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；配置必须在 `deployment.io.io_binding` 填写业务名，
+  接入适配层据此找到该业务的绑定与边界，外部文档不另设根级 `biz_name`。模型路径只在
   `models[].model_path` 中配置，相对路径以宿主传入的部署根为基准；
   Pipeline 的 `deployment.io.out_mem` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
   最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create

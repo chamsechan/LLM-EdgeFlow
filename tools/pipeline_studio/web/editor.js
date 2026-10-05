@@ -48,7 +48,7 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
   if (item.remediation) {
     const rem = item.remediation;
     if (rem.summary) appendText("div", `原因诊断：${rem.summary}`);
-    if (rem.schema_version === 1 && Array.isArray(rem.fixes) && rem.fixes.length > 0) {
+    if (Array.isArray(rem.fixes) && rem.fixes.length > 0) {
       const fixesTitle = document.createElement("div");
       fixesTitle.className = "fixes-title";
       fixesTitle.textContent = "可选修复操作：";

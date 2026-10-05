@@ -1,7 +1,6 @@
 {
-  "schema_version": 1,
   "name": "keyword-selected-config",
-  "io_binding": "keyword_match.operator.v1",
+  "io_binding": "keyword_match",
   "dataset": "keyword_inputs.txt",
   "minimum_pass_rate": 1.0,
   "samples": [

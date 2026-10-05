@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "audio_asr_intent.operator.v1"
+      "io_binding": "audio_asr_intent"
     }
   },
   "models": [
@@ -12,7 +12,7 @@
         "max_batch_size": 2
       },
       "backend_config": {},
-      "model_id": "asr_model_v1",
+      "model_id": "asr_model",
       "model_path": "./models/paraformer_asr_npu.bin"
     }
   ],
@@ -21,7 +21,7 @@
       "id": "node_0_AsrTranscribeNode",
       "node_type": "AsrTranscribeNode",
       "config": {
-        "bind_model": "asr_model_v1"
+        "bind_model": "asr_model"
       },
       "inputs": {
         "audio": "audio_inputs"

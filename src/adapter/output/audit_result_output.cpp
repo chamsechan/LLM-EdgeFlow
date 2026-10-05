@@ -131,7 +131,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "audit_result.plain.operator.v1";
+  def.converter_id = "audit_result.plain";
 
   def.schema_id = "audit_result.plain.response";
 
