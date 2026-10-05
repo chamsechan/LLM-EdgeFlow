@@ -11,12 +11,6 @@
 
 namespace llm_edgeflow {
 
-// 已声明的条目原样保留；未声明的 Converter 逻辑端口映射到同名键。
-// 使用时计算，与注册顺序无关。
-std::unordered_map<std::string, std::string> EffectivePortMapping(
-    const std::unordered_map<std::string, std::string>& declared,
-    const std::vector<NodePortDefinition>& logical_ports);
-
 // 输出槽位按字典序返回其已注册 ValueType 的字符串容量字段；
 // 输入槽位和未知 ValueType 返回空列表。
 std::vector<std::string> EffectiveCapacityFields(

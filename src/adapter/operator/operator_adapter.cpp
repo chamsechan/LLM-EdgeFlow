@@ -356,9 +356,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     in_options.request_ids = &request_ids;
 
     llm_edgeflow::AdapterStatus decode_status;
-    int decode_ret = input_converter->decode_fn(in_view, in_options,
-                                                plan->input_port_bindings,
-                                                &req_ctx, &decode_status);
+    int decode_ret = input_converter->decode_fn(in_view, in_options, &req_ctx,
+                                                &decode_status);
     if (decode_ret != 0) {
       SetLastError("DecodeInput failed for " + input_converter->converter_id +
                    ": " + decode_status.ToString());
@@ -417,8 +416,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     size_t written_count = 0;
     llm_edgeflow::AdapterStatus encode_status;
     int encode_ret = output_converter->encode_fn(
-        &req_ctx, plan->output_port_bindings, out_options, &out_view,
-        &written_count, &encode_status);
+        &req_ctx, out_options, &out_view, &written_count, &encode_status);
     if (encode_ret != 0) {
       SetLastError("EncodeOutput failed for " + output_converter->converter_id +
                    ": " + encode_status.ToString());

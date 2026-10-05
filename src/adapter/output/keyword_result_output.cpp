@@ -26,13 +26,12 @@ AdapterStatus EncodeKeyword(const RuleMatchItem& result,
 }
 
 int EncodeOperatorKeywordResult(AlgContext* context,
-                                const OutputPortBindings& bindings,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
                                 size_t* written_count, AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorKeywordOutput>(
-      context, bindings, options, destination, written_count, status,
-      kOutputSlot, kRuleMatches, &EncodeKeyword);
+      context, options, destination, written_count, status, kOutputSlot,
+      kRuleMatches, &EncodeKeyword);
 }
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {

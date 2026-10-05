@@ -44,8 +44,6 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
   in_view.slot_types["doc_in"] = "CompanyOperatorDocInput";
 
-  InputPortBindings in_bindings(
-      {{"raw_docs", "raw_docs"}, {"raw_queries", "raw_queries"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
@@ -53,7 +51,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
+  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 填充答案上下文
@@ -88,16 +86,12 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   out_view.SetCapacity("doc_out", "answer_text", 255);
   out_view.SetCapacity("doc_out", "intent_name", 63);
 
-  OutputPortBindings out_bindings({{"llm_answers", "llm_answers"},
-                                   {"intent_matches", "intent_matches"},
-                                   {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
-                            &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(doc_out.request_id, 2001U);
@@ -120,9 +114,6 @@ TEST_F(ComplexConvertersTest,
   ctx.Publish("llm_answers", TextBatch{{0, 0, answer}});
   ctx.Publish("intent_matches", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
   ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"},
-                               {"intent_matches", "intent_matches"},
-                               {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions options;
   options.request_ids = &request_ids;
   options.converter_id = converter->converter_id;
@@ -141,9 +132,8 @@ TEST_F(ComplexConvertersTest,
   view.SetCapacity("doc_out", "intent_name", 0);
   size_t written = 0;
   AdapterStatus status;
-  ASSERT_EQ(
-      converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
-      COMPANY_ALG_SUCCESS);
+  ASSERT_EQ(converter->encode_fn(&ctx, options, &view, &written, &status),
+            COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   ASSERT_EQ(answer_out.length, 3);
   EXPECT_EQ(std::string(answer_out.data, answer_out.length), answer);
@@ -151,9 +141,8 @@ TEST_F(ComplexConvertersTest,
 
   view.SetCapacity("doc_out", "answer_text", 1);
   written = 0;
-  EXPECT_NE(
-      converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
-      COMPANY_ALG_SUCCESS);
+  EXPECT_NE(converter->encode_fn(&ctx, options, &view, &written, &status),
+            COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 0U);
 }
 
@@ -184,9 +173,6 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   in_view.slots["rerank_in"] = llm_edgeflow::BorrowInputForTest({&rerank_in});
   in_view.slot_types["rerank_in"] = "CompanyOperatorRerankInput";
 
-  InputPortBindings in_bindings({{"rerank_queries", "rerank_queries"},
-                                 {"rerank_candidates", "rerank_candidates"},
-                                 {"rerank_pairs", "rerank_pairs"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
@@ -194,7 +180,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
+  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在上下文中准备 ranked_results
@@ -213,14 +199,12 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   out_view.leased_slots["rerank_out"] = {&rerank_out};
   out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
 
-  OutputPortBindings out_bindings({{"ranked_results", "ranked_results"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
-                            &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(rerank_out.request_id, 3001U);
@@ -251,8 +235,6 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
   in_view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
 
-  InputPortBindings in_bindings(
-      {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
@@ -260,7 +242,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
+  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在上下文中准备审核结果
@@ -273,7 +255,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Rule 12.3", 0.88f, 1, 0));
-  ctx.Publish("matched_policies", std::move(policies));
+  ctx.Publish("matched_policy", std::move(policies));
 
   char risk_buf[32] = {0};
   CompanyString cs_risk{31, risk_buf};
@@ -295,16 +277,12 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   out_view.SetCapacity("audit_out", "matched_policy_clause", 255);
   out_view.SetCapacity("audit_out", "audit_verdict_json", 1023);
 
-  OutputPortBindings out_bindings(
-      {{"structured_verdicts", "structured_verdicts"},
-       {"matched_policies", "matched_policies"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
-                            &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(audit_out.request_id, 4001U);
@@ -334,7 +312,6 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   in_view.slots["audio_in"] = llm_edgeflow::BorrowInputForTest({&audio_in});
   in_view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
 
-  InputPortBindings in_bindings({{"audio_inputs", "audio_inputs"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
@@ -342,7 +319,7 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
+  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   TextBatch transcripts;
@@ -373,15 +350,12 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   out_view.SetCapacity("audio_out", "transcribed_text", 511);
   out_view.SetCapacity("audio_out", "intent_slot_json", 1023);
 
-  OutputPortBindings out_bindings(
-      {{"transcripts", "transcripts"}, {"intent_slots", "intent_slots"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
-                            &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(audio_out.request_id, 5001U);
@@ -423,8 +397,6 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  InputPortBindings in_bindings(
-      {{"image_paths", "image_paths"}, {"user_queries", "user_queries"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
@@ -432,7 +404,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
+  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在 AlgContext 中准备发票输出
@@ -462,16 +434,12 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   out_view.SetCapacity("od_out", "result_json", 255);
   out_view.count = 1;
 
-  OutputPortBindings out_bindings(
-      {{"extracted_invoice_json", "extracted_invoice_json"},
-       {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
-                            &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(od_out.request_id, 6001U);
@@ -510,25 +478,23 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   }
 }
 
-// 只声明改名的端口，其余端口映射到同名键。
-TEST_F(ComplexConvertersTest, ComplianceBindingDeclaresOnlyRenamedPort) {
+// 审核输出 Converter 的逻辑端口与业务出口同名。
+TEST_F(ComplexConvertersTest, ComplianceBindingUsesBizPortNames) {
   const auto* binding =
       IoBindingRegistry::Instance().FindBinding("dialogue_audit.operator.v1");
   ASSERT_NE(binding, nullptr);
-  EXPECT_TRUE(binding->input_ports.empty());
-  ASSERT_EQ(binding->output_ports.size(), 1U);
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
       binding->output_converter_id);
   ASSERT_NE(output, nullptr);
+  const auto biz = PipelineCatalog::FindBiz(binding->biz_name);
+  ASSERT_TRUE(biz.has_value());
 
-  const auto mapping =
-      EffectivePortMapping(binding->output_ports, output->logical_ports);
-  ASSERT_EQ(mapping.size(), output->logical_ports.size());
   for (const auto& port : output->logical_ports) {
-    const std::string expected = port.logical_name == "matched_policies"
-                                     ? "matched_policy"
-                                     : port.logical_name;
-    EXPECT_EQ(mapping.at(port.logical_name), expected) << port.logical_name;
+    EXPECT_TRUE(std::any_of(biz->egress.begin(), biz->egress.end(),
+                            [&](const auto& egress) {
+                              return egress.blackboard_key == port.logical_name;
+                            }))
+        << port.logical_name;
   }
 }
 

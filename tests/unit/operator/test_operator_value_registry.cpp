@@ -1143,14 +1143,11 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     view.slots["audit_in"] = BorrowInputForTest({&op_input});
     view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
     view.count = 1;
-    InputPortBindings port_bindings(
-        {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}});
     InputDecodeOptions options;
     options.converter_id = in_conv->converter_id;
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
-    int dec_ret =
-        in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
+    int dec_ret = in_conv->decode_fn(view, options, &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, expected);
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               expected);
@@ -1191,13 +1188,11 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
     view.slots["audio_in"] = BorrowInputForTest({&op_input});
     view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
     view.count = 1;
-    InputPortBindings port_bindings({{"audio_inputs", "audio_inputs"}});
     InputDecodeOptions options;
     options.converter_id = in_conv->converter_id;
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
-    int dec_ret =
-        in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
+    int dec_ret = in_conv->decode_fn(view, options, &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, test.valid);
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               test.valid);

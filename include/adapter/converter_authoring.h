@@ -17,19 +17,6 @@
 
 namespace llm_edgeflow {
 
-// 两侧必须是同一 C++ 值类型；恒等映射需显式声明。
-template <typename T>
-inline std::pair<std::string, std::string> BindIoPort(
-    const BlackboardKey<T>& logical_port, const BlackboardKey<T>& actual_key) {
-  return {logical_port.name, actual_key.name};
-}
-
-template <typename T>
-inline std::pair<std::string, std::string> BindIoPort(
-    const BlackboardKey<T>& port) {
-  return BindIoPort(port, port);
-}
-
 // 常用约定：必填槽位，type_suffix = slot_name，key_suffix 为空时回退到
 // type_suffix。其他后缀或可选槽位请使用 ExternalSlotDefinition 的显式字段。
 template <typename T>
@@ -126,12 +113,11 @@ inline const std::vector<uint64_t>* RequestIds(
 
 template <typename T>
 inline const T* ReadOutputValue(AlgContext& context,
-                                const OutputPortBindings& bindings,
                                 const BlackboardKey<T>& port,
                                 const OutputEncodeOptions& options,
                                 AdapterStatus* status,
                                 const char* field_path = nullptr) {
-  const auto* value = context.Read(bindings.Key(port));
+  const auto* value = context.Read(port);
   if (!value) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, std::string("Missing required context value: ") + port.name,
@@ -242,8 +228,7 @@ class OutputStringWriter {
 template <typename Host, typename Payload, typename Decode>
 int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
-    const InputPortBindings& bindings, AlgContext* context,
-    AdapterStatus* status, const char* slot,
+    AlgContext* context, AdapterStatus* status, const char* slot,
     const BlackboardKey<std::vector<TraceableItem<Payload>>>& payload_port,
     Decode&& decode) {
   if (!ValidateDecodeRequest(source, options, context, status))
@@ -264,7 +249,7 @@ int DecodeRequestRows(
   }
   if (!PublishRequestIds(options, std::move(ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(payload_port), std::move(payloads),
+          *context, payload_port, std::move(payloads),
           options.converter_id.c_str(), status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
   return COMPANY_ALG_SUCCESS;
@@ -274,9 +259,9 @@ int DecodeRequestRows(
 // 回调负责业务字段与序列化。
 template <typename Host, typename Payload, typename Encode>
 int EncodeResultRows(
-    AlgContext* context, const OutputPortBindings& bindings,
-    const OutputEncodeOptions& options, ExternalOutputBatchView* destination,
-    size_t* written_count, AdapterStatus* status, const char* slot,
+    AlgContext* context, const OutputEncodeOptions& options,
+    ExternalOutputBatchView* destination, size_t* written_count,
+    AdapterStatus* status, const char* slot,
     const BlackboardKey<std::vector<TraceableItem<Payload>>>& result_port,
     Encode&& encode) {
   if (written_count) *written_count = 0;
@@ -285,7 +270,7 @@ int EncodeResultRows(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   const auto* results =
-      ReadOutputValue(*context, bindings, result_port, options, status, "res");
+      ReadOutputValue(*context, result_port, options, status, "res");
   if (!results) return COMPANY_ALG_ERR_INVALID_INPUT;
   const auto* ids = RequestIds(options, status);
   if (!ids) return COMPANY_ALG_ERR_INVALID_INPUT;
