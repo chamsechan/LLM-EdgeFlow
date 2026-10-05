@@ -32,8 +32,9 @@ with log.open("a") as stream:
 mode = os.environ["EDGEFLOW_DELIVERY_MODE"]
 if name == "git":
     if args == ["branch", "--show-current"]: print("fix/delivery-test")
+    if args == ["rev-parse", "HEAD"]: print("b" * 40)
     if args == ["diff", "--quiet", "origin/main...HEAD"]: sys.exit(1)
-    if args == ["merge-base", "--is-ancestor", "origin/main", "HEAD"] and mode == "main-advanced":
+    if args[:3] == ["merge-base", "--is-ancestor", "origin/main"] and mode == "main-advanced":
         calls = sum(json.loads(line)[:3] == ["git", "fetch", "origin"] for line in log.read_text().splitlines())
         if calls > 1: sys.exit(1)
 elif name == "gh":
@@ -41,9 +42,20 @@ elif name == "gh":
         fields = args[args.index("--json") + 1]
         if fields == "number": print("94")
         elif fields == "statusCheckRollup": print("6")
+        elif fields == "headRefOid":
+            assert args[2] == "94", "query the stable PR number"
+            if mode == "head-query-failure": sys.exit(1)
+            print("" if mode == "missing-head" else "invalid" if mode == "invalid-head"
+                  else ("c" if mode == "head-changed" else "b") * 40)
         elif fields == "mergeCommit":
             assert args[2] == "94", "query the stable PR number after branch deletion"
             print("" if mode == "missing-sha" else "a" * 40)
+    elif args[:2] == ["pr", "merge"]:
+        assert "--match-head-commit" in args, args
+        assert args[args.index("--match-head-commit") + 1] == "b" * 40, args
+        if mode == "head-race":
+            print("PR head changed before merge", file=sys.stderr)
+            sys.exit(1)
     elif args[:2] == ["run", "list"]:
         for flag, value in [("--workflow", "ci.yml"), ("--branch", "main"),
                             ("--event", "push"), ("--commit", "a" * 40)]:
@@ -62,7 +74,9 @@ elif name == "gh":
         path.write_text(mock)
         path.chmod(0o755)
     log = root / "delivery" / "commands.jsonl"
-    for mode in ("pr-only", "success", "failure", "cancelled", "missing-run", "missing-sha", "unconfirmed", "main-advanced"):
+    before_merge_failures = ("main-advanced", "head-changed", "missing-head", "invalid-head", "head-query-failure")
+    for mode in ("pr-only", "success", "failure", "cancelled", "missing-run", "missing-sha",
+                 "unconfirmed", *before_merge_failures, "head-race"):
         log.write_text("")
         env = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
                "EDGEFLOW_DELIVERY_COMMANDS": str(log), "EDGEFLOW_DELIVERY_MODE": mode}
@@ -74,11 +88,24 @@ elif name == "gh":
         assert sum(command[0] == "run_all_tests.sh" for command in commands) == 1
         run_lists = [command for command in commands if command[:3] == ["gh", "run", "list"]]
         watches = [command for command in commands if command[:3] == ["gh", "run", "watch"]]
-        if mode in ("pr-only", "main-advanced"):
+        merges = [command for command in commands if command[:3] == ["gh", "pr", "merge"]]
+        for merge in merges:
+            assert merge == ["gh", "pr", "merge", "94", "--merge", "--delete-branch",
+                             "--match-head-commit", "b" * 40], merge
+            assert ["git", "merge-base", "--is-ancestor", "origin/main", "b" * 40] in commands
+            assert ["git", "rev-list", "--merges", "origin/main.." + "b" * 40] in commands
+        if mode == "pr-only" or mode in before_merge_failures:
             assert not run_lists and not watches
-            assert not any(command[:3] == ["gh", "pr", "merge"] for command in commands)
+            assert not merges
             if mode == "main-advanced":
                 assert "origin/main is not an ancestor" in result.stdout
+            elif mode == "head-changed":
+                assert "head changed since the verified branch was pushed" in result.stdout
+            elif mode in ("missing-head", "invalid-head", "head-query-failure"):
+                assert "cannot confirm the head SHA" in result.stdout
+        elif mode == "head-race":
+            assert len(merges) == 1 and not run_lists and not watches
+            assert "PR head changed before merge" in result.stderr
         elif mode == "missing-sha":
             assert not run_lists and not watches
             assert "cannot confirm the merge SHA" in result.stdout
@@ -118,15 +145,35 @@ def check_delivery_history_contract(root):
         git("commit", "-qm", name)
 
     mock = '''#!/usr/bin/env python3
-import json, os, sys
+import json, os, subprocess, sys
 from pathlib import Path
 name, args = Path(sys.argv[0]).name, sys.argv[1:]
 with open(os.environ["EDGEFLOW_DELIVERY_COMMANDS"], "a") as stream:
     stream.write(json.dumps([name, *args]) + "\\n")
-if name == "gh" and args[:2] == ["pr", "view"]:
-    fields = args[args.index("--json") + 1]
-    if fields == "number": print("94")
-    elif fields == "statusCheckRollup": print("1")
+mode = os.environ.get("EDGEFLOW_HISTORY_HEAD_MODE")
+def remote_head():
+    return subprocess.check_output(["git", "ls-remote", "origin",
+                                    "refs/heads/" + os.environ["EDGEFLOW_HISTORY_BRANCH"]],
+                                   text=True).split()[0]
+def advance_head():
+    subprocess.run(["git", "push", "origin", os.environ["EDGEFLOW_HISTORY_UPDATED_HEAD"]
+                    + ":refs/heads/" + os.environ["EDGEFLOW_HISTORY_BRANCH"]],
+                   check=True, capture_output=True, text=True)
+if name == "gh":
+    if args[:2] == ["pr", "view"]:
+        fields = args[args.index("--json") + 1]
+        if fields == "number": print("94")
+        elif fields == "statusCheckRollup": print("1")
+        elif fields == "headRefOid": print(remote_head())
+    elif args[:2] == ["pr", "checks"] and mode in ("linear-update", "merge-update"):
+        advance_head()
+    elif args[:2] == ["pr", "merge"]:
+        if mode == "merge-race": advance_head()
+        expected = args[args.index("--match-head-commit") + 1] if "--match-head-commit" in args else None
+        if expected is not None and expected != remote_head():
+            print("PR head does not match checked commit", file=sys.stderr)
+            sys.exit(1)
+        print("MOCK_MERGE_ACCEPTED")
 '''
     scripts = project / "scripts"
     scripts.mkdir()
@@ -194,6 +241,38 @@ if name == "gh" and args[:2] == ["pr", "view"]:
     git("switch", "fix/outdated")
     git("rebase", "origin/main")
     deliver(True)
+
+    for mode in ("linear-update", "merge-update", "merge-race"):
+        git("switch", "-c", "fix/" + mode, "origin/main")
+        commit_file(mode + ".txt", "verified change\n")
+        checked_head = git("rev-parse", "HEAD")
+        side = git("commit-tree", "HEAD^{tree}", "-p", checked_head, "-m", "concurrent update")
+        updated_head = side if mode == "linear-update" else git(
+            "commit-tree", "HEAD^{tree}", "-p", checked_head, "-p", side, "-m", "forbidden merge")
+        if mode != "linear-update":
+            assert git("rev-list", "--merges", "origin/main.." + updated_head)
+        log.write_text("")
+        original_main = git("ls-remote", "origin", "refs/heads/main")
+        branch = git("branch", "--show-current")
+        race_env = {**env, "EDGEFLOW_HISTORY_HEAD_MODE": mode,
+                    "EDGEFLOW_HISTORY_BRANCH": branch, "EDGEFLOW_HISTORY_UPDATED_HEAD": updated_head}
+        result = run([str(scripts / "git_branch_upload.sh"), "fix(ci): PR head contract", "fix", "--merge"],
+                     cwd=project, env=race_env, timeout=15)
+        assert result.returncode != 0, (mode, result.stdout, result.stderr)
+        commands = [json.loads(line) for line in log.read_text().splitlines()]
+        assert sum(command[0] == "run_all_tests.sh" for command in commands) == 1
+        merges = [command for command in commands if command[:3] == ["gh", "pr", "merge"]]
+        assert len(merges) == int(mode == "merge-race"), (mode, commands)
+        if mode == "merge-race":
+            assert merges[0][-2:] == ["--match-head-commit", checked_head], merges
+            assert "PR head does not match checked commit" in result.stderr
+        else:
+            assert "head changed since the verified branch was pushed" in result.stdout
+        assert "MOCK_MERGE_ACCEPTED" not in result.stdout
+        assert not any(command[:3] == ["gh", "run", "list"] for command in commands)
+        assert git("rev-parse", "HEAD") == checked_head
+        assert git("ls-remote", "origin", "refs/heads/" + branch).split()[0] == updated_head
+        assert git("ls-remote", "origin", "refs/heads/main") == original_main
 
 MOCK_COMMAND = '''#!/usr/bin/env python3
 import json, os, sys
