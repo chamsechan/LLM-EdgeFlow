@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+对话合规审核的输出 Converter 直接使用业务出口键 `matched_policy`，删除只为改名存在的
+`kMatchedPolicies`（`matched_policies`）及其 Binding 端口映射；Pipeline 配置与外部契约不变。
+
 Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）：删除没有运行时作用的
 `schema_version`、`external_type`、输出 `cardinality` 与 `capacity_policy`，以及槽位的 `value_type` 与
 `capacity_fields`。输出槽容量字段只由 ValueType 决定，`ExternalInputSlot` / `ExternalOutputSlot`

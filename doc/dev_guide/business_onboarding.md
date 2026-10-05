@@ -145,9 +145,9 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 
 共享端口用 `MakeBlackboardKey<T>(name)` 定义一次；转换器 Definition 使用
 `RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`
-读取或发布。同名端口在绑定中无需声明；非同名映射使用
-`BindIoPort(logical_port, actual_key)`，两端的 C++ 类型必须一致。例如审核输出使用
-`BindIoPort(kMatchedPolicies, kMatchedPolicy)`，不能直接绕过绑定读写实际 key。
+读取或发布，不能绕过绑定直接读写实际 key。转换器端口直接使用业务出入口的键名，绑定中无需声明；
+不要为命名差异引入映射。确需非同名映射时使用 `BindIoPort(logical_port, actual_key)`，
+两端的 C++ 类型必须一致。
 需要完整映射的代码调用 `EffectivePortMapping`，不要直接读取绑定的端口表。
 
 外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和

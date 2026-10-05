@@ -273,7 +273,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Rule 12.3", 0.88f, 1, 0));
-  ctx.Publish("matched_policies", std::move(policies));
+  ctx.Publish("matched_policy", std::move(policies));
 
   char risk_buf[32] = {0};
   CompanyString cs_risk{31, risk_buf};
@@ -297,7 +297,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
   OutputPortBindings out_bindings(
       {{"structured_verdicts", "structured_verdicts"},
-       {"matched_policies", "matched_policies"}});
+       {"matched_policy", "matched_policy"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
@@ -510,25 +510,25 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   }
 }
 
-// 只声明改名的端口，其余端口映射到同名键。
-TEST_F(ComplexConvertersTest, ComplianceBindingDeclaresOnlyRenamedPort) {
+// 审核输出 Converter 的逻辑端口与业务出口同名，Binding 不声明映射。
+TEST_F(ComplexConvertersTest, ComplianceBindingUsesBizPortNames) {
   const auto* binding =
       IoBindingRegistry::Instance().FindBinding("dialogue_audit.operator.v1");
   ASSERT_NE(binding, nullptr);
   EXPECT_TRUE(binding->input_ports.empty());
-  ASSERT_EQ(binding->output_ports.size(), 1U);
+  EXPECT_TRUE(binding->output_ports.empty());
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
       binding->output_converter_id);
   ASSERT_NE(output, nullptr);
+  const auto biz = PipelineCatalog::FindBiz(binding->biz_name);
+  ASSERT_TRUE(biz.has_value());
 
-  const auto mapping =
-      EffectivePortMapping(binding->output_ports, output->logical_ports);
-  ASSERT_EQ(mapping.size(), output->logical_ports.size());
   for (const auto& port : output->logical_ports) {
-    const std::string expected = port.logical_name == "matched_policies"
-                                     ? "matched_policy"
-                                     : port.logical_name;
-    EXPECT_EQ(mapping.at(port.logical_name), expected) << port.logical_name;
+    EXPECT_TRUE(std::any_of(biz->egress.begin(), biz->egress.end(),
+                            [&](const auto& egress) {
+                              return egress.blackboard_key == port.logical_name;
+                            }))
+        << port.logical_name;
   }
 }
 

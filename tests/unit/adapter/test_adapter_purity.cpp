@@ -277,7 +277,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
       InputPortBindings(
           {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}}),
       OutputPortBindings({{"structured_verdicts", "structured_verdicts"},
-                          {"matched_policies", "matched_policies"}}));
+                          {"matched_policy", "matched_policy"}}));
 
   std::string text_str = "audit sentence";
   std::string chan_str = "channel_vip";
@@ -296,7 +296,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Clause 1", 1.0f, 1, 0));
-  harness.Publish("matched_policies", std::move(policies));
+  harness.Publish("matched_policy", std::move(policies));
 
   AuditOutputFixture audit_fix;
   std::vector<CompanyOperatorAuditOutput> outputs = {audit_fix.out};
@@ -593,7 +593,7 @@ TEST_F(AdapterPurityTest,
 
   OutputPortBindings out_bindings(
       {{"structured_verdicts", "structured_verdicts"},
-       {"matched_policies", "matched_policies"}});
+       {"matched_policy", "matched_policy"}});
 
   test::AdapterHarness harness(out_conv, out_bindings);
   harness.SetRequestIds(std::vector<uint64_t>{1001});
@@ -608,7 +608,7 @@ TEST_F(AdapterPurityTest,
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Clause", 1.0f, 1));
-  harness.Publish("matched_policies", std::move(policies));
+  harness.Publish("matched_policy", std::move(policies));
 
   AuditOutputFixture fix;
   std::vector<CompanyOperatorAuditOutput> outputs = {fix.out};
@@ -623,7 +623,7 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
 
   OutputPortBindings out_bindings(
       {{"structured_verdicts", "structured_verdicts"},
-       {"matched_policies", "matched_policies"}});
+       {"matched_policy", "matched_policy"}});
 
   for (const auto parse_status :
        {JsonParseStatus::kOk, JsonParseStatus::kFailed,
@@ -639,7 +639,7 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
                            {{"risk_level", "SAFE"}, {"risk_score", 0.1f}}));
     }
     harness.Publish("structured_verdicts", std::move(verdicts));
-    harness.Publish("matched_policies",
+    harness.Publish("matched_policy",
                     RankedTextBatch{{0, 0, {"req0 first", 1.0f, 1, 1}},
                                     {0, 1, {"req0 second", 0.5f, 2, 2}},
                                     {1, 0, {"req1 first", 1.0f, 1, 1}}});
