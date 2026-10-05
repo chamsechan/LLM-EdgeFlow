@@ -176,7 +176,6 @@ class DevRecipeTest(unittest.TestCase):
                 for model in pipeline.get("models", []):
                     self.assertEqual((bundle / model["model_path"]).resolve(),
                                      self.root / "demo/fixtures/mock/artifacts/neutral-llm.fixture")
-                self.assertNotIn("model_paths", pipeline["deployment"])
                 verified = self.verify(pipeline_path=target,
                                        effects_path=target.with_name(target.stem + "_effects.json"))
                 self.assertTrue(verified["ok"], verified)
@@ -219,13 +218,6 @@ class DevRecipeTest(unittest.TestCase):
         generated = json.loads(self.target.read_text())
         self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match"})
         self.assertTrue(self.verify()["ok"])
-
-    def test_legacy_mem_que_deployment_rejected_as_missing_outputs(self):
-        pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
-        pipe = json.loads(pipe_path.read_text())
-        pipe.setdefault("deployment", {}).setdefault("io", {})["mem_que"] = {"type": "keyword_out"}
-        pipe_path.write_text(json.dumps(pipe))
-        self.assert_prepare_rejected_without_writes()
 
     def test_unlabelled_or_duplicate_effects_rejected_before_generation(self):
         source = self.root / "tests/fixtures/effects/keyword_exact.json"

@@ -45,7 +45,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
     def test_cli_rejects_unsupported_signatures_before_writing(self):
         with tempfile.TemporaryDirectory() as temp:
             for args in [
-                ["--kind", "unary_inference", "-m", "ocr"],
                 ["--kind", "model", "-m", "asr", "--in-port", "i:TextBatch"],
                 ["--kind", "model", "--out-port", "o:TextBatch:1:N:generate_sub_id"],
                 ["-m", "llm"],
@@ -375,7 +374,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("ControlChangesOutputAndPreservesOnFailure", result.stdout)
 
-    def test_generates_function_nodes_and_rejects_retired_options(self):
+    def test_generates_function_nodes(self):
         result = self.run_cli("BasicMapNode", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("MakeMapSpec", result.stdout)
@@ -388,17 +387,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertIn("REGISTER_FUNCTION_NODE(BasicLlmNode, BasicLlmNodeSpec());", result.stdout)
         self.assertIn("BuildPrompt", result.stdout)
         self.assertIn("FormatAnswer", result.stdout)
-
-        with tempfile.TemporaryDirectory() as temp:
-            for bad_args in [
-                ["--add-to-cmake"], ["--authoring", "basic"], ["--authoring", "advanced"],
-                ["--authoring", "auto"], ["--kind", "unary_inference", "-m", "llm"],
-            ]:
-                res = self.run_cli("RejectedBasicNode", "--output-dir", temp, *bad_args)
-                self.assertNotEqual(res.returncode, 0, f"Expected failure for {bad_args}")
-                if bad_args == ["--add-to-cmake"]:
-                    self.assertIn("unrecognized arguments: --add-to-cmake", res.stderr)
-                self.assertEqual(list(Path(temp).iterdir()), [])
 
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)

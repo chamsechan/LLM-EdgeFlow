@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+门禁与测试不再甄别历史名称：文档漂移检查只保留核心概念、架构图和版本一致性检查，删除旧业务名、
+旧注册宏、已移除接口与路径的黑名单；LayerGuard 和治理检查删除针对已不存在头文件、接口和旧术语的
+规则；固定已删除字段、命令或参数名的测试改为通用的未知字段检查或删除。元测试删除对 `ci.yml`
+文本的逐字断言和 CTest 标签检查器自身的自测。
+
 精简未使用的扩展点：批次上限只在 IoBinding 上声明，删除 Converter 的 `max_batch_size`（及
 `EffectiveMaxBatchSize`），Catalog 的 Converter 不再导出该字段；字段 Control 只保留整体替换的
 `ReplaceFields`，删除 `PatchFields` 及其策略枚举；端口存活期只接受 `request` 与 `session`，删除

@@ -579,14 +579,6 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
     EXPECT_EQ(descriptor->biz_name, biz);
     EXPECT_NE(descriptor->run, nullptr);
   }
-  // 已退役的标识符不保留为别名。
-  for (const char* retired :
-       {"entity_extract_v1", "keyword_match_v1", "smart_doc_qa_v1",
-        "dialogue_compliance_audit_v1", "multimodal_ocr_invoice_qa",
-        "speech_audio_asr_intent_slot", "dense_cross_rerank_scoring",
-        "translate_v1", "ocr_doc_qa", "audio_asr"}) {
-    EXPECT_EQ(reg.Find(retired), nullptr) << retired;
-  }
 
   EXPECT_FALSE(reg.Register(
       {"entity_extract", "Duplicate", [](const DemoOptions&) { return 0; }}));
@@ -992,7 +984,7 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   EXPECT_EQ(ops.DeInit(), 0);
 }
 
-TEST(DemoRunnerTest, ExampleControlCliAndRejectsRemovedFlag) {
+TEST(DemoRunnerTest, ExampleControlCliAndRejectsUnknownFlag) {
   std::string error;
   {
     DemoOptions options;
@@ -1012,7 +1004,7 @@ TEST(DemoRunnerTest, ExampleControlCliAndRejectsRemovedFlag) {
   }
   {
     DemoOptions options;
-    const char* args[] = {"alg_demo", "--no-default-control"};
+    const char* args[] = {"alg_demo", "--unknown-option"};
     EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
               2);
     EXPECT_NE(error.find("Unknown CLI option"), std::string::npos);

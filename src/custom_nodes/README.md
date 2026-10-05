@@ -141,16 +141,15 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 prompt_prefix 中的花括号保留原文，不再作为模板解析。未知占位符、无效生成参数
 和非法 stop_words 在原生校验与初始化时拒绝。
 
-`prompt_prefix` 是普通输入文本前缀，非空时在模板前追加一行；旧的节点字段
-`system_prompt` 已改名并拒绝使用。模型的 `model_config.system_prompt` 仍表示真正的
-system 消息，不能用节点前缀替代该角色。
+`prompt_prefix` 是普通输入文本前缀，非空时在模板前追加一行。真正的 system 消息由模型的
+`model_config.system_prompt` 设置，不能用节点前缀替代该角色。
 
 TextTemplate 的 `missing_variable_policy` 也适用于内置变量。`fail` 会拒绝未连接的
 引用或缺失的主输入样本；需要保留占位符或填空时显式使用 `preserve/empty`。
 聚合输入批次存在而某请求没有结果时，仍表示合法的空上下文。
 
 模型失败、输出数量不符或 `(req_id, sub_id)` 不符时，节点返回错误且不发布结果。
-`fallback_text` 已删除并明确拒绝；业务降级应携带可辨识的状态，不能伪装成功。
+业务降级应携带可辨识的状态，不能伪装成功。
 
 ## 复用与边界
 
