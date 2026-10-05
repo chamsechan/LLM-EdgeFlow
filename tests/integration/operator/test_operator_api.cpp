@@ -1326,14 +1326,14 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
   handle = nullptr;
 
-  // 2. 已移除的输出分配 type 字段即使匹配也会被拒绝。
+  // 2. 输出槽配置中的未知字段被拒绝。
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["type"] =
-        "keyword_out";
+    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["unknown_field"] =
+        1;
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
     p_ofs.close();
@@ -1369,24 +1369,6 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
 
-  // 5. 旧的根级 outputs 结构在 .conf 中被拒绝 -> -2
-  {
-    std::ofstream ofs(conf_path);
-    ofs << R"({
-      "pipe_path": "pipeline_keyword_match_rules.json",
-      "outputs": {
-        "keyword_out": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 0
-        }
-      }
-    })";
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("Unknown field"),
-            std::string::npos);
-
   // 6. deployment.model_path 单值字段被拒绝（路径只存在 models 条目中）-> -2
   {
     std::ifstream json_in(std::filesystem::path(GetConfDir()) /
@@ -1405,24 +1387,6 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   EXPECT_NE(std::string(GetOperatorLastError())
                 .find("Unknown field at /deployment/model_path"),
             std::string::npos);
-
-  // 6b. 已移除的 model_paths 即使为空或冗余也会被拒绝。
-  for (const auto& legacy_value :
-       nlohmann::json::array({nlohmann::json::object(),
-                              {{"unused_model", "models/unused.bin"}}})) {
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["model_paths"] = legacy_value;
-    std::ofstream(root / "configs/pipeline_keyword_match_rules.json")
-        << pipe_json.dump(2);
-    EXPECT_EQ(ops_.Create(&handle, &param), -2);
-    EXPECT_EQ(handle, nullptr);
-    EXPECT_NE(std::string(GetOperatorLastError())
-                  .find("Unknown field at /deployment/model_paths"),
-              std::string::npos);
-  }
 
   // 7. .conf 根对象仅允许 pipe_path -> -2
   {

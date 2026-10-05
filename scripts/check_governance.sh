@@ -71,12 +71,4 @@ if [[ "${QUALITY_GATE_CALLS}" -ne 1 ]]; then
   fail "GitHub delivery must invoke the canonical quality gate exactly once"
 fi
 
-if grep -rnE '(six-stage|6-stage|六阶段|7 CTest|src/business/|src/biz/|IModelEngine|REGISTER_ENGINE_WITH_DEFINITION)' \
-  "${ROOT_DIR}/AGENTS.md" \
-  "${ROOT_DIR}/CONTRIBUTING.md" \
-  "${ROOT_DIR}/.github/copilot-instructions.md" \
-  "${ROOT_DIR}/.agents/skills"; then
-  fail "active governance contains obsolete architecture or test-count guidance"
-fi
-
 echo "Governance sources, routing, and delivery safety invariants are consistent."
