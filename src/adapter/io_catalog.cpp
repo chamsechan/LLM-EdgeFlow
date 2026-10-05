@@ -55,21 +55,11 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
 }
 
 nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
-  // 报告有效映射，包括映射到同名键的端口。
-  const auto& converters = IoConverterRegistry::Instance();
-  const auto* input = converters.FindInputConverter(b.input_converter_id);
-  const auto* output = converters.FindOutputConverter(b.output_converter_id);
   return {{"binding_id", b.binding_id},
           {"biz_name", b.biz_name},
           {"transport", "operator"},
           {"input_converter_id", b.input_converter_id},
           {"output_converter_id", b.output_converter_id},
-          {"input_port_mapping",
-           input ? EffectivePortMapping(b.input_ports, input->logical_ports)
-                 : b.input_ports},
-          {"output_port_mapping",
-           output ? EffectivePortMapping(b.output_ports, output->logical_ports)
-                  : b.output_ports},
           {"max_batch_size", b.max_batch_size}};
 }
 

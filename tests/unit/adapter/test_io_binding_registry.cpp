@@ -92,7 +92,7 @@ class IoBindingRegistryTest : public ::testing::Test {
                                PortDirection::kInput, true, "entity_in")};
     in_def.max_batch_size = 64;
     in_def.logical_ports = {
-        NodePortDefinition("texts", "TextBatch", true, "1:1")};
+        NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
     in_def.decode_fn = &DummyDecode;
     IoConverterRegistry::Instance().RegisterInputConverter(in_def);
 
@@ -105,7 +105,7 @@ class IoBindingRegistryTest : public ::testing::Test {
                                PortDirection::kOutput, true, "entity_out")};
     out_def.max_batch_size = 64;
     out_def.logical_ports = {
-        NodePortDefinition("answers", "TextBatch", true, "1:1")};
+        NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
     out_def.encode_fn = &DummyEncode;
     IoConverterRegistry::Instance().RegisterOutputConverter(out_def);
 
@@ -129,10 +129,20 @@ class IoBindingRegistryTest : public ::testing::Test {
 
     binding.input_converter_id = "test.in.operator";
     binding.output_converter_id = "test.out.operator";
-    binding.input_ports = {{"texts", "input_sentences"}};
-    binding.output_ports = {{"answers", "llm_answers"}};
     binding.max_batch_size = max_batch_size;
     ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  }
+
+  // 端口 texts 不在业务契约中，必需的 input_sentences 也无人覆盖。
+  std::string RegisterUnmatchedInputConverter() {
+    auto converter =
+        *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
+    converter.converter_id = "unmatched.in.operator";
+    converter.logical_ports = {
+        NodePortDefinition("texts", "TextBatch", true, "1:1")};
+    EXPECT_TRUE(
+        IoConverterRegistry::Instance().RegisterInputConverter(converter));
+    return converter.converter_id;
   }
 
   static inline std::vector<IoBindingDefinition> saved_bindings_;
@@ -175,8 +185,6 @@ TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
 
   binding.input_converter_id = "test.in.operator";
   binding.output_converter_id = "test.out.operator";
-  binding.input_ports = {{"texts", "input_sentences"}};
-  binding.output_ports = {{"answers", "llm_answers"}};
 
   EXPECT_TRUE(reg.RegisterBinding(binding));
 
@@ -273,8 +281,6 @@ TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
   binding.biz_name = "test_biz_v1";
   binding.input_converter_id = input.converter_id;
   binding.output_converter_id = output.converter_id;
-  binding.input_ports = {{"texts", "input_sentences"}};
-  binding.output_ports = {{"answers", "llm_answers"}};
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
   std::vector<std::string> errors;
   EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors));
@@ -316,79 +322,6 @@ TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
   EXPECT_TRUE(EffectiveCapacityFields(unknown).empty());
 }
 
-TEST_F(IoBindingRegistryTest, OmittedPortMappingsUseConverterPortNames) {
-  auto input =
-      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
-  auto output =
-      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
-  input.converter_id = "same_name.in.operator";
-  input.logical_ports = {
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  input.max_batch_size = 0;
-  output.converter_id = "same_name.out.operator";
-  output.logical_ports = {
-      NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
-  output.max_batch_size = 0;
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
-
-  IoBindingDefinition binding;
-  binding.binding_id = "same_name.operator.v1";
-  binding.biz_name = "test_biz_v1";
-  binding.input_converter_id = input.converter_id;
-  binding.output_converter_id = output.converter_id;
-  binding.max_batch_size = 16;
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
-
-  std::vector<std::string> errors;
-  EXPECT_TRUE(IoBindingRegistry::Instance().Audit(&errors))
-      << (errors.empty() ? "" : errors.front());
-
-  const nlohmann::json document = {
-      {"deployment", {{"io", {{"io_binding", binding.binding_id}}}}},
-      {"pipeline", DefaultPipelineNodes()}};
-  PreparedDeployment prepared;
-  DeploymentDiagnostic diagnostic;
-  ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
-      << diagnostic.message;
-  EXPECT_EQ(prepared.effective_max_batch_size, 16U);
-  EXPECT_EQ(prepared.input_port_bindings.GetActualKey("input_sentences"),
-            "input_sentences");
-  EXPECT_EQ(prepared.output_port_bindings.GetActualKey("llm_answers"),
-            "llm_answers");
-
-  const auto catalog = IoCatalog::ToJson();
-  const auto entry =
-      std::find_if(catalog["io_bindings"].begin(), catalog["io_bindings"].end(),
-                   [&](const auto& item) {
-                     return item["binding_id"] == binding.binding_id;
-                   });
-  ASSERT_NE(entry, catalog["io_bindings"].end());
-  EXPECT_EQ((*entry)["input_port_mapping"],
-            nlohmann::json({{"input_sentences", "input_sentences"}}));
-  EXPECT_EQ((*entry)["output_port_mapping"],
-            nlohmann::json({{"llm_answers", "llm_answers"}}));
-}
-
-TEST_F(IoBindingRegistryTest, AuditRejectsMappingOfUnadvertisedPort) {
-  IoBindingDefinition binding;
-  binding.binding_id = "unknown_port.operator.v1";
-  binding.biz_name = "test_biz_v1";
-  binding.input_converter_id = "test.in.operator";
-  binding.output_converter_id = "test.out.operator";
-  binding.input_ports = {{"texts", "input_sentences"},
-                         {"unknown", "input_sentences"}};
-  binding.output_ports = {{"answers", "llm_answers"}};
-  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
-
-  std::vector<std::string> errors;
-  EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
-  EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const auto& e) {
-    return e.find("maps unadvertised input logical port: unknown") !=
-           std::string::npos;
-  }));
-}
-
 TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   auto& reg = IoBindingRegistry::Instance();
 
@@ -399,8 +332,6 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 
   valid_binding.input_converter_id = "test.in.operator";
   valid_binding.output_converter_id = "test.out.operator";
-  valid_binding.input_ports = {{"texts", "input_sentences"}};
-  valid_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(valid_binding));
 
   // 单独 audit 合法绑定应当通过
@@ -408,29 +339,26 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   EXPECT_TRUE(reg.Audit(&errors));
   EXPECT_TRUE(errors.empty());
 
-  // 2. 注册未被选择使用的非法绑定：texts 未显式映射时按同名映射，
-  // 而业务契约中没有 texts，必需的 input_sentences 也无人覆盖
+  // 2. 注册未被选择使用的非法绑定：输入 Converter 的端口不在业务契约中
   IoBindingDefinition illegal_binding;
   illegal_binding.binding_id = "unselected_bad.operator.v1";
   illegal_binding.biz_name = "test_biz_v1";
 
-  illegal_binding.input_converter_id = "test.in.operator";
+  illegal_binding.input_converter_id = RegisterUnmatchedInputConverter();
   illegal_binding.output_converter_id = "test.out.operator";
-  illegal_binding.input_ports = {};
-  illegal_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(illegal_binding));
 
   // 全量审计必须被这个未被选中的非法绑定阻断
   errors.clear();
   EXPECT_FALSE(reg.Audit(&errors));
-  bool found_missing_port_mapping = false;
+  bool found_missing_ingress = false;
   for (const auto& e : errors) {
     if (e.find("missing required biz ingress port: input_sentences") !=
         std::string::npos) {
-      found_missing_port_mapping = true;
+      found_missing_ingress = true;
     }
   }
-  EXPECT_TRUE(found_missing_port_mapping);
+  EXPECT_TRUE(found_missing_ingress);
 
   // 验证 SharedAlgorithmRuntime::GlobalInit() 也会因为 Audit 失败而返回冲突错误
   // (-6)
@@ -647,20 +575,15 @@ TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
 
   valid_binding.input_converter_id = "test.in.operator";
   valid_binding.output_converter_id = "test.out.operator";
-  valid_binding.input_ports = {{"texts", "input_sentences"}};
-  valid_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(valid_binding));
 
-  // 注册一个未被任何配置选中的非法绑定 (输入端口缺少必需端口)
+  // 注册一个未被任何配置选中的非法绑定 (输入端口不覆盖必需入口)
   IoBindingDefinition unselected_bad_binding;
   unselected_bad_binding.binding_id = "unselected_bad.operator.v1";
   unselected_bad_binding.biz_name = "test_biz_v1";
 
-  unselected_bad_binding.input_converter_id = "test.in.operator";
+  unselected_bad_binding.input_converter_id = RegisterUnmatchedInputConverter();
   unselected_bad_binding.output_converter_id = "test.out.operator";
-  // 故意遗漏必需输入映射 texts
-  unselected_bad_binding.input_ports = {};
-  unselected_bad_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(unselected_bad_binding));
 
   // 全量 Audit 必须对所有已注册绑定实行 Fail-Closed 检查
@@ -1132,8 +1055,6 @@ TEST_F(IoBindingRegistryTest, DefaultsAndOverridesKeepOptionalOutputOptIn) {
   binding.biz_name = "test_biz_v1";
   binding.input_converter_id = "test.in.operator";
   binding.output_converter_id = converter.converter_id;
-  binding.input_ports = {{"texts", "input_sentences"}};
-  binding.output_ports = {{"answers", "llm_answers"}};
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
 
   nlohmann::json document = {{"pipeline", DefaultPipelineNodes()}};
@@ -1293,8 +1214,6 @@ TEST_F(IoBindingRegistryTest,
   first.biz_name = "test_biz_v1";
   first.input_converter_id = input.converter_id;
   first.output_converter_id = output.converter_id;
-  first.input_ports = {{"texts", "input_sentences"}};
-  first.output_ports = {{"answers", "llm_answers"}};
   ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(first));
 
   input.converter_id = "equivalent.input.second";

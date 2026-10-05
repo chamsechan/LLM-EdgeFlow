@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+删除 IoBinding 的端口改名映射（`input_ports` / `output_ports`、`BindIoPort`、`EffectivePortMapping`）：
+转换器逻辑端口名即业务 Blackboard Key，注册审计直接按端口名核对业务出入口与类型；Catalog 与
+`validate-io` 不再输出 `*_port_mapping`。业务接入指南补充端口命名约定。Pipeline JSON 不变。
+
 对话合规审核的输出 Converter 直接使用业务出口键 `matched_policy`，删除只为改名存在的
 `kMatchedPolicies`（`matched_policies`）及其 Binding 端口映射；Pipeline 配置与外部契约不变。
 
