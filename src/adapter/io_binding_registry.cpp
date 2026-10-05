@@ -22,17 +22,6 @@ std::vector<std::string> EffectiveCapacityFields(
   return fields;
 }
 
-size_t EffectiveMaxBatchSize(const IoBindingDefinition& binding,
-                             const InputConverterDefinition& input,
-                             const OutputConverterDefinition& output) {
-  size_t limit = 0;
-  for (size_t candidate :
-       {binding.max_batch_size, input.max_batch_size, output.max_batch_size}) {
-    if (candidate != 0 && (limit == 0 || candidate < limit)) limit = candidate;
-  }
-  return limit;
-}
-
 IoBindingRegistry& IoBindingRegistry::Instance() {
   static IoBindingRegistry instance;
   return instance;
@@ -206,11 +195,10 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
       }
     }
 
-    if (in_conv && out_conv &&
-        EffectiveMaxBatchSize(binding, *in_conv, *out_conv) == 0) {
+    if (binding.max_batch_size == 0) {
       errors.push_back("Binding '" + biz_name +
-                       "' declares no batch limit: set max_batch_size on the "
-                       "binding or one of its converters");
+                       "' declares no batch limit: max_batch_size must be "
+                       "positive");
     }
 
     // 4. 检查对应槽位的 ValueType 绑定

@@ -125,14 +125,13 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
-  const size_t max_batch = EffectiveMaxBatchSize(*binding, *in_conv, *out_conv);
+  const size_t max_batch = binding->max_batch_size;
   if (max_batch == 0) {
     if (diagnostic) {
       diagnostic->code = "DEPLOYMENT_ERROR";
       diagnostic->path = "/deployment/io/io_binding";
-      diagnostic->message =
-          "Binding '" + binding->biz_name +
-          "' declares no batch limit on the binding or its converters";
+      diagnostic->message = "Binding '" + binding->biz_name +
+                            "' declares no batch limit (max_batch_size is 0)";
     }
     return false;
   }
