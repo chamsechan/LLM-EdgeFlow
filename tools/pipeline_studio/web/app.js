@@ -303,15 +303,6 @@ async function loadCatalog(binding = "") {
   return catalogRequests.run(
     () => api(`/catalog${binding ? `?io_binding=${encodeURIComponent(binding)}` : ""}`),
     catalog => {
-      if (catalog.schema_version !== 4) {
-        state.catalogReady = false;
-        const msg = `不支持的 Catalog 版本 (v${catalog.schema_version})，Pipeline Studio 要求 Catalog v4。请升级或重新构建后端工具。`;
-        toast(msg, true);
-        clearValidation(msg);
-        renderOperators();
-        renderAll();
-        return;
-      }
       state.catalog = catalog; state.catalogReady = true; renderOperators(); renderAll();
     }
   );
@@ -426,15 +417,6 @@ async function refreshLists() {
     await loadCatalog(pipelineBinding(state.pipeline));
   } else {
     catalogRequests.invalidate();
-    if (allCatalog.schema_version !== 4) {
-      state.catalogReady = false;
-      const msg = `不支持的 Catalog 版本 (v${allCatalog.schema_version})，Pipeline Studio 要求 Catalog v4。请升级或重新构建后端工具。`;
-      toast(msg, true);
-      clearValidation(msg);
-      renderOperators();
-      renderAll();
-      return;
-    }
     state.catalog = allCatalog;
     state.catalogReady = true;
     renderOperators();

@@ -162,7 +162,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
           if (def && diag->path.rfind(prefix, 0) == 0) {
             std::string field_name = diag->path.substr(prefix.size());
             ValidationRemediation rem;
-            rem.schema_version = 1;
             rem.cause = RemediationCause::kUnknownConfigField;
             rem.summary = "节点 '" + diag->node_id + "' 的配置包含未知字段 '" +
                           field_name + "'。";
@@ -201,7 +200,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
           }
           if (def && !field_name.empty()) {
             ValidationRemediation rem;
-            rem.schema_version = 1;
             rem.cause = RemediationCause::kMissingConfigField;
             rem.summary = "节点 '" + diag->node_id + "' 缺少必填配置字段 '" +
                           field_name + "'。";
@@ -248,7 +246,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
           }
           if (def && !field_name.empty()) {
             ValidationRemediation rem;
-            rem.schema_version = 1;
             rem.cause = RemediationCause::kInvalidConfigValue;
             rem.summary = "节点 '" + diag->node_id + "' 的配置项 '" +
                           field_name + "' 值不合法。";
@@ -303,7 +300,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
               std::string req_cap = dep.capability;
 
               ValidationRemediation rem;
-              rem.schema_version = 1;
               rem.cause = (diag->code == DiagnosticCode::kUnknownModelReference)
                               ? RemediationCause::kUnknownModelReference
                               : RemediationCause::kModelCapabilityMismatch;
@@ -406,7 +402,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
 
       if (producer_idx >= 0 && producer_out_type != expected_type) {
         ValidationRemediation rem;
-        rem.schema_version = 1;
         rem.cause = RemediationCause::kPortTypeMismatch;
         rem.summary = "生产者 '" + producer_id + "' 输出类型与端口 '" +
                       port_name + "' 要求不符。";
@@ -425,7 +420,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
         diag->remediation = std::move(rem);
       } else {
         ValidationRemediation rem;
-        rem.schema_version = 1;
         rem.cause = RemediationCause::kNoCompatibleInputSource;
         rem.summary =
             bound_key.empty()
@@ -469,7 +463,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       }
       if (!dup_dep.empty()) {
         ValidationRemediation rem;
-        rem.schema_version = 1;
         rem.cause = RemediationCause::kDuplicateDependency;
         rem.summary =
             "节点 '" + diag->node_id + "' 包含重复依赖 '" + dup_dep + "'。";
@@ -524,7 +517,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       }
 
       ValidationRemediation rem;
-      rem.schema_version = 1;
       rem.cause = RemediationCause::kUnknownDependency;
       rem.summary =
           "节点 '" + diag->node_id + "' 依赖了未知的节点 ID '" + dep_id + "'。";
@@ -534,7 +526,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
     }
   } else if (diag->code == DiagnosticCode::kMissingBizOutput) {
     ValidationRemediation rem;
-    rem.schema_version = 1;
     rem.cause = RemediationCause::kMissingBizOutput;
     rem.summary = "Pipeline 未产出 biz '" + root.value("biz_name", "") +
                   "' 所需的输出 '" + diag->port + "'。";

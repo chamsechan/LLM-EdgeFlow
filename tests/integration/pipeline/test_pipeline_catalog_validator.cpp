@@ -632,7 +632,6 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json fixtures;
   stream >> fixtures;
-  ASSERT_EQ(fixtures["schema_version"], 1);
 
   for (const auto& test : fixtures["cases"]) {
     SCOPED_TRACE(test["name"].get<std::string>());
@@ -845,7 +844,6 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   ASSERT_NE(target_diag, nullptr);
   ASSERT_TRUE(target_diag->remediation.has_value());
   const auto& rem = *target_diag->remediation;
-  EXPECT_EQ(rem.schema_version, 1);
   EXPECT_EQ(rem.cause, RemediationCause::kUnknownConfigField);
   EXPECT_EQ(rem.facts.value("field", ""), "temprature");
 
@@ -997,7 +995,6 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   }
   ASSERT_NE(target_diag, nullptr);
   ASSERT_TRUE(target_diag->remediation.has_value());
-  EXPECT_EQ(target_diag->remediation->schema_version, 1);
   EXPECT_NE(RemediationCauseName(target_diag->remediation->cause), "UNKNOWN");
   EXPECT_FALSE(target_diag->remediation->summary.empty());
   EXPECT_FALSE(target_diag->remediation->facts.empty());

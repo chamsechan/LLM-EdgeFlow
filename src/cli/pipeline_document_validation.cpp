@@ -29,9 +29,7 @@ DocumentValidationResult ValidatePipelineDocument(
                                   {"message", diag.message},
                                   {"severity", "error"}};
       nlohmann::json resp = {
-          {"schema_version", 1},
-          {"ok", false},
-          {"diagnostics", nlohmann::json::array({diag_item})}};
+          {"ok", false}, {"diagnostics", nlohmann::json::array({diag_item})}};
       if (mode == DocumentValidationMode::kPlan) {
         resp["plan"] = {{"layers", nlohmann::json::array()},
                         {"topological_order", nlohmann::json::array()}};

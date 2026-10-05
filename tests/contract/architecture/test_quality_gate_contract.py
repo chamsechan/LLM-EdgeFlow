@@ -565,7 +565,6 @@ def main():
                           "success", "failure", "cancelled"], env=evidence_env)
             assert result.returncode == 0, result.stdout + result.stderr
             report = json.loads(evidence.read_text())
-            assert report["schema_version"] == 3
             gates = report["gates"]
             assert gates == {"canonical_run_all_tests": "success",
                              "ci_runtime_address_undefined_sanitizer": "failure",

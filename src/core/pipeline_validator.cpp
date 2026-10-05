@@ -1160,8 +1160,7 @@ nlohmann::json ValidationRemediation::ToJson() const {
   for (const auto& fix : fixes) {
     fixes_json.push_back(fix.ToJson());
   }
-  return {{"schema_version", schema_version},
-          {"cause", RemediationCauseName(cause)},
+  return {{"cause", RemediationCauseName(cause)},
           {"summary", summary},
           {"facts", facts},
           {"fixes", std::move(fixes_json)}};
@@ -1188,8 +1187,7 @@ nlohmann::json ValidationReport::ToJson() const {
   for (const auto& diagnostic : diagnostics) {
     items.push_back(diagnostic.ToJson());
   }
-  return {{"schema_version", 1},
-          {"ok", ok},
+  return {{"ok", ok},
           {"diagnostics", std::move(items)},
           {"plan",
            {{"topological_order", topological_order},

@@ -380,17 +380,11 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   EXPECT_TRUE(DeploymentIoConfig::Parse(valid_cfg, tmp_dir, &parsed, &err));
   EXPECT_EQ(parsed.pipe_path, "test.json");
 
-  // 2. 拒绝旧 Schema 1 包装 (schema_version + data)
-  nlohmann::json old_schema1 = {
-      {"schema_version", 1},
-      {"data", {{"pipe_path", "test.json"}, {"io_binding", "test_biz"}}}};
-  EXPECT_FALSE(DeploymentIoConfig::Parse(old_schema1, tmp_dir, &parsed, &err));
-  EXPECT_NE(err.find("Unknown field"), std::string::npos);
-
   // 3. 拒绝顶层未知字段
   nlohmann::json bad_field = valid_cfg;
   bad_field["extra_field"] = "foo";
   EXPECT_FALSE(DeploymentIoConfig::Parse(bad_field, tmp_dir, &parsed, &err));
+  EXPECT_NE(err.find("Unknown field"), std::string::npos);
 
   // 5. 路径逃逸拒绝
   nlohmann::json escape_cfg = {{"pipe_path", "../../../etc/passwd"}};
@@ -423,11 +417,11 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
                 "Error in config file " + bad_conf_path + ": ", 0),
             0);
 
-  // 8. ReadFromFile 针对旧 Schema 1 报错同样携带配置文件路径上下文
-  const std::string dep_conf_path = tmp_dir + "/deprecated.conf";
+  // 8. ReadFromFile 针对未知字段报错同样携带配置文件路径上下文
+  const std::string dep_conf_path = tmp_dir + "/unknown_field.conf";
   {
     std::ofstream ofs(dep_conf_path);
-    ofs << old_schema1.dump();
+    ofs << bad_field.dump();
   }
   EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(dep_conf_path, &parsed,
                                                 &read_err, &read_diag));

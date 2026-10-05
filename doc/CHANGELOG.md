@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+开发工具 JSON 不再携带 `schema_version`：`alg_pipeline_tool` 各命令输出、Catalog、校验报告与
+remediation、`edit` 请求与响应、Pipeline Studio 接口、Demo 的 Profile 文件与结果文件、
+`dev_recipe` / `verify_selection` 报告、效果规格、资产清单和验收证据都删除该字段及对应的版本检查；
+`edit` 请求携带 `schema_version` 时按未知字段拒绝。kiteLLM 的 run config 属于第三方格式，保持不变。
+
 IoBinding 改以业务名标识：删除 `IoBindingDefinition::binding_id`，Pipeline 的 `deployment.io.io_binding`
 直接填写业务名（如 `keyword_match`），`catalog` / `init` 的 `--io-binding` 同样接受业务名。转换器 ID
 去掉 `.operator.v1` 后缀（如 `text.plain`）。Catalog 的 `io_bindings` 与 `validate-io` 不再输出
