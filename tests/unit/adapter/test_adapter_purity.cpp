@@ -144,13 +144,7 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
       "doc_answer.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings(
-          {{"raw_docs", "raw_docs"}, {"raw_queries", "raw_queries"}}),
-      OutputPortBindings({{"llm_answers", "llm_answers"},
-                          {"intent_matches", "intent_matches"},
-                          {"doc_chunk_counts", "doc_chunk_counts"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string doc_str = "Doc Content";
   std::string query_str = "Query Question";
@@ -205,10 +199,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
       "keyword.result.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings({{"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"rule_matches", "rule_matches"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string text_str = "Some text";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
@@ -239,10 +230,7 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
       "document.structured.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings({{"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"extracted_entities", "extracted_entities"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string text_str = "Entity text";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
@@ -272,12 +260,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
       "audit_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings(
-          {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}}),
-      OutputPortBindings({{"structured_verdicts", "structured_verdicts"},
-                          {"matched_policy", "matched_policy"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string text_str = "audit sentence";
   std::string chan_str = "channel_vip";
@@ -332,8 +315,6 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  InputPortBindings in_bindings(
-      {{"image_paths", "image_paths"}, {"user_queries", "user_queries"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
@@ -341,8 +322,7 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
 
   AlgContext ctx;
   AdapterStatus status;
-  ASSERT_EQ(in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status),
-            0);
+  ASSERT_EQ(in_conv->decode_fn(in_view, in_options, &ctx, &status), 0);
 
   StructuredDocumentBatch invoices;
   invoices.emplace_back(
@@ -362,17 +342,13 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   out_view.slot_types["od_out"] = "CompanyOdOutput";
   out_view.SetCapacity("od_out", "result_json", sizeof(od_fix.json) - 1);
 
-  OutputPortBindings out_bindings(
-      {{"extracted_invoice_json", "extracted_invoice_json"},
-       {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ASSERT_EQ(out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
-                                &written, &status),
-            0);
+  ASSERT_EQ(
+      out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status), 0);
 
   EXPECT_EQ(od_fix.out.request_id, 1005u);
   EXPECT_EQ(od_fix.out.detected_box_count, 1);
@@ -388,10 +364,7 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
       "audio_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv, InputPortBindings({{"audio_inputs", "audio_inputs"}}),
-      OutputPortBindings(
-          {{"transcripts", "transcripts"}, {"intent_slots", "intent_slots"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::vector<float> pcm(1600, 0.05f);
   CompanyOperatorAudioInput in{1006, pcm.data(), static_cast<int>(pcm.size()),
@@ -427,12 +400,7 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
       "rerank_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings({{"rerank_queries", "rerank_queries"},
-                         {"rerank_candidates", "rerank_candidates"},
-                         {"rerank_pairs", "rerank_pairs"}}),
-      OutputPortBindings({{"ranked_results", "ranked_results"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string q_str = "query";
   std::string cand0_str = "cand0";
@@ -476,10 +444,7 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
       "translate.json.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings({{"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"llm_answers", "llm_answers"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string json_query = "{\"query\":\"Hello\"}";
   CompanyString cs_text{static_cast<int32_t>(json_query.size()),
@@ -511,13 +476,9 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
       "doc_answer.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings out_bindings({{"llm_answers", "llm_answers"},
-                                   {"intent_matches", "intent_matches"},
-                                   {"doc_chunk_counts", "doc_chunk_counts"}});
-
   // 情形 1：缺少 llm_answers
   {
-    test::AdapterHarness harness(out_conv, out_bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
     DocOutputFixture fix;
     std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
@@ -526,7 +487,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 
   // 情形 2：有 llm_answers 但缺少 intent_matches -> 必须 fail-closed
   {
-    test::AdapterHarness harness(out_conv, out_bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
@@ -539,7 +500,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 
   // 情形 3：有 intent_matches 但缺少显式分块计数 -> 必须 fail-closed
   {
-    test::AdapterHarness harness(out_conv, out_bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
@@ -555,7 +516,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 
   // 情形 4：所有输出都存在，但缺少请求 ID 表
   {
-    test::AdapterHarness harness(out_conv, out_bindings);
+    test::AdapterHarness harness(out_conv);
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("llm_answers", std::move(answers));
@@ -578,8 +539,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     options.converter_id = out_conv->converter_id;
     AdapterStatus status;
     size_t written = 0;
-    EXPECT_EQ(out_conv->encode_fn(&harness.Context(), out_bindings, options,
-                                  &destination, &written, &status),
+    EXPECT_EQ(out_conv->encode_fn(&harness.Context(), options, &destination,
+                                  &written, &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
     EXPECT_EQ(status.FieldPath(), "request_ids");
   }
@@ -591,11 +552,7 @@ TEST_F(AdapterPurityTest,
       "audit_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings out_bindings(
-      {{"structured_verdicts", "structured_verdicts"},
-       {"matched_policy", "matched_policy"}});
-
-  test::AdapterHarness harness(out_conv, out_bindings);
+  test::AdapterHarness harness(out_conv);
   harness.SetRequestIds(std::vector<uint64_t>{1001});
 
   // structured_verdicts 缺少必填字段 'risk_level' -> 必须 fail-closed
@@ -621,14 +578,10 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
       "audit_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings out_bindings(
-      {{"structured_verdicts", "structured_verdicts"},
-       {"matched_policy", "matched_policy"}});
-
   for (const auto parse_status :
        {JsonParseStatus::kOk, JsonParseStatus::kFailed,
         JsonParseStatus::kFallbackApplied}) {
-    test::AdapterHarness harness(out_conv, out_bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{100, 200});
 
     StructuredDocumentBatch verdicts;
@@ -663,11 +616,9 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
       "keyword.result.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings out_bindings({{"rule_matches", "rule_matches"}});
-
   for (const auto& ids :
        {std::vector<uint32_t>{0, 0}, std::vector<uint32_t>{0, 2}}) {
-    test::AdapterHarness harness(out_conv, out_bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{100, 200});
     RuleMatchBatch matches;
     for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
@@ -685,9 +636,6 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
       "audit.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
 
-  InputPortBindings in_bindings(
-      {{"user_texts", "user_texts"}, {"channel_names", "channel_names"}});
-
   const std::string valid_channel(256, 'c');
   const std::string oversized_channel(257, 'c');
   std::string query_str = "test query";
@@ -696,7 +644,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
 
   // 合法长度 <= 256
   {
-    test::AdapterHarness harness(in_conv, in_bindings);
+    test::AdapterHarness harness(in_conv);
     CompanyString cs_chan{static_cast<int32_t>(valid_channel.size()),
                           const_cast<char*>(valid_channel.data())};
     CompanyOperatorAuditInput in{5001, &cs_query, &cs_chan};
@@ -705,7 +653,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
 
   // 超长 > 256
   {
-    test::AdapterHarness harness(in_conv, in_bindings);
+    test::AdapterHarness harness(in_conv);
     CompanyString cs_chan{static_cast<int32_t>(oversized_channel.size()),
                           const_cast<char*>(oversized_channel.data())};
     CompanyOperatorAuditInput in{5002, &cs_query, &cs_chan};
@@ -728,9 +676,6 @@ TEST_F(AdapterPurityTest,
       "doc_answer.plain.operator.v1");
   ASSERT_NE(op_conv, nullptr);
 
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"},
-                               {"intent_matches", "intent_matches"},
-                               {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions options;
   options.request_ids = &request_ids;
   options.converter_id = op_conv->converter_id;
@@ -754,8 +699,7 @@ TEST_F(AdapterPurityTest,
 
     size_t written = 0;
     AdapterStatus status;
-    int ret = op_conv->encode_fn(&ctx, bindings, options, &small_dest, &written,
-                                 &status);
+    int ret = op_conv->encode_fn(&ctx, options, &small_dest, &written, &status);
     EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   }
 
@@ -778,8 +722,7 @@ TEST_F(AdapterPurityTest,
 
     size_t written = 0;
     AdapterStatus status;
-    int ret = op_conv->encode_fn(&ctx, bindings, options, &op_dest, &written,
-                                 &status);
+    int ret = op_conv->encode_fn(&ctx, options, &op_dest, &written, &status);
     EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, 1U);
     EXPECT_EQ(op_out.request_id, 10U);
@@ -791,9 +734,6 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
   const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
       "doc_answer.plain.operator.v1");
   ASSERT_NE(converter, nullptr);
-  OutputPortBindings bindings({{"llm_answers", "llm_answers"},
-                               {"intent_matches", "intent_matches"},
-                               {"doc_chunk_counts", "doc_chunk_counts"}});
   const std::vector<uint64_t> request_ids{42};
   OutputEncodeOptions options;
   options.request_ids = &request_ids;
@@ -825,8 +765,7 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
     size_t written = 0;
     AdapterStatus status;
     EXPECT_EQ(
-        converter->encode_fn(&context, bindings, options, &view, &written,
-                             &status),
+        converter->encode_fn(&context, options, &view, &written, &status),
         overflow ? COMPANY_ALG_ERR_BUFFER_TOO_SMALL : COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, overflow ? 0U : 1U);
     EXPECT_STREQ(intent, "QA");
@@ -852,8 +791,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
       "translate.json.operator.v1");
   ASSERT_NE(in_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, InputPortBindings({{"input_sentences", "input_sentences"}}));
+  test::AdapterHarness harness(in_conv);
 
   std::string buffer = "{\"query\":\"original query\"}";
   CompanyString cs_buf{static_cast<int32_t>(buffer.size()), buffer.data()};
@@ -878,10 +816,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
       "translate.json.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, out_conv,
-      InputPortBindings({{"input_sentences", "input_sentences"}}),
-      OutputPortBindings({{"llm_answers", "llm_answers"}}));
+  test::AdapterHarness harness(in_conv, out_conv);
 
   std::string q0 = "{\"query\":\"q0\"}";
   std::string q1 = "{\"query\":\"q1\"}";
@@ -916,8 +851,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
       "translate.json.operator.v1");
   ASSERT_NE(in_conv, nullptr);
 
-  test::AdapterHarness harness(
-      in_conv, InputPortBindings({{"input_sentences", "input_sentences"}}));
+  test::AdapterHarness harness(in_conv);
 
   std::string valid_q = "{\"query\":\"valid\"}";
   std::string invalid_q = "invalid json";
@@ -940,10 +874,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
       "doc_answer.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(
-      out_conv, OutputPortBindings({{"llm_answers", "llm_answers"},
-                                    {"intent_matches", "intent_matches"},
-                                    {"doc_chunk_counts", "doc_chunk_counts"}}));
+  test::AdapterHarness harness(out_conv);
 
   harness.SetRequestIds(std::vector<uint64_t>{1001, 2002});
 
@@ -1006,9 +937,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
 
   // 用 entity binding 解码输入
   {
-    test::AdapterHarness harness(
-        entity_conv,
-        InputPortBindings({{"input_sentences", "input_sentences"}}));
+    test::AdapterHarness harness(entity_conv);
     std::string text_str = "entity sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
@@ -1022,9 +951,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
 
   // 用 keyword binding 解码输入
   {
-    test::AdapterHarness harness(
-        keyword_conv,
-        InputPortBindings({{"input_sentences", "input_sentences"}}));
+    test::AdapterHarness harness(keyword_conv);
     std::string text_str = "keyword sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
@@ -1060,11 +987,9 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
       "document.structured.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  OutputPortBindings bindings({{"extracted_entities", "extracted_entities"}});
-
   // 上下文 A：实体抽取 Pipeline 的输出
   {
-    test::AdapterHarness harness(out_conv, bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{9001});
     StructuredDocumentBatch batch;
     batch.emplace_back(
@@ -1082,7 +1007,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
 
   // 上下文 B：产出相同 schema 的通用结构化 JSON Pipeline 输出
   {
-    test::AdapterHarness harness(out_conv, bindings);
+    test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{9002});
     StructuredDocumentBatch batch;
     batch.emplace_back(
@@ -1110,11 +1035,9 @@ TEST_F(AdapterPurityTest,
       ExternalSlotDefinition("inputs", "CustomMultiFieldInput",
                              PortDirection::kInput, true, "custom_input")};
   custom_in_def.max_batch_size = 64;
-  custom_in_def.logical_ports = {
-      NodePortDefinition("texts", "TextBatch", true, "1:1")};
+  custom_in_def.logical_ports = {OutputPort(kInputSentences)};
   custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
                                const InputDecodeOptions& options,
-                               const InputPortBindings& bindings,
                                AlgContext* ctx, AdapterStatus* status) -> int {
     std::vector<uint64_t> ids;
     TextBatch texts;
@@ -1129,7 +1052,7 @@ TEST_F(AdapterPurityTest,
     if (!PublishRequestIds(options, std::move(ids), status)) {
       return status->Code();
     }
-    ctx->Publish(bindings.GetActualKey("texts"), texts);
+    ctx->Publish(kInputSentences, texts);
     return 0;
   };
 
@@ -1151,14 +1074,13 @@ TEST_F(AdapterPurityTest,
     view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
     view.count = 1;
 
-    InputPortBindings bindings({{"input_sentences", "input_sentences"}});
     std::vector<uint64_t> request_ids;
     InputDecodeOptions opts;
     opts.request_ids = &request_ids;
     opts.converter_id = in_a->converter_id;
 
     AdapterStatus st;
-    ASSERT_EQ(in_a->decode_fn(view, opts, bindings, &ctx_a, &st), 0);
+    ASSERT_EQ(in_a->decode_fn(view, opts, &ctx_a, &st), 0);
   }
 
   // 格式 B：经 test.multi_field.operator.v1 的 CustomMultiFieldInput
@@ -1173,14 +1095,13 @@ TEST_F(AdapterPurityTest,
     view.slot_types["inputs"] = "CustomMultiFieldInput";
     view.count = 1;
 
-    InputPortBindings bindings({{"texts", "input_sentences"}});
     std::vector<uint64_t> request_ids;
     InputDecodeOptions opts;
     opts.request_ids = &request_ids;
     opts.converter_id = in_b->converter_id;
 
     AdapterStatus st;
-    ASSERT_EQ(in_b->decode_fn(view, opts, bindings, &ctx_b, &st), 0);
+    ASSERT_EQ(in_b->decode_fn(view, opts, &ctx_b, &st), 0);
   }
 
   const auto* texts_a = ctx_a.Read<TextBatch>("input_sentences");
@@ -1201,9 +1122,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     ASSERT_NE(out_a, nullptr);
     EntityOutputFixture fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {fix.out};
-    test::AdapterHarness harness(
-        out_a,
-        OutputPortBindings({{"extracted_entities", "extracted_entities"}}));
+    test::AdapterHarness harness(out_a);
     harness.SetRequestIds(std::vector<uint64_t>{5001});
     harness.Publish(
         "extracted_entities",
@@ -1224,8 +1143,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     ASSERT_NE(out_b, nullptr);
     KeywordOutputFixture fix;
     std::vector<CompanyOperatorKeywordOutput> outputs = {fix.out};
-    test::AdapterHarness harness(
-        out_b, OutputPortBindings({{"rule_matches", "rule_matches"}}));
+    test::AdapterHarness harness(out_b);
     harness.SetRequestIds(std::vector<uint64_t>{5001});
     RuleMatchItem urgent(1, "URGENT", "急", 1.0f);
     urgent.slots["flag"] = "urgent";
@@ -1260,7 +1178,6 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   plain_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   plain_view.count = 1;
 
-  InputPortBindings bindings({{"input_sentences", "input_sentences"}});
   std::vector<uint64_t> request_ids;
   InputDecodeOptions opts;
   opts.request_ids = &request_ids;
@@ -1270,7 +1187,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     AlgContext ctx;
     AdapterStatus st;
     opts.converter_id = plain_conv->converter_id;
-    EXPECT_EQ(plain_conv->decode_fn(plain_view, opts, bindings, &ctx, &st), 0);
+    EXPECT_EQ(plain_conv->decode_fn(plain_view, opts, &ctx, &st), 0);
     const auto* s = ctx.Read<TextBatch>("input_sentences");
     ASSERT_NE(s, nullptr);
     EXPECT_EQ((*s)[0].data, "Hello plain text");
@@ -1281,7 +1198,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     AlgContext ctx;
     AdapterStatus st;
     opts.converter_id = json_conv->converter_id;
-    EXPECT_EQ(json_conv->decode_fn(plain_view, opts, bindings, &ctx, &st),
+    EXPECT_EQ(json_conv->decode_fn(plain_view, opts, &ctx, &st),
               COMPANY_ALG_ERR_INVALID_INPUT);
     EXPECT_EQ(st.FieldPath(), "json");
   }
@@ -1300,7 +1217,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     AlgContext ctx;
     AdapterStatus st;
     opts.converter_id = json_conv->converter_id;
-    EXPECT_EQ(json_conv->decode_fn(json_view, opts, bindings, &ctx, &st), 0);
+    EXPECT_EQ(json_conv->decode_fn(json_view, opts, &ctx, &st), 0);
     const auto* s = ctx.Read<TextBatch>("input_sentences");
     ASSERT_NE(s, nullptr);
     EXPECT_EQ((*s)[0].data, "Hello JSON");

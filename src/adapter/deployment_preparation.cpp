@@ -13,19 +13,6 @@
 #include "core/pipeline_config.h"
 
 namespace llm_edgeflow {
-namespace {
-
-// Converter 的逻辑端口名就是 Blackboard 键。
-std::unordered_map<std::string, std::string> SameNamedKeys(
-    const std::vector<NodePortDefinition>& ports) {
-  std::unordered_map<std::string, std::string> keys;
-  for (const auto& port : ports)
-    keys.emplace(port.logical_name, port.logical_name);
-  return keys;
-}
-
-}  // namespace
-
 bool PrepareDeploymentDocument(const nlohmann::json& document,
                                const DeploymentPrepareOptions& options,
                                PreparedDeployment* output,
@@ -244,10 +231,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   local_prep.binding = *binding;
   local_prep.input_converter = in_conv;
   local_prep.output_converter = out_conv;
-  local_prep.input_port_bindings =
-      InputPortBindings(SameNamedKeys(in_conv->logical_ports));
-  local_prep.output_port_bindings =
-      OutputPortBindings(SameNamedKeys(out_conv->logical_ports));
   local_prep.effective_max_batch_size = max_batch;
   local_prep.output_specs = std::move(local_output_specs);
   local_prep.output_parameter_texts = std::move(local_output_params);

@@ -44,11 +44,9 @@ AdapterStatus DecodeAudio(const CompanyOperatorAudioInput& input,
 
 int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
-                             const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorAudioInput>(
-      source, options, bindings, context, status, kInputSlot, kAudioInputs,
-      &DecodeAudio);
+      source, options, context, status, kInputSlot, kAudioInputs, &DecodeAudio);
 }
 
 InputConverterDefinition MakeOperatorAudioInputConverter() {

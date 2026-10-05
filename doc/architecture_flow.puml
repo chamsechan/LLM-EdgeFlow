@@ -33,7 +33,7 @@ package "创建期：接入准备与统一校验" {
   artifact "PreparedDeployment\n中性 Pipeline JSON + PipelineIoBoundary" as Prepared
   component "PipelineValidator\n显式 DAG / 类型端口 / 并发写冲突" as Validator
   artifact "ValidatedPipelinePlan" as PipelinePlan
-  artifact "ValidatedIoPlan\nI/O Definition 与端口映射\n输出池规格 + Pipeline 计划" as IoPlan
+  artifact "ValidatedIoPlan\nConverter 选择与 I/O 边界\n输出池规格 + Pipeline 计划" as IoPlan
 }
 
 package "运行期：C++ Operator SDK" {

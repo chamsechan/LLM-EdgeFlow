@@ -19,7 +19,6 @@ constexpr const char* kQuerySlot = "string";
 
 int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
-                                  const InputPortBindings& bindings,
                                   AlgContext* context, AdapterStatus* status) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -75,10 +74,10 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kImagePaths), std::move(raw_images),
+          *context, kImagePaths, std::move(raw_images),
           options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key(kUserQueries), std::move(raw_queries),
+          *context, kUserQueries, std::move(raw_queries),
           options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }

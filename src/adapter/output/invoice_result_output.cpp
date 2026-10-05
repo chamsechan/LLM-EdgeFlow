@@ -17,7 +17,6 @@ namespace {
 constexpr const char* kOutputSlot = "od_out";
 
 int EncodeOperatorInvoiceResult(AlgContext* context,
-                                const OutputPortBindings& bindings,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
                                 size_t* written_count, AdapterStatus* status) {
@@ -27,12 +26,11 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* invoice_jsons = ReadOutputValue(
-      *context, bindings, kExtractedInvoiceJson, options, status);
+  const auto* invoice_jsons =
+      ReadOutputValue(*context, kExtractedInvoiceJson, options, status);
   if (!invoice_jsons) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* ocr_docs =
-      ReadOutputValue(*context, bindings, kOcrDocs, options, status);
+  const auto* ocr_docs = ReadOutputValue(*context, kOcrDocs, options, status);
   if (!ocr_docs) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);

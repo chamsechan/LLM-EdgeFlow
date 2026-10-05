@@ -19,7 +19,6 @@ namespace {
 constexpr const char* kOutputSlot = "audit_out";
 
 int EncodeOperatorAuditResult(AlgContext* context,
-                              const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
@@ -29,12 +28,12 @@ int EncodeOperatorAuditResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* verdicts = ReadOutputValue(
-      *context, bindings, kStructuredVerdicts, options, status, "verdicts");
+  const auto* verdicts = ReadOutputValue(*context, kStructuredVerdicts, options,
+                                         status, "verdicts");
   if (!verdicts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* matched_policy =
-      ReadOutputValue(*context, bindings, kMatchedPolicy, options, status);
+      ReadOutputValue(*context, kMatchedPolicy, options, status);
   if (!matched_policy) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
