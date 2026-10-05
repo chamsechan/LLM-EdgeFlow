@@ -32,10 +32,9 @@ struct BatchSlice {
  */
 class FixedBatchExecutor {
  public:
-  // Single-item model semantics on a dynamic session. Tensor/fixed-batch
-  // models continue to use Execute and explicitly prepare their padded batch.
-  // The callback owns only one input -> one output; Execute owns provenance and
-  // rollback. exception_code preserves a model's established exception mapping.
+  // 动态会话上的单条目模型语义。张量/固定批模型仍使用 Execute，并显式准备
+  // 填充后的批。回调只负责一个输入 -> 一个输出；Execute 负责来源追踪和
+  // 回滚。exception_code 保留模型既有的异常映射。
   template <typename TIn, typename TOut, typename RunItem>
   static int ExecuteItems(const std::vector<TraceableItem<TIn>>& inputs,
                           const BatchPolicy& policy, RunItem&& run_item,

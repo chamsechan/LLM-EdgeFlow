@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise canonical gate arguments, failure propagation and CI evidence."""
+"""覆盖规范门禁的参数、失败传播和 CI 证据。"""
 
 import json
 import os
@@ -123,7 +123,7 @@ elif name == "gh":
 
 
 def check_delivery_history_contract(root):
-    """Use real Git graphs and a local remote to prove the PR history policy."""
+    """使用真实的 Git 图和本地远端证明 PR 历史策略。"""
     fixture = root / "delivery history"
     project = fixture / "project"
     project.mkdir(parents=True)
@@ -473,7 +473,7 @@ def cache_values(build):
 
 
 def check_cache_reset(root, configurations):
-    """Apply the actual script commands and shared profiles to stale CMake caches."""
+    """对过期的 CMake 缓存应用实际的脚本命令和共享 Profile。"""
     fixture = root / "fixture"
     fixture.mkdir()
     shutil.copy2(ROOT / "CMakePresets.json", fixture / "CMakePresets.json")
@@ -488,7 +488,7 @@ def check_cache_reset(root, configurations):
     backend_flags = {"minimal": (), "dev-gate": ("ONNXRUNTIME", "LLAMACPP"),
                      "default-cpu": ("ONNXRUNTIME", "LLAMACPP", "WHISPERCPP"),
                      "kite-cpu": ("ONNXRUNTIME", "KITELLM")}
-    # Also check every supported direct profile, including the Kite build.
+    # 同时检查所有支持的直接 Profile，包括 Kite 构建。
     configurations += [(None, preset, False, False) for preset in backend_flags]
     for command, preset, sanitizer, real_models in configurations:
         expected = {"BUILD_TESTING": "ON", "ENABLE_SANITIZERS": "ON" if sanitizer else "OFF",
@@ -502,7 +502,7 @@ def check_cache_reset(root, configurations):
         result = run([cmake, "-S", str(fixture), "-B", str(build), "-G", generator, *stale, "-DCMAKE_BUILD_TYPE=RelWithDebInfo"])
         assert result.returncode == 0, result.stdout + result.stderr
         if command is None:
-            # Exercise profile resolution from outside the fixture's source cwd.
+            # 从夹具源码目录之外解析 Profile。
             actual = [str(ROOT / "scripts/configure_build.sh"), str(fixture), str(build), preset]
         else:
             actual = [cmake, *command[1:]]
@@ -541,8 +541,8 @@ def main():
         assert "KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}" in workflow
         assert "run: ./scripts/fetch_real_test_models.sh --gguf-only" not in workflow
         assert "run: ./scripts/fetch_real_test_models.sh --whisper" not in workflow
-        # Each ccache job falls back to its own main snapshot before any shared prefix, and
-        # every restored ccache is saved through the pruning action.
+        # 每个 ccache 作业先回退到自身的 main 快照，再回退到共享前缀，
+        # 且每个恢复的 ccache 都会通过清理 action 保存。
         for prefix in ("ccache-real-", "ccache-whisper-"):
             assert f"            {prefix}${{{{ runner.os }}}}-\n" in workflow, prefix
         assert "uses: actions/cache@v4\n        with:\n          path: ${{ env.CCACHE_DIR }}" \

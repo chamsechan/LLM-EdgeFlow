@@ -1,5 +1,5 @@
-// Standalone Linux measurement of traceable batch operation construction.
-// Checks output counts and reports median duration and process peak RSS.
+// 在 Linux 上独立测量 traceable 批处理操作的构造开销。
+// 校验输出数量，并报告中位耗时和进程峰值 RSS。
 #include "nodes/traceable_batch_operations.h"
 
 #include <sys/resource.h>
@@ -24,7 +24,7 @@ double Measure(Fn fn, size_t expected_size) {
     if (!result.ok() || result.value().size() != expected_size) {
       throw std::runtime_error("Unexpected benchmark output");
     }
-    if (round > 0) {  // One warmup, then seven measured constructions.
+    if (round > 0) {  // 一次预热，随后测量七次构造。
       times.push_back(
           std::chrono::duration<double, std::milli>(end - start).count());
     }

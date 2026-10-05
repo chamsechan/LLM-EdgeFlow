@@ -47,7 +47,7 @@ struct NodeControlResult {
 struct NodeInitContext {
   const ValidatedNodePlan* plan = nullptr;
   SessionContext* session_ctx = nullptr;
-  // Borrowed only for Init; do not store this pointer in a Node.
+  // 仅在 Init 期间借用；Node 不得保存此指针。
   std::string* diagnostic = nullptr;
 
   bool Fail(std::string_view message) const noexcept {

@@ -4,8 +4,8 @@ namespace llm_edgeflow {
 
 namespace {
 
-// Default protocol carrier label: the external slot types in declaration
-// order, e.g. "CompanyFrame,CompanyString".
+// 默认协议载体标签：按声明顺序列出外部槽位类型，
+// 如 "CompanyFrame,CompanyString"。
 std::string JoinedSlotTypes(const std::vector<ExternalSlotDefinition>& slots) {
   std::string joined;
   for (const auto& slot : slots) {

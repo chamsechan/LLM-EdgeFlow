@@ -6,19 +6,18 @@
 
 namespace llm_edgeflow {
 
-// Developer-tool guidance layered on Validator diagnostics. Rules still come
-// only from PipelineValidator; this code classifies its diagnostics, adds
-// facts and a summary, and proposes JSON Patch fixes that the Validator
-// confirms on the patched document. It is not compiled into the SDK.
+// 建立在 Validator 诊断之上的开发工具指引。规则仍只来自 PipelineValidator；
+// 此处对诊断分类，补充事实和摘要，并给出 JSON Patch 修复建议，由 Validator
+// 在打补丁后的文档上确认。不编译进 SDK。
 
-// Adds remediation cause, facts and summary to each diagnostic of report.
+// 为 report 中每条诊断补充修复原因、事实和摘要。
 void AttachRemediation(const nlohmann::json& root, ValidationReport* report);
 
 ValidationReport ValidateWithRemediation(
     const nlohmann::json& root,
     const PipelineIoBoundary* io_boundary = nullptr);
 
-// Also keeps up to three verified fixes per diagnostic.
+// 每条诊断另外最多保留三个已验证的修复。
 ValidationReport ExplainPipeline(
     const nlohmann::json& root,
     const PipelineIoBoundary* io_boundary = nullptr);

@@ -230,8 +230,7 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   NamedIoBatch outputs(1);
   outputs[0]["invalid_output_key"] = nullptr;
 
-  // Both sides are invalid: carrier validation must win over output key
-  // parsing.
+  // 两侧均非法：载体校验必须优先于输出键解析。
   EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_NE(std::string(GetOperatorLastError())
@@ -269,8 +268,8 @@ TEST_F(OperatorSafetyTest,
   ASSERT_EQ(op.Create(&raw_handle, &param), 0);
   std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
 
-  // Only the second sample matches a category whose serialized result exceeds
-  // the configured 2047-byte capacity. The first sample can encode normally.
+  // 只有第二个样本命中的类别序列化后超过配置的 2047 字节容量，
+  // 第一个样本可以正常编码。
   const std::string rules =
       "{\"categories\":{\"" + std::string(2100, 'x') + "\":[\"overflow\"]}}";
   ControlUpdateRulesParam control{rules.c_str()};
@@ -297,8 +296,8 @@ TEST_F(OperatorSafetyTest,
     EXPECT_EQ(output.at("client.keyword_out"), nullptr);
   }
 
-  // Reusing a depth-two pool for another two-item batch proves all failed
-  // leases were returned, including the already encoded first sample.
+  // 用深度为 2 的池再处理一个两条目批次，证明所有失败的租约都已归还，
+  // 包括已编码的第一个样本。
   second.sentence_text = &first_text;
   ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS);
   for (size_t i = 0; i < outputs.size(); ++i) {
@@ -654,8 +653,7 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   EXPECT_EQ(out0.status_code, 0);
   EXPECT_STREQ(out0.entities_json->data, "[\"valid_entity\"]");
 
-  // Sample 1: request_id was written, but status_code and entities_json
-  // retained sentinels
+  // 样本 1：request_id 已写入，但 status_code 和 entities_json 仍保留哨兵值
   EXPECT_EQ(out1.request_id, 2002u);
   EXPECT_EQ(out1.status_code, -777);
   EXPECT_STREQ(out1.entities_json->data, "SENTINEL_PAYLOAD");

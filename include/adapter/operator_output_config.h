@@ -4,8 +4,8 @@
 
 namespace llm_edgeflow {
 
-// Select a field of one output's configuration. These are framework fields,
-// distinct from the structure-specific enums inside kParameters.
+// 选择某个输出配置中的字段。这些是框架字段，
+// 区别于 kParameters 内各结构自有的枚举。
 enum class OutputConfigField {
   kAllocator,
   kParameters,
@@ -14,10 +14,9 @@ enum class OutputConfigField {
   kMetadataTypeId
 };
 
-// Creation-time Integration component, independent of Pipeline execution.
-// The JSON implementation returns serialized JSON values (including quotes for
-// strings); other configuration carriers can implement the same text boundary.
-// Structure allocators receive only the resulting parameter text.
+// 创建期的接入适配层组件，独立于 Pipeline 执行。JSON 实现返回序列化后的
+// JSON 值 (字符串含引号)；其他配置载体可实现同样的文本边界。
+// 结构分配器只接收最终的参数文本。
 class OutputConfigReader {
  public:
   virtual ~OutputConfigReader() = default;

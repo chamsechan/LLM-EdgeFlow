@@ -86,7 +86,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
 
   std::vector<OwnedExternalBlock> all_blocks_;
   std::vector<void*> free_ring_;
-  // The FIFO insertion position is (free_head_ + free_count_) % ring size.
+  // FIFO 插入位置为 (free_head_ + free_count_) % 环大小。
   size_t free_head_ = 0;
   size_t free_count_ = 0;
   std::unordered_map<void*, BlockState> block_states_;

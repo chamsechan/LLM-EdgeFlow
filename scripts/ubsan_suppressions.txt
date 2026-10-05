@@ -1,4 +1,4 @@
-# LLM-EdgeFlow UBSan Suppressions File
-# Suppress known third-party null pointer offset calculations in ggml.c
+# LLM-EdgeFlow UBSan 抑制文件
+# 抑制 ggml.c 中已知的第三方空指针偏移计算
 pointer-overflow:ggml.c
 null:ggml.c

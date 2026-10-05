@@ -14,7 +14,7 @@ namespace custom_nodes {
 
 namespace {
 
-// Ordinary, owned configuration used by processing after initialization.
+// 初始化后供处理阶段使用的普通自有配置。
 struct PromptConfig {
   std::vector<TextTemplateToken> prompt_parts;
   bool uses_context = false;
@@ -23,8 +23,8 @@ struct PromptConfig {
   GenerateOptions generation;
 };
 
-// Fields have already been validated and defaulted. Keep only this Node's
-// semantic conversion here; request values never enter configuration parsing.
+// 字段已校验并填充默认值。此处只保留本 Node 的语义转换；
+// 请求值从不进入配置解析。
 bool ParsePromptConfig(const nlohmann::json& config, PromptConfig* parameters,
                        std::string* error) {
   auto reject = [&](const std::string& message) {
@@ -73,7 +73,7 @@ std::vector<ConfigFieldDefinition> PromptConfigFields() {
                              {},
                              "在渲染模板前追加的普通文本及换行；模型的 system "
                              "角色请使用 model_config.system_prompt。"}});
-  // Preserve the Catalog presentation order without assuming a field index.
+  // 保持 Catalog 展示顺序，不假设字段索引。
   const auto stop_words = std::find_if(
       fields.begin(), fields.end(),
       [](const auto& field) { return field.name == "stop_words"; });
@@ -96,7 +96,7 @@ const NodeConfigParser<PromptConfig>& PromptConfiguration() {
   return parser;
 }
 
-// Pure algorithm: renders prompt template with optional prefix and variables.
+// 纯算法：使用可选前缀和变量渲染 prompt 模板。
 std::string RenderPromptFromParts(const std::string& prefix,
                                   const std::vector<TextTemplateToken>& parts,
                                   const std::string& input,
@@ -115,7 +115,7 @@ std::string RenderPromptFromParts(const std::string& prefix,
   return result;
 }
 
-// Pure algorithm: removes markdown code fences from LLM responses.
+// 纯算法：移除 LLM 响应中的 Markdown 代码围栏。
 std::string StripMarkdownCodeFence(std::string_view text) {
   size_t start = text.find_first_not_of(" \t\r\n");
   if (start == std::string_view::npos) return "";

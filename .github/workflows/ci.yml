@@ -16,7 +16,7 @@ jobs:
     name: Build & GTest Regression Suite (CMake 3.19)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    # actions: write 允许 ccache-save 清理本 ref 已被取代的快照。
     permissions:
       contents: read
       actions: write
@@ -35,7 +35,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # CMake comes from the pinned 3.19 archive below; Java only needs to run PlantUML.
+      # CMake 来自下方固定的 3.19 归档；Java 仅用于运行 PlantUML。
       - name: Set up Build Environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -94,7 +94,7 @@ jobs:
     name: Production Backends ASan & UBSan
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    # actions: write 允许 ccache-save 清理本 ref 已被取代的快照。
     permissions:
       contents: read
       actions: write
@@ -113,7 +113,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # sanitizer-runtime excludes the tooling tests that need Java.
+      # sanitizer-runtime 不包含需要 Java 的工具测试。
       - name: Set up Build Environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -134,7 +134,7 @@ jobs:
         uses: ./.github/actions/ccache-restore
         with:
           path: ${{ env.CCACHE_DIR }}
-          # Restore the latest accessible snapshot; save a new one scoped to ref and commit sha
+          # 恢复最新的可访问快照；保存按 ref 和 commit sha 划分的新快照
           key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
             sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.ref }}-
@@ -158,7 +158,7 @@ jobs:
     name: Real GGUF Operator & Profile
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    # actions: write 允许 ccache-save 清理本 ref 已被取代的快照。
     permissions:
       contents: read
       actions: write
@@ -196,8 +196,7 @@ jobs:
           restore-keys: |
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      # Fall back to this job's main snapshot before the default gate's differently
-      # configured cache.
+      # 先回退到本作业的 main 快照，再回退到默认门禁那份配置不同的缓存。
       - name: Restore CCache
         uses: ./.github/actions/ccache-restore
         with:
@@ -233,7 +232,7 @@ jobs:
     name: Whisper ASR Backend & Real Profile
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    # actions: write 允许 ccache-save 清理本 ref 已被取代的快照。
     permissions:
       contents: read
       actions: write
@@ -308,15 +307,15 @@ jobs:
 
   kite-llm:
     name: kiteLLM Private Release & Real GGUF
-    # Fork PRs and Dependabot do not receive repository secrets. Keep this job
-    # on trusted events; do not switch it to pull_request_target.
+    # Fork PR 和 Dependabot 拿不到仓库 secrets。本作业只在可信事件上运行，
+    # 不要改为 pull_request_target。
     if: >-
       github.actor != 'dependabot[bot]' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # actions: write lets ccache-save prune superseded snapshots for this ref.
+    # actions: write 允许 ccache-save 清理本 ref 已被取代的快照。
     permissions:
       contents: read
       actions: write
@@ -364,8 +363,8 @@ jobs:
             kite-ccache-${{ runner.os }}-${{ github.ref }}-
             kite-ccache-${{ runner.os }}-
 
-      # Only the public model artifacts are cached. Private kiteLLM headers, libraries and
-      # linked executables must not enter this public repository's caches/artifacts.
+      # 只缓存公开的模型文件。私有 kiteLLM 头文件、库和链接后的可执行文件
+      # 不得进入本公开仓库的缓存或制品。
       - name: Cache Pinned Kite Demo Models
         uses: actions/cache@v4
         with:

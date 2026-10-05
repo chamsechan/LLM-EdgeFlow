@@ -16,10 +16,9 @@
 namespace llm_edgeflow {
 
 /**
- * @brief Connection facts of input ports captured defensively during Init.
+ * @brief Init 期间防御性捕获的输入端口连接事实。
  *
- * Immutable after initialization; distinguishes semantic-only parsing from
- * validation against explicit input bindings.
+ * 初始化后不可变；用于区分仅做语义解析与按显式输入绑定校验。
  */
 struct BindingFacts {
   bool has_bindings = false;
@@ -43,16 +42,14 @@ inline BindingFacts MakeBindingFacts(const NodeInitContext& ctx) {
 }
 
 /**
- * @brief Thread-safe configuration snapshot manager for node instances.
+ * @brief Node 实例的线程安全配置快照管理器。
  *
- * Enforces:
- * - Atomic snapshot acquisition for readers via atomic load acquire (without
- * the writer mutex; shared_ptr atomic operations may use internal locks).
- * - Serialized, transaction-safe candidate building and atomic publication for
- * writers.
- * - Readers safely retain old snapshots for arbitrary batch duration.
- * - Failed candidate building / validation never overwrites active
- * configuration.
+ * 保证：
+ * - 读者通过 atomic load acquire 原子获取快照 (不持有写锁；shared_ptr
+ *   的原子操作可能使用内部锁)。
+ * - 写者串行、事务安全地构建候选配置并原子发布。
+ * - 读者可在任意批次处理期间安全持有旧快照。
+ * - 候选构建或校验失败绝不覆盖当前生效的配置。
  */
 template <typename State>
 class ConfigurationSnapshot {

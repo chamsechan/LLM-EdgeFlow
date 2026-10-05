@@ -24,8 +24,8 @@ def encode_request(payload):
     request = json.loads(payload)
     if not isinstance(request, dict):
         raise ValueError("Input must be a JSON object")
-    # Only normalize whitespace for the line-based dataset reader. All fields
-    # reach the SDK; query selection and validation belong to its Adapter.
+    # 仅为按行读取的数据集读取器规整空白。所有字段都会送达 SDK；
+    # query 的选择与校验归其 Adapter 负责。
     return dump_compact_json(request)
 
 
@@ -50,7 +50,7 @@ def collect_responses(result_file, count):
         document = record.get("output", {}).get("entities")
         if not isinstance(document, dict):
             raise ValueError("Demo result must contain a JSON response object")
-        # Forward the complete SDK response. No business field projection here.
+        # 原样转发完整的 SDK 响应，此处不做业务字段投影。
         responses[request_id] = dump_compact_json(document)
     return [responses[30001 + i] for i in range(count)]
 
@@ -63,7 +63,7 @@ def _run_demo_impl(requests, config, work_dir, executable):
         str(executable), "--config", str(config),
         "--dataset", str(dataset), "--output-dir", str(output_dir),
     ]
-    # Keep native diagnostic output out of the JSON string response stream.
+    # 原生诊断输出不混入 JSON 字符串响应流。
     with (work_dir / "demo.log").open("w", encoding="utf-8") as log:
         result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
     if result.returncode:
@@ -94,14 +94,14 @@ def main(argv=None):
             payloads = args.dataset.read_text(encoding="utf-8").splitlines()
         else:
             payloads = [args.input if args.input is not None else sys.stdin.read()]
-        # Reject invalid requests before creating run artifacts or starting a model.
+        # 在创建运行产物或启动模型前拒绝非法请求。
         texts = prepare_requests(payloads)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         work_dir = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
         print(f"Demo artifacts: {work_dir}", file=sys.stderr)
         responses = _run_demo_impl(texts, args.config,
                                    work_dir, args.demo_bin.resolve())
-        # Validate the entire run before publishing any response.
+        # 整次运行校验通过后才发布任何响应。
         sys.stdout.write("\n".join(responses) + "\n")
         return 0
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:

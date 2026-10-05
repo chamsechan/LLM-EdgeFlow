@@ -12,8 +12,8 @@
 namespace llm_edgeflow {
 namespace test {
 
-// The historic fixture name is kept to avoid changing persisted test profiles;
-// its execution protocol is the current text-generation contract.
+// 保留历史夹具名，避免改动已持久化的测试 Profile；
+// 其执行协议即当前的文本生成契约。
 class TestCausalLmSession : public ITextGenerationSession {
  public:
   explicit TestCausalLmSession(std::string model_path);

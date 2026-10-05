@@ -66,8 +66,8 @@ NodeResult<OutputBatchT> InvokeAlignedModel(
 
 namespace detail {
 
-// Owns one bound model capability and its slot identity. Calls are move-only,
-// so each Node instance keeps exclusive ownership of its bindings.
+// 持有一个已绑定的模型能力及其槽位标识。调用对象只能移动，
+// 因此每个 Node 实例独占其绑定。
 template <typename ModelT>
 class ModelCallBase {
  public:

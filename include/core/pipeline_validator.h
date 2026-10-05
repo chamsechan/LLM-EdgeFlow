@@ -20,13 +20,12 @@ struct ValidationFix {
   std::string title;
   std::string effect;
   nlohmann::json patch = nlohmann::json::array();
-  std::string verification;  // "pipeline_valid" or "target_resolved"
+  std::string verification;  // "pipeline_valid" 或 "target_resolved"
 
   nlohmann::json ToJson() const;
 };
 
-// Filled by developer tooling (alg_pipeline_tool); the Validator itself only
-// reports neutral diagnostics.
+// 由开发工具 (alg_pipeline_tool) 填写；Validator 本身只报告中性诊断。
 struct ValidationRemediation {
   int schema_version = 1;
   RemediationCause cause = RemediationCause::kUnknownConfigField;
@@ -47,8 +46,8 @@ struct ValidationDiagnostic {
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
   std::optional<ValidationRemediation> remediation;
-  // Neutral facts established by validation, including inferred item shapes.
-  // Tooling may explain these facts without repeating Validator rules.
+  // 校验确立的中性事实，含推断出的 item 形状。
+  // 工具可据此解释，无需重复 Validator 规则。
   nlohmann::json facts = nlohmann::json::object();
 
   nlohmann::json ToJson() const;

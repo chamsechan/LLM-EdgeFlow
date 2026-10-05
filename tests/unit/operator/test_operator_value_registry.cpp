@@ -238,8 +238,7 @@ TEST(OperatorValueRegistryTest,
     if (mutation == 4) allocator.destroy_external = {};
     if (mutation == 5) allocator.output_layout.compute_block_payload_bytes = {};
     if (mutation == 6) allocator.direction = IoDirection::kInput;
-    // Root cross-checking may be deferred until Init for static registration
-    // order.
+    // 为适应静态注册顺序，根类型交叉检查可推迟到 Init。
     registry.RegisterOutputAllocator("invalid", allocator);
     EXPECT_EQ(registry.GlobalInit(), -6);
     EXPECT_TRUE(registry.HasConflict());
@@ -275,8 +274,8 @@ TEST(OperatorValueRegistryTest,
     EXPECT_FALSE(
         NormalizeOutputParameters(binding, params, &requested.params, &error));
   }
-  // Successful normalization must supply typed parameters; callback errors
-  // cannot leave partial parameters visible to pool creation.
+  // 归一化成功时必须提供类型化参数；回调出错时不能让部分参数
+  // 对池创建可见。
   binding.normalize_parameters =
       [](const std::string&,
          std::shared_ptr<const OutputAllocationParameters>* result,
@@ -569,13 +568,13 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
     EXPECT_GT(bytes_d0, 0u);
     EXPECT_LT(bytes_d0, kMaxHandlePoolPayloadBytes);
 
-    // Depth 1
+    // 深度 1
     size_t bytes_d1 = 0;
     EXPECT_TRUE(
         ComputeOutputPoolPayloadBytes(suffix, spec, 1, &bytes_d1, &err));
     EXPECT_GT(bytes_d1, 0u);
 
-    // Depth 25
+    // 深度 25
     size_t bytes_d25 = 0;
     EXPECT_TRUE(
         ComputeOutputPoolPayloadBytes(suffix, spec, 25, &bytes_d25, &err));
@@ -607,7 +606,7 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
     ResolvedOutputPoolSpec huge_spec;
     huge_spec.type = "keyword_out";
     huge_spec.capacities["match_result_json"] =
-        100 * 1024 * 1024;  // 100 MiB capacity
+        100 * 1024 * 1024;  // 100 MiB 容量
     size_t huge_bytes = 0;
     std::string huge_err;
     EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", huge_spec, 25,
@@ -734,7 +733,7 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     OperatorValueTypeRegistry reg;
     OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out5";
-    b.external_c_type_name = "";  // empty
+    b.external_c_type_name = "";
     SetMinimalOutputContract(&b);
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
                              std::string*) { return 0; };
@@ -746,8 +745,8 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
   }
 }
 
-// Real allocation failures must leave registration retryable and the old
-// catalog unchanged, regardless of the containers used internally.
+// 真实分配失败时，注册必须可重试且旧 catalog 保持不变，
+// 与内部使用何种容器无关。
 TEST(OperatorValueRegistryTest,
      AllocationFailurePreservesRegistryAndAllowsRetry) {
   bool completed = false;
@@ -1073,8 +1072,7 @@ TEST(OperatorValueRegistryTest, NoexceptOOMFaultTolerance) {
   }
 }
 
-// 16. audio_in zero-length accepts null buffer, rejects negative
-// length
+// 16. audio_in 零长度时接受空缓冲区，拒绝负长度
 TEST(OperatorValueRegistryTest,
      AudioInZeroLengthAcceptsNullBufferAndRejectsNegative) {
   const auto* binding =
@@ -1089,14 +1087,14 @@ TEST(OperatorValueRegistryTest,
 
   std::string err;
 
-  // Case 1: pcm_length == 0 with nullptr pcm_buffer -> success (0)
+  // 情形 1：pcm_length == 0 且 pcm_buffer 为 nullptr -> 成功 (0)
   CompanyOperatorAudioInput zero_audio{};
   zero_audio.sample_rate = 16000;
   zero_audio.pcm_length = 0;
   zero_audio.pcm_buffer = nullptr;
   EXPECT_EQ(binding->validate_external(&zero_audio, limits, &err), 0) << err;
 
-  // Case 2: pcm_length < 0 -> rejected (-3)
+  // 情形 2：pcm_length < 0 -> 拒绝 (-3)
   CompanyOperatorAudioInput neg_audio{};
   neg_audio.sample_rate = 16000;
   neg_audio.pcm_length = -1;
@@ -1105,7 +1103,7 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(binding->validate_external(&neg_audio, limits, &err), -3);
   EXPECT_NE(err.find("invalid or exceeds limit"), std::string::npos);
 
-  // Case 3: pcm_length > 0 with nullptr pcm_buffer -> rejected (-3)
+  // 情形 3：pcm_length > 0 且 pcm_buffer 为 nullptr -> 拒绝 (-3)
   CompanyOperatorAudioInput null_buf_audio{};
   null_buf_audio.sample_rate = 16000;
   null_buf_audio.pcm_length = 100;
@@ -1114,7 +1112,7 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(binding->validate_external(&null_buf_audio, limits, &err), -3);
   EXPECT_EQ(err, "pcm_buffer pointer is null");
 
-  // Case 4: valid pcm_length and buffer -> success (0)
+  // 情形 4：合法的 pcm_length 和缓冲区 -> 成功 (0)
   float dummy_pcm[100] = {0.0f};
   CompanyOperatorAudioInput valid_audio{};
   valid_audio.sample_rate = 16000;

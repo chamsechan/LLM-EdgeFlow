@@ -154,7 +154,7 @@ TEST_F(IoBindingRegistryTest, RegistryConflictsStayRecordedWithoutMessage) {
   conflicts.Clear();
   EXPECT_FALSE(conflicts.HasConflict());
 
-  // Losing the message to an allocation failure must not reopen the registry.
+  // 因分配失败丢失消息时，注册表不得重新开放。
   RegistryConflicts lossy;
   std::string message = "lost";
   bool allocation_failed = false;
@@ -300,7 +300,7 @@ TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
       *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
   IoConverterRegistry::Instance().ClearForTesting();
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  // Keep the fixture's logical contract and use the registered keyword layout.
+  // 保留夹具的逻辑契约，并使用已注册的 keyword 布局。
   output.external_slots = {
       ExternalOutputSlot<CompanyOperatorKeywordOutput>("keyword_out")};
   output.external_type = "CompanyOperatorKeywordOutput";
@@ -320,7 +320,7 @@ TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
   unknown.type_suffix = "unregistered";
   EXPECT_TRUE(EffectiveCapacityFields(unknown).empty());
 
-  // Explicit and inferred declarations of the same layout are compatible.
+  // 同一布局的显式声明与推导声明相互兼容。
   RegisterTestBizBinding();
   auto binding =
       *IoBindingRegistry::Instance().FindBinding("test_biz.operator.v1");
@@ -969,7 +969,7 @@ TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
 
-  // Case 1: models is not an array (e.g. object)
+  // 情形 1：models 不是数组 (如对象)
   {
     nlohmann::json doc = {
         {"deployment",
@@ -983,7 +983,7 @@ TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
     EXPECT_EQ(diag.path, "/models");
   }
 
-  // Case 2: model_path is required in every model entry.
+  // 情形 2：每个模型条目都必须有 model_path。
   {
     nlohmann::json doc = {
         {"deployment",
@@ -1000,7 +1000,7 @@ TEST_F(IoBindingRegistryTest, ModelStructureInvalidRejected_T04) {
     EXPECT_EQ(diag.path, "/models/0/model_path");
   }
 
-  // Case 3: Duplicate model_id
+  // 情形 3：model_id 重复
   {
     nlohmann::json doc = {
         {"deployment",
@@ -1273,7 +1273,7 @@ TEST_F(IoBindingRegistryTest,
         PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
     EXPECT_EQ(diagnostic.code, "BIZ_IO_CONTRACT_MISMATCH");
 
-    // The public preflight must enforce the carrier contract without Init.
+    // 公开预检必须在不执行 Init 的情况下强制载体契约。
     std::ofstream(root / "pipeline.json") << document;
     std::ofstream(root / "pipeline.conf")
         << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -1289,7 +1289,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(dummy_decode_calls, decoded_before);
     EXPECT_EQ(dummy_encode_calls, encoded_before);
 
-    // A different business has its own carrier contract and is not poisoned.
+    // 其他业务有自己的载体契约，不受影响。
     auto independent = *PipelineCatalog::FindBiz("test_biz_v1");
     independent.biz_name =
         incompatible_input ? "separate_input_biz" : "separate_output_biz";
@@ -1375,7 +1375,7 @@ TEST_F(IoBindingRegistryTest,
 }
 
 TEST_F(IoBindingRegistryTest, EffectiveBatchLimitIncludesBindingBound) {
-  // Zero means that source adds no bound; the smallest positive value wins.
+  // 0 表示该来源不设上限；取最小的正值。
   struct Limits {
     size_t binding;
     size_t input;
@@ -1492,7 +1492,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
 
-  // Case 1: Unknown binding
+  // 情形 1：未知 binding
   {
     nlohmann::json doc = base_doc;
     doc["deployment"]["io"]["io_binding"] = "completely_unknown_binding";
@@ -1501,8 +1501,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
     EXPECT_EQ(diag.path, "/deployment/io/io_binding");
   }
 
-  // Case 2: Removed root business identity is rejected even when the binding
-  // exists.
+  // 情形 2：即使 binding 存在，已移除的根业务标识也会被拒绝。
   {
     nlohmann::json doc = base_doc;
     doc["biz_name"] = "other_biz_v1";
@@ -1533,7 +1532,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
 
-  // Case 1: Missing required slot receives its registered defaults.
+  // 情形 1：缺少的必填槽位取其注册的默认值。
   {
     nlohmann::json doc = base_doc;
     doc["deployment"]["io"]["out_mem"].erase("entity_out");
@@ -1542,7 +1541,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
     EXPECT_EQ(prepared.output_specs.count("entity_out"), 1U);
   }
 
-  // Case 2: Unknown slot in out_mem
+  // 情形 2：out_mem 中有未知槽位
   {
     nlohmann::json doc = base_doc;
     doc["deployment"]["io"]["out_mem"]["unexpected_extra_slot"] =
@@ -1552,7 +1551,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
     EXPECT_EQ(diag.path, "/deployment/io/out_mem/unexpected_extra_slot");
   }
 
-  // Case 3: The removed type field is rejected even if it matches the slot.
+  // 情形 3：已移除的 type 字段即使与槽位一致也会被拒绝。
   {
     nlohmann::json doc = base_doc;
     doc["deployment"]["io"]["out_mem"]["entity_out"]["type"] = "entity_out";
@@ -1590,7 +1589,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
 
-  // 1. Initial successful preparation
+  // 1. 首次准备成功
   ASSERT_TRUE(PrepareDeploymentDocument(valid_doc, options, &prepared, &diag));
   EXPECT_FALSE(prepared.binding.binding_id.empty());
   EXPECT_NE(prepared.input_converter, nullptr);
@@ -1598,7 +1597,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   EXPECT_FALSE(prepared.neutral_pipeline_json.is_null());
   EXPECT_FALSE(prepared.output_specs.empty());
 
-  // 2. Reusing the SAME prepared instance on a failing document
+  // 2. 在失败的文档上复用同一个 prepared 实例
   nlohmann::json invalid_doc = valid_doc;
   invalid_doc["deployment"]["io"]["io_binding"] = "unknown.binding";
   const nlohmann::json invalid_doc_copy = invalid_doc;
@@ -1606,7 +1605,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   EXPECT_FALSE(
       PrepareDeploymentDocument(invalid_doc, options, &prepared, &diag));
 
-  // Verify all fields of prepared are completely reset
+  // 验证 prepared 的所有字段都已完全重置
   EXPECT_TRUE(prepared.binding.binding_id.empty());
   EXPECT_EQ(prepared.input_converter, nullptr);
   EXPECT_EQ(prepared.output_converter, nullptr);
@@ -1619,10 +1618,10 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
   EXPECT_TRUE(prepared.io_boundary.input_published_ports.empty());
   EXPECT_TRUE(prepared.io_boundary.output_consumed_ports.empty());
 
-  // Verify the input document was NOT mutated
+  // 验证输入文档未被修改
   EXPECT_EQ(invalid_doc, invalid_doc_copy);
 
-  // Failure after resolving the first model must not publish partial state.
+  // 解析完第一个模型后失败时，不得发布部分状态。
   valid_doc["models"].push_back(valid_doc["models"][0]);
   valid_doc["models"][1]["model_id"] = "mid_2";
   valid_doc["models"][1]["model_path"] = "models/second.bin";
@@ -1772,7 +1771,7 @@ TEST_F(IoBindingRegistryTest,
        ResolveFromPipelineJsonDiagnosticCarrier_T03_T06_T07_T08) {
   RegisterTestBizBinding();
 
-  // T03: Missing direct model path through IoBindingResolver
+  // T03：经 IoBindingResolver 缺少直接模型路径
   nlohmann::json t03_doc = {
       {"deployment",
        {{"io",
@@ -1800,7 +1799,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diag.code, "MISSING_FIELD");
   EXPECT_EQ(diag.path, "/models/0/model_path");
 
-  // T06: Removed deployment model_paths field
+  // T06：已移除的部署字段 model_paths
   nlohmann::json t06_doc = t03_doc;
   t06_doc["models"][0]["model_path"] = "models/original.bin";
   t06_doc["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
@@ -1811,7 +1810,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
   EXPECT_EQ(diag.path, "/deployment/model_paths");
 
-  // T07: Unknown binding through IoBindingResolver
+  // T07：经 IoBindingResolver 的未知 binding
   nlohmann::json t07_doc = t03_doc;
   t07_doc["models"][0]["model_path"] = "models/original.bin";
   t07_doc["deployment"]["io"]["io_binding"] = "nonexistent.binding";
@@ -1822,7 +1821,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diag.code, "UNKNOWN_IO_BINDING");
   EXPECT_EQ(diag.path, "/deployment/io/io_binding");
 
-  // T08: An invalid output allocation retains its precise diagnostic
+  // T08：非法的输出分配保留其精确诊断
   nlohmann::json t08_doc = t03_doc;
   t08_doc["models"][0]["model_path"] = "models/original.bin";
   t08_doc["deployment"]["io"]["out_mem"]["entity_out"] = 42;
@@ -1887,14 +1886,14 @@ TEST_F(IoBindingRegistryTest,
   std::string err;
   DeploymentDiagnostic diag;
 
-  // 1. Success case
+  // 1. 成功情形
   int rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan,
                                               &err, &diag);
   EXPECT_EQ(rc, 0);
   EXPECT_NE(plan, nullptr);
   EXPECT_TRUE(diag.code.empty());
 
-  // 2. T03 via file: missing model_path
+  // 2. 经文件的 T03：缺少 model_path
   {
     nlohmann::json t03_pipe = base_pipeline;
     t03_pipe["models"] = {
@@ -1913,7 +1912,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/models/0/model_path");
   }
 
-  // 3. T06 via file: removed deployment model_paths field
+  // 3. 经文件的 T06：已移除的部署字段 model_paths
   {
     nlohmann::json t06_pipe = base_pipeline;
     t06_pipe["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
@@ -1927,7 +1926,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/deployment/model_paths");
   }
 
-  // 4. T07 via file: unknown io_binding
+  // 4. 经文件的 T07：未知 io_binding
   {
     nlohmann::json t07_pipe = base_pipeline;
     t07_pipe["deployment"]["io"]["io_binding"] = "unregistered.binding";
@@ -1941,7 +1940,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/deployment/io/io_binding");
   }
 
-  // 5. T08 via file: invalid output allocation
+  // 5. 经文件的 T08：非法的输出分配
   {
     nlohmann::json t08_pipe = base_pipeline;
     t08_pipe["deployment"]["io"]["out_mem"]["entity_out"] = 42;
@@ -1955,10 +1954,10 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/deployment/io/out_mem/entity_out");
   }
 
-  // Restore valid pipeline file
+  // 恢复合法的 Pipeline 文件
   write_file(pipe_path, base_pipeline);
 
-  // 6. Non-existent conf file -> CONFIG_FILE_OPEN
+  // 6. conf 文件不存在 -> CONFIG_FILE_OPEN
   rc = IoBindingResolver::ResolveFromFile(
       (temp_dir / "nonexistent.conf").string(), "", &plan, &err, &diag);
   EXPECT_EQ(rc, -2);
@@ -1966,7 +1965,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(diag.code, "CONFIG_FILE_OPEN");
   EXPECT_EQ(diag.path, "/");
 
-  // 7. Malformed JSON in conf file -> JSON_PARSE
+  // 7. conf 文件 JSON 格式错误 -> JSON_PARSE
   {
     fs::path bad_conf = temp_dir / "bad_syntax.conf";
     write_raw(bad_conf, "{ unquoted: invalid JSON ...");
@@ -1978,8 +1977,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/");
   }
 
-  // 8. Missing pipeline file referenced by conf -> DEPLOYMENT_ERROR at
-  // /pipe_path
+  // 8. conf 引用的 Pipeline 文件缺失 -> /pipe_path 处 DEPLOYMENT_ERROR
   {
     fs::path missing_pipe_conf = temp_dir / "missing_pipe.conf";
     write_file(missing_pipe_conf, {{"pipe_path", "missing_pipeline.json"}});
@@ -1991,7 +1989,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/pipe_path");
   }
 
-  // 9. Malformed JSON in pipeline file -> JSON_PARSE
+  // 9. Pipeline 文件 JSON 格式错误 -> JSON_PARSE
   {
     fs::path bad_pipe = temp_dir / "bad_pipe.json";
     write_raw(bad_pipe, "{ bad_pipe_json: invalid");

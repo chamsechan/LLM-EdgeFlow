@@ -5,8 +5,8 @@
 
 namespace llm_edgeflow::test_support {
 
-// One-shot callback on this thread's next replacement-new allocation. Clear
-// before invoking so the callback may itself allocate without recursion.
+// 本线程下一次替换 new 分配时触发的一次性回调。调用前先清除，
+// 使回调自身可以分配内存而不会递归。
 class ScopedNextAllocationCallback {
  public:
   using Callback = void (*)(void*);
@@ -24,12 +24,10 @@ class ScopedNextAllocationCallback {
   void* user_data_;
 };
 
-// Test-executable-only replacement new/delete support. Arm only around a
-// synchronous operation, outside GoogleTest assertions. For leak assertions,
-// destroy tracked allocations on this thread before checking Outstanding().
-// Successful operations may transfer ownership beyond the scope; those
-// surviving allocations are no longer tracked. Nested scopes restore the outer
-// injection state; other threads are unaffected.
+// 仅供测试可执行文件使用的替换 new/delete 支持。只在同步操作期间启用，
+// 且不要包住 GoogleTest 断言。做泄漏断言时，须先在本线程销毁被跟踪的分配，
+// 再检查 Outstanding()。成功的操作可能把所有权转移到作用域之外，这些存活的
+// 分配不再被跟踪。嵌套作用域会恢复外层的注入状态；其他线程不受影响。
 class ScopedAllocationFailure {
  public:
   explicit ScopedAllocationFailure(std::ptrdiff_t fail_after = -1) noexcept;
@@ -42,7 +40,7 @@ class ScopedAllocationFailure {
   size_t Outstanding() const noexcept { return count_; }
   bool Overflowed() const noexcept { return overflowed_; }
 
-  // Used exclusively by the replacement allocation functions in the .cpp.
+  // 仅供 .cpp 中的替换分配函数使用。
   static void BeforeAllocation();
   static void RecordAllocation(void* ptr) noexcept;
   static void RecordDeallocation(void* ptr) noexcept;
@@ -54,8 +52,8 @@ class ScopedAllocationFailure {
   bool triggered_ = false;
   bool overflowed_ = false;
   size_t count_ = 0;
-  // A bounded ledger avoids allocating while observing allocation. Tests must
-  // assert !Overflowed() before using Outstanding() as leak evidence.
+  // 使用有界账本，避免在观察分配时自身分配内存。
+  // 测试在把 Outstanding() 作为泄漏证据前，必须先断言 !Overflowed()。
   std::array<void*, 4096> allocations_{};
 };
 

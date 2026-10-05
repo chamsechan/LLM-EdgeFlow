@@ -88,17 +88,17 @@ TEST_F(CommonNodesTest, ModelBindingsAreExplicitWithoutInstanceDefaults) {
   }
 }
 
-// 1. TextTemplateNode: placeholder validation, join, overflow policy, control
+// 1. TextTemplateNode：占位符校验、拼接、溢出策略、Control
 TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
-  // 1.1 Invalid placeholder should fail init
+  // 1.1 非法占位符应导致 Init 失败
   nlohmann::json invalid_cfg = {{"template", "Hello {{unknown_variable}}!"}};
   EXPECT_FALSE(InitNodeForTest(*node, invalid_cfg, session_ctx_.get(), nullptr,
                                {"attributes"}));
 
-  // 1.2 Valid placeholder and static values
+  // 1.2 合法占位符和静态值
   nlohmann::json valid_cfg = {
       {"template",
        "Prefix: {{tag}} | Query: {{primary}} | Context: {{context}}"},
@@ -128,15 +128,14 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   EXPECT_NE((*out)[0].data.find("What is LLM?"), std::string::npos);
   EXPECT_NE((*out)[0].data.find("Large Language Model"), std::string::npos);
 
-  // 1.3 Control update prompt
+  // 1.3 通过 Control 更新 prompt
   nlohmann::json update_json = {{"template", "NewTemplate: {{primary}}"},
                                 {"values", nlohmann::json::object()}};
   NodeControlResult c_res =
       node->Control(kControlCmdUpdatePrompt, update_json.dump());
   EXPECT_EQ(c_res.status, NodeControlStatus::kHandled);
 
-  // Control affects the next request; each request owns a fresh write-once
-  // output namespace.
+  // Control 作用于下一个请求；每个请求拥有全新的、只写一次的输出命名空间。
   AlgContext updated_ctx;
   updated_ctx.Publish("primary", primary);
   updated_ctx.Publish("context", context);
@@ -146,7 +145,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data, "NewTemplate: What is LLM?");
 }
 
-// 1.4 TextTemplateNode attributes and sub_id preservation
+// 1.4 TextTemplateNode 属性与 sub_id 保持
 TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
@@ -184,7 +183,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
   EXPECT_EQ((*out)[1].data, "User: Bob | Role: User | Loc: Shanghai");
 }
 
-// 2. TextChunkNode: chunking, overlap, provenance
+// 2. TextChunkNode：分块、重叠、来源追踪
 TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
@@ -194,7 +193,7 @@ TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
 
   AlgContext ctx;
   TextBatch input;
-  input.emplace_back(101, 0, "0123456789abcdefghij");  // 20 chars
+  input.emplace_back(101, 0, "0123456789abcdefghij");  // 20 个字符
   ctx.Publish("text", input);
 
   EXPECT_EQ(node->Process(&ctx), 0);
@@ -207,7 +206,7 @@ TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
   EXPECT_EQ((*out)[1].sub_id, 1u);
 }
 
-// 3. TextRuleMatchNode: categories, regex named captures, constants, control
+// 3. TextRuleMatchNode：类别、正则命名捕获、常量、Control
 TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
@@ -233,7 +232,7 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
 
-  // Sample 1 hits both GREETING and NAVIGATION
+  // 样本 1 同时命中 GREETING 和 NAVIGATION
   const auto& first = (*out)[0].data;
   EXPECT_EQ(first.is_hit, 1);
   EXPECT_EQ(first.category, "GREETING");
@@ -247,10 +246,10 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   EXPECT_EQ(first.matches[1].rule_id, "nav_dest");
   EXPECT_EQ(first.matches[1].category, "NAVIGATION");
 
-  // Sample 2 no hit
+  // 样本 2 未命中
   EXPECT_EQ((*out)[1].data.is_hit, 0);
 
-  // Dynamic rule update via Control
+  // 通过 Control 动态更新规则
   nlohmann::json update_rules = {{"rules",
                                   {{{"id", "weather"},
                                     {"strategy", "regex"},
@@ -272,8 +271,7 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data.slots["city"], "北京");
 }
 
-// 4. StructuredJsonParseNode: direct, markdown block, truncated input, failure
-// policies
+// 4. StructuredJsonParseNode：直接解析、Markdown 代码块、截断输入、失败策略
 TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
@@ -285,15 +283,15 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
 
   AlgContext ctx;
   TextBatch input;
-  // 1. Direct JSON
+  // 1. 直接 JSON
   input.emplace_back(1, 0, "{\"entities\": [\"Apple\", \"Google\"]}");
-  // 2. Markdown block
+  // 2. Markdown 代码块
   input.emplace_back(
       2, 0,
       "Here is the result:\n```json\n{\"entities\": [\"DeepMind\"]}\n```");
-  // 3. Unclosed array follows the configured failure policy
+  // 3. 未闭合的数组按配置的失败策略处理
   input.emplace_back(3, 0, "Found entities: [\"TensorFlow\", \"PyTorch\"");
-  // 4. Broken text
+  // 4. 无法解析的文本
   input.emplace_back(4, 0, "No valid json here at all");
   ctx.Publish("text", input);
 
@@ -311,7 +309,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   EXPECT_EQ((*out)[3].data.json_payload, "{\"entities\":[]}");
 }
 
-// 5. TextEmbeddingNode: L2 normalization & session-level cache
+// 5. TextEmbeddingNode：L2 归一化与会话级缓存
 TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
@@ -332,7 +330,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   ASSERT_NE(out1, nullptr);
   ASSERT_EQ(out1->size(), 2u);
 
-  // Subsequent call should reuse session cache seamlessly
+  // 后续调用应直接复用会话缓存
   AlgContext ctx2;
   ctx2.Publish("text", input);
   EXPECT_EQ(node->Process(&ctx2), 0);
@@ -342,7 +340,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   EXPECT_EQ((*out1)[0].data, (*out2)[0].data);
 }
 
-// 6. VectorTopKNode: cosine similarity & shared candidate pool
+// 6. VectorTopKNode：余弦相似度与共享候选池
 TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
@@ -358,11 +356,11 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
 
   EmbeddingBatch candidates;
   candidates.emplace_back(0, 0,
-                          std::vector<float>{1.0f, 0.0f, 0.0f});  // sim 1.0
+                          std::vector<float>{1.0f, 0.0f, 0.0f});  // 相似度 1.0
   candidates.emplace_back(
-      0, 1, std::vector<float>{0.707f, 0.707f, 0.0f});  // sim 0.707
+      0, 1, std::vector<float>{0.707f, 0.707f, 0.0f});  // 相似度 0.707
   candidates.emplace_back(0, 2,
-                          std::vector<float>{0.0f, 1.0f, 0.0f});  // sim 0.0
+                          std::vector<float>{0.0f, 1.0f, 0.0f});  // 相似度 0.0
   ctx.Publish("candidates", candidates);
 
   TextBatch cand_texts;
@@ -380,7 +378,7 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
   EXPECT_EQ((*out)[1].data.text, "Partial match passage");
 }
 
-// 7. TextRerankNode: cross-encoder reranking
+// 7. TextRerankNode：交叉编码器精排
 TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
@@ -405,7 +403,7 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   ASSERT_EQ(out->size(), 1u);
 }
 
-// 7.1 TextRerankNode combination constraints validation test
+// 7.1 TextRerankNode 端口组合约束校验
 TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   RegisterTestBizs(
       {"custom_rerank_test"},
@@ -424,7 +422,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
                        });
   };
 
-  // Test valid scheme 1: 'pairs' input only
+  // 合法组合 1：仅 'pairs' 输入
   nlohmann::json valid_pipeline_pairs = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -441,7 +439,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   auto plan_pairs = PipelineValidator::ValidateAndPlan(valid_pipeline_pairs);
   EXPECT_TRUE(plan_pairs.report.ok);
 
-  // Test valid scheme 2: 'queries' + 'candidates'
+  // 合法组合 2：'queries' + 'candidates'
   nlohmann::json valid_pipeline_qc = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -459,7 +457,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   auto plan_qc = PipelineValidator::ValidateAndPlan(valid_pipeline_qc);
   EXPECT_TRUE(plan_qc.report.ok);
 
-  // Test valid scheme 3: 'queries' + 'candidate_texts'
+  // 合法组合 3：'queries' + 'candidate_texts'
   nlohmann::json valid_pipeline_qct = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -478,7 +476,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   auto plan_qct = PipelineValidator::ValidateAndPlan(valid_pipeline_qct);
   EXPECT_TRUE(plan_qct.report.ok);
 
-  // Test invalid case 1: only candidates, missing queries
+  // 非法情形 1：只有 candidates，缺少 queries
   nlohmann::json bad_pipeline_1 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -496,7 +494,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_TRUE(has_constraint_err(plan1.report));
 
-  // Test invalid case 2: only queries, missing candidates
+  // 非法情形 2：只有 queries，缺少 candidates
   nlohmann::json bad_pipeline_2 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -514,7 +512,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   EXPECT_FALSE(plan2.report.ok);
   EXPECT_TRUE(has_constraint_err(plan2.report));
 
-  // Test invalid case 3: pairs + candidates (ambiguous/conflicting combination)
+  // 非法情形 3：pairs + candidates (组合冲突)
   nlohmann::json bad_pipeline_3 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -532,7 +530,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   EXPECT_FALSE(plan3.report.ok);
   EXPECT_TRUE(has_constraint_err(plan3.report));
 
-  // Test invalid case 4: queries + candidates + candidate_texts (conflicting)
+  // 非法情形 4：queries + candidates + candidate_texts (冲突)
   nlohmann::json bad_pipeline_4 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
@@ -587,7 +585,7 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
 
 }  // namespace
 
-// 7.2 TextEmbeddingNode single-flight session caching concurrency test
+// 7.2 TextEmbeddingNode 会话缓存 single-flight 并发测试
 TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   auto counting_model = std::make_shared<CountingEmbeddingModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
@@ -631,7 +629,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   EXPECT_EQ(success_count.load(), kNumThreads);
   EXPECT_EQ(counting_model->infer_calls.load(), 1);
 
-  // Invalidation test: changing corpus triggers recomputation
+  // 失效测试：更换语料会触发重新计算
   {
     AlgContext ctx;
     TextBatch updated_corpus;
@@ -644,7 +642,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   }
 }
 
-// 8. LlmGenerateNode: prompt inference
+// 8. LlmGenerateNode：prompt 推理
 TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
@@ -665,7 +663,7 @@ TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
   EXPECT_FALSE((*out)[0].data.empty());
 }
 
-// 9. AsrTranscribeNode: speech transcription
+// 9. AsrTranscribeNode：语音转写
 TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
@@ -686,7 +684,7 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   EXPECT_FALSE((*out)[0].data.empty());
 }
 
-// 10. OcrDetectNode: OCR bounding box & text recognition
+// 10. OcrDetectNode：OCR 检测框与文本识别
 TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
@@ -708,7 +706,7 @@ TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
   EXPECT_FALSE((*out_text)[0].data.empty());
 }
 
-// 11. TextCorpusSourceNode: static corpus emission
+// 11. TextCorpusSourceNode：静态语料输出
 TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
@@ -726,7 +724,7 @@ TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
   EXPECT_EQ((*out)[1].data, "Clause 2: Security");
 }
 
-// 12. StructuredJsonParseNode required_fields validation test
+// 12. StructuredJsonParseNode required_fields 校验
 TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
@@ -735,7 +733,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
                         {"failure_policy", "fail"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
-  // Valid sample with required fields
+  // 包含必填字段的合法样本
   {
     AlgContext ctx;
     TextBatch inputs;
@@ -748,7 +746,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
     EXPECT_TRUE((*doc)[0].data.is_valid);
   }
 
-  // Invalid sample missing required field 'risk_score'
+  // 缺少必填字段 'risk_score' 的非法样本
   {
     AlgContext ctx;
     TextBatch inputs;
@@ -758,17 +756,17 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
   }
 }
 
-// 13. TextTemplateNode missing variable failure test
+// 13. TextTemplateNode 缺失变量时失败
 TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
-  // allow_dynamic_attributes is false by default
+  // allow_dynamic_attributes 默认为 false
   nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
                         {"allow_dynamic_attributes", true}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
-  // Attributes provided
+  // 提供属性
   {
     AlgContext ctx;
     TextAttributesBatch attrs;
@@ -870,7 +868,7 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
                             SessionContext* session) {
   auto node = NodeRegistry::Instance().Create(name);
   ASSERT_NE(node, nullptr);
-  // Resolved keys differ from logical names: exercise typed binding too.
+  // 解析后的键与逻辑名不同：同时覆盖类型化绑定。
   ValidatedNodePlan plan;
   plan.normalized_config = {{"bind_model", model}};
   plan.ports = {{"input", "source", BlackboardTypeTraits<Input>::TypeName(),
@@ -929,7 +927,7 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
     AlgContext ctx;
     ctx.Publish("prompt", prompts);
     ASSERT_EQ(node->Process(&ctx), 0) << ctx.GetErrorMessage();
-    EXPECT_EQ(model->calls, before + 1);  // Model owns batch scheduling.
+    EXPECT_EQ(model->calls, before + 1);  // 批调度由 Model 负责。
     ASSERT_EQ(model->prompts.size(), prompts.size());
     const auto* output = ctx.Read<TextBatch>("text");
     ASSERT_NE(output, nullptr);
@@ -1105,7 +1103,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   EXPECT_EQ((*output)[2].sub_id, 6U);
   EXPECT_EQ(model->last_options.max_tokens, 23);
   EXPECT_EQ(model->last_options.stop_words, std::vector<std::string>{"END"});
-  // Reuse the same Node with fresh request data; no prior context may survive.
+  // 用新的请求数据复用同一个 Node；之前的上下文不得残留。
   AlgContext next;
   next.Publish("input", TextBatch{{29, 1, "next"}});
   next.Publish("context", TextBatch{});
@@ -1195,7 +1193,7 @@ TEST_F(CommonNodesTest,
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "prompt_contract", model, "v1"));
-  // 1. Malformed templates are rejected at validation and Init
+  // 1. 非法模板在校验和 Init 时被拒绝
   for (const std::string pattern :
        {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
     SCOPED_TRACE(pattern);
@@ -1209,7 +1207,7 @@ TEST_F(CommonNodesTest,
     EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
   }
 
-  // 2. Valid templates with JSON literal braces and {{input}} substitution
+  // 2. 含 JSON 字面花括号和 {{input}} 替换的合法模板
   for (const auto& [pattern, expected] :
        std::vector<std::pair<std::string, std::string>>{
            {"{\"text\": \"{{input}}\"}", "{\"text\": \"value\"}"},
@@ -1362,7 +1360,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
     auto plan = PipelineValidator::ValidateAndPlan(doc);
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
     auto node = NodeRegistry::Instance().Create(name);
-    // Use the actual native plan, including normalized configuration and keys.
+    // 使用真实的原生计划，包括归一化后的配置和键。
     const auto& node_plan = plan.node_plans.at("custom_prompt");
     ASSERT_TRUE(node->Init({&node_plan, session_ctx_.get()}));
     AlgContext ctx;
@@ -1389,8 +1387,7 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   ASSERT_TRUE(
       node->Init({&plan.node_plans.at("custom_prompt"), session_ctx_.get()}));
 
-  // Out-of-order request IDs and nonzero sub-IDs must survive both text
-  // functions.
+  // 乱序的请求 ID 和非零 sub_id 经过两个文本函数后必须保持不变。
   const TextBatch inputs{{51, 8, "张三"}, {19, 3, "李四"}};
   AlgContext ctx;
   ctx.Publish("input_sentences", inputs);
@@ -1405,7 +1402,7 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
     const auto expected = "实体抽取：\n" + inputs[i].data;
     EXPECT_EQ(model->prompts[i].data, expected);
     EXPECT_EQ((*output)[i].data,
-              expected);  // Model's trailing newlines removed.
+              expected);  // 去掉了 Model 输出末尾的换行。
     EXPECT_EQ((*output)[i].req_id, inputs[i].req_id);
     EXPECT_EQ((*output)[i].sub_id, inputs[i].sub_id);
     EXPECT_EQ((*unchanged)[i].data, inputs[i].data);

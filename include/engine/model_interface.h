@@ -20,14 +20,13 @@ class IModel {
   virtual const std::string& ModelType() const noexcept = 0;
   virtual const std::string& Capability() const noexcept = 0;
 
-  // Describes only Model semantic reentrancy. Runtime planning combines this
-  // value with the selected Backend concurrency and applies the stricter one.
+  // 仅描述 Model 语义上的可重入性。运行时规划会结合所选 Backend 的
+  // 并发度，取两者中更严格的一个。
   virtual InferenceConcurrency Concurrency() const noexcept = 0;
 };
 
-// Capability calls clear the optional diagnostic on entry and return a reason
-// on failure. The caller owns it for this invocation; Models retain no mutable
-// last-error state. Integer return codes and output rollback remain unchanged.
+// 能力调用在入口清空可选的诊断信息，失败时写入原因。诊断信息归本次调用方
+// 所有，Model 不保留可变的 last-error 状态。整数返回码和输出回滚语义不变。
 
 /**
  * @brief Embedding 向量化模型能力接口

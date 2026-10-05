@@ -1,5 +1,5 @@
-// Document history stores applied edits only. Form buffers stay separate until
-// Apply, so selection, validation and repainting cannot discard user input.
+// 文档历史只保存已应用的编辑。表单缓冲在 Apply 之前独立存放，
+// 因此选择、校验和重绘都不会丢弃用户输入。
 export function createHistory(limit = 50) {
   let entries = [], cursor = -1;
   const copy = value => structuredClone(value);
@@ -31,8 +31,8 @@ export function createDrafts() {
   };
 }
 
-// Validator text may include user-provided identifiers and values. Keep it as
-// text while retaining the node navigation offered by the diagnostic card.
+// Validator 文本可能包含用户提供的标识符和值。按纯文本保留，
+// 同时保留诊断卡片提供的 Node 导航。
 export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
   const block = document.createElement("div"); block.className = "diagnostic";
   const appendText = (tag, value) => {
@@ -88,7 +88,7 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
   container.append(block);
 }
 
-// Config fields share the same editor for Node, Model and Backend parameters.
+// Node、Model 和 Backend 参数共用同一个配置字段编辑器。
 export function appendConfigField(container, field, values, modelChoices = null) {
   const label = document.createElement("label"); label.textContent = field.name;
   const hasDefault = field.default !== undefined && field.default !== null;
@@ -112,7 +112,7 @@ export function appendConfigField(container, field, values, modelChoices = null)
     input.dataset.unsetOption = "true";
   }
   input.dataset.field = field.name; input.dataset.type = field.type;
-  // Definition.required concerns field presence; a required string may be empty.
+  // Definition.required 关注字段是否存在；必填字符串可以为空。
   input.required = Boolean(field.required) && field.type !== "string";
   const present = Object.hasOwn(values, field.name);
   const value = present ? values[field.name] : field.default;
@@ -126,8 +126,8 @@ export function appendConfigField(container, field, values, modelChoices = null)
     }
   }
   if (field.type === "string" && input.tagName === "TEXTAREA") {
-    // Browsers normalize CR/CRLF in textarea.value. Preserve the original string
-    // when applying an untouched field, including after a draft repaint.
+    // 浏览器会规范化 textarea.value 中的 CR/CRLF。应用未改动的字段时
+    // 保留原始字符串，草稿重绘后也一样。
     if (present || field.required) input.dataset.originalValue = text;
     input.dataset.displayValue = input.value;
     input.rows = Math.min(4, input.value.split("\n").length);

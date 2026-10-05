@@ -209,7 +209,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
 
     if (has_default_) {
       def.default_value = FieldTypeTraits<MemberT>::ToJson(default_val_);
-      // Validate that default_value satisfies minimum, maximum, and enum_values
+      // default_value 必须满足 minimum、maximum 和 enum_values
       if (minimum_.has_value()) {
         if constexpr (std::is_arithmetic_v<MemberT>) {
           if (static_cast<double>(default_val_) < *minimum_) {
@@ -271,7 +271,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
       }
       return false;
     }
-    // Additional bounds validation
+    // 再校验取值边界
     if (minimum_.has_value()) {
       if constexpr (std::is_arithmetic_v<MemberT>) {
         if (static_cast<double>(extracted) < *minimum_) {
@@ -470,7 +470,7 @@ class Parameters {
       bindings_.push_back(holder->Clone());
     }
 
-    // Materialize config field definitions to validate defaults eagerly
+    // 实例化配置字段定义，以便提前校验默认值
     definitions_.reserve(bindings_.size());
     for (const auto& binding : bindings_) {
       definitions_.push_back(binding->ToFieldDefinition());
@@ -590,8 +590,8 @@ class Parameters {
     return *this;
   }
 
-  // The parser supplies complex owned members; typed bindings then assign
-  // simple members, and Validate checks the complete parameter object.
+  // 解析器提供复杂的自有成员；之后由类型化绑定赋值简单成员，
+  // Validate 再检查完整的参数对象。
   Parameters& WithParser(NodeConfigParser<ParamsT> parser) {
     if (complex_parser_) {
       throw std::invalid_argument(

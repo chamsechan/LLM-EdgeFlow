@@ -66,10 +66,9 @@ class Pipeline {
   /**
    * @brief 运行时动态控制
    */
-  // Calls must be externally serialized with Execute/Control. Broadcast updates
-  // are not transactional; error identifies failed instances. A JSON envelope
-  // {"$edgeflow_control":1,"node_id":"id","payload":{...}} targets one
-  // instance.
+  // 调用须与 Execute/Control 在外部串行化。广播更新不具事务性，error 会指出
+  // 失败的实例。JSON 信封
+  // {"$edgeflow_control":1,"node_id":"id","payload":{...}} 只作用于一个实例。
   int Control(int cmd, const std::string& json_param,
               std::string* error = nullptr,
               ControlFailureStage* failure_stage = nullptr);
@@ -102,8 +101,8 @@ class Pipeline {
 
   State state_ = State::kEmpty;
   ExecutionMode execution_mode_ = ExecutionMode::kSequential;
-  // Heap ownership keeps addresses handed to initialized Nodes stable while a
-  // fully staged runtime assembly is committed into this façade.
+  // 使用堆所有权，确保完整暂存的运行时组件提交到本 façade 时，
+  // 已交给已初始化 Node 的地址保持不变。
   std::unique_ptr<SessionContext> session_ctx_;
   std::unique_ptr<ValidatedPipelinePlan> plan_;
 

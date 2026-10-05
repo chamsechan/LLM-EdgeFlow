@@ -78,13 +78,13 @@ TEST_F(OnnxAndRerankerModelTest, TokenizerPairEncodingBasicAndWordPiece) {
   EXPECT_EQ(ids[8], 0);
   EXPECT_EQ(ids[9], 0);
 
-  // mask: 1 for first 8, 0 for last 2
+  // mask：前 8 个为 1，后 2 个为 0
   for (size_t i = 0; i < 8; ++i) EXPECT_EQ(mask[i], 1);
   EXPECT_EQ(mask[8], 0);
   EXPECT_EQ(mask[9], 0);
 
-  // token_type_ids: 0 for query side & first [SEP] (indices 0..5), 1 for cand &
-  // second [SEP] (indices 6..7), 0 for padding
+  // token_type_ids：query 侧及第一个 [SEP] (索引 0..5) 为 0，cand 及第二个
+  // [SEP] (索引 6..7) 为 1，填充为 0
   for (size_t i = 0; i <= 5; ++i) EXPECT_EQ(types[i], 0);
   EXPECT_EQ(types[6], 1);
   EXPECT_EQ(types[7], 1);
@@ -154,7 +154,7 @@ TEST_F(OnnxAndRerankerModelTest, TokenizerPairEncodingBasicAndWordPiece) {
       tokenizer.EncodePair(bad_utf8, "cand", 8, &ids, &mask, &types, &diag));
   EXPECT_TRUE(ids.empty());
 
-  // 8. Null output pointers
+  // 8. 输出指针为空
   EXPECT_FALSE(
       tokenizer.EncodePair("query", "cand", 8, nullptr, &mask, &types, &diag));
 }
@@ -691,7 +691,7 @@ TEST_F(OnnxAndRerankerModelTest, ModelStrictTensorBoundaryFailures) {
   EXPECT_NE(model.Score(inputs, &outputs), 0);
   EXPECT_TRUE(outputs.empty());
 
-  // 6. Zero Dim
+  // 6. 零维度
   fake_session->corrupt_rank_ = false;
   fake_session->corrupt_zero_dim_ = true;
   EXPECT_NE(model.Score(inputs, &outputs), 0);
@@ -961,13 +961,13 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   pipe_json["models"][0]["model_config"]["max_length"] = 32;
   pipe_json["pipeline"][0]["config"]["top_k"] = 2;
 
-  // 3. PipelineValidator Validate/Plan
+  // 3. PipelineValidator 校验并规划
   auto planned_plan = PipelineValidator::ValidateAndPlan(pipe_json);
   ASSERT_TRUE(planned_plan.report.ok) << planned_plan.report.ToJson().dump();
   ASSERT_EQ(planned_plan.report.topological_order.size(), 1u);
   EXPECT_EQ(planned_plan.report.topological_order[0], "node_0_TextRerankNode");
 
-  // 4. Pipeline Build
+  // 4. 构建 Pipeline
   Pipeline pipeline;
   PipelineDiagnostic build_diag;
   bool build_ok = BuildTestPipeline(pipeline, pipe_json, &build_diag);
@@ -990,7 +990,7 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   ctx.Publish("rerank_queries", queries);
   ctx.Publish("rerank_candidates", candidates);
 
-  // 6. Pipeline Execute
+  // 6. 执行 Pipeline
   int exec_ret = pipeline.Execute(&ctx);
   EXPECT_EQ(exec_ret, 0);
 

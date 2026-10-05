@@ -60,7 +60,7 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
 }
 
 nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
-  // Report the effective mappings, including ports mapped to the same name.
+  // 报告有效映射，包括映射到同名键的端口。
   const auto& converters = IoConverterRegistry::Instance();
   const auto* input = converters.FindInputConverter(b.input_converter_id);
   const auto* output = converters.FindOutputConverter(b.output_converter_id);

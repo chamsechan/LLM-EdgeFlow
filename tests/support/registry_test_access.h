@@ -22,7 +22,7 @@ class RegistryTestAccess {
                                                    std::memory_order_release);
       NodeRegistry::Instance().conflict_errors_.clear();
     }
-    // old_entries are destructed outside the lock
+    // old_entries 在锁外析构
   }
 
   static void ResetBizs() { PipelineCatalog::ResetBizsForTesting(); }
@@ -60,7 +60,7 @@ class RegistryTestAccess {
         NodeRegistry::Instance().conflict_errors_.swap(saved_conflict_errors_);
       } catch (...) {
       }
-      // old_entries, old_errors destructed outside lock without allocating
+      // old_entries、old_errors 在锁外析构，且不分配内存
     }
 
     ScopedNodeState(const ScopedNodeState&) = delete;

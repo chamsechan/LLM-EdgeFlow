@@ -531,7 +531,7 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   EXPECT_TRUE(codes.count(DiagnosticCode::kConfigFieldRange));
   EXPECT_TRUE(codes.count(DiagnosticCode::kModelCapabilityMismatch));
 
-  // Verify external JSON serialization parity
+  // 验证外部 JSON 序列化一致性
   auto json_rep = report.ToJson();
   std::set<std::string> json_codes;
   for (const auto& item : json_rep["diagnostics"]) {
@@ -638,7 +638,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     SCOPED_TRACE(test["name"].get<std::string>());
     const auto& config = test["pipeline"];
 
-    // 1. Validator is the complete structured-report baseline.
+    // 1. Validator 是完整结构化报告的基准。
     auto plan = PipelineValidator::ValidateAndPlan(config);
     EXPECT_FALSE(plan.report.ok);
     ASSERT_FALSE(plan.report.diagnostics.empty());
@@ -653,7 +653,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
           << "Missing required diagnostic " << required_code;
     }
 
-    // 2. Pipeline maps the first Validator diagnostic without recomputing it.
+    // 2. Pipeline 直接映射 Validator 的第一条诊断，不重新计算。
     Pipeline pipeline;
     PipelineDiagnostic pipe_diag;
     bool built = BuildTestPipeline(pipeline, config, &pipe_diag);
@@ -664,8 +664,8 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     EXPECT_EQ(pipe_diag.path, test["primary_path"].get<std::string>());
     EXPECT_EQ(pipe_diag.message, primary["message"].get<std::string>());
 
-    // 3. The shared runtime must fail before materialization and preserve the
-    // primary structured diagnostic in its internal C++ error boundary.
+    // 3. 共享运行时必须在实例化前失败，并在其内部 C++ 错误边界中
+    // 保留主结构化诊断。
     std::string biz = config.value("biz_name", "");
     std::string binding_id;
     for (const auto& b : IoBindingRegistry::Instance().AllBindings()) {
@@ -838,7 +838,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   stream >> root;
   root = PrepareExternalFixtureForCore(root);
 
-  // Misspell "temperature" as "temprature"
+  // 把 "temperature" 误拼为 "temprature"
   root["pipeline"][0]["config"]["temprature"] = 0.1;
   root["pipeline"][0]["config"].erase("temperature");
 
@@ -864,15 +864,14 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   ASSERT_TRUE(rem.facts.contains("candidate_fields"));
   const auto& candidate_fields = rem.facts["candidate_fields"];
   ASSERT_FALSE(candidate_fields.empty());
-  // The closest candidate "temperature" (Levenshtein distance 1) should be
-  // first
+  // 最接近的候选 "temperature" (Levenshtein 距离为 1) 应排在首位
   EXPECT_EQ(candidate_fields[0], "temperature");
 
   ASSERT_FALSE(rem.fixes.empty());
   const auto& fix = rem.fixes.front();
   EXPECT_EQ(fix.verification, "pipeline_valid");
 
-  // Verify the patch moves the field from "temprature" to "temperature"
+  // 验证补丁把字段从 "temprature" 移到 "temperature"
   bool found_move = false;
   for (const auto& op : fix.patch) {
     if (op.value("op", "") == "move" &&
@@ -884,17 +883,16 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   }
   EXPECT_TRUE(found_move);
 
-  // Applying patch recovers a fully valid pipeline
+  // 应用补丁后恢复为完全合法的 Pipeline
   const auto patched = root.patch(fix.patch);
   const auto verified_report = ValidateWithRemediation(patched);
   EXPECT_TRUE(verified_report.ok) << verified_report.ToJson().dump(2);
 }
 
 TEST(PipelineValidatorTest, ExplainRespectsFixBounds) {
-  // Construct a pipeline with 5 independent upstream nodes and 4 consumer nodes
-  // having invalid dependencies. Without bounds, each consumer would produce 8
-  // candidate fixes, yielding 32 candidates total.
-  // Explain must cap at max 3 fixes per diagnostic and max 8 fixes per report.
+  // 构造含 5 个独立上游 Node 和 4 个依赖非法的消费 Node 的 Pipeline。
+  // 若不设上限，每个消费者会产生 8 个候选修复，共 32 个。
+  // Explain 必须限制每条诊断最多 3 个修复、每份报告最多 8 个修复。
   nlohmann::json root = {{"biz_name", "keyword_match"},
                          {"models", nlohmann::json::array()},
                          {"pipeline", nlohmann::json::array()}};
@@ -953,14 +951,12 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   stream >> root;
   root = PrepareExternalFixtureForCore(root);
 
-  // Introduce two independent errors:
-  // 1. Misspelled config field in custom_prompt ("temprature" instead of
-  // "temperature")
+  // 引入两个相互独立的错误：
+  // 1. custom_prompt 中的配置字段拼写错误 ("temprature" 而非 "temperature")
   root["pipeline"][0]["config"]["temprature"] = 0.1;
   root["pipeline"][0]["config"].erase("temperature");
 
-  // 2. Invalid configuration in node_2_StructuredJsonParseNode that will remain
-  // unresolved
+  // 2. node_2_StructuredJsonParseNode 中仍未解决的非法配置
   root["pipeline"][1]["config"]["field_types"] = {
       {"field_x", "unsupported_type"}};
 
@@ -981,9 +977,8 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   ASSERT_TRUE(typo_diag->remediation.has_value());
   ASSERT_FALSE(typo_diag->remediation->fixes.empty());
 
-  // Applying the fix only resolves the unknown config field; the invalid
-  // field_types error in node 1 persists. Therefore, verification must be
-  // "target_resolved".
+  // 应用该修复只解决了未知配置字段，node 1 中非法的 field_types
+  // 错误仍然存在，因此 verification 必须为 "target_resolved"。
   const auto& fix = typo_diag->remediation->fixes.front();
   EXPECT_EQ(fix.verification, "target_resolved");
 }
@@ -996,7 +991,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   stream >> root;
   root = PrepareExternalFixtureForCore(root);
 
-  // Explicitly connect an input to a key with no producer.
+  // 显式把输入连接到没有生产者的键。
   root["pipeline"][1]["inputs"]["text"] = "missing_result";
 
   const auto report = ValidateWithRemediation(root);
@@ -1155,7 +1150,7 @@ TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
   const auto accepted = ValidateWithRemediation(root);
   EXPECT_TRUE(accepted.ok) << accepted.ToJson().dump();
 
-  // Per-chunk matches cannot become the one-row-per-request biz output.
+  // 逐分块的匹配结果不能作为每请求一行的 biz 输出。
   root["pipeline"][1]["outputs"]["matches"] = "rule_matches";
   root["pipeline"][2]["outputs"]["matches"] = "request_matches";
   const auto rejected = ValidateWithRemediation(root);
@@ -1240,7 +1235,7 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
-  // Request-scoped chunks cannot back a session-scoped embedding cache.
+  // 请求作用域的分块不能支撑会话作用域的 embedding 缓存。
   const ValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kPortLifetimeMismatch &&

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# LLM-EdgeFlow canonical quality gate.
+# LLM-EdgeFlow 规范质量门禁。
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,8 +45,8 @@ echo -e "${BOLD}[ Step 2/6: Configure and build ]${NC}"
 cmake --build "$BUILD_DIR" -j"$JOBS"
 echo -e "${GREEN}✓ Build completed.${NC}\n"
 
-# Steps 3-6 share one global scheduler. Labels retain stage ownership while
-# allowing slow integration and tooling tests to overlap safely.
+# 步骤 3-6 共用一个全局调度器。标签保留各阶段的归属，
+# 同时允许较慢的集成测试和工具测试安全地并行。
 echo -e "${BOLD}[ Steps 3-6/6: Unified Tier 1-4 CTest scheduler ]${NC}"
 (cd "$BUILD_DIR" && ctest -j"$JOBS" --output-on-failure --no-tests=error)
 

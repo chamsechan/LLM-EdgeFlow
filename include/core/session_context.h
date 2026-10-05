@@ -256,7 +256,7 @@ class SessionContext {
             key.Name(), ResourceEntry{created, std::type_index(typeid(T))});
       }
     } catch (...) {
-      // Share this attempt's failure with its waiters without caching it.
+      // 将本次尝试的失败共享给等待者，但不缓存。
       flight->failure = std::current_exception();
       created.reset();
     }

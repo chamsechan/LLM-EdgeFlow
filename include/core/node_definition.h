@@ -47,7 +47,7 @@ struct ControlCommandDefinition {
   std::string description;
   nlohmann::json payload_schema = nlohmann::json::object();
   bool supports_hot_swap = false;
-  // Opt in on both definitions when sharing an identical command across types.
+  // 跨类型共享同一命令时，两个 Definition 都需显式开启。
   bool shared_id = false;
 
   ControlCommandDefinition() = default;
@@ -80,7 +80,7 @@ struct NodeDefinition {
   std::vector<PortGroupConstraint> port_constraints;
   std::vector<ControlCommandDefinition> control_commands;
   std::vector<ConfigFieldDefinition> config_fields;
-  // Pure semantic validation: no model/session allocation or external I/O.
+  // 纯语义校验：不分配模型/会话，不做外部 I/O。
   NodeConfigValidator validate_config;
   std::vector<NodeModelDependency> model_dependencies;
   bool parallel_safe = false;

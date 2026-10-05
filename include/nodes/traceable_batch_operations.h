@@ -20,8 +20,8 @@
 
 namespace llm_edgeflow {
 
-// TraceableItemKeyHash and std::hash<TraceableItemKey> are defined in
-// node_result.h for repository-wide availability.
+// TraceableItemKeyHash 和 std::hash<TraceableItemKey> 定义在
+// node_result.h，以便全仓库使用。
 
 // ============================================================================
 // 1. JoinByItem
@@ -67,8 +67,7 @@ class ItemJoinView {
                std::vector<RowType> rows)
       : left_(&left), right_(&right), rows_(std::move(rows)) {}
 
-  // Disallow construction from temporary / rvalue batches (both non-const and
-  // const)
+  // 禁止从临时/右值批次构造 (含非 const 和 const)
   ItemJoinView(std::vector<TraceableItem<LeftPayload>>&&,
                const std::vector<TraceableItem<RightPayload>>&,
                std::vector<RowType>) = delete;
@@ -153,7 +152,7 @@ NodeResult<ItemJoinView<LeftPayload, RightPayload>> JoinByItem(
     }
   }
 
-  // Check for unknown keys in right (in both kExact and kLeft)
+  // kExact 和 kLeft 模式都检查 right 中的未知键
   for (const auto& r_item : right) {
     TraceableItemKey r_key{r_item.req_id, r_item.sub_id};
     if (left_key_to_idx.find(r_key) == left_key_to_idx.end()) {
@@ -478,7 +477,7 @@ void GroupByRequest(const std::vector<TraceableItem<AnchorPayload>>&&,
                     const std::vector<TraceableItem<MemberPayload>>&&) = delete;
 
 // ============================================================================
-// 3. SelectBatch and ScatterReplace
+// 3. SelectBatch 与 ScatterReplace
 // ============================================================================
 
 template <typename Payload>

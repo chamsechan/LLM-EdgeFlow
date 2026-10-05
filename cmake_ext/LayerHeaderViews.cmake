@@ -1,8 +1,8 @@
-# Keep conventional include spellings while withholding other layers' headers
-# from compiler search paths. LayerGuard still checks relative/absolute includes.
+# 保留常规的 include 写法，同时不把其他层的头文件放进编译器搜索路径。
+# LayerGuard 仍会检查相对/绝对路径 include。
 function(edgeflow_header_view view_name)
   set(view_dir "${PROJECT_BINARY_DIR}/layer_includes/${view_name}")
-  # Reconfiguration after a header removal must not retain a stale visible file.
+  # 删除头文件后重新配置时，不得残留过期的可见文件。
   file(REMOVE_RECURSE "${view_dir}")
   file(MAKE_DIRECTORY "${view_dir}")
   foreach(header IN LISTS ARGN)
@@ -15,8 +15,8 @@ function(edgeflow_header_view view_name)
     file(CREATE_LINK "${PROJECT_SOURCE_DIR}/${header}"
          "${view_dir}/${include_path}" SYMBOLIC RESULT link_result)
     if(NOT link_result STREQUAL "0")
-      # Platforms without symlink support track copies as configure dependencies;
-      # edits then trigger CMake before the next incremental compilation.
+      # 不支持符号链接的平台把副本登记为配置依赖；
+      # 编辑后会在下次增量编译前触发 CMake。
       configure_file("${PROJECT_SOURCE_DIR}/${header}"
                      "${view_dir}/${include_path}" COPYONLY)
     endif()
@@ -52,7 +52,7 @@ edgeflow_collect_headers(model_api_headers "${PROJECT_SOURCE_DIR}/include/engine
 edgeflow_collect_headers(model_private_headers "${PROJECT_SOURCE_DIR}/src/engine")
 edgeflow_header_view(model_execution ${model_api_headers} ${model_private_headers})
 
-# Shared Node authoring contracts have one manifest for CMake and LayerGuard.
+# 共享的 Node 编写契约只有一份清单，供 CMake 和 LayerGuard 共用。
 set(node_contract_manifest "${PROJECT_SOURCE_DIR}/cmake_ext/node_core_contracts.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${node_contract_manifest}")
 file(STRINGS "${node_contract_manifest}" node_core_contracts)
@@ -74,8 +74,8 @@ edgeflow_collect_headers(integration_headers "${PROJECT_SOURCE_DIR}/include/adap
 edgeflow_header_view(integration ${integration_headers} ${core_headers}
     ${model_api_headers} ${platform_mock_headers})
 
-# Capture the actual evaluated target include paths, including transitive usage
-# requirements, so the existing LayerGuard gate detects accidental broadening.
+# 记录目标实际求值后的 include 路径 (含传递的使用要求)，
+# 以便现有 LayerGuard 门禁发现意外放宽。
 function(edgeflow_generate_layer_compile_manifest)
   set(content "set(layer_cxx [==[${CMAKE_CXX_COMPILER}]==])\n")
   set(layer_cxx_flags "")

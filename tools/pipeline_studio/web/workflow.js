@@ -1,4 +1,4 @@
-// Run snapshots describe the submitted draft, independently of later edits or saves.
+// 运行快照描述提交时的草稿，不受之后的编辑或保存影响。
 export function captureRun({ documentVersion, pipeline, filename, profile, modelRoot }) {
   return { documentVersion, pipeline: JSON.stringify(pipeline), filename, profile, modelRoot, startedAt: new Date().toISOString(), job: { status: "starting" }, id: "" };
 }
@@ -13,7 +13,7 @@ export function runSummary(job) {
   const lines = [labels[job.status] || job.status];
   const summary = job.result?.["summary.json"];
   if (summary && typeof summary === "object") {
-    // Counts come from Demo's sample statuses, never from the process exit code.
+    // 计数来自 Demo 的样本状态，而非进程退出码。
     if (Number.isFinite(summary.total_samples)) lines.push(`样本 ${summary.total_samples} 条`);
     if (Number.isFinite(summary.success_count)) lines.push(`成功 ${summary.success_count} 条`);
     if (Number.isFinite(summary.failed_count)) lines.push(`失败 ${summary.failed_count} 条`);

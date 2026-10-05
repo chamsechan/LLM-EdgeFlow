@@ -47,7 +47,7 @@ for (const [from, to, rectangles] of [
   }
 }
 
-// Small DOM harness exercises event safety and camera lifecycle without a browser dependency.
+// 小型 DOM 测试桩，无需浏览器依赖即可覆盖事件安全和相机生命周期。
 class Element {
   constructor(tag = "g") {
     this.tag = tag; this.attrs = {}; this.dataset = {}; this.children = []; this.listeners = {};
@@ -129,8 +129,8 @@ layers["#nodes"].children[1].fire("dblclick", { stopPropagation() {}, target: { 
 near(graph.positions.b.x + graph.sizes.b.width / 2, (root.clientWidth / 2 - graph.offset.x) / graph.scale);
 console.log("Studio graph geometry, routing and interaction checks passed");
 
-// Raw data mappings alone drive visible data edges. No missing required or
-// optional input may silently bind to a same-name key.
+// 可见的数据边只由原始数据映射决定。缺失的必需或可选输入
+// 都不得静默绑定到同名键。
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { graphDocument } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
 const catalog = { io_bindings: [{ binding_id: "example.binding", biz_name: "example" }], bizs: [{ biz_name: "example", ingress: [{ key: "request" }], egress: [] }], nodes: [

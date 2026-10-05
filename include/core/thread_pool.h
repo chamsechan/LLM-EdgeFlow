@@ -43,8 +43,8 @@ class ThreadPool {
         });
       }
     } catch (...) {
-      // A failed constructor never runs ~ThreadPool. Join any workers before
-      // their queue, mutex and condition variable are destroyed.
+      // 构造失败时不会执行 ~ThreadPool，须在队列、互斥锁和条件变量销毁前
+      // join 所有工作线程。
       StopAndJoin();
       throw;
     }

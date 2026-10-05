@@ -10,8 +10,8 @@
 
 namespace llm_edgeflow {
 
-// Borrowed for the node's session lifetime. Models remain explicit Spec
-// dependencies; this facade cannot look up models or access request values.
+// 在 Node 的会话生命周期内借用。Model 仍是显式的 Spec 依赖；
+// 此 facade 不能查找模型或访问请求值。
 class SessionResources {
  public:
   SessionResources() = default;
@@ -21,9 +21,8 @@ class SessionResources {
     return Session().GetModelManager().GetModelRevision(model_id);
   }
 
-  // Ordinary factories return a value or NodeFailure. The existing session
-  // single-flight shares failures with waiters and permits retry on the next
-  // call. Other exceptions still reach the node runtime's exception barrier.
+  // 普通工厂返回值或 NodeFailure。现有的会话 single-flight 机制会把失败共享给
+  // 等待者，并允许下次调用重试。其他异常仍会到达 Node 运行时的异常屏障。
   template <typename T, typename Factory>
   NodeResult<std::shared_ptr<T>> GetOrCreateResult(
       const SessionResourceKey<T>& key, Factory&& factory) const {

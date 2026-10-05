@@ -16,8 +16,7 @@
 
 namespace llm_edgeflow {
 
-// The caller keeps the session alive through Node destruction, as in
-// production.
+// 与生产环境一样，调用方在 Node 析构期间保持会话存活。
 struct NodeFixturePlans {
   std::mutex mutex;
   std::vector<std::shared_ptr<ValidatedNodePlan>> plans;

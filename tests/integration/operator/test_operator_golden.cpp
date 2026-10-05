@@ -117,7 +117,6 @@ TEST_F(OperatorGoldenTest, HandlesCloseIndependently) {
   EXPECT_EQ(second.Close(), 0) << second.close_diagnostic();
 }
 
-// Golden Test 1: DocQA (Biz 1)
 TEST_F(OperatorGoldenTest, DocQaGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
@@ -164,7 +163,6 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 2: KeywordMatch (Biz 2)
 TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
@@ -210,7 +208,6 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 3: EntityExtract (Biz 3)
 TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
@@ -248,7 +245,6 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 4: DialogueAudit (Biz 4)
 TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
@@ -293,7 +289,6 @@ TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 5: OcrInvoiceQa (Biz 5)
 TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
@@ -334,8 +329,6 @@ TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 6: AudioAsrIntent (Biz 6) with Slot Extraction Exact Golden
-// Verification
 TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);
@@ -344,11 +337,11 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
       << instance.create_diagnostic();
   ASSERT_NE(instance.get(), nullptr);
 
-  // Sample 1: Navigation with avoid traffic (sum > 120 in mock ASR)
+  // 样本 1：导航并避开拥堵 (mock ASR 中 sum > 120)
   std::vector<float> pcm_nav(16000, 0.05f);  // sum = 800 > 120
-  // Sample 2: HVAC temp and fan speed (sum <= 40 in mock ASR)
+  // 样本 2：空调温度和风速 (mock ASR 中 sum <= 40)
   std::vector<float> pcm_hvac(16000, 0.001f);  // sum = 16 <= 40
-  // Sample 3: Unmatched general voice command (sum = 80, > 40 and <= 120)
+  // 样本 3：未匹配的通用语音指令 (sum = 80，> 40 且 <= 120)
   std::vector<float> pcm_gen(16000, 0.005f);  // sum = 80
 
   CompanyOperatorAudioInput in1{6001, pcm_nav.data(),
@@ -372,7 +365,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
 
-  // Verify Sample 1: Navigation
+  // 校验样本 1：导航
   auto out_sp1 = outputs[0]["mic_0.audio_out"];
   ASSERT_NE(out_sp1, nullptr);
   auto* out_dto1 = static_cast<CompanyOperatorAudioOutput*>(out_sp1.get());
@@ -393,7 +386,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   EXPECT_EQ(j1["slots"]["avoid_traffic"], true);
   EXPECT_EQ(j1["slots"]["avoid_toll"], false);
 
-  // Verify Sample 2: HVAC Control
+  // 校验样本 2：空调控制
   auto out_sp2 = outputs[1]["mic_0.audio_out"];
   ASSERT_NE(out_sp2, nullptr);
   auto* out_dto2 = static_cast<CompanyOperatorAudioOutput*>(out_sp2.get());
@@ -413,7 +406,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   EXPECT_EQ(j2["slots"]["temperature"], 24);
   EXPECT_EQ(j2["slots"]["fan_speed"], 2);
 
-  // Verify Sample 3: General Voice Command Fallback
+  // 校验样本 3：通用语音指令回退
   auto out_sp3 = outputs[2]["mic_0.audio_out"];
   ASSERT_NE(out_sp3, nullptr);
   auto* out_dto3 = static_cast<CompanyOperatorAudioOutput*>(out_sp3.get());
@@ -439,7 +432,6 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
-// Golden Test 7: CrossRerank (Biz 7)
 TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   if (!BackendRegistry::Instance().Find("onnxruntime").has_value()) {
     GTEST_SKIP() << "ONNX Runtime backend disabled in this build";
@@ -520,7 +512,6 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   std::filesystem::remove_all(temp_dir, ec);
 }
 
-// Golden Test 8: Translate (Biz 8)
 TEST_F(OperatorGoldenTest, TranslateGolden) {
   using namespace llm_edgeflow::operator_api;
   ScopedTestOperator instance(ops_);

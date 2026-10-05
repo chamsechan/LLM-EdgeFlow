@@ -98,7 +98,7 @@ TEST_F(RuntimeControlAndHotSwapTest,
       << error;
   ExpectRuleCategories(&pipeline, "UPDATED_A", "UPDATED_B");
 
-  // Unwrapped payloads retain their existing broadcast behavior.
+  // 未包装的 payload 保持原有的广播行为。
   ASSERT_EQ(
       pipeline.Control(kControlCmdUpdateRules,
                        R"({"categories":{"BROADCAST":["sample"]}})", &error),
@@ -161,7 +161,7 @@ TEST_F(RuntimeControlAndHotSwapTest,
                                &stage),
               0);
     EXPECT_NE(error.find(field), std::string::npos) << error;
-    // Only the regex compile happens inside the Node; schema checks run first.
+    // 只有正则编译在 Node 内部进行；schema 检查先执行。
     EXPECT_EQ(stage, field == "rules_a" ? ControlFailureStage::kNode
                                         : ControlFailureStage::kRequest);
     ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");

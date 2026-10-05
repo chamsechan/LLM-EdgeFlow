@@ -71,11 +71,10 @@ inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
   }
 }
 
-// Reads a declared configuration field: the configured value when present,
-// otherwise the default from its declaration, so each default is written once
-// in the Definition. Throws for undeclared fields or a configured value of the
-// wrong type, like nlohmann::json::value. Null means omitted configuration;
-// other non-object values are rejected.
+// 读取已声明的配置字段：有配置值时取配置值，否则取声明中的默认值，
+// 因此每个默认值只在 Definition 中写一次。字段未声明或配置值类型错误时
+// 抛出异常，与 nlohmann::json::value 一致。null 表示未配置，
+// 其他非对象值会被拒绝。
 template <typename T>
 T ConfigValueOrDefault(const nlohmann::json& config,
                        const std::vector<ConfigFieldDefinition>& fields,

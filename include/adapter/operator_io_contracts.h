@@ -11,8 +11,8 @@ namespace llm_edgeflow {
 
 enum class IoDirection { kUnknown, kInput, kOutput };
 
-// Framework storage for immutable parameters. Structure authors use ordinary
-// structs and MakeOutputParameterParser<T>; no inheritance is required.
+// 不可变参数的框架存储。结构作者使用普通 struct 和
+// MakeOutputParameterParser<T>，无需继承。
 struct OutputAllocationParameters {
   virtual ~OutputAllocationParameters() = default;
 };
@@ -34,7 +34,7 @@ struct ResolvedOutputPoolSpec {
   uint32_t meta_num = 0;
   int32_t metadata_type_id = 0;
   std::unordered_map<std::string, uint32_t> capacities;
-  std::string allocator;  // Empty selects the ValueType default allocator.
+  std::string allocator;  // 为空时使用 ValueType 的默认分配器。
   std::shared_ptr<const OutputAllocationParameters> params;
 
   template <typename T>

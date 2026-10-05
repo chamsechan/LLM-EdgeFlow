@@ -28,7 +28,7 @@ STARTER_LLM_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_nod
 STARTER_CONTROL_TEMPLATE = find_template("dev_support/node_authoring/starter_control_node.cpp")
 
 
-# Compile-time capability signatures; availability still comes from the Catalog.
+# 编译期能力签名；可用性仍以 Catalog 为准。
 CAPABILITY_MAP = {
     "llm": ("LlmCall", "TextBatch", "TextBatch", "Generate"),
     "embedding": ("EmbeddingCall", "TextBatch", "EmbeddingBatch", "Embed"),
@@ -48,7 +48,7 @@ def cpp_string(value):
 
 
 def parse_port_spec(spec, default_role="input"):
-    """Parse name:Batch[:1:1[:preserve]], keeping both halves of cardinality."""
+    """解析 name:Batch[:1:1[:preserve]]，保留 cardinality 的两侧。"""
     parts = [part.strip() for part in spec.split(":")]
     if len(parts) not in (2, 4, 5):
         raise ValueError(f"Invalid {default_role} port: expected name:Batch[:1:1[:preserve]]")
@@ -67,7 +67,7 @@ def parse_port_spec(spec, default_role="input"):
 
 
 def get_item_type_for_batch(batch):
-    # No parallel table of payload names: derive them from the actual batch.
+    # 不维护 payload 名称的平行表，而是从实际批类型推导。
     return f"decltype({batch}::value_type{{}}.data)"
 
 
@@ -82,9 +82,9 @@ def render_map_node(name, description, in_port, out_port):
 namespace llm_edgeflow {{
 namespace custom_nodes {{
 namespace {{
-// Map starter: transforms each input item independently while preserving provenance.
+// Map 入门模板：逐条独立转换输入，并保留来源信息。
 static std::string Transform(const std::string& input) {{
-  // TODO: Replace with your domain logic.
+  // TODO: 替换为你的领域逻辑。
   return input;
 }}
 
@@ -133,7 +133,7 @@ struct Models {{
 
 static NodeResult<EmbeddingBatch> Run(const Inputs& input, const NoParameters&,
                                       const Models& models) {{
-  // TODO: Add domain preprocessing or postprocessing as needed.
+  // TODO: 按需添加领域预处理或后处理。
   return models.encoder.Embed(*input.texts);
 }}
 
@@ -206,8 +206,8 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
         processing = f"  return NodeResult<{out_type}>::Success(*inputs.items);"
     else:
         processing = f'''  (void)inputs;
-  // TODO: Implement the declared transformation and provenance policy.
-  // Do not publish default payloads as successful business results.
+  // TODO: 实现声明的转换和来源策略。
+  // 不要把默认 payload 当作成功的业务结果发布。
   return NodeResult<{out_type}>::Failure(
       NodeErrorKind::kBusinessError, "domain transformation is not implemented", -8102);'''
     return f'''#include "nodes/authoring.h"
@@ -339,7 +339,7 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
     sample_in_3 = sample_value_for_type(in_type, 3)
 
     def payload_check(actual, batch_type, expected, label):
-        # A named value keeps aggregate commas out of GoogleTest macro arguments.
+        # 用具名值避免聚合初始化的逗号进入 GoogleTest 宏参数。
         fields = {
             "AudioPcmBatch": ("pcm_data", "sample_rate"),
             "QueryCandidatesBatch": ("query", "candidate"),
@@ -436,7 +436,7 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
   NodeHarness harness({cpp_string(name)});
   harness.Config({{{{"prefix", "biz:"}}}});
 
-  // Editable business input with independent expected output.
+  // 可编辑的业务输入，以及独立的期望输出。
   TextBatch input;
   input.emplace_back(101, 1, "task_sample");
   harness.CustomInput({cpp_string(in_name)}, std::move(input));
@@ -597,7 +597,7 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
 }}  // namespace llm_edgeflow
 """
 
-    # Model calls
+    # 模型调用
     count_error = "node_error::author_node::kOutputCountMismatch"
     provenance_error = "node_error::author_node::kOutputProvenanceMismatch"
     mock_class = {
@@ -683,14 +683,14 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
   harness.BindModel("test_model", mock_model);
   harness.Config({{{{"bind_model", "test_model"}}}});
 
-  // 1. Missing input fails without publishing output
+  // 1. 缺少输入时失败，且不发布输出
   {{
     auto result = harness.Run();
     EXPECT_FALSE(result.ok());
     EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
   }}
 
-  // 2. Normal execution succeeds
+  // 2. 正常执行成功
   {{
     {in_type} input;
     input.emplace_back(101, 1, {sample_in_1});
@@ -705,7 +705,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
     EXPECT_EQ(output->at(0).sub_id, 1u);
   }}
 
-  // 3. Model failure fails without publishing output
+  // 3. 模型失败时失败，且不发布输出
   {{
     mock_model->fail_ = true;
 
@@ -718,7 +718,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
     mock_model->fail_ = false;
   }}
 
-  // 4. Output count mismatch fails without publishing
+  // 4. 输出数量不一致时失败，且不发布
   {{
     mock_model->return_wrong_count_ = true;
 
@@ -732,7 +732,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
     mock_model->return_wrong_count_ = false;
   }}
 
-  // 5. Corrupted provenance fails without publishing
+  // 5. 来源信息损坏时失败，且不发布
   {{
     mock_model->corrupt_provenance_ = true;
 
@@ -768,12 +768,11 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 
 
 class ChangePlan:
-    """Publish without clobbering targets; retain displaced edits on conflict.
+    """发布时不覆盖目标；冲突时保留被挪走的编辑。
 
-    Directory locks serialize generators. Existing files are moved aside before
-    checking their content, then new versions are linked with no-replace semantics.
-    A concurrent editor creating the destination wins; displaced content is restored
-    without overwriting that editor, or retained at an explicitly reported path.
+    目录锁使生成器串行执行。检查内容前先把现有文件挪开，再以不替换语义链接新版本。
+    并发编辑者先创建目标时以其为准；被挪走的内容会在不覆盖该编辑者的前提下恢复，
+    或保留在明确报告的路径上。
     """
     def __init__(self):
         self.new_files = {}
@@ -815,7 +814,7 @@ class ChangePlan:
 
     @staticmethod
     def _restore(displaced, path):
-        # link() atomically refuses an existing destination, including symlinks.
+        # link() 遇到已存在的目标 (含符号链接) 会原子地拒绝。
         try:
             os.link(displaced, path, follow_symlinks=False)
         except FileExistsError:
@@ -840,7 +839,7 @@ class ChangePlan:
                     staged = self._stage(path, content)
                     try:
                         os.chmod(staged, 0o644)
-                        os.link(staged, path)  # Never replace a concurrent new file.
+                        os.link(staged, path)  # 绝不替换并发新建的文件。
                         self.created_paths.append((path, content))
                     finally:
                         staged.unlink(missing_ok=True)
@@ -848,8 +847,8 @@ class ChangePlan:
                     staged = self._stage(path, content)
                     backup = self._stage(path, "")
                     try:
-                        # Capture the actual current file atomically; check the captured
-                        # version, not a pathname which may change before publication.
+                        # 原子地捕获当前实际文件；检查捕获到的版本，
+                        # 而不是发布前可能变化的路径名。
                         os.replace(path, backup)
                         self.backups[path] = backup
                         if backup.is_symlink() or backup.read_text(encoding="utf-8") != original:
@@ -861,7 +860,7 @@ class ChangePlan:
                         staged.unlink(missing_ok=True)
                         if path not in self.backups:
                             backup.unlink(missing_ok=True)
-                # Detect edits through an open descriptor to the displaced inode.
+                # 通过指向被挪走 inode 的已打开描述符检测编辑。
                 for path, backup in self.backups.items():
                     if backup.read_text(encoding="utf-8") != self.modified_files[path][0]:
                         raise RuntimeError(f"Concurrent edit detected in displaced file {backup}")

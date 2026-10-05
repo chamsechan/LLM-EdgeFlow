@@ -141,8 +141,7 @@ class SimpleTestNode : public INode {
   }
 };
 
-// R5: creator execution, creator copy, Definition callback copy, reentrant
-// queries
+// R5：creator 执行、creator 拷贝、Definition 回调拷贝及重入查询
 TEST(RegistryReentrantTest, ReentrantCreatorAndFactoryZeroDeadlock) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
   bool factory_invoked = false;
@@ -172,7 +171,7 @@ TEST(RegistryReentrantTest, ReentrantCreatorAndFactoryZeroDeadlock) {
   EXPECT_NE(instance, nullptr);
 }
 
-// R5: creator copy and Definition callback copy reentrancy without deadlock
+// R5：creator 拷贝和 Definition 回调拷贝的重入，且不死锁
 struct ReentrantCopyCreator {
   static inline std::atomic<int> copy_count{0};
 
@@ -245,8 +244,7 @@ TEST(RegistryReentrantTest, ReentrantCallableCopyZeroDeadlock) {
   ReentrantCopyCreator creator;
   ReentrantCopyFactory factory;
 
-  // Pass factory wrapped in std::function to explicitly exercise factory
-  // callable copy reentrancy
+  // 用 std::function 包装工厂，显式覆盖工厂可调用对象拷贝时的重入
   std::function<NodeDefinition()> factory_wrapper = factory;
 
   bool registered = NodeRegistry::Instance().RegisterWithDefinitionFactory(
@@ -254,26 +252,26 @@ TEST(RegistryReentrantTest, ReentrantCallableCopyZeroDeadlock) {
   EXPECT_TRUE(registered);
   EXPECT_TRUE(NodeRegistry::Instance().Has("ReentrantCallableCopyNode"));
 
-  // Create node: copies handle->creator outside registry lock, triggers
-  // ReentrantCopyCreator copy
+  // 创建 Node：在注册表锁外拷贝 handle->creator，触发
+  // ReentrantCopyCreator 拷贝
   auto instance = NodeRegistry::Instance().Create("ReentrantCallableCopyNode");
   EXPECT_NE(instance, nullptr);
   EXPECT_GT(ReentrantCopyCreator::copy_count.load(), 0);
 
-  // Snapshot: copies handle->definition outside registry lock, triggers
-  // ReentrantConfigValidator copy
+  // Snapshot：在注册表锁外拷贝 handle->definition，触发
+  // ReentrantConfigValidator 拷贝
   auto snap = NodeRegistry::Instance().Snapshot();
   EXPECT_FALSE(snap.definitions.empty());
   EXPECT_GT(ReentrantConfigValidator::copy_count.load(), 0);
 
-  // ListDefinitions: also copies definitions outside lock
+  // ListDefinitions：同样在锁外拷贝 Definition
   auto list = NodeRegistry::Instance().ListDefinitions();
   EXPECT_FALSE(list.empty());
 
   EXPECT_GT(ReentrantCopyFactory::copy_count.load(), 0);
 }
 
-// R4: Register fail-after-N loop with ScopedAllocationFailure
+// R4：配合 ScopedAllocationFailure 循环测试 Register 第 N 次分配后失败
 TEST(RegistryReentrantTest, RegisterFailAfterNIntegrity) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
   const std::string sentinel = "AllocFailSentinelNode";
@@ -322,8 +320,8 @@ TEST(RegistryReentrantTest, RegisterFailAfterNIntegrity) {
   EXPECT_TRUE(completed);
 }
 
-// R4/R5: Insertion allocation failure with user resource destructor calling
-// NodeRegistry::Has() must not deadlock on mutex_.
+// R4/R5：插入时分配失败，且用户资源的析构函数调用 NodeRegistry::Has()，
+// 不得在 mutex_ 上死锁。
 struct ReentrantDestructorResource {
   static inline std::atomic<int> destruct_count{0};
   static inline std::atomic<int> reentrant_has_count{0};
@@ -406,7 +404,7 @@ TEST(RegistryReentrantTest,
             ReentrantDestructorResource::reentrant_has_count.load());
 }
 
-// R4: Register duplicate fail-after-N loop with ScopedAllocationFailure
+// R4：配合 ScopedAllocationFailure 循环测试重复 Register 第 N 次分配后失败
 TEST(RegistryReentrantTest, RegisterDuplicateFailAfterNIntegrity) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
   const std::string existing = "AllocFailDuplicateNode";
@@ -449,8 +447,8 @@ TEST(RegistryReentrantTest, RegisterDuplicateFailAfterNIntegrity) {
   EXPECT_TRUE(completed);
 }
 
-// R4: Register cross-node control conflict fail-after-N loop with
-// ScopedAllocationFailure
+// R4：配合 ScopedAllocationFailure 循环测试跨 Node Control 冲突的 Register
+// 第 N 次分配后失败
 TEST(RegistryReentrantTest, RegisterControlConflictFailAfterNIntegrity) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
   const std::string node_a = "AllocFailControlNodeA";
@@ -470,7 +468,7 @@ TEST(RegistryReentrantTest, RegisterControlConflictFailAfterNIntegrity) {
   const std::string node_b = "AllocFailControlNodeB";
   NodeDefinition def_b = MakeTestNodeDef(node_b);
   ControlCommandDefinition cmd_b;
-  cmd_b.cmd_id = 999;  // Conflict with node_a command
+  cmd_b.cmd_id = 999;  // 与 node_a 的命令冲突
   cmd_b.name = "different_name";
   cmd_b.shared_id = false;
   cmd_b.payload_schema = nlohmann::json::object();
@@ -513,8 +511,8 @@ TEST(RegistryReentrantTest, RegisterControlConflictFailAfterNIntegrity) {
   EXPECT_TRUE(completed);
 }
 
-// R4: RegisterWithDefinitionFactory fail-after-N loop with
-// ScopedAllocationFailure
+// R4：配合 ScopedAllocationFailure 循环测试 RegisterWithDefinitionFactory
+// 第 N 次分配后失败
 TEST(RegistryReentrantTest, RegisterWithDefinitionFactoryFailAfterNIntegrity) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
   const std::string sentinel = "FactoryAllocFailSentinelNode";
@@ -561,8 +559,7 @@ TEST(RegistryReentrantTest, RegisterWithDefinitionFactoryFailAfterNIntegrity) {
   EXPECT_TRUE(completed);
 }
 
-// R8: ScopedNodeState restoration under allocation failure is non-allocating
-// and robust
+// R8：分配失败时 ScopedNodeState 的恢复不分配内存且稳健
 TEST(RegistryReentrantTest, ScopedNodeStateRestorationUnderAllocationFailure) {
   const std::string sentinel = "RestorationSentinelNode";
   {
@@ -582,22 +579,21 @@ TEST(RegistryReentrantTest, ScopedNodeStateRestorationUnderAllocationFailure) {
             MakeTestNodeDef(temp_node)));
         EXPECT_TRUE(NodeRegistry::Instance().Has(temp_node));
 
-        // Trigger conflict so has_conflict_ is true
+        // 触发冲突，使 has_conflict_ 为 true
         EXPECT_FALSE(NodeRegistry::Instance().Register(
             temp_node, []() { return std::make_unique<SimpleTestNode>(); },
             MakeTestNodeDef(temp_node)));
         EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
 
-        // Arm allocation failure so that ~ScopedNodeState runs with failure(0)
+        // 启用分配失败，使 ~ScopedNodeState 在 failure(0) 下运行
         failure.emplace(0);
       }
-      // inner is destructed while failure is active, then failure is destructed
+      // inner 在 failure 生效期间析构，随后 failure 析构
       ASSERT_TRUE(failure.has_value());
       EXPECT_FALSE(failure->Triggered());
     }
 
-    // After inner scope destroyed under allocation failure, registry must be
-    // cleanly restored
+    // inner 作用域在分配失败下销毁后，注册表必须完整恢复
     EXPECT_FALSE(NodeRegistry::Instance().HasConflict());
     EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
     EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);

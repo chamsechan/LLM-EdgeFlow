@@ -1,4 +1,4 @@
-"""String boundary and native Demo transport tests; no simulated quality claims."""
+"""字符串边界与原生 Demo 传输测试；不做模拟的质量结论。"""
 
 import contextlib
 import importlib.util
@@ -28,7 +28,7 @@ class JsonPromptDemoTest(unittest.TestCase):
                 encoded = demo.encode_request(json.dumps(request, indent=2))
                 self.assertEqual(json.loads(encoded), request)
                 self.assertNotIn("\n", encoded)
-        # Business validation must occur inside the SDK.
+        # 业务校验必须在 SDK 内部进行。
         self.assertEqual(json.loads(demo.encode_request('{"query":123}')), {"query": 123})
         self.assertEqual(demo.encode_request('{}'), '{}')
 
@@ -99,15 +99,15 @@ class JsonPromptDemoTest(unittest.TestCase):
                 self.assertEqual(native.call_count, int(native_exit != 0))
 
     def test_direct_run_demo_validates_and_normalizes_requests(self):
-        # Empty input rejects with ValueError
+        # 空输入以 ValueError 拒绝
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
             demo.run_demo([], "config.conf", Path(tmp), "bin")
 
-        # Invalid input rejects with ValueError before invoking any process
+        # 非法输入在启动任何进程前以 ValueError 拒绝
         with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
             demo.run_demo(["invalid json"], "config.conf", Path(tmp), "bin")
 
-        # Valid input is prepared and formatted
+        # 合法输入被准备并格式化
         prepared = demo.prepare_requests(['{"b": 2, "a": 1}'])
         self.assertEqual(prepared, ['{"b":2,"a":1}'])
 

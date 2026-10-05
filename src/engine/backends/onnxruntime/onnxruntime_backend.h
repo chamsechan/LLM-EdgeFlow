@@ -12,8 +12,8 @@ namespace llm_edgeflow {
 
 namespace onnxruntime_detail {
 
-// Neutral Tensor contract helpers are intentionally vendor-type free so the
-// strict boundary can be unit-tested even when ONNX Runtime is disabled.
+// 中性 Tensor 契约辅助函数有意不含厂商类型，
+// 以便在禁用 ONNX Runtime 时也能单测严格边界。
 bool ValidateInputTensor(const Tensor& tensor, const TensorSpec& spec,
                          const BatchPolicy& policy,
                          std::string* diagnostic = nullptr) noexcept;

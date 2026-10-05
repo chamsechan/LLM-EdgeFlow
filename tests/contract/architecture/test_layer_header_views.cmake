@@ -1,4 +1,4 @@
-# Invoked by the existing LayerGuardTest with generated, evaluated target paths.
+# 由现有的 LayerGuardTest 调用，传入生成并求值后的目标路径。
 include("${LAYER_COMPILE_MANIFEST}")
 file(MAKE_DIRECTORY "${layer_test_root}")
 
@@ -24,7 +24,7 @@ function(check_header layer header allowed)
     if(status EQUAL 0)
       message(FATAL_ERROR "${layer} can compile forbidden header ${header}")
     endif()
-    # A failing transitive include is not proof that the named boundary held.
+    # 传递 include 失败并不能证明目标边界成立。
     string(FIND "${error}" "${header}: No such file" gcc_missing)
     string(FIND "${error}" "'${header}' file not found" clang_missing)
     if(gcc_missing EQUAL -1 AND clang_missing EQUAL -1)
@@ -33,8 +33,8 @@ function(check_header layer header allowed)
   endif()
 endfunction()
 
-# Imported runtime targets must not bring their compile usage requirements
-# back through final linking, including into Models and the composition root.
+# 导入的运行时目标不得在最终链接时把编译使用要求带回来，
+# 包括带入 Model 和组合根。
 foreach(layer model_execution capability_nodes orchestration integration composition alg_sdk alg_pipeline_tool)
   foreach(header onnxruntime_cxx_api.h llama.h whisper.h kiteLLM.h)
     check_header(${layer} ${header} FALSE)
@@ -128,8 +128,8 @@ foreach(layer capability_nodes orchestration integration)
   check_header(${layer} engine/backends/onnxruntime/onnxruntime_backend.h FALSE)
 endforeach()
 
-# Compile author-facing contracts using only the capability layer's include view.
-# A failed negative example must name the intended contract, not a missing header.
+# 只用能力节点层的 include 视图编译面向作者的契约。
+# 反例失败时必须指明目标契约，而不是缺少头文件。
 function(check_authoring_snippet case_name body expected_diagnostic)
   set(source "${layer_test_root}/authoring_${case_name}.cpp")
   file(WRITE "${source}" "#include <nodes/authoring.h>\nusing namespace llm_edgeflow;\n${body}\n")
@@ -181,8 +181,8 @@ struct Models { EmbeddingCall generator; };
 auto slot = Llm("generator", "bind_model", &Models::generator);
 ]=] "no matching function" "LlmCall")
 
-# Verify the actual CMake module through an incremental, dependency-free fixture.
-# The normal generator is reused, including when the parent uses multi-config.
+# 通过增量、无依赖的夹具验证实际的 CMake 模块。
+# 复用常规生成器，包括父项目使用 multi-config 的情况。
 set(fixture "${layer_test_root}/lifecycle")
 if(DEFINED LAYER_LIFECYCLE_GENERATOR)
   set(layer_generator "${LAYER_LIFECYCLE_GENERATOR}")

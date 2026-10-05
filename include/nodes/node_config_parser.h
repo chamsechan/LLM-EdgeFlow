@@ -11,8 +11,8 @@
 
 namespace llm_edgeflow {
 
-// Optional authoring helper: one field list and one semantic parser for an
-// ordinary parameter struct. It neither reads files nor serializes JSON.
+// 可选的编写辅助：为普通参数 struct 提供一份字段列表和一个语义解析器。
+// 不读文件，也不序列化 JSON。
 template <typename Parameters>
 class NodeConfigParser {
  public:
@@ -26,8 +26,8 @@ class NodeConfigParser {
     return fields_;
   }
 
-  // For raw Node configuration or an already decoded Control payload. Reuses
-  // the same field validation/defaults as PipelineValidator and AuthorNode.
+  // 用于原始 Node 配置或已解码的 Control payload。复用与 PipelineValidator
+  // 和 AuthorNode 相同的字段校验与默认值。
   std::optional<Parameters> Parse(const nlohmann::json& config,
                                   std::string* error = nullptr) const noexcept {
     if (error) error->clear();
@@ -50,11 +50,9 @@ class NodeConfigParser {
     return std::nullopt;
   }
 
-  // Only for input already validated/defaulted with Fields(), such as a
-  // Definition's validate_config callback or AuthorNode initialization.
-  // Forwards the existing JSON object directly; does not copy or normalize it
-  // again. The parser owns semantic checks and must return owned parameter
-  // data.
+  // 仅用于已按 Fields() 校验并填充默认值的输入，如 Definition 的
+  // validate_config 回调或 AuthorNode 初始化。直接转发现有 JSON 对象，
+  // 不再复制或归一化。解析器负责语义检查，并须返回自有的参数数据。
   std::optional<Parameters> ParseNormalized(
       const nlohmann::json& config,
       std::string* error = nullptr) const noexcept {

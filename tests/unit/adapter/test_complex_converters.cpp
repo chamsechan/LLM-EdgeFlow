@@ -56,7 +56,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
-  // Populate answer context
+  // 填充答案上下文
   TextBatch answers;
   answers.emplace_back(0, 0, "This is the answer.");
   ctx.Publish("llm_answers", std::move(answers));
@@ -197,7 +197,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
-  // Setup ranked_results in context
+  // 在上下文中准备 ranked_results
   RankedTextBatch ranked;
   RankedCandidate cand;
   cand.rank = 1;
@@ -263,7 +263,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
-  // Setup audit results in context
+  // 在上下文中准备审核结果
   StructuredDocumentBatch verdicts;
   verdicts.emplace_back(
       0, 0,
@@ -404,7 +404,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
       "invoice_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
-  // Setup operator input: frame and string
+  // 准备 Operator 输入：frame 和 string
   std::string uri_str = "/path/to/invoice.jpg";
   CompanyString uri{static_cast<int32_t>(uri_str.size()),
                     const_cast<char*>(uri_str.data())};
@@ -435,7 +435,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   int ret = in_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
-  // Setup invoice output in AlgContext
+  // 在 AlgContext 中准备发票输出
   StructuredDocumentBatch invoices;
   JsonDocumentItem doc_item;
   doc_item.is_valid = true;
@@ -450,7 +450,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   ocr_docs.emplace_back(0, 0, ocr_doc);
   ctx.Publish("ocr_docs", std::move(ocr_docs));
 
-  // Destination operator od_out
+  // 目标 Operator od_out
   CompanyOdOutput od_out{};
   std::vector<char> buf(256);
   CompanyString res_str{255, buf.data()};
@@ -480,7 +480,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   EXPECT_STREQ(od_out.result_json->data, "{\"total\":123.45}");
 }
 
-// ==================== All 8 Businesses Bound ====================
+// ==================== 8 个业务全部绑定 ====================
 TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   const std::vector<std::string> expected_biz = {
       "translate",    "entity_extract", "keyword_match",    "doc_qa",
@@ -502,7 +502,7 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
         converters.FindOutputConverter(binding->output_converter_id);
     ASSERT_NE(input, nullptr) << biz;
     ASSERT_NE(output, nullptr) << biz;
-    // Production declares the limit once, on the binding.
+    // 生产代码只在 binding 上声明一次上限。
     EXPECT_EQ(binding->max_batch_size, 64U) << biz;
     EXPECT_EQ(input->max_batch_size, 0U) << biz;
     EXPECT_EQ(output->max_batch_size, 0U) << biz;
@@ -510,7 +510,7 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   }
 }
 
-// Only the renamed port is declared; the others map to their own names.
+// 只声明改名的端口，其余端口映射到同名键。
 TEST_F(ComplexConvertersTest, ComplianceBindingDeclaresOnlyRenamedPort) {
   const auto* binding =
       IoBindingRegistry::Instance().FindBinding("dialogue_audit.operator.v1");

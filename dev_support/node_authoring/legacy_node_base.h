@@ -9,9 +9,8 @@
 
 namespace llm_edgeflow {
 
-// Retired class-style port helpers. Tests that drive the NodeBase runtime
-// directly and the authoring benchmark's historical baseline use them;
-// production Nodes use Specs, whose AuthorNode owns port binding.
+// 已退役的类式端口辅助函数。直接驱动 NodeBase 运行时的测试和编写基准的
+// 历史基线会用到它们；生产 Node 使用 Spec，端口绑定由 AuthorNode 负责。
 class LegacyNodeBase : public NodeBase {
  public:
   using NodeBase::NodeBase;
@@ -58,7 +57,7 @@ class LegacyNodeBase : public NodeBase {
     return port;
   }
 
-  // Preserve BindPort's validation and left-to-right error ordering.
+  // 保留 BindPort 的校验及从左到右的错误顺序。
   template <typename... Ports>
   void BindPorts(const NodeInitContext& init_ctx, Ports&... ports) const {
     (BindPort(init_ctx, ports), ...);

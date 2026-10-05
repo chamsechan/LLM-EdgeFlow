@@ -28,7 +28,7 @@ struct InputLimits {
   size_t max_doc_text_bytes = biz_input::kMaxDocTextBytes;
   size_t max_image_uri_bytes = biz_input::kMaxImageUriBytes;
   int32_t max_audio_pcm_samples =
-      biz_input::kMaxAudioPcmSamples;                         // 960k samples
+      biz_input::kMaxAudioPcmSamples;  // 96 万个采样点
   size_t max_audio_pcm_bytes = biz_input::kMaxAudioPcmBytes;  // 10 MiB
   int32_t min_sample_rate = biz_input::kMinSampleRate;
   int32_t max_sample_rate = biz_input::kMaxSampleRate;
@@ -98,7 +98,7 @@ struct OwnedExternalBlock {
   OwnedExternalBlock(const OwnedExternalBlock&) = delete;
   OwnedExternalBlock& operator=(const OwnedExternalBlock&) = delete;
 
-  // Register each allocation while its unique_ptr still guards failure.
+  // 在 unique_ptr 仍负责失败回收时登记每次分配。
   template <typename T>
   T* Own(std::unique_ptr<T> value) {
     T* raw = value.get();
@@ -146,10 +146,9 @@ using NormalizeOutputParametersFn = std::function<bool(
     std::shared_ptr<const OutputAllocationParameters>* normalized,
     std::string* error)>;
 
-// Parse only this structure's parameters, once during Create. Parser has the
-// signature bool(const std::string&, T*, std::string*). T is an ordinary
-// struct; the framework handles immutable ownership and checked access
-// thereafter.
+// 只解析本结构的参数，且仅在 Create 时解析一次。Parser 签名为
+// bool(const std::string&, T*, std::string*)。T 为普通 struct，
+// 此后由框架负责不可变所有权和受检访问。
 template <typename T, typename Parser>
 NormalizeOutputParametersFn MakeOutputParameterParser(Parser parse) {
   return [parse = std::move(parse)](
@@ -176,12 +175,11 @@ struct OperatorValueTypeBinding {
   AllocateExternalFn allocate_external;
   ResetExternalFn reset_external;
   DestroyExternalFn destroy_external;
-  // Empty for a ValueType's default allocation; assigned by allocator
-  // registration.
+  // ValueType 默认分配时为空；由分配器注册时赋值。
   std::string allocation_name;
-  // Called at configuration time to create immutable single-object parameters.
-  // Prefer MakeOutputParameterParser<T> with an ordinary parameter struct.
-  // Parameter destruction must not allocate; no file or queue access here.
+  // 配置期调用，创建不可变的单对象参数。建议使用普通参数 struct 和
+  // MakeOutputParameterParser<T>。参数析构不得分配内存，
+  // 此处也不得访问文件或队列。
   NormalizeOutputParametersFn normalize_parameters;
 };
 
@@ -198,7 +196,7 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_bytes,
                                             std::string* error) noexcept;
 }  // namespace operator_value_detail
 
-// Keep the external null diagnostic and type erasure at the binding boundary.
+// 外部空值诊断和类型擦除保留在绑定边界。
 template <typename T, typename Validate>
 OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
                                                const char* type_name,
@@ -219,8 +217,8 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
   return binding;
 }
 
-// Each pooled string is declared once for capacity validation, allocation and
-// reset. Member pointers keep the descriptor tied to its concrete C structure.
+// 每个池化字符串只声明一次，用于容量校验、分配和重置。
+// 成员指针使描述符与具体的 C 结构绑定。
 template <typename T>
 struct OutputStringField {
   std::string name;
@@ -269,8 +267,8 @@ OperatorValueTypeBinding MakePooledOutputBinding(
                                   const ResolvedOutputPoolSpec& spec,
                                   OwnedExternalBlock* block,
                                   std::string*) -> int {
-    // Reserve before allocating: one root plus a wrapper and data buffer
-    // for each nested field. OwnedExternalBlock rolls back partial failure.
+    // 分配前先预留：一个根块，每个嵌套字段再加一个包装和一个数据缓冲区。
+    // OwnedExternalBlock 负责回滚部分失败。
     block->cleanups.reserve(1 + 2 * string_fields.size() +
                             (metadata_field ? 2 : 0));
     auto* raw = block->Own(std::make_unique<T>());
@@ -291,7 +289,7 @@ OperatorValueTypeBinding MakePooledOutputBinding(
                                const ResolvedOutputPoolSpec&) noexcept {
     if (!ptr) return;
     auto* raw = static_cast<T*>(ptr);
-    // Reset values only; nested storage and metadata type survive reuse.
+    // 只重置值；嵌套存储和元数据类型在复用时保留。
     reset_scalars(*raw);
     for (const auto& field : string_fields) {
       operator_value_detail::ResetNestedCompanyString(raw->*field.member);
@@ -305,9 +303,8 @@ OperatorValueTypeBinding MakePooledOutputBinding(
   return binding;
 }
 
-// Source-extension registration. All registrations finish before Operator Init.
-// A named allocator preserves the registered outer type, while defining its
-// own nested layout, parameter normalization, byte accounting and cleanup.
+// 源码扩展注册，须在 Operator Init 前全部完成。具名分配器保留已注册的
+// 外层类型，同时自定义嵌套布局、参数归一化、字节计数和清理。
 bool RegisterOperatorValueType(const OperatorValueTypeBinding& binding);
 bool RegisterOperatorOutputAllocator(const std::string& name,
                                      const OperatorValueTypeBinding& binding);

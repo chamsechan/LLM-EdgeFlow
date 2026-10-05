@@ -24,10 +24,10 @@ struct TraceableAlignmentResult {
 };
 
 /**
- * @brief Validate a strict 1:1, order-preserving Traceable batch contract.
+ * @brief 校验严格 1:1、保序的 Traceable 批次契约。
  *
- * For a count mismatch, mismatch_index is the first index missing from either
- * batch. For an aligned result, mismatch_index equals the batch size.
+ * 数量不一致时，mismatch_index 是任一批次中首个缺失的索引；
+ * 完全对齐时，mismatch_index 等于批大小。
  */
 template <typename Input, typename Output>
 [[nodiscard]] TraceableAlignmentResult ValidatePreservedTraceableAlignment(

@@ -119,7 +119,7 @@ function operationFeedback(message, error = false) {
 function showFailure(error) {
   let report = error.payload;
   if (report?.error?.code === "VALIDATION_FAILED") {
-    try { report = typeof report.error.message === "string" ? JSON.parse(report.error.message) : report.error.message; } catch { /* Use original error below. */ }
+    try { report = typeof report.error.message === "string" ? JSON.parse(report.error.message) : report.error.message; } catch { /* 下方使用原始错误。 */ }
   }
   if (Array.isArray(report?.diagnostics) && report.diagnostics.length) {
     showValidation(report); switchTab("validation");
@@ -191,7 +191,7 @@ function restorePositions() {
 
 function savePositions(positions) {
   try { localStorage.setItem(positionsKey(), JSON.stringify(positions)); }
-  catch { /* A full/disabled browser store must not interrupt editing. */ }
+  catch { /* 浏览器存储已满或被禁用时，不得中断编辑。 */ }
 }
 
 function selectNode(id) {
@@ -745,8 +745,8 @@ async function pollRun(run) {
     setTimeout(() => pollRun(run), 700);
   } catch (error) {
     if (state.run !== run) return;
-    // A failed status request does not mean the process stopped. Retain cancel
-    // and retry until the server returns its terminal status.
+    // 状态请求失败并不代表进程已停止。保留取消和重试，
+    // 直到服务器返回终态。
     run.pollError = error.message; renderRun();
     setTimeout(() => pollRun(run), 2000);
   }
@@ -1084,7 +1084,7 @@ $("#rawJson").addEventListener("input", event => {
 });
 for (const [kind, selector] of [["node", "#nodeForm"], ["model", "#modelForm"]]) {
   const remember = event => {
-    // Graph controls submit authoring operations, not node-parameter drafts.
+    // 图控件提交的是编辑操作，而非 Node 参数草稿。
     if (event.target.closest?.("#nodeBindings")) return;
     event.target.setCustomValidity?.("");
     if (!state.editing) return;

@@ -4,7 +4,7 @@
 
 namespace llm_edgeflow {
 
-// Owned by Orchestration. Catalog-specific fields are added only by tooling.
+// 归流程编排层所有。Catalog 专属字段只由工具添加。
 const nlohmann::json& PipelineConfigStructure();
 
 }  // namespace llm_edgeflow
