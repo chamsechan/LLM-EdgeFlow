@@ -123,7 +123,7 @@ try {
   await page.click("#openRunButton");
   for (const label of ["宿主类型 · type_id", "类型注册后缀 · type_suffix", "外部键后缀 · key_suffix"]) {
     assert.deepEqual(await contractValues(label), ["未提供", "未提供"],
-      "Missing Catalog fields must not be inferred from slot_name or value_type");
+      "Missing Catalog fields must not be inferred from slot_name");
   }
   assert.deepEqual(await contractValues("输入逻辑槽 · slot_name"), ["keyword_in"]);
   await open("pipeline_browser_multi.json");

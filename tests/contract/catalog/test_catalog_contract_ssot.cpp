@@ -318,26 +318,28 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
 
   const auto& input = catalog.at("input_converters").at(0);
   EXPECT_EQ(input.at("converter_id"), "keyword.plain.operator.v1");
+  EXPECT_EQ(input.at("schema_id"), "text.plain.request");
+  EXPECT_EQ(input.at("external_type"), "CompanyOperatorKeywordInput");
   ASSERT_EQ(input.at("external_slots").size(), 1U);
   const auto& input_slot = input.at("external_slots").at(0);
   EXPECT_EQ(input_slot.at("slot_name"), "keyword_in");
   EXPECT_EQ(input_slot.at("type_id"), "CompanyOperatorKeywordInput");
   EXPECT_EQ(input_slot.at("type_suffix"), "keyword_in");
   EXPECT_EQ(input_slot.at("key_suffix"), "keyword_in");
-  EXPECT_EQ(input_slot.at("value_type"), "keyword_in");
   EXPECT_EQ(input_slot.at("direction"), "input");
   EXPECT_EQ(input_slot.at("required"), true);
   EXPECT_EQ(input_slot.at("capacity_fields"), nlohmann::json::array());
 
   const auto& output = catalog.at("output_converters").at(0);
   EXPECT_EQ(output.at("converter_id"), "keyword.result.operator.v1");
+  EXPECT_EQ(output.at("schema_id"), "keyword.result.response");
+  EXPECT_EQ(output.at("external_type"), "CompanyOperatorKeywordOutput");
   ASSERT_EQ(output.at("external_slots").size(), 1U);
   const auto& output_slot = output.at("external_slots").at(0);
   EXPECT_EQ(output_slot.at("slot_name"), "keyword_out");
   EXPECT_EQ(output_slot.at("type_id"), "CompanyOperatorKeywordOutput");
   EXPECT_EQ(output_slot.at("type_suffix"), "keyword_out");
   EXPECT_EQ(output_slot.at("key_suffix"), "keyword_out");
-  EXPECT_EQ(output_slot.at("value_type"), "CompanyOperatorKeywordOutput");
   EXPECT_EQ(output_slot.at("direction"), "output");
   EXPECT_EQ(output_slot.at("required"), true);
   EXPECT_EQ(output_slot.at("capacity_fields"),
@@ -373,32 +375,16 @@ TEST_F(CatalogContractSsotTest,
   auto output = *original_output;
   input.converter_id = "catalog.slot_names.input";
   input.external_slots = {
-      {"request_payload",
-       "CompanyOperatorKeywordInput",
-       PortDirection::kInput,
-       true,
-       "keyword_in",
-       "keyword_in",
-       {},
-       "service_request"},
+      {"request_payload", "CompanyOperatorKeywordInput", PortDirection::kInput,
+       true, "keyword_in", "service_request"},
       {"fallback_request", "CompanyOperatorKeywordInput", PortDirection::kInput,
-       false, "keyword_in", "keyword_in"}};
+       false, "keyword_in"}};
   output.converter_id = "catalog.slot_names.output";
-  output.external_slots = {{"reply_payload",
-                            "CompanyOperatorKeywordOutput",
-                            PortDirection::kOutput,
-                            true,
-                            "CompanyOperatorKeywordOutput",
-                            "keyword_out",
-                            {"match_result_json"},
-                            "service_reply"},
-                           {"fallback_reply",
-                            "CompanyOperatorKeywordOutput",
-                            PortDirection::kOutput,
-                            false,
-                            "CompanyOperatorKeywordOutput",
-                            "keyword_out",
-                            {"match_result_json"}}};
+  output.external_slots = {
+      {"reply_payload", "CompanyOperatorKeywordOutput", PortDirection::kOutput,
+       true, "keyword_out", "service_reply"},
+      {"fallback_reply", "CompanyOperatorKeywordOutput", PortDirection::kOutput,
+       false, "keyword_out"}};
   ASSERT_TRUE(registry.RegisterInputConverter(input));
   ASSERT_TRUE(registry.RegisterOutputConverter(output));
 

@@ -653,10 +653,13 @@ int main(int argc, char* argv[]) {
           {"output_port_mapping", plan->output_port_bindings.All()},
           {"effective_max_batch_size", plan->effective_max_batch_size},
           {"external_input_type",
-           plan->input_converter ? plan->input_converter->external_type : ""},
-          {"external_output_type", plan->output_converter
-                                       ? plan->output_converter->external_type
-                                       : ""}};
+           plan->input_converter
+               ? ExternalType(plan->input_converter->external_slots)
+               : ""},
+          {"external_output_type",
+           plan->output_converter
+               ? ExternalType(plan->output_converter->external_slots)
+               : ""}};
 
       nlohmann::json result = {{"schema_version", 1},
                                {"ok", true},
