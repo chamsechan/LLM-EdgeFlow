@@ -210,7 +210,7 @@ binding.normalize_parameters =
 **调用前提。** `Process` 的输入、输出批次必须非空且帧数相等，单次批次不超过有效上限，
 超出时直接失败，不会在门面中自动拆批。每帧按接入绑定提供必需的输入槽和输出槽，可选槽按契约省略。
 提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
-有效 key 后缀与宿主类型可通过 `catalog --io-binding <binding_id>` 查询，后缀与类型的区别见
+有效 key 后缀与宿主类型可通过 `catalog --io-binding <biz_name>` 查询，后缀与类型的区别见
 [选择参数](#选择参数)。
 
 **借用输入与输出租约。** `CompanyString` 用于文本，二进制使用 `CompanyBuffer`。

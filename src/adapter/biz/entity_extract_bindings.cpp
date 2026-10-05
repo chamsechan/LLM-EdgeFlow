@@ -27,11 +27,9 @@ const bool g_reg_entity_extract_biz = []() {
 
 IoBindingDefinition MakeEntityExtractOperatorBinding() {
   IoBindingDefinition def;
-  def.binding_id = "entity_extract.operator.v1";
   def.biz_name = kBizName;
-
-  def.input_converter_id = "text.plain.operator.v1";
-  def.output_converter_id = "document.structured.operator.v1";
+  def.input_converter_id = "text.plain";
+  def.output_converter_id = "document.structured";
   return def;
 }
 

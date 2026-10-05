@@ -41,14 +41,14 @@ try {
   assert.equal(await page.locator("#newEntryButton").isVisible(), true);
   await page.click("#newEntryButton");
   assert.equal(await page.locator("#newButton").isVisible(), true, "one click exposes creation");
-  await page.selectOption("#bindingSelect", "keyword_match.operator.v1");
+  await page.selectOption("#bindingSelect", "keyword_match");
   await page.selectOption("#cloneProfile", "keyword_match_rules");
   await page.click("#newButton");
   await page.waitForFunction(() => document.querySelectorAll('.node').length === 3 && !document.querySelector('#newButton').disabled);
-  assert.equal((await json()).deployment.io.io_binding, "keyword_match.operator.v1");
+  assert.equal((await json()).deployment.io.io_binding, "keyword_match");
   assert.equal(Object.hasOwn(await json(), "biz_name"), false);
   assert.deepEqual(initializationRequests.at(-1), {
-    io_binding: "keyword_match.operator.v1", profile: "keyword_match_rules", empty: false,
+    io_binding: "keyword_match", profile: "keyword_match_rules", empty: false,
   });
   page.once("dialog", dialog => dialog.accept());
   await open("pipeline_browser.json");
@@ -79,10 +79,9 @@ try {
   await page.click("#openRunButton");
   await page.locator("#bizContract > summary").click();
   for (const [label, expected] of [
-    ["I/O 契约 · io_binding", ["keyword_match.operator.v1"]],
-    ["Binding ID", ["keyword_match.operator.v1"]],
-    ["输入 Converter", ["keyword.plain.operator.v1"]],
-    ["输出 Converter", ["keyword.result.operator.v1"]],
+    ["I/O 契约 · io_binding", ["keyword_match"]],
+    ["输入 Converter", ["keyword.plain"]],
+    ["输出 Converter", ["keyword.result"]],
     ["输入协议 · schema_id", ["text.plain.request"]],
     ["输出协议 · schema_id", ["keyword.result.response"]],
     ["输入逻辑槽 · slot_name", ["keyword_in"]],
@@ -93,8 +92,7 @@ try {
   ]) assert.deepEqual(await contractValues(label), expected, label);
   await open("pipeline_browser_multi.json");
   await page.click("#openRunButton");
-  assert.deepEqual(await contractValues("I/O 契约 · io_binding"), ["doc_qa.operator.v1"]);
-  assert.deepEqual(await contractValues("Binding ID"), ["doc_qa.operator.v1"]);
+  assert.deepEqual(await contractValues("I/O 契约 · io_binding"), ["doc_qa"]);
   assert.doesNotMatch(await page.locator("#bizContractFields").textContent(), /keyword/,
     "Changing documents must replace every previous contract field");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -109,7 +107,7 @@ try {
   "Contract labels and identifiers must wrap within their fields");
   await screenshot("390-contract-details");
   await page.setViewportSize({ width: 1366, height: 768 });
-  await page.route("**/api/v1/catalog?io_binding=keyword_match.operator.v1", async route => {
+  await page.route("**/api/v1/catalog?io_binding=keyword_match", async route => {
     const response = await route.fetch();
     const catalog = await response.json();
     for (const converter of [...catalog.input_converters, ...catalog.output_converters]) {
@@ -184,7 +182,7 @@ try {
   await page.waitForFunction(() => document.querySelector("#operationFeedback").textContent.includes("已保存"));
   const savedPipeline = JSON.parse(readFileSync(join(configRoot, "pipeline_browser.json")));
   assert.deepEqual(savedPipeline.pipeline[0].config.categories, { SAVED_BROWSER: ["VIP"] });
-  assert.equal(savedPipeline.deployment.io.io_binding, "keyword_match.operator.v1");
+  assert.equal(savedPipeline.deployment.io.io_binding, "keyword_match");
   assert.equal(Object.hasOwn(savedPipeline, "biz_name"), false);
   assert.equal(Object.hasOwn(savedPipeline.deployment.io, "output_allocations"), false);
   assert.match(await page.locator("#saveScope").textContent(), /pipeline_browser.json/);

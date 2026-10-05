@@ -47,7 +47,7 @@ Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于
 
 ## 业务入口与输出配置
 
-每份 Pipeline 显式填写 `deployment.io.io_binding`，它决定外部 C 结构体与内部数据的转换契约。
+每份 Pipeline 显式在 `deployment.io.io_binding` 填写业务名，它选择该业务唯一的绑定，决定外部 C 结构体与内部数据的转换契约。
 框架从注册关系获得业务边界、输入/输出转换器、端口和输出类型，不靠文件名或后缀猜测。
 Demo 根据配置自动选取运行入口，Profile 只保存配置路径、数据集和执行参数。
 每个业务只注册一个 binding；同一业务的第二个 binding 会被注册审计拒绝，SDK 初始化失败。
@@ -56,7 +56,7 @@ Demo 根据配置自动选取运行入口，Profile 只保存配置路径、数�
 {
   "deployment": {
     "io": {
-      "io_binding": "keyword_match.operator.v1"
+      "io_binding": "keyword_match"
     }
   }
 }

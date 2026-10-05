@@ -25,7 +25,7 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool catalog --io-binding <existing_binding_id>
+./build/alg_pipeline_tool catalog --io-binding <existing_biz_name>
 ./build/alg_pipeline_tool describe-node <node_type>
 ./build/alg_pipeline_tool describe-model <model_type>
 ./build/alg_pipeline_tool describe-backend <backend_type>

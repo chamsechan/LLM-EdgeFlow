@@ -86,7 +86,7 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "doc_query.plain.operator.v1";
+  def.converter_id = "doc_query.plain";
 
   def.schema_id = "doc_query.plain.request";
 

@@ -1289,7 +1289,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
       "schema_version": 1,
       "data": {
         "pipe_path": "pipeline_keyword_match_rules.json",
-        "io_binding": "keyword_match.operator.v1"
+        "io_binding": "keyword_match"
       }
     })";
   }
@@ -2205,7 +2205,7 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
     nlohmann::json pipeline = {
         {"deployment",
          {{"io",
-           {{"io_binding", "keyword_match.operator.v1"},
+           {{"io_binding", "keyword_match"},
             {"out_mem",
              {{"keyword_out",
                {{"capacities", {{"match_result_json", capacity}}}}}}}}}}},
@@ -2419,7 +2419,7 @@ int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
 
 const bool g_reg_nested_output_components = []() {
   BizDefinition bdef;
-  bdef.biz_name = "test_nested_output_v1";
+  bdef.biz_name = "test_nested_output";
   bdef.ingress = {
       BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
   bdef.egress = {
@@ -2429,7 +2429,7 @@ const bool g_reg_nested_output_components = []() {
   }
 
   OutputConverterDefinition odef;
-  odef.converter_id = "test_nested_output.operator.v1";
+  odef.converter_id = "test_nested_output";
 
   odef.max_batch_size = 64;
   odef.schema_id = "test_nested_output";
@@ -2444,11 +2444,10 @@ const bool g_reg_nested_output_components = []() {
   IoConverterRegistry::Instance().RegisterOutputConverter(odef);
 
   IoBindingDefinition bind;
-  bind.binding_id = "nested_output_test.operator.v1";
-  bind.biz_name = "test_nested_output_v1";
+  bind.biz_name = "test_nested_output";
 
-  bind.input_converter_id = "keyword.plain.operator.v1";
-  bind.output_converter_id = "test_nested_output.operator.v1";
+  bind.input_converter_id = "keyword.plain";
+  bind.output_converter_id = "test_nested_output";
   bind.max_batch_size = 64;
   IoBindingRegistry::Instance().RegisterBinding(bind);
   return true;
@@ -2475,7 +2474,7 @@ nlohmann::json NestedOutputPipelineJson(bool alternate = false) {
   pipeline.erase("biz_name");
   pipeline["deployment"] = {
       {"io",
-       {{"io_binding", "nested_output_test.operator.v1"},
+       {{"io_binding", "test_nested_output"},
         {"out_mem", NestedOutputAllocations(alternate)}}}};
   return pipeline;
 }
@@ -2517,16 +2516,16 @@ void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
 TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   using namespace llm_edgeflow;
   using namespace llm_edgeflow::test_support;
-  const auto* production = IoConverterRegistry::Instance().FindInputConverter(
-      "keyword.plain.operator.v1");
+  const auto* production =
+      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
   ASSERT_NE(production, nullptr);
   auto input = *production;
-  input.converter_id = "test_partial_request_ids.operator.v1";
+  input.converter_id = "test_partial_request_ids";
   input.decode_fn = [](const ExternalInputBatchView& source,
                        const InputDecodeOptions& options, AlgContext* context,
                        AdapterStatus* status) {
-    const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
-        "keyword.plain.operator.v1");
+    const auto* converter =
+        IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
     const int ret = converter->decode_fn(source, options, context, status);
     if (ret == 0) options.request_ids->resize(1);
     return ret;
@@ -2534,8 +2533,8 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   // 注册表是进程级全局的；只注册一次，以便测试可重复运行。
   if (!IoConverterRegistry::Instance().FindInputConverter(input.converter_id))
     ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  const auto* nested = IoBindingRegistry::Instance().FindBinding(
-      "nested_output_test.operator.v1");
+  const auto* nested =
+      IoBindingRegistry::Instance().FindBinding("test_nested_output");
   ASSERT_NE(nested, nullptr);
   // 每个业务只有一个 binding，测试 binding 使用复制出的独立业务。
   auto biz = *PipelineCatalog::FindBiz(nested->biz_name);
@@ -2544,15 +2543,14 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
     ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz));
   }
   auto binding = *nested;
-  binding.binding_id = "request_id_count_test.operator.v1";
   binding.biz_name = biz.biz_name;
   binding.input_converter_id = input.converter_id;
-  if (!IoBindingRegistry::Instance().FindBinding(binding.binding_id))
+  if (!IoBindingRegistry::Instance().FindBinding(binding.biz_name))
     ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
 
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["io_binding"] = binding.binding_id;
+  pipeline["deployment"]["io"]["io_binding"] = binding.biz_name;
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2576,7 +2574,7 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_STREQ(GetOperatorLastError(),
-               "DecodeInput for test_partial_request_ids.operator.v1 recorded "
+               "DecodeInput for test_partial_request_ids recorded "
                "1 request ids for 2 inputs");
   for (const auto& frame : outputs) {
     EXPECT_EQ(frame.at("test.result"), nullptr);
@@ -2758,7 +2756,7 @@ TEST_F(OperatorApiTest, MissingOutputMemoryUsesRegisteredNestedDefaults) {
                                      sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "test_nested_output_v1");
+  EXPECT_EQ(biz, "test_nested_output");
   CreateParam param{};
   param.model_path = root.c_str();
   param.cfg_file_name = "pipeline.conf";
@@ -2937,7 +2935,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   // 翻译 Adapter 要求带 "query" 的 JSON 对象，因此拒绝纯文本
   const auto* translate_in_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindInputConverter(
-          "translate.json.operator.v1");
+          "translate.json");
   ASSERT_NE(translate_in_conv, nullptr);
   CompanyOperatorEntityInput c_in_plain{50001, &cs_plain};
   llm_edgeflow::AlgContext ctx;

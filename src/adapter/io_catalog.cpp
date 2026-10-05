@@ -55,8 +55,7 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
 }
 
 nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
-  return {{"binding_id", b.binding_id},
-          {"biz_name", b.biz_name},
+  return {{"biz_name", b.biz_name},
           {"transport", "operator"},
           {"input_converter_id", b.input_converter_id},
           {"output_converter_id", b.output_converter_id},
@@ -71,7 +70,7 @@ nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
   auto all_bindings = IoBindingRegistry::Instance().AllBindings();
   std::sort(all_bindings.begin(), all_bindings.end(),
             [](const IoBindingDefinition& a, const IoBindingDefinition& b) {
-              return a.binding_id < b.binding_id;
+              return a.biz_name < b.biz_name;
             });
 
   std::set<std::string> active_input_converters;

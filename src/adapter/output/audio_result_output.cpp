@@ -89,7 +89,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "audio_result.plain.operator.v1";
+  def.converter_id = "audio_result.plain";
 
   def.schema_id = "audio_result.plain.response";
 

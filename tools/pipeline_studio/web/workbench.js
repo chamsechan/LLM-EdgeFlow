@@ -68,7 +68,7 @@ export function pipelineBinding(pipeline) {
 
 export function graphDocument(pipeline, catalog) {
   const nodes = pipeline?.pipeline || [];
-  const binding = catalog.io_bindings?.find(binding => binding.binding_id === pipelineBinding(pipeline));
+  const binding = catalog.io_bindings?.find(binding => binding.biz_name === pipelineBinding(pipeline));
   const biz = catalog.bizs?.find(biz => biz.biz_name === binding?.biz_name);
   const definitions = {};
   for (const node of nodes) definitions[node.id] = catalog.nodes?.find(def => def.node_type === node.node_type) || {};

@@ -51,7 +51,7 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorAudioInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "audio.pcm.operator.v1";
+  def.converter_id = "audio.pcm";
 
   def.schema_id = "audio.pcm.request";
 

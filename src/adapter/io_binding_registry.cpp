@@ -40,49 +40,32 @@ IoBindingRegistry& IoBindingRegistry::Instance() {
 
 bool IoBindingRegistry::RegisterBinding(const IoBindingDefinition& def) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (def.binding_id.empty()) {
-    conflicts_.Record("Empty binding_id in IoBindingDefinition");
-    return false;
-  }
   if (def.biz_name.empty()) {
-    conflicts_.Record("Empty biz_name in IoBindingDefinition: " +
-                      def.binding_id);
+    conflicts_.Record("Empty biz_name in IoBindingDefinition");
     return false;
   }
-
   if (def.input_converter_id.empty()) {
     conflicts_.Record("Empty input_converter_id in IoBindingDefinition: " +
-                      def.binding_id);
+                      def.biz_name);
     return false;
   }
   if (def.output_converter_id.empty()) {
     conflicts_.Record("Empty output_converter_id in IoBindingDefinition: " +
-                      def.binding_id);
-    return false;
-  }
-
-  auto it = bindings_.find(def.binding_id);
-  if (it != bindings_.end()) {
-    conflicts_.Record("Duplicate IoBinding registration: " + def.binding_id);
+                      def.biz_name);
     return false;
   }
   // 一个业务只有一份外部契约，因此只登记一个 binding。
-  for (const auto& [id, existing] : bindings_) {
-    if (existing.biz_name == def.biz_name) {
-      conflicts_.Record("Duplicate IoBinding for biz_name '" + def.biz_name +
-                        "': " + id + ", " + def.binding_id);
-      return false;
-    }
+  if (!bindings_.emplace(def.biz_name, def).second) {
+    conflicts_.Record("Duplicate IoBinding for biz_name: " + def.biz_name);
+    return false;
   }
-
-  bindings_[def.binding_id] = def;
   return true;
 }
 
 const IoBindingDefinition* IoBindingRegistry::FindBinding(
-    const std::string& binding_id) const {
+    const std::string& biz_name) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto it = bindings_.find(binding_id);
+  auto it = bindings_.find(biz_name);
   if (it != bindings_.end()) {
     return &it->second;
   }
@@ -121,20 +104,19 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
 
   const auto catalog_snapshot = PipelineCatalog::Snapshot();
 
-  for (const auto& [binding_id, binding] : bindings_) {
+  for (const auto& [biz_name, binding] : bindings_) {
     // 1. 检查 biz_name 是否在 PipelineCatalog 中已注册
-    const auto* biz_def = catalog_snapshot.FindBiz(binding.biz_name);
+    const auto* biz_def = catalog_snapshot.FindBiz(biz_name);
     if (!biz_def) {
-      errors.push_back(
-          "Binding '" + binding_id +
-          "' references unregistered biz_name: " + binding.biz_name);
+      errors.push_back("Binding '" + biz_name +
+                       "' references unregistered biz_name");
     }
 
     // 2. 检查 input converter：逻辑端口名即业务入口键
     const auto* in_conv =
         conv_reg.FindInputConverter(binding.input_converter_id);
     if (!in_conv) {
-      errors.push_back("Binding '" + binding_id +
+      errors.push_back("Binding '" + biz_name +
                        "' references unregistered input_converter: " +
                        binding.input_converter_id);
     } else if (biz_def) {
@@ -146,10 +128,10 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                            return p.blackboard_key == target_key;
                          });
         if (ingress_it == biz_def->ingress.end()) {
-          errors.push_back("Binding '" + binding_id + "' input port '" +
+          errors.push_back("Binding '" + biz_name + "' input port '" +
                            port.logical_name + "' is not a biz ingress key");
         } else if (port.type_id != ingress_it->type_id) {
-          errors.push_back("Binding '" + binding_id + "' input port '" +
+          errors.push_back("Binding '" + biz_name + "' input port '" +
                            port.logical_name + "' type '" + port.type_id +
                            "' does not match biz ingress key '" + target_key +
                            "' type '" + ingress_it->type_id + "'");
@@ -164,7 +146,7 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
               return port.logical_name == ingress_port.blackboard_key;
             });
         if (!covered) {
-          errors.push_back("Binding '" + binding_id +
+          errors.push_back("Binding '" + biz_name +
                            "' missing required biz ingress port: " +
                            ingress_port.blackboard_key);
         }
@@ -175,7 +157,7 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
     const auto* out_conv =
         conv_reg.FindOutputConverter(binding.output_converter_id);
     if (!out_conv) {
-      errors.push_back("Binding '" + binding_id +
+      errors.push_back("Binding '" + biz_name +
                        "' references unregistered output_converter: " +
                        binding.output_converter_id);
     } else if (biz_def) {
@@ -190,20 +172,20 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                                        biz_def->ingress.end(), matches_key);
         if (egress_it != biz_def->egress.end()) {
           if (port.type_id != egress_it->type_id) {
-            errors.push_back("Binding '" + binding_id + "' output port '" +
+            errors.push_back("Binding '" + biz_name + "' output port '" +
                              port.logical_name + "' type '" + port.type_id +
                              "' does not match biz egress key '" + target_key +
                              "' type '" + egress_it->type_id + "'");
           }
         } else if (ingress_it != biz_def->ingress.end()) {
           if (port.type_id != ingress_it->type_id) {
-            errors.push_back("Binding '" + binding_id + "' output port '" +
+            errors.push_back("Binding '" + biz_name + "' output port '" +
                              port.logical_name + "' type '" + port.type_id +
                              "' does not match biz ingress key '" + target_key +
                              "' type '" + ingress_it->type_id + "'");
           }
         } else {
-          errors.push_back("Binding '" + binding_id + "' output port '" +
+          errors.push_back("Binding '" + biz_name + "' output port '" +
                            port.logical_name +
                            "' is not a biz egress or ingress key");
         }
@@ -217,7 +199,7 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
               return port.logical_name == egress_port.blackboard_key;
             });
         if (!covered) {
-          errors.push_back("Binding '" + binding_id +
+          errors.push_back("Binding '" + biz_name +
                            "' missing required biz egress port: " +
                            egress_port.blackboard_key);
         }
@@ -226,7 +208,7 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
 
     if (in_conv && out_conv &&
         EffectiveMaxBatchSize(binding, *in_conv, *out_conv) == 0) {
-      errors.push_back("Binding '" + binding_id +
+      errors.push_back("Binding '" + biz_name +
                        "' declares no batch limit: set max_batch_size on the "
                        "binding or one of its converters");
     }
@@ -241,10 +223,10 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                 slot.type_suffix);
         if (!val_binding) {
           errors.push_back(
-              "Binding '" + binding_id + "' input slot '" + slot.slot_name +
+              "Binding '" + biz_name + "' input slot '" + slot.slot_name +
               "' uses unregistered ValueType suffix: " + slot.type_suffix);
         } else if (!val_binding->validate_external) {
-          errors.push_back("Binding '" + binding_id + "' input slot '" +
+          errors.push_back("Binding '" + biz_name + "' input slot '" +
                            slot.slot_name + "' ValueType suffix '" +
                            slot.type_suffix + "' missing validate_external");
         }
@@ -258,7 +240,7 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                 slot.type_suffix, "");
         if (!val_binding) {
           errors.push_back(
-              "Binding '" + binding_id + "' output slot '" + slot.slot_name +
+              "Binding '" + biz_name + "' output slot '" + slot.slot_name +
               "' uses unregistered ValueType suffix: " + slot.type_suffix);
         }
       }

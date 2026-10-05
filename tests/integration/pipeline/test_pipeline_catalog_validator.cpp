@@ -543,9 +543,9 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
 }
 
 static nlohmann::json MakeSyntheticDeploymentDocForTest(
-    const nlohmann::json& pipeline_json, const std::string& binding_id) {
+    const nlohmann::json& pipeline_json, const std::string& io_binding) {
   nlohmann::json allocations = nlohmann::json::object();
-  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(io_binding);
   if (binding) {
     const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
         binding->output_converter_id);
@@ -580,7 +580,7 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
   nlohmann::json synthetic = pipeline_json;
   synthetic.erase("biz_name");
   synthetic["deployment"] = {
-      {"io", {{"io_binding", binding_id}, {"out_mem", allocations}}}};
+      {"io", {{"io_binding", io_binding}, {"out_mem", allocations}}}};
   return synthetic;
 }
 
@@ -667,27 +667,15 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     // 3. 共享运行时必须在实例化前失败，并在其内部 C++ 错误边界中
     // 保留主结构化诊断。
     std::string biz = config.value("biz_name", "");
-    std::string binding_id;
-    for (const auto& b : IoBindingRegistry::Instance().AllBindings()) {
-      if (b.biz_name == biz) {
-        binding_id = b.binding_id;
-        break;
-      }
+    if (!IoBindingRegistry::Instance().FindBinding(biz)) {
+      IoBindingDefinition synth_b;
+      synth_b.biz_name = biz;
+      synth_b.input_converter_id = "keyword.plain";
+      synth_b.output_converter_id = "keyword.result";
+      synth_b.max_batch_size = 64;
+      IoBindingRegistry::Instance().RegisterBinding(synth_b);
     }
-    if (binding_id.empty()) {
-      binding_id = "test_synthetic." + biz + ".operator.v1";
-      if (!IoBindingRegistry::Instance().FindBinding(binding_id)) {
-        IoBindingDefinition synth_b;
-        synth_b.binding_id = binding_id;
-        synth_b.biz_name = biz;
-        synth_b.input_converter_id = "keyword.plain.operator.v1";
-        synth_b.output_converter_id = "keyword.result.operator.v1";
-        synth_b.max_batch_size = 64;
-        IoBindingRegistry::Instance().RegisterBinding(synth_b);
-      }
-    }
-    nlohmann::json dep_config =
-        MakeSyntheticDeploymentDocForTest(config, binding_id);
+    nlohmann::json dep_config = MakeSyntheticDeploymentDocForTest(config, biz);
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string resolve_error;
     DeploymentDiagnostic resolve_diagnostic;

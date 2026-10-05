@@ -77,7 +77,7 @@ async function load(name) {
 const app = await load("app.js");
 await app.evaluate();
 const { state, history, drafts, handleApplyFix, restoreHistory } = app.namespace;
-const initial = { deployment: { io: { io_binding: "keyword_match.operator.v1" } }, models: [], pipeline: [], comment: "before" };
+const initial = { deployment: { io: { io_binding: "keyword_match" } }, models: [], pipeline: [], comment: "before" };
 const patched = { ...initial, comment: "after" };
 const fix = { id: "repair-1", title: "Repair", effect: "Replace comment", verification: "pipeline_valid",
   patch: [{ op: "replace", path: "/comment", value: "after" }] };

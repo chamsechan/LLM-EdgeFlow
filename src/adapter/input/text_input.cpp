@@ -50,7 +50,7 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "text.plain.operator.v1";
+  def.converter_id = "text.plain";
 
   def.schema_id = "text.plain.request";
 
@@ -63,7 +63,7 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
 
 InputConverterDefinition MakeOperatorKeywordInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "keyword.plain.operator.v1";
+  def.converter_id = "keyword.plain";
 
   def.schema_id = "text.plain.request";
 

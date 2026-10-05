@@ -87,7 +87,7 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorAuditInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "audit.plain.operator.v1";
+  def.converter_id = "audit.plain";
 
   def.schema_id = "audit.plain.request";
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+IoBinding 改以业务名标识：删除 `IoBindingDefinition::binding_id`，Pipeline 的 `deployment.io.io_binding`
+直接填写业务名（如 `keyword_match`），`catalog` / `init` 的 `--io-binding` 同样接受业务名。转换器 ID
+去掉 `.operator.v1` 后缀（如 `text.plain`）。Catalog 的 `io_bindings` 与 `validate-io` 不再输出
+`binding_id`。全部 Pipeline 配置与 Demo 夹具已同步更新。
+
 每个业务只注册一个 IoBinding：同一 `biz_name` 的第二个 binding 在注册时被拒绝并记为注册冲突
 （SDK 初始化返回 -6），删除同业务多 binding 的外部契约比对与部署诊断 `BIZ_IO_CONTRACT_MISMATCH`。
 发布后外部契约不兼容的变化原地修改并随新 SDK 版本发布，新旧契约须并存时新增业务，不再新增带版本的 binding。
@@ -161,10 +166,8 @@ Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `reque
 启动，参数不变。C++ 命令行工具源码由 `src/tools/` 改名为 `src/cli/`，可执行文件仍输出到
 `build/`。架构图源文件改名为 `doc/architecture_classes.puml` 与 `doc/architecture_flow.puml`。
 
-业务标识统一：每个业务的配置与 Demo 文件名、IoBinding ID（`<词根>.operator.v1`）和
-`biz_name`（`<词根>`，不带版本号）使用同一词根，中文名统一使用 BizDefinition 的显示名。
+业务标识统一：每个业务的配置与 Demo 文件名和 `biz_name`（`<词根>`，不带版本号）使用同一词根，
+中文名统一使用 BizDefinition 的显示名。
 `biz_name` 变更为 `keyword_match`、`entity_extract`、`translate`、`doc_qa`、`cross_rerank`、
-`dialogue_audit`、`ocr_invoice_qa`、`audio_asr_intent`；IoBinding `compliance_audit.operator.v1`
-改为 `dialogue_audit.operator.v1`，`ocr_doc_qa.operator.v1` 改为 `ocr_invoice_qa.operator.v1`；
-OCR 与语音方案的配置、Demo、数据集和 Profile 改用 `ocr_invoice_qa`、`audio_asr_intent` 词根。
+`dialogue_audit`、`ocr_invoice_qa`、`audio_asr_intent`；OCR 与语音方案的配置、Demo、数据集和 Profile 改用 `ocr_invoice_qa`、`audio_asr_intent` 词根。
 Demo 结果目录随 `biz_name` 变化。正式上线前不保留旧名别名。

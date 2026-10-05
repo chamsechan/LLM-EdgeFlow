@@ -1,7 +1,7 @@
 {
   "deployment": {
     "io": {
-      "io_binding": "ocr_invoice_qa.operator.v1"
+      "io_binding": "ocr_invoice_qa"
     }
   },
   "models": [
