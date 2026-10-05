@@ -21,8 +21,8 @@ const std::unordered_set<std::string>& ValidProvenance() {
 }
 
 const std::unordered_set<std::string>& ValidLifetimes() {
-  static const std::unordered_set<std::string> kValidLifetimes = {
-      "request", "session", "global"};
+  static const std::unordered_set<std::string> kValidLifetimes = {"request",
+                                                                  "session"};
   return kValidLifetimes;
 }
 

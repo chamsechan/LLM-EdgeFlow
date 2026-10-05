@@ -20,23 +20,17 @@
 
 namespace llm_edgeflow {
 
-enum class ControlFieldStrategy {
-  kPatch,
-  kReplace,
-};
-
+// 字段 Control 命令：payload 必须给出全部受控字段，整体替换后再校验。
 class FieldControlCommand {
  public:
-  FieldControlCommand(ControlFieldStrategy strategy, int cmd_id,
-                      std::string name, std::vector<std::string> field_names,
+  FieldControlCommand(int cmd_id, std::string name,
+                      std::vector<std::string> field_names,
                       std::string description = "")
-      : strategy_(strategy),
-        cmd_id_(cmd_id),
+      : cmd_id_(cmd_id),
         name_(std::move(name)),
         field_names_(std::move(field_names)),
         description_(std::move(description)) {}
 
-  ControlFieldStrategy Strategy() const noexcept { return strategy_; }
   int Id() const noexcept { return cmd_id_; }
   const std::string& Name() const noexcept { return name_; }
   const std::vector<std::string>& FieldNames() const noexcept {
@@ -103,16 +97,10 @@ class FieldControlCommand {
         prop["default"] = def.default_value;
       }
       props[fname] = std::move(prop);
-      if (strategy_ == ControlFieldStrategy::kReplace) {
-        req.push_back(fname);
-      }
+      req.push_back(fname);
     }
     schema["properties"] = std::move(props);
-    if (strategy_ == ControlFieldStrategy::kReplace) {
-      schema["required"] = std::move(req);
-    } else {
-      schema["minProperties"] = 1;
-    }
+    schema["required"] = std::move(req);
     return schema;
   }
 
@@ -146,31 +134,18 @@ class FieldControlCommand {
           [&](const ParamsT& current) -> NodeResult<ParamsT> {
             ParamsT next = current;
             for (const auto& field_name : field_names_) {
-              if (strategy_ == ControlFieldStrategy::kReplace) {
-                if (!payload.contains(field_name)) {
-                  return NodeResult<ParamsT>::Failure(
-                      NodeErrorKind::kBusinessError,
-                      "Missing required field in control payload: " +
-                          field_name,
-                      node_error::control::kInvalidRequest);
-                }
-                std::string assign_err;
-                if (!params.AssignField(field_name, payload[field_name], &next,
-                                        &assign_err)) {
-                  return NodeResult<ParamsT>::Failure(
-                      NodeErrorKind::kBusinessError, assign_err,
-                      node_error::control::kInvalidRequest);
-                }
-              } else {  // kPatch
-                if (payload.contains(field_name)) {
-                  std::string assign_err;
-                  if (!params.AssignField(field_name, payload[field_name],
-                                          &next, &assign_err)) {
-                    return NodeResult<ParamsT>::Failure(
-                        NodeErrorKind::kBusinessError, assign_err,
-                        node_error::control::kInvalidRequest);
-                  }
-                }
+              if (!payload.contains(field_name)) {
+                return NodeResult<ParamsT>::Failure(
+                    NodeErrorKind::kBusinessError,
+                    "Missing required field in control payload: " + field_name,
+                    node_error::control::kInvalidRequest);
+              }
+              std::string assign_err;
+              if (!params.AssignField(field_name, payload[field_name], &next,
+                                      &assign_err)) {
+                return NodeResult<ParamsT>::Failure(
+                    NodeErrorKind::kBusinessError, assign_err,
+                    node_error::control::kInvalidRequest);
               }
             }
             std::string val_err;
@@ -188,7 +163,6 @@ class FieldControlCommand {
   }
 
  private:
-  ControlFieldStrategy strategy_;
   int cmd_id_;
   std::string name_;
   std::vector<std::string> field_names_;
@@ -199,16 +173,7 @@ class FieldControlCommand {
 inline FieldControlCommand ReplaceFields(int cmd_id, std::string name,
                                          std::vector<std::string> field_names,
                                          std::string description = "") {
-  return FieldControlCommand(ControlFieldStrategy::kReplace, cmd_id,
-                             std::move(name), std::move(field_names),
-                             std::move(description));
-}
-
-inline FieldControlCommand PatchFields(int cmd_id, std::string name,
-                                       std::vector<std::string> field_names,
-                                       std::string description = "") {
-  return FieldControlCommand(ControlFieldStrategy::kPatch, cmd_id,
-                             std::move(name), std::move(field_names),
+  return FieldControlCommand(cmd_id, std::move(name), std::move(field_names),
                              std::move(description));
 }
 

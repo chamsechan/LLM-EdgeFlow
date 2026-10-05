@@ -80,7 +80,6 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
   def.schema_id = "test_input";
   def.external_slots = {ExternalSlotDefinition(
       "inputs", "int", PortDirection::kInput, true, "inputs")};
-  def.max_batch_size = 64;
   def.logical_ports = {NodePortDefinition("texts", "TextBatch", true, "1:1")};
   def.decode_fn = &DummyDecode;
 
@@ -106,7 +105,6 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   def.schema_id = "test_output";
   def.external_slots = {ExternalSlotDefinition(
       "answers", "int", PortDirection::kOutput, true, "answers")};
-  def.max_batch_size = 64;
   def.logical_ports = {NodePortDefinition("answers", "TextBatch", true, "1:1")};
   def.encode_fn = &DummyEncode;
 
@@ -137,7 +135,6 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.schema_id = "test";
   bad_in.external_slots = {ExternalSlotDefinition(
       "inputs", "int", PortDirection::kInput, true, "inputs")};
-  bad_in.max_batch_size = 64;
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   bad_in.decode_fn = nullptr;
@@ -159,11 +156,10 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.logical_ports.clear();
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  // max_batch_size == 0 表示转换器自身不设限，Binding 负责声明上限
-  bad_in.converter_id = "unbounded.in";
+  // 补齐必需字段后注册成功
+  bad_in.converter_id = "complete.in";
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
-  bad_in.max_batch_size = 0;
   EXPECT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
   OutputConverterDefinition bad_out;
@@ -172,7 +168,6 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_out.schema_id = "test";
   bad_out.external_slots = {ExternalSlotDefinition(
       "answers", "int", PortDirection::kOutput, true, "answers")};
-  bad_out.max_batch_size = 64;
   bad_out.logical_ports = {
       NodePortDefinition("answers", "TextBatch", true, "1:1")};
   bad_out.encode_fn = nullptr;
@@ -243,7 +238,6 @@ TEST(IoConverterTest,
   bad_in.schema_id = "test_schema";
   bad_in.external_slots = {
       ExternalSlotDefinition("slot1", "int", PortDirection::kInput, true, "")};
-  bad_in.max_batch_size = 64;
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   bad_in.decode_fn = &DummyDecode;
@@ -257,7 +251,6 @@ TEST(IoConverterTest,
   bad_out.schema_id = "test_schema";
   bad_out.external_slots = {
       ExternalSlotDefinition("slot1", "int", PortDirection::kOutput, true, "")};
-  bad_out.max_batch_size = 64;
   bad_out.logical_ports = {
       NodePortDefinition("answers", "TextBatch", true, "1:1")};
   bad_out.encode_fn = &DummyEncode;
@@ -274,7 +267,6 @@ TEST(IoConverterTest,
                              "int_suffix"),
       ExternalSlotDefinition("slot_second", "int", PortDirection::kInput, true,
                              "int_suffix")};
-  multi_in.max_batch_size = 64;
   multi_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   multi_in.decode_fn = &DummyDecode;

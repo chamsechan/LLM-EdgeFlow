@@ -18,8 +18,7 @@ struct IoBindingDefinition {
 
   std::string input_converter_id;
   std::string output_converter_id;
-  // 默认使用 Operator 标准上限；0 表示不设上限。有效上限取 binding 及其
-  // Converter 中最小的正值，且至少一方须为正。
+  // 单次 Process 的批大小上限，须为正；Operator 再按输出池深收紧。
   size_t max_batch_size = kDefaultIoBindingMaxBatchSize;
 };
 

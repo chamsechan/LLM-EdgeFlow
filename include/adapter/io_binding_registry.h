@@ -16,11 +16,6 @@ namespace llm_edgeflow {
 std::vector<std::string> EffectiveCapacityFields(
     const ExternalSlotDefinition& slot);
 
-// binding 及其 Converter 中最小的正上限；均未声明时为 0。
-size_t EffectiveMaxBatchSize(const IoBindingDefinition& binding,
-                             const InputConverterDefinition& input,
-                             const OutputConverterDefinition& output);
-
 class IoBindingRegistry {
  public:
   static IoBindingRegistry& Instance();

@@ -637,7 +637,6 @@ int main(int argc, char* argv[]) {
 
       nlohmann::json binding_info = {
           {"biz_name", plan->binding.biz_name},
-          {"transport", "operator"},
           {"input_converter_id", plan->binding.input_converter_id},
           {"output_converter_id", plan->binding.output_converter_id},
           {"effective_max_batch_size", plan->effective_max_batch_size},

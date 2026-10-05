@@ -166,7 +166,6 @@ bool ProvenanceCompatible(const std::string& producer,
 int LifetimeRank(const std::string& lifetime) {
   if (lifetime == "request") return 0;
   if (lifetime == "session") return 1;
-  if (lifetime == "global") return 2;
   return -1;
 }
 
