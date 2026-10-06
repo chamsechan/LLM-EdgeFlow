@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+`StructuredJsonParseNode` 的参数结构移回源文件的匿名命名空间，避免与其他编译单元中同名的
+`Params` 冲突；删除 `Field` 中与 `Description()` 重复的 `Semantic()`；自定义 Node 概念文档直接给出
+"LLM 节点加自有参数"的写法示例。
+
 所有 Node 只保留一种写法：`MakeBatchSpec` 改名为 `MakeNodeSpec`，删除 `MakeMapSpec` 与
 `MakeLlmTextSpec`；每个 Node 统一由 `Inputs`、可选的 `Params` 与 `Models`、`Run`、`Spec` 组成，
 12 个生产 Node 按此命名。`Run` 只接收 Spec 实际声明的部分（不再写 `const NoParameters&` 或
