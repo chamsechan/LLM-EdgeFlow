@@ -11,9 +11,13 @@ does not imply payload compatibility. Follow [the boundary and carrier distincti
 Start with [business onboarding](../../../../doc/dev_guide/business_onboarding.md) to select the requested
 integration path. Reuse the converters when the external contract is unchanged. Adding a production
 binding to the current shared SDK requires matching input and output converters and an explicit IoBinding registration.
-For new Operator host types, also register ValueType capacity, initialization and release.
-Register ValueTypes and named single-object output allocators through
-`adapter/operator_value_type.h`. Keep queue depth out of their callbacks. For multiple outputs
+For a new platform host type, add its struct, its traits in `include/adapter/io_converter.h` and
+one ValueType entry (capacity, initialization and release) in `operator_builtin_value_types.cpp`;
+the three stay one-to-one. Add a new nested layout for an existing type as a named allocator in its
+own `.cpp` (`REGISTER_OPERATOR_OUTPUT_ALLOCATOR` from `adapter/operator_value_type.h`), not as a branch
+in the existing implementation; use `params` for values tunable within one implementation. Converters
+that write nested layouts check `spec.allocator` and reject layouts they do not support. Keep queue
+depth out of ValueType and allocator callbacks. For multiple outputs
 or config-selected nested payloads, follow the
 [output allocation guide](../../../../doc/dev_guide/operator_output_allocation.md): slot Definitions determine the outer type; deployment only overrides allocator and parameters. Required slots use registered defaults; optional slots are enabled explicitly. Map keys do not infer layout.
 Keep configuration reading in Create-time Integration. `OperatorConfigResolver` validates
