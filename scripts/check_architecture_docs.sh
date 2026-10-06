@@ -55,58 +55,31 @@ for diagram in \
   fi
 done
 
-# 4. 检查 CMake、生成版本头和活跃文档是否共享同一产品/ABI 版本。
-echo "[Check 4/4] Verifying product and ABI version single source of truth..."
+# 4. 检查 CMake、生成版本头和活跃文档是否共享同一产品版本。
+echo "[Check 4/4] Verifying product version single source of truth..."
 PRODUCT_VERSION="$({
   sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
     "${ROOT_DIR}/CMakeLists.txt"
 } | head -n 1)"
-ABI_VERSION="$({
-  sed -nE 's/^set\(LLM_EDGEFLOW_ABI_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)$/\1/p' \
-    "${ROOT_DIR}/CMakeLists.txt"
-} | head -n 1)"
-ABI_MAJOR="$({
-  sed -nE 's/^set\(LLM_EDGEFLOW_ABI_VERSION_MAJOR ([0-9]+)\)$/\1/p' \
-    "${ROOT_DIR}/CMakeLists.txt"
-} | head -n 1)"
 
-if [[ -z "${PRODUCT_VERSION}" || -z "${ABI_VERSION}" || -z "${ABI_MAJOR}" ]]; then
-  echo "❌ Unable to derive product and ABI versions from CMakeLists.txt"
-  FAILED=1
-elif [[ "${ABI_VERSION%%.*}" != "${ABI_MAJOR}" ]]; then
-  echo "❌ ABI version '${ABI_VERSION}' and ABI major '${ABI_MAJOR}' disagree"
+if [[ -z "${PRODUCT_VERSION}" ]]; then
+  echo "❌ Unable to derive the product version from CMakeLists.txt"
   FAILED=1
 fi
 
 VERSION_TEMPLATE="${ROOT_DIR}/cmake_ext/edgeflow_version.h.in"
-VERSION_SCRIPT_TEMPLATE="${ROOT_DIR}/cmake_ext/edgeflow_sdk.map.in"
 PUBLIC_INTERFACE="${ROOT_DIR}/include/edgeflow/operator/interface.h"
 if ! grep -Fq '#include "edgeflow/version.h"' "${PUBLIC_INTERFACE}"; then
   echo "❌ Public Operator interface does not include the generated version header"
   FAILED=1
 fi
-if grep -Eq '^#define COMPANY_ALG_(PRODUCT_VERSION|ABI_VERSION|ABI_VERSION_MAJOR)' \
+if grep -Eq '^#define COMPANY_ALG_PRODUCT_VERSION' \
     "${PUBLIC_INTERFACE}"; then
   echo "❌ Public Operator interface contains a duplicate hard-coded version definition"
   FAILED=1
 fi
-for placeholder in \
-  '@PROJECT_VERSION@' \
-  '@LLM_EDGEFLOW_ABI_VERSION@' \
-  '@LLM_EDGEFLOW_ABI_VERSION_MAJOR@'; do
-  if ! grep -Fq "${placeholder}" "${VERSION_TEMPLATE}"; then
-    echo "❌ Generated version header template is missing '${placeholder}'"
-    FAILED=1
-  fi
-done
-if ! grep -Fq 'LLM_EDGEFLOW_@LLM_EDGEFLOW_ABI_VERSION_MAJOR@ {' \
-    "${VERSION_SCRIPT_TEMPLATE}"; then
-  echo "❌ SDK version script does not derive its version node from the ABI major"
-  FAILED=1
-fi
-if ! grep -Fq 'SOVERSION ${LLM_EDGEFLOW_ABI_VERSION_MAJOR}' \
-    "${ROOT_DIR}/CMakeLists.txt"; then
-  echo "❌ alg_sdk SOVERSION is not derived from LLM_EDGEFLOW_ABI_VERSION_MAJOR"
+if ! grep -Fq '@PROJECT_VERSION@' "${VERSION_TEMPLATE}"; then
+  echo "❌ Generated version header template is missing '@PROJECT_VERSION@'"
   FAILED=1
 fi
 
@@ -116,22 +89,17 @@ VERSION_DOCS=(
   "${DOC_ROOT}/developer_guide.md"
   "${DOC_ROOT}/CHANGELOG.md"
 )
-if [[ -n "${PRODUCT_VERSION}" && -n "${ABI_MAJOR}" ]]; then
+if [[ -n "${PRODUCT_VERSION}" ]]; then
   for document in "${VERSION_DOCS[@]}"; do
     if ! grep -Fq "${PRODUCT_VERSION}" "${document}"; then
       echo "❌ ${document} does not name current product version ${PRODUCT_VERSION}"
-      FAILED=1
-    fi
-    if ! grep -Eq "ABI( major)?[^0-9]{0,16}${ABI_MAJOR}([^0-9]|$)" \
-        "${document}"; then
-      echo "❌ ${document} does not name current ABI major ${ABI_MAJOR}"
       FAILED=1
     fi
   done
 fi
 
 if [ ${FAILED} -eq 0 ]; then
-  echo "✅ Product ${PRODUCT_VERSION} and ABI ${ABI_VERSION} version facts verified."
+  echo "✅ Product version ${PRODUCT_VERSION} facts verified."
 fi
 
 if [ ${FAILED} -ne 0 ]; then

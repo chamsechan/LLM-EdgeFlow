@@ -344,22 +344,12 @@ PRODUCT_VERSION="$(
   sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
     "${REPO_ROOT}/CMakeLists.txt" | head -n 1
 )"
-ABI_VERSION="$(
-  sed -nE 's/^set\(LLM_EDGEFLOW_ABI_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)$/\1/p' \
-    "${REPO_ROOT}/CMakeLists.txt" | head -n 1
-)"
-ABI_MAJOR="$(
-  sed -nE 's/^set\(LLM_EDGEFLOW_ABI_VERSION_MAJOR ([0-9]+)\)$/\1/p' \
-    "${REPO_ROOT}/CMakeLists.txt" | head -n 1
-)"
-if [[ -z "${PRODUCT_VERSION}" || -z "${ABI_VERSION}" || -z "${ABI_MAJOR}" ]]; then
+if [[ -z "${PRODUCT_VERSION}" ]]; then
   echo "❌ [LayerGuard ERROR] Unable to derive public version header values from CMakeLists.txt"
   exit 1
 fi
 sed \
   -e "s/@PROJECT_VERSION@/${PRODUCT_VERSION}/g" \
-  -e "s/@LLM_EDGEFLOW_ABI_VERSION@/${ABI_VERSION}/g" \
-  -e "s/@LLM_EDGEFLOW_ABI_VERSION_MAJOR@/${ABI_MAJOR}/g" \
   "${REPO_ROOT}/cmake_ext/edgeflow_version.h.in" > \
   "${GENERATED_VERSION_INCLUDE}/edgeflow/version.h"
 

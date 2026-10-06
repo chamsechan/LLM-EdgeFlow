@@ -36,9 +36,7 @@ static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
 
 int main() {
   // 1. 版本契约检查
-  if (std::strcmp(COMPANY_ALG_PRODUCT_VERSION, "11.0.0") != 0 ||
-      std::strcmp(COMPANY_ALG_ABI_VERSION, "9.0.0") != 0 ||
-      COMPANY_ALG_ABI_VERSION_MAJOR != 9) {
+  if (std::strcmp(COMPANY_ALG_PRODUCT_VERSION, "11.0.0") != 0) {
     std::fprintf(stderr,
                  "[SDK Consumer Test] Generated version contract drifted\n");
     return 1;
