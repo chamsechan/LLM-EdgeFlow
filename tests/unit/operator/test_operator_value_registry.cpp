@@ -1146,19 +1146,14 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
 
 TEST(OperatorValueRegistryTest,
      AuthoredInputForwardsTypedValueLimitsAndDiagnostics) {
-  const auto binding = [] {
-    std::string type_name = "BusinessInput";
-    auto result = MakeTypedInputBinding<BusinessInput>(
-        "test_business_input", type_name.c_str(),
-        [](const BusinessInput& input, const InputLimits& limits,
-           std::string* error) -> int {
-          if (input.text_bytes <= limits.max_text_bytes) return 0;
-          if (error) *error = "business text exceeds configured limit";
-          return -3;
-        });
-    type_name.assign(type_name.size(), 'x');
-    return result;
-  }();
+  const auto binding = MakeTypedInputBinding<BusinessInput>(
+      "test_business_input",
+      [](const BusinessInput& input, const InputLimits& limits,
+         std::string* error) -> int {
+        if (input.text_bytes <= limits.max_text_bytes) return 0;
+        if (error) *error = "business text exceeds configured limit";
+        return -3;
+      });
   EXPECT_EQ(binding.external_c_type_name, "BusinessInput");
   EXPECT_EQ(binding.direction, IoDirection::kInput);
   BusinessInput input{9};
