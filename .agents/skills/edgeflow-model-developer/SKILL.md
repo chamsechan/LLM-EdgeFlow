@@ -28,7 +28,7 @@ description: 新增或修改 LLM-EdgeFlow Model 的预处理、输出解释和�
 - 固定 Tensor 批处理用 `FixedBatchExecutor::Execute`；普通逐项路径用 `ExecuteItems`。
   遵循各 helper 的执行/补齐协议，框架负责 provenance、去 padding 和失败清空；
   不把非空固定批改成逐项调用。BatchPolicy 来自 Session。
-- 源码加入 `src/engine/CMakeLists.txt` 的 `edgeflow_model_execution_objects`。
+- 源码放在 `src/engine/models/<model>/` 下，下次构建时自动编入 `edgeflow_model_execution_objects`。
 
 只选相近模板：[BGE embedding](../../../src/engine/models/bge_embedding/bge_embedding_model.cpp)
 展示 Tensor 语义与固定批；[Qwen](../../../src/engine/models/qwen_causal_lm/qwen_causal_lm_model.cpp)

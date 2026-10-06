@@ -29,8 +29,9 @@ description: 新增或修改 LLM-EdgeFlow Backend 的厂商 SDK、硬件运行�
 
 ## 把 vendor 依赖留在 Backend
 
-- 源码加入 `src/engine/CMakeLists.txt` 的 **`edgeflow_model_execution_backends_objects`**。
-  Models/Runtime 属于另一个 OBJECT，不共享 vendor 编译要求。
+- 源码放在 `src/engine/backends/<backend>/` 下，下次构建时自动编入
+  **`edgeflow_model_execution_backends_objects`**。Models/Runtime 属于另一个 OBJECT，
+  不共享 vendor 编译要求。
 - 依赖获取、版本 pin 和校验放 `cmake_ext/`；厂商头、`HAVE_*`、imported target 编译需求
   只以 `PRIVATE` 提供给 Backend OBJECT。最终 SDK/内部运行时通过 `LINK_ONLY` 保留
   必要传递链接，不把 vendor include 或宏扩散到上层。
