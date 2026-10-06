@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+删除 ABI 版本：去掉 CMake 的 `LLM_EDGEFLOW_ABI_VERSION` / `_MAJOR`、生成头 `edgeflow/version.h` 的
+`COMPANY_ALG_ABI_VERSION` / `COMPANY_ALG_ABI_VERSION_MAJOR`、共享库的 `VERSION` / `SOVERSION` 与导出符号的
+版本节点 `LLM_EDGEFLOW_9`。构建产物改为单个 `libcompany_alg_sdk.so`（SONAME 同名），导出符号名称和数量不变，
+链接旧库的宿主需重新链接。产品版本 11.0.0 仍是唯一的版本标识；导出白名单与公开结构布局检查保持不变。
+
 输出分配的扩展点按"只新增"整理：删除只有一个 JSON 实现、仅用于读取 `params` 的 `OutputConfigReader`
 （及 `OutputConfigField`、公开头 `adapter/operator_output_config.h`），`OperatorConfigResolver` 直接把
 `params` 原样序列化后交给所选实现，未配置时仍为 `{}`。命名分配方案、`params`、容量与 metadata 字段保持不变；
@@ -141,8 +146,8 @@ Node 作者接口：Batch `Run`、`BuildPrompt`、`FormatAnswer` 签名不符时
 与 `demo/biz/` 下的 `.cpp`（含子目录）在下次构建时自动编入，不再需要修改 CMake。
 脚手架删除 `--add-to-cmake`，recipe 不再修改 CMakeLists。
 
-LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**，公共 **ABI major 为 9**；
-它们描述当前构建与接口基线，不代表已经交付的正式 Release。
+LLM-EdgeFlow 尚未正式发布。当前产品版本标识为 **v11.0.0**；
+它描述当前构建与接口基线，不代表已经交付的正式 Release。
 
 Node 的 `OptionalValue` 允许请求缺值，但拒绝已连接输入的运行时类型错误，失败时不调用业务
 函数或发布输出。效果验收在独立 Pipeline 副本中继承输出池配置，避免把自身配置合成误报为

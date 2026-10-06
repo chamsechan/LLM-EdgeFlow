@@ -1,4 +1,4 @@
-LLM_EDGEFLOW_@LLM_EDGEFLOW_ABI_VERSION_MAJOR@ {
+{
   global:
     AlgBase_setLogLevelByName;
     AlgBase_getLogLevelByName;

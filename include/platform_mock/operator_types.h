@@ -77,7 +77,7 @@ struct ControlJsonParam {
 };
 
 /**
- * @brief 算法句柄创建参数；当前 ABI 版本由 edgeflow/version.h 定义
+ * @brief 算法句柄创建参数；当前产品版本由 edgeflow/version.h 定义
  */
 struct CreateParam {
   const char* cfg_file_name = nullptr;  // 必填、非空、相对配置文件路径

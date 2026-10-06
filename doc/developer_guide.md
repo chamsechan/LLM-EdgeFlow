@@ -50,8 +50,8 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期；
 销毁和释放顺序见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 
-目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
-SOVERSION/ABI major 为 9。
+目标交付共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0；共享库不带 SOVERSION，
+导出符号不带版本节点。
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
