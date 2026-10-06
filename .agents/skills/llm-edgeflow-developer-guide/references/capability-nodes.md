@@ -55,11 +55,11 @@ Use this reference for production Node implementation. Start first-time LLM auth
 When generation options are a Node's only parameters, use `GenerateParameters(default_max_tokens)`
 from [generate_options_config.h](../../../../include/nodes/generate_options_config.h) and pass the
 `GenerateOptions` received by `Run` to `LlmCall::Generate`, as LlmGenerateNode and the LLM starter do.
-With additional fields, compose `GenerateOptionsFields(default_max_tokens)` and `ParseGenerateOptions`
-through `NodeConfigParser`, as in
-[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp); each caller supplies
-its token default explicitly. For sampling field controls, prefer typed Fields; that parser-based
-example does not itself add Control.
+With additional fields, put a `GenerateOptions` member in `Params`, declare the own fields with `Field`
+and use `GenerateParameters(default_max_tokens, &Params::generation, {Field(...)})`, as
+[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does; each caller supplies
+its token default explicitly. Generation fields come from the shared parser, so field controls
+(`WithControls`) can select only the own `Field` members.
 
 Use existing production implementations and matching `tests/unit/nodes/test_*_node.cpp` suites.
 Add focused behavior and contract coverage for changed configuration, missing values, output provenance,

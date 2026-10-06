@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <initializer_list>
 #include <limits>
 #include <string>
 #include <utility>
@@ -110,6 +111,31 @@ inline Parameters<GenerateOptions> GenerateParameters(int default_max_tokens) {
   Parameters<GenerateOptions> params;
   params.WithParser(NodeConfigParser<GenerateOptions>(
       GenerateOptionsFields(default_max_tokens), ParseGenerateOptions));
+  return params;
+}
+
+namespace detail {
+template <typename T>
+struct NonDeduced {
+  using type = T;
+};
+}  // namespace detail
+
+// 生成参数加自有配置的 LLM Node 使用：ParamsT 含一个 GenerateOptions 成员，
+// 自有字段用 Field 声明。生成参数的字段与默认值同上一重载。
+template <typename ParamsT>
+Parameters<ParamsT> GenerateParameters(
+    int default_max_tokens, GenerateOptions ParamsT::*generation,
+    typename detail::NonDeduced<
+        std::initializer_list<ParameterFieldBindingHolder<ParamsT>>>::type
+        fields) {
+  Parameters<ParamsT> params(fields);
+  params.WithParser(NodeConfigParser<ParamsT>(
+      GenerateOptionsFields(default_max_tokens),
+      [generation](const nlohmann::json& config, ParamsT* state,
+                   std::string* error) {
+        return ParseGenerateOptions(config, &(state->*generation), error);
+      }));
   return params;
 }
 

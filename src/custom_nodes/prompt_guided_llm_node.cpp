@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -16,84 +15,37 @@ namespace {
 
 // 初始化后供处理阶段使用的普通自有配置。
 struct Params {
-  std::vector<TextTemplateToken> prompt_parts;
-  bool uses_context = false;
+  std::string prompt_template;
   std::string prompt_prefix;
   bool strip_markdown = false;
   GenerateOptions generation;
+  // 由 prompt_template 在 Prepare 中解析得到。
+  std::vector<TextTemplateToken> prompt_parts;
+  bool uses_context = false;
 };
 
-// 字段已校验并填充默认值。此处只保留本 Node 的语义转换；
-// 请求值从不进入配置解析。
-bool ParsePromptConfig(const nlohmann::json& config, Params* parameters,
-                       std::string* error) {
+// 字段已校验并填充默认值。此处只把模板转换为片段；请求值从不进入配置解析。
+bool PreparePrompt(Params* params, std::string* error) {
   auto reject = [&](const std::string& message) {
     if (error) *error = message;
     return false;
   };
-  auto& parts = parameters->prompt_parts;
-  const auto& pattern =
-      config.at("prompt_template").get_ref<const std::string&>();
-  if (pattern.empty()) return reject("prompt_template must not be empty");
-  if (!ParseTextTemplate(pattern, &parts, error)) return false;
-  for (const auto& part : parts) {
+  if (params->prompt_template.empty())
+    return reject("prompt_template must not be empty");
+  params->prompt_parts.clear();
+  params->uses_context = false;
+  if (!ParseTextTemplate(params->prompt_template, &params->prompt_parts,
+                         error)) {
+    return false;
+  }
+  for (const auto& part : params->prompt_parts) {
     if (part.type != TextTemplateTokenType::kVariable) continue;
     if (part.value != "input" && part.value != "context") {
       return reject("Unknown prompt placeholder: " + part.value);
     }
-    parameters->uses_context |= part.value == "context";
+    params->uses_context |= part.value == "context";
   }
-
-  if (!ParseGenerateOptions(config, &parameters->generation, error))
-    return false;
-  config.at("prompt_prefix").get_to(parameters->prompt_prefix);
-  config.at("strip_markdown").get_to(parameters->strip_markdown);
   return true;
-}
-
-std::vector<ConfigFieldDefinition> PromptConfigFields() {
-  auto fields = GenerateOptionsFields(512);
-  fields.insert(
-      fields.begin(),
-      {ConfigFieldDefinition{"prompt_template",
-                             ConfigValueKind::kString,
-                             false,
-                             "{{input}}",
-                             std::nullopt,
-                             std::nullopt,
-                             {},
-                             "提示词模板；使用 {{input}}/{{context}}，使用 "
-                             "context 时须连接该输入。"},
-       ConfigFieldDefinition{"prompt_prefix",
-                             ConfigValueKind::kString,
-                             false,
-                             "",
-                             std::nullopt,
-                             std::nullopt,
-                             {},
-                             "在渲染模板前追加的普通文本及换行；模型的 system "
-                             "角色请使用 model_config.system_prompt。"}});
-  // 保持 Catalog 展示顺序，不假设字段索引。
-  const auto stop_words = std::find_if(
-      fields.begin(), fields.end(),
-      [](const auto& field) { return field.name == "stop_words"; });
-  fields.insert(stop_words,
-                ConfigFieldDefinition{"strip_markdown",
-                                      ConfigValueKind::kBoolean,
-                                      false,
-                                      false,
-                                      std::nullopt,
-                                      std::nullopt,
-                                      {},
-                                      "移除模型输出两端空白和外层 Markdown "
-                                      "代码围栏，保留围栏内的文本内容。"});
-  return fields;
-}
-
-const NodeConfigParser<Params>& PromptConfiguration() {
-  static const NodeConfigParser<Params> parser(PromptConfigFields(),
-                                               ParsePromptConfig);
-  return parser;
 }
 
 // 纯算法：使用可选前缀和变量渲染 prompt 模板。
@@ -181,7 +133,21 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
 }
 
 auto Spec() {
-  auto params = Parameters<Params>{}.WithParser(PromptConfiguration());
+  auto params = GenerateParameters(
+      512, &Params::generation,
+      {Field("prompt_template", &Params::prompt_template)
+           .Default("{{input}}")
+           .Description("提示词模板；使用 {{input}}/{{context}}，使用 "
+                        "context 时须连接该输入。"),
+       Field("prompt_prefix", &Params::prompt_prefix)
+           .Default("")
+           .Description("在渲染模板前追加的普通文本及换行；模型的 system "
+                        "角色请使用 model_config.system_prompt。"),
+       Field("strip_markdown", &Params::strip_markdown)
+           .Default(false)
+           .Description("移除模型输出两端空白和外层 Markdown "
+                        "代码围栏，保留围栏内的文本内容。")});
+  params.Prepare(&PreparePrompt);
   params.ValidateBindings([](const Params& config,
                              const std::unordered_set<std::string>& inputs,
                              std::string* error) {
