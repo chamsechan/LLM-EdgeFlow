@@ -199,9 +199,6 @@ using EncodeOutputFn = int (*)(AlgContext* context,
  */
 struct InputConverterDefinition {
   std::string converter_id;
-
-  // 外部载荷协议 ID，由 Catalog 导出；载体相同的 Converter 可按不同协议解析。
-  std::string schema_id;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
 
@@ -213,9 +210,6 @@ struct InputConverterDefinition {
  */
 struct OutputConverterDefinition {
   std::string converter_id;
-
-  // 外部响应协议 ID，规则同 InputConverterDefinition::schema_id。
-  std::string schema_id;
   std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
   std::vector<ExternalSlotDefinition> external_slots;
 

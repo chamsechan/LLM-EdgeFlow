@@ -88,9 +88,6 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorAuditInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "audit.plain";
-
-  def.schema_id = "audit.plain.request";
-
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kUserTexts), OutputPort(kChannelNames)};

@@ -29,9 +29,8 @@
 
 `1001` 是练习选择的 ID；若已被占用，选用另一个 ID 并同步下发值。标准 ID 保留给
 框架；新 custom 命令在 1000..1999999999 按项目约定分配，2000000000 以上用于仓库测试，
-发布后不复用。Catalog 会拒绝跨类型
-重号。明确需要多个类型共享同义命令时，两端必须 `shared_id=true`，且 name、schema、
-hot-swap 声明一致；通常直接复用同一份命令声明。重复使用同一个节点类型无需重复注册。
+发布后不复用。一个命令 ID 只属于一个节点类型，Catalog 会拒绝跨类型重号；
+同一节点类型的多个实例共用其命令声明，无需重复注册。
 
 脚手架以[可编译模板](../../dev_support/node_authoring/starter_control_node.cpp)为唯一输入，
 生成 `src/custom_nodes/prefix_control_node.cpp`。这个选项只生成 TextBatch → TextBatch、

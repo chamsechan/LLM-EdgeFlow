@@ -85,8 +85,6 @@ class IoBindingRegistryTest : public ::testing::Test {
     // 注册基础转换器供测试
     InputConverterDefinition in_def;
     in_def.converter_id = "test.in.operator";
-
-    in_def.schema_id = "in_schema";
     in_def.external_slots = {
         ExternalSlotDefinition("entity_in", "CompanyOperatorEntityInput",
                                PortDirection::kInput, true, "entity_in")};
@@ -97,8 +95,6 @@ class IoBindingRegistryTest : public ::testing::Test {
 
     OutputConverterDefinition out_def;
     out_def.converter_id = "test.out.operator";
-
-    out_def.schema_id = "out_schema";
     out_def.external_slots = {
         ExternalSlotDefinition("entity_out", "CompanyOperatorEntityOutput",
                                PortDirection::kOutput, true, "entity_out")};

@@ -456,7 +456,6 @@ TEST(RegistryReentrantTest, RegisterControlConflictFailAfterNIntegrity) {
   ControlCommandDefinition cmd_a;
   cmd_a.cmd_id = 999;
   cmd_a.name = "conflict_cmd";
-  cmd_a.shared_id = false;
   cmd_a.payload_schema = nlohmann::json::object();
   cmd_a.supports_hot_swap = false;
   def_a.control_commands = {cmd_a};
@@ -470,7 +469,6 @@ TEST(RegistryReentrantTest, RegisterControlConflictFailAfterNIntegrity) {
   ControlCommandDefinition cmd_b;
   cmd_b.cmd_id = 999;  // 与 node_a 的命令冲突
   cmd_b.name = "different_name";
-  cmd_b.shared_id = false;
   cmd_b.payload_schema = nlohmann::json::object();
   cmd_b.supports_hot_swap = false;
   def_b.control_commands = {cmd_b};

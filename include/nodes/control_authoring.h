@@ -43,13 +43,6 @@ class FieldControlCommand {
     return *this;
   }
 
-  FieldControlCommand& SharedId(bool shared) {
-    shared_id_ = shared;
-    return *this;
-  }
-
-  bool IsSharedId() const noexcept { return shared_id_; }
-
   template <typename ParamsT>
   nlohmann::json GenerateSchema(const Parameters<ParamsT>& params) const {
     nlohmann::json schema = {
@@ -107,11 +100,10 @@ class FieldControlCommand {
   template <typename ParamsT>
   ControlCommandDefinition ToCommandDefinition(
       const Parameters<ParamsT>& params) const {
-    ControlCommandDefinition def(cmd_id_, name_,
-                                 description_.empty() ? name_ : description_,
-                                 GenerateSchema(params), /*is_hot_swap=*/true);
-    def.shared_id = shared_id_;
-    return def;
+    return ControlCommandDefinition(cmd_id_, name_,
+                                    description_.empty() ? name_ : description_,
+                                    GenerateSchema(params),
+                                    /*hot_swap=*/true);
   }
 
   template <typename ParamsT>
@@ -167,7 +159,6 @@ class FieldControlCommand {
   std::string name_;
   std::vector<std::string> field_names_;
   std::string description_;
-  bool shared_id_ = false;
 };
 
 inline FieldControlCommand ReplaceFields(int cmd_id, std::string name,

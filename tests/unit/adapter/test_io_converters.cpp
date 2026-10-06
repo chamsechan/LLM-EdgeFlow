@@ -76,8 +76,6 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
 
   InputConverterDefinition def;
   def.converter_id = "test.input";
-
-  def.schema_id = "test_input";
   def.external_slots = {ExternalSlotDefinition(
       "inputs", "int", PortDirection::kInput, true, "inputs")};
   def.logical_ports = {NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -101,8 +99,6 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
 
   OutputConverterDefinition def;
   def.converter_id = "test.output";
-
-  def.schema_id = "test_output";
   def.external_slots = {ExternalSlotDefinition(
       "answers", "int", PortDirection::kOutput, true, "answers")};
   def.logical_ports = {NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -132,7 +128,6 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
   bad_in.converter_id = "bad.in";
-  bad_in.schema_id = "test";
   bad_in.external_slots = {ExternalSlotDefinition(
       "inputs", "int", PortDirection::kInput, true, "inputs")};
   bad_in.logical_ports = {
@@ -140,13 +135,8 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.decode_fn = nullptr;
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  // 缺少 schema_id
-  bad_in.decode_fn = &DummyDecode;
-  bad_in.schema_id = "";
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
-
   // 缺少 external_slots
-  bad_in.schema_id = "test";
+  bad_in.decode_fn = &DummyDecode;
   bad_in.external_slots.clear();
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
@@ -164,8 +154,6 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
 
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "bad.out";
-
-  bad_out.schema_id = "test";
   bad_out.external_slots = {ExternalSlotDefinition(
       "answers", "int", PortDirection::kOutput, true, "answers")};
   bad_out.logical_ports = {
@@ -234,8 +222,6 @@ TEST(IoConverterTest,
   // 1. type_suffix 为空的输入 Converter 必须被拒绝
   InputConverterDefinition bad_in;
   bad_in.converter_id = "test.empty_suffix.in";
-
-  bad_in.schema_id = "test_schema";
   bad_in.external_slots = {
       ExternalSlotDefinition("slot1", "int", PortDirection::kInput, true, "")};
   bad_in.logical_ports = {
@@ -247,8 +233,6 @@ TEST(IoConverterTest,
   // 2. type_suffix 为空的输出 Converter 必须被拒绝
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "test.empty_suffix.out";
-
-  bad_out.schema_id = "test_schema";
   bad_out.external_slots = {
       ExternalSlotDefinition("slot1", "int", PortDirection::kOutput, true, "")};
   bad_out.logical_ports = {
@@ -260,8 +244,6 @@ TEST(IoConverterTest,
   // 3. 同一 ValueType 的多个槽位使用不同槽位名时可以注册成功
   InputConverterDefinition multi_in;
   multi_in.converter_id = "test.multi_slot.in";
-
-  multi_in.schema_id = "test_schema";
   multi_in.external_slots = {
       ExternalSlotDefinition("slot_first", "int", PortDirection::kInput, true,
                              "int_suffix"),

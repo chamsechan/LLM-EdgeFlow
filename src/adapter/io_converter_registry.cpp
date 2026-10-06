@@ -20,11 +20,6 @@ bool IoConverterRegistry::RegisterInputConverter(
     return false;
   }
 
-  if (def.schema_id.empty()) {
-    conflicts_.Record("Empty schema_id in InputConverterDefinition for: " +
-                      def.converter_id);
-    return false;
-  }
   if (def.external_slots.empty()) {
     conflicts_.Record("Empty external_slots in InputConverterDefinition for: " +
                       def.converter_id);
@@ -83,11 +78,6 @@ bool IoConverterRegistry::RegisterOutputConverter(
     return false;
   }
 
-  if (def.schema_id.empty()) {
-    conflicts_.Record("Empty schema_id in OutputConverterDefinition for: " +
-                      def.converter_id);
-    return false;
-  }
   if (def.external_slots.empty()) {
     conflicts_.Record(
         "Empty external_slots in OutputConverterDefinition for: " +

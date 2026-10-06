@@ -37,9 +37,6 @@ int EncodeOperatorKeywordResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "keyword.result";
-
-  def.schema_id = "keyword.result.response";
-
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kRuleMatches)};

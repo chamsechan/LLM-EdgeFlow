@@ -110,9 +110,6 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorRerankInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "rerank.plain";
-
-  def.schema_id = "rerank.plain.request";
-
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRerankQueries),

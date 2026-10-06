@@ -47,8 +47,6 @@ struct ControlCommandDefinition {
   std::string description;
   nlohmann::json payload_schema = nlohmann::json::object();
   bool supports_hot_swap = false;
-  // 跨类型共享同一命令时，两个 Definition 都需显式开启。
-  bool shared_id = false;
 
   ControlCommandDefinition() = default;
   ControlCommandDefinition(int id, std::string n, std::string desc = {},

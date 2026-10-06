@@ -94,9 +94,6 @@ int EncodeOperatorDocAnswer(AlgContext* context,
 OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "doc_answer.plain";
-
-  def.schema_id = "doc_answer.plain.response";
-
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorDocOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kLlmAnswers),

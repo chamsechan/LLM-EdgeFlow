@@ -58,9 +58,6 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "translate.json";
-
-  def.schema_id = "translate.json.request";
-
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kInputSentences)};
