@@ -19,6 +19,7 @@
 #include "dev_support/inference/test_biz_models.h"
 #include "dev_support/inference/test_capability_models.h"
 #include "engine/model_interface.h"
+#include "nodes/generate_options_config.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_harness.h"
@@ -1286,6 +1287,49 @@ TEST_F(CommonNodesTest, GeneratedLlmNodeReadsGenerationOptionsFromConfig) {
     ASSERT_EQ(node->Process(&ctx), 0) << ctx.GetErrorMessage();
     EXPECT_EQ(model->last_options.max_tokens, max_tokens);
     EXPECT_FLOAT_EQ(model->last_options.temperature, temperature);
+  }
+}
+
+namespace {
+// 与 custom_node_concepts.md 中"生成参数加自有配置"的示例保持一致。
+struct LlmWithOwnParams {
+  GenerateOptions generation;
+  std::string prefix;
+};
+}  // namespace
+
+TEST_F(CommonNodesTest, GenerateParametersCombinesOwnFieldsWithGeneration) {
+  auto params = GenerateParameters(
+      128, &LlmWithOwnParams::generation,
+      {Field("prefix", &LlmWithOwnParams::prefix).Default("")});
+  std::vector<std::string> names;
+  for (const auto& field : params.Fields()) names.push_back(field.name);
+  EXPECT_EQ(names, (std::vector<std::string>{
+                       "prefix", "temperature", "max_tokens", "top_k", "top_p",
+                       "repetition_penalty", "stop_words"}));
+
+  std::string error;
+  auto defaults = params.Parse(nlohmann::json::object(), &error);
+  ASSERT_TRUE(defaults.has_value()) << error;
+  EXPECT_EQ(defaults->prefix, "");
+  EXPECT_EQ(defaults->generation.max_tokens, 128);
+  EXPECT_FLOAT_EQ(defaults->generation.temperature, 0.7f);
+
+  auto configured = params.Parse(
+      {{"prefix", "P:"}, {"max_tokens", 64}, {"stop_words", {"END"}}}, &error);
+  ASSERT_TRUE(configured.has_value()) << error;
+  EXPECT_EQ(configured->prefix, "P:");
+  EXPECT_EQ(configured->generation.max_tokens, 64);
+  EXPECT_EQ(configured->generation.stop_words, std::vector<std::string>{"END"});
+
+  for (const auto& bad :
+       std::vector<nlohmann::json>{{{"prefix", 7}},
+                                   {{"max_tokens", 0}},
+                                   {{"stop_words", {""}}},
+                                   {{"unknown_field", true}}}) {
+    SCOPED_TRACE(bad.dump());
+    EXPECT_FALSE(params.Parse(bad, &error).has_value());
+    EXPECT_FALSE(error.empty());
   }
 }
 

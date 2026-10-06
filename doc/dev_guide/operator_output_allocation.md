@@ -193,7 +193,8 @@ binding.normalize_parameters =
 `allocator` 和类型化参数填充载荷。转换必须保持指针与已分配布局一致，不重新读取
 部署文件、不另设默认容量，也不把请求局部指针塞进输出结构。
 
-同一外层类型可能被不同部署选用不同的命名方案，而 Create 时框架不核对转换器是否支持所选方案。
+同一外层类型可能被不同部署选用不同的命名方案，而 Create 时框架不核对转换器是否支持所选方案；
+接入第一个生产命名方案时，同步让槽位声明可接受的方案，在 Create 时校验并在 Catalog 中列出。
 写嵌套布局的转换器在写入前先核对 `spec.allocator`（或根结构中的布局标记），遇到不支持的方案
 返回 `-4` 并给出诊断，由框架归还全部租约；参照
 [嵌套结构夹具](../../tests/support/operator_nested_output_fixture.h)中 `ConvertNestedOutput` 的一致性检查。
