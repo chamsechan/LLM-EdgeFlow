@@ -33,7 +33,7 @@ description: 新增或修改 LLM-EdgeFlow 的 common/custom Node。所有 Node �
 | 多模型能力 | [starter_multi_model_node](../../../dev_support/node_authoring/starter_multi_model_node.cpp) |
 | 拆分且分配子编号/输出 counts | [TextChunkNode](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
 | 排名与候选来源 | [TextRerankNode](../../../src/common_nodes/text_rerank_node.cpp) |
-| 生成参数加自有配置、请求上下文 | [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp)，共用 [生成参数 helper](../../../include/nodes/generate_options_config.h) |
+| 生成参数加自有配置、请求上下文 | `GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})`（[生成参数 helper](../../../include/nodes/generate_options_config.h)）；完整示例见 [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
 | 两批关联/分组/部分调用后回填 | `dev_support/node_authoring/starter_batch_{join,group,select_scatter}_node.cpp` |
 
 示例名称替换成实际操作名；已有实现直接修改，不用 `--force` 覆盖。脚手架默认生成 custom；

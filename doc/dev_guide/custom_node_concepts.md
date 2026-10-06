@@ -30,7 +30,7 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 | 参数顺序 | 依次为 Inputs、Params、Models；Spec 没有 `Parameters<...>` 就不写 Params，没有 `ModelsOf<...>` 就不写 Models；用到会话缓存时再追加 `SessionResources` |
 | 返回值 | `NodeResult<OutputBatch>`；多输出为 `NodeResult<Outputs>`。成功可直接返回结果，失败用 `NodeResult<T>::Failure(...)` |
 | 逐项处理 | `MapPayloads(*inputs.input, &Transform)`：`Transform` 接收一条载荷，返回新载荷或 `NodeResult`；失败时诊断指出是哪一条 |
-| 生成参数 | 只需生成参数时用 `GenerateParameters(默认 max_tokens)`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate` |
+| 生成参数 | 只需生成参数时用 `GenerateParameters(默认 max_tokens)`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate`；还有自有配置时用 `GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})` |
 
 ## 常见编译错误对照
 
@@ -117,27 +117,21 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。LLM 模板用 `GenerateParameters(128)` 声明 `max_tokens`、
 `temperature` 等生成参数，节点配置可以直接调整。还需要自有配置时，把生成参数放进自己的
-`Params`，用下面的 `MakeParams()` 替换 Spec 中的 `GenerateParameters(128)`：
+`Params`，自有字段照常用 `Field` 声明，并把 Spec 中的 `GenerateParameters(128)` 换成：
 
 ```cpp
 struct Params {
-  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters 相同
+  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters(128) 相同
   std::string prefix;          // 自有参数
 };
 
-auto MakeParams() {
-  auto params =
-      Parameters<Params>({Field("prefix", &Params::prefix).Default("")});
-  params.WithParser(NodeConfigParser<Params>(
-      GenerateOptionsFields(128),
-      [](const nlohmann::json& config, Params* p, std::string* error) {
-        return ParseGenerateOptions(config, &p->generation, error);
-      }));
-  return params;
-}
+GenerateParameters(128, &Params::generation,
+                   {Field("prefix", &Params::prefix).Default("")})
 ```
 
-`Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。
+`Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。自有字段需要
+进一步转换时（例如把模板解析成片段），用 `Prepare`，参考
+[PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp)。
 
 ## 3. Definition：让连线工具和运行器看懂你的操作
 
