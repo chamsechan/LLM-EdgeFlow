@@ -232,7 +232,8 @@ add_library(edgeflow_demo_objects OBJECT
   ${EDGEFLOW_DEMO_BIZ_SOURCES})
 ```
 
-`src/core`、`src/engine` 不改：Backend 按构建选项条件编译，需要保持显式。
+`src/core` 和 `src/engine` 的运行时文件保持显式；Backend 由源码内的 `HAVE_*` 宏按构建选项条件编译，
+文件列表不随构建选项变化，因此 Engine 的 `models/`、`backends/` 同样自动收录。
 
 为什么源文件顺序变化不影响行为：
 

@@ -1,23 +1,19 @@
+# 框架运行时显式列出；Model 与 Backend 递归收集，下次构建时编译。
+file(GLOB_RECURSE EDGEFLOW_MODEL_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/models/*.cpp")
+file(GLOB_RECURSE EDGEFLOW_BACKEND_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/backends/*.cpp")
+
 target_sources(edgeflow_model_execution_objects PRIVATE
   runtime/backend_registry.cpp
   runtime/model_registry.cpp
   runtime/model_runtime_factory.cpp
   text/utf8.cpp
   text_generation/common_autoregressive_generator.cpp
-  models/bge_common/bert_model_support.cpp
-  models/bge_common/bert_wordpiece_tokenizer.cpp
-  models/bge_embedding/bge_embedding_model.cpp
-  models/bge_reranker/bge_reranker_model.cpp
-  models/qwen_causal_lm/qwen_causal_lm_model.cpp
-  models/generated_text_embedding/generated_text_embedding_model.cpp
-  models/vision_document/vision_document_model.cpp
-  models/vision_document/image_decode.cpp
-  models/whisper_asr/whisper_asr_model.cpp)
+  ${EDGEFLOW_MODEL_SOURCES})
 
+# Backend 单独编译，vendor 编译要求只提供给该目标。
 target_sources(edgeflow_model_execution_backends_objects PRIVATE
-  backends/onnxruntime/onnxruntime_backend.cpp
-  backends/llama_cpp/llama_cpp_backend.cpp
-  backends/kite_llm/kite_llm_backend.cpp
-  backends/whisper_cpp/whisper_cpp_backend.cpp)
+  ${EDGEFLOW_BACKEND_SOURCES})
 
 target_link_libraries(edgeflow_model_execution_objects PRIVATE edgeflow_stb_image)
