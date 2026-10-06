@@ -376,9 +376,13 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   EXPECT_TRUE(found_missing_ingress);
 
   // 验证 SharedAlgorithmRuntime::GlobalInit() 也会因为 Audit 失败而返回冲突错误
-  // (-6)
-  EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(),
+  // (-6)，并带出审计原因
+  std::string init_diagnostic;
+  EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(&init_diagnostic),
             COMPANY_ALG_ERR_REGISTRY_CONFLICT);
+  EXPECT_NE(init_diagnostic.find(
+                "missing required biz ingress port: input_sentences"),
+            std::string::npos);
 }
 
 TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {

@@ -232,7 +232,8 @@ binding.normalize_parameters =
 旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_invoice_qa_demo.cpp) 和
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
-**`Init`、`DeInit` 与并发。** `Init` 用于注册审计，应在创建实例前调用。同一 handle 的 `Process` 与
+**`Init`、`DeInit` 与并发。** `Init` 用于注册审计，应在创建实例前调用；审计失败返回 `-6`，
+`GetOperatorLastError()` 与日志逐条列出来源（注册表或 IoBinding 审计）和原因。同一 handle 的 `Process` 与
 `Control` 串行，不同 handle 可并行。`DeInit` 会清理该库实例中登记的**所有 handle**，不是单个调用方的
 局部清理。调用前须停止所有实例的新调用、等待在途调用返回并释放全部输出；不支持与 Create、Process、
 Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但已清理的 handle 和旧输出仍失效。
