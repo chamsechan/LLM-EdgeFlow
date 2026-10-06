@@ -87,7 +87,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
 | 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition` 与转换器组合；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
-| Operator 类型注册（仅新宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新宿主类型见[实现与注册](operator_output_allocation.md#实现与注册) |
+| Operator 类型注册（仅新平台宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新平台宿主类型在此登记一项，与平台结构、type traits 一一对应；已有类型的新嵌套布局用自己文件中的命名方案，见[实现与注册](operator_output_allocation.md#实现与注册) |
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
@@ -197,9 +197,10 @@ Definition 使用 `RequiredInputPort(port)` / `OutputPort(port)`，回调直接�
 
 ## 4. 需要新的宿主类型时
 
-多数业务复用已注册的宿主类型和 ValueType，载荷协议变化只需修改转换器。确需新的平台结构或
-分配布局时，按[实现与注册](operator_output_allocation.md#实现与注册)声明结构、type traits 和
-ValueType。宿主类型的转换都留在接入适配层，Node、Model 和 Backend 无需识别宿主结构。
+多数业务复用已注册的宿主类型和 ValueType，载荷协议变化只需修改转换器。确需新的平台结构时，
+按[实现与注册](operator_output_allocation.md#实现与注册)在平台头文件、`io_converter.h` 和
+`operator_builtin_value_types.cpp` 中各新增一项；已有结构需要另一种嵌套布局时，在自己的文件中新增
+命名方案，不改已有实现。宿主类型的转换都留在接入适配层，Node、Model 和 Backend 无需识别宿主结构。
 
 ## 5. 统一 Demo 接入
 

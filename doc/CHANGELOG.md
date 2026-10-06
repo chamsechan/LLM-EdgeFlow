@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+输出分配的扩展点按"只新增"整理：删除只有一个 JSON 实现、仅用于读取 `params` 的 `OutputConfigReader`
+（及 `OutputConfigField`、公开头 `adapter/operator_output_config.h`），`OperatorConfigResolver` 直接把
+`params` 原样序列化后交给所选实现，未配置时仍为 `{}`。命名分配方案、`params`、容量与 metadata 字段保持不变；
+Pipeline JSON、`.conf`、SDK 接口与 `resolve-conf` 输出不变。输出分配指南新增扩展方式表，统一说明平台宿主类型
+集中登记（结构、traits、ValueType 一一对应）、已有类型的新布局以命名方案在自己的文件中新增，以及转换器须核对
+所选方案。
+
 一个 Control 命令 ID 只属于一个节点类型：删除 `ControlCommandDefinition::shared_id` 与
 `FieldControlCommand::SharedId()`，注册表对任何跨类型重号一律拒绝，Catalog 的控制命令不再导出
 `shared_id`。原有的两处设置（`TextRuleMatchNode`、`TextTemplateNode`）并没有与其他类型共用 ID。
