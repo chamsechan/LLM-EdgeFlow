@@ -215,7 +215,6 @@ target_sources(edgeflow_integration_objects PRIVATE
   # ...其余机制文件保持原样...
   io_catalog.cpp
   ${EDGEFLOW_ADAPTER_BIZ_SOURCES}
-  operator/json_output_config_reader.cpp
   # ...operator/ 下文件保持原样...
   operator/operator_builtin_value_types.cpp)
 ```

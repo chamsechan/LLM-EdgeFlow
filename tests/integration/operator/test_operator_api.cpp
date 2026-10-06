@@ -2713,6 +2713,16 @@ TEST_F(OperatorApiTest, MissingOutputMemoryUsesRegisteredNestedDefaults) {
             0)
       << error;
   EXPECT_EQ(biz, "test_nested_output");
+  llm_edgeflow::ResolvedOperatorConfig resolved;
+  std::string resolve_error;
+  ASSERT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
+                root.c_str(), "pipeline.conf", &resolved, &resolve_error),
+            0)
+      << resolve_error;
+  // 未配置 params 时，所选实现收到的参数文本为 "{}"。
+  for (const char* slot : {"main", "audit"}) {
+    EXPECT_EQ(resolved.io_plan->output_parameter_texts.at(slot), "{}");
+  }
   CreateParam param{};
   param.model_path = root.c_str();
   param.cfg_file_name = "pipeline.conf";
