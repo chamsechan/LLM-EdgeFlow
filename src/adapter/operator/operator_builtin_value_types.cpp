@@ -1,3 +1,4 @@
+#include "adapter/io_converter.h"
 #include "adapter/operator/operator_value_type_registry.h"
 
 namespace llm_edgeflow {
@@ -5,7 +6,7 @@ namespace llm_edgeflow {
 void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 1. string -> CompanyString
   RegisterBinding(MakeTypedInputBinding<CompanyString>(
-      "string", "CompanyString",
+      "string",
       [](const CompanyString& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyString(&in, limits.max_text_bytes, "string", err);
@@ -13,7 +14,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 2. buffer -> CompanyBuffer
   RegisterBinding(MakeTypedInputBinding<CompanyBuffer>(
-      "buffer", "CompanyBuffer",
+      "buffer",
       [](const CompanyBuffer& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyBuffer(&in, limits.max_buffer_bytes, "buffer",
@@ -22,7 +23,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 3. any -> CompanyAny
   RegisterBinding(MakeTypedInputBinding<CompanyAny>(
-      "any", "CompanyAny",
+      "any",
       [](const CompanyAny& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyAnyPayload(&in, limits.max_any_bytes, "any", err);
@@ -30,7 +31,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 4. frame -> CompanyFrame
   RegisterBinding(MakeTypedInputBinding<CompanyFrame>(
-      "frame", "CompanyFrame",
+      "frame",
       [](const CompanyFrame& in, const InputLimits& limits,
          std::string* err) -> int {
         if (!in.image_uri) {
@@ -51,8 +52,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 5. od_out -> CompanyOdOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOdOutput>(
-      "od_out", "CompanyOdOutput",
-      {{"result_json", &CompanyOdOutput::result_json, {2047, 65536}}},
+      "od_out", {{"result_json", &CompanyOdOutput::result_json, {2047, 65536}}},
       [](CompanyOdOutput& out) noexcept {
         out.request_id = 0;
         out.detected_box_count = 0;
@@ -62,7 +62,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 6. keyword_in -> CompanyOperatorKeywordInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorKeywordInput>(
-      "keyword_in", "CompanyOperatorKeywordInput",
+      "keyword_in",
       [](const CompanyOperatorKeywordInput& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
@@ -71,7 +71,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 7. keyword_out -> CompanyOperatorKeywordOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorKeywordOutput>(
-      "keyword_out", "CompanyOperatorKeywordOutput",
+      "keyword_out",
       {{"match_result_json",
         &CompanyOperatorKeywordOutput::match_result_json,
         {2047, 65536}}},
@@ -83,7 +83,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 8. entity_in -> CompanyOperatorEntityInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorEntityInput>(
-      "entity_in", "CompanyOperatorEntityInput",
+      "entity_in",
       [](const CompanyOperatorEntityInput& in, const InputLimits& limits,
          std::string* err) -> int {
         return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
@@ -92,7 +92,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 9. entity_out -> CompanyOperatorEntityOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorEntityOutput>(
-      "entity_out", "CompanyOperatorEntityOutput",
+      "entity_out",
       {{"entities_json",
         &CompanyOperatorEntityOutput::entities_json,
         {2047, 65536}}},
@@ -103,7 +103,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 10. doc_in -> CompanyOperatorDocInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorDocInput>(
-      "doc_in", "CompanyOperatorDocInput",
+      "doc_in",
       [](const CompanyOperatorDocInput& in, const InputLimits& limits,
          std::string* err) -> int {
         int ret = ValidateCompanyString(in.query_text, limits.max_text_bytes,
@@ -119,7 +119,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 11. doc_out -> CompanyOperatorDocOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorDocOutput>(
-      "doc_out", "CompanyOperatorDocOutput",
+      "doc_out",
       {{"intent_name", &CompanyOperatorDocOutput::intent_name, {63, 255}},
        {"answer_text", &CompanyOperatorDocOutput::answer_text, {1023, 65536}}},
       [](CompanyOperatorDocOutput& out) noexcept {
@@ -131,7 +131,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 12. audit_in -> CompanyOperatorAuditInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorAuditInput>(
-      "audit_in", "CompanyOperatorAuditInput",
+      "audit_in",
       [](const CompanyOperatorAuditInput& in, const InputLimits& limits,
          std::string* err) -> int {
         int ret = ValidateCompanyString(in.user_text, limits.max_text_bytes,
@@ -148,7 +148,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 13. audit_out -> CompanyOperatorAuditOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorAuditOutput>(
-      "audit_out", "CompanyOperatorAuditOutput",
+      "audit_out",
       {{"risk_level", &CompanyOperatorAuditOutput::risk_level, {31, 255}},
        {"matched_policy_clause",
         &CompanyOperatorAuditOutput::matched_policy_clause,
@@ -164,7 +164,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 14. audio_in -> CompanyOperatorAudioInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorAudioInput>(
-      "audio_in", "CompanyOperatorAudioInput",
+      "audio_in",
       [](const CompanyOperatorAudioInput& in, const InputLimits& limits,
          std::string* err) -> int {
         if (in.sample_rate < limits.min_sample_rate ||
@@ -195,7 +195,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 15. audio_out -> CompanyOperatorAudioOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorAudioOutput>(
-      "audio_out", "CompanyOperatorAudioOutput",
+      "audio_out",
       {{"transcribed_text",
         &CompanyOperatorAudioOutput::transcribed_text,
         {511, 16384}},
@@ -209,7 +209,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 16. rerank_in -> CompanyOperatorRerankInput
   RegisterBinding(MakeTypedInputBinding<CompanyOperatorRerankInput>(
-      "rerank_in", "CompanyOperatorRerankInput",
+      "rerank_in",
       [](const CompanyOperatorRerankInput& in, const InputLimits& limits,
          std::string* err) -> int {
         int ret = ValidateCompanyString(in.query_text, limits.max_text_bytes,
@@ -240,8 +240,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 17. rerank_out -> CompanyOperatorRerankOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorRerankOutput>(
-      "rerank_out", "CompanyOperatorRerankOutput", {},
-      [](CompanyOperatorRerankOutput& out) noexcept {
+      "rerank_out", {}, [](CompanyOperatorRerankOutput& out) noexcept {
         out.request_id = 0;
         out.count = 0;
         out.status_code = 0;

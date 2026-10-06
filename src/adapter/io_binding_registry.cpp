@@ -201,7 +201,16 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                        "positive");
     }
 
-    // 4. 检查对应槽位的 ValueType 绑定
+    // 4. 检查对应槽位的 ValueType 绑定：后缀已登记，且登记的宿主结构与
+    // 槽位声明的结构相同，避免按错误的布局读写内存。
+    const auto struct_mismatch = [&](const char* direction,
+                                     const ExternalSlotDefinition& slot,
+                                     const OperatorValueTypeBinding& value) {
+      return "Binding '" + biz_name + "' " + direction + " slot '" +
+             slot.slot_name + "' declares " + slot.type_id +
+             " but ValueType suffix '" + slot.type_suffix +
+             "' is registered for " + value.external_c_type_name;
+    };
 
     if (in_conv) {
       for (const auto& slot : in_conv->external_slots) {
@@ -213,6 +222,8 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
           errors.push_back(
               "Binding '" + biz_name + "' input slot '" + slot.slot_name +
               "' uses unregistered ValueType suffix: " + slot.type_suffix);
+        } else if (val_binding->external_c_type_name != slot.type_id) {
+          errors.push_back(struct_mismatch("input", slot, *val_binding));
         } else if (!val_binding->validate_external) {
           errors.push_back("Binding '" + biz_name + "' input slot '" +
                            slot.slot_name + "' ValueType suffix '" +
@@ -230,6 +241,8 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
           errors.push_back(
               "Binding '" + biz_name + "' output slot '" + slot.slot_name +
               "' uses unregistered ValueType suffix: " + slot.type_suffix);
+        } else if (val_binding->external_c_type_name != slot.type_id) {
+          errors.push_back(struct_mismatch("output", slot, *val_binding));
         }
       }
     }
