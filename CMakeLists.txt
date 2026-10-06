@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
 project(LLMEdgeFlow VERSION 11.0.0 LANGUAGES C CXX)
 
-set(LLM_EDGEFLOW_ABI_VERSION "9.0.0")
-set(LLM_EDGEFLOW_ABI_VERSION_MAJOR 9)
-
 # 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
   message(FATAL_ERROR "
@@ -50,7 +47,7 @@ if(ENABLE_SANITIZERS)
       "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=${LLM_EDGEFLOW_SANITIZERS}")
 endif()
 
-# 产品版本和 ABI 版本均由 CMake 生成，公共 C 头不再维护副本。
+# 产品版本由 CMake 生成，公共 C 头不再维护副本。
 set(LLM_EDGEFLOW_GENERATED_INCLUDE_DIR
     "${PROJECT_BINARY_DIR}/generated/include")
 file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow")
@@ -264,8 +261,6 @@ if(UNIX AND NOT APPLE)
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
-    VERSION ${PROJECT_VERSION}
-    SOVERSION ${LLM_EDGEFLOW_ABI_VERSION_MAJOR}
 )
 
 add_subdirectory(dev_support)
