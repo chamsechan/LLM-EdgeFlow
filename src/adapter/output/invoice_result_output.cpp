@@ -88,9 +88,6 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "invoice_result.plain";
-
-  def.schema_id = "invoice_result.plain.response";
-
   def.external_slots = {ExternalOutputSlot<CompanyOdOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kExtractedInvoiceJson),
                        RequiredInputPort(kOcrDocs)};

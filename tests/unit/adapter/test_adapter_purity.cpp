@@ -1035,8 +1035,6 @@ TEST_F(AdapterPurityTest,
        ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
   InputConverterDefinition custom_in_def;
   custom_in_def.converter_id = "test.multi_field";
-
-  custom_in_def.schema_id = "multi_field.request";
   custom_in_def.external_slots = {
       ExternalSlotDefinition("inputs", "CustomMultiFieldInput",
                              PortDirection::kInput, true, "custom_input")};

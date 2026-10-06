@@ -515,7 +515,6 @@ auto Spec() {
   auto control = ControlCommandDefinition(
       kControlCmdUpdatePrompt, "update_prompt",
       "Update template string dynamically", TemplateControlSchema(), true);
-  control.shared_id = true;
   return MakeNodeSpec(
              InputsOf<Inputs>{
                  OptionalValue("primary", &Inputs::primary),

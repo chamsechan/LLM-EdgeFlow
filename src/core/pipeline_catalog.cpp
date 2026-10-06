@@ -41,8 +41,7 @@ nlohmann::json ControlCommandJson(const ControlCommandDefinition& cmd) {
           {"name", cmd.name},
           {"description", cmd.description},
           {"payload_schema", cmd.payload_schema},
-          {"supports_hot_swap", cmd.supports_hot_swap},
-          {"shared_id", cmd.shared_id}};
+          {"supports_hot_swap", cmd.supports_hot_swap}};
 }
 
 nlohmann::json FieldJson(const ConfigFieldDefinition& field) {

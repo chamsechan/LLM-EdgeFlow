@@ -30,7 +30,6 @@ nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {
     ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
 
   return {{"converter_id", conv.converter_id},
-          {"schema_id", conv.schema_id},
           {"external_type", ExternalType(conv.external_slots)},
           {"external_slots", std::move(slots)},
           {"logical_ports", std::move(ports)}};
@@ -44,7 +43,6 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
     ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
 
   return {{"converter_id", conv.converter_id},
-          {"schema_id", conv.schema_id},
           {"external_type", ExternalType(conv.external_slots)},
           {"external_slots", std::move(slots)},
           {"logical_ports", std::move(ports)}};

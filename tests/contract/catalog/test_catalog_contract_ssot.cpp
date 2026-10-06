@@ -292,7 +292,6 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
 
   const auto& input = catalog.at("input_converters").at(0);
   EXPECT_EQ(input.at("converter_id"), "keyword.plain");
-  EXPECT_EQ(input.at("schema_id"), "text.plain.request");
   EXPECT_EQ(input.at("external_type"), "CompanyOperatorKeywordInput");
   ASSERT_EQ(input.at("external_slots").size(), 1U);
   const auto& input_slot = input.at("external_slots").at(0);
@@ -306,7 +305,6 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
 
   const auto& output = catalog.at("output_converters").at(0);
   EXPECT_EQ(output.at("converter_id"), "keyword.result");
-  EXPECT_EQ(output.at("schema_id"), "keyword.result.response");
   EXPECT_EQ(output.at("external_type"), "CompanyOperatorKeywordOutput");
   ASSERT_EQ(output.at("external_slots").size(), 1U);
   const auto& output_slot = output.at("external_slots").at(0);
@@ -460,7 +458,6 @@ TEST_F(CatalogContractSsotTest, ConcurrentConflictingControlIdDetected) {
     ControlCommandDefinition cmd;
     cmd.cmd_id = 8888;
     cmd.name = cmd_name;
-    cmd.shared_id = false;
     cmd.payload_schema = nlohmann::json::object();
     def.control_commands.push_back(cmd);
     return def;

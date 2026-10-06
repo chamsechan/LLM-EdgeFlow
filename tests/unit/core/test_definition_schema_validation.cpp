@@ -645,8 +645,7 @@ TEST_F(DefinitionSchemaValidationTest,
       with_default.node_type, []() { return nullptr; }, with_default));
 }
 
-TEST_F(DefinitionSchemaValidationTest,
-       ControlIdsRequireExplicitIdenticalSharing) {
+TEST_F(DefinitionSchemaValidationTest, ControlIdsBelongToOneNodeType) {
   test_support::RegistryTestAccess::ScopedNodeState state_guard;
   auto dummy_creator = []() { return nullptr; };
 
@@ -665,33 +664,6 @@ TEST_F(DefinitionSchemaValidationTest,
   std::string error = errors.empty() ? "" : errors.front();
   EXPECT_NE(error.find("2000000101"), std::string::npos);
   EXPECT_NE(error.find("PrivateControlOwner"), std::string::npos);
-  test_support::RegistryTestAccess::ClearNodeFailures();
-
-  first.node_type = "SharedControlOwner";
-  first.control_commands.front().cmd_id = 2000000102;
-  first.control_commands.front().shared_id = true;
-  ASSERT_TRUE(
-      NodeRegistry::Instance().Register(first.node_type, dummy_creator, first));
-  duplicate = first;
-  duplicate.node_type = "SharedControlPeer";
-  EXPECT_TRUE(NodeRegistry::Instance().Register(duplicate.node_type,
-                                                dummy_creator, duplicate));
-  duplicate.node_type = "SharedControlNameMismatch";
-  duplicate.control_commands.front().name = "different_semantics";
-  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
-                                                 dummy_creator, duplicate));
-  test_support::RegistryTestAccess::ClearNodeFailures();
-  duplicate.control_commands = first.control_commands;
-  duplicate.node_type = "SharedControlSchemaMismatch";
-  duplicate.control_commands.front().payload_schema = {{"type", "string"}};
-  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
-                                                 dummy_creator, duplicate));
-  test_support::RegistryTestAccess::ClearNodeFailures();
-  duplicate.control_commands = first.control_commands;
-  duplicate.node_type = "SharedControlMissingOptIn";
-  duplicate.control_commands.front().shared_id = false;
-  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
-                                                 dummy_creator, duplicate));
   test_support::RegistryTestAccess::ClearNodeFailures();
 
   NodeDefinition invalid;

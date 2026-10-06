@@ -51,9 +51,6 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "text.plain";
-
-  def.schema_id = "text.plain.request";
-
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot)};
   def.logical_ports = {OutputPort(kInputSentences)};
@@ -64,9 +61,6 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
 InputConverterDefinition MakeOperatorKeywordInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "keyword.plain";
-
-  def.schema_id = "text.plain.request";
-
   def.external_slots = {
       ExternalInputSlot<CompanyOperatorKeywordInput>(kKeywordSlot)};
   def.logical_ports = {OutputPort(kInputSentences)};
