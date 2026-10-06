@@ -132,9 +132,6 @@ int EncodeOperatorAuditResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "audit_result.plain";
-
-  def.schema_id = "audit_result.plain.response";
-
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kStructuredVerdicts),

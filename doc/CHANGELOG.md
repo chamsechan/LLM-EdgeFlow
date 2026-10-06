@@ -6,6 +6,10 @@
 `FieldControlCommand::SharedId()`，注册表对任何跨类型重号一律拒绝，Catalog 的控制命令不再导出
 `shared_id`。原有的两处设置（`TextRuleMatchNode`、`TextTemplateNode`）并没有与其他类型共用 ID。
 
+删除 Converter 的 `schema_id`：每个业务只有一个绑定后，它唯一的比较逻辑已随多绑定比较一起删除，
+此后只做非空检查和展示；解析方式由绑定选中的 `converter_id` 决定，外部契约由业务名确定。Catalog 的
+Converter 与 Pipeline Studio 不再显示该字段；Operator ABI、Pipeline JSON 与 `.conf` 不变。
+
 `StructuredJsonParseNode` 的参数结构移回源文件的匿名命名空间，避免与其他编译单元中同名的
 `Params` 冲突；删除 `Field` 中与 `Description()` 重复的 `Semantic()`；自定义 Node 概念文档直接给出
 "LLM 节点加自有参数"的写法示例。
@@ -62,7 +66,6 @@ Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）�
 `schema_version`、`external_type`、输出 `cardinality` 与 `capacity_policy`，以及槽位的 `value_type` 与
 `capacity_fields`。输出槽容量字段只由 ValueType 决定，`ExternalInputSlot` / `ExternalOutputSlot`
 只接受槽名。Catalog 的 Converter 不再导出上述元数据，`external_type` 改由槽位类型推导。
-`schema_id` 保留为外部协议 ID：载体相同的 Converter 可能解析语义不同。
 
 开发工具修复：Markdown 链接检查支持单引号与圆括号标题、带空格的尖括号目标及平衡或转义的
 目标圆括号；生产版 `alg_pipeline_tool edit` 根据 `validation.diagnostics` 提示构建变体与测试工具。

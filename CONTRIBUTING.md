@@ -77,7 +77,8 @@ contracts must be served side by side.
 Use framework defaults for platform limits and scheduling values when a conservative value
 is correct for every supported scenario, even if slower, or an independent runtime hard
 limit bounds it. Keep semantic contracts such as ports, types, quantity relationships,
-execution protocols and external protocol IDs explicit, with actionable validation errors.
+execution protocols and the biz that names each external contract explicit, with actionable
+validation errors.
 Declare defaults in Definitions or registries so Catalog and tools expose them; tools must
 not turn untouched defaults into explicit configuration. Component capability limits belong
 in code; deployment overrides use existing Pipeline JSON fields without adding `.conf` fields.

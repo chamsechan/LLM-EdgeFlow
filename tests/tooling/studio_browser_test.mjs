@@ -82,8 +82,6 @@ try {
     ["I/O 契约 · io_binding", ["keyword_match"]],
     ["输入 Converter", ["keyword.plain"]],
     ["输出 Converter", ["keyword.result"]],
-    ["输入协议 · schema_id", ["text.plain.request"]],
-    ["输出协议 · schema_id", ["keyword.result.response"]],
     ["输入逻辑槽 · slot_name", ["keyword_in"]],
     ["输出逻辑槽 · slot_name", ["keyword_out"]],
     ["宿主类型 · type_id", ["CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"]],

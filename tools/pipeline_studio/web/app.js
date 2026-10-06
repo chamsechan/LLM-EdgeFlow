@@ -266,7 +266,7 @@ function renderBizContract() {
     for (const [direction, label] of [["input", "输入"], ["output", "输出"]]) {
       const converterId = binding[`${direction}_converter_id`];
       const converter = state.catalog[`${direction}_converters`]?.find(item => item.converter_id === converterId);
-      fields(container, [[`${label} Converter`, converterId], [`${label}协议 · schema_id`, converter?.schema_id]]);
+      fields(container, [[`${label} Converter`, converterId]]);
       for (const slot of converter?.external_slots || []) {
         fields(container, [
           [`${label}逻辑槽 · slot_name`, slot.slot_name],
