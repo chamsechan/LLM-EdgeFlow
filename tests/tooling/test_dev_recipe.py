@@ -50,8 +50,8 @@ class DevRecipeTest(unittest.TestCase):
         self.demo = self.build / "alg_demo"
         self.link_binary(TOOL, self.tool)
         self.link_binary(DEMO, self.demo)
-        for library in DEMO.parent.glob("libcompany_alg_sdk.*"):
-            self.link_binary(library.resolve(), self.build / library.name)
+        self.link_binary(DEMO.parent / "libcompany_alg_sdk.so",
+                         self.build / "libcompany_alg_sdk.so")
         (self.build / "CMakeCache.txt").write_text(
             f"CMAKE_HOME_DIRECTORY:INTERNAL={self.root}\n")
         self.target = self.root / "configs/pipeline_recipe_contract.json"
