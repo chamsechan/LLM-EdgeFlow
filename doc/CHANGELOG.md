@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+一个 Control 命令 ID 只属于一个节点类型：删除 `ControlCommandDefinition::shared_id` 与
+`FieldControlCommand::SharedId()`，注册表对任何跨类型重号一律拒绝，Catalog 的控制命令不再导出
+`shared_id`。原有的两处设置（`TextRuleMatchNode`、`TextTemplateNode`）并没有与其他类型共用 ID。
+
 `StructuredJsonParseNode` 的参数结构移回源文件的匿名命名空间，避免与其他编译单元中同名的
 `Params` 冲突；删除 `Field` 中与 `Description()` 重复的 `Semantic()`；自定义 Node 概念文档直接给出
 "LLM 节点加自有参数"的写法示例。

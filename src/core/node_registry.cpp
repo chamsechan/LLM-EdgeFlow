@@ -18,18 +18,14 @@ bool NodeRegistry::CheckCrossNodeControlConflict(
   for (const auto& [existing_type, entry] : entries) {
     if (!entry) continue;
     const auto& existing_def = entry->definition;
+    // 命令 ID 只属于一个节点类型；同类型的多个实例共用其声明。
     for (const auto& command : definition.control_commands) {
       for (const auto& registered : existing_def.control_commands) {
         if (command.cmd_id != registered.cmd_id) continue;
-        if (!command.shared_id || !registered.shared_id ||
-            command.name != registered.name ||
-            command.payload_schema != registered.payload_schema ||
-            command.supports_hot_swap != registered.supports_hot_swap) {
-          if (!found_conflict || existing_def.node_type < *best_conflict_node) {
-            found_conflict = true;
-            best_conflict_node = &existing_def.node_type;
-            best_conflict_cmd_id = command.cmd_id;
-          }
+        if (!found_conflict || existing_def.node_type < *best_conflict_node) {
+          found_conflict = true;
+          best_conflict_node = &existing_def.node_type;
+          best_conflict_cmd_id = command.cmd_id;
         }
       }
     }
@@ -42,7 +38,7 @@ bool NodeRegistry::CheckCrossNodeControlConflict(
                  " conflicts between " +
                  (best_conflict_node ? *best_conflict_node : "") + " and " +
                  definition.node_type +
-                 "; shared commands require shared_id and identical contracts";
+                 "; a control ID belongs to one node type";
       } catch (...) {
       }
     }
