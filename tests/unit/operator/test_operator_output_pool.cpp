@@ -29,15 +29,13 @@ DECLARE_EXTERNAL_TYPE_TRAITS(BusinessSummaryOutput, "BusinessSummaryOutput");
 namespace {
 
 OperatorValueTypeBinding MakeBusinessSummaryBinding() {
-  std::string type_name = "BusinessSummaryOutput";
   std::string title_name = "title";
   std::string summary_name = "summary";
   auto binding = MakePooledOutputBinding<BusinessSummaryOutput>(
-      "test_business_summary", type_name.c_str(),
+      "test_business_summary",
       {{title_name, &BusinessSummaryOutput::title, {7, 31}},
        {summary_name, &BusinessSummaryOutput::summary, {15, 63}}},
       [](BusinessSummaryOutput& output) noexcept { output.request_id = 0; });
-  type_name.assign(type_name.size(), 'x');
   title_name.assign(title_name.size(), 'x');
   summary_name.assign(summary_name.size(), 'x');
   return binding;
@@ -138,7 +136,7 @@ TEST_F(OperatorOutputPoolTest,
        {"summary", &BusinessSummaryOutput::title, {15, 63}}}};
   for (const auto& fields : invalid_fields) {
     EXPECT_THROW(MakePooledOutputBinding<BusinessSummaryOutput>(
-                     "test_invalid_fields", "BusinessSummaryOutput", fields,
+                     "test_invalid_fields", fields,
                      [](BusinessSummaryOutput&) noexcept {}),
                  std::invalid_argument);
   }
