@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+"LLM 节点加自有参数"不再需要手写解析器：新增重载 `GenerateParameters(默认 max_tokens, &Params::generation,
+{Field(...)})`，生成参数字段与默认值同原重载，自有字段照常用 `Field` 声明。`PromptGuidedLlmNode` 改用该重载，
+模板解析移到 `Prepare`，配置字段名、类型、默认值与报错不变，Catalog 中 `strip_markdown` 的显示位置随自有字段前移；
+自定义 Node 概念文档的示例改为同一写法并有编译测试。输出分配指南与平台模拟说明补充暂缓项的触发条件：接入第一个
+生产命名方案时增加槽位可接受方案的校验和 Catalog 列表；内网接入时核对 `meta_num`、`metadata_type_id`、`key_suffix`。
+
 删除 ABI 版本：去掉 CMake 的 `LLM_EDGEFLOW_ABI_VERSION` / `_MAJOR`、生成头 `edgeflow/version.h` 的
 `COMPANY_ALG_ABI_VERSION` / `COMPANY_ALG_ABI_VERSION_MAJOR`、共享库的 `VERSION` / `SOVERSION` 与导出符号的
 版本节点 `LLM_EDGEFLOW_9`。构建产物改为单个 `libcompany_alg_sdk.so`（SONAME 同名），导出符号名称和数量不变，
