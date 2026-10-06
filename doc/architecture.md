@@ -165,8 +165,8 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
-- 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
-  SOVERSION/ABI major 为 9。
+- 目标共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0；共享库不带 SOVERSION，
+  导出符号不带版本节点。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 只用 `pipe_path` 指向 Pipeline JSON；配置必须在 `deployment.io.io_binding` 填写业务名，
   接入适配层据此找到该业务的绑定与边界，外部文档不另设根级 `biz_name`。模型路径只在
