@@ -332,7 +332,7 @@ try {
     await startupPage.waitForFunction(() => document.querySelector('#toast').classList.contains('error'));
     await startupPage.waitForTimeout(3000);
     assert.equal(await startupPage.locator('#toast').evaluate(el => el.classList.contains('show')), true);
-    assert.match(await startupPage.locator('#toast').textContent(), /api\/v1\/assets.*HTTP 503.*ASSET_CATALOG_FAILED/);
+    assert.match(await startupPage.locator('#toast').textContent(), /api\/assets.*HTTP 503.*ASSET_CATALOG_FAILED/);
     assert.match(await startupPage.locator('#toast').textContent(), /启动故障测试/);
     await startupPage.click('#toastDismiss');
     assert.equal(await startupPage.locator('#toast').evaluate(el => el.classList.contains('show')), false);
