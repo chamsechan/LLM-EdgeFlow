@@ -460,7 +460,6 @@ TEST_F(CatalogContractSsotTest, ConcurrentConflictingControlIdDetected) {
     ControlCommandDefinition cmd;
     cmd.cmd_id = 8888;
     cmd.name = cmd_name;
-    cmd.shared_id = false;
     cmd.payload_schema = nlohmann::json::object();
     def.control_commands.push_back(cmd);
     return def;

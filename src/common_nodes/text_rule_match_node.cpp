@@ -307,7 +307,6 @@ auto Spec() {
       kControlCmdUpdateRules, "update_rules",
       "Update matching rules and categories dynamically", RuleControlSchema(),
       true);
-  control.shared_id = true;
   return MakeNodeSpec(InputsOf<Inputs>{Required("text", &Inputs::text)},
                       PreservedOutput<RuleMatchBatch>("matches", "text"),
                       std::move(parameters), Run)
