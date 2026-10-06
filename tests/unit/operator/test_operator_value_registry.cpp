@@ -7,7 +7,6 @@
 
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
-#include "adapter/operator/json_output_config_reader.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_value_type.h"
 #include "core/alg_context.h"
@@ -163,64 +162,6 @@ TEST(OperatorValueRegistryTest, OrdinaryParameterStructCanParseNonJsonText) {
         << invalid;
     EXPECT_EQ(spec.params, nullptr);
   }
-}
-
-TEST(OperatorValueRegistryTest, OutputConfigReaderSelectsFixedFieldsAsStrings) {
-  const nlohmann::json source = {{"allocator", "test_nested_standard"},
-                                 {"params", {{"kind", 2}, {"capacity", 7}}},
-                                 {"capacities", {{"text", 128}}},
-                                 {"meta_num", 4},
-                                 {"metadata_type_id", 1}};
-  const JsonOutputConfigReader reader(source);
-  const std::vector<std::pair<OutputConfigField, std::string>> expected = {
-      {OutputConfigField::kAllocator, R"("test_nested_standard")"},
-      {OutputConfigField::kParameters, R"({"capacity":7,"kind":2})"},
-      {OutputConfigField::kCapacities, R"({"text":128})"},
-      {OutputConfigField::kMetadataCount, "4"},
-      {OutputConfigField::kMetadataTypeId, "1"}};
-  for (const auto& [field, value] : expected) {
-    std::string text;
-    std::string error;
-    ASSERT_TRUE(reader.Read(field, &text, &error)) << error;
-    EXPECT_EQ(text, value);
-  }
-
-  const nlohmann::json minimal = nlohmann::json::object();
-  const JsonOutputConfigReader defaults(minimal);
-  for (const auto& [field, value] :
-       std::vector<std::pair<OutputConfigField, std::string>>{
-           {OutputConfigField::kAllocator, R"("")"},
-           {OutputConfigField::kParameters, "{}"},
-           {OutputConfigField::kCapacities, "{}"},
-           {OutputConfigField::kMetadataCount, "0"},
-           {OutputConfigField::kMetadataTypeId, "0"}}) {
-    std::string text;
-    std::string error;
-    ASSERT_TRUE(defaults.Read(field, &text, &error)) << error;
-    EXPECT_EQ(text, value);
-  }
-}
-
-TEST(OperatorValueRegistryTest,
-     OutputConfigReaderRejectsNonObjectAndInvalidField) {
-  const std::vector<nlohmann::json> invalid_sources = {
-      nullptr, nlohmann::json::array(), 7};
-  for (const auto& source : invalid_sources) {
-    const JsonOutputConfigReader reader(source);
-    std::string text = "stale";
-    std::string error;
-    EXPECT_FALSE(reader.Read(OutputConfigField::kAllocator, &text, &error));
-    EXPECT_TRUE(text.empty());
-    EXPECT_FALSE(error.empty());
-  }
-  const nlohmann::json source = {{"allocator", "test_nested_standard"}};
-  const JsonOutputConfigReader reader(source);
-  std::string text = "stale";
-  std::string error;
-  EXPECT_FALSE(reader.Read(static_cast<OutputConfigField>(-1), &text, &error));
-  EXPECT_TRUE(text.empty());
-  EXPECT_FALSE(error.empty());
-  EXPECT_FALSE(reader.Read(OutputConfigField::kAllocator, nullptr, &error));
 }
 
 TEST(OperatorValueRegistryTest,

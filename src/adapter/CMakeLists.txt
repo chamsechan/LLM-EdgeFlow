@@ -14,7 +14,6 @@ target_sources(edgeflow_integration_objects PRIVATE
   io_binding_resolver.cpp
   io_catalog.cpp
   ${EDGEFLOW_ADAPTER_BIZ_SOURCES}
-  operator/json_output_config_reader.cpp
   operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp
   operator/operator_control_registry.cpp
