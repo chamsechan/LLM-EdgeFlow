@@ -8,7 +8,6 @@
 #include "adapter/deployment_io_config.h"
 #include "adapter/deployment_structure.h"
 #include "adapter/io_binding_resolver.h"
-#include "adapter/operator/json_output_config_reader.h"
 #include "adapter/pipeline_document.h"
 #include "contracts/diagnostic.h"
 #include "contracts/json_structure.h"
@@ -152,8 +151,16 @@ int OperatorConfigResolver::ResolveOutputAllocation(
                "' for type '" + requested.type + "'";
     return -2;
   }
-  const JsonOutputConfigReader reader(config);
-  if (!reader.Read(OutputConfigField::kParameters, parameter_text, error)) {
+  if (!parameter_text) {
+    if (error) *error = "Null output parameter text destination";
+    return -2;
+  }
+  // params 原样序列化后交给所选实现解析；未配置时为 "{}"。
+  try {
+    const auto params = config.find("params");
+    *parameter_text = params == config.end() ? "{}" : params->dump();
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(error, e.what());
     return -2;
   }
   if (!NormalizeOutputParameters(*binding, *parameter_text, &requested.params,
