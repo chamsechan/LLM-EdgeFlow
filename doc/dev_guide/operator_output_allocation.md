@@ -109,7 +109,9 @@ Create 时 `OperatorConfigResolver` 把 `deployment.io.out_mem.<槽位>.params` 
 [`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)（当前环境的模拟定义，
 真实公司定义在授权内网接入），type traits 声明在 [`io_converter.h`](../../include/adapter/io_converter.h)，
 ValueType 登记在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/operator_builtin_value_types.cpp)。
-新增类型时三处各加一项，不改已有条目；内网接入时也只需在这里逐项对照真实头文件。
+新增类型时三处各加一项，不改已有条目。内网接入时，宿主类型的 traits 与 ValueType 登记在这两处
+逐项对照真实头文件即可；接口、枚举、所有权、线程与错误语义等其余核对见
+[验收范围](../VERIFIABLE_SELECTION.md#验收范围与发布准备)。
 
 为已有类型新增命名方案时，包含 `adapter/operator_value_type.h`，在接入层自己的 `.cpp` 中构造
 `OperatorValueTypeBinding`，在注册函数中调用 `RegisterOperatorOutputAllocator(name, binding)`，
