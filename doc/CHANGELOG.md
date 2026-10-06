@@ -4,6 +4,9 @@
 
 `src/engine/models/`、`src/engine/backends/` 下的 `.cpp` 自动编入，新增 Model/Backend 不再修改 CMakeLists。
 
+注册冲突时，`Init` 的日志和 `GetOperatorLastError()`、Pipeline 校验的 Model/Backend 诊断都列出具体原因；
+此前 Converter/Binding 冲突时 `Init` 提前返回，原因不会输出。
+
 新增宿主结构时结构名只写一次，并补上槽位结构核对：`MakePooledOutputBinding<T>` 与 `MakeTypedInputBinding<T>`
 删除结构名参数，改从 `DECLARE_EXTERNAL_TYPE_TRAITS` 取名，未声明 trait 时编译失败（trait 模板与宏移到
 `adapter/operator_io_contracts.h`，平台类型的声明仍在 `io_converter.h`）。Init 时 IoBinding 审计新增检查：槽位声明的

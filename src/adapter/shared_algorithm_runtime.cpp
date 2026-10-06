@@ -2,12 +2,14 @@
 
 #include <cstring>
 #include <fstream>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/io_binding_registry.h"
-#include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
 #include "core/alg_context.h"
@@ -21,67 +23,56 @@
 
 namespace llm_edgeflow {
 
-int SharedAlgorithmRuntime::GlobalInit() noexcept {
+namespace {
+
+// 按注册表标明来源，收集已记录的冲突原因。
+template <typename Registry>
+void CollectConflicts(const char* registry_name, const Registry& registry,
+                      std::vector<std::string>* errors) {
+  if (!registry.HasConflict()) return;
+  for (const auto& message : registry.GetConflictErrors()) {
+    errors->push_back(std::string(registry_name) + ": " + message);
+  }
+}
+
+}  // namespace
+
+int SharedAlgorithmRuntime::GlobalInit(std::string* diagnostic) noexcept {
   try {
-    // 1. NodeRegistry 冲突审计
-    if (NodeRegistry::Instance().HasConflict()) {
-      ALG_LOG_ERROR(
-          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in NodeRegistry.\n");
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
-    }
-
-    // 2. Model/Backend Registry 冲突审计
-    if (ModelRegistry::Instance().HasConflict() ||
-        BackendRegistry::Instance().HasConflict()) {
-      ALG_LOG_ERROR(
-          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in ModelRegistry or BackendRegistry.\n");
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
-    }
-
-    // 3. OperatorValueTypeRegistry 冲突审计
+    if (diagnostic) diagnostic->clear();
+    // 一次收集全部问题：任一注册表冲突或绑定审计失败都使全局初始化失败。
+    std::vector<std::string> errors;
+    CollectConflicts("NodeRegistry", NodeRegistry::Instance(), &errors);
+    CollectConflicts("ModelRegistry", ModelRegistry::Instance(), &errors);
+    CollectConflicts("BackendRegistry", BackendRegistry::Instance(), &errors);
     if (OperatorValueTypeRegistry::Instance().HasConflict()) {
-      ALG_LOG_ERROR(
-          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in OperatorValueTypeRegistry.\n");
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+      errors.push_back("OperatorValueTypeRegistry: registration conflict");
     }
-
-    // 4. IoConverterRegistry 冲突审计
-    if (IoConverterRegistry::Instance().HasConflict()) {
-      ALG_LOG_ERROR(
-          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in IoConverterRegistry.\n");
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
-    }
-
-    // 5. IoBindingRegistry 冲突审计
-    if (IoBindingRegistry::Instance().HasConflict()) {
-      ALG_LOG_ERROR(
-          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in IoBindingRegistry.\n");
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
-    }
-
-    // 6. IoBinding 全量接入审计
+    // 绑定审计同时报告 Converter 与 IoBinding 的注册冲突。
     std::vector<std::string> audit_errors;
     if (!IoBindingRegistry::Instance().Audit(&audit_errors)) {
-      ALG_LOG_ERROR(
-          "[SharedAlgorithmRuntime] GlobalInit failed: IoBindingRegistry Audit "
-          "failed:\n");
-      for (const auto& err : audit_errors) {
-        ALG_LOG_ERROR("  - %s\n", err.c_str());
+      for (auto& error : audit_errors) {
+        errors.push_back("IoBinding audit: " + std::move(error));
       }
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
+    if (errors.empty()) return 0;
 
-    return 0;
+    ALG_LOG_ERROR("[SharedAlgorithmRuntime] GlobalInit failed:\n");
+    std::string message;
+    for (const auto& error : errors) {
+      ALG_LOG_ERROR("  - %s\n", error.c_str());
+      if (!message.empty()) message += "; ";
+      message += error;
+    }
+    if (diagnostic) *diagnostic = std::move(message);
+    return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
   } catch (const std::exception& e) {
     ALG_LOG_ERROR("[SharedAlgorithmRuntime] GlobalInit exception: %s\n",
                   e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception in GlobalInit");
     return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
