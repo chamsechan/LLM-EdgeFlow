@@ -65,7 +65,7 @@
 
 | 现有约定 | 调整为 | 所属项 |
 | --- | --- | --- |
-| 源码在 CMakeLists 中逐个登记 | 业务目录自动收录；框架机制文件、Core、Engine 仍显式登记 | WI-1 |
+| 源码在 CMakeLists 中逐个登记 | 业务目录及 Engine 的 Model/Backend 目录自动收录；框架机制文件、Core 和 Engine 运行时仍显式登记 | WI-1 |
 | 脚手架提供 `--add-to-cmake` | 删除，不保留别名（CONTRIBUTING §3：发布前不保留别名） | WI-1 |
 | Validator 对同一根因报告多条诊断 | 只抑制完全由未注册项造成的连带诊断；同一位置上可以独立判断的错误照常报告 | WI-2 |
 | LLM 钩子返回值：`BuildPrompt` 要求能隐式转换为 `std::string`，`FormatAnswer` 只要求能赋值给 `std::string` | 两个钩子统一规则。`FormatAnswer` 不再接受 `char`、`int` 等算术类型（**收紧**）；`BuildPrompt` 可以返回 `std::string_view`（放宽） | WI-4 |

@@ -25,8 +25,9 @@ class SharedAlgorithmRuntime {
 
   /**
    * @brief 全局资源初始化与全量注册表防腐冲突检查 (Fail-Closed)
+   * @param diagnostic 可选；失败时写入全部冲突原因
    */
-  static int GlobalInit() noexcept;
+  static int GlobalInit(std::string* diagnostic = nullptr) noexcept;
 
   /**
    * @brief 通过已验证的 ValidatedIoPlan 与 RuntimeOptions 构建运行时

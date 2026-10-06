@@ -105,10 +105,10 @@ class OperatorHandleManager {
 
 int Operator_Init() noexcept {
   try {
-    int ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalInit();
+    std::string diagnostic;
+    int ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalInit(&diagnostic);
     if (ret != 0) {
-      SetLastError(
-          "GlobalInit failed: registration conflict in SharedAlgorithmRuntime");
+      SetLastError("GlobalInit failed: " + diagnostic);
       return ret;
     }
     ret = llm_edgeflow::OperatorValueTypeRegistry::Instance().GlobalInit();

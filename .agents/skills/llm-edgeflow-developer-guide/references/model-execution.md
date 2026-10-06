@@ -6,9 +6,10 @@ vendor runtime integration, or batch scheduling behavior.
 - First separate the need: Model owns preprocessing, input/output interpretation, and capability semantics; Backend owns vendor runtime loading/resources and implements a neutral protocol. Do not reintroduce a combined `*Engine` abstraction.
 - Implement Models against `include/engine/model_interface.h` and neutral sessions from `backend_interface.h`. Put semantic implementations under `src/engine/models/<model>/` and register a complete `ModelDefinition` through `REGISTER_MODEL_WITH_DEFINITION`.
 - Implement Backends through `IInferenceBackend`, keep vendor headers/resources under `src/engine/backends/<backend>/`, and register a complete `BackendDefinition` through `REGISTER_BACKEND_WITH_DEFINITION`.
-- Add Backend sources to `edgeflow_model_execution_backends_objects`; Model/runtime sources stay on
-  `edgeflow_model_execution_objects` in [the engine source list](../../../../src/engine/CMakeLists.txt).
-  Keep vendor include paths, `HAVE_*` definitions and imported-target compile requirements `PRIVATE`
+- [The engine source list](../../../../src/engine/CMakeLists.txt) collects `.cpp` files under
+  `src/engine/backends/` into `edgeflow_model_execution_backends_objects` and under
+  `src/engine/models/` into `edgeflow_model_execution_objects`; runtime sources stay listed
+  explicitly. Keep vendor include paths, `HAVE_*` definitions and imported-target compile requirements `PRIVATE`
   to the Backend object target. Pass final runtime dependencies through `$<LINK_ONLY:...>` as in
   [the root CMake configuration](../../../../CMakeLists.txt), so their compile requirements do not
   propagate to Models or upper layers.
