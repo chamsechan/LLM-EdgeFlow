@@ -13,31 +13,33 @@ handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固�
 
 ## 开发者需要实现什么
 
-复用已有外层结构和布局时，只编写业务转换，选择已注册的方案即可。接入新结构时，
-先判断是否只是标准 `CompanyString*` 字段和可选 `CompanyAny*`：这类结构使用
+先按场景确定要新增的内容。三种场景都只新增代码或登记项，不改已有实现，也不影响没有选用
+新内容的已有部署配置：
+
+| 场景 | 新增什么 | 不需要改什么 | 隔离由谁保证 |
+| --- | --- | --- | --- |
+| 复用已有宿主类型 | 转换器与绑定 | ValueType、输出池和其他业务 | — |
+| 新的平台宿主类型 | 平台结构、type traits，以及 `operator_builtin_value_types.cpp` 中的一项登记 | 其他类型及其部署配置 | 类型后缀唯一，Init 时审计全部登记 |
+| 已有类型的新嵌套布局 | 自己 `.cpp` 中的命名方案，以及能写入该布局的转换器 | 类型的默认实现、未选用该方案的部署 | 部署显式选择 `allocator`，参数在 Create 时、分配前校验 |
+
+新的平台宿主类型若只有标准 `CompanyString*` 字段和可选 `CompanyAny*`，用
 `MakePooledOutputBinding<T>` 声明成员与容量即可。其他嵌套布局提供自己的普通参数结构
 （包括布局枚举）、解析、单份分配/重置与载荷预算，再注册实现。
 `OwnedExternalBlock` 负责已登记内存的自动释放与失败回滚。
 参数类不需要继承框架基类，也不需要实现 `ToJson()`。
 
-配置文件读取由最外层 `OperatorConfigResolver` 负责，配置提取使用独立的接入组件
-`OutputConfigReader`。它在 Create 阶段运行，不是业务 Pipeline 中的 Node。
-接口位于 `adapter/operator_output_config.h`：
+同一实现内可调的取值（容量、布局枚举）用 `params` 表达；需要独立的分配、重置或析构逻辑时，
+新增命名方案，不在已有实现中加分支。
 
-```cpp
-std::string text;
-reader.Read(OutputConfigField::kParameters, &text, &error);
-```
+Create 时 `OperatorConfigResolver` 把 `deployment.io.out_mem.<槽位>.params` 原样序列化为文本，
+交给所选实现的解析函数：字符串值保留 JSON 引号及转义，数组、对象和标量保持各自含义，
+未设置时为 `{}`。解析函数可以选用所需的解析库，公共扩展头不包含 JSON 类型。业务实现不读取
+部署文件。最终业务输出仍按注册的外层结构和嵌套布局返回。
 
-可选字段是该组件固定的枚举：`kAllocator`、`kParameters`、`kCapacities`、
-`kMetadataCount`、`kMetadataTypeId`。这些枚举选择框架配置项；具体载荷的布局枚举
-由结构体作者定义在自己的参数中。业务实现不传 JSON 路径，不读取整个部署文件。
-
-JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::string`；字符串值
-保留 JSON 引号及转义，数组、对象和标量保持各自含义。未设置 `params` 返回文本
-`{}`。注册方案只收到这一份参数文本，由创建阶段的解析函数转换为自己的参数结构。
-解析函数可以选用所需的解析库；公共参数接口不包含 JSON 类型。其他配置载体可实现
-同一读取接口。最终业务输出仍按注册的外层结构和嵌套布局返回。
+隔离性由 [Operator 接口测试](../../tests/integration/operator/test_operator_api.cpp) 验证：
+`MissingOutputMemoryUsesRegisteredNestedDefaults`（同一类型注册了多个命名方案，未选用的部署仍走默认实现）、
+`SameOutputKeysSelectIndependentNestedAllocatorsPerHandle`（各 handle 独立选择方案）、
+`NestedOutputConfigurationIsValidatedBeforeAllocation`（非法参数在分配前被拒绝）。
 
 ## 选择参数
 
@@ -102,39 +104,37 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 新业务继续使用已注册宿主类型时，复用其 ValueType 与内存管理，载荷协议变化由转换器处理；
 已有 DTO 的 trait 也直接复用。只有需要新宿主类型或分配布局时，才执行本节步骤。
-当前环境的模拟宿主结构先在 `include/platform_mock/operator_data_types.h` 声明；真实公司定义
-在授权内网接入。
 
-包含 `adapter/operator_value_type.h`，在接入层自己的 `.cpp` 中建立
-`OperatorValueTypeBinding`。外层类型首次接入时调用 `RegisterOperatorValueType`；
-为该类型新增命名方案时调用 `RegisterOperatorOutputAllocator(name, binding)`。
-分别通过 `REGISTER_OPERATOR_VALUE_TYPE`、`REGISTER_OPERATOR_OUTPUT_ALLOCATOR`
-登记无参注册函数。源码放在 `src/adapter/input/`、`output/` 或 `biz/` 下会自动编入；
-放在 `src/adapter/operator/` 等框架机制目录时，需要在 `src/adapter/CMakeLists.txt` 中登记。
-不需要包含私有 registry 或 pool 头，也不需要在中央分发表增加业务判断。
+平台宿主类型集中维护，三处一一对应：结构声明在
+[`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)（当前环境的模拟定义，
+真实公司定义在授权内网接入），type traits 声明在 [`io_converter.h`](../../include/adapter/io_converter.h)，
+ValueType 登记在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/operator_builtin_value_types.cpp)。
+新增类型时三处各加一项，不改已有条目；内网接入时也只需在这里逐项对照真实头文件。
 
-常见输出不需要手写以下生命周期回调。例如，假设接入的 DTO `SummaryOutput` 包含
-`CompanyString* summary` 和标量 `status` 时，先在接入层相关转换器共享的头文件中，
-包含 DTO 定义和 `adapter/io_converter.h`，在首次使用 `GetSlot<SummaryOutput>` 前声明：
+为已有类型新增命名方案时，包含 `adapter/operator_value_type.h`，在接入层自己的 `.cpp` 中构造
+`OperatorValueTypeBinding`，在注册函数中调用 `RegisterOperatorOutputAllocator(name, binding)`，
+再用 `REGISTER_OPERATOR_OUTPUT_ALLOCATOR` 登记该函数。源码放在 `src/adapter/output/` 下会自动编入；
+不需要包含私有 registry 或 pool 头，也不改该类型的默认登记。测试专用类型在测试源码中用
+`RegisterOperatorValueType` 和 `REGISTER_OPERATOR_VALUE_TYPE` 登记。
+
+常见输出不需要手写以下生命周期回调。例如，假设平台新增结构 `SummaryOutput`，包含
+`CompanyString* summary` 和标量 `status`。先在 `io_converter.h` 中与其他平台类型一起声明 trait：
 
 ```cpp
-namespace llm_edgeflow {
 DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
-}
 ```
 
 新输入 DTO 也需要相同的 trait 声明。名称必须与 binding 的 `external_c_type_name`
 及转换器外部槽位的 `type_id` 一致；运行时注册 binding 不会自动声明 C++ trait，
 缺失或名称不一致会使输入、输出视图的 `GetSlot<T>` 返回空指针。
 
-然后在接入层 `.cpp` 的注册函数中构造并登记 binding：
+然后在 `operator_builtin_value_types.cpp` 的 `RegisterBuiltinBindings` 中登记一项：
 
 ```cpp
-auto binding = MakePooledOutputBinding<SummaryOutput>(
+RegisterBinding(MakePooledOutputBinding<SummaryOutput>(
     "summary", "SummaryOutput",
     {{"summary", &SummaryOutput::summary, {4096, 65536}}},
-    [](SummaryOutput& value) noexcept { value.status = 0; });
-RegisterOperatorValueType(binding);
+    [](SummaryOutput& value) noexcept { value.status = 0; }));
 ```
 
 容量结构的顺序是默认值、最大值。成员声明同时用于配置校验、预算、分配和
@@ -190,6 +190,11 @@ binding.normalize_parameters =
 按槽位读取已分配的外层结构与 `ResolvedOutputPoolSpec`，按同一份
 `allocator` 和类型化参数填充载荷。转换必须保持指针与已分配布局一致，不重新读取
 部署文件、不另设默认容量，也不把请求局部指针塞进输出结构。
+
+同一外层类型可能被不同部署选用不同的命名方案，而 Create 时框架不核对转换器是否支持所选方案。
+写嵌套布局的转换器在写入前先核对 `spec.allocator`（或根结构中的布局标记），遇到不支持的方案
+返回 `-4` 并给出诊断，由框架归还全部租约；参照
+[嵌套结构夹具](../../tests/support/operator_nested_output_fixture.h)中 `ConvertNestedOutput` 的一致性检查。
 
 框架在全部输出转换成功后发布 map；任何一项失败都会归还已经获取的输出租约。
 调用方读取时依照外部协议的枚举解释 `void*`；内存的实际清理依据已登记的所有权
