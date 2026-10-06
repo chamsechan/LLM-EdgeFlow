@@ -87,9 +87,6 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "doc_query.plain";
-
-  def.schema_id = "doc_query.plain.request";
-
   def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
   def.logical_ports = {OutputPort(kRawDocs), OutputPort(kRawQueries)};
   def.decode_fn = &DecodeOperatorDocQueryInput;

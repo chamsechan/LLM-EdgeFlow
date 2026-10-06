@@ -40,9 +40,6 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "document.structured";
-
-  def.schema_id = "document.structured.response";
-
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kExtractedEntities)};

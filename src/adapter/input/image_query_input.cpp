@@ -88,9 +88,6 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "image_query.plain";
-
-  def.schema_id = "image_query.plain.request";
-
   def.external_slots = {ExternalInputSlot<CompanyFrame>(kFrameSlot),
                         ExternalInputSlot<CompanyString>(kQuerySlot)};
   def.logical_ports = {OutputPort(kImagePaths), OutputPort(kUserQueries)};

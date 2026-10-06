@@ -2389,8 +2389,6 @@ const bool g_reg_nested_output_components = []() {
 
   OutputConverterDefinition odef;
   odef.converter_id = "test_nested_output";
-
-  odef.schema_id = "test_nested_output";
   odef.external_slots = {
       ExternalSlotDefinition{"main", "test_nested_out", PortDirection::kOutput,
                              true, "test_nested_out", "result"},

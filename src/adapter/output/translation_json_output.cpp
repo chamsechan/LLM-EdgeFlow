@@ -38,9 +38,6 @@ int EncodeOperatorTranslationJson(AlgContext* context,
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "translate.json";
-
-  def.schema_id = "translate.json.response";
-
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kLlmAnswers)};

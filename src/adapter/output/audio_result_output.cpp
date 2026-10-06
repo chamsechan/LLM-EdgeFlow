@@ -90,9 +90,6 @@ int EncodeOperatorAudioResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "audio_result.plain";
-
-  def.schema_id = "audio_result.plain.response";
-
   def.external_slots = {
       ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot)};
   def.logical_ports = {RequiredInputPort(kTranscripts),
