@@ -389,12 +389,20 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         std::move(message));
   }
   if (ModelRegistry::Instance().HasConflict()) {
+    std::string message = "Model registry contains registration conflicts";
+    for (const auto& error : ModelRegistry::Instance().GetConflictErrors()) {
+      message += ": " + error;
+    }
     Add(&report, DiagnosticCode::kRegistryConflict, "/models",
-        "Model registry contains registration conflicts");
+        std::move(message));
   }
   if (BackendRegistry::Instance().HasConflict()) {
+    std::string message = "Backend registry contains registration conflicts";
+    for (const auto& error : BackendRegistry::Instance().GetConflictErrors()) {
+      message += ": " + error;
+    }
     Add(&report, DiagnosticCode::kRegistryConflict, "/models",
-        "Backend registry contains registration conflicts");
+        std::move(message));
   }
 
   std::unordered_set<std::string> unresolved_model_ids;

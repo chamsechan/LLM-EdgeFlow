@@ -11,9 +11,11 @@
 #include "core/pipeline.h"
 #include "core/pipeline_diagnostic.h"
 #include "core/pipeline_validator.h"
+#include "edgeflow/operator/interface.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "nodes/parameter_binding.h"
+#include "platform_mock/error_codes.h"
 #include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
@@ -208,6 +210,16 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
   EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/models");
+  const std::string reason =
+      "Duplicate model registration for type: dummy_model";
+  EXPECT_NE(diag.message.find(reason), std::string::npos);
+
+  // SDK 初始化同样失败，最近错误标明注册表与原因。
+  const auto operator_table = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  EXPECT_EQ(operator_table.Init(), COMPANY_ALG_ERR_REGISTRY_CONFLICT);
+  EXPECT_NE(std::string(operator_api::GetOperatorLastError())
+                .find("ModelRegistry: " + reason),
+            std::string::npos);
 }
 
 }  // namespace llm_edgeflow
