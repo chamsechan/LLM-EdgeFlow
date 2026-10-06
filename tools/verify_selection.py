@@ -239,11 +239,10 @@ def effect_inputs(spec_path, conf_path, demo, pipeline_root=ROOT):
     model_paths = {model["model_id"]: model["model_path"] for model in pipe_doc.get("models", [])}
     binding = io_doc.get("io_binding", "")
     demo = Path(demo).resolve()
-    sdk_candidates = list(demo.parent.glob("libcompany_alg_sdk.*"))
-    sdk_files = sorted({path.resolve() for path in sdk_candidates if path.is_file()})
+    sdk = demo.parent / "libcompany_alg_sdk.so"
     identity = {"spec": spec, "dataset_sha256": file_digest(dataset), "outputs": outputs,
                 "model_paths": model_paths, "pipeline_root": str(Path(pipeline_root).resolve()), "io_binding": binding,
-                "demo_sha256": file_digest(demo), "sdk": {p.name: file_digest(p) for p in sdk_files},
+                "demo_sha256": file_digest(demo), "sdk": {sdk.name: file_digest(sdk)} if sdk.is_file() else {},
                 "chip": "cpu", "device_id": 0}
     return spec, dataset, outputs, identity
 

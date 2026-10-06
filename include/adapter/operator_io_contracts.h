@@ -11,6 +11,20 @@ namespace llm_edgeflow {
 
 enum class IoDirection { kUnknown, kInput, kOutput };
 
+/**
+ * @brief 宿主结构的类型名：转换器槽位与 ValueType 登记共用这一处声明
+ */
+template <typename T>
+struct ExternalTypeTraits {
+  static constexpr const char* TypeName() { return ""; }
+};
+
+#define DECLARE_EXTERNAL_TYPE_TRAITS(Type, Name)             \
+  template <>                                                \
+  struct ExternalTypeTraits<Type> {                          \
+    static constexpr const char* TypeName() { return Name; } \
+  }
+
 // 不可变参数的框架存储。结构作者使用普通 struct 和
 // MakeOutputParameterParser<T>，无需继承。
 struct OutputAllocationParameters {

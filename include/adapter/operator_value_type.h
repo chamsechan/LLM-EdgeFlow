@@ -196,20 +196,28 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_bytes,
                                             std::string* error) noexcept;
 }  // namespace operator_value_detail
 
+// 宿主结构名取自 DECLARE_EXTERNAL_TYPE_TRAITS，登记处不再重复书写。
+template <typename T>
+constexpr const char* HostTypeName() {
+  static_assert(ExternalTypeTraits<T>::TypeName()[0] != '\0',
+                "Declare the host struct with DECLARE_EXTERNAL_TYPE_TRAITS "
+                "before registering its ValueType");
+  return ExternalTypeTraits<T>::TypeName();
+}
+
 // 外部空值诊断和类型擦除保留在绑定边界。
 template <typename T, typename Validate>
 OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
-                                               const char* type_name,
                                                Validate validate) {
   OperatorValueTypeBinding binding;
   binding.canonical_suffix = suffix;
-  binding.external_c_type_name = type_name;
+  binding.external_c_type_name = HostTypeName<T>();
   binding.direction = IoDirection::kInput;
-  binding.validate_external = [type_name = std::string(type_name), validate](
-                                  const void* ptr, const InputLimits& limits,
-                                  std::string* err) -> int {
+  binding.validate_external = [validate](const void* ptr,
+                                         const InputLimits& limits,
+                                         std::string* err) -> int {
     if (!ptr) {
-      if (err) *err = std::string(type_name) + " pointer is null";
+      if (err) *err = std::string(HostTypeName<T>()) + " pointer is null";
       return -3;
     }
     return validate(*static_cast<const T*>(ptr), limits, err);
@@ -228,14 +236,13 @@ struct OutputStringField {
 
 template <typename T, typename ResetScalars>
 OperatorValueTypeBinding MakePooledOutputBinding(
-    const char* suffix, const char* type_name,
-    std::vector<OutputStringField<T>> string_fields, ResetScalars reset_scalars,
-    CompanyAny* T::*metadata_field = nullptr,
+    const char* suffix, std::vector<OutputStringField<T>> string_fields,
+    ResetScalars reset_scalars, CompanyAny* T::*metadata_field = nullptr,
     uint32_t max_metadata_elements = 0) {
   static_assert(std::is_nothrow_invocable_v<ResetScalars, T&>);
   OperatorValueTypeBinding binding;
   binding.canonical_suffix = suffix;
-  binding.external_c_type_name = type_name;
+  binding.external_c_type_name = HostTypeName<T>();
   binding.direction = IoDirection::kOutput;
   for (size_t i = 0; i < string_fields.size(); ++i) {
     const auto& field = string_fields[i];

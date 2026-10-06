@@ -18,20 +18,6 @@
 
 namespace llm_edgeflow {
 
-/**
- * @brief 外部类型标识萃取器 (SSOT Type Traits for Operator structs)
- */
-template <typename T>
-struct ExternalTypeTraits {
-  static constexpr const char* TypeName() { return ""; }
-};
-
-#define DECLARE_EXTERNAL_TYPE_TRAITS(Type, Name)             \
-  template <>                                                \
-  struct ExternalTypeTraits<Type> {                          \
-    static constexpr const char* TypeName() { return Name; } \
-  }
-
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyString, "CompanyString");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyBuffer, "CompanyBuffer");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAny, "CompanyAny");

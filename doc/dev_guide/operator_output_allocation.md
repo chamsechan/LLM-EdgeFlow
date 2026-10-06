@@ -19,7 +19,7 @@ handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固�
 | 场景 | 新增什么 | 不需要改什么 | 隔离由谁保证 |
 | --- | --- | --- | --- |
 | 复用已有宿主类型 | 转换器与绑定 | ValueType、输出池和其他业务 | — |
-| 新的平台宿主类型 | 平台结构、type traits，以及 `operator_builtin_value_types.cpp` 中的一项登记 | 其他类型及其部署配置 | 类型后缀唯一，Init 时审计全部登记 |
+| 新的平台宿主类型 | 平台结构、type traits，以及 `operator_builtin_value_types.cpp` 中的一项登记 | 其他类型及其部署配置 | 类型后缀唯一；Init 时审计全部登记，并核对槽位结构与登记结构一致 |
 | 已有类型的新嵌套布局 | 自己 `.cpp` 中的命名方案，以及能写入该布局的转换器 | 类型的默认实现、未选用该方案的部署 | 部署显式选择 `allocator`，参数在 Create 时、分配前校验 |
 
 新的平台宿主类型若只有标准 `CompanyString*` 字段和可选 `CompanyAny*`，用
@@ -126,16 +126,15 @@ ValueType 登记在 [`operator_builtin_value_types.cpp`](../../src/adapter/opera
 DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
 ```
 
-新输入 DTO 也需要相同的 trait 声明。名称必须与 binding 的 `external_c_type_name`
-及转换器外部槽位的 `type_id` 一致；运行时注册 binding 不会自动声明 C++ trait，
-缺失或名称不一致会使输入、输出视图的 `GetSlot<T>` 返回空指针。
+新输入 DTO 也需要相同的 trait 声明。结构名只在这里写一次：ValueType 登记和转换器槽位
+（`ExternalInputSlot<T>` / `ExternalOutputSlot<T>`）都从 trait 取名，未声明 trait 时登记处直接编译失败。
+槽位声明的结构与其后缀登记的结构不一致时，Init 审计报错并指明槽位，不会按错误的布局读写内存。
 
 然后在 `operator_builtin_value_types.cpp` 的 `RegisterBuiltinBindings` 中登记一项：
 
 ```cpp
 RegisterBinding(MakePooledOutputBinding<SummaryOutput>(
-    "summary", "SummaryOutput",
-    {{"summary", &SummaryOutput::summary, {4096, 65536}}},
+    "summary", {{"summary", &SummaryOutput::summary, {4096, 65536}}},
     [](SummaryOutput& value) noexcept { value.status = 0; }));
 ```
 

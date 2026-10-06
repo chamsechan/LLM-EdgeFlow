@@ -267,6 +267,48 @@ TEST_F(IoBindingRegistryTest, BindingWithoutExplicitLimitUsesStandardDefault) {
   EXPECT_EQ(prepared.effective_max_batch_size, 64U);
 }
 
+// 槽位声明的宿主结构须与其后缀登记的结构一致，否则会按错误的布局读写内存。
+TEST_F(IoBindingRegistryTest, SlotStructMustMatchRegisteredValueType) {
+  auto in_def =
+      *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
+  in_def.converter_id = "mismatched.in.operator";
+  in_def.external_slots = {
+      ExternalSlotDefinition("keyword_in", "CompanyOperatorEntityInput",
+                             PortDirection::kInput, true, "keyword_in")};
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(in_def));
+  auto out_def =
+      *IoConverterRegistry::Instance().FindOutputConverter("test.out.operator");
+  out_def.converter_id = "mismatched.out.operator";
+  out_def.external_slots = {
+      ExternalSlotDefinition("keyword_out", "CompanyOperatorEntityOutput",
+                             PortDirection::kOutput, true, "keyword_out")};
+  ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(out_def));
+
+  IoBindingDefinition binding;
+  binding.biz_name = "test_biz";
+  binding.input_converter_id = in_def.converter_id;
+  binding.output_converter_id = out_def.converter_id;
+  ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+
+  std::vector<std::string> errors;
+  EXPECT_FALSE(IoBindingRegistry::Instance().Audit(&errors));
+  const auto mentions = [&](const std::string& text) {
+    return std::any_of(errors.begin(), errors.end(), [&](const auto& error) {
+      return error.find(text) != std::string::npos;
+    });
+  };
+  EXPECT_TRUE(
+      mentions("input slot 'keyword_in' declares "
+               "CompanyOperatorEntityInput but ValueType suffix "
+               "'keyword_in' is registered for "
+               "CompanyOperatorKeywordInput"));
+  EXPECT_TRUE(
+      mentions("output slot 'keyword_out' declares "
+               "CompanyOperatorEntityOutput but ValueType suffix "
+               "'keyword_out' is registered for "
+               "CompanyOperatorKeywordOutput"));
+}
+
 TEST_F(IoBindingRegistryTest, CapacityFieldsDeriveFromValueType) {
   auto input =
       *IoConverterRegistry::Instance().FindInputConverter("test.in.operator");
