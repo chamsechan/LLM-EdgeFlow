@@ -14,7 +14,7 @@ start with current guides and affected code/tests.
 | Affected behavior | Entry |
 | :--- | :--- |
 | Business requirements needing component selection and a DAG | [Solution planner](../edgeflow-solution-planner/SKILL.md) |
-| Operator SDK, external payload, Converter, IoBinding | [Adapter developer](../edgeflow-adapter-developer/SKILL.md) |
+| Operator SDK, external payload, Converter | [Adapter developer](../edgeflow-adapter-developer/SKILL.md) |
 | Capability Node algorithms, from item transforms and text LLM to multi-port/model batches | [Node developer](../edgeflow-node-developer/SKILL.md) |
 | Model preprocessing, semantics and capabilities | [Model developer](../edgeflow-model-developer/SKILL.md) |
 | Vendor runtime, execution protocol implementation and resources | [Backend developer](../edgeflow-backend-developer/SKILL.md) |

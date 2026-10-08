@@ -25,7 +25,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # 用例 2：注入非法 include 时脚本必须失败
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/common_nodes"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/custom_nodes"
-  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/biz"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/input"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/output"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/demo"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator"
   touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator/interface.h"
@@ -65,7 +66,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
     "src/custom_nodes/bad_node.cpp" \
-    "src/adapter/biz/bad_adapter.cpp" \
+    "src/adapter/input/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     KITE_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${KITE_INJECTION_PATH}"
     mkdir -p "$(dirname "${KITE_INJECTION_FILE}")"
@@ -93,7 +94,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
     "src/custom_nodes/bad_node.cpp" \
-    "src/adapter/biz/bad_adapter.cpp" \
+    "src/adapter/input/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     WHISPER_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${WHISPER_INJECTION_PATH}"
     mkdir -p "$(dirname "${WHISPER_INJECTION_FILE}")"
@@ -213,8 +214,8 @@ if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Capability Nodes -> Integration reverse include violations."
 
-# 规则 2：接入适配层 (src/adapter/biz/) 绝不能直接 include 模型执行层头文件
-VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/biz" || true)
+# 规则 2：接入适配层 (src/adapter/input/、src/adapter/output/) 绝不能直接 include 模型执行层头文件
+VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/input" "$REPO_ROOT/src/adapter/output" || true)
 
 if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
   echo "❌ [LayerGuard ERROR] Found Integration -> Model Execution illegal bypass dependency violations:"

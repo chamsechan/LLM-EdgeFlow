@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -36,8 +37,8 @@ struct InputLimits {
   size_t max_any_bytes = biz_input::kMaxAnyBytes;
 };
 
+// 平台对单个字符串字段的硬上限；默认尺寸属于输出 converter 的参数。
 struct OutputCapacityFieldConfig {
-  uint32_t default_capacity = 0;
   uint32_t max_capacity = 0;
 };
 
@@ -181,6 +182,11 @@ struct OperatorValueTypeBinding {
   // MakeOutputParameterParser<T>。参数析构不得分配内存，
   // 此处也不得访问文件或队列。
   NormalizeOutputParametersFn normalize_parameters;
+  // 宿主结构体的 request_id、service_type 成员（没有该成员时为空）。
+  // 输入结构体只读，输出结构体写入 service_type。
+  std::function<uint64_t(const void*)> read_request_id;
+  std::function<std::optional<int32_t>(const void*)> read_service_type;
+  std::function<void(void*, int32_t)> write_service_type;
 };
 
 namespace operator_value_detail {
@@ -205,7 +211,23 @@ constexpr const char* HostTypeName() {
   return ExternalTypeTraits<T>::TypeName();
 }
 
+namespace operator_value_detail {
+template <typename T, typename = void>
+struct HasRequestId : std::false_type {};
+template <typename T>
+struct HasRequestId<T, std::void_t<decltype(std::declval<T&>().request_id)>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasServiceType : std::false_type {};
+template <typename T>
+struct HasServiceType<T, std::void_t<decltype(std::declval<T&>().service_type)>>
+    : std::true_type {};
+}  // namespace operator_value_detail
+
 // 外部空值诊断和类型擦除保留在绑定边界。
+// 结构体带 request_id、service_type 成员时，登记同时声明它们的位置
+// （按成员自动声明，成员改名会在编译期暴露）。
 template <typename T, typename Validate>
 OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
                                                Validate validate) {
@@ -222,6 +244,16 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
     }
     return validate(*static_cast<const T*>(ptr), limits, err);
   };
+  if constexpr (operator_value_detail::HasRequestId<T>::value) {
+    binding.read_request_id = [](const void* ptr) -> uint64_t {
+      return static_cast<uint64_t>(static_cast<const T*>(ptr)->request_id);
+    };
+  }
+  if constexpr (operator_value_detail::HasServiceType<T>::value) {
+    binding.read_service_type = [](const void* ptr) -> std::optional<int32_t> {
+      return static_cast<int32_t>(static_cast<const T*>(ptr)->service_type);
+    };
+  }
   return binding;
 }
 
@@ -231,7 +263,7 @@ template <typename T>
 struct OutputStringField {
   std::string name;
   CompanyString* T::*member;
-  OutputCapacityFieldConfig capacity;
+  uint32_t max_capacity;  // 平台硬上限
 };
 
 template <typename T, typename ResetScalars>
@@ -248,7 +280,7 @@ OperatorValueTypeBinding MakePooledOutputBinding(
     const auto& field = string_fields[i];
     if (field.name.empty() || field.member == nullptr ||
         !binding.output_layout.string_capacity_fields
-             .emplace(field.name, field.capacity)
+             .emplace(field.name, OutputCapacityFieldConfig{field.max_capacity})
              .second) {
       throw std::invalid_argument(
           "Pooled output requires unique named string fields");
@@ -280,6 +312,9 @@ OperatorValueTypeBinding MakePooledOutputBinding(
                             (metadata_field ? 2 : 0));
     auto* raw = block->Own(std::make_unique<T>());
     reset_scalars(*raw);
+    if constexpr (operator_value_detail::HasServiceType<T>::value) {
+      raw->service_type = 0;
+    }
     for (const auto& field : string_fields) {
       raw->*field.member = operator_value_detail::AllocateNestedCompanyString(
           spec.GetCapacity(field.name), block);
@@ -298,6 +333,9 @@ OperatorValueTypeBinding MakePooledOutputBinding(
     auto* raw = static_cast<T*>(ptr);
     // 只重置值；嵌套存储和元数据类型在复用时保留。
     reset_scalars(*raw);
+    if constexpr (operator_value_detail::HasServiceType<T>::value) {
+      raw->service_type = 0;
+    }
     for (const auto& field : string_fields) {
       operator_value_detail::ResetNestedCompanyString(raw->*field.member);
     }
@@ -307,6 +345,19 @@ OperatorValueTypeBinding MakePooledOutputBinding(
   binding.destroy_external = [](OwnedExternalBlock* block) noexcept {
     if (block) block->Destroy();
   };
+  if constexpr (operator_value_detail::HasRequestId<T>::value) {
+    binding.read_request_id = [](const void* ptr) -> uint64_t {
+      return static_cast<uint64_t>(static_cast<const T*>(ptr)->request_id);
+    };
+  }
+  if constexpr (operator_value_detail::HasServiceType<T>::value) {
+    binding.read_service_type = [](const void* ptr) -> std::optional<int32_t> {
+      return static_cast<int32_t>(static_cast<const T*>(ptr)->service_type);
+    };
+    binding.write_service_type = [](void* ptr, int32_t value) {
+      static_cast<T*>(ptr)->service_type = value;
+    };
+  }
   return binding;
 }
 

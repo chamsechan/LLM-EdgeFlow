@@ -7,7 +7,6 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "contracts/inference_payloads.h"
@@ -25,10 +24,10 @@ class ComplexConvertersTest : public ::testing::Test {};
 // ==================== DocQA ====================
 TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("doc_query.plain");
+      IoConverterRegistry::Instance().FindInputConverter("doc_in", "doc_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
+      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
   std::string doc_text = "Sample document text";
@@ -38,7 +37,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   CompanyString cs_query{static_cast<int32_t>(query_text.size()),
                          const_cast<char*>(query_text.data())};
 
-  CompanyOperatorDocInput doc_in{2001, &cs_doc, &cs_query};
+  CompanyOperatorDocInput doc_in{2001, &cs_doc, &cs_query,
+                                 COMPANY_MOCK_SERVICE_DOC_QA};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
@@ -47,7 +47,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
+  in_options.type = in_conv->type;
+  in_options.name = in_conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -88,7 +89,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
+  out_options.type = out_conv->type;
+  out_options.name = out_conv->name;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -106,7 +108,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 TEST_F(ComplexConvertersTest,
        DocQaOutputPreservesEmbeddedNullAndRejectsSmallPool) {
   const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
+      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
   ASSERT_NE(converter, nullptr);
   const std::string answer("a\0b", 3);
   AlgContext ctx;
@@ -116,7 +118,8 @@ TEST_F(ComplexConvertersTest,
   ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
   OutputEncodeOptions options;
   options.request_ids = &request_ids;
-  options.converter_id = converter->converter_id;
+  options.type = converter->type;
+  options.name = converter->name;
   char bytes[4] = {};
   char intent_bytes[1] = {};
   CompanyString answer_out{0, bytes};
@@ -148,11 +151,11 @@ TEST_F(ComplexConvertersTest,
 
 // ==================== CrossRerank ====================
 TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("rerank.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "rerank_in", "cross_rerank");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "rerank_result.plain");
+      "rerank_out", "cross_rerank");
   ASSERT_NE(out_conv, nullptr);
 
   std::string query_text = "how to rerank?";
@@ -176,7 +179,8 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
+  in_options.type = in_conv->type;
+  in_options.name = in_conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -201,7 +205,8 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
 
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
+  out_options.type = out_conv->type;
+  out_options.name = out_conv->name;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -215,11 +220,11 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
 
 // ==================== DialogueAudit ====================
 TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audit_in", "dialogue_audit");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audit_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
 
   std::string dialogue = "User text violating rules";
@@ -229,7 +234,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   CompanyString cs_chan{static_cast<int32_t>(channel.size()),
                         const_cast<char*>(channel.data())};
 
-  CompanyOperatorAuditInput audit_in{4001, &cs_dia, &cs_chan};
+  CompanyOperatorAuditInput audit_in{4001, &cs_dia, &cs_chan,
+                                     COMPANY_MOCK_SERVICE_DIALOGUE_AUDIT};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
@@ -238,7 +244,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
+  in_options.type = in_conv->type;
+  in_options.name = in_conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -279,7 +286,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
+  out_options.type = out_conv->type;
+  out_options.name = out_conv->name;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -297,16 +305,17 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
 // ==================== AudioAsrIntent ====================
 TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audio.pcm");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audio_in", "audio_asr_intent");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("audio_result.plain");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audio_out", "audio_asr_intent");
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<float> pcm = {0.1f, 0.2f, -0.1f};
   CompanyOperatorAudioInput audio_in{5001, pcm.data(),
-                                     static_cast<int32_t>(pcm.size()), 16000};
+                                     static_cast<int32_t>(pcm.size()), 16000,
+                                     COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["audio_in"] = llm_edgeflow::BorrowInputForTest({&audio_in});
@@ -315,7 +324,8 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
+  in_options.type = in_conv->type;
+  in_options.name = in_conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -352,7 +362,8 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
+  out_options.type = out_conv->type;
+  out_options.name = out_conv->name;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -371,11 +382,11 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
 // ==================== OcrInvoiceQa ====================
 TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("image_query.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "frame", "ocr_invoice_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "invoice_result.plain");
+      "od_out", "ocr_invoice_qa");
   ASSERT_NE(out_conv, nullptr);
 
   // 准备 Operator 输入：frame 和 string
@@ -400,7 +411,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions in_options;
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
+  in_options.type = in_conv->type;
+  in_options.name = in_conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -436,7 +448,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
 
   OutputEncodeOptions out_options;
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
+  out_options.type = out_conv->type;
+  out_options.name = out_conv->name;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -448,50 +461,32 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   EXPECT_STREQ(od_out.result_json->data, "{\"total\":123.45}");
 }
 
-// ==================== 8 个业务全部绑定 ====================
+// ==================== 8 个业务全部登记 ====================
 TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
-  const std::vector<std::string> expected_biz = {
-      "translate",    "entity_extract", "keyword_match",    "doc_qa",
-      "cross_rerank", "dialogue_audit", "audio_asr_intent", "ocr_invoice_qa",
+  struct Expected {
+    const char* name;
+    std::vector<const char*> inputs;
+    const char* output;
   };
-
-  const auto bindings = IoBindingRegistry::Instance().AllBindings();
+  const std::vector<Expected> expected = {
+      {"translate", {"entity_in"}, "entity_out"},
+      {"entity_extract", {"entity_in"}, "entity_out"},
+      {"keyword_match", {"keyword_in"}, "keyword_out"},
+      {"doc_qa", {"doc_in"}, "doc_out"},
+      {"cross_rerank", {"rerank_in"}, "rerank_out"},
+      {"dialogue_audit", {"audit_in"}, "audit_out"},
+      {"audio_asr_intent", {"audio_in"}, "audio_out"},
+      {"ocr_invoice_qa", {"frame", "string"}, "od_out"},
+  };
   const auto& converters = IoConverterRegistry::Instance();
-  for (const auto& biz : expected_biz) {
-    auto biz_def = PipelineCatalog::FindBiz(biz);
-    ASSERT_TRUE(biz_def.has_value()) << "Missing biz in catalog: " << biz;
-    const auto binding =
-        std::find_if(bindings.begin(), bindings.end(),
-                     [&](const auto& item) { return item.biz_name == biz; });
-    ASSERT_NE(binding, bindings.end()) << "Missing Operator binding: " << biz;
-    const auto* input =
-        converters.FindInputConverter(binding->input_converter_id);
-    const auto* output =
-        converters.FindOutputConverter(binding->output_converter_id);
-    ASSERT_NE(input, nullptr) << biz;
-    ASSERT_NE(output, nullptr) << biz;
-    // 生产 binding 使用框架标准批次上限。
-    EXPECT_EQ(binding->max_batch_size, 64U) << biz;
-  }
-}
-
-// 审核输出 Converter 的逻辑端口与业务出口同名。
-TEST_F(ComplexConvertersTest, ComplianceBindingUsesBizPortNames) {
-  const auto* binding =
-      IoBindingRegistry::Instance().FindBinding("dialogue_audit");
-  ASSERT_NE(binding, nullptr);
-  const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
-      binding->output_converter_id);
-  ASSERT_NE(output, nullptr);
-  const auto biz = PipelineCatalog::FindBiz(binding->biz_name);
-  ASSERT_TRUE(biz.has_value());
-
-  for (const auto& port : output->logical_ports) {
-    EXPECT_TRUE(std::any_of(biz->egress.begin(), biz->egress.end(),
-                            [&](const auto& egress) {
-                              return egress.blackboard_key == port.logical_name;
-                            }))
-        << port.logical_name;
+  for (const auto& business : expected) {
+    SCOPED_TRACE(business.name);
+    for (const char* type : business.inputs) {
+      EXPECT_NE(converters.FindInputConverter(type, business.name), nullptr)
+          << type;
+    }
+    EXPECT_NE(converters.FindOutputConverter(business.output, business.name),
+              nullptr);
   }
 }
 

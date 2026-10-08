@@ -6,7 +6,7 @@ description: Compose or adjust Pipeline JSON, deployment conf, and Demo Profiles
 # Pipeline Composer
 
 Use the target build's runtime Catalog, Validator, and native Resolver for capabilities, ports,
-parameters, biz contracts, and deployment semantics. Do not maintain a parallel catalog or
+parameters, registered converters, and deployment semantics. Do not maintain a parallel catalog or
 validation logic in this skill. Scope edits to the requested JSON, necessary `.conf`, and
 optional Profile; configuration-only work normally needs no separate design review.
 

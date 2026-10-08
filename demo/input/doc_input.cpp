@@ -59,13 +59,14 @@ int BuildDocRequests(
   const size_t count = std::min(storage->docs.size(), storage->queries.size());
   storage->doc_strs.reserve(count);
   storage->query_strs.reserve(count);
+  const int32_t service_type = DemoServiceType(inputs[0]);
   storage->inputs.reserve(count);
   for (size_t i = 0; i < count; ++i) {
     storage->doc_strs.push_back(BorrowCompanyString(storage->docs[i]));
     storage->query_strs.push_back(BorrowCompanyString(storage->queries[i]));
     storage->inputs.push_back({static_cast<uint64_t>(10001 + i),
                                &storage->doc_strs.back(),
-                               &storage->query_strs.back()});
+                               &storage->query_strs.back(), service_type});
   }
 
   const std::string key = DemoIoKey(inputs[0]);

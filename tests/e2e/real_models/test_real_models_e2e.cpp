@@ -148,7 +148,8 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
     const uint64_t request_id = i == 0 ? 99001 : 30000 + i;
     CompanyString cs{static_cast<int32_t>(sentences[i].size()),
                      const_cast<char*>(sentences[i].data())};
-    CompanyOperatorEntityInput req{request_id, &cs};
+    CompanyOperatorEntityInput req{request_id, &cs,
+                                   COMPANY_MOCK_SERVICE_ENTITY_EXTRACT};
 
     operator_api::NamedIoBatch inputs(1);
     inputs[0]["nlp_node.entity_in"] =

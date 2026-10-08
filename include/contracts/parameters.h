@@ -391,6 +391,9 @@ class ParameterFieldBinding {
   virtual ConfigFieldDefinition ToFieldDefinition() const = 0;
   virtual bool Assign(const nlohmann::json& normalized_json, ParamsT* out,
                       std::string* err) const = 0;
+  // 读出成员的当前值（Prepare 修改过的值也反映在内）；未设置的可选成员
+  // 返回 null。
+  virtual nlohmann::json Read(const ParamsT& params) const = 0;
   virtual bool ConflictsWithMember(
       const ParameterFieldBinding<ParamsT>& other) const = 0;
   virtual std::unique_ptr<ParameterFieldBinding<ParamsT>> Clone() const = 0;
@@ -527,6 +530,10 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
     }
     out->*member_ptr_ = std::move(extracted);
     return true;
+  }
+
+  nlohmann::json Read(const ParamsT& params) const override {
+    return FieldTypeTraits<MemberT>::ToJson(params.*member_ptr_);
   }
 
   bool ConflictsWithMember(
@@ -712,6 +719,9 @@ class IncludedFieldBinding final : public ParameterFieldBinding<ParamsT> {
     if (!out) return false;
     return inner_->Assign(normalized_json, &(out->*member_), err);
   }
+  nlohmann::json Read(const ParamsT& params) const override {
+    return inner_->Read(params.*member_);
+  }
   bool ConflictsWithMember(
       const ParameterFieldBinding<ParamsT>& other) const override {
     const auto* casted =
@@ -896,6 +906,17 @@ class Parameters {
   }
 
   bool HasPrepare() const noexcept { return static_cast<bool>(prepare_fn_); }
+
+  // 每个已声明字段的当前值，键为字段名；未设置的可选字段不出现。
+  nlohmann::json Read(const ParamsT& params) const {
+    nlohmann::json values = nlohmann::json::object();
+    for (const auto& binding : bindings_) {
+      if (!binding) continue;
+      auto value = binding->Read(params);
+      if (!value.is_null()) values[binding->Name()] = std::move(value);
+    }
+    return values;
+  }
 
   const std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>>& Bindings()
       const noexcept {
@@ -1091,6 +1112,10 @@ class Parameters<NoParameters> {
   }
 
   bool HasPrepare() const noexcept { return false; }
+
+  nlohmann::json Read(const NoParameters&) const {
+    return nlohmann::json::object();
+  }
 
   const ParameterFieldBinding<NoParameters>* FindBinding(
       const std::string&) const noexcept {

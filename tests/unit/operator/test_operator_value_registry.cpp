@@ -496,6 +496,14 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
   for (const auto& suffix : output_suffixes) {
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
+    const auto* layout_binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+    ASSERT_NE(layout_binding, nullptr) << suffix;
+    for (const auto& [field, field_config] :
+         layout_binding->output_layout.string_capacity_fields) {
+      // 默认尺寸属于 converter 参数；这里直接给每个字段一个合法容量。
+      spec.capacities[field] = 63;
+    }
     if (suffix == "od_out") {
       spec.meta_num = 64;
       spec.metadata_type_id = 1;  // float32
@@ -760,6 +768,8 @@ TEST(OperatorValueRegistryTest,
   {
     ResolvedOutputPoolSpec spec;
     spec.type = "doc_out";
+    spec.capacities["intent_name"] = 63;
+    spec.capacities["answer_text"] = 1023;
     EXPECT_TRUE(
         ComputeOutputPoolPayloadBytes("doc_out", spec, 0, &out_bytes, &err));
     EXPECT_GT(out_bytes, 0u);
@@ -770,6 +780,7 @@ TEST(OperatorValueRegistryTest,
   {
     ResolvedOutputPoolSpec spec;
     spec.type = "keyword_out";
+    spec.capacities["match_result_json"] = 2047;
     EXPECT_TRUE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1024,
                                               &out_bytes, &err));
     EXPECT_GT(out_bytes, 0u);
@@ -847,6 +858,11 @@ TEST(OperatorValueRegistryTest,
   requested.capacities["intent_name"] = 100;
   ResolvedOutputPoolSpec resolved;
   std::string err;
+  // 默认尺寸属于 converter 参数；缺任何字段的尺寸都报错。
+  EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+  EXPECT_NE(err.find("Missing capacity for field 'answer_text'"),
+            std::string::npos);
+  requested.capacities["answer_text"] = 1023;
   ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err))
       << err;
   EXPECT_EQ(resolved.GetCapacity("intent_name"), 100u);
@@ -880,9 +896,8 @@ TEST(OperatorValueRegistryTest, SingleStringOutputCapacityContracts) {
     requested.type = test.suffix;
     ResolvedOutputPoolSpec resolved;
     std::string err;
-    ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
-    ASSERT_EQ(resolved.capacities.size(), 1u);
-    EXPECT_EQ(resolved.GetCapacity(test.field), 2047u);
+    EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+    EXPECT_NE(err.find("Missing capacity"), std::string::npos);
     for (uint32_t capacity : {100u, 65536u}) {
       requested.capacities[test.field] = capacity;
       ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
@@ -1066,8 +1081,8 @@ TEST(OperatorValueRegistryTest,
 TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audit_in");
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audit_in", "dialogue_audit");
   ASSERT_NE(binding, nullptr);
   ASSERT_NE(in_conv, nullptr);
   std::string query = "hello";
@@ -1076,8 +1091,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     std::string channel(length < 0 ? 0 : length, 'c');
     CompanyString named_channel{static_cast<int32_t>(channel.size()),
                                 channel.data()};
-    CompanyOperatorAuditInput op_input{7, &text,
-                                       length < 0 ? nullptr : &named_channel};
+    CompanyOperatorAuditInput op_input{
+        7, &text, length < 0 ? nullptr : &named_channel, 0};
     AlgContext ctx;
     const bool expected = length <= 256;
     ExternalInputBatchView view;
@@ -1085,7 +1100,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
     view.count = 1;
     InputDecodeOptions options;
-    options.converter_id = in_conv->converter_id;
+    options.type = in_conv->type;
+    options.name = in_conv->name;
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
     int dec_ret = in_conv->decode_fn(view, options, &ctx, nullptr);
@@ -1098,8 +1114,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
 TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audio_in");
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audio.pcm");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audio_in", "audio_asr_intent");
   ASSERT_NE(binding, nullptr);
   ASSERT_NE(in_conv, nullptr);
   std::vector<float> samples(biz_input::kMaxAudioPcmSamples, 0);
@@ -1123,14 +1139,16 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
       {biz_input::kMaxAudioPcmSamples + 1, 16000, true, false}};
   for (const auto& test : cases) {
     CompanyOperatorAudioInput op_input{
-        7, test.has_buffer ? samples.data() : nullptr, test.length, test.rate};
+        7, test.has_buffer ? samples.data() : nullptr, test.length, test.rate,
+        0};
     AlgContext ctx;
     ExternalInputBatchView view;
     view.slots["audio_in"] = BorrowInputForTest({&op_input});
     view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
     view.count = 1;
     InputDecodeOptions options;
-    options.converter_id = in_conv->converter_id;
+    options.type = in_conv->type;
+    options.name = in_conv->name;
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
     int dec_ret = in_conv->decode_fn(view, options, &ctx, nullptr);
@@ -1140,7 +1158,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   }
   InputLimits limits;
   limits.max_audio_pcm_bytes = sizeof(float);
-  CompanyOperatorAudioInput input{7, samples.data(), 2, 16000};
+  CompanyOperatorAudioInput input{7, samples.data(), 2, 16000, 0};
   EXPECT_NE(binding->validate_external(&input, limits, nullptr), 0);
 }
 

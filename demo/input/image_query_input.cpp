@@ -64,7 +64,8 @@ int BuildImageQueryRequests(
   storage->prompt = std::move(prompt);
   storage->image_str = BorrowCompanyString(storage->image);
   storage->prompt_str = BorrowCompanyString(storage->prompt);
-  storage->frame = {60001, &storage->image_str, nullptr};
+  storage->frame = {60001, &storage->image_str, nullptr,
+                    DemoServiceType(inputs[0])};
 
   out->requests.assign(1, {});
   out->requests[0][DemoIoKey(inputs[0])] =

@@ -25,13 +25,13 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool catalog --io-binding <existing_biz_name>
+./build/alg_pipeline_tool catalog --io-binding <已登记的业务名>
 ./build/alg_pipeline_tool describe-node <node_type>
 ./build/alg_pipeline_tool describe-model <model_type>
 ./build/alg_pipeline_tool describe-backend <backend_type>
 ```
 
-只有选定已存在的 binding 才使用过滤查询。查不到能力时先区分未注册、工具陈旧、构建
+只有选定已登记的业务名才使用过滤查询。查不到能力时先区分未注册、工具陈旧、构建
 未启用 Backend 和确实缺少实现。需要时重建目标工具；不能用测试注册掩盖生产缺口。
 
 | 需求差异 | 最小修改与后续 skill |
@@ -58,8 +58,9 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 - `config` 的模型引用字段填写 `models[].model_id`；能力来自 Model Definition。
   并发先沿用默认 `max_parallel_workers=1`；需要并行时检查 Node、Model、Backend 的真实
   声明，再用 plan 验证，不把拓扑分层直接等同于可并行执行。
-- 部署使用 `deployment.io.io_binding` 与 `out_mem`；`.conf` 只用 `pipe_path` 定位 JSON。
-  模型路径属于 `models[].model_path`。复用现有合法配置，避免猜测容量字段或模型参数。
+- 部署使用根层 `io`：`io.input` / `io.output` 各项写（`type` 宿主结构体, `name` 业务）并按需用 `params` 覆盖
+  converter 参数（如输出尺寸 `<字段>_max_bytes`）；`.conf` 只用 `pipe_path` 定位 JSON。
+  模型路径属于 `models[].model_path`。复用现有合法配置，避免猜测参数名或模型参数。
 
 全为现有能力时，输出候选 Pipeline 并用目标工具 `validate`、`plan` 核实图与计划。
 缺少注册时，给出明确标为“待实现”的结构草案和未通过原因；不要声称草案可以运行。

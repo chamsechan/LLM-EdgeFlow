@@ -23,7 +23,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
 
   const auto* invoice_jsons =
@@ -40,18 +40,18 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
-        "destination", options.converter_id.c_str());
+        "destination", options.Label().c_str());
   }
 
   std::vector<const StructuredDocumentBatch::value_type*>
       invoice_jsons_by_request;
   if (!IndexResults(invoice_jsons, raw_req_ids, &invoice_jsons_by_request,
-                    "invoice_jsons", options.converter_id.c_str(), status)) {
+                    "invoice_jsons", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
   std::vector<const OcrDocumentBatch::value_type*> ocr_docs_by_request;
   if (!IndexResults(ocr_docs, raw_req_ids, &ocr_docs_by_request, "ocr_docs",
-                    options.converter_id.c_str(), status)) {
+                    options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -60,7 +60,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing od_out slot item", kOutputSlot,
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     out->request_id = (*raw_req_ids)[i];
@@ -69,7 +69,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Structured result failed or used fallback", "invoice_jsons",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
     out->status_code = 0;
 
@@ -85,12 +85,26 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   return COMPANY_ALG_SUCCESS;
 }
 
+// 输出字符串字段的尺寸参数；默认值按该业务的载荷设定，上限由平台结构登记决定。
+struct Params {
+  int64_t result_json_max_bytes{};
+};
+
+auto ParamSpec() {
+  return Parameters<Params>(
+      {MaxBytes("result_json", &Params::result_json_max_bytes).Default(2047)});
+}
+
 OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "invoice_result.plain";
-  def.external_slots = {ExternalOutputSlot<CompanyOdOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "ocr_invoice_qa";
+  def.service_type =
+      COMPANY_MOCK_SERVICE_OCR_INVOICE_QA;  // 占位取值，进内网核对
+  def.slot = ExternalOutputSlot<CompanyOdOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kExtractedInvoiceJson),
                        RequiredInputPort(kOcrDocs)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorInvoiceResult;
   return def;
 }

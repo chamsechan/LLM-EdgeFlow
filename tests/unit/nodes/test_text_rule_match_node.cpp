@@ -18,6 +18,7 @@
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
@@ -117,7 +118,6 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
        {"element 1", "broken", "byte offset"},
        {"element 1", "broken", "byte offset"}}};
   auto root = nlohmann::json::parse(R"({
-  "biz_name": "keyword_match",
   "models": [],
   "pipeline": [
     {
@@ -139,7 +139,8 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
   for (const auto& invalid : cases) {
     SCOPED_TRACE(invalid.config.dump());
     root["pipeline"][0]["config"] = invalid.config;
-    const auto report = PipelineValidator::Validate(root);
+    const auto report =
+        PipelineValidator::Validate(root, KeywordMatchTestBoundary());
     ASSERT_FALSE(report.ok);
     EXPECT_TRUE(std::any_of(
         report.diagnostics.begin(), report.diagnostics.end(),

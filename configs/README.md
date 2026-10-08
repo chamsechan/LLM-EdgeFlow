@@ -1,6 +1,6 @@
 # 示例方案配置
 
-文件统一采用 `pipeline_<方案>_<变体>.json`，同名 `.conf` 仅保存 `pipe_path`，接入绑定与输出容量位于 Pipeline 的 `deployment.io`。
+文件统一采用 `pipeline_<方案>_<变体>.json`，同名 `.conf` 仅保存 `pipe_path`，外部 I/O 的转换器选择与参数位于 Pipeline 根层的 `io`。
 方案文件保持平铺，Pipeline Studio 可直接发现、打开并另存；测试替身方案继续位于
 `demo/fixtures/mock/`。Model、Backend、权重和节点参数以文件内容与原生 Catalog 为准。
 
@@ -47,28 +47,39 @@ Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于
 
 ## 业务入口与输出配置
 
-每份 Pipeline 显式在 `deployment.io.io_binding` 填写业务名，它选择该业务唯一的绑定，决定外部 C 结构体与内部数据的转换契约。
-框架从注册关系获得业务边界、输入/输出转换器、端口和输出类型，不靠文件名或后缀猜测。
+每份 Pipeline 在根层（放在第一个字段）用 `io` 选择外部 I/O 转换器，它们决定外部 C 结构体与内部数据的转换契约：
+
+- `io.input`、`io.output` 都是至少一项的数组，每项只允许 `type`、`name`、`params`。
+- `type` 是宿主结构体，即宿主 map key `xxx.yyy` 中的 `yyy`（如 `doc_in`）；
+  `name` 是业务名（如 `doc_qa`），对应结构体 `service_type` 的一个取值；`common` 是保留值，表示该结构体的默认处理。
+- `params` 覆盖该转换器的参数，省略表示全部使用默认值；未知参数、类型错误、超出范围都会被拒绝。
+  输出结构的每个字符串字段都有 `<字段>_max_bytes` 尺寸参数，上限是平台结构的字段上限。
+- 同一侧的（`type`, `name`）不能重复；（`type`, `name`）未登记时报 `UNKNOWN_CONVERTER`，不会退回 `common`。
+  一个业务由多个宿主结构体组成时（如图片与问题），`io.input` 写多项，按批内序号配对。
+
+框架从注册关系获得输入/输出转换器、端口和输出类型，不靠文件名或后缀猜测。
 Demo 根据配置自动选取运行入口，Profile 只保存配置路径、数据集和执行参数。
-每个业务只注册一个 binding；同一业务的第二个 binding 会被注册审计拒绝，SDK 初始化失败。
+每个（结构体，业务）只登记一个转换器；同一方向下（`type`, `name`）重复会被注册审计拒绝，SDK 初始化失败。
 
 ```json
 {
-  "deployment": {
-    "io": {
-      "io_binding": "keyword_match"
-    }
+  "io": {
+    "input": [ { "type": "keyword_in", "name": "keyword_match" } ],
+    "output": [ { "type": "keyword_out", "name": "keyword_match" } ]
   }
 }
 ```
 
-必需输出槽自动采用注册的默认 allocator、容量与零 metadata。仅覆盖值写入
-`deployment.io.out_mem`；输出类型直接来自注册的槽位定义。
-可选输出槽通过显式槽配置启用，`{}` 表示默认值；`out_mem` 可以省略，`io_binding` 必须保留。
-`out_mem.params` 表示分配器布局参数，Node 算法参数仍在节点 `config` 中。
+需要更长的回答时只写要覆盖的参数，例如：
 
-`validate/plan` 与 Operator 共用部署准备和校验入口；`resolve-conf` 同时列出实际业务、
-binding 与完整输出池规格。派生的业务名仅为查询结果，不需要写回配置。
+```json
+{ "type": "doc_out", "name": "doc_qa", "params": { "answer_text_max_bytes": 4095 } }
+```
+
+输出结构的命名布局与 metadata 由转换器固定，不在方案中配置；Node 算法参数仍在节点 `config` 中。
+
+`validate/plan` 与 Operator 共用部署准备和校验入口；`resolve-conf` 同时列出生效的 `io`
+（含全部生效参数）与完整输出池规格。
 
 ## 手写 JSON 的补全
 

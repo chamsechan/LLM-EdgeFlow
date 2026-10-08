@@ -13,10 +13,10 @@ See [the I/O boundary](../../../../doc/dev_guide/business_onboarding.md#输入�
 ## Discover assets
 
 Build the tool if unavailable/stale, and rebuild after registration changes. Query the target
-biz contract and its filtered assets:
+converter registration (business name) and its filtered assets:
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding <biz_name>
+./build/alg_pipeline_tool catalog --io-binding <business_name>
 ```
 
 Use the production tool for the target build. For fixtures deliberately using test-only
@@ -38,8 +38,8 @@ For an existing solution, edit the requested files instead of initializing anoth
 Reuse registered nodes; cloning a Pipeline does not retarget the source Profile.
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name>
-./build/alg_pipeline_tool init --io-binding <biz_name> --empty
+./build/alg_pipeline_tool init --io-binding <business_name> --profile <profile_name>
+./build/alg_pipeline_tool init --io-binding <business_name> --empty
 ```
 
 `init` normally returns a versioned response containing `pipeline`. To save a
@@ -47,11 +47,11 @@ runtime document directly, use `--raw` and a new destination (do not overwrite
 an existing solution):
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
+./build/alg_pipeline_tool init --io-binding <business_name> --profile <profile_name> --raw > <new_pipeline.json>
 ```
 
 Check the command's exit status before using the file, then validate the saved
-document. An empty draft needs nodes and bindings before it can validate.
+document. An empty draft needs nodes and their input/output mappings before it can validate.
 
 ## Validate changed inputs
 
@@ -73,8 +73,8 @@ reproduce Validator rules in scripts or prompts. The final delivery gate remains
 
 After validation, run the edited Pipeline through a compatible Demo. Follow
 [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案): confirm
-`.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `deployment.io` (io_binding
-and out_mem) and `models[].model_path`, and select a matching dataset; Demo derives its runner from the configuration. Use
+`.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned root `io` (the selected
+converters and their `params`) and `models[].model_path`, and select a matching dataset; Demo derives its runner from the configuration. Use
 `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
 to inspect the native resolved paths, their sources and normalized defaults; it does not load
 weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its asset

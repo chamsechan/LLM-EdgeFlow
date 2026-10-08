@@ -135,10 +135,10 @@ python3 tools/verify_selection.py check \
 复用现有 `alg_demo` 的样例读取、宿主载体构造和 SDK 执行路径；业务请求的解包与响应
 组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-operator-接口为边界)。
 验收器在 `--pipeline-root` 指定的宿主根内生成临时 Pipeline 和 `.conf`，保留所选 Pipeline 的
-`models[].model_path`，并从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io`
-输出池配置。`--model-root` 仅用于资产清单校验，不改写模型条目中的路径。
-继承的输出池配置只应用到执行副本，不修改所选方案。验收记录中的 `pipeline` 保存实际执行配置；
-所选方案与资产由选择指纹记录，继承的输出池、数据集和执行文件由验收输入指纹记录。
+`models[].model_path`，并从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承根层 `io`
+（包括输出尺寸参数）。`--model-root` 仅用于资产清单校验，不改写模型条目中的路径。
+继承的 `io` 只应用到执行副本，不修改所选方案。验收记录中的 `pipeline` 保存实际执行配置；
+所选方案与资产由选择指纹记录，继承的 `io`、数据集和执行文件由验收输入指纹记录。
 
 验收固定使用 CPU、device 0、batch 1；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
 

@@ -18,6 +18,7 @@
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -402,7 +403,6 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
   GTEST_SKIP() << "ONNX Runtime disabled in this build";
 #endif
   const auto config = nlohmann::json::parse(R"json({
-  "biz_name": "keyword_match",
   "models": [
     {
       "model_id": "embed_model",
@@ -487,7 +487,8 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
     }
   ]
 })json");
-  auto plan = PipelineValidator::ValidateAndPlan(config);
+  auto plan =
+      PipelineValidator::ValidateAndPlan(config, KeywordMatchTestBoundary());
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
   for (int request = 0; request < 2; ++request) {
     AlgContext ctx;

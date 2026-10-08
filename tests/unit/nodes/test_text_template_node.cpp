@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "adapter/deployment_preparation.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -232,9 +233,13 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   ASSERT_TRUE(cfg_in.is_open());
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
-  pipe_json.erase("deployment");
-  pipe_json["biz_name"] = "doc_qa";
-  ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, &diagnostic))
+  PreparedDeployment prepared;
+  DeploymentDiagnostic prepare_diag;
+  ASSERT_TRUE(
+      PrepareDeploymentDocument(pipe_json, {}, &prepared, &prepare_diag))
+      << prepare_diag.message;
+  ASSERT_TRUE(BuildTestPipeline(pipeline, prepared.neutral_pipeline_json,
+                                prepared.io_boundary, &diagnostic))
       << diagnostic.message;
 
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt, "{}"), 0);
@@ -251,7 +256,6 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
 namespace {
 nlohmann::json TemplatePipeline(const nlohmann::json& config) {
   auto root = nlohmann::json::parse(R"({
-  "biz_name": "keyword_match",
   "models": [],
   "pipeline": [
     {
@@ -288,7 +292,8 @@ TEST_F(TextTemplateNodeTest, UnconnectedOrUnknownVariableIsRejected) {
     SCOPED_TRACE(variable);
     const std::string pattern = "Q={{primary}}|V={{" + variable + "}}";
     auto root = TemplatePipeline({{"template", pattern}});
-    const auto invalid = PipelineValidator::ValidateAndPlan(root);
+    const auto invalid =
+        PipelineValidator::ValidateAndPlan(root, KeywordMatchTestBoundary());
     ASSERT_FALSE(invalid.report.ok);
     EXPECT_TRUE(
         std::any_of(invalid.report.diagnostics.begin(),
@@ -301,7 +306,8 @@ TEST_F(TextTemplateNodeTest, UnconnectedOrUnknownVariableIsRejected) {
        {"context_text", "document_text", "other"}) {
     SCOPED_TRACE(variable);
     auto root = TemplatePipeline({{"template", "{{" + variable + "}}"}});
-    const auto invalid = PipelineValidator::ValidateAndPlan(root);
+    const auto invalid =
+        PipelineValidator::ValidateAndPlan(root, KeywordMatchTestBoundary());
     ASSERT_FALSE(invalid.report.ok);
     EXPECT_TRUE(
         std::any_of(invalid.report.diagnostics.begin(),
@@ -313,7 +319,8 @@ TEST_F(TextTemplateNodeTest, UnconnectedOrUnknownVariableIsRejected) {
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
   ASSERT_TRUE(BuildTestPipeline(
-      pipeline, TemplatePipeline({{"template", "Q={{primary}}"}}), &diagnostic))
+      pipeline, TemplatePipeline({{"template", "Q={{primary}}"}}),
+      KeywordMatchTestBoundary(), &diagnostic))
       << diagnostic.message;
   AlgContext ctx;
   ctx.Publish("input_sentences", TextBatch{{1, 3, "hello"}});
@@ -358,8 +365,9 @@ TEST_F(TextTemplateNodeTest, EmptyPrimaryRendersEmpty) {
 TEST_F(TextTemplateNodeTest,
        ControlRejectsUnconnectedOrUnknownVariableAndRetainsConfiguration) {
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(
-      pipeline, TemplatePipeline({{"template", "{{primary}}"}})));
+  ASSERT_TRUE(BuildTestPipeline(pipeline,
+                                TemplatePipeline({{"template", "{{primary}}"}}),
+                                KeywordMatchTestBoundary()));
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
                              R"({"template":"{{context}}"})"),
             0);

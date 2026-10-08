@@ -188,6 +188,11 @@ add_executable(test_catalog_contract_ssot
 target_link_libraries(test_catalog_contract_ssot PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
+add_executable(test_converter_contracts
+  "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_converter_contracts.cpp")
+target_link_libraries(test_converter_contracts PRIVATE
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+
 set(_edgeflow_tier1 "tier1;dev-fast;sanitizer-compatible;sanitizer-runtime")
 set(_edgeflow_tier2 "tier2;dev-fast;sanitizer-compatible;sanitizer-runtime")
 set(_edgeflow_tier3 "tier3;integration;dev-fast;sanitizer-compatible;sanitizer-runtime")
@@ -212,6 +217,8 @@ edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
   "RegistryReentrantTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
   "CatalogContractSsotTest.*" "${_edgeflow_tier1};kite")
+edgeflow_add_runner_test(ConverterContractsTest test_converter_contracts
+  "ConverterContractsTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
   "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
@@ -291,8 +298,10 @@ edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
   "AdapterPurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
   "IoConverterTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(IoBindingRegistryTest edgeflow_test_adapter_runner
-  "IoBindingRegistryTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
+  "IoConverterRegistryTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(IoConverterParamsTest edgeflow_test_adapter_runner
+  "IoConverterParamsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConvertersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
@@ -484,7 +493,7 @@ add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show
   test_cpp_operator_sdk
   test_registry_conflict test_model_backend_registry_conflict
-  test_catalog_contract_ssot edgeflow_test_core_runner
+  test_catalog_contract_ssot test_converter_contracts edgeflow_test_core_runner
   edgeflow_test_nodes_runner edgeflow_test_adapter_runner
   edgeflow_test_tooling_runner)
 
@@ -547,7 +556,7 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorGoldenTest
   AdapterPurityTest
   IoConverterTest
-  IoBindingRegistryTest
+  IoConverterRegistryTest
   TextConvertersTest
   ComplexConvertersTest
   DocQaRerankTest

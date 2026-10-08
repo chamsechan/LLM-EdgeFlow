@@ -64,7 +64,7 @@ def forbidden(source, target):
         or source.startswith(("src/common_nodes/", "include/nodes/"))
     ):
         return True
-    if source.startswith("src/adapter/biz/") and dst in {"Model Execution", "Capability Nodes"}:
+    if source.startswith(("src/adapter/input/", "src/adapter/output/")) and dst in {"Model Execution", "Capability Nodes"}:
         return True
     if src == "Demo" and target.startswith(("src/", "include/adapter/", "include/core/", "include/nodes/", "include/engine/", "include/contracts/")):
         return True
@@ -157,7 +157,7 @@ def self_test():
             cases.extend((path, f"platform_mock/{header}") for path in (
                 "src/core/bad.cpp", "src/common_nodes/bad.cpp", "src/custom_nodes/bad.cpp",
                 "include/nodes/bad.h", "src/engine/models/bad.cpp", "src/engine/backends/foreign/bad.cpp"))
-            for path in ("src/adapter/biz/good.cpp", "demo/good.cpp"):
+            for path in ("src/adapter/input/good.cpp", "src/adapter/output/good.cpp", "demo/good.cpp"):
                 allowed = write(path, f'#include "platform_mock/{header}"\n')
                 assert not check(root), (path, header)
                 allowed.unlink()

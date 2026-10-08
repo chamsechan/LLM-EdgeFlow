@@ -18,6 +18,7 @@
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -184,11 +185,11 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
     SCOPED_TRACE(config.dump());
     config["bind_model"] = "llm_model";
     const nlohmann::json pipeline = {
-        {"biz_name", "entity_extract"},
         {"pipeline", nlohmann::json::array({{{"id", "generate"},
                                              {"node_type", "LlmGenerateNode"},
                                              {"config", config}}})}};
-    const auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(pipeline, EmptyTestBoundary());
     EXPECT_FALSE(plan.report.ok);
     bool config_rejected = false;
     for (const auto& diagnostic : plan.report.diagnostics) {

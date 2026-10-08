@@ -70,9 +70,12 @@ inline bool ParseNestedOutput(const std::string& text,
   return true;
 }
 
-inline OperatorValueTypeBinding MakeNestedOutputBinding(int32_t tag = 1) {
+// suffix 是宿主 map key 的后缀；同一外层类型可以登记在不同后缀下，
+// 作为同一个输出方案里的不同输出项。
+inline OperatorValueTypeBinding MakeNestedOutputBinding(
+    int32_t tag = 1, const char* suffix = "test_nested_out") {
   OperatorValueTypeBinding binding;
-  binding.canonical_suffix = "test_nested_out";
+  binding.canonical_suffix = suffix;
   binding.external_c_type_name = "NestedOutputEnvelope";
   binding.direction = IoDirection::kOutput;
   binding.normalize_parameters =

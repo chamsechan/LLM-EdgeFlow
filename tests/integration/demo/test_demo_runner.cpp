@@ -684,7 +684,7 @@ TEST(DemoRunnerTest, DispatchesByCarrierAndReportsUnsupportedOnes) {
   EXPECT_EQ(seen_inputs[0].type, "keyword_in");
   EXPECT_EQ(seen_inputs[0].name, "keyword_match");
   EXPECT_EQ(seen_inputs[0].type_name, "CompanyOperatorKeywordInput");
-  EXPECT_EQ(seen_inputs[0].service_type, std::nullopt);
+  EXPECT_EQ(seen_inputs[0].service_type, COMPANY_MOCK_SERVICE_KEYWORD_MATCH);
 
   // 输出结构未登记：返回 3，并列出已支持的结构。
   outputs.ResetForTesting();

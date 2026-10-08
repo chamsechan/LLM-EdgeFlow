@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
 #include "core/pipeline_catalog.h"
 #include "pipeline_document_validation.h"
 
@@ -11,17 +11,48 @@ namespace llm_edgeflow {
 
 namespace {
 
-std::string BoundBiz(const nlohmann::json& pipeline) {
-  if (!pipeline.is_object() || !pipeline.contains("deployment") ||
-      !pipeline["deployment"].is_object())
-    return {};
-  const auto& deployment = pipeline["deployment"];
-  if (!deployment.contains("io") || !deployment["io"].is_object()) return {};
-  const auto& io = deployment["io"];
-  if (!io.contains("io_binding") || !io["io_binding"].is_string()) return {};
-  const auto* binding = IoBindingRegistry::Instance().FindBinding(
-      io["io_binding"].get<std::string>());
-  return binding ? binding->biz_name : std::string{};
+// io 的边界端口：所有输入项发布的端口（ingress）与所有输出项消费的端口
+// （egress）。io 缺失、结构不对或登记不存在时为空。
+struct IoBoundaryView {
+  std::vector<IoPortDefinition> ingress;
+  std::vector<IoPortDefinition> egress;
+};
+
+std::optional<IoBoundaryView> BoundaryOf(const nlohmann::json& pipeline) {
+  if (!pipeline.is_object() || !pipeline.contains("io") ||
+      !pipeline["io"].is_object())
+    return std::nullopt;
+  const auto& io = pipeline["io"];
+  IoBoundaryView view;
+  const auto& registry = IoConverterRegistry::Instance();
+  for (const char* side : {"input", "output"}) {
+    const bool input = std::string(side) == "input";
+    if (!io.contains(side) || !io[side].is_array()) return std::nullopt;
+    for (const auto& item : io[side]) {
+      if (!item.is_object() || !item.contains("type") ||
+          !item["type"].is_string() || !item.contains("name") ||
+          !item["name"].is_string())
+        return std::nullopt;
+      const auto type = item["type"].get<std::string>();
+      const auto name = item["name"].get<std::string>();
+      const std::vector<NodePortDefinition>* ports = nullptr;
+      if (input) {
+        if (const auto* def = registry.FindInputConverter(type, name))
+          ports = &def->logical_ports;
+      } else if (const auto* def = registry.FindOutputConverter(type, name)) {
+        ports = &def->logical_ports;
+      }
+      if (!ports) return std::nullopt;
+      auto& target = input ? view.ingress : view.egress;
+      for (const auto& port : *ports) {
+        IoPortDefinition boundary;
+        static_cast<PortContract&>(boundary) = port;
+        boundary.blackboard_key = port.logical_name;
+        target.push_back(std::move(boundary));
+      }
+    }
+  }
+  return view;
 }
 
 nlohmann::json* FindNodeById(nlohmann::json* pipeline, const std::string& id) {
@@ -121,7 +152,7 @@ std::string CheckGraphEndpoint(nlohmann::json* pipeline,
   if (id == "$ingress" || id == "$egress") {
     if ((output && id != "$ingress") || (!output && id != "$egress"))
       throw std::invalid_argument("INVALID_ENDPOINT: 业务端点方向错误");
-    const auto biz = PipelineCatalog::FindBiz(BoundBiz(*pipeline));
+    const auto biz = BoundaryOf(*pipeline);
     if (biz) {
       const auto& ports = output ? biz->ingress : biz->egress;
       for (const auto& definition : ports)
@@ -146,7 +177,7 @@ std::string CheckGraphEndpoint(nlohmann::json* pipeline,
 void CheckUniqueProducer(const nlohmann::json& pipeline,
                          const std::string& key) {
   size_t count = 0;
-  auto biz = PipelineCatalog::FindBiz(BoundBiz(pipeline));
+  auto biz = BoundaryOf(pipeline);
   if (biz)
     for (const auto& port : biz->ingress)
       if (port.blackboard_key == key) ++count;
@@ -260,16 +291,12 @@ std::unordered_set<std::string> PipelineAuthoring::GetOccupiedKeys(
   std::unordered_set<std::string> occupied;
   if (!pipeline.is_object()) return occupied;
 
-  std::string biz_name = BoundBiz(pipeline);
-  if (!biz_name.empty()) {
-    auto biz = PipelineCatalog::FindBiz(biz_name);
-    if (biz) {
-      for (const auto& in : biz->ingress) {
-        occupied.insert(in.blackboard_key);
-      }
-      for (const auto& out : biz->egress) {
-        occupied.insert(out.blackboard_key);
-      }
+  if (const auto boundary = BoundaryOf(pipeline)) {
+    for (const auto& in : boundary->ingress) {
+      occupied.insert(in.blackboard_key);
+    }
+    for (const auto& out : boundary->egress) {
+      occupied.insert(out.blackboard_key);
     }
   }
 
@@ -339,8 +366,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     return false;
   }
 
-  std::string biz_name = BoundBiz(*pipeline);
-  auto biz = PipelineCatalog::FindBiz(biz_name);
+  auto biz = BoundaryOf(*pipeline);
 
   if (kind == "add_node") {
     std::string node_type = operation.value("node_type", "");
@@ -597,12 +623,11 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     if (src_id == "$ingress") {
       if (!biz) {
-        if (error)
-          *error = "UNKNOWN_IO_BINDING: select deployment.io.io_binding";
+        if (error) *error = "UNKNOWN_CONVERTER: select io.input and io.output";
         return false;
       }
       auto in_it = std::find_if(biz->ingress.begin(), biz->ingress.end(),
-                                [&](const BizPortDefinition& p) {
+                                [&](const IoPortDefinition& p) {
                                   return p.blackboard_key == src_port;
                                 });
       if (in_it == biz->ingress.end()) {
@@ -659,12 +684,11 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     if (tgt_id == "$egress") {
       if (!biz) {
-        if (error)
-          *error = "UNKNOWN_IO_BINDING: select deployment.io.io_binding";
+        if (error) *error = "UNKNOWN_CONVERTER: select io.input and io.output";
         return false;
       }
       auto out_it = std::find_if(biz->egress.begin(), biz->egress.end(),
-                                 [&](const BizPortDefinition& p) {
+                                 [&](const IoPortDefinition& p) {
                                    return p.blackboard_key == tgt_port;
                                  });
       if (out_it == biz->egress.end()) {

@@ -51,9 +51,11 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorAudioInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "audio.pcm";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot)};
+  def.type = kInputSlot;
+  def.name = "audio_asr_intent";
+  def.service_type =
+      COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT;  // 占位取值，进内网核对
+  def.slot = ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot);
   def.logical_ports = {OutputPort(kAudioInputs)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;

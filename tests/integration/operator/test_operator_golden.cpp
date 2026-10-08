@@ -133,6 +133,7 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
                          const_cast<char*>(query.data())};
 
   CompanyOperatorDocInput in{};
+  in.service_type = COMPANY_MOCK_SERVICE_DOC_QA;
   in.request_id = 101;
   in.doc_text = &cs_doc;
   in.query_text = &cs_query;
@@ -174,6 +175,7 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   CompanyString cs_sentence{static_cast<int32_t>(sentence.size()),
                             const_cast<char*>(sentence.data())};
   CompanyOperatorKeywordInput in{};
+  in.service_type = COMPANY_MOCK_SERVICE_KEYWORD_MATCH;
   in.request_id = 1001;
   in.sentence_text = &cs_sentence;
 
@@ -221,6 +223,7 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
                         const_cast<char*>(text.data())};
 
   CompanyOperatorEntityInput in{};
+  in.service_type = COMPANY_MOCK_SERVICE_ENTITY_EXTRACT;
   in.request_id = 3001;
   in.sentence_text = &cs_text;
 
@@ -261,6 +264,7 @@ TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
                         const_cast<char*>(channel.data())};
 
   CompanyOperatorAuditInput in{};
+  in.service_type = COMPANY_MOCK_SERVICE_DIALOGUE_AUDIT;
   in.request_id = 4001;
   in.user_text = &cs_user;
   in.channel_name = &cs_chan;
@@ -304,7 +308,8 @@ TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   CompanyString cs_query{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
 
-  CompanyFrame frame{5001, &cs_img, nullptr};
+  CompanyFrame frame{5001, &cs_img, nullptr,
+                     COMPANY_MOCK_SERVICE_OCR_INVOICE_QA};
 
   NamedIoBatch inputs(1);
   inputs[0]["ocr_channel.frame"] = MakeBorrowedOperatorInput(&frame);
@@ -345,11 +350,14 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   std::vector<float> pcm_gen(16000, 0.005f);  // sum = 80
 
   CompanyOperatorAudioInput in1{6001, pcm_nav.data(),
-                                static_cast<int32_t>(pcm_nav.size()), 16000};
+                                static_cast<int32_t>(pcm_nav.size()), 16000,
+                                COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
   CompanyOperatorAudioInput in2{6002, pcm_hvac.data(),
-                                static_cast<int32_t>(pcm_hvac.size()), 16000};
+                                static_cast<int32_t>(pcm_hvac.size()), 16000,
+                                COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
   CompanyOperatorAudioInput in3{6003, pcm_gen.data(),
-                                static_cast<int32_t>(pcm_gen.size()), 16000};
+                                static_cast<int32_t>(pcm_gen.size()), 16000,
+                                COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
 
   NamedIoBatch inputs(3);
   inputs[0]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in1);
@@ -487,6 +495,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
                       const_cast<char*>(passage2.data())};
 
   CompanyOperatorRerankInput in{};
+  in.service_type = COMPANY_MOCK_SERVICE_CROSS_RERANK;
   in.request_id = 7001;
   in.query_text = &q_cs;
   in.candidate_passages[0] = &p1_cs;
@@ -524,6 +533,7 @@ TEST_F(OperatorGoldenTest, TranslateGolden) {
                         const_cast<char*>(json_input.data())};
 
   CompanyOperatorEntityInput in{};
+  in.service_type = COMPANY_MOCK_SERVICE_TRANSLATE;
   in.request_id = 8001;
   in.sentence_text = &cs_text;
 

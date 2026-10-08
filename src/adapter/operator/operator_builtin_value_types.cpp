@@ -52,7 +52,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 5. od_out -> CompanyOdOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOdOutput>(
-      "od_out", {{"result_json", &CompanyOdOutput::result_json, {2047, 65536}}},
+      "od_out", {{"result_json", &CompanyOdOutput::result_json, 65536}},
       [](CompanyOdOutput& out) noexcept {
         out.request_id = 0;
         out.detected_box_count = 0;
@@ -72,9 +72,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 7. keyword_out -> CompanyOperatorKeywordOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorKeywordOutput>(
       "keyword_out",
-      {{"match_result_json",
-        &CompanyOperatorKeywordOutput::match_result_json,
-        {2047, 65536}}},
+      {{"match_result_json", &CompanyOperatorKeywordOutput::match_result_json,
+        65536}},
       [](CompanyOperatorKeywordOutput& out) noexcept {
         out.request_id = 0;
         out.is_hit = 0;
@@ -93,9 +92,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 9. entity_out -> CompanyOperatorEntityOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorEntityOutput>(
       "entity_out",
-      {{"entities_json",
-        &CompanyOperatorEntityOutput::entities_json,
-        {2047, 65536}}},
+      {{"entities_json", &CompanyOperatorEntityOutput::entities_json, 65536}},
       [](CompanyOperatorEntityOutput& out) noexcept {
         out.request_id = 0;
         out.status_code = 0;
@@ -120,8 +117,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 11. doc_out -> CompanyOperatorDocOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorDocOutput>(
       "doc_out",
-      {{"intent_name", &CompanyOperatorDocOutput::intent_name, {63, 255}},
-       {"answer_text", &CompanyOperatorDocOutput::answer_text, {1023, 65536}}},
+      {{"intent_name", &CompanyOperatorDocOutput::intent_name, 255},
+       {"answer_text", &CompanyOperatorDocOutput::answer_text, 65536}},
       [](CompanyOperatorDocOutput& out) noexcept {
         out.request_id = 0;
         out.confidence = 0.0f;
@@ -149,13 +146,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 13. audit_out -> CompanyOperatorAuditOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorAuditOutput>(
       "audit_out",
-      {{"risk_level", &CompanyOperatorAuditOutput::risk_level, {31, 255}},
+      {{"risk_level", &CompanyOperatorAuditOutput::risk_level, 255},
        {"matched_policy_clause",
-        &CompanyOperatorAuditOutput::matched_policy_clause,
-        {255, 4096}},
-       {"audit_verdict_json",
-        &CompanyOperatorAuditOutput::audit_verdict_json,
-        {1023, 65536}}},
+        &CompanyOperatorAuditOutput::matched_policy_clause, 4096},
+       {"audit_verdict_json", &CompanyOperatorAuditOutput::audit_verdict_json,
+        65536}},
       [](CompanyOperatorAuditOutput& out) noexcept {
         out.request_id = 0;
         out.risk_score = 0.0f;
@@ -196,12 +191,10 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 15. audio_out -> CompanyOperatorAudioOutput
   RegisterBinding(MakePooledOutputBinding<CompanyOperatorAudioOutput>(
       "audio_out",
-      {{"transcribed_text",
-        &CompanyOperatorAudioOutput::transcribed_text,
-        {511, 16384}},
-       {"intent_slot_json",
-        &CompanyOperatorAudioOutput::intent_slot_json,
-        {1023, 65536}}},
+      {{"transcribed_text", &CompanyOperatorAudioOutput::transcribed_text,
+        16384},
+       {"intent_slot_json", &CompanyOperatorAudioOutput::intent_slot_json,
+        65536}},
       [](CompanyOperatorAudioOutput& out) noexcept {
         out.request_id = 0;
         out.status_code = 0;

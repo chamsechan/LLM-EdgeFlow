@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "adapter/deployment_preparation.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -1000,8 +1001,13 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
   cfg_in.close();
-  pipe_json.erase("deployment");
-  pipe_json["biz_name"] = "cross_rerank";
+  // 接入层拆出 io，并由所选 converter 组成 IO 边界。
+  PreparedDeployment prepared;
+  DeploymentDiagnostic prepare_diag;
+  ASSERT_TRUE(
+      PrepareDeploymentDocument(pipe_json, {}, &prepared, &prepare_diag))
+      << prepare_diag.message;
+  pipe_json = prepared.neutral_pipeline_json;
 
   // 2. 注入真实构建期 fixture 路径和测试参数 (top_k=2)
   pipe_json["models"][0]["model_path"] = onnx_path.string();
@@ -1011,7 +1017,8 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   pipe_json["pipeline"][0]["config"]["top_k"] = 2;
 
   // 3. PipelineValidator 校验并规划
-  auto planned_plan = PipelineValidator::ValidateAndPlan(pipe_json);
+  auto planned_plan =
+      PipelineValidator::ValidateAndPlan(pipe_json, prepared.io_boundary);
   ASSERT_TRUE(planned_plan.report.ok) << planned_plan.report.ToJson().dump();
   ASSERT_EQ(planned_plan.report.topological_order.size(), 1u);
   EXPECT_EQ(planned_plan.report.topological_order[0], "node_0_TextRerankNode");
@@ -1019,7 +1026,8 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   // 4. 构建 Pipeline
   Pipeline pipeline;
   PipelineDiagnostic build_diag;
-  bool build_ok = BuildTestPipeline(pipeline, pipe_json, &build_diag);
+  bool build_ok =
+      BuildTestPipeline(pipeline, pipe_json, prepared.io_boundary, &build_diag);
   ASSERT_TRUE(build_ok) << build_diag.message << " at " << build_diag.path;
   EXPECT_TRUE(pipeline.IsReady());
 

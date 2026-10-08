@@ -62,18 +62,18 @@ include/platform_mock/            本地平台公共定义模拟
   error_codes.h
   operator_data_types.h / operator_types.h
 include/adapter/                  源码扩展契约与辅助接口
-  io_binding.h
-  io_converter.h
-  io_binding_registry.h
+  io_converter.h                  转换器登记结构、解码/编码选项
   io_converter_registry.h
+  converter_authoring.h           转换器作者辅助（槽声明、MaxBytes、DecodeRequestRows 等）
   operator_value_type.h
 src/adapter/
   shared_algorithm_runtime.cpp/.h
   deployment_io_config.cpp/.h
-  io_binding_resolver.cpp/.h
-  input/                          各业务输入转换器
-  output/                         各业务输出转换器
-  biz/                            各业务 I/O 绑定声明
+  deployment_preparation.cpp/.h   按 io 选择登记、解析参数、生成输出池规格与 IO 边界
+  io_plan_resolver.cpp/.h         接入计划（ValidatedIoPlan）解析
+  io_converter_registry.cpp       转换器登记表与注册审计
+  input/                          各（结构体，业务）输入转换器登记
+  output/                         各（结构体，业务）输出转换器登记
   operator/                       Operator 通用机制
     operator_config_resolver.cpp/.h
     operator_process_binding.cpp/.h
@@ -84,12 +84,11 @@ src/adapter/
 转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与
 `OutputConverter` 函数回调及各自的 Definition，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
 常见单槽、每请求一行的回调使用 `DecodeRequestRows` / `EncodeResultRows` 调用普通业务函数，
-批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
-各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
-端口 Definition 与回调共用同一 typed 端口常量，端口名即业务键名，
-绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>` /
-`ExternalOutputSlot<T>` 推导类型和默认同名后缀，输出容量字段由已注册 ValueType 决定；
-特殊布局仍使用完整定义。
+批次与端口发布归辅助层；多槽、展开和汇聚保留显式算法。
+每个登记标识一种（结构体，业务）的外部载荷格式，方案的 `io` 逐项选择它，不再有单独的业务或绑定声明。
+端口 Definition 与回调共用同一 typed 端口常量，端口名即业务键名，不做改名。
+槽声明用 `ExternalInputSlot<T>` / `ExternalOutputSlot<T>` 推导类型，输出字符串的容量由登记的
+`MaxBytes` 尺寸参数决定；命名布局与 metadata 直接写在槽声明里。
 业务专属实现可按修改关联同文件组织，共享 converter 保留独立引用；不要求为每个业务创建聚合宏或新注册表。
 宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
 单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。常见类型直接使用
@@ -106,7 +105,7 @@ include/core/                     编排契约与 Node 注册接口
   pipeline.h                      按校验计划执行
   alg_context.h / blackboard_key.h / session_context.h
   node_interface.h / node_definition.h / node_registry.h / port_definition.h
-  biz_definition.h / pipeline_catalog.h
+  pipeline_catalog.h
 src/core/                         上述接口的实现；pipeline_config_structure.cpp/.h 等私有头相邻放置
 ```
 
@@ -143,35 +142,35 @@ src/engine/
 
 | 名称 | 含义 |
 | --- | --- |
-| `InputConverterDefinition.converter_id` / `OutputConverterDefinition.converter_id` | 独立输入、输出转换器标识 |
-| `BizDefinition.biz_name` | 业务 ID，例如 `doc_qa`；每个业务只有一个 `IoBindingDefinition`，同样以它标识 |
+| `InputConverterDefinition.type` / `OutputConverterDefinition.type` | 宿主结构体，即宿主 map key 的后缀，如 `doc_in`；与槽声明的 `type_suffix` 相同 |
+| `InputConverterDefinition.name` / `OutputConverterDefinition.name` | 业务名，如 `doc_qa`；`common` 是保留值，表示该结构体的默认处理 |
+| `service_type` | 业务名在宿主结构体 `service_type` 成员上的取值；`common` 和没有该成员的结构体不填 |
 | `NodePortDefinition.logical_name` | Node 的逻辑端口名称，由 Pipeline 映射到具体黑板键 |
-| `BizPortDefinition.blackboard_key` | 业务 ingress/egress 使用的实际黑板键 |
+| `IoPortDefinition.blackboard_key` | 由所选转换器组成的 IO 边界端口使用的实际黑板键 |
 
-普通配置只在 `deployment.io.io_binding` 填写业务名；框架沿该业务的绑定获得业务边界。
-框架沿注册关系选择转换器和槽位，不按名字拼写推导载体类型。
+（`type`, `name`）一起标识一个登记，日志和报告中写作 `type/name`，例如 `doc_in/doc_qa`。
+普通配置只在根层 `io` 的各项填写 `type` 与 `name`；框架按它们选择转换器，不按名字拼写推导载体类型。
 
 一个业务只使用一个 `snake_case` 词根，按 I/O 契约的实际语义命名，例如 `ocr_invoice_qa`：
 
 | 位置 | 形式 | 示例 |
 | --- | --- | --- |
-| `biz_name`、`deployment.io.io_binding` | `<词根>` | `dialogue_audit` |
-| 绑定源码 | `src/adapter/biz/<词根>_bindings.cpp` | `dialogue_audit_bindings.cpp` |
+| 登记的 `name`、`io` 项的 `name` | `<词根>` | `dialogue_audit` |
+| 转换器源码 | `src/adapter/input/<载体>_input.cpp`、`src/adapter/output/<载体>_output.cpp` | `audit_input.cpp` |
 | 方案、数据集与 Profile | `pipeline_<词根>_<变体>`、`corpus_<词根>`、`<词根>_<变体>` | `pipeline_dialogue_audit_kite.json` |
-| 中文名 | `BizDefinition.display_name` | 对话合规审核 |
 
-转换器按数据形态命名，例如 `text.plain`，可被多个业务复用，不使用业务词根。
-业务名与转换器 ID 都不带版本号：发布前直接改名，发布后的不兼容变化见
+宿主结构体的解析代码可被多个业务的登记共用；同一个 `type` 下的各业务各自登记。
+业务名与 `type` 都不带版本号：发布前直接改名，发布后的不兼容变化见
 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
 
 外部槽名在所属转换器 `.cpp` 内声明一次，回调与 Definition 复用；仅用一次的 schema ID 保持原位。
 
-业务端口使用 `RequiredBizInput`、`OptionalBizInput`、`BizOutput`；Node 端口使用
-`RequiredInputPort`、`OptionalInputPort`、`OutputPort`。两种端口类型不可相互隐式转换。
-Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑端口或业务黑板键。
+转换器和 Node 的端口都使用 `RequiredInputPort`、`OptionalInputPort`、`OutputPort` 声明；
+Catalog JSON 在端口声明中输出 `key`，由所属集合表达逻辑端口或黑板键。
 
-`core/port_definition.h`、`core/node_definition.h`、`core/biz_definition.h` 分别维护
-端口、Node 和业务元数据，Catalog 服务在 `core/pipeline_catalog.h`。
+`core/port_definition.h`、`core/node_definition.h` 分别维护
+端口和 Node 元数据，Catalog 服务在 `core/pipeline_catalog.h`；转换器登记由 `src/adapter/io_catalog.h` 汇入
+Catalog JSON。
 `engine/inference_definition.h` 维护 Model/Backend 元数据；张量与 Host 内存辅助接口
 在 `engine/tensor.h`。`node_registry.h` 的主要类型是 `NodeRegistry`。
 

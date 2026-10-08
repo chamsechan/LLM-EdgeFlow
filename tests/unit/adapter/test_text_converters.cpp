@@ -5,7 +5,6 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "contracts/inference_payloads.h"
@@ -20,8 +19,8 @@ namespace llm_edgeflow {
 class TextConvertersTest : public ::testing::Test {};
 
 TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
-  const auto* conv =
-      IoConverterRegistry::Instance().FindInputConverter("text.plain");
+  const auto* conv = IoConverterRegistry::Instance().FindInputConverter(
+      "entity_in", "entity_extract");
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->decode_fn, nullptr);
 
@@ -43,7 +42,8 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions options;
   options.request_ids = &request_ids;
-  options.converter_id = conv->converter_id;
+  options.type = conv->type;
+  options.name = conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -62,8 +62,8 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
 }
 
 TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
-  const auto* conv =
-      IoConverterRegistry::Instance().FindInputConverter("translate.json");
+  const auto* conv = IoConverterRegistry::Instance().FindInputConverter(
+      "entity_in", "translate");
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->decode_fn, nullptr);
 
@@ -81,7 +81,8 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   std::vector<uint64_t> request_ids;
   InputDecodeOptions options;
   options.request_ids = &request_ids;
-  options.converter_id = conv->converter_id;
+  options.type = conv->type;
+  options.name = conv->name;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -113,8 +114,8 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 }
 
 TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
-  const auto* conv =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
+  const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "entity_out", "translate");
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->encode_fn, nullptr);
 
@@ -136,7 +137,8 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
 
   OutputEncodeOptions options;
   options.request_ids = &req_ids;
-  options.converter_id = conv->converter_id;
+  options.type = conv->type;
+  options.name = conv->name;
 
   size_t written = 0;
   AdapterStatus status;
@@ -153,70 +155,58 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   EXPECT_EQ(parsed["translated"], "Bonjour le monde");
 }
 
-TEST_F(TextConvertersTest, ProductionBindingsUseDeclaredHostTypes) {
-  const auto* entity_binding =
-      IoBindingRegistry::Instance().FindBinding("entity_extract");
-  ASSERT_NE(entity_binding, nullptr);
+TEST_F(TextConvertersTest, ProductionConvertersUseDeclaredHostTypes) {
+  const auto& registry = IoConverterRegistry::Instance();
 
-  const auto* keyword_binding =
-      IoBindingRegistry::Instance().FindBinding("keyword_match");
-  ASSERT_NE(keyword_binding, nullptr);
-
-  // 实体抽取经 text.plain 使用 CompanyOperatorEntityInput
-  EXPECT_EQ(entity_binding->input_converter_id, "text.plain");
-  const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
-      entity_binding->input_converter_id);
+  // 实体抽取使用 CompanyOperatorEntityInput，关键词匹配使用
+  // CompanyOperatorKeywordInput。
+  const auto* entity_conv =
+      registry.FindInputConverter("entity_in", "entity_extract");
   ASSERT_NE(entity_conv, nullptr);
-  EXPECT_EQ(ExternalType(entity_conv->external_slots),
-            "CompanyOperatorEntityInput");
-
-  // 关键词匹配经 keyword.plain 使用
-  // CompanyOperatorKeywordInput
-  EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain");
-  const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
-      keyword_binding->input_converter_id);
+  EXPECT_EQ(entity_conv->slot.type_id, "CompanyOperatorEntityInput");
+  const auto* keyword_conv =
+      registry.FindInputConverter("keyword_in", "keyword_match");
   ASSERT_NE(keyword_conv, nullptr);
-  EXPECT_EQ(ExternalType(keyword_conv->external_slots),
-            "CompanyOperatorKeywordInput");
+  EXPECT_EQ(keyword_conv->slot.type_id, "CompanyOperatorKeywordInput");
 
-  // 输出 Converter 互不相同
-  EXPECT_EQ(entity_binding->output_converter_id, "document.structured");
-  EXPECT_EQ(keyword_binding->output_converter_id, "keyword.result");
+  // 输出 converter 互不相同
+  const auto* entity_out =
+      registry.FindOutputConverter("entity_out", "entity_extract");
+  const auto* keyword_out =
+      registry.FindOutputConverter("keyword_out", "keyword_match");
+  ASSERT_NE(entity_out, nullptr);
+  ASSERT_NE(keyword_out, nullptr);
+  EXPECT_EQ(entity_out->slot.type_id, "CompanyOperatorEntityOutput");
+  EXPECT_EQ(keyword_out->slot.type_id, "CompanyOperatorKeywordOutput");
 }
 
-TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
-  // 证明同一个转换器 ID 可以在不同业务的绑定间复用：通过测试专用业务
-  auto reuse_biz = *PipelineCatalog::FindBiz("entity_extract");
-  reuse_biz.biz_name = "test_text_reuse";
-  PipelineCatalog::RegisterBizDefinition(reuse_biz);
-  IoBindingDefinition test_reuse_binding;
-  test_reuse_binding.biz_name = reuse_biz.biz_name;
-
-  test_reuse_binding.input_converter_id = "text.plain";
-  test_reuse_binding.output_converter_id = "document.structured";
-  test_reuse_binding.max_batch_size = 64;
-
-  if (!IoBindingRegistry::Instance().FindBinding(test_reuse_binding.biz_name)) {
-    ASSERT_TRUE(
-        IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding));
-  }
-
-  const auto* b1 = IoBindingRegistry::Instance().FindBinding("entity_extract");
-  const auto* b2 = IoBindingRegistry::Instance().FindBinding("test_text_reuse");
-  ASSERT_NE(b1, nullptr);
-  ASSERT_NE(b2, nullptr);
-  EXPECT_EQ(b1->input_converter_id, b2->input_converter_id);
+// 同一宿主结构体承载多个业务：各自登记，以 service_type 区分。
+TEST_F(TextConvertersTest, SameHostStructServesSeveralBusinesses) {
+  const auto& registry = IoConverterRegistry::Instance();
+  EXPECT_EQ(registry.InputNamesOfType("entity_in"),
+            (std::vector<std::string>{"entity_extract", "translate"}));
+  EXPECT_EQ(registry.OutputNamesOfType("entity_out"),
+            (std::vector<std::string>{"entity_extract", "translate"}));
+  const auto* extract =
+      registry.FindInputConverter("entity_in", "entity_extract");
+  const auto* translate = registry.FindInputConverter("entity_in", "translate");
+  ASSERT_NE(extract, nullptr);
+  ASSERT_NE(translate, nullptr);
+  EXPECT_EQ(extract->slot.type_id, translate->slot.type_id);
+  EXPECT_EQ(extract->service_type, COMPANY_MOCK_SERVICE_ENTITY_EXTRACT);
+  EXPECT_EQ(translate->service_type, COMPANY_MOCK_SERVICE_TRANSLATE);
 }
 
-TEST_F(TextConvertersTest, SameCarrierDifferentPayloadBindingIsRejected) {
+TEST_F(TextConvertersTest,
+       SameCarrierDifferentPayloadConvertersParseDifferently) {
   // 两个输入转换器槽位与载体完全相同，但对同一请求的解析语义不同。
-  const auto decode = [](const char* converter_id, std::string text) {
+  const auto decode = [](const char* name, std::string text) {
     const auto* conv =
-        IoConverterRegistry::Instance().FindInputConverter(converter_id);
+        IoConverterRegistry::Instance().FindInputConverter("entity_in", name);
     EXPECT_NE(conv, nullptr);
     if (!conv) return std::string();
     CompanyString value{static_cast<int32_t>(text.size()), text.data()};
-    CompanyOperatorEntityInput input{1, &value};
+    CompanyOperatorEntityInput input{1, &value, 0};
     ExternalInputBatchView view;
     view.count = 1;
     view.slots["entity_in"] = BorrowInputForTest({&input});
@@ -224,7 +214,8 @@ TEST_F(TextConvertersTest, SameCarrierDifferentPayloadBindingIsRejected) {
     std::vector<uint64_t> request_ids;
     InputDecodeOptions options;
     options.request_ids = &request_ids;
-    options.converter_id = conv->converter_id;
+    options.type = conv->type;
+    options.name = conv->name;
     AlgContext context;
     AdapterStatus status;
     EXPECT_EQ(conv->decode_fn(view, options, &context, &status),
@@ -234,31 +225,17 @@ TEST_F(TextConvertersTest, SameCarrierDifferentPayloadBindingIsRejected) {
                                                : std::string();
   };
   const std::string request = R"({"query":"hello"})";
-  ASSERT_EQ(decode("translate.json", request), "hello");
-  ASSERT_EQ(decode("text.plain", request), request);
-
-  // 同一业务只登记一个 binding：translate 不能再挂另一协议的 Converter。
-  auto& bindings = IoBindingRegistry::Instance();
-  auto alternate = *bindings.FindBinding("translate");
-  alternate.input_converter_id = "text.plain";
-  EXPECT_FALSE(bindings.RegisterBinding(alternate));
-  EXPECT_EQ(bindings.FindBinding("translate")->input_converter_id,
-            "translate.json");
-  std::vector<std::string> errors;
-  EXPECT_FALSE(bindings.Audit(&errors));
-  EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), [](const auto& error) {
-    return error.find("Duplicate IoBinding for biz_name: translate") !=
-           std::string::npos;
-  }));
-  bindings.ResetConflictForTesting();
+  ASSERT_EQ(decode("translate", request), "hello");
+  ASSERT_EQ(decode("entity_extract", request), request);
 }
 
 TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
-  const auto* conv =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
+  const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "entity_out", "translate");
   ASSERT_NE(conv, nullptr);
   OutputEncodeOptions options;
-  options.converter_id = conv->converter_id;
+  options.type = conv->type;
+  options.name = conv->name;
   AlgContext context;
   TestOutputBatchView destination;
   AdapterStatus status;

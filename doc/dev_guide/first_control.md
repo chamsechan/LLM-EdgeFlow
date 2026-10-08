@@ -79,7 +79,10 @@ mkdir -p build/control_tutorial
 
 ```json
 {
-  "deployment": {"io": {"io_binding": "keyword_match"}},
+  "io": {
+    "input": [{"type": "keyword_in", "name": "keyword_match"}],
+    "output": [{"type": "keyword_out", "name": "keyword_match"}]
+  },
   "models": [],
   "pipeline": [
     {
@@ -107,8 +110,8 @@ mkdir -p build/control_tutorial
 {"pipe_path": "pipeline.json"}
 ```
 
-`pipe_path` 相对 `pipeline.conf` 所在目录解析；输入输出绑定和容量统一声明在
-Pipeline 的 `deployment.io` 中。Demo 与直接调用 Operator 使用同一套部署解析规则。
+`pipe_path` 相对 `pipeline.conf` 所在目录解析；输入输出的宿主结构体、业务和 converter
+参数统一声明在 Pipeline 的 `io` 中。Demo 与直接调用 Operator 使用同一套部署解析规则。
 
 `input.txt` 保存一行 `sample`；`control.json` 保存：
 

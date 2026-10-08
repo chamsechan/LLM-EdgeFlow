@@ -1,15 +1,15 @@
 # Operator 宿主类型、输出池与生命周期
 
 本文写给三类读者：新增宿主类型或输出布局的作者、配置多输出与嵌套载荷的作者，以及直接调用
-SDK 的宿主集成方。只复用已有类型、编写转换器与绑定的业务开发者，见[业务接入指南](business_onboarding.md)。
+SDK 的宿主集成方。只复用已有类型、编写转换器登记的业务开发者，见[业务接入指南](business_onboarding.md)。
 
 ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。
-普通业务复用已注册输出结构，只在需要时覆盖容量。新增标准结构时，通过
-`MakePooledOutputBinding<T>` 声明字段、默认/最大容量及标量重置；框架负责分配和释放。
+普通业务复用已注册输出结构，只在需要时覆盖字符串尺寸参数。新增标准结构时，通过
+`MakePooledOutputBinding<T>` 声明字段、平台上限及标量重置；框架负责分配和释放。
 特殊嵌套结构才需要描述一份完整输出的布局与生命周期。框架负责创建
-多少份（采用 Create 的实际池深）、租约和队列。同一个 map 键、同一个外层 C 结构，可以在不同
-handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固定，Process 使用
-同一份规范化配置进行结果转换。
+多少份（采用 Create 的实际池深）、租约和队列。同一个 map 键、同一个外层 C 结构，可以由不同的输出转换器登记
+选择不同的嵌套 `void*` 布局：布局和布局参数写在登记的槽声明里，方案的 `io.output` 选择哪个登记，
+就得到哪种布局；选择在 Create 固定，Process 使用同一份解析结果进行结果转换。
 
 ## 开发者需要实现什么
 
@@ -18,9 +18,9 @@ handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固�
 
 | 场景 | 新增什么 | 不需要改什么 | 隔离由谁保证 |
 | --- | --- | --- | --- |
-| 复用已有宿主类型 | 转换器与绑定 | ValueType、输出池和其他业务 | — |
+| 复用已有宿主类型 | 转换器登记 | ValueType、输出池和其他业务 | — |
 | 新的平台宿主类型 | 平台结构、type traits，以及 `operator_builtin_value_types.cpp` 中的一项登记 | 其他类型及其部署配置 | 类型后缀唯一；Init 时审计全部登记，并核对槽位结构与登记结构一致 |
-| 已有类型的新嵌套布局 | 自己 `.cpp` 中的命名方案，以及能写入该布局的转换器 | 类型的默认实现、未选用该方案的部署 | 部署显式选择 `allocator`，参数在 Create 时、分配前校验 |
+| 已有类型的新嵌套布局 | 自己 `.cpp` 中的命名方案，以及在槽声明中固定该方案的转换器登记 | 类型的默认实现、未选用该登记的部署 | 方案由登记固定，方案名和布局参数在注册审计时核对、解析；方案由 `io` 选择登记 |
 
 新的平台宿主类型若只有标准 `CompanyString*` 字段和可选 `CompanyAny*`，用
 `MakePooledOutputBinding<T>` 声明成员与容量即可。其他嵌套布局提供自己的普通参数结构
@@ -28,76 +28,79 @@ handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固�
 `OwnedExternalBlock` 负责已登记内存的自动释放与失败回滚。
 参数类不需要继承框架基类，也不需要实现 `ToJson()`。
 
-同一实现内可调的取值（容量、布局枚举）用 `params` 表达；需要独立的分配、重置或析构逻辑时，
+同一实现内可调的取值（容量、布局枚举）写在登记槽声明的 `allocator_params`（JSON 文本）中，
+需要另一组取值时新增一个登记；需要独立的分配、重置或析构逻辑时，
 新增命名方案，不在已有实现中加分支。
 
-Create 时 `OperatorConfigResolver` 把 `deployment.io.out_mem.<槽位>.params` 原样序列化为文本，
-交给所选实现的解析函数：字符串值保留 JSON 引号及转义，数组、对象和标量保持各自含义，
-未设置时为 `{}`。解析函数可以选用所需的解析库，公共扩展头不包含 JSON 类型。业务实现不读取
+注册审计用所选布局自带的解析函数解析 `allocator_params`（未设置时为 `{}`），写错在 `Init` 报错，
+早于 Create；解析结果在 Create 写入输出池规格，交给分配与转换回调。字符串值保留 JSON 引号及转义，
+数组、对象和标量保持各自含义。解析函数可以选用所需的解析库，公共扩展头不包含 JSON 类型。业务实现不读取
 部署文件。最终业务输出仍按注册的外层结构和嵌套布局返回。
 
 隔离性由 [Operator 接口测试](../../tests/integration/operator/test_operator_api.cpp) 验证：
-`MissingOutputMemoryUsesRegisteredNestedDefaults`（同一类型注册了多个命名方案，未选用的部署仍走默认实现）、
-`SameOutputKeysSelectIndependentNestedAllocatorsPerHandle`（各 handle 独立选择方案）、
-`NestedOutputConfigurationIsValidatedBeforeAllocation`（非法参数在分配前被拒绝）。
+`SameOutputKeysSelectIndependentNestedAllocatorsPerHandle`（各 handle 经由不同登记独立选择方案）、
+`NestedOutputConfigurationIsValidatedBeforeAllocation`（非法参数在分配前被拒绝）、
+`UndeclaredLayoutParametersUseTheAllocatorDefaults`（登记未声明布局参数时使用方案默认值）。
 
 ## 选择参数
 
+输出转换器登记的槽声明 `ExternalSlotDefinition` 固定以下内容，它们不进入方案配置：
+
 | 字段 | 用途 |
 | --- | --- |
-| 槽位 `slot_name` | 业务中的输出槽位，也是 `deployment.io.out_mem` 的配置键 |
-| 槽位 `key_suffix` | 外部 map key 最后一个点号后的部分；`ExternalSlotDefinition` 可显式指定，为空时由 `KeySuffix()` 使用 `type_suffix`。常见槽位工厂令 `type_suffix = slot_name`；异名槽位使用完整定义 |
-| 槽位 `type_suffix` | 注册定义指定的外层 ValueType；配置不再填写 `type` |
-| `allocator` | 为该外层类型注册的分配方案标识；省略时使用类型的默认实现 |
-| `params` | 由方案解释、校验并补齐的单份布局参数，例如嵌套枚举与数组容量 |
-| `capacities` / `meta_num` / `metadata_type_id` | 方案声明的标准字符串与 CompanyAny 容量字段 |
+| `type_suffix` | 外部 map key 最后一个点号后的部分，也是登记的 `type`；同时选择注册的外层 ValueType |
+| `type_id` | 宿主结构名，必须等于 `type_suffix` 所登记的结构，不一致时 Init 审计报错 |
+| `required` | 是否必需；`false` 的可选输出总是分配输出池，宿主每次调用都可以省略这个 key |
+| `allocator` | 为该外层类型注册的分配方案标识；为空时使用类型的标准布局 |
+| `allocator_params` | 由方案解释的单份布局参数（JSON 文本），注册审计时解析，例如嵌套枚举与数组容量 |
+| `metadata_count` / `metadata_type_id` | 结构体带 `CompanyAny*` metadata 成员时分配的元素数和类型；结构体没有 metadata 成员时必须为 0。目前只有 `CompanyOdOutput`，生产登记都为 0，仍属待内网核对的替身字段 |
 
-转换器声明槽位时，`ExternalInputSlot<T>(slot)` / `ExternalOutputSlot<T>(slot)` 令
-`type_suffix = slot_name`，`key_suffix` 留空并回退到 `type_suffix`，只适用于必需槽且三个名称相同的
-常见约定。其他情况使用完整的 `ExternalSlotDefinition`。例如逻辑槽名为 `result`、已注册类型后缀为
-`entity_out`、外部 key 为 `sdk.answer` 时，分别设置 `slot_name = "result"`、
-`type_suffix = "entity_out"`、`key_suffix = "answer"`。
-输出槽的容量字段由 `type_suffix` 对应的 ValueType 决定，不在槽位上重复声明；Catalog 中的
-`external_type` 由外部槽类型按声明顺序拼接（如 `CompanyFrame,CompanyString`）。
+字符串字段的容量不在槽声明里：输出结构的每个字符串字段由登记的 `<字段>_max_bytes` 尺寸参数决定
+（`MaxBytes("field", ...)`，默认值须在 1 到平台上限之间），方案的 `io.output` 项用 `params` 覆盖。
+这样转换器与它写入的布局一定匹配，不需要在运行时核对 `spec.allocator`。
 
-以下配置来自参与编译的
+转换器声明槽位时，`ExternalInputSlot<T>(type)` / `ExternalOutputSlot<T>(type)` 令
+`type_suffix = type`，输出槽使用标准布局；命名布局、metadata 或可选槽直接在返回的
+`ExternalSlotDefinition` 上设置相应字段。Catalog 中的 `external_type` 是登记的宿主结构名。
+
+以下登记来自参与编译的
 [测试接入](../../tests/integration/operator/test_operator_api.cpp)和
-[嵌套结构实现](../../tests/support/operator_nested_output_fixture.h)。这些类型和业务只在
+[嵌套结构实现](../../tests/support/operator_nested_output_fixture.h)。这些类型和登记只在
 测试程序中注册，用于说明扩展方式，不是生产 SDK 中可选的新业务。
 
-下面是 Pipeline 文档的 `deployment` 部分；`.conf` 仅保存 `{"pipe_path":"pipeline.json"}`。
+```cpp
+OutputConverterDefinition def;
+def.type = "test_nested_out";   // 宿主 map key 后缀
+def.name = "standard_pair"; // 测试专用的业务名
+def.slot.type_id = "NestedOutputEnvelope";
+def.slot.type_suffix = def.type;
+def.slot.allocator = "test_nested_standard";
+def.slot.allocator_params = R"({"kind":1,"capacity":2})";
+```
+
+方案只写 `io`；`.conf` 仅保存 `{"pipe_path":"pipeline.json"}`：
 
 ```json
 {
-  "deployment": {
-    "io": {
-      "io_binding": "<已注册的测试绑定>",
-      "out_mem": {
-        "main": {
-          "allocator": "test_nested_standard",
-          "params": {"kind": 1, "capacity": 8}
-        },
-        "audit": {
-          "allocator": "test_nested_alternate",
-          "params": {"kind": 2, "capacity": 16}
-        }
-      }
-    }
+  "io": {
+    "input": [ { "type": "keyword_in", "name": "keyword_match" } ],
+    "output": [
+      { "type": "test_nested_out",  "name": "standard_pair" },
+      { "type": "test_nested_audit_out", "name": "standard_pair" }
+    ]
   }
 }
 ```
 
-示例接入绑定 将两个槽位的 `key_suffix` 分别注册为 `result`、`audit`，调用方准备
-`outputs[i]["chan.result"]` 与 `outputs[i]["chan.audit"]` 两个空 shared_ptr。
+示例中两个输出登记的 `type`（key 后缀）分别是 `test_nested_out`、`test_nested_audit_out`，调用方准备
+`outputs[i]["chan.test_nested_out"]` 与 `outputs[i]["chan.test_nested_audit_out"]` 两个空 shared_ptr。
 二者都指向 `NestedOutputEnvelope`，其 `void* payload` 指向下一层结构，后者的
-`void* values` 再根据 `kind` 指向整数或浮点数组。修改 `main` 的方案或参数后创建
-另一个 handle，map 键仍可保持 `chan.result`。
+`void* values` 再根据 `kind` 指向整数或浮点数组。把 `name` 换成另一个登记（例如使用另一种方案的
+`alternate_pair`）后创建另一个 handle，map 键仍保持不变。
 
-必需输出槽省略配置时使用已注册的默认 allocator、容量和零 metadata。只有修改默认值时
-才填写 `deployment.io.out_mem`；类型完全来自槽位定义，旧 `type` 字段会被拒绝。
-`required=false` 的可选输出需要显式槽配置来启用，`{}` 表示采用默认值；Process 可省略该输出。
-逻辑名和有效 map 后缀分别唯一；不同槽位可以复用相同类型和方案，各自使用独立容量和输出池。
-自定义 allocator 若要求布局参数，省略参数仍会报错。容量以实际载荷字节数为准，不能由 token 数
+必需输出项省略 `params` 时使用登记的默认尺寸，布局与 metadata 总是登记固定的值；类型完全来自槽声明。
+逻辑名和有效 map 后缀分别唯一；不同登记可以复用相同类型和方案，各自使用独立容量和输出池。
+容量以实际载荷字节数为准，不能由 token 数
 直接换算；超限检测、池预算、租约、失败回滚及全部转换成功后发布仍由框架执行。
 
 ## 实现与注册
@@ -134,11 +137,11 @@ DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
 
 ```cpp
 RegisterBinding(MakePooledOutputBinding<SummaryOutput>(
-    "summary", {{"summary", &SummaryOutput::summary, {4096, 65536}}},
+    "summary", {{"summary", &SummaryOutput::summary, 65536}},
     [](SummaryOutput& value) noexcept { value.status = 0; }));
 ```
 
-容量结构的顺序是默认值、最大值。成员声明同时用于配置校验、预算、分配和
+容量只声明平台上限；默认尺寸属于输出转换器的 `MaxBytes("summary", ...).Default(4096)` 参数。成员声明同时用于配置校验、预算、分配和
 重置；标量回调必须 `noexcept`，只重置标量，不能覆盖嵌套指针。输入对应使用
 `MakeTypedInputBinding<T>`，回调直接接收 `const T&` 和 `InputLimits`。
 完整可执行示例见[输出池测试](../../tests/unit/operator/test_operator_output_pool.cpp)。
@@ -187,25 +190,22 @@ binding.normalize_parameters =
 ## 转换与有效期
 
 通过 `REGISTER_OUTPUT_CONVERTER` 注册含 `encode_fn` 回调的 `OutputConverterDefinition`，
-再由 `IoBindingDefinition` 绑定转换器与命名输出槽位。回调从 `ExternalOutputBatchView`
+登记的槽声明已经固定命名布局。回调从 `ExternalOutputBatchView`
 按槽位读取已分配的外层结构与 `ResolvedOutputPoolSpec`，按同一份
 `allocator` 和类型化参数填充载荷。转换必须保持指针与已分配布局一致，不重新读取
 部署文件、不另设默认容量，也不把请求局部指针塞进输出结构。
 
-同一外层类型可能被不同部署选用不同的命名方案，而 Create 时框架不核对转换器是否支持所选方案；
-接入第一个生产命名方案时，同步让槽位声明可接受的方案，在 Create 时校验并在 Catalog 中列出。
-写嵌套布局的转换器在写入前先核对 `spec.allocator`（或根结构中的布局标记），遇到不支持的方案
-返回 `-4` 并给出诊断，由框架归还全部租约；参照
-[嵌套结构夹具](../../tests/support/operator_nested_output_fixture.h)中 `ConvertNestedOutput` 的一致性检查。
+命名布局由登记的槽声明固定，转换器与它写入的布局一定匹配；要支持另一种布局，就新增一个登记。
+参照[嵌套结构夹具](../../tests/support/operator_nested_output_fixture.h)中 `ConvertNestedOutput` 的写法。
 
 框架在全部输出转换成功后发布 map；任何一项失败都会归还已经获取的输出租约。
 调用方读取时依照外部协议的枚举解释 `void*`；内存的实际清理依据已登记的所有权
 记录。输出引用不延长 handle 的有效期，销毁顺序见下文
 [宿主调用与生命周期](#宿主调用与生命周期)。
 
-`alg_pipeline_tool resolve-conf` 在 `configuration.output_pools` 按逻辑槽位展示有效
-方案与框架容量，`params` 是交给结构体解析函数的**字符串**（例如
-`"{\"kind\":1,\"capacity\":8}"`），不包含该解析函数内部补齐的默认值。单输出同样通过 `output_pools` 按槽位读取。
+`alg_pipeline_tool resolve-conf` 在 `configuration.output_pools` 按槽（登记的 `type`）展示有效
+方案与容量，`params` 是交给结构体解析函数的**字符串**（例如
+`"{\"kind\":1,\"capacity\":8}"`），不包含该解析函数内部补齐的默认值。单输出同样通过 `output_pools` 按槽读取。
 现有 Demo/Studio Profile 使用原单输出
 业务；新多输出业务由其宿主调用或相应 Demo 扩展验证。
 
@@ -215,9 +215,9 @@ binding.normalize_parameters =
 [业务接入指南](business_onboarding.md#6-输出容量)。
 
 **调用前提。** `Process` 的输入、输出批次必须非空且帧数相等，单次批次不超过有效上限，
-超出时直接失败，不会在门面中自动拆批。每帧按接入绑定提供必需的输入槽和输出槽，可选槽按契约省略。
+超出时直接失败，不会在门面中自动拆批。每帧按 `io` 选中的登记提供必需的输入槽和输出槽，可选槽按契约省略。
 提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
-有效 key 后缀与宿主类型可通过 `catalog --io-binding <biz_name>` 查询，后缀与类型的区别见
+有效 key 后缀与宿主类型可通过 `catalog --io-binding <业务名>` 查询，后缀与类型的区别见
 [选择参数](#选择参数)。
 
 **借用输入与输出租约。** `CompanyString` 用于文本，二进制使用 `CompanyBuffer`。
@@ -233,7 +233,7 @@ binding.normalize_parameters =
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
 **`Init`、`DeInit` 与并发。** `Init` 用于注册审计，应在创建实例前调用；审计失败返回 `-6`，
-`GetOperatorLastError()` 与日志逐条列出来源（注册表或 IoBinding 审计）和原因。同一 handle 的 `Process` 与
+`GetOperatorLastError()` 与日志逐条列出来源（注册表或转换器审计）和原因。同一 handle 的 `Process` 与
 `Control` 串行，不同 handle 可并行。`DeInit` 会清理该库实例中登记的**所有 handle**，不是单个调用方的
 局部清理。调用前须停止所有实例的新调用、等待在途调用返回并释放全部输出；不支持与 Create、Process、
 Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但已清理的 handle 和旧输出仍失效。

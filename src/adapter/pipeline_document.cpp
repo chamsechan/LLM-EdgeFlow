@@ -1,11 +1,92 @@
 #include "adapter/pipeline_document.h"
 
-#include "adapter/deployment_structure.h"
+#include "adapter/io_structure.h"
 #include "contracts/json_structure.h"
 
 namespace llm_edgeflow {
 
 namespace structure = json_structure;
+
+namespace {
+
+bool Fail(const std::string& path, const std::string& message,
+          std::string* out_error, std::string* out_error_path) {
+  if (out_error) *out_error = message;
+  if (out_error_path) *out_error_path = path;
+  return false;
+}
+
+bool ParseItems(const nlohmann::json& io, const char* side,
+                std::vector<IoItemSpec>* items, std::string* out_error,
+                std::string* out_error_path) {
+  const auto& io_shape = IoStructure();
+  const auto& array_shape = structure::Property(io_shape, side);
+  const auto& item_shape = array_shape.at("items");
+  const std::string base = std::string("/io/") + side;
+  if (!io.contains(side)) {
+    return Fail(base, "Missing required field '" + base + "'", out_error,
+                out_error_path);
+  }
+  const auto& array = io.at(side);
+  if (!structure::HasType(array, array_shape)) {
+    return Fail(base, "Field '" + base + "' must be an array", out_error,
+                out_error_path);
+  }
+  if (structure::TooShort(array, array_shape)) {
+    return Fail(base, "Field '" + base + "' must contain at least one item",
+                out_error, out_error_path);
+  }
+  for (size_t i = 0; i < array.size(); ++i) {
+    const auto& entry = array[i];
+    const std::string path = base + "/" + std::to_string(i);
+    if (!structure::HasType(entry, item_shape)) {
+      return Fail(path, "Field '" + path + "' must be an object", out_error,
+                  out_error_path);
+    }
+    for (auto it = entry.begin(); it != entry.end(); ++it) {
+      if (!structure::AllowsProperty(item_shape, it.key())) {
+        return Fail(path + "/" + EscapeJsonPointer(it.key()),
+                    "Unknown field at " + path + "/" +
+                        EscapeJsonPointer(it.key()) +
+                        " (only 'type', 'name' and 'params' allowed)",
+                    out_error, out_error_path);
+      }
+    }
+    IoItemSpec item;
+    for (const char* field : {"type", "name"}) {
+      const std::string field_path = path + "/" + field;
+      if (!entry.contains(field)) {
+        return Fail(field_path, "Missing required field '" + field_path + "'",
+                    out_error, out_error_path);
+      }
+      const auto& value = entry.at(field);
+      const auto& field_shape = structure::Property(item_shape, field);
+      if (!structure::HasType(value, field_shape)) {
+        return Fail(field_path, "Field '" + field_path + "' must be a string",
+                    out_error, out_error_path);
+      }
+      if (structure::TooShort(value, field_shape)) {
+        return Fail(field_path, "Field '" + field_path + "' cannot be empty",
+                    out_error, out_error_path);
+      }
+      (std::string(field) == "type" ? item.type : item.name) =
+          value.get<std::string>();
+    }
+    if (entry.contains("params")) {
+      if (!structure::HasType(entry.at("params"),
+                              structure::Property(item_shape, "params"))) {
+        return Fail(path + "/params",
+                    "Field '" + path + "/params' must be an object", out_error,
+                    out_error_path);
+      }
+      item.params = entry.at("params");
+    }
+    items->push_back(std::move(item));
+  }
+  return true;
+}
+
+}  // namespace
 
 bool SplitPipelineDocument(const nlohmann::json& root,
                            PipelineDocumentSplit* out_split,
@@ -18,119 +99,41 @@ bool SplitPipelineDocument(const nlohmann::json& root,
   *out_split = PipelineDocumentSplit{};
 
   if (!root.is_object()) {
-    if (out_error) {
-      *out_error = "Pipeline configuration root must be a JSON object";
-    }
-    if (out_error_path) *out_error_path = "/";
-    return false;
+    return Fail("/", "Pipeline configuration root must be a JSON object",
+                out_error, out_error_path);
   }
-
   for (const auto& [field, value] : root.items()) {
     if (!structure::AllowsProperty(PipelineDocumentStructure(), field)) {
       const auto path = "/" + EscapeJsonPointer(field);
-      if (out_error) *out_error = "Unknown field at " + path;
-      if (out_error_path) *out_error_path = path;
-      return false;
+      return Fail(path, "Unknown field at " + path, out_error, out_error_path);
     }
   }
-  if (!root.contains("deployment")) {
-    if (out_error) *out_error = "Missing required field '/deployment'";
-    if (out_error_path) *out_error_path = "/deployment";
-    return false;
+  if (!root.contains("io")) {
+    return Fail("/io", "Missing required field '/io'", out_error,
+                out_error_path);
   }
-
-  const auto& dep_shape = DeploymentStructure();
-  const auto& dep = root["deployment"];
-  if (!structure::HasType(dep, dep_shape)) {
-    if (out_error) *out_error = "Field '/deployment' must be an object";
-    if (out_error_path) *out_error_path = "/deployment";
-    return false;
-  }
-
-  // 1. 校验 deployment 内部白名单: 仅允许 io
-  for (auto it = dep.begin(); it != dep.end(); ++it) {
-    if (!structure::AllowsProperty(dep_shape, it.key())) {
-      if (out_error) {
-        *out_error = "Unknown field at /deployment/" +
-                     EscapeJsonPointer(it.key()) + " (only 'io' allowed)";
-      }
-      if (out_error_path) {
-        *out_error_path = "/deployment/" + EscapeJsonPointer(it.key());
-      }
-      return false;
-    }
-  }
-
-  out_split->neutral_pipeline_json = root;
-  out_split->neutral_pipeline_json.erase("deployment");
-
-  // 2. 唯一的外部契约入口，输出内存覆盖仍可省略。
-  if (!dep.contains("io")) {
-    if (out_error) *out_error = "Missing required field '/deployment/io'";
-    if (out_error_path) *out_error_path = "/deployment/io";
-    return false;
-  }
-  const auto& io_shape = structure::Property(dep_shape, "io");
-  const auto& io = dep["io"];
+  const auto& io = root.at("io");
+  const auto& io_shape = IoStructure();
   if (!structure::HasType(io, io_shape)) {
-    if (out_error) *out_error = "Field '/deployment/io' must be an object";
-    if (out_error_path) *out_error_path = "/deployment/io";
-    return false;
+    return Fail("/io", "Field '/io' must be an object", out_error,
+                out_error_path);
   }
-
-  // 校验 io 内部白名单。
   for (auto it = io.begin(); it != io.end(); ++it) {
     if (!structure::AllowsProperty(io_shape, it.key())) {
-      if (out_error) {
-        *out_error = "Unknown field at /deployment/io/" +
-                     EscapeJsonPointer(it.key()) +
-                     " (only 'io_binding' and 'out_mem' allowed)";
-      }
-      if (out_error_path) {
-        *out_error_path = "/deployment/io/" + EscapeJsonPointer(it.key());
-      }
-      return false;
+      return Fail("/io/" + EscapeJsonPointer(it.key()),
+                  "Unknown field at /io/" + EscapeJsonPointer(it.key()) +
+                      " (only 'input' and 'output' allowed)",
+                  out_error, out_error_path);
     }
   }
-
-  if (!io.contains("io_binding")) {
-    if (out_error)
-      *out_error = "Missing required field '/deployment/io/io_binding'";
-    if (out_error_path) *out_error_path = "/deployment/io/io_binding";
+  PipelineDocumentSplit split;
+  if (!ParseItems(io, "input", &split.io.input, out_error, out_error_path) ||
+      !ParseItems(io, "output", &split.io.output, out_error, out_error_path)) {
     return false;
   }
-  {
-    if (!structure::HasType(io["io_binding"],
-                            structure::Property(io_shape, "io_binding"))) {
-      if (out_error) {
-        *out_error = "Field '/deployment/io/io_binding' must be a string";
-      }
-      if (out_error_path) *out_error_path = "/deployment/io/io_binding";
-      return false;
-    }
-    std::string io_binding = io["io_binding"].get<std::string>();
-    if (structure::TooShort(io["io_binding"],
-                            structure::Property(io_shape, "io_binding"))) {
-      if (out_error) {
-        *out_error = "Field '/deployment/io/io_binding' cannot be empty";
-      }
-      if (out_error_path) *out_error_path = "/deployment/io/io_binding";
-      return false;
-    }
-    out_split->deployment.io.io_binding = std::move(io_binding);
-  }
-
-  if (io.contains("out_mem")) {
-    if (!structure::HasType(io["out_mem"],
-                            structure::Property(io_shape, "out_mem"))) {
-      if (out_error) {
-        *out_error = "Field '/deployment/io/out_mem' must be an object";
-      }
-      if (out_error_path) *out_error_path = "/deployment/io/out_mem";
-      return false;
-    }
-    out_split->deployment.io.out_mem = io["out_mem"];
-  }
+  split.core_json = root;
+  split.core_json.erase("io");
+  *out_split = std::move(split);
   return true;
 }
 

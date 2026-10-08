@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -25,13 +24,13 @@ using namespace llm_edgeflow::operator_api;
 class OperatorSafetyTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
+    llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
     llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
     Get_LLM_EDGEFLOW_OperatorTable().Init();
   }
   void TearDown() override {
     Get_LLM_EDGEFLOW_OperatorTable().DeInit();
-    llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
+    llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
     llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
   }
 };
@@ -102,8 +101,10 @@ TEST_F(OperatorSafetyTest, EndToEndDynamicControlAndVerification) {
   CompanyString cs1{static_cast<int32_t>(s1.size()),
                     const_cast<char*>(s1.data())};
 
-  CompanyOperatorKeywordInput req0{101, &cs0};
-  CompanyOperatorKeywordInput req1{102, &cs1};
+  CompanyOperatorKeywordInput req0{101, &cs0,
+                                   COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
+  CompanyOperatorKeywordInput req1{102, &cs1,
+                                   COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
 
   NamedIoBatch inputs(2);
   inputs[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req0);
@@ -158,8 +159,10 @@ TEST_F(OperatorSafetyTest, OutputBatchSizeMismatchProtection) {
   CompanyString cs1{static_cast<int32_t>(s1.size()),
                     const_cast<char*>(s1.data())};
 
-  CompanyOperatorKeywordInput req0{101, &cs0};
-  CompanyOperatorKeywordInput req1{102, &cs1};
+  CompanyOperatorKeywordInput req0{101, &cs0,
+                                   COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
+  CompanyOperatorKeywordInput req1{102, &cs1,
+                                   COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
 
   NamedIoBatch inputs(2);
   inputs[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req0);
@@ -195,7 +198,8 @@ TEST_F(OperatorSafetyTest, NullOrMissingSlotInBatchInputs) {
   std::string s0 = "请联系VIP专员";
   CompanyString cs0{static_cast<int32_t>(s0.size()),
                     const_cast<char*>(s0.data())};
-  CompanyOperatorKeywordInput req0{101, &cs0};
+  CompanyOperatorKeywordInput req0{101, &cs0,
+                                   COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
 
   NamedIoBatch inputs_with_missing_slot(2);
   inputs_with_missing_slot[0]["client_channel.keyword_in"] =
@@ -224,7 +228,8 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
 
   CompanyString text{1, nullptr};
-  CompanyOperatorKeywordInput request{42, &text};
+  CompanyOperatorKeywordInput request{42, &text,
+                                      COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
   NamedIoBatch inputs(1);
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&request);
   NamedIoBatch outputs(1);
@@ -279,8 +284,10 @@ TEST_F(OperatorSafetyTest,
   char overflow[] = "overflow";
   CompanyString first_text{8, ordinary};
   CompanyString second_text{8, overflow};
-  CompanyOperatorKeywordInput first{41, &first_text};
-  CompanyOperatorKeywordInput second{42, &second_text};
+  CompanyOperatorKeywordInput first{41, &first_text,
+                                    COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
+  CompanyOperatorKeywordInput second{42, &second_text,
+                                     COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
   NamedIoBatch inputs(2);
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&first);
   inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&second);
@@ -309,19 +316,19 @@ TEST_F(OperatorSafetyTest,
   }
 }
 
-// 6. 测试 IoBinding 注册冲突防护与定义机器可读性
-TEST_F(OperatorSafetyTest, IoBindingRegistryConflictDetectionAndDescriptor) {
-  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  const auto* binding = registry.FindBinding("keyword_match");
-  ASSERT_NE(binding, nullptr);
+// 6. 测试 converter 注册冲突防护与定义机器可读性
+TEST_F(OperatorSafetyTest, ConverterRegistryConflictDetectionAndDescriptor) {
+  auto& registry = llm_edgeflow::IoConverterRegistry::Instance();
+  const auto* converter =
+      registry.FindInputConverter("keyword_in", "keyword_match");
+  ASSERT_NE(converter, nullptr);
 
-  EXPECT_EQ(binding->biz_name, "keyword_match");
+  EXPECT_EQ(converter->Label(), "keyword_in/keyword_match");
+  EXPECT_EQ(converter->service_type, COMPANY_MOCK_SERVICE_KEYWORD_MATCH);
 
-  EXPECT_GT(binding->max_batch_size, 0);
-
-  // 测试重复 binding 注册拦截
-  bool reg_dup_ret = registry.RegisterBinding(*binding);
-  EXPECT_FALSE(reg_dup_ret) << "Duplicate biz binding registration must fail";
+  // 测试重复（type, name）登记拦截
+  bool reg_dup_ret = registry.RegisterInputConverter(*converter);
+  EXPECT_FALSE(reg_dup_ret) << "Duplicate converter registration must fail";
   registry.ResetConflictForTesting();
 }
 
@@ -344,8 +351,8 @@ TEST_F(OperatorSafetyTest, RuntimeOptionsAndDevicePropagation) {
   EXPECT_EQ(op.Destroy(handle1), 0);
 }
 
-// 8. 测试配置中未知/缺失 binding 在 Create 前置拦截
-TEST_F(OperatorSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
+// 8. 测试配置中未知/缺失 converter 在 Create 前置拦截
+TEST_F(OperatorSafetyTest, UnknownAndUnregisteredConverterRejectionInCreate) {
   auto op = Get_LLM_EDGEFLOW_OperatorTable();
 
   // 1) 传入不存在的接入配置
@@ -359,10 +366,10 @@ TEST_F(OperatorSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
   EXPECT_NE(ret, 0);
   EXPECT_EQ(handle, nullptr);
 
-  // 2) 缺失 io_binding、3) 未知业务名；有效业务名作为对照可以创建。
+  // 2) 缺失 io、3) 未知 converter；有效方案作为对照可以创建。
   const auto directory =
       std::filesystem::temp_directory_path() /
-      ("edgeflow-io-binding-" +
+      ("edgeflow-io-items-" +
        std::to_string(
            std::chrono::steady_clock::now().time_since_epoch().count()));
   std::filesystem::create_directory(directory);
@@ -385,15 +392,14 @@ TEST_F(OperatorSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
   };
 
   auto missing = pipeline;
-  missing["deployment"]["io"].erase("io_binding");
+  missing.erase("io");
   EXPECT_NE(create_with(missing), 0);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("io_binding"),
-            std::string::npos);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("/io"), std::string::npos);
 
   auto unknown = pipeline;
-  unknown["deployment"]["io"]["io_binding"] = "unknown_biz";
+  unknown["io"]["input"][0]["name"] = "unknown_biz";
   EXPECT_NE(create_with(unknown), 0);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("unknown_biz"),
+  EXPECT_NE(std::string(GetOperatorLastError()).find("keyword_in/unknown_biz"),
             std::string::npos);
 
   EXPECT_EQ(create_with(pipeline), 0) << GetOperatorLastError();
@@ -402,17 +408,18 @@ TEST_F(OperatorSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
 
 // 9. 测试 Registry 冲突 fail-closed 导致 Init 失败
 TEST_F(OperatorSafetyTest, FailClosedRegistryConflictAndInitFailure) {
-  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
+  auto& registry = llm_edgeflow::IoConverterRegistry::Instance();
   registry.ResetConflictForTesting();
   auto op = Get_LLM_EDGEFLOW_OperatorTable();
 
   // 初始干净状态 Init 成功
   EXPECT_EQ(op.Init(), 0);
 
-  // 注册冲突（重复注册 binding）
-  const auto* binding = registry.FindBinding("keyword_match");
-  ASSERT_NE(binding, nullptr);
-  bool reg_ret = registry.RegisterBinding(*binding);
+  // 注册冲突（重复注册 converter）
+  const auto* converter =
+      registry.FindInputConverter("keyword_in", "keyword_match");
+  ASSERT_NE(converter, nullptr);
+  bool reg_ret = registry.RegisterInputConverter(*converter);
   EXPECT_FALSE(reg_ret);
   EXPECT_TRUE(registry.HasConflict());
 
@@ -459,44 +466,24 @@ TEST_F(OperatorSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
   EXPECT_EQ(op.Destroy(handle), 0);
 }
 
-TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
-  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  const auto* original = registry.FindBinding("keyword_match");
-  ASSERT_NE(original, nullptr);
-  auto binding = *original;
-  binding.max_batch_size = 1;
-
+TEST_F(OperatorSafetyTest, PoolDepthTightensTheProcessBatchLimit) {
   const auto directory =
       std::filesystem::temp_directory_path() /
-      ("edgeflow-binding-batch-" +
+      ("edgeflow-pool-depth-batch-" +
        std::to_string(
            std::chrono::steady_clock::now().time_since_epoch().count()));
   struct Cleanup {
-    std::vector<llm_edgeflow::IoBindingDefinition> bindings;
     std::filesystem::path directory;
     ~Cleanup() {
-      auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-      registry.ClearForTesting();
-      for (const auto& binding : bindings)
-        EXPECT_TRUE(registry.RegisterBinding(binding));
       std::error_code error;
       std::filesystem::remove_all(directory, error);
     }
-  } cleanup{registry.AllBindings(), directory};
-  // 每个业务只有一个 binding：用收紧批次的副本替换原 binding。
-  registry.ClearForTesting();
-  for (const auto& saved : cleanup.bindings) {
-    if (saved.biz_name != binding.biz_name) {
-      ASSERT_TRUE(registry.RegisterBinding(saved));
-    }
-  }
-  ASSERT_TRUE(registry.RegisterBinding(binding));
+  } cleanup{directory};
   std::filesystem::create_directory(directory);
   std::ifstream source("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
   source >> pipeline;
-  pipeline["deployment"]["io"]["io_binding"] = binding.biz_name;
   std::ofstream(directory / "pipeline.json") << pipeline.dump();
   std::ofstream(directory / "pipeline.conf")
       << nlohmann::json({{"pipe_path", "pipeline.json"}}).dump();
@@ -506,7 +493,7 @@ TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
   param.model_path = directory.c_str();
   param.cfg_file_name = "pipeline.conf";
   param.compute_platform = ComputePlatform::kCpu;
-  param.max_frame_depth = 8;
+  param.max_frame_depth = 1;
   void* raw_handle = nullptr;
   ASSERT_EQ(op.Create(&raw_handle, &param), COMPANY_ALG_SUCCESS)
       << GetOperatorLastError();
@@ -514,7 +501,9 @@ TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
 
   char text[] = "ordinary request";
   CompanyString sentence{static_cast<int32_t>(std::strlen(text)), text};
-  CompanyOperatorKeywordInput requests[] = {{41, &sentence}, {42, &sentence}};
+  CompanyOperatorKeywordInput requests[] = {
+      {41, &sentence, COMPANY_MOCK_SERVICE_KEYWORD_MATCH},
+      {42, &sentence, COMPANY_MOCK_SERVICE_KEYWORD_MATCH}};
   NamedIoBatch inputs(2);
   NamedIoBatch outputs(2);
   for (size_t i = 0; i < inputs.size(); ++i) {
@@ -571,7 +560,8 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
         std::string s = "same handle request";
         CompanyString cs{static_cast<int32_t>(s.size()),
                          const_cast<char*>(s.data())};
-        CompanyOperatorKeywordInput input{request_id, &cs};
+        CompanyOperatorKeywordInput input{request_id, &cs,
+                                          COMPANY_MOCK_SERVICE_KEYWORD_MATCH};
 
         NamedIoBatch inputs(1);
         inputs[0]["client_channel.keyword_in"] =
@@ -613,7 +603,7 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
 TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   const auto* out_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindOutputConverter(
-          "document.structured");
+          "entity_out", "entity_extract");
   ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;
@@ -651,7 +641,8 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
 
   llm_edgeflow::OutputEncodeOptions options;
 
-  options.converter_id = out_conv->converter_id;
+  options.type = out_conv->type;
+  options.name = out_conv->name;
   options.request_ids = &request_ids;
 
   size_t written_count = 0;

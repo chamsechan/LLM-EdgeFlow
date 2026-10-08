@@ -27,21 +27,21 @@
 | 四层架构及依赖方向不变 | 用户确认 |
 | 平台契约不变：Operator API、宿主结构体、槽位名、输出池语义、Demo 与 SDK 的交互、`.conf` 格式 | 用户确认 |
 | 节点写法保留"函数 + Spec"，不引入派生基类 | 讨论结论：两者心智基本一致，再加一层只会多一套写法 |
-| 沿用现有概念和命名（InputConverter、OutputConverter、IoBinding、`biz_name`、`io_binding` ID），不新造同义概念 | 用户要求 |
+| 沿用现有概念和命名（InputConverter、OutputConverter），不新造同义概念；`IoBinding`、`biz_name`、`io_binding` ID 已被方案根层 `io` 取代，见[I/O 设计](PIPELINE_IO_DESIGN.md) 6.3 | 用户要求（沿用 IoBinding 的决定已被用户改变） |
 | 每项都要有明确收益，不做高投入低收益的事 | 用户要求 |
 
 **已确认的决策**
 
 | 问题 | 决定 |
 | --- | --- |
-| `biz_name`、`io_binding` ID 是否属于平台契约 | 不属于；保留现有命名，便于理解 |
+| 业务名是否属于平台契约 | 业务名对应外部契约 `service_type`，写在方案根层 `io` 各项的 `name` 中，只用于选择 converter 和核对请求；`biz_name`、`io_binding` ID 已删除，Core 不含业务概念 |
 | Exposure 白名单是否必须由代码控制 | 不需要，删除 |
 | `.conf` | 平台定义，不动 |
 | 跨请求状态的范围 | 每个 Operator 句柄一份 |
 | 同一批次内的请求能否看到彼此的写入 | 不能，批次内各请求是平行的 |
 | 进程重启后是否保留 | 不保留 |
 | 状态接口的形式 | 通用接口：既支持累积（如 embedding 历史），也支持切换（如某个模式一直保持到下一个特殊请求） |
-| BizDefinition 是否改为由 Binding 和转换器派生 | 不改，保留独立声明（原阶段 3b 取消，理由见第 9 节） |
+| BizDefinition 是否改为由 Binding 和转换器派生 | 不派生，直接删除 `BizDefinition` 与 `IoBinding`：IO 边界在部署准备时由所选 converter 组成，Catalog 直接列出 converter（原阶段 3b 取消，见第 9 节） |
 | 阶段 4 的推进方式 | 暂缓；有真实业务需求时，先按当时代码复核设计和验收，评审确认后再实施 |
 | 状态的提交边界 | 状态候选和输出发布对象全部准备成功后才最终提交；多个状态一起生效，或一起保持旧值 |
 | 状态的数据所有权 | 从产生起就是共享不可变对象；提交只转移或共享所有权；已有读取指针始终有效；所有读取路径对初始空状态的处理一致 |
@@ -199,7 +199,7 @@
 | 规则 | 诊断码 |
 | --- | --- |
 | `state` 声明缺字段、字段类型错误、超出范围、名字不合法、类型不是可追溯批次 | `MISSING_FIELD` / `FIELD_TYPE` / `FIELD_RANGE` |
-| 读写未声明的状态名；`state.` 前缀用于其他用途；接入边界（Binding 映射）使用 `state.*` | `UNKNOWN_FIELD` |
+| 读写未声明的状态名；`state.` 前缀用于其他用途；接入边界（converter 端口映射）使用 `state.*` | `UNKNOWN_FIELD` |
 | 同一个状态有多个写入节点 | `DUPLICATE_PORT_PRODUCER` |
 | 声明的状态没有写入节点；读取端口的类型与声明不符 | `MISSING_INPUT_PRODUCER`（与普通端口的类型不符报法一致） |
 | 写入端口的类型与声明不符 | `INVALID_COMBINATION` |
@@ -219,7 +219,7 @@
 
 ### 8.8 闭环一：模式保持（真实业务）
 
-**业务**：关键词匹配（`keyword_match`）加上模式保持。复用现有的 Binding、转换器和 Demo，不新增业务契约。
+**业务**：关键词匹配（`keyword_match`）加上模式保持。复用现有的转换器登记和 Demo，不新增业务。
 
 **规则**
 - `#严格模式` 切到 strict，`#常规模式` 切回 normal。
@@ -231,6 +231,10 @@
 
 ```json
 {
+  "io": {
+    "input": [ { "type": "keyword_in", "name": "keyword_match" } ],
+    "output": [ { "type": "keyword_out", "name": "keyword_match" } ]
+  },
   "state": { "mode": { "type": "TextBatch", "max_items": 1 } },
   "pipeline": [
     { "id": "mode_switch", "node_type": "ModeSwitchNode",
@@ -249,8 +253,7 @@
     { "id": "select", "node_type": "ModeSelectNode",
       "inputs":  { "mode": "state.mode", "normal": "normal_matches", "strict": "strict_matches" },
       "outputs": { "matches": "rule_matches" } }
-  ],
-  "deployment": { "io": { "io_binding": "keyword_match" } }
+  ]
 }
 ```
 
@@ -277,7 +280,7 @@
 | 6 | 我要投诉 | strict | `COMPLAINT`（与第 5 行同批，仍读到 strict） |
 | 7 | 我要投诉 | normal | 未命中 |
 
-**复用情况**：`TextRuleMatchNode` 用了两次，Binding、转换器、Demo 运行代码都不改。新增的两个节点是这个业务真正需要的逻辑，可以借此检验接口是否好用。评审节点在 4c 结束时进行（见 8.11）。
+**复用情况**：`TextRuleMatchNode` 用了两次，转换器登记、Demo 运行代码都不改。新增的两个节点是这个业务真正需要的逻辑，可以借此检验接口是否好用。评审节点在 4c 结束时进行（见 8.11）。
 
 ### 8.9 闭环二：向量历史（验证容量、共享条目和成本）
 
@@ -319,7 +322,7 @@
 
 **提交边界集成测试**（通过 Operator 运行）
 - [ ] Pipeline 中某个节点失败时，状态不变。
-- [ ] 输出编码失败时（用极小的 `out_mem` 容量触发），状态不变。
+- [ ] 输出编码失败时（把 `io.output` 项的 `match_result_json_max_bytes` 设为极小值触发），状态不变。
 - [ ] **输出发布准备失败**时（第 7 步钩子）：没有任何输出被发布，所有租用的块都回到空闲状态（按内存池账本核对），状态不变。
 - [ ] **多状态提交准备失败**时（第 6 步钩子，Pipeline 声明两个状态）：两个状态都保持旧值。
 - [ ] 两个状态都成功写入时，下一批同时看到两个新值，且来自同一个版本。
@@ -362,13 +365,13 @@
 
 | 提议 | 结论 | 理由 |
 | --- | --- | --- |
-| BizDefinition 改为由 Binding 和转换器派生（原阶段 3b） | 不做 | 不补任何能力。做完阶段 3 后，剩下的重复只是端口清单列两次；两边引用同一批常量，漏改会被审计报出。派生必须等所有转换器注册完，但 `alg_pipeline_tool catalog`（`src/cli/alg_pipeline_tool.cpp:308`）和契约测试（`tests/contract/catalog/test_catalog_contract_ssot.cpp:78`）会在此之前读取业务契约。可靠的修法是给每个入口加"完成注册"调用，或在 Core 新增挂接机制，都会增加框架复杂度。此外还会失去"改转换器端口时审计报错"这道检查，并推翻 RFC 0066（`9c64981`）刚定下的规则。实测 8 个业务的派生结果与手写定义逐字段一致；将来如果接入量大到这处重复成为负担，再单独设计 |
+| BizDefinition 改为由 Binding 和转换器派生（原阶段 3b） | 不做（已被取代：`BizDefinition` 与 `IoBinding` 直接删除，见 [I/O 设计](PIPELINE_IO_DESIGN.md) 6.3） | 当时的理由：不补任何能力。做完阶段 3 后，剩下的重复只是端口清单列两次；两边引用同一批常量，漏改会被审计报出。派生必须等所有转换器注册完，但 `alg_pipeline_tool catalog`（`src/cli/alg_pipeline_tool.cpp:308`）和契约测试（`tests/contract/catalog/test_catalog_contract_ssot.cpp:78`）会在此之前读取业务契约。可靠的修法是给每个入口加"完成注册"调用，或在 Core 新增挂接机制，都会增加框架复杂度。此外还会失去"改转换器端口时审计报错"这道检查，并推翻 RFC 0066（`9c64981`）刚定下的规则。实测 8 个业务的派生结果与手写定义逐字段一致；将来如果接入量大到这处重复成为负担，再单独设计 |
 | 用派生基类写节点 | 不做 | 与 Spec 的心智基本一致（`MakeLlmTextSpec` 本身就是"填钩子"），加一层只会多一套写法 |
 | 具名链式钩子、公开通用节点的 Spec、拆分/过滤/排序预设工厂、节点分类树、`PortFlow` 改枚举 | 不做 | 都是新写法或新概念。报错可读性的问题由阶段 2 解决；`PortFlow` 的非法值在注册时已经会被校验 |
-| 把接线从 C++ 挪到 JSON `deployment.io` | 不做 | 需要同时改 Validator、Catalog、Studio、SDK 初始化和全部配置。阶段 3 在 C++ 内合并已经拿到主要收益 |
+| 把接线从 C++ 挪到 JSON `deployment.io` | 不做（接入层的转换器选择后来由根层 `io` 承担，见 [I/O 设计](PIPELINE_IO_DESIGN.md)；节点接线仍在 Pipeline 内） | 需要同时改 Validator、Catalog、Studio、SDK 初始化和全部配置。阶段 3 在 C++ 内合并已经拿到主要收益 |
 | `REGISTER_DECODER/ENCODER`、`RowInputConverter` 等新名字 | 不做 | 与现有 InputConverter、OutputConverter 同义 |
 | 由函数签名推导转换器的宿主类型和槽位 | 不做 | `ExternalInputSlot<T>`、`ExternalOutputSlot<T>` 已经由类型推出类型名；槽位名是平台契约字符串，只需写一行，收益小 |
-| Demo 按载体重组 | 不做 | 载体是固定的，而且每个载体都已有 Demo；新业务复用现有运行函数只需一行 `REGISTER_DEMO_BIZ` |
+| Demo 按载体重组 | 不做（已被取代：Demo 按宿主结构（载体）分派，`REGISTER_DEMO_BIZ` 已删除，见 [I/O 设计](PIPELINE_IO_DESIGN.md) 6.3） | 当时的理由：载体是固定的，而且每个载体都已有 Demo；新业务复用现有运行函数只需一行 `REGISTER_DEMO_BIZ` |
 | 模型配置拆分、节点预设、子图 | 不做 | 都是新的 JSON 概念，成本高 |
 | 配置变体一致性测试 | 不做，交给方案负责人 | 现有差异里，按后端调整的生成参数和模板可能是有意的，规则内容的差异可能是遗漏，这需要业务判断，不是框架机制的问题。已发现的差异见附录 |
 | 状态的 merge、evict 等配置项 | 不做 | 合并与淘汰规则由写入节点实现；框架只强制容量上限 `max_items` |

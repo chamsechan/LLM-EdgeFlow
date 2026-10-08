@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "adapter/deployment_preparation.h"
 #include "contracts/config_schema_validation.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -393,13 +394,13 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
 
 // 7.1 TextRerankNode 端口组合约束校验
 TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
-  RegisterTestBizs(
-      {"custom_rerank_test"},
-      {{"any_pairs", "QueryCandidatesBatch", false},
-       {"any_queries", "TextBatch", false},
-       {"any_candidates", "RankedTextBatch", false, "N:1"},
-       {"any_candidate_texts", "TextBatch", false, "N:1"}},
-      {{"ranked_results", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
+  const auto rerank_boundary = MakeTestBoundary(
+      {IoPortDefinition{"any_pairs", "QueryCandidatesBatch", false},
+       IoPortDefinition{"any_queries", "TextBatch", false},
+       IoPortDefinition{"any_candidates", "RankedTextBatch", false, "N:1"},
+       IoPortDefinition{"any_candidate_texts", "TextBatch", false, "N:1"}},
+      {IoPortDefinition{"ranked_results", "RankedTextBatch", true, "1:N",
+                        "generate_sub_id"}});
   auto has_constraint_err = [](const ValidationReport& rep) {
     return std::any_of(rep.diagnostics.begin(), rep.diagnostics.end(),
                        [](const auto& d) {
@@ -412,7 +413,6 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // 合法组合 1：仅 'pairs' 输入
   nlohmann::json valid_pipeline_pairs = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -424,12 +424,12 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
          {"inputs", {{"pairs", "any_pairs"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan_pairs = PipelineValidator::ValidateAndPlan(valid_pipeline_pairs);
+  auto plan_pairs =
+      PipelineValidator::ValidateAndPlan(valid_pipeline_pairs, rerank_boundary);
   EXPECT_TRUE(plan_pairs.report.ok);
 
   // 合法组合 2：'queries' + 'candidates'
   nlohmann::json valid_pipeline_qc = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -442,12 +442,12 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
           {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan_qc = PipelineValidator::ValidateAndPlan(valid_pipeline_qc);
+  auto plan_qc =
+      PipelineValidator::ValidateAndPlan(valid_pipeline_qc, rerank_boundary);
   EXPECT_TRUE(plan_qc.report.ok);
 
   // 合法组合 3：'queries' + 'candidate_texts'
   nlohmann::json valid_pipeline_qct = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -461,12 +461,12 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
            {"candidate_texts", "any_candidate_texts"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan_qct = PipelineValidator::ValidateAndPlan(valid_pipeline_qct);
+  auto plan_qct =
+      PipelineValidator::ValidateAndPlan(valid_pipeline_qct, rerank_boundary);
   EXPECT_TRUE(plan_qct.report.ok);
 
   // 非法情形 1：只有 candidates，缺少 queries
   nlohmann::json bad_pipeline_1 = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -478,13 +478,13 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
          {"inputs", {{"candidates", "some_cand"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1);
+  auto plan1 =
+      PipelineValidator::ValidateAndPlan(bad_pipeline_1, rerank_boundary);
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_TRUE(has_constraint_err(plan1.report));
 
   // 非法情形 2：只有 queries，缺少 candidates
   nlohmann::json bad_pipeline_2 = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -496,13 +496,13 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
          {"inputs", {{"queries", "some_queries"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2);
+  auto plan2 =
+      PipelineValidator::ValidateAndPlan(bad_pipeline_2, rerank_boundary);
   EXPECT_FALSE(plan2.report.ok);
   EXPECT_TRUE(has_constraint_err(plan2.report));
 
   // 非法情形 3：pairs + candidates (组合冲突)
   nlohmann::json bad_pipeline_3 = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -514,13 +514,13 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
          {"inputs", {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan3 = PipelineValidator::ValidateAndPlan(bad_pipeline_3);
+  auto plan3 =
+      PipelineValidator::ValidateAndPlan(bad_pipeline_3, rerank_boundary);
   EXPECT_FALSE(plan3.report.ok);
   EXPECT_TRUE(has_constraint_err(plan3.report));
 
   // 非法情形 4：queries + candidates + candidate_texts (冲突)
   nlohmann::json bad_pipeline_4 = {
-      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -535,7 +535,8 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
            {"candidate_texts", "any_candidate_texts"}}},
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan4 = PipelineValidator::ValidateAndPlan(bad_pipeline_4);
+  auto plan4 =
+      PipelineValidator::ValidateAndPlan(bad_pipeline_4, rerank_boundary);
   EXPECT_FALSE(plan4.report.ok);
   EXPECT_TRUE(has_constraint_err(plan4.report));
 }
@@ -826,13 +827,21 @@ class StarterEmbeddingModel final : public IEmbeddingModel {
   bool empty_embedding = false;
 };
 
-nlohmann::json CustomPipeline(const std::string& biz,
-                              const std::string& expected_biz) {
+// 示例方案去掉 io 后的文档，以及由其 io 选出的 converter 组成的边界。
+struct CustomFixture {
+  nlohmann::json doc;
+  PipelineIoBoundary boundary;
+};
+
+CustomFixture CustomPipeline(const std::string& biz) {
   std::ifstream file("demo/fixtures/mock/pipeline_" + biz + "_custom.json");
   auto doc = nlohmann::json::parse(file);
-  doc.erase("deployment");
-  doc["biz_name"] = expected_biz;
-  return doc;
+  PreparedDeployment prepared;
+  DeploymentDiagnostic diagnostic;
+  EXPECT_TRUE(PrepareDeploymentDocument(doc, {}, &prepared, &diagnostic))
+      << diagnostic.message;
+  return {std::move(prepared.neutral_pipeline_json),
+          std::move(prepared.io_boundary)};
 }
 
 template <typename Input, typename Output>
@@ -1092,9 +1101,11 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
                                 model, "v1"));
   const nlohmann::json config = {{"bind_model", "entity_llm"}};
-  auto document = CustomPipeline("entity_extract", "entity_extract");
+  auto fixture = CustomPipeline("entity_extract");
+  auto& document = fixture.doc;
   document["pipeline"][0]["config"] = config;
-  const auto validated = PipelineValidator::ValidateAndPlan(document);
+  const auto validated =
+      PipelineValidator::ValidateAndPlan(document, fixture.boundary);
   ASSERT_TRUE(validated.report.ok) << validated.report.ToJson().dump(2);
   const auto& plan = validated.node_plans.at("custom_prompt");
   const std::string input = R"({"name":"literal {context}"})";
@@ -1173,10 +1184,12 @@ TEST_F(CommonNodesTest,
   for (const std::string pattern :
        {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
     SCOPED_TRACE(pattern);
-    auto doc = CustomPipeline("entity_extract", "entity_extract");
+    auto fixture = CustomPipeline("entity_extract");
+    auto& doc = fixture.doc;
     auto& config = doc["pipeline"][0]["config"];
     config["prompt_template"] = pattern;
-    const auto result = PipelineValidator::ValidateAndPlan(doc);
+    const auto result =
+        PipelineValidator::ValidateAndPlan(doc, fixture.boundary);
     EXPECT_FALSE(result.report.ok);
     config["bind_model"] = "prompt_contract";
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
@@ -1421,12 +1434,14 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"template_syntax", "standard"}}};
   for (const auto& bad : bad_configs) {
     SCOPED_TRACE(bad.dump());
-    auto doc = CustomPipeline("entity_extract", "entity_extract");
+    auto fixture = CustomPipeline("entity_extract");
+    auto& doc = fixture.doc;
     nlohmann::json config = {{"bind_model", "entity_llm"},
                              {"prompt_template", "{{input}}"}};
     config.update(bad);
     doc["pipeline"][0]["config"] = config;
-    const auto preflight = PipelineValidator::ValidateAndPlan(doc);
+    const auto preflight =
+        PipelineValidator::ValidateAndPlan(doc, fixture.boundary);
     EXPECT_FALSE(preflight.report.ok);
     config["bind_model"] = "llm_model";
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
@@ -1444,30 +1459,31 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     }
     EXPECT_TRUE(matching_diagnostic) << init_error;
   }
-  auto doc = CustomPipeline("doc_qa", "doc_qa");
+  auto fixture = CustomPipeline("doc_qa");
+  auto& doc = fixture.doc;
   doc["pipeline"][2]["inputs"].erase("context");
-  EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
+  EXPECT_FALSE(
+      PipelineValidator::ValidateAndPlan(doc, fixture.boundary).report.ok);
 }
 
 TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
-  for (const auto& [fixture, expected_biz] :
-       std::vector<std::pair<std::string, std::string>>{
-           {"entity_extract", "entity_extract"}, {"doc_qa", "doc_qa"}}) {
-    auto plan = PipelineValidator::ValidateAndPlan(
-        CustomPipeline(fixture, expected_biz));
+  for (const char* name : {"entity_extract", "doc_qa"}) {
+    const auto custom = CustomPipeline(name);
+    auto plan = PipelineValidator::ValidateAndPlan(custom.doc, custom.boundary);
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   }
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
                                 std::make_shared<test::TestBizLlmModel>(2),
                                 "v1"));
   for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode"}) {
-    auto doc = CustomPipeline("entity_extract", "entity_extract");
+    auto fixture = CustomPipeline("entity_extract");
+    auto& doc = fixture.doc;
     doc["pipeline"][0]["node_type"] = name;
     doc["pipeline"][0]["config"] =
         std::string(name) == "ScaffoldComputeNode"
             ? nlohmann::json::object()
             : nlohmann::json{{"bind_model", "entity_llm"}};
-    auto plan = PipelineValidator::ValidateAndPlan(doc);
+    auto plan = PipelineValidator::ValidateAndPlan(doc, fixture.boundary);
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
     auto node = NodeRegistry::Instance().Create(name);
     // 使用真实的原生计划，包括归一化后的配置和键。
@@ -1487,10 +1503,12 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   model->response_suffix = "\n\n";
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
                                 model, "v1"));
-  auto document = CustomPipeline("entity_extract", "entity_extract");
+  auto fixture = CustomPipeline("entity_extract");
+  auto& document = fixture.doc;
   document["pipeline"][0]["node_type"] = "ScaffoldTutorialLlmNode";
   document["pipeline"][0]["config"] = {{"bind_model", "entity_llm"}};
-  const auto plan = PipelineValidator::ValidateAndPlan(document);
+  const auto plan =
+      PipelineValidator::ValidateAndPlan(document, fixture.boundary);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   auto node = NodeRegistry::Instance().Create("ScaffoldTutorialLlmNode");
   ASSERT_NE(node, nullptr);

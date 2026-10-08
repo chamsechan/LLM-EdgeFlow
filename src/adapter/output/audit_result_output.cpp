@@ -25,7 +25,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
 
   const auto* verdicts = ReadOutputValue(*context, kStructuredVerdicts, options,
@@ -43,25 +43,24 @@ int EncodeOperatorAuditResult(AlgContext* context,
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
-        "destination", options.converter_id.c_str());
+        "destination", options.Label().c_str());
   }
 
   if (matched_policy->size() < count) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "matched_policy count mismatch in AlgContext", "matched_policy",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
 
   std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
   if (!IndexResults(verdicts, raw_req_ids, &verdicts_by_request, "verdicts",
-                    options.converter_id.c_str(), status)) {
+                    options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<const RankedTextBatch::value_type*> matched_policy_by_request;
   if (!IndexResults(matched_policy, raw_req_ids, &matched_policy_by_request,
-                    "matched_policy", options.converter_id.c_str(), status,
-                    true)) {
+                    "matched_policy", options.Label().c_str(), status, true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -71,7 +70,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing audit_out slot item", kOutputSlot,
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     out->request_id = (*raw_req_ids)[i];
@@ -86,8 +85,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
       return AdapterValidationHelper::ReturnInvalidInput(
           status,
           "structured_data missing or invalid risk_level/risk_score types",
-          "structured_verdicts", options.converter_id.c_str(),
-          static_cast<int>(i));
+          "structured_verdicts", options.Label().c_str(), static_cast<int>(i));
     }
 
     std::string risk_level =
@@ -98,7 +96,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
          risk_level != "MEDIUM_RISK" && risk_level != "HIGH_RISK")) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid risk level or score", "structured_verdicts",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     const std::string& verdict_json = verdict_item.json_payload;
@@ -129,13 +127,33 @@ int EncodeOperatorAuditResult(AlgContext* context,
   return COMPANY_ALG_SUCCESS;
 }
 
+// 输出字符串字段的尺寸参数；默认值按该业务的载荷设定，上限由平台结构登记决定。
+struct Params {
+  int64_t risk_level_max_bytes{};
+  int64_t matched_policy_clause_max_bytes{};
+  int64_t audit_verdict_json_max_bytes{};
+};
+
+auto ParamSpec() {
+  return Parameters<Params>(
+      {MaxBytes("risk_level", &Params::risk_level_max_bytes).Default(31),
+       MaxBytes("matched_policy_clause",
+                &Params::matched_policy_clause_max_bytes)
+           .Default(255),
+       MaxBytes("audit_verdict_json", &Params::audit_verdict_json_max_bytes)
+           .Default(1023)});
+}
+
 OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "audit_result.plain";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "dialogue_audit";
+  def.service_type =
+      COMPANY_MOCK_SERVICE_DIALOGUE_AUDIT;  // 占位取值，进内网核对
+  def.slot = ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kStructuredVerdicts),
                        RequiredInputPort(kMatchedPolicy, "N:1")};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorAuditResult;
   return def;
 }

@@ -4,57 +4,64 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/io_binding.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/result_validation.h"
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 
-// 常用约定：必填槽位，type_suffix = slot_name，key_suffix 为空时回退到
-// type_suffix。其他后缀或可选槽位请使用 ExternalSlotDefinition 的显式字段。
+// 常用约定：必填槽位，type 为宿主 map key 后缀。可选槽位请直接设置
+// ExternalSlotDefinition::required。
 template <typename T>
-inline ExternalSlotDefinition ExternalInputSlot(std::string slot_name) {
-  return {slot_name, ExternalTypeTraits<T>::TypeName(), PortDirection::kInput,
-          true, slot_name};
+inline ExternalSlotDefinition ExternalInputSlot(std::string type) {
+  ExternalSlotDefinition slot;
+  slot.type_id = ExternalTypeTraits<T>::TypeName();
+  slot.type_suffix = std::move(type);
+  return slot;
 }
 
-// 容量字段由已注册的 ValueType 决定。
+// 输出槽默认使用结构体的标准布局；命名布局、布局参数和 metadata 由登记在
+// 槽声明中固定（allocator、allocator_params、metadata_count、
+// metadata_type_id），不进入配置。字符串字段的容量由 MaxBytes 参数决定。
 template <typename T>
-inline ExternalSlotDefinition ExternalOutputSlot(std::string slot_name) {
-  return {slot_name, ExternalTypeTraits<T>::TypeName(), PortDirection::kOutput,
-          true, slot_name};
+inline ExternalSlotDefinition ExternalOutputSlot(std::string type) {
+  ExternalSlotDefinition slot;
+  slot.type_id = ExternalTypeTraits<T>::TypeName();
+  slot.type_suffix = std::move(type);
+  return slot;
 }
 
-// Operator 在解码前已检查载体和有效批大小上限，并通过 options 传入；
-// 此处防御性地再检查一次。
+// 输出字符串字段的尺寸参数：参数名为 <field>_max_bytes（最小值 1）；作者
+// 补 .Default(n)。框架在 Prepare 之后按参数名读取，并按平台上限补齐 maximum。
+template <typename P>
+inline FieldBuilder<P, int64_t> MaxBytes(const std::string& field,
+                                         int64_t P::*member) {
+  auto builder = Field(field + "_max_bytes", member);
+  builder.Minimum(1);
+  return builder;
+}
+
+// 批次上限由 Operator 在解码前检查，这里只检查载体和批次非空。
 inline bool ValidateDecodeRequest(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
                                   AlgContext* context, AdapterStatus* status) {
   if (!context) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
+        options.Label().c_str());
     return false;
   }
   if (source.count == 0) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, "Batch must contain at least one request", "slots",
-        options.converter_id.c_str());
-    return false;
-  }
-  if (options.max_batch_size != 0 && source.count > options.max_batch_size) {
-    AdapterValidationHelper::ReturnInvalidInput(
-        status,
-        "Batch size out of range [1, " +
-            std::to_string(options.max_batch_size) + "]",
-        "slots", options.converter_id.c_str());
+        options.Label().c_str());
     return false;
   }
   return true;
@@ -70,7 +77,7 @@ inline const T* ReadInputSlot(const ExternalInputBatchView& source,
     AdapterValidationHelper::ReturnInvalidInput(
         status,
         std::string("Missing ") + slot + " input slot or slot item is null",
-        slot, options.converter_id.c_str(), static_cast<int>(index));
+        slot, options.Label().c_str(), static_cast<int>(index));
   }
   return value;
 }
@@ -94,7 +101,7 @@ inline bool PublishRequestIds(const InputDecodeOptions& options,
   if (!options.request_ids) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing request id table in decode options", "request_ids",
-        options.converter_id.c_str());
+        options.Label().c_str());
     return false;
   }
   *options.request_ids = std::move(ids);
@@ -106,7 +113,7 @@ inline const std::vector<uint64_t>* RequestIds(
   if (!options.request_ids) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing request id table in encode options", "request_ids",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
   return options.request_ids;
 }
@@ -121,7 +128,7 @@ inline const T* ReadOutputValue(AlgContext& context,
   if (!value) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, std::string("Missing required context value: ") + port.name,
-        field_path ? field_path : port.name, options.converter_id.c_str());
+        field_path ? field_path : port.name, options.Label().c_str());
   }
   return value;
 }
@@ -169,14 +176,14 @@ inline bool WriteOutputString(const ExternalOutputBatchView& view,
   if (!spec) {
     AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Missing output capacity specification", field,
-        options.converter_id.c_str(), static_cast<int>(index));
+        options.Label().c_str(), static_cast<int>(index));
     return false;
   }
   const auto capacity = spec->capacities.find(field);
   if (capacity == spec->capacities.end()) {
     AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Missing output capacity specification", field,
-        options.converter_id.c_str(), static_cast<int>(index));
+        options.Label().c_str(), static_cast<int>(index));
     return false;
   }
   std::string error;
@@ -185,7 +192,7 @@ inline bool WriteOutputString(const ExternalOutputBatchView& view,
     return true;
   }
   AdapterValidationHelper::ReturnBufferTooSmall(status, std::move(error), field,
-                                                options.converter_id.c_str(),
+                                                options.Label().c_str(),
                                                 static_cast<int>(index));
   return false;
 }
@@ -223,8 +230,19 @@ class OutputStringWriter {
   size_t index_;
 };
 
+namespace detail {
+template <typename T, typename = void>
+struct HasRequestIdMember : std::false_type {};
+template <typename T>
+struct HasRequestIdMember<T,
+                          std::void_t<decltype(std::declval<T>().request_id)>>
+    : std::true_type {};
+}  // namespace detail
+
 // 每个请求：一个必填宿主槽位 -> 一个自有 payload。回调负责校验并复制借用的
-// 宿主字段；所有行校验通过后才开始发布。
+// 宿主字段；所有行校验通过后才开始发布。宿主结构体带 request_id 成员时同时
+// 写入请求 ID；不带时（例如问题字符串）请求 ID 表保持为空，由同一批的其他
+// 输入项提供（多项输入按批内序号配对）。
 template <typename Host, typename Payload, typename Decode>
 int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
@@ -243,14 +261,19 @@ int DecodeRequestRows(
     Payload payload{};
     const auto result = decode(*input, &payload);
     if (!result.IsOk())
-      return ReturnRowStatus(result, options.converter_id, i, status);
-    ids.push_back(input->request_id);
+      return ReturnRowStatus(result, options.Label(), i, status);
+    if constexpr (detail::HasRequestIdMember<Host>::value) {
+      ids.push_back(input->request_id);
+    }
     payloads.emplace_back(static_cast<uint32_t>(i), 0, std::move(payload));
   }
-  if (!PublishRequestIds(options, std::move(ids), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, payload_port, std::move(payloads),
-          options.converter_id.c_str(), status))
+  if constexpr (detail::HasRequestIdMember<Host>::value) {
+    if (!PublishRequestIds(options, std::move(ids), status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+  }
+  if (!AdapterValidationHelper::PublishContextValue(
+          *context, payload_port, std::move(payloads), options.Label().c_str(),
+          status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
   return COMPANY_ALG_SUCCESS;
 }
@@ -268,7 +291,7 @@ int EncodeResultRows(
   if (!context)
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
+        options.Label().c_str());
   const auto* results =
       ReadOutputValue(*context, result_port, options, status, "res");
   if (!results) return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -277,9 +300,9 @@ int EncodeResultRows(
   if (!destination || destination->count < results->size())
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
-        "destination", options.converter_id.c_str());
+        "destination", options.Label().c_str());
   std::vector<const TraceableItem<Payload>*> ordered;
-  if (!IndexResults(results, ids, &ordered, "res", options.converter_id.c_str(),
+  if (!IndexResults(results, ids, &ordered, "res", options.Label().c_str(),
                     status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
   for (size_t i = 0; i < ordered.size(); ++i) {
@@ -287,13 +310,13 @@ int EncodeResultRows(
     if (!output)
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, std::string("Missing ") + slot + " slot block in output view",
-          slot, options.converter_id.c_str(), static_cast<int>(i));
+          slot, options.Label().c_str(), static_cast<int>(i));
     output->request_id = (*ids)[i];
     const auto result =
         encode(ordered[i]->data, output,
                OutputStringWriter(*destination, slot, options, i));
     if (!result.IsOk())
-      return ReturnRowStatus(result, options.converter_id, i, status);
+      return ReturnRowStatus(result, options.Label(), i, status);
   }
   if (written_count) *written_count = ordered.size();
   return COMPANY_ALG_SUCCESS;
@@ -314,12 +337,6 @@ int EncodeResultRows(
                                     __COUNTER__) = []() {    \
     return ::llm_edgeflow::IoConverterRegistry::Instance()   \
         .RegisterOutputConverter(def_expr);                  \
-  }()
-
-#define REGISTER_IO_BINDING(binding_expr)                                    \
-  static const bool EDGEFLOW_CONCAT(g_reg_io_binding_, __COUNTER__) = []() { \
-    return ::llm_edgeflow::IoBindingRegistry::Instance().RegisterBinding(    \
-        binding_expr);                                                       \
   }()
 
 }  // namespace llm_edgeflow

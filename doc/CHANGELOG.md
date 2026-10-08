@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+外部 I/O 的选择与配置移到 Pipeline 根层的 `io`（放在第一个字段），删除 `deployment`：`io.input`、`io.output` 是至少一项的数组，
+每项只允许 `type`（宿主结构体，即宿主 map key 的后缀，如 `doc_in`）、`name`（业务名，如 `doc_qa`；`common` 为保留的
+默认处理）和 `params`（覆盖 converter 参数，省略则全部使用默认值）。图片问答的图片与问题是两个宿主结构体，`io.input`
+写两项，按批内序号配对，请求 ID 取自带 `request_id` 的结构体。Converter 改为按（结构体，业务）登记，登记含 `type`、`name`、
+`service_type`（业务在结构体 `service_type` 成员上的取值，每个请求调用转换函数前由框架核对，输出时写入；`common` 与没有
+该成员的结构体不填）、槽声明、端口和可选的 `params`；`service_type` 成员与占位取值是平台模拟的替身，进内网后核对。
+输出字符串的容量改为 converter 参数 `<字段>_max_bytes`（默认值在转换器代码里，上限是平台结构登记的字段上限），取代
+`out_mem.capacities`；命名布局、布局参数和 metadata 固定在转换器的槽声明里，不再进入配置。
+**删除**：`IoBinding`（`io_binding.h`、`REGISTER_IO_BINDING`）、`src/adapter/biz/`、`BizDefinition`、`biz_name`、
+`deployment.io.io_binding` 与 `out_mem`、Catalog 的 `bizs`、`converter_id`（由 `type/name` 取代）、`RequiredBizInput` /
+`OptionalBizInput` / `BizOutput`（`BizPortDefinition` 改名 `IoPortDefinition`）、`PipelineValidator` 的“无边界”模式（边界
+参数必传）。诊断码：新增 `UNKNOWN_CONVERTER`（`io` 项未登记，不会退回 `common`）与 `DUPLICATE_IO_ENTRY`；删除
+`UNKNOWN_IO_BINDING`、`UNREGISTERED_CONVERTER`、`UNKNOWN_OUTPUT_SLOT`、`UNKNOWN_BIZ`；`MISSING_BIZ_OUTPUT` 改名
+`MISSING_OUTPUT_PRODUCER`。`ResolveOperatorConfigIo` 返回的 `service_type` 现在有值。注册审计检查所有登记（错误来源前缀
+`Converter audit:`），批次上限改为框架常量 64，仍按输出池深收紧。仓库内的方案已迁移到新格式，不保留旧格式的兼容。
+
 文本处理类的通用 Node 参数只用 `Field` 声明，控制命令只有字段命令一种写法：`text_template` 删除输入
 `context_text`、`document_text`、`attributes`（连同类型 `TextAttributesBatch`）与参数 `values`、
 `allow_dynamic_attributes`、`missing_variable_policy`，模板变量只能是已连接的输入端口名，未知或未连接的变量在预检

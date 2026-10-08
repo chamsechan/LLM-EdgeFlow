@@ -34,12 +34,26 @@ int EncodeOperatorKeywordResult(AlgContext* context,
       kRuleMatches, &EncodeKeyword);
 }
 
+// 输出字符串字段的尺寸参数；默认值按该业务的载荷设定，上限由平台结构登记决定。
+struct Params {
+  int64_t match_result_json_max_bytes{};
+};
+
+auto ParamSpec() {
+  return Parameters<Params>(
+      {MaxBytes("match_result_json", &Params::match_result_json_max_bytes)
+           .Default(2047)});
+}
+
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "keyword.result";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "keyword_match";
+  def.service_type =
+      COMPANY_MOCK_SERVICE_KEYWORD_MATCH;  // 占位取值，进内网核对
+  def.slot = ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kRuleMatches)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;
 }

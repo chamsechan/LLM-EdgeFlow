@@ -61,6 +61,7 @@ int BuildAuditRequests(
       std::min(storage->channels.size(), storage->dialogues.size());
   storage->channel_strs.reserve(count);
   storage->dialogue_strs.reserve(count);
+  const int32_t service_type = DemoServiceType(inputs[0]);
   storage->inputs.reserve(count);
   for (size_t i = 0; i < count; ++i) {
     storage->channel_strs.push_back(BorrowCompanyString(storage->channels[i]));
@@ -68,7 +69,7 @@ int BuildAuditRequests(
         BorrowCompanyString(storage->dialogues[i]));
     storage->inputs.push_back({static_cast<uint64_t>(40001 + i),
                                &storage->dialogue_strs.back(),
-                               &storage->channel_strs.back()});
+                               &storage->channel_strs.back(), service_type});
   }
 
   const std::string key = DemoIoKey(inputs[0]);

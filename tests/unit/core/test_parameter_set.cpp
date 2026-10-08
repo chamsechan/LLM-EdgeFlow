@@ -150,6 +150,32 @@ TEST(ParameterSetTest, GetWithAnotherTypeThrowsLogicError) {
   EXPECT_NO_THROW(values->Get<SetParams>());
 }
 
+TEST(ParameterSetTest, EffectiveValuesAndIntegerReadTheValuesAfterPrepare) {
+  auto spec = Parameters<SetParams>({
+      Field("mode", &SetParams::mode).Default("fast").Enum({"fast", "slow"}),
+      Field("count", &SetParams::count).Default(4).Range(1, 64),
+      Field("length", &SetParams::length).Range(2, 4096),
+  });
+  // Prepare 改写已声明字段：生效值和 Integer() 读到的是改写之后的值。
+  spec.Prepare([](SetParams* p, std::string*) {
+    p->count *= 2;
+    p->length = p->count * 10;
+    return true;
+  });
+  const ParameterSet set = spec;
+  std::shared_ptr<const ParameterValues> values;
+  std::string error;
+  ASSERT_TRUE(set.Parse({{"count", 5}}, &values, &error)) << error;
+  EXPECT_EQ(values->Get<SetParams>().count, 10);
+  EXPECT_EQ(values->Effective(),
+            (nlohmann::json{{"mode", "fast"}, {"count", 10}, {"length", 100}}));
+  EXPECT_EQ(values->Integer("count"), 10);
+  EXPECT_EQ(values->Integer("length"), 100);
+  // 不是整数的参数和没有声明的参数都读不到。
+  EXPECT_EQ(values->Integer("mode"), std::nullopt);
+  EXPECT_EQ(values->Integer("missing"), std::nullopt);
+}
+
 TEST(ParameterSetTest, ValidateExceptionsBecomeDiagnostics) {
   auto spec = Parameters<SetParams>(
       {Field("count", &SetParams::count).Default(4).Range(1, 64)});

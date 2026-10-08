@@ -1,15 +1,17 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "translate",
-      "out_mem": {
-        "entity_out": {
-          "capacities": {
-            "entities_json": 8191
-          }
-        }
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "translate"
       }
-    }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "translate"
+      }
+    ]
   },
   "models": [
     {

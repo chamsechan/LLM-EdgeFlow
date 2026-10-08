@@ -103,6 +103,15 @@ std::string DemoInputCarrierKey(
  */
 std::string DemoIoKey(const llm_edgeflow::operator_api::OperatorIoEntry& entry);
 
+/**
+ * @brief 宿主结构体 service_type 成员的取值：取自 ResolveOperatorConfigIo
+ * 返回的 输入项；该项没有取值（common 或结构体没有该成员）时为 0。
+ */
+inline int32_t DemoServiceType(
+    const llm_edgeflow::operator_api::OperatorIoEntry& entry) {
+  return entry.service_type.value_or(0);
+}
+
 /** @brief 借用 std::string 的字节，生命周期由调用方保证。 */
 inline CompanyString BorrowCompanyString(const std::string& text) {
   return {static_cast<int32_t>(text.size()), const_cast<char*>(text.data())};

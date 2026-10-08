@@ -16,16 +16,6 @@
 namespace llm_edgeflow {
 namespace {
 
-std::vector<BizDefinition>& RegisteredBizs() {
-  static std::vector<BizDefinition> definitions;
-  return definitions;
-}
-
-std::mutex& BizMutex() {
-  static std::mutex mutex;
-  return mutex;
-}
-
 nlohmann::json ConstraintJson(const PortGroupConstraint& constraint) {
   nlohmann::json result = {{"kind", PortConstraintKindName(constraint.kind)},
                            {"message", constraint.message}};
@@ -77,47 +67,6 @@ const char* PortConstraintKindName(PortConstraintKind kind) {
   return "unknown";
 }
 
-bool PipelineCatalog::RegisterBizDefinition(const BizDefinition& definition) {
-  return RegisterBizDefinitions({definition});
-}
-
-bool PipelineCatalog::RegisterBizDefinitions(
-    const std::vector<BizDefinition>& batch) {
-  if (batch.empty()) return false;
-  std::lock_guard<std::mutex> lock(BizMutex());
-  auto& definitions = RegisteredBizs();
-  std::vector<std::string> batch_names;
-  batch_names.reserve(batch.size());
-  for (const auto& definition : batch) {
-    if (definition.biz_name.empty()) return false;
-    if (std::find(batch_names.begin(), batch_names.end(),
-                  definition.biz_name) != batch_names.end()) {
-      return false;
-    }
-    if (std::any_of(definitions.begin(), definitions.end(),
-                    [&](const auto& item) {
-                      return item.biz_name == definition.biz_name;
-                    })) {
-      return false;
-    }
-    std::unordered_set<std::string> seen_ingress;
-    if (!ValidatePortDefinitions(definition.ingress, &seen_ingress, nullptr)) {
-      return false;
-    }
-    std::unordered_set<std::string> seen_egress;
-    if (!ValidatePortDefinitions(definition.egress, &seen_egress, nullptr)) {
-      return false;
-    }
-    batch_names.push_back(definition.biz_name);
-  }
-  definitions.insert(definitions.end(), batch.begin(), batch.end());
-  std::sort(definitions.begin(), definitions.end(),
-            [](const auto& lhs, const auto& rhs) {
-              return lhs.biz_name < rhs.biz_name;
-            });
-  return true;
-}
-
 const NodeDefinition* PipelineCatalogSnapshot::FindNode(
     const std::string& node_type) const {
   auto it = std::find_if(nodes.begin(), nodes.end(), [&](const auto& item) {
@@ -126,23 +75,10 @@ const NodeDefinition* PipelineCatalogSnapshot::FindNode(
   return it == nodes.end() ? nullptr : &*it;
 }
 
-const BizDefinition* PipelineCatalogSnapshot::FindBiz(
-    const std::string& biz_name) const {
-  auto it = std::find_if(bizs.begin(), bizs.end(), [&](const auto& item) {
-    return item.biz_name == biz_name;
-  });
-  return it == bizs.end() ? nullptr : &*it;
-}
-
 PipelineCatalogSnapshot PipelineCatalog::Snapshot() {
   auto node_snapshot = NodeRegistry::Instance().Snapshot();
-  std::vector<BizDefinition> bizs;
-  {
-    std::lock_guard<std::mutex> lock(BizMutex());
-    bizs = RegisteredBizs();
-  }
-  return {std::move(node_snapshot.definitions), std::move(bizs),
-          node_snapshot.has_conflict, std::move(node_snapshot.conflict_errors)};
+  return {std::move(node_snapshot.definitions), node_snapshot.has_conflict,
+          std::move(node_snapshot.conflict_errors)};
 }
 
 std::vector<NodeDefinition> PipelineCatalog::Nodes() {
@@ -155,11 +91,6 @@ std::vector<ModelDefinition> PipelineCatalog::Models() {
 
 std::vector<BackendDefinition> PipelineCatalog::Backends() {
   return BackendRegistry::Instance().ListDefinitions();
-}
-
-std::vector<BizDefinition> PipelineCatalog::Bizs() {
-  std::lock_guard<std::mutex> lock(BizMutex());
-  return RegisteredBizs();
 }
 
 std::optional<NodeDefinition> PipelineCatalog::FindNode(
@@ -175,22 +106,6 @@ std::optional<ModelDefinition> PipelineCatalog::FindModel(
 std::optional<BackendDefinition> PipelineCatalog::FindBackend(
     const std::string& backend_type) {
   return BackendRegistry::Instance().Find(backend_type);
-}
-
-std::optional<BizDefinition> PipelineCatalog::FindBiz(
-    const std::string& biz_name) {
-  std::lock_guard<std::mutex> lock(BizMutex());
-  const auto& bizs = RegisteredBizs();
-  auto it = std::find_if(bizs.begin(), bizs.end(), [&](const auto& item) {
-    return item.biz_name == biz_name;
-  });
-  if (it == bizs.end()) return std::nullopt;
-  return *it;
-}
-
-void PipelineCatalog::ResetBizsForTesting() {
-  std::lock_guard<std::mutex> lock(BizMutex());
-  RegisteredBizs().clear();
 }
 
 nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
@@ -264,8 +179,8 @@ nlohmann::json PipelineCatalog::BackendToJson(
   };
 }
 
-nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
-                                       const std::string& biz_filter) {
+nlohmann::json PipelineCatalog::ToJson(
+    const PipelineCatalogSnapshot& snapshot) {
   nlohmann::json nodes = nlohmann::json::array();
   for (const auto& item : snapshot.nodes) {
     nodes.push_back(NodeToJson(item));
@@ -281,29 +196,11 @@ nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
     backends.push_back(BackendToJson(item));
   }
 
-  nlohmann::json bizs = nlohmann::json::array();
-  for (const auto& item : snapshot.bizs) {
-    if (!biz_filter.empty() && item.biz_name != biz_filter) continue;
-    nlohmann::json ingress = nlohmann::json::array();
-    nlohmann::json egress = nlohmann::json::array();
-    for (const auto& port : item.ingress)
-      ingress.push_back(PortToJson(port.Name(), port));
-    for (const auto& port : item.egress)
-      egress.push_back(PortToJson(port.Name(), port));
-    bizs.push_back({{"biz_name", item.biz_name},
-                    {"display_name", item.display_name},
-                    {"ingress", std::move(ingress)},
-                    {"egress", std::move(egress)}});
-  }
-
   return {{"nodes", std::move(nodes)},
           {"models", std::move(models)},
-          {"backends", std::move(backends)},
-          {"bizs", std::move(bizs)}};
+          {"backends", std::move(backends)}};
 }
 
-nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
-  return ToJson(Snapshot(), biz_filter);
-}
+nlohmann::json PipelineCatalog::ToJson() { return ToJson(Snapshot()); }
 
 }  // namespace llm_edgeflow

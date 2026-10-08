@@ -16,6 +16,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "adapter/biz_blackboard_keys.h"
 #include "contracts/config_schema.h"
 #include "contracts/diagnostic.h"
 #include "contracts/inference_payloads.h"
@@ -41,6 +42,7 @@
 #include "engine/models/vision_document/vision_document_model.h"
 #include "engine/models/whisper_asr/whisper_asr_model.h"
 #include "tests/support/parameter_support.h"
+#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 #if defined(LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN)
@@ -457,8 +459,7 @@ class ModelConfigValidationTest : public ::testing::Test {
   }
 
   static nlohmann::json Document(const ModelLoadSpec& spec) {
-    return {{"biz_name", "keyword_match"},
-            {"models",
+    return {{"models",
              {{{"model_id", "validation_model"},
                {"model_type", spec.model_type},
                {"backend", spec.backend_type},
@@ -472,6 +473,13 @@ class ModelConfigValidationTest : public ::testing::Test {
                {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
   }
 };
+
+// 关注词匹配业务的 IO 边界：输入句子，输出规则匹配结果。
+PipelineIoBoundary KeywordBoundary() {
+  return MakeTestBoundary(
+      {IoPortDefinition{kInputSentences.name, kInputSentences.type_id, true}},
+      {IoPortDefinition{kRuleMatches.name, kRuleMatches.type_id, true}});
+}
 
 }  // namespace
 
@@ -731,7 +739,8 @@ TEST_F(ModelConfigValidationTest,
     spec.model_path = "validation.fixture";
     spec.model_config = test_case.config;
 
-    const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(Document(spec), KeywordBoundary());
     ASSERT_FALSE(plan.report.ok);
     ASSERT_EQ(plan.report.diagnostics.size(), 1U)
         << plan.report.ToJson().dump(2);
@@ -763,7 +772,8 @@ TEST_F(ModelConfigValidationTest,
     if (spec.model_type == "bge_embedding")
       spec.model_config["embedding_dim"] = 384;
 
-    const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(Document(spec), KeywordBoundary());
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
     EXPECT_EQ(ModelValidationBackend::provider_calls, 0);
     EXPECT_EQ(ModelValidationBackend::load_calls, 0);
@@ -792,7 +802,8 @@ TEST_F(ModelConfigValidationTest, NormalizedDefaultsReachValidatorAndCreator) {
         {"dimension", config.value("dimension", 384)},
         {"validation", "accept"}};
 
-    const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(Document(spec), KeywordBoundary());
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
     EXPECT_GE(ConfigValidatedEmbeddingModel::validation_calls, 1);
     EXPECT_EQ(ConfigValidatedEmbeddingModel::validated_config, expected);
@@ -839,7 +850,8 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
     spec.model_path = "validation.fixture";
     spec.model_config = test_case.config;
 
-    const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(Document(spec), KeywordBoundary());
     ASSERT_FALSE(plan.report.ok);
     ASSERT_EQ(plan.report.diagnostics.size(), 1U)
         << plan.report.ToJson().dump(2);

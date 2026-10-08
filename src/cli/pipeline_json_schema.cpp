@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "adapter/deployment_structure.h"
+#include "adapter/io_structure.h"
 #include "contracts/json_structure.h"
 #include "core/pipeline_config_structure.h"
 
@@ -104,10 +104,25 @@ Json Models(const Json& catalog) {
   return result;
 }
 
-Json Deployment(const Json& catalog) {
-  auto result = DeploymentStructure();
-  result["properties"]["io"]["properties"]["io_binding"] =
-      Choices(catalog.at("io_bindings"), "biz_name");
+// 一侧的 io 项：按登记分支，type、name 为常量，params 由登记的参数声明生成。
+Json IoSide(const Json& converters) {
+  Json branches = Json::array();
+  for (const auto& converter : converters) {
+    Json params = Fields(converter.at("config_fields"));
+    Json branch = Object({{"type", {{"const", converter.at("type")}}},
+                          {"name", {{"const", converter.at("name")}}},
+                          {"params", std::move(params)}},
+                         {"type", "name"});
+    branches.push_back(std::move(branch));
+  }
+  Json items = branches.empty() ? Json(false) : Json{{"oneOf", branches}};
+  return {{"type", "array"}, {"minItems", 1}, {"items", std::move(items)}};
+}
+
+Json Io(const Json& catalog) {
+  auto result = IoStructure();
+  result["properties"]["input"] = IoSide(catalog.at("input_converters"));
+  result["properties"]["output"] = IoSide(catalog.at("output_converters"));
   return result;
 }
 }  // namespace
@@ -121,7 +136,7 @@ nlohmann::json BuildPipelineJsonSchema(const nlohmann::json& catalog) {
   auto schema = PipelineDocumentStructure();
   auto& properties = schema["properties"];
   properties["models"] = Models(catalog);
-  properties["deployment"] = Deployment(catalog);
+  properties["io"] = Io(catalog);
   properties["pipeline"]["items"] = std::move(node_schema);
   schema["$schema"] = "http://json-schema.org/draft-07/schema#";
   schema["title"] = "LLM-EdgeFlow Pipeline (selected build)";

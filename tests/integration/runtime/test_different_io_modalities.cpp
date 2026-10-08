@@ -58,13 +58,15 @@ TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
 
   CompanyString img1_cs{static_cast<int32_t>(img1.size()),
                         const_cast<char*>(img1.data())};
-  CompanyFrame frame1{60001, &img1_cs, nullptr};
+  CompanyFrame frame1{60001, &img1_cs, nullptr,
+                      COMPANY_MOCK_SERVICE_OCR_INVOICE_QA};
   CompanyString p1_cs{static_cast<int32_t>(p1.size()),
                       const_cast<char*>(p1.data())};
 
   CompanyString img2_cs{static_cast<int32_t>(img2.size()),
                         const_cast<char*>(img2.data())};
-  CompanyFrame frame2{60002, &img2_cs, nullptr};
+  CompanyFrame frame2{60002, &img2_cs, nullptr,
+                      COMPANY_MOCK_SERVICE_OCR_INVOICE_QA};
   CompanyString p2_cs{static_cast<int32_t>(p2.size()),
                       const_cast<char*>(p2.data())};
 
@@ -132,9 +134,11 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   std::vector<float> pcm2(16000, 0.001f);  // 空调车控语音
 
   CompanyOperatorAudioInput in_audio1{70001, pcm1.data(),
-                                      static_cast<int32_t>(pcm1.size()), 16000};
+                                      static_cast<int32_t>(pcm1.size()), 16000,
+                                      COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
   CompanyOperatorAudioInput in_audio2{70002, pcm2.data(),
-                                      static_cast<int32_t>(pcm2.size()), 16000};
+                                      static_cast<int32_t>(pcm2.size()), 16000,
+                                      COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
 
   operator_api::NamedIoBatch inputs(2);
   inputs[0]["mic_0.audio_in"] =
@@ -172,8 +176,10 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
 
-  CompanyOperatorAudioInput empty1{70001, nullptr, 0, 16000};
-  CompanyOperatorAudioInput empty2{70002, nullptr, 0, 16000};
+  CompanyOperatorAudioInput empty1{70001, nullptr, 0, 16000,
+                                   COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
+  CompanyOperatorAudioInput empty2{70002, nullptr, 0, 16000,
+                                   COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT};
   inputs[0]["mic_0.audio_in"] =
       operator_api::MakeBorrowedOperatorInput(&empty1);
   inputs[1]["mic_0.audio_in"] =
@@ -281,6 +287,7 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   }
 
   CompanyOperatorRerankInput in_rerank{};
+  in_rerank.service_type = COMPANY_MOCK_SERVICE_CROSS_RERANK;
   in_rerank.request_id = 80001;
   in_rerank.query_text = &q_cs;
   in_rerank.candidate_count = 5;

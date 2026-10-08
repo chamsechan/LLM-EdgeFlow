@@ -17,8 +17,8 @@ python3 tools/dev_recipe.py prepare prompt-config \
 ```
 
 生成三份文件：`pipeline_entity_prompt_task.json`、同名 `.conf` 和 `_effects.json`。
-现有文件不会被覆盖。Pipeline 保留源 Profile 的整个 `deployment.io.out_mem`，包括 allocator、params、
-容量与元数据字段，并由原生 Resolver 检查；多输出在写入或构建前被拒绝。
+现有文件不会被覆盖。Pipeline 保留源 Profile 方案的根层 `io`，包括各项的 `type`、`name` 和 `params`（输出尺寸参数），
+并由原生部署准备检查；多输出在写入或构建前被拒绝。
 
 ## 修改与验收
 

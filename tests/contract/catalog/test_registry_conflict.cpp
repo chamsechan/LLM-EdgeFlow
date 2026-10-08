@@ -92,7 +92,6 @@ const bool kAuthoringStartupAttempted = [] {
 
 TEST(RegistryAuthoringStartupTest,
      DeclarationFailureReachesMainAndFailsClosed) {
-  RegisterTestBizs({"authoring_startup_test"});
   const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
   if (!selected) GTEST_SKIP() << "Requires a process-isolated authoring case";
   ASSERT_TRUE(kAuthoringStartupAttempted);
@@ -112,12 +111,12 @@ TEST(RegistryAuthoringStartupTest,
   ASSERT_TRUE(NodeRegistry::Instance().HasConflict());
 
   const nlohmann::json config = {
-      {"biz_name", "authoring_startup_test"},
       {"pipeline",
        nlohmann::json::array({{{"id", "dummy"},
                                {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  const auto validation = PipelineValidator::ValidateAndPlan(config);
+  const auto validation =
+      PipelineValidator::ValidateAndPlan(config, EmptyTestBoundary());
   EXPECT_FALSE(validation.report.ok);
   ASSERT_FALSE(validation.report.diagnostics.empty());
   const auto& diagnostic = validation.report.diagnostics.front();
@@ -127,7 +126,8 @@ TEST(RegistryAuthoringStartupTest,
 
   Pipeline pipeline;
   PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, config, &build_diagnostic));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, config, EmptyTestBoundary(),
+                                 &build_diagnostic));
   EXPECT_EQ(build_diagnostic.code, DiagnosticCode::kRegistryConflict);
   EXPECT_NE(build_diagnostic.message.find("BadAuthoringNode"),
             std::string::npos);
@@ -162,7 +162,6 @@ REGISTER_MODEL_WITH_DEFINITION(DummyModel,
                                MakeTestModelDef(DummyModel::kModelType));
 
 TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
-  RegisterTestBizs({"conflict_node_test"});
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(NodeRegistry::Instance().Register(
@@ -174,18 +173,16 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
-      {"biz_name", "conflict_node_test"},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
                                {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
+  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, EmptyTestBoundary(), &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/pipeline");
 }
 
 TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
-  RegisterTestBizs({"conflict_model_test"});
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(ModelRegistry::Instance().Register(
@@ -195,7 +192,6 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
-      {"biz_name", "conflict_model_test"},
       {"models",
        nlohmann::json::array({{{"model_id", "m1"},
                                {"model_type", DummyModel::kModelType},
@@ -207,7 +203,7 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
                                {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
+  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, EmptyTestBoundary(), &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/models");
   const std::string reason =

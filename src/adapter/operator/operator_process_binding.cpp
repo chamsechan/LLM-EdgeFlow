@@ -7,7 +7,7 @@ namespace llm_edgeflow {
 
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
-    const InputConverterDefinition& in_conv, const InputLimits& limits,
+    const std::vector<SelectedInput>& items, const InputLimits& limits,
     ExternalInputBatchView* out_view, std::string* error) {
   if (!out_view) {
     if (error) *error = "Null out_view pointer";
@@ -16,19 +16,18 @@ int ValidateAndExtractOperatorInputs(
   out_view->count = inputs.size();
   out_view->slots.clear();
   out_view->slot_types.clear();
-  for (const auto& slot : in_conv.external_slots) {
-    if (slot.direction == PortDirection::kInput) {
-      out_view->slot_types[slot.slot_name] = slot.type_id;
-      out_view->slots[slot.slot_name].resize(inputs.size());
-    }
+  for (const auto& item : items) {
+    const auto& slot = item.converter->slot;
+    out_view->slot_types[slot.type_suffix] = slot.type_id;
+    out_view->slots[slot.type_suffix].resize(inputs.size());
   }
 
   for (size_t i = 0; i < inputs.size(); ++i) {
     const auto& in_map = inputs[i];
     std::unordered_set<std::string> recognized_keys;
 
-    for (const auto& slot : in_conv.external_slots) {
-      if (slot.direction != PortDirection::kInput) continue;
+    for (const auto& item : items) {
+      const auto& slot = item.converter->slot;
       std::string found_key;
       std::shared_ptr<void> payload = nullptr;
 
@@ -41,13 +40,13 @@ int ValidateAndExtractOperatorInputs(
           }
           return -3;
         }
-        if (suffix != slot.KeySuffix()) {
+        if (suffix != slot.type_suffix) {
           continue;
         }
         if (!found_key.empty()) {
           if (error) {
             *error = "Duplicate input slot mapping for suffix '" +
-                     slot.KeySuffix() + "' in frame " + std::to_string(i);
+                     slot.type_suffix + "' in frame " + std::to_string(i);
           }
           return -3;
         }
@@ -63,7 +62,7 @@ int ValidateAndExtractOperatorInputs(
       if (!payload && slot.required) {
         if (error) {
           *error = "Missing required input slot for suffix '" +
-                   slot.KeySuffix() + "' in frame " + std::to_string(i);
+                   slot.type_suffix + "' in frame " + std::to_string(i);
         }
         return -3;
       }
@@ -91,7 +90,24 @@ int ValidateAndExtractOperatorInputs(
           }
           return validation_result;
         }
-        out_view->slots[slot.slot_name][i] = std::move(payload);
+        // 每个请求核对宿主结构体的 service_type 是否属于该项登记的业务。
+        if (item.converter->service_type.has_value() &&
+            binding->read_service_type) {
+          const auto actual = binding->read_service_type(payload.get());
+          if (actual != item.converter->service_type) {
+            if (error) {
+              *error =
+                  "service_type mismatch for input " + item.converter->Label() +
+                  " struct '" + slot.type_suffix + "' in frame " +
+                  std::to_string(i) + ": expected " +
+                  std::to_string(*item.converter->service_type) + ", got " +
+                  (actual.has_value() ? std::to_string(*actual)
+                                      : std::string("none"));
+            }
+            return -3;
+          }
+        }
+        out_view->slots[slot.type_suffix][i] = std::move(payload);
       }
     }
 
@@ -109,7 +125,7 @@ int ValidateAndExtractOperatorInputs(
 
 int ResolveOperatorOutputs(
     const llm_edgeflow::operator_api::NamedIoBatch& outputs,
-    const OutputConverterDefinition& out_conv,
+    const std::vector<SelectedOutput>& items,
     std::vector<std::vector<FrameOutputBinding>>* frame_bindings,
     std::string* error) {
   if (!frame_bindings) {
@@ -123,8 +139,8 @@ int ResolveOperatorOutputs(
     const auto& out_map = outputs[i];
     std::unordered_set<std::string> recognized_keys;
 
-    for (const auto& slot : out_conv.external_slots) {
-      if (slot.direction != PortDirection::kOutput) continue;
+    for (const auto& item : items) {
+      const auto& slot = item.converter->slot;
       std::string found_key;
 
       for (const auto& [key, value] : out_map) {
@@ -136,13 +152,13 @@ int ResolveOperatorOutputs(
           }
           return -4;
         }
-        if (suffix != slot.KeySuffix()) {
+        if (suffix != slot.type_suffix) {
           continue;
         }
         if (!found_key.empty()) {
           if (error) {
             *error = "Duplicate output slot mapping for suffix '" +
-                     slot.KeySuffix() + "' in frame " + std::to_string(i);
+                     slot.type_suffix + "' in frame " + std::to_string(i);
           }
           return -4;
         }
@@ -160,14 +176,14 @@ int ResolveOperatorOutputs(
       if (found_key.empty() && slot.required) {
         if (error) {
           *error = "Missing required output slot for suffix '" +
-                   slot.KeySuffix() + "' in frame " + std::to_string(i);
+                   slot.type_suffix + "' in frame " + std::to_string(i);
         }
         return -4;
       }
 
       if (!found_key.empty()) {
         (*frame_bindings)[i].push_back(
-            {found_key, slot.slot_name, slot.type_suffix});
+            {found_key, slot.type_suffix, slot.type_suffix});
       }
     }
 

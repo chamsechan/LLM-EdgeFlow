@@ -25,8 +25,6 @@ class RegistryTestAccess {
     // old_entries 在锁外析构
   }
 
-  static void ResetBizs() { PipelineCatalog::ResetBizsForTesting(); }
-
   static void ClearNodeFailures() noexcept {
     try {
       std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);

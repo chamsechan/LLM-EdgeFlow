@@ -86,7 +86,7 @@ with output.open("a", encoding="utf-8") as stream:
     stream.write('''
 #include <filesystem>
 #include "adapter/deployment_io_config.h"
-#include "adapter/io_binding_resolver.h"
+#include "adapter/io_plan_resolver.h"
 
 namespace llm_edgeflow {
 TEST(CustomNodeCatalogTest, ControlTutorialDeploymentUsesCurrentNativeContracts) {
@@ -99,10 +99,11 @@ TEST(CustomNodeCatalogTest, ControlTutorialDeploymentUsesCurrentNativeContracts)
   EXPECT_EQ(std::filesystem::path(parsed.resolved_pipe_path),
             std::filesystem::canonical(directory / "pipeline.json"));
   std::unique_ptr<ValidatedIoPlan> plan;
-  ASSERT_EQ(IoBindingResolver::ResolveFromConfig(
+  ASSERT_EQ(IoPlanResolver::ResolveFromConfig(
                 parsed, directory.string(), &plan, &error), 0) << error;
   ASSERT_NE(plan, nullptr);
-  EXPECT_EQ(plan->binding.biz_name, "keyword_match");
+  ASSERT_EQ(plan->inputs.size(), 1u);
+  EXPECT_EQ(plan->inputs[0].converter->name, "keyword_match");
 }
 }  // namespace llm_edgeflow
 ''')

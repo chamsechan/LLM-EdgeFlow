@@ -39,12 +39,12 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
     if (!IsValidInputString(in->user_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid user_text CompanyString", "audit_in.user_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(in->user_text->length) > biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "user_text length exceeds limit", "audit_in.user_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     std::string channel_str;
@@ -52,14 +52,14 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
       if (!IsValidInputString(in->channel_name)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid channel_name CompanyString",
-            "audit_in.channel_name", options.converter_id.c_str(),
+            "audit_in.channel_name", options.Label().c_str(),
             static_cast<int>(i));
       }
       if (static_cast<size_t>(in->channel_name->length) >
           biz_input::kMaxChannelNameBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "channel_name length exceeds limit",
-            "audit_in.channel_name", options.converter_id.c_str(),
+            "audit_in.channel_name", options.Label().c_str(),
             static_cast<int>(i));
       }
       channel_str = CopyInputString(*in->channel_name);
@@ -74,11 +74,11 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kUserTexts, std::move(user_texts),
-          options.converter_id.c_str(), status) ||
+          *context, kUserTexts, std::move(user_texts), options.Label().c_str(),
+          status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, kChannelNames, std::move(channel_names),
-          options.converter_id.c_str(), status)) {
+          options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -87,9 +87,11 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorAuditInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "audit.plain";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot)};
+  def.type = kInputSlot;
+  def.name = "dialogue_audit";
+  def.service_type =
+      COMPANY_MOCK_SERVICE_DIALOGUE_AUDIT;  // 占位取值，进内网核对
+  def.slot = ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot);
   def.logical_ports = {OutputPort(kUserTexts), OutputPort(kChannelNames)};
   def.decode_fn = &DecodeOperatorAuditInput;
   return def;

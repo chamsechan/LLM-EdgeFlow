@@ -41,7 +41,8 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
                         const_cast<char*>(doc1.data())};
   CompanyString query1_cs{static_cast<int32_t>(query1.size()),
                           const_cast<char*>(query1.data())};
-  CompanyOperatorDocInput in1{90001, &doc1_cs, &query1_cs};
+  CompanyOperatorDocInput in1{90001, &doc1_cs, &query1_cs,
+                              COMPANY_MOCK_SERVICE_DOC_QA};
 
   std::string doc2 =
       "客户服务售后政策：支持7天无理由退货与全额退款。若商品存在质量问题，由平"
@@ -51,7 +52,8 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
                         const_cast<char*>(doc2.data())};
   CompanyString query2_cs{static_cast<int32_t>(query2.size()),
                           const_cast<char*>(query2.data())};
-  CompanyOperatorDocInput in2{90002, &doc2_cs, &query2_cs};
+  CompanyOperatorDocInput in2{90002, &doc2_cs, &query2_cs,
+                              COMPANY_MOCK_SERVICE_DOC_QA};
 
   NamedIoBatch in_batch(2);
   NamedIoBatch out_batch(2);

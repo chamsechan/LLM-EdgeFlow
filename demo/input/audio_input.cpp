@@ -61,13 +61,14 @@ int BuildAudioRequests(
     return 4;
   }
 
+  const int32_t service_type = DemoServiceType(inputs[0]);
   out->request_info.clear();
   if (loaded_from_dataset) {
     storage->inputs.reserve(storage->samples.size());
     for (const auto& sample : storage->samples) {
       storage->inputs.push_back({sample.request_id, sample.pcm_data.data(),
                                  static_cast<int32_t>(sample.pcm_data.size()),
-                                 sample.sample_rate});
+                                 sample.sample_rate, service_type});
       nlohmann::json info = nlohmann::json::object();
       if (!sample.reference_text.empty()) {
         info["reference_text"] = sample.reference_text;
@@ -79,7 +80,8 @@ int BuildAudioRequests(
     storage->fallback_pcm.assign(16000, 0.01f);
     storage->inputs.push_back(
         {70001, storage->fallback_pcm.data(),
-         static_cast<int32_t>(storage->fallback_pcm.size()), 16000});
+         static_cast<int32_t>(storage->fallback_pcm.size()), 16000,
+         service_type});
     out->request_info.push_back(nlohmann::json::object());
   }
 

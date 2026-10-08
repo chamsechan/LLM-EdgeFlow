@@ -11,6 +11,7 @@
 #include "core/common_contracts.h"
 #include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
+#include "tests/support/scoped_converter_registry.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -67,27 +68,37 @@ TEST(IoConverterTest, ViewAccessors) {
   out_view.SetCapacity("out_slot", "field_1", 1024);
   EXPECT_EQ(out_view.GetSlot<int>("out_slot", 0), &out_sample);
   EXPECT_EQ(out_view.GetSlot<float>("out_slot", 0), nullptr);
-  EXPECT_EQ(out_view.GetSlotCapacity("out_slot", "field_1"), 1024U);
-  EXPECT_EQ(out_view.GetSlotCapacity("out_slot", "unknown", 42), 42U);
+  ASSERT_NE(out_view.GetPoolSpec("out_slot"), nullptr);
+  EXPECT_EQ(out_view.GetPoolSpec("out_slot")->GetCapacity("field_1"), 1024U);
+  // 容量只来自租用块的规格：未声明的字段为 0，不回退到调用方给的默认值。
+  EXPECT_EQ(out_view.GetPoolSpec("out_slot")->GetCapacity("unknown"), 0U);
 }
 
 TEST(IoConverterTest, RegisterAndFindInputConverter) {
+  test_support::ScopedConverterRegistry restore;
   auto& reg = IoConverterRegistry::Instance();
+  reg.ClearForTesting();
 
   InputConverterDefinition def;
-  def.converter_id = "test.input";
-  def.external_slots = {ExternalSlotDefinition(
-      "inputs", "int", PortDirection::kInput, true, "inputs")};
+  def.type = "inputs";
+  def.name = "test_input";
+  def.slot.type_id = "int";
+  def.slot.type_suffix = "inputs";
   def.logical_ports = {NodePortDefinition("texts", "TextBatch", true, "1:1")};
   def.decode_fn = &DummyDecode;
 
   EXPECT_TRUE(reg.RegisterInputConverter(def));
 
-  const auto* found = reg.FindInputConverter("test.input");
+  const auto* found = reg.FindInputConverter("inputs", "test_input");
   ASSERT_NE(found, nullptr);
-  EXPECT_EQ(found->converter_id, "test.input");
-
+  EXPECT_EQ(found->Label(), "inputs/test_input");
   EXPECT_EQ(found->logical_ports.size(), 1U);
+  // 查找按（type, name）精确匹配。
+  EXPECT_EQ(reg.FindInputConverter("inputs", "other"), nullptr);
+  EXPECT_EQ(reg.FindInputConverter("other", "test_input"), nullptr);
+  EXPECT_EQ(reg.InputNamesOfType("inputs"),
+            std::vector<std::string>{"test_input"});
+  EXPECT_EQ(reg.InputTypes(), std::vector<std::string>{"inputs"});
 
   // 重复注册拒绝并记录冲突
   EXPECT_FALSE(reg.RegisterInputConverter(def));
@@ -95,72 +106,68 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
 }
 
 TEST(IoConverterTest, RegisterAndFindOutputConverter) {
+  test_support::ScopedConverterRegistry restore;
   auto& reg = IoConverterRegistry::Instance();
+  reg.ClearForTesting();
 
   OutputConverterDefinition def;
-  def.converter_id = "test.output";
-  def.external_slots = {ExternalSlotDefinition(
-      "answers", "int", PortDirection::kOutput, true, "answers")};
+  def.type = "answers";
+  def.name = "test_output";
+  def.slot.type_id = "int";
+  def.slot.type_suffix = "answers";
   def.logical_ports = {NodePortDefinition("answers", "TextBatch", true, "1:1")};
   def.encode_fn = &DummyEncode;
 
   EXPECT_TRUE(reg.RegisterOutputConverter(def));
 
-  const auto* found = reg.FindOutputConverter("test.output");
+  const auto* found = reg.FindOutputConverter("answers", "test_output");
   ASSERT_NE(found, nullptr);
-  EXPECT_EQ(found->converter_id, "test.output");
-}
-
-TEST(IoConverterTest, ExternalTypeJoinsSlotTypesInOrder) {
-  const std::vector<ExternalSlotDefinition> slots = {
-      ExternalSlotDefinition("frame", "CompanyFrame", PortDirection::kInput,
-                             true, "frame"),
-      ExternalSlotDefinition("query", "CompanyString", PortDirection::kInput,
-                             true, "query")};
-  EXPECT_EQ(ExternalType(slots), "CompanyFrame,CompanyString");
-  EXPECT_EQ(ExternalType({}), "");
+  EXPECT_EQ(found->Label(), "answers/test_output");
+  // 输入与输出各有一张表：同名（type, name）互不影响。
+  EXPECT_EQ(reg.FindInputConverter("answers", "test_output"), nullptr);
 }
 
 TEST(IoConverterTest, RejectsInvalidDefinitions) {
+  test_support::ScopedConverterRegistry restore;
+  auto& reg = IoConverterRegistry::Instance();
+  reg.ClearForTesting();
   InputConverterDefinition bad_in;
-  bad_in.converter_id = "";
   bad_in.decode_fn = &DummyDecode;
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+  EXPECT_FALSE(reg.RegisterInputConverter(bad_in));  // 缺少 type 和 name
 
-  bad_in.converter_id = "bad.in";
-  bad_in.external_slots = {ExternalSlotDefinition(
-      "inputs", "int", PortDirection::kInput, true, "inputs")};
+  bad_in.type = "inputs";
+  bad_in.name = "bad_in";
+  bad_in.slot.type_id = "int";
+  bad_in.slot.type_suffix = "inputs";
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   bad_in.decode_fn = nullptr;
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+  EXPECT_FALSE(reg.RegisterInputConverter(bad_in));  // 缺少回调
 
-  // 缺少 external_slots
+  // 缺少槽的结构名
   bad_in.decode_fn = &DummyDecode;
-  bad_in.external_slots.clear();
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+  bad_in.slot.type_id.clear();
+  EXPECT_FALSE(reg.RegisterInputConverter(bad_in));
 
   // 缺少 logical_ports
-  bad_in.external_slots = {ExternalSlotDefinition(
-      "inputs", "int", PortDirection::kInput, true, "inputs")};
+  bad_in.slot.type_id = "int";
   bad_in.logical_ports.clear();
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+  EXPECT_FALSE(reg.RegisterInputConverter(bad_in));
 
   // 补齐必需字段后注册成功
-  bad_in.converter_id = "complete.in";
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
-  EXPECT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+  EXPECT_TRUE(reg.RegisterInputConverter(bad_in));
 
   OutputConverterDefinition bad_out;
-  bad_out.converter_id = "bad.out";
-  bad_out.external_slots = {ExternalSlotDefinition(
-      "answers", "int", PortDirection::kOutput, true, "answers")};
+  bad_out.type = "answers";
+  bad_out.name = "bad_out";
+  bad_out.slot.type_id = "int";
+  bad_out.slot.type_suffix = "answers";
   bad_out.logical_ports = {
       NodePortDefinition("answers", "TextBatch", true, "1:1")};
   bad_out.encode_fn = nullptr;
-  EXPECT_FALSE(
-      IoConverterRegistry::Instance().RegisterOutputConverter(bad_out));
+  EXPECT_FALSE(reg.RegisterOutputConverter(bad_out));
 }
 
 TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
@@ -193,8 +200,7 @@ TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
   output.SetCapacity("channel.slot", "bytes", 512);
   ASSERT_NE(output.GetPoolSpec("channel.slot"), nullptr);
   EXPECT_EQ(output.GetPoolSpec("slot"), nullptr);
-  EXPECT_EQ(output.GetSlotCapacity("channel.slot", "bytes"), 512U);
-  EXPECT_EQ(output.GetSlotCapacity("slot", "bytes", 7), 7U);
+  EXPECT_EQ(output.GetPoolSpec("channel.slot")->GetCapacity("bytes"), 512U);
 
   // 3. 多槽位歧义消解：同一类型的不同逻辑槽位
   ExternalInputBatchView multi;
@@ -215,95 +221,83 @@ TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
   EXPECT_EQ(multi.GetSlot<ReproA>("unknown", 0), nullptr);
 }
 
-TEST(IoConverterTest,
-     RejectsEmptyTypeSuffixAndSupportsMultipleSlotsOfSameType) {
+TEST(IoConverterTest, RejectsEmptySlotSuffix) {
+  test_support::ScopedConverterRegistry restore;
   auto& reg = IoConverterRegistry::Instance();
+  reg.ClearForTesting();
 
-  // 1. type_suffix 为空的输入 Converter 必须被拒绝
   InputConverterDefinition bad_in;
-  bad_in.converter_id = "test.empty_suffix.in";
-  bad_in.external_slots = {
-      ExternalSlotDefinition("slot1", "int", PortDirection::kInput, true, "")};
+  bad_in.type = "slot1";
+  bad_in.name = "empty_suffix_in";
+  bad_in.slot.type_id = "int";
+  bad_in.slot.type_suffix = "";
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   bad_in.decode_fn = &DummyDecode;
-
   EXPECT_FALSE(reg.RegisterInputConverter(bad_in));
 
-  // 2. type_suffix 为空的输出 Converter 必须被拒绝
   OutputConverterDefinition bad_out;
-  bad_out.converter_id = "test.empty_suffix.out";
-  bad_out.external_slots = {
-      ExternalSlotDefinition("slot1", "int", PortDirection::kOutput, true, "")};
+  bad_out.type = "slot1";
+  bad_out.name = "empty_suffix_out";
+  bad_out.slot.type_id = "int";
+  bad_out.slot.type_suffix = "";
   bad_out.logical_ports = {
       NodePortDefinition("answers", "TextBatch", true, "1:1")};
   bad_out.encode_fn = &DummyEncode;
-
   EXPECT_FALSE(reg.RegisterOutputConverter(bad_out));
-
-  // 3. 同一 ValueType 的多个槽位使用不同槽位名时可以注册成功
-  InputConverterDefinition multi_in;
-  multi_in.converter_id = "test.multi_slot.in";
-  multi_in.external_slots = {
-      ExternalSlotDefinition("slot_first", "int", PortDirection::kInput, true,
-                             "int_suffix"),
-      ExternalSlotDefinition("slot_second", "int", PortDirection::kInput, true,
-                             "int_suffix")};
-  multi_in.logical_ports = {
-      NodePortDefinition("texts", "TextBatch", true, "1:1")};
-  multi_in.decode_fn = &DummyDecode;
-
-  EXPECT_TRUE(reg.RegisterInputConverter(multi_in));
-  const auto* found_in = reg.FindInputConverter("test.multi_slot.in");
-  ASSERT_NE(found_in, nullptr);
-  EXPECT_EQ(found_in->external_slots.size(), 2U);
-  EXPECT_EQ(found_in->external_slots[0].slot_name, "slot_first");
-  EXPECT_EQ(found_in->external_slots[1].slot_name, "slot_second");
-  EXPECT_EQ(found_in->external_slots[0].type_suffix, "int_suffix");
-  EXPECT_EQ(found_in->external_slots[1].type_suffix, "int_suffix");
 }
 
 TEST(IoConverterTest, OptionalInputSlotsPreserveEveryFramePosition) {
-  InputConverterDefinition converter;
-  converter.external_slots = {
-      {"required", "CompanyOperatorEntityInput", PortDirection::kInput, true,
-       "entity_in", "required"},
-      {"optional", "CompanyOperatorEntityInput", PortDirection::kInput, false,
-       "entity_in", "optional"}};
+  // 两个输入项：entity_in 必填，keyword_in 可选；每个宿主结构体占一个槽。
+  InputConverterDefinition required;
+  required.type = "entity_in";
+  required.name = "required_item";
+  required.slot = ExternalInputSlot<CompanyOperatorEntityInput>("entity_in");
+  InputConverterDefinition optional;
+  optional.type = "keyword_in";
+  optional.name = "optional_item";
+  optional.slot = ExternalInputSlot<CompanyOperatorKeywordInput>("keyword_in");
+  optional.slot.required = false;
+  const std::vector<SelectedInput> items = {{&required, nullptr},
+                                            {&optional, nullptr}};
   char text[] = "hello";
   CompanyString sentence{5, text};
   operator_api::NamedIoBatch inputs(5);
-  std::vector<std::shared_ptr<CompanyOperatorEntityInput>> payloads;
+  std::vector<std::shared_ptr<CompanyOperatorEntityInput>> required_payloads;
+  std::vector<std::shared_ptr<CompanyOperatorKeywordInput>> optional_payloads;
   for (size_t i = 0; i < inputs.size(); ++i) {
     auto payload = std::make_shared<CompanyOperatorEntityInput>();
     payload->request_id = 100 + i;
     payload->sentence_text = &sentence;
-    inputs[i]["test.required"] = payload;
-    if (i % 2 == 1) inputs[i]["test.optional"] = payload;
-    payloads.push_back(std::move(payload));
+    inputs[i]["test.entity_in"] = payload;
+    required_payloads.push_back(std::move(payload));
+    auto extra = std::make_shared<CompanyOperatorKeywordInput>();
+    extra->request_id = 100 + i;
+    extra->sentence_text = &sentence;
+    if (i % 2 == 1) inputs[i]["test.keyword_in"] = extra;
+    optional_payloads.push_back(std::move(extra));
   }
   ExternalInputBatchView view;
   std::string error;
-  ASSERT_EQ(
-      ValidateAndExtractOperatorInputs(inputs, converter, {}, &view, &error), 0)
+  ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &view, &error),
+            0)
       << error;
   ASSERT_EQ(view.count, 5U);
-  ASSERT_EQ(view.slots.at("optional").size(), 5U);
+  ASSERT_EQ(view.slots.at("keyword_in").size(), 5U);
   for (size_t i = 0; i < inputs.size(); ++i) {
-    EXPECT_EQ(view.GetSlot<CompanyOperatorEntityInput>("required", i),
-              payloads[i].get());
-    const auto* optional =
-        view.GetSlot<CompanyOperatorEntityInput>("optional", i);
-    EXPECT_EQ(optional, i % 2 == 1 ? payloads[i].get() : nullptr);
+    EXPECT_EQ(view.GetSlot<CompanyOperatorEntityInput>("entity_in", i),
+              required_payloads[i].get());
+    const auto* extra =
+        view.GetSlot<CompanyOperatorKeywordInput>("keyword_in", i);
+    EXPECT_EQ(extra, i % 2 == 1 ? optional_payloads[i].get() : nullptr);
     if (i % 2 == 1) {
-      ASSERT_NE(optional, nullptr);
-      EXPECT_EQ(optional->request_id, 100 + i);
+      ASSERT_NE(extra, nullptr);
+      EXPECT_EQ(extra->request_id, 100 + i);
     }
   }
-  inputs[2].erase("test.required");
-  EXPECT_EQ(
-      ValidateAndExtractOperatorInputs(inputs, converter, {}, &view, &error),
-      -3);
+  inputs[2].erase("test.entity_in");
+  EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &view, &error),
+            -3);
   EXPECT_NE(error.find("Missing required input slot"), std::string::npos);
   EXPECT_NE(error.find("frame 2"), std::string::npos);
 }
@@ -326,7 +320,8 @@ TEST(IoConverterTest, HarnessPreservesNamedSlotsTypesAndPoolCapacities) {
     auto* b = view->GetSlot<ReproB>("right", 0);
     const auto* sum = context->Read<int>("sum");
     if (!a || !b || !sum || view->GetSlot<ReproA>("right", 0)) return -3;
-    if (view->GetSlotCapacity("right", "items") < 2) return -4;
+    const auto* right_spec = view->GetPoolSpec("right");
+    if (!right_spec || right_spec->GetCapacity("items") < 2) return -4;
     a->a = *sum;
     b->b = *sum;
     *written = 1;
@@ -358,14 +353,16 @@ TEST(IoConverterTest, HarnessPreservesNamedSlotsTypesAndPoolCapacities) {
 
 TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   InputConverterDefinition input;
-  input.external_slots = {{"value", "ReproA"}};
+  input.slot.type_id = "ReproA";
+  input.slot.type_suffix = "value";
   input.decode_fn = [](const ExternalInputBatchView& view,
                        const InputDecodeOptions&, AlgContext*,
                        AdapterStatus*) -> int {
     return view.GetSlot<ReproA>("value", 0) ? 0 : -3;
   };
   OutputConverterDefinition output;
-  output.external_slots = {{"value", "ReproB", PortDirection::kOutput}};
+  output.slot.type_id = "ReproB";
+  output.slot.type_suffix = "value";
   output.encode_fn = [](AlgContext*, const OutputEncodeOptions&,
                         ExternalOutputBatchView* view, size_t* written,
                         AdapterStatus*) -> int {
@@ -384,7 +381,8 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
 TEST(IoConverterTest, OutputWriterRequiresExplicitFieldCapacityWithoutWriting) {
   TestOutputBatchView view;
   OutputEncodeOptions options;
-  options.converter_id = "test.writer";
+  options.type = "writer";
+  options.name = "test";
   char bytes[] = "old";
   CompanyString destination{3, bytes};
   AdapterStatus status;
@@ -397,7 +395,7 @@ TEST(IoConverterTest, OutputWriterRequiresExplicitFieldCapacityWithoutWriting) {
     EXPECT_EQ(status.Message(), "Missing output capacity specification");
     EXPECT_EQ(status.FieldPath(), "text");
     EXPECT_EQ(status.SampleIndex(), 2);
-    EXPECT_EQ(status.AdapterName(), "test.writer");
+    EXPECT_EQ(status.AdapterName(), "writer/test");
     EXPECT_STREQ(bytes, "old");
     EXPECT_EQ(destination.length, 3);
     EXPECT_FALSE(WriteOutputString(view, "output", &destination, "text", "new",
@@ -410,7 +408,8 @@ TEST(IoConverterTest, OutputWriterHonorsPayloadCapacityAndTerminator) {
   TestOutputBatchView view;
   view.SetCapacity("output", "text", 3);
   OutputEncodeOptions options;
-  options.converter_id = "test.writer";
+  options.type = "writer";
+  options.name = "test";
   char bytes[] = {'?', '?', '?', '?', '!'};
   CompanyString destination{0, bytes};
   EXPECT_TRUE(WriteOutputString(view, "output", &destination, "text", "abc",
@@ -437,7 +436,8 @@ TEST(IoConverterTest, OutputWriterPreservesEmbeddedNullAndChecksFullLength) {
   TestOutputBatchView view;
   view.SetCapacity("output", "text", 3);
   OutputEncodeOptions options;
-  options.converter_id = "test.writer";
+  options.type = "writer";
+  options.name = "test";
   const std::string payload("a\0b", 3);
   char bytes[] = {'?', '?', '?', '?', '!'};
   CompanyString destination{0, bytes};
@@ -480,14 +480,14 @@ constexpr auto kRowTexts = MakeBlackboardKey<TextBatch>("texts");
 TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
   char bytes[] = {'a', '\0', 'b'};
   CompanyString text{3, bytes};
-  CompanyOperatorKeywordInput first{42, &text}, second{42, &text};
+  CompanyOperatorKeywordInput first{42, &text, 0}, second{42, &text, 0};
   ExternalInputBatchView source;
   source.count = 2;
   source.slots["input"] = BorrowInputForTest({&first, &second});
   source.slot_types["input"] = "CompanyOperatorKeywordInput";
   InputDecodeOptions options;
-  options.converter_id = "test.rows.input";
-  options.max_batch_size = 2;
+  options.type = "input";
+  options.name = "rows";
   std::vector<uint64_t> request_ids;
   options.request_ids = &request_ids;
   AlgContext context;
@@ -512,14 +512,14 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
 }
 
 TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
-  CompanyOperatorKeywordInput first{1, nullptr}, second{2, nullptr};
+  CompanyOperatorKeywordInput first{1, nullptr, 0}, second{2, nullptr, 0};
   ExternalInputBatchView source;
   source.count = 2;
   source.slots["input"] = BorrowInputForTest({&first, &second});
   source.slot_types["input"] = "CompanyOperatorKeywordInput";
   InputDecodeOptions options;
-  options.converter_id = "test.rows.input";
-  options.max_batch_size = 2;
+  options.type = "input";
+  options.name = "rows";
   std::vector<uint64_t> request_ids;
   options.request_ids = &request_ids;
   AlgContext context;
@@ -534,7 +534,7 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
                   return AdapterStatus::Ok();
                 }),
             COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.AdapterName(), options.converter_id);
+  EXPECT_EQ(status.AdapterName(), options.Label());
   EXPECT_EQ(status.SampleIndex(), 1);
   EXPECT_EQ(status.FieldPath(), "sentence_text");
   EXPECT_EQ(status.Message(), "bad sentence");
@@ -542,42 +542,35 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   EXPECT_FALSE(context.Has(kRowTexts.name));
 }
 
-TEST(IoConverterTest, DecodeRowsUsesEffectiveBatchLimitFromOptions) {
-  char bytes[] = {'a'};
-  CompanyString text{1, bytes};
-  CompanyOperatorKeywordInput first{1, &text}, second{2, &text};
+// 宿主结构体不带 request_id 成员时，解码只发布数据，请求 ID 表保持为空，
+// 由同一批的其他输入项提供（多项输入按批内序号配对）。
+TEST(IoConverterTest, DecodeRowsWithoutRequestIdMemberLeavesIdTableEmpty) {
+  char bytes[] = {'q', 'a'};
+  CompanyString first{2, bytes}, second{1, bytes};
   ExternalInputBatchView source;
   source.count = 2;
-  source.slots["input"] = BorrowInputForTest({&first, &second});
-  source.slot_types["input"] = "CompanyOperatorKeywordInput";
-  const auto decode = [&](size_t limit, AlgContext* context,
-                          AdapterStatus* status) {
-    InputDecodeOptions options;
-    options.converter_id = "test.rows.input";
-    options.max_batch_size = limit;
-    std::vector<uint64_t> request_ids;
-    options.request_ids = &request_ids;
-    return DecodeRequestRows<CompanyOperatorKeywordInput>(
-        source, options, context, status, "input", kRowTexts,
-        [](const CompanyOperatorKeywordInput& row, std::string* value) {
-          *value = CopyInputString(*row.sentence_text);
-          return AdapterStatus::Ok();
-        });
-  };
-
-  AlgContext limited;
-  AdapterStatus limited_status;
-  EXPECT_EQ(decode(1, &limited, &limited_status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_NE(limited_status.Message().find("Batch size out of range [1, 1]"),
-            std::string::npos);
-  EXPECT_FALSE(limited.Has(kRowTexts.name));
-
-  // 0 表示调用方未传上限；只检查是否为空。
-  AlgContext unlimited;
-  AdapterStatus unlimited_status;
-  EXPECT_EQ(decode(0, &unlimited, &unlimited_status), COMPANY_ALG_SUCCESS);
-  EXPECT_TRUE(unlimited.Has(kRowTexts.name));
+  source.slots["string"] = BorrowInputForTest({&first, &second});
+  source.slot_types["string"] = "CompanyString";
+  InputDecodeOptions options;
+  options.type = "string";
+  options.name = "rows";
+  std::vector<uint64_t> request_ids;
+  options.request_ids = &request_ids;
+  AlgContext context;
+  AdapterStatus status;
+  ASSERT_EQ(DecodeRequestRows<CompanyString>(
+                source, options, &context, &status, "string", kRowTexts,
+                [](const CompanyString& row, std::string* value) {
+                  *value = CopyInputString(row);
+                  return AdapterStatus::Ok();
+                }),
+            COMPANY_ALG_SUCCESS);
+  EXPECT_TRUE(request_ids.empty());
+  const auto* texts = context.Read(kRowTexts);
+  ASSERT_NE(texts, nullptr);
+  ASSERT_EQ(texts->size(), 2U);
+  EXPECT_EQ((*texts)[0].data, "qa");
+  EXPECT_EQ((*texts)[1].data, "q");
 }
 
 TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
@@ -586,7 +579,8 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   context.Publish(kRowTexts,
                   TextBatch{{1, 0, "two"}, {0, 0, std::string("a\0b", 3)}});
   OutputEncodeOptions options;
-  options.converter_id = "test.rows.output";
+  options.type = "output";
+  options.name = "rows";
   options.request_ids = &request_ids;
   char first_bytes[4] = {}, second_bytes[4] = {};
   CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};
@@ -626,7 +620,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
                 kRowTexts, encode),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(written, 0U);
-  EXPECT_EQ(status.AdapterName(), options.converter_id);
+  EXPECT_EQ(status.AdapterName(), options.Label());
   EXPECT_EQ(status.SampleIndex(), 0);
   EXPECT_EQ(status.FieldPath(), "entities_json");
 
@@ -643,7 +637,7 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
           }),
       COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(written, 0U);
-  EXPECT_EQ(status.AdapterName(), options.converter_id);
+  EXPECT_EQ(status.AdapterName(), options.Label());
   EXPECT_EQ(status.SampleIndex(), 1);
   EXPECT_EQ(status.FieldPath(), "business_field");
   EXPECT_EQ(status.Message(), "cannot encode");

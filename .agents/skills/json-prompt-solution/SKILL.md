@@ -27,14 +27,14 @@ description: Build LLM-EdgeFlow solutions that transform a field from a complete
    改变输入/输出字段契约时，按 [Adapter skill](../edgeflow-adapter-developer/SKILL.md)，
    在注册 Converter 内提取输入字段并序列化输出。Demo 只转换载体，不承担该业务语义。
 3. 优先复用已有 Operator 结构、ValueType、结果打包和运行器；有合适载体时无需再建
-   平台类型。不同业务可以复用载体，同时注册自己的契约，保持旧业务语义。
+   平台类型。不同业务可以复用载体，同时登记自己的（结构体，业务）转换器，保持旧业务语义。
    遵循业务接入指南中的注册完整性要求。
 4. 按 `CONTRIBUTING.md` 判断设计审查要求；追加新业务类型需记录接口决定并更新
    现行契约文档，普通配置不需额外审批。算法能力缺失时才考虑 custom Node，见
    [Node skill](../edgeflow-node-developer/SKILL.md)。不把平台转换放进 Core 或 Nodes。
 
-当前翻译参照 `doc/solutions/translate.md`、`src/adapter/biz/translate_bindings.cpp` 和
-`configs/pipeline_translate_cpu.json`。其业务 `translate` 复用既有文本/JSON 载体、一个
+当前翻译参照 `doc/solutions/translate.md`、`src/adapter/input/translate_json_input.cpp`、`src/adapter/output/translation_json_output.cpp` 和
+`configs/pipeline_translate_cpu.json`。其业务 `translate` 复用既有文本/JSON 载体（`entity_in` / `entity_out`）、一个
 `LlmGenerateNode` 及模型实现。`sentence_text` / `entities_json` 是载体字段名称，不是业务
 JSON 内的 query / translated；名称不够通用并不要求全仓改名。
 
@@ -52,7 +52,7 @@ JSON 内的 query / translated；名称不够通用并不要求全仓改名。
   `failure_policy=fail`。SDK 响应组装始终留在 Converter，不靠 Demo 投影字段。
   不用固定示例或 fallback 冒充成功。
 - `.conf` 必须指向新 Pipeline（仅包含 `pipe_path` 定位），并在 Pipeline JSON 的
-  `deployment.io` 中配置 `io_binding`、`out_mem`，模型路径只在 `models[].model_path` 中填写，
+  根层 `io` 中选择输入/输出转换器（`type`、`name`，需要时用 `params` 覆盖输出尺寸），模型路径只在 `models[].model_path` 中填写，
   相对路径以宿主传入的模型根目录为基准。原 Profile 不会自动指向新方案。
 
 ## 验证与交付

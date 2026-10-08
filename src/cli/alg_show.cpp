@@ -49,9 +49,19 @@ int main(int argc, char* argv[]) {
     return 2;
   }
 
-  std::string binding = j.value("deployment", nlohmann::json::object())
-                            .value("io", nlohmann::json::object())
-                            .value("io_binding", "<missing-io_binding>");
+  // io: doc_in/doc_qa -> doc_out/doc_qa，多项用逗号分隔。
+  const auto io_side = [&j](const char* side) {
+    std::string text;
+    const auto io = j.value("io", nlohmann::json::object());
+    if (!io.is_object() || !io.contains(side) || !io[side].is_array())
+      return std::string("<missing>");
+    for (const auto& item : io[side]) {
+      if (!text.empty()) text += ", ";
+      text += item.value("type", "?") + "/" + item.value("name", "?");
+    }
+    return text.empty() ? std::string("<missing>") : text;
+  };
+  const std::string io_text = io_side("input") + " -> " + io_side("output");
   auto models = j.value("models", nlohmann::json::array());
   auto pipeline = j.value("pipeline", nlohmann::json::array());
 
@@ -60,7 +70,7 @@ int main(int argc, char* argv[]) {
             << "LLM-EdgeFlow Declared Pipeline Viewer (Native Standalone)"
             << COLOR_RESET << "\n"
             << "ConfigFile: " << cfg_path << "\n"
-            << "I/O binding: " << binding << "\n\n";
+            << "io: " << io_text << "\n\n";
 
   // 1. 模型资源池
   std::cout << COLOR_BOLD << "[ 1. 边缘设备挂载模型池 (ModelManager) ]"

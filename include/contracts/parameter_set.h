@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -33,14 +35,29 @@ class ParameterValues {
     return *static_cast<const P*>(value_.get());
   }
 
+  // 框架按参数名读取整数参数（例如输出尺寸）；没有该参数、未设置或
+  // 不是整数时为空。读取的是 Prepare 之后的值。
+  std::optional<int64_t> Integer(const std::string& name) const {
+    const auto it = effective_.find(name);
+    if (it == effective_.end() || !it->is_number_integer()) return std::nullopt;
+    return it->get<int64_t>();
+  }
+
+  // 每个已声明字段的生效值，供 resolve-conf、validate-io 报告。
+  const nlohmann::json& Effective() const noexcept { return effective_; }
+
  private:
   friend class ParameterSet;
 
-  ParameterValues(std::type_index type, std::shared_ptr<const void> value)
-      : type_(type), value_(std::move(value)) {}
+  ParameterValues(std::type_index type, std::shared_ptr<const void> value,
+                  nlohmann::json effective)
+      : type_(type),
+        value_(std::move(value)),
+        effective_(std::move(effective)) {}
 
   std::type_index type_;
   std::shared_ptr<const void> value_;
+  nlohmann::json effective_;
 };
 
 // 一个组件（模型、后端）的参数声明：字段列表加上"配置到参数结构体"的
@@ -71,11 +88,13 @@ class ParameterSet {
       std::string*)>;
 
   template <typename P>
-  static std::shared_ptr<const ParameterValues> MakeValues(P&& parameters) {
+  static std::shared_ptr<const ParameterValues> MakeValues(
+      P&& parameters, nlohmann::json effective) {
     using Value = std::decay_t<P>;
     return std::shared_ptr<const ParameterValues>(new ParameterValues(
         std::type_index(typeid(Value)),
-        std::make_shared<const Value>(std::forward<P>(parameters))));
+        std::make_shared<const Value>(std::forward<P>(parameters)),
+        std::move(effective)));
   }
 
   static std::string DescribeFirstError(
@@ -108,7 +127,10 @@ ParameterSet::ParameterSet(Parameters<P> spec) : fields_(spec.Fields()) {
     }
     auto parsed = shared->ParseNormalized(normalized, error);
     if (!parsed.has_value()) return false;
-    if (values) *values = MakeValues(std::move(*parsed));
+    if (values) {
+      auto effective = shared->Read(*parsed);
+      *values = MakeValues(std::move(*parsed), std::move(effective));
+    }
     return true;
   };
 }

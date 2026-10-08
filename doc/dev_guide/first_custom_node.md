@@ -126,7 +126,7 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
 Validator 根据输入数据的唯一生产者推导执行依赖，无需重复填写 `depends_on`；
 该字段仅用于没有数据连接的额外执行顺序。模型引用必须显式填写，不使用约定实例名作为默认值。
 在 `pipeline_first_node.conf` 中，将 `pipe_path` 改为
-`pipeline_first_node.json`（`.conf` 仅包含该定位字段；接入绑定与输出容量沿用 JSON 中的 `deployment`）。
+`pipeline_first_node.json`（`.conf` 仅包含该定位字段；`io` 的转换器选择与输出尺寸参数沿用 JSON 中的根层 `io`）。
 
 此时数据经过：
 

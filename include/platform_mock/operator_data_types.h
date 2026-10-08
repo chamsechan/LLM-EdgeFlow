@@ -38,12 +38,30 @@ typedef struct CompanyAny {
 } CompanyAny;
 
 /**
+ * @brief 结构体成员 service_type 的占位取值
+ *
+ * 真实平台的每个宿主结构体都有 service_type 成员，标明请求属于哪个业务。
+ * 这里的成员位置和取值只是外网替身，进入内网后按真实头文件核对。
+ */
+enum CompanyMockServiceType {
+  COMPANY_MOCK_SERVICE_KEYWORD_MATCH = 101,
+  COMPANY_MOCK_SERVICE_ENTITY_EXTRACT = 102,
+  COMPANY_MOCK_SERVICE_TRANSLATE = 103,
+  COMPANY_MOCK_SERVICE_DOC_QA = 104,
+  COMPANY_MOCK_SERVICE_DIALOGUE_AUDIT = 105,
+  COMPANY_MOCK_SERVICE_AUDIO_ASR_INTENT = 106,
+  COMPANY_MOCK_SERVICE_CROSS_RERANK = 107,
+  COMPANY_MOCK_SERVICE_OCR_INVOICE_QA = 108
+};
+
+/**
  * @brief 图像帧镜像输入结构体 (Demo URI-backed 图像帧)
  */
 typedef struct CompanyFrame {
   uint64_t request_id;
   const CompanyString* image_uri;
   const CompanyAny* metadata;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyFrame;
 
 /**
@@ -55,6 +73,7 @@ typedef struct CompanyOdOutput {
   CompanyString* result_json;
   CompanyAny* metadata;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOdOutput;
 
 /**
@@ -64,6 +83,7 @@ typedef struct CompanyOperatorAuditInput {
   uint64_t request_id;
   const CompanyString* user_text;
   const CompanyString* channel_name;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorAuditInput;
 
 /**
@@ -76,6 +96,7 @@ typedef struct CompanyOperatorAuditOutput {
   CompanyString* matched_policy_clause;
   CompanyString* audit_verdict_json;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorAuditOutput;
 
 /**
@@ -84,6 +105,7 @@ typedef struct CompanyOperatorAuditOutput {
 typedef struct CompanyOperatorKeywordInput {
   uint64_t request_id;
   const CompanyString* sentence_text;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorKeywordInput;
 
 /**
@@ -94,6 +116,7 @@ typedef struct CompanyOperatorKeywordOutput {
   int32_t is_hit;
   CompanyString* match_result_json;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorKeywordOutput;
 
 /**
@@ -102,6 +125,7 @@ typedef struct CompanyOperatorKeywordOutput {
 typedef struct CompanyOperatorEntityInput {
   uint64_t request_id;
   const CompanyString* sentence_text;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorEntityInput;
 
 /**
@@ -111,6 +135,7 @@ typedef struct CompanyOperatorEntityOutput {
   uint64_t request_id;
   CompanyString* entities_json;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorEntityOutput;
 
 /**
@@ -120,6 +145,7 @@ typedef struct CompanyOperatorDocInput {
   uint64_t request_id;
   const CompanyString* doc_text;
   const CompanyString* query_text;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorDocInput;
 
 /**
@@ -132,6 +158,7 @@ typedef struct CompanyOperatorDocOutput {
   CompanyString* answer_text;
   int32_t chunk_count;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorDocOutput;
 
 /**
@@ -142,6 +169,7 @@ typedef struct CompanyOperatorAudioInput {
   const float* pcm_buffer;
   int32_t pcm_length;
   int32_t sample_rate;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorAudioInput;
 
 /**
@@ -152,6 +180,7 @@ typedef struct CompanyOperatorAudioOutput {
   CompanyString* transcribed_text;
   CompanyString* intent_slot_json;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorAudioOutput;
 
 #define COMPANY_OPERATOR_MAX_RERANK_CANDIDATES 8
@@ -165,6 +194,7 @@ typedef struct CompanyOperatorRerankInput {
   const CompanyString*
       candidate_passages[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t candidate_count;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorRerankInput;
 
 /**
@@ -176,6 +206,7 @@ typedef struct CompanyOperatorRerankOutput {
   int32_t sorted_indices[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t count;
   int32_t status_code;
+  int32_t service_type;  // 业务标识（占位取值，见 CompanyMockServiceType）
 } CompanyOperatorRerankOutput;
 
 #ifdef __cplusplus

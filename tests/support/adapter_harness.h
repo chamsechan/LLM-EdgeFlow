@@ -26,13 +26,19 @@ class AdapterHarness {
  public:
   AdapterHarness(const InputConverterDefinition* input_conv,
                  const OutputConverterDefinition* output_conv)
-      : in_conv_(input_conv), out_conv_(output_conv) {}
+      : in_conv_(input_conv), out_conv_(output_conv) {
+    ParseDefaults();
+  }
 
   explicit AdapterHarness(const InputConverterDefinition* input_conv)
-      : in_conv_(input_conv), out_conv_(nullptr) {}
+      : in_conv_(input_conv), out_conv_(nullptr) {
+    ParseDefaults();
+  }
 
   explicit AdapterHarness(const OutputConverterDefinition* output_conv)
-      : in_conv_(nullptr), out_conv_(output_conv) {}
+      : in_conv_(nullptr), out_conv_(output_conv) {
+    ParseDefaults();
+  }
 
   AlgContext& Context() { return ctx_; }
   const AlgContext& Context() const { return ctx_; }
@@ -47,23 +53,21 @@ class AdapterHarness {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     ExternalInputBatchView view;
     view.count = inputs.size();
-    std::string slot_name = in_conv_->external_slots.empty()
-                                ? ""
-                                : in_conv_->external_slots[0].slot_name;
-    if (!slot_name.empty()) {
-      view.slot_types[slot_name] = in_conv_->external_slots[0].type_id;
-      for (const void* input : inputs)
-        view.slots[slot_name].emplace_back(const_cast<void*>(input),
-                                           [](void*) {});
-    }
+    const std::string& slot_name = in_conv_->slot.type_suffix;
+    view.slot_types[slot_name] = in_conv_->slot.type_id;
+    for (const void* input : inputs)
+      view.slots[slot_name].emplace_back(const_cast<void*>(input),
+                                         [](void*) {});
     return DecodeOperator(view);
   }
 
   int DecodeOperator(const ExternalInputBatchView& view) {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     InputDecodeOptions options;
-    options.converter_id = in_conv_->converter_id;
+    options.type = in_conv_->type;
+    options.name = in_conv_->name;
     options.request_ids = &request_ids_;
+    options.params = input_params_.get();
 
     return in_conv_->decode_fn(view, options, &ctx_, &status_);
   }
@@ -82,14 +86,10 @@ class AdapterHarness {
     }
     ExternalOutputBatchView view;
     view.count = outputs->size();
-    std::string slot_name = out_conv_->external_slots.empty()
-                                ? ""
-                                : out_conv_->external_slots[0].slot_name;
-    if (!slot_name.empty()) {
-      view.slot_types[slot_name] = out_conv_->external_slots[0].type_id;
-      view.leased_slots[slot_name] = output_ptrs;
-      view.pool_specs[slot_name] = &pool_spec;
-    }
+    const std::string& slot_name = out_conv_->slot.type_suffix;
+    view.slot_types[slot_name] = out_conv_->slot.type_id;
+    view.leased_slots[slot_name] = output_ptrs;
+    view.pool_specs[slot_name] = &pool_spec;
     size_t written = 0;
     int ret = EncodeOperator(&view, &written);
     if (ret == 0 && written <= outputs->size()) {
@@ -101,8 +101,10 @@ class AdapterHarness {
   int EncodeOperator(ExternalOutputBatchView* view, size_t* written_count) {
     if (!out_conv_ || !out_conv_->encode_fn || !view) return -1;
     OutputEncodeOptions options;
-    options.converter_id = out_conv_->converter_id;
+    options.type = out_conv_->type;
+    options.name = out_conv_->name;
     options.request_ids = &request_ids_;
+    options.params = output_params_.get();
     return out_conv_->encode_fn(&ctx_, options, view, written_count, &status_);
   }
 
@@ -161,11 +163,23 @@ class AdapterHarness {
   }
 
  private:
+  // converter 的参数取全部默认值，与方案不写 params 时一致。
+  void ParseDefaults() {
+    std::string error;
+    if (in_conv_)
+      in_conv_->params.Parse(nlohmann::json::object(), &input_params_, &error);
+    if (out_conv_)
+      out_conv_->params.Parse(nlohmann::json::object(), &output_params_,
+                              &error);
+  }
+
   const InputConverterDefinition* in_conv_ = nullptr;
   const OutputConverterDefinition* out_conv_ = nullptr;
   AlgContext ctx_;
   AdapterStatus status_;
   std::vector<uint64_t> request_ids_;
+  std::shared_ptr<const ParameterValues> input_params_;
+  std::shared_ptr<const ParameterValues> output_params_;
 };
 
 }  // namespace test

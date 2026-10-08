@@ -1,32 +1,23 @@
 {
   "cases": [
     {
-      "name": "unknown_business",
-      "biz_type": 2,
-      "pipeline": {
-        "biz_name": "unknown_biz_xyz",
-        "models": [],
-        "pipeline": [
-          {
-            "id": "keyword",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {}
-          }
-        ]
-      },
-      "required_codes": [
-        "UNKNOWN_BIZ"
-      ],
-      "primary_code": "UNKNOWN_BIZ",
-      "primary_path": "/biz_name",
-      "runtime_error_code": -2
-    },
-    {
       "name": "unknown_node_type",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -48,7 +39,20 @@
       "name": "unknown_config_field",
       "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
+        "io": {
+          "input": [
+            {
+              "type": "entity_in",
+              "name": "entity_extract"
+            }
+          ],
+          "output": [
+            {
+              "type": "entity_out",
+              "name": "entity_extract"
+            }
+          ]
+        },
         "models": [
           {
             "model_id": "llm",
@@ -112,7 +116,20 @@
       "name": "config_field_range",
       "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
+        "io": {
+          "input": [
+            {
+              "type": "entity_in",
+              "name": "entity_extract"
+            }
+          ],
+          "output": [
+            {
+              "type": "entity_out",
+              "name": "entity_extract"
+            }
+          ]
+        },
         "models": [
           {
             "model_id": "llm",
@@ -176,7 +193,20 @@
       "name": "model_capability_mismatch",
       "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
+        "io": {
+          "input": [
+            {
+              "type": "entity_in",
+              "name": "entity_extract"
+            }
+          ],
+          "output": [
+            {
+              "type": "entity_out",
+              "name": "entity_extract"
+            }
+          ]
+        },
         "models": [
           {
             "model_id": "embedding",
@@ -239,7 +269,20 @@
       "name": "dag_cycle",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -283,7 +326,20 @@
       "name": "missing_input_producer",
       "biz_type": 1,
       "pipeline": {
-        "biz_name": "doc_qa",
+        "io": {
+          "input": [
+            {
+              "type": "doc_in",
+              "name": "doc_qa"
+            }
+          ],
+          "output": [
+            {
+              "type": "doc_out",
+              "name": "doc_qa"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -308,7 +364,20 @@
       "name": "parallel_write_conflict",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -350,7 +419,20 @@
       "name": "missing_node_id",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -371,7 +453,20 @@
       "name": "removed_execution_mode",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -394,7 +489,20 @@
       "name": "duplicate_dependency",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {
@@ -437,7 +545,20 @@
       "name": "invalid_dependency",
       "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
+        "io": {
+          "input": [
+            {
+              "type": "keyword_in",
+              "name": "keyword_match"
+            }
+          ],
+          "output": [
+            {
+              "type": "keyword_out",
+              "name": "keyword_match"
+            }
+          ]
+        },
         "models": [],
         "pipeline": [
           {

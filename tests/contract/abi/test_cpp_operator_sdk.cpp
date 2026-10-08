@@ -103,7 +103,7 @@ int main() {
       contract.outputs.size() != 1 || contract.inputs[0].type != "keyword_in" ||
       contract.inputs[0].name != "keyword_match" ||
       contract.inputs[0].type_name != "CompanyOperatorKeywordInput" ||
-      contract.inputs[0].service_type.has_value() ||
+      contract.inputs[0].service_type != COMPANY_MOCK_SERVICE_KEYWORD_MATCH ||
       contract.outputs[0].type != "keyword_out" ||
       contract.outputs[0].type_name != "CompanyOperatorKeywordOutput") {
     std::fprintf(stderr,
@@ -133,6 +133,7 @@ int main() {
   CompanyString cs1{static_cast<int32_t>(text1.size()),
                     const_cast<char*>(text1.data())};
   CompanyOperatorKeywordInput in_req1{};
+  in_req1.service_type = COMPANY_MOCK_SERVICE_KEYWORD_MATCH;
   in_req1.request_id = 1001;
   in_req1.sentence_text = &cs1;
 

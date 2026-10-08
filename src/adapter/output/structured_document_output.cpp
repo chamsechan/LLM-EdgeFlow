@@ -37,12 +37,26 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
       kExtractedEntities, &EncodeDocument);
 }
 
+// 输出字符串字段的尺寸参数；默认值按该业务的载荷设定，上限由平台结构登记决定。
+struct Params {
+  int64_t entities_json_max_bytes{};
+};
+
+auto ParamSpec() {
+  return Parameters<Params>(
+      {MaxBytes("entities_json", &Params::entities_json_max_bytes)
+           .Default(2047)});
+}
+
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "document.structured";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "entity_extract";
+  def.service_type =
+      COMPANY_MOCK_SERVICE_ENTITY_EXTRACT;  // 占位取值，进内网核对
+  def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kExtractedEntities)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorStructuredDocument;
   return def;
 }

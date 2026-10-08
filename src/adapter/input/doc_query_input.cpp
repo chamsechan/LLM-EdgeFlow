@@ -39,13 +39,13 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
     if (!IsValidInputString(in->query_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid query_text CompanyString", "doc_in.query_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(in->query_text->length) >
         biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query_text length exceeds limit", "doc_in.query_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     std::string doc_str;
@@ -53,13 +53,13 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
       if (!IsValidInputString(in->doc_text)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid doc_text CompanyString", "doc_in.doc_text",
-            options.converter_id.c_str(), static_cast<int>(i));
+            options.Label().c_str(), static_cast<int>(i));
       }
       if (static_cast<size_t>(in->doc_text->length) >
           biz_input::kMaxDocTextBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "doc_text length exceeds limit", "doc_in.doc_text",
-            options.converter_id.c_str(), static_cast<int>(i));
+            options.Label().c_str(), static_cast<int>(i));
       }
       doc_str = CopyInputString(*in->doc_text);
     }
@@ -73,11 +73,11 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kRawDocs, std::move(raw_docs), options.converter_id.c_str(),
+          *context, kRawDocs, std::move(raw_docs), options.Label().c_str(),
           status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, kRawQueries, std::move(raw_queries),
-          options.converter_id.c_str(), status)) {
+          options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -86,8 +86,10 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "doc_query.plain";
-  def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot)};
+  def.type = kInputSlot;
+  def.name = "doc_qa";
+  def.service_type = COMPANY_MOCK_SERVICE_DOC_QA;  // 占位取值，进内网核对
+  def.slot = ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot);
   def.logical_ports = {OutputPort(kRawDocs), OutputPort(kRawQueries)};
   def.decode_fn = &DecodeOperatorDocQueryInput;
   return def;

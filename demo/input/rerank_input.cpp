@@ -66,6 +66,7 @@ int BuildRerankRequests(
   storage->passage_strs.reserve(candidate_count);
 
   storage->input.request_id = 80001;
+  storage->input.service_type = DemoServiceType(inputs[0]);
   storage->input.query_text = &storage->query_str;
   storage->input.candidate_count = static_cast<int32_t>(candidate_count);
   for (size_t i = 0; i < candidate_count; ++i) {

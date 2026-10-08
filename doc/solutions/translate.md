@@ -8,7 +8,7 @@
 
 ## 直接调用 Operator API
 
-翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在 `deployment.io` 中配置 `io_binding` 为 `translate`，框架据此解析业务边界与输入/输出转换器。
+翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在根层 `io` 中选择输入项（`entity_in`, `translate`）和输出项（`entity_out`, `translate`），框架据此解析输入/输出转换器与 IO 边界。输入转换器核对结构体的 `service_type` 为翻译业务的取值。
 输入/输出复用已有文本载体，因此结构字段仍叫 `sentence_text` / `entities_json`。
 传入的是完整对象文本，不是 `query` 子串，也不是双重 JSON 编码后的字符串：
 
@@ -27,7 +27,8 @@ op.Create(&handle, &create);
 std::string req_json = "{\"version\":\"0.0.1\",\"endpoint\":\"translate\","
                        "\"query\":\"hello,what is your name\",\"src_lan\":\"en\"}";
 CompanyString cs{static_cast<int32_t>(req_json.size()), const_cast<char*>(req_json.data())};
-CompanyOperatorEntityInput input{1, &cs};
+// service_type 必须是翻译业务的取值（外网替身为 COMPANY_MOCK_SERVICE_TRANSLATE），否则整批按输入非法处理
+CompanyOperatorEntityInput input{1, &cs, COMPANY_MOCK_SERVICE_TRANSLATE};
 
 llm_edgeflow::operator_api::NamedIoBatch inputs(1);
 inputs[0]["trans.entity_in"] = llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&input);
@@ -116,7 +117,7 @@ Adapter 原样保存模型文本，不解析、裁剪或去掉引号；即使文
 无静态默认译文或成功 fallback。错误状态、来源异常或容量不足返回非零。
 
 完整输入沿用 64 KiB 上限。
-Operator 的 JSON 输出池在本配置中为 8191 字节。当前上下文为 2048 tokens、生成上限为
+Operator 的 JSON 输出池默认为 8191 字节，即输出转换器 `entity_out/translate` 的 `entities_json_max_bytes` 默认值（平台上限 65536），需要时在 `io.output` 项的 `params` 中覆盖。当前上下文为 2048 tokens、生成上限为
 512 tokens，用于短文本演示。长文需调整并验证上下文、生成长度和输出容量；C++ 保证
 响应格式，译文准确性、完整性和是否遵守提示词仍取决于模型。
 

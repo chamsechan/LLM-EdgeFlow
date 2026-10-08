@@ -91,18 +91,16 @@ REGISTER_MODEL_WITH_DEFINITION(ReentrantModel,
                                MakeTestModelDef(ReentrantModel::kModelType));
 
 TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
-  RegisterTestBizs({"reentrant_node_test", "reentrant_model_test"});
   // 1. 同步测试 Node 构造期重入 NodeRegistry
   {
     Pipeline p;
     PipelineDiagnostic diag;
     nlohmann::json cfg = {
-        {"biz_name", "reentrant_node_test"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(BuildTestPipeline(p, cfg, &diag));
+    EXPECT_TRUE(BuildTestPipeline(p, cfg, EmptyTestBoundary(), &diag));
     EXPECT_TRUE(p.IsReady());
   }
 
@@ -111,7 +109,6 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
     Pipeline p;
     PipelineDiagnostic diag;
     nlohmann::json cfg = {
-        {"biz_name", "reentrant_model_test"},
         {"models", nlohmann::json::array(
                        {{{"model_id", "m1"},
                          {"model_type", ReentrantModel::kModelType},
@@ -123,7 +120,7 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(BuildTestPipeline(p, cfg, &diag));
+    EXPECT_TRUE(BuildTestPipeline(p, cfg, EmptyTestBoundary(), &diag));
     EXPECT_TRUE(p.IsReady());
   }
 }

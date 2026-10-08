@@ -1,4 +1,4 @@
-#include "adapter/io_binding_resolver.h"
+#include "adapter/io_plan_resolver.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -8,17 +8,18 @@
 
 #include "adapter/deployment_preparation.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "adapter/pipeline_document.h"
 #include "core/diagnostic_code.h"
 
 namespace llm_edgeflow {
 
 namespace fs = std::filesystem;
 
-int IoBindingResolver::ResolveFromFile(
-    const std::string& config_path, const std::string& model_root_dir,
-    std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
-    DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
+int IoPlanResolver::ResolveFromFile(const std::string& config_path,
+                                    const std::string& model_root_dir,
+                                    std::unique_ptr<ValidatedIoPlan>* out_plan,
+                                    std::string* out_error,
+                                    DeploymentDiagnostic* out_diagnostic,
+                                    uint32_t output_pool_depth) {
   if (out_diagnostic) out_diagnostic->Clear();
 
   DeploymentIoConfig config;
@@ -32,7 +33,7 @@ int IoBindingResolver::ResolveFromFile(
                            out_diagnostic, output_pool_depth);
 }
 
-int IoBindingResolver::ResolveFromConfig(
+int IoPlanResolver::ResolveFromConfig(
     const DeploymentIoConfig& config, const std::string& model_root_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
     DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
@@ -81,7 +82,7 @@ int IoBindingResolver::ResolveFromConfig(
                                  out_error, out_diagnostic, output_pool_depth);
 }
 
-int IoBindingResolver::ResolveFromPipelineJson(
+int IoPlanResolver::ResolveFromPipelineJson(
     const nlohmann::json& pipeline_json, const std::string& model_root_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
     DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
@@ -99,9 +100,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
   *out_plan = nullptr;
 
   DeploymentPrepareOptions options;
-
-  options.path_mode = model_root_dir.empty() ? DeploymentPathMode::kLexicalOnly
-                                             : DeploymentPathMode::kUnderRoot;
   options.model_root_dir = model_root_dir;
 
   PreparedDeployment prepared;
@@ -129,7 +127,8 @@ int IoBindingResolver::ResolveFromPipelineJson(
 
   // 按本次有效深度检查句柄池总预算
   size_t total_handle_pool_bytes = 0;
-  for (const auto& [slot_name, pool_spec] : prepared.output_specs) {
+  for (const auto& output : prepared.outputs) {
+    const auto& pool_spec = output.pool_spec;
     const auto* output_binding =
         OperatorValueTypeRegistry::Instance().GetOutputBinding(
             pool_spec.type, pool_spec.allocator);
@@ -139,8 +138,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (out_error) *out_error = msg;
       if (out_diagnostic) {
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path =
-            "/deployment/io/out_mem/" + EscapeJsonPointer(slot_name);
+        out_diagnostic->path = "/io/output";
         out_diagnostic->message = msg;
       }
       return -2;
@@ -154,8 +152,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (out_error) *out_error = msg;
       if (out_diagnostic) {
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path =
-            "/deployment/io/out_mem/" + EscapeJsonPointer(slot_name);
+        out_diagnostic->path = "/io/output";
         out_diagnostic->message = msg;
       }
       return -2;
@@ -166,7 +163,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (out_error) *out_error = msg;
       if (out_diagnostic) {
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path = "/deployment/io/out_mem";
+        out_diagnostic->path = "/io/output";
         out_diagnostic->message = msg;
       }
       return -2;
@@ -180,7 +177,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
     if (out_error) *out_error = msg;
     if (out_diagnostic) {
       out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-      out_diagnostic->path = "/deployment/io/out_mem";
+      out_diagnostic->path = "/io/output";
       out_diagnostic->message = msg;
     }
     return -2;
@@ -190,9 +187,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
   // neutral_pipeline_json)
   auto plan = std::make_unique<ValidatedPipelinePlan>(
       PipelineValidator::ValidateAndPlan(prepared.neutral_pipeline_json,
-                                         &prepared.io_boundary));
-
-  ProjectDeploymentDiagnostics(&plan->report);
+                                         prepared.io_boundary));
 
   if (!plan->report.ok) {
     if (!plan->report.diagnostics.empty()) {
@@ -223,12 +218,10 @@ int IoBindingResolver::ResolveFromPipelineJson(
 
   // 组装不可变接入计划
   auto io_plan = std::make_unique<ValidatedIoPlan>();
-  static_cast<IoBindingSelection&>(*io_plan) =
-      std::move(static_cast<IoBindingSelection&>(prepared));
   io_plan->resolved_pipeline_json = std::move(prepared.neutral_pipeline_json);
-  io_plan->resolved_pipeline_json.erase("biz_name");
-  io_plan->resolved_pipeline_json["deployment"] =
-      pipeline_json.at("deployment");
+  io_plan->resolved_pipeline_json["io"] = EffectiveIoJson(prepared);
+  static_cast<IoSelection&>(*io_plan) =
+      std::move(static_cast<IoSelection&>(prepared));
   io_plan->pipeline_plan = std::move(plan);
 
   *out_plan = std::move(io_plan);

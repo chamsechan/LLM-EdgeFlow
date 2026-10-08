@@ -11,15 +11,15 @@ namespace llm_edgeflow {
 // 在打补丁后的文档上确认。不编译进 SDK。
 
 // 为 report 中每条诊断补充修复原因、事实和摘要。
-void AttachRemediation(const nlohmann::json& root, ValidationReport* report);
+void AttachRemediation(const nlohmann::json& root,
+                       const PipelineIoBoundary& io_boundary,
+                       ValidationReport* report);
 
-ValidationReport ValidateWithRemediation(
-    const nlohmann::json& root,
-    const PipelineIoBoundary* io_boundary = nullptr);
+ValidationReport ValidateWithRemediation(const nlohmann::json& root,
+                                         const PipelineIoBoundary& io_boundary);
 
 // 每条诊断另外最多保留三个已验证的修复。
-ValidationReport ExplainPipeline(
-    const nlohmann::json& root,
-    const PipelineIoBoundary* io_boundary = nullptr);
+ValidationReport ExplainPipeline(const nlohmann::json& root,
+                                 const PipelineIoBoundary& io_boundary);
 
 }  // namespace llm_edgeflow

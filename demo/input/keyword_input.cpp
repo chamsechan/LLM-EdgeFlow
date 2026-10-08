@@ -49,11 +49,12 @@ int BuildKeywordRequests(
   storage->lines = std::move(lines);
   const size_t count = storage->lines.size();
   storage->texts.reserve(count);
+  const int32_t service_type = DemoServiceType(inputs[0]);
   storage->inputs.reserve(count);
   for (size_t i = 0; i < count; ++i) {
     storage->texts.push_back(BorrowCompanyString(storage->lines[i]));
-    storage->inputs.push_back(
-        {static_cast<uint64_t>(20001 + i), &storage->texts.back()});
+    storage->inputs.push_back({static_cast<uint64_t>(20001 + i),
+                               &storage->texts.back(), service_type});
   }
 
   const std::string key = DemoIoKey(inputs[0]);

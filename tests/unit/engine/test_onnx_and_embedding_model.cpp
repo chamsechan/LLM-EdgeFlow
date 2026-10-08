@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "adapter/deployment_preparation.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -1153,8 +1154,13 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   ASSERT_TRUE(config_in.good());
   nlohmann::json pipeline_config;
   config_in >> pipeline_config;
-  pipeline_config.erase("deployment");
-  pipeline_config["biz_name"] = "doc_qa";
+  // 接入层拆出 io，并由所选 converter 组成 IO 边界。
+  PreparedDeployment prepared;
+  DeploymentDiagnostic prepare_diag;
+  ASSERT_TRUE(
+      PrepareDeploymentDocument(pipeline_config, {}, &prepared, &prepare_diag))
+      << prepare_diag.message;
+  pipeline_config = prepared.neutral_pipeline_json;
   pipeline_config["models"][0]["model_path"] = onnx_path.string();
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();
@@ -1171,7 +1177,8 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
       {"backend_config", nlohmann::json::object()}};
   Pipeline pipeline;
   PipelineDiagnostic pdiag;
-  bool build_ok = BuildTestPipeline(pipeline, pipeline_config, &pdiag);
+  bool build_ok = BuildTestPipeline(pipeline, pipeline_config,
+                                    prepared.io_boundary, &pdiag);
   ASSERT_TRUE(build_ok) << pdiag.message << " at " << pdiag.path;
   EXPECT_TRUE(pipeline.IsReady());
 

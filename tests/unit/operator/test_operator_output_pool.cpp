@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -33,12 +34,23 @@ OperatorValueTypeBinding MakeBusinessSummaryBinding() {
   std::string summary_name = "summary";
   auto binding = MakePooledOutputBinding<BusinessSummaryOutput>(
       "test_business_summary",
-      {{title_name, &BusinessSummaryOutput::title, {7, 31}},
-       {summary_name, &BusinessSummaryOutput::summary, {15, 63}}},
+      {{title_name, &BusinessSummaryOutput::title, 31},
+       {summary_name, &BusinessSummaryOutput::summary, 63}},
       [](BusinessSummaryOutput& output) noexcept { output.request_id = 0; });
   title_name.assign(title_name.size(), 'x');
   summary_name.assign(summary_name.size(), 'x');
   return binding;
+}
+
+// 默认尺寸属于输出 converter 的参数；这里按字段补一个合法容量，
+// 让池测试聚焦于池本身。已写入的容量保持不变。
+void FillMissingCapacities(ResolvedOutputPoolSpec* spec,
+                           const OperatorValueTypeBinding& binding) {
+  for (const auto& [field, config] :
+       binding.output_layout.string_capacity_fields) {
+    spec->capacities.try_emplace(field,
+                                 std::min<uint32_t>(63, config.max_capacity));
+  }
 }
 
 }  // namespace
@@ -54,13 +66,14 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_EQ(binding.external_c_type_name, "BusinessSummaryOutput");
   ASSERT_EQ(binding.output_layout.string_capacity_fields.size(), 2U);
   EXPECT_EQ(
-      binding.output_layout.string_capacity_fields.at("title").default_capacity,
-      7U);
+      binding.output_layout.string_capacity_fields.at("title").max_capacity,
+      31U);
   EXPECT_EQ(
       binding.output_layout.string_capacity_fields.at("summary").max_capacity,
       63U);
   ResolvedOutputPoolSpec spec;
   spec.type = binding.canonical_suffix;
+  spec.capacities["title"] = 7;
   spec.capacities["summary"] = 23;
   size_t bytes = 0;
   std::string error;
@@ -129,11 +142,11 @@ TEST_F(OperatorOutputPoolTest,
        AuthoredOutputRejectsAmbiguousFieldDescriptions) {
   using Field = OutputStringField<BusinessSummaryOutput>;
   const std::vector<std::vector<Field>> invalid_fields = {
-      {{"", &BusinessSummaryOutput::title, {7, 31}}},
-      {{"title", &BusinessSummaryOutput::title, {7, 31}},
-       {"title", &BusinessSummaryOutput::summary, {15, 63}}},
-      {{"title", &BusinessSummaryOutput::title, {7, 31}},
-       {"summary", &BusinessSummaryOutput::title, {15, 63}}}};
+      {{"", &BusinessSummaryOutput::title, 31}},
+      {{"title", &BusinessSummaryOutput::title, 31},
+       {"title", &BusinessSummaryOutput::summary, 63}},
+      {{"title", &BusinessSummaryOutput::title, 31},
+       {"summary", &BusinessSummaryOutput::title, 63}}};
   for (const auto& fields : invalid_fields) {
     EXPECT_THROW(MakePooledOutputBinding<BusinessSummaryOutput>(
                      "test_invalid_fields", fields,
@@ -150,6 +163,7 @@ TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -177,6 +191,7 @@ TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -245,6 +260,7 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
   spec.capacities["match_result_json"] = 100;
 
   std::shared_ptr<OutputPoolState> pool;
@@ -291,7 +307,7 @@ TEST_F(OperatorOutputPoolTest,
     SCOPED_TRACE(capacity);
     ResolvedOutputPoolSpec spec;
     spec.type = "entity_out";
-    if (capacity != 2047u) spec.capacities["entities_json"] = capacity;
+    spec.capacities["entities_json"] = capacity;
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
     ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
@@ -460,6 +476,7 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
     SCOPED_TRACE(type_id);
     ResolvedOutputPoolSpec spec;
     spec.type = "od_out";
+    FillMissingCapacities(&spec, *binding);
     spec.metadata_type_id = type_id;
     spec.meta_num = type_id == 0 ? 0 : 3;
     std::shared_ptr<OutputPoolState> pool;
@@ -572,6 +589,7 @@ TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -609,6 +627,7 @@ TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -706,6 +725,7 @@ TEST_F(OperatorOutputPoolTest,
     ASSERT_NE(binding, nullptr);
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
+    FillMissingCapacities(&spec, *binding);
     if (suffix == "od_out") {
       spec.meta_num = 5;
       spec.metadata_type_id = 1;
@@ -909,6 +929,7 @@ TEST_F(OperatorOutputPoolTest,
   spec.type = "keyword_out";
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix(spec.type);
+  FillMissingCapacities(&spec, *binding);
   std::shared_ptr<OutputPoolState> pool;
   std::string error;
   ASSERT_EQ(
@@ -1077,6 +1098,7 @@ TEST_F(OperatorOutputPoolTest,
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -1124,6 +1146,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool_a;
   std::shared_ptr<OutputPoolState> pool_b;
@@ -1194,6 +1217,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  FillMissingCapacities(&spec, *binding);
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
