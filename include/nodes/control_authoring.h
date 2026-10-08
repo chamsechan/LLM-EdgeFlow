@@ -200,11 +200,6 @@ inline void ValidateControlCommands(
       }
     }
   }
-  if (params.HasParser() && !commands.empty() && !params.HasPrepare()) {
-    throw std::invalid_argument(
-        "Spec with WithParser and WithControls requires an explicit Prepare "
-        "function");
-  }
 }
 
 }  // namespace llm_edgeflow

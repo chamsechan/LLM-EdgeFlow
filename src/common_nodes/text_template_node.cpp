@@ -17,244 +17,62 @@
 
 namespace llm_edgeflow {
 namespace {
-constexpr char kDefaultTemplate[] = "{{primary}}";
-constexpr char kDefaultSeparator[] = "\n";
-constexpr int64_t kDefaultMaxLength = 65536;
-constexpr char kDefaultMissingPolicy[] = "fail";
-
-const std::vector<ConfigFieldDefinition>& TextTemplateConfigFields() {
-  static const std::vector<ConfigFieldDefinition> fields = {
-      ConfigFieldDefinition{
-          "template",
-          ConfigValueKind::kString,
-          false,
-          kDefaultTemplate,
-          std::nullopt,
-          std::nullopt,
-          {},
-          "文本模板，使用 {{primary}}/{{context}} 等变量；例如 "
-          "\"问题：{{primary}}\"，默认缺失策略要求连接变量对应的输入。"},
-      ConfigFieldDefinition{
-          "separator",
-          ConfigValueKind::kString,
-          false,
-          kDefaultSeparator,
-          std::nullopt,
-          std::nullopt,
-          {},
-          "同一请求聚合多个输入文本时使用的分隔字符串，例如换行。"},
-      ConfigFieldDefinition{
-          "max_length",
-          ConfigValueKind::kInteger,
-          false,
-          kDefaultMaxLength,
-          1.0,
-          1048576.0,
-          {},
-          "每条渲染结果的 UTF-8 字节上限；超出后按 overflow_policy 处理。"},
-      ConfigFieldDefinition{
-          "allow_dynamic_attributes",
-          ConfigValueKind::kBoolean,
-          false,
-          false,
-          std::nullopt,
-          std::nullopt,
-          {},
-          "允许静态 values 之外的自定义变量；连接 attributes "
-          "输入时自动允许，缺失值按 missing_variable_policy 处理。"},
-      ConfigFieldDefinition{"overflow_policy",
-                            ConfigValueKind::kString,
-                            false,
-                            "fail",
-                            std::nullopt,
-                            std::nullopt,
-                            {"fail", "truncate"},
-                            "fail 拒绝超过 max_length 的结果；truncate 按 "
-                            "UTF-8 字符边界截断到字节上限内。"},
-      ConfigFieldDefinition{
-          "missing_variable_policy",
-          ConfigValueKind::kString,
-          false,
-          kDefaultMissingPolicy,
-          std::nullopt,
-          std::nullopt,
-          {"fail", "empty", "preserve"},
-          "变量缺失时：fail 报错；empty 替换为空字符串；preserve 保留占位符。"},
-      ConfigFieldDefinition{
-          "values",
-          ConfigValueKind::kObject,
-          false,
-          nlohmann::json(),
-          std::nullopt,
-          std::nullopt,
-          {},
-          "静态变量名到字符串的映射，例如 {\"role\":\"客服\"}，可在模板中用 "
-          "{{role}} 引用。"}};
-  return fields;
-}
-
-const std::unordered_map<std::string, std::vector<std::string>>&
-BuiltinInputs() {
-  static const std::unordered_map<std::string, std::vector<std::string>>
-      inputs = {{"primary", {"primary"}},
-                {"context", {"context", "context_text"}},
-                {"context_text", {"context", "context_text"}},
-                {"matches", {"matches"}},
-                {"document", {"document", "document_text"}},
-                {"document_text", {"document", "document_text"}}};
-  return inputs;
-}
-
-bool ValidateTemplateInputs(const std::vector<TextTemplateToken>& tokens,
-                            const std::unordered_set<std::string>& connected,
-                            const std::string& missing_policy,
-                            std::string* diagnostic = nullptr) {
-  if (missing_policy != "fail") return true;
-  for (const auto& token : tokens) {
-    if (token.type != TextTemplateTokenType::kVariable) continue;
-    const auto ports = BuiltinInputs().find(token.value);
-    if (ports == BuiltinInputs().end()) continue;
-    if (std::none_of(ports->second.begin(), ports->second.end(),
-                     [&](const auto& port) { return connected.count(port); })) {
-      if (diagnostic)
-        *diagnostic = "Template variable '" + token.value +
-                      "' requires a connected input or a non-failing "
-                      "missing_variable_policy";
-      return false;
-    }
-  }
-  return true;
-}
-
-const nlohmann::json& TemplateControlSchema() {
-  static const nlohmann::json schema = nlohmann::json{
-      {"type", "object"},
-      {"minProperties", 1},
-      {"additionalProperties", false},
-      {"properties",
-       {{"template", {{"type", "string"}}},
-        {"prompt_id", {{"type", "string"}}},
-        {"values",
-         {{"type", "object"}, {"additionalProperties", {{"type", "string"}}}}},
-        {"allow_dynamic_attributes", {{"type", "boolean"}}},
-        {"missing_variable_policy",
-         {{"type", "string"}, {"enum", {"fail", "empty", "preserve"}}}}}}};
-  return schema;
-}
 struct Params {
-  std::string template_str = kDefaultTemplate;
-  std::string separator = kDefaultSeparator;
-  size_t max_length = kDefaultMaxLength;
-  std::string overflow_policy = "fail";
-  std::string missing_variable_policy = kDefaultMissingPolicy;
-  std::string prompt_id;
-  bool allow_dynamic_attrs = false;
-  std::unordered_map<std::string, std::string> static_values;
+  std::string template_str;
+  std::string separator;
+  int64_t max_length = 0;
+  std::string overflow_policy;
+  // 由 Prepare 编译，不对应配置项。
   std::vector<TextTemplateToken> compiled_tokens;
 };
 
-struct TemplateUpdate {
-  std::optional<std::string> template_str;
-  std::optional<std::string> prompt_id;
-  std::optional<std::unordered_map<std::string, std::string>> values;
-  std::optional<bool> allow_dynamic_attributes;
-  std::optional<std::string> missing_variable_policy;
-};
-
-inline bool CompileTemplate(
-    const std::string& tmpl,
-    const std::unordered_map<std::string, std::string>& static_vals,
-    bool allow_dynamic_attrs, std::vector<TextTemplateToken>* out_tokens,
-    std::string* diagnostic = nullptr) {
-  std::string error;
-  bool ok = ParseTextTemplate(tmpl, out_tokens, &error);
-  if (ok) {
-    for (const auto& token : *out_tokens) {
-      if (token.type == TextTemplateTokenType::kVariable &&
-          !allow_dynamic_attrs && !BuiltinInputs().count(token.value) &&
-          !static_vals.count(token.value)) {
-        error = "Unknown template placeholder: " + token.value +
-                "; connect attributes or declare values";
-        ok = false;
-        break;
-      }
-    }
-  }
-  if (!ok) {
-    out_tokens->clear();
-    ALG_LOG_ERROR("[TextTemplateNode] %s\n", error.c_str());
-    if (diagnostic) *diagnostic = std::move(error);
-  }
-  return ok;
+const std::unordered_set<std::string>& TemplateVariables() {
+  static const std::unordered_set<std::string> kVariables = {
+      "primary", "context", "matches", "document"};
+  return kVariables;
 }
 
-bool BuildTemplateState(Params* state,
-                        const std::unordered_set<std::string>* connected_inputs,
-                        std::string* diagnostic) {
+// 模板变量只能是输入端口名；连线信息可用时，引用的输入必须已连接。
+bool PrepareTemplate(Params* state, const BindingFacts& bindings,
+                     std::string* diagnostic) {
   std::vector<TextTemplateToken> tokens;
-  if (!CompileTemplate(state->template_str, state->static_values,
-                       state->allow_dynamic_attrs, &tokens, diagnostic)) {
+  std::string error;
+  if (!ParseTextTemplate(state->template_str, &tokens, &error)) {
+    if (diagnostic) *diagnostic = std::move(error);
     return false;
   }
-  if (connected_inputs &&
-      !ValidateTemplateInputs(tokens, *connected_inputs,
-                              state->missing_variable_policy, diagnostic)) {
-    return false;
+  for (const auto& token : tokens) {
+    if (token.type != TextTemplateTokenType::kVariable) continue;
+    if (!TemplateVariables().count(token.value)) {
+      if (diagnostic)
+        *diagnostic = "Unknown template placeholder: " + token.value +
+                      "; variables must be input ports (primary, context, "
+                      "matches, document)";
+      return false;
+    }
+    if (bindings.has_bindings && !bindings.IsConnected(token.value)) {
+      if (diagnostic)
+        *diagnostic = "Template variable '" + token.value +
+                      "' requires a connected input";
+      return false;
+    }
   }
   state->compiled_tokens = std::move(tokens);
   return true;
 }
 
-inline NodeResult<Params> BuildNextTemplate(const Params& current,
-                                            const TemplateUpdate& update,
-                                            const BindingFacts& bindings) {
-  Params next = current;
-  if (update.template_str) next.template_str = *update.template_str;
-  if (update.prompt_id) next.prompt_id = *update.prompt_id;
-  if (update.missing_variable_policy) {
-    next.missing_variable_policy = *update.missing_variable_policy;
-  }
-  if (update.allow_dynamic_attributes) {
-    next.allow_dynamic_attrs =
-        bindings.IsConnected("attributes") || *update.allow_dynamic_attributes;
-  }
-  if (update.values) {
-    for (const auto& [k, v] : *update.values) {
-      next.static_values[k] = v;
-    }
-  }
-  std::string diagnostic;
-  if (!BuildTemplateState(
-          &next, bindings.has_bindings ? &bindings.connected_inputs : nullptr,
-          &diagnostic)) {
-    return NodeResult<Params>::Failure(
-        NodeErrorKind::kBusinessError,
-        diagnostic.empty()
-            ? "Invalid template placeholders or syntax in Control"
-            : diagnostic,
-        node_error::control::kInvalidRequest);
-  }
-  return NodeResult<Params>::Success(std::move(next));
-}
-
 struct Inputs {
   const TextBatch* primary = nullptr;
   const RankedTextBatch* context = nullptr;
-  const TextBatch* context_text = nullptr;
   const RuleMatchBatch* matches = nullptr;
   const OcrDocumentBatch* document = nullptr;
-  const TextBatch* document_text = nullptr;
-  const TextAttributesBatch* attributes = nullptr;
 };
 
 NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
   const auto* primary_items = inputs.primary;
   const auto* context_items = inputs.context;
-  const auto* context_text_items = inputs.context_text;
   const auto* matches_items = inputs.matches;
   const auto* document_items = inputs.document;
-  const auto* document_text_items = inputs.document_text;
-  const auto* attributes_items = inputs.attributes;
   // 收集所有请求-子项样本键值 (req_id, sub_id)
   struct SampleKey {
     uint32_t req_id;
@@ -276,9 +94,6 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
   std::unordered_map<uint32_t, std::vector<std::string>> context_by_req;
   std::unordered_map<uint32_t, std::vector<std::string>> matches_by_req;
   std::unordered_map<uint32_t, std::vector<std::string>> document_by_req;
-  std::map<std::pair<uint32_t, uint32_t>,
-           std::unordered_map<std::string, std::string>>
-      attributes_by_sample;
   std::set<uint32_t> req_ids_from_aggregated;
 
   if (primary_items) {
@@ -288,24 +103,10 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
     }
   }
 
-  if (attributes_items) {
-    for (const auto& item : *attributes_items) {
-      record_sample(item.req_id, item.sub_id);
-      attributes_by_sample[{item.req_id, item.sub_id}] = item.data;
-    }
-  }
-
   if (context_items) {
     for (const auto& item : *context_items) {
       req_ids_from_aggregated.insert(item.req_id);
       context_by_req[item.req_id].push_back(item.data.text);
-    }
-  }
-
-  if (context_text_items) {
-    for (const auto& item : *context_text_items) {
-      req_ids_from_aggregated.insert(item.req_id);
-      context_by_req[item.req_id].push_back(item.data);
     }
   }
 
@@ -330,13 +131,6 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
     for (const auto& item : *document_items) {
       req_ids_from_aggregated.insert(item.req_id);
       document_by_req[item.req_id].push_back(item.data.combined_text);
-    }
-  }
-
-  if (document_text_items) {
-    for (const auto& item : *document_text_items) {
-      req_ids_from_aggregated.insert(item.req_id);
-      document_by_req[item.req_id].push_back(item.data);
     }
   }
 
@@ -386,12 +180,6 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
       }
     }
 
-    const std::unordered_map<std::string, std::string>* attrs_ptr = nullptr;
-    auto a_it = attributes_by_sample.find({req_id, sub_id});
-    if (a_it != attributes_by_sample.end()) {
-      attrs_ptr = &a_it->second;
-    }
-
     std::string rendered;
     rendered.reserve(256);
 
@@ -403,34 +191,20 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
         const std::string* value = nullptr;
         if (var == "primary") {
           if (p_it != primary_by_sample.end()) value = &primary_str;
-        } else if (var == "context" || var == "context_text") {
+        } else if (var == "context") {
           // 已存在的聚合批次中可能没有本请求的结果。
-          if (context_items || context_text_items) value = &context_str;
+          if (context_items) value = &context_str;
         } else if (var == "matches") {
           if (matches_items) value = &matches_str;
-        } else if (var == "document" || var == "document_text") {
-          if (document_items || document_text_items) value = &doc_str;
-        } else if (attrs_ptr && attrs_ptr->find(var) != attrs_ptr->end()) {
-          value = &attrs_ptr->at(var);
-        } else if (state.static_values.find(var) != state.static_values.end()) {
-          value = &state.static_values.at(var);
+        } else if (var == "document") {
+          if (document_items) value = &doc_str;
         }
-        if (value) {
-          rendered += *value;
-        } else {
-          if (state.missing_variable_policy == "fail") {
-            return NodeResult<TextBatch>::Failure(
-                NodeErrorKind::kBusinessError,
-                "Missing required template variable: " + var,
-                node_error::text_template::kMissingVariable);
-          } else if (state.missing_variable_policy == "preserve") {
-            rendered += "{{" + var + "}}";
-          }
-        }
+        // 输入连接了、但某个请求没有数据时，该变量为空字符串。
+        rendered += value ? *value : std::string();
       }
     }
 
-    if (rendered.size() > state.max_length) {
+    if (rendered.size() > static_cast<size_t>(state.max_length)) {
       if (state.overflow_policy == "fail") {
         return NodeResult<TextBatch>::Failure(
             NodeErrorKind::kBusinessError,
@@ -448,8 +222,9 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
                 std::to_string(invalid_offset),
             node_error::text_template::kInvalidUtf8);
       }
-      const auto boundary = std::upper_bound(
-          boundaries.begin(), boundaries.end(), state.max_length);
+      const auto boundary =
+          std::upper_bound(boundaries.begin(), boundaries.end(),
+                           static_cast<size_t>(state.max_length));
       rendered.resize(*(boundary - 1));
     }
 
@@ -459,76 +234,36 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
   return NodeResult<TextBatch>::Success(std::move(output_batch));
 }
 
-NodeResult<Params> UpdateTemplate(const Params& current,
-                                  const nlohmann::json& root,
-                                  const BindingFacts& bindings) {
-  TemplateUpdate update;
-  if (root.contains("template"))
-    update.template_str = root["template"].get<std::string>();
-  if (root.contains("allow_dynamic_attributes")) {
-    update.allow_dynamic_attributes =
-        root["allow_dynamic_attributes"].get<bool>();
-  }
-  if (root.contains("missing_variable_policy")) {
-    update.missing_variable_policy =
-        root["missing_variable_policy"].get<std::string>();
-  }
-  if (root.contains("prompt_id"))
-    update.prompt_id = root["prompt_id"].get<std::string>();
-  if (root.contains("values")) {
-    std::unordered_map<std::string, std::string> vals;
-    for (auto it = root["values"].begin(); it != root["values"].end(); ++it) {
-      vals[it.key()] = it.value().get<std::string>();
-    }
-    update.values = std::move(vals);
-  }
-  return BuildNextTemplate(current, update, bindings);
-}
-
 auto Spec() {
-  auto parameters =
-      Parameters<Params>{}
-          .WithParser(ConfigParser<Params>(
-              TextTemplateConfigFields(),
-              [](const nlohmann::json& config, Params* state, std::string*) {
-                state->template_str = config.at("template").get<std::string>();
-                state->separator = config.at("separator").get<std::string>();
-                state->max_length = config.at("max_length").get<size_t>();
-                state->overflow_policy =
-                    config.at("overflow_policy").get<std::string>();
-                state->missing_variable_policy =
-                    config.at("missing_variable_policy").get<std::string>();
-                state->allow_dynamic_attrs =
-                    config.at("allow_dynamic_attributes").get<bool>();
-                if (config.contains("values"))
-                  state->static_values =
-                      config.at("values").get<decltype(state->static_values)>();
-                return true;
-              }))
-          .Prepare([](Params* state, const BindingFacts& bindings,
-                      std::string* diagnostic) {
-            state->allow_dynamic_attrs = state->allow_dynamic_attrs ||
-                                         bindings.IsConnected("attributes");
-            return BuildTemplateState(state, &bindings.connected_inputs,
-                                      diagnostic);
-          });
-  auto control = ControlCommandDefinition(
-      kControlCmdUpdatePrompt, "update_prompt",
-      "Update template string dynamically", TemplateControlSchema(), true);
+  auto parameters = Parameters<Params>(
+      {Field("template", &Params::template_str)
+           .Default("{{primary}}")
+           .Description("文本模板，变量只能是已连接的输入端口名 "
+                        "{{primary}}/{{context}}/{{matches}}/{{document}}；"
+                        "例如 \"问题：{{primary}}\"。"),
+       Field("separator", &Params::separator)
+           .Default("\n")
+           .Description(
+               "同一请求聚合多个输入文本时使用的分隔字符串，例如换行。"),
+       Field("max_length", &Params::max_length)
+           .Default(65536)
+           .Range(1, 1048576)
+           .Description("每条渲染结果的 UTF-8 字节上限；超出后按 "
+                        "overflow_policy 处理。"),
+       Field("overflow_policy", &Params::overflow_policy)
+           .Default("fail")
+           .Enum({"fail", "truncate"})
+           .Description("fail 拒绝超过 max_length 的结果；truncate 按 "
+                        "UTF-8 字符边界截断到字节上限内。")});
+  parameters.Prepare(&PrepareTemplate);
   return MakeNodeSpec(
-             InputsOf<Inputs>{
-                 OptionalValue("primary", &Inputs::primary),
-                 OptionalValue("context", &Inputs::context,
-                               InputFlow::AggregateByRequest),
-                 OptionalValue("context_text", &Inputs::context_text,
-                               InputFlow::AggregateByRequest),
-                 OptionalValue("matches", &Inputs::matches,
-                               InputFlow::AggregateByRequest),
-                 OptionalValue("document", &Inputs::document,
-                               InputFlow::AggregateByRequest),
-                 OptionalValue("document_text", &Inputs::document_text,
-                               InputFlow::AggregateByRequest),
-                 OptionalValue("attributes", &Inputs::attributes)},
+             InputsOf<Inputs>{OptionalValue("primary", &Inputs::primary),
+                              OptionalValue("context", &Inputs::context,
+                                            InputFlow::AggregateByRequest),
+                              OptionalValue("matches", &Inputs::matches,
+                                            InputFlow::AggregateByRequest),
+                              OptionalValue("document", &Inputs::document,
+                                            InputFlow::AggregateByRequest)},
              ProducedBatch<TextBatch>("text", PortFlow{}),
              std::move(parameters), Run)
       .Category("common")
@@ -537,12 +272,13 @@ auto Spec() {
           "single {name} and JSON braces remain literal")
       .PortConstraints(
           {PortGroupConstraint(PortConstraintKind::kAtLeastOneOf,
-                               {"primary", "context", "context_text", "matches",
-                                "document", "document_text", "attributes"},
+                               {"primary", "context", "matches", "document"},
                                "TextTemplateNode requires at least one dynamic "
                                "input port to be bound")})
       .ParallelSafe(true)
-      .WithControl(std::move(control), UpdateTemplate);
+      .WithControls(
+          {ReplaceFields(kControlCmdUpdatePrompt, "update_prompt", {"template"},
+                         "Update template string dynamically")});
 }
 }  // namespace
 

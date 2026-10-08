@@ -24,6 +24,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/config_field_definition.h"
 #include "tests/support/pipeline_test_utils.h"
 #include "tests/support/registry_test_access.h"
 
@@ -62,16 +63,15 @@ NodeDefinition MakeSchemaProbeNodeDefinition() {
   def.description = "Schema probe test node";
   def.parallel_safe = true;
   def.config_fields = {
-      ConfigFieldDefinition{"req_str", ConfigValueKind::kString,
-                            /*required=*/true},
-      ConfigFieldDefinition{
-          "opt_int", ConfigValueKind::kInteger, /*required=*/false,
-          /*default_value=*/10, /*minimum=*/1.0, /*maximum=*/100.0},
-      ConfigFieldDefinition{"enum_mode", ConfigValueKind::kString,
-                            /*required=*/false,
-                            /*default_value=*/"fast", /*minimum=*/std::nullopt,
-                            /*maximum=*/std::nullopt,
-                            /*enum_values=*/{"fast", "accurate"}},
+      MakeConfigField("req_str", ConfigValueKind::kString,
+                      /*required=*/true),
+      MakeConfigField("opt_int", ConfigValueKind::kInteger, /*required=*/false,
+                      /*default_value=*/10, /*minimum=*/1.0, /*maximum=*/100.0),
+      MakeConfigField("enum_mode", ConfigValueKind::kString,
+                      /*required=*/false,
+                      /*default_value=*/"fast", /*minimum=*/std::nullopt,
+                      /*maximum=*/std::nullopt,
+                      /*enum_values=*/{"fast", "accurate"}),
   };
   return def;
 }
@@ -97,8 +97,8 @@ NodeDefinition MakeThrowingValidateConfigNodeDefinition() {
   def.node_type = ThrowingValidateConfigNode::kNodeType;
   def.category = "test";
   def.parallel_safe = true;
-  def.config_fields = {ConfigFieldDefinition{
-      "req_num", ConfigValueKind::kInteger, true, 10, 1.0, 100.0}};
+  def.config_fields = {MakeConfigField("req_num", ConfigValueKind::kInteger,
+                                       true, 10, 1.0, 100.0)};
   def.validate_config = [](const nlohmann::json&, const auto&, std::string*) {
     ThrowingValidateConfigNode::s_called = true;
     if (ThrowingValidateConfigNode::s_throw_mode == 1) {
@@ -470,8 +470,8 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition dup_field_def;
   dup_field_def.node_type = "InvalidDupFieldNode";
   dup_field_def.config_fields = {
-      ConfigFieldDefinition{"field_a", ConfigValueKind::kString},
-      ConfigFieldDefinition{"field_a", ConfigValueKind::kInteger},
+      MakeConfigField("field_a", ConfigValueKind::kString),
+      MakeConfigField("field_a", ConfigValueKind::kInteger),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_field_def));
 
@@ -479,8 +479,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition invalid_range_def;
   invalid_range_def.node_type = "InvalidRangeNode";
   invalid_range_def.config_fields = {
-      ConfigFieldDefinition{"num", ConfigValueKind::kNumber, false, 5.0, 10.0,
-                            1.0},
+      MakeConfigField("num", ConfigValueKind::kNumber, false, 5.0, 10.0, 1.0),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_range_def));
 
@@ -488,8 +487,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition default_mismatch_def;
   default_mismatch_def.node_type = "DefaultMismatchNode";
   default_mismatch_def.config_fields = {
-      ConfigFieldDefinition{"flag", ConfigValueKind::kBoolean, false,
-                            "not_a_bool"},
+      MakeConfigField("flag", ConfigValueKind::kBoolean, false, "not_a_bool"),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(default_mismatch_def));
 
@@ -497,13 +495,8 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition enum_mismatch_def;
   enum_mismatch_def.node_type = "EnumMismatchNode";
   enum_mismatch_def.config_fields = {
-      ConfigFieldDefinition{"mode",
-                            ConfigValueKind::kString,
-                            false,
-                            "unknown_mode",
-                            std::nullopt,
-                            std::nullopt,
-                            {"mode_a", "mode_b"}},
+      MakeConfigField("mode", ConfigValueKind::kString, false, "unknown_mode",
+                      std::nullopt, std::nullopt, {"mode_a", "mode_b"}),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(enum_mismatch_def));
 
@@ -511,13 +504,8 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition dup_enum_def;
   dup_enum_def.node_type = "DupEnumNode";
   dup_enum_def.config_fields = {
-      ConfigFieldDefinition{"mode",
-                            ConfigValueKind::kString,
-                            false,
-                            "mode_a",
-                            std::nullopt,
-                            std::nullopt,
-                            {"mode_a", "mode_a"}},
+      MakeConfigField("mode", ConfigValueKind::kString, false, "mode_a",
+                      std::nullopt, std::nullopt, {"mode_a", "mode_a"}),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_enum_def));
 
@@ -525,16 +513,16 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition string_range_def;
   string_range_def.node_type = "StringRangeNode";
   string_range_def.config_fields = {
-      ConfigFieldDefinition{"str_fld", ConfigValueKind::kString, false, "hello",
-                            0.0, 10.0},
+      MakeConfigField("str_fld", ConfigValueKind::kString, false, "hello", 0.0,
+                      10.0),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(string_range_def));
 
   NodeDefinition bool_range_def;
   bool_range_def.node_type = "BoolRangeNode";
   bool_range_def.config_fields = {
-      ConfigFieldDefinition{"bool_fld", ConfigValueKind::kBoolean, false, true,
-                            0.0, 1.0},
+      MakeConfigField("bool_fld", ConfigValueKind::kBoolean, false, true, 0.0,
+                      1.0),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(bool_range_def));
 
@@ -543,7 +531,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   missing_model_field_def.node_type = "MissingModelFieldNode";
   missing_model_field_def.model_dependencies = {{"generator", "llm", ""}};
   missing_model_field_def.config_fields = {
-      ConfigFieldDefinition{"some_param", ConfigValueKind::kString},
+      MakeConfigField("some_param", ConfigValueKind::kString),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(missing_model_field_def));
 
@@ -553,7 +541,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   unlisted_model_field_def.model_dependencies = {
       {"generator", "llm", "bind_model"}};
   unlisted_model_field_def.config_fields = {
-      ConfigFieldDefinition{"other_param", ConfigValueKind::kString},
+      MakeConfigField("other_param", ConfigValueKind::kString),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(unlisted_model_field_def));
 
@@ -563,7 +551,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   nonstring_model_field_def.model_dependencies = {
       {"generator", "llm", "bind_model"}};
   nonstring_model_field_def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kInteger},
+      MakeConfigField("bind_model", ConfigValueKind::kInteger),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(nonstring_model_field_def));
 
@@ -575,8 +563,8 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       {"generator", "llm", "bind_model2"},
   };
   dup_slot_def.config_fields = {
-      ConfigFieldDefinition{"bind_model1", ConfigValueKind::kString, true},
-      ConfigFieldDefinition{"bind_model2", ConfigValueKind::kString, true},
+      MakeConfigField("bind_model1", ConfigValueKind::kString, true),
+      MakeConfigField("bind_model2", ConfigValueKind::kString, true),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_slot_def));
 
@@ -587,7 +575,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       {"reviewer", "llm", "bind_model"},
   };
   dup_dep_field_def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true},
+      MakeConfigField("bind_model", ConfigValueKind::kString, true),
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_dep_field_def));
 
@@ -614,13 +602,8 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   invalid_lifetime_override.inputs = {NodePortDefinition{
       "text", "TextBatch", true, "1:1", "preserve", "request", "lifetime"}};
   invalid_lifetime_override.config_fields = {
-      ConfigFieldDefinition{"lifetime",
-                            ConfigValueKind::kString,
-                            false,
-                            "forever",
-                            std::nullopt,
-                            std::nullopt,
-                            {"request", "forever"}}};
+      MakeConfigField("lifetime", ConfigValueKind::kString, false, "forever",
+                      std::nullopt, std::nullopt, {"request", "forever"})};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_lifetime_override));
 }
 
@@ -630,7 +613,8 @@ TEST_F(DefinitionSchemaValidationTest,
   NodeDefinition definition;
   definition.node_type = "ExplicitModelReferenceNode";
   definition.model_dependencies = {{"generator", "llm", "bind_model"}};
-  definition.config_fields = {{"bind_model", ConfigValueKind::kString, true}};
+  definition.config_fields = {
+      MakeConfigField("bind_model", ConfigValueKind::kString, true)};
   ASSERT_TRUE(ValidateNodeDefinitionStructure(definition));
 
   auto optional = definition;
@@ -1004,8 +988,8 @@ TEST_F(DefinitionSchemaValidationTest,
 
 TEST_F(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
   const std::vector<ConfigFieldDefinition> fields = {
-      {"value", ConfigValueKind::kInteger, true, nullptr, -9007199254740992.0,
-       9007199254740992.0}};
+      MakeConfigField("value", ConfigValueKind::kInteger, true, nullptr,
+                      -9007199254740992.0, 9007199254740992.0)};
   nlohmann::json normalized;
   for (const nlohmann::json& value :
        {nlohmann::json(int64_t{9007199254740993}),
@@ -1060,8 +1044,8 @@ TEST_F(DefinitionSchemaValidationTest,
                                  {"maximum", item.maximum.value_or(0.0)}})
                      .dump());
     std::vector<ConfigFieldDefinition> fields = {
-        {"value", ConfigValueKind::kInteger, true, nullptr, item.minimum,
-         item.maximum}};
+        MakeConfigField("value", ConfigValueKind::kInteger, true, nullptr,
+                        item.minimum, item.maximum)};
     nlohmann::json normalized;
     EXPECT_EQ(ValidateAndNormalizeFields(fields, {{"value", item.value}},
                                          &normalized, nullptr),

@@ -37,78 +37,6 @@ struct BindingFacts {
   }
 };
 
-// 可选的编写辅助：为普通参数 struct 提供一份字段列表和一个语义解析器。
-// 不读文件，也不序列化 JSON。
-template <typename Parameters>
-class ConfigParser {
- public:
-  using ParseFn =
-      std::function<bool(const nlohmann::json&, Parameters*, std::string*)>;
-
-  ConfigParser(std::vector<ConfigFieldDefinition> fields, ParseFn parse)
-      : fields_(std::move(fields)), parse_(std::move(parse)) {}
-
-  const std::vector<ConfigFieldDefinition>& Fields() const noexcept {
-    return fields_;
-  }
-
-  // 用于原始 Node 配置或已解码的 Control payload。复用与 PipelineValidator
-  // 和 AuthorNode 相同的字段校验与默认值。
-  std::optional<Parameters> Parse(const nlohmann::json& config,
-                                  std::string* error = nullptr) const noexcept {
-    if (error) error->clear();
-    try {
-      nlohmann::json normalized;
-      std::vector<ConfigFieldValidationError> errors;
-      if (!ValidateAndNormalizeFields(fields_, config, &normalized, &errors)) {
-        SetDiagnosticNoexcept(error, errors.empty()
-                                         ? "Invalid Node configuration"
-                                         : errors.front().message);
-        return std::nullopt;
-      }
-      return ParseNormalized(normalized, error);
-    } catch (const std::exception& exception) {
-      SetDiagnosticNoexcept(error, exception.what());
-    } catch (...) {
-      SetDiagnosticNoexcept(error,
-                            "Unknown exception parsing Node configuration");
-    }
-    return std::nullopt;
-  }
-
-  // 仅用于已按 Fields() 校验并填充默认值的输入，如 Definition 的
-  // validate_config 回调或 AuthorNode 初始化。直接转发现有 JSON 对象，
-  // 不再复制或归一化。解析器负责语义检查，并须返回自有的参数数据。
-  std::optional<Parameters> ParseNormalized(
-      const nlohmann::json& config,
-      std::string* error = nullptr) const noexcept {
-    if (error) error->clear();
-    try {
-      if (!parse_) {
-        SetDiagnosticNoexcept(error, "Missing Node configuration parser");
-        return std::nullopt;
-      }
-      Parameters next{};
-      if (!parse_(config, &next, error)) {
-        if (error && error->empty())
-          SetDiagnosticNoexcept(error, "Invalid Node configuration");
-        return std::nullopt;
-      }
-      return std::optional<Parameters>(std::move(next));
-    } catch (const std::exception& exception) {
-      SetDiagnosticNoexcept(error, exception.what());
-    } catch (...) {
-      SetDiagnosticNoexcept(error,
-                            "Unknown exception parsing Node configuration");
-    }
-    return std::nullopt;
-  }
-
- private:
-  std::vector<ConfigFieldDefinition> fields_;
-  ParseFn parse_;
-};
-
 template <typename T>
 struct FieldTypeTraits;
 
@@ -886,7 +814,6 @@ class Parameters {
 
   Parameters(const Parameters& other)
       : definitions_(other.definitions_),
-        complex_parser_(other.complex_parser_),
         includes_(other.includes_),
         prepare_fn_(other.prepare_fn_),
         semantic_validator_(other.semantic_validator_),
@@ -901,7 +828,6 @@ class Parameters {
   Parameters& operator=(const Parameters& other) {
     if (this != &other) {
       definitions_ = other.definitions_;
-      complex_parser_ = other.complex_parser_;
       includes_ = other.includes_;
       prepare_fn_ = other.prepare_fn_;
       semantic_validator_ = other.semantic_validator_;
@@ -921,10 +847,6 @@ class Parameters {
   template <typename GroupT>
   Parameters& Include(GroupT ParamsT::*member,
                       const Parameters<GroupT>& group) {
-    if (group.HasParser()) {
-      throw std::invalid_argument(
-          "Include does not support a parameter group with WithParser");
-    }
     for (const auto& incoming : group.Bindings()) {
       if (!incoming) continue;
       for (const auto& existing : bindings_) {
@@ -974,8 +896,6 @@ class Parameters {
   }
 
   bool HasPrepare() const noexcept { return static_cast<bool>(prepare_fn_); }
-
-  bool HasParser() const noexcept { return complex_parser_.has_value(); }
 
   const std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>>& Bindings()
       const noexcept {
@@ -1049,24 +969,6 @@ class Parameters {
     return *this;
   }
 
-  // 解析器提供复杂的自有成员；之后由类型化绑定赋值简单成员，
-  // Validate 再检查完整的参数对象。
-  Parameters& WithParser(ConfigParser<ParamsT> parser) {
-    if (complex_parser_) {
-      throw std::invalid_argument(
-          "Complex parameter parser is already configured");
-    }
-    auto merged = definitions_;
-    merged.insert(merged.end(), parser.Fields().begin(), parser.Fields().end());
-    std::string error;
-    if (!ValidateConfigFieldDefinitions(merged, &error)) {
-      throw std::invalid_argument(error);
-    }
-    complex_parser_ = std::move(parser);
-    definitions_ = std::move(merged);
-    return *this;
-  }
-
   const std::vector<ConfigFieldDefinition>& Fields() const noexcept {
     return definitions_;
   }
@@ -1100,11 +1002,6 @@ class Parameters {
     if (error) error->clear();
     try {
       ParamsT params{};
-      if (complex_parser_) {
-        auto parsed = complex_parser_->ParseNormalized(normalized, error);
-        if (!parsed) return std::nullopt;
-        params = std::move(*parsed);
-      }
       for (const auto& binding : bindings_) {
         if (!binding->Assign(normalized, &params, error)) {
           return std::nullopt;
@@ -1144,7 +1041,6 @@ class Parameters {
  private:
   std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> bindings_;
   std::vector<ConfigFieldDefinition> definitions_;
-  std::optional<ConfigParser<ParamsT>> complex_parser_;
   std::vector<PrepareFunction> includes_;
   PrepareFunction prepare_fn_;
   SemanticValidator semantic_validator_;
@@ -1195,7 +1091,6 @@ class Parameters<NoParameters> {
   }
 
   bool HasPrepare() const noexcept { return false; }
-  bool HasParser() const noexcept { return false; }
 
   const ParameterFieldBinding<NoParameters>* FindBinding(
       const std::string&) const noexcept {

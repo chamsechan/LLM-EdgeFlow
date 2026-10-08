@@ -683,16 +683,14 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
     return capability;
   }
   ConfigFieldDefinition ToConfigField() const override {
-    return {
-        field_,
-        ConfigValueKind::kString,
-        true,
-        nlohmann::json(),
-        std::nullopt,
-        std::nullopt,
-        {},
-        // 说明由框架按槽位的模型类别生成。
-        "引用 models[].model_id；所选模型的类别必须是 " + Capability() + "。"};
+    ConfigFieldDefinition definition;
+    definition.name = field_;
+    definition.kind = ConfigValueKind::kString;
+    definition.required = true;
+    // 说明由框架按槽位的模型类别生成。
+    definition.semantic =
+        "引用 models[].model_id；所选模型的类别必须是 " + Capability() + "。";
+    return definition;
   }
   bool Bind(const NodeInitContext& init, SessionContext& session,
             const nlohmann::json&, ModelsT* models,
@@ -927,12 +925,6 @@ class NodeSpec {
     static_assert(std::is_copy_constructible_v<ParamsT>,
                   "WithControls requires copy-constructible ParametersType");
     ValidateControlCommands(commands, params_, &models_);
-    for (const auto& command : commands) {
-      for (const auto& custom : custom_controls_) {
-        if (command.Id() == custom.definition.cmd_id)
-          throw std::invalid_argument("Duplicate Control command");
-      }
-    }
     control_commands_ = std::move(commands);
     return std::move(*this);
   }
@@ -951,32 +943,7 @@ class NodeSpec {
     port_constraints_ = std::move(constraints);
     return std::move(*this);
   }
-  using ControlUpdater = std::function<NodeResult<ParamsT>(
-      const ParamsT&, const nlohmann::json&, const BindingFacts&)>;
-  NodeSpec WithControl(ControlCommandDefinition definition,
-                       ControlUpdater update) && {
-    for (const auto& cmd : control_commands_) {
-      if (cmd.Id() == definition.cmd_id)
-        throw std::invalid_argument("Duplicate Control command");
-    }
-    for (const auto& cmd : custom_controls_) {
-      if (cmd.definition.cmd_id == definition.cmd_id)
-        throw std::invalid_argument("Duplicate Control command");
-    }
-    custom_controls_.push_back({std::move(definition), std::move(update)});
-    return std::move(*this);
-  }
-  struct CustomControl {
-    ControlCommandDefinition definition;
-    ControlUpdater update;
-  };
-  const std::vector<CustomControl>& CustomControls() const {
-    return custom_controls_;
-  }
-
-  bool HasControls() const noexcept {
-    return !control_commands_.empty() || !custom_controls_.empty();
-  }
+  bool HasControls() const noexcept { return !control_commands_.empty(); }
 
   const std::vector<FieldControlCommand>& ControlCommands() const noexcept {
     return control_commands_;
@@ -1029,8 +996,6 @@ class NodeSpec {
     for (const auto& cmd : control_commands_) {
       def.control_commands.push_back(cmd.ToCommandDefinition(params_));
     }
-    for (const auto& cmd : custom_controls_)
-      def.control_commands.push_back(cmd.definition);
     return def;
   }
 
@@ -1042,7 +1007,6 @@ class NodeSpec {
   RunFnT fn_;
   std::vector<FieldControlCommand> control_commands_;
   std::vector<PortGroupConstraint> port_constraints_;
-  std::vector<CustomControl> custom_controls_;
   std::string category_ = "custom";
   std::string description_;
   bool parallel_safe_ = false;
@@ -1143,19 +1107,6 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
                                 const std::string& json_param) override {
     if (!spec_.HasControls()) {
       return NodeControlResult::Unsupported();
-    }
-    for (const auto& command : spec_.CustomControls()) {
-      if (command.definition.cmd_id != cmd) continue;
-      nlohmann::json payload;
-      std::string error;
-      if (!ParseControlPayload(json_param, command.definition.payload_schema,
-                               &payload, &error)) {
-        return NodeControlResult::Failed(node_error::control::kInvalidRequest,
-                                         error);
-      }
-      return snapshot_.Update([&](const auto& current) {
-        return command.update(current, payload, binding_facts_);
-      });
     }
     if constexpr (std::is_copy_constructible_v<
                       typename SpecType::ParametersType>) {

@@ -88,60 +88,19 @@ JSON 值）。元素是结构体时用 `.Items(Parameters<E>)` 声明元素字�
 字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 的长度是 UTF-8 字节预算，
 生成的 `max_tokens` 是 token 数。类型、范围和字段组合错误应拒绝，不静默改用默认值。
 
-### 参数复杂时，使用普通结构和解析封装
+### 参数复杂时，使用普通结构和 Prepare
 
-`Parameters<Params>.WithParser(ConfigParser<Params>(fields, parse))` 保存复杂字段与
-`bool(const nlohmann::json&, Params*, std::string*)` 解析函数。解析器接收已规范化 JSON，
-返回持有自身字符串和容器的普通对象；不保存 JSON 指针，不序列化后重解析。
-它与 `Field` 可组合，框架拒绝重名字段，预检和初始化共享语义规则。
-解析器和基础字段赋值后，`Prepare` 可构建依赖这些字段的派生状态，再执行语义与连线校验。
-同时使用 `WithParser` 和字段 Control `WithControls` 时必须显式声明 `Prepare`，
-字段更新会通过它重建派生状态，再校验并发布。
+数组、映射、任意 JSON 值用 `Field` 直接绑定到 `std::vector<T>`、`std::map<std::string, T>`、
+`nlohmann::json` 成员；对象数组用 `.Items(Parameters<E>)` 声明元素字段，元素有自己的默认值、
+`Prepare` 和 `Validate`。参数结构体持有自身的字符串和容器，不保存 JSON 指针。
+派生状态（编译后的正则、模板记号、备用值的序列化文本等）放在不对应配置项的成员中，
+由 `Prepare` 构建，再执行语义与连线校验；预检、初始化和 Control 共享同一规则。
 
 参考 [StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp) 和
-[PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。复杂 Control 用 `.WithControl` 声明命令与
-构造下一状态的函数，参考 [TextTemplateNode](../common_nodes/text_template_node.cpp) 和
-[TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp)：框架串行处理更新，失败保持旧值，
-每次请求读取一次一致快照。
-
-会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResult<T>`
-调用返回 `NodeResult<T>` 的工厂，通过 `GetModelRevision` 取得缓存身份所需的模型版本；参考
-[TextEmbeddingNode](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
-
-## 完整参考样例
-
-[PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 展示提示词构建、LLM 调用与代码围栏清理，
-承担进阶参考：多输入上下文、配置化模板、生成参数与严格校验。需要哪部分再参考哪部分，
-无需把整份解析逻辑复制到自己的节点。纯提示词组合仍可直接复用通用 Node。
-
-两份方案使用**同一个**注册节点和已有 Adapter / Operator bridge：
-
-| 方案 | 连线 | Profile |
-| --- | --- | --- |
-| [实体抽取](../../demo/fixtures/mock/pipeline_entity_extract_custom.json) | 输入文本 → custom → JSON 解析 → 实体输出 | `entity_extract_custom_mock` |
-| [文档问答](../../demo/fixtures/mock/pipeline_doc_qa_custom.json) | 文档切片 + 问题 → custom；规则匹配 → 意图；统一文档输出 | `doc_qa_custom_mock` |
-
-从仓库根目录运行（先完成默认构建）：
-
-```bash
-# 这些 smoke 配置使用测试模型，必须用带测试注册的工具校验
-./build/alg_pipeline_tool_test validate demo/fixtures/mock/pipeline_entity_extract_custom.json
-./build/alg_pipeline_tool_test plan demo/fixtures/mock/pipeline_entity_extract_custom.json
-./build/alg_demo --profile entity_extract_custom_mock --output-dir results/custom-node
-
-./build/alg_pipeline_tool_test validate demo/fixtures/mock/pipeline_doc_qa_custom.json
-./build/alg_pipeline_tool_test plan demo/fixtures/mock/pipeline_doc_qa_custom.json
-./build/alg_demo --profile doc_qa_custom_mock --output-dir results/custom-node
-```
-
-结果位于 `results/custom-node/<profile>/results.jsonl` 与 `summary.json`；两个 Profile
-也纳入 `--suite smoke`。测试模型用于验证编排、来源和输出转换，不能据此评价模型效果。
-
-样例统一使用 `{{input}}` / `{{context}}` 占位符。
-它与 `TextTemplateNode` 共用解析器：`{{name}}` 统一替换变量，允许变量名两侧的空格；
-普通单个花括号（如 JSON）直接作为字面内容保留，例如 `{"question":"{{input}}"}`。
-双花括号不再表示字面转义。变量名由各 Node 声明：TextTemplate 的主文本叫 `primary`，
-本样例叫 `input`；复制模板时应对应替换，两者共有的 `context` 保持相同语义，未知变量会报错。
+[PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。Control 用 `.WithControls({ReplaceFields(...)})`
+选择要整体替换的参数，参考 [TextTemplateNode](../common_nodes/text_template_node.cpp) 和
+[TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp)：框架串行处理更新，更新后重新执行
+`Prepare` 与校验，失败保持旧值，每次请求读取一次一致快照。
 
 使用 context 变量必须连入 context；按相同 `req_id` 合并片段，空上下文批次表示
 没有参考内容。默认模板只插入 input，不隐式追加 context。输入、上下文和
@@ -151,9 +110,8 @@ prompt_prefix 中的花括号保留原文，不再作为模板解析。未知占
 `prompt_prefix` 是普通输入文本前缀，非空时在模板前追加一行。真正的 system 消息由模型的
 `model_config.system_prompt` 设置，不能用节点前缀替代该角色。
 
-TextTemplate 的 `missing_variable_policy` 也适用于内置变量。`fail` 会拒绝未连接的
-引用或缺失的主输入样本；需要保留占位符或填空时显式使用 `preserve/empty`。
-聚合输入批次存在而某请求没有结果时，仍表示合法的空上下文。
+TextTemplate 的变量只能是已连接的输入端口名（`primary`、`context`、`matches`、`document`）；
+未知变量或引用未连接的输入在 `Prepare` 中拒绝。输入已连接但某个请求没有数据时，该变量渲染为空字符串。
 
 模型失败、输出数量不符或 `(req_id, sub_id)` 不符时，节点返回错误且不发布结果。
 业务降级应携带可辨识的状态，不能伪装成功。

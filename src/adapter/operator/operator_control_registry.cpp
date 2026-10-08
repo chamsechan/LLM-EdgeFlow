@@ -93,23 +93,16 @@ int OperatorControlRegistry::ResolveControlParam(
           }
           return -2;
         }
-        std::string prompt_id = "";
-        if (param->prompt_id) {
-          size_t id_len = strnlen(param->prompt_id, 256);
-          if (id_len >= 256) {
-            if (error_msg) {
-              *error_msg =
-                  "ControlSwitchPromptParam::prompt_id exceeds 256 bytes";
-            }
-            return -2;
+        // prompt_id 仍检查长度，但节点从不使用它，不转发。
+        if (param->prompt_id && strnlen(param->prompt_id, 256) >= 256) {
+          if (error_msg) {
+            *error_msg =
+                "ControlSwitchPromptParam::prompt_id exceeds 256 bytes";
           }
-          prompt_id = param->prompt_id;
+          return -2;
         }
         nlohmann::json j;
         j["template"] = param->prompt_template_str;
-        if (!prompt_id.empty()) {
-          j["prompt_id"] = prompt_id;
-        }
         *out_cmd_id = kControlCmdUpdatePrompt;
         *out_json_str = j.dump();
         return 0;

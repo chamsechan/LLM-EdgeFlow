@@ -39,14 +39,29 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
 TEST_F(TextCorpusSourceNodeTest, EmptyCorpusConfig) {
   auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(
+      *node, nlohmann::json{{"corpus", nlohmann::json::array()}},
+      session_ctx_.get()));
 
   AlgContext ctx;
   EXPECT_EQ(node->Process(&ctx), 0);
   const auto* out = ctx.Read<TextBatch>("corpus");
   ASSERT_NE(out, nullptr);
   EXPECT_TRUE(out->empty());
+}
+
+TEST_F(TextCorpusSourceNodeTest, CorpusIsRequired) {
+  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
+  ASSERT_NE(node, nullptr);
+  EXPECT_FALSE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
+}
+
+TEST_F(TextCorpusSourceNodeTest, RejectsNonStringCorpusEntries) {
+  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
+  ASSERT_NE(node, nullptr);
+  EXPECT_FALSE(InitNodeForTest(*node, nlohmann::json{{"corpus", {"valid", 42}}},
+                               session_ctx_.get()));
 }
 
 }  // namespace llm_edgeflow

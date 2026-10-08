@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+文本处理类的通用 Node 参数只用 `Field` 声明，控制命令只有字段命令一种写法：`text_template` 删除输入
+`context_text`、`document_text`、`attributes`（连同类型 `TextAttributesBatch`）与参数 `values`、
+`allow_dynamic_attributes`、`missing_variable_policy`，模板变量只能是已连接的输入端口名，未知或未连接的变量在预检
+就报 `INVALID_COMBINATION`；`structured_json_parse` 的 `fallback_json`（JSON 字符串）改为 `fallback`（JSON 值）；
+`text_corpus_source` 的 `corpus` 改为必填并删除输入 `trigger`；`text_rule_match` 的 `rules` 改用元素声明，正则在预检
+编译。Operator 的 `kSwitchPrompt` 仍检查 `prompt_id` 长度，但不再转发给节点。
+**行为变化**：`text_template` 的输入已连接而某个请求没有数据时，该变量渲染为空字符串；此前
+`missing_variable_policy` 默认 `fail`（方案都未写），这种请求会失败并报 -6202。
+
 Demo 按宿主结构（载体）运行，不再依赖业务名：公开接口 `ResolveOperatorConfigBiz` 替换为只读预检
 `ResolveOperatorConfigIo`，返回按配置顺序排列的输入项、输出项（`type` 为槽的 key 后缀，`name` 为业务，`type_name`
 为宿主结构名，`service_type` 暂为空，`required`）；导出白名单仍为 6 个符号，符号名随之更换，链接旧符号的宿主需重新

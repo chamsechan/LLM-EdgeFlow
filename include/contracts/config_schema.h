@@ -39,23 +39,6 @@ struct ConfigFieldDefinition {
   std::shared_ptr<const ConfigFieldDefinition> items;
   // 结构体元素（kObject）的字段；为空时不检查对象内部。
   std::vector<ConfigFieldDefinition> fields;
-
-  ConfigFieldDefinition() = default;
-  ConfigFieldDefinition(std::string field_name, ConfigValueKind value_kind,
-                        bool is_required = false,
-                        nlohmann::json field_default = nlohmann::json(),
-                        std::optional<double> field_minimum = std::nullopt,
-                        std::optional<double> field_maximum = std::nullopt,
-                        std::vector<std::string> allowed_values = {},
-                        std::string field_semantic = {})
-      : name(std::move(field_name)),
-        kind(value_kind),
-        required(is_required),
-        default_value(std::move(field_default)),
-        minimum(field_minimum),
-        maximum(field_maximum),
-        enum_values(std::move(allowed_values)),
-        semantic(std::move(field_semantic)) {}
 };
 
 inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {

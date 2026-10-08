@@ -703,11 +703,11 @@ TEST(PipelineValidatorTest,
      NestedAndCrossFieldErrorsFailBeforeMaterialization) {
   const std::vector<std::pair<std::string, nlohmann::json>> cases = {
       {"TextChunkNode", {{"chunk_size", 8}, {"overlap", 8}}},
-      {"TextTemplateNode", {{"values", {{"x", 42}}}}},
+      {"TextTemplateNode", {{"template", "{{unknown}}"}}},
       {"TextTemplateNode", {{"template", "{{unclosed"}}},
       {"StructuredJsonParseNode", {{"field_types", {{"x", "unsupported"}}}}},
       {"StructuredJsonParseNode",
-       {{"required_fields", {"risk"}}, {"fallback_json", "{}"}}},
+       {{"required_fields", {"risk"}}, {"fallback", nlohmann::json::object()}}},
       {"TextCorpusSourceNode", {{"corpus", {"valid", 42}}}},
       {"TextRuleMatchNode",
        {{"rules", {{{"strategy", "regex"}, {"pattern", "["}}}}}},
@@ -729,7 +729,8 @@ TEST(PipelineValidatorTest,
                     [](const auto& d) {
                       return d.node_id == "invalid" &&
                              (d.code == DiagnosticCode::kInvalidCombination ||
-                              d.code == DiagnosticCode::kConfigFieldType);
+                              d.code == DiagnosticCode::kConfigFieldType ||
+                              d.code == DiagnosticCode::kConfigFieldEnum);
                     }))
         << report.ToJson();
     Pipeline pipeline;
@@ -745,25 +746,24 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   nlohmann::json root;
   stream >> root;
   root = PrepareExternalFixtureForCore(root);
-  root["pipeline"] = nlohmann::json::array(
-      {{{"id", "a"},
-        {"node_type", "TextTemplateNode"},
-        {"depends_on", nlohmann::json::array()},
-        {"config", {{"template", "UNDECLARED"}}},
-        {"inputs", {{"primary", "input_sentences"}}},
-        {"outputs", {{"text", "context"}}}},
-       {{"id", "b"},
-        {"node_type", "TextTemplateNode"},
-        {"depends_on", {"a"}},
-        {"config", {{"template", "{{primary}}|{{context}}"}}},
-        {"inputs", {{"primary", "input_sentences"}}},
-        {"outputs", {{"text", "rendered"}}}},
-       {{"id", "rule"},
-        {"node_type", "TextRuleMatchNode"},
-        {"depends_on", {"b"}},
-        {"inputs", {{"text", "rendered"}}},
-        {"outputs", {{"matches", "rule_matches"}}}}});
-  root["pipeline"][1]["config"]["missing_variable_policy"] = "empty";
+  root["pipeline"] =
+      nlohmann::json::array({{{"id", "a"},
+                              {"node_type", "TextTemplateNode"},
+                              {"depends_on", nlohmann::json::array()},
+                              {"config", {{"template", "UNDECLARED"}}},
+                              {"inputs", {{"primary", "input_sentences"}}},
+                              {"outputs", {{"text", "context"}}}},
+                             {{"id", "b"},
+                              {"node_type", "TextTemplateNode"},
+                              {"depends_on", {"a"}},
+                              {"config", {{"template", "{{primary}}"}}},
+                              {"inputs", {{"primary", "input_sentences"}}},
+                              {"outputs", {{"text", "rendered"}}}},
+                             {{"id", "rule"},
+                              {"node_type", "TextRuleMatchNode"},
+                              {"depends_on", {"b"}},
+                              {"inputs", {{"text", "rendered"}}},
+                              {"outputs", {{"matches", "rule_matches"}}}}});
   const auto plan = PipelineValidator::ValidateAndPlan(root);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
   EXPECT_EQ(plan.node_plans.at("b").FindPort("context"), nullptr);
@@ -773,7 +773,7 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   ctx.Publish("input_sentences", TextBatch{{0, 0, "USER"}});
   ASSERT_EQ(pipeline.Execute(&ctx), 0);
   ASSERT_NE(ctx.Read<TextBatch>("rendered"), nullptr);
-  EXPECT_EQ(ctx.Read<TextBatch>("rendered")->at(0).data, "USER|");
+  EXPECT_EQ(ctx.Read<TextBatch>("rendered")->at(0).data, "USER");
 }
 
 TEST(PipelineValidatorTest,

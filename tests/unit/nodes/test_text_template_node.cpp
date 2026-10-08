@@ -72,45 +72,41 @@ TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
   EXPECT_NE((*out)[0].data.find("ACCOUNT_UPGRADE"), std::string::npos);
 }
 
-TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
+TEST_F(TextTemplateNodeTest, UnknownVariableFailsInit) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
-                        {"allow_dynamic_attributes", true},
-                        {"missing_variable_policy", "fail"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  // 属性中缺少必填变量 'user_name'
-  AlgContext ctx;
-  TextAttributesBatch attrs;
-  attrs.emplace_back(
-      1, 0,
-      std::unordered_map<std::string, std::string>{{"other_key", "value"}});
-  ctx.Publish("attributes", attrs);
-
-  EXPECT_EQ(node->Process(&ctx), -6202);
+  // 模板变量只能是输入端口名；不再有静态变量或动态属性。
+  for (const std::string tmpl : {"Hello {{user_name}}, welcome!",
+                                 "{{context_text}}", "{{attributes}}"}) {
+    std::string diagnostic;
+    EXPECT_FALSE(InitNodeForTest(*node, {{"template", tmpl}},
+                                 session_ctx_.get(), &diagnostic))
+        << tmpl;
+  }
 }
 
-TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
+TEST_F(TextTemplateNodeTest, DocumentAndContextJoinedBySeparator) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
-                        {"allow_dynamic_attributes", true}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(
+      *node, {{"template", "{{document}}#{{context}}"}, {"separator", "+"}},
+      session_ctx_.get()));
 
   AlgContext ctx;
-  TextAttributesBatch attrs;
-  attrs.emplace_back(
-      1, 0,
-      std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
-  ctx.Publish("attributes", attrs);
+  OcrDocumentBatch documents;
+  documents.emplace_back(1, 0, OcrDocumentItem{});
+  documents.back().data.combined_text = "page1";
+  documents.emplace_back(1, 1, OcrDocumentItem{});
+  documents.back().data.combined_text = "page2";
+  ctx.Publish("document", documents);
+  ctx.Publish("context", RankedTextBatch{});
 
-  EXPECT_EQ(node->Process(&ctx), 0);
+  ASSERT_EQ(node->Process(&ctx), 0);
   const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
-  EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
+  ASSERT_EQ(out->size(), 1u);
+  EXPECT_EQ((*out)[0].data, "page1+page2#");
 }
 
 TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
@@ -121,16 +117,11 @@ TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
   // 只有双花括号 {{var}} 才是模板变量。
   nlohmann::json cfg = {
       {"template",
-       "Literal: {user_name}, JSON: {\"key\": 1}, Var: {{user_name}}"},
-      {"allow_dynamic_attributes", true}};
+       "Literal: {user_name}, JSON: {\"key\": 1}, Var: {{primary}}"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
-  TextAttributesBatch attrs;
-  attrs.emplace_back(
-      1, 0,
-      std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
-  ctx.Publish("attributes", attrs);
+  ctx.Publish("primary", TextBatch{{1, 0, "Alice"}});
 
   EXPECT_EQ(node->Process(&ctx), 0);
   const auto* out = ctx.Read<TextBatch>("text");
@@ -145,8 +136,7 @@ TEST_F(TextTemplateNodeTest, MalformedPlaceholderFailsInit) {
 
   for (const std::string bad_tmpl :
        {"Hello {{unclosed", "Hello {{}}", "Hello {{invalid name}}"}) {
-    nlohmann::json cfg = {{"template", bad_tmpl},
-                          {"allow_dynamic_attributes", true}};
+    nlohmann::json cfg = {{"template", bad_tmpl}};
     EXPECT_FALSE(InitNodeForTest(*node, cfg, session_ctx_.get()));
   }
 }
@@ -205,20 +195,15 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
       node->Control(kControlCmdUpdatePrompt, valid_update.dump());
   EXPECT_EQ(res.status, NodeControlStatus::kHandled);
 
-  // Operator 元数据与模板变更相互独立，可单独接受。
+  // prompt_id 不是节点参数；接入层不会转发它。
   NodeControlResult prompt_id_res = node->Control(
       kControlCmdUpdatePrompt, nlohmann::json{{"prompt_id", "qa-v2"}}.dump());
-  EXPECT_EQ(prompt_id_res.status, NodeControlStatus::kHandled);
+  EXPECT_EQ(prompt_id_res.status, NodeControlStatus::kFailed);
 
   NodeControlResult removed_field_res =
       node->Control(kControlCmdUpdatePrompt,
                     nlohmann::json{{"prompt_template", "removed"}}.dump());
   EXPECT_EQ(removed_field_res.status, NodeControlStatus::kFailed);
-
-  NodeControlResult invalid_policy_res = node->Control(
-      kControlCmdUpdatePrompt,
-      nlohmann::json{{"missing_variable_policy", "invent"}}.dump());
-  EXPECT_EQ(invalid_policy_res.status, NodeControlStatus::kFailed);
 
   // 没有任何合法字段的无效更新 -> 拒绝
   nlohmann::json bogus_update = {{"bogus_field", 123}};
@@ -258,11 +243,7 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
                 nlohmann::json{{"template", "{{primary}}"}, {"unknown", true}}
                     .dump()),
             0);
-  EXPECT_NE(pipeline.Control(
-                kControlCmdUpdatePrompt,
-                nlohmann::json{{"missing_variable_policy", "invent"}}.dump()),
-            0);
-  EXPECT_EQ(pipeline.Control(kControlCmdUpdatePrompt,
+  EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
                              nlohmann::json{{"prompt_id", "doc-qa-v2"}}.dump()),
             0);
 }
@@ -302,9 +283,8 @@ nlohmann::json TemplatePipeline(const nlohmann::json& config) {
 }
 }  // namespace
 
-TEST_F(TextTemplateNodeTest, UnconnectedBuiltinUsesDeclaredMissingPolicy) {
-  for (const std::string variable :
-       {"context", "context_text", "matches", "document", "document_text"}) {
+TEST_F(TextTemplateNodeTest, UnconnectedOrUnknownVariableIsRejected) {
+  for (const std::string variable : {"context", "matches", "document"}) {
     SCOPED_TRACE(variable);
     const std::string pattern = "Q={{primary}}|V={{" + variable + "}}";
     auto root = TemplatePipeline({{"template", pattern}});
@@ -316,36 +296,43 @@ TEST_F(TextTemplateNodeTest, UnconnectedBuiltinUsesDeclaredMissingPolicy) {
                       return d.path == "/pipeline/0/config" &&
                              d.message.find(variable) != std::string::npos;
                     }));
-    for (const std::string policy : {"empty", "preserve"}) {
-      root["pipeline"][0]["config"]["missing_variable_policy"] = policy;
-      Pipeline pipeline;
-      PipelineDiagnostic diagnostic;
-      ASSERT_TRUE(BuildTestPipeline(pipeline, root, &diagnostic))
-          << diagnostic.message;
-      AlgContext ctx;
-      ctx.Publish("input_sentences", TextBatch{{1, 3, "hello"}});
-      ASSERT_EQ(pipeline.Execute(&ctx), 0);
-      ASSERT_NE(ctx.Read<TextBatch>("rendered_text"), nullptr);
-      EXPECT_EQ(
-          ctx.Read<TextBatch>("rendered_text")->front().data,
-          "Q=hello|V=" + (policy == "empty" ? "" : "{{" + variable + "}}"));
-    }
   }
+  for (const std::string variable :
+       {"context_text", "document_text", "other"}) {
+    SCOPED_TRACE(variable);
+    auto root = TemplatePipeline({{"template", "{{" + variable + "}}"}});
+    const auto invalid = PipelineValidator::ValidateAndPlan(root);
+    ASSERT_FALSE(invalid.report.ok);
+    EXPECT_TRUE(
+        std::any_of(invalid.report.diagnostics.begin(),
+                    invalid.report.diagnostics.end(), [&](const auto& d) {
+                      return d.path == "/pipeline/0/config" &&
+                             d.message.find(variable) != std::string::npos;
+                    }));
+  }
+  Pipeline pipeline;
+  PipelineDiagnostic diagnostic;
+  ASSERT_TRUE(BuildTestPipeline(
+      pipeline, TemplatePipeline({{"template", "Q={{primary}}"}}), &diagnostic))
+      << diagnostic.message;
+  AlgContext ctx;
+  ctx.Publish("input_sentences", TextBatch{{1, 3, "hello"}});
+  ASSERT_EQ(pipeline.Execute(&ctx), 0);
+  EXPECT_EQ(ctx.Read<TextBatch>("rendered_text")->front().data, "Q=hello");
 }
 
-TEST_F(TextTemplateNodeTest,
-       MissingRuntimeBuiltinFailsButEmptyAggregateIsValid) {
+TEST_F(TextTemplateNodeTest, ConnectedInputWithoutDataRendersEmpty) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}|{{context}}"}},
                               session_ctx_.get()));
   AlgContext missing;
   missing.Publish("primary", TextBatch{{1, 0, "Q"}});
-  EXPECT_EQ(node->Process(&missing), -6202);
-  EXPECT_FALSE(missing.Has("text"));
+  ASSERT_EQ(node->Process(&missing), 0);
+  EXPECT_EQ(missing.Read<TextBatch>("text")->front().data, "Q|");
 
   AlgContext empty;
   empty.Publish("primary", TextBatch{{1, 0, "Q"}});
-  empty.Publish("context_text", TextBatch{});
+  empty.Publish("context", RankedTextBatch{});
   ASSERT_EQ(node->Process(&empty), 0);
   ASSERT_NE(empty.Read<TextBatch>("text"), nullptr);
   EXPECT_EQ(empty.Read<TextBatch>("text")->front().data, "Q|");
@@ -358,16 +345,10 @@ TEST_F(TextTemplateNodeTest,
   EXPECT_EQ(other_request.Read<TextBatch>("text")->front().data, "Q|");
 }
 
-TEST_F(TextTemplateNodeTest, MissingPrimarySampleDoesNotPublishPartialOutput) {
+TEST_F(TextTemplateNodeTest, EmptyPrimaryRendersEmpty) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
                               session_ctx_.get()));
-  AlgContext ctx;
-  ctx.Publish("primary", TextBatch{{1, 0, ""}});
-  ctx.Publish("attributes", TextAttributesBatch{{2, 0, {}}});
-  EXPECT_EQ(node->Process(&ctx), -6202);
-  EXPECT_FALSE(ctx.Has("text"));
-
   AlgContext valid_empty;
   valid_empty.Publish("primary", TextBatch{{1, 0, ""}});
   ASSERT_EQ(node->Process(&valid_empty), 0);
@@ -375,7 +356,7 @@ TEST_F(TextTemplateNodeTest, MissingPrimarySampleDoesNotPublishPartialOutput) {
 }
 
 TEST_F(TextTemplateNodeTest,
-       ControlRejectsUnconnectedBuiltinAndRetainsConfiguration) {
+       ControlRejectsUnconnectedOrUnknownVariableAndRetainsConfiguration) {
   Pipeline pipeline;
   ASSERT_TRUE(BuildTestPipeline(
       pipeline, TemplatePipeline({{"template", "{{primary}}"}})));
@@ -386,41 +367,13 @@ TEST_F(TextTemplateNodeTest,
   original.Publish("input_sentences", TextBatch{{1, 0, "Q"}});
   ASSERT_EQ(pipeline.Execute(&original), 0);
   EXPECT_EQ(original.Read<TextBatch>("rendered_text")->front().data, "Q");
-  EXPECT_EQ(
-      pipeline.Control(
-          kControlCmdUpdatePrompt,
-          R"({"template":"{{context}}","missing_variable_policy":"empty"})"),
-      0);
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
-                             R"({"missing_variable_policy":"fail"})"),
+                             R"({"template":"{{unknown}}"})"),
             0);
   AlgContext after_failure;
   after_failure.Publish("input_sentences", TextBatch{{2, 0, "Q"}});
   ASSERT_EQ(pipeline.Execute(&after_failure), 0);
-  EXPECT_EQ(after_failure.Read<TextBatch>("rendered_text")->front().data, "");
-}
-
-TEST_F(TextTemplateNodeTest, ConnectedAttributesRemainAvailableAcrossControl) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
-  std::string diagnostic;
-  auto plan = PrepareNodePlanForTest(
-      "TextTemplateNode",
-      {{"template", "{{name}}"}, {"allow_dynamic_attributes", false}},
-      {"primary", "context", "context_text", "matches", "document",
-       "document_text"},
-      "attrs_", "", &diagnostic);
-  ASSERT_NE(plan, nullptr) << diagnostic;
-  ASSERT_TRUE(node->Init({plan.get(), session_ctx_.get(), &diagnostic}))
-      << diagnostic;
-  EXPECT_EQ(node->Control(kControlCmdUpdatePrompt,
-                          R"({"allow_dynamic_attributes":false})")
-                .status,
-            NodeControlStatus::kHandled);
-  AlgContext ctx;
-  ctx.Publish("attrs_attributes",
-              TextAttributesBatch{{1, 0, {{"name", "Alice"}}}});
-  ASSERT_EQ(node->Process(&ctx), 0);
-  EXPECT_EQ(ctx.Read<TextBatch>("text")->front().data, "Alice");
+  EXPECT_EQ(after_failure.Read<TextBatch>("rendered_text")->front().data, "Q");
 }
 
 TEST_F(TextTemplateNodeTest, DirectConcurrentProcessAndControl) {

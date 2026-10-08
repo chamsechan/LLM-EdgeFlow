@@ -433,10 +433,10 @@ inline Parameters<GenerateOptions> GenerateParameters() {
   - `allow_dynamic_attributes`：只为 `attributes` 服务；
   - `missing_variable_policy`：删掉前两项后，变量只能来自已连接的输入，运行时不会缺失。
 - 模板变量只能是已连接的输入端口名。未知变量、引用没连接的输入，都在 `Prepare` 中报错（`INVALID_COMBINATION`）。删除 `node_error::text_template::kMissingVariable`。
-- 渲染规则不变：
-  - 同一请求的多条 `context`、`document` 用 `separator` 拼接；
-  - `matches` 写成 `类别 (关键词)`，用 `, ` 拼接；
-  - 输入连接了、但某个请求没有数据时，该变量为空字符串。
+- 渲染规则：
+  - 同一请求的多条 `context`、`document` 用 `separator` 拼接（不变）；
+  - `matches` 写成 `类别 (关键词)`，用 `, ` 拼接（不变）；
+  - 输入连接了、但某个请求没有数据时，该变量为空字符串。**这是一处行为变化**：`missing_variable_policy` 的默认值是 `fail`，而方案都没有写它，所以改造前这种请求会失败并报 `kMissingVariable`（-6202）。`context`、`matches`、`document` 本来就是可选的按请求聚合输入，某个请求没有命中规则或没有检索结果时让整条请求失败没有道理，所以删除这个参数后保留"渲染为空"这一种行为。
 - `update_prompt` 只替换 `template`，替换后重新编译模板、检查变量；失败时保留原模板。
 - 接入层把 Operator 的 `kSwitchPrompt` 转成 `{"template": …}`。平台结构中的 `prompt_id` 仍按现有规则检查长度，但不再转发：节点只保存它，从不使用。
 

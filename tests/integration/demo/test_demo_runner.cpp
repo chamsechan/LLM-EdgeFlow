@@ -170,7 +170,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
       node["config"]["temperature"] = 0.0;
     }
     if (node["node_type"] == "StructuredJsonParseNode") {
-      node["config"].erase("fallback_json");
+      node["config"].erase("fallback");
       node["config"]["failure_policy"] = "fail";
     }
   }

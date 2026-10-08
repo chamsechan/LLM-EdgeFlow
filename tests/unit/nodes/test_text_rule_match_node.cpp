@@ -82,20 +82,40 @@ TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleAndDefaultScores) {
 TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
   struct InvalidCase {
     nlohmann::json config;
-    std::vector<std::string> expected;
+    // 校验报告中的路径；元素的类型、未知键错误带键名或下标，
+    // 元素的 Prepare 失败报在 config 上。
+    std::string path;
+    std::vector<std::string> validator_parts;
+    // 直接初始化报告的同一个出错值。
+    std::vector<std::string> direct_parts;
+    // Control 先按声明生成的 payload schema 检查，再执行元素的 Prepare。
+    std::vector<std::string> control_parts;
   };
   const std::vector<InvalidCase> cases = {
-      {{{"categories", {{"VIP", 123}}}}, {"categories", "VIP", "array"}},
+      {{{"categories", {{"VIP", 123}}}},
+       "/pipeline/0/config/categories/VIP",
+       {"array"},
+       {"categories/VIP", "array"},
+       {"categories", "VIP", "array"}},
       {{{"categories", {{"VIP", {"valid", false}}}}},
+       "/pipeline/0/config/categories/VIP/1",
+       {"string"},
+       {"categories/VIP/1", "string"},
        {"categories", "VIP", "Array item 1", "string"}},
       {{{"rules",
          {{{"pattern", "valid"}}, {{"pattern", "bad"}, {"scroe", 1}}}}},
+       "/pipeline/0/config/rules/1/scroe",
+       {"scroe"},
+       {"rules/1/scroe", "scroe"},
        {"rules", "Array item 1", "scroe"}},
       {{{"categories", {{"NEW", {"replacement"}}}},
         {"rules",
          {{{"pattern", "valid"}},
           {{"id", "broken"}, {"strategy", "regex"}, {"pattern", "("}}}}},
-       {"rules[1].pattern", "broken", "byte offset"}}};
+       "/pipeline/0/config",
+       {"element 1", "broken", "byte offset"},
+       {"element 1", "broken", "byte offset"},
+       {"element 1", "broken", "byte offset"}}};
   auto root = nlohmann::json::parse(R"({
   "biz_name": "keyword_match",
   "models": [],
@@ -124,8 +144,9 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
     EXPECT_TRUE(std::any_of(
         report.diagnostics.begin(), report.diagnostics.end(),
         [&](const auto& diagnostic) {
-          return diagnostic.path == "/pipeline/0/config" &&
-                 std::all_of(invalid.expected.begin(), invalid.expected.end(),
+          return diagnostic.path == invalid.path &&
+                 std::all_of(invalid.validator_parts.begin(),
+                             invalid.validator_parts.end(),
                              [&](const auto& part) {
                                return diagnostic.message.find(part) !=
                                       std::string::npos;
@@ -141,8 +162,10 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
     const auto update =
         active->Control(kControlCmdUpdateRules, invalid.config.dump());
     EXPECT_EQ(update.status, NodeControlStatus::kFailed);
-    for (const auto& part : invalid.expected) {
+    for (const auto& part : invalid.direct_parts) {
       EXPECT_NE(diagnostic.find(part), std::string::npos) << diagnostic;
+    }
+    for (const auto& part : invalid.control_parts) {
       EXPECT_NE(update.message.find(part), std::string::npos) << update.message;
     }
     AlgContext context;
@@ -508,6 +531,83 @@ TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {
   subsequent.Publish("text", inputs);
   ASSERT_EQ(node->Process(&subsequent), 0);
   expect_batch(subsequent, "NEW");
+}
+
+TEST_F(TextRuleMatchNodeTest, RuleElementsUseDeclaredDefaultsAndConstants) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"categories", {{"B_KEYWORD", {"alpha"}}, {"A_KEYWORD", {"alpha"}}}},
+       {"rules",
+        {{{"pattern", "alpha"}},
+         {{"pattern", "beta"},
+          {"category", "BETA"},
+          {"score", 0.5},
+          {"constants",
+           {{"flag", true}, {"n", 3}, {"list", {1, 2}}, {"s", "x"}}}}}}},
+      session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("text", TextBatch{{1, 0, "alpha"}, {2, 0, "beta"}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 2u);
+  // 先按类别名的字典序查关键词表，再按数组顺序查规则。
+  EXPECT_EQ((*matches)[0].data.category, "A_KEYWORD");
+  EXPECT_EQ((*matches)[0].data.matches.size(), 3u);
+  EXPECT_EQ((*matches)[1].data.category, "BETA");
+  EXPECT_FLOAT_EQ((*matches)[1].data.score, 0.5f);
+  EXPECT_EQ((*matches)[1].data.slots["flag"], true);
+  EXPECT_EQ((*matches)[1].data.slots["n"], 3);
+  EXPECT_EQ((*matches)[1].data.slots["list"], nlohmann::json({1, 2}));
+  EXPECT_EQ((*matches)[1].data.slots["s"], "x");
+}
+
+TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleElementsAndStrategies) {
+  const std::vector<nlohmann::json> invalid = {
+      {{"rules", {{{"strategy", "contains"}}}}},
+      {{"rules", {{{"pattern", "x"}, {"strategy", "glob"}}}}},
+      {{"rules", {{{"pattern", "x"}, {"constants", 3}}}}},
+      {{"rules", {{{"pattern", 7}}}}},
+      {{"rules", {{"pattern", "x"}}}},
+      {{"categories", {{"VIP", "not-an-array"}}}},
+  };
+  for (const auto& config : invalid) {
+    SCOPED_TRACE(config.dump());
+    auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+  }
+}
+
+TEST_F(TextRuleMatchNodeTest, ControlReplacesOnlyGivenParameters) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"categories", {{"OLD", {"keep"}}}},
+       {"rules", {{{"pattern", "rule-old"}, {"category", "RULE_OLD"}}}}},
+      session_ctx_.get()));
+  ASSERT_EQ(node->Control(kControlCmdUpdateRules,
+                          R"({"categories":{"NEW":["fresh"]}})")
+                .status,
+            NodeControlStatus::kHandled);
+  AlgContext ctx;
+  ctx.Publish("text",
+              TextBatch{{1, 0, "keep"}, {2, 0, "fresh"}, {3, 0, "rule-old"}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  EXPECT_EQ((*matches)[0].data.is_hit, 0);
+  EXPECT_EQ((*matches)[1].data.category, "NEW");
+  EXPECT_EQ((*matches)[2].data.category, "RULE_OLD");
+
+  for (const std::string payload : {"{}", R"({"default_category":"X"})",
+                                    R"({"rules":[{"strategy":"regex"}]})"}) {
+    SCOPED_TRACE(payload);
+    EXPECT_EQ(node->Control(kControlCmdUpdateRules, payload).status,
+              NodeControlStatus::kFailed);
+  }
 }
 
 }  // namespace llm_edgeflow

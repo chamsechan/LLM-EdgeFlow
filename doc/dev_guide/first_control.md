@@ -11,9 +11,9 @@
 | 控制命令的行为断言 | 已有节点测试套件 |
 | 新平台专有结构的转换和拷贝 | Integration；普通 JSON Control 使用已有通用入口 |
 
-所有节点通过同一 Spec 声明 Control：普通字段使用 `WithControls`，复杂模板/规则使用
-`WithControl` 声明 schema 和构建下一状态的函数。框架管理解析、writer 串行更新和不可变
-快照；业务函数每次接收一份一致的参数，不需要覆写生命周期。完整生产例子见
+所有节点通过同一 Spec 声明 Control：用 `WithControls` 和 `ReplaceFields` 选择要替换的参数
+（标量、数组、映射、对象数组均可）。框架由参数声明生成 payload schema，管理解析、writer
+串行更新和不可变快照；业务函数每次接收一份一致的参数，不需要覆写生命周期。完整生产例子见
 [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 与
 [TextRuleMatchNode](../../src/common_nodes/text_rule_match_node.cpp)。
 

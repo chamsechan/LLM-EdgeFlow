@@ -308,6 +308,14 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
                          &entity_prompt),
             0);
 
+  // prompt_id 仍检查长度，但不转发给节点。
+  const std::string long_prompt_id(256, 'a');
+  ControlSwitchPromptParam long_id_prompt{long_prompt_id.c_str(),
+                                          "{{primary}}"};
+  EXPECT_EQ(ops_.Control(entity_handle, ControlCommand::kSwitchPrompt,
+                         &long_id_prompt),
+            -2);
+
   ops_.Destroy(entity_handle);
 }
 

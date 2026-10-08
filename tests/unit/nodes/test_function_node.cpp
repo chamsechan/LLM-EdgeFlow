@@ -64,23 +64,10 @@ struct ComplexParams {
 };
 
 auto ComplexConfig() {
-  ConfigParser<ComplexParams> parser(
-      {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
-      [](const nlohmann::json& config, ComplexParams* params,
-         std::string* error) {
-        const auto& nested = config.at("nested");
-        if (!nested.contains("prefix") || !nested["prefix"].is_string()) {
-          if (error) *error = "nested.prefix must be text";
-          return false;
-        }
-        params->prefix = nested["prefix"].get<std::string>();
-        params->limit = -1;  // 基础成员绑定必须覆盖此值。
-        return true;
-      });
   auto config = Parameters<ComplexParams>({
+      Field("prefix", &ComplexParams::prefix).Default(""),
       Field("limit", &ComplexParams::limit).Default(8).Range(1, 20),
   });
-  config.WithParser(std::move(parser));
   config.Validate([](const ComplexParams& params, std::string* error) {
     if (params.prefix.size() > static_cast<size_t>(params.limit)) {
       if (error) *error = "prefix exceeds limit";
@@ -117,7 +104,7 @@ auto ComplexSpec() {
         });
       });
 }
-REGISTER_FUNCTION_NODE(ComplexParserNode, ComplexSpec());
+REGISTER_FUNCTION_NODE(ParameterChecksNode, ComplexSpec());
 
 struct CleanParams {
   std::string prefix;
@@ -773,47 +760,6 @@ auto SourceSpec() {
       });
 }
 REGISTER_FUNCTION_NODE(GeneratedSourceAuthorNode, SourceSpec());
-
-constexpr int kComplexStateCommand = 4987;
-auto ComplexStateControlSpec() {
-  const nlohmann::json schema = {
-      {"type", "object"},
-      {"required", {"nested"}},
-      {"additionalProperties", false},
-      {"properties",
-       {{"nested",
-         {{"type", "object"},
-          {"required", {"prefix"}},
-          {"additionalProperties", false},
-          {"properties", {{"prefix", {{"type", "string"}}}}}}}}}};
-  return MakeNodeSpec(
-             InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
-             PreservedOutput<TextBatch>("output", "input"),
-             Parameters<CleanParams>{
-                 Field("prefix", &CleanParams::prefix).Default("old:")},
-             [](const ComplexInputs& input,
-                const CleanParams& params) -> NodeResult<TextBatch> {
-               return MapPayloads(*input.input, [&](const std::string& value) {
-                 return params.prefix + value;
-               });
-             })
-      .WithControl(
-          ControlCommandDefinition(kComplexStateCommand, "replace_nested_state",
-                                   "Replace compiled prefix", schema, true),
-          [](const CleanParams& current, const nlohmann::json& payload,
-             const BindingFacts&) -> NodeResult<CleanParams> {
-            auto next = current;
-            next.prefix = payload.at("nested").at("prefix").get<std::string>();
-            if (next.prefix == "REJECT") {
-              return NodeResult<CleanParams>::Failure(
-                  NodeErrorKind::kBusinessError, "Rejected compiled prefix",
-                  -9877);
-            }
-            return next;
-          });
-}
-REGISTER_FUNCTION_NODE(ComplexStateControlAuthorNode,
-                       ComplexStateControlSpec());
 
 }  // namespace
 
@@ -1596,15 +1542,15 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
   }
 }
 
-TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
-  const auto definition = PipelineCatalog::FindNode("ComplexParserNode");
+TEST(FunctionNodeTest, ParameterChecksMatchPreflightAndInit) {
+  const auto definition = PipelineCatalog::FindNode("ParameterChecksNode");
   ASSERT_TRUE(definition.has_value());
   ASSERT_TRUE(definition->validate_config);
-  const nlohmann::json good = {{"nested", {{"prefix", "tag:"}}}, {"limit", 8}};
+  const nlohmann::json good = {{"prefix", "tag:"}, {"limit", 8}};
   for (int fault = 0; fault < 4; ++fault) {
     SCOPED_TRACE(fault);
     auto config = good;
-    if (fault == 1) config["nested"]["prefix"] = 123;
+    if (fault == 1) config["prefix"] = 123;
     if (fault == 2) config["limit"] = 2;
     const std::unordered_set<std::string> ports =
         fault == 3 ? std::unordered_set<std::string>{"input"}
@@ -1620,7 +1566,7 @@ TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
     }
     plan.ports.push_back({"output", "output", "TextBatch", "1:1", "preserve",
                           "request", PortDirection::kOutput});
-    auto node = NodeRegistry::Instance().Create("ComplexParserNode");
+    auto node = NodeRegistry::Instance().Create("ParameterChecksNode");
     ASSERT_NE(node, nullptr);
     SessionContext session;
     std::string init_error;
@@ -1633,8 +1579,8 @@ TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
       continue;
     }
     // 调用方的文档和计划都不能继续持有 Params。
-    config["nested"]["prefix"] = "changed:";
-    plan.normalized_config["nested"]["prefix"] = "changed:";
+    config["prefix"] = "changed:";
+    plan.normalized_config["prefix"] = "changed:";
     AlgContext context;
     context.Publish("input", TextBatch{{7, 2, "hello"}});
     context.Publish("context", TextBatch{});
@@ -2394,7 +2340,7 @@ TEST(FunctionNodeTest, OutputDeclarationsStillRejectDuplicatePortNames) {
                std::invalid_argument);
 }
 
-TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
+TEST(FunctionNodeTest, ControlDeclarationsRejectDuplicateIdAndName) {
   auto make_spec = [] {
     return MakeNodeSpec(
         InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
@@ -2402,51 +2348,14 @@ TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
         [](const ComplexInputs& inputs, const CleanParams&)
             -> NodeResult<TextBatch> { return *inputs.input; });
   };
-  auto update = [](const CleanParams& current, const nlohmann::json&,
-                   const BindingFacts&) -> NodeResult<CleanParams> {
-    return current;
-  };
-  const ControlCommandDefinition custom(4988, "custom_prefix");
-  EXPECT_THROW(
-      make_spec()
-          .WithControl(custom, update)
-          .WithControls({ReplaceFields(4988, "set_prefix", {"prefix"})}),
-      std::invalid_argument);
-  EXPECT_THROW(
-      make_spec()
-          .WithControls({ReplaceFields(4988, "set_prefix", {"prefix"})})
-          .WithControl(custom, update),
-      std::invalid_argument);
-}
-
-TEST(FunctionNodeTest, WithParserWithControlsRequiresExplicitPrepare) {
-  struct DummyParams {
-    std::string text;
-  };
-  ConfigParser<DummyParams> parser(
-      {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
-      [](const nlohmann::json& c, DummyParams* p, std::string*) {
-        if (c.contains("nested") && c["nested"].contains("text")) {
-          p->text = c["nested"]["text"].get<std::string>();
-        }
-        return true;
-      });
-  auto params =
-      Parameters<DummyParams>({
-                                  Field("text", &DummyParams::text).Default(""),
-                              })
-          .WithParser(std::move(parser));
-
-  // HasParser() == true、commands 非空且 HasPrepare() == false -> 抛异常
-  EXPECT_THROW(ValidateControlCommands(
-                   {ReplaceFields(1001, "set_text", {"text"})}, params),
+  EXPECT_THROW(make_spec().WithControls(
+                   {ReplaceFields(4988, "set_prefix", {"prefix"}),
+                    ReplaceFields(4988, "other_prefix", {"prefix"})}),
                std::invalid_argument);
-
-  // 加上 Prepare 后校验通过
-  params.Prepare(
-      [](DummyParams*, const BindingFacts&, std::string*) { return true; });
-  EXPECT_NO_THROW(ValidateControlCommands(
-      {ReplaceFields(1001, "set_text", {"text"})}, params));
+  EXPECT_THROW(
+      make_spec().WithControls({ReplaceFields(4988, "set_prefix", {"prefix"}),
+                                ReplaceFields(4989, "set_prefix", {"prefix"})}),
+      std::invalid_argument);
 }
 
 TEST(FunctionNodeTest, TypedPrepareHookExecutesAndCanReject) {
@@ -2793,32 +2702,6 @@ TEST(FunctionNodeTest, SourceWithoutInputsProducesDeclaredVariableCardinality) {
   EXPECT_EQ(definition->outputs[0].cardinality, "1:N");
   EXPECT_EQ(definition->outputs[0].provenance_policy, "generate_sub_id");
   EXPECT_EQ(definition->outputs[0].lifetime, "session");
-}
-
-TEST(FunctionNodeTest,
-     ComplexControlRejectsInvalidPayloadAndCandidateWithoutLosingState) {
-  NodeHarness harness("ComplexStateControlAuthorNode");
-  harness.TextInput("input", {"one", "two"});
-  ASSERT_TRUE(harness.Run().ok());
-  auto accepted =
-      harness.Control(kComplexStateCommand, R"({"nested":{"prefix":"new:"}})");
-  ASSERT_EQ(accepted.status, NodeControlStatus::kHandled) << accepted.message;
-  for (const std::string payload :
-       {"{", R"({"nested":{"prefix":3}})",
-        R"({"nested":{"prefix":"wrong:"},"extra":true})",
-        R"({"nested":{"prefix":"REJECT"}})"}) {
-    SCOPED_TRACE(payload);
-    auto rejected = harness.Control(kComplexStateCommand, payload);
-    EXPECT_EQ(rejected.status, NodeControlStatus::kFailed);
-    if (payload.find("REJECT") != std::string::npos) {
-      EXPECT_NE(rejected.message.find("Rejected compiled prefix"),
-                std::string::npos);
-    }
-    auto result = harness.Run();
-    ASSERT_TRUE(result.ok()) << result.diagnostic();
-    EXPECT_EQ(result.TextValues("output"),
-              (std::vector<std::string>{"new:one", "new:two"}));
-  }
 }
 
 }  // namespace llm_edgeflow

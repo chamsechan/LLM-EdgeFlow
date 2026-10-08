@@ -18,6 +18,7 @@
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/support/config_field_definition.h"
 #include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
@@ -137,8 +138,8 @@ inline NodeDefinition MakeDeepDagNodeDef() {
   def.node_type = DeepDagNode::kNodeType;
   def.category = "test";
   def.description = "test deep dag node";
-  def.config_fields = {ConfigFieldDefinition{
-      "node_name", ConfigValueKind::kString, false, "DeepDagNode"}};
+  def.config_fields = {MakeConfigField("node_name", ConfigValueKind::kString,
+                                       false, "DeepDagNode")};
   def.parallel_safe = true;
   return def;
 }

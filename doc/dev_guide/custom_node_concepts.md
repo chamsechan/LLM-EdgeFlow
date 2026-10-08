@@ -171,15 +171,14 @@ Validator 根据 Definition 字段列表一次性校验未知字段、类型、�
 Control 更新单独归一化参数、构造下一状态后发布。
 
 `Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
-结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(ConfigParser<YourConfig>(fields, parse))`
-与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
-再执行 `Prepare` 构建派生状态，最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的
-连线规则。parser 接收已规范化 JSON，不要再次序列化；依赖基础参数的派生成员应在
-`Prepare` 中重建。组合 `WithParser` 与字段 Control `WithControls` 时必须显式声明
-`Prepare`，更新字段后框架会再次执行它，再校验和发布候选状态。
+结构体初值推断配置默认值。数组、映射、任意 JSON 值和对象数组也用 `Field` 声明
+（对象数组用 `.Items(Parameters<E>)` 声明元素字段），由同一套规则校验并补默认值。
+派生状态（如编译后的正则或模板）放在不对应配置项的成员中，由 `Prepare` 构建；之后执行
+`Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。Control 更新字段后框架会再次执行
+`Prepare`，再校验并发布候选状态。
 
 复杂参数的完整例子见
-[复杂参数封装](../../src/custom_nodes/README.md#参数复杂时使用普通结构和解析封装)。
+[复杂参数](../../src/custom_nodes/README.md#参数复杂时使用普通结构和-prepare)。
 
 ## 改变数量或顺序时：来源编号
 
@@ -299,8 +298,8 @@ TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一�
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
-| 多字段配置转为普通参数结构 | [ConfigParser](../../include/contracts/parameters.h)，复用字段校验与节点自己的语义解析 |
-| 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControl`，失败不替换旧配置 |
+| 对象数组、映射参数与派生状态 | [TextRuleMatchNode](../../src/common_nodes/text_rule_match_node.cpp) 用 `.Items` 声明规则元素，元素的 `Prepare` 编译正则 |
+| 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControls` 替换 `template`，`Prepare` 重新编译，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，

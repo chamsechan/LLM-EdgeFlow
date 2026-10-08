@@ -10,6 +10,7 @@
 #include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "contracts/parameters.h"
+#include "tests/support/config_field_definition.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -31,24 +32,6 @@ TEST(ParameterBindingTest, RequiresExactlyOnePresenceDeclaration) {
                std::invalid_argument);
   EXPECT_THROW((Parameters<SampleParams>{
                    Field("count", &SampleParams::count).Default(1).Required()}),
-               std::invalid_argument);
-}
-
-TEST(ParameterBindingTest, RejectsComplexParserFieldNameCollisions) {
-  ConfigFieldDefinition field;
-  field.name = "count";
-  field.kind = ConfigValueKind::kInteger;
-  field.required = true;
-  ConfigParser<SampleParams> parser(
-      {field},
-      [](const nlohmann::json&, SampleParams*, std::string*) { return true; });
-  auto schema =
-      Parameters<SampleParams>{Field("count", &SampleParams::count).Default(1)};
-  EXPECT_THROW(schema.WithParser(parser), std::invalid_argument);
-  auto empty = Parameters<SampleParams>{};
-  EXPECT_THROW(empty.WithParser(ConfigParser<SampleParams>(
-                   {field, field}, [](const nlohmann::json&, SampleParams*,
-                                      std::string*) { return true; })),
                std::invalid_argument);
 }
 
@@ -683,7 +666,7 @@ TEST(ParameterBindingTest, InvalidElementDeclarationsAreRejected) {
   scalar.items = element;
   EXPECT_FALSE(ValidateConfigFieldDefinitions({scalar}, &error));
   scalar.items = nullptr;
-  scalar.fields = {ConfigFieldDefinition{"x", ConfigValueKind::kString}};
+  scalar.fields = {MakeConfigField("x", ConfigValueKind::kString)};
   EXPECT_FALSE(ValidateConfigFieldDefinitions({scalar}, &error));
 
   // 结构体元素的字段不能重名
@@ -692,9 +675,8 @@ TEST(ParameterBindingTest, InvalidElementDeclarationsAreRejected) {
   object.kind = ConfigValueKind::kArray;
   auto struct_element = std::make_shared<ConfigFieldDefinition>();
   struct_element->kind = ConfigValueKind::kObject;
-  struct_element->fields = {
-      ConfigFieldDefinition{"x", ConfigValueKind::kString},
-      ConfigFieldDefinition{"x", ConfigValueKind::kString}};
+  struct_element->fields = {MakeConfigField("x", ConfigValueKind::kString),
+                            MakeConfigField("x", ConfigValueKind::kString)};
   object.items = struct_element;
   EXPECT_FALSE(ValidateConfigFieldDefinitions({object}, &error));
 

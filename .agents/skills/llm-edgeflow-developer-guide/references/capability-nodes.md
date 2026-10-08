@@ -22,10 +22,9 @@ Use this reference for production Node implementation. Start first-time LLM auth
    the algorithm's responsibility; declarations do not prove splitting or aggregation semantics.
    Complete preserved-output checks precede publication of any output.
 6. Prefer typed `Parameters` / `Field` declarations for ordinary parameters, including defaults, bounds and semantic
-   descriptions. Use `Validate` / `ValidateBindings` for semantic and connection rules. Complex
-   configuration uses `WithParser(ConfigParser<Params>(fields, parse))`; consume normalized JSON,
-   own parsed values and share semantic rules between preflight and initialization. `Prepare` runs
-   after parser and field assignment, before semantic/binding validation, to rebuild derived state.
+   descriptions. Use `Validate` / `ValidateBindings` for semantic and connection rules. Arrays, maps, JSON values and
+   object arrays (`.Items(Parameters<E>)`) are also `Field` members. `Prepare` runs after field assignment,
+   before semantic/binding validation, to rebuild derived state.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
    `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. These facades handle empty batches,
    model diagnostics and alignment checks. Model-reference fields are required and have no default
@@ -36,16 +35,11 @@ Use this reference for production Node implementation. Start first-time LLM auth
    model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.
    Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
    for single-flight waiters without caching them. Resource keys and model revision remain explicit.
-9. Use `WithControls` for typed `Field` updates, or `WithControl` for complex command schemas and ordinary
-   state-building functions. The framework serializes updates, retains old state on failure and reads
+9. Use `WithControls({ReplaceFields(...)})` for controls; it is the only control form. The payload schema is
+   generated from the selected `Field` declarations (at least one parameter, replaced as a whole). The
+   framework serializes updates, reruns `Prepare` and validation, retains old state on failure and reads
    one immutable snapshot per request. TextTemplateNode and TextRuleMatchNode are production examples.
    Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
-   Share ordinary candidate-state builders between initialization and complex updates; `WithControl`
-   does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
-   Combining `WithParser` and field controls (`WithControls`) requires an explicit `Prepare`; field
-   updates rerun it before semantic/binding validation and candidate publication.
-   Parser-only fields are not typed bindings and cannot be selected by `WithControls`, even with
-   `Prepare`; use typed Fields or a complex `WithControl` updater with explicit normalization/validation.
 10. Declare category and description in the Spec; Nodes are not restricted to particular businesses.
     Keep the default conservative parallel safety for sequential use; explicitly establish
     `.ParallelSafe(true)` only when making the implementation available to parallel graphs.

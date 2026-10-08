@@ -3,6 +3,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -96,8 +97,7 @@ TEST_F(StructuredJsonParseNodeTest,
     SCOPED_TRACE(policy);
     auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
     ASSERT_TRUE(InitNodeForTest(
-        *node,
-        {{"failure_policy", policy}, {"fallback_json", R"({"fallback":true})"}},
+        *node, {{"failure_policy", policy}, {"fallback", {{"fallback", true}}}},
         session_ctx_.get()));
     for (const std::string input :
          {R"([{"x":1},{"x":2)", R"(Result: {"x":[1,2})"}) {
@@ -204,7 +204,7 @@ TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"fallback_json", "{\"status\":\"FALLBACK\"}"},
+  nlohmann::json cfg = {{"fallback", {{"status", "FALLBACK"}}},
                         {"failure_policy", "configured_fallback"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
@@ -240,7 +240,7 @@ TEST_F(StructuredJsonParseNodeTest, RejectsInvalidFieldTypeContracts) {
   EXPECT_FALSE(InitNodeForTest(*invalid_fallback,
                                {{"required_fields", {"risk"}},
                                 {"field_types", {{"risk", "number"}}},
-                                {"fallback_json", R"({"risk":"not-a-number"})"},
+                                {"fallback", {{"risk", "not-a-number"}}},
                                 {"failure_policy", "configured_fallback"}},
                                session_ctx_.get()));
 }
@@ -259,5 +259,49 @@ TEST_F(StructuredJsonParseNodeTest, EmptyInputHonorsDiagnosticPolicy) {
   ASSERT_NE(docs, nullptr);
   EXPECT_FALSE(docs->at(0).data.is_valid);
   EXPECT_EQ(docs->at(0).data.parse_status, JsonParseStatus::kFailed);
+}
+}  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST_F(StructuredJsonParseNodeTest, FallbackIsJsonValueSerializedCompactly) {
+  const std::vector<std::pair<nlohmann::json, std::string>> cases = {
+      {{{"verdict", "ok"}, {"score", 1}}, R"({"score":1,"verdict":"ok"})"},
+      {nlohmann::json::array({1, "two"}), R"([1,"two"])"}};
+  for (const auto& [fallback, expected] : cases) {
+    SCOPED_TRACE(fallback.dump());
+    auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+    ASSERT_TRUE(
+        InitNodeForTest(*node, {{"fallback", fallback}}, session_ctx_.get()));
+    AlgContext ctx;
+    ctx.Publish("text", TextBatch{{3, 1, "no json here"}});
+    ASSERT_EQ(node->Process(&ctx), 0);
+    const auto* docs = ctx.Read<StructuredDocumentBatch>("document");
+    ASSERT_NE(docs, nullptr);
+    ASSERT_EQ(docs->size(), 1u);
+    EXPECT_EQ(docs->at(0).data.json_payload, expected);
+    EXPECT_EQ(docs->at(0).data.structured_data, fallback);
+    EXPECT_EQ(docs->at(0).data.parse_status, JsonParseStatus::kFallbackApplied);
+  }
+}
+
+TEST_F(StructuredJsonParseNodeTest,
+       RejectsInvalidFallbackAndFieldDeclarations) {
+  const std::vector<nlohmann::json> invalid = {
+      {{"fallback", nullptr}},
+      {{"fallback", R"({"a":1})"}, {"required_fields", {"a"}}},
+      {{"required_fields", {""}}},
+      {{"required_fields", {"a", 7}}},
+      {{"field_types", {{"a", 1}}}},
+  };
+  for (const auto& config : invalid) {
+    SCOPED_TRACE(config.dump());
+    auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+  }
+  // failure_policy 为 fail 时备用值不参与字段检查。
+  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  EXPECT_TRUE(InitNodeForTest(
+      *node, {{"required_fields", {"a"}}, {"failure_policy", "fail"}},
+      session_ctx_.get()));
 }
 }  // namespace llm_edgeflow

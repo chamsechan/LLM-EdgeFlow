@@ -47,14 +47,12 @@ common Node 放在 `src/common_nodes/` 并明确 `.Category("common")`。生成�
    `ProducedBatch` 与准确的 `PortFlow`。拆分、过滤、排名的来源正确性由算法与测试保证。
    全部结果在局部成功后返回，由框架发布。
 3. `Parameters` / `Field` 声明参数；跨字段与连线规则用 `Validate` / `ValidateBindings`。
-   复杂 JSON 用 `ConfigParser`，不重复默认值和字段校验。
+   数组、映射、JSON 值与对象数组（`.Items`）也用 `Field`；派生状态放在 `Prepare`。
 4. `ModelsOf` / `Model` 声明能力槽；成员类型 `LlmCall`、`EmbeddingCall`、`AsrCall`、`OcrCall`、
    `RerankCall` 决定能力。配置必须显式引用 model_id；保留门面返回的 `NodeResult` 失败。
 
-只在有需求时加入 Control 或缓存。`WithControls` 只能更新 `Field` 已绑定的参数（可以是数组、映射、对象数组等任何类型，payload 格式由声明生成，至少给出一个受控参数，给出的参数整体替换）；仅由
-`WithParser` 声明的字段不能直接加入字段 Control。typed Fields 与 parser 同时存在时，字段
-Control 还要求显式 `Prepare`。复杂 `WithControl` 返回完整有效候选，框架不会再跑初始化的
-`Prepare`；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用
+只在有需求时加入 Control 或缓存。`WithControls` 只能更新 `Field` 已绑定的参数（可以是数组、映射、对象数组等任何类型，payload 格式由声明生成，至少给出一个受控参数，给出的参数整体替换）。
+Control 更新后框架重新执行 `Prepare` 与校验，失败保留旧参数；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用
 `SessionResources::GetOrCreateResult`，key 显式纳入语义参数、输入和模型 revision。
 借用视图只在本次同步调用中使用。只有可证明线程安全时设置 `.ParallelSafe(true)`。
 
