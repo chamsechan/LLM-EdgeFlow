@@ -272,7 +272,7 @@ cmake --build build -j"$(nproc)"
 | 提交 | 做法 |
 | --- | --- |
 | C1 节点类型改名 | 按设计。脚手架要改为生成 snake_case 名字，生成的教程方案改为新格式，`first_control.md`、`first_custom_node.md` 同步修改；它们会编进 tier1 测试程序（第 2 节例外） |
-| C2 Core 条目与连线 | 按设计，包括诊断码、控制命令信封、边界伪节点统一为 `input`/`output`、生命周期跟随输入 |
+| C2 Core 条目与连线 | 按设计，包括诊断码、控制命令信封、边界伪节点统一为 `input`/`output`、生命周期跟随输入。一并补上元素 `Prepare`、`Validate` 失败的诊断路径：第 4、5 步实现后路径停在 `/pipeline/<j>/config`，节点设计 5.1 要求指向该参数（如 `/pipeline/<j>/params/rules`）。消息里已经写明下标或键名，缺的是 `Assign` 把字段名作为路径回传给调用方 |
 | C3 io 端口 | 按设计：converter 逻辑端口、输出项 `inputs`、删除 `biz_blackboard_keys.h`、改名为 `input_limits.h` |
 | C4 节点 | 按设计：`llm_generate` 的 endpoints、三个检索节点 |
 | C5 命令行工具 | **推迟**，包括 `edit` 的新操作（4.5）。本步只做：保持编译和 `validate`/`plan` 可用；修复建议库跟随 4.4 的诊断码 |
