@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "contracts/parameters.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/node_registry.h"
@@ -15,7 +16,6 @@
 #include "engine/model_interface.h"
 #include "nodes/authoring.h"
 #include "nodes/node_base.h"
-#include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
 #include "tests/support/model_registration.h"
@@ -47,7 +47,7 @@ std::vector<ConfigFieldDefinition> NodeParserFields() {
 
 TEST(NodeBaseContractsTest, ConfigParserUsesFieldDefaultsBeforeSemanticParser) {
   int calls = 0;
-  const NodeConfigParser<NodeParserParameters> parser(
+  const ConfigParser<NodeParserParameters> parser(
       NodeParserFields(), [&](const nlohmann::json& config,
                               NodeParserParameters* result, std::string*) {
         ++calls;
@@ -86,7 +86,7 @@ TEST(NodeBaseContractsTest,
      ConfigParserKeepsNormalizedJsonIdentityAndOwnsResult) {
   nlohmann::json normalized = {{"count", 4}, {"label", "original"}};
   const nlohmann::json* received = nullptr;
-  const NodeConfigParser<NodeParserParameters> parser(
+  const ConfigParser<NodeParserParameters> parser(
       NodeParserFields(), [&](const nlohmann::json& config,
                               NodeParserParameters* result, std::string*) {
         received = &config;
@@ -111,7 +111,7 @@ TEST(NodeBaseContractsTest, ConfigParserFailuresNeverReturnPartialParameters) {
     for (int failure = 0; failure < 4; ++failure) {
       SCOPED_TRACE(already_normalized);
       SCOPED_TRACE(failure);
-      const NodeConfigParser<NodeParserParameters> parser(
+      const ConfigParser<NodeParserParameters> parser(
           NodeParserFields(),
           [&](const nlohmann::json&, NodeParserParameters* partial,
               std::string* error) -> bool {
@@ -142,7 +142,7 @@ TEST(NodeBaseContractsTest, ConfigParserFailuresNeverReturnPartialParameters) {
       EXPECT_FALSE(parser.ParseNormalized(normalized).has_value());
     }
   }
-  const NodeConfigParser<NodeParserParameters> missing(NodeParserFields(), {});
+  const ConfigParser<NodeParserParameters> missing(NodeParserFields(), {});
   std::string error;
   EXPECT_FALSE(missing.ParseNormalized(normalized, &error).has_value());
   EXPECT_FALSE(error.empty());

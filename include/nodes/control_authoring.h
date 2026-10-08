@@ -11,12 +11,12 @@
 #include <vector>
 
 #include "contracts/control_payload.h"
+#include "contracts/parameters.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "nodes/configuration_snapshot.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
-#include "nodes/parameter_binding.h"
 
 namespace llm_edgeflow {
 

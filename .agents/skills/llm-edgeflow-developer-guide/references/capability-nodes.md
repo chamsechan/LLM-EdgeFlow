@@ -23,7 +23,7 @@ Use this reference for production Node implementation. Start first-time LLM auth
    Complete preserved-output checks precede publication of any output.
 6. Prefer typed `Parameters` / `Field` declarations for ordinary parameters, including defaults, bounds and semantic
    descriptions. Use `Validate` / `ValidateBindings` for semantic and connection rules. Complex
-   configuration uses `WithParser(NodeConfigParser<Params>(fields, parse))`; consume normalized JSON,
+   configuration uses `WithParser(ConfigParser<Params>(fields, parse))`; consume normalized JSON,
    own parsed values and share semantic rules between preflight and initialization. `Prepare` runs
    after parser and field assignment, before semantic/binding validation, to rebuild derived state.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,

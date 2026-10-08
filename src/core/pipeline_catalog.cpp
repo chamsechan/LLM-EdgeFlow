@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/config_schema.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/node_definition_validation.h"
@@ -42,18 +43,6 @@ nlohmann::json ControlCommandJson(const ControlCommandDefinition& cmd) {
           {"description", cmd.description},
           {"payload_schema", cmd.payload_schema},
           {"supports_hot_swap", cmd.supports_hot_swap}};
-}
-
-nlohmann::json FieldJson(const ConfigFieldDefinition& field) {
-  nlohmann::json result = {{"name", field.name},
-                           {"type", ConfigValueKindName(field.kind)},
-                           {"required", field.required}};
-  if (!field.default_value.is_null()) result["default"] = field.default_value;
-  if (field.minimum) result["minimum"] = *field.minimum;
-  if (field.maximum) result["maximum"] = *field.maximum;
-  if (!field.enum_values.empty()) result["enum"] = field.enum_values;
-  if (!field.semantic.empty()) result["semantic"] = field.semantic;
-  return result;
 }
 
 }  // namespace
@@ -219,7 +208,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
   for (const auto& item : definition.control_commands)
     commands.push_back(ControlCommandJson(item));
   for (const auto& item : definition.config_fields)
-    fields.push_back(FieldJson(item));
+    fields.push_back(ConfigFieldToJson(item));
   nlohmann::json model_deps = nlohmann::json::array();
   for (const auto& dep : definition.model_dependencies) {
     model_deps.push_back({
@@ -243,7 +232,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
 nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
   nlohmann::json fields = nlohmann::json::array();
   for (const auto& field : definition.config_fields) {
-    fields.push_back(FieldJson(field));
+    fields.push_back(ConfigFieldToJson(field));
   }
   return {
       {"model_type", definition.model_type},
@@ -260,7 +249,7 @@ nlohmann::json PipelineCatalog::BackendToJson(
     const BackendDefinition& definition) {
   nlohmann::json fields = nlohmann::json::array();
   for (const auto& field : definition.config_fields) {
-    fields.push_back(FieldJson(field));
+    fields.push_back(ConfigFieldToJson(field));
   }
   nlohmann::json protocols = nlohmann::json::array();
   for (auto p : definition.supported_protocols) {

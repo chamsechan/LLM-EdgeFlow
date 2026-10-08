@@ -47,7 +47,7 @@ common Node 放在 `src/common_nodes/` 并明确 `.Category("common")`。生成�
    `ProducedBatch` 与准确的 `PortFlow`。拆分、过滤、排名的来源正确性由算法与测试保证。
    全部结果在局部成功后返回，由框架发布。
 3. `Parameters` / `Field` 声明参数；跨字段与连线规则用 `Validate` / `ValidateBindings`。
-   复杂 JSON 用 `NodeConfigParser`，不重复默认值和字段校验。
+   复杂 JSON 用 `ConfigParser`，不重复默认值和字段校验。
 4. `ModelsOf` / `Model` 声明能力槽；成员类型 `LlmCall`、`EmbeddingCall`、`AsrCall`、`OcrCall`、
    `RerankCall` 决定能力。配置必须显式引用 model_id；保留门面返回的 `NodeResult` 失败。
 

@@ -169,7 +169,7 @@ Validator 根据 Definition 字段列表一次性校验未知字段、类型、�
 Control 更新单独归一化参数、构造下一状态后发布。
 
 `Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
-结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(NodeConfigParser<YourConfig>(fields, parse))`
+结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(ConfigParser<YourConfig>(fields, parse))`
 与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
 再执行 `Prepare` 构建派生状态，最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的
 连线规则。parser 接收已规范化 JSON，不要再次序列化；依赖基础参数的派生成员应在
@@ -297,7 +297,7 @@ TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一�
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
-| 多字段配置转为普通参数结构 | [NodeConfigParser](../../include/nodes/node_config_parser.h)，复用字段校验与节点自己的语义解析 |
+| 多字段配置转为普通参数结构 | [ConfigParser](../../include/contracts/parameters.h)，复用字段校验与节点自己的语义解析 |
 | 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControl`，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 

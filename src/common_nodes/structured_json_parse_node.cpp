@@ -297,7 +297,7 @@ NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
 }
 
 auto Spec() {
-  auto params = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
+  auto params = Parameters<Params>{}.WithParser(ConfigParser<Params>(
       StructuredJsonParseConfigFields(),
       [](const nlohmann::json& config, Params* options,
          std::string* diagnostic) {

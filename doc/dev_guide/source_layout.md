@@ -117,8 +117,9 @@ include/nodes/                    Node 作者接口，模板与内联实现，�
   authoring.h                     Node 作者统一包含的入口头
   function_node.h                 Spec 声明、AuthorNode 与 REGISTER_FUNCTION_NODE
   node_base.h                     Node 运行时基类 NodeBase
-  model_binding.h / model_calls.h / parameter_binding.h / control_authoring.h
+  model_binding.h / model_calls.h / control_authoring.h
   traceable_batch_operations.h    Join、Group 等批处理与来源追踪辅助
+include/contracts/parameters.h    参数声明 Parameters / Field / ConfigParser，由 authoring.h 带入
 src/common_nodes/                 框架维护的中性 Node，每个文件一个 *_node.cpp
   support/                        多个 Node 共用的私有辅助
 src/custom_nodes/                 领域算法 Node，按操作而非业务命名
