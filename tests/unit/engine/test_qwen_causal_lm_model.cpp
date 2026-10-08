@@ -16,6 +16,7 @@
 #include "engine/models/qwen_causal_lm/qwen_causal_lm_model.h"
 #include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
+#include "tests/support/parameter_support.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -96,8 +97,10 @@ TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireTextGeneration) {
   auto session = std::make_shared<ScriptedGenerationSession>();
   ModelCreateContext valid;
   valid.backend_session = session;
-  valid.model_config = {{"system_prompt", "You are concise."},
-                        {"random_seed", 7}};
+  valid.params = test_support::ParseModelParams(
+      "qwen_causal_lm",
+      {{"system_prompt", "You are concise."}, {"random_seed", 7}});
+  ASSERT_NE(valid.params, nullptr);
   auto model = QwenCausalLmModel::Create(valid, &diagnostic);
   ASSERT_NE(model, nullptr) << diagnostic;
   EXPECT_EQ(model->ModelType(), "qwen_causal_lm");

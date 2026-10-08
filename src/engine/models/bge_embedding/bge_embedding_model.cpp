@@ -1,7 +1,9 @@
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -11,12 +13,74 @@
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/bge_common/bert_model_support.h"
 #include "engine/models/common/embedding_numeric_support.h"
+#include "engine/models/common/from_model.h"
 
 namespace llm_edgeflow {
 
-static const ModelDefinition& BgeEmbeddingModelDefinition();
-
 namespace {
+
+// ① 参数结构体（默认值只在 ParamSpec 中写一次）
+struct Params {
+  std::string tokenizer_file;
+  bool do_lower_case{};
+  std::optional<int64_t> max_length;  // 不写时从模型读取，读不到时为 512
+  std::string pooling_strategy;
+  std::string output_name;
+  std::optional<int64_t> embedding_dim;  // 不写时从模型读取，读不到时必须填写
+  int64_t max_batch_size{};
+};
+
+constexpr int64_t kMinMaxLength = 2;
+constexpr int64_t kMaxMaxLength = 4096;
+constexpr int64_t kFallbackMaxLength = 512;
+constexpr int64_t kMaxEmbeddingDim = 65536;
+
+// ② 参数声明：名字、默认值、范围、说明只写在这里
+Parameters<Params> ParamSpec() {
+  auto spec = Parameters<Params>(
+      {Field("tokenizer_file", &Params::tokenizer_file)
+           .Default("vocab.txt")
+           .Description("匹配该权重的 BERT WordPiece "
+                        "词表；相对路径基于模型资源目录，例如 "
+                        "vocab.txt，也可使用绝对路径。"),
+       Field("do_lower_case", &Params::do_lower_case)
+           .Default(true)
+           .Description("分词前将英文大写和全角英文字母归一为半角小写，须与模型"
+                        "训练时的分词设"
+                        "置一致。"),
+       Field("max_length", &Params::max_length)
+           .Range(kMinMaxLength, kMaxMaxLength)
+           .Description(
+               "每条文本编码后的固定 token 长度，包含 "
+               "[CLS]/"
+               "[SEP]"
+               "；超长截断，不足补齐，须匹配模型张量形状。不写时从模型输入张"
+               "量的固定形状读取，读不到时为 512。"),
+       Field("pooling_strategy", &Params::pooling_strategy)
+           .Default("cls")
+           .Enum({"cls", "mean"})
+           .Description(
+               "三维 token 输出的池化：cls 取首 token，mean 按 attention_mask "
+               "求均值；二维向量输出直接使用。"),
+       Field("output_name", &Params::output_name)
+           .Default("last_hidden_state")
+           .Description("读取的模型输出张量名，例如 "
+                        "last_hidden_state，必须与模型导出名称一致。"),
+       Field("embedding_dim", &Params::embedding_dim)
+           .Range(1, kMaxEmbeddingDim)
+           .Description("每条输出向量的维数，必须与所选权重的输出维度一致。不写"
+                        "时从模型输出张量"
+                        "的固定形状读取，读不到时必须填写。"),
+       Field("max_batch_size", &Params::max_batch_size)
+           .Default(4)
+           .Range(1, 1024)
+           .Description("模型切批的样本数上限；必须满足 Backend "
+                        "的动态上限或固定批次要求。")});
+  spec.Validate([](const Params& p, std::string* error) {
+    return ValidateBertTextParameters(p.tokenizer_file, p.output_name, error);
+  });
+  return spec;
+}
 
 bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
                              size_t expected_sequence, size_t expected_dim,
@@ -144,64 +208,55 @@ BgeEmbeddingModel::BgeEmbeddingModel(
 
 std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
-  if (!ValidateBertModelConfig(ctx.model_config, diagnostic)) return nullptr;
-  if (ctx.model_config.contains("normalize")) {
-    if (diagnostic)
-      *diagnostic =
-          "Set normalize in the embedding node config or EmbeddingOptions, not "
-          "model_config";
-    return nullptr;
-  }
+  // ④ 取用：参数已校验、已补默认值；这里只做依赖已加载内容的检查。
+  const auto& p = ctx.Params<Params>();
   auto tensor_session =
       RequireTensorGraphSession(ctx.backend_session, diagnostic);
   if (!tensor_session) return nullptr;
 
-  if (!ctx.model_config.contains("embedding_dim") ||
-      !ctx.model_config["embedding_dim"].is_number_integer()) {
-    if (diagnostic) {
-      *diagnostic = "Required field 'embedding_dim' is missing or not integer";
-    }
+  int64_t embedding_dim = 0;
+  int64_t max_length = 0;
+  if (!ResolveFromModel("embedding_dim", p.embedding_dim,
+                        StaticOutputDim(*tensor_session, p.output_name),
+                        std::nullopt, &embedding_dim, diagnostic) ||
+      !ResolveFromModel("max_length", p.max_length,
+                        StaticSequenceLength(*tensor_session),
+                        kFallbackMaxLength, &max_length, diagnostic)) {
     return nullptr;
   }
-  size_t embedding_dim = ctx.model_config["embedding_dim"].get<size_t>();
-  size_t max_batch_size = ConfigValueOrDefault<int>(
-      ctx.model_config, BgeEmbeddingModelDefinition().config_fields,
-      "max_batch_size");
-  std::string tokenizer_file = ConfigValueOrDefault<std::string>(
-      ctx.model_config, BgeEmbeddingModelDefinition().config_fields,
-      "tokenizer_file");
-  bool do_lower_case = ConfigValueOrDefault<bool>(
-      ctx.model_config, BgeEmbeddingModelDefinition().config_fields,
-      "do_lower_case");
-  size_t max_length = ConfigValueOrDefault<int>(
-      ctx.model_config, BgeEmbeddingModelDefinition().config_fields,
-      "max_length");
-  std::string pooling = ConfigValueOrDefault<std::string>(
-      ctx.model_config, BgeEmbeddingModelDefinition().config_fields,
-      "pooling_strategy");
-  std::string output_name = ConfigValueOrDefault<std::string>(
-      ctx.model_config, BgeEmbeddingModelDefinition().config_fields,
-      "output_name");
+  // 从模型读到的值不经过声明的范围校验，这里按同一范围核对。
+  if (embedding_dim < 1 || embedding_dim > kMaxEmbeddingDim ||
+      max_length < kMinMaxLength || max_length > kMaxMaxLength) {
+    SetDiagnosticNoexcept(
+        diagnostic,
+        "Model-reported embedding_dim or max_length is outside the supported "
+        "range");
+    return nullptr;
+  }
 
-  if (!ValidateModelBatchLimit(tensor_session->GetBatchPolicy(), max_batch_size,
+  if (!ValidateModelBatchLimit(tensor_session->GetBatchPolicy(),
+                               static_cast<size_t>(p.max_batch_size),
                                diagnostic) ||
-      !ValidateBertInputMetadata(*tensor_session, max_length,
+      !ValidateBertInputMetadata(*tensor_session,
+                                 static_cast<size_t>(max_length),
                                  "BgeEmbeddingModel", diagnostic) ||
-      !ValidateEmbeddingOutputMetadata(*tensor_session, output_name, max_length,
-                                       embedding_dim, diagnostic)) {
+      !ValidateEmbeddingOutputMetadata(
+          *tensor_session, p.output_name, static_cast<size_t>(max_length),
+          static_cast<size_t>(embedding_dim), diagnostic)) {
     return nullptr;
   }
 
   BertWordPieceTokenizer tokenizer;
-  if (!LoadBertTokenizer(ctx.model_resource_root, tokenizer_file, do_lower_case,
-                         &tokenizer, diagnostic)) {
+  if (!LoadBertTokenizer(ctx.model_resource_root, p.tokenizer_file,
+                         p.do_lower_case, &tokenizer, diagnostic)) {
     return nullptr;
   }
 
   return std::make_shared<BgeEmbeddingModel>(
-      std::move(tensor_session), std::move(tokenizer), max_length,
-      std::move(pooling), std::move(output_name), embedding_dim,
-      max_batch_size);
+      std::move(tensor_session), std::move(tokenizer),
+      static_cast<size_t>(max_length), p.pooling_strategy, p.output_name,
+      static_cast<size_t>(embedding_dim),
+      static_cast<size_t>(p.max_batch_size));
 }
 
 int BgeEmbeddingModel::Embed(const TextBatch& inputs,
@@ -407,71 +462,8 @@ static const ModelDefinition& BgeEmbeddingModelDefinition() {
     auto def = MakeModelDefinition<BgeEmbeddingModel>();
     def.description = "BGE text embedding model using TensorGraph protocol";
     def.required_protocol = ExecutionProtocol::kTensorGraph;
-    def.config_fields = {
-        {"tokenizer_file",
-         ConfigValueKind::kString,
-         false,
-         "vocab.txt",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "匹配该权重的 BERT WordPiece 词表；相对路径基于模型资源目录，例如 "
-         "vocab.txt，也可使用绝对路径。"},
-        {"do_lower_case",
-         ConfigValueKind::kBoolean,
-         false,
-         true,
-         std::nullopt,
-         std::nullopt,
-         {},
-         "分词前将英文大写和全角英文字母归一为半角小写，须与模型训练时的分词设"
-         "置"
-         "一致。"},
-        {"max_length",
-         ConfigValueKind::kInteger,
-         false,
-         512,
-         2.0,
-         4096.0,
-         {},
-         "每条文本编码后的固定 token 长度，包含 "
-         "[CLS]/[SEP]；超长截断，不足补齐，须匹配模型张量形状。"},
-        {"pooling_strategy",
-         ConfigValueKind::kString,
-         false,
-         "cls",
-         std::nullopt,
-         std::nullopt,
-         {"cls", "mean"},
-         "三维 token 输出的池化：cls 取首 token，mean 按 attention_mask "
-         "求均值；二维向量输出直接使用。"},
-        {"output_name",
-         ConfigValueKind::kString,
-         false,
-         "last_hidden_state",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "读取的模型输出张量名，例如 "
-         "last_hidden_state，必须与模型导出名称一致。"},
-        {"embedding_dim",
-         ConfigValueKind::kInteger,
-         true,
-         nlohmann::json(),
-         1.0,
-         65536.0,
-         {},
-         "每条输出向量的维数，必须与所选权重的输出维度一致。"},
-        {"max_batch_size",
-         ConfigValueKind::kInteger,
-         false,
-         4,
-         1.0,
-         1024.0,
-         {},
-         "模型切批的样本数上限；必须满足 Backend 的动态上限或固定批次要求。"},
-    };
-    def.validate_config = ValidateBertModelConfig;
+    // ③ 登记：Definition 里只多这一行
+    def.params = ParamSpec();
     return def;
   }();
   return definition;

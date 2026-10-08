@@ -18,8 +18,8 @@ class BackendIdentity : public IInferenceBackend {
   }
 };
 
-// 携带 BackendClass 类型的 Definition；调用方补充协议、并发度、配置字段
-// 和校验器。
+// 携带 BackendClass 类型的 Definition；调用方补充协议、并发度和参数声明
+// （def.params）。
 template <typename BackendClass>
 BackendDefinition MakeBackendDefinition() {
   BackendDefinition definition;

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -183,6 +185,81 @@ TEST(ParameterBindingTest, RejectsIntegerOverflowFor32Bit) {
       static_cast<int64_t>(std::numeric_limits<int>::max()) + 100LL;
   auto res = schema.Parse({{"count", overflow_val}}, &err);
   EXPECT_FALSE(res.has_value());
+}
+
+struct OptionalParams {
+  std::optional<int64_t> length;
+  std::optional<std::string> mode;
+  bool flag = false;
+};
+
+Parameters<OptionalParams> OptionalSpec() {
+  return Parameters<OptionalParams>({
+      Field("length", &OptionalParams::length)
+          .Range(2, 4096)
+          .Description("optional length"),
+      Field("mode", &OptionalParams::mode).Enum({"a", "b"}),
+      Field("flag", &OptionalParams::flag).Default(false),
+  });
+}
+
+TEST(ParameterBindingTest, OptionalFieldIsEmptyWhenOmitted) {
+  const auto schema = OptionalSpec();
+  std::string err;
+  auto parsed = schema.Parse(nlohmann::json::object(), &err);
+  ASSERT_TRUE(parsed.has_value()) << err;
+  EXPECT_FALSE(parsed->length.has_value());
+  EXPECT_FALSE(parsed->mode.has_value());
+  EXPECT_FALSE(parsed->flag);
+}
+
+TEST(ParameterBindingTest, OptionalFieldFollowsTypeRangeAndEnumOfItsValue) {
+  const auto schema = OptionalSpec();
+  std::string err;
+  auto parsed = schema.Parse({{"length", 128}, {"mode", "b"}}, &err);
+  ASSERT_TRUE(parsed.has_value()) << err;
+  ASSERT_TRUE(parsed->length.has_value());
+  EXPECT_EQ(*parsed->length, 128);
+  ASSERT_TRUE(parsed->mode.has_value());
+  EXPECT_EQ(*parsed->mode, "b");
+
+  EXPECT_FALSE(schema.Parse({{"length", 1}}, &err).has_value());
+  EXPECT_FALSE(schema.Parse({{"length", 4097}}, &err).has_value());
+  EXPECT_FALSE(schema.Parse({{"length", "128"}}, &err).has_value());
+  EXPECT_FALSE(schema.Parse({{"length", 2.5}}, &err).has_value());
+  EXPECT_FALSE(schema.Parse({{"mode", "c"}}, &err).has_value());
+  EXPECT_FALSE(schema.Parse({{"mode", nullptr}}, &err).has_value());
+}
+
+TEST(ParameterBindingTest, OptionalFieldCannotDeclareRequiredOrDefault) {
+  EXPECT_THROW((Parameters<OptionalParams>{
+                   Field("length", &OptionalParams::length).Required()}),
+               std::invalid_argument);
+  EXPECT_THROW(
+      (Parameters<OptionalParams>{Field("length", &OptionalParams::length)
+                                      .Default(std::optional<int64_t>(8))}),
+      std::invalid_argument);
+}
+
+TEST(ParameterBindingTest, OptionalFieldIsNotRequiredAndHasNoDefaultInSchema) {
+  const auto schema = OptionalSpec();
+  ASSERT_EQ(schema.Fields().size(), 3u);
+  const auto& length = schema.Fields()[0];
+  EXPECT_EQ(length.name, "length");
+  EXPECT_EQ(length.kind, ConfigValueKind::kInteger);
+  EXPECT_FALSE(length.required);
+  EXPECT_TRUE(length.default_value.is_null());
+  EXPECT_EQ(length.minimum, 2.0);
+  EXPECT_EQ(length.maximum, 4096.0);
+  const auto& mode = schema.Fields()[1];
+  EXPECT_EQ(mode.kind, ConfigValueKind::kString);
+  EXPECT_FALSE(mode.required);
+  EXPECT_TRUE(mode.default_value.is_null());
+  EXPECT_EQ(mode.enum_values, (std::vector<std::string>{"a", "b"}));
+
+  const auto exported = ConfigFieldToJson(length);
+  EXPECT_FALSE(exported.at("required").get<bool>());
+  EXPECT_FALSE(exported.contains("default"));
 }
 
 TEST(ParameterBindingTest, RejectsInvalidDefaultAtConstruction) {

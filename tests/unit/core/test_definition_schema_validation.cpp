@@ -149,6 +149,11 @@ ModelDefinition MakeSchemaProbeModelDefinition() {
   return def;
 }
 
+struct SchemaProbeBackendParams {
+  int64_t device_id{};
+  std::string precision;
+};
+
 class SchemaProbeBackend : public IInferenceBackend {
  public:
   inline static constexpr char kBackendType[] = "schema_probe_backend";
@@ -178,30 +183,30 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
   def.description = "Schema probe test backend";
   def.supported_protocols = {ExecutionProtocol::kTensorGraph};
   def.concurrency = InferenceConcurrency::kConcurrent;
-  def.config_fields = {
-      ConfigFieldDefinition{
-          "device_id", ConfigValueKind::kInteger, /*required=*/false,
-          /*default_value=*/0, /*minimum=*/0.0, /*maximum=*/16.0},
-      ConfigFieldDefinition{"precision", ConfigValueKind::kString,
-                            /*required=*/false,
-                            /*default_value=*/"fp16", /*minimum=*/std::nullopt,
-                            /*maximum=*/std::nullopt,
-                            /*enum_values=*/{"fp16", "fp32", "int8"}},
-  };
-  def.validate_config = [](const nlohmann::json& config,
-                           std::string* diagnostic) {
-    ++SchemaProbeBackend::s_validate_count;
-    SchemaProbeBackend::s_validated_config = config;
-    const int device_id = config.at("device_id").get<int>();
-    // 使用其余均合法的字段值覆盖两种异常屏障。
-    if (device_id == 15) throw std::runtime_error("probe validation exception");
-    if (device_id == 16) throw 16;
-    if (device_id == 0 && config.at("precision") == "int8") {
-      if (diagnostic) *diagnostic = "int8 requires device_id greater than zero";
-      return false;
-    }
-    return true;
-  };
+  auto params = Parameters<SchemaProbeBackendParams>(
+      {Field("device_id", &SchemaProbeBackendParams::device_id)
+           .Default(0)
+           .Range(0, 16),
+       Field("precision", &SchemaProbeBackendParams::precision)
+           .Default("fp16")
+           .Enum({"fp16", "fp32", "int8"})});
+  params.Validate(
+      [](const SchemaProbeBackendParams& p, std::string* diagnostic) {
+        ++SchemaProbeBackend::s_validate_count;
+        SchemaProbeBackend::s_validated_config = {{"device_id", p.device_id},
+                                                  {"precision", p.precision}};
+        // 使用其余均合法的字段值覆盖两种异常屏障。
+        if (p.device_id == 15)
+          throw std::runtime_error("probe validation exception");
+        if (p.device_id == 16) throw 16;
+        if (p.device_id == 0 && p.precision == "int8") {
+          if (diagnostic)
+            *diagnostic = "int8 requires device_id greater than zero";
+          return false;
+        }
+        return true;
+      });
+  def.params = std::move(params);
   return def;
 }
 
@@ -420,11 +425,9 @@ TEST_F(DefinitionSchemaValidationTest,
                      });
     ASSERT_NE(diagnostic, plan.report.diagnostics.end());
     EXPECT_EQ(diagnostic->path, "/models/0/backend_config");
-    EXPECT_EQ(
-        diagnostic->message,
-        device_id == 15
-            ? "probe validation exception"
-            : "Backend configuration validator threw an unknown exception");
+    EXPECT_EQ(diagnostic->message,
+              device_id == 15 ? "probe validation exception"
+                              : "Unknown exception validating parameters");
     EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
   }
 }
@@ -854,7 +857,7 @@ TEST_F(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
   for (const auto& backend : backends) {
     EXPECT_FALSE(backend.backend_type.empty());
     std::unordered_set<std::string> seen_names;
-    for (const auto& field : backend.config_fields) {
+    for (const auto& field : backend.params.Fields()) {
       EXPECT_FALSE(field.name.empty());
       EXPECT_TRUE(seen_names.insert(field.name).second)
           << "Duplicate config field '" << field.name << "' in backend "
@@ -1105,62 +1108,6 @@ TEST_F(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
     EXPECT_FALSE(ValidateNodeDefinitionStructure(node));
     EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(biz));
   }
-}
-
-}  // namespace llm_edgeflow
-
-namespace llm_edgeflow {
-
-TEST_F(DefinitionSchemaValidationTest,
-       ConfigValueOrDefaultReadsDeclaredDefault) {
-  const std::vector<ConfigFieldDefinition> fields = {
-      {"threads", ConfigValueKind::kInteger, false, 2, 1.0, 64.0, {}, ""},
-      {"mode",
-       ConfigValueKind::kString,
-       false,
-       "all",
-       std::nullopt,
-       std::nullopt,
-       {},
-       ""}};
-  const nlohmann::json config = {{"threads", 8}};
-  EXPECT_EQ(ConfigValueOrDefault<int>(config, fields, "threads"), 8);
-  EXPECT_EQ(ConfigValueOrDefault<std::string>(config, fields, "mode"), "all");
-  EXPECT_EQ(ConfigValueOrDefault<int>(nlohmann::json(), fields, "threads"), 2);
-  EXPECT_THROW(ConfigValueOrDefault<int>(config, fields, "undeclared"),
-               std::invalid_argument);
-  EXPECT_THROW(ConfigValueOrDefault<std::string>(config, fields, "threads"),
-               nlohmann::json::exception);
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ConfigValueOrDefaultRejectsSuppliedUndeclaredField) {
-  const std::vector<ConfigFieldDefinition> fields = {
-      {"threads", ConfigValueKind::kInteger, false, 2}};
-  const nlohmann::json config = {{"threads", 8}, {"undeclared", 42}};
-  EXPECT_THROW(ConfigValueOrDefault<int>(config, fields, "undeclared"),
-               std::invalid_argument);
-  EXPECT_THROW(ConfigValueOrDefault<int>(config, {}, "threads"),
-               std::invalid_argument);
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ConfigValueOrDefaultRejectsNonObjectExceptNull) {
-  const std::vector<ConfigFieldDefinition> fields = {
-      {"threads", ConfigValueKind::kInteger, false, 2}};
-  const std::vector<nlohmann::json> invalid_configs = {
-      nlohmann::json::array(), nlohmann::json::array({8}), nlohmann::json(8),
-      nlohmann::json(2.5),     nlohmann::json("text"),     nlohmann::json(true),
-      nlohmann::json(false)};
-  for (const auto& config : invalid_configs) {
-    SCOPED_TRACE(config.dump());
-    EXPECT_THROW(ConfigValueOrDefault<int>(config, fields, "threads"),
-                 std::invalid_argument);
-  }
-  EXPECT_EQ(ConfigValueOrDefault<int>(nlohmann::json(), fields, "threads"), 2);
-  EXPECT_EQ(
-      ConfigValueOrDefault<int>(nlohmann::json::object(), fields, "threads"),
-      2);
 }
 
 }  // namespace llm_edgeflow

@@ -13,6 +13,7 @@
 
 #include "engine/backend_registry.h"
 #include "engine/backends/whisper_cpp/whisper_cpp_backend.h"
+#include "tests/support/parameter_support.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -29,9 +30,9 @@ TEST(WhisperCppBackendTest, RegistryAndDefinitionAreConsistentWithBuild) {
       definition->supported_protocols,
       std::vector<ExecutionProtocol>({ExecutionProtocol::kAudioTranscription}));
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kSerialized);
-  ASSERT_EQ(definition->config_fields.size(), 1U);
-  EXPECT_EQ(definition->config_fields[0].name, "n_threads");
-  EXPECT_EQ(definition->config_fields[0].kind, ConfigValueKind::kInteger);
+  ASSERT_EQ(definition->params.Fields().size(), 1U);
+  EXPECT_EQ(definition->params.Fields()[0].name, "n_threads");
+  EXPECT_EQ(definition->params.Fields()[0].kind, ConfigValueKind::kInteger);
 }
 
 TEST(WhisperCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
@@ -49,19 +50,21 @@ TEST(WhisperCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   EXPECT_EQ(backend.Load(directory, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
-  diagnostic.clear();
-  BackendLoadSpec unknown{ExecutionProtocol::kAudioTranscription};
-  unknown.model_path = "./models/does-not-exist.bin";
-  unknown.backend_config = {{"unknown_field", 123}};
-  EXPECT_EQ(backend.Load(unknown, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
+  // 未知字段与范围错误在参数层拒绝，不会走到 Load。后端未编译进本构建时
+  // 没有登记 Definition，这部分无从检查。
+  if (BackendRegistry::Instance().Has("whisper_cpp")) {
+    diagnostic.clear();
+    EXPECT_EQ(test_support::ParseBackendParams(
+                  "whisper_cpp", {{"unknown_field", 123}}, &diagnostic),
+              nullptr);
+    EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
 
-  diagnostic.clear();
-  BackendLoadSpec invalid_threads{ExecutionProtocol::kAudioTranscription};
-  invalid_threads.model_path = "./models/does-not-exist.bin";
-  invalid_threads.backend_config = {{"n_threads", 0}};
-  EXPECT_EQ(backend.Load(invalid_threads, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("n_threads"), std::string::npos);
+    diagnostic.clear();
+    EXPECT_EQ(test_support::ParseBackendParams("whisper_cpp",
+                                               {{"n_threads", 0}}, &diagnostic),
+              nullptr);
+    EXPECT_NE(diagnostic.find("n_threads"), std::string::npos);
+  }
 
   diagnostic.clear();
   BackendLoadSpec wrong_protocol{ExecutionProtocol::kTextGeneration};
@@ -180,7 +183,9 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
   WhisperCppBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = model_path;
-  spec.backend_config = {{"n_threads", 2}};
+  spec.params =
+      test_support::ParseBackendParams("whisper_cpp", {{"n_threads", 2}});
+  ASSERT_NE(spec.params, nullptr);
 
   std::string diagnostic;
   auto session = backend.Load(spec, &diagnostic);

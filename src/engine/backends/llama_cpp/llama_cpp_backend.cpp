@@ -29,116 +29,54 @@ std::string NormalizePlatform(std::string platform) {
 }
 
 #ifdef HAVE_LLAMACPP
-constexpr int64_t kDefaultContextSize = 2048;
-constexpr int64_t kDefaultDecodeBatchSize = 512;
-
-const std::vector<ConfigFieldDefinition>& LlamaCppConfigFields() {
-  static const std::vector<ConfigFieldDefinition> fields = {
-      {"context_size",
-       ConfigValueKind::kInteger,
-       false,
-       kDefaultContextSize,
-       16.0,
-       1048576.0,
-       {},
-       "每次生成的上下文容量，单位为 token，输入提示词与已生成文本共同占用。"},
-      {"decode_batch_size",
-       ConfigValueKind::kInteger,
-       false,
-       kDefaultDecodeBatchSize,
-       1.0,
-       1048576.0,
-       {},
-       "单次 llama_decode 提交的 token 数上限；必须不大于 context_size。"},
-      {"n_threads",
-       ConfigValueKind::kInteger,
-       false,
-       0,
-       0.0,
-       1024.0,
-       {},
-       "token 解码的 CPU 线程数；0 保留 llama.cpp 默认值。"},
-      {"n_threads_batch",
-       ConfigValueKind::kInteger,
-       false,
-       0,
-       0.0,
-       1024.0,
-       {},
-       "批量 token 解码的 CPU 线程数；0 保留 llama.cpp 默认值。"},
-      {"n_gpu_layers",
-       ConfigValueKind::kInteger,
-       false,
-       0,
-       0.0,
-       1048576.0,
-       {},
-       "请求放到 GPU 的模型层数；0 使用 CPU 路径，非零须选择受支持的 GPU "
-       "执行平台。"},
-      {"check_tensors",
-       ConfigValueKind::kBoolean,
-       false,
-       false,
-       std::nullopt,
-       std::nullopt,
-       {},
-       "加载权重时启用 llama.cpp 的张量数据检查。"},
-  };
-  return fields;
-}
-
-struct LlamaCppOptions {
-  int64_t context_size = kDefaultContextSize;
-  int64_t decode_batch_size = kDefaultDecodeBatchSize;
-  int n_threads = 0;
-  int n_threads_batch = 0;
-  int n_gpu_layers = 0;
-  bool check_tensors = false;
+// ① 参数结构体（默认值只在 ParamSpec 中写一次）
+struct Params {
+  int64_t context_size{};
+  int64_t decode_batch_size{};
+  int64_t n_threads{};
+  int64_t n_threads_batch{};
+  int64_t n_gpu_layers{};
+  bool check_tensors{};
 };
 
-bool ParseLlamaCppConfig(const nlohmann::json& config, LlamaCppOptions* output,
-                         std::string* diagnostic) {
-  if (!config.is_object()) {
-    SetDiagnosticNoexcept(diagnostic,
-                          "llama.cpp backend_config must be an object");
-    return false;
-  }
-  const auto& fields = LlamaCppConfigFields();
-  for (const auto& [key, value] : config.items()) {
-    const auto field =
-        std::find_if(fields.begin(), fields.end(),
-                     [&](const auto& item) { return item.name == key; });
-    if (field == fields.end()) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "Unknown llama.cpp backend_config field: " + key);
-      return false;
-    }
-    if (field->kind == ConfigValueKind::kBoolean) {
-      if (value.is_boolean()) continue;
-    } else if (value.is_number_integer()) {
-      const double number = value.get<double>();
-      if (number >= *field->minimum && number <= *field->maximum) continue;
-    }
-    SetDiagnosticNoexcept(diagnostic,
-                          "Invalid llama.cpp backend_config field: " + key);
-    return false;
-  }
-  LlamaCppOptions options;
-  options.context_size =
-      config.value<int64_t>("context_size", kDefaultContextSize);
-  options.decode_batch_size =
-      config.value<int64_t>("decode_batch_size", kDefaultDecodeBatchSize);
-  options.n_threads = config.value<int>("n_threads", 0);
-  options.n_threads_batch = config.value<int>("n_threads_batch", 0);
-  options.n_gpu_layers = config.value<int>("n_gpu_layers", 0);
-  options.check_tensors = config.value<bool>("check_tensors", false);
-  if (options.decode_batch_size > options.context_size) {
-    SetDiagnosticNoexcept(diagnostic,
+// ② 参数声明：名字、默认值、范围、说明和跨字段规则只写在这里
+Parameters<Params> ParamSpec() {
+  auto spec = Parameters<Params>(
+      {Field("context_size", &Params::context_size)
+           .Default(2048)
+           .Range(16, 1048576)
+           .Description("每次生成的上下文容量，单位为 "
+                        "token，输入提示词与已生成文本共同占用。"),
+       Field("decode_batch_size", &Params::decode_batch_size)
+           .Default(512)
+           .Range(1, 1048576)
+           .Description("单次 llama_decode 提交的 token 数上限；必须不大于 "
+                        "context_size。"),
+       Field("n_threads", &Params::n_threads)
+           .Default(0)
+           .Range(0, 1024)
+           .Description("token 解码的 CPU 线程数；0 保留 llama.cpp 默认值。"),
+       Field("n_threads_batch", &Params::n_threads_batch)
+           .Default(0)
+           .Range(0, 1024)
+           .Description(
+               "批量 token 解码的 CPU 线程数；0 保留 llama.cpp 默认值。"),
+       Field("n_gpu_layers", &Params::n_gpu_layers)
+           .Default(0)
+           .Range(0, 1048576)
+           .Description("请求放到 GPU 的模型层数；0 使用 CPU "
+                        "路径，非零须选择受支持的 GPU "
+                        "执行平台。"),
+       Field("check_tensors", &Params::check_tensors)
+           .Default(false)
+           .Description("加载权重时启用 llama.cpp 的张量数据检查。")});
+  spec.Validate([](const Params& p, std::string* error) {
+    if (p.decode_batch_size <= p.context_size) return true;
+    SetDiagnosticNoexcept(error,
                           "decode_batch_size must not exceed context_size");
     return false;
-  }
-  *output = options;
-  return true;
+  });
+  return spec;
 }
 
 class LlamaRuntime final {
@@ -472,9 +410,8 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
                           "llama.cpp backend was not compiled into this build");
     return nullptr;
 #else
-    LlamaCppOptions options;
-    if (!ParseLlamaCppConfig(spec.backend_config, &options, diagnostic))
-      return nullptr;
+    // ④ 取用：参数已校验、已补默认值
+    const auto& options = spec.Params<Params>();
     if (spec.model_path.empty()) {
       SetDiagnosticNoexcept(diagnostic, "llama.cpp model path is empty");
       return nullptr;
@@ -509,7 +446,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
 
     (void)GetLlamaRuntime();
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = options.n_gpu_layers;
+    model_params.n_gpu_layers = static_cast<int32_t>(options.n_gpu_layers);
     model_params.main_gpu = device_id;
     model_params.check_tensors = options.check_tensors;
     LlamaModelPtr model(
@@ -529,8 +466,9 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
                                               LlamaModelDeleter{});
     return std::make_shared<LlamaCppTextGenerationSession>(
         std::move(shared_model), static_cast<size_t>(options.context_size),
-        static_cast<size_t>(options.decode_batch_size), options.n_threads,
-        options.n_threads_batch);
+        static_cast<size_t>(options.decode_batch_size),
+        static_cast<int>(options.n_threads),
+        static_cast<int>(options.n_threads_batch));
 #endif
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
@@ -547,12 +485,8 @@ static const BackendDefinition kLlamaCppBackendDefinition = [] {
   def.description = "llama.cpp GGUF text-generation backend";
   def.supported_protocols = {ExecutionProtocol::kTextGeneration};
   def.concurrency = InferenceConcurrency::kSerialized;
-  def.config_fields = LlamaCppConfigFields();
-  def.validate_config = [](const nlohmann::json& config,
-                           std::string* diagnostic) {
-    LlamaCppOptions options;
-    return ParseLlamaCppConfig(config, &options, diagnostic);
-  };
+  // ③ 登记：Definition 里只多这一行
+  def.params = ParamSpec();
   return def;
 }();
 

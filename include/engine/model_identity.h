@@ -30,8 +30,8 @@ class ModelIdentity : public CapabilityInterface {
   }
 };
 
-// 携带 ModelClass 标识的 Definition；调用方补充描述、协议、配置字段
-// 和校验器。
+// 携带 ModelClass 标识的 Definition；调用方补充描述、协议和参数声明
+// （def.params）。
 template <typename ModelClass>
 ModelDefinition MakeModelDefinition() {
   ModelDefinition definition;

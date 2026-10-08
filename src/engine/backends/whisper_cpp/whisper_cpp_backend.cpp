@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <limits>
@@ -203,19 +204,27 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
   bool is_multilingual_ = false;
 };
 
+// ① 参数结构体
+struct Params {
+  int64_t n_threads{};
+};
+
+// ② 参数声明：名字、默认值、范围、说明只写在这里
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>(
+      {Field("n_threads", &Params::n_threads)
+           .Default(4)
+           .Range(1, 64)
+           .Description("whisper.cpp 推理使用的 CPU 线程数。")});
+}
+
 static const BackendDefinition kWhisperCppBackendDefinition = [] {
   auto def = MakeBackendDefinition<WhisperCppBackend>();
   def.description = "whisper.cpp ASR inference backend";
   def.supported_protocols = {ExecutionProtocol::kAudioTranscription};
   def.concurrency = InferenceConcurrency::kSerialized;
-  def.config_fields = {ConfigFieldDefinition{"n_threads",
-                                             ConfigValueKind::kInteger,
-                                             false,
-                                             4,
-                                             1.0,
-                                             64.0,
-                                             {},
-                                             "CPU inference thread count"}};
+  // ③ 登记：Definition 里只多这一行
+  def.params = ParamSpec();
   return def;
 }();
 
@@ -260,33 +269,6 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
       return nullptr;
     }
 
-    if (spec.backend_config.is_object()) {
-      for (auto it = spec.backend_config.begin();
-           it != spec.backend_config.end(); ++it) {
-        if (it.key() != "n_threads") {
-          SetDiagnosticNoexcept(
-              diagnostic,
-              "Unknown whisper_cpp backend config field: " + it.key());
-          return nullptr;
-        }
-      }
-    }
-
-    int n_threads = 4;
-    if (spec.backend_config.is_object() &&
-        spec.backend_config.contains("n_threads")) {
-      const auto& val = spec.backend_config["n_threads"];
-      if (!val.is_number_integer()) {
-        SetDiagnosticNoexcept(diagnostic, "n_threads must be an integer");
-        return nullptr;
-      }
-      n_threads = val.get<int>();
-      if (n_threads < 1 || n_threads > 64) {
-        SetDiagnosticNoexcept(diagnostic, "n_threads must be between 1 and 64");
-        return nullptr;
-      }
-    }
-
     if (spec.model_path.empty()) {
       SetDiagnosticNoexcept(diagnostic, "whisper_cpp model_path is empty");
       return nullptr;
@@ -304,6 +286,8 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
                           "whisper_cpp backend is not enabled in this build");
     return nullptr;
 #else
+    // ④ 取用：参数已校验、已补默认值
+    const int n_threads = static_cast<int>(spec.Params<Params>().n_threads);
     auto cparams = whisper_context_default_params();
     cparams.use_gpu = false;
     cparams.flash_attn = false;

@@ -23,8 +23,12 @@ description: 新增或修改 LLM-EdgeFlow Backend 的厂商 SDK、硬件运行�
    Session 实际协议仍需与声明一致。
 3. Provider 继承 `BackendIdentity<Backend>` 并只在 `kBackendType` 声明类型名；从
    `MakeBackendDefinition<Backend>()` 开始注册 `BackendDefinition` 与
-   `REGISTER_BACKEND_WITH_DEFINITION`，声明全部字段、默认值、
-   范围和协议；额外纯配置约束使用 `validate_config`，Load 复用同一解析规则。
+   `REGISTER_BACKEND_WITH_DEFINITION`，声明协议、并发和参数。参数与 Model、Node 同一种四段写法：
+   `Params` 结构体、`Parameters<Params>` 声明（`Field(...)` 写明默认值、范围、枚举和中文说明，
+   跨字段规则写在 `.Validate(...)`，如 llama.cpp 的 `decode_batch_size` 不大于
+   `context_size`）、`def.params = ParamSpec();`，`Load` 里用 `spec.Params<Params>()` 取用。
+   参数已由 `ParameterSet::Parse` 校验并补齐默认值，`Load` 不再解析配置或检查未知字段，
+   只处理依赖环境的检查（路径、设备、平台）。
    prompt 格式、图像解码、向量池化等模型语义交给 Model。
 
 ## 把 vendor 依赖留在 Backend
@@ -41,7 +45,8 @@ description: 新增或修改 LLM-EdgeFlow Backend 的厂商 SDK、硬件运行�
 
 ## 验证可执行边界
 
-沿用 `tests/unit/engine/` 和 `edgeflow_test_core_runner`，覆盖非法配置/路径、协议错误、
+沿用 `tests/unit/engine/` 和 `edgeflow_test_core_runner`，覆盖非法参数（在参数层用
+`tests/support/parameter_support.h` 的 `ParseBackendParams` 断言）、非法路径、协议错误、
 资源创建失败与释放、声明支持的 batch/并发行为，以及关闭 Backend 时的行为。
 按实际改动选择 `ModelBackendDecouplingTest`、具体 Backend 套件和 `LayerGuardTest`。
 新测试加入现有 inventory/runner，不为一个 Backend 另建框架。

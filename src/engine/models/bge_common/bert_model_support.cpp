@@ -8,23 +8,38 @@
 
 namespace llm_edgeflow {
 
-bool ValidateBertModelConfig(const nlohmann::json& config,
-                             std::string* diagnostic) {
-  for (const char* name : {"tokenizer_file", "output_name"}) {
-    const auto field = config.find(name);
-    if (field == config.end()) continue;
-    if (!field->is_string()) {
-      if (diagnostic)
-        *diagnostic = std::string("Field '") + name + "' must be a string";
-      return false;
-    }
-    if (field->get_ref<const std::string&>().empty()) {
-      if (diagnostic)
-        *diagnostic = std::string("Field '") + name + "' cannot be empty";
-      return false;
-    }
+bool ValidateBertTextParameters(const std::string& tokenizer_file,
+                                const std::string& output_name,
+                                std::string* diagnostic) {
+  if (tokenizer_file.empty()) {
+    SetDiagnosticNoexcept(diagnostic, "Field 'tokenizer_file' cannot be empty");
+    return false;
+  }
+  if (output_name.empty()) {
+    SetDiagnosticNoexcept(diagnostic, "Field 'output_name' cannot be empty");
+    return false;
   }
   return true;
+}
+
+std::optional<int64_t> StaticOutputDim(const ITensorGraphSession& session,
+                                       const std::string& output_name) {
+  for (const auto& output : session.Outputs()) {
+    if (output.name != output_name) continue;
+    if (!output.shape.empty() && output.shape.back() > 0) {
+      return output.shape.back();
+    }
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+std::optional<int64_t> StaticSequenceLength(
+    const ITensorGraphSession& session) {
+  for (const auto& input : session.Inputs()) {
+    if (input.shape.size() == 2 && input.shape[1] > 0) return input.shape[1];
+  }
+  return std::nullopt;
 }
 
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
@@ -121,9 +136,6 @@ bool LoadBertTokenizer(const std::string& model_resource_root,
 bool ValidateModelBatchLimit(const BatchPolicy& session_policy,
                              size_t model_max_batch_size,
                              std::string* diagnostic) {
-  if (model_max_batch_size == 0) {
-    return Reject(diagnostic, "Model max_batch_size must be at least 1");
-  }
   if (session_policy.max_batch_size == 0 ||
       (session_policy.fixed_batch_size != 0 &&
        session_policy.fixed_batch_size != session_policy.max_batch_size)) {

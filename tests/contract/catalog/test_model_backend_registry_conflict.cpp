@@ -11,6 +11,17 @@
 namespace llm_edgeflow {
 namespace {
 
+struct ProbeParams {
+  int64_t threads{};
+};
+
+// 必填字段加上颠倒的取值范围：声明本身可以构造，但注册时的 schema
+// 校验必须拒绝。
+ParameterSet InvertedRangeParams() {
+  return Parameters<ProbeParams>(
+      {Field("threads", &ProbeParams::threads).Required().Range(10, 2)});
+}
+
 ModelRegistry::Creator NullModelCreator() {
   return [](const ModelCreateContext&, std::string*) {
     return std::shared_ptr<IModel>{};
@@ -63,13 +74,7 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   model = ValidModelDefinition("invalid_model_schema");
-  model.config_fields = {ConfigFieldDefinition(
-      "threads", ConfigValueKind::kInteger, false, 4, 10, 2)};
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
-
-  model = ValidModelDefinition("invalid_model_kind");
-  model.config_fields = {
-      ConfigFieldDefinition("value", static_cast<ConfigValueKind>(999), false)};
+  model.params = InvertedRangeParams();
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   auto backend = ValidBackendDefinition("");
@@ -93,6 +98,10 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
 
   backend = ValidBackendDefinition("invalid_backend_concurrency");
   backend.concurrency = static_cast<InferenceConcurrency>(999);
+  EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
+
+  backend = ValidBackendDefinition("invalid_backend_schema");
+  backend.params = InvertedRangeParams();
   EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
 
   auto original_model = ValidModelDefinition("atomic_model");

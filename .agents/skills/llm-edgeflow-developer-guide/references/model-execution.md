@@ -13,14 +13,29 @@ vendor runtime integration, or batch scheduling behavior.
   to the Backend object target. Pass final runtime dependencies through `$<LINK_ONLY:...>` as in
   [the root CMake configuration](../../../../CMakeLists.txt), so their compile requirements do not
   propagate to Models or upper layers.
-- Definitions declare capability/protocol, concurrency, description, and every supported config field/default/range. PipelineValidator validates these typed fields before planning; a concrete Backend may additionally consume one explicitly declared vendor run-config field when its SDK owns that configuration format. Catalog visibility follows registration without Web or skill edits.
-- Put Model rules beyond field schema in `ModelDefinition::validate_config`: a pure validator of
-  schema-normalized configuration, with defaults already applied and no resource loading or I/O.
-  `PipelineValidator` and [ModelRuntimeFactory](../../../../src/engine/runtime/model_runtime_factory.cpp)
-  invoke it after field validation; invalid configuration fails before Backend provider creation or
-  `Load`. Reuse the semantic validator in `Model::Create`, while keeping session/resource-dependent
-  checks there; [VisionDocumentModel](../../../../src/engine/models/vision_document/vision_document_model.cpp)
-  shows the shared validation pattern.
+- Definitions declare capability/protocol, concurrency, description, and `params`, a `ParameterSet`
+  (`contracts/parameter_set.h`) holding every supported field/default/range. Models, Backends, Nodes and
+  converters write parameters the same way in four parts: a `Params` struct, a `Parameters<Params>`
+  declaration (`Field(...)` with default, range, enum and a Chinese description; cross-field rules in
+  `Validate`), `def.params = ParamSpec();`, and `ctx.Params<Params>()` (Model) / `spec.Params<Params>()`
+  (Backend) to read the values. Defaults, ranges and descriptions are written once, in the declaration.
+  Catalog visibility follows registration without Web or skill edits.
+- Parameters are validated once, in `ParameterSet::Parse`: field schema first, then field assignment, `Prepare`
+  and `Validate` (pure; no resource loading or I/O). `PipelineValidator` parses for pre-flight diagnostics and
+  [ModelRuntimeFactory](../../../../src/engine/runtime/model_runtime_factory.cpp) parses the model and backend
+  groups once each before creating the Backend provider; invalid parameters fail before provider creation or
+  `Load`. `Model::Create` and `Backend::Load` do not re-check ranges, enums, required fields or cross-field rules;
+  they only check what needs loaded content (session type, batch policy, tensor shapes, whether files open).
+  [VisionDocumentModel](../../../../src/engine/models/vision_document/vision_document_model.cpp) shows a
+  `Validate` rule; [LlamaCppBackend](../../../../src/engine/backends/llama_cpp/llama_cpp_backend.cpp) shows a
+  backend one.
+- A `std::optional<T>` member declares a parameter that may be omitted (it cannot also declare `Required()` or
+  `Default()`; the Catalog shows it as not required with no default). For facts the model file can really
+  provide, such as a fixed ONNX tensor shape, resolve the final value with
+  [ResolveFromModel](../../../../src/engine/models/common/from_model.h): a configured value must agree with
+  the model, an omitted one uses the model's value, then a fallback, otherwise Create fails and asks for the
+  parameter. [BgeEmbeddingModel](../../../../src/engine/models/bge_embedding/bge_embedding_model.cpp) uses it
+  for `embedding_dim` and `max_length`.
 - BackendLoadSpec requires an explicit execution protocol; runtime session checks still verify the actual protocol. Batch policy belongs to the session, not IModel.
 - QwenCausalLmModel selects ChatML through its model type; there is no configurable template selector.
 - Fixed-batch Model paths call `FixedBatchExecutor::Execute` so padding, dummy removal, and `(req_id, sub_id)` provenance remain consistent.

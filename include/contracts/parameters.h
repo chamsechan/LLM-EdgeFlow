@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -246,6 +247,46 @@ struct FieldTypeTraits<std::vector<std::string>> {
   }
 };
 
+// std::optional<T> 成员表示"可以不写"：类型、范围、枚举规则与 T 相同，
+// 不写时成员保持为空。可选参数不能声明 Required() 或 Default()。
+template <typename T>
+struct FieldTypeTraits<std::optional<T>> {
+  static constexpr ConfigValueKind kKind = FieldTypeTraits<T>::kKind;
+  static bool Extract(const nlohmann::json& j, std::optional<T>* out,
+                      std::string* err) {
+    T value{};
+    if (!FieldTypeTraits<T>::Extract(j, &value, err)) return false;
+    *out = std::move(value);
+    return true;
+  }
+  static nlohmann::json ToJson(const std::optional<T>& val) {
+    return val.has_value() ? FieldTypeTraits<T>::ToJson(*val)
+                           : nlohmann::json();
+  }
+};
+
+namespace detail {
+
+template <typename T>
+struct OptionalMember : std::false_type {
+  using Value = T;
+};
+template <typename T>
+struct OptionalMember<std::optional<T>> : std::true_type {
+  using Value = T;
+};
+
+template <typename T>
+const T& MemberValue(const T& value) noexcept {
+  return value;
+}
+template <typename T>
+const T& MemberValue(const std::optional<T>& value) noexcept {
+  return *value;
+}
+
+}  // namespace detail
+
 template <typename ParamsT>
 class ParameterFieldBinding {
  public:
@@ -263,6 +304,7 @@ template <typename ParamsT, typename MemberT>
 class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
  public:
   using MemberPtr = MemberT ParamsT::*;
+  using ValueType = typename detail::OptionalMember<MemberT>::Value;
 
   ConcreteFieldBinding(std::string name, MemberPtr member_ptr, bool required,
                        bool has_default, MemberT default_val,
@@ -357,16 +399,16 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
     }
     // 再校验取值边界
     if (minimum_.has_value()) {
-      if constexpr (std::is_arithmetic_v<MemberT>) {
-        if (static_cast<double>(extracted) < *minimum_) {
+      if constexpr (std::is_arithmetic_v<ValueType>) {
+        if (static_cast<double>(detail::MemberValue(extracted)) < *minimum_) {
           if (err) *err = "Field '" + name_ + "' is below minimum";
           return false;
         }
       }
     }
     if (maximum_.has_value()) {
-      if constexpr (std::is_arithmetic_v<MemberT>) {
-        if (static_cast<double>(extracted) > *maximum_) {
+      if constexpr (std::is_arithmetic_v<ValueType>) {
+        if (static_cast<double>(detail::MemberValue(extracted)) > *maximum_) {
           if (err) *err = "Field '" + name_ + "' exceeds maximum";
           return false;
         }
@@ -444,7 +486,12 @@ class FieldBuilder {
   }
 
   std::unique_ptr<ParameterFieldBinding<ParamsT>> Build() const {
-    if (required_ == has_default_) {
+    if constexpr (detail::OptionalMember<MemberT>::value) {
+      if (required_ || has_default_) {
+        throw std::invalid_argument("Optional field '" + name_ +
+                                    "' cannot declare Required or Default");
+      }
+    } else if (required_ == has_default_) {
       throw std::invalid_argument(
           "Field '" + name_ +
           "' must declare exactly one of Required or Default");

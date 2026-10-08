@@ -5,11 +5,13 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "contracts/inference_payloads.h"
+#include "contracts/parameter_set.h"
 #include "engine/inference_definition.h"
 #include "engine/tensor.h"
 
@@ -120,9 +122,19 @@ struct BackendLoadSpec {
       : requested_protocol(protocol) {}
 
   std::string model_path;
-  nlohmann::json backend_config = nlohmann::json::object();
+  // 本后端名下已校验的参数，由 ModelRuntimeFactory 解析一次。
+  std::shared_ptr<const ParameterValues> params;
   ExecutionProtocol requested_protocol;
   ExecutionTarget execution_target;
+
+  // 取回声明时使用的参数结构体；未提供参数或类型不符时抛出 std::logic_error。
+  template <typename P>
+  const P& Params() const {
+    if (!params) {
+      throw std::logic_error("BackendLoadSpec has no parameters");
+    }
+    return params->Get<P>();
+  }
 };
 
 /**

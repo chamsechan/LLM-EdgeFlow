@@ -226,6 +226,10 @@ edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
   "ModelBackendDecouplingTest.*:ModelConfigValidationTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
   "ModelBackendPipelineTest.*" "${_edgeflow_tier1};kite")
+edgeflow_add_runner_test(ParameterSetTest edgeflow_test_core_runner
+  "ParameterSetTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ModelBackendParametersTest edgeflow_test_core_runner
+  "ModelBackendParametersTest.*:ResolveFromModelTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
   "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(OnnxAndRerankerModelTest edgeflow_test_core_runner

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -10,8 +12,19 @@ namespace llm_edgeflow {
 
 class BertWordPieceTokenizer;
 
-bool ValidateBertModelConfig(const nlohmann::json& config,
-                             std::string* diagnostic);
+// BERT 类模型参数的跨字段规则（供各模型 Parameters::Validate 使用）：
+// 词表文件名和输出张量名不能为空。
+bool ValidateBertTextParameters(const std::string& tokenizer_file,
+                                const std::string& output_name,
+                                std::string* diagnostic);
+
+// 从会话的张量元数据读取固定形状：维度为固定正数时返回该值，否则返回空。
+// 输出张量 output_name 的最后一维（向量维数）。
+std::optional<int64_t> StaticOutputDim(const ITensorGraphSession& session,
+                                       const std::string& output_name);
+
+// 输入张量的序列维（[batch, sequence] 中的 sequence）。
+std::optional<int64_t> StaticSequenceLength(const ITensorGraphSession& session);
 
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
     const std::shared_ptr<IBackendSession>& backend_session,

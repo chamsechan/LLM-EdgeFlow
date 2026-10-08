@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <utility>
 
-#include "contracts/config_schema_validation.h"
 #include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
@@ -42,25 +41,24 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    nlohmann::json model_config;
-    std::vector<ConfigFieldValidationError> config_errors;
-    if (!ValidateAndNormalizeFields(model_def_opt->config_fields,
-                                    spec.model_config, &model_config,
-                                    &config_errors)) {
+    // 两组参数各解析一次；参数非法时不创建后端 Provider，也不加载权重。
+    std::shared_ptr<const ParameterValues> model_params;
+    std::string params_diagnostic;
+    if (!model_def_opt->params.Parse(spec.model_config, &model_params,
+                                     &params_diagnostic)) {
       if (diagnostic) {
         *diagnostic = "Invalid model configuration: " + spec.model_type;
-        if (!config_errors.empty())
-          *diagnostic += ": " + config_errors.front().message;
+        if (!params_diagnostic.empty()) *diagnostic += ": " + params_diagnostic;
       }
       return nullptr;
     }
-    std::string config_diagnostic;
-    if (model_def_opt->validate_config &&
-        !model_def_opt->validate_config(model_config, &config_diagnostic)) {
-      SetDiagnosticNoexcept(
-          diagnostic, config_diagnostic.empty()
-                          ? "Invalid model configuration: " + spec.model_type
-                          : config_diagnostic);
+    std::shared_ptr<const ParameterValues> backend_params;
+    if (!backend_def_opt->params.Parse(spec.backend_config, &backend_params,
+                                       &params_diagnostic)) {
+      if (diagnostic) {
+        *diagnostic = "Invalid backend configuration: " + spec.backend_type;
+        if (!params_diagnostic.empty()) *diagnostic += ": " + params_diagnostic;
+      }
       return nullptr;
     }
 
@@ -84,7 +82,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     // 3. 加载后端会话
     BackendLoadSpec load_spec{model_def_opt->required_protocol};
     load_spec.model_path = spec.model_path;
-    load_spec.backend_config = spec.backend_config;
+    load_spec.params = std::move(backend_params);
     load_spec.execution_target = spec.execution_target;
 
     std::string backend_diag;
@@ -166,7 +164,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     ModelCreateContext create_ctx;
     create_ctx.backend_session = session;
     create_ctx.model_resource_root = model_resource_root;
-    create_ctx.model_config = std::move(model_config);
+    create_ctx.params = std::move(model_params);
 
     std::string model_diag;
     auto model = ModelRegistry::Instance().Create(spec.model_type, create_ctx,

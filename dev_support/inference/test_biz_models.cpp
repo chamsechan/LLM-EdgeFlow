@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,9 +28,36 @@ bool RequireProtocol(const ModelCreateContext& context,
   return true;
 }
 
-size_t ConfigSize(const nlohmann::json& config, const char* key,
-                  size_t fallback) {
-  return config.contains(key) ? config.at(key).get<size_t>() : fallback;
+// 五个业务夹具模型共用一个参数结构体，各自只声明其中的几项。
+// 默认值只在 ParamSpec 中写一次。
+struct Params {
+  int64_t max_batch_size{};
+  int64_t embedding_dim{};
+  int64_t max_seq_len{};
+};
+
+FieldBuilder<Params, int64_t> BatchSizeField(int64_t default_batch) {
+  return Field("max_batch_size", &Params::max_batch_size)
+      .Default(default_batch)
+      .Range(1, 1024);
+}
+
+Parameters<Params> EmbeddingParamSpec() {
+  return Parameters<Params>(
+      {BatchSizeField(4), Field("embedding_dim", &Params::embedding_dim)
+                              .Default(384)
+                              .Range(1, 65536)});
+}
+
+Parameters<Params> LlmParamSpec() {
+  return Parameters<Params>(
+      {BatchSizeField(2), Field("max_seq_len", &Params::max_seq_len)
+                              .Default(512)
+                              .Range(1, 1048576)});
+}
+
+Parameters<Params> BatchOnlyParamSpec(int64_t default_batch) {
+  return Parameters<Params>({BatchSizeField(default_batch)});
 }
 
 std::string GenerateBizResponse(const std::string& prompt) {
@@ -66,15 +94,14 @@ std::string GenerateBizResponse(const std::string& prompt) {
 }
 
 ModelDefinition Definition(const char* model_type, const char* capability,
-                           ExecutionProtocol protocol, size_t default_batch) {
+                           ExecutionProtocol protocol, ParameterSet params) {
   ModelDefinition definition;
   definition.model_type = model_type;
   definition.capability = capability;
   definition.description = "Test-only business response fixture model";
   definition.required_protocol = protocol;
   definition.concurrency = InferenceConcurrency::kSerialized;
-  definition.config_fields = {{"max_batch_size", ConfigValueKind::kInteger,
-                               false, default_batch, 1.0, 1024.0}};
+  definition.params = std::move(params);
   return definition;
 }
 
@@ -88,9 +115,10 @@ std::shared_ptr<IModel> TestBizEmbeddingModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
+  const auto& p = context.Params<Params>();
   return std::make_shared<TestBizEmbeddingModel>(
-      ConfigSize(context.model_config, "embedding_dim", 384),
-      ConfigSize(context.model_config, "max_batch_size", 4));
+      static_cast<size_t>(p.embedding_dim),
+      static_cast<size_t>(p.max_batch_size));
 }
 
 const std::string& TestBizEmbeddingModel::ModelType() const noexcept {
@@ -150,7 +178,7 @@ std::shared_ptr<IModel> TestBizRerankModel::Create(
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
   return std::make_shared<TestBizRerankModel>(
-      ConfigSize(context.model_config, "max_batch_size", 4));
+      static_cast<size_t>(context.Params<Params>().max_batch_size));
 }
 const std::string& TestBizRerankModel::ModelType() const noexcept {
   static const std::string type = kModelType;
@@ -198,7 +226,7 @@ std::shared_ptr<IModel> TestBizLlmModel::Create(
   if (!RequireProtocol(context, ExecutionProtocol::kTextGeneration, diagnostic))
     return nullptr;
   return std::make_shared<TestBizLlmModel>(
-      ConfigSize(context.model_config, "max_batch_size", 2));
+      static_cast<size_t>(context.Params<Params>().max_batch_size));
 }
 const std::string& TestBizLlmModel::ModelType() const noexcept {
   static const std::string type = kModelType;
@@ -237,7 +265,7 @@ std::shared_ptr<IModel> TestBizOcrModel::Create(
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
   return std::make_shared<TestBizOcrModel>(
-      ConfigSize(context.model_config, "max_batch_size", 2));
+      static_cast<size_t>(context.Params<Params>().max_batch_size));
 }
 const std::string& TestBizOcrModel::ModelType() const noexcept {
   static const std::string type = kModelType;
@@ -287,7 +315,7 @@ std::shared_ptr<IModel> TestBizAsrModel::Create(
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
   return std::make_shared<TestBizAsrModel>(
-      ConfigSize(context.model_config, "max_batch_size", 2));
+      static_cast<size_t>(context.Params<Params>().max_batch_size));
 }
 const std::string& TestBizAsrModel::ModelType() const noexcept {
   static const std::string type = kModelType;
@@ -324,27 +352,21 @@ int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
       outputs);
 }
 
-static const ModelDefinition kEmbeddingDefinition = [] {
-  auto definition = Definition(TestBizEmbeddingModel::kModelType, "embedding",
-                               ExecutionProtocol::kTensorGraph, 4);
-  definition.config_fields.push_back(
-      {"embedding_dim", ConfigValueKind::kInteger, false, 384, 1.0, 65536.0});
-  return definition;
-}();
+static const ModelDefinition kEmbeddingDefinition =
+    Definition(TestBizEmbeddingModel::kModelType, "embedding",
+               ExecutionProtocol::kTensorGraph, EmbeddingParamSpec());
 static const ModelDefinition kRerankDefinition =
     Definition(TestBizRerankModel::kModelType, "rerank",
-               ExecutionProtocol::kTensorGraph, 4);
-static const ModelDefinition kLlmDefinition = [] {
-  auto definition = Definition(TestBizLlmModel::kModelType, "llm",
-                               ExecutionProtocol::kTextGeneration, 2);
-  definition.config_fields.push_back(
-      {"max_seq_len", ConfigValueKind::kInteger, false, 512, 1.0, 1048576.0});
-  return definition;
-}();
-static const ModelDefinition kOcrDefinition = Definition(
-    TestBizOcrModel::kModelType, "ocr", ExecutionProtocol::kTensorGraph, 2);
-static const ModelDefinition kAsrDefinition = Definition(
-    TestBizAsrModel::kModelType, "asr", ExecutionProtocol::kTensorGraph, 2);
+               ExecutionProtocol::kTensorGraph, BatchOnlyParamSpec(4));
+static const ModelDefinition kLlmDefinition =
+    Definition(TestBizLlmModel::kModelType, "llm",
+               ExecutionProtocol::kTextGeneration, LlmParamSpec());
+static const ModelDefinition kOcrDefinition =
+    Definition(TestBizOcrModel::kModelType, "ocr",
+               ExecutionProtocol::kTensorGraph, BatchOnlyParamSpec(2));
+static const ModelDefinition kAsrDefinition =
+    Definition(TestBizAsrModel::kModelType, "asr",
+               ExecutionProtocol::kTensorGraph, BatchOnlyParamSpec(2));
 
 REGISTER_MODEL_WITH_DEFINITION(TestBizEmbeddingModel, kEmbeddingDefinition);
 REGISTER_MODEL_WITH_DEFINITION(TestBizRerankModel, kRerankDefinition);

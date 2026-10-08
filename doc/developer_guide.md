@@ -178,12 +178,47 @@ Model 继承 [`ModelIdentity<Model, 能力接口>`](../include/engine/model_iden
 [`BackendIdentity<Backend>`](../include/engine/backend_identity.h)，Definition 从
 `MakeBackendDefinition<Backend>()` 开始。创建时工厂仍逐项核对实例、Session 与 Definition。
 
-Model 的字段类型、默认值和范围由 `config_fields` 声明，创建时用 `ConfigValueOrDefault` 读取，
-默认值只写在声明中；字段之间或文本内容的额外规则
-放在可选的 `ModelDefinition::validate_config` 中。Validator 与 ModelRuntimeFactory
-均先完成字段校验和默认值补齐，再调用此纯函数；失败时不创建 Backend 或加载模型。
-该函数只检查配置，不读文件或创建会话。直接 Model 创建入口应复用相同语义检查；
-依赖真实会话、模型资源或 Tensor 形状的检查继续留在创建阶段。
+Model 与 Backend 的参数和 Node、converter 使用同一种四段写法，改参数只动前两段：
+
+```cpp
+namespace {
+// ① 参数结构体（默认值只在声明里写一次）
+struct Params {
+  std::string output_name;
+  std::optional<int64_t> embedding_dim;  // 不写时从模型读取
+};
+
+// ② 参数声明：名字、默认值、范围、说明；跨字段规则写在 Validate
+Parameters<Params> ParamSpec() {
+  auto spec = Parameters<Params>(
+      {Field("output_name", &Params::output_name)
+           .Default("last_hidden_state").Description("读取的输出张量名"),
+       Field("embedding_dim", &Params::embedding_dim).Range(1, 65536)
+           .Description("向量维数；不写时从模型输出张量读取")});
+  spec.Validate([](const Params& p, std::string* error) {
+    if (!p.output_name.empty()) return true;
+    if (error) *error = "output_name 不能为空";
+    return false;
+  });
+  return spec;
+}
+}  // namespace
+
+def.params = ParamSpec();                           // ③ 登记
+const auto& p = ctx.Params<Params>();               // ④ 取用（Backend 用 spec.Params<Params>()）
+```
+
+参数只在 `ParameterSet::Parse` 中校验一次：按字段声明校验并补齐默认值，再依次执行赋值、
+`Prepare` 和 `Validate`。Validator 预检与 ModelRuntimeFactory 共用这一个函数，模型和后端
+两组参数各解析一次；失败时不创建 Backend 或加载模型。`Validate` 是纯函数，不读文件或创建会话。
+`Create` / `Load` 不再复查范围、枚举、必填或跨字段规则，只做依赖已加载内容的检查：
+会话接口类型、批策略、Tensor 形状、文件能否打开。参数说明使用中文。
+
+`std::optional<T>` 成员表示可以不写（不能同时声明 `Required()` 或 `Default()`，Catalog 中显示为
+非必填、无默认值）。能从模型文件读到的事实，例如 ONNX 张量的固定形状，用
+`ResolveFromModel`（`src/engine/models/common/from_model.h`）取最终值：配置写了就与模型核对，
+不一致时报错；没写就用模型给出的值，读不到再用后备值，没有后备值则提示在参数中填写。
+`bge_embedding` 的 `embedding_dim` 和 `max_length` 即按此处理。
 
 逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
 `TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，
@@ -204,10 +239,9 @@ Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负�
 TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的
 `model_config.normalize`，已有配置应将该选择移到消费节点。
 
-后端有跨字段约束时，通过 `BackendDefinition.validate_config` 注册纯配置校验函数。
-PipelineValidator 在字段检查和默认值展开后调用；Backend 初始化复用同一解析规则。
-回调不得加载模型或访问外部资源，例如 llama.cpp 的 `decode_batch_size` 不得大于
-`context_size`。环境、设备和资产可用性仍由实际加载路径检查。
+后端有跨字段约束时，写在参数声明的 `Validate` 中，例如 llama.cpp 的 `decode_batch_size`
+不得大于 `context_size`；它不得加载模型或访问外部资源，预检、工厂和 `Load` 共用同一次解析。
+环境、设备和资产可用性仍由实际加载路径检查。
 
 其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的
 `Concurrency()` 声明具体运行时资源能力，Pipeline 以二者更严格的值调度。
@@ -233,7 +267,7 @@ Pipeline 配置只使用 Model/Backend 语法：
 模型能力来自 `model_type` 对应的注册 Definition，不在 JSON 中重复声明。
 Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，没有默认模型实例名。
 
-`ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
+`ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型，并解析模型与后端参数，
 返回构建好的单个 `IModel`。Pipeline 暂存全部模型，全部构建成功后通过
 `ModelManager::RegisterBatch` 完成会话内的批量原子注册。参考实现：
 `src/engine/models/bge_embedding/` 与 `src/engine/backends/onnxruntime/`。

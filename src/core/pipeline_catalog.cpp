@@ -231,7 +231,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
 
 nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
   nlohmann::json fields = nlohmann::json::array();
-  for (const auto& field : definition.config_fields) {
+  for (const auto& field : definition.params.Fields()) {
     fields.push_back(ConfigFieldToJson(field));
   }
   return {
@@ -248,7 +248,7 @@ nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
 nlohmann::json PipelineCatalog::BackendToJson(
     const BackendDefinition& definition) {
   nlohmann::json fields = nlohmann::json::array();
-  for (const auto& field : definition.config_fields) {
+  for (const auto& field : definition.params.Fields()) {
     fields.push_back(ConfigFieldToJson(field));
   }
   nlohmann::json protocols = nlohmann::json::array();

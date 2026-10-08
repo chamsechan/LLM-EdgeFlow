@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -23,7 +24,17 @@ namespace llm_edgeflow {
 struct ModelCreateContext {
   std::shared_ptr<IBackendSession> backend_session;
   std::string model_resource_root;
-  nlohmann::json model_config = nlohmann::json::object();
+  // 本模型名下已校验的参数，由 ModelRuntimeFactory 解析一次。
+  std::shared_ptr<const ParameterValues> params;
+
+  // 取回声明时使用的参数结构体；未提供参数或类型不符时抛出 std::logic_error。
+  template <typename P>
+  const P& Params() const {
+    if (!params) {
+      throw std::logic_error("ModelCreateContext has no parameters");
+    }
+    return params->Get<P>();
+  }
 };
 
 /**

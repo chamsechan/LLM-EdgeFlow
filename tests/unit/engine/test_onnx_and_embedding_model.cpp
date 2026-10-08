@@ -33,6 +33,7 @@
 #include "engine/models/common/embedding_numeric_support.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/parameter_support.h"
 #include "tests/support/pipeline_test_utils.h"
 
 #ifndef EDGEFLOW_EMBEDDING_ONNX_FIXTURE
@@ -399,23 +400,27 @@ TEST_F(OnnxAndEmbeddingModelTest, ModelSidecarContainmentSecurity) {
   ModelCreateContext context;
   context.backend_session = std::make_shared<FakeTensorGraphSession>(4, true);
   context.model_resource_root = model_root.string();
-  context.model_config = {
-      {"tokenizer_file", "vocab.txt"},
-      {"embedding_dim", 4},
-      {"max_length", 16},
+  const auto parse = [](const std::string& tokenizer_file) {
+    auto params = test_support::ParseModelParams(
+        "bge_embedding", {{"tokenizer_file", tokenizer_file},
+                          {"embedding_dim", 4},
+                          {"max_length", 16}});
+    EXPECT_NE(params, nullptr);
+    return params;
   };
+  context.params = parse("vocab.txt");
 
   std::string diag;
   EXPECT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
 
   // 普通词法逃逸必须失败。
-  context.model_config["tokenizer_file"] = "../outside/vocab.txt";
+  context.params = parse("../outside/vocab.txt");
   diag.clear();
   EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
   EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
 
   // 同前缀兄弟目录不能通过字符串前缀混淆逃逸。
-  context.model_config["tokenizer_file"] = "../model-escape/vocab.txt";
+  context.params = parse("../model-escape/vocab.txt");
   diag.clear();
   EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
   EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
@@ -425,14 +430,13 @@ TEST_F(OnnxAndEmbeddingModelTest, ModelSidecarContainmentSecurity) {
   std::filesystem::create_directory_symlink(outside_root,
                                             model_root / "outside_link", ec);
   ASSERT_FALSE(ec) << ec.message();
-  context.model_config["tokenizer_file"] = "outside_link/vocab.txt";
+  context.params = parse("outside_link/vocab.txt");
   diag.clear();
   EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
   EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
 
   // 模型路径允许使用显式绝对路径。
-  context.model_config["tokenizer_file"] =
-      (sibling_root / "vocab.txt").string();
+  context.params = parse((sibling_root / "vocab.txt").string());
   diag.clear();
   EXPECT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
 }
@@ -445,19 +449,21 @@ TEST_F(OnnxAndEmbeddingModelTest,
   ModelCreateContext context;
   context.backend_session = session;
   context.model_resource_root = temp_dir_.string();
-  context.model_config = {
-      {"tokenizer_file", "vocab.txt"},
-      {"embedding_dim", 4},
-      {"max_length", 16},
-  };
+  context.params = test_support::ParseModelParams(
+      "bge_embedding", {{"tokenizer_file", "vocab.txt"},
+                        {"embedding_dim", 4},
+                        {"max_length", 16}});
+  ASSERT_NE(context.params, nullptr);
 
   std::string diag;
   ASSERT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
 
-  context.model_config["max_batch_size"] = 0;
-  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
-  EXPECT_NE(diag.find("max_batch_size must be at least 1"), std::string::npos);
-  context.model_config["max_batch_size"] = 4;
+  // 批大小下限由参数声明负责，在解析阶段拒绝。
+  EXPECT_EQ(test_support::ParseModelParams(
+                "bge_embedding", {{"embedding_dim", 4}, {"max_batch_size", 0}},
+                &diag),
+            nullptr);
+  EXPECT_NE(diag.find("max_batch_size"), std::string::npos);
 
   session->SetInputs({
       {"input_ids", ElementType::kInt64, {-1, 16}},
@@ -473,8 +479,59 @@ TEST_F(OnnxAndEmbeddingModelTest,
   session->SetOutputs(
       {{"last_hidden_state", ElementType::kFloat32, {-1, 16, 8}}});
   EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
-  EXPECT_NE(diag.find("does not match configured embedding_dim"),
-            std::string::npos);
+  EXPECT_NE(diag.find("embedding_dim"), std::string::npos);
+  EXPECT_NE(diag.find("model reports 8"), std::string::npos);
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       BgeEmbeddingReadsEmbeddingDimAndMaxLengthFromFixedShapes) {
+  WriteTestVocab(temp_dir_ / "vocab.txt");
+  ModelCreateContext context;
+  context.backend_session = std::make_shared<FakeTensorGraphSession>(4, true);
+  context.model_resource_root = temp_dir_.string();
+  // 不写 embedding_dim 与 max_length：由会话的固定形状提供。
+  context.params = test_support::ParseModelParams(
+      "bge_embedding", {{"tokenizer_file", "vocab.txt"}});
+  ASSERT_NE(context.params, nullptr);
+
+  std::string diag;
+  auto model = std::dynamic_pointer_cast<BgeEmbeddingModel>(
+      BgeEmbeddingModel::Create(context, &diag));
+  ASSERT_NE(model, nullptr) << diag;
+  EXPECT_EQ(model->EmbeddingDim(), 4u);
+  EXPECT_EQ(model->MaxLength(), 16u);
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       BgeEmbeddingDynamicShapesRequireEmbeddingDimAndFallBackForLength) {
+  WriteTestVocab(temp_dir_ / "vocab.txt");
+  auto session = std::make_shared<FakeTensorGraphSession>(4, true);
+  session->SetInputs({{"input_ids", ElementType::kInt64, {-1, -1}},
+                      {"attention_mask", ElementType::kInt64, {-1, -1}}});
+  session->SetOutputs(
+      {{"last_hidden_state", ElementType::kFloat32, {-1, -1, -1}}});
+  ModelCreateContext context;
+  context.backend_session = session;
+  context.model_resource_root = temp_dir_.string();
+
+  // 模型读不到 embedding_dim 且没有后备值：报错并提示填写。
+  context.params = test_support::ParseModelParams(
+      "bge_embedding", {{"tokenizer_file", "vocab.txt"}});
+  ASSERT_NE(context.params, nullptr);
+  std::string diag;
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("embedding_dim"), std::string::npos) << diag;
+  EXPECT_NE(diag.find("set it in the parameters"), std::string::npos) << diag;
+
+  // max_length 读不到时使用 512。
+  context.params = test_support::ParseModelParams(
+      "bge_embedding", {{"tokenizer_file", "vocab.txt"}, {"embedding_dim", 4}});
+  ASSERT_NE(context.params, nullptr);
+  auto model = std::dynamic_pointer_cast<BgeEmbeddingModel>(
+      BgeEmbeddingModel::Create(context, &diag));
+  ASSERT_NE(model, nullptr) << diag;
+  EXPECT_EQ(model->EmbeddingDim(), 4u);
+  EXPECT_EQ(model->MaxLength(), 512u);
 }
 
 TEST_F(OnnxAndEmbeddingModelTest,
@@ -525,30 +582,6 @@ TEST_F(OnnxAndEmbeddingModelTest,
         EXPECT_NEAR(vector[i], normalize ? raw / std::sqrt(0.3f) : raw, 1e-5f);
       }
     }
-  }
-}
-
-TEST_F(OnnxAndEmbeddingModelTest,
-       ModelNormalizationFieldRequiresNodeMigration) {
-  const auto definition = PipelineCatalog::FindModel("bge_embedding");
-  ASSERT_TRUE(definition.has_value());
-  for (const bool normalize : {false, true}) {
-    const nlohmann::json config = {{"embedding_dim", 4},
-                                   {"normalize", normalize}};
-    nlohmann::json normalized;
-    std::vector<ValidationDiagnostic> diagnostics;
-    EXPECT_FALSE(ValidateAndNormalizeConfig(
-        definition->config_fields, config, &normalized, &diagnostics,
-        "/models/0/model_config", DiagnosticCode::kUnknownModelConfigField));
-    ASSERT_FALSE(diagnostics.empty());
-    EXPECT_EQ(diagnostics.front().code,
-              DiagnosticCode::kUnknownModelConfigField);
-    EXPECT_EQ(diagnostics.front().path, "/models/0/model_config/normalize");
-    ModelCreateContext ctx;
-    ctx.model_config = config;
-    std::string error;
-    EXPECT_EQ(BgeEmbeddingModel::Create(ctx, &error), nullptr);
-    EXPECT_NE(error.find("EmbeddingOptions"), std::string::npos);
   }
 }
 
@@ -797,11 +830,12 @@ TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {
   out << "[PAD]\n[UNK]\n[CLS]\n[SEP]\nword\n";
   out.close();
 
-  mctx.model_config = {
-      {"tokenizer_file", "vocab.txt"},
-      {"embedding_dim", 4},
-      {"max_batch_size", 1},  // 小于 fixed_batch_size (2) -> 必须明确拒绝
-  };
+  mctx.params = test_support::ParseModelParams(
+      "bge_embedding",
+      {{"tokenizer_file", "vocab.txt"},
+       {"embedding_dim", 4},
+       {"max_batch_size", 1}});  // 小于 fixed_batch_size (2) -> 必须明确拒绝
+  ASSERT_NE(mctx.params, nullptr);
   std::string diag;
   auto rejected_model =
       ModelRegistry::Instance().Create("bge_embedding", mctx, &diag);
@@ -1001,6 +1035,8 @@ TEST_F(OnnxAndEmbeddingModelTest,
   OnnxRuntimeBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kTensorGraph};
   spec.model_path = EDGEFLOW_NON_TENSOR_ONNX_FIXTURE;
+  spec.params = test_support::ParseBackendParams("onnxruntime");
+  ASSERT_NE(spec.params, nullptr);
   std::string diag;
   EXPECT_EQ(backend.Load(spec, &diag), nullptr);
   EXPECT_EQ(diag, "Model output is not a tensor: sequence_output");
@@ -1027,7 +1063,9 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
 
   BackendLoadSpec bspec{ExecutionProtocol::kTensorGraph};
   bspec.model_path = onnx_path.string();
-  bspec.backend_config = {{"max_batch_size", 2}};
+  bspec.params =
+      test_support::ParseBackendParams("onnxruntime", {{"max_batch_size", 2}});
+  ASSERT_NE(bspec.params, nullptr);
   std::string diag;
   auto session = backend->Load(bspec, &diag);
   ASSERT_NE(session, nullptr) << diag;
@@ -1045,15 +1083,17 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   ModelCreateContext mctx;
   mctx.backend_session = session;
   mctx.model_resource_root = vocab_path.parent_path().string();
-  mctx.model_config = {
-      {"tokenizer_file", vocab_path.filename().string()},
-      {"do_lower_case", true},
-      {"max_length", 32},
-      {"pooling_strategy", "mean"},
-      {"output_name", "last_hidden_state"},
-      {"embedding_dim", 128},
-      {"max_batch_size", 2},
-  };
+  mctx.params = test_support::ParseModelParams(
+      "bge_embedding", {
+                           {"tokenizer_file", vocab_path.filename().string()},
+                           {"do_lower_case", true},
+                           {"max_length", 32},
+                           {"pooling_strategy", "mean"},
+                           {"output_name", "last_hidden_state"},
+                           {"embedding_dim", 128},
+                           {"max_batch_size", 2},
+                       });
+  ASSERT_NE(mctx.params, nullptr);
 
   auto model = ModelRegistry::Instance().Create("bge_embedding", mctx, &diag);
   ASSERT_NE(model, nullptr) << diag;
@@ -1177,7 +1217,9 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeBackendNegativeValidation) {
   }
 
   bspec.model_path = onnx_path.string();
-  bspec.backend_config = {{"max_batch_size", 2}};
+  bspec.params =
+      test_support::ParseBackendParams("onnxruntime", {{"max_batch_size", 2}});
+  ASSERT_NE(bspec.params, nullptr);
   auto session = backend->Load(bspec, &diag);
   ASSERT_NE(session, nullptr) << diag;
   auto tensor_session = std::dynamic_pointer_cast<ITensorGraphSession>(session);

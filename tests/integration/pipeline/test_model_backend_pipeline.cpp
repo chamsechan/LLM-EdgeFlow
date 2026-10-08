@@ -28,6 +28,16 @@ static std::atomic<int> g_model_create_count{0};
 static BackendLoadSpec g_last_backend_load_spec{
     ExecutionProtocol::kTensorGraph};
 
+struct MockBackendParams {
+  std::string device;
+  int64_t threads{};
+};
+
+struct MockModelParams {
+  int64_t max_length{};
+  bool normalize{};
+};
+
 // Mock Backend 会话
 class MockBackendSession : public IBackendSession {
  public:
@@ -183,16 +193,13 @@ class ModelBackendPipelineTest : public ::testing::Test {
       bdef.description = "Mock backend for tests";
       bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
       bdef.concurrency = InferenceConcurrency::kConcurrent;
-      bdef.config_fields = {
-          {"device",
-           ConfigValueKind::kString,
-           false,
-           "cpu",
-           std::nullopt,
-           std::nullopt,
-           {"cpu", "cuda"}},
-          {"threads", ConfigValueKind::kInteger, false, 4, 1.0, 64.0},
-      };
+      bdef.params = Parameters<MockBackendParams>(
+          {Field("device", &MockBackendParams::device)
+               .Default("cpu")
+               .Enum({"cpu", "cuda"}),
+           Field("threads", &MockBackendParams::threads)
+               .Default(4)
+               .Range(1, 64)});
       BackendRegistry::Instance().Register(bdef, []() {
         g_backend_create_count.fetch_add(1);
         return std::make_unique<MockInferenceBackend>();
@@ -208,16 +215,20 @@ class ModelBackendPipelineTest : public ::testing::Test {
       mdef.description = "Mock embedding model for tests";
       mdef.required_protocol = ExecutionProtocol::kTensorGraph;
       mdef.concurrency = InferenceConcurrency::kConcurrent;
-      mdef.config_fields = {
-          {"max_length", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0},
-          {"normalize", ConfigValueKind::kBoolean, false, true},
-      };
+      mdef.params = Parameters<MockModelParams>(
+          {Field("max_length", &MockModelParams::max_length)
+               .Default(512)
+               .Range(1, 4096),
+           Field("normalize", &MockModelParams::normalize).Default(true)});
       ModelRegistry::Instance().Register(
           mdef, [](const ModelCreateContext& ctx, std::string*) {
             g_model_create_count.fetch_add(1);
+            const auto& p = ctx.Params<MockModelParams>();
             return std::make_shared<MockEmbeddingModel>(
                 MockEmbeddingModel::kModelType, MockEmbeddingModel::kCapability,
-                InferenceConcurrency::kConcurrent, ctx.model_config);
+                InferenceConcurrency::kConcurrent,
+                nlohmann::json{{"max_length", p.max_length},
+                               {"normalize", p.normalize}});
           });
     }
   }
