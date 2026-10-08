@@ -18,7 +18,7 @@ EXPECTED_SYMBOLS=$(
     AlgBase_logPrint \
     AlgBase_setLogLevelByName \
     _ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv \
-    _ZN12llm_edgeflow12operator_api24ResolveOperatorConfigBizEPKcS2_PNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEPcm \
+    _ZN12llm_edgeflow12operator_api23ResolveOperatorConfigIoEPKcS2_PNS0_18OperatorIoContractEPcm \
     _ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv |
     sort -u
 )

@@ -744,7 +744,7 @@ using ShowResultFn = void (*)(const void* output, const nlohmann::json& request_
 1. 用 `ResolveOperatorConfigIo` 取得 I/O 契约，找到对应的请求构造和结果显示；找不到时报错并列出已支持的载体。
 2. 创建句柄，执行 Control。
 3. 按 `batch_size` 分批调用 Process；输入、输出 key 为各项的 `demo.<type>`。
-4. 对每条结果、每个输出项调用结果显示，合并写入 `results.jsonl` / `summary.json`。多个输出项的字段同名时，以 `type` 作前缀。
+4. 对每条结果、每个输出项调用结果显示，合并写入 `results.jsonl` / `summary.json`。多个输出项的字段同名时，以 `type` 作前缀（`<type>.<字段>`）。
 
 **`results.jsonl` 的 `output` 字段保持现状**，`tests/integration/demo`、效果规格和 `demo/json_prompt_demo.py` 都依赖这些字段：
 

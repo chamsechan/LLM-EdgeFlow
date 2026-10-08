@@ -59,7 +59,8 @@ Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
 可按需配置 `deployment.io.out_mem`。模型路径只在 `models[].model_path` 中填写，
 相对路径以宿主传入的部署根为基准。各路径的相对基准、存在性和目录边界见
 [配置路径](../configs/README.md#配置路径)。业务身份由 binding 推导。
-Demo 从 SDK 查询配置的业务身份后选择 runner；必需输出槽自动采用注册默认值。
+Demo 通过 SDK 预检 `ResolveOperatorConfigIo` 取得配置的 I/O 契约，按宿主结构（载体）选择请求构造和结果显示，
+不依赖业务名；必需输出槽自动采用注册默认值。
 输出类型来自已注册的逻辑槽位，普通配置只覆盖分配方案、参数和容量；Resolver 按实际队列
 深度审计预算；转换器消费已解析的方案，不重复解析部署 JSON 或补默认值。
 完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。

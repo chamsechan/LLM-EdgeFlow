@@ -70,7 +70,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 - `results/quickstart/keyword_match_rules/results.jsonl`：逐条请求的状态与匹配结果。
 - `results/quickstart/keyword_match_rules/summary.json`：样本数、成功数、失败数与耗时。
 
-`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；需要体验内置规则热更新时显式添加 `--example-control`。
+`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；需要体验规则热更新时运行 Profile `keyword_match_control`，它通过 `control_file` 与 `control_cmd` 显式下发 `data/keyword_match_control.json`。
 
 ### 3. 查看与编辑流程
 
@@ -136,7 +136,7 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 
 Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置；参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
 
-查看全部 Demo 预设，或运行无需真实模型的 Smoke 套件：
+查看全部 Demo 预设与已支持的输入、输出载体，或运行无需真实模型的 Smoke 套件：
 
 ```bash
 ./build/alg_demo --list

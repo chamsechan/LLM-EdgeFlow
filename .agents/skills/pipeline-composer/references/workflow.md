@@ -91,9 +91,10 @@ original Profile alone only when its configuration already points to the intende
 Execution settings `chip`, `device_id`, `batch_size`, and `depth` come only from Profile JSON;
 there are no corresponding CLI options. Without a Profile, Demo uses CPU, device 0, batch 1,
 and depth 1. Use `--profiles-file <path> --profile <name>` to select different execution settings.
-Demo uses the selected Pipeline defaults (by default, no example Control is sent). Use
-`--example-control` only for the built-in update demonstration, and provide a Control file
-only when it is part of the requested scenario. Verify request IDs, status and expected
-output fields in `results.jsonl` and `summary.json`.
+Demo uses the selected Pipeline defaults and never sends a built-in Control. Provide
+`--control-file` together with `--control-cmd` (or a Profile's `control_file` and `control_cmd`)
+only when a Control is part of the requested scenario; giving one without the other exits 3.
+The repository example is the Profile `keyword_match_control`. Verify request IDs, status and
+expected output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./tools/pipeline_studio/server.py --web` or `./tools/pipeline_studio/server.py <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.

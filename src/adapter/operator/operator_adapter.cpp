@@ -563,16 +563,37 @@ const char* GetOperatorLastError() noexcept {
   return g_last_operator_error.c_str();
 }
 
-int ResolveOperatorConfigBiz(const char* model_path, const char* cfg_file_name,
-                             std::string* out_biz_name, char* out_error_msg,
-                             size_t error_buf_size) noexcept {
+namespace {
+
+// 每个外部槽对应一项：key 后缀、业务名、宿主结构名与是否必填。
+void AppendIoEntries(
+    const std::vector<llm_edgeflow::ExternalSlotDefinition>& slots,
+    llm_edgeflow::PortDirection direction, const std::string& name,
+    std::vector<OperatorIoEntry>* entries) {
+  for (const auto& slot : slots) {
+    if (slot.direction != direction) continue;
+    OperatorIoEntry entry;
+    entry.type = slot.KeySuffix();
+    entry.name = name;
+    entry.type_name = slot.type_id;
+    entry.required = slot.required;
+    entries->push_back(std::move(entry));
+  }
+}
+
+}  // namespace
+
+int ResolveOperatorConfigIo(const char* model_path, const char* cfg_file_name,
+                            OperatorIoContract* out, char* out_error_msg,
+                            size_t error_buf_size) noexcept {
   try {
-    if (!out_biz_name) {
+    if (!out) {
       if (out_error_msg && error_buf_size > 0)
-        std::snprintf(out_error_msg, error_buf_size, "Null out_biz_name");
+        std::snprintf(out_error_msg, error_buf_size, "Null out");
       return -2;
     }
-    out_biz_name->clear();
+    out->inputs.clear();
+    out->outputs.clear();
     if (!model_path || model_path[0] == '\0') {
       if (out_error_msg && error_buf_size > 0) {
         std::snprintf(out_error_msg, error_buf_size,
@@ -598,19 +619,40 @@ int ResolveOperatorConfigBiz(const char* model_path, const char* cfg_file_name,
       return ret;
     }
 
-    *out_biz_name = resolved.io_plan->binding.biz_name;
+    const auto& plan = *resolved.io_plan;
+    if (!plan.input_converter || !plan.output_converter) {
+      if (out_error_msg && error_buf_size > 0) {
+        std::snprintf(out_error_msg, error_buf_size,
+                      "Resolved plan has no I/O converters");
+      }
+      return -1;
+    }
+    OperatorIoContract contract;
+    AppendIoEntries(plan.input_converter->external_slots,
+                    llm_edgeflow::PortDirection::kInput, plan.binding.biz_name,
+                    &contract.inputs);
+    AppendIoEntries(plan.output_converter->external_slots,
+                    llm_edgeflow::PortDirection::kOutput, plan.binding.biz_name,
+                    &contract.outputs);
+    *out = std::move(contract);
     return 0;
   } catch (const std::exception& e) {
-    if (out_biz_name) out_biz_name->clear();
+    if (out) {
+      out->inputs.clear();
+      out->outputs.clear();
+    }
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size, "Exception: %s", e.what());
     }
     return -99;
   } catch (...) {
-    if (out_biz_name) out_biz_name->clear();
+    if (out) {
+      out->inputs.clear();
+      out->outputs.clear();
+    }
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size,
-                    "Unknown exception in ResolveOperatorConfigBiz");
+                    "Unknown exception in ResolveOperatorConfigIo");
     }
     return -100;
   }

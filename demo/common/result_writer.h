@@ -17,7 +17,7 @@ struct DemoSampleResult {
   int status = 0;           // 0 成功, 非 0 错误
   double latency_ms = 0.0;  // 耗时 (ms)
   std::string error;        // 错误信息 (若失败)
-  nlohmann::json output;    // 业务自定义结果 JSON
+  nlohmann::json output;    // 各输出项显示函数填写的结果 JSON
 };
 
 /**
@@ -25,7 +25,11 @@ struct DemoSampleResult {
  */
 class ResultWriter {
  public:
-  explicit ResultWriter(const DemoOptions& options);
+  /**
+   * @param run_label 未指定 Profile 时用作结果子目录名与记录中的 profile
+   *                  字段；为空时使用 "default"。
+   */
+  explicit ResultWriter(const DemoOptions& options, std::string run_label = {});
 
   /**
    * @brief 写入全部样本结果与统计摘要
@@ -41,6 +45,7 @@ class ResultWriter {
 
  private:
   DemoOptions options_;
+  std::string run_label_;
 };
 
 }  // namespace alg_demo

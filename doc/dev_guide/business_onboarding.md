@@ -88,11 +88,11 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
 | 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition` 与转换器组合；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
 | Operator 类型注册（仅新平台宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新平台宿主类型在此登记一项，与平台结构、type traits 一一对应；已有类型的新嵌套布局用自己文件中的命名方案，见[实现与注册](operator_output_allocation.md#实现与注册) |
-| Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
+| Demo 数据转换 | [keyword_input.cpp](../../demo/input/keyword_input.cpp)、[keyword_output.cpp](../../demo/output/keyword_output.cpp) | 已有宿主结构无需改动；新宿主结构按载体补充 `REGISTER_DEMO_INPUT`（请求构造）与 `REGISTER_DEMO_OUTPUT`（结果显示） |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
 配置作者只在 `io_binding` 填写业务名（`keyword_match`）。它选择该业务唯一的绑定，
-从而关联业务边界和输入/输出转换器；Demo 从配置自动选择运行入口。Operator 槽位后缀
+从而关联业务边界和输入/输出转换器；Demo 从 SDK 预检返回的契约按宿主结构选择请求构造和结果显示。Operator 槽位后缀
 （`keyword_in` / `keyword_out`）属于宿主调用契约，由绑定关联到已注册宿主类型。
 
 ## 3. 实现并注册转换器与绑定
@@ -204,26 +204,35 @@ Definition 使用 `RequiredInputPort(port)` / `OutputPort(port)`，回调直接�
 
 ## 5. 统一 Demo 接入
 
-已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
-新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
-Pipeline 只选择 `io_binding`，Demo 调用 `ResolveOperatorConfigBiz` 解析业务身份并选择 runner。
-Profile 不填写业务名。每个业务只注册一个 binding，业务名唯一确定外部协议、载体及槽位。Demo 按该契约准备载体，
-不能仅因宿主类型相同就复用另一业务契约；外部协议不同的输入或输出属于另一个业务。
-这里的数据转换仅指载体构造和结果展示，外部协议的解包、
-字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
-新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：
+Demo 按宿主结构（载体）运行，不依赖业务名。已有载体上的新方案直接沿用对应 Demo 和数据集格式，
+只准备 Pipeline 与指向它的 `.conf`；在已有结构上新增业务，Demo 不用改。
+Demo 调用 `ResolveOperatorConfigIo` 只读预检配置，得到 I/O 契约：输入项、输出项各按配置顺序，
+每项含 `type`（宿主 map key 后缀，如 `doc_in`）、`name`（业务）、`type_name`（宿主结构名）、
+`service_type` 与 `required`。请求构造按**输入项结构名按顺序用逗号拼接**的键查找
+（`CompanyOperatorDocInput`、`CompanyFrame,CompanyString`），结果显示按**单个输出结构名**查找；
+找不到时 Demo 报错并列出已支持的载体（`alg_demo --list` 同样列出）。
+Demo 不理解载荷语义：它只构造载体、持有缓冲、调用 SDK、显示并复制结果；外部协议的解包、
+字段选择与响应组装仍在转换器，不得把原始业务请求预先拆成内部节点输入。
+需要新宿主结构时，在 `demo/input/`、`demo/output/` 各补一个 `.cpp`（自动编入，无需改 CMake 或
+`demo/main.cpp`）：
 
-1. 已有运行函数可用时复用；需要新载体构造时，新建 `demo/biz/<biz>_demo.cpp`，
-   从数据集读入样本，为每条样本构造宿主输入结构，
-   保持字符串及数组在同步处理期间有效。
-2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入声明的槽位后缀；
-   在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
-   同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
-   调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
-3. 用 `REGISTER_DEMO_BIZ(biz_name, title, run_function)` 注册，名称与
-   binding 注册的内部业务名一致；`demo/biz/` 下的 `.cpp` 自动编入。无需在 `demo/main.cpp` 增加业务分支。
+1. 请求构造：`demo/input/<载体>_input.cpp` 实现 `BuildRequestsFn`，从数据集读入样本，为每条样本构造
+   宿主输入结构，按 `DemoIoKey(输入项)`（即 `demo.<type>`）写入 `DemoRequestBatch::requests`，
+   并让 `storage` 持有字符串及数组直到运行结束；每条请求供结果显示读取的信息放入 `request_info`，
+   均为可选项。用 `REGISTER_DEMO_INPUT("结构名[,结构名...]", 函数)` 注册。
+2. 结果显示：`demo/output/<载体>_output.cpp` 实现 `ShowResultFn`，把输出结构的字段复制到本地值，
+   写入 `request_id`、真实 `status_code`（不能固定填零）和 `results.jsonl` 的 `output` 字段，
+   再打印。读取 `request_info` 时缺失要降级显示。用 `REGISTER_DEMO_OUTPUT("结构名", 函数)` 注册。
+   多个输出项的字段同名时，公共流程以输出项的 `type` 作前缀合并。
+3. 公共流程 `RunOperatorDemo`（`demo/common/operator_runner.h`）只有一份：取契约、创建句柄、执行
+   Control、按 `batch_size` 分批 Process、对每条结果的每个输出项调用结果显示、写
+   `results.jsonl` 与 `summary.json`。Process 返回成功表示调用完成，业务是否逐条成功还需检查
+   `results.jsonl` 和 `summary.json`。
 4. 准备样例数据、Pipeline 和 `.conf`。先用 `--config`、`--dataset` 运行。
    仅需保存可重复调用的预设或加入套件时，再向 `demo/profiles.json` 添加 Profile。
+
+Control 一律显式：Demo 没有内置命令，`control_file` 与 `control_cmd`（CLI 或 Profile）必须同时给出，
+否则退出 3；示例见 Profile `keyword_match_control`。音频的"是否真实模型"只看 `suite == "real"`。
 
 `.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时核对 Pipeline JSON 中的 `models[].model_path` 与 `deployment.io.out_mem` 输出容量。模型路径只配置在模型条目中，相对路径以宿主部署根为基准。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 

@@ -1,8 +1,11 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "edgeflow/export.h"
 #include "edgeflow/operator/types.h"
@@ -59,14 +62,34 @@ COMPANY_ALG_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
 COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
 
 /**
- * @brief 解析部署配置并返回由 I/O 绑定确定的业务契约名。
- * 只读预检，不加载模型、不执行转换；每个业务只有一个绑定。
- * @param out_biz_name 必需的结果指针；失败时为空，成功时为完整业务名。
+ * @brief 部署配置中的一个外部 I/O 项 (宿主 map key 与宿主结构的对应关系)
+ */
+struct OperatorIoEntry {
+  std::string type;       // 宿主 map key 的后缀，例如 "doc_in"
+  std::string name;       // 业务，例如 "doc_qa"
+  std::string type_name;  // 宿主结构名，例如 "CompanyOperatorDocInput"
+  std::optional<int32_t> service_type;  // 业务对应的取值；没有该成员时为空
+  bool required = true;
+};
+
+/**
+ * @brief 部署配置的外部 I/O 契约，顺序与配置中的输入、输出项相同
+ */
+struct OperatorIoContract {
+  std::vector<OperatorIoEntry> inputs;
+  std::vector<OperatorIoEntry> outputs;
+};
+
+/**
+ * @brief 解析部署配置并返回外部 I/O 契约。
+ * 只读预检：与 Create 做同样的解析和校验，但不加载模型、不执行转换。
+ * @param out 必需的结果指针；失败时为空，成功时为完整契约。
  * @return 0 成功，-2 参数/配置错误，其他负值为验证或内部异常。
  */
-COMPANY_ALG_API int ResolveOperatorConfigBiz(
-    const char* model_path, const char* cfg_file_name,
-    std::string* out_biz_name, char* out_error_msg = nullptr,
-    size_t error_buf_size = 0) noexcept;
+COMPANY_ALG_API int ResolveOperatorConfigIo(const char* model_path,
+                                            const char* cfg_file_name,
+                                            OperatorIoContract* out,
+                                            char* out_error_msg = nullptr,
+                                            size_t error_buf_size = 0) noexcept;
 
 }  // namespace llm_edgeflow::operator_api

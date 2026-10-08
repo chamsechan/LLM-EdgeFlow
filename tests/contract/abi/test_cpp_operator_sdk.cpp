@@ -94,14 +94,20 @@ int main() {
     return 6;
   }
 
-  // 5. ResolveOperatorConfigBiz
+  // 5. ResolveOperatorConfigIo
   char err_buf[512] = {0};
-  std::string resolved_biz;
-  int val_ret = llm_edgeflow::operator_api::ResolveOperatorConfigBiz(
-      root_dir.c_str(), config_rel, &resolved_biz, err_buf, sizeof(err_buf));
-  if (val_ret != 0 || resolved_biz != "keyword_match") {
+  llm_edgeflow::operator_api::OperatorIoContract contract;
+  int val_ret = llm_edgeflow::operator_api::ResolveOperatorConfigIo(
+      root_dir.c_str(), config_rel, &contract, err_buf, sizeof(err_buf));
+  if (val_ret != 0 || contract.inputs.size() != 1 ||
+      contract.outputs.size() != 1 || contract.inputs[0].type != "keyword_in" ||
+      contract.inputs[0].name != "keyword_match" ||
+      contract.inputs[0].type_name != "CompanyOperatorKeywordInput" ||
+      contract.inputs[0].service_type.has_value() ||
+      contract.outputs[0].type != "keyword_out" ||
+      contract.outputs[0].type_name != "CompanyOperatorKeywordOutput") {
     std::fprintf(stderr,
-                 "[SDK Consumer Test] ResolveOperatorConfigBiz failed: %s\n",
+                 "[SDK Consumer Test] ResolveOperatorConfigIo failed: %s\n",
                  err_buf);
     return 7;
   }

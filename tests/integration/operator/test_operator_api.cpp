@@ -960,42 +960,85 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
   leak_out.reset();
 }
 
-// 15. ResolveOperatorConfigBiz 双路径校验接口测试
-TEST_F(OperatorApiTest, ResolveOperatorConfigBizApi) {
+// 15. ResolveOperatorConfigIo 预检接口测试
+TEST_F(OperatorApiTest, ResolveOperatorConfigIoApi) {
   const std::string root = GetConfDir();
-  std::string biz = "stale";
+  OperatorIoContract contract;
+  contract.inputs.resize(3);
   char error[256]{};
-  static_assert(noexcept(ResolveOperatorConfigBiz(nullptr, nullptr, nullptr)));
-  ASSERT_EQ(ResolveOperatorConfigBiz(
-                root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz,
-                error, sizeof(error)),
+  static_assert(noexcept(ResolveOperatorConfigIo(nullptr, nullptr, nullptr)));
+  ASSERT_EQ(ResolveOperatorConfigIo(root.c_str(),
+                                    "configs/pipeline_keyword_match_rules.conf",
+                                    &contract, error, sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "keyword_match");
-  biz = "stale";
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  EXPECT_EQ(contract.inputs[0].type, "keyword_in");
+  EXPECT_EQ(contract.inputs[0].name, "keyword_match");
+  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorKeywordInput");
+  EXPECT_FALSE(contract.inputs[0].service_type.has_value());
+  EXPECT_TRUE(contract.inputs[0].required);
+  ASSERT_EQ(contract.outputs.size(), 1U);
+  EXPECT_EQ(contract.outputs[0].type, "keyword_out");
+  EXPECT_EQ(contract.outputs[0].name, "keyword_match");
+  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorKeywordOutput");
+
+  // 图片问答的输入有两个槽，按槽顺序各占一项。
+  contract = {};
+  ASSERT_EQ(ResolveOperatorConfigIo(
+                root.c_str(), "demo/fixtures/mock/pipeline_ocr_invoice_qa.conf",
+                &contract, error, sizeof(error)),
+            0)
+      << error;
+  ASSERT_EQ(contract.inputs.size(), 2U);
+  EXPECT_EQ(contract.inputs[0].type, "frame");
+  EXPECT_EQ(contract.inputs[0].type_name, "CompanyFrame");
+  EXPECT_EQ(contract.inputs[1].type, "string");
+  EXPECT_EQ(contract.inputs[1].type_name, "CompanyString");
+  EXPECT_EQ(contract.inputs[0].name, "ocr_invoice_qa");
+  EXPECT_EQ(contract.inputs[1].name, "ocr_invoice_qa");
+  ASSERT_EQ(contract.outputs.size(), 1U);
+  EXPECT_EQ(contract.outputs[0].type, "od_out");
+  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOdOutput");
+
+  // 同一结构上的多个业务共用载体：翻译与实体抽取都使用 entity_in。
+  contract = {};
+  ASSERT_EQ(ResolveOperatorConfigIo(root.c_str(),
+                                    "configs/pipeline_translate_cpu.conf",
+                                    &contract, error, sizeof(error)),
+            0)
+      << error;
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  EXPECT_EQ(contract.inputs[0].type, "entity_in");
+  EXPECT_EQ(contract.inputs[0].name, "translate");
+  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorEntityInput");
+
+  EXPECT_EQ(ResolveOperatorConfigIo(root.c_str(),
+                                    "configs/pipeline_keyword_match_rules.conf",
+                                    nullptr, error, sizeof(error)),
+            -2);
+  // 无输出缓冲时仍返回结果，且预检失败时契约被清空。
+  contract = {};
   ASSERT_EQ(
-      ResolveOperatorConfigBiz(
-          root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz),
+      ResolveOperatorConfigIo(
+          root.c_str(), "configs/pipeline_keyword_match_rules.conf", &contract),
       0);
-  EXPECT_EQ(biz, "keyword_match");
-  EXPECT_EQ(ResolveOperatorConfigBiz(
-                root.c_str(), "configs/pipeline_keyword_match_rules.conf",
-                nullptr, error, sizeof(error)),
+  EXPECT_EQ(contract.inputs.size(), 1U);
+  contract.inputs.resize(2);
+  EXPECT_EQ(ResolveOperatorConfigIo(root.c_str(), "/etc/passwd", &contract,
+                                    error, sizeof(error)),
             -2);
-  biz = "stale";
-  EXPECT_EQ(ResolveOperatorConfigBiz(root.c_str(), "/etc/passwd", &biz, error,
-                                     sizeof(error)),
-            -2);
-  EXPECT_TRUE(biz.empty());
+  EXPECT_TRUE(contract.inputs.empty());
+  EXPECT_TRUE(contract.outputs.empty());
   for (int invalid = 0; invalid < 2; ++invalid) {
-    biz = "stale";
-    EXPECT_EQ(ResolveOperatorConfigBiz(
+    contract.inputs.resize(1);
+    EXPECT_EQ(ResolveOperatorConfigIo(
                   invalid == 0 ? nullptr : root.c_str(),
                   invalid == 1 ? nullptr
                                : "configs/pipeline_keyword_match_rules.conf",
-                  &biz, error, sizeof(error)),
+                  &contract, error, sizeof(error)),
               -2);
-    EXPECT_TRUE(biz.empty());
+    EXPECT_TRUE(contract.inputs.empty());
   }
 }
 
@@ -1458,45 +1501,45 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
 TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   std::string root_dir = GetConfDir();
   char err_buf[256] = {0};
-  std::string biz = "stale";
+  OperatorIoContract contract;
 
   // 1. POSIX 绝对路径拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "/etc/pipeline.conf",
-                                     &biz, err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "/etc/pipeline.conf",
+                                    &contract, err_buf, sizeof(err_buf)),
             -2);
 
   // 2. Windows 盘符拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "C:\\pipeline.conf",
-                                     &biz, err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "C:\\pipeline.conf",
+                                    &contract, err_buf, sizeof(err_buf)),
             -2);
 
   // 3. UNC 路径拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(),
-                                     "\\\\server\\share\\pipeline.conf", &biz,
-                                     err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(),
+                                    "\\\\server\\share\\pipeline.conf",
+                                    &contract, err_buf, sizeof(err_buf)),
             -2);
 
   // 4. .. 逃逸拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "../../etc/passwd", &biz,
-                                     err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "../../etc/passwd",
+                                    &contract, err_buf, sizeof(err_buf)),
             -2);
 
   // 5. 目录而非普通文件拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "configs", &biz, err_buf,
-                                     sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "configs", &contract,
+                                    err_buf, sizeof(err_buf)),
             -2);
 
   // 6. 不存在的文件拒绝
   EXPECT_EQ(
-      ResolveOperatorConfigBiz(root_dir.c_str(), "configs/non_existent.conf",
-                               &biz, err_buf, sizeof(err_buf)),
+      ResolveOperatorConfigIo(root_dir.c_str(), "configs/non_existent.conf",
+                              &contract, err_buf, sizeof(err_buf)),
       -2);
 
   // 7. 路径前缀混淆拒绝 (例如目标根为 root，试图访问 root_extra 目录)
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(),
-                                     "../configs_fake/pipeline.conf", &biz,
-                                     err_buf, sizeof(err_buf)),
-            -2);
+  EXPECT_EQ(
+      ResolveOperatorConfigIo(root_dir.c_str(), "../configs_fake/pipeline.conf",
+                              &contract, err_buf, sizeof(err_buf)),
+      -2);
 
   // 8. 对 Create 接口同样严格拦截非普通文件与不存在文件
   CreateParam bad_param{};
@@ -2708,12 +2751,13 @@ TEST_F(OperatorApiTest, MissingOutputMemoryUsesRegisteredNestedDefaults) {
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
   const auto root = temp.path().string();
   char error[256]{};
-  std::string biz;
-  EXPECT_EQ(ResolveOperatorConfigBiz(root.c_str(), "pipeline.conf", &biz, error,
-                                     sizeof(error)),
+  OperatorIoContract contract;
+  EXPECT_EQ(ResolveOperatorConfigIo(root.c_str(), "pipeline.conf", &contract,
+                                    error, sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "test_nested_output");
+  ASSERT_FALSE(contract.outputs.empty());
+  EXPECT_EQ(contract.outputs[0].name, "test_nested_output");
   llm_edgeflow::ResolvedOperatorConfig resolved;
   std::string resolve_error;
   ASSERT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(

@@ -1102,9 +1102,10 @@ TEST_F(IoBindingRegistryTest, UnknownDeploymentIoFieldIsRejected) {
 }
 
 TEST_F(IoBindingRegistryTest,
-       PublicBusinessQueryWorksWithoutInitAndClearsFailures) {
+       PublicIoContractQueryWorksWithoutInitAndClearsFailures) {
   RegisterTestBizBinding();
-  const auto directory = fs::temp_directory_path() / "edgeflow_business_query";
+  const auto directory =
+      fs::temp_directory_path() / "edgeflow_io_contract_query";
   fs::create_directories(directory);
   const std::string root = directory.string();
   nlohmann::json document = {
@@ -1118,25 +1119,35 @@ TEST_F(IoBindingRegistryTest,
   std::ofstream(directory / "pipeline.json") << document;
   std::ofstream(directory / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
-  std::string biz = "stale";
+  operator_api::OperatorIoContract contract;
   char error[512]{};
   const int decoded_before = dummy_decode_calls;
   const int encoded_before = dummy_encode_calls;
-  ASSERT_EQ(operator_api::ResolveOperatorConfigBiz(
-                root.c_str(), "pipeline.conf", &biz, error, sizeof(error)),
+  ASSERT_EQ(operator_api::ResolveOperatorConfigIo(
+                root.c_str(), "pipeline.conf", &contract, error, sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "test_biz");
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  EXPECT_EQ(contract.inputs[0].type, "entity_in");
+  EXPECT_EQ(contract.inputs[0].name, "test_biz");
+  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorEntityInput");
+  EXPECT_FALSE(contract.inputs[0].service_type.has_value());
+  EXPECT_TRUE(contract.inputs[0].required);
+  ASSERT_EQ(contract.outputs.size(), 1U);
+  EXPECT_EQ(contract.outputs[0].type, "entity_out");
+  EXPECT_EQ(contract.outputs[0].name, "test_biz");
+  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorEntityOutput");
   EXPECT_EQ(dummy_decode_calls, decoded_before);
   EXPECT_EQ(dummy_encode_calls, encoded_before);
   document["deployment"]["io"]["io_binding"] = "unknown_biz";
   std::ofstream(directory / "pipeline.json") << document;
-  EXPECT_EQ(operator_api::ResolveOperatorConfigBiz(
-                root.c_str(), "pipeline.conf", &biz, error, sizeof(error)),
+  EXPECT_EQ(operator_api::ResolveOperatorConfigIo(
+                root.c_str(), "pipeline.conf", &contract, error, sizeof(error)),
             -2);
-  EXPECT_TRUE(biz.empty());
+  EXPECT_TRUE(contract.inputs.empty());
+  EXPECT_TRUE(contract.outputs.empty());
   EXPECT_NE(std::string(error).find("unknown_biz"), std::string::npos);
-  EXPECT_EQ(operator_api::ResolveOperatorConfigBiz(
+  EXPECT_EQ(operator_api::ResolveOperatorConfigIo(
                 root.c_str(), "pipeline.conf", nullptr, error, sizeof(error)),
             -2);
   fs::remove_all(directory);

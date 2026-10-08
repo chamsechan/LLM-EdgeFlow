@@ -2,8 +2,8 @@
 #include <string>
 #include <vector>
 
+#include "demo/common/demo_io_registry.h"
 #include "demo/common/demo_options.h"
-#include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
@@ -32,12 +32,14 @@ struct OperatorGlobalGuard {
   }
 };
 
-void ListProfilesAndBizs(const std::string& profiles_file) {
-  std::cout << "\n=== Registered Biz Cases ===" << std::endl;
-  auto descs = DemoRegistry::Instance().ListDescriptors();
-  for (const auto& d : descs) {
-    std::cout << "  - " << d.biz_name << " (" << d.display_title << ")"
-              << std::endl;
+void ListProfilesAndCarriers(const std::string& profiles_file) {
+  std::cout << "\n=== Supported Input Carriers ===" << std::endl;
+  for (const auto& name : DemoInputRegistry::Instance().List()) {
+    std::cout << "  - " << name << std::endl;
+  }
+  std::cout << "\n=== Supported Output Carriers ===" << std::endl;
+  for (const auto& name : DemoOutputRegistry::Instance().List()) {
+    std::cout << "  - " << name << std::endl;
   }
 
   std::cout << "\n=== Configured Profiles ===" << std::endl;
@@ -95,18 +97,7 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
       return ret;
     }
 
-    if (!ResolveConfigBiz(&merged_opt, &err)) {
-      std::cerr << "[Config ERROR] " << err << std::endl;
-      return 3;
-    }
-    const auto* desc = DemoRegistry::Instance().Find(merged_opt.biz);
-    if (!desc) {
-      std::cerr << "[Main ERROR] Biz '" << merged_opt.biz
-                << "' not registered for profile '" << prof << "'" << std::endl;
-      return 3;
-    }
-
-    ret = desc->run(merged_opt);
+    ret = RunOperatorDemo(merged_opt);
     if (ret != 0) {
       std::cerr << "[Main ERROR] Execution failed for profile: " << prof
                 << " with code " << ret << std::endl;
@@ -144,7 +135,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (cli_options.list_only) {
-    ListProfilesAndBizs(cli_options.profiles_file);
+    ListProfilesAndCarriers(cli_options.profiles_file);
     return 0;
   }
 
@@ -164,7 +155,7 @@ int main(int argc, char* argv[]) {
     return RunSuite("smoke", cli_options);
   }
 
-  // 4. 合并 Profile 与命令行配置 (单 Profile / 单业务模式)
+  // 4. 合并 Profile 与命令行配置 (单 Profile / 单配置模式)
   DemoOptions options;
   std::string merge_err;
   int merge_ret = LoadAndMergeProfiles(cli_options.profiles_file, cli_options,
@@ -174,19 +165,6 @@ int main(int argc, char* argv[]) {
     return merge_ret;
   }
 
-  if (!ResolveConfigBiz(&options, &merge_err)) {
-    std::cerr << "[Config ERROR] " << merge_err << std::endl;
-    return 3;
-  }
-
-  // 5. 查找并分发业务
-  const auto* desc = DemoRegistry::Instance().Find(options.biz);
-  if (!desc) {
-    std::cerr << "[Main ERROR] Unsupported or unregistered biz: '"
-              << options.biz << "'" << std::endl;
-    return 3;
-  }
-
-  int ret = desc->run(options);
-  return ret;
+  // 5. 按配置的 I/O 载体运行
+  return RunOperatorDemo(options);
 }

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Demo 按宿主结构（载体）运行，不再依赖业务名：公开接口 `ResolveOperatorConfigBiz` 替换为只读预检
+`ResolveOperatorConfigIo`，返回按配置顺序排列的输入项、输出项（`type` 为槽的 key 后缀，`name` 为业务，`type_name`
+为宿主结构名，`service_type` 暂为空，`required`）；导出白名单仍为 6 个符号，符号名随之更换，链接旧符号的宿主需重新
+编译。Demo 的请求构造按输入结构名组合（如 `CompanyFrame,CompanyString`）、结果显示按输出结构名各登记一次
+（`REGISTER_DEMO_INPUT` / `REGISTER_DEMO_OUTPUT`，源码在 `demo/input/`、`demo/output/`），公共流程只有一份；
+`demo/biz/`、`REGISTER_DEMO_BIZ` 与 `RunOperatorWithExtractor` 删除，`results.jsonl` 的 `output` 字段不变，记录与
+`summary.json` 不再含 `biz`。Control 一律显式：删除 `--example-control` 与各业务的内置默认命令，`control_file`
+必须同时给出 `control_cmd`，否则退出 3；示例规则改为 `data/keyword_match_control.json` 与 Profile
+`keyword_match_control`。音频是否真实模型只看 `suite == "real"`。未指定 Profile 时，结果目录取配置声明的输出业务名。
+
 `src/engine/models/`、`src/engine/backends/` 下的 `.cpp` 自动编入，新增 Model/Backend 不再修改 CMakeLists。
 
 注册冲突时，`Init` 的日志和 `GetOperatorLastError()`、Pipeline 校验的 Model/Backend 诊断都列出具体原因；

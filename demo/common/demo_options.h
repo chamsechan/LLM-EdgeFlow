@@ -24,11 +24,10 @@ void ConfigureLogLevelFromEnvironment() noexcept;
  * @brief Demo 运行参数对象 (由命令行参数、Profile 配置与默认安全值合并而成)
  */
 struct DemoOptions {
-  std::string profiles_file;  // 可选的部署专属 Profile 文档
-  std::string profile;        // 预定义运行配置 Profile 标识
-  std::string biz;            // SDK 从所选配置解析出的业务身份
-  std::string config_path;    // Operator .conf 路径
-  std::string dataset_path;   // 业务测试集文件路径
+  std::string profiles_file;             // 可选的部署专属 Profile 文档
+  std::string profile;                   // 预定义运行配置 Profile 标识
+  std::string config_path;               // Operator .conf 路径
+  std::string dataset_path;              // 测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
   // 执行参数只能由 Profile JSON 配置 (或使用默认值)。
@@ -38,13 +37,13 @@ struct DemoOptions {
                                             // (受严格白名单校验)
   uint32_t depth_num = alg_demo::kDemoDepth;  // 输出结构体预分配深度
 
-  std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
-  std::optional<int> control_cmd;  // 节点命令 ID；必须配合 control_file
-  std::string suite;               // 执行套件 ("smoke", "real", "all")
-  bool example_control = false;    // 显式应用 Demo 示例更新。
-  bool append = false;             // 结果文件是否追加模式
+  // 运行时 Control：control_file 与 control_cmd 必须同时给出。
+  std::optional<std::string> control_file;  // Control JSON 文件路径
+  std::optional<int> control_cmd;           // 节点命令 ID
+  std::string suite;                   // 执行套件 ("smoke", "real", "all")
+  bool append = false;                 // 结果文件是否追加模式
   bool allow_fallback_sample = false;  // 测试集缺失时是否允许使用内置样例
-  bool list_only = false;  // 是否仅列出可用 Business 和 Profile
+  bool list_only = false;  // 是否仅列出可用 Profile 和已支持的载体
   bool show_help = false;  // 是否显示帮助信息
 
   // 显式跟踪 CLI 是否显式提供了特定参数 (解决 CLI 默认值无法可靠覆盖 Profile
