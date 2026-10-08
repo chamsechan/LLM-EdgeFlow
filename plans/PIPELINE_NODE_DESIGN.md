@@ -300,7 +300,7 @@ inline Parameters<GenerateOptions> GenerateParameters() {
 
 ### 5.4 `bind_model` 的说明由框架生成
 
-`Model("generator", "bind_model", &Models::generator)` 不再接收说明文字。Catalog 中的说明由框架按槽位的模型类别生成，例如"引用 `models[].name`；所选模型的类别必须是 llm"。模型格式切换（模型设计阶段 2）之前，生成的文字仍写 `models[].model_id`。
+`Model("generator", "bind_model", &Models::generator)` 不再接收说明文字。Catalog 中的说明由框架按槽位的模型类别生成，例如"引用 `models[].name`；所选模型的类别必须是 llm。"模型格式切换（模型设计阶段 2）之前，生成的文字仍写 `models[].model_id`。
 
 ### 5.5 删除的写法
 

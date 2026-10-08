@@ -2,9 +2,12 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -218,33 +221,167 @@ struct FieldTypeTraits<float> {
     *out = static_cast<float>(value);
     return true;
   }
-  static nlohmann::json ToJson(float val) { return val; }
+  // 以 float 能往返的最短十进制写出，避免 0.7f 变成 0.699999988...
+  static nlohmann::json ToJson(float val) {
+    char buffer[32];
+    for (int precision = 1; precision <= 9; ++precision) {
+      std::snprintf(buffer, sizeof(buffer), "%.*g", precision,
+                    static_cast<double>(val));
+      if (std::strtof(buffer, nullptr) == val) {
+        return std::strtod(buffer, nullptr);
+      }
+    }
+    return static_cast<double>(val);
+  }
 };
 
-template <>
-struct FieldTypeTraits<std::vector<std::string>> {
+namespace detail {
+
+// FieldTypeTraits<T> 已定义时为真。结构体元素没有特化，由 Items(Parameters<T>)
+// 提供定义和解析。
+template <typename T, typename = void>
+struct HasFieldTraits : std::false_type {};
+template <typename T>
+struct HasFieldTraits<T, std::void_t<decltype(sizeof(FieldTypeTraits<T>))>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasDescribe : std::false_type {};
+template <typename T>
+struct HasDescribe<T, std::void_t<decltype(T::Describe())>> : std::true_type {};
+
+// 成员类型对应的无名定义：类型，加数组、映射的元素定义。
+template <typename T>
+ConfigFieldDefinition DescribeType() {
+  if constexpr (HasFieldTraits<T>::value) {
+    if constexpr (HasDescribe<FieldTypeTraits<T>>::value) {
+      return FieldTypeTraits<T>::Describe();
+    } else {
+      ConfigFieldDefinition def;
+      def.kind = FieldTypeTraits<T>::kKind;
+      return def;
+    }
+  } else {
+    ConfigFieldDefinition def;  // 结构体元素
+    def.kind = ConfigValueKind::kObject;
+    return def;
+  }
+}
+
+template <typename T>
+bool ExtractElement(const nlohmann::json& j, T* out, std::string* err) {
+  if constexpr (HasFieldTraits<T>::value) {
+    return FieldTypeTraits<T>::Extract(j, out, err);
+  } else {
+    if (err) *err = "struct elements require Items(Parameters<T>)";
+    return false;
+  }
+}
+
+template <typename T>
+nlohmann::json ElementToJson(const T& value) {
+  if constexpr (HasFieldTraits<T>::value) {
+    return FieldTypeTraits<T>::ToJson(value);
+  } else {
+    (void)value;
+    throw std::invalid_argument(
+        "Struct elements cannot be written as a default value");
+  }
+}
+
+}  // namespace detail
+
+template <typename T>
+struct FieldTypeTraits<std::vector<T>> {
   static constexpr ConfigValueKind kKind = ConfigValueKind::kArray;
-  static bool Extract(const nlohmann::json& j, std::vector<std::string>* out,
+  static ConfigFieldDefinition Describe() {
+    ConfigFieldDefinition def;
+    def.kind = kKind;
+    def.items = std::make_shared<const ConfigFieldDefinition>(
+        detail::DescribeType<T>());
+    return def;
+  }
+  static bool Extract(const nlohmann::json& j, std::vector<T>* out,
                       std::string* err) {
     if (!j.is_array()) {
       if (err) *err = "expected array";
       return false;
     }
-    std::vector<std::string> res;
+    std::vector<T> res;
     res.reserve(j.size());
-    for (const auto& elem : j) {
-      if (!elem.is_string()) {
-        if (err) *err = "expected array of strings";
+    for (size_t i = 0; i < j.size(); ++i) {
+      T element{};
+      std::string element_error;
+      if (!detail::ExtractElement(j[i], &element, &element_error)) {
+        if (err) *err = "element " + std::to_string(i) + ": " + element_error;
         return false;
       }
-      res.push_back(elem.get<std::string>());
+      res.push_back(std::move(element));
     }
     *out = std::move(res);
     return true;
   }
-  static nlohmann::json ToJson(const std::vector<std::string>& val) {
-    return val;
+  static nlohmann::json ToJson(const std::vector<T>& val) {
+    nlohmann::json array = nlohmann::json::array();
+    for (const auto& element : val) {
+      array.push_back(detail::ElementToJson(element));
+    }
+    return array;
   }
+};
+
+template <typename T>
+struct FieldTypeTraits<std::map<std::string, T>> {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kMap;
+  static ConfigFieldDefinition Describe() {
+    ConfigFieldDefinition def;
+    def.kind = kKind;
+    def.items = std::make_shared<const ConfigFieldDefinition>(
+        detail::DescribeType<T>());
+    return def;
+  }
+  static bool Extract(const nlohmann::json& j, std::map<std::string, T>* out,
+                      std::string* err) {
+    if (!j.is_object()) {
+      if (err) *err = "expected object";
+      return false;
+    }
+    std::map<std::string, T> res;
+    for (auto it = j.begin(); it != j.end(); ++it) {
+      T element{};
+      std::string element_error;
+      if (!detail::ExtractElement(it.value(), &element, &element_error)) {
+        if (err) *err = "key '" + it.key() + "': " + element_error;
+        return false;
+      }
+      res.emplace(it.key(), std::move(element));
+    }
+    *out = std::move(res);
+    return true;
+  }
+  static nlohmann::json ToJson(const std::map<std::string, T>& val) {
+    nlohmann::json object = nlohmann::json::object();
+    for (const auto& [key, element] : val) {
+      object[key] = detail::ElementToJson(element);
+    }
+    return object;
+  }
+};
+
+// 任意 JSON 值，不能为 null。
+template <>
+struct FieldTypeTraits<nlohmann::json> {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kJson;
+  static bool Extract(const nlohmann::json& j, nlohmann::json* out,
+                      std::string* err) {
+    if (j.is_null()) {
+      if (err) *err = "expected a non-null JSON value";
+      return false;
+    }
+    *out = j;
+    return true;
+  }
+  static nlohmann::json ToJson(const nlohmann::json& val) { return val; }
 };
 
 // std::optional<T> 成员表示"可以不写"：类型、范围、枚举规则与 T 相同，
@@ -252,16 +389,16 @@ struct FieldTypeTraits<std::vector<std::string>> {
 template <typename T>
 struct FieldTypeTraits<std::optional<T>> {
   static constexpr ConfigValueKind kKind = FieldTypeTraits<T>::kKind;
+  static ConfigFieldDefinition Describe() { return detail::DescribeType<T>(); }
   static bool Extract(const nlohmann::json& j, std::optional<T>* out,
                       std::string* err) {
     T value{};
-    if (!FieldTypeTraits<T>::Extract(j, &value, err)) return false;
+    if (!detail::ExtractElement(j, &value, err)) return false;
     *out = std::move(value);
     return true;
   }
   static nlohmann::json ToJson(const std::optional<T>& val) {
-    return val.has_value() ? FieldTypeTraits<T>::ToJson(*val)
-                           : nlohmann::json();
+    return val.has_value() ? detail::ElementToJson(*val) : nlohmann::json();
   }
 };
 
@@ -276,6 +413,34 @@ struct OptionalMember<std::optional<T>> : std::true_type {
   using Value = T;
 };
 
+// 约束落在最内层的标量元素上；非容器时就是字段本身。
+inline void ApplyConstraints(ConfigFieldDefinition* def,
+                             const std::optional<double>& minimum,
+                             const std::optional<double>& maximum,
+                             const std::vector<std::string>& enum_values) {
+  if (def->items) {
+    ConfigFieldDefinition element = *def->items;
+    ApplyConstraints(&element, minimum, maximum, enum_values);
+    def->items =
+        std::make_shared<const ConfigFieldDefinition>(std::move(element));
+    return;
+  }
+  def->minimum = minimum;
+  def->maximum = maximum;
+  def->enum_values = enum_values;
+}
+
+template <typename T>
+struct StructContainer : std::false_type {};
+template <typename E>
+struct StructContainer<std::vector<E>> : std::true_type {
+  using Element = E;
+};
+template <typename E>
+struct StructContainer<std::map<std::string, E>> : std::true_type {
+  using Element = E;
+};
+
 template <typename T>
 const T& MemberValue(const T& value) noexcept {
   return value;
@@ -286,6 +451,9 @@ const T& MemberValue(const std::optional<T>& value) noexcept {
 }
 
 }  // namespace detail
+
+template <typename ParamsT>
+class Parameters;
 
 template <typename ParamsT>
 class ParameterFieldBinding {
@@ -306,11 +474,17 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   using MemberPtr = MemberT ParamsT::*;
   using ValueType = typename detail::OptionalMember<MemberT>::Value;
 
+  // 结构体元素的容器没有 FieldTypeTraits，由 Items(Parameters<E>) 提供解析。
+  using Extractor =
+      std::function<bool(const nlohmann::json&, MemberT*, std::string*)>;
+
   ConcreteFieldBinding(std::string name, MemberPtr member_ptr, bool required,
                        bool has_default, MemberT default_val,
                        std::optional<double> min_val,
                        std::optional<double> max_val,
-                       std::vector<std::string> enum_vals, std::string semantic)
+                       std::vector<std::string> enum_vals, std::string semantic,
+                       std::vector<ConfigFieldDefinition> element_fields = {},
+                       Extractor extractor = nullptr)
       : name_(std::move(name)),
         member_ptr_(member_ptr),
         required_(required),
@@ -319,19 +493,24 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
         minimum_(min_val),
         maximum_(max_val),
         enum_values_(std::move(enum_vals)),
-        semantic_(std::move(semantic)) {}
+        semantic_(std::move(semantic)),
+        element_fields_(std::move(element_fields)),
+        extractor_(std::move(extractor)) {}
 
   const std::string& Name() const override { return name_; }
 
   ConfigFieldDefinition ToFieldDefinition() const override {
-    ConfigFieldDefinition def;
+    ConfigFieldDefinition def = detail::DescribeType<MemberT>();
     def.name = name_;
-    def.kind = FieldTypeTraits<MemberT>::kKind;
     def.required = required_;
-    def.minimum = minimum_;
-    def.maximum = maximum_;
-    def.enum_values = enum_values_;
     def.semantic = semantic_;
+    if (!element_fields_.empty() && def.items) {
+      ConfigFieldDefinition element = *def.items;
+      element.fields = element_fields_;
+      def.items = std::make_shared<const ConfigFieldDefinition>(element);
+    }
+    // 数组、映射的 Range、Enum 约束其中的标量元素。
+    detail::ApplyConstraints(&def, minimum_, maximum_, enum_values_);
 
     if (has_default_) {
       def.default_value = FieldTypeTraits<MemberT>::ToJson(default_val_);
@@ -391,16 +570,20 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
       return false;
     }
     MemberT extracted{};
-    if (!FieldTypeTraits<MemberT>::Extract(val_json, &extracted, err)) {
+    const bool extracted_ok = extractor_ ? extractor_(val_json, &extracted, err)
+                                         : FieldTypeTraits<MemberT>::Extract(
+                                               val_json, &extracted, err);
+    if (!extracted_ok) {
       if (err) {
         *err = "Field '" + name_ + "' extraction error: " + *err;
       }
       return false;
     }
     // 再校验取值边界
+    // 以配置中的数值比较，避免 float 成员的舍入误差越过边界。
     if (minimum_.has_value()) {
       if constexpr (std::is_arithmetic_v<ValueType>) {
-        if (static_cast<double>(detail::MemberValue(extracted)) < *minimum_) {
+        if (val_json.get<double>() < *minimum_) {
           if (err) *err = "Field '" + name_ + "' is below minimum";
           return false;
         }
@@ -408,7 +591,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
     }
     if (maximum_.has_value()) {
       if constexpr (std::is_arithmetic_v<ValueType>) {
-        if (static_cast<double>(detail::MemberValue(extracted)) > *maximum_) {
+        if (val_json.get<double>() > *maximum_) {
           if (err) *err = "Field '" + name_ + "' exceeds maximum";
           return false;
         }
@@ -440,6 +623,8 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   std::optional<double> maximum_;
   std::vector<std::string> enum_values_;
   std::string semantic_;
+  std::vector<ConfigFieldDefinition> element_fields_;
+  Extractor extractor_;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -485,6 +670,65 @@ class FieldBuilder {
     return *this;
   }
 
+  // 元素是结构体的数组、映射（std::vector<E>、std::map<std::string, E>）
+  // 用 E 的参数声明校验、补默认值、解析每个元素，再执行 E 的 Prepare 和
+  // Validate。E 须可默认构造。
+  template <typename E>
+  FieldBuilder& Items(Parameters<E> element) {
+    using Container = typename detail::OptionalMember<MemberT>::Value;
+    static_assert(std::is_same_v<Container, std::vector<E>> ||
+                      std::is_same_v<Container, std::map<std::string, E>>,
+                  "Items(Parameters<E>) requires a std::vector<E> or "
+                  "std::map<std::string, E> member");
+    auto shared = std::make_shared<const Parameters<E>>(std::move(element));
+    element_fields_ = shared->Fields();
+    if (element_fields_.empty()) {
+      throw std::invalid_argument("Items for field '" + name_ +
+                                  "' must declare at least one field");
+    }
+    extractor_ = [shared, name = name_](const nlohmann::json& j, MemberT* out,
+                                        std::string* err) {
+      Container result;
+      const auto parse_element = [&](const nlohmann::json& value,
+                                     const std::string& where, E* element_out) {
+        std::string element_error;
+        auto parsed = shared->ParseNormalized(value, &element_error);
+        if (!parsed.has_value()) {
+          if (err) *err = where + ": " + element_error;
+          return false;
+        }
+        *element_out = std::move(*parsed);
+        return true;
+      };
+      if constexpr (std::is_same_v<Container, std::vector<E>>) {
+        if (!j.is_array()) {
+          if (err) *err = "expected array";
+          return false;
+        }
+        for (size_t i = 0; i < j.size(); ++i) {
+          E element;
+          if (!parse_element(j[i], "element " + std::to_string(i), &element))
+            return false;
+          result.push_back(std::move(element));
+        }
+      } else {
+        if (!j.is_object()) {
+          if (err) *err = "expected object";
+          return false;
+        }
+        for (auto it = j.begin(); it != j.end(); ++it) {
+          E element;
+          if (!parse_element(it.value(), "key '" + it.key() + "'", &element))
+            return false;
+          result.emplace(it.key(), std::move(element));
+        }
+      }
+      *out = std::move(result);
+      return true;
+    };
+    return *this;
+  }
+
   std::unique_ptr<ParameterFieldBinding<ParamsT>> Build() const {
     if constexpr (detail::OptionalMember<MemberT>::value) {
       if (required_ || has_default_) {
@@ -498,7 +742,7 @@ class FieldBuilder {
     }
     return std::make_unique<ConcreteFieldBinding<ParamsT, MemberT>>(
         name_, member_ptr_, required_, has_default_, default_val_, minimum_,
-        maximum_, enum_values_, semantic_);
+        maximum_, enum_values_, semantic_, element_fields_, extractor_);
   }
 
  private:
@@ -511,6 +755,8 @@ class FieldBuilder {
   std::optional<double> maximum_;
   std::vector<std::string> enum_values_;
   std::string semantic_;
+  std::vector<ConfigFieldDefinition> element_fields_;
+  typename ConcreteFieldBinding<ParamsT, MemberT>::Extractor extractor_;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -518,6 +764,41 @@ inline FieldBuilder<ParamsT, MemberT> Field(std::string name,
                                             MemberT ParamsT::*member_ptr) {
   return FieldBuilder<ParamsT, MemberT>(std::move(name), member_ptr);
 }
+
+// Include 并入的字段：在 JSON 中与自有字段平铺，值写进 ParamsT 的一个成员。
+template <typename ParamsT, typename GroupT>
+class IncludedFieldBinding final : public ParameterFieldBinding<ParamsT> {
+ public:
+  IncludedFieldBinding(GroupT ParamsT::*member,
+                       std::unique_ptr<ParameterFieldBinding<GroupT>> inner)
+      : member_(member), inner_(std::move(inner)) {}
+  IncludedFieldBinding(const IncludedFieldBinding& other)
+      : member_(other.member_), inner_(other.inner_->Clone()) {}
+
+  const std::string& Name() const override { return inner_->Name(); }
+  ConfigFieldDefinition ToFieldDefinition() const override {
+    return inner_->ToFieldDefinition();
+  }
+  bool Assign(const nlohmann::json& normalized_json, ParamsT* out,
+              std::string* err) const override {
+    if (!out) return false;
+    return inner_->Assign(normalized_json, &(out->*member_), err);
+  }
+  bool ConflictsWithMember(
+      const ParameterFieldBinding<ParamsT>& other) const override {
+    const auto* casted =
+        dynamic_cast<const IncludedFieldBinding<ParamsT, GroupT>*>(&other);
+    return casted && member_ == casted->member_ &&
+           inner_->ConflictsWithMember(*casted->inner_);
+  }
+  std::unique_ptr<ParameterFieldBinding<ParamsT>> Clone() const override {
+    return std::make_unique<IncludedFieldBinding>(*this);
+  }
+
+ private:
+  GroupT ParamsT::*member_;
+  std::unique_ptr<ParameterFieldBinding<GroupT>> inner_;
+};
 
 template <typename ParamsT>
 class ParameterFieldBindingHolder {
@@ -606,6 +887,7 @@ class Parameters {
   Parameters(const Parameters& other)
       : definitions_(other.definitions_),
         complex_parser_(other.complex_parser_),
+        includes_(other.includes_),
         prepare_fn_(other.prepare_fn_),
         semantic_validator_(other.semantic_validator_),
         binding_validator_(other.binding_validator_) {
@@ -620,6 +902,7 @@ class Parameters {
     if (this != &other) {
       definitions_ = other.definitions_;
       complex_parser_ = other.complex_parser_;
+      includes_ = other.includes_;
       prepare_fn_ = other.prepare_fn_;
       semantic_validator_ = other.semantic_validator_;
       binding_validator_ = other.binding_validator_;
@@ -632,6 +915,50 @@ class Parameters {
     return *this;
   }
   Parameters& operator=(Parameters&&) noexcept = default;
+
+  // 并入另一组参数：其字段与自有字段平铺在同一层，值写进 member。重名时
+  // 立即报错；被并入组的 Prepare、Validate 先于本组执行。
+  template <typename GroupT>
+  Parameters& Include(GroupT ParamsT::*member,
+                      const Parameters<GroupT>& group) {
+    if (group.HasParser()) {
+      throw std::invalid_argument(
+          "Include does not support a parameter group with WithParser");
+    }
+    for (const auto& incoming : group.Bindings()) {
+      if (!incoming) continue;
+      for (const auto& existing : bindings_) {
+        if (existing->Name() == incoming->Name()) {
+          throw std::invalid_argument("Duplicate config field name: " +
+                                      incoming->Name());
+        }
+      }
+    }
+    std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> added;
+    for (const auto& incoming : group.Bindings()) {
+      if (!incoming) continue;
+      added.push_back(std::make_unique<IncludedFieldBinding<ParamsT, GroupT>>(
+          member, incoming->Clone()));
+    }
+    for (auto& binding : added) {
+      for (const auto& existing : bindings_) {
+        if (binding->ConflictsWithMember(*existing)) {
+          throw std::invalid_argument(
+              "Same struct member bound to multiple config fields (" +
+              existing->Name() + ", " + binding->Name() + ")");
+        }
+      }
+      definitions_.push_back(binding->ToFieldDefinition());
+      bindings_.push_back(std::move(binding));
+    }
+    auto shared = std::make_shared<const Parameters<GroupT>>(group);
+    includes_.push_back([member, shared](ParamsT* state,
+                                         const BindingFacts& facts,
+                                         std::string* err) {
+      return shared->ValidateState(&(state->*member), facts, err);
+    });
+    return *this;
+  }
 
   Parameters& Prepare(PrepareFunction prepare) {
     prepare_fn_ = std::move(prepare);
@@ -678,6 +1005,12 @@ class Parameters {
   bool ValidateState(ParamsT* state, const BindingFacts& facts,
                      std::string* err) const noexcept {
     try {
+      for (const auto& include : includes_) {
+        if (!include(state, facts, err)) {
+          if (err && err->empty()) *err = "Included parameters are invalid";
+          return false;
+        }
+      }
       if (prepare_fn_) {
         if (!prepare_fn_(state, facts, err)) {
           if (err && err->empty()) *err = "Prepare failed";
@@ -812,6 +1145,7 @@ class Parameters {
   std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> bindings_;
   std::vector<ConfigFieldDefinition> definitions_;
   std::optional<ConfigParser<ParamsT>> complex_parser_;
+  std::vector<PrepareFunction> includes_;
   PrepareFunction prepare_fn_;
   SemanticValidator semantic_validator_;
   BindingValidator binding_validator_;

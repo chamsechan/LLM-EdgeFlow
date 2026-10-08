@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -542,6 +543,62 @@ inline auto ControlledMapSpec() {
       });
 }
 REGISTER_FUNCTION_NODE(ControlledMapNode, ControlledMapSpec());
+
+// 数组、映射参数的字段命令：payload 格式由元素声明生成。
+struct ElementRule {
+  std::string pattern;
+  int weight = 1;
+};
+
+struct ElementControlledParams {
+  std::string prefix;
+  std::vector<ElementRule> rules;
+  std::map<std::string, std::string> labels;
+};
+
+inline constexpr int kCmdUpdateRules = 3101;
+inline constexpr int kCmdUpdateLabels = 3102;
+
+inline std::string ElementControlledFn(const std::string& in,
+                                       const ElementControlledParams& p) {
+  std::string res = p.prefix + in;
+  for (const auto& rule : p.rules) {
+    res += "|" + rule.pattern + ":" + std::to_string(rule.weight);
+  }
+  for (const auto& [key, value] : p.labels) res += "|" + key + "=" + value;
+  return res;
+}
+
+inline auto ElementControlledSpec() {
+  auto rule_parameters =
+      Parameters<ElementRule>(
+          {Field("pattern", &ElementRule::pattern)
+               .Required()
+               .Description("匹配文本"),
+           Field("weight", &ElementRule::weight).Default(1).Range(1, 10)})
+          .Prepare([](ElementRule* rule, std::string* error) {
+            if (rule->pattern == "bad") {
+              if (error) *error = "pattern 'bad' is rejected";
+              return false;
+            }
+            return true;
+          });
+  return TextMapSpec(
+             Parameters<ElementControlledParams>(
+                 {Field("prefix", &ElementControlledParams::prefix).Default(""),
+                  Field("rules", &ElementControlledParams::rules)
+                      .Default(std::vector<ElementRule>{})
+                      .Items(std::move(rule_parameters)),
+                  Field("labels", &ElementControlledParams::labels)
+                      .Default(std::map<std::string, std::string>{})}),
+             &ElementControlledFn)
+      .WithControls({
+          ReplaceFields(kCmdUpdateRules, "update_rules", {"rules"}),
+          ReplaceFields(kCmdUpdateLabels, "update_labels",
+                        {"labels", "prefix"}),
+      });
+}
+REGISTER_FUNCTION_NODE(ElementControlledNode, ElementControlledSpec());
 
 // ---------------------------------------------------------------------------
 // 不可拷贝的参数 (持有 unique_ptr)，不带 Control
@@ -1824,16 +1881,27 @@ TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
   EXPECT_EQ(res1.TextValues("output"),
             (std::vector<std::string>{"init_p:payload:init_s"}));
 
-  // 1. ReplaceFields 缺少 multiplier -> 拒绝
-  auto bad_replace = harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
-  EXPECT_EQ(bad_replace.status, NodeControlStatus::kFailed);
-  EXPECT_NE(bad_replace.message.find("multiplier"), std::string::npos);
+  // 1. 只给出部分受控参数 -> 处理成功，没给出的 multiplier 保持不变
+  auto partial_replace =
+      harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
+  EXPECT_EQ(partial_replace.status, NodeControlStatus::kHandled);
 
-  // 状态保持不变
   auto res2 = harness.Run();
   ASSERT_TRUE(res2.ok());
   EXPECT_EQ(res2.TextValues("output"),
-            (std::vector<std::string>{"init_p:payload:init_s"}));
+            (std::vector<std::string>{"new_p:payload:init_s"}));
+
+  // 1b. 范围外、类型错误、未列出的参数都被拒绝，状态保持不变
+  for (const char* bad :
+       {R"({"multiplier":11})", R"({"multiplier":"2"})", R"({"suffix":"x"})"}) {
+    SCOPED_TRACE(bad);
+    EXPECT_EQ(harness.Control(kCmdReplaceMap, bad).status,
+              NodeControlStatus::kFailed);
+  }
+  auto res2b = harness.Run();
+  ASSERT_TRUE(res2b.ok());
+  EXPECT_EQ(res2b.TextValues("output"),
+            (std::vector<std::string>{"new_p:payload:init_s"}));
 
   // 2. ReplaceFields 带齐所有声明字段 -> 处理成功
   auto good_replace =
@@ -1855,7 +1923,7 @@ TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
   EXPECT_EQ(res4.TextValues("output"),
             (std::vector<std::string>{"rep_p:payloadpayload:patch_s"}));
 
-  // 4. 空对象缺少受控字段 -> 拒绝
+  // 4. 空对象没有给出任何受控参数 -> 拒绝
   auto empty_payload = harness.Control(kCmdSuffixMap, R"({})");
   EXPECT_EQ(empty_payload.status, NodeControlStatus::kFailed);
 
@@ -1874,6 +1942,142 @@ TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
   // 6. 未知命令 -> 不支持
   auto unk = harness.Control(9999, R"({})");
   EXPECT_EQ(unk.status, NodeControlStatus::kUnsupported);
+}
+
+TEST(FunctionNodeTest, FieldControlPayloadSchemaIsGeneratedFromDeclarations) {
+  const auto definition = PipelineCatalog::FindNode("ElementControlledNode");
+  ASSERT_TRUE(definition.has_value());
+  const ControlCommandDefinition* update_rules = nullptr;
+  const ControlCommandDefinition* update_labels = nullptr;
+  for (const auto& command : definition->control_commands) {
+    if (command.cmd_id == kCmdUpdateRules) update_rules = &command;
+    if (command.cmd_id == kCmdUpdateLabels) update_labels = &command;
+  }
+  ASSERT_NE(update_rules, nullptr);
+  ASSERT_NE(update_labels, nullptr);
+
+  const auto& rules_schema = update_rules->payload_schema;
+  EXPECT_EQ(rules_schema.at("additionalProperties"), false);
+  EXPECT_EQ(rules_schema.at("minProperties"), 1);
+  EXPECT_FALSE(rules_schema.contains("required"));
+  const auto& rules = rules_schema.at("properties").at("rules");
+  EXPECT_EQ(rules.at("type"), "array");
+  const auto& element = rules.at("items");
+  EXPECT_EQ(element.at("type"), "object");
+  EXPECT_EQ(element.at("additionalProperties"), false);
+  EXPECT_EQ(element.at("required"), nlohmann::json::array({"pattern"}));
+  EXPECT_EQ(element.at("properties").at("weight").at("maximum"), 10.0);
+  EXPECT_EQ(element.at("properties").at("pattern").at("description"),
+            "匹配文本");
+
+  const auto& labels_schema = update_labels->payload_schema;
+  EXPECT_EQ(labels_schema.at("properties").size(), 2u);
+  EXPECT_EQ(labels_schema.at("properties").at("labels").at("type"), "object");
+  EXPECT_EQ(labels_schema.at("properties")
+                .at("labels")
+                .at("additionalProperties")
+                .at("type"),
+            "string");
+  std::string schema_error;
+  EXPECT_TRUE(ValidateControlSchema(rules_schema, &schema_error))
+      << schema_error;
+  EXPECT_TRUE(ValidateControlSchema(labels_schema, &schema_error))
+      << schema_error;
+}
+
+TEST(FunctionNodeTest, FieldControlReplacesArraysAndMapsAsAWhole) {
+  NodeHarness harness("ElementControlledNode");
+  harness.Config({{"prefix", "p:"},
+                  {"rules", {{{"pattern", "a"}}}},
+                  {"labels", {{"k", "v"}}}});
+  harness.TextInput("input", {"x"});
+  auto initial = harness.Run();
+  ASSERT_TRUE(initial.ok()) << initial.diagnostic();
+  EXPECT_EQ(initial.TextValues("output"),
+            (std::vector<std::string>{"p:x|a:1|k=v"}));
+
+  // 数组整体替换，元素补默认值；没给出的参数保持不变
+  auto rules = harness.Control(
+      kCmdUpdateRules,
+      R"({"rules":[{"pattern":"b","weight":3},{"pattern":"c"}]})");
+  EXPECT_EQ(rules.status, NodeControlStatus::kHandled) << rules.message;
+  auto after_rules = harness.Run();
+  ASSERT_TRUE(after_rules.ok());
+  EXPECT_EQ(after_rules.TextValues("output"),
+            (std::vector<std::string>{"p:x|b:3|c:1|k=v"}));
+
+  // 映射整体替换；同一命令只给出一个受控参数
+  auto labels =
+      harness.Control(kCmdUpdateLabels, R"({"labels":{"z":"1","a":"2"}})");
+  EXPECT_EQ(labels.status, NodeControlStatus::kHandled) << labels.message;
+  auto after_labels = harness.Run();
+  ASSERT_TRUE(after_labels.ok());
+  EXPECT_EQ(after_labels.TextValues("output"),
+            (std::vector<std::string>{"p:x|b:3|c:1|a=2|z=1"}));
+}
+
+TEST(FunctionNodeTest, FieldControlRejectsInvalidPayloadsAndKeepsParameters) {
+  NodeHarness harness("ElementControlledNode");
+  harness.Config({{"rules", {{{"pattern", "a"}}}}});
+  harness.TextInput("input", {"x"});
+  const std::vector<std::string> expected{"x|a:1"};
+
+  struct Case {
+    int command;
+    const char* payload;
+  };
+  for (const Case& bad : std::vector<Case>{
+           {kCmdUpdateRules, R"({})"},              // 空 payload
+           {kCmdUpdateRules, R"({"prefix":"q"})"},  // 未列出的参数
+           {kCmdUpdateRules, R"({"rules":{}})"},    // 类型错误
+           {kCmdUpdateRules, R"({"rules":[{"weight":2}]})"},  // 缺必填键
+           {kCmdUpdateRules, R"({"rules":[{"pattern":"a","x":1}]})"},  // 未知键
+           {kCmdUpdateRules,
+            R"({"rules":[{"pattern":"a","weight":99}]})"},  // 越界
+           {kCmdUpdateRules,
+            R"({"rules":[{"pattern":"ok"},{"pattern":"bad"}]})"},  // Prepare
+                                                                   // 失败
+           {kCmdUpdateLabels, R"({"labels":{"k":1}})"},  // 映射值类型错误
+       }) {
+    SCOPED_TRACE(bad.payload);
+    EXPECT_EQ(harness.Control(bad.command, bad.payload).status,
+              NodeControlStatus::kFailed);
+    auto unchanged = harness.Run();
+    ASSERT_TRUE(unchanged.ok());
+    EXPECT_EQ(unchanged.TextValues("output"), expected);
+  }
+  auto prepare_failure = harness.Control(
+      kCmdUpdateRules, R"({"rules":[{"pattern":"ok"},{"pattern":"bad"}]})");
+  EXPECT_NE(prepare_failure.message.find("element 1"), std::string::npos)
+      << prepare_failure.message;
+}
+
+TEST(FunctionNodeTest, ModelBindingFieldCannotBeControlled) {
+  struct P {
+    std::string text;
+  };
+  struct M {
+    LlmCall generator;
+  };
+  // 为了触发"绑定模型的字段不能受控"的检查，参数里临时声明同名字段。
+  auto params = Parameters<P>({Field("bind_model", &P::text).Default("")});
+  ModelsOf<M> models({Model("generator", "bind_model", &M::generator)});
+  EXPECT_THROW(
+      ValidateControlCommands({ReplaceFields(1001, "cmd", {"bind_model"})},
+                              params, &models),
+      std::invalid_argument);
+}
+
+TEST(FunctionNodeTest, ModelSlotDescriptionIsGeneratedFromCapability) {
+  struct M {
+    LlmCall generator;
+  };
+  ModelsOf<M> models({Model("generator", "bind_model", &M::generator)});
+  const auto fields = models.ToConfigFields();
+  ASSERT_EQ(fields.size(), 1u);
+  EXPECT_EQ(fields[0].name, "bind_model");
+  EXPECT_NE(fields[0].semantic.find("llm"), std::string::npos);
+  EXPECT_NE(fields[0].semantic.find("models[].model_id"), std::string::npos);
 }
 
 TEST(FunctionNodeTest, BatchNodeWithControlsAndValidation) {

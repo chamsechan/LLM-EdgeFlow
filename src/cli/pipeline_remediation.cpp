@@ -23,11 +23,60 @@ bool ValueMatchesConfigKind(const nlohmann::json& value, ConfigValueKind kind) {
     case ConfigValueKind::kBoolean:
       return value.is_boolean();
     case ConfigValueKind::kObject:
+    case ConfigValueKind::kMap:
       return value.is_object();
     case ConfigValueKind::kArray:
       return value.is_array();
+    case ConfigValueKind::kJson:
+      return !value.is_null();
   }
   return false;
+}
+
+std::string UnescapeJsonPointerToken(std::string token) {
+  for (size_t pos = 0; (pos = token.find('~', pos)) != std::string::npos;) {
+    if (pos + 1 < token.size() && token[pos + 1] == '1') {
+      token.replace(pos, 2, "/");
+    } else if (pos + 1 < token.size() && token[pos + 1] == '0') {
+      token.replace(pos, 2, "~");
+    }
+    ++pos;
+  }
+  return token;
+}
+
+// relative_path 是配置内的 JSON Pointer 相对路径（不含开头的 '/'），
+// 如 "rules/3/pattern"。顶层参数名之后按元素定义继续下钻：结构体元素按
+// 字段名，数组、映射按 items。找不到时返回 nullptr。
+const ConfigFieldDefinition* ResolveConfigPath(
+    const std::vector<ConfigFieldDefinition>& fields,
+    const std::string& relative_path) {
+  const ConfigFieldDefinition* current = nullptr;
+  size_t begin = 0;
+  while (begin <= relative_path.size()) {
+    size_t end = relative_path.find('/', begin);
+    if (end == std::string::npos) end = relative_path.size();
+    const std::string token =
+        UnescapeJsonPointerToken(relative_path.substr(begin, end - begin));
+    if (!current) {
+      auto it = std::find_if(fields.begin(), fields.end(),
+                             [&](const auto& f) { return f.name == token; });
+      if (it == fields.end()) return nullptr;
+      current = &*it;
+    } else if (current->kind == ConfigValueKind::kObject &&
+               !current->fields.empty()) {
+      auto it = std::find_if(current->fields.begin(), current->fields.end(),
+                             [&](const auto& f) { return f.name == token; });
+      if (it == current->fields.end()) return nullptr;
+      current = &*it;
+    } else if (current->items) {
+      current = current->items.get();
+    } else {
+      return nullptr;
+    }
+    begin = end + 1;
+  }
+  return current;
 }
 
 struct DiagnosticIdentity {
@@ -159,7 +208,9 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
           const auto* def = catalog.FindNode(node_type);
           std::string prefix =
               "/pipeline/" + std::to_string(p_idx) + "/config/";
-          if (def && diag->path.rfind(prefix, 0) == 0) {
+          // 元素内的未知键没有可套用的改名修复，只处理顶层参数。
+          if (def && diag->path.rfind(prefix, 0) == 0 &&
+              diag->path.find('/', prefix.size()) == std::string::npos) {
             std::string field_name = diag->path.substr(prefix.size());
             ValidationRemediation rem;
             rem.cause = RemediationCause::kUnknownConfigField;
@@ -204,10 +255,9 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
             rem.summary = "节点 '" + diag->node_id + "' 缺少必填配置字段 '" +
                           field_name + "'。";
             rem.facts["field"] = field_name;
-            auto cf_it = std::find_if(
-                def->config_fields.begin(), def->config_fields.end(),
-                [&](const auto& f) { return f.name == field_name; });
-            if (cf_it != def->config_fields.end()) {
+            const auto* cf_it =
+                ResolveConfigPath(def->config_fields, field_name);
+            if (cf_it) {
               rem.facts["expected_type"] = ConfigValueKindName(cf_it->kind);
               if (cf_it->minimum.has_value())
                 rem.facts["minimum"] = *cf_it->minimum;
@@ -250,10 +300,9 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
             rem.summary = "节点 '" + diag->node_id + "' 的配置项 '" +
                           field_name + "' 值不合法。";
             rem.facts["field"] = field_name;
-            auto cf_it = std::find_if(
-                def->config_fields.begin(), def->config_fields.end(),
-                [&](const auto& f) { return f.name == field_name; });
-            if (cf_it != def->config_fields.end()) {
+            const auto* cf_it =
+                ResolveConfigPath(def->config_fields, field_name);
+            if (cf_it) {
               rem.facts["expected_type"] = ConfigValueKindName(cf_it->kind);
               if (cf_it->minimum.has_value())
                 rem.facts["minimum"] = *cf_it->minimum;

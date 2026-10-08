@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "nodes/authoring.h"
-#include "nodes/generate_options_config.h"
+#include "nodes/generate_parameters.h"
 #include "nodes/text_template.h"
 
 namespace llm_edgeflow {
@@ -133,8 +133,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
 }
 
 auto Spec() {
-  auto params = GenerateParameters(
-      512, &Params::generation,
+  auto params = Parameters<Params>(
       {Field("prompt_template", &Params::prompt_template)
            .Default("{{input}}")
            .Description("提示词模板；使用 {{input}}/{{context}}，使用 "
@@ -147,6 +146,7 @@ auto Spec() {
            .Default(false)
            .Description("移除模型输出两端空白和外层 Markdown "
                         "代码围栏，保留围栏内的文本内容。")});
+  params.Include(&Params::generation, GenerateParameters());
   params.Prepare(&PreparePrompt);
   params.ValidateBindings([](const Params& config,
                              const std::unordered_set<std::string>& inputs,
@@ -163,10 +163,8 @@ auto Spec() {
                               OptionalValue("context", &Inputs::context,
                                             InputFlow::AggregateByRequest)},
              PreservedOutput<TextBatch>("output", "input"), std::move(params),
-             ModelsOf<Models>{Model("generator", "bind_model",
-                                    &Models::generator,
-                                    "引用 models[].model_id；所选模型必须提供 "
-                                    "llm 文本生成能力。")},
+             ModelsOf<Models>{
+                 Model("generator", "bind_model", &Models::generator)},
              &Run)
       .Category("custom")
       .ParallelSafe(true)

@@ -30,7 +30,9 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 | 参数顺序 | 依次为 Inputs、Params、Models；Spec 没有 `Parameters<...>` 就不写 Params，没有 `ModelsOf<...>` 就不写 Models；用到会话缓存时再追加 `SessionResources` |
 | 返回值 | `NodeResult<OutputBatch>`；多输出为 `NodeResult<Outputs>`。成功可直接返回结果，失败用 `NodeResult<T>::Failure(...)` |
 | 逐项处理 | `MapPayloads(*inputs.input, &Transform)`：`Transform` 接收一条载荷，返回新载荷或 `NodeResult`；失败时诊断指出是哪一条 |
-| 生成参数 | 只需生成参数时用 `GenerateParameters(默认 max_tokens)`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate`；还有自有配置时用 `GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})` |
+| 生成参数 | 只需生成参数时用 `GenerateParameters()`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate`；还有自有配置时用 `Parameters<Params>({Field(...)}).Include(&Params::generation, GenerateParameters())`。`max_tokens` 默认值统一为 128 |
+| 数组、映射与 JSON 值 | `Field` 的成员类型可以是 `std::vector<T>`、`std::map<std::string, T>` 和 `nlohmann::json`（任意 JSON 值，不能为 null），`T` 可嵌套；`Range`、`Enum` 约束其中的标量元素。元素是结构体时用 `.Items(Parameters<E>)` 声明元素的字段，每个元素按 `E` 校验、补默认值并执行 `E` 的 `Prepare`、`Validate`。元素的诊断路径继续写键名或下标，例如 `/pipeline/<j>/config/rules/3/pattern`；映射按键名排序处理，需要书写顺序时用数组 |
+| 共享参数组 | `Parameters<Params>({...}).Include(&Params::member, group)` 把另一组参数平铺并入，值写进 `member`；两组重名在构造 Spec 时报错，被并入组的 `Prepare`、`Validate` 先执行 |
 
 ## 常见编译错误对照
 
@@ -115,18 +117,18 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
-仍适合新模型，要用实际数据确认。LLM 模板用 `GenerateParameters(128)` 声明 `max_tokens`、
+仍适合新模型，要用实际数据确认。LLM 模板用 `GenerateParameters()` 声明 `max_tokens`、
 `temperature` 等生成参数，节点配置可以直接调整。还需要自有配置时，把生成参数放进自己的
-`Params`，自有字段照常用 `Field` 声明，并把 Spec 中的 `GenerateParameters(128)` 换成：
+`Params`，自有字段照常用 `Field` 声明，并把 Spec 中的 `GenerateParameters()` 换成：
 
 ```cpp
 struct Params {
-  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters(128) 相同
+  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters() 相同
   std::string prefix;          // 自有参数
 };
 
-GenerateParameters(128, &Params::generation,
-                   {Field("prefix", &Params::prefix).Default("")})
+Parameters<Params>({Field("prefix", &Params::prefix).Default("")})
+    .Include(&Params::generation, GenerateParameters())
 ```
 
 `Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。自有字段需要

@@ -19,7 +19,7 @@
 #include "dev_support/inference/test_biz_models.h"
 #include "dev_support/inference/test_capability_models.h"
 #include "engine/model_interface.h"
-#include "nodes/generate_options_config.h"
+#include "nodes/generate_parameters.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_harness.h"
@@ -1144,7 +1144,7 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
     ASSERT_EQ(model->prompts.size(), 1u);
     EXPECT_EQ(model->prompts.front().data, input);
     EXPECT_FLOAT_EQ(model->last_options.temperature, 0.7f);
-    EXPECT_EQ(model->last_options.max_tokens, 512);
+    EXPECT_EQ(model->last_options.max_tokens, 128);
     EXPECT_EQ(model->last_options.top_k, 0);
     EXPECT_FLOAT_EQ(model->last_options.top_p, 0.9f);
     EXPECT_FLOAT_EQ(model->last_options.repetition_penalty, 1.0f);
@@ -1298,10 +1298,77 @@ struct LlmWithOwnParams {
 };
 }  // namespace
 
+TEST_F(CommonNodesTest, GenerateParametersDefaultsComeFromGenerateOptions) {
+  const GenerateOptions defaults;
+  const auto params = GenerateParameters();
+  std::string error;
+  auto parsed = params.Parse(nlohmann::json::object(), &error);
+  ASSERT_TRUE(parsed.has_value()) << error;
+  EXPECT_EQ(parsed->max_tokens, defaults.max_tokens);
+  EXPECT_FLOAT_EQ(parsed->temperature, defaults.temperature);
+  EXPECT_EQ(parsed->top_k, defaults.top_k);
+  EXPECT_FLOAT_EQ(parsed->top_p, defaults.top_p);
+  EXPECT_FLOAT_EQ(parsed->repetition_penalty, defaults.repetition_penalty);
+  EXPECT_EQ(parsed->stop_words, defaults.stop_words);
+
+  // 默认值按十进制原样导出，不带 float 的舍入误差
+  for (const auto& field : params.Fields()) {
+    if (field.name == "temperature") EXPECT_EQ(field.default_value, 0.7);
+    if (field.name == "top_p") EXPECT_EQ(field.default_value, 0.9);
+    if (field.name == "max_tokens") EXPECT_EQ(field.default_value, 128);
+  }
+}
+
+TEST_F(CommonNodesTest, LlmNodesShareGenerationParameterDefinitions) {
+  const auto generate = PipelineCatalog::FindNode("LlmGenerateNode");
+  const auto guided = PipelineCatalog::FindNode("PromptGuidedLlmNode");
+  ASSERT_TRUE(generate.has_value());
+  ASSERT_TRUE(guided.has_value());
+  const auto find =
+      [](const NodeDefinition& definition,
+         const std::string& name) -> const ConfigFieldDefinition* {
+    for (const auto& field : definition.config_fields) {
+      if (field.name == name) return &field;
+    }
+    return nullptr;
+  };
+  const auto generation = GenerateParameters();
+  for (const auto& field : generation.Fields()) {
+    SCOPED_TRACE(field.name);
+    const auto* in_generate = find(*generate, field.name);
+    const auto* in_guided = find(*guided, field.name);
+    ASSERT_NE(in_generate, nullptr);
+    ASSERT_NE(in_guided, nullptr);
+    EXPECT_EQ(ConfigFieldToJson(*in_generate), ConfigFieldToJson(field));
+    EXPECT_EQ(ConfigFieldToJson(*in_guided), ConfigFieldToJson(field));
+  }
+  EXPECT_EQ(find(*generate, "max_tokens")->default_value, 128);
+  EXPECT_EQ(find(*guided, "max_tokens")->default_value, 128);
+  // 数组参数导出元素说明
+  const auto* stop_words = find(*generate, "stop_words");
+  ASSERT_NE(stop_words->items, nullptr);
+  EXPECT_EQ(stop_words->items->kind, ConfigValueKind::kString);
+  EXPECT_EQ(ConfigFieldToJson(*stop_words).at("items").at("type"), "string");
+}
+
+TEST_F(CommonNodesTest, ElementConfigErrorsUseElementPathsInDiagnostics) {
+  const auto definition = PipelineCatalog::FindNode("LlmGenerateNode");
+  ASSERT_TRUE(definition.has_value());
+  nlohmann::json normalized;
+  std::vector<ValidationDiagnostic> diagnostics;
+  EXPECT_FALSE(ValidateAndNormalizeConfig(
+      definition->config_fields,
+      {{"bind_model", "m"}, {"stop_words", {"END", 5}}}, &normalized,
+      &diagnostics, "/pipeline/2/config"));
+  ASSERT_EQ(diagnostics.size(), 1u);
+  EXPECT_EQ(diagnostics[0].path, "/pipeline/2/config/stop_words/1");
+  EXPECT_EQ(diagnostics[0].code, DiagnosticCode::kConfigFieldType);
+}
+
 TEST_F(CommonNodesTest, GenerateParametersCombinesOwnFieldsWithGeneration) {
-  auto params = GenerateParameters(
-      128, &LlmWithOwnParams::generation,
+  auto params = Parameters<LlmWithOwnParams>(
       {Field("prefix", &LlmWithOwnParams::prefix).Default("")});
+  params.Include(&LlmWithOwnParams::generation, GenerateParameters());
   std::vector<std::string> names;
   for (const auto& field : params.Fields()) names.push_back(field.name);
   EXPECT_EQ(names, (std::vector<std::string>{

@@ -82,11 +82,11 @@ class ParameterSet {
       const std::vector<ConfigFieldValidationError>& errors) {
     if (errors.empty()) return "Invalid configuration";
     const auto& first = errors.front();
-    if (first.field_name.empty() ||
-        first.message.find(first.field_name) != std::string::npos) {
+    if (first.path.empty() ||
+        first.message.find(first.path) != std::string::npos) {
       return first.message;
     }
-    return "Field '" + first.field_name + "': " + first.message;
+    return "Field '" + first.path + "': " + first.message;
   }
 
   std::vector<ConfigFieldDefinition> fields_;

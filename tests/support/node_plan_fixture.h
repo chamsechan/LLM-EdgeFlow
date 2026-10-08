@@ -29,8 +29,7 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
   if (!ValidateAndNormalizeFields(definition->config_fields, config,
                                   &normalized, &field_errors)) {
     if (error)
-      *error =
-          field_errors.front().field_name + ": " + field_errors.front().message;
+      *error = field_errors.front().path + ": " + field_errors.front().message;
     return nullptr;
   }
   nlohmann::json models = nlohmann::json::array();

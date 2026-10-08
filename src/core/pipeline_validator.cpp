@@ -221,7 +221,7 @@ bool ValidateAndNormalizeConfig(
       ValidationDiagnostic diag;
       diag.path = err.kind == ConfigFieldErrorKind::kNotAnObject
                       ? base_pointer
-                      : base_pointer + "/" + err.field_name;
+                      : base_pointer + "/" + err.path;
       diag.message = err.message;
       switch (err.kind) {
         case ConfigFieldErrorKind::kNotAnObject:
@@ -229,11 +229,10 @@ bool ValidateAndNormalizeConfig(
           break;
         case ConfigFieldErrorKind::kUnknownField:
           diag.code = unknown_field_code;
-          for (const auto& field : schema) {
-            diag.suggestions.push_back(field.name);
-          }
-          diag.suggestions =
-              RankByEditDistance(err.field_name, std::move(diag.suggestions));
+          diag.suggestions = err.candidates;
+          diag.suggestions = RankByEditDistance(
+              err.path.substr(err.path.find_last_of('/') + 1),
+              std::move(diag.suggestions));
           break;
         case ConfigFieldErrorKind::kMissingField:
           diag.code = DiagnosticCode::kMissingConfigField;

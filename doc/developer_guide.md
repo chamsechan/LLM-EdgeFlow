@@ -140,10 +140,10 @@ typed port 契约时才新增 Node。Node 必须：
 
 熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
-LLM 采样参数复用 [`GenerateParameters`](../include/nodes/generate_options_config.h)：只有生成参数时用
-`GenerateParameters(默认 max_tokens)`，还有自有字段时用
-`GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})`。各节点显式指定 `max_tokens`
-默认值，其余字段约束与解析共用同一实现。
+LLM 采样参数复用 [`GenerateParameters`](../include/nodes/generate_parameters.h)：只有生成参数时用
+`GenerateParameters()`，还有自有字段时用
+`Parameters<Params>({Field(...)}).Include(&Params::generation, GenerateParameters())`。所有 LLM
+节点的生成参数默认值一致（`max_tokens` 为 128），字段约束与解析共用同一实现。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，与所有 Node 一样
 使用 `MakeNodeSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；Node 不绑定特定业务。

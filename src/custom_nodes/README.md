@@ -76,8 +76,14 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 在 `Parameters<Params>` 中用 `Field("name", &Params::member)` 声明成员，显式选择
 `.Required()` 或 `.Default(value)`，再写范围、枚举及说明。字段同时用于预检、初始化和 Catalog；
 业务函数收到普通参数结构，不再从 JSON 重复读取。跨字段检查用 `Validate`，连线约束用
-`ValidateBindings`。普通字段 Control 使用 `WithControls`，参考
-[Control 练习](../../doc/dev_guide/first_control.md)。
+`ValidateBindings`。普通字段 Control 使用 `WithControls`（payload 格式由字段声明生成，至少给出
+一个受控参数），参考 [Control 练习](../../doc/dev_guide/first_control.md)。
+
+成员类型除标量外可以是 `std::vector<T>`、`std::map<std::string, T>` 和 `nlohmann::json`（任意非 null
+JSON 值）。元素是结构体时用 `.Items(Parameters<E>)` 声明元素字段；元素的诊断路径继续写键名或
+下标。多个节点共享的参数组用 `.Include(&Params::member, group)` 平铺并入，LLM 节点的生成参数是
+`GenerateParameters()`（[generate_parameters.h](../../include/nodes/generate_parameters.h)），
+`max_tokens` 默认 128，示例见 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。
 
 字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 的长度是 UTF-8 字节预算，
 生成的 `max_tokens` 是 token 数。类型、范围和字段组合错误应拒绝，不静默改用默认值。

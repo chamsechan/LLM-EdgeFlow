@@ -26,14 +26,14 @@ description: 新增或修改 LLM-EdgeFlow 的 common/custom Node。所有 Node �
 | 实际需求 | 起点 |
 | --- | --- |
 | 逐项文本变换，数量与来源不变 | `tools/scaffold_custom_node.py <Name> --kind compute --write-test`；`Run` 用 `MapPayloads` 调用逐项函数 |
-| 文本前处理 → 一次 LLM → 文本后处理 | `--kind model -m llm`（[starter_llm_node](../../../dev_support/node_authoring/starter_llm_node.cpp)）；生成参数由 `GenerateParameters` 从配置读取 |
+| 文本前处理 → 一次 LLM → 文本后处理 | `--kind model -m llm`（[starter_llm_node](../../../dev_support/node_authoring/starter_llm_node.cpp)）；生成参数由 `GenerateParameters()` 从配置读取 |
 | 同时生成可运行方案 | [text-llm-node Recipe](../../../doc/dev_guide/recipe_text_llm_node.md)，不要再单独运行脚手架 |
 | 1:1 的 Embedding/ASR/OCR/Rerank | `--kind model -m <capability>`；检查生成端口是否符合真实算法 |
 | 多输入、参数、条件生成 | [starter_batch_node](../../../dev_support/node_authoring/starter_batch_node.cpp) |
 | 多模型能力 | [starter_multi_model_node](../../../dev_support/node_authoring/starter_multi_model_node.cpp) |
 | 拆分且分配子编号/输出 counts | [TextChunkNode](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
 | 排名与候选来源 | [TextRerankNode](../../../src/common_nodes/text_rerank_node.cpp) |
-| 生成参数加自有配置、请求上下文 | `GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})`（[生成参数 helper](../../../include/nodes/generate_options_config.h)）；完整示例见 [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
+| 生成参数加自有配置、请求上下文 | `Parameters<Params>({Field(...)}).Include(&Params::generation, GenerateParameters())`（[生成参数 helper](../../../include/nodes/generate_parameters.h)）；完整示例见 [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
 | 两批关联/分组/部分调用后回填 | `dev_support/node_authoring/starter_batch_{join,group,select_scatter}_node.cpp` |
 
 示例名称替换成实际操作名；已有实现直接修改，不用 `--force` 覆盖。脚手架默认生成 custom；
@@ -51,7 +51,7 @@ common Node 放在 `src/common_nodes/` 并明确 `.Category("common")`。生成�
 4. `ModelsOf` / `Model` 声明能力槽；成员类型 `LlmCall`、`EmbeddingCall`、`AsrCall`、`OcrCall`、
    `RerankCall` 决定能力。配置必须显式引用 model_id；保留门面返回的 `NodeResult` 失败。
 
-只在有需求时加入 Control 或缓存。`WithControls` 只能更新 `Field` 已绑定的参数；仅由
+只在有需求时加入 Control 或缓存。`WithControls` 只能更新 `Field` 已绑定的参数（可以是数组、映射、对象数组等任何类型，payload 格式由声明生成，至少给出一个受控参数，给出的参数整体替换）；仅由
 `WithParser` 声明的字段不能直接加入字段 Control。typed Fields 与 parser 同时存在时，字段
 Control 还要求显式 `Prepare`。复杂 `WithControl` 返回完整有效候选，框架不会再跑初始化的
 `Prepare`；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用

@@ -74,6 +74,31 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   EXPECT_TRUE(seen_types.count("TextCorpusSourceNode"));
 }
 
+TEST_F(CatalogContractSsotTest, NodeCatalogExportsElementDeclarations) {
+  const auto definition = PipelineCatalog::FindNode("LlmGenerateNode");
+  ASSERT_TRUE(definition.has_value());
+  const auto exported = PipelineCatalog::NodeToJson(*definition);
+  bool saw_stop_words = false;
+  for (const auto& field : exported.at("config_fields")) {
+    if (field.at("name") != "stop_words") continue;
+    saw_stop_words = true;
+    EXPECT_EQ(field.at("type"), "array");
+    ASSERT_TRUE(field.contains("items"));
+    EXPECT_EQ(field.at("items").at("type"), "string");
+  }
+  EXPECT_TRUE(saw_stop_words);
+
+  // 标量参数没有元素说明；绑定模型的说明由框架按类别生成
+  for (const auto& field : exported.at("config_fields")) {
+    if (field.at("name") == "max_tokens") EXPECT_FALSE(field.contains("items"));
+    if (field.at("name") == "bind_model") {
+      const std::string semantic = field.at("semantic");
+      EXPECT_NE(semantic.find("models[].model_id"), std::string::npos);
+      EXPECT_NE(semantic.find("llm"), std::string::npos);
+    }
+  }
+}
+
 TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   std::set<std::string> model_types;
   for (const auto& model : PipelineCatalog::Models()) {

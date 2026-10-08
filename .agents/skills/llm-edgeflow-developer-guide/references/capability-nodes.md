@@ -52,14 +52,18 @@ Use this reference for production Node implementation. Start first-time LLM auth
     Generated Definition is the only Catalog source; do not maintain a second UI registry.
     Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.
 
-When generation options are a Node's only parameters, use `GenerateParameters(default_max_tokens)`
-from [generate_options_config.h](../../../../include/nodes/generate_options_config.h) and pass the
+When generation options are a Node's only parameters, use `GenerateParameters()`
+from [generate_parameters.h](../../../../include/nodes/generate_parameters.h) and pass the
 `GenerateOptions` received by `Run` to `LlmCall::Generate`, as LlmGenerateNode and the LLM starter do.
 With additional fields, put a `GenerateOptions` member in `Params`, declare the own fields with `Field`
-and use `GenerateParameters(default_max_tokens, &Params::generation, {Field(...)})`, as
-[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does; each caller supplies
-its token default explicitly. Generation fields come from the shared parser, so field controls
-(`WithControls`) can select only the own `Field` members.
+and merge the shared group with `.Include(&Params::generation, GenerateParameters())`, as
+[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does; all LLM Nodes share
+the same defaults (`max_tokens` is 128). Included fields are flat in the configuration and can be
+selected by field controls (`WithControls`) like own `Field` members.
+`Field` members may be `std::vector<T>`, `std::map<std::string, T>` or `nlohmann::json` (any non-null JSON
+value); declare struct elements with `.Items(Parameters<E>)`. Element diagnostics extend the path with the
+key or index, and `Model(slot, field, &Models::member)` takes no description (the Catalog text is generated
+from the slot's model category).
 
 Use existing production implementations and matching `tests/unit/nodes/test_*_node.cpp` suites.
 Add focused behavior and contract coverage for changed configuration, missing values, output provenance,
