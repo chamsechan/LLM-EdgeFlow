@@ -140,10 +140,21 @@ typed port 契约时才新增 Node。Node 必须：
 
 熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
-LLM 采样参数复用 [`GenerateParameters`](../include/nodes/generate_options_config.h)：只有生成参数时用
-`GenerateParameters(默认 max_tokens)`，还有自有字段时用
-`GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})`。各节点显式指定 `max_tokens`
-默认值，其余字段约束与解析共用同一实现。
+LLM 采样参数复用 [`GenerateParameters()`](../include/nodes/generate_parameters.h)，默认值来自
+`GenerateOptions`，所有节点默认 `max_tokens = 128`。只有生成参数时直接用该声明；有自有字段时用
+`Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`。被并入字段
+在 JSON 中平铺，重名报错，其 `Prepare` / `Validate` 先于外层执行。生成字段是普通 `Field`，
+也可加入 `WithControls`。
+
+数组和映射参数使用 `std::vector<T>` / `std::map<std::string, T>`；结构体元素通过
+`.Items(Parameters<Element>{...})` 声明。`Range` / `Enum` 约束标量叶子，诊断路径包含元素
+下标或映射键；`nlohmann::json` 参数接受任意非 null JSON 值。需要自定义解析时仍可使用
+`WithParser(ConfigParser<Params>(fields, parse))`。
+
+模型槽写作 `Model("generator", "bind_model", &Models::generator)`，只有三个参数；引用
+`models[].model_id` 的说明由成员能力自动生成。字段控制命令 `ReplaceFields` 至少提供一个受控
+字段，只替换提供的字段；容器整体替换，重跑 `Prepare` / `Validate`，失败保持旧快照。
+复杂命令的 `WithControl` 写法仍可使用。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，与所有 Node 一样
 使用 `MakeNodeSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；Node 不绑定特定业务。

@@ -66,9 +66,10 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   struct InvalidRangeParams {
     std::optional<int> threads;
   };
-  model.params = Parameters<InvalidRangeParams>{
-      Field("threads", &InvalidRangeParams::threads).Range(10, 2)};
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
+  EXPECT_THROW(
+      (Parameters<InvalidRangeParams>{
+          Field("threads", &InvalidRangeParams::threads).Range(10, 2)}),
+      std::invalid_argument);
 
   auto backend = ValidBackendDefinition("");
   EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));

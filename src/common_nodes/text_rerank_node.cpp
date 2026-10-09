@@ -151,9 +151,7 @@ auto Spec() {
                           "按 req_id "
                           "分组，用重排模型分数降序保留的候选条数上限。")}),
              ModelsOf<Models>(
-                 {Model("reranker", "bind_model", &Models::reranker,
-                        "引用 models[].model_id；所选模型必须提供 rerank "
-                        "查询与候选评分能力。")}),
+                 {Model("reranker", "bind_model", &Models::reranker)}),
              &Run)
       .PortConstraints({PortGroupConstraint::Groups(
           PortConstraintKind::kExactOneGroupOf,

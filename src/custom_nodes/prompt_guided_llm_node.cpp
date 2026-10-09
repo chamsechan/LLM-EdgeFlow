@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "nodes/authoring.h"
-#include "nodes/generate_options_config.h"
+#include "nodes/generate_parameters.h"
 #include "nodes/text_template.h"
 
 namespace llm_edgeflow {
@@ -133,20 +133,21 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
 }
 
 auto Spec() {
-  auto params = GenerateParameters(
-      512, &Params::generation,
-      {Field("prompt_template", &Params::prompt_template)
-           .Default("{{input}}")
-           .Description("提示词模板；使用 {{input}}/{{context}}，使用 "
-                        "context 时须连接该输入。"),
-       Field("prompt_prefix", &Params::prompt_prefix)
-           .Default("")
-           .Description("在渲染模板前追加的普通文本及换行；模型的 system "
-                        "角色请使用 model_config.system_prompt。"),
-       Field("strip_markdown", &Params::strip_markdown)
-           .Default(false)
-           .Description("移除模型输出两端空白和外层 Markdown "
-                        "代码围栏，保留围栏内的文本内容。")});
+  auto params =
+      Parameters<Params>(
+          {Field("prompt_template", &Params::prompt_template)
+               .Default("{{input}}")
+               .Description("提示词模板；使用 {{input}}/{{context}}，使用 "
+                            "context 时须连接该输入。"),
+           Field("prompt_prefix", &Params::prompt_prefix)
+               .Default("")
+               .Description("在渲染模板前追加的普通文本及换行；模型的 system "
+                            "角色请使用 model_config.system_prompt。"),
+           Field("strip_markdown", &Params::strip_markdown)
+               .Default(false)
+               .Description("移除模型输出两端空白和外层 Markdown "
+                            "代码围栏，保留围栏内的文本内容。")})
+          .Include(&Params::generation, GenerateParameters());
   params.Prepare(&PreparePrompt);
   params.ValidateBindings([](const Params& config,
                              const std::unordered_set<std::string>& inputs,
@@ -163,10 +164,8 @@ auto Spec() {
                               OptionalValue("context", &Inputs::context,
                                             InputFlow::AggregateByRequest)},
              PreservedOutput<TextBatch>("output", "input"), std::move(params),
-             ModelsOf<Models>{Model("generator", "bind_model",
-                                    &Models::generator,
-                                    "引用 models[].model_id；所选模型必须提供 "
-                                    "llm 文本生成能力。")},
+             ModelsOf<Models>{
+                 Model("generator", "bind_model", &Models::generator)},
              &Run)
       .Category("custom")
       .ParallelSafe(true)

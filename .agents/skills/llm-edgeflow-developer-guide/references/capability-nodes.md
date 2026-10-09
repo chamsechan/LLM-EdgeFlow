@@ -21,13 +21,17 @@ Use this reference for production Node implementation. Start first-time LLM auth
    or `OutputsOf` / `Produced` for derived or multiple outputs. Derived-flow correctness remains
    the algorithm's responsibility; declarations do not prove splitting or aggregation semantics.
    Complete preserved-output checks precede publication of any output.
-6. Prefer typed `Parameters` / `Field` declarations for ordinary parameters, including defaults, bounds and semantic
-   descriptions. Use `Validate` / `ValidateBindings` for semantic and connection rules. Complex
-   configuration uses `WithParser(ConfigParser<Params>(fields, parse))`; consume normalized JSON,
-   own parsed values and share semantic rules between preflight and initialization. `Prepare` runs
-   after parser and field assignment, before semantic/binding validation, to rebuild derived state.
+6. Use typed `Parameters` / `Field` declarations for parameters, including defaults, bounds and semantic
+   descriptions. Arrays use `std::vector<T>` and maps use `std::map<std::string, T>`; declare struct
+   elements with `.Items(Parameters<Element>{...})`. `Range` / `Enum` constrain scalar leaves, and
+   validation paths identify the array index or map key. `nlohmann::json` fields accept any non-null
+   JSON value. Use `Validate` / `ValidateBindings` for semantic and connection rules. Custom parsing
+   remains available through `WithParser(ConfigParser<Params>(fields, parse))`; consume normalized
+   JSON and own parsed values. `Prepare` rebuilds derived state before semantic/binding validation.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
-   `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. These facades handle empty batches,
+   `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. `Model("generator", "bind_model",
+   &Models::generator)` takes three arguments; the framework generates its `models[].model_id`
+   reference description from the member's capability. These facades handle empty batches,
    model diagnostics and alignment checks. Model-reference fields are required and have no default
    instance name. Propagate `NodeResult` failures without remapping shared
    errors to old node-specific codes. Keep domain failure codes where they describe actual algorithms.
@@ -37,8 +41,11 @@ Use this reference for production Node implementation. Start first-time LLM auth
    Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
    for single-flight waiters without caching them. Resource keys and model revision remain explicit.
 9. Use `WithControls` for typed `Field` updates, or `WithControl` for complex command schemas and ordinary
-   state-building functions. The framework serializes updates, retains old state on failure and reads
-   one immutable snapshot per request. TextTemplateNode and TextRuleMatchNode are production examples.
+   state-building functions. `ReplaceFields` requires at least one controlled field in its payload
+   and replaces only the supplied fields. Arrays and maps are replaced as complete values; field
+   updates rerun `Prepare` and `Validate` before publication. The framework serializes updates,
+   retains the old snapshot on failure and reads one snapshot per request. TextTemplateNode and
+   TextRuleMatchNode are production examples.
    Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
    Share ordinary candidate-state builders between initialization and complex updates; `WithControl`
    does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
@@ -52,14 +59,16 @@ Use this reference for production Node implementation. Start first-time LLM auth
     Generated Definition is the only Catalog source; do not maintain a second UI registry.
     Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.
 
-When generation options are a Node's only parameters, use `GenerateParameters(default_max_tokens)`
-from [generate_options_config.h](../../../../include/nodes/generate_options_config.h) and pass the
-`GenerateOptions` received by `Run` to `LlmCall::Generate`, as LlmGenerateNode and the LLM starter do.
-With additional fields, put a `GenerateOptions` member in `Params`, declare the own fields with `Field`
-and use `GenerateParameters(default_max_tokens, &Params::generation, {Field(...)})`, as
-[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does; each caller supplies
-its token default explicitly. Generation fields come from the shared parser, so field controls
-(`WithControls`) can select only the own `Field` members.
+When generation options are a Node's only parameters, use `GenerateParameters()` from
+[generate_parameters.h](../../../../include/nodes/generate_parameters.h) and pass the `GenerateOptions`
+received by `Run` to `LlmCall::Generate`, as LlmGenerateNode and the LLM starter do. All callers share
+`GenerateOptions` defaults, including `max_tokens = 128`. With additional fields, put a
+`GenerateOptions` member in `Params` and use
+`Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`, as
+[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does. Included fields
+remain flat in JSON and duplicate names fail when building the declaration. The included group's
+`Prepare` / `Validate` run before those of the outer group. Generation fields are ordinary typed
+bindings, so `WithControls` can select them alongside the Node's own fields.
 
 Use existing production implementations and matching `tests/unit/nodes/test_*_node.cpp` suites.
 Add focused behavior and contract coverage for changed configuration, missing values, output provenance,

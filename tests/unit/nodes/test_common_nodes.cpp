@@ -19,7 +19,7 @@
 #include "dev_support/inference/test_biz_models.h"
 #include "dev_support/inference/test_capability_models.h"
 #include "engine/model_interface.h"
-#include "nodes/generate_options_config.h"
+#include "nodes/generate_parameters.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_harness.h"
@@ -1082,6 +1082,10 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
       {"prompt_template",
        "{\"key\": \"val\"} <{{input}}>|{{context}}|{{input}}"},
       {"strip_markdown", true},
+      {"temperature", 0.25},
+      {"top_k", 19},
+      {"top_p", 0.6},
+      {"repetition_penalty", 1.3},
       {"stop_words", {"END"}},
       {"max_tokens", 23}};
   ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get()));
@@ -1106,6 +1110,10 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
             "system {input}\n{\"key\": \"val\"} <last>|C{input}\nTAIL|last");
   EXPECT_EQ((*output)[0].req_id, 17U);
   EXPECT_EQ((*output)[2].sub_id, 6U);
+  EXPECT_FLOAT_EQ(model->last_options.temperature, 0.25f);
+  EXPECT_EQ(model->last_options.top_k, 19);
+  EXPECT_FLOAT_EQ(model->last_options.top_p, 0.6f);
+  EXPECT_FLOAT_EQ(model->last_options.repetition_penalty, 1.3f);
   EXPECT_EQ(model->last_options.max_tokens, 23);
   EXPECT_EQ(model->last_options.stop_words, std::vector<std::string>{"END"});
   // 用新的请求数据复用同一个 Node；之前的上下文不得残留。
@@ -1128,7 +1136,9 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
   ASSERT_TRUE(validated.report.ok) << validated.report.ToJson().dump(2);
   const auto& plan = validated.node_plans.at("custom_prompt");
   const std::string input = R"({"name":"literal {context}"})";
-  {
+  EXPECT_EQ(plan.normalized_config["max_tokens"], 128);
+  for (bool native_plan : {false, true}) {
+    SCOPED_TRACE(native_plan);
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_NE(node, nullptr);
     std::string error = "old error";
@@ -1136,20 +1146,27 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
     init.plan = &plan;
     init.session_ctx = session_ctx_.get();
     init.diagnostic = &error;
-    ASSERT_TRUE(node->Init(init)) << error;
+    if (native_plan) {
+      ASSERT_TRUE(node->Init(init)) << error;
+    } else {
+      ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get(), &error))
+          << error;
+    }
     EXPECT_TRUE(error.empty());
     AlgContext context;
-    context.Publish("input_sentences", TextBatch{{77, 4, input}});
+    const std::string input_key = native_plan ? "input_sentences" : "input";
+    const std::string output_key = native_plan ? "llm_raw_answer" : "output";
+    context.Publish(input_key, TextBatch{{77, 4, input}});
     ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
     ASSERT_EQ(model->prompts.size(), 1u);
     EXPECT_EQ(model->prompts.front().data, input);
     EXPECT_FLOAT_EQ(model->last_options.temperature, 0.7f);
-    EXPECT_EQ(model->last_options.max_tokens, 512);
+    EXPECT_EQ(model->last_options.max_tokens, 128);
     EXPECT_EQ(model->last_options.top_k, 0);
     EXPECT_FLOAT_EQ(model->last_options.top_p, 0.9f);
     EXPECT_FLOAT_EQ(model->last_options.repetition_penalty, 1.0f);
     EXPECT_TRUE(model->last_options.stop_words.empty());
-    const auto* output = context.Read<TextBatch>("llm_raw_answer");
+    const auto* output = context.Read<TextBatch>(output_key);
     ASSERT_NE(output, nullptr);
     ASSERT_EQ(output->size(), 1u);
     EXPECT_EQ(output->front().data, "```text\n" + input + "\n```");
@@ -1299,9 +1316,9 @@ struct LlmWithOwnParams {
 }  // namespace
 
 TEST_F(CommonNodesTest, GenerateParametersCombinesOwnFieldsWithGeneration) {
-  auto params = GenerateParameters(
-      128, &LlmWithOwnParams::generation,
-      {Field("prefix", &LlmWithOwnParams::prefix).Default("")});
+  auto params = Parameters<LlmWithOwnParams>{
+      Field("prefix", &LlmWithOwnParams::prefix).Default("")};
+  params.Include(&LlmWithOwnParams::generation, GenerateParameters());
   std::vector<std::string> names;
   for (const auto& field : params.Fields()) names.push_back(field.name);
   EXPECT_EQ(names, (std::vector<std::string>{
@@ -1314,17 +1331,62 @@ TEST_F(CommonNodesTest, GenerateParametersCombinesOwnFieldsWithGeneration) {
   EXPECT_EQ(defaults->prefix, "");
   EXPECT_EQ(defaults->generation.max_tokens, 128);
   EXPECT_FLOAT_EQ(defaults->generation.temperature, 0.7f);
+  EXPECT_EQ(defaults->generation.top_k, 0);
+  EXPECT_FLOAT_EQ(defaults->generation.top_p, 0.9f);
+  EXPECT_FLOAT_EQ(defaults->generation.repetition_penalty, 1.0f);
+  EXPECT_TRUE(defaults->generation.stop_words.empty());
 
-  auto configured = params.Parse(
-      {{"prefix", "P:"}, {"max_tokens", 64}, {"stop_words", {"END"}}}, &error);
+  const nlohmann::json raw = {
+      {"prefix", "P:"},       {"temperature", 0.3},
+      {"max_tokens", 64},     {"top_k", 7},
+      {"top_p", 0.8},         {"repetition_penalty", 1.25},
+      {"stop_words", {"END"}}};
+  auto configured = params.Parse(raw, &error);
   ASSERT_TRUE(configured.has_value()) << error;
   EXPECT_EQ(configured->prefix, "P:");
   EXPECT_EQ(configured->generation.max_tokens, 64);
+  EXPECT_FLOAT_EQ(configured->generation.temperature, 0.3f);
+  EXPECT_EQ(configured->generation.top_k, 7);
+  EXPECT_FLOAT_EQ(configured->generation.top_p, 0.8f);
+  EXPECT_FLOAT_EQ(configured->generation.repetition_penalty, 1.25f);
   EXPECT_EQ(configured->generation.stop_words, std::vector<std::string>{"END"});
+
+  for (const auto& config : {nlohmann::json::object(), raw}) {
+    SCOPED_TRACE(config.dump());
+    nlohmann::json normalized;
+    ASSERT_TRUE(ValidateAndNormalizeFields(params.Fields(), config, &normalized,
+                                           nullptr));
+    const auto from_raw = params.Parse(config, &error);
+    ASSERT_TRUE(from_raw.has_value()) << error;
+    const auto from_normalized = params.Parse(normalized, &error);
+    ASSERT_TRUE(from_normalized.has_value()) << error;
+    EXPECT_EQ(from_normalized->prefix, from_raw->prefix);
+    EXPECT_EQ(from_normalized->generation.max_tokens,
+              from_raw->generation.max_tokens);
+    EXPECT_FLOAT_EQ(from_normalized->generation.temperature,
+                    from_raw->generation.temperature);
+    EXPECT_EQ(from_normalized->generation.top_k, from_raw->generation.top_k);
+    EXPECT_FLOAT_EQ(from_normalized->generation.top_p,
+                    from_raw->generation.top_p);
+    EXPECT_FLOAT_EQ(from_normalized->generation.repetition_penalty,
+                    from_raw->generation.repetition_penalty);
+    EXPECT_EQ(from_normalized->generation.stop_words,
+              from_raw->generation.stop_words);
+  }
 
   for (const auto& bad :
        std::vector<nlohmann::json>{{{"prefix", 7}},
                                    {{"max_tokens", 0}},
+                                   {{"max_tokens", 32769}},
+                                   {{"temperature", -0.01}},
+                                   {{"temperature", 2.01}},
+                                   {{"top_k", -1}},
+                                   {{"top_p", 0}},
+                                   {{"top_p", 1.01}},
+                                   {{"repetition_penalty", 0}},
+                                   {{"repetition_penalty", 100.01}},
+                                   {{"stop_words", {42}}},
+                                   {{"stop_words", "END"}},
                                    {{"stop_words", {""}}},
                                    {{"unknown_field", true}}}) {
     SCOPED_TRACE(bad.dump());

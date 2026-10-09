@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <unordered_set>
 #include <vector>
@@ -99,7 +101,8 @@ NodeDefinition MakeThrowingValidateConfigNodeDefinition() {
   def.parallel_safe = true;
   def.config_fields = {ConfigFieldDefinition{
       "req_num", ConfigValueKind::kInteger, true, 10, 1.0, 100.0}};
-  def.validate_config = [](const nlohmann::json&, const auto&, std::string*) {
+  def.validate_config = [](const nlohmann::json&, const auto&, std::string*,
+                           std::string*) {
     ThrowingValidateConfigNode::s_called = true;
     if (ThrowingValidateConfigNode::s_throw_mode == 1) {
       throw std::runtime_error("simulated config validation crash");
@@ -255,6 +258,87 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesRequiredField) {
   ASSERT_NE(it, plan.report.diagnostics.end());
   EXPECT_EQ(it->path, "/pipeline/0/config/req_str");
   EXPECT_EQ(it->node_id, "node_0");
+}
+
+TEST_F(DefinitionSchemaValidationTest, ElementHooksReportOwningParameterPath) {
+  struct Element {
+    std::string mode;
+    int prepared = 0;
+  };
+  struct Params {
+    std::vector<Element> rules;
+    std::map<std::string, Element> endpoints;
+    bool reject_whole;
+  };
+  auto elements =
+      Parameters<Element>{Field("mode", &Element::mode).Default("good")};
+  elements.Prepare([](Element* value, std::string* error) {
+    if (value->mode == "prepare_fail") {
+      if (error) *error = "element preparation failed";
+      return false;
+    }
+    value->prepared = 1;
+    return true;
+  });
+  elements.Validate([](const Element& value, std::string* error) {
+    if (value.mode == "validate_fail") {
+      if (error) *error = "element validation failed";
+      return false;
+    }
+    return value.prepared == 1;
+  });
+  auto params = Parameters<Params>{
+      Field("rules", &Params::rules).Default({}).Items(elements),
+      Field("endpoints", &Params::endpoints).Default({}).Items(elements),
+      Field("reject_whole", &Params::reject_whole).Default(false)};
+  params.Validate([](const Params& value, std::string* error) {
+    if (!value.reject_whole) return true;
+    if (error) *error = "whole parameter combination failed";
+    return false;
+  });
+  const std::string type = "ElementHookProbeNode";
+  if (!NodeRegistry::Instance().Has(type)) {
+    NodeDefinition definition;
+    definition.node_type = type;
+    definition.config_fields = params.Fields();
+    definition.validate_config = [params](const auto& json, const auto& ports,
+                                          std::string* error,
+                                          std::string* field_path) {
+      return params.ValidateWithBindings(json, ports, error, field_path);
+    };
+    ASSERT_TRUE(NodeRegistry::Instance().Register(
+        type, [] { return std::make_unique<SchemaProbeNode>(); }, definition));
+  }
+  const std::vector<std::tuple<nlohmann::json, std::string, std::string>>
+      cases = {
+          {{{"rules", {{{"mode", "prepare_fail"}}}}}, "/rules", "Array item 0"},
+          {{{"rules", {{{"mode", "validate_fail"}}}}},
+           "/rules",
+           "Array item 0"},
+          {{{"endpoints", {{"alpha/key~name", {{"mode", "prepare_fail"}}}}}},
+           "/endpoints",
+           "alpha/key~name"},
+          {{{"endpoints", {{"time", {{"mode", "validate_fail"}}}}}},
+           "/endpoints",
+           "time"},
+          {{{"reject_whole", true}}, "", "whole parameter combination"}};
+  for (const auto& [config, suffix, message] : cases) {
+    SCOPED_TRACE(config.dump());
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        {{"biz_name", "schema_fixture_biz"},
+         {"pipeline",
+          {{{"id", "probe"}, {"node_type", type}, {"config", config}}}}});
+    EXPECT_FALSE(plan.report.ok);
+    const auto diagnostic =
+        std::find_if(plan.report.diagnostics.begin(),
+                     plan.report.diagnostics.end(), [](const auto& value) {
+                       return value.code == DiagnosticCode::kInvalidCombination;
+                     });
+    ASSERT_NE(diagnostic, plan.report.diagnostics.end());
+    EXPECT_EQ(diagnostic->path, "/pipeline/0/config" + suffix);
+    EXPECT_NE(diagnostic->message.find(message), std::string::npos);
+    EXPECT_EQ(diagnostic->node_id, "probe");
+  }
 }
 
 TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {

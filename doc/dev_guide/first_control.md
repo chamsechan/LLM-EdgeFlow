@@ -46,7 +46,15 @@
 | `Run(...)` | 业务处理函数，用 `MapPayloads` 逐条加前缀；接收普通数据与参数，无需接触锁或平台结构 |
 | `WithControls(...)` | 将受控命令挂载到 Spec，框架自动管理不可变快照与并发更新事务 |
 
-`WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架复用 `Parameters` 已绑定的字段类型、默认值和业务校验规则自动生成 Control payload schema。初始配置写在节点的 `config`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；Control 下发新值时通过相同校验规则验证，并通过不可变快照原子发布。非法初始配置会在预检拒绝，直接 Init 也返回具体原因。
+`WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架由 `Parameters`
+中受控字段的类型、范围、枚举及元素声明生成 payload schema。payload 必须是对象，至少提供
+一个受控字段，只允许命令列出的字段；省略的字段保持旧值。数组和映射整体替换，不逐项合并。
+通过 `Include` 并入的生成字段也可受控，例如 `max_tokens`、`stop_words`。
+
+初始配置写在节点的 `config`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；
+Control 下发新值后重跑 `Prepare` / `Validate`，校验成功才发布新快照，失败保持旧快照。
+非法初始配置会在预检拒绝，直接 Init 也返回具体原因。`WithParser` 和字段 Control 同时使用时
+仍须显式声明 `Prepare`；仅由 parser 声明的字段不能作为 `ReplaceFields` 的受控字段。
 
 框架采用 `ConfigurationSnapshot` 管理节点状态：更新在独立的 writer 锁内构建候选、校验成功后原子发布；正在执行的 Process 读取单次快照处理整批请求，互不干扰；更新失败保留旧配置。开发者只需关注普通参数绑定与业务逻辑，不需要手写互斥锁、JSON 解析或快照轮询。
 
@@ -59,7 +67,8 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ./build/alg_pipeline_tool describe-node PrefixControlNode
 ```
 
-输出应包含 `cmd_id: 1001`、`name: set_prefix` 和必填字符串 `prefix`。生产 Catalog
+输出应包含 `cmd_id: 1001`、`name: set_prefix`、字符串参数 `prefix` 和至少一个受控字段的
+约束；这个命令只控制 `prefix`，因此下发时必须提供它。生产 Catalog
 只在你生成源码并重新构建后才增加节点；模板本身不作为内置能力交付。
 
 ## 5. 通过已有 Demo 下发
@@ -135,8 +144,8 @@ int ret = ops.Control(handle, ControlCommand::kJson, &param);
 ```
 
 `kJson` 选择唯一参数结构；节点命令 ID 位于 `param.cmd_id`。payload 必须是非空字符串，
-解析结果为 JSON object；空对象 `{}` 是否有效由目标命令的 schema 决定。UTF-8 字节数
-小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
+解析结果为 JSON object。字段命令 `ReplaceFields` 拒绝空对象 `{}`；复杂 `WithControl`
+命令仍按自身 schema 校验。UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先。
 命令与 `control_file` 必须成对，缺少任一项返回 3；未配置时不发送 Control。

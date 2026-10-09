@@ -33,7 +33,7 @@ description: 新增或修改 LLM-EdgeFlow 的 common/custom Node。所有 Node �
 | 多模型能力 | [starter_multi_model_node](../../../dev_support/node_authoring/starter_multi_model_node.cpp) |
 | 拆分且分配子编号/输出 counts | [TextChunkNode](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
 | 排名与候选来源 | [TextRerankNode](../../../src/common_nodes/text_rerank_node.cpp) |
-| 生成参数加自有配置、请求上下文 | `GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})`（[生成参数 helper](../../../include/nodes/generate_options_config.h)）；完整示例见 [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
+| 生成参数加自有配置、请求上下文 | `Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`（[生成参数 helper](../../../include/nodes/generate_parameters.h)）；完整示例见 [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
 | 两批关联/分组/部分调用后回填 | `dev_support/node_authoring/starter_batch_{join,group,select_scatter}_node.cpp` |
 
 示例名称替换成实际操作名；已有实现直接修改，不用 `--force` 覆盖。脚手架默认生成 custom；
@@ -46,13 +46,22 @@ common Node 放在 `src/common_nodes/` 并明确 `.Category("common")`。生成�
 2. 保序结果用带 anchor 的 `PreservedOutput`；多输出用 `OutputsOf` / `Produced`；派生批次用
    `ProducedBatch` 与准确的 `PortFlow`。拆分、过滤、排名的来源正确性由算法与测试保证。
    全部结果在局部成功后返回，由框架发布。
-3. `Parameters` / `Field` 声明参数；跨字段与连线规则用 `Validate` / `ValidateBindings`。
-   复杂 JSON 用 `ConfigParser`，不重复默认值和字段校验。
+3. `Parameters` / `Field` 声明参数；数组用 `std::vector<T>`，映射用 `std::map<std::string, T>`，
+   结构体元素用 `.Items(Parameters<Element>{...})`。`Range` / `Enum` 约束标量叶子，诊断路径
+   指出元素下标或映射键；`nlohmann::json` 字段接受非 null JSON 值。跨字段与连线规则用
+   `Validate` / `ValidateBindings`。需要自定义解析时仍可用 `ConfigParser`，不重复字段校验。
 4. `ModelsOf` / `Model` 声明能力槽；成员类型 `LlmCall`、`EmbeddingCall`、`AsrCall`、`OcrCall`、
-   `RerankCall` 决定能力。配置必须显式引用 model_id；保留门面返回的 `NodeResult` 失败。
+   `RerankCall` 决定能力。只传三个参数，例如 `Model("generator", "bind_model", &Models::generator)`；
+   框架按成员能力生成引用 `models[].model_id` 的说明。配置必须显式引用 model_id；保留门面返回的
+   `NodeResult` 失败。
 
-只在有需求时加入 Control 或缓存。`WithControls` 只能更新 `Field` 已绑定的参数；仅由
-`WithParser` 声明的字段不能直接加入字段 Control。typed Fields 与 parser 同时存在时，字段
+LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自有字段用 `Include`
+并入生成参数组。被并入字段在 JSON 中平铺，重名报错；参数组的 `Prepare` / `Validate` 先执行。
+生成字段也是普通 `Field`，可以加入 `WithControls`。
+
+只在有需求时加入 Control 或缓存。`WithControls` 的 `ReplaceFields` payload 至少提供一个受控
+字段，只替换提供的字段；数组和映射整体替换，更新后重跑 `Prepare` / `Validate`，失败保持旧快照。
+仅由 `WithParser` 声明的字段不能直接加入字段 Control。typed Fields 与 parser 同时存在时，字段
 Control 还要求显式 `Prepare`。复杂 `WithControl` 返回完整有效候选，框架不会再跑初始化的
 `Prepare`；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用
 `SessionResources::GetOrCreateResult`，key 显式纳入语义参数、输入和模型 revision。

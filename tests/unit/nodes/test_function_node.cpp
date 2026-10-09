@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -543,6 +544,95 @@ inline auto ControlledMapSpec() {
 }
 REGISTER_FUNCTION_NODE(ControlledMapNode, ControlledMapSpec());
 
+struct ControlledElement {
+  std::string text;
+  int repeats = 0;
+  std::string prepared;
+};
+
+auto ControlledElementParameters() {
+  return Parameters<ControlledElement>{
+      Field("text", &ControlledElement::text).Required(),
+      Field("repeats", &ControlledElement::repeats).Default(1).Range(1, 3)}
+      .Prepare([](ControlledElement* value, std::string* error) {
+        if (value->text == "FAIL_PREPARE") {
+          if (error) *error = "element prepare rejected";
+          return false;
+        }
+        value->prepared = "prepared:" + value->text;
+        return true;
+      })
+      .Validate([](const ControlledElement& value, std::string* error) {
+        if (value.text == "FAIL_VALIDATE") {
+          if (error) *error = "element validation rejected";
+          return false;
+        }
+        return true;
+      });
+}
+
+struct ControlledContainersParams {
+  std::map<std::string, std::vector<std::string>> groups;
+  std::vector<ControlledElement> rules;
+  nlohmann::json fallback;
+  std::string label;
+  std::string prepared;
+};
+
+constexpr int kCmdContainers = 3010;
+
+auto ControlledContainersSpec() {
+  auto params =
+      Parameters<ControlledContainersParams>{
+          Field("groups", &ControlledContainersParams::groups)
+              .Default({{"old", {"fast"}}})
+              .Enum({"fast", "slow"}),
+          Field("rules", &ControlledContainersParams::rules)
+              .Default({})
+              .Items(ControlledElementParameters()),
+          Field("fallback", &ControlledContainersParams::fallback)
+              .Default(nlohmann::json::object()),
+          Field("label", &ControlledContainersParams::label).Default("keep")}
+          .Prepare([](ControlledContainersParams* value, std::string* error) {
+            if (value->fallback.is_object() &&
+                value->fallback.value("reject_prepare", false)) {
+              if (error) *error = "container prepare rejected";
+              return false;
+            }
+            value->prepared = value->label + ":" +
+                              std::to_string(value->groups.size()) + ":" +
+                              std::to_string(value->rules.size());
+            return true;
+          })
+          .Validate(
+              [](const ControlledContainersParams& value, std::string* error) {
+                if (value.groups.count("blocked")) {
+                  if (error) *error = "blocked group rejected";
+                  return false;
+                }
+                return true;
+              });
+  return TextMapSpec(
+             std::move(params),
+             [](const std::string&, const ControlledContainersParams& value) {
+               auto rules = nlohmann::json::array();
+               for (const auto& rule : value.rules) {
+                 rules.push_back({{"text", rule.text},
+                                  {"repeats", rule.repeats},
+                                  {"prepared", rule.prepared}});
+               }
+               return nlohmann::json{{"groups", value.groups},
+                                     {"rules", rules},
+                                     {"fallback", value.fallback},
+                                     {"label", value.label},
+                                     {"prepared", value.prepared}}
+                   .dump();
+             })
+      .WithControls({ReplaceFields(kCmdContainers, "replace_containers",
+                                   {"groups", "rules", "fallback", "label"})});
+}
+REGISTER_FUNCTION_NODE(ControlledContainersNode, ControlledContainersSpec());
+
 // ---------------------------------------------------------------------------
 // 不可拷贝的参数 (持有 unique_ptr)，不带 Control
 // ---------------------------------------------------------------------------
@@ -1051,6 +1141,8 @@ TEST(FunctionNodeTest, ModelReferencesRequireExplicitConfiguration) {
   for (const auto& field : definition.config_fields) {
     EXPECT_TRUE(field.required);
     EXPECT_TRUE(field.default_value.is_null());
+    EXPECT_NE(field.semantic.find("models[].model_id"), std::string::npos);
+    EXPECT_NE(field.semantic.find("llm"), std::string::npos);
   }
 
   harness.Config({{"draft_model", "default_draft_model"},
@@ -1356,7 +1448,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   // 1. 缺少额外端口时，Map Definition 预检拒绝配置
   std::string map_diag;
   EXPECT_FALSE(map_def->validate_config({{"require_extra", true}}, {"input"},
-                                        &map_diag));
+                                        &map_diag, nullptr));
   EXPECT_NE(map_diag.find("require_extra requires extra port"),
             std::string::npos);
 
@@ -1402,7 +1494,8 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
 
   // 缺少 mask 时，Batch Definition 预检拒绝配置
   std::string diag;
-  EXPECT_FALSE(def->validate_config({{"check_mask", true}}, {"texts"}, &diag));
+  EXPECT_FALSE(
+      def->validate_config({{"check_mask", true}}, {"texts"}, &diag, nullptr));
   EXPECT_NE(diag.find("check_mask requires mask port"), std::string::npos);
 
   // mask 未连接时，手动计划的 Batch Init 失败
@@ -1553,8 +1646,9 @@ TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
         fault == 3 ? std::unordered_set<std::string>{"input"}
                    : std::unordered_set<std::string>{"input", "context"};
     std::string preflight_error;
-    EXPECT_EQ(definition->validate_config(config, ports, &preflight_error),
-              fault == 0);
+    EXPECT_EQ(
+        definition->validate_config(config, ports, &preflight_error, nullptr),
+        fault == 0);
     ValidatedNodePlan plan;
     plan.normalized_config = config;
     for (const auto& port : ports) {
@@ -1824,16 +1918,15 @@ TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
   EXPECT_EQ(res1.TextValues("output"),
             (std::vector<std::string>{"init_p:payload:init_s"}));
 
-  // 1. ReplaceFields 缺少 multiplier -> 拒绝
-  auto bad_replace = harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
-  EXPECT_EQ(bad_replace.status, NodeControlStatus::kFailed);
-  EXPECT_NE(bad_replace.message.find("multiplier"), std::string::npos);
+  // 1. 只替换给出的 prefix，保留 multiplier 和 suffix。
+  auto partial_replace =
+      harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
+  EXPECT_EQ(partial_replace.status, NodeControlStatus::kHandled);
 
-  // 状态保持不变
   auto res2 = harness.Run();
   ASSERT_TRUE(res2.ok());
   EXPECT_EQ(res2.TextValues("output"),
-            (std::vector<std::string>{"init_p:payload:init_s"}));
+            (std::vector<std::string>{"new_p:payload:init_s"}));
 
   // 2. ReplaceFields 带齐所有声明字段 -> 处理成功
   auto good_replace =
@@ -1907,6 +2000,171 @@ TEST(FunctionNodeTest, BatchNodeWithControlsAndValidation) {
   ASSERT_TRUE(res3.ok());
   EXPECT_EQ(res3.TextValues("output"),
             (std::vector<std::string>{"G:ABC", "G:DEF"}));
+}
+
+TEST(FunctionNodeTest,
+     FieldControlRejectsInvalidPartialPayloadsWithoutChangingState) {
+  NodeHarness harness("ControlledMapNode");
+  harness.Config({{"prefix", "p:"}, {"suffix", ":s"}, {"multiplier", 2}});
+  harness.TextInput("input", {"x"});
+  ASSERT_TRUE(harness.Run().ok());
+  for (const char* payload :
+       {R"({})", R"({"unknown":1})", R"({"suffix":":bad"})",
+        R"({"prefix":null})", R"({"prefix":42})", R"({"multiplier":"2"})",
+        R"({"multiplier":0})", R"({"multiplier":11})", R"([])", "null"}) {
+    SCOPED_TRACE(payload);
+    const auto control = harness.Control(kCmdReplaceMap, payload);
+    EXPECT_EQ(control.status, NodeControlStatus::kFailed);
+    EXPECT_FALSE(control.message.empty());
+    const auto after = harness.Run();
+    ASSERT_TRUE(after.ok()) << after.diagnostic();
+    EXPECT_EQ(after.TextValues("output"), (std::vector<std::string>{"p:xx:s"}));
+  }
+  ASSERT_EQ(harness.Control(kCmdReplaceMap, R"({"multiplier":3})").status,
+            NodeControlStatus::kHandled);
+  EXPECT_EQ(harness.Run().TextValues("output"),
+            (std::vector<std::string>{"p:xxx:s"}));
+}
+
+TEST(FunctionNodeTest, ContainerControlSchemasExposeDeclaredNestedConstraints) {
+  const auto definition =
+      ControlledContainersSpec().BuildDefinition("ContainerSchemaProbe");
+  ASSERT_EQ(definition.control_commands.size(), 1U);
+  const auto& schema = definition.control_commands[0].payload_schema;
+  EXPECT_EQ(schema["type"], "object");
+  EXPECT_EQ(schema["minProperties"], 1);
+  EXPECT_EQ(schema["additionalProperties"], false);
+  EXPECT_FALSE(schema.contains("required"));
+  EXPECT_EQ(schema["properties"]["groups"]["type"], "object");
+  EXPECT_EQ(schema["properties"]["groups"]["additionalProperties"]["type"],
+            "array");
+  EXPECT_EQ(
+      schema["properties"]["groups"]["additionalProperties"]["items"]["enum"],
+      (nlohmann::json{"fast", "slow"}));
+  const auto& element = schema["properties"]["rules"]["items"];
+  EXPECT_EQ(element["type"], "object");
+  EXPECT_EQ(element["required"], (nlohmann::json{"text"}));
+  EXPECT_EQ(element["additionalProperties"], false);
+  EXPECT_EQ(element["properties"]["repeats"]["minimum"], 1);
+  EXPECT_EQ(element["properties"]["repeats"]["maximum"], 3);
+  EXPECT_EQ(element["properties"]["repeats"]["default"], 1);
+  EXPECT_EQ(schema["properties"]["fallback"]["not"],
+            (nlohmann::json{{"type", "null"}}));
+}
+
+TEST(FunctionNodeTest,
+     ContainerControlReplacesProvidedFieldsAndRollsBackAllFailures) {
+  NodeHarness harness("ControlledContainersNode");
+  harness.TextInput("input", {"payload"});
+  auto initial = harness.Run();
+  ASSERT_TRUE(initial.ok()) << initial.diagnostic();
+  auto state = nlohmann::json::parse(initial.TextValues("output")[0]);
+  EXPECT_EQ(state["groups"], (nlohmann::json{{"old", {"fast"}}}));
+  ASSERT_EQ(
+      harness.Control(kCmdContainers, R"({"groups":{"new":["slow"]}})").status,
+      NodeControlStatus::kHandled);
+  ASSERT_EQ(
+      harness
+          .Control(kCmdContainers,
+                   R"({"rules":[{"text":"one"},{"text":"two","repeats":2}]})")
+          .status,
+      NodeControlStatus::kHandled);
+  ASSERT_EQ(
+      harness
+          .Control(kCmdContainers, R"({"fallback":[1,null],"label":"updated"})")
+          .status,
+      NodeControlStatus::kHandled);
+  auto after = harness.Run();
+  ASSERT_TRUE(after.ok()) << after.diagnostic();
+  state = nlohmann::json::parse(after.TextValues("output")[0]);
+  EXPECT_EQ(state["groups"], (nlohmann::json{{"new", {"slow"}}}));
+  EXPECT_EQ(state["label"], "updated");
+  EXPECT_EQ(state["prepared"], "updated:1:2");
+  EXPECT_EQ(state["fallback"], (nlohmann::json{1, nullptr}));
+  ASSERT_EQ(state["rules"].size(), 2U);
+  EXPECT_EQ(state["rules"][0]["repeats"], 1);
+  EXPECT_EQ(state["rules"][0]["prepared"], "prepared:one");
+
+  for (const char* payload :
+       {R"({"groups":{"bad":["other"]}})", R"({"groups":{"new":[null]}})",
+        R"({"rules":[{"text":"bad","repeats":0}]})", R"({"rules":[{}]})",
+        R"({"rules":[{"text":"bad","extra":1}]})", R"({"fallback":null})",
+        R"({"label":"should rollback","rules":[{"text":"FAIL_PREPARE"}]})",
+        R"({"label":"should rollback","rules":[{"text":"FAIL_VALIDATE"}]})",
+        R"({"label":"should rollback","fallback":{"reject_prepare":true}})",
+        R"({"label":"should rollback","groups":{"blocked":["fast"]}})"}) {
+    SCOPED_TRACE(payload);
+    const auto control = harness.Control(kCmdContainers, payload);
+    EXPECT_EQ(control.status, NodeControlStatus::kFailed);
+    EXPECT_FALSE(control.message.empty());
+    auto unchanged = harness.Run();
+    ASSERT_TRUE(unchanged.ok()) << unchanged.diagnostic();
+    EXPECT_EQ(nlohmann::json::parse(unchanged.TextValues("output")[0]), state);
+  }
+  ASSERT_EQ(
+      harness.Control(kCmdContainers, R"({"rules":[{"text":"replacement"}]})")
+          .status,
+      NodeControlStatus::kHandled);
+  auto replaced = harness.Run();
+  ASSERT_TRUE(replaced.ok());
+  const auto final_state =
+      nlohmann::json::parse(replaced.TextValues("output")[0]);
+  ASSERT_EQ(final_state["rules"].size(), 1U);
+  EXPECT_EQ(final_state["rules"][0]["text"], "replacement");
+  EXPECT_EQ(final_state["groups"], state["groups"]);
+  EXPECT_EQ(final_state["fallback"], state["fallback"]);
+}
+
+TEST(FunctionNodeTest, IncludedParameterBindingsSurviveCopyAndFieldControl) {
+  struct Inner {
+    std::string prefix;
+    std::string prepared;
+  };
+  struct Params {
+    Inner inner;
+    int count = 0;
+    std::string prepared;
+  };
+  auto group =
+      Parameters<Inner>{Field("prefix", &Inner::prefix).Default("old:")}
+          .Prepare([](Inner* value, std::string* error) {
+            if (value->prefix == "reject") {
+              if (error) *error = "included prepare rejected";
+              return false;
+            }
+            value->prepared = "compiled:" + value->prefix;
+            return true;
+          });
+  const auto original =
+      Parameters<Params>{Field("count", &Params::count).Default(2)}
+          .Include(&Params::inner, std::move(group))
+          .Prepare([](Params* value, std::string*) {
+            value->prepared = value->inner.prepared;
+            return true;
+          });
+  auto copy = original;
+  std::string error;
+  const auto initial = copy.Parse(nlohmann::json::object(), &error);
+  ASSERT_TRUE(initial.has_value()) << error;
+  ConfigurationSnapshot<Params> snapshot(*initial);
+  const auto command =
+      ReplaceFields(3020, "set_included_prefix", {"prefix", "count"});
+  EXPECT_NO_THROW(ValidateControlCommands({command}, copy));
+  const auto result =
+      command.Execute(copy, R"({"prefix":"new:"})", BindingFacts{}, snapshot);
+  ASSERT_EQ(result.status, NodeControlStatus::kHandled) << result.message;
+  auto value = snapshot.Read();
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(value->inner.prefix, "new:");
+  EXPECT_EQ(value->count, 2);
+  EXPECT_EQ(value->prepared, "compiled:new:");
+  const auto failed = command.Execute(copy, R"({"prefix":"reject","count":9})",
+                                      BindingFacts{}, snapshot);
+  EXPECT_EQ(failed.status, NodeControlStatus::kFailed);
+  value = snapshot.Read();
+  EXPECT_EQ(value->inner.prefix, "new:");
+  EXPECT_EQ(value->count, 2);
+  EXPECT_EQ(value->prepared, "compiled:new:");
 }
 
 TEST(FunctionNodeTest, SnapshotPauseTimeoutFailsProcess) {
@@ -2122,6 +2380,20 @@ TEST(FunctionNodeTest, DeclarationValidationRejectsInvalidControlCommands) {
       ValidateControlCommands({ReplaceFields(1001, "cmd", {"non_existent"})},
                               make_params()),
       std::invalid_argument);
+}
+
+TEST(FunctionNodeTest, FieldControlsCannotReplaceModelReferences) {
+  struct Params {
+    std::string bind_model;
+  };
+  const auto params =
+      Parameters<Params>{Field("bind_model", &Params::bind_model).Required()};
+  const auto models = ModelsOf<AnswerModels>{
+      Model("generator", "bind_model", &AnswerModels::llm)};
+  EXPECT_THROW(ValidateControlCommands(
+                   {ReplaceFields(3030, "replace_model", {"bind_model"})},
+                   params, &models),
+               std::invalid_argument);
 }
 
 TEST(FunctionNodeTest, PreservedOutputDeclarationsRequireNamedAnchors) {

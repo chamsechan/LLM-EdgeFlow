@@ -30,7 +30,7 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 | 参数顺序 | 依次为 Inputs、Params、Models；Spec 没有 `Parameters<...>` 就不写 Params，没有 `ModelsOf<...>` 就不写 Models；用到会话缓存时再追加 `SessionResources` |
 | 返回值 | `NodeResult<OutputBatch>`；多输出为 `NodeResult<Outputs>`。成功可直接返回结果，失败用 `NodeResult<T>::Failure(...)` |
 | 逐项处理 | `MapPayloads(*inputs.input, &Transform)`：`Transform` 接收一条载荷，返回新载荷或 `NodeResult`；失败时诊断指出是哪一条 |
-| 生成参数 | 只需生成参数时用 `GenerateParameters(默认 max_tokens)`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate`；还有自有配置时用 `GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})` |
+| 生成参数 | 只需生成参数时用 `GenerateParameters()`，`Run` 收到 `const GenerateOptions&` 并传给 `LlmCall::Generate`；还有自有配置时用 `Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())` |
 
 ## 常见编译错误对照
 
@@ -87,7 +87,9 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 
 你需要的是“生成文本”的能力。`ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
 `AsrCall`、`OcrCall`、`RerankCall` 分别提供 `Generate`、`Embed`、`Transcribe`、`Recognize`、`Score`。
-它们处理空批次、模型错误诊断及返回数量和来源检查，结果统一为 `NodeResult`。
+绑定写作 `Model("generator", "bind_model", &Models::generator)`，只接收三个参数；框架按
+成员能力生成引用 `models[].model_id` 的说明。它们处理空批次、模型错误诊断及返回数量和
+来源检查，结果统一为 `NodeResult`。
 模型失败直接传播，不为旧节点错误码再做一层映射；宿主收到的返回码由接入适配层按失败阶段映射，
 内部码保留在诊断中。Node 不加载模型文件或创建厂商运行时。
 
@@ -115,20 +117,24 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
-仍适合新模型，要用实际数据确认。LLM 模板用 `GenerateParameters(128)` 声明 `max_tokens`、
-`temperature` 等生成参数，节点配置可以直接调整。还需要自有配置时，把生成参数放进自己的
-`Params`，自有字段照常用 `Field` 声明，并把 Spec 中的 `GenerateParameters(128)` 换成：
+仍适合新模型，要用实际数据确认。LLM 模板用
+[`GenerateParameters()`](../../include/nodes/generate_parameters.h) 声明 `max_tokens`、`temperature`
+等生成参数，默认值来自 `GenerateOptions`，所有节点默认 `max_tokens = 128`；节点配置可以覆盖。
+还需要自有配置时，把生成参数放进自己的
+`Params`，自有字段照常用 `Field` 声明，并把 Spec 中的 `GenerateParameters()` 换成：
 
 ```cpp
 struct Params {
-  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters(128) 相同
+  GenerateOptions generation;  // 生成参数，字段与 GenerateParameters() 相同
   std::string prefix;          // 自有参数
 };
 
-GenerateParameters(128, &Params::generation,
-                   {Field("prefix", &Params::prefix).Default("")})
+Parameters<Params>{Field("prefix", &Params::prefix).Default("")}
+    .Include(&Params::generation, GenerateParameters())
 ```
 
+`Include` 把生成字段平铺在同一层 JSON 中，值写入 `generation`；重名在构造声明时拒绝。
+被并入组的 `Prepare` / `Validate` 先于本组执行。生成字段也是普通 `Field`，可加入 `WithControls`。
 `Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。自有字段需要
 进一步转换时（例如把模板解析成片段），用 `Prepare`，参考
 [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp)。
@@ -168,8 +174,32 @@ Validator 根据 Definition 字段列表一次性校验未知字段、类型、�
 跨字段及连线语义分别用 `Validate` / `ValidateBindings`，初始化与预检使用同一规则。
 Control 更新单独归一化参数、构造下一状态后发布。
 
-`Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
-结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(ConfigParser<YourConfig>(fields, parse))`
+非可选 `Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，
+也不从结构体初值推断配置默认值。`std::optional<T>` 标量不声明这两项，省略时为空。
+数组和映射分别使用 `std::vector<T>`、`std::map<std::string, T>`，可以嵌套；结构体元素
+使用 `.Items(Parameters<Element>{...})`，元素字段照常声明必填项、默认值和约束：
+
+```cpp
+struct Rule { std::string text; double score; };
+struct Params {
+  std::vector<Rule> rules;
+  std::map<std::string, std::vector<std::string>> categories;
+  nlohmann::json fallback;
+};
+
+Parameters<Params>{
+    Field("rules", &Params::rules).Default({})
+        .Items(Parameters<Rule>{Field("text", &Rule::text).Required(),
+                                Field("score", &Rule::score).Default(1).Range(0, 1)}),
+    Field("categories", &Params::categories).Default({}),
+    Field("fallback", &Params::fallback).Default(nlohmann::json::object())}
+```
+
+容器上的 `Range` / `Enum` 约束标量叶子，元素类型由成员类型推导；结构体的字段说明由
+`Items` 提供。错误路径继续到元素下标或映射键，例如 `/pipeline/0/config/rules/1/score`、
+`/pipeline/0/config/categories/topic/0`。`nlohmann::json` 字段接受任意非 null JSON 值。
+
+需要自定义解析时，仍可用 `.WithParser(ConfigParser<YourConfig>(fields, parse))`
 与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
 再执行 `Prepare` 构建派生状态，最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的
 连线规则。parser 接收已规范化 JSON，不要再次序列化；依赖基础参数的派生成员应在
@@ -252,7 +282,9 @@ cardinality 是端口自身的声明，沿拆分传递的逐项输出仍可能�
 | 经设计和验证可安全共享的资源句柄 | 当前请求的 Context 指针、临时请求缓存 |
 
 “无请求状态”允许节点持有配置。在线更新时先校验新值，失败保留旧值，每次处理读取
-一致快照。普通字段使用 `WithControls`；复杂命令使用 `WithControl` 声明 schema 和
+一致快照。普通字段使用 `WithControls` / `ReplaceFields`，payload 至少提供一个受控字段；
+只替换提供的字段，数组和映射整体替换，随后重跑 `Prepare` / `Validate`，失败保持旧快照。
+复杂命令仍使用 `WithControl` 声明 schema 和
 构造下一状态的函数，框架串行处理更新并发布。见 [Control 练习](first_control.md)。
 复杂状态的初始构建与更新复用普通 `Build...State` 函数；更新回调负责构建完整候选，
 `WithControl` 不会再次运行初始化的 `Prepare`。模板编译和规则解析各有一个实现，
@@ -297,7 +329,7 @@ TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一�
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
-| 多字段配置转为普通参数结构 | [ConfigParser](../../include/contracts/parameters.h)，复用字段校验与节点自己的语义解析 |
+| 多字段配置转为普通参数结构 | [Parameters](../../include/contracts/parameters.h) / `Field` / `Include`；需要自定义解析时使用 `ConfigParser` |
 | 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControl`，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 
