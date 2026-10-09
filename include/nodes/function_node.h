@@ -18,7 +18,7 @@
 #include "core/port_definition.h"
 #include "core/session_context.h"
 #include "core/validated_node_plan.h"
-#include "engine/model_capability_traits.h"
+#include "engine/model_type_traits.h"
 #include "nodes/configuration_snapshot.h"
 #include "nodes/control_authoring.h"
 #include "nodes/model_binding.h"
@@ -660,7 +660,7 @@ class ModelSlotBinding {
   virtual ~ModelSlotBinding() = default;
   virtual const std::string& SlotName() const = 0;
   virtual const std::string& ConfigField() const = 0;
-  virtual const std::string& Capability() const = 0;
+  virtual const std::string& ModelType() const = 0;
   virtual ConfigFieldDefinition ToConfigField() const = 0;
   virtual bool Bind(const NodeInitContext& init_ctx,
                     SessionContext& session_ctx,
@@ -677,35 +677,35 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
       : slot_(std::move(slot)), field_(std::move(field)), member_(member) {}
   const std::string& SlotName() const override { return slot_; }
   const std::string& ConfigField() const override { return field_; }
-  const std::string& Capability() const override {
-    static const std::string capability =
-        ModelCapabilityTraits<typename CallT::ModelType>::Capability();
-    return capability;
+  const std::string& ModelType() const override {
+    static const std::string model_type =
+        ModelTypeTraits<typename CallT::Interface>::ModelType();
+    return model_type;
   }
   ConfigFieldDefinition ToConfigField() const override {
     ConfigFieldDefinition field;
     field.name = field_;
     field.kind = ConfigValueKind::kString;
     field.required = true;
-    field.semantic =
-        "引用 models[].model_id；所选模型的类别必须是 " + Capability();
+    field.semantic = "引用 models[].name；所选模型的类别必须是 " + ModelType();
     return field;
   }
   bool Bind(const NodeInitContext& init, SessionContext& session,
             const nlohmann::json&, ModelsT* models,
             std::string* error) override {
-    std::string model_id;
-    if (!ResolveBoundModelId(*init.plan, slot_, Capability(), &model_id, error))
+    std::string model_name;
+    if (!ResolveBoundModelName(*init.plan, slot_, ModelType(), &model_name,
+                               error))
       return false;
-    auto model =
-        session.GetModelManager().GetModel<typename CallT::ModelType>(model_id);
+    auto model = session.GetModelManager().GetModel<typename CallT::Interface>(
+        model_name);
     if (!model) {
       if (error)
-        *error = Capability() + " model '" + model_id +
+        *error = ModelType() + " model '" + model_name +
                  "' is unavailable or incompatible";
       return false;
     }
-    models->*member_ = CallT(std::move(model), slot_, model_id);
+    models->*member_ = CallT(std::move(model), slot_, model_name);
     return true;
   }
   std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const override {
@@ -920,6 +920,21 @@ class NodeSpec {
     return std::move(*this);
   }
 
+  using ModelValidator =
+      std::function<bool(const ParamsT&, const ModelsT&, std::string*)>;
+  NodeSpec& ValidateModels(ModelValidator validator) & {
+    model_validator_ = std::move(validator);
+    return *this;
+  }
+  NodeSpec ValidateModels(ModelValidator validator) && {
+    model_validator_ = std::move(validator);
+    return std::move(*this);
+  }
+  bool ValidateBoundModels(const ParamsT& params, const ModelsT& models,
+                           std::string* error) const {
+    return !model_validator_ || model_validator_(params, models, error);
+  }
+
   NodeSpec WithControls(std::vector<FieldControlCommand> commands) && {
     static_assert(std::is_copy_constructible_v<ParamsT>,
                   "WithControls requires copy-constructible ParametersType");
@@ -980,7 +995,7 @@ class NodeSpec {
       for (const auto& b : models_.Bindings()) {
         def.model_dependencies.push_back(NodeModelDependency{
             b->SlotName(),
-            b->Capability(),
+            b->ModelType(),
             b->ConfigField(),
         });
       }
@@ -1004,6 +1019,7 @@ class NodeSpec {
   Parameters<ParamsT> params_;
   ModelsOf<ModelsT> models_;
   RunFnT fn_;
+  ModelValidator model_validator_;
   std::vector<FieldControlCommand> control_commands_;
   std::vector<PortGroupConstraint> port_constraints_;
   std::string category_ = "custom";
@@ -1088,15 +1104,16 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     if (!parsed) {
       return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
     }
+    if (!spec_.Models().BindModels(init_ctx, session_ctx, normalized, &models_,
+                                   &err)) {
+      return init_ctx.Fail(err.empty() ? "Failed to bind models" : err);
+    }
+    if (!spec_.ValidateBoundModels(*parsed, models_, &err))
+      return init_ctx.Fail(err.empty() ? "Invalid model options" : err);
     if (spec_.HasControls()) {
       snapshot_.Initialize(std::move(*parsed));
     } else {
       parameters_ = std::move(*parsed);
-    }
-
-    if (!spec_.Models().BindModels(init_ctx, session_ctx, normalized, &models_,
-                                   &err)) {
-      return init_ctx.Fail(err.empty() ? "Failed to bind models" : err);
     }
 
     return true;

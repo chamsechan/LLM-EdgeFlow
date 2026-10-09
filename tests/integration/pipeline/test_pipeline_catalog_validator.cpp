@@ -109,7 +109,7 @@ TEST(PipelineValidatorTest,
      UnknownModelTypeHasRemediationWithoutReferenceCascade) {
   auto fixture = LoadRegistrationFixture(
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
-  fixture.neutral_pipeline_json["models"][0]["model_type"] = "test_biz_llmm";
+  fixture.neutral_pipeline_json["models"][0]["type"] = "llmm";
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
@@ -117,14 +117,14 @@ TEST(PipelineValidatorTest,
   ASSERT_NE(d, nullptr);
   ASSERT_TRUE(d->remediation.has_value());
   EXPECT_EQ(d->remediation->cause, RemediationCause::kUnknownModelType);
-  EXPECT_EQ(d->message, "Unknown model_type: test_biz_llmm");
+  EXPECT_EQ(d->message, "Unknown model type: llmm");
   ASSERT_FALSE(d->suggestions.empty());
-  EXPECT_EQ(d->suggestions.front(), "test_biz_llm");
+  EXPECT_EQ(d->suggestions.front(), "llm");
   EXPECT_EQ(d->remediation->facts["candidate_model_types"], d->suggestions);
   const auto names = d->remediation->facts["registered_model_types"]
                          .get<std::vector<std::string>>();
   EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
-  EXPECT_EQ(d->remediation->facts["model_id"], "entity_llm");
+  EXPECT_EQ(d->remediation->facts["model_name"], "entity_llm");
   EXPECT_EQ(FindDiagnostic(report, DiagnosticCode::kUnknownModelReference),
             nullptr);
   EXPECT_EQ(d->remediation->summary.find("alg_pipeline_tool"),
@@ -146,13 +146,14 @@ TEST(PipelineValidatorTest, UndeclaredModelReferenceIsStillReported) {
 TEST(PipelineValidatorTest, UnknownBackendHasRemediation) {
   auto fixture = LoadRegistrationFixture(
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
-  fixture.neutral_pipeline_json["models"][0]["backend"] =
+  fixture.neutral_pipeline_json["models"][0]["backend"]["type"] =
       "test_causal_lm_backnd";
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
   const auto& d = report.diagnostics.front();
   EXPECT_EQ(d.code, DiagnosticCode::kUnknownBackend);
+  EXPECT_EQ(d.path, "/models/0/backend/type");
   ASSERT_TRUE(d.remediation.has_value());
   EXPECT_EQ(d.remediation->cause, RemediationCause::kUnknownBackend);
   ASSERT_FALSE(d.suggestions.empty());
@@ -161,7 +162,14 @@ TEST(PipelineValidatorTest, UnknownBackendHasRemediation) {
   const auto names = d.remediation->facts["registered_backends"]
                          .get<std::vector<std::string>>();
   ASSERT_FALSE(names.empty());
-  EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
+  EXPECT_EQ(names, d.suggestions);
+  EXPECT_EQ(std::set<std::string>(names.begin(), names.end()).size(),
+            names.size());
+  for (const auto& backend : names) {
+    EXPECT_FALSE(
+        ModelRegistry::Instance().FindImplementation("llm", backend).empty())
+        << backend;
+  }
 }
 
 TEST(PipelineValidatorTest, UnknownNodeTypeSuppressesMissingOutputCascade) {
@@ -338,22 +346,27 @@ TEST(PipelineValidatorTest,
             nullptr);
 }
 
-TEST(PipelineValidatorTest, UnknownModelTypeDoesNotHideCapabilityMismatch) {
+TEST(PipelineValidatorTest, UnknownModelTypeDoesNotHideTypeMismatch) {
   auto fixture = LoadRegistrationFixture(
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
   auto& root = fixture.neutral_pipeline_json;
-  root["models"][0]["model_type"] = "test_biz_llmm";
-  root["models"].push_back({{"model_id", "known_embedding"},
-                            {"model_type", "test_biz_embedding"},
-                            {"backend", "test_tensor_backend"},
-                            {"model_path", "fixture.bin"},
-                            {"model_config", nlohmann::json::object()},
-                            {"backend_config", nlohmann::json::object()}});
+  root["models"][0]["type"] = "llmm";
+  root["models"].push_back({{"name", "known_embedding"},
+                            {"type", "embedding"},
+                            {"backend", {{"type", "test_tensor_backend"}}},
+                            {"file", "fixture.bin"},
+                            {"params", nlohmann::json::object()}});
   root["pipeline"][0]["config"]["bind_model"] = "known_embedding";
+  root["pipeline"].push_back(
+      {{"id", "unresolved_llm_user"},
+       {"node_type", "LlmGenerateNode"},
+       {"config", {{"bind_model", "entity_llm"}}},
+       {"inputs", {{"prompt", "input_sentences"}}},
+       {"outputs", {{"text", "unresolved_llm_answer"}}}});
   const auto report = ValidateWithRemediation(root, fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownModelType), nullptr);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kModelCapabilityMismatch,
+  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kModelTypeMismatch,
                            "/pipeline/0/config/bind_model"),
             nullptr);
 }
@@ -362,9 +375,8 @@ TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
   for (const auto& node_type : NodeRegistry::Instance().ListTypes()) {
     EXPECT_TRUE(PipelineCatalog::FindNode(node_type).has_value()) << node_type;
   }
-  for (const auto& model_type : ModelRegistry::Instance().ListTypes()) {
-    EXPECT_TRUE(PipelineCatalog::FindModel(model_type).has_value())
-        << model_type;
+  for (const auto& impl_name : ModelRegistry::Instance().ListImplNames()) {
+    EXPECT_TRUE(PipelineCatalog::FindModel(impl_name).has_value()) << impl_name;
   }
   for (const auto& backend_type : BackendRegistry::Instance().ListTypes()) {
     EXPECT_TRUE(PipelineCatalog::FindBackend(backend_type).has_value())
@@ -381,8 +393,8 @@ TEST(PipelineCatalogTest, OutputIsDeterministicAndConflictFree) {
   }
   std::set<std::string> model_types;
   for (const auto& definition : PipelineCatalog::Models()) {
-    EXPECT_TRUE(model_types.insert(definition.model_type).second)
-        << definition.model_type;
+    EXPECT_TRUE(model_types.insert(definition.impl_name).second)
+        << definition.impl_name;
   }
   std::set<std::string> backend_types;
   for (const auto& definition : PipelineCatalog::Backends()) {
@@ -422,10 +434,12 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
     for (const auto& model :
          pipeline.value("models", nlohmann::json::array())) {
       if (!model.is_object()) continue;
-      const std::string backend = model.value("backend", "");
-      const std::string model_type = model.value("model_type", "");
+      const std::string backend = model.at("backend").value("type", "");
+      const std::string model_type = model.value("type", "");
       if ((!backend.empty() && !BackendRegistry::Instance().Has(backend)) ||
-          (!model_type.empty() && !ModelRegistry::Instance().Has(model_type))) {
+          ModelRegistry::Instance()
+              .FindImplementation(model_type, backend)
+              .empty()) {
         requires_unavailable_runtime = true;
         break;
       }
@@ -444,7 +458,7 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   EXPECT_EQ(validated + skipped_optional, candidates);
 }
 
-TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
+TEST(PipelineValidatorTest, CoreLeavesModelFileRulesToIntegration) {
   std::ifstream stream("demo/fixtures/mock/pipeline_doc_qa.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
@@ -452,29 +466,17 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
   auto fixture = PrepareExternalFixtureForCore(pipeline);
   pipeline = fixture.neutral_pipeline_json;
 
-  for (const std::string& safe_path :
+  for (const std::string& model_file :
        {std::string("missing/artifact.bin"), std::string("..name/artifact.bin"),
         std::string("missing/../artifact.bin"),
-        std::filesystem::absolute("missing/artifact.bin").string()}) {
-    pipeline["models"][0]["model_path"] = safe_path;
+        std::filesystem::absolute("missing/artifact.bin").string(),
+        std::string(".."), std::string("../artifact.bin"),
+        std::string("missing/../../artifact.bin"),
+        std::string("..\\artifact.bin"), std::string("C:\\artifact.bin"),
+        std::string("\\\\server\\share\\artifact.bin")}) {
+    pipeline["models"][0]["file"] = model_file;
     const auto report = ValidateWithRemediation(pipeline, fixture.io_boundary);
-    EXPECT_TRUE(report.ok) << safe_path << "\n" << report.ToJson().dump(2);
-  }
-
-  for (const char* unsafe_path :
-       {"..", "../artifact.bin", "missing/../../artifact.bin",
-        "..\\artifact.bin"}) {
-    pipeline["models"][0]["model_path"] = unsafe_path;
-    const auto report = ValidateWithRemediation(pipeline, fixture.io_boundary);
-    EXPECT_FALSE(report.ok) << unsafe_path;
-    EXPECT_TRUE(
-        std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
-                    [](const ValidationDiagnostic& diagnostic) {
-                      return diagnostic.code == DiagnosticCode::kFieldRange &&
-                             diagnostic.path == "/models/0/model_path";
-                    }))
-        << unsafe_path << "\n"
-        << report.ToJson().dump(2);
+    EXPECT_TRUE(report.ok) << model_file << "\n" << report.ToJson().dump(2);
   }
 }
 
@@ -485,12 +487,11 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
 
   const nlohmann::json pipeline = {
       {"models",
-       {{{"model_id", "llm_model"},
-         {"model_type", "test_biz_embedding"},
-         {"backend", "test_tensor_backend"},
-         {"model_path", "fixture.bin"},
-         {"model_config", nlohmann::json::object()},
-         {"backend_config", nlohmann::json::object()}}}},
+       {{{"name", "llm_model"},
+         {"type", "embedding"},
+         {"backend", {{"type", "test_tensor_backend"}}},
+         {"file", "fixture.bin"},
+         {"params", nlohmann::json::object()}}}},
       {"pipeline",
        {{{"id", "pre"},
          {"node_type", "TextTemplateNode"},
@@ -512,7 +513,7 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
     codes.insert(diagnostic.code);
   EXPECT_TRUE(codes.count(DiagnosticCode::kUnknownConfigField));
   EXPECT_TRUE(codes.count(DiagnosticCode::kConfigFieldRange));
-  EXPECT_TRUE(codes.count(DiagnosticCode::kModelCapabilityMismatch));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kModelTypeMismatch));
 
   // 验证外部 JSON 序列化一致性
   auto json_rep = report.ToJson();
@@ -522,7 +523,7 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   }
   EXPECT_TRUE(json_codes.count("UNKNOWN_CONFIG_FIELD"));
   EXPECT_TRUE(json_codes.count("CONFIG_FIELD_RANGE"));
-  EXPECT_TRUE(json_codes.count("MODEL_CAPABILITY_MISMATCH"));
+  EXPECT_TRUE(json_codes.count("MODEL_TYPE_MISMATCH"));
 }
 
 static nlohmann::json MakeSyntheticDeploymentDocForTest(
@@ -540,10 +541,10 @@ TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
   const nlohmann::json config = {
       {"max_parallel_workers", 4},
       {"models",
-       {{{"model_id", "serialized_llm"},
-         {"model_type", "test_biz_llm"},
-         {"backend", "test_causal_lm_backend"},
-         {"model_path", "fixture.gguf"}}}},
+       {{{"name", "serialized_llm"},
+         {"type", "llm"},
+         {"backend", {{"type", "test_causal_lm_backend"}}},
+         {"file", "fixture.gguf"}}}},
       {"pipeline",
        {{{"id", "pre"},
          {"node_type", "TextTemplateNode"},
@@ -649,7 +650,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     std::string resolve_error;
     DeploymentDiagnostic resolve_diagnostic;
     const int resolve_result = IoPlanResolver::ResolveFromPipelineJson(
-        dep_config, "./models", &io_plan, &resolve_error, &resolve_diagnostic);
+        dep_config, "", &io_plan, &resolve_error, &resolve_diagnostic);
     EXPECT_EQ(resolve_result, test["runtime_error_code"].get<int>());
     EXPECT_EQ(io_plan, nullptr);
     EXPECT_EQ(resolve_diagnostic.code, test["primary_code"].get<std::string>());
@@ -679,7 +680,7 @@ TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
                           [](const ValidationDiagnostic& diagnostic) {
                             return diagnostic.code ==
                                        DiagnosticCode::kUnknownBackend &&
-                                   diagnostic.path == "/models/0/backend";
+                                   diagnostic.path == "/models/0/backend/type";
                           }));
 #endif
 }
@@ -1011,22 +1012,23 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
     char name_buf[32];
     std::snprintf(name_buf, sizeof(name_buf), "a_invalid_%02d", i);
     root["models"].push_back({
-        {"model_id", name_buf},
-        {"model_type", "test_biz_llm"},
-        {"backend", "unknown_backend"},
-        {"model_path", "demo/fixtures/mock/artifacts/neutral-llm.fixture"},
-        {"model_config", {{"max_batch_size", 2}, {"max_seq_len", 512}}},
-        {"backend_config", nlohmann::json::object()},
+        {"name", name_buf},
+        {"type", "llm"},
+        {"backend",
+         {{"type", "unknown_backend"}, {"params", {{"fixed_batch_size", 2}}}}},
+        {"file", "demo/fixtures/mock/artifacts/neutral-llm.fixture"},
+        {"params", nlohmann::json::object()},
     });
   }
 
   root["models"].push_back({
-      {"model_id", "z_valid"},
-      {"model_type", "test_biz_llm"},
-      {"backend", "test_causal_lm_backend"},
-      {"model_path", "demo/fixtures/mock/artifacts/neutral-llm.fixture"},
-      {"model_config", {{"max_batch_size", 2}, {"max_seq_len", 512}}},
-      {"backend_config", nlohmann::json::object()},
+      {"name", "z_valid"},
+      {"type", "llm"},
+      {"backend",
+       {{"type", "test_causal_lm_backend"},
+        {"params", {{"fixed_batch_size", 2}}}}},
+      {"file", "demo/fixtures/mock/artifacts/neutral-llm.fixture"},
+      {"params", nlohmann::json::object()},
   });
 
   const auto report = ExplainPipeline(root, boundary);
@@ -1048,6 +1050,23 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
 
   EXPECT_LE(total_fixes, 8U);
   EXPECT_FALSE(found_model_11_or_z_valid);
+
+  // Removing the invalid candidates makes the same final candidate usable.
+  // Its patch must repair the configuration, proving the bound above is
+  // exercised.
+  auto reachable = root;
+  reachable["models"] = nlohmann::json::array({root["models"].back()});
+  const auto reachable_report = ExplainPipeline(reachable, boundary);
+  const auto* reference =
+      FindDiagnostic(reachable_report, DiagnosticCode::kUnknownModelReference,
+                     "/pipeline/0/config/bind_model");
+  ASSERT_NE(reference, nullptr);
+  ASSERT_TRUE(reference->remediation.has_value());
+  ASSERT_FALSE(reference->remediation->fixes.empty());
+  const auto repaired =
+      reachable.patch(reference->remediation->fixes.front().patch);
+  const auto repaired_report = ValidateWithRemediation(repaired, boundary);
+  EXPECT_TRUE(repaired_report.ok) << repaired_report.ToJson().dump(2);
 }
 
 TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
@@ -1056,12 +1075,13 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
                        {{"extracted_entities", "StructuredDocumentBatch"}});
 
   nlohmann::json root = {{"models",
-                          {{{"model_id", "broken_model"},
-                            {"model_type", "bge_embedding"},
-                            {"backend", "test_causal_lm_backend"},
-                            {"model_path", "fixture.bin"},
-                            {"model_config", {{"max_batch_size", -1}}},
-                            {"backend_config", nlohmann::json::object()}}}},
+                          {{{"name", "broken_model"},
+                            {"type", "llm"},
+                            {"backend",
+                             {{"type", "test_causal_lm_backend"},
+                              {"params", {{"fixed_batch_size", 2}}}}},
+                            {"file", "fixture.bin"},
+                            {"params", {{"max_seq_len", 0}}}}}},
                          {"pipeline",
                           {{{"id", "llm_node"},
                             {"node_type", "PromptGuidedLlmNode"},
@@ -1077,6 +1097,17 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
 
   const auto report = ExplainPipeline(root, boundary);
   EXPECT_FALSE(report.ok);
+
+  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kConfigFieldRange,
+                           "/models/0/params/max_seq_len"),
+            nullptr);
+  const auto* reference =
+      FindDiagnostic(report, DiagnosticCode::kUnknownModelReference,
+                     "/pipeline/0/config/bind_model");
+  ASSERT_NE(reference, nullptr);
+  ASSERT_TRUE(reference->remediation.has_value());
+  EXPECT_EQ(reference->remediation->facts["candidate_model_names"],
+            nlohmann::json::array({"broken_model"}));
 
   bool proposed_broken_model = false;
   for (const auto& diag : report.diagnostics) {

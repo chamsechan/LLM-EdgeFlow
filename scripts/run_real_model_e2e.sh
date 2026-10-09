@@ -7,7 +7,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODEL_DIR="${PROJECT_ROOT}/models"
+MODEL_DIR="${PROJECT_ROOT}/configs"
 
 MODE="gguf-only"
 if [[ $# -gt 1 ]]; then

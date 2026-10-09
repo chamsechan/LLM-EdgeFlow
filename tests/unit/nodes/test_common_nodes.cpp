@@ -18,6 +18,8 @@
 #include "core/session_context.h"
 #include "dev_support/inference/test_biz_models.h"
 #include "dev_support/inference/test_capability_models.h"
+#include "dev_support/inference/test_causal_lm_backend.h"
+#include "dev_support/inference/test_tensor_backend.h"
 #include "engine/model_interface.h"
 #include "nodes/generate_parameters.h"
 #include "nodes/node_error_codes.h"
@@ -36,17 +38,27 @@ class CommonNodesTest : public ::testing::Test {
     options.device_id = 0;
     session_ctx_->SetRuntimeOptions(options);
 
-    ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "embed_model",
-        std::make_shared<test::TestBizEmbeddingModel>(384, 4), "test-v1"));
+    ASSERT_TRUE(
+        RegisterTestModel(session_ctx_->GetModelManager(), "embed_model",
+                          std::make_shared<test::TestBizEmbeddingModel>(
+                              std::make_shared<test::TestTensorSession>(
+                                  "embedding.fixture", BatchPolicy{4, 4}),
+                              384),
+                          "test-v1"));
 
-    ASSERT_TRUE(RegisterTestModel(
-        session_ctx_->GetModelManager(), "rerank_model",
-        std::make_shared<test::TestBizRerankModel>(4), "test-v1"));
-
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "llm_model",
-                                  std::make_shared<test::TestBizLlmModel>(2),
+    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
+                                  "rerank_model",
+                                  std::make_shared<test::TestBizRerankModel>(
+                                      std::make_shared<test::TestTensorSession>(
+                                          "rerank.fixture", BatchPolicy{4, 4})),
                                   "test-v1"));
+
+    ASSERT_TRUE(
+        RegisterTestModel(session_ctx_->GetModelManager(), "llm_model",
+                          std::make_shared<test::TestBizLlmModel>(
+                              std::make_shared<test::TestCausalLmSession>(
+                                  "llm.fixture", BatchPolicy{2, 2})),
+                          "test-v1"));
 
     auto asr_model = std::make_shared<test::TestAsrModel>();
     ASSERT_TRUE(RegisterTestModel(
@@ -324,9 +336,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model"},
-                        {"normalize", true},
-                        {"lifetime", "session"}};
+  nlohmann::json cfg = {{"bind_model", "embed_model"}, {"lifetime", "session"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx1;
@@ -434,10 +444,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 合法组合 1：仅 'pairs' 输入
   nlohmann::json valid_pipeline_pairs = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -451,10 +461,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 合法组合 2：'queries' + 'candidates'
   nlohmann::json valid_pipeline_qc = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -469,10 +479,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 合法组合 3：'queries' + 'candidate_texts'
   nlohmann::json valid_pipeline_qct = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -488,10 +498,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 非法情形 1：只有 candidates，缺少 queries
   nlohmann::json bad_pipeline_1 = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -505,10 +515,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 非法情形 2：只有 queries，缺少 candidates
   nlohmann::json bad_pipeline_2 = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -522,10 +532,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 非法情形 3：pairs + candidates (组合冲突)
   nlohmann::json bad_pipeline_3 = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -539,10 +549,10 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   // 非法情形 4：queries + candidates + candidate_texts (冲突)
   nlohmann::json bad_pipeline_4 = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -562,20 +572,19 @@ namespace {
 class CountingEmbeddingModel final : public IEmbeddingModel {
  public:
   std::atomic<int> infer_calls{0};
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "counting_embedding";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings,
+  int Embed(const TextBatch& input_texts, EmbeddingBatch* output_embeddings,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     infer_calls++;
@@ -601,7 +610,6 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "counting_embed_model"},
-                        {"normalize", true},
                         {"lifetime", "session"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
@@ -765,13 +773,13 @@ namespace {
 
 class PromptContractModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "prompt_contract";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "llm";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "llm";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
@@ -805,19 +813,18 @@ class PromptContractModel final : public ILlmModel {
 
 class StarterEmbeddingModel final : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "starter_embedding";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch& input, const EmbeddingOptions&,
-            EmbeddingBatch* output,
+  int Embed(const TextBatch& input, EmbeddingBatch* output,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     ++calls;
@@ -859,7 +866,7 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
   for (const auto& dep : def->model_dependencies) {
     config[dep.config_field] = model;
     plan.model_bindings.push_back(
-        {dep.name, dep.capability, dep.config_field, model});
+        {dep.name, dep.model_type, dep.config_field, model});
   }
   // 与 Validator 相同：按 Definition 字段填入默认值。
   ASSERT_TRUE(ValidateAndNormalizeFields(def->config_fields, config,
@@ -1055,9 +1062,8 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
-      {"prompt_prefix", "system {input}"},
       {"prompt_template",
-       "{\"key\": \"val\"} <{{input}}>|{{context}}|{{input}}"},
+       "system {input}\n{\"key\": \"val\"} <{{input}}>|{{context}}|{{input}}"},
       {"strip_markdown", true},
       {"temperature", 0.25},
       {"top_k", 19},
@@ -1305,9 +1311,10 @@ TEST_F(CommonNodesTest, GenerateParametersCombinesOwnFieldsWithGeneration) {
   params.Include(&LlmWithOwnParams::generation, GenerateParameters());
   std::vector<std::string> names;
   for (const auto& field : params.Fields()) names.push_back(field.name);
-  EXPECT_EQ(names, (std::vector<std::string>{
-                       "prefix", "temperature", "max_tokens", "top_k", "top_p",
-                       "repetition_penalty", "stop_words"}));
+  EXPECT_EQ(names,
+            (std::vector<std::string>{
+                "prefix", "system_prompt", "temperature", "max_tokens", "top_k",
+                "top_p", "repetition_penalty", "stop_words", "random_seed"}));
 
   std::string error;
   auto defaults = params.Parse(nlohmann::json::object(), &error);
@@ -1411,10 +1418,8 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"stop_words", {""}}},
       {{"stop_words", "END"}},
       {{"unknown_field", true}},
-      {{"prompt_prefix", 7}},
       {{"strip_markdown", "yes"}},
       {{"fallback_text", "DEFAULT"}},
-      {{"system_prompt", "Use prompt_prefix instead"}},
       {{"max_tokens", 32769}},
       {{"max_tokens", 2.5}},
       {{"max_tokens", 4294967297ULL}},
@@ -1484,7 +1489,9 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   }
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
-                                std::make_shared<test::TestBizLlmModel>(2),
+                                std::make_shared<test::TestBizLlmModel>(
+                                    std::make_shared<test::TestCausalLmSession>(
+                                        "llm.fixture", BatchPolicy{2, 2})),
                                 "v1"));
   for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode"}) {
     auto doc = CustomPipeline("entity_extract");
@@ -1493,6 +1500,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
         std::string(name) == "ScaffoldComputeNode"
             ? nlohmann::json::object()
             : nlohmann::json{{"bind_model", "entity_llm"}};
+    if (std::string(name) == "ScaffoldComputeNode") doc.erase("models");
     auto plan = PipelineValidator::ValidateAndPlan(
         doc,
         MakeTestBoundary({{"input_sentences", "TextBatch"}},

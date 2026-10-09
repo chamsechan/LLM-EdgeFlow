@@ -15,62 +15,37 @@
   },
   "models": [
     {
-      "model_id": "embed_model_onnx",
-      "model_type": "bge_embedding",
-      "backend": "onnxruntime",
-      "model_path": "./models/bge_base_zh_v1.5.onnx",
-      "model_config": {
+      "type": "embedding",
+      "name": "embed_model",
+      "file": "bge_base_zh_v1.5.onnx",
+      "params": {
         "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
-        "do_lower_case": true,
-        "max_length": 512,
-        "pooling_strategy": "cls",
-        "output_name": "last_hidden_state",
         "embedding_dim": 768
       },
-      "backend_config": {
-        "max_batch_size": 4,
-        "intra_op_num_threads": 2,
-        "inter_op_num_threads": 1,
-        "graph_optimization_level": "all"
+      "backend": {
+        "type": "onnxruntime"
       }
     },
     {
-      "model_id": "rerank_model_onnx",
-      "model_type": "bge_reranker",
-      "backend": "onnxruntime",
-      "model_path": "./models/ms_marco_tinybert_l2_v2_quantized.onnx",
-      "model_config": {
-        "tokenizer_file": "ms_marco_bert_vocab.txt",
-        "do_lower_case": true,
-        "max_length": 512,
-        "output_name": "logits",
-        "score_activation": "sigmoid",
-        "max_batch_size": 4
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "ms_marco_tinybert_l2_v2_quantized.onnx",
+      "params": {
+        "tokenizer_file": "ms_marco_bert_vocab.txt"
       },
-      "backend_config": {
-        "max_batch_size": 4,
-        "intra_op_num_threads": 2,
-        "inter_op_num_threads": 1,
-        "graph_optimization_level": "all"
+      "backend": {
+        "type": "onnxruntime"
       }
     },
     {
-      "model_id": "llm_model_llamacpp",
-      "model_type": "qwen_causal_lm",
-      "backend": "llama_cpp",
-      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      "model_config": {
-        "system_prompt": "",
-        "add_bos": false,
-        "random_seed": -1
-      },
-      "backend_config": {
-        "context_size": 1024,
-        "decode_batch_size": 512,
-        "n_threads": 0,
-        "n_threads_batch": 0,
-        "n_gpu_layers": 0,
-        "check_tensors": false
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "llama_cpp",
+        "params": {
+          "context_size": 1024
+        }
       }
     }
   ],
@@ -93,7 +68,7 @@
       "id": "node_1_QueryEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_onnx"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "raw_queries"
@@ -106,7 +81,7 @@
       "id": "node_2_ChunkEmbeddingNode",
       "node_type": "TextEmbeddingNode",
       "config": {
-        "bind_model": "embed_model_onnx"
+        "bind_model": "embed_model"
       },
       "inputs": {
         "text": "doc_chunks"
@@ -135,7 +110,7 @@
       "id": "node_4_TextRerankNode",
       "node_type": "TextRerankNode",
       "config": {
-        "bind_model": "rerank_model_onnx",
+        "bind_model": "rerank_model",
         "top_k": 1
       },
       "inputs": {
@@ -192,7 +167,7 @@
       "id": "node_7_LlmGenerateNode",
       "node_type": "LlmGenerateNode",
       "config": {
-        "bind_model": "llm_model_llamacpp",
+        "bind_model": "llm_model",
         "max_tokens": 128,
         "temperature": 0.3
       },

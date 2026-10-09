@@ -66,8 +66,8 @@ using NodeConfigValidator = std::function<bool(
 
 struct NodeModelDependency {
   std::string name;          // Node 内稳定槽位名，例如 generator
-  std::string capability;    // 由 typed capability traits 推导
-  std::string config_field;  // config 中引用 model_id 的字符串字段
+  std::string model_type;    // 由 typed model_type traits 推导
+  std::string config_field;  // config 中引用 model_name 的字符串字段
 };
 
 struct NodeDefinition {

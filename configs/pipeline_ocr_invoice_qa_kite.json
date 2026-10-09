@@ -19,29 +19,29 @@
   },
   "models": [
     {
-      "model_type": "vision_document",
-      "backend": "kite_llm",
-      "model_config": {
-        "patch_size": 16,
+      "type": "ocr",
+      "name": "ocr_model",
+      "file": "SmolVLM-256M-Instruct-Q8_0.gguf",
+      "params": {
         "max_tokens": 256
       },
-      "backend_config": {
-        "run_config_file": "kite_vision_run.json"
-      },
-      "model_id": "ocr_model",
-      "model_path": "models/SmolVLM-256M-Instruct-Q8_0.gguf"
+      "backend": {
+        "type": "kite_llm",
+        "params": {
+          "run_config_file": "kite_vision_run.json"
+        }
+      }
     },
     {
-      "model_type": "qwen_causal_lm",
-      "backend": "kite_llm",
-      "model_config": {
-        "random_seed": -1
-      },
-      "backend_config": {
-        "run_config_file": "kite_text_run.json"
-      },
-      "model_id": "llm_model",
-      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "kite_llm",
+        "params": {
+          "run_config_file": "kite_text_run.json"
+        }
+      }
     }
   ],
   "pipeline": [

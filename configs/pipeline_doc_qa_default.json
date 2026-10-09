@@ -15,36 +15,27 @@
   },
   "models": [
     {
-      "model_type": "bge_embedding",
-      "backend": "onnxruntime",
-      "model_config": {
+      "type": "embedding",
+      "name": "embed_model",
+      "file": "bge_base_zh_v1.5.onnx",
+      "params": {
         "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
         "embedding_dim": 768
       },
-      "backend_config": {
-        "max_batch_size": 4
-      },
-      "model_id": "embed_model",
-      "model_path": "./models/bge_base_zh_v1.5.onnx"
+      "backend": {
+        "type": "onnxruntime"
+      }
     },
     {
-      "model_type": "qwen_causal_lm",
-      "backend": "llama_cpp",
-      "model_config": {
-        "system_prompt": "",
-        "add_bos": false,
-        "random_seed": -1
-      },
-      "backend_config": {
-        "context_size": 1024,
-        "decode_batch_size": 512,
-        "n_threads": 0,
-        "n_threads_batch": 0,
-        "n_gpu_layers": 0,
-        "check_tensors": false
-      },
-      "model_id": "llm_model",
-      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "llama_cpp",
+        "params": {
+          "context_size": 1024
+        }
+      }
     }
   ],
   "pipeline": [

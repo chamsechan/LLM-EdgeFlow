@@ -80,9 +80,9 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
 TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   std::set<std::string> model_types;
   for (const auto& model : PipelineCatalog::Models()) {
+    EXPECT_FALSE(model.impl_name.empty());
     EXPECT_FALSE(model.model_type.empty());
-    EXPECT_FALSE(model.capability.empty());
-    EXPECT_TRUE(model_types.insert(model.model_type).second);
+    EXPECT_TRUE(model_types.insert(model.impl_name).second);
   }
   EXPECT_TRUE(model_types.count("bge_embedding"));
   EXPECT_TRUE(model_types.count("bge_reranker"));
@@ -91,7 +91,7 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   EXPECT_TRUE(model_types.count("whisper_asr"));
   const auto embedding = PipelineCatalog::FindModel("generated_text_embedding");
   ASSERT_TRUE(embedding.has_value());
-  EXPECT_EQ(embedding->capability, "embedding");
+  EXPECT_EQ(embedding->model_type, "embedding");
   EXPECT_EQ(embedding->required_protocol,
             ExecutionProtocol::kGeneratedTokenEmbedding);
   const auto vision = PipelineCatalog::FindModel("vision_document");
@@ -99,11 +99,11 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   EXPECT_EQ(vision->required_protocol, ExecutionProtocol::kImageTextGeneration);
   const auto asr = PipelineCatalog::FindModel("whisper_asr");
   ASSERT_TRUE(asr.has_value());
-  EXPECT_EQ(asr->capability, "asr");
+  EXPECT_EQ(asr->model_type, "asr");
   EXPECT_EQ(asr->required_protocol, ExecutionProtocol::kAudioTranscription);
-  for (const auto& model_type : model_types) {
-    EXPECT_EQ(model_type.find("test_"), std::string::npos);
-    EXPECT_EQ(model_type.find("mock"), std::string::npos);
+  for (const auto& impl_name : model_types) {
+    EXPECT_EQ(impl_name.find("test_"), std::string::npos);
+    EXPECT_EQ(impl_name.find("mock"), std::string::npos);
   }
 
   std::set<std::string> backend_types;

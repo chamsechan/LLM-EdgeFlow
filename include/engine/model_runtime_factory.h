@@ -14,9 +14,9 @@ namespace llm_edgeflow {
  * 映射而来)
  */
 struct ModelLoadSpec {
-  std::string model_type;
+  std::string impl_name;
   std::string backend_type;
-  std::string model_path;
+  std::string model_file;
   nlohmann::json model_params = nlohmann::json::object();
   nlohmann::json backend_params = nlohmann::json::object();
   ExecutionTarget execution_target;
@@ -29,9 +29,8 @@ struct ModelLoadSpec {
  * 1. 查找 Definition，规范化并校验模型配置，再创建后端实例
  * 2. 加载后端会话 (backend->Load)
  * 3. 校验协议与并发契约
- * 4. 推导 model_resource_root
- * 5. 创建模型语义实例 (ModelRegistry)
- * 6. 校验模型标识与并发
+ * 4. 创建模型语义实例 (ModelRegistry)
+ * 5. 校验模型标识与并发
  */
 class ModelRuntimeFactory {
  public:

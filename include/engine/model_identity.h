@@ -3,27 +3,27 @@
 #include <string>
 
 #include "engine/inference_definition.h"
-#include "engine/model_capability_traits.h"
 #include "engine/model_interface.h"
+#include "engine/model_type_traits.h"
 
 namespace llm_edgeflow {
 
-// 一次性声明 Model 的标识。Derived 提供 kModelType 和 kConcurrency，
+// 一次性声明 Model 的标识。Derived 提供 kImplName 和 kConcurrency，
 // 能力由所实现的接口决定。注册的 Definition 以相同的值为起点，运行时工厂
 // 仍会将每个创建的实例与其 Definition 比对。
-template <typename Derived, typename CapabilityInterface>
-class ModelIdentity : public CapabilityInterface {
+template <typename Derived, typename ModelInterface>
+class ModelIdentity : public ModelInterface {
  public:
-  using Capabilities = CapabilityInterface;
+  using Interface = ModelInterface;
 
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = Derived::kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = Derived::kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability =
-        ModelCapabilityTraits<CapabilityInterface>::Capability();
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type =
+        ModelTypeTraits<ModelInterface>::ModelType();
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return Derived::kConcurrency;
@@ -35,9 +35,9 @@ class ModelIdentity : public CapabilityInterface {
 template <typename ModelClass>
 ModelDefinition MakeModelDefinition() {
   ModelDefinition definition;
-  definition.model_type = ModelClass::kModelType;
-  definition.capability =
-      ModelCapabilityTraits<typename ModelClass::Capabilities>::Capability();
+  definition.impl_name = ModelClass::kImplName;
+  definition.model_type =
+      ModelTypeTraits<typename ModelClass::Interface>::ModelType();
   definition.concurrency = ModelClass::kConcurrency;
   return definition;
 }

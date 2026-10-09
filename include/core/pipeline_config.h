@@ -14,15 +14,15 @@ namespace llm_edgeflow {
  * @brief 解析后的单模型配置，独立声明 Model 与 Backend
  */
 struct ParsedModelConfig {
-  std::string model_id;
+  std::string model_name;
   size_t source_index = 0;
 
   // Model/Backend 配置字段
   std::string model_type;
-  std::string backend;
-  std::string model_path;
-  nlohmann::json model_config = nlohmann::json::object();
-  nlohmann::json backend_config = nlohmann::json::object();
+  std::string backend_type;
+  std::string model_file;
+  nlohmann::json model_params = nlohmann::json::object();
+  nlohmann::json backend_params = nlohmann::json::object();
 };
 
 /**

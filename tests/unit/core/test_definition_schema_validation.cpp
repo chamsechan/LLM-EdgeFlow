@@ -80,6 +80,26 @@ NodeDefinition MakeSchemaProbeNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(SchemaProbeNode, MakeSchemaProbeNodeDefinition());
 
+class SchemaProbeModelNode : public SchemaProbeNode {
+ public:
+  inline static constexpr char kNodeType[] = "SchemaProbeModelNode";
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+NodeDefinition MakeSchemaProbeModelNodeDefinition() {
+  auto def = MakeSchemaProbeNodeDefinition();
+  def.node_type = SchemaProbeModelNode::kNodeType;
+  def.config_fields.push_back(
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true});
+  def.model_dependencies = {{"model", "schema_probe", "bind_model"}};
+  return def;
+}
+REGISTER_NODE_WITH_DEFINITION(SchemaProbeModelNode,
+                              MakeSchemaProbeModelNodeDefinition());
+
 class ThrowingValidateConfigNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "ThrowingValidateConfigNode";
@@ -119,7 +139,7 @@ REGISTER_NODE_WITH_DEFINITION(ThrowingValidateConfigNode,
 
 class SchemaProbeModel : public IModel {
  public:
-  inline static constexpr char kModelType[] = "schema_probe_model";
+  inline static constexpr char kImplName[] = "schema_probe_model";
   static inline int s_create_count = 0;
 
   static void ResetCounts() { s_create_count = 0; }
@@ -129,13 +149,13 @@ class SchemaProbeModel : public IModel {
     ++s_create_count;
     return std::make_shared<SchemaProbeModel>();
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "schema_probe";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "schema_probe";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
@@ -144,10 +164,11 @@ class SchemaProbeModel : public IModel {
 
 ModelDefinition MakeSchemaProbeModelDefinition() {
   ModelDefinition def;
-  def.model_type = SchemaProbeModel::kModelType;
-  def.capability = "schema_probe";
+  def.impl_name = SchemaProbeModel::kImplName;
+  def.model_type = "schema_probe";
   def.description = "Schema probe test model";
-  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.required_protocol = ExecutionProtocol::kFixture;
+  def.fixture_backends = {"schema_probe_backend"};
   def.concurrency = InferenceConcurrency::kConcurrent;
   return def;
 }
@@ -183,7 +204,7 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
   BackendDefinition def;
   def.backend_type = SchemaProbeBackend::kBackendType;
   def.description = "Schema probe test backend";
-  def.supported_protocols = {ExecutionProtocol::kTensorGraph};
+  def.supported_protocols = {ExecutionProtocol::kFixture};
   def.concurrency = InferenceConcurrency::kConcurrent;
   auto spec = Parameters<Params>{
       Field("device_id", &Params::device_id).Default(0).Range(0, 16),
@@ -209,19 +230,21 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
   return def;
 }
 
-nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_config) {
-  return {{"models",
-           {{{"model_id", "probe_model"},
-             {"model_type", SchemaProbeModel::kModelType},
-             {"backend", SchemaProbeBackend::kBackendType},
-             {"model_path", "probe.bin"},
-             {"model_config", nlohmann::json::object()},
-             {"backend_config", backend_config}}}},
-          {"pipeline",
-           {{{"id", "node_0"},
-             {"node_type", SchemaProbeNode::kNodeType},
-             {"depends_on", nlohmann::json::array()},
-             {"config", {{"req_str", "valid"}}}}}}};
+nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_params) {
+  return {
+      {"models",
+       {{{"name", "probe_model"},
+         {"type", "schema_probe"},
+         {"backend",
+          {{"type", SchemaProbeBackend::kBackendType},
+           {"params", backend_params}}},
+         {"file", "probe.bin"},
+         {"params", nlohmann::json::object()}}}},
+      {"pipeline",
+       {{{"id", "node_0"},
+         {"node_type", SchemaProbeModelNode::kNodeType},
+         {"depends_on", nlohmann::json::array()},
+         {"config", {{"req_str", "valid"}, {"bind_model", "probe_model"}}}}}}};
 }
 
 REGISTER_MODEL_WITH_DEFINITION(SchemaProbeModel,
@@ -382,18 +405,21 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   nlohmann::json pipeline = {
       {"models",
        nlohmann::json::array(
-           {{{"model_id", "probe_model"},
-             {"model_type", SchemaProbeModel::kModelType},
-             {"backend", SchemaProbeBackend::kBackendType},
-             {"model_path", "probe.bin"},
-             {"model_config", nlohmann::json::object()},
-             {"backend_config",
-              {{"device_id", 999}, {"precision", "invalid_prec"}}}}})},
+           {{{"name", "probe_model"},
+             {"type", "schema_probe"},
+             {"backend",
+              {{"type", SchemaProbeBackend::kBackendType},
+               {"params",
+                {{"device_id", 999}, {"precision", "invalid_prec"}}}}},
+             {"file", "probe.bin"},
+             {"params", nlohmann::json::object()}}})},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0"},
-                               {"node_type", SchemaProbeNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"config", {{"req_str", "valid"}}}}})}};
+       nlohmann::json::array(
+           {{{"id", "node_0"},
+             {"node_type", SchemaProbeModelNode::kNodeType},
+             {"depends_on", nlohmann::json::array()},
+             {"config",
+              {{"req_str", "valid"}, {"bind_model", "probe_model"}}}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
@@ -402,11 +428,11 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   bool has_enum = false;
   for (const auto& diag : plan.report.diagnostics) {
     if (diag.code == DiagnosticCode::kConfigFieldRange &&
-        diag.path == "/models/0/backend_config/device_id") {
+        diag.path == "/models/0/backend/params/device_id") {
       has_range = true;
     }
     if (diag.code == DiagnosticCode::kConfigFieldEnum &&
-        diag.path == "/models/0/backend_config/precision") {
+        diag.path == "/models/0/backend/params/precision") {
       has_enum = true;
     }
   }
@@ -452,7 +478,7 @@ TEST_F(DefinitionSchemaValidationTest,
                      return item.code == DiagnosticCode::kInvalidCombination;
                    });
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-  EXPECT_EQ(diagnostic->path, "/models/0/backend_config");
+  EXPECT_EQ(diagnostic->path, "/models/0/backend/params");
   EXPECT_EQ(diagnostic->message, "int8 requires device_id greater than zero");
   EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
   EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"), 0);
@@ -499,7 +525,7 @@ TEST_F(DefinitionSchemaValidationTest,
                        return item.code == DiagnosticCode::kInvalidCombination;
                      });
     ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-    EXPECT_EQ(diagnostic->path, "/models/0/backend_config");
+    EXPECT_EQ(diagnostic->path, "/models/0/backend/params");
     EXPECT_EQ(diagnostic->message,
               device_id == 15 ? "probe validation exception"
                               : "Unknown exception validating parameters");
@@ -514,17 +540,20 @@ TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
 
   nlohmann::json invalid_pipeline = {
       {"models",
-       nlohmann::json::array({{{"model_id", "probe_model"},
-                               {"model_type", SchemaProbeModel::kModelType},
-                               {"backend", SchemaProbeBackend::kBackendType},
-                               {"model_path", "probe.bin"},
-                               {"model_config", nlohmann::json::object()},
-                               {"backend_config", {{"device_id", -10}}}}})},
+       nlohmann::json::array({{{"name", "probe_model"},
+                               {"type", "schema_probe"},
+                               {"backend",
+                                {{"type", SchemaProbeBackend::kBackendType},
+                                 {"params", {{"device_id", -10}}}}},
+                               {"file", "probe.bin"},
+                               {"params", nlohmann::json::object()}}})},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0"},
-                               {"node_type", SchemaProbeNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"config", {{"req_str", "test"}}}}})}};
+       nlohmann::json::array(
+           {{{"id", "node_0"},
+             {"node_type", SchemaProbeModelNode::kNodeType},
+             {"depends_on", nlohmann::json::array()},
+             {"config",
+              {{"req_str", "test"}, {"bind_model", "probe_model"}}}}})}};
 
   Pipeline pipeline;
   PipelineDiagnostic diag;

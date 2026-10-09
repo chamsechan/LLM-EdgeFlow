@@ -360,7 +360,8 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
                        std::optional<double> minimum,
                        std::optional<double> maximum,
                        std::vector<std::string> enums, std::string semantic,
-                       std::shared_ptr<const Parameters<Leaf>> item_spec)
+                       std::shared_ptr<const Parameters<Leaf>> item_spec,
+                       bool file)
       : name_(std::move(name)),
         member_ptr_(member_ptr),
         required_(required),
@@ -370,7 +371,8 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
         maximum_(maximum),
         enum_values_(std::move(enums)),
         semantic_(std::move(semantic)),
-        item_spec_(std::move(item_spec)) {}
+        item_spec_(std::move(item_spec)),
+        file_(file) {}
 
   const std::string& Name() const override { return name_; }
   ConfigFieldDefinition ToFieldDefinition() const override {
@@ -379,6 +381,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
     result.name = name_;
     result.required = required_;
     result.semantic = semantic_;
+    result.file = file_;
     if (has_default_) {
       result.default_value =
           detail::SerializeParameterValue(default_val_, item_spec_);
@@ -445,6 +448,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   std::vector<std::string> enum_values_;
   std::string semantic_;
   std::shared_ptr<const Parameters<Leaf>> item_spec_;
+  bool file_ = false;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -501,6 +505,14 @@ class FieldBuilder {
     return *this;
   }
 
+  FieldBuilder& File() {
+    static_assert(std::is_same_v<MemberT, std::string> ||
+                      std::is_same_v<MemberT, std::optional<std::string>>,
+                  "File is only for string and optional string parameters");
+    file_ = true;
+    return *this;
+  }
+
   std::unique_ptr<ParameterFieldBinding<ParamsT>> Build() const {
     if constexpr (detail::IsOptionalField<MemberT>::value) {
       if (required_ || has_default_) {
@@ -514,7 +526,7 @@ class FieldBuilder {
     }
     return std::make_unique<ConcreteFieldBinding<ParamsT, MemberT>>(
         name_, member_ptr_, required_, has_default_, default_val_, minimum_,
-        maximum_, enum_values_, semantic_, item_spec_);
+        maximum_, enum_values_, semantic_, item_spec_, file_);
   }
 
  private:
@@ -528,6 +540,7 @@ class FieldBuilder {
   std::vector<std::string> enum_values_;
   std::string semantic_;
   std::shared_ptr<const Parameters<Leaf>> item_spec_;
+  bool file_ = false;
 };
 
 template <typename ParamsT, typename MemberT>

@@ -25,14 +25,15 @@ const nlohmann::json& PipelineConfigStructure() {
                         {"inputs", mapping},
                         {"outputs", mapping}},
                        {"id", "node_type"});
-    auto model = Object({{"model_id", NonemptyString()},
-                         {"model_path", NonemptyString()},
-                         {"model_type", NonemptyString()},
-                         {"backend", NonemptyString()},
-                         {"model_config", {{"type", "object"}}},
-                         {"backend_config", {{"type", "object"}}},
-                         {"comment", {{"type", "string"}}}},
-                        {"model_id", "model_type", "backend", "model_path"});
+    auto backend =
+        Object({{"type", NonemptyString()}, {"params", {{"type", "object"}}}},
+               {"type"});
+    auto model = Object({{"type", NonemptyString()},
+                         {"name", NonemptyString()},
+                         {"file", NonemptyString()},
+                         {"params", {{"type", "object"}}},
+                         {"backend", std::move(backend)}},
+                        {"type", "name", "file", "backend"});
     auto result = Object(
         {{"comment", {{"type", "string"}}},
          {"max_parallel_workers",

@@ -606,16 +606,16 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     return nullptr;
 #else
     const auto& p = spec.Params<Params>();
-    if (spec.model_path.empty()) {
+    if (spec.model_file.empty()) {
       SetDiagnosticNoexcept(diagnostic, "Model path is empty");
       return nullptr;
     }
 
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+    if (!std::filesystem::is_regular_file(spec.model_file, ec) || ec) {
       SetDiagnosticNoexcept(
           diagnostic, "Model file does not exist or is not a regular file: " +
-                          spec.model_path);
+                          spec.model_file);
       return nullptr;
     }
 
@@ -640,7 +640,7 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
           GraphOptimizationLevel::ORT_ENABLE_ALL);
     }
 
-    auto session = std::make_unique<Ort::Session>(*env, spec.model_path.c_str(),
+    auto session = std::make_unique<Ort::Session>(*env, spec.model_file.c_str(),
                                                   session_options);
 
     Ort::AllocatorWithDefaultOptions allocator;

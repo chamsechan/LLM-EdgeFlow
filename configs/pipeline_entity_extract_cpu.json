@@ -15,22 +15,14 @@
   },
   "models": [
     {
-      "model_id": "entity_llm",
-      "model_type": "qwen_causal_lm",
-      "backend": "llama_cpp",
-      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      "model_config": {
-        "system_prompt": "",
-        "add_bos": false,
-        "random_seed": -1
-      },
-      "backend_config": {
-        "context_size": 512,
-        "decode_batch_size": 512,
-        "n_threads": 0,
-        "n_threads_batch": 0,
-        "n_gpu_layers": 0,
-        "check_tensors": false
+      "type": "llm",
+      "name": "entity_llm",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "llama_cpp",
+        "params": {
+          "context_size": 512
+        }
       }
     }
   ],

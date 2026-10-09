@@ -12,7 +12,6 @@ struct Inputs {
   const TextBatch* text = nullptr;
 };
 struct Params {
-  bool normalize{};
   std::string lifetime;
 };
 struct Models {
@@ -25,16 +24,15 @@ void AppendUint64Le(std::string& buf, uint64_t value) {
   }
 }
 
-std::string ConstructSessionCacheKey(const std::string& model_id,
+std::string ConstructSessionCacheKey(const std::string& model_name,
                                      const std::string& revision,
-                                     bool normalize, const TextBatch& items) {
+                                     const TextBatch& items) {
   std::string key;
   key.append("SEM1", 4);
-  AppendUint64Le(key, model_id.size());
-  key.append(model_id.data(), model_id.size());
+  AppendUint64Le(key, model_name.size());
+  key.append(model_name.data(), model_name.size());
   AppendUint64Le(key, revision.size());
   key.append(revision.data(), revision.size());
-  key.push_back(normalize ? '\x01' : '\x00');
   AppendUint64Le(key, items.size());
   for (const auto& item : items) {
     AppendUint64Le(key, item.req_id);
@@ -50,16 +48,13 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
                                const SessionResources& resources) {
   const auto& text = *inputs.text;
   if (text.empty()) return NodeResult<EmbeddingBatch>::Success({});
-  EmbeddingOptions options;
-  options.normalize = params.normalize;
-  if (params.lifetime == "request") return models.encoder.Embed(text, options);
+  if (params.lifetime == "request") return models.encoder.Embed(text);
 
   SessionResourceKey<EmbeddingBatch> key(ConstructSessionCacheKey(
-      models.encoder.ModelId(),
-      resources.GetModelRevision(models.encoder.ModelId()), params.normalize,
-      text));
+      models.encoder.ModelName(),
+      resources.GetModelRevision(models.encoder.ModelName()), text));
   auto cached = resources.GetOrCreateResult<EmbeddingBatch>(
-      key, [&]() { return models.encoder.Embed(text, options); });
+      key, [&]() { return models.encoder.Embed(text); });
   if (!cached.ok())
     return NodeResult<EmbeddingBatch>::Failure(cached.failure());
   if (!cached.value()) {
@@ -79,14 +74,11 @@ auto Spec() {
              InputsOf<Inputs>({Required("text", &Inputs::text, flow)}),
              PreservedOutput<EmbeddingBatch>("embedding", "text", flow),
              Parameters<Params>(
-                 {Field("normalize", &Params::normalize)
-                      .Default(true)
-                      .Description("要求模型对输出向量做 L2 归一化。"),
-                  Field("lifetime", &Params::lifetime)
+                 {Field("lifetime", &Params::lifetime)
                       .Default("request")
                       .Enum({"request", "session"})
                       .Description("request 每次请求计算；session "
-                                   "按模型版本、归一化选项和输入缓存向量，输入"
+                                   "按模型版本和输入缓存向量，输入"
                                    "须满足 session 生命周期契约。")}),
              ModelsOf<Models>(
                  {Model("encoder", "bind_model", &Models::encoder)}),

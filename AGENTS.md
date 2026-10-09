@@ -74,6 +74,9 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
   `REGISTER_BACKEND_WITH_DEFINITION`. Vendor headers stay in the concrete Backend.
   Fixed-batch paths use `FixedBatchExecutor::Execute` for padding removal and `(req_id, sub_id)`
   provenance.
+  Model category and Backend protocol select one implementation; registry audit and Core reject
+  ambiguity. Integration resolves model files and declared file parameters against the Pipeline JSON
+  directory. Batch policy belongs to the Backend Session; call options belong to Nodes.
 
 ## Agent responsibilities
 

@@ -65,9 +65,9 @@ cmake --preset=dev-gate -B build
 cmake --build build --target alg_sdk alg_pipeline_tool alg_demo --parallel 4
 ```
 
-权重为 `models/qwen2.5-0.5b-instruct-q4_k_m.gguf`，缺失时可沿用
+权重为 `configs/qwen2.5-0.5b-instruct-q4_k_m.gguf`，缺失时可沿用
 `./scripts/fetch_real_test_models.sh --gguf-only`；来源及校验以
-[资产清单](../../models/asset_manifest.json)为准。
+[资产清单](../../configs/asset_manifest.json)为准。
 
 ```bash
 python3 demo/json_prompt_demo.py --input '{"version":"0.0.1","endpoint":"translate","query":"hello,what is your name","src_lan":"en"}'
@@ -102,8 +102,8 @@ flowchart LR
 - [Translate InputConverter](../../src/adapter/input/translate_json_input.cpp) 与 [OutputConverter](../../src/adapter/output/translation_json_output.cpp)
   复用 `entity_in/entity_out` 宿主类型和输出池，只增加 JSON 字段映射；统一 Demo 复用现有文本/JSON 运行函数。
 - [Pipeline](../../configs/pipeline_translate_cpu.json)仅使用已有 `LlmGenerateNode`，
-  直接将 `input_sentences` 原文传入模型，生成纯文本 `llm_answers`。翻译规则放在模型
-  `system_prompt` 配置中，由现有 C++ Model 组装对话提示词。每条请求只调用一次文本
+  直接将 `input_sentences` 原文传入模型，生成纯文本 `llm_answers`。翻译规则放在节点
+  `system_prompt` 参数中，由现有 C++ Model 组装对话提示词。每条请求只调用一次文本
   生成，没有格式修复或二次推理；自回归生成内部仍逐 token 解码。无关字段不会进入模型。
 - [部署配置](../../configs/pipeline_translate_cpu.conf)定位 Pipeline，Pipeline 中选择 Qwen Model / llama.cpp
   Backend。翻译 JSON 的字段语义由 Integration 中的注册与转换实现。

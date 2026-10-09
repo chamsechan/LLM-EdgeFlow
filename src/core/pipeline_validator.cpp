@@ -3,12 +3,12 @@
 #include <algorithm>
 #include <functional>
 #include <queue>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "contracts/config_schema_validation.h"
 #include "contracts/json_pointer.h"
-#include "contracts/path_utils.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_config.h"
@@ -169,12 +169,6 @@ int LifetimeRank(const std::string& lifetime) {
   return -1;
 }
 
-bool TraversesParent(const std::filesystem::path& path) {
-  // 即使宿主文件系统把反斜杠视为普通文件名字符，
-  // 仍保留可移植的 Windows 前导父目录检查。
-  return HasParentPathComponent(path) || path.string().rfind("..\\", 0) == 0;
-}
-
 bool LifetimeCompatible(const std::string& producer,
                         const std::string& consumer) {
   return LifetimeRank(producer) >= LifetimeRank(consumer);
@@ -212,7 +206,7 @@ bool ValidateAndNormalizeConfig(
     const std::vector<ConfigFieldDefinition>& schema,
     const nlohmann::json& input, nlohmann::json* normalized,
     std::vector<ValidationDiagnostic>* diagnostics,
-    const std::string& base_pointer, DiagnosticCode unknown_field_code) {
+    const std::string& base_pointer) {
   std::vector<ConfigFieldValidationError> field_errors;
   bool ok =
       ValidateAndNormalizeFields(schema, input, normalized, &field_errors);
@@ -228,7 +222,7 @@ bool ValidateAndNormalizeConfig(
           diag.code = DiagnosticCode::kConfigFieldType;
           break;
         case ConfigFieldErrorKind::kUnknownField:
-          diag.code = unknown_field_code;
+          diag.code = DiagnosticCode::kUnknownConfigField;
           for (const auto& field : schema) {
             diag.suggestions.push_back(field.name);
           }
@@ -401,132 +395,99 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         std::move(message));
   }
 
-  std::unordered_set<std::string> unresolved_model_ids;
+  std::unordered_set<std::string> unresolved_model_names;
   std::unordered_set<std::string> unresolved_output_keys;
-  std::unordered_map<std::string, std::string> model_capabilities;
+  std::unordered_map<std::string, std::string> model_types;
   std::unordered_map<std::string, InferenceConcurrency> model_concurrency;
+  const auto& model_registry = ModelRegistry::Instance();
+  std::set<std::string> registered_model_types;
+  for (const auto& definition : model_registry.ListDefinitions())
+    registered_model_types.insert(definition.model_type);
   for (const auto& model : parsed.models) {
-    auto model_def_opt = ModelRegistry::Instance().Find(model.model_type);
-    if (!model_def_opt) {
-      unresolved_model_ids.insert(model.model_id);
-      std::vector<std::string> model_types;
-      for (const auto& def : PipelineCatalog::Models())
-        model_types.push_back(def.model_type);
-      Add(&report, DiagnosticCode::kUnknownModelType,
-          "/models/" + std::to_string(model.source_index) + "/model_type",
-          "Unknown model_type: " + model.model_type, {}, {}, {},
-          NearestNames(model.model_type, std::move(model_types)));
-    } else {
-      model_capabilities[model.model_id] = model_def_opt->capability;
+    const auto at = "/models/" + std::to_string(model.source_index);
+    if (!registered_model_types.count(model.model_type)) {
+      unresolved_model_names.insert(model.model_name);
+      Add(&report, DiagnosticCode::kUnknownModelType, at + "/type",
+          "Unknown model type: " + model.model_type, {}, {}, {},
+          RankByEditDistance(model.model_type, {registered_model_types.begin(),
+                                                registered_model_types.end()}));
+      continue;
     }
-
-    auto backend_def_opt = BackendRegistry::Instance().Find(model.backend);
-    if (!backend_def_opt) {
-      std::vector<std::string> backends;
-      for (const auto& def : PipelineCatalog::Backends())
-        backends.push_back(def.backend_type);
-      Add(&report, DiagnosticCode::kUnknownBackend,
-          "/models/" + std::to_string(model.source_index) + "/backend",
-          "Unknown backend: " + model.backend, {}, {}, {},
-          NearestNames(model.backend, std::move(backends)));
+    // Record the requested category even if its backend cannot be selected.
+    model_types[model.model_name] = model.model_type;
+    std::vector<std::string> compatible_backends;
+    for (const auto& backend : BackendRegistry::Instance().ListDefinitions())
+      if (!model_registry
+               .FindImplementation(model.model_type, backend.backend_type)
+               .empty())
+        compatible_backends.push_back(backend.backend_type);
+    auto backend = BackendRegistry::Instance().Find(model.backend_type);
+    if (!backend) {
+      Add(&report, DiagnosticCode::kUnknownBackend, at + "/backend/type",
+          "Unknown backend: " + model.backend_type, {}, {}, {},
+          RankByEditDistance(model.backend_type,
+                             std::move(compatible_backends)));
+      continue;
     }
-
-    if (model_def_opt && backend_def_opt) {
-      const auto& supported_protocols = backend_def_opt->supported_protocols;
-      bool protocol_supported =
-          std::find(supported_protocols.begin(), supported_protocols.end(),
-                    model_def_opt->required_protocol) !=
-          supported_protocols.end();
-      if (!protocol_supported) {
-        Add(&report, DiagnosticCode::kBackendProtocolMismatch,
-            "/models/" + std::to_string(model.source_index) + "/backend",
-            "Backend '" + model.backend +
-                "' does not support required protocol '" +
-                std::string(
-                    ExecutionProtocolName(model_def_opt->required_protocol)) +
-                "' for model '" + model.model_type + "'");
-      }
-
-      nlohmann::json normalized_mcfg = nlohmann::json::object();
-      std::vector<ValidationDiagnostic> mcfg_diags;
-      const bool model_fields_valid = ValidateAndNormalizeConfig(
-          model_def_opt->params.Fields(), model.model_config, &normalized_mcfg,
-          &mcfg_diags,
-          "/models/" + std::to_string(model.source_index) + "/model_config",
-          DiagnosticCode::kUnknownModelConfigField);
-      for (auto& d : mcfg_diags) {
-        report.diagnostics.push_back(std::move(d));
-      }
-
-      if (model_fields_valid) {
-        const std::string path =
-            "/models/" + std::to_string(model.source_index) + "/model_config";
-        std::string diagnostic;
-        std::shared_ptr<const ParameterValues> values;
-        if (!model_def_opt->params.Parse(normalized_mcfg, &values,
-                                         &diagnostic)) {
-          Add(&report, DiagnosticCode::kInvalidCombination, path,
-              diagnostic.empty() ? "Invalid model configuration" : diagnostic);
-        }
-      }
-
-      nlohmann::json normalized_bcfg = nlohmann::json::object();
-      std::vector<ValidationDiagnostic> bcfg_diags;
-      const bool backend_fields_valid = ValidateAndNormalizeConfig(
-          backend_def_opt->params.Fields(), model.backend_config,
-          &normalized_bcfg, &bcfg_diags,
-          "/models/" + std::to_string(model.source_index) + "/backend_config",
-          DiagnosticCode::kUnknownBackendConfigField);
-      for (auto& d : bcfg_diags) {
-        report.diagnostics.push_back(std::move(d));
-      }
-
-      if (backend_fields_valid) {
-        const std::string path =
-            "/models/" + std::to_string(model.source_index) + "/backend_config";
-        std::string diagnostic;
-        std::shared_ptr<const ParameterValues> values;
-        if (!backend_def_opt->params.Parse(normalized_bcfg, &values,
-                                           &diagnostic)) {
-          Add(&report, DiagnosticCode::kInvalidCombination, path,
-              diagnostic.empty() ? "Invalid backend configuration"
-                                 : diagnostic);
-        }
-      }
-
-      // 流程编排层只做与环境无关的词法路径检查。
-      // 部署根目录由接入适配层在运行时校验前解析。
-      const auto normalized_path =
-          std::filesystem::path(model.model_path).lexically_normal();
-      if (!normalized_path.is_absolute() && TraversesParent(normalized_path)) {
-        Add(&report, DiagnosticCode::kFieldRange,
-            "/models/" + std::to_string(model.source_index) + "/model_path",
-            "Model path cannot traverse outside model root directory: " +
-                model.model_path);
-      }
-      InferenceConcurrency effective_concurrency =
-          (model_def_opt->concurrency == InferenceConcurrency::kSerialized ||
-           backend_def_opt->concurrency == InferenceConcurrency::kSerialized)
-              ? InferenceConcurrency::kSerialized
-              : InferenceConcurrency::kConcurrent;
-
-      model_concurrency[model.model_id] = effective_concurrency;
-
-      ValidatedModelPlan model_plan;
-      model_plan.model_id = model.model_id;
-      model_plan.capability = model_def_opt->capability;
-      model_plan.model_type = model.model_type;
-      model_plan.backend = model.backend;
-      model_plan.resolved_model_path = normalized_path.string();
-      model_plan.normalized_model_config = std::move(normalized_mcfg);
-      model_plan.normalized_backend_config = std::move(normalized_bcfg);
-      model_plan.protocol = model_def_opt->required_protocol;
-      model_plan.effective_concurrency = effective_concurrency;
-      model_plan.source_index = model.source_index;
-      plan.models.push_back(std::move(model_plan));
+    const auto selected =
+        model_registry.FindImplementation(model.model_type, model.backend_type);
+    if (selected.empty()) {
+      Add(&report, DiagnosticCode::kBackendProtocolMismatch,
+          at + "/backend/type",
+          "No implementation for " + model.model_type + "/" +
+              model.backend_type,
+          {}, {}, {}, std::move(compatible_backends));
+      continue;
     }
+    if (selected.size() > 1) {
+      std::string message = "Multiple implementations for " + model.model_type +
+                            "/" + model.backend_type + ":";
+      for (const auto& definition : selected)
+        message += " " + definition.impl_name;
+      Add(&report, DiagnosticCode::kRegistryConflict, at + "/backend/type",
+          std::move(message));
+      continue;
+    }
+    const auto& implementation = selected.front();
+    const auto parse_params =
+        [&](const ParameterSet& declaration, const nlohmann::json& input,
+            const std::string& path, nlohmann::json* normalized) {
+          std::vector<ValidationDiagnostic> errors;
+          const bool valid = ValidateAndNormalizeConfig(
+              declaration.Fields(), input, normalized, &errors, path);
+          for (auto& diagnostic : errors)
+            report.diagnostics.push_back(std::move(diagnostic));
+          if (valid) {
+            std::shared_ptr<const ParameterValues> values;
+            std::string error;
+            if (!declaration.Parse(*normalized, &values, &error))
+              Add(&report, DiagnosticCode::kInvalidCombination, path,
+                  error.empty() ? "Invalid parameter combination" : error);
+          }
+        };
+    ValidatedModelPlan model_plan;
+    model_plan.model_name = model.model_name;
+    model_plan.model_type = model.model_type;
+    model_plan.impl_name = implementation.impl_name;
+    model_plan.backend_type = model.backend_type;
+    model_plan.model_file = model.model_file;
+    parse_params(implementation.params, model.model_params, at + "/params",
+                 &model_plan.model_params);
+    parse_params(backend->params, model.backend_params, at + "/backend/params",
+                 &model_plan.backend_params);
+    model_plan.protocol = implementation.required_protocol;
+    model_plan.effective_concurrency =
+        implementation.concurrency == InferenceConcurrency::kSerialized ||
+                backend->concurrency == InferenceConcurrency::kSerialized
+            ? InferenceConcurrency::kSerialized
+            : InferenceConcurrency::kConcurrent;
+    model_concurrency[model.model_name] = model_plan.effective_concurrency;
+    model_plan.source_index = model.source_index;
+    plan.models.push_back(std::move(model_plan));
   }
 
+  std::unordered_set<std::string> used_models;
+  bool has_unknown_nodes = false;
   const auto& nodes = parsed.nodes;
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   std::unordered_map<std::string, const NodeDefinition*> def_by_id;
@@ -535,6 +496,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     node_by_id[node.id] = &node;
     const auto* definition = catalog.FindNode(node.node_type);
     if (!definition) {
+      has_unknown_nodes = true;
       std::vector<std::string> node_types;
       for (const auto& def : catalog.nodes) node_types.push_back(def.node_type);
       Add(&report, DiagnosticCode::kUnknownNodeType,
@@ -580,26 +542,35 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     normalized_config_by_node[node.id] = normalized_config;
 
     for (const auto& dep : definition->model_dependencies) {
-      std::string model_id;
+      std::string model_name;
       if (normalized_config.contains(dep.config_field) &&
           normalized_config[dep.config_field].is_string()) {
-        model_id = normalized_config[dep.config_field].get<std::string>();
+        model_name = normalized_config[dep.config_field].get<std::string>();
       }
-      auto capability = model_capabilities.find(model_id);
+      if (!model_name.empty()) used_models.insert(model_name);
+      auto model_type = model_types.find(model_name);
       std::string path = "/pipeline/" + std::to_string(node.source_index) +
                          "/config/" + EscapeJsonPointer(dep.config_field);
-      if (model_id.empty() || capability == model_capabilities.end()) {
-        if (!unresolved_model_ids.count(model_id)) {
+      if (model_name.empty() || model_type == model_types.end()) {
+        if (!unresolved_model_names.count(model_name)) {
           Add(&report, DiagnosticCode::kUnknownModelReference, path,
-              "Node references an unknown model_id: " + model_id, node.id);
+              "Node references an unknown model_name: " + model_name, node.id);
         }
-      } else if (capability->second != dep.capability) {
-        Add(&report, DiagnosticCode::kModelCapabilityMismatch, path,
-            "Node requires model capability '" + dep.capability +
-                "' but model provides '" + capability->second + "'",
+      } else if (model_type->second != dep.model_type) {
+        Add(&report, DiagnosticCode::kModelTypeMismatch, path,
+            "Node requires model type '" + dep.model_type +
+                "' but model provides '" + model_type->second + "'",
             node.id);
       }
     }
+  }
+
+  if (!has_unknown_nodes) {
+    for (const auto& model : parsed.models)
+      if (!used_models.count(model.model_name))
+        Add(&report, DiagnosticCode::kUnusedModel,
+            "/models/" + std::to_string(model.source_index) + "/name",
+            "Model is not bound by any node: " + model.model_name);
   }
 
   std::unordered_map<std::string, IoPortDefinition> ingress;
@@ -700,16 +671,16 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     node_plan.node = node;
     node_plan.normalized_config = normalized_config;
     for (const auto& dep : definition.model_dependencies) {
-      std::string model_id;
+      std::string model_name;
       if (normalized_config.contains(dep.config_field) &&
           normalized_config[dep.config_field].is_string()) {
-        model_id = normalized_config[dep.config_field].get<std::string>();
+        model_name = normalized_config[dep.config_field].get<std::string>();
       }
       ResolvedNodeModelBinding binding;
       binding.name = dep.name;
-      binding.capability = dep.capability;
+      binding.model_type = dep.model_type;
       binding.config_field = dep.config_field;
-      binding.model_id = std::move(model_id);
+      binding.model_name = std::move(model_name);
       node_plan.model_bindings.push_back(std::move(binding));
     }
 
@@ -986,11 +957,11 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     auto serialized_models = [&](const std::string& id) {
       std::unordered_set<std::string> models;
       for (const auto& binding : plan.node_plans[id].model_bindings) {
-        if (binding.model_id.empty()) continue;
-        auto it = model_concurrency.find(binding.model_id);
+        if (binding.model_name.empty()) continue;
+        auto it = model_concurrency.find(binding.model_name);
         if (it != model_concurrency.end() &&
             it->second == InferenceConcurrency::kSerialized) {
-          models.insert(binding.model_id);
+          models.insert(binding.model_name);
         }
       }
       return models;

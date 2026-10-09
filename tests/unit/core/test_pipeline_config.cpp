@@ -36,12 +36,14 @@ static NodeDefinition MakeTestNodeDef(const std::string& type) {
   return def;
 }
 
-static ModelDefinition MakeTestModelDef(const std::string& type) {
+static ModelDefinition MakeTestModelDef(
+    const std::string& type, std::vector<std::string> fixture_backends) {
   ModelDefinition def;
-  def.model_type = type;
-  def.capability = "test";
+  def.impl_name = type;
+  def.model_type = "test";
   def.description = "test model " + type;
-  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.required_protocol = ExecutionProtocol::kFixture;
+  def.fixture_backends = std::move(fixture_backends);
   def.concurrency = InferenceConcurrency::kConcurrent;
   return def;
 }
@@ -50,7 +52,7 @@ static BackendDefinition MakeTestBackendDef(const std::string& type) {
   BackendDefinition def;
   def.backend_type = type;
   def.description = "test backend " + type;
-  def.supported_protocols = {ExecutionProtocol::kTensorGraph};
+  def.supported_protocols = {ExecutionProtocol::kFixture};
   def.concurrency = InferenceConcurrency::kConcurrent;
   return def;
 }
@@ -63,7 +65,7 @@ class CountingSession : public ITensorGraphSession {
     return backend_type_;
   }
   ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kTensorGraph;
+    return ExecutionProtocol::kFixture;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
@@ -87,7 +89,7 @@ class CountingSession : public ITensorGraphSession {
 
 class CountingModel : public IModel {
  public:
-  inline static constexpr char kModelType[] = "counting_model";
+  inline static constexpr char kImplName[] = "counting_model";
   static inline std::atomic<int> create_count{0};
 
   static void Reset() { create_count.store(0); }
@@ -96,20 +98,23 @@ class CountingModel : public IModel {
     create_count.fetch_add(1);
     return std::make_shared<CountingModel>();
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "test";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "test";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 };
-REGISTER_MODEL_WITH_DEFINITION(CountingModel,
-                               MakeTestModelDef(CountingModel::kModelType));
+REGISTER_MODEL_WITH_DEFINITION(
+    CountingModel,
+    MakeTestModelDef(CountingModel::kImplName,
+                     {"counting_backend", "throwing_ctor_backend",
+                      "throwing_load_backend", "failing_load_backend"}));
 
 // 1. 基础计数探针
 class CountingBackend : public IInferenceBackend {
@@ -178,19 +183,37 @@ class CountingNode : public INode {
 REGISTER_NODE_WITH_DEFINITION(CountingNode,
                               MakeTestNodeDef(CountingNode::kNodeType));
 
+class ModelCountingNode : public CountingNode {
+ public:
+  inline static constexpr char kNodeType[] = "ModelCountingNode";
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+static NodeDefinition MakeModelCountingNodeDef() {
+  auto def = MakeTestNodeDef(ModelCountingNode::kNodeType);
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.model_dependencies = {{"model", "test", "bind_model"}};
+  return def;
+}
+REGISTER_NODE_WITH_DEFINITION(ModelCountingNode, MakeModelCountingNodeDef());
+
 // 2. 异常与失败测试替身 (R1-ACC-001)
 class ThrowingCtorModel : public IModel {
  public:
-  inline static constexpr char kModelType[] = "throwing_ctor_model";
+  inline static constexpr char kImplName[] = "throwing_ctor_model";
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string*) {
     throw std::runtime_error("ThrowingCtorModel constructor exception");
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "test";
     return cap;
   }
@@ -199,7 +222,25 @@ class ThrowingCtorModel : public IModel {
   }
 };
 REGISTER_MODEL_WITH_DEFINITION(ThrowingCtorModel,
-                               MakeTestModelDef(ThrowingCtorModel::kModelType));
+                               MakeTestModelDef(ThrowingCtorModel::kImplName,
+                                                {"throwing_model_backend"}));
+
+class ThrowingModelBackend : public CountingBackend {
+ public:
+  inline static constexpr char kBackendType[] = "throwing_model_backend";
+  const std::string& BackendType() const noexcept override {
+    static const std::string type = kBackendType;
+    return type;
+  }
+  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
+                                        std::string*) noexcept override {
+    load_count.fetch_add(1);
+    return std::make_shared<CountingSession>(kBackendType);
+  }
+};
+REGISTER_BACKEND_WITH_DEFINITION(
+    ThrowingModelBackend,
+    MakeTestBackendDef(ThrowingModelBackend::kBackendType));
 
 class ThrowingCtorBackend : public IInferenceBackend {
  public:
@@ -320,15 +361,15 @@ static std::string GetConfigPath(const std::string& rel_path) {
 }
 
 static nlohmann::json CountingModelEntry(
-    std::string model_id,
-    std::string backend_type = CountingBackend::kBackendType,
-    std::string model_type = CountingModel::kModelType) {
-  return {{"model_id", std::move(model_id)},
-          {"model_type", std::move(model_type)},
-          {"backend", std::move(backend_type)},
-          {"model_path", "fixture.bin"},
-          {"model_config", nlohmann::json::object()},
-          {"backend_config", nlohmann::json::object()}};
+    std::string model_name,
+    std::string backend_type = CountingBackend::kBackendType) {
+  return {{"name", std::move(model_name)},
+          {"type", "test"},
+          {"backend",
+           {{"type", std::move(backend_type)},
+            {"params", nlohmann::json::object()}}},
+          {"file", "fixture.bin"},
+          {"params", nlohmann::json::object()}};
 }
 
 // =============================================================================
@@ -539,172 +580,172 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                      {"pipeline", valid_pipe}},
       DiagnosticCode::kFieldType, "/models/0"});
   cases.push_back(NegativeTestCase{
-      "ModelCommentNotString",
-      nlohmann::json{{"models", nlohmann::json::array(
-                                    {{{"model_id", "m1"}, {"comment", 123}}})},
-                     {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/comment"});
-  cases.push_back(NegativeTestCase{
       "ModelUnknownField",
       nlohmann::json{
-          {"models", nlohmann::json::array(
-                         {{{"model_id", "m1"}, {"unknown_model_key", 1}}})},
+          {"models",
+           nlohmann::json::array({{{"name", "m1"}, {"unknown_model_key", 1}}})},
           {"pipeline", valid_pipe}},
       DiagnosticCode::kUnknownField, "/models/0/unknown_model_key"});
   cases.push_back(NegativeTestCase{
       "ModelMissingId",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_type", "counting_model"},
-                                             {"backend", "counting_backend"},
-                                             {"model_path", "model.bin"}}})},
+          {"models",
+           nlohmann::json::array({{{"type", "test"},
+                                   {"backend", {{"type", "counting_backend"}}},
+                                   {"file", "model.bin"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kMissingField, "/models/0/model_id"});
+      DiagnosticCode::kMissingField, "/models/0/name"});
   cases.push_back(NegativeTestCase{
       "ModelEmptyId",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", ""},
-                                             {"model_type", "counting_model"},
-                                             {"backend", "counting_backend"},
-                                             {"model_path", "model.bin"}}})},
+          {"models",
+           nlohmann::json::array({{{"name", ""},
+                                   {"type", "test"},
+                                   {"backend", {{"type", "counting_backend"}}},
+                                   {"file", "model.bin"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldRange, "/models/0/model_id"});
+      DiagnosticCode::kFieldRange, "/models/0/name"});
   cases.push_back(NegativeTestCase{
       "ModelDuplicateId",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "dup_m"},
-                                             {"model_type", "counting_model"},
-                                             {"backend", "counting_backend"},
-                                             {"model_path", "model.bin"}},
-                                            {{"model_id", "dup_m"},
-                                             {"model_type", "counting_model"},
-                                             {"backend", "counting_backend"},
-                                             {"model_path", "model.bin"}}})},
+          {"models",
+           nlohmann::json::array({{{"name", "dup_m"},
+                                   {"type", "test"},
+                                   {"backend", {{"type", "counting_backend"}}},
+                                   {"file", "model.bin"}},
+                                  {{"name", "dup_m"},
+                                   {"type", "test"},
+                                   {"backend", {{"type", "counting_backend"}}},
+                                   {"file", "model.bin"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kDuplicateModelId, "/models/1/model_id"});
+      DiagnosticCode::kDuplicateModelName, "/models/1/name"});
   cases.push_back(NegativeTestCase{
       "ModelMissingType",
-      nlohmann::json{{"models", nlohmann::json::array({{{"model_id", "m1"}}})},
+      nlohmann::json{{"models", nlohmann::json::array({{{"name", "m1"}}})},
                      {"pipeline", valid_pipe}},
-      DiagnosticCode::kMissingField, "/models/0/model_type"});
+      DiagnosticCode::kMissingField, "/models/0/type"});
   cases.push_back(NegativeTestCase{
       "ModelConfigNotObject",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "counting_model"},
-                                             {"backend", "counting_backend"},
-                                             {"model_path", "model.bin"},
-                                             {"model_config", "invalid"}}})},
+          {"models",
+           nlohmann::json::array({{{"name", "m1"},
+                                   {"type", "test"},
+                                   {"backend", {{"type", "counting_backend"}}},
+                                   {"file", "model.bin"},
+                                   {"params", "invalid"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/model_config"});
+      DiagnosticCode::kFieldType, "/models/0/params"});
 
   // --- Model/Backend 方言及混用校验 ---
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingModelType",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", "./model.onnx"}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kMissingField, "/models/0/model_type"});
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", "./model.onnx"}}})},
+                     {"pipeline", valid_pipe}},
+      DiagnosticCode::kMissingField, "/models/0/type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyModelType",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", ""},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", "./model.onnx"}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldRange, "/models/0/model_type"});
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"type", ""},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", "./model.onnx"}}})},
+                     {"pipeline", valid_pipe}},
+      DiagnosticCode::kFieldRange, "/models/0/type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeModelType",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", true},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", "./model.onnx"}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/model_type"});
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"type", true},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", "./model.onnx"}}})},
+                     {"pipeline", valid_pipe}},
+      DiagnosticCode::kFieldType, "/models/0/type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingBackend",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"model_path", "./model.onnx"}}})},
+          {"models", nlohmann::json::array({{{"name", "m1"},
+                                             {"type", "embedding"},
+                                             {"file", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
       DiagnosticCode::kMissingField, "/models/0/backend"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyBackend",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", ""},
-                                             {"model_path", "./model.onnx"}}})},
+          {"models", nlohmann::json::array({{{"name", "m1"},
+                                             {"type", "embedding"},
+                                             {"backend", {{"type", ""}}},
+                                             {"file", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldRange, "/models/0/backend"});
+      DiagnosticCode::kFieldRange, "/models/0/backend/type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeBackend",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", 456},
-                                             {"model_path", "./model.onnx"}}})},
+          {"models", nlohmann::json::array({{{"name", "m1"},
+                                             {"type", "embedding"},
+                                             {"backend", {{"type", 456}}},
+                                             {"file", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/backend"});
+      DiagnosticCode::kFieldType, "/models/0/backend/type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingModelPath",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", "onnxruntime"}}})},
+          {"models",
+           nlohmann::json::array({{{"name", "m1"},
+                                   {"type", "embedding"},
+                                   {"backend", {{"type", "onnxruntime"}}}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kMissingField, "/models/0/model_path"});
+      DiagnosticCode::kMissingField, "/models/0/file"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyModelPath",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", ""}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldRange, "/models/0/model_path"});
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"type", "embedding"},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", ""}}})},
+                     {"pipeline", valid_pipe}},
+      DiagnosticCode::kFieldRange, "/models/0/file"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeModelPath",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", 789}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/model_path"});
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"type", "embedding"},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", 789}}})},
+                     {"pipeline", valid_pipe}},
+      DiagnosticCode::kFieldType, "/models/0/file"});
   cases.push_back(NegativeTestCase{
       "ModelBackendModelConfigNotObject",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", "./model.onnx"},
-                                             {"model_config", "not_object"}}})},
-          {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/model_config"});
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"type", "embedding"},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", "./model.onnx"},
+                                      {"params", "not_object"}}})},
+                     {"pipeline", valid_pipe}},
+      DiagnosticCode::kFieldType, "/models/0/params"});
   cases.push_back(NegativeTestCase{
       "ModelBackendBackendConfigNotObject",
       nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", "./model.onnx"},
-                                             {"backend_config", 123}}})},
+          {"models",
+           nlohmann::json::array(
+               {{{"name", "m1"},
+                 {"type", "embedding"},
+                 {"backend", {{"type", "onnxruntime"}, {"params", 123}}},
+                 {"file", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      DiagnosticCode::kFieldType, "/models/0/backend_config"});
+      DiagnosticCode::kFieldType, "/models/0/backend/params"});
   cases.push_back(NegativeTestCase{
       "ModelBackendUnknownField",
-      nlohmann::json{
-          {"models", nlohmann::json::array({{{"model_id", "m1"},
-                                             {"model_type", "bge_embedding"},
-                                             {"backend", "onnxruntime"},
-                                             {"model_path", "./model.onnx"},
-                                             {"unsupported_opt", true}}})},
-          {"pipeline", valid_pipe}},
+      nlohmann::json{{"models", nlohmann::json::array(
+                                    {{{"name", "m1"},
+                                      {"type", "embedding"},
+                                      {"backend", {{"type", "onnxruntime"}}},
+                                      {"file", "./model.onnx"},
+                                      {"unsupported_opt", true}}})},
+                     {"pipeline", valid_pipe}},
       DiagnosticCode::kUnknownField, "/models/0/unsupported_opt"});
 
   // --- Pipeline Nodes 校验 ---
@@ -910,12 +951,12 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.2.1 Model 构造函数抛异常
   {
     nlohmann::json cfg = {
-        {"models", nlohmann::json::array(
-                       {CountingModelEntry("m1", CountingBackend::kBackendType,
-                                           ThrowingCtorModel::kModelType)})},
+        {"models", nlohmann::json::array({CountingModelEntry(
+                       "m1", ThrowingModelBackend::kBackendType)})},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
-                                 {"node_type", "CountingNode"},
+                                 {"node_type", "ModelCountingNode"},
+                                 {"config", {{"bind_model", "m1"}}},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
     EXPECT_FALSE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
@@ -932,7 +973,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                        {CountingModelEntry("m1", "throwing_ctor_backend")})},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
-                                 {"node_type", "CountingNode"},
+                                 {"node_type", "ModelCountingNode"},
+                                 {"config", {{"bind_model", "m1"}}},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
     EXPECT_FALSE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
@@ -948,7 +990,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                        {CountingModelEntry("m1", "throwing_load_backend")})},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
-                                 {"node_type", "CountingNode"},
+                                 {"node_type", "ModelCountingNode"},
+                                 {"config", {{"bind_model", "m1"}}},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
     EXPECT_FALSE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
@@ -964,7 +1007,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                        {CountingModelEntry("m1", "failing_load_backend")})},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
-                                 {"node_type", "CountingNode"},
+                                 {"node_type", "ModelCountingNode"},
+                                 {"config", {{"bind_model", "m1"}}},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
     EXPECT_FALSE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
@@ -1038,10 +1082,13 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
 TEST_F(PipelineConfigTest, FailedNodeInitDoesNotPublishStagedModels) {
   const nlohmann::json config = {
       {"models", nlohmann::json::array({CountingModelEntry("staged_model")})},
-      {"pipeline",
-       nlohmann::json::array({{{"id", "failing_node"},
-                               {"node_type", FailingInitNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
+      {"pipeline", nlohmann::json::array(
+                       {{{"id", "failing_node"},
+                         {"node_type", FailingInitNode::kNodeType},
+                         {"depends_on", nlohmann::json::array()}},
+                        {{"id", "model_consumer"},
+                         {"node_type", ModelCountingNode::kNodeType},
+                         {"config", {{"bind_model", "staged_model"}}}}})}};
 
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
@@ -1131,7 +1178,7 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
   }
 }
 
-// 6. ModelManager 重复 model_id 注册防御性拦截测试
+// 6. ModelManager 重复 model_name 注册防御性拦截测试
 TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
   ModelManager manager;
   auto model1 = std::make_shared<CountingModel>();
@@ -1139,7 +1186,7 @@ TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
 
   EXPECT_TRUE(RegisterTestModel(manager, "model_x", model1, "test-v1"));
   EXPECT_FALSE(RegisterTestModel(manager, "model_x", model2, "test-v2"))
-      << "Duplicate model_id registration must return false without "
+      << "Duplicate model_name registration must return false without "
          "overwriting";
   EXPECT_EQ(manager.GetModel<CountingModel>("model_x"), model1);
 }
@@ -1178,18 +1225,19 @@ TEST_F(PipelineConfigTest, WorkerBudgetSelectsExecutionMode) {
 // 8. Model/Backend 单一方言解析正例测试
 TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
   nlohmann::json root = {
-      {"models", nlohmann::json::array({
-                     {{"model_id", "m_mb_full"},
-                      {"model_type", "bge_embedding"},
-                      {"backend", "onnxruntime"},
-                      {"model_path", "./models/bge/model.onnx"},
-                      {"model_config", {{"max_length", 512}}},
-                      {"backend_config", {{"device", "cpu"}}}},
-                     {{"model_id", "m_mb_minimal"},
-                      {"model_type", "bge_reranker"},
-                      {"backend", "onnxruntime"},
-                      {"model_path", "./models/rerank/model.onnx"}},
-                 })},
+      {"models",
+       nlohmann::json::array({
+           {{"name", "m_mb_full"},
+            {"type", "embedding"},
+            {"backend",
+             {{"type", "onnxruntime"}, {"params", {{"device", "cpu"}}}}},
+            {"file", "./models/bge/model.onnx"},
+            {"params", {{"max_tokens", 512}}}},
+           {{"name", "m_mb_minimal"},
+            {"type", "rerank"},
+            {"backend", {{"type", "onnxruntime"}}},
+            {"file", "./models/rerank/model.onnx"}},
+       })},
       {"pipeline",
        nlohmann::json::array({{{"id", "n0"},
                                {"node_type", "CountingNode"},
@@ -1203,26 +1251,26 @@ TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
 
   // Model 0：Model/Backend 完整写法
   const auto& m1 = parsed_cfg.models[0];
-  EXPECT_EQ(m1.model_id, "m_mb_full");
-  EXPECT_EQ(m1.model_type, "bge_embedding");
-  EXPECT_EQ(m1.backend, "onnxruntime");
-  EXPECT_EQ(m1.model_path, "./models/bge/model.onnx");
-  EXPECT_TRUE(m1.model_config.is_object());
-  EXPECT_EQ(m1.model_config.value("max_length", 0), 512);
-  EXPECT_TRUE(m1.backend_config.is_object());
-  EXPECT_EQ(m1.backend_config.value("device", ""), "cpu");
+  EXPECT_EQ(m1.model_name, "m_mb_full");
+  EXPECT_EQ(m1.model_type, "embedding");
+  EXPECT_EQ(m1.backend_type, "onnxruntime");
+  EXPECT_EQ(m1.model_file, "./models/bge/model.onnx");
+  EXPECT_TRUE(m1.model_params.is_object());
+  EXPECT_EQ(m1.model_params.value("max_tokens", 0), 512);
+  EXPECT_TRUE(m1.backend_params.is_object());
+  EXPECT_EQ(m1.backend_params.value("device", ""), "cpu");
   EXPECT_EQ(m1.source_index, 0u);
 
   // Model 1：最简写法，配置默认为空
   const auto& m2 = parsed_cfg.models[1];
-  EXPECT_EQ(m2.model_id, "m_mb_minimal");
-  EXPECT_EQ(m2.model_type, "bge_reranker");
-  EXPECT_EQ(m2.backend, "onnxruntime");
-  EXPECT_EQ(m2.model_path, "./models/rerank/model.onnx");
-  EXPECT_TRUE(m2.model_config.is_object());
-  EXPECT_TRUE(m2.model_config.empty());
-  EXPECT_TRUE(m2.backend_config.is_object());
-  EXPECT_TRUE(m2.backend_config.empty());
+  EXPECT_EQ(m2.model_name, "m_mb_minimal");
+  EXPECT_EQ(m2.model_type, "rerank");
+  EXPECT_EQ(m2.backend_type, "onnxruntime");
+  EXPECT_EQ(m2.model_file, "./models/rerank/model.onnx");
+  EXPECT_TRUE(m2.model_params.is_object());
+  EXPECT_TRUE(m2.model_params.empty());
+  EXPECT_TRUE(m2.backend_params.is_object());
+  EXPECT_TRUE(m2.backend_params.empty());
   EXPECT_EQ(m2.source_index, 1u);
 }
 

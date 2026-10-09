@@ -39,10 +39,12 @@
       "pipeline": {
         "models": [
           {
-            "model_id": "llm",
-            "model_type": "test_biz_llm",
-            "backend": "test_causal_lm_backend",
-            "model_path": "fixture.gguf"
+            "type": "llm",
+            "name": "llm",
+            "file": "fixture.gguf",
+            "backend": {
+              "type": "test_causal_lm_backend"
+            }
           }
         ],
         "pipeline": [
@@ -115,10 +117,12 @@
       "pipeline": {
         "models": [
           {
-            "model_id": "llm",
-            "model_type": "test_biz_llm",
-            "backend": "test_causal_lm_backend",
-            "model_path": "fixture.gguf"
+            "type": "llm",
+            "name": "llm",
+            "file": "fixture.gguf",
+            "backend": {
+              "type": "test_causal_lm_backend"
+            }
           }
         ],
         "pipeline": [
@@ -187,14 +191,16 @@
       }
     },
     {
-      "name": "model_capability_mismatch",
+      "name": "model_type_mismatch",
       "pipeline": {
         "models": [
           {
-            "model_id": "embedding",
-            "model_type": "test_biz_embedding",
-            "backend": "test_tensor_backend",
-            "model_path": "fixture.onnx"
+            "type": "embedding",
+            "name": "embedding",
+            "file": "fixture.onnx",
+            "backend": {
+              "type": "test_tensor_backend"
+            }
           }
         ],
         "pipeline": [
@@ -241,9 +247,9 @@
         ]
       },
       "required_codes": [
-        "MODEL_CAPABILITY_MISMATCH"
+        "MODEL_TYPE_MISMATCH"
       ],
-      "primary_code": "MODEL_CAPABILITY_MISMATCH",
+      "primary_code": "MODEL_TYPE_MISMATCH",
       "primary_path": "/pipeline/1/config/bind_model",
       "runtime_error_code": -3,
       "io": {

@@ -25,19 +25,18 @@ namespace llm_edgeflow {
 // 1. 模拟硬件故障的推理引擎 (可动态注入硬件故障)
 class MockFaultyHardwareModel : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_faulty_model";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings,
+  int Embed(const TextBatch& input_texts, EmbeddingBatch* output_embeddings,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (should_fail_) {
@@ -172,13 +171,13 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
   std::vector<TraceableItem<std::vector<float>>> output_embeddings;
 
   // 执行批推理，底层硬件故障应被拦截并返回 -505
-  int ret = model->Embed(input_items, EmbeddingOptions{}, &output_embeddings);
+  int ret = model->Embed(input_items, &output_embeddings);
   EXPECT_EQ(ret, -505);
 
   // 恢复硬件正常状态后重试
   model->SetFault(false);
   output_embeddings.clear();
-  ret = model->Embed(input_items, EmbeddingOptions{}, &output_embeddings);
+  ret = model->Embed(input_items, &output_embeddings);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(output_embeddings.size(), 5U);
   EXPECT_EQ(output_embeddings[0].data.size(), 128U);

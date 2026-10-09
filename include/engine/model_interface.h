@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "contracts/inference_payloads.h"
@@ -17,8 +18,8 @@ class IModel {
  public:
   virtual ~IModel() = default;
 
+  virtual const std::string& ImplName() const noexcept = 0;
   virtual const std::string& ModelType() const noexcept = 0;
-  virtual const std::string& Capability() const noexcept = 0;
 
   // 仅描述 Model 语义上的可重入性。运行时规划会结合所选 Backend 的
   // 并发度，取两者中更严格的一个。
@@ -33,8 +34,7 @@ class IModel {
  */
 class IEmbeddingModel : public IModel {
  public:
-  virtual int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-                    EmbeddingBatch* outputs,
+  virtual int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
                     std::string* diagnostic = nullptr) noexcept = 0;
 };
 
@@ -52,6 +52,7 @@ class IRerankModel : public IModel {
  */
 class ILlmModel : public IModel {
  public:
+  virtual bool SupportsRandomSeed() const noexcept { return false; }
   virtual int Generate(const TextBatch& prompts, const GenerateOptions& options,
                        TextBatch* outputs,
                        std::string* diagnostic = nullptr) noexcept = 0;
@@ -71,7 +72,9 @@ class IOcrModel : public IModel {
  */
 class IAsrModel : public IModel {
  public:
-  virtual int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+  virtual bool SupportsLanguage(std::string_view language) const noexcept = 0;
+  virtual int Transcribe(const AudioPcmBatch& audio,
+                         const TranscribeOptions& options, TextBatch* outputs,
                          std::string* diagnostic = nullptr) noexcept = 0;
 };
 

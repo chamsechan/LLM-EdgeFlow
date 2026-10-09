@@ -40,13 +40,14 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
       continue;
     const std::string id = normalized[dep.config_field].get<std::string>();
     if (!declared_models.insert(id).second) continue;
-    const std::string model_type = "node_fixture_model_" + dep.capability;
-    const std::string backend = "node_fixture_backend_" + dep.capability;
-    if (!ModelRegistry::Instance().Has(model_type)) {
+    const std::string impl_name = "node_fixture_model_" + dep.model_type;
+    const std::string backend = "node_fixture_backend_" + dep.model_type;
+    if (!ModelRegistry::Instance().Has(impl_name)) {
       ModelDefinition model;
-      model.model_type = model_type;
-      model.capability = dep.capability;
-      model.required_protocol = ExecutionProtocol::kTensorGraph;
+      model.impl_name = impl_name;
+      model.model_type = dep.model_type;
+      model.required_protocol = ExecutionProtocol::kFixture;
+      model.fixture_backends = {backend};
       model.concurrency = InferenceConcurrency::kConcurrent;
       ModelRegistry::Instance().Register(
           model, [](const auto&, auto*) { return nullptr; });
@@ -54,15 +55,15 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
     if (!BackendRegistry::Instance().Has(backend)) {
       BackendDefinition implementation;
       implementation.backend_type = backend;
-      implementation.supported_protocols = {ExecutionProtocol::kTensorGraph};
+      implementation.supported_protocols = {ExecutionProtocol::kFixture};
       implementation.concurrency = InferenceConcurrency::kConcurrent;
       BackendRegistry::Instance().Register(implementation,
                                            [] { return nullptr; });
     }
-    models.push_back({{"model_id", id},
-                      {"model_type", model_type},
-                      {"backend", backend},
-                      {"model_path", "mock.bin"}});
+    models.push_back({{"name", id},
+                      {"type", dep.model_type},
+                      {"backend", {{"type", backend}}},
+                      {"file", "mock.bin"}});
   }
   PipelineIoBoundary boundary;
   nlohmann::json inputs = nlohmann::json::object();

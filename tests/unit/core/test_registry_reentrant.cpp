@@ -8,6 +8,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/pipeline_diagnostic.h"
+#include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "tests/support/pipeline_test_utils.h"
@@ -27,10 +28,11 @@ static NodeDefinition MakeTestNodeDef(const std::string& type) {
 
 static ModelDefinition MakeTestModelDef(const std::string& type) {
   ModelDefinition def;
-  def.model_type = type;
-  def.capability = "embedding";
+  def.impl_name = type;
+  def.model_type = "embedding";
   def.description = "test model " + type;
-  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.required_protocol = ExecutionProtocol::kFixture;
+  def.fixture_backends = {"reentrant_backend"};
   def.concurrency = InferenceConcurrency::kConcurrent;
   return def;
 }
@@ -57,38 +59,89 @@ class ReentrantNode : public INode {
 REGISTER_NODE_WITH_DEFINITION(ReentrantNode,
                               MakeTestNodeDef(ReentrantNode::kNodeType));
 
+class ReentrantModelNode : public ReentrantNode {
+ public:
+  inline static constexpr char kNodeType[] = "ReentrantModelNode";
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+static NodeDefinition MakeReentrantModelNodeDef() {
+  auto def = MakeTestNodeDef(ReentrantModelNode::kNodeType);
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.model_dependencies = {{"model", "embedding", "bind_model"}};
+  return def;
+}
+REGISTER_NODE_WITH_DEFINITION(ReentrantModelNode, MakeReentrantModelNodeDef());
+
+class ReentrantSession : public IBackendSession {
+ public:
+  const std::string& BackendType() const noexcept override {
+    static const std::string type = "reentrant_backend";
+    return type;
+  }
+  ExecutionProtocol Protocol() const noexcept override {
+    return ExecutionProtocol::kFixture;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return {4, 0}; }
+};
+class ReentrantBackend : public IInferenceBackend {
+ public:
+  const std::string& BackendType() const noexcept override {
+    static const std::string type = "reentrant_backend";
+    return type;
+  }
+  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
+                                        std::string*) noexcept override {
+    return std::make_shared<ReentrantSession>();
+  }
+};
+static BackendDefinition MakeReentrantBackendDef() {
+  BackendDefinition def;
+  def.backend_type = "reentrant_backend";
+  def.supported_protocols = {ExecutionProtocol::kFixture};
+  def.concurrency = InferenceConcurrency::kConcurrent;
+  return def;
+}
+REGISTER_BACKEND_WITH_DEFINITION(ReentrantBackend, MakeReentrantBackendDef());
+
 class ReentrantModel : public IEmbeddingModel {
  public:
-  inline static constexpr char kModelType[] = "reentrant_model";
+  inline static constexpr char kImplName[] = "reentrant_model";
 
   ReentrantModel() {
     // 构造期间同步调用 ModelRegistry 查询
-    volatile bool has = ModelRegistry::Instance().Has(kModelType);
+    volatile bool has = ModelRegistry::Instance().Has(kImplName);
     (void)has;
   }
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string*) {
     return std::make_shared<ReentrantModel>();
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch&, const EmbeddingOptions&, EmbeddingBatch*,
+  int Embed(const TextBatch&, EmbeddingBatch*,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     return 0;
   }
 };
 REGISTER_MODEL_WITH_DEFINITION(ReentrantModel,
-                               MakeTestModelDef(ReentrantModel::kModelType));
+                               MakeTestModelDef(ReentrantModel::kImplName));
 
 TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
   // 1. 同步测试 Node 构造期重入 NodeRegistry
@@ -109,16 +162,18 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
     Pipeline p;
     PipelineDiagnostic diag;
     nlohmann::json cfg = {
-        {"models", nlohmann::json::array(
-                       {{{"model_id", "m1"},
-                         {"model_type", ReentrantModel::kModelType},
-                         {"backend", "test_tensor_backend"},
-                         {"model_path", "reentrant.bin"},
-                         {"model_config", nlohmann::json::object()},
-                         {"backend_config", nlohmann::json::object()}}})},
+        {"models",
+         nlohmann::json::array({{{"name", "m1"},
+                                 {"type", "embedding"},
+                                 {"backend",
+                                  {{"type", "reentrant_backend"},
+                                   {"params", nlohmann::json::object()}}},
+                                 {"file", "reentrant.bin"},
+                                 {"params", nlohmann::json::object()}}})},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
-                                 {"node_type", "ReentrantNode"},
+                                 {"node_type", "ReentrantModelNode"},
+                                 {"config", {{"bind_model", "m1"}}},
                                  {"depends_on", nlohmann::json::array()}}})}};
     EXPECT_TRUE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
     EXPECT_TRUE(p.IsReady());

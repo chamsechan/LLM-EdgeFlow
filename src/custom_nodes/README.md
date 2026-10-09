@@ -68,7 +68,7 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 - `ModelsOf` 中的 `Model` 根据成员类型绑定五种模型能力：`LlmCall`、`EmbeddingCall`、
   `AsrCall`、`OcrCall`、`RerankCall`。调用门面处理空批次、模型错误及保序校验。
   绑定写作 `Model("generator", "bind_model", &Models::generator)`，只传三个参数；框架按成员
-  能力生成引用 `models[].model_id` 的说明。模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageRefBatch`。
+  能力生成引用 `models[].name` 的说明。模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageRefBatch`。
 - 同类型、保序的 compute 骨架可透传；异类型或派生输出保留明确失败的待实现入口。
   新内部批类型提供 `BlackboardTypeTraits`；平台 DTO 不进入 Node。
 
@@ -153,12 +153,13 @@ Operator 的 `prompt_id` 仍由接入层检查长度，但不转发到节点。
 本样例叫 `input`；复制模板时应对应替换，两者共有的 `context` 保持相同语义，未知变量会报错。
 
 使用 context 变量必须连入 context；按相同 `req_id` 合并片段，空上下文批次表示
-没有参考内容。默认模板只插入 input，不隐式追加 context。输入、上下文和
-prompt_prefix 中的花括号保留原文，不再作为模板解析。未知占位符、无效生成参数
+没有参考内容。默认模板只插入 input，不隐式追加 context。
+输入和上下文中的花括号保留原文，不再作为模板解析。未知占位符、无效生成参数
 和非法 stop_words 在原生校验与初始化时拒绝。
 
-`prompt_prefix` 是普通输入文本前缀，非空时在模板前追加一行。真正的 system 消息由模型的
-`model_config.system_prompt` 设置，不能用节点前缀替代该角色。
+固定提示文字直接写入 `prompt_template`。system 消息通过节点 `system_prompt` 参数设置，
+由 `GenerateOptions` 传入模型。
+需要核对绑定模型的能力时，用 `ValidateModels` 在参数解析、模型绑定之后执行一次。
 
 TextTemplate 引用的变量必须对应已连接的输入端口；某请求没有数据时填空。
 聚合输入批次存在而某请求没有结果时，仍表示合法的空上下文。

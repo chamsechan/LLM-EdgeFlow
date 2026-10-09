@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "core/node_interface.h"
@@ -79,31 +80,67 @@ REGISTER_NODE_WITH_DEFINITION(IoBoundaryTestNode,
 
 class SerializedPlanTestModel : public IModel {
  public:
-  inline static constexpr char kModelType[] = "serialized_plan_test";
+  inline static constexpr char kImplName[] = "serialized_plan_test";
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string*) {
     return std::make_shared<SerializedPlanTestModel>();
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "plan_test";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "plan_test";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
 };
 
+class SerializedPlanSession : public IBackendSession {
+ public:
+  const std::string& BackendType() const noexcept override {
+    static const std::string type = "serialized_plan_backend";
+    return type;
+  }
+  ExecutionProtocol Protocol() const noexcept override {
+    return ExecutionProtocol::kFixture;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return {16, 0}; }
+};
+class SerializedPlanBackend : public IInferenceBackend {
+ public:
+  const std::string& BackendType() const noexcept override {
+    static const std::string type = "serialized_plan_backend";
+    return type;
+  }
+  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
+                                        std::string*) noexcept override {
+    return std::make_shared<SerializedPlanSession>();
+  }
+};
+BackendDefinition MakeSerializedPlanBackendDefinition() {
+  BackendDefinition def;
+  def.backend_type = "serialized_plan_backend";
+  def.supported_protocols = {ExecutionProtocol::kFixture};
+  def.concurrency = InferenceConcurrency::kConcurrent;
+  return def;
+}
+REGISTER_BACKEND_WITH_DEFINITION(SerializedPlanBackend,
+                                 MakeSerializedPlanBackendDefinition());
+
 ModelDefinition MakeSerializedPlanTestModelDefinition() {
   ModelDefinition def;
-  def.model_type = SerializedPlanTestModel::kModelType;
-  def.capability = "plan_test";
+  def.impl_name = SerializedPlanTestModel::kImplName;
+  def.model_type = "plan_test";
   def.description = "Serialized model used by plan validation tests";
-  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.required_protocol = ExecutionProtocol::kFixture;
+  def.fixture_backends = {"serialized_plan_backend"};
   def.concurrency = InferenceConcurrency::kSerialized;
   return def;
 }
@@ -289,16 +326,13 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kFieldType, "FIELD_TYPE"},
       {DiagnosticCode::kFieldRange, "FIELD_RANGE"},
       {DiagnosticCode::kInvalidCombination, "INVALID_COMBINATION"},
-      {DiagnosticCode::kDuplicateModelId, "DUPLICATE_MODEL_ID"},
+      {DiagnosticCode::kDuplicateModelName, "DUPLICATE_MODEL_NAME"},
       {DiagnosticCode::kDuplicateNodeId, "DUPLICATE_NODE_ID"},
       {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
       {DiagnosticCode::kUnknownModelType, "UNKNOWN_MODEL_TYPE"},
       {DiagnosticCode::kUnknownBackend, "UNKNOWN_BACKEND"},
-      {DiagnosticCode::kModelCapabilityMismatch, "MODEL_CAPABILITY_MISMATCH"},
+      {DiagnosticCode::kModelTypeMismatch, "MODEL_TYPE_MISMATCH"},
       {DiagnosticCode::kBackendProtocolMismatch, "BACKEND_PROTOCOL_MISMATCH"},
-      {DiagnosticCode::kUnknownModelConfigField, "UNKNOWN_MODEL_CONFIG_FIELD"},
-      {DiagnosticCode::kUnknownBackendConfigField,
-       "UNKNOWN_BACKEND_CONFIG_FIELD"},
       {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
       {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
       {DiagnosticCode::kDagCycle, "DAG_CYCLE"},
@@ -308,6 +342,7 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kConfigFieldType, "CONFIG_FIELD_TYPE"},
       {DiagnosticCode::kConfigFieldRange, "CONFIG_FIELD_RANGE"},
       {DiagnosticCode::kConfigFieldEnum, "CONFIG_FIELD_ENUM"},
+      {DiagnosticCode::kUnusedModel, "UNUSED_MODEL"},
       {DiagnosticCode::kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE"},
       {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
       {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
@@ -324,7 +359,7 @@ TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kInvalidBuildState, "INVALID_BUILD_STATE"},
   };
 
-  EXPECT_EQ(cases.size(), 40u);
+  EXPECT_EQ(cases.size(), 39u);
   std::unordered_set<std::string> names;
   for (const auto& item : cases) {
     std::string name = DiagnosticCodeName(item.code);
@@ -685,12 +720,13 @@ TEST_F(ValidatedPipelinePlanTest,
        {"doc_chunk_counts", "Int32Batch"}});
   nlohmann::json pipeline_json = {
       {"models",
-       nlohmann::json::array({{{"model_id", "embed_model"},
-                               {"model_type", "test_biz_embedding"},
-                               {"backend", "test_tensor_backend"},
-                               {"model_path", "fixture.bin"},
-                               {"model_config", nlohmann::json::object()},
-                               {"backend_config", nlohmann::json::object()}}})},
+       nlohmann::json::array({{{"name", "embed_model"},
+                               {"type", "embedding"},
+                               {"backend",
+                                {{"type", "test_tensor_backend"},
+                                 {"params", nlohmann::json::object()}}},
+                               {"file", "fixture.bin"},
+                               {"params", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array(
            {{{"id", "session_embedding"},
@@ -771,13 +807,14 @@ TEST_F(ValidatedPipelinePlanTest,
        SplitsSharedSerializedModelIntoSequentialLayers) {
   nlohmann::json pipeline_json = {
       {"max_parallel_workers", 4},
-      {"models", nlohmann::json::array(
-                     {{{"model_id", "shared"},
-                       {"model_type", SerializedPlanTestModel::kModelType},
-                       {"backend", "test_tensor_backend"},
-                       {"model_path", "serialized.bin"},
-                       {"model_config", nlohmann::json::object()},
-                       {"backend_config", nlohmann::json::object()}}})},
+      {"models",
+       nlohmann::json::array({{{"name", "shared"},
+                               {"type", "plan_test"},
+                               {"backend",
+                                {{"type", "serialized_plan_backend"},
+                                 {"params", nlohmann::json::object()}}},
+                               {"file", "serialized.bin"},
+                               {"params", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_a"},
                                {"node_type", ModelBoundPlanTestNode::kNodeType},
@@ -807,7 +844,7 @@ TEST_F(ValidatedPipelinePlanTest,
 }
 
 TEST_F(ValidatedPipelinePlanTest,
-       DeterministicLexicalModelPathValidationWithoutDeploymentContext) {
+       ModelFilesRemainUnchangedWithoutDeploymentContext) {
   const auto boundary =
       MakeTestBoundary({{"rerank_queries", "TextBatch"},
                         {"rerank_candidates", "RankedTextBatch", true, "N:1"},
@@ -816,7 +853,7 @@ TEST_F(ValidatedPipelinePlanTest,
   if (!BackendRegistry::Instance().Find("mock_path_backend").has_value()) {
     BackendDefinition bdef;
     bdef.backend_type = "mock_path_backend";
-    bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
+    bdef.supported_protocols = {ExecutionProtocol::kFixture};
     bdef.concurrency = InferenceConcurrency::kConcurrent;
     BackendRegistry::Instance().Register(
         bdef, []() -> std::unique_ptr<IInferenceBackend> { return nullptr; });
@@ -824,9 +861,10 @@ TEST_F(ValidatedPipelinePlanTest,
 
   if (!ModelRegistry::Instance().Find("mock_path_model").has_value()) {
     ModelDefinition mdef;
-    mdef.model_type = "mock_path_model";
-    mdef.capability = "rerank";
-    mdef.required_protocol = ExecutionProtocol::kTensorGraph;
+    mdef.impl_name = "mock_path_model";
+    mdef.model_type = "rerank";
+    mdef.required_protocol = ExecutionProtocol::kFixture;
+    mdef.fixture_backends = {"mock_path_backend"};
     mdef.concurrency = InferenceConcurrency::kConcurrent;
     ModelRegistry::Instance().Register(
         mdef,
@@ -837,21 +875,21 @@ TEST_F(ValidatedPipelinePlanTest,
 
   nlohmann::json pipeline_json = {
       {"models",
-       nlohmann::json::array({{{"model_id", "m_rel"},
-                               {"model_type", "mock_path_model"},
-                               {"backend", "mock_path_backend"},
-                               {"model_path", "./models/sub/model.onnx"},
-                               {"model_config", nlohmann::json::object()}},
-                              {{"model_id", "m_abs"},
-                               {"model_type", "mock_path_model"},
-                               {"backend", "mock_path_backend"},
-                               {"model_path", "/opt/models/fixed.onnx"},
-                               {"model_config", nlohmann::json::object()}},
-                              {{"model_id", "m_direct"},
-                               {"model_type", "mock_path_model"},
-                               {"backend", "mock_path_backend"},
-                               {"model_path", "model_direct.onnx"},
-                               {"model_config", nlohmann::json::object()}}})},
+       nlohmann::json::array({{{"name", "m_rel"},
+                               {"type", "rerank"},
+                               {"backend", {{"type", "mock_path_backend"}}},
+                               {"file", "./models/sub/model.onnx"},
+                               {"params", nlohmann::json::object()}},
+                              {{"name", "m_abs"},
+                               {"type", "rerank"},
+                               {"backend", {{"type", "mock_path_backend"}}},
+                               {"file", "/opt/models/fixed.onnx"},
+                               {"params", nlohmann::json::object()}},
+                              {{"name", "m_direct"},
+                               {"type", "rerank"},
+                               {"backend", {{"type", "mock_path_backend"}}},
+                               {"file", "model_direct.onnx"},
+                               {"params", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0_TextRerankNode"},
                                {"node_type", "TextRerankNode"},
@@ -862,28 +900,29 @@ TEST_F(ValidatedPipelinePlanTest,
                                {"outputs", {{"ranked", "ranked_results"}}},
                                {"config", {{"bind_model", "m_rel"}}}}})}};
 
-  // 流程编排层只做确定性的词法归一化。部署根目录由接入适配层负责。
+  for (const auto& [name, output] :
+       {std::pair<const char*, const char*>{"m_abs", "ranked_abs"},
+        {"m_direct", "ranked_direct"}}) {
+    auto node = pipeline_json["pipeline"][0];
+    node["id"] = std::string("rerank_") + name;
+    node["config"]["bind_model"] = name;
+    node["outputs"]["ranked"] = output;
+    pipeline_json["pipeline"].push_back(std::move(node));
+  }
+
+  // 流程编排层保留已给定的文件值，路径解析由接入适配层负责。
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json, boundary);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
-  EXPECT_EQ(plan.models[0].resolved_model_path, "models/sub/model.onnx");
-  EXPECT_EQ(plan.models[1].resolved_model_path, "/opt/models/fixed.onnx");
-  EXPECT_EQ(plan.models[2].resolved_model_path, "model_direct.onnx");
+  EXPECT_EQ(plan.models[0].model_file, "./models/sub/model.onnx");
+  EXPECT_EQ(plan.models[1].model_file, "/opt/models/fixed.onnx");
+  EXPECT_EQ(plan.models[2].model_file, "model_direct.onnx");
 
   auto plan_repeat =
       PipelineValidator::ValidateAndPlan(pipeline_json, boundary);
   ASSERT_TRUE(plan_repeat.report.ok);
-  EXPECT_EQ(plan_repeat.models[0].resolved_model_path,
-            plan.models[0].resolved_model_path);
-  EXPECT_EQ(plan_repeat.models[1].resolved_model_path,
-            plan.models[1].resolved_model_path);
-  EXPECT_EQ(plan_repeat.models[2].resolved_model_path,
-            plan.models[2].resolved_model_path);
-
-  // 即使尚未解析部署，父目录遍历仍然非法。
-  nlohmann::json escape_json = pipeline_json;
-  escape_json["models"][0]["model_path"] = "../escape.onnx";
-  auto plan_escape = PipelineValidator::ValidateAndPlan(escape_json, boundary);
-  EXPECT_FALSE(plan_escape.report.ok);
+  EXPECT_EQ(plan_repeat.models[0].model_file, plan.models[0].model_file);
+  EXPECT_EQ(plan_repeat.models[1].model_file, plan.models[1].model_file);
+  EXPECT_EQ(plan_repeat.models[2].model_file, plan.models[2].model_file);
 }
 
 TEST_F(ValidatedPipelinePlanTest,
@@ -949,18 +988,20 @@ TEST_F(ValidatedPipelinePlanTest,
   nlohmann::json base_pipeline = {
       {"max_parallel_workers", 4},
       {"models", nlohmann::json::array({
-                     {{"model_id", "shared_a"},
-                      {"model_type", SerializedPlanTestModel::kModelType},
-                      {"backend", "test_tensor_backend"},
-                      {"model_path", "model_a.bin"},
-                      {"model_config", nlohmann::json::object()},
-                      {"backend_config", nlohmann::json::object()}},
-                     {{"model_id", "independent_b"},
-                      {"model_type", SerializedPlanTestModel::kModelType},
-                      {"backend", "test_tensor_backend"},
-                      {"model_path", "model_b.bin"},
-                      {"model_config", nlohmann::json::object()},
-                      {"backend_config", nlohmann::json::object()}},
+                     {{"name", "shared_a"},
+                      {"type", "plan_test"},
+                      {"backend",
+                       {{"type", "serialized_plan_backend"},
+                        {"params", nlohmann::json::object()}}},
+                      {"file", "model_a.bin"},
+                      {"params", nlohmann::json::object()}},
+                     {{"name", "independent_b"},
+                      {"type", "plan_test"},
+                      {"backend",
+                       {{"type", "serialized_plan_backend"},
+                        {"params", nlohmann::json::object()}}},
+                      {"file", "model_b.bin"},
+                      {"params", nlohmann::json::object()}},
                  })},
       {"pipeline",
        nlohmann::json::array({
@@ -985,18 +1026,19 @@ TEST_F(ValidatedPipelinePlanTest,
   const auto& multi_plan = plan_ok.node_plans["multi_node"];
   ASSERT_EQ(multi_plan.model_bindings.size(), 2U);
   EXPECT_EQ(multi_plan.model_bindings[0].name, "generator");
-  EXPECT_EQ(multi_plan.model_bindings[0].capability, "plan_test");
+  EXPECT_EQ(multi_plan.model_bindings[0].model_type, "plan_test");
   EXPECT_EQ(multi_plan.model_bindings[0].config_field, "bind_generator");
-  EXPECT_EQ(multi_plan.model_bindings[0].model_id, "shared_a");
+  EXPECT_EQ(multi_plan.model_bindings[0].model_name, "shared_a");
 
   EXPECT_EQ(multi_plan.model_bindings[1].name, "reviewer");
-  EXPECT_EQ(multi_plan.model_bindings[1].capability, "plan_test");
+  EXPECT_EQ(multi_plan.model_bindings[1].model_type, "plan_test");
   EXPECT_EQ(multi_plan.model_bindings[1].config_field, "bind_reviewer");
-  EXPECT_EQ(multi_plan.model_bindings[1].model_id, "shared_a");
+  EXPECT_EQ(multi_plan.model_bindings[1].model_name, "shared_a");
 
   // 2. 其他节点共享 serialized 模型时拆到单独的层
   auto conflict_pipeline = base_pipeline;
   conflict_pipeline["pipeline"][1]["config"]["bind_model"] = "shared_a";
+  conflict_pipeline["models"].erase(1);
   auto serialized_plan =
       PipelineValidator::ValidateAndPlan(conflict_pipeline, MakeTestBoundary());
   ASSERT_TRUE(serialized_plan.report.ok)
@@ -1200,10 +1242,10 @@ TEST_F(ValidatedPipelinePlanTest,
        ModelBindingIsRequiredEvenForOneMatchingModel) {
   const auto plan = PipelineValidator::ValidateAndPlan(
       {{"models",
-        {{{"model_id", "shared"},
-          {"model_type", SerializedPlanTestModel::kModelType},
-          {"backend", "test_tensor_backend"},
-          {"model_path", "fixture.bin"}}}},
+        {{{"name", "shared"},
+          {"type", "plan_test"},
+          {"backend", {{"type", "serialized_plan_backend"}}},
+          {"file", "fixture.bin"}}}},
        {"pipeline",
         {{{"id", "consumer"},
           {"node_type", ModelBoundPlanTestNode::kNodeType}}}}},

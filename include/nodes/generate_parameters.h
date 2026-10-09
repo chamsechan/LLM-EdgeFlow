@@ -23,7 +23,10 @@ inline bool RejectEmptyStopWords(const GenerateOptions& options,
 inline Parameters<GenerateOptions> GenerateParameters() {
   const GenerateOptions defaults;
   auto params = Parameters<GenerateOptions>(
-      {Field("temperature", &GenerateOptions::temperature)
+      {Field("system_prompt", &GenerateOptions::system_prompt)
+           .Default(defaults.system_prompt)
+           .Description("本次生成的 system 角色提示词；默认为空。"),
+       Field("temperature", &GenerateOptions::temperature)
            .Default(defaults.temperature)
            .Range(0, 2)
            .Description(
@@ -50,7 +53,12 @@ inline Parameters<GenerateOptions> GenerateParameters() {
        Field("stop_words", &GenerateOptions::stop_words)
            .Default(defaults.stop_words)
            .Description("生成停止文本数组，例如 [\"结束\", "
-                        "\"<END>\"]；命中后输出不包含停止文本。")});
+                        "\"<END>\"]；命中后输出不包含停止文本。"),
+       Field("random_seed", &GenerateOptions::random_seed)
+           .Default(defaults.random_seed)
+           .Range(-1, std::numeric_limits<int32_t>::max())
+           .Description(
+               "生成随机种子；-1 使用随机种子，非负值指定基础种子。")});
   params.Validate(&RejectEmptyStopWords);
   return params;
 }

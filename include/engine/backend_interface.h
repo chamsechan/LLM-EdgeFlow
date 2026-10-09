@@ -48,6 +48,7 @@ class ITensorGraphSession : public IBackendSession {
  */
 class ITextGenerationSession : public IBackendSession {
  public:
+  virtual bool SupportsRandomSeed() const noexcept { return false; }
   virtual int Generate(const std::string& formatted_prompt, bool add_bos,
                        const GenerateOptions& options,
                        std::optional<uint64_t> seed, std::string* output,
@@ -119,7 +120,7 @@ struct BackendLoadSpec {
   explicit BackendLoadSpec(ExecutionProtocol protocol)
       : requested_protocol(protocol) {}
 
-  std::string model_path;
+  std::string model_file;
   std::shared_ptr<const ParameterValues> params;
   template <typename P>
   const P& Params() const {

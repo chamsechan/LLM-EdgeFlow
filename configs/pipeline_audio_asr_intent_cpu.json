@@ -15,17 +15,11 @@
   },
   "models": [
     {
-      "model_id": "asr_model",
-      "model_type": "whisper_asr",
-      "backend": "whisper_cpp",
-      "model_path": "models/ggml-base.bin",
-      "model_config": {
-        "language": "zh",
-        "max_audio_seconds": 30,
-        "max_output_bytes": 65536
-      },
-      "backend_config": {
-        "n_threads": 4
+      "type": "asr",
+      "name": "asr_model",
+      "file": "ggml-base.bin",
+      "backend": {
+        "type": "whisper_cpp"
       }
     }
   ],

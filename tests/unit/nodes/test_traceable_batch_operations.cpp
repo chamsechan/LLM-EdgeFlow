@@ -22,11 +22,11 @@ namespace {
 
 class CountingMockLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "counting_mock_llm";
     return t;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "llm";
     return cap;
   }
@@ -1150,11 +1150,11 @@ TEST_F(TraceableBatchOperationsTest,
        StarterBatchSelectScatterNodeHarnessPartialPolishing) {
   class PolishingMockLlm final : public ILlmModel {
    public:
-    const std::string& ModelType() const noexcept override {
+    const std::string& ImplName() const noexcept override {
       static const std::string t = "polishing_mock_llm";
       return t;
     }
-    const std::string& Capability() const noexcept override {
+    const std::string& ModelType() const noexcept override {
       static const std::string cap = "llm";
       return cap;
     }

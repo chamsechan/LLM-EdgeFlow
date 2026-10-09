@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MODEL_DIR="${PROJECT_ROOT}/models"
+MODEL_DIR="${PROJECT_ROOT}/configs"
 MODE="all"
 
 if [[ $# -gt 1 ]]; then
@@ -79,7 +79,7 @@ download_verified() {
 # 文件名、哈希和上游 URL 共用同一份选型清单。
 MANIFEST_ROWS="$(mktemp)"
 trap 'rm -f "$MANIFEST_ROWS"' EXIT
-python3 - "$PROJECT_ROOT/models/asset_manifest.json" "$MODE" > "$MANIFEST_ROWS" <<'MANIFEST'
+python3 - "$PROJECT_ROOT/configs/asset_manifest.json" "$MODE" > "$MANIFEST_ROWS" <<'MANIFEST'
 import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as stream:

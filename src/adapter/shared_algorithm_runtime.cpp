@@ -8,7 +8,6 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/deployment_model_resolver.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
@@ -45,6 +44,11 @@ int SharedAlgorithmRuntime::GlobalInit(std::string* diagnostic) noexcept {
     CollectConflicts("NodeRegistry", NodeRegistry::Instance(), &errors);
     CollectConflicts("ModelRegistry", ModelRegistry::Instance(), &errors);
     CollectConflicts("BackendRegistry", BackendRegistry::Instance(), &errors);
+    std::vector<std::string> model_audit_errors;
+    if (!ModelRegistry::Instance().Audit(BackendRegistry::Instance(),
+                                         &model_audit_errors))
+      for (auto& error : model_audit_errors)
+        errors.push_back("Model audit: " + std::move(error));
     if (OperatorValueTypeRegistry::Instance().HasConflict()) {
       errors.push_back("OperatorValueTypeRegistry: registration conflict");
     }

@@ -102,7 +102,7 @@ TEST(CustomNodeCatalogTest,
   EXPECT_EQ(std::filesystem::path(parsed.resolved_pipe_path),
             std::filesystem::canonical(directory / "pipeline.json"));
   std::unique_ptr<ValidatedIoPlan> plan;
-  ASSERT_EQ(IoPlanResolver::ResolveFromConfig(parsed, directory.string(), &plan,
+  ASSERT_EQ(IoPlanResolver::ResolveFromConfig(parsed, &plan,
                                               &error),
             0)
       << error;

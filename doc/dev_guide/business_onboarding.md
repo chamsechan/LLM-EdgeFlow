@@ -166,7 +166,7 @@ Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内
 音频输入是否要求真实数据集按 Profile 的 `suite == "real"` 判断；`--suite all` 只选择 Profile 集合。
 结果记录使用 Profile 名，无 Profile 时使用配置文件名的词根；不写入业务身份。
 
-`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时核对 Pipeline JSON 中的 `models[].model_path` 与所选输出项 `params` 的容量。模型路径只配置在模型条目中，相对路径以宿主部署根为基准。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
+`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时核对 Pipeline JSON 中的 `models[].file` 与所选输出项 `params` 的容量。模型 `file` 和声明为文件的参数以 Pipeline JSON 所在目录为基准，拒绝绝对路径、父目录分量和符号链接越界。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
 Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读取；对应 CLI
 选项已删除。使用 `--profiles-file <path> --profile <name>` 选择自有配置。未选 Profile

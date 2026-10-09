@@ -108,6 +108,10 @@ inline bool ValidateConfigFieldDefinitions(
       if (error) *error = "Invalid config value kind in: " + field.name;
       return false;
     }
+    if (field.file && field.kind != ConfigValueKind::kString) {
+      if (error) *error = "File parameters must be strings: " + field.name;
+      return false;
+    }
 
     if ((field.minimum.has_value() && !std::isfinite(*field.minimum)) ||
         (field.maximum.has_value() && !std::isfinite(*field.maximum))) {

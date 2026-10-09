@@ -20,7 +20,7 @@ description: 新增或修改 LLM-EdgeFlow Model 的预处理、输出解释和�
   必须扩展中性协议时按跨层契约变更处理，不能直接引用具体 Backend。
 - 通过 `REGISTER_MODEL_WITH_DEFINITION` 注册完整 `ModelDefinition`，声明能力、执行协议、
   并发约束及 `params`。身份只写一次：继承 `ModelIdentity<Model, 能力接口>` 并声明
-  `kModelType`、`kConcurrency`，Definition 从 `MakeModelDefinition<Model>()` 开始。
+  `kImplName`、`kConcurrency`，Definition 从 `MakeModelDefinition<Model>()` 开始。
   不要在 Web、skill 或 Node 再维护模型列表。
 - 参数按四段编写：`Params` 结构、返回 `Parameters<Params>` 的 `ParamSpec()`、
   `def.params = ParamSpec()`、创建时 `ctx.Params<Params>()`。默认值仅写在 `Field` 声明中；
@@ -31,6 +31,12 @@ description: 新增或修改 LLM-EdgeFlow Model 的预处理、输出解释和�
 - `std::optional<T>` 字段不写时为空，不能声明 `Required()` 或 `Default()`。
   BGE 用 `ResolveFromModel` 读取固定形状；配置与固定值冲突时报错，无法读取时用已声明
   fallback 或提示填写参数。Catalog 展示声明，创建日志记录最终值。
+- Pipeline 模型条目使用 `{type, name, file, params?, backend: {type, params?}}`。
+  `type` 是接口对应的类别，`impl_name` 是 C++ 实现名；按类别与后端协议唯一选择实现，
+  注册审计和 Core 都拒绝同一组合的歧义。测试模型用 `kFixture` 并声明 `fixture_backends`。
+- 文件参数用 `.File()`，相对 Pipeline JSON 目录的检查和解析属于接入层；模型直接使用
+  已解析路径。批大小属于 Backend。`normalize`、池化和词缀属于向量模型；
+  `system_prompt`、`random_seed`、转写 `language` 属于节点调用选项。
 - 固定 Tensor 批处理用 `FixedBatchExecutor::Execute`；普通逐项路径用 `ExecuteItems`。
   遵循各 helper 的执行/补齐协议，框架负责 provenance、去 padding 和失败清空；
   不把非空固定批改成逐项调用。BatchPolicy 来自 Session。
@@ -50,7 +56,7 @@ padding 与来源、失败清空；无效语义配置应在 Backend 创建/Load 
 ```bash
 cmake --build build --target edgeflow_test_core_runner alg_pipeline_tool -j 4
 (cd build && ctest -R '^(ModelBackendDecouplingTest|BatchExecutorTest)$' --output-on-failure)
-./build/alg_pipeline_tool describe-model <model_type>
+./build/alg_pipeline_tool describe-model <impl_name>
 ```
 
 再运行本模型的实际测试过滤器，检查注册后的方案 validate/plan 和加载路径。

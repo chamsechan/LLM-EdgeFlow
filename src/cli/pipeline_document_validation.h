@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <string>
 
 #include "core/pipeline_validator.h"
 
@@ -21,6 +22,7 @@ struct DocumentValidationResult {
  * 通过共享接入准备入口解析 IO 边界，再调用 Core 校验并保留完整报告。
  */
 DocumentValidationResult ValidatePipelineDocument(
-    const nlohmann::json& document, DocumentValidationMode mode);
+    const nlohmann::json& document, DocumentValidationMode mode,
+    const std::string& pipeline_dir = "");
 
 }  // namespace llm_edgeflow

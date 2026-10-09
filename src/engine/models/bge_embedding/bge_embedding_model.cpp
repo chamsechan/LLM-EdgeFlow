@@ -22,30 +22,31 @@ namespace {
 struct Params {
   std::string tokenizer_file;
   bool do_lower_case = true;
-  std::optional<int64_t> max_length;
-  std::string pooling_strategy;
+  std::optional<int64_t> max_tokens;
+  std::string pooling;
   std::string output_name;
   std::optional<int64_t> embedding_dim;
-  int max_batch_size = 4;
+  bool normalize = true;
 };
 
 Parameters<Params> ParamSpec() {
   auto spec = Parameters<Params>(
       {Field("tokenizer_file", &Params::tokenizer_file)
-           .Default("vocab.txt")
+           .Required()
+           .File()
            .Description("匹配该权重的 BERT WordPiece "
-                        "词表；相对路径基于模型资源目录，例如 "
-                        "vocab.txt，也可使用绝对路径。"),
+                        "词表；相对路径基于 Pipeline JSON 所在目录，例如 "
+                        "vocab.txt。"),
        Field("do_lower_case", &Params::do_lower_case)
            .Default(true)
            .Description("分词前将英文大写和全角英文字母归一为半角小写，须与模型"
                         "训练时的分词设置一致。"),
-       Field("max_length", &Params::max_length)
+       Field("max_tokens", &Params::max_tokens)
            .Range(2, 4096)
            .Description("每条文本编码后的固定 token 长度，包含 "
                         "[CLS]/[SEP]；超长截断，不足补齐；"
                         "不写时从模型输入张量读取，读不到时为 512。"),
-       Field("pooling_strategy", &Params::pooling_strategy)
+       Field("pooling", &Params::pooling)
            .Default("cls")
            .Enum({"cls", "mean"})
            .Description("三维 token 输出的池化：cls 取首 token，mean 按 "
@@ -59,11 +60,9 @@ Parameters<Params> ParamSpec() {
            .Range(1, 65536)
            .Description("每条输出向量的维数；不写时从模型输出张量读取，读不到时"
                         "必须填写。"),
-       Field("max_batch_size", &Params::max_batch_size)
-           .Default(4)
-           .Range(1, 1024)
-           .Description("模型切批的样本数上限；必须满足 Backend "
-                        "的动态上限或固定批次要求。")});
+       Field("normalize", &Params::normalize)
+           .Default(true)
+           .Description("对输出向量进行 L2 归一化。")});
   spec.Validate([](const Params& params, std::string* diagnostic) {
     if (params.tokenizer_file.empty()) {
       if (diagnostic) *diagnostic = "Field 'tokenizer_file' cannot be empty";
@@ -138,7 +137,7 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
 
 bool ValidateEmbeddingOutputMetadata(const ITensorGraphSession& session,
                                      const std::string& output_name,
-                                     size_t max_length, size_t embedding_dim,
+                                     size_t max_tokens, size_t embedding_dim,
                                      std::string* diagnostic) {
   const TensorSpec* output = RequireFloatOutputMetadata(
       session, output_name, "BgeEmbeddingModel", 2, 3, diagnostic);
@@ -153,13 +152,13 @@ bool ValidateEmbeddingOutputMetadata(const ITensorGraphSession& session,
       return false;
     }
     if (output->shape[1] > 0 &&
-        static_cast<size_t>(output->shape[1]) != max_length) {
+        static_cast<size_t>(output->shape[1]) != max_tokens) {
       if (diagnostic) {
         *diagnostic = "BgeEmbeddingModel output '" + output_name +
                       "' static sequence length " +
                       std::to_string(output->shape[1]) +
-                      " does not match configured max_length " +
-                      std::to_string(max_length);
+                      " does not match configured max_tokens " +
+                      std::to_string(max_tokens);
       }
       return false;
     }
@@ -191,16 +190,15 @@ bool ValidateEmbeddingOutputMetadata(const ITensorGraphSession& session,
 
 BgeEmbeddingModel::BgeEmbeddingModel(
     std::shared_ptr<ITensorGraphSession> session,
-    BertWordPieceTokenizer tokenizer, size_t max_length,
-    std::string pooling_strategy, std::string output_name, size_t embedding_dim,
-    size_t max_batch_size)
+    BertWordPieceTokenizer tokenizer, size_t max_tokens, std::string pooling,
+    std::string output_name, size_t embedding_dim, bool normalize)
     : session_(std::move(session)),
       tokenizer_(std::move(tokenizer)),
-      max_length_(max_length),
-      pooling_strategy_(std::move(pooling_strategy)),
+      max_tokens_(max_tokens),
+      pooling_(std::move(pooling)),
       output_name_(std::move(output_name)),
       embedding_dim_(embedding_dim),
-      max_batch_size_(max_batch_size) {}
+      normalize_(normalize) {}
 
 std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
@@ -210,19 +208,19 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   if (!tensor_session) return nullptr;
 
   int64_t embedding_dim = 0;
-  int64_t max_length = 0;
+  int64_t max_tokens = 0;
   if (!ResolveFromModel("embedding_dim", params.embedding_dim,
                         StaticOutputDim(*tensor_session, params.output_name),
                         std::nullopt, &embedding_dim, diagnostic) ||
-      !ResolveFromModel("max_length", params.max_length,
-                        StaticSequenceLength(*tensor_session), 512, &max_length,
+      !ResolveFromModel("max_tokens", params.max_tokens,
+                        StaticSequenceLength(*tensor_session), 512, &max_tokens,
                         diagnostic)) {
     return nullptr;
   }
 
   // 固定形状由资源提供，仍须满足本实现支持的编码长度和向量容量。
-  if (max_length < 2 || max_length > 4096) {
-    SetDiagnosticNoexcept(diagnostic, "Model max_length must be in [2, 4096]");
+  if (max_tokens < 2 || max_tokens > 4096) {
+    SetDiagnosticNoexcept(diagnostic, "Model max_tokens must be in [2, 4096]");
     return nullptr;
   }
   if (embedding_dim < 1 || embedding_dim > 65536) {
@@ -231,30 +229,25 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  if (!ValidateModelBatchLimit(tensor_session->GetBatchPolicy(),
-                               params.max_batch_size, diagnostic) ||
-      !ValidateBertInputMetadata(*tensor_session, max_length,
+  if (!ValidateBertInputMetadata(*tensor_session, max_tokens,
                                  "BgeEmbeddingModel", diagnostic) ||
       !ValidateEmbeddingOutputMetadata(*tensor_session, params.output_name,
-                                       max_length, embedding_dim, diagnostic)) {
+                                       max_tokens, embedding_dim, diagnostic)) {
     return nullptr;
   }
 
   BertWordPieceTokenizer tokenizer;
-  if (!LoadBertTokenizer(ctx.model_resource_root, params.tokenizer_file,
-                         params.do_lower_case, &tokenizer, diagnostic)) {
+  if (!LoadBertTokenizer(params.tokenizer_file, params.do_lower_case,
+                         &tokenizer, diagnostic)) {
     return nullptr;
   }
 
   return std::make_shared<BgeEmbeddingModel>(
-      std::move(tensor_session), std::move(tokenizer), max_length,
-      params.pooling_strategy, params.output_name, embedding_dim,
-      params.max_batch_size);
+      std::move(tensor_session), std::move(tokenizer), max_tokens,
+      params.pooling, params.output_name, embedding_dim, params.normalize);
 }
 
-int BgeEmbeddingModel::Embed(const TextBatch& inputs,
-                             const EmbeddingOptions& options,
-                             EmbeddingBatch* outputs,
+int BgeEmbeddingModel::Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
                              std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
@@ -272,9 +265,8 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
     return -1;
   }
 
-  const bool should_normalize = options.normalize;
-  BatchPolicy policy =
-      ConstrainModelBatchPolicy(session_.get(), max_batch_size_);
+  const bool should_normalize = normalize_;
+  const BatchPolicy policy = session_->GetBatchPolicy();
 
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, policy,
@@ -302,7 +294,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
     BertInputTensors input_tensors;
     const bool include_token_type_ids =
         HasTensorInput(session_->Inputs(), "token_type_ids");
-    if (!input_tensors.Create(exec_count, max_length_, include_token_type_ids,
+    if (!input_tensors.Create(exec_count, max_tokens_, include_token_type_ids,
                               &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] Failed to create input tensors: %s\n",
                     diag.c_str());
@@ -313,13 +305,13 @@ int BgeEmbeddingModel::RawEmbedSlice(
     int64_t* mask_ptr = input_tensors.mask;
     int64_t* type_ptr = input_tensors.types;
 
-    std::vector<int64_t> sample_ids(max_length_, 0);
-    std::vector<int64_t> sample_mask(max_length_, 0);
+    std::vector<int64_t> sample_ids(max_tokens_, 0);
+    std::vector<int64_t> sample_mask(max_tokens_, 0);
 
     for (size_t i = 0; i < exec_count; ++i) {
       if (i < slice.valid_count) {
         const auto& text = all_inputs[slice.offset + i].data;
-        if (!tokenizer_.Encode(text, max_length_, &sample_ids, &sample_mask,
+        if (!tokenizer_.Encode(text, max_tokens_, &sample_ids, &sample_mask,
                                &diag)) {
           ALG_LOG_ERROR("[BgeEmbeddingModel] Tokenizer encode error: %s\n",
                         diag.c_str());
@@ -329,16 +321,16 @@ int BgeEmbeddingModel::RawEmbedSlice(
         }
       } else {
         // 填充用的空条目
-        tokenizer_.Encode("", max_length_, &sample_ids, &sample_mask, nullptr);
+        tokenizer_.Encode("", max_tokens_, &sample_ids, &sample_mask, nullptr);
       }
 
-      std::memcpy(ids_ptr + i * max_length_, sample_ids.data(),
-                  max_length_ * sizeof(int64_t));
-      std::memcpy(mask_ptr + i * max_length_, sample_mask.data(),
-                  max_length_ * sizeof(int64_t));
+      std::memcpy(ids_ptr + i * max_tokens_, sample_ids.data(),
+                  max_tokens_ * sizeof(int64_t));
+      std::memcpy(mask_ptr + i * max_tokens_, sample_mask.data(),
+                  max_tokens_ * sizeof(int64_t));
       if (type_ptr) {
-        std::memset(type_ptr + i * max_length_, 0,
-                    max_length_ * sizeof(int64_t));
+        std::memset(type_ptr + i * max_tokens_, 0,
+                    max_tokens_ * sizeof(int64_t));
       }
     }
 
@@ -368,7 +360,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
     }
 
     const float* data = nullptr;
-    if (!ValidateEmbeddingOutput(it_out->second, exec_count, max_length_,
+    if (!ValidateEmbeddingOutput(it_out->second, exec_count, max_tokens_,
                                  embedding_dim_, &data, &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] ValidateEmbeddingOutput failed: %s\n",
                     diag.c_str());
@@ -388,10 +380,10 @@ int BgeEmbeddingModel::RawEmbedSlice(
       for (size_t b = 0; b < exec_count; ++b) {
         std::vector<double> pooled(dim, 0.0);
 
-        if (pooling_strategy_ == "mean") {
+        if (pooling_ == "mean") {
           double sum_mask = 0.0;
           for (size_t s = 0; s < seq_len; ++s) {
-            int64_t m = mask_ptr[b * max_length_ + s];
+            int64_t m = mask_ptr[b * max_tokens_ + s];
             if (m > 0) {
               sum_mask += 1.0;
               const float* token_vec = data + (b * seq_len + s) * dim;

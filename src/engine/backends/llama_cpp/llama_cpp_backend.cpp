@@ -289,6 +289,7 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
 
 class LlamaCppTextGenerationSession final : public ITextGenerationSession {
  public:
+  bool SupportsRandomSeed() const noexcept override { return true; }
   LlamaCppTextGenerationSession(std::shared_ptr<llama_model> model,
                                 size_t context_size, size_t decode_batch_size,
                                 int n_threads, int n_threads_batch)
@@ -411,15 +412,15 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     return nullptr;
 #else
     const auto& p = spec.Params<Params>();
-    if (spec.model_path.empty()) {
+    if (spec.model_file.empty()) {
       SetDiagnosticNoexcept(diagnostic, "llama.cpp model path is empty");
       return nullptr;
     }
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+    if (!std::filesystem::is_regular_file(spec.model_file, ec) || ec) {
       SetDiagnosticNoexcept(
           diagnostic, "GGUF model does not exist or is not a regular file: " +
-                          spec.model_path);
+                          spec.model_file);
       return nullptr;
     }
 
@@ -449,11 +450,11 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     model_params.main_gpu = device_id;
     model_params.check_tensors = p.check_tensors;
     LlamaModelPtr model(
-        llama_model_load_from_file(spec.model_path.c_str(), model_params));
+        llama_model_load_from_file(spec.model_file.c_str(), model_params));
     if (!model) {
       SetDiagnosticNoexcept(
           diagnostic,
-          "llama.cpp failed to load GGUF model: " + spec.model_path);
+          "llama.cpp failed to load GGUF model: " + spec.model_file);
       return nullptr;
     }
     if (!llama_model_get_vocab(model.get())) {

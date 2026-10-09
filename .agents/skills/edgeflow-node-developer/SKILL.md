@@ -52,12 +52,15 @@ common Node 放在 `src/common_nodes/` 并明确 `.Category("common")`。生成�
    `Validate` / `ValidateBindings`。模板片段、编译后的正则等派生状态在 `Prepare` 中构建。
 4. `ModelsOf` / `Model` 声明能力槽；成员类型 `LlmCall`、`EmbeddingCall`、`AsrCall`、`OcrCall`、
    `RerankCall` 决定能力。只传三个参数，例如 `Model("generator", "bind_model", &Models::generator)`；
-   框架按成员能力生成引用 `models[].model_id` 的说明。配置必须显式引用 model_id；保留门面返回的
+   框架按成员类别生成引用 `models[].name` 的说明。配置必须显式引用模型名；保留门面返回的
    `NodeResult` 失败。
 
 LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自有字段用 `Include`
 并入生成参数组。被并入字段在 JSON 中平铺，重名报错；参数组的 `Prepare` / `Validate` 先执行。
 生成字段也是普通 `Field`，可以加入 `WithControls`。
+`system_prompt`、`random_seed` 逐次传入 LLM，`language` 逐次传入 ASR；
+`ValidateModels` 在参数解析和模型绑定之后、Create 阶段只执行一次，检查模型能否满足明确要求。
+向量归一化属于模型参数，同一模型的节点共享该选择。业务后处理留在节点算法中。
 
 只在有需求时加入 Control 或缓存。`WithControls` 的 `ReplaceFields` payload 至少提供一个受控
 字段，只替换提供的字段；数组和映射整体替换，更新后重跑 `Prepare` / `Validate`，失败保持旧快照。

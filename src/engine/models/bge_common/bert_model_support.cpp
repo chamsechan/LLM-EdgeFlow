@@ -55,106 +55,22 @@ std::string RankRequirement(size_t min_rank, size_t max_rank) {
   return std::to_string(min_rank) + " or " + std::to_string(max_rank);
 }
 
-bool ResolveTokenizerResourcePath(const std::string& model_resource_root,
-                                  const std::string& tokenizer_file,
-                                  std::filesystem::path* resolved_path,
-                                  std::string* diagnostic) {
-  if (!resolved_path) {
-    if (diagnostic) *diagnostic = "Resolved tokenizer path is null";
-    return false;
-  }
-
-  const std::filesystem::path tokenizer_path(tokenizer_file);
-  if (tokenizer_path.is_absolute()) {
-    *resolved_path = tokenizer_path.lexically_normal();
-    return true;
-  }
-
-  std::error_code error;
-  const auto root = std::filesystem::weakly_canonical(
-      std::filesystem::path(model_resource_root), error);
-  if (error) {
-    if (diagnostic) {
-      *diagnostic =
-          "Failed to canonicalize model resource root: " + model_resource_root;
-    }
-    return false;
-  }
-
-  const auto candidate =
-      std::filesystem::weakly_canonical(root / tokenizer_path, error);
-  if (error) {
-    if (diagnostic) {
-      *diagnostic = "Failed to canonicalize tokenizer file: " + tokenizer_file;
-    }
-    return false;
-  }
-
-  auto root_it = root.begin();
-  auto candidate_it = candidate.begin();
-  while (root_it != root.end() && candidate_it != candidate.end() &&
-         *root_it == *candidate_it) {
-    ++root_it;
-    ++candidate_it;
-  }
-  if (root_it != root.end()) {
-    if (diagnostic) {
-      *diagnostic = "Tokenizer file path cannot escape root: " + tokenizer_file;
-    }
-    return false;
-  }
-
-  *resolved_path = candidate;
-  return true;
-}
-
 }  // namespace
 
-bool LoadBertTokenizer(const std::string& model_resource_root,
-                       const std::string& tokenizer_file, bool do_lower_case,
+bool LoadBertTokenizer(const std::string& tokenizer_file, bool do_lower_case,
                        BertWordPieceTokenizer* tokenizer,
                        std::string* diagnostic) {
-  std::filesystem::path resolved_path;
-  return ResolveTokenizerResourcePath(model_resource_root, tokenizer_file,
-                                      &resolved_path, diagnostic) &&
-         tokenizer->Load(resolved_path.string(), do_lower_case, diagnostic);
-}
-
-bool ValidateModelBatchLimit(const BatchPolicy& session_policy,
-                             size_t model_max_batch_size,
-                             std::string* diagnostic) {
-  if (model_max_batch_size == 0) {
-    return Reject(diagnostic, "Model max_batch_size must be at least 1");
-  }
-  if (session_policy.max_batch_size == 0 ||
-      (session_policy.fixed_batch_size != 0 &&
-       session_policy.fixed_batch_size != session_policy.max_batch_size)) {
-    return Reject(
-        diagnostic,
-        "Invalid Session BatchPolicy (max=" +
-            std::to_string(session_policy.max_batch_size) +
-            ", fixed=" + std::to_string(session_policy.fixed_batch_size) + ")");
-  }
-  if (session_policy.fixed_batch_size == 0 ||
-      model_max_batch_size >= session_policy.fixed_batch_size) {
-    return true;
-  }
-  return Reject(diagnostic,
-                "Model max_batch_size (" +
-                    std::to_string(model_max_batch_size) +
-                    ") cannot be smaller than Session fixed_batch_size (" +
-                    std::to_string(session_policy.fixed_batch_size) + ")");
+  return tokenizer->Load(tokenizer_file, do_lower_case, diagnostic);
 }
 
 bool ValidateTensorBatchDimension(int64_t dimension,
                                   const BatchPolicy& session_policy,
-                                  const std::string& model_name,
+                                  const std::string& label,
                                   const std::string& tensor_kind,
                                   const std::string& tensor_name,
                                   std::string* diagnostic) {
   if (dimension == 0) {
-    return Reject(diagnostic, model_name + " " + tensor_kind + " '" +
-                                  tensor_name +
+    return Reject(diagnostic, label + " " + tensor_kind + " '" + tensor_name +
                                   "' batch dimension cannot be 0");
   }
   if (dimension < 0) return true;
@@ -163,14 +79,14 @@ bool ValidateTensorBatchDimension(int64_t dimension,
   if (session_policy.fixed_batch_size > 0 &&
       static_batch != session_policy.fixed_batch_size) {
     return Reject(diagnostic,
-                  model_name + " " + tensor_kind + " '" + tensor_name +
+                  label + " " + tensor_kind + " '" + tensor_name +
                       "' static batch " + std::to_string(static_batch) +
                       " does not match fixed_batch_size " +
                       std::to_string(session_policy.fixed_batch_size));
   }
   if (static_batch > session_policy.max_batch_size) {
     return Reject(diagnostic,
-                  model_name + " " + tensor_kind + " '" + tensor_name +
+                  label + " " + tensor_kind + " '" + tensor_name +
                       "' static batch " + std::to_string(static_batch) +
                       " exceeds session max_batch_size " +
                       std::to_string(session_policy.max_batch_size));
@@ -179,12 +95,12 @@ bool ValidateTensorBatchDimension(int64_t dimension,
 }
 
 bool ValidateBertInputMetadata(const ITensorGraphSession& session,
-                               size_t max_length, const std::string& model_name,
+                               size_t max_tokens, const std::string& label,
                                std::string* diagnostic) {
   const auto& inputs = session.Inputs();
   if (inputs.empty()) {
     return Reject(diagnostic,
-                  model_name + " session input metadata cannot be empty");
+                  label + " session input metadata cannot be empty");
   }
 
   bool has_input_ids = false;
@@ -201,48 +117,46 @@ bool ValidateBertInputMetadata(const ITensorGraphSession& session,
       seen = &has_token_type_ids;
     } else {
       return Reject(diagnostic,
-                    model_name +
-                        " session declares unrecognized required input: '" +
+                    label + " session declares unrecognized required input: '" +
                         spec.name + "'");
     }
     if (*seen) {
-      return Reject(diagnostic, model_name +
-                                    " session declares duplicate input: '" +
+      return Reject(diagnostic, label + " session declares duplicate input: '" +
                                     spec.name + "'");
     }
     *seen = true;
 
     if (spec.element_type != ElementType::kInt64) {
-      return Reject(diagnostic, model_name + " input '" + spec.name +
+      return Reject(diagnostic, label + " input '" + spec.name +
                                     "' dtype must be int64, got: " +
                                     ElementTypeName(spec.element_type));
     }
     if (spec.shape.size() != 2) {
       return Reject(diagnostic,
-                    model_name + " input '" + spec.name +
+                    label + " input '" + spec.name +
                         "' rank must be 2 [batch, sequence], got rank: " +
                         std::to_string(spec.shape.size()));
     }
     if (spec.shape[1] == 0) {
-      return Reject(diagnostic, model_name + " input '" + spec.name +
+      return Reject(diagnostic, label + " input '" + spec.name +
                                     "' sequence dimension cannot be 0");
     }
-    if (spec.shape[1] > 0 && static_cast<size_t>(spec.shape[1]) != max_length) {
-      return Reject(diagnostic, model_name + " input '" + spec.name +
+    if (spec.shape[1] > 0 && static_cast<size_t>(spec.shape[1]) != max_tokens) {
+      return Reject(diagnostic, label + " input '" + spec.name +
                                     "' static sequence length " +
                                     std::to_string(spec.shape[1]) +
-                                    " does not match configured max_length " +
-                                    std::to_string(max_length));
+                                    " does not match configured max_tokens " +
+                                    std::to_string(max_tokens));
     }
-    if (!ValidateTensorBatchDimension(spec.shape[0], policy, model_name,
-                                      "input", spec.name, diagnostic)) {
+    if (!ValidateTensorBatchDimension(spec.shape[0], policy, label, "input",
+                                      spec.name, diagnostic)) {
       return false;
     }
   }
 
   if (!has_input_ids || !has_attention_mask) {
     return Reject(diagnostic,
-                  model_name +
+                  label +
                       " session missing required inputs (input_ids or "
                       "attention_mask)");
   }
@@ -251,13 +165,13 @@ bool ValidateBertInputMetadata(const ITensorGraphSession& session,
 
 const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
                                              const std::string& output_name,
-                                             const std::string& model_name,
+                                             const std::string& label,
                                              size_t min_rank, size_t max_rank,
                                              std::string* diagnostic) {
   const auto& outputs = session.Outputs();
   if (outputs.empty()) {
-    SetDiagnosticNoexcept(
-        diagnostic, model_name + " session output metadata cannot be empty");
+    SetDiagnosticNoexcept(diagnostic,
+                          label + " session output metadata cannot be empty");
     return nullptr;
   }
 
@@ -267,14 +181,14 @@ const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
                                    });
   if (output == outputs.end()) {
     SetDiagnosticNoexcept(
-        diagnostic, model_name +
+        diagnostic, label +
                         " session outputs missing expected output tensor: '" +
                         output_name + "'");
     return nullptr;
   }
   if (output->element_type != ElementType::kFloat32) {
     SetDiagnosticNoexcept(diagnostic,
-                          model_name + " output '" + output_name +
+                          label + " output '" + output_name +
                               "' dtype must be float32, got: " +
                               ElementTypeName(output->element_type));
     return nullptr;
@@ -282,14 +196,13 @@ const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
   if (min_rank > max_rank || output->shape.size() < min_rank ||
       output->shape.size() > max_rank) {
     SetDiagnosticNoexcept(
-        diagnostic, model_name + " output '" + output_name + "' rank must be " +
+        diagnostic, label + " output '" + output_name + "' rank must be " +
                         RankRequirement(min_rank, max_rank) +
                         ", got: " + std::to_string(output->shape.size()));
     return nullptr;
   }
   if (!ValidateTensorBatchDimension(output->shape[0], session.GetBatchPolicy(),
-                                    model_name, "output", output_name,
-                                    diagnostic)) {
+                                    label, "output", output_name, diagnostic)) {
     return nullptr;
   }
   return &*output;
@@ -329,14 +242,6 @@ bool ValidateRuntimeBatchTensor(const Tensor& tensor, size_t expected_batch,
                           "Exception validating output tensor metadata");
     return false;
   }
-}
-
-BatchPolicy ConstrainModelBatchPolicy(const ITensorGraphSession* session,
-                                      size_t model_max_batch_size) noexcept {
-  BatchPolicy policy{model_max_batch_size, 0};
-  if (session) policy = session->GetBatchPolicy();
-  policy.max_batch_size = std::min(model_max_batch_size, policy.max_batch_size);
-  return policy;
 }
 
 bool HasTensorInput(const std::vector<TensorSpec>& inputs,

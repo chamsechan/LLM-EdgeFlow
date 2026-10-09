@@ -55,11 +55,13 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
   数量关系与 `(req_id, sub_id)` 保留/生成策略。标注哪些类型已注册、哪些尚待实现。
 - 节点顶层 `inputs` / `outputs` 显式映射逻辑端口到数据 key；数据依赖由 Validator 推导。
   `depends_on` 仅表达额外顺序，数组顺序不是依赖。检查分支汇合的来源关系和最终 egress 闭合。
-- `config` 的模型引用字段填写 `models[].model_id`；能力来自 Model Definition。
+- `config` 的模型引用字段填写 `models[].name`；能力来自 Model Definition。
   并发先沿用默认 `max_parallel_workers=1`；需要并行时检查 Node、Model、Backend 的真实
   声明，再用 plan 验证，不把拓扑分层直接等同于可并行执行。
 - 部署在根 `io.input` / `io.output` 选择 `{type, name, params?}`；`.conf` 只用 `pipe_path` 定位 JSON。
-  模型路径属于 `models[].model_path`。复用现有合法配置，避免猜测容量字段或模型参数。
+  模型路径属于 `models[].file`。复用现有合法配置，避免猜测容量字段或模型参数。
+  模型条目为 `{type, name, file, params?, backend: {type, params?}}`；类别与后端选出实现。
+  文件参数相对 Pipeline JSON 目录，生成选项和转写语言放节点，向量归一化放模型。
 
 全为现有能力时，输出候选 Pipeline 并用目标工具 `validate`、`plan` 核实图与计划。
 缺少注册时，给出明确标为“待实现”的结构草案和未通过原因；不要声称草案可以运行。

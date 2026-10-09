@@ -206,7 +206,8 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
         models = f"struct Models {{ {call} model; }};\n"
         run_models = ", const Models& models"
         model_binding = '\n      ModelsOf<Models>{Model("model", "bind_model", &Models::model)},'
-        processing = f"  return models.model.{method}(*inputs.items);"
+        options = ", TranscribeOptions{}" if capability == "asr" else ""
+        processing = f"  return models.model.{method}(*inputs.items{options});"
     elif preserved and in_type == out_type:
         processing = f"  return NodeResult<{out_type}>::Success(*inputs.items);"
     else:
@@ -660,7 +661,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
   ASSERT_EQ(def->model_dependencies.size(), 1U);
-  EXPECT_EQ(def->model_dependencies[0].capability, {cpp_string(capability)});
+  EXPECT_EQ(def->model_dependencies[0].model_type, {cpp_string(capability)});
   EXPECT_EQ(def->model_dependencies[0].config_field, "bind_model");
   auto node = NodeRegistry::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);

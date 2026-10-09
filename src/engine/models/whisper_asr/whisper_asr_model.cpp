@@ -16,19 +16,13 @@ namespace llm_edgeflow {
 namespace {
 
 struct Params {
-  std::string language;
   int max_audio_seconds = 30;
   int max_output_bytes = 65536;
 };
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>(
-      {Field("language", &Params::language)
-           .Default("zh")
-           .Enum({"zh", "en", "auto"})
-           .Description("转写语言：zh 为中文，en 为英文，auto "
-                        "自动识别；须受所选模型支持。"),
-       Field("max_audio_seconds", &Params::max_audio_seconds)
+      {Field("max_audio_seconds", &Params::max_audio_seconds)
            .Default(30)
            .Range(1, 60)
            .Description("每段音频的时长上限，单位为秒。"),
@@ -59,17 +53,10 @@ std::shared_ptr<IModel> WhisperAsrModel::Create(
           "whisper_asr requires an IAudioTranscriptionSession with batch "
           "policy {1, 0}");
     }
-    if (!session->SupportsLanguage(params.language)) {
-      throw std::runtime_error("Backend session does not support language: " +
-                               params.language);
-    }
-
     auto model = std::make_shared<WhisperAsrModel>();
     model->session_ = std::move(session);
     model->max_audio_seconds_ = params.max_audio_seconds;
-    model->options_.language = params.language;
-    model->options_.max_output_bytes =
-        static_cast<size_t>(params.max_output_bytes);
+    model->max_output_bytes_ = static_cast<size_t>(params.max_output_bytes);
     return model;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
@@ -80,7 +67,14 @@ std::shared_ptr<IModel> WhisperAsrModel::Create(
   }
 }
 
-int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+bool WhisperAsrModel::SupportsLanguage(
+    std::string_view language) const noexcept {
+  return session_ && session_->SupportsLanguage(language);
+}
+
+int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
+                                const TranscribeOptions& options,
+                                TextBatch* outputs,
                                 std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
@@ -95,6 +89,9 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
   if (audio.empty()) return 0;
 
   try {
+    AudioTranscriptionOptions session_options;
+    session_options.language = options.language;
+    session_options.max_output_bytes = max_output_bytes_;
     const size_t max_samples = static_cast<size_t>(max_audio_seconds_) * 16000;
     for (const auto& item : audio) {
       if (item.data.sample_rate != 16000) {
@@ -136,8 +133,8 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
 
     return FixedBatchExecutor::ExecuteItems<AudioPcmPayload, std::string>(
         audio, session_->GetBatchPolicy(),
-        [this, diagnostic](const TraceableItem<AudioPcmPayload>& input,
-                           std::string* output) {
+        [this, &session_options, diagnostic](
+            const TraceableItem<AudioPcmPayload>& input, std::string* output) {
           const auto& item = input.data;
           if (item.pcm_data.empty()) {
             output->clear();
@@ -146,7 +143,7 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
           std::string raw_output;
           std::string reason;
           const int ret =
-              session_->Transcribe(item, options_, &raw_output, &reason);
+              session_->Transcribe(item, session_options, &raw_output, &reason);
           if (ret != 0) {
             ALG_LOG_ERROR("[WhisperAsrModel] Transcription failed: %s\n",
                           reason.c_str());
@@ -168,10 +165,10 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
             return -1;
           }
           std::string trimmed = TrimAscii(raw_output);
-          if (trimmed.size() > options_.max_output_bytes) {
+          if (trimmed.size() > max_output_bytes_) {
             ALG_LOG_ERROR(
                 "[WhisperAsrModel] Output size %zu > max_output_bytes %zu\n",
-                trimmed.size(), options_.max_output_bytes);
+                trimmed.size(), max_output_bytes_);
             SetDiagnosticNoexcept(diagnostic,
                                   "Transcription exceeds max_output_bytes");
             return -1;

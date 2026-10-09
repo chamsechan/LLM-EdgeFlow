@@ -27,6 +27,11 @@ and displays or copies the result. Reusing a host struct does not imply compatib
    during creation; `options.Params<P>()` supplies the same typed values to all Process calls.
    `Effective()` reads declared members after Prepare, and omits unset optional members.
 
+Integration resolves model `file` and `.File()` parameters relative to the Pipeline JSON
+directory before Core validation. Reject empty names, absolute/drive/UNC paths, every `..`
+component and symlink escape; allow missing files. Without a directory, check only the relative
+spelling. Resource existence is checked by the Model or Backend when it opens the file.
+
 A unique carrier type accepts any nonempty host-key namespace. Repeated types within one direction
 require `name.type` keys, so empty output pointers can be routed uniquely. Inputs additionally
 validate service values before decoding. The batch bound is `min(max_frame_depth, 64)`.

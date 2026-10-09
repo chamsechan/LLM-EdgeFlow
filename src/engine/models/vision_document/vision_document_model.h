@@ -10,7 +10,7 @@ namespace llm_edgeflow {
 class VisionDocumentModel final
     : public ModelIdentity<VisionDocumentModel, IOcrModel> {
  public:
-  inline static constexpr char kModelType[] = "vision_document";
+  inline static constexpr char kImplName[] = "vision_document";
   static constexpr InferenceConcurrency kConcurrency =
       InferenceConcurrency::kConcurrent;
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,

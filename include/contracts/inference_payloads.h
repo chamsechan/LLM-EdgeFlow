@@ -102,22 +102,21 @@ using OcrDocumentBatch = std::vector<TraceableItem<OcrDocumentItem>>;
 // ==============================================================================
 
 /**
- * @brief 向量提取推理选项
- */
-struct EmbeddingOptions {
-  bool normalize = true;
-};
-
-/**
  * @brief LLM 文本生成推理选项
  */
 struct GenerateOptions {
+  std::string system_prompt;
   int max_tokens = 128;
   float temperature = 0.7f;
   int top_k = 0;
   float top_p = 0.9f;
   float repetition_penalty = 1.0f;
   std::vector<std::string> stop_words;
+  int64_t random_seed = -1;
+};
+
+struct TranscribeOptions {
+  std::string language = "zh";
 };
 
 }  // namespace llm_edgeflow

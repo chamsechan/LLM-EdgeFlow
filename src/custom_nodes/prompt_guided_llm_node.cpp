@@ -16,7 +16,6 @@ namespace {
 // 初始化后供处理阶段使用的普通自有配置。
 struct Params {
   std::string prompt_template;
-  std::string prompt_prefix;
   bool strip_markdown = false;
   GenerateOptions generation;
   // 由 prompt_template 在 Prepare 中解析得到。
@@ -48,15 +47,11 @@ bool PreparePrompt(Params* params, std::string* error) {
   return true;
 }
 
-// 纯算法：使用可选前缀和变量渲染 prompt 模板。
-std::string RenderPromptFromParts(const std::string& prefix,
-                                  const std::vector<TextTemplateToken>& parts,
+// 纯算法：使用变量渲染 prompt 模板。
+std::string RenderPromptFromParts(const std::vector<TextTemplateToken>& parts,
                                   const std::string& input,
                                   const std::string& context) {
   std::string result;
-  if (!prefix.empty()) {
-    result += prefix + "\n";
-  }
   for (const auto& part : parts) {
     if (part.type == TextTemplateTokenType::kLiteral) {
       result += part.value;
@@ -121,8 +116,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
     }
     prompts.emplace_back(
         item.req_id, item.sub_id,
-        RenderPromptFromParts(params.prompt_prefix, params.prompt_parts,
-                              item.data, context));
+        RenderPromptFromParts(params.prompt_parts, item.data, context));
   }
   auto result = models.generator.Generate(prompts, params.generation);
   if (result.ok() && params.strip_markdown) {
@@ -139,10 +133,6 @@ auto Spec() {
                .Default("{{input}}")
                .Description("提示词模板；使用 {{input}}/{{context}}，使用 "
                             "context 时须连接该输入。"),
-           Field("prompt_prefix", &Params::prompt_prefix)
-               .Default("")
-               .Description("在渲染模板前追加的普通文本及换行；模型的 system "
-                            "角色请使用 model_config.system_prompt。"),
            Field("strip_markdown", &Params::strip_markdown)
                .Default(false)
                .Description("移除模型输出两端空白和外层 Markdown "
@@ -167,6 +157,14 @@ auto Spec() {
              ModelsOf<Models>{
                  Model("generator", "bind_model", &Models::generator)},
              &Run)
+      .ValidateModels(
+          [](const Params& params, const Models& models, std::string* error) {
+            if (params.generation.random_seed < 0 ||
+                models.generator.SupportsRandomSeed())
+              return true;
+            if (error) *error = "Bound llm model does not support random_seed";
+            return false;
+          })
       .Category("custom")
       .ParallelSafe(true)
       .Description(

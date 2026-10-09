@@ -694,23 +694,23 @@ TEST_F(IoConverterRegistryTest,
   EXPECT_TRUE(prepared.io_boundary.output_consumed_ports.empty());
   EXPECT_EQ(invalid, original);
   auto models = valid;
-  models["models"] = {{{"model_id", "first"},
-                       {"model_type", "test_biz_embedding"},
-                       {"backend", "test_tensor_backend"},
-                       {"model_path", "first.bin"}},
-                      {{"model_id", "second"},
-                       {"model_type", "test_biz_embedding"},
-                       {"backend", "test_tensor_backend"},
-                       {"model_path", "second.bin"}}};
+  models["models"] = {{{"name", "first"},
+                       {"type", "embedding"},
+                       {"backend", {{"type", "test_tensor_backend"}}},
+                       {"file", "first.bin"}},
+                      {{"name", "second"},
+                       {"type", "embedding"},
+                       {"backend", {{"type", "test_tensor_backend"}}},
+                       {"file", "second.bin"}}};
   DeploymentPrepareOptions options;
-  options.model_root_dir = fs::temp_directory_path().string();
+  options.pipeline_dir = fs::temp_directory_path().string();
   ASSERT_TRUE(
       PrepareDeploymentDocument(models, options, &prepared, &diagnostic))
       << diagnostic.message;
-  models["models"][1]["model_path"] = "../../escaped_second.bin";
+  models["models"][1]["file"] = "../../escaped_second.bin";
   EXPECT_FALSE(
       PrepareDeploymentDocument(models, options, &prepared, &diagnostic));
-  EXPECT_EQ(diagnostic.path, "/models/1/model_path");
+  EXPECT_EQ(diagnostic.path, "/models/1/file");
   EXPECT_TRUE(prepared.inputs.empty());
   EXPECT_TRUE(prepared.outputs.empty());
   EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
@@ -752,7 +752,7 @@ TEST_F(IoConverterRegistryTest,
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string error;
   DeploymentDiagnostic diagnostic;
-  ASSERT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), "", &plan, &error,
+  ASSERT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), &plan, &error,
                                             &diagnostic),
             0)
       << error;
@@ -762,30 +762,30 @@ TEST_F(IoConverterRegistryTest,
   auto invalid = TestDocument();
   invalid["io"]["output"][0]["params"] = {{"unknown~/size", 17}};
   std::ofstream(pipeline) << invalid;
-  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), "", &plan, &error,
+  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), &plan, &error,
                                             &diagnostic),
             -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diagnostic.code, "UNKNOWN_CONFIG_FIELD");
   EXPECT_EQ(diagnostic.path, "/io/output/0/params/unknown~0~1size");
   std::ofstream(pipeline) << "{ malformed JSON";
-  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), "", &plan, &error,
+  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), &plan, &error,
                                             &diagnostic),
             -2);
   EXPECT_EQ(diagnostic.code, "JSON_PARSE");
   EXPECT_EQ(diagnostic.path, "/");
   EXPECT_EQ(
-      IoPlanResolver::ResolveFromFile((directory / "missing.conf").string(), "",
+      IoPlanResolver::ResolveFromFile((directory / "missing.conf").string(),
                                       &plan, &error, &diagnostic),
       -2);
   EXPECT_EQ(diagnostic.code, "CONFIG_FILE_OPEN");
   std::ofstream(conf) << "{ invalid config";
-  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), "", &plan, &error,
+  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), &plan, &error,
                                             &diagnostic),
             -2);
   EXPECT_EQ(diagnostic.code, "JSON_PARSE");
   std::ofstream(conf) << nlohmann::json{{"pipe_path", "missing.json"}};
-  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), "", &plan, &error,
+  EXPECT_EQ(IoPlanResolver::ResolveFromFile(conf.string(), &plan, &error,
                                             &diagnostic),
             -2);
   EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
@@ -1050,38 +1050,38 @@ TEST_F(IoConverterRegistryTest,
 }
 
 TEST_F(IoConverterRegistryTest, ModelPathResolutionFailurePointsToModelEntry) {
-  nlohmann::json doc = {
-      {"io", TestIo()},
-      {"models",
-       {{{"model_id", "mid~test/path"},
-         {"model_type", "test_biz_embedding"},
-         {"backend", "test_tensor_backend"},
-         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
-         {"backend_config", nlohmann::json::object()},
-         {"model_path", "../../escaped_model.bin"}}}},
-      {"pipeline", DefaultPipelineNodes()}};
+  nlohmann::json doc = {{"io", TestIo()},
+                        {"models",
+                         {{{"name", "mid~test/path"},
+                           {"type", "embedding"},
+                           {"backend",
+                            {{"type", "test_tensor_backend"},
+                             {"params", {{"fixed_batch_size", 4}}}}},
+                           {"params", {{"embedding_dim", 128}}},
+                           {"file", "../../escaped_model.bin"}}}},
+                        {"pipeline", DefaultPipelineNodes()}};
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
   DeploymentDiagnostic diagnostic;
-  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(doc, "./models", &plan,
-                                                    &err, &diagnostic),
+  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(doc, "", &plan, &err,
+                                                    &diagnostic),
             -2);
   EXPECT_EQ(plan, nullptr);
-  EXPECT_EQ(diagnostic.code, "INVALID_MODEL_PATH");
-  EXPECT_EQ(diagnostic.path, "/models/0/model_path");
+  EXPECT_EQ(diagnostic.code, "INVALID_FILE_PATH");
+  EXPECT_EQ(diagnostic.path, "/models/0/file");
   EXPECT_NE(err.find(diagnostic.path), std::string::npos) << err;
 }
 
 TEST_F(IoConverterRegistryTest, ModelPathMissingEmptyOrWrongTypeRejected_T03) {
-  const nlohmann::json base_doc = {
-      {"io", TestIo()},
-      {"models",
-       {{{"model_id", "mid_1"},
-         {"model_type", "test_biz_embedding"},
-         {"backend", "test_tensor_backend"},
-         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
-         {"backend_config", nlohmann::json::object()}}}},
-      {"pipeline", DefaultPipelineNodes()}};
+  const nlohmann::json base_doc = {{"io", TestIo()},
+                                   {"models",
+                                    {{{"name", "mid_1"},
+                                      {"type", "embedding"},
+                                      {"backend",
+                                       {{"type", "test_tensor_backend"},
+                                        {"params", {{"fixed_batch_size", 4}}}}},
+                                      {"params", {{"embedding_dim", 128}}}}}},
+                                   {"pipeline", DefaultPipelineNodes()}};
   DeploymentPrepareOptions options;
 
   PreparedDeployment prepared;
@@ -1089,17 +1089,18 @@ TEST_F(IoConverterRegistryTest, ModelPathMissingEmptyOrWrongTypeRejected_T03) {
 
   EXPECT_FALSE(PrepareDeploymentDocument(base_doc, options, &prepared, &diag));
   EXPECT_EQ(diag.code, "MISSING_FIELD");
-  EXPECT_EQ(diag.path, "/models/0/model_path");
+  EXPECT_EQ(diag.path, "/models/0/file");
   for (const auto& value :
        nlohmann::json::array({nullptr, 12345, true, nlohmann::json::object(),
                               nlohmann::json::array(), ""})) {
     SCOPED_TRACE(value.dump());
     auto doc = base_doc;
-    doc["models"][0]["model_path"] = value;
+    doc["models"][0]["file"] = value;
     const auto original = doc;
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, value.is_string() ? "FIELD_RANGE" : "FIELD_TYPE");
-    EXPECT_EQ(diag.path, "/models/0/model_path");
+    EXPECT_EQ(diag.code,
+              value.is_string() ? "INVALID_FILE_PATH" : "FIELD_TYPE");
+    EXPECT_EQ(diag.path, "/models/0/file");
     EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
     EXPECT_EQ(doc, original);
   }
@@ -1121,35 +1122,35 @@ TEST_F(IoConverterRegistryTest, ModelStructureInvalidRejected_T04) {
     EXPECT_EQ(diag.path, "/models");
   }
 
-  // 情形 2：每个模型条目都必须有 model_path。
+  // 情形 2：每个模型条目都必须有 file。
   {
     nlohmann::json doc = {{"io", TestIo()},
                           {"models",
-                           {{{"model_id", "mid_1"},
-                             {"model_type", "test_biz_embedding"},
-                             {"backend", "test_tensor_backend"}}}},
+                           {{{"name", "mid_1"},
+                             {"type", "embedding"},
+                             {"backend", {{"type", "test_tensor_backend"}}}}}},
                           {"pipeline", DefaultPipelineNodes()}};
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "MISSING_FIELD");
-    EXPECT_EQ(diag.path, "/models/0/model_path");
+    EXPECT_EQ(diag.path, "/models/0/file");
   }
 
-  // 情形 3：model_id 重复
+  // 情形 3：name 重复
   {
     nlohmann::json doc = {{"io", TestIo()},
                           {"models",
-                           {{{"model_id", "mid_1"},
-                             {"model_type", "test_biz_embedding"},
-                             {"backend", "test_tensor_backend"},
-                             {"model_path", "models/orig1.bin"}},
-                            {{"model_id", "mid_1"},
-                             {"model_type", "test_biz_embedding"},
-                             {"backend", "test_tensor_backend"},
-                             {"model_path", "models/orig2.bin"}}}},
+                           {{{"name", "mid_1"},
+                             {"type", "embedding"},
+                             {"backend", {{"type", "test_tensor_backend"}}},
+                             {"file", "orig1.bin"}},
+                            {{"name", "mid_1"},
+                             {"type", "embedding"},
+                             {"backend", {{"type", "test_tensor_backend"}}},
+                             {"file", "orig2.bin"}}}},
                           {"pipeline", DefaultPipelineNodes()}};
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "DUPLICATE_MODEL_ID");
-    EXPECT_EQ(diag.path, "/models/1/model_id");
+    EXPECT_EQ(diag.code, "DUPLICATE_MODEL_NAME");
+    EXPECT_EQ(diag.path, "/models/1/name");
   }
 }
 
@@ -1158,25 +1159,25 @@ TEST_F(IoConverterRegistryTest, ModelPathNonexistentOnDiskIsAllowed_T05) {
   fs::create_directories(temp_dir);
   const auto missing_path = temp_dir / "missing_dir/model.bin";
   ASSERT_FALSE(fs::exists(missing_path));
-  const nlohmann::json doc = {
-      {"io", TestIo()},
-      {"models",
-       {{{"model_id", "mid_1"},
-         {"model_type", "test_biz_embedding"},
-         {"backend", "test_tensor_backend"},
-         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
-         {"backend_config", nlohmann::json::object()},
-         {"model_path", "missing_dir/model.bin"}}}},
-      {"pipeline", DefaultPipelineNodes()}};
+  const nlohmann::json doc = {{"io", TestIo()},
+                              {"models",
+                               {{{"name", "mid_1"},
+                                 {"type", "embedding"},
+                                 {"backend",
+                                  {{"type", "test_tensor_backend"},
+                                   {"params", {{"fixed_batch_size", 4}}}}},
+                                 {"params", {{"embedding_dim", 128}}},
+                                 {"file", "missing_dir/model.bin"}}}},
+                              {"pipeline", DefaultPipelineNodes()}};
   const auto original = doc;
   DeploymentPrepareOptions options;
 
-  options.model_root_dir = temp_dir.string();
+  options.pipeline_dir = temp_dir.string();
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
   ASSERT_TRUE(PrepareDeploymentDocument(doc, options, &prepared, &diag))
       << diag.message;
-  EXPECT_EQ(prepared.neutral_pipeline_json["models"][0]["model_path"],
+  EXPECT_EQ(prepared.neutral_pipeline_json["models"][0]["file"],
             fs::weakly_canonical(missing_path).string());
   EXPECT_EQ(doc, original);
   EXPECT_FALSE(fs::exists(missing_path));

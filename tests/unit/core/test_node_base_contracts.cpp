@@ -3,6 +3,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -359,18 +360,22 @@ TEST(NodeBaseContractsTest, OutputBindingRejectsMissingKeysBeforeTypeMismatch) {
 // 3. 使用模型能力的统一函数式编写
 class MockAsrModel : public IAsrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "mock_asr";
     return t;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "asr";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "asr";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Transcribe(const AudioPcmBatch& inputs, TextBatch* outputs,
+  bool SupportsLanguage(std::string_view) const noexcept override {
+    return true;
+  }
+  int Transcribe(const AudioPcmBatch& inputs, const TranscribeOptions&,
+                 TextBatch* outputs,
                  std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
@@ -418,7 +423,8 @@ auto MockAsrSpec() {
       ModelsOf<MockAsrModels>{
           Model("transcriber", "bind_model", &MockAsrModels::transcriber)},
       [](const MockAsrInputs& inputs, const MockAsrModels& models) {
-        return models.transcriber.Transcribe(*inputs.audio);
+        return models.transcriber.Transcribe(*inputs.audio,
+                                             TranscribeOptions{});
       });
 }
 using MockAsrNode = AuthorNode<decltype(MockAsrSpec())>;

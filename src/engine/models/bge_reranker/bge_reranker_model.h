@@ -21,14 +21,14 @@ namespace llm_edgeflow {
  * - 纯 Model 层实现，继承 IRerankModel；
  * - 只依赖 ITensorGraphSession 中性张量图协议，完全不引用 ONNX Runtime
  * 或第三方头文件；
- * - 加载并验证 vocab.txt sidecar，执行 pair 编码与 padding；
+ * - 加载并验证声明的 WordPiece 词表，执行 pair 编码与 padding；
  * - 负责 logit 校验与 score 激活 (sigmoid / identity)；
  * - 使用 FixedBatchExecutor 驱动批次并保持 (req_id, sub_id) 溯源。
  */
 class BgeRerankerModel final
     : public ModelIdentity<BgeRerankerModel, IRerankModel> {
  public:
-  inline static constexpr char kModelType[] = "bge_reranker";
+  inline static constexpr char kImplName[] = "bge_reranker";
   static constexpr InferenceConcurrency kConcurrency =
       InferenceConcurrency::kConcurrent;
 
@@ -36,9 +36,8 @@ class BgeRerankerModel final
                                         std::string* diagnostic);
 
   BgeRerankerModel(std::shared_ptr<ITensorGraphSession> session,
-                   BertWordPieceTokenizer tokenizer, size_t max_length,
-                   std::string output_name, std::string score_activation,
-                   size_t max_batch_size);
+                   BertWordPieceTokenizer tokenizer, size_t max_tokens,
+                   std::string output_name, std::string score_activation);
 
   ~BgeRerankerModel() override = default;
 
@@ -48,7 +47,7 @@ class BgeRerankerModel final
   const BertWordPieceTokenizer& Tokenizer() const noexcept {
     return tokenizer_;
   }
-  size_t MaxLength() const noexcept { return max_length_; }
+  size_t MaxTokens() const noexcept { return max_tokens_; }
   const std::string& OutputName() const noexcept { return output_name_; }
   const std::string& ScoreActivation() const noexcept {
     return score_activation_;
@@ -61,10 +60,9 @@ class BgeRerankerModel final
 
   std::shared_ptr<ITensorGraphSession> session_;
   BertWordPieceTokenizer tokenizer_;
-  size_t max_length_ = 512;
+  size_t max_tokens_ = 512;
   std::string output_name_ = "logits";
   std::string score_activation_ = "sigmoid";
-  size_t max_batch_size_ = 4;
 };
 
 }  // namespace llm_edgeflow

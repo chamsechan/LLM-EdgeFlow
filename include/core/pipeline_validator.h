@@ -62,13 +62,13 @@ struct ValidationReport {
 };
 
 struct ValidatedModelPlan {
-  std::string model_id;
-  std::string capability;
+  std::string model_name;
   std::string model_type;
-  std::string backend;
-  std::string resolved_model_path;
-  nlohmann::json normalized_model_config = nlohmann::json::object();
-  nlohmann::json normalized_backend_config = nlohmann::json::object();
+  std::string impl_name;
+  std::string backend_type;
+  std::string model_file;
+  nlohmann::json model_params = nlohmann::json::object();
+  nlohmann::json backend_params = nlohmann::json::object();
   ExecutionProtocol protocol = ExecutionProtocol::kTensorGraph;
   InferenceConcurrency effective_concurrency =
       InferenceConcurrency::kSerialized;
@@ -102,15 +102,13 @@ class PipelineValidator {
  * @param input 原始用户传入的 JSON 配置
  * @param normalized 输出归一化后的新 JSON 配置 (注入默认值)
  * @param diagnostics 可选的诊断错误收集列表
- * @param base_pointer JSON Pointer 基础前缀 (如 "/models/0/model_config")
- * @param unknown_field_code 未知字段诊断码 (缺省为 kUnknownConfigField)
+ * @param base_pointer JSON Pointer 基础前缀 (如 "/models/0/params")
  * @return true 校验通过且成功归一化，false 校验失败
  */
 bool ValidateAndNormalizeConfig(
     const std::vector<ConfigFieldDefinition>& schema,
     const nlohmann::json& input, nlohmann::json* normalized,
     std::vector<ValidationDiagnostic>* diagnostics,
-    const std::string& base_pointer = "",
-    DiagnosticCode unknown_field_code = DiagnosticCode::kUnknownConfigField);
+    const std::string& base_pointer = "");
 
 }  // namespace llm_edgeflow
