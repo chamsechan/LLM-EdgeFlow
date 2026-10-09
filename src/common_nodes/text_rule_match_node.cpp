@@ -295,7 +295,7 @@ NodeResult<Params> UpdateRules(const Params& current,
 }
 
 auto Spec() {
-  auto parameters = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
+  auto parameters = Parameters<Params>{}.WithParser(ConfigParser<Params>(
       TextRuleMatchConfigFields(),
       [](const nlohmann::json& config, Params* state, std::string* diagnostic) {
         state->default_category =

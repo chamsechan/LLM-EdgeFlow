@@ -488,7 +488,7 @@ NodeResult<Params> UpdateTemplate(const Params& current,
 auto Spec() {
   auto parameters =
       Parameters<Params>{}
-          .WithParser(NodeConfigParser<Params>(
+          .WithParser(ConfigParser<Params>(
               TextTemplateConfigFields(),
               [](const nlohmann::json& config, Params* state, std::string*) {
                 state->template_str = config.at("template").get<std::string>();

@@ -13,12 +13,12 @@
 #include <type_traits>
 #include <vector>
 
+#include "contracts/parameters.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "engine/model_interface.h"
 #include "nodes/authoring.h"
-#include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_harness.h"
 #include "tests/support/node_process_pause.h"
@@ -63,7 +63,7 @@ struct ComplexParams {
 };
 
 auto ComplexConfig() {
-  NodeConfigParser<ComplexParams> parser(
+  ConfigParser<ComplexParams> parser(
       {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
       [](const nlohmann::json& config, ComplexParams* params,
          std::string* error) {
@@ -2219,7 +2219,7 @@ TEST(FunctionNodeTest, WithParserWithControlsRequiresExplicitPrepare) {
   struct DummyParams {
     std::string text;
   };
-  NodeConfigParser<DummyParams> parser(
+  ConfigParser<DummyParams> parser(
       {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
       [](const nlohmann::json& c, DummyParams* p, std::string*) {
         if (c.contains("nested") && c["nested"].contains("text")) {

@@ -8,26 +8,13 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/parameters.h"
 #include "core/node_interface.h"
 #include "core/validated_node_plan.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 
 namespace llm_edgeflow {
-
-/**
- * @brief Init 期间防御性捕获的输入端口连接事实。
- *
- * 初始化后不可变；用于区分仅做语义解析与按显式输入绑定校验。
- */
-struct BindingFacts {
-  bool has_bindings = false;
-  std::unordered_set<std::string> connected_inputs;
-
-  bool IsConnected(const std::string& port_name) const noexcept {
-    return connected_inputs.count(port_name) > 0;
-  }
-};
 
 inline BindingFacts MakeBindingFacts(const NodeInitContext& ctx) {
   BindingFacts facts;

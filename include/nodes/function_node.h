@@ -11,6 +11,7 @@
 
 #include "contracts/config_schema.h"
 #include "contracts/config_schema_validation.h"
+#include "contracts/parameters.h"
 #include "contracts/traceable_item.h"
 #include "core/node_definition.h"
 #include "core/node_registry.h"
@@ -25,7 +26,6 @@
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
-#include "nodes/parameter_binding.h"
 #include "nodes/session_resources.h"
 #include "nodes/traceable_algorithms.h"
 #include "nodes/traceable_batch_validation.h"

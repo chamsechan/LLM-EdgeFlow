@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "contracts/parameters.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
@@ -14,7 +15,6 @@
 #include "edgeflow/operator/interface.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
-#include "nodes/parameter_binding.h"
 #include "platform_mock/error_codes.h"
 #include "tests/support/pipeline_test_utils.h"
 

@@ -53,7 +53,7 @@ NodeResult<TextBatch> Run(const Inputs&, const Params& params) {
 }
 
 auto Spec() {
-  auto params = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
+  auto params = Parameters<Params>{}.WithParser(ConfigParser<Params>(
       TextCorpusSourceConfigFields(),
       [](const nlohmann::json& config, Params* value, std::string* diagnostic) {
         if (!ValidateCorpusEntries(config, diagnostic)) return false;

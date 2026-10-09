@@ -10,7 +10,7 @@
 
 #include "contracts/config_schema.h"
 #include "contracts/inference_payloads.h"
-#include "nodes/parameter_binding.h"
+#include "contracts/parameters.h"
 
 namespace llm_edgeflow {
 
@@ -74,7 +74,7 @@ inline std::vector<ConfigFieldDefinition> GenerateOptionsFields(
                             "\"<END>\"]；命中后输出不包含停止文本。"}};
 }
 
-// 消费已由 NodeConfigParser 校验并填充默认值的字段。
+// 消费已由 ConfigParser 校验并填充默认值的字段。
 inline bool ParseGenerateOptions(const nlohmann::json& config,
                                  GenerateOptions* options,
                                  std::string* diagnostic) {
@@ -109,7 +109,7 @@ inline bool ParseGenerateOptions(const nlohmann::json& config,
 // 参数只有生成选项的 LLM Node 使用：生成参数由节点配置提供。
 inline Parameters<GenerateOptions> GenerateParameters(int default_max_tokens) {
   Parameters<GenerateOptions> params;
-  params.WithParser(NodeConfigParser<GenerateOptions>(
+  params.WithParser(ConfigParser<GenerateOptions>(
       GenerateOptionsFields(default_max_tokens), ParseGenerateOptions));
   return params;
 }
@@ -130,7 +130,7 @@ Parameters<ParamsT> GenerateParameters(
         std::initializer_list<ParameterFieldBindingHolder<ParamsT>>>::type
         fields) {
   Parameters<ParamsT> params(fields);
-  params.WithParser(NodeConfigParser<ParamsT>(
+  params.WithParser(ConfigParser<ParamsT>(
       GenerateOptionsFields(default_max_tokens),
       [generation](const nlohmann::json& config, ParamsT* state,
                    std::string* error) {

@@ -71,6 +71,18 @@ inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
   }
 }
 
+inline nlohmann::json ConfigFieldToJson(const ConfigFieldDefinition& field) {
+  nlohmann::json result = {{"name", field.name},
+                           {"type", ConfigValueKindName(field.kind)},
+                           {"required", field.required}};
+  if (!field.default_value.is_null()) result["default"] = field.default_value;
+  if (field.minimum) result["minimum"] = *field.minimum;
+  if (field.maximum) result["maximum"] = *field.maximum;
+  if (!field.enum_values.empty()) result["enum"] = field.enum_values;
+  if (!field.semantic.empty()) result["semantic"] = field.semantic;
+  return result;
+}
+
 // 读取已声明的配置字段：有配置值时取配置值，否则取声明中的默认值，
 // 因此每个默认值只在 Definition 中写一次。字段未声明或配置值类型错误时
 // 抛出异常，与 nlohmann::json::value 一致。null 表示未配置，
