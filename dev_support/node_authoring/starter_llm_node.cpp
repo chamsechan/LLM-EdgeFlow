@@ -33,11 +33,9 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const GenerateOptions& options,
 auto Spec() {
   return MakeNodeSpec(InputsOf<Inputs>{Required("input", &Inputs::input)},
                       PreservedOutput<TextBatch>("output", "input"),
-                      GenerateParameters(128),
+                      GenerateParameters(),
                       ModelsOf<Models>{
-                          Model("generator", "bind_model", &Models::generator,
-                                "引用 models[].model_id；所选模型必须提供 llm "
-                                "文本生成能力。")},
+                          Model("generator", "bind_model", &Models::generator)},
                       &Run)
       .Description("LLM authoring starter");
 }

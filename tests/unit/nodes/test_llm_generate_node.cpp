@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <future>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
+#include "contracts/config_schema_validation.h"
 #include "contracts/diagnostic.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -14,6 +16,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "nodes/generate_parameters.h"
 #include "nodes/model_calls.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
@@ -150,10 +153,102 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
   EXPECT_FALSE((*out)[1].data.empty());
   EXPECT_EQ((*out)[0].req_id, 1U);
   EXPECT_EQ((*out)[1].req_id, 2U);
+  EXPECT_FLOAT_EQ(model_->last_options.temperature, 0.7f);
+  EXPECT_EQ(model_->last_options.max_tokens, 128);
   EXPECT_EQ(model_->last_options.top_k, 32);
   EXPECT_FLOAT_EQ(model_->last_options.top_p, 0.8f);
   EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty, 1.15f);
   EXPECT_EQ(model_->last_options.stop_words, std::vector<std::string>({"END"}));
+}
+
+TEST_F(LlmGenerateNodeTest,
+       RawAndNormalizedGenerationOptionsReachModelEqually) {
+  const auto schema = GenerateParameters();
+  const auto definition = PipelineCatalog::FindNode("LlmGenerateNode");
+  ASSERT_TRUE(definition.has_value());
+  const nlohmann::json override_options = {{"temperature", 0.25},
+                                           {"max_tokens", 47},
+                                           {"top_k", 17},
+                                           {"top_p", 0.6},
+                                           {"repetition_penalty", 1.3},
+                                           {"stop_words", {"END", "STOP"}}};
+  for (bool overridden : {false, true}) {
+    SCOPED_TRACE(overridden);
+    const auto raw_options =
+        overridden ? override_options : nlohmann::json::object();
+    std::string diagnostic;
+    const auto expected = schema.Parse(raw_options, &diagnostic);
+    ASSERT_TRUE(expected.has_value()) << diagnostic;
+    EXPECT_EQ(expected->max_tokens, overridden ? 47 : 128);
+    nlohmann::json raw = raw_options;
+    raw["bind_model"] = "llm_model";
+    nlohmann::json normalized;
+    ASSERT_TRUE(ValidateAndNormalizeFields(definition->config_fields, raw,
+                                           &normalized, nullptr));
+    const TextBatch prompts{
+        {31, 7, "first"}, {19, 3, "second"}, {31, 9, "third"}};
+    for (const auto& config : {raw, normalized}) {
+      SCOPED_TRACE(config.dump());
+      auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+      ASSERT_NE(node, nullptr);
+      ASSERT_TRUE(
+          InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic))
+          << diagnostic;
+      const int before = model_->infer_calls;
+      AlgContext context;
+      context.Publish("prompt", prompts);
+      ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
+      EXPECT_EQ(model_->infer_calls, before + 1);
+      EXPECT_FLOAT_EQ(model_->last_options.temperature, expected->temperature);
+      EXPECT_EQ(model_->last_options.max_tokens, expected->max_tokens);
+      EXPECT_EQ(model_->last_options.top_k, expected->top_k);
+      EXPECT_FLOAT_EQ(model_->last_options.top_p, expected->top_p);
+      EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty,
+                      expected->repetition_penalty);
+      EXPECT_EQ(model_->last_options.stop_words, expected->stop_words);
+      const auto* output = context.Read<TextBatch>("text");
+      ASSERT_NE(output, nullptr);
+      ASSERT_EQ(output->size(), prompts.size());
+      for (size_t i = 0; i < prompts.size(); ++i) {
+        EXPECT_EQ((*output)[i].req_id, prompts[i].req_id);
+        EXPECT_EQ((*output)[i].sub_id, prompts[i].sub_id);
+        EXPECT_EQ((*output)[i].data, "generated:" + prompts[i].data);
+      }
+    }
+  }
+}
+
+TEST_F(LlmGenerateNodeTest, GenerationOptionsAcceptInclusiveBounds) {
+  const auto schema = GenerateParameters();
+  const std::vector<nlohmann::json> valid = {
+      {{"temperature", 0},
+       {"max_tokens", 1},
+       {"top_k", 0},
+       {"top_p", 1.0e-9},
+       {"repetition_penalty", 1.0e-9},
+       {"stop_words", nlohmann::json::array()}},
+      {{"temperature", 2},
+       {"max_tokens", 32768},
+       {"top_k", std::numeric_limits<int32_t>::max()},
+       {"top_p", 1},
+       {"repetition_penalty", 100},
+       {"stop_words", {"END"}}}};
+  for (auto config : valid) {
+    SCOPED_TRACE(config.dump());
+    std::string diagnostic;
+    ASSERT_TRUE(schema.Parse(config, &diagnostic).has_value()) << diagnostic;
+    config["bind_model"] = "llm_model";
+    auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic))
+        << diagnostic;
+    AlgContext context;
+    context.Publish("prompt", TextBatch{{71, 4, "boundary"}});
+    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
+    ASSERT_NE(context.Read<TextBatch>("text"), nullptr);
+    EXPECT_EQ(context.Read<TextBatch>("text")->front().req_id, 71U);
+    EXPECT_EQ(context.Read<TextBatch>("text")->front().sub_id, 4U);
+  }
 }
 
 TEST_F(LlmGenerateNodeTest, RejectsInvalidUnifiedGenerationOptions) {
@@ -175,10 +270,16 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
       {{"stop_words", nlohmann::json::array({""})}},
       {{"stop_words", "END"}},
       {{"max_tokens", 32769}},
+      {{"max_tokens", 0}},
       {{"max_tokens", uint64_t{1} << 32}},
       {{"top_k", -1}},
+      {{"top_k", uint64_t{1} << 32}},
+      {{"temperature", -0.01}},
+      {{"temperature", 2.01}},
       {{"top_p", 1.0e-10}},
-      {{"repetition_penalty", 0.0}}};
+      {{"top_p", 1.01}},
+      {{"repetition_penalty", 0.0}},
+      {{"repetition_penalty", 100.01}}};
   // 检查 Node 的预检诊断无需构造 Model。
   for (auto config : invalid) {
     SCOPED_TRACE(config.dump());
@@ -211,6 +312,43 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
                              {}, "", "", &diagnostic),
       nullptr)
       << diagnostic;
+}
+
+TEST_F(LlmGenerateNodeTest, StopWordElementTypeErrorReportsExactConfigPath) {
+  const nlohmann::json options = {{"stop_words", {"END", 42}}};
+  const auto schema = GenerateParameters();
+  nlohmann::json normalized;
+  std::vector<ConfigFieldValidationError> errors;
+  EXPECT_FALSE(ValidateAndNormalizeFields(schema.Fields(), options, &normalized,
+                                          &errors));
+  ASSERT_EQ(errors.size(), 1U);
+  EXPECT_EQ(errors[0].path, "/stop_words/1");
+  EXPECT_EQ(errors[0].kind, ConfigFieldErrorKind::kTypeMismatch);
+  std::string diagnostic;
+  EXPECT_FALSE(schema.Parse(options, &diagnostic).has_value());
+  EXPECT_NE(diagnostic.find("Field '/stop_words/1':"), std::string::npos)
+      << diagnostic;
+
+  auto config = options;
+  config["bind_model"] = "llm_model";
+  const nlohmann::json pipeline = {
+      {"biz_name", "entity_extract"},
+      {"pipeline", nlohmann::json::array({{{"id", "generate"},
+                                           {"node_type", "LlmGenerateNode"},
+                                           {"config", config}}})}};
+  const auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  bool exact_diagnostic = false;
+  for (const auto& error : plan.report.diagnostics) {
+    if (error.path == "/pipeline/0/config/stop_words/1" &&
+        error.code == DiagnosticCode::kConfigFieldType) {
+      exact_diagnostic = true;
+    }
+  }
+  EXPECT_TRUE(exact_diagnostic) << plan.report.ToJson().dump(2);
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+  ASSERT_NE(node, nullptr);
+  EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic));
+  EXPECT_EQ(model_->infer_calls, 0);
 }
 
 TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {

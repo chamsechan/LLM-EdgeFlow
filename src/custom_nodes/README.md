@@ -67,7 +67,8 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
   拆分、聚合等派生输出的正确性由算法及测试保证，声明不会自动证明这些关系。
 - `ModelsOf` 中的 `Model` 根据成员类型绑定五种模型能力：`LlmCall`、`EmbeddingCall`、
   `AsrCall`、`OcrCall`、`RerankCall`。调用门面处理空批次、模型错误及保序校验。
-  模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageRefBatch`。
+  绑定写作 `Model("generator", "bind_model", &Models::generator)`，只传三个参数；框架按成员
+  能力生成引用 `models[].model_id` 的说明。模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageRefBatch`。
 - 同类型、保序的 compute 骨架可透传；异类型或派生输出保留明确失败的待实现入口。
   新内部批类型提供 `BlackboardTypeTraits`；平台 DTO 不进入 Node。
 
@@ -76,8 +77,19 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 在 `Parameters<Params>` 中用 `Field("name", &Params::member)` 声明成员，显式选择
 `.Required()` 或 `.Default(value)`，再写范围、枚举及说明。字段同时用于预检、初始化和 Catalog；
 业务函数收到普通参数结构，不再从 JSON 重复读取。跨字段检查用 `Validate`，连线约束用
-`ValidateBindings`。普通字段 Control 使用 `WithControls`，参考
+`ValidateBindings`。数组用 `std::vector<T>`，映射用 `std::map<std::string, T>`；结构体元素用
+`.Items(Parameters<Element>{...})`。`Range` / `Enum` 约束标量叶子，错误路径指出下标或映射键；
+`nlohmann::json` 参数接受非 null JSON 值。完整声明见
+[参数与 Definition](../../doc/dev_guide/custom_node_concepts.md#3-definition让连线工具和运行器看懂你的操作)。
+普通字段 Control 使用 `WithControls` / `ReplaceFields`：payload 至少提供一个受控字段，只替换
+提供的字段，容器整体替换；重跑 `Prepare` / `Validate`，失败保持旧快照。参考
 [Control 练习](../../doc/dev_guide/first_control.md)。
+
+LLM 生成参数复用 [`GenerateParameters()`](../../include/nodes/generate_parameters.h)，默认
+`max_tokens = 128`。有自有字段时用
+`Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`；生成字段
+在 JSON 中平铺，重名报错，被并入组的 `Prepare` / `Validate` 先执行。它们也是普通 `Field`，
+可以加入 `WithControls`。
 
 字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 的长度是 UTF-8 字节预算，
 生成的 `max_tokens` 是 token 数。类型、范围和字段组合错误应拒绝，不静默改用默认值。
@@ -92,9 +104,9 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 同时使用 `WithParser` 和字段 Control `WithControls` 时必须显式声明 `Prepare`，
 字段更新会通过它重建派生状态，再校验并发布。
 
-参考 [StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp) 和
-[PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。复杂 Control 用 `.WithControl` 声明命令与
-构造下一状态的函数，参考 [TextTemplateNode](../common_nodes/text_template_node.cpp) 和
+自定义解析参考 [StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp)；
+生成参数的 `Include` 参考 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。复杂 Control
+仍用 `.WithControl` 声明命令与构造下一状态的函数，参考 [TextTemplateNode](../common_nodes/text_template_node.cpp) 和
 [TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp)：框架串行处理更新，失败保持旧值，
 每次请求读取一次一致快照。
 

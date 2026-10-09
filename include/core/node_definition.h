@@ -59,9 +59,10 @@ struct ControlCommandDefinition {
         supports_hot_swap(hot_swap) {}
 };
 
-using NodeConfigValidator =
-    std::function<bool(const nlohmann::json&,
-                       const std::unordered_set<std::string>&, std::string*)>;
+// 后两个输出分别是原因与相对参数路径；跨字段语义错误的路径为空。
+using NodeConfigValidator = std::function<bool(
+    const nlohmann::json&, const std::unordered_set<std::string>&, std::string*,
+    std::string*)>;
 
 struct NodeModelDependency {
   std::string name;          // Node 内稳定槽位名，例如 generator

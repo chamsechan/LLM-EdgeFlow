@@ -22,10 +22,13 @@ bool ValueMatchesConfigKind(const nlohmann::json& value, ConfigValueKind kind) {
       return value.is_number();
     case ConfigValueKind::kBoolean:
       return value.is_boolean();
+    case ConfigValueKind::kMap:
     case ConfigValueKind::kObject:
       return value.is_object();
     case ConfigValueKind::kArray:
       return value.is_array();
+    case ConfigValueKind::kJson:
+      return !value.is_null();
   }
   return false;
 }

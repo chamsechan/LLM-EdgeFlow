@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+参数声明支持数组、映射、结构体元素和非 null JSON 值，嵌套错误包含键名或下标。
+`Include` 平铺共享参数，`GenerateParameters()` 共用 `max_tokens=128`；模型槽的说明按能力生成。
+字段 Control 从参数声明生成 schema，允许部分替换，重建及校验失败时保留旧快照。
+
 Model 与 Backend 共用类型化参数声明，创建前各解析一次并只读共享；BGE 维度与编码长度
 可从固定张量形状读取，显式值冲突时拒绝，动态编码长度默认 512。
 

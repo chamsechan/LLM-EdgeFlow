@@ -27,15 +27,13 @@ NodeResult<Outputs> Run(const Inputs& inputs, const Models& models) {
 }
 
 auto Spec() {
-  return MakeNodeSpec(
-             InputsOf<Inputs>{Required("images", &Inputs::images)},
-             OutputsOf<Outputs>(
-                 {Produced("document", &Outputs::document, "images"),
-                  Produced("text", &Outputs::text, "images")}),
-             ModelsOf<Models>{Model("detector", "bind_model", &Models::detector,
-                                    "引用 models[].model_id；所选模型必须提供 "
-                                    "ocr 文档识别能力。")},
-             &Run)
+  return MakeNodeSpec(InputsOf<Inputs>{Required("images", &Inputs::images)},
+                      OutputsOf<Outputs>(
+                          {Produced("document", &Outputs::document, "images"),
+                           Produced("text", &Outputs::text, "images")}),
+                      ModelsOf<Models>{
+                          Model("detector", "bind_model", &Models::detector)},
+                      &Run)
       .Category("common")
       .ParallelSafe(true)
       .Description("OCR visual document detection and text recognition node");

@@ -13,7 +13,7 @@
 namespace llm_edgeflow {
 
 // 支持的校验关键字：type、enum、required、properties、minProperties、
-// additionalProperties、同构 items、minimum 和 maximum。说明性注解不影响
+// additionalProperties、同构 items、not、minimum 和 maximum。说明性注解不影响
 // 校验，也不填充默认值。注册时和本函数都会拒绝不支持或格式错误的声明。
 inline bool ValidateControlSchema(const nlohmann::json& schema,
                                   std::string* error = nullptr) {
@@ -65,7 +65,8 @@ inline bool ValidateControlSchema(const nlohmann::json& schema,
         if (!ValidateControlSchema(property.value(), &detail))
           return fail("Property '" + property.key() + "': " + detail);
       }
-    } else if (key == "items" || key == "additionalProperties") {
+    } else if (key == "items" || key == "additionalProperties" ||
+               key == "not") {
       if (key == "additionalProperties" && value.is_boolean()) continue;
       std::string detail;
       if (!ValidateControlSchema(value, &detail))
@@ -98,6 +99,10 @@ inline bool ValidateValue(const nlohmann::json& payload,
     if (err_msg) *err_msg = message;
     return false;
   };
+  if (schema.contains("not") &&
+      ValidateValue(payload, schema["not"], nullptr)) {
+    return fail("Control payload matches an excluded value type");
+  }
   if (schema.contains("type") && schema["type"].is_string() &&
       !json_structure::HasType(payload, schema)) {
     return fail("Control payload does not match type '" +

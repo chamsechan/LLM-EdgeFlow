@@ -221,7 +221,7 @@ bool ValidateAndNormalizeConfig(
       ValidationDiagnostic diag;
       diag.path = err.kind == ConfigFieldErrorKind::kNotAnObject
                       ? base_pointer
-                      : base_pointer + "/" + err.field_name;
+                      : base_pointer + err.path;
       diag.message = err.message;
       switch (err.kind) {
         case ConfigFieldErrorKind::kNotAnObject:
@@ -232,8 +232,9 @@ bool ValidateAndNormalizeConfig(
           for (const auto& field : schema) {
             diag.suggestions.push_back(field.name);
           }
-          diag.suggestions =
-              RankByEditDistance(err.field_name, std::move(diag.suggestions));
+          diag.suggestions = RankByEditDistance(
+              err.path.substr(err.path.find_last_of('/') + 1),
+              std::move(diag.suggestions));
           break;
         case ConfigFieldErrorKind::kMissingField:
           diag.code = DiagnosticCode::kMissingConfigField;
@@ -562,11 +563,13 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       for (const auto& binding : node.ports.inputs)
         connected.insert(binding.first);
       std::string diagnostic;
+      std::string field_path;
       try {
         if (!definition->validate_config(normalized_config, connected,
-                                         &diagnostic)) {
+                                         &diagnostic, &field_path)) {
           Add(&report, DiagnosticCode::kInvalidCombination,
-              "/pipeline/" + std::to_string(node.source_index) + "/config",
+              "/pipeline/" + std::to_string(node.source_index) + "/config" +
+                  field_path,
               diagnostic.empty() ? "Invalid node configuration" : diagnostic,
               node.id);
         }

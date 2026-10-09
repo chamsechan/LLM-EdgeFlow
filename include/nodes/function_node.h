@@ -673,11 +673,8 @@ template <typename ModelsT, typename CallT>
 class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
  public:
   TypedModelSlotBinding(std::string slot, std::string field,
-                        CallT ModelsT::*member, std::string description)
-      : slot_(std::move(slot)),
-        field_(std::move(field)),
-        member_(member),
-        description_(std::move(description)) {}
+                        CallT ModelsT::*member)
+      : slot_(std::move(slot)), field_(std::move(field)), member_(member) {}
   const std::string& SlotName() const override { return slot_; }
   const std::string& ConfigField() const override { return field_; }
   const std::string& Capability() const override {
@@ -686,15 +683,13 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
     return capability;
   }
   ConfigFieldDefinition ToConfigField() const override {
-    return {field_,
-            ConfigValueKind::kString,
-            true,
-            nlohmann::json(),
-            std::nullopt,
-            std::nullopt,
-            {},
-            description_.empty() ? "Bound model ID for slot '" + slot_ + "'"
-                                 : description_};
+    ConfigFieldDefinition field;
+    field.name = field_;
+    field.kind = ConfigValueKind::kString;
+    field.required = true;
+    field.semantic =
+        "引用 models[].model_id；所选模型的类别必须是 " + Capability();
+    return field;
   }
   bool Bind(const NodeInitContext& init, SessionContext& session,
             const nlohmann::json&, ModelsT* models,
@@ -721,7 +716,6 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
   std::string slot_;
   std::string field_;
   CallT ModelsT::*member_;
-  std::string description_;
 };
 
 template <typename ModelsT>
@@ -768,11 +762,10 @@ class ModelSlotBindingHolder {
 template <typename ModelsT, typename CallT>
 inline ModelSlotBindingHolder<ModelsT> Model(std::string slot,
                                              std::string field,
-                                             CallT ModelsT::*member,
-                                             std::string description = {}) {
+                                             CallT ModelsT::*member) {
   return ModelSlotBindingHolder<ModelsT>(
       std::make_unique<TypedModelSlotBinding<ModelsT, CallT>>(
-          std::move(slot), std::move(field), member, std::move(description)));
+          std::move(slot), std::move(field), member));
 }
 
 template <typename ModelsT>
@@ -1027,8 +1020,8 @@ class NodeSpec {
     def.validate_config = [params = params_](
                               const nlohmann::json& cfg,
                               const std::unordered_set<std::string>& conn,
-                              std::string* err) {
-      return params.ValidateWithBindings(cfg, conn, err);
+                              std::string* err, std::string* field_path) {
+      return params.ValidateWithBindings(cfg, conn, err, field_path);
     };
     for (const auto& cmd : control_commands_) {
       def.control_commands.push_back(cmd.ToCommandDefinition(params_));

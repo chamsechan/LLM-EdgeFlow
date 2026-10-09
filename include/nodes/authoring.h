@@ -6,7 +6,7 @@
 #include "nodes/configuration_snapshot.h"
 #include "nodes/control_authoring.h"
 #include "nodes/function_node.h"
-#include "nodes/generate_options_config.h"
+#include "nodes/generate_parameters.h"
 #include "nodes/model_calls.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"

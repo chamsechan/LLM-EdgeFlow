@@ -208,7 +208,7 @@ struct ReentrantConfigValidator {
   ReentrantConfigValidator& operator=(ReentrantConfigValidator&&) = default;
 
   bool operator()(const nlohmann::json&, const std::unordered_set<std::string>&,
-                  std::string*) const {
+                  std::string*, std::string*) const {
     return true;
   }
 };

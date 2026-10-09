@@ -418,9 +418,9 @@ TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
   ASSERT_TRUE(definition.has_value());
   ASSERT_TRUE(static_cast<bool>(definition->validate_config));
   std::string error;
-  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), {{}}, &error));
+  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), {{}}, &error, nullptr));
   const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
-  EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error));
+  EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error, nullptr));
   EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
   NodeHarness harness({cpp_string(name)});
   auto result = harness.Config(invalid).Run();

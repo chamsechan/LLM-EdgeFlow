@@ -1,5 +1,5 @@
 #include "nodes/authoring.h"
-#include "nodes/generate_options_config.h"
+#include "nodes/generate_parameters.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -19,11 +19,9 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const GenerateOptions& params,
 auto Spec() {
   return MakeNodeSpec(InputsOf<Inputs>{Required("prompt", &Inputs::prompt)},
                       PreservedOutput<TextBatch>("text", "prompt"),
-                      GenerateParameters(128),
+                      GenerateParameters(),
                       ModelsOf<Models>{
-                          Model("generator", "bind_model", &Models::generator,
-                                "引用 models[].model_id；所选模型必须提供 "
-                                "llm 文本生成能力。")},
+                          Model("generator", "bind_model", &Models::generator)},
                       &Run)
       .Category("common")
       .ParallelSafe(true)

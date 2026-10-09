@@ -89,9 +89,7 @@ auto Spec() {
                                    "按模型版本、归一化选项和输入缓存向量，输入"
                                    "须满足 session 生命周期契约。")}),
              ModelsOf<Models>(
-                 {Model("encoder", "bind_model", &Models::encoder,
-                        "引用 models[].model_id；所选模型必须提供 embedding "
-                        "文本向量能力。")}),
+                 {Model("encoder", "bind_model", &Models::encoder)}),
              &Run)
       .Category("common")
       .Description("Text embedding extraction node")

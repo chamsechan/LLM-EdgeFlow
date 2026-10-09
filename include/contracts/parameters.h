@@ -1,10 +1,12 @@
 #pragma once
 
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -107,8 +109,17 @@ class ConfigParser {
   ParseFn parse_;
 };
 
+template <typename ParamsT>
+class Parameters;
+
 template <typename T>
-struct FieldTypeTraits;
+struct FieldTypeTraits {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kObject;
+  static bool Extract(const nlohmann::json&, T*, std::string* error) {
+    if (error) *error = "Struct elements require Items(Parameters<T>)";
+    return false;
+  }
+};
 
 template <>
 struct FieldTypeTraits<std::string> {
@@ -219,32 +230,48 @@ struct FieldTypeTraits<float> {
     *out = static_cast<float>(value);
     return true;
   }
-  static nlohmann::json ToJson(float val) { return val; }
+  static nlohmann::json ToJson(float val) {
+    if (!std::isfinite(val)) return val;
+    char text[64];
+    const auto result = std::to_chars(text, text + sizeof(text), val);
+    return nlohmann::json::parse(text, result.ptr);
+  }
 };
 
 template <>
-struct FieldTypeTraits<std::vector<std::string>> {
-  static constexpr ConfigValueKind kKind = ConfigValueKind::kArray;
-  static bool Extract(const nlohmann::json& j, std::vector<std::string>* out,
-                      std::string* err) {
-    if (!j.is_array()) {
-      if (err) *err = "expected array";
+struct FieldTypeTraits<nlohmann::json> {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kJson;
+  static bool Extract(const nlohmann::json& value, nlohmann::json* out,
+                      std::string* error) {
+    if (value.is_null()) {
+      if (error) *error = "JSON value cannot be null";
       return false;
     }
-    std::vector<std::string> res;
-    res.reserve(j.size());
-    for (const auto& elem : j) {
-      if (!elem.is_string()) {
-        if (err) *err = "expected array of strings";
-        return false;
-      }
-      res.push_back(elem.get<std::string>());
-    }
-    *out = std::move(res);
+    *out = value;
     return true;
   }
-  static nlohmann::json ToJson(const std::vector<std::string>& val) {
-    return val;
+  static nlohmann::json ToJson(const nlohmann::json& value) { return value; }
+};
+
+template <typename T>
+struct FieldTypeTraits<std::vector<T>> {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kArray;
+  static nlohmann::json ToJson(const std::vector<T>& values) {
+    auto result = nlohmann::json::array();
+    for (const auto& value : values)
+      result.push_back(FieldTypeTraits<T>::ToJson(value));
+    return result;
+  }
+};
+
+template <typename T>
+struct FieldTypeTraits<std::map<std::string, T>> {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kMap;
+  static nlohmann::json ToJson(const std::map<std::string, T>& values) {
+    auto result = nlohmann::json::object();
+    for (const auto& [name, value] : values)
+      result[name] = FieldTypeTraits<T>::ToJson(value);
+    return result;
   }
 };
 
@@ -274,6 +301,116 @@ struct FieldTypeTraits<std::optional<T>> {
   }
 };
 
+namespace detail {
+
+struct ParameterSerialization {
+  template <typename P>
+  static nlohmann::json Encode(const Parameters<P>& spec, const P& value);
+};
+
+template <typename T>
+struct ParameterContainer {
+  static constexpr bool kArray = false;
+  static constexpr bool kMap = false;
+  using Leaf = T;
+};
+template <typename T>
+struct ParameterContainer<std::vector<T>> {
+  static constexpr bool kArray = true;
+  static constexpr bool kMap = false;
+  using Value = T;
+  using Leaf = typename ParameterContainer<T>::Leaf;
+};
+template <typename T>
+struct ParameterContainer<std::map<std::string, T>> {
+  static constexpr bool kArray = false;
+  static constexpr bool kMap = true;
+  using Value = T;
+  using Leaf = typename ParameterContainer<T>::Leaf;
+};
+
+template <typename T, typename Leaf>
+ConfigFieldDefinition ParameterValueDefinition(
+    const std::shared_ptr<const Parameters<Leaf>>& item_spec,
+    std::optional<double> minimum, std::optional<double> maximum,
+    const std::vector<std::string>& enums) {
+  ConfigFieldDefinition result;
+  result.kind = FieldTypeTraits<T>::kKind;
+  if constexpr (ParameterContainer<T>::kArray || ParameterContainer<T>::kMap) {
+    using Value = typename ParameterContainer<T>::Value;
+    result.items = std::make_shared<const ConfigFieldDefinition>(
+        ParameterValueDefinition<Value>(item_spec, minimum, maximum, enums));
+  } else {
+    result.minimum = minimum;
+    result.maximum = maximum;
+    result.enum_values = enums;
+    if constexpr (FieldTypeTraits<T>::kKind == ConfigValueKind::kObject) {
+      if (!item_spec)
+        throw std::invalid_argument(
+            "Struct elements require Items(Parameters<T>)");
+      result.fields = item_spec->Fields();
+    }
+  }
+  return result;
+}
+
+template <typename T, typename Leaf>
+nlohmann::json SerializeParameterValue(
+    const T& value, const std::shared_ptr<const Parameters<Leaf>>& item_spec) {
+  if constexpr (ParameterContainer<T>::kArray || ParameterContainer<T>::kMap) {
+    auto result = ParameterContainer<T>::kArray ? nlohmann::json::array()
+                                                : nlohmann::json::object();
+    if constexpr (ParameterContainer<T>::kArray) {
+      for (const auto& item : value)
+        result.push_back(SerializeParameterValue(item, item_spec));
+    } else {
+      for (const auto& [key, item] : value)
+        result[key] = SerializeParameterValue(item, item_spec);
+    }
+    return result;
+  } else if constexpr (FieldTypeTraits<T>::kKind == ConfigValueKind::kObject) {
+    return ParameterSerialization::Encode(*item_spec, value);
+  } else {
+    return FieldTypeTraits<T>::ToJson(value);
+  }
+}
+
+template <typename T, typename Leaf>
+bool ExtractParameterValue(
+    const nlohmann::json& json, T* out, std::string* error,
+    const std::shared_ptr<const Parameters<Leaf>>& item_spec) {
+  if constexpr (ParameterContainer<T>::kArray || ParameterContainer<T>::kMap) {
+    using Value = typename ParameterContainer<T>::Value;
+    T result;
+    for (auto it = json.begin(); it != json.end(); ++it) {
+      Value next{};
+      if (!ExtractParameterValue<Value>(*it, &next, error, item_spec)) {
+        if (error)
+          *error = (ParameterContainer<T>::kArray
+                        ? "Array item " + std::to_string(it - json.begin())
+                        : "Map key '" + it.key() + "'") +
+                   ": " + *error;
+        return false;
+      }
+      if constexpr (ParameterContainer<T>::kArray)
+        result.push_back(std::move(next));
+      else
+        result.emplace(it.key(), std::move(next));
+    }
+    *out = std::move(result);
+    return true;
+  } else if constexpr (FieldTypeTraits<T>::kKind == ConfigValueKind::kObject) {
+    auto parsed = item_spec->ParseNormalized(json, error);
+    if (!parsed) return false;
+    *out = std::move(*parsed);
+    return true;
+  } else {
+    return FieldTypeTraits<T>::Extract(json, out, error);
+  }
+}
+
+}  // namespace detail
+
 template <typename ParamsT>
 class ParameterFieldBinding {
  public:
@@ -285,150 +422,110 @@ class ParameterFieldBinding {
   virtual bool ConflictsWithMember(
       const ParameterFieldBinding<ParamsT>& other) const = 0;
   virtual std::unique_ptr<ParameterFieldBinding<ParamsT>> Clone() const = 0;
+
+ private:
+  friend class Parameters<ParamsT>;
+  template <typename Outer, typename Inner>
+  friend class IncludedFieldBinding;
+  virtual std::optional<nlohmann::json> Encode(const ParamsT& values) const = 0;
 };
 
 template <typename ParamsT, typename MemberT>
 class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
  public:
   using MemberPtr = MemberT ParamsT::*;
+  using Leaf = typename detail::ParameterContainer<MemberT>::Leaf;
 
   ConcreteFieldBinding(std::string name, MemberPtr member_ptr, bool required,
                        bool has_default, MemberT default_val,
-                       std::optional<double> min_val,
-                       std::optional<double> max_val,
-                       std::vector<std::string> enum_vals, std::string semantic)
+                       std::optional<double> minimum,
+                       std::optional<double> maximum,
+                       std::vector<std::string> enums, std::string semantic,
+                       std::shared_ptr<const Parameters<Leaf>> item_spec)
       : name_(std::move(name)),
         member_ptr_(member_ptr),
         required_(required),
         has_default_(has_default),
         default_val_(std::move(default_val)),
-        minimum_(min_val),
-        maximum_(max_val),
-        enum_values_(std::move(enum_vals)),
-        semantic_(std::move(semantic)) {}
+        minimum_(minimum),
+        maximum_(maximum),
+        enum_values_(std::move(enums)),
+        semantic_(std::move(semantic)),
+        item_spec_(std::move(item_spec)) {}
 
   const std::string& Name() const override { return name_; }
-
   ConfigFieldDefinition ToFieldDefinition() const override {
-    ConfigFieldDefinition def;
-    def.name = name_;
-    def.kind = FieldTypeTraits<MemberT>::kKind;
-    def.required = required_;
-    def.minimum = minimum_;
-    def.maximum = maximum_;
-    def.enum_values = enum_values_;
-    def.semantic = semantic_;
-
+    auto result = detail::ParameterValueDefinition<MemberT>(
+        item_spec_, minimum_, maximum_, enum_values_);
+    result.name = name_;
+    result.required = required_;
+    result.semantic = semantic_;
     if (has_default_) {
-      def.default_value = FieldTypeTraits<MemberT>::ToJson(default_val_);
-      // default_value 必须满足 minimum、maximum 和 enum_values
-      if (minimum_.has_value()) {
-        if constexpr (std::is_arithmetic_v<MemberT>) {
-          if (static_cast<double>(default_val_) < *minimum_) {
-            throw std::invalid_argument("Default value for field '" + name_ +
-                                        "' is below minimum");
-          }
-        }
-      }
-      if (maximum_.has_value()) {
-        if constexpr (std::is_arithmetic_v<MemberT>) {
-          if (static_cast<double>(default_val_) > *maximum_) {
-            throw std::invalid_argument("Default value for field '" + name_ +
-                                        "' exceeds maximum");
-          }
-        }
-      }
-      if (!enum_values_.empty()) {
-        if constexpr (std::is_same_v<MemberT, std::string>) {
-          bool found = false;
-          for (const auto& ev : enum_values_) {
-            if (ev == default_val_) {
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            throw std::invalid_argument("Default value for field '" + name_ +
-                                        "' is not in allowed enum values");
-          }
-        }
-      }
+      result.default_value =
+          detail::SerializeParameterValue(default_val_, item_spec_);
+      if (result.default_value.is_null())
+        throw std::invalid_argument("Default cannot be null: " + name_);
     }
-    return def;
+    return result;
   }
 
-  bool Assign(const nlohmann::json& normalized_json, ParamsT* out,
-              std::string* err) const override {
+  bool Assign(const nlohmann::json& normalized, ParamsT* out,
+              std::string* error) const override {
     if (!out) return false;
-    if (!normalized_json.contains(name_)) {
-      if (required_) {
-        if (err) *err = "Missing required config field: " + name_;
-        return false;
-      }
-      if (has_default_) {
-        out->*member_ptr_ = default_val_;
-        return true;
-      }
+    const auto entry = normalized.find(name_);
+    if (entry == normalized.end()) {
       if constexpr (detail::IsOptionalField<MemberT>::value) {
         out->*member_ptr_ = std::nullopt;
+        return true;
       }
-      return true;
+      if (!has_default_) {
+        if (error) *error = "Missing required config field: " + name_;
+        return false;
+      }
+      const auto definition = ToFieldDefinition();
+      nlohmann::json value;
+      std::vector<ConfigFieldValidationError> errors;
+      if (!detail::NormalizeConfigValue(definition, definition.default_value,
+                                        &value, &errors, "")) {
+        if (error) *error = errors.front().message;
+        return false;
+      }
+      return detail::ExtractParameterValue(value, &(out->*member_ptr_), error,
+                                           item_spec_);
     }
-    const auto& val_json = normalized_json[name_];
-    if (val_json.is_null()) {
-      if (err) *err = "Field '" + name_ + "' cannot be null";
+    if (!detail::ExtractParameterValue(*entry, &(out->*member_ptr_), error,
+                                       item_spec_)) {
+      if (error) *error = "Field '" + name_ + "': " + *error;
       return false;
     }
-    MemberT extracted{};
-    if (!FieldTypeTraits<MemberT>::Extract(val_json, &extracted, err)) {
-      if (err) {
-        *err = "Field '" + name_ + "' extraction error: " + *err;
-      }
-      return false;
-    }
-    // 再校验取值边界
-    if (minimum_.has_value()) {
-      if constexpr (std::is_arithmetic_v<MemberT>) {
-        if (static_cast<double>(extracted) < *minimum_) {
-          if (err) *err = "Field '" + name_ + "' is below minimum";
-          return false;
-        }
-      }
-    }
-    if (maximum_.has_value()) {
-      if constexpr (std::is_arithmetic_v<MemberT>) {
-        if (static_cast<double>(extracted) > *maximum_) {
-          if (err) *err = "Field '" + name_ + "' exceeds maximum";
-          return false;
-        }
-      }
-    }
-    out->*member_ptr_ = std::move(extracted);
     return true;
   }
 
   bool ConflictsWithMember(
       const ParameterFieldBinding<ParamsT>& other) const override {
-    const auto* casted =
-        dynamic_cast<const ConcreteFieldBinding<ParamsT, MemberT>*>(&other);
-    if (!casted) return false;
-    return member_ptr_ == casted->member_ptr_;
+    const auto* casted = dynamic_cast<const ConcreteFieldBinding*>(&other);
+    return casted && member_ptr_ == casted->member_ptr_;
   }
-
   std::unique_ptr<ParameterFieldBinding<ParamsT>> Clone() const override {
-    return std::make_unique<ConcreteFieldBinding<ParamsT, MemberT>>(*this);
+    return std::make_unique<ConcreteFieldBinding>(*this);
   }
 
  private:
+  std::optional<nlohmann::json> Encode(const ParamsT& values) const override {
+    if constexpr (detail::IsOptionalField<MemberT>::value) {
+      if (!(values.*member_ptr_)) return std::nullopt;
+    }
+    return detail::SerializeParameterValue(values.*member_ptr_, item_spec_);
+  }
   std::string name_;
   MemberPtr member_ptr_;
-  bool required_ = false;
-  bool has_default_ = false;
-  MemberT default_val_{};
-  std::optional<double> minimum_;
-  std::optional<double> maximum_;
+  bool required_;
+  bool has_default_;
+  MemberT default_val_;
+  std::optional<double> minimum_, maximum_;
   std::vector<std::string> enum_values_;
   std::string semantic_;
+  std::shared_ptr<const Parameters<Leaf>> item_spec_;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -469,6 +566,17 @@ class FieldBuilder {
     return *this;
   }
 
+  using Leaf = typename detail::ParameterContainer<MemberT>::Leaf;
+  FieldBuilder& Items(Parameters<Leaf> spec) {
+    static_assert(detail::ParameterContainer<MemberT>::kArray ||
+                      detail::ParameterContainer<MemberT>::kMap,
+                  "Items is for arrays and maps");
+    static_assert(FieldTypeTraits<Leaf>::kKind == ConfigValueKind::kObject,
+                  "Items requires a struct parameter declaration");
+    item_spec_ = std::make_shared<const Parameters<Leaf>>(std::move(spec));
+    return *this;
+  }
+
   FieldBuilder& Description(std::string desc) {
     semantic_ = std::move(desc);
     return *this;
@@ -487,7 +595,7 @@ class FieldBuilder {
     }
     return std::make_unique<ConcreteFieldBinding<ParamsT, MemberT>>(
         name_, member_ptr_, required_, has_default_, default_val_, minimum_,
-        maximum_, enum_values_, semantic_);
+        maximum_, enum_values_, semantic_, item_spec_);
   }
 
  private:
@@ -500,6 +608,7 @@ class FieldBuilder {
   std::optional<double> maximum_;
   std::vector<std::string> enum_values_;
   std::string semantic_;
+  std::shared_ptr<const Parameters<Leaf>> item_spec_;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -548,6 +657,38 @@ class ParameterFieldBindingHolder {
   std::unique_ptr<ParameterFieldBinding<ParamsT>> binding_;
 };
 
+template <typename Outer, typename Inner>
+class IncludedFieldBinding final : public ParameterFieldBinding<Outer> {
+ public:
+  IncludedFieldBinding(Inner Outer::*member,
+                       std::unique_ptr<ParameterFieldBinding<Inner>> binding)
+      : member_(member), binding_(std::move(binding)) {}
+  const std::string& Name() const override { return binding_->Name(); }
+  ConfigFieldDefinition ToFieldDefinition() const override {
+    return binding_->ToFieldDefinition();
+  }
+  bool Assign(const nlohmann::json& json, Outer* out,
+              std::string* error) const override {
+    return out && binding_->Assign(json, &(out->*member_), error);
+  }
+  bool ConflictsWithMember(
+      const ParameterFieldBinding<Outer>& other) const override {
+    const auto* included = dynamic_cast<const IncludedFieldBinding*>(&other);
+    return included && member_ == included->member_ &&
+           binding_->ConflictsWithMember(*included->binding_);
+  }
+  std::unique_ptr<ParameterFieldBinding<Outer>> Clone() const override {
+    return std::make_unique<IncludedFieldBinding>(member_, binding_->Clone());
+  }
+
+ private:
+  std::optional<nlohmann::json> Encode(const Outer& values) const override {
+    return binding_->Encode(values.*member_);
+  }
+  Inner Outer::*member_;
+  std::unique_ptr<ParameterFieldBinding<Inner>> binding_;
+};
+
 struct NoParameters {};
 
 template <typename ParamsT>
@@ -590,12 +731,18 @@ class Parameters {
     for (const auto& binding : bindings_) {
       definitions_.push_back(binding->ToFieldDefinition());
     }
+    std::string error;
+    if (!ValidateConfigFieldDefinitions(definitions_, &error)) {
+      throw std::invalid_argument(error);
+    }
   }
 
   Parameters(const Parameters& other)
       : definitions_(other.definitions_),
         complex_parser_(other.complex_parser_),
         prepare_fn_(other.prepare_fn_),
+        included_validators_(other.included_validators_),
+        included_prepare_(other.included_prepare_),
         semantic_validator_(other.semantic_validator_),
         binding_validator_(other.binding_validator_) {
     bindings_.reserve(other.bindings_.size());
@@ -610,6 +757,8 @@ class Parameters {
       definitions_ = other.definitions_;
       complex_parser_ = other.complex_parser_;
       prepare_fn_ = other.prepare_fn_;
+      included_validators_ = other.included_validators_;
+      included_prepare_ = other.included_prepare_;
       semantic_validator_ = other.semantic_validator_;
       binding_validator_ = other.binding_validator_;
       bindings_.clear();
@@ -621,6 +770,38 @@ class Parameters {
     return *this;
   }
   Parameters& operator=(Parameters&&) noexcept = default;
+
+  template <typename Inner, typename Outer>
+  Parameters& Include(Inner Outer::*member, Parameters<Inner> group) {
+    static_assert(std::is_same_v<Outer, ParamsT>,
+                  "Include member must belong to the parameter type");
+    auto merged = definitions_;
+    merged.insert(merged.end(), group.Fields().begin(), group.Fields().end());
+    std::string error;
+    if (!ValidateConfigFieldDefinitions(merged, &error))
+      throw std::invalid_argument(error);
+    auto spec = std::make_shared<const Parameters<Inner>>(std::move(group));
+    std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> additions;
+    for (const auto& binding : spec->Bindings()) {
+      auto included = std::make_unique<IncludedFieldBinding<ParamsT, Inner>>(
+          member, binding->Clone());
+      for (const auto& existing : bindings_) {
+        if (included->ConflictsWithMember(*existing))
+          throw std::invalid_argument("Same member included more than once: " +
+                                      included->Name());
+      }
+      additions.push_back(std::move(included));
+    }
+    included_validators_.push_back([member, spec](ParamsT* state,
+                                                  const BindingFacts& facts,
+                                                  std::string* error) {
+      return spec->ValidateState(&(state->*member), facts, error);
+    });
+    included_prepare_ = included_prepare_ || spec->HasPrepare();
+    for (auto& binding : additions) bindings_.push_back(std::move(binding));
+    definitions_ = std::move(merged);
+    return *this;
+  }
 
   Parameters& Prepare(PrepareFunction prepare) {
     prepare_fn_ = std::move(prepare);
@@ -635,7 +816,9 @@ class Parameters {
     return *this;
   }
 
-  bool HasPrepare() const noexcept { return static_cast<bool>(prepare_fn_); }
+  bool HasPrepare() const noexcept {
+    return static_cast<bool>(prepare_fn_) || included_prepare_;
+  }
 
   bool HasParser() const noexcept { return complex_parser_.has_value(); }
 
@@ -661,12 +844,22 @@ class Parameters {
     }
     nlohmann::json obj = nlohmann::json::object();
     obj[name] = val;
-    return binding->Assign(obj, out, err);
+    nlohmann::json normalized;
+    std::vector<ConfigFieldValidationError> errors;
+    if (!ValidateAndNormalizeFields({binding->ToFieldDefinition()}, obj,
+                                    &normalized, &errors)) {
+      if (err) *err = errors.front().path + ": " + errors.front().message;
+      return false;
+    }
+    return binding->Assign(normalized, out, err);
   }
 
   bool ValidateState(ParamsT* state, const BindingFacts& facts,
                      std::string* err) const noexcept {
     try {
+      for (const auto& included : included_validators_) {
+        if (!included(state, facts, err)) return false;
+      }
       if (prepare_fn_) {
         if (!prepare_fn_(state, facts, err)) {
           if (err && err->empty()) *err = "Prepare failed";
@@ -744,10 +937,10 @@ class Parameters {
           SetDiagnosticNoexcept(error, "Invalid configuration");
         } else {
           const auto& invalid = validation_errors.front();
-          SetDiagnosticNoexcept(error, invalid.field_name.empty()
-                                           ? invalid.message
-                                           : "Field '" + invalid.field_name +
-                                                 "': " + invalid.message);
+          SetDiagnosticNoexcept(
+              error, invalid.path.empty()
+                         ? invalid.message
+                         : "Field '" + invalid.path + "': " + invalid.message);
         }
         return std::nullopt;
       }
@@ -763,8 +956,10 @@ class Parameters {
 
   std::optional<ParamsT> ParseNormalized(
       const nlohmann::json& normalized, const BindingFacts& facts,
-      std::string* error = nullptr) const noexcept {
+      std::string* error = nullptr,
+      std::string* field_path = nullptr) const noexcept {
     if (error) error->clear();
+    if (field_path) field_path->clear();
     try {
       ParamsT params{};
       if (complex_parser_) {
@@ -774,6 +969,8 @@ class Parameters {
       }
       for (const auto& binding : bindings_) {
         if (!binding->Assign(normalized, &params, error)) {
+          SetDiagnosticNoexcept(
+              field_path, "/" + detail::ConfigPointerToken(binding->Name()));
           return std::nullopt;
         }
       }
@@ -800,19 +997,31 @@ class Parameters {
   bool ValidateWithBindings(
       const nlohmann::json& normalized,
       const std::unordered_set<std::string>& connected_inputs,
-      std::string* error = nullptr) const noexcept {
+      std::string* error = nullptr,
+      std::string* field_path = nullptr) const noexcept {
     BindingFacts facts;
     facts.has_bindings = true;
     facts.connected_inputs = connected_inputs;
-    auto parsed = ParseNormalized(normalized, facts, error);
+    auto parsed = ParseNormalized(normalized, facts, error, field_path);
     return parsed.has_value();
   }
 
  private:
+  friend struct detail::ParameterSerialization;
+  nlohmann::json Encode(const ParamsT& values) const {
+    auto result = nlohmann::json::object();
+    for (const auto& binding : bindings_) {
+      auto value = binding->Encode(values);
+      if (value) result[binding->Name()] = std::move(*value);
+    }
+    return result;
+  }
   std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> bindings_;
   std::vector<ConfigFieldDefinition> definitions_;
   std::optional<ConfigParser<ParamsT>> complex_parser_;
   PrepareFunction prepare_fn_;
+  std::vector<PrepareFunction> included_validators_;
+  bool included_prepare_ = false;
   SemanticValidator semantic_validator_;
   BindingValidator binding_validator_;
 };
@@ -861,7 +1070,9 @@ class Parameters<NoParameters> {
 
   bool ValidateWithBindings(const nlohmann::json&,
                             const std::unordered_set<std::string>&,
-                            std::string* = nullptr) const noexcept {
+                            std::string* = nullptr,
+                            std::string* field_path = nullptr) const noexcept {
+    if (field_path) field_path->clear();
     return true;
   }
 
@@ -882,6 +1093,18 @@ class Parameters<NoParameters> {
                      std::string*) const noexcept {
     return true;
   }
+
+ private:
+  friend struct detail::ParameterSerialization;
+  nlohmann::json Encode(const NoParameters&) const {
+    return nlohmann::json::object();
+  }
 };
+
+template <typename P>
+nlohmann::json detail::ParameterSerialization::Encode(const Parameters<P>& spec,
+                                                      const P& value) {
+  return spec.Encode(value);
+}
 
 }  // namespace llm_edgeflow
