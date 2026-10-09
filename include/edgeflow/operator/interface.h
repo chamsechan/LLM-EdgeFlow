@@ -65,6 +65,8 @@ COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
  * @brief 部署配置中的一个外部 I/O 项 (宿主 map key 与宿主结构的对应关系)
  */
 struct OperatorIoEntry {
+  // 同侧 type 唯一时按 key 后缀寻址，前缀由宿主选择；同 type 多项时
+  // key 必须为 <name>.<type>。service_type 只用于载荷校验。
   std::string type;       // 宿主 map key 的后缀，例如 "doc_in"
   std::string name;       // 业务，例如 "doc_qa"
   std::string type_name;  // 宿主结构名，例如 "CompanyOperatorDocInput"

@@ -194,5 +194,131 @@ TEST(ParameterSetTest, ValidateExceptionsBecomeDiagnostics) {
   EXPECT_TRUE(set.Parse({{"count", 3}}, &values, &error)) << error;
 }
 
+struct InnerElement {
+  std::string text;
+  int64_t score = 10;
+  // 派生成员，不属于配置字段
+  std::string derived_marker;
+};
+
+struct StructContainerParams {
+  std::vector<InnerElement> rows;
+  std::map<std::string, InnerElement> mapped;
+  std::optional<std::vector<InnerElement>> optional_rows;
+  std::optional<std::map<std::string, InnerElement>> optional_mapped;
+};
+
+TEST(ParameterSetTest, StructElementsCanBeParsedAndExportedInEffective) {
+  auto element_spec = Parameters<InnerElement>({
+      Field("text", &InnerElement::text).Required(),
+      Field("score", &InnerElement::score).Default(10).Range(1, 100),
+  });
+  element_spec.Prepare([](InnerElement* e, std::string*) {
+    e->derived_marker = "derived_" + e->text;
+    e->score *= 2;  // Prepare 翻倍 score
+    return true;
+  });
+
+  auto spec = Parameters<StructContainerParams>({
+      Field("rows", &StructContainerParams::rows)
+          .Required()
+          .Items(element_spec),
+      Field("mapped", &StructContainerParams::mapped)
+          .Default({})
+          .Items(element_spec),
+      Field("optional_rows", &StructContainerParams::optional_rows)
+          .Items(element_spec),
+      Field("optional_mapped", &StructContainerParams::optional_mapped)
+          .Items(element_spec),
+  });
+
+  ParameterSet set(spec);
+  std::shared_ptr<const ParameterValues> values;
+  std::string error;
+
+  nlohmann::json config = {
+      {"rows", {{{"text", "hello"}}}},
+      {"mapped", {{"key1", {{"text", "world"}, {"score", 20}}}}},
+      {"optional_rows", {{{"text", "opt1"}}}},
+  };
+
+  ASSERT_TRUE(set.Parse(config, &values, &error)) << error;
+  ASSERT_NE(values, nullptr);
+
+  const auto& p = values->Get<StructContainerParams>();
+  ASSERT_EQ(p.rows.size(), 1U);
+  EXPECT_EQ(p.rows[0].text, "hello");
+  EXPECT_EQ(p.rows[0].score, 20);  // 默认值 10 * 2 = 20
+  EXPECT_EQ(p.rows[0].derived_marker, "derived_hello");
+
+  ASSERT_EQ(p.mapped.size(), 1U);
+  EXPECT_EQ(p.mapped.at("key1").text, "world");
+  EXPECT_EQ(p.mapped.at("key1").score, 40);  // 显式 20 * 2 = 40
+  EXPECT_EQ(p.mapped.at("key1").derived_marker, "derived_world");
+
+  ASSERT_TRUE(p.optional_rows.has_value());
+  ASSERT_EQ(p.optional_rows->size(), 1U);
+  EXPECT_EQ((*p.optional_rows)[0].text, "opt1");
+  EXPECT_EQ((*p.optional_rows)[0].score, 20);
+
+  EXPECT_FALSE(p.optional_mapped.has_value());
+
+  // Effective 检查：包含 Prepare 后的字段和默认值，不包含派生成员
+  // derived_marker，未设置的可选容器不出现
+  const auto& effective = values->Effective();
+  const auto expected_rows =
+      nlohmann::json::array({nlohmann::json{{"text", "hello"}, {"score", 20}}});
+  const auto expected_mapped =
+      nlohmann::json{{"key1", {{"text", "world"}, {"score", 40}}}};
+  const auto expected_optional_rows =
+      nlohmann::json::array({nlohmann::json{{"text", "opt1"}, {"score", 20}}});
+  EXPECT_EQ(effective["rows"], expected_rows);
+  EXPECT_EQ(effective["mapped"], expected_mapped);
+  EXPECT_EQ(effective["optional_rows"], expected_optional_rows);
+  EXPECT_FALSE(effective.contains("optional_mapped"));
+  EXPECT_FALSE(effective["rows"][0].contains("derived_marker"));
+
+  // 进一步验证：当 optional_mapped 显式提供时，能够正确解析并导出生效值
+  nlohmann::json config_with_opt_mapped = {
+      {"rows", {{{"text", "hello2"}}}},
+      {"optional_mapped", {{"opt_k", {{"text", "opt_val"}, {"score", 30}}}}},
+  };
+  std::shared_ptr<const ParameterValues> values2;
+  ASSERT_TRUE(set.Parse(config_with_opt_mapped, &values2, &error)) << error;
+  ASSERT_NE(values2, nullptr);
+  const auto& p2 = values2->Get<StructContainerParams>();
+  ASSERT_TRUE(p2.optional_mapped.has_value());
+  EXPECT_EQ(p2.optional_mapped->at("opt_k").text, "opt_val");
+  EXPECT_EQ(p2.optional_mapped->at("opt_k").score, 60);  // 30 * 2 = 60
+  const auto& effective2 = values2->Effective();
+  EXPECT_TRUE(effective2.contains("optional_mapped"));
+  EXPECT_EQ(effective2["optional_mapped"]["opt_k"]["score"], 60);
+  EXPECT_EQ(effective2["optional_mapped"]["opt_k"]["text"], "opt_val");
+}
+
+TEST(ParameterSetTest, StructContainerDefaultsAreReadThroughDeclaredFields) {
+  const auto element = Parameters<InnerElement>({
+      Field("text", &InnerElement::text).Default("default text"),
+      Field("score", &InnerElement::score).Default(10),
+  });
+  const auto spec = Parameters<StructContainerParams>({
+      Field("rows", &StructContainerParams::rows)
+          .Default({InnerElement{"row", 7, "excluded"}})
+          .Items(element),
+      Field("mapped", &StructContainerParams::mapped)
+          .Default({{"key", InnerElement{"mapped", 8, "excluded"}}})
+          .Items(element),
+  });
+  std::shared_ptr<const ParameterValues> values;
+  std::string error;
+  ASSERT_TRUE(
+      ParameterSet(spec).Parse(nlohmann::json::object(), &values, &error))
+      << error;
+  EXPECT_EQ(values->Effective(),
+            (nlohmann::json{
+                {"rows", {{{"text", "row"}, {"score", 7}}}},
+                {"mapped", {{"key", {{"text", "mapped"}, {"score", 8}}}}}}));
+}
+
 }  // namespace
 }  // namespace llm_edgeflow

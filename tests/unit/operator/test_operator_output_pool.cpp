@@ -1163,8 +1163,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
 
   // 构造单帧多槽位: slot_a 和 slot_b
   std::vector<std::vector<FrameOutputBinding>> frame_bindings(1);
-  frame_bindings[0].push_back({"slot_a_key", "slot_a", "keyword_out"});
-  frame_bindings[0].push_back({"slot_b_key", "slot_b", "keyword_out"});
+  frame_bindings[0].push_back({"slot_a_key", "slot_a"});
+  frame_bindings[0].push_back({"slot_b_key", "slot_b"});
 
   std::unordered_map<std::string, std::shared_ptr<OutputPoolState>> pools;
   pools["slot_a"] = pool_a;
@@ -1227,8 +1227,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
 
   // 第 0 帧使用有效槽位 keyword_out，第 1 帧使用缺失槽位 missing_slot
   std::vector<std::vector<FrameOutputBinding>> frame_bindings(2);
-  frame_bindings[0].push_back({"k0", "keyword_out", "keyword_out"});
-  frame_bindings[1].push_back({"k1", "missing_slot", "keyword_out"});
+  frame_bindings[0].push_back({"k0", "keyword_out"});
+  frame_bindings[1].push_back({"k1", "missing_slot"});
 
   std::unordered_map<std::string, std::shared_ptr<OutputPoolState>> pools;
   pools["keyword_out"] = pool;
@@ -1251,7 +1251,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
   // 下一次单帧合法调用必须成功
   {
     std::vector<std::vector<FrameOutputBinding>> single_frame(1);
-    single_frame[0].push_back({"k0", "keyword_out", "keyword_out"});
+    single_frame[0].push_back({"k0", "keyword_out"});
     ScopedOutputLeaseGuard guard;
     std::vector<AcquiredOutputBlock> acquired;
     std::string acq_err;

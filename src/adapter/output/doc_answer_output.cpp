@@ -61,12 +61,16 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
+  size_t non_null_written = 0;
   for (size_t i = 0; i < count; ++i) {
     auto* out = destination->GetSlot<CompanyOperatorDocOutput>(kOutputSlot, i);
     if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing doc_out slot item", kOutputSlot,
-          options.Label().c_str(), static_cast<int>(i));
+      if (options.required) {
+        return AdapterValidationHelper::ReturnBufferTooSmall(
+            status, "Missing doc_out slot item", kOutputSlot,
+            options.Label().c_str(), static_cast<int>(i));
+      }
+      continue;
     }
 
     out->request_id = (*raw_req_ids)[i];
@@ -85,9 +89,10 @@ int EncodeOperatorDocAnswer(AlgContext* context,
                            status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
+    ++non_null_written;
   }
 
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = non_null_written;
   return COMPANY_ALG_SUCCESS;
 }
 

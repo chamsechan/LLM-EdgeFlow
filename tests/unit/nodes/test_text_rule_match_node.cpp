@@ -611,4 +611,44 @@ TEST_F(TextRuleMatchNodeTest, ControlReplacesOnlyGivenParameters) {
   }
 }
 
+TEST_F(TextRuleMatchNodeTest, EmptyRegexPatternDoesNotMatchText) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  nlohmann::json cfg = {{"default_category", "FALLBACK"},
+                        {"rules",
+                         {{{"strategy", "regex"},
+                           {"pattern", ""},
+                           {"category", "EMPTY_REGEX"}}}}};
+  ASSERT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  ctx.Publish("text", TextBatch{{1, 0, "ordinary text"}, {2, 0, ""}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 2U);
+  EXPECT_EQ((*matches)[0].data.category, "FALLBACK");
+  EXPECT_NE((*matches)[0].data.category, "EMPTY_REGEX");
+  EXPECT_EQ((*matches)[1].data.category, "FALLBACK");
+  EXPECT_NE((*matches)[1].data.category, "EMPTY_REGEX");
+
+  // Control update with empty regex pattern also preserves non-matching
+  // behavior
+  auto update_res = node->Control(
+      kControlCmdUpdateRules,
+      R"({"rules":[{"strategy":"regex","pattern":"","category":"NEW_EMPTY"}]})");
+  ASSERT_EQ(update_res.status, NodeControlStatus::kHandled);
+
+  AlgContext ctx2;
+  ctx2.Publish("text", TextBatch{{3, 0, "hello world"}, {4, 0, ""}});
+  ASSERT_EQ(node->Process(&ctx2), 0);
+  const auto* matches2 = ctx2.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches2, nullptr);
+  ASSERT_EQ(matches2->size(), 2U);
+  EXPECT_EQ((*matches2)[0].data.category, "FALLBACK");
+  EXPECT_NE((*matches2)[0].data.category, "NEW_EMPTY");
+  EXPECT_EQ((*matches2)[1].data.category, "FALLBACK");
+  EXPECT_NE((*matches2)[1].data.category, "NEW_EMPTY");
+}
+
 }  // namespace llm_edgeflow

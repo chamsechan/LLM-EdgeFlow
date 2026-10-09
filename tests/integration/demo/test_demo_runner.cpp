@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "adapter/io_converter_registry.h"
 #include "core/node_registry.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_io_registry.h"
@@ -23,6 +24,7 @@
 #include "nlohmann/json.hpp"
 #include "nodes/node_base.h"
 #include "tests/support/control_test_utils.h"
+#include "tests/support/scoped_converter_registry.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
@@ -302,8 +304,8 @@ TEST(DemoRunnerTest, ConfigAloneResolvesRegisteredCarriers) {
       nullptr);
   EXPECT_NE(DemoOutputRegistry::Instance().Find(contract.outputs[0].type_name),
             nullptr);
-  EXPECT_EQ(DemoIoKey(contract.inputs[0]), "demo.keyword_in");
-  EXPECT_EQ(DemoIoKey(contract.outputs[0]), "demo.keyword_out");
+  EXPECT_EQ(DemoIoKey(contract.inputs[0]), "keyword_match.keyword_in");
+  EXPECT_EQ(DemoIoKey(contract.outputs[0]), "keyword_match.keyword_out");
 }
 
 // CLI 错误保持退出码 2。
@@ -727,6 +729,40 @@ TEST(DemoRunnerTest, MergesMultipleOutputItemsWithTypePrefixOnCollisions) {
       first);
 }
 
+TEST(DemoRunnerTest, RepeatedOutputTypesKeepDistinctKeysAndResultFields) {
+  llm_edgeflow::test_support::ScopedConverterRegistry restore;
+  auto& registry = llm_edgeflow::IoConverterRegistry::Instance();
+  const auto* production =
+      registry.FindOutputConverter("keyword_out", "keyword_match");
+  ASSERT_NE(production, nullptr);
+  auto extra = *production;
+  extra.name = "second_keywords";
+  extra.service_type = 9601;
+  ASSERT_TRUE(registry.RegisterOutputConverter(extra));
+  KiteDemoDirectory temp;
+  std::ifstream source("configs/pipeline_keyword_match_rules.json");
+  auto pipeline = nlohmann::json::parse(source);
+  pipeline["io"]["output"].push_back(
+      {{"type", "keyword_out"}, {"name", extra.name}});
+  std::ofstream(temp.path / "pipeline.json") << pipeline;
+  std::ofstream(temp.path / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  std::ofstream(temp.path / "input.txt") << "初始化\n";
+  DemoOptions options;
+  options.config_path = (temp.path / "pipeline.conf").string();
+  options.dataset_path = (temp.path / "input.txt").string();
+  options.output_dir = (temp.path / "output").string();
+  options.chip = "cpu";
+  options.batch_size = 1;
+  ASSERT_EQ(RunOperatorDemo(options), 0);
+  std::ifstream results(temp.path / "output" / "keyword_match+second_keywords" /
+                        "results.jsonl");
+  ASSERT_TRUE(results.good());
+  const auto record = nlohmann::json::parse(results);
+  EXPECT_EQ(record["output"]["keyword_out/keyword_match.is_hit"], true);
+  EXPECT_EQ(record["output"]["keyword_out/second_keywords.is_hit"], true);
+}
+
 // 音频是否真实模型只看 suite，不再按名字中的 whisper 猜测。
 TEST(DemoRunnerTest, AudioRealModelDependsOnlyOnSuite) {
   const auto build =
@@ -746,7 +782,7 @@ TEST(DemoRunnerTest, AudioRealModelDependsOnlyOnSuite) {
   DemoRequestBatch smoke;
   ASSERT_EQ(build(options, entries, &smoke), 0);
   ASSERT_EQ(smoke.requests.size(), 1U);
-  EXPECT_EQ(smoke.requests[0].count("demo.audio_in"), 1U);
+  EXPECT_EQ(smoke.requests[0].count("audio_asr_intent.audio_in"), 1U);
 
   options.suite = "real";
   DemoRequestBatch real;

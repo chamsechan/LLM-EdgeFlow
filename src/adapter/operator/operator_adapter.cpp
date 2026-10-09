@@ -213,7 +213,7 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
           llm_edgeflow::OperatorFailureStage::kCreatePreparation, create_ret);
     }
 
-    // 4. 预分配输出内存池（每个输出项一份，键为宿主结构体 type）
+    // 4. 预分配输出内存池（每个输出项一份，键为 type/name）
     std::unordered_map<std::string,
                        std::shared_ptr<llm_edgeflow::OutputPoolState>>
         pools;
@@ -236,10 +236,10 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
           &pool_err);
       if (pool_ret != 0 || !pool) {
         SetLastError("Failed to create output pool for slot " +
-                     out_slot.type_suffix + ": " + pool_err);
+                     output.converter->Label() + ": " + pool_err);
         return pool_ret != 0 ? pool_ret : -4;
       }
-      pools[out_slot.type_suffix] = std::move(pool);
+      pools.emplace(output.converter->Label(), std::move(pool));
     }
 
     auto handle_instance = std::make_unique<OperatorHandle>();
@@ -312,10 +312,10 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     }
 
     // 1. 验证并提取外部输入槽（含 service_type 核对）
-    llm_edgeflow::ExternalInputBatchView in_view;
+    std::vector<llm_edgeflow::ExternalInputBatchView> in_views;
     std::string in_err;
     int in_ret = llm_edgeflow::ValidateAndExtractOperatorInputs(
-        inputs, plan->inputs, llm_edgeflow::InputLimits{}, &in_view, &in_err);
+        inputs, plan->inputs, llm_edgeflow::InputLimits{}, &in_views, &in_err);
     if (in_ret != 0) {
       SetLastError(in_err);
       return in_ret;
@@ -345,8 +345,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       in_options.params = item.params.get();
 
       llm_edgeflow::AdapterStatus decode_status;
-      int decode_ret = item.converter->decode_fn(in_view, in_options, &req_ctx,
-                                                 &decode_status);
+      int decode_ret = item.converter->decode_fn(in_views[k], in_options,
+                                                 &req_ctx, &decode_status);
       if (decode_ret != 0) {
         SetLastError("DecodeInput failed for " + item.converter->Label() +
                      ": " + decode_status.ToString());
@@ -411,25 +411,34 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
 
     // 6. 执行统一输出编码 (将结果写入已租用的外部结构块)，并写入各输出项
     // 登记的 service_type
-    llm_edgeflow::ExternalOutputBatchView out_view;
-    out_view.count = inputs.size();
+    // 保留完整批次索引，省略位置保持 nullptr
+    std::unordered_map<std::string, std::vector<void*>> item_leased_blocks;
     for (const auto& item : plan->outputs) {
-      const auto& slot = item.converter->slot;
-      out_view.slot_types[slot.type_suffix] = slot.type_id;
-      auto pool = h->output_pools.find(slot.type_suffix);
-      if (pool != h->output_pools.end())
-        out_view.pool_specs[slot.type_suffix] = &pool->second->Spec();
+      item_leased_blocks[item.converter->Label()].assign(inputs.size(),
+                                                         nullptr);
     }
     for (const auto& acq : acquired_blocks) {
-      out_view.leased_slots[acq.logical_name].push_back(acq.raw_block);
+      item_leased_blocks.at(acq.item_label).at(acq.frame_idx) = acq.raw_block;
     }
 
     for (const auto& item : plan->outputs) {
+      const auto& slot = item.converter->slot;
+      const std::string label = item.converter->Label();
+      llm_edgeflow::ExternalOutputBatchView out_view;
+      out_view.count = inputs.size();
+      out_view.slot_types[slot.type_suffix] = slot.type_id;
+      out_view.pool_specs[slot.type_suffix] =
+          &h->output_pools.at(label)->Spec();
+
+      const auto& blocks = item_leased_blocks[label];
+      out_view.leased_slots[slot.type_suffix] = blocks;
+
       llm_edgeflow::OutputEncodeOptions out_options;
       out_options.type = item.converter->type;
       out_options.name = item.converter->name;
       out_options.request_ids = &request_ids;
       out_options.params = item.params.get();
+      out_options.required = item.converter->slot.required;
 
       size_t written_count = 0;
       llm_edgeflow::AdapterStatus encode_status;
@@ -440,22 +449,29 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
                      ": " + encode_status.ToString());
         return encode_ret;
       }
-      if (written_count != inputs.size()) {
+
+      size_t non_null_count = 0;
+      for (void* block : blocks) {
+        if (block) ++non_null_count;
+      }
+      if (written_count != non_null_count) {
         SetLastError("EncodeOutput written count (" +
                      std::to_string(written_count) +
-                     ") does not match input count (" +
-                     std::to_string(inputs.size()) + ")");
+                     ") does not match leased target count (" +
+                     std::to_string(non_null_count) + ")");
         return -4;
       }
+
       if (item.converter->service_type.has_value()) {
         const auto* binding =
             llm_edgeflow::OperatorValueTypeRegistry::Instance()
                 .GetOutputBinding(item.converter->slot.type_suffix,
                                   item.converter->slot.allocator);
         if (binding && binding->write_service_type) {
-          for (void* block :
-               out_view.leased_slots[item.converter->slot.type_suffix]) {
-            binding->write_service_type(block, *item.converter->service_type);
+          for (void* block : blocks) {
+            if (block) {
+              binding->write_service_type(block, *item.converter->service_type);
+            }
           }
         }
       }

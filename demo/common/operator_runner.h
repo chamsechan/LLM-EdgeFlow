@@ -241,10 +241,10 @@ inline int CreateOperatorInstance(
 
 /**
  * @brief 把各输出项的 output 字段合并成一条记录的 output。
- * 字段名在多个输出项中重复时，以输出项的 type 作前缀（"<type>.<字段>"）。
+ * 字段名在多个输出项中重复时，使用传入的项标识作前缀。
  */
 inline nlohmann::json MergeOutputFields(
-    const std::vector<std::string>& types,
+    const std::vector<std::string>& prefixes,
     const std::vector<nlohmann::json>& fields) {
   nlohmann::json merged = nlohmann::json::object();
   if (fields.size() == 1) {
@@ -261,7 +261,7 @@ inline nlohmann::json MergeOutputFields(
     if (!fields[i].is_object()) continue;
     for (auto it = fields[i].begin(); it != fields[i].end(); ++it) {
       const bool shared = occurrences[it.key()] > 1;
-      merged[shared ? types[i] + "." + it.key() : it.key()] = it.value();
+      merged[shared ? prefixes[i] + "." + it.key() : it.key()] = it.value();
     }
   }
   return merged;
@@ -271,7 +271,7 @@ inline nlohmann::json MergeOutputFields(
  * @brief 按宿主结构（载体）运行一个部署配置的唯一公共流程：
  *   1. 用 ResolveOperatorConfigIo 取得 I/O 契约，找到请求构造和结果显示；
  *   2. 创建句柄，执行 Control；
- *   3. 按 batch_size 分批 Process，输入、输出 key 为各项的 "demo.<type>"；
+ *   3. 按 batch_size 分批 Process，输入、输出 key 为各项的 "<name>.<type>"；
  *   4. 对每条结果、每个输出项调用结果显示，合并写 results.jsonl/summary.json。
  * Demo 只构造载体、持有缓冲、调用 SDK、显示结果；校验和响应组装在 SDK。
  * @return 0 成功，3 参数/配置错误，4 数据集错误，5 Operator 失败，6
@@ -307,7 +307,9 @@ inline int RunOperatorDemo(const DemoOptions& options) {
     return 3;
   }
   std::vector<ShowResultFn> show_results;
-  std::vector<std::string> output_types;
+  std::vector<std::string> output_prefixes;
+  std::map<std::string, size_t> output_type_counts;
+  for (const auto& output : contract.outputs) ++output_type_counts[output.type];
   std::string output_carriers;
   std::vector<std::string> label_names;  // 输出项的业务名，去重后命名结果目录
   std::string run_label;
@@ -325,7 +327,9 @@ inline int RunOperatorDemo(const DemoOptions& options) {
       return 3;
     }
     show_results.push_back(show);
-    output_types.push_back(output.type);
+    output_prefixes.push_back(output_type_counts.at(output.type) == 1
+                                  ? output.type
+                                  : output.type + "/" + output.name);
     if (!output_carriers.empty()) output_carriers += ",";
     output_carriers += output.type_name;
     if (std::find(label_names.begin(), label_names.end(), output.name) ==
@@ -452,7 +456,7 @@ inline int RunOperatorDemo(const DemoOptions& options) {
         if (sample.status == 0) sample.status = status;
         fields.push_back(std::move(output_fields));
       }
-      sample.output = MergeOutputFields(output_types, fields);
+      sample.output = MergeOutputFields(output_prefixes, fields);
       sample_results.push_back(std::move(sample));
     }
 

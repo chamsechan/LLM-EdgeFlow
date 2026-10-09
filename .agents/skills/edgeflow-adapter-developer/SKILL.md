@@ -27,7 +27,7 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 
 从 [翻译输入](../../../src/adapter/input/translate_json_input.cpp)、
 [翻译输出](../../../src/adapter/output/translation_json_output.cpp)（含 `MaxBytes` 尺寸参数写法）选择相近模板。
-单必需槽、单内部业务 payload 流、每请求一个结果的路径使用
+单槽、单内部业务 payload 流、每请求一个结果的路径使用（输入槽必需，输出槽可选）
 `DecodeRequestRows` / `EncodeResultRows`：业务函数只处理一行载荷，框架负责遍历、来源和诊断。
 若还有独立透传 metadata 流（例如只在最终响应保留的业务 ID），即使只有一个外部槽也应
 使用显式多流转换和现有低层 helper；不要将 metadata 拼入模型输入。多槽或聚合同样按

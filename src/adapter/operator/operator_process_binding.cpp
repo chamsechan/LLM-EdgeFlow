@@ -1,130 +1,137 @@
 #include "adapter/operator/operator_process_binding.h"
 
-#include <unordered_set>
+#include <unordered_map>
 #include <utility>
 
 namespace llm_edgeflow {
+namespace {
+
+// 同侧 type 唯一时，宿主可自由选择前缀；复用 type 时必须以业务名区分。
+// service_type 只用于载荷校验，不参与 key 寻址。
+template <typename Item>
+bool ResolveFrameKeys(const operator_api::NamedIo& frame,
+                      const std::vector<Item>& items, const char* side,
+                      size_t frame_idx, std::vector<std::string>* keys,
+                      std::string* error) {
+  keys->assign(items.size(), {});
+  std::unordered_map<std::string, size_t> type_counts;
+  for (const auto& item : items) ++type_counts[item.converter->type];
+
+  const std::string location = " in frame " + std::to_string(frame_idx);
+  for (const auto& [key, value] : frame) {
+    std::string ns;
+    std::string type;
+    if (!OperatorValueTypeRegistry::ParseKey(key, &ns, &type)) {
+      if (error)
+        *error = std::string("Invalid ") + side + " key format" + location +
+                 ": " + key;
+      return false;
+    }
+    size_t index = 0;
+    for (; index < items.size(); ++index) {
+      const auto& converter = *items[index].converter;
+      if (converter.type == type &&
+          (type_counts.at(type) == 1 || ns == converter.name))
+        break;
+    }
+    if (index == items.size()) {
+      if (error)
+        *error = std::string("Unknown or ambiguous ") + side + " key" +
+                 location + ": " + key;
+      return false;
+    }
+    if (!(*keys)[index].empty()) {
+      if (error)
+        *error = std::string("Duplicate ") + side + " slot mapping for " +
+                 items[index].converter->Label() + location;
+      return false;
+    }
+    (*keys)[index] = key;
+  }
+  for (size_t index = 0; index < items.size(); ++index) {
+    if ((*keys)[index].empty() && items[index].converter->slot.required) {
+      if (error)
+        *error = std::string("Missing required ") + side + " slot for " +
+                 items[index].converter->Label() + location;
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
 
 int ValidateAndExtractOperatorInputs(
-    const llm_edgeflow::operator_api::NamedIoBatch& inputs,
+    const operator_api::NamedIoBatch& inputs,
     const std::vector<SelectedInput>& items, const InputLimits& limits,
-    ExternalInputBatchView* out_view, std::string* error) {
-  if (!out_view) {
-    if (error) *error = "Null out_view pointer";
+    std::vector<ExternalInputBatchView>* out_views, std::string* error) {
+  if (!out_views) {
+    if (error) *error = "Null out_views pointer";
     return -3;
   }
-  out_view->count = inputs.size();
-  out_view->slots.clear();
-  out_view->slot_types.clear();
-  for (const auto& item : items) {
-    const auto& slot = item.converter->slot;
-    out_view->slot_types[slot.type_suffix] = slot.type_id;
-    out_view->slots[slot.type_suffix].resize(inputs.size());
+  out_views->assign(items.size(), {});
+  for (size_t k = 0; k < items.size(); ++k) {
+    const auto& slot = items[k].converter->slot;
+    auto& view = (*out_views)[k];
+    view.count = inputs.size();
+    view.slot_types[slot.type_suffix] = slot.type_id;
+    view.slots[slot.type_suffix].resize(inputs.size());
   }
 
   for (size_t i = 0; i < inputs.size(); ++i) {
-    const auto& in_map = inputs[i];
-    std::unordered_set<std::string> recognized_keys;
-
-    for (const auto& item : items) {
+    std::vector<std::string> keys;
+    if (!ResolveFrameKeys(inputs[i], items, "input", i, &keys, error))
+      return -3;
+    for (size_t k = 0; k < items.size(); ++k) {
+      if (keys[k].empty()) continue;
+      const auto& item = items[k];
       const auto& slot = item.converter->slot;
-      std::string found_key;
-      std::shared_ptr<void> payload = nullptr;
-
-      for (const auto& [key, value] : in_map) {
-        std::string suffix;
-        if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
-          if (error) {
-            *error = "Invalid input key format in frame " + std::to_string(i) +
-                     ": " + key;
-          }
-          return -3;
-        }
-        if (suffix != slot.type_suffix) {
-          continue;
-        }
-        if (!found_key.empty()) {
-          if (error) {
-            *error = "Duplicate input slot mapping for suffix '" +
-                     slot.type_suffix + "' in frame " + std::to_string(i);
-          }
-          return -3;
-        }
-        found_key = key;
-        if (!value || !value.get()) {
-          if (error) *error = "Null input shared_ptr for key: " + key;
-          return -3;
-        }
-        payload = value;
-        recognized_keys.insert(key);
-      }
-
-      if (!payload && slot.required) {
-        if (error) {
-          *error = "Missing required input slot for suffix '" +
-                   slot.type_suffix + "' in frame " + std::to_string(i);
-        }
+      const auto& payload = inputs[i].at(keys[k]);
+      if (!payload) {
+        if (error) *error = "Null input shared_ptr for key: " + keys[k];
         return -3;
       }
-
-      if (payload) {
-        const auto* binding =
-            OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
-                slot.type_suffix);
-        if (!binding || !binding->validate_external) {
-          if (error) {
-            *error =
-                "Missing Operator input ValueType binding or validate_external "
-                "for suffix '" +
-                slot.type_suffix + "'";
-          }
+      const auto* binding =
+          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
+              slot.type_suffix);
+      if (!binding || !binding->validate_external) {
+        if (error)
+          *error =
+              "Missing Operator input ValueType binding or "
+              "validate_external for suffix '" +
+              slot.type_suffix + "'";
+        return -3;
+      }
+      std::string validation_error;
+      const int result =
+          binding->validate_external(payload.get(), limits, &validation_error);
+      if (result != 0) {
+        if (error)
+          *error = "Validation failed for input key " + keys[k] + ": " +
+                   validation_error;
+        return result;
+      }
+      if (item.converter->service_type.has_value() &&
+          binding->read_service_type) {
+        const auto actual = binding->read_service_type(payload.get());
+        if (actual != item.converter->service_type) {
+          if (error)
+            *error = "service_type mismatch for input " +
+                     item.converter->Label() + " struct '" + slot.type_suffix +
+                     "' in frame " + std::to_string(i) + ": expected " +
+                     std::to_string(*item.converter->service_type) + ", got " +
+                     (actual.has_value() ? std::to_string(*actual) : "none");
           return -3;
         }
-        std::string validation_error;
-        int validation_result = binding->validate_external(
-            payload.get(), limits, &validation_error);
-        if (validation_result != 0) {
-          if (error) {
-            *error = "Validation failed for input key " + found_key + ": " +
-                     validation_error;
-          }
-          return validation_result;
-        }
-        // 每个请求核对宿主结构体的 service_type 是否属于该项登记的业务。
-        if (item.converter->service_type.has_value() &&
-            binding->read_service_type) {
-          const auto actual = binding->read_service_type(payload.get());
-          if (actual != item.converter->service_type) {
-            if (error) {
-              *error =
-                  "service_type mismatch for input " + item.converter->Label() +
-                  " struct '" + slot.type_suffix + "' in frame " +
-                  std::to_string(i) + ": expected " +
-                  std::to_string(*item.converter->service_type) + ", got " +
-                  (actual.has_value() ? std::to_string(*actual)
-                                      : std::string("none"));
-            }
-            return -3;
-          }
-        }
-        out_view->slots[slot.type_suffix][i] = std::move(payload);
       }
-    }
-
-    if (recognized_keys.size() != in_map.size()) {
-      if (error) {
-        *error =
-            "Unknown extra input keys present in frame " + std::to_string(i);
-      }
-      return -3;
+      (*out_views)[k].slots.at(slot.type_suffix)[i] = payload;
     }
   }
-
   return 0;
 }
 
 int ResolveOperatorOutputs(
-    const llm_edgeflow::operator_api::NamedIoBatch& outputs,
+    const operator_api::NamedIoBatch& outputs,
     const std::vector<SelectedOutput>& items,
     std::vector<std::vector<FrameOutputBinding>>* frame_bindings,
     std::string* error) {
@@ -132,70 +139,22 @@ int ResolveOperatorOutputs(
     if (error) *error = "Null frame_bindings pointer";
     return -4;
   }
-  frame_bindings->clear();
-  frame_bindings->resize(outputs.size());
-
+  frame_bindings->assign(outputs.size(), {});
   for (size_t i = 0; i < outputs.size(); ++i) {
-    const auto& out_map = outputs[i];
-    std::unordered_set<std::string> recognized_keys;
-
-    for (const auto& item : items) {
-      const auto& slot = item.converter->slot;
-      std::string found_key;
-
-      for (const auto& [key, value] : out_map) {
-        std::string suffix;
-        if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
-          if (error) {
-            *error = "Invalid output key format in frame " + std::to_string(i) +
-                     ": " + key;
-          }
-          return -4;
-        }
-        if (suffix != slot.type_suffix) {
-          continue;
-        }
-        if (!found_key.empty()) {
-          if (error) {
-            *error = "Duplicate output slot mapping for suffix '" +
-                     slot.type_suffix + "' in frame " + std::to_string(i);
-          }
-          return -4;
-        }
-        found_key = key;
-        if (value != nullptr) {
-          if (error) {
-            *error = "Output shared_ptr must be null for key " + key +
-                     " in frame " + std::to_string(i);
-          }
-          return -4;
-        }
-        recognized_keys.insert(key);
-      }
-
-      if (found_key.empty() && slot.required) {
-        if (error) {
-          *error = "Missing required output slot for suffix '" +
-                   slot.type_suffix + "' in frame " + std::to_string(i);
-        }
+    std::vector<std::string> keys;
+    if (!ResolveFrameKeys(outputs[i], items, "output", i, &keys, error))
+      return -4;
+    for (size_t k = 0; k < items.size(); ++k) {
+      if (keys[k].empty()) continue;
+      if (outputs[i].at(keys[k]) != nullptr) {
+        if (error)
+          *error = "Output shared_ptr must be null for key " + keys[k] +
+                   " in frame " + std::to_string(i);
         return -4;
       }
-
-      if (!found_key.empty()) {
-        (*frame_bindings)[i].push_back(
-            {found_key, slot.type_suffix, slot.type_suffix});
-      }
-    }
-
-    if (recognized_keys.size() != out_map.size()) {
-      if (error) {
-        *error =
-            "Unknown extra output keys present in frame " + std::to_string(i);
-      }
-      return -4;
+      (*frame_bindings)[i].push_back({keys[k], items[k].converter->Label()});
     }
   }
-
   return 0;
 }
 
@@ -220,10 +179,10 @@ int AcquireOperatorOutputBlocks(
 
   for (size_t f = 0; f < frame_bindings.size(); ++f) {
     for (const auto& binding : frame_bindings[f]) {
-      auto pit = output_pools.find(binding.logical_name);
+      auto pit = output_pools.find(binding.item_label);
       if (pit == output_pools.end() || !pit->second) {
         if (error) {
-          *error = "Missing output pool for slot " + binding.logical_name;
+          *error = "Missing output pool for slot " + binding.item_label;
         }
         return -5;
       }
@@ -232,13 +191,13 @@ int AcquireOperatorOutputBlocks(
       int acq_ret = pool->Acquire(&block);
       if (acq_ret != 0 || !block) {
         if (error) {
-          *error = "Output pool exhausted for slot " + binding.logical_name;
+          *error = "Output pool exhausted for slot " + binding.item_label;
         }
         return -4;
       }
       lease_guard->Track(pool, block);
       acquired_blocks->push_back(
-          {f, binding.key, pool, block, binding.logical_name});
+          {f, binding.key, pool, block, binding.item_label});
     }
   }
 

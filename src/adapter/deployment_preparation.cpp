@@ -76,7 +76,6 @@ std::string UnknownConverterMessage(const char* side, const IoItemSpec& item,
 bool CheckUniqueItems(const char* side, const std::vector<IoItemSpec>& items,
                       DeploymentDiagnostic* diagnostic) {
   std::set<std::pair<std::string, std::string>> pairs;
-  std::set<std::string> types;
   for (size_t i = 0; i < items.size(); ++i) {
     const std::string path =
         std::string("/io/") + side + "/" + std::to_string(i);
@@ -84,12 +83,6 @@ bool CheckUniqueItems(const char* side, const std::vector<IoItemSpec>& items,
       SetDiagnostic(diagnostic, "DUPLICATE_IO_ENTRY", path,
                     "Duplicate io " + std::string(side) + " item " +
                         items[i].type + "/" + items[i].name);
-      return false;
-    }
-    if (!types.insert(items[i].type).second) {
-      SetDiagnostic(diagnostic, "INVALID_COMBINATION", path,
-                    "Host struct type '" + items[i].type +
-                        "' is used by more than one io " + side + " item");
       return false;
     }
   }

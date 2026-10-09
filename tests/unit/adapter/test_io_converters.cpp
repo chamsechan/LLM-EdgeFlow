@@ -269,7 +269,8 @@ TEST(IoConverterTest, OptionalInputSlotsPreserveEveryFramePosition) {
     auto payload = std::make_shared<CompanyOperatorEntityInput>();
     payload->request_id = 100 + i;
     payload->sentence_text = &sentence;
-    inputs[i]["test.entity_in"] = payload;
+    // 唯一 type 的前缀不应被另一项的业务名占用。
+    inputs[i]["optional_item.entity_in"] = payload;
     required_payloads.push_back(std::move(payload));
     auto extra = std::make_shared<CompanyOperatorKeywordInput>();
     extra->request_id = 100 + i;
@@ -277,29 +278,86 @@ TEST(IoConverterTest, OptionalInputSlotsPreserveEveryFramePosition) {
     if (i % 2 == 1) inputs[i]["test.keyword_in"] = extra;
     optional_payloads.push_back(std::move(extra));
   }
-  ExternalInputBatchView view;
+  std::vector<ExternalInputBatchView> views;
   std::string error;
-  ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &view, &error),
+  ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &views, &error),
             0)
       << error;
-  ASSERT_EQ(view.count, 5U);
-  ASSERT_EQ(view.slots.at("keyword_in").size(), 5U);
+  ASSERT_EQ(views.size(), 2U);
+  ASSERT_EQ(views[0].count, 5U);
+  ASSERT_EQ(views[1].slots.at("keyword_in").size(), 5U);
   for (size_t i = 0; i < inputs.size(); ++i) {
-    EXPECT_EQ(view.GetSlot<CompanyOperatorEntityInput>("entity_in", i),
+    EXPECT_EQ(views[0].GetSlot<CompanyOperatorEntityInput>("entity_in", i),
               required_payloads[i].get());
     const auto* extra =
-        view.GetSlot<CompanyOperatorKeywordInput>("keyword_in", i);
+        views[1].GetSlot<CompanyOperatorKeywordInput>("keyword_in", i);
     EXPECT_EQ(extra, i % 2 == 1 ? optional_payloads[i].get() : nullptr);
     if (i % 2 == 1) {
       ASSERT_NE(extra, nullptr);
       EXPECT_EQ(extra->request_id, 100 + i);
     }
   }
-  inputs[2].erase("test.entity_in");
-  EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &view, &error),
+  inputs[2].erase("optional_item.entity_in");
+  EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &views, &error),
             -3);
   EXPECT_NE(error.find("Missing required input slot"), std::string::npos);
   EXPECT_NE(error.find("frame 2"), std::string::npos);
+}
+
+TEST(IoConverterTest, RepeatedInputTypesUseExplicitNamesAndSeparateViews) {
+  InputConverterDefinition first;
+  first.type = "keyword_in";
+  first.name = "first";
+  first.service_type = 9101;
+  first.slot = ExternalInputSlot<CompanyOperatorKeywordInput>(first.type);
+  auto second = first;
+  second.name = "second";
+  second.service_type = 9102;
+  second.slot.required = false;
+  const std::vector<SelectedInput> items = {{&first, nullptr},
+                                            {&second, nullptr}};
+  char text[] = "hello";
+  CompanyString sentence{5, text};
+  CompanyOperatorKeywordInput a{42, &sentence, 9101};
+  CompanyOperatorKeywordInput b{42, &sentence, 9102};
+  operator_api::NamedIoBatch inputs(2);
+  inputs[0]["first.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&a);
+  inputs[0]["second.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&b);
+  inputs[1]["first.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&a);
+  std::vector<ExternalInputBatchView> views;
+  std::string error;
+  ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &views, &error),
+            0)
+      << error;
+  ASSERT_EQ(views.size(), 2U);
+  EXPECT_EQ(views[0].GetSlot<CompanyOperatorKeywordInput>("keyword_in", 0), &a);
+  EXPECT_EQ(views[1].GetSlot<CompanyOperatorKeywordInput>("keyword_in", 0), &b);
+  EXPECT_EQ(views[1].GetSlot<CompanyOperatorKeywordInput>("keyword_in", 1),
+            nullptr);
+  EXPECT_EQ(views[0].slots.size(), 1U);
+  EXPECT_EQ(views[1].slots.size(), 1U);
+
+  b.service_type = 9101;
+  EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &views, &error),
+            -3);
+  EXPECT_NE(error.find("service_type mismatch"), std::string::npos);
+  b.service_type = 9102;
+  inputs[0].erase("second.keyword_in");
+  inputs[0]["unidentified.keyword_in"] =
+      operator_api::MakeBorrowedOperatorInput(&b);
+  EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, items, {}, &views, &error),
+            -3);
+  EXPECT_NE(error.find("ambiguous"), std::string::npos);
+
+  inputs[0].erase("unidentified.keyword_in");
+  inputs[0]["second.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&b);
+  const std::vector<SelectedInput> reversed = {{&second, nullptr},
+                                               {&first, nullptr}};
+  ASSERT_EQ(
+      ValidateAndExtractOperatorInputs(inputs, reversed, {}, &views, &error), 0)
+      << error;
+  EXPECT_EQ(views[0].GetSlot<CompanyOperatorKeywordInput>("keyword_in", 0), &b);
+  EXPECT_EQ(views[1].GetSlot<CompanyOperatorKeywordInput>("keyword_in", 0), &a);
 }
 
 TEST(IoConverterTest, HarnessPreservesNamedSlotsTypesAndPoolCapacities) {

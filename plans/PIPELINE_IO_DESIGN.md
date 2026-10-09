@@ -9,7 +9,7 @@
 > **不做兼容**：项目尚未发布，没有兼容使用方。只实现新方案：不保留旧字段别名、不识别旧格式、不提交迁移代码、不写针对旧名字的测试（见 6.4）。
 > **不在范围**：
 > - `.conf` 与 `pipe_path`：外部契约，不改；
-> - Operator 函数表、宿主结构体的布局、宿主 map key 规则。`service_type` 的真实成员与取值进内网后核对（5.1）；
+> - Operator 函数表、宿主结构体的布局、宿主 map key 的后缀规则；同 type 多项的寻址见 5.5。`service_type` 的真实成员与取值进内网后核对（5.1）；
 > - 模型、后端参数：见 [Pipeline 模型配置改造设计](PIPELINE_MODEL_DESIGN.md)；
 > - 数据连接方式与 converter 端口名：[节点设计](PIPELINE_NODE_DESIGN.md)把连线统一改为"节点名.端口名"引用，本文不改（4.6）。
 
@@ -475,7 +475,7 @@ AdapterStatus EncodeRow(const std::string& text, SomeOutput* out,
 - `allocator_params` 在注册审计时就用布局自带的解析函数解析，写错会在 `Init` 报错，比现在的 Create 更早；
 - 命名布局的登记接口（`RegisterOperatorOutputAllocator`、`normalize_parameters`）不变。
 
-**可选输出槽**（`required = false`，只有测试在用）：总是分配输出池；宿主每次调用都可以省略这个 key。
+**可选输出槽**（`required = false`，只有测试在用）：总是分配输出池；宿主每次调用都可以省略这个 key。省略行在 converter 视图中保持 `nullptr`，`written_count` 为实际写入的目标数。
 
 **批次上限**：有效上限为 `min(max_frame_depth, kMaxProcessBatchSize)`。
 
@@ -499,12 +499,13 @@ AdapterStatus EncodeRow(const std::string& text, SomeOutput* out,
 `io.input`、`io.output` 都可以有多项，每项对应一个宿主结构体。
 
 **输入侧**：
-- 每项各自按 `type` 从宿主 map 中取出结构体，核对 `service_type`，再交给各自的 converter 解析。
+- 同侧 `type` 唯一时按宿主 key 的后缀取结构体，前缀任意；同 type 多项时，key 必须是 `<name>.<type>`。`service_type` 只校验载荷，不参与寻址。各 converter 获得独立的槽视图。
+- 取出结构体并核对 `service_type` 后，再交给各自的 converter 解析。
 - 多项按批内序号配对：第 i 张图片和第 i 个问题属于同一个请求。各项的条数必须相同。
 - 请求 ID 取自带 `request_id` 成员的结构体（由平台结构登记声明）。多项都带时，逐条核对是否一致；都不带时 Create 报 `INVALID_COMBINATION`。平台模拟中 `CompanyFrame` 带 `request_id`，`CompanyString` 不带。
 - 各项发布的端口不能重名，否则报 `DUPLICATE_PORT_PRODUCER`。
 
-**输出侧**：每项写自己的结构体；全部成功后一起发布，任何一项失败，所有租约自动归还（与现在相同）。
+**输出侧**：使用与输入侧相同的 key 寻址规则，每项拥有独立的输出池、参数与布局；每项写自己的结构体；全部成功后一起发布，任何一项失败，所有租约自动归还（与现在相同）。
 
 ### 5.6 注册审计
 
@@ -727,7 +728,7 @@ COMPANY_ALG_API int ResolveOperatorConfigIo(
 ```cpp
 // demo/common/demo_io_registry.h（新增）
 struct DemoRequestBatch {
-  std::vector<llm_edgeflow::operator_api::NamedIo> requests;  // key = "demo.<type>"
+  std::vector<llm_edgeflow::operator_api::NamedIo> requests;  // key = "<name>.<type>"
   std::vector<nlohmann::json> request_info;  // 每条请求供结果显示读取的信息（如 rerank 的候选文本）
   std::shared_ptr<void> storage;             // 持有载体内存，覆盖整个运行过程
 };
@@ -743,8 +744,8 @@ using ShowResultFn = void (*)(const void* output, const nlohmann::json& request_
 **公共流程**（`demo/common/operator_runner.h`）只保留一份：
 1. 用 `ResolveOperatorConfigIo` 取得 I/O 契约，找到对应的请求构造和结果显示；找不到时报错并列出已支持的载体。
 2. 创建句柄，执行 Control。
-3. 按 `batch_size` 分批调用 Process；输入、输出 key 为各项的 `demo.<type>`。
-4. 对每条结果、每个输出项调用结果显示，合并写入 `results.jsonl` / `summary.json`。多个输出项的字段同名时，以 `type` 作前缀（`<type>.<字段>`）。
+3. 按 `batch_size` 分批调用 Process；输入、输出 key 为各项的 `<name>.<type>`。
+4. 对每条结果、每个输出项调用结果显示，合并写入 `results.jsonl` / `summary.json`。多个输出项的字段同名时，以 `type` 作前缀（`<type>.<字段>`）；同 type 多项时改用 `type/name`（`<type>/<name>.<字段>`）。
 
 **`results.jsonl` 的 `output` 字段保持现状**，`tests/integration/demo`、效果规格和 `demo/json_prompt_demo.py` 都依赖这些字段：
 

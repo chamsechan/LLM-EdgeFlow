@@ -405,9 +405,11 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   using MemberPtr = MemberT ParamsT::*;
   using ValueType = typename detail::OptionalMember<MemberT>::Value;
 
-  // 结构体元素的容器没有 FieldTypeTraits，由 Items(Parameters<E>) 提供解析。
+  // 结构体元素的容器没有 FieldTypeTraits，由 Items(Parameters<E>)
+  // 提供解析与读取。
   using Extractor =
       std::function<bool(const nlohmann::json&, MemberT*, std::string*)>;
+  using Reader = std::function<nlohmann::json(const MemberT&)>;
 
   ConcreteFieldBinding(std::string name, MemberPtr member_ptr, bool required,
                        bool has_default, MemberT default_val,
@@ -415,7 +417,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
                        std::optional<double> max_val,
                        std::vector<std::string> enum_vals, std::string semantic,
                        std::vector<ConfigFieldDefinition> element_fields = {},
-                       Extractor extractor = nullptr)
+                       Extractor extractor = nullptr, Reader reader = nullptr)
       : name_(std::move(name)),
         member_ptr_(member_ptr),
         required_(required),
@@ -426,7 +428,8 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
         enum_values_(std::move(enum_vals)),
         semantic_(std::move(semantic)),
         element_fields_(std::move(element_fields)),
-        extractor_(std::move(extractor)) {}
+        extractor_(std::move(extractor)),
+        reader_(std::move(reader)) {}
 
   const std::string& Name() const override { return name_; }
 
@@ -444,7 +447,9 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
     detail::ApplyConstraints(&def, minimum_, maximum_, enum_values_);
 
     if (has_default_) {
-      def.default_value = FieldTypeTraits<MemberT>::ToJson(default_val_);
+      def.default_value = reader_
+                              ? reader_(default_val_)
+                              : FieldTypeTraits<MemberT>::ToJson(default_val_);
       // default_value 必须满足 minimum、maximum 和 enum_values
       if (minimum_.has_value()) {
         if constexpr (std::is_arithmetic_v<MemberT>) {
@@ -533,6 +538,9 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   }
 
   nlohmann::json Read(const ParamsT& params) const override {
+    if (reader_) {
+      return reader_(params.*member_ptr_);
+    }
     return FieldTypeTraits<MemberT>::ToJson(params.*member_ptr_);
   }
 
@@ -560,6 +568,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   std::string semantic_;
   std::vector<ConfigFieldDefinition> element_fields_;
   Extractor extractor_;
+  Reader reader_;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -661,6 +670,26 @@ class FieldBuilder {
       *out = std::move(result);
       return true;
     };
+    reader_ = [shared](const MemberT& member) -> nlohmann::json {
+      const auto read_container = [&shared](const Container& container) {
+        if constexpr (std::is_same_v<Container, std::vector<E>>) {
+          nlohmann::json array = nlohmann::json::array();
+          for (const auto& elem : container)
+            array.push_back(shared->Read(elem));
+          return array;
+        } else {
+          nlohmann::json obj = nlohmann::json::object();
+          for (const auto& [key, elem] : container)
+            obj[key] = shared->Read(elem);
+          return obj;
+        }
+      };
+      if constexpr (detail::OptionalMember<MemberT>::value) {
+        return member ? read_container(*member) : nlohmann::json();
+      } else {
+        return read_container(member);
+      }
+    };
     return *this;
   }
 
@@ -677,7 +706,8 @@ class FieldBuilder {
     }
     return std::make_unique<ConcreteFieldBinding<ParamsT, MemberT>>(
         name_, member_ptr_, required_, has_default_, default_val_, minimum_,
-        maximum_, enum_values_, semantic_, element_fields_, extractor_);
+        maximum_, enum_values_, semantic_, element_fields_, extractor_,
+        reader_);
   }
 
  private:
@@ -692,6 +722,7 @@ class FieldBuilder {
   std::string semantic_;
   std::vector<ConfigFieldDefinition> element_fields_;
   typename ConcreteFieldBinding<ParamsT, MemberT>::Extractor extractor_;
+  typename ConcreteFieldBinding<ParamsT, MemberT>::Reader reader_;
 };
 
 template <typename ParamsT, typename MemberT>
