@@ -17,8 +17,8 @@ struct ModelLoadSpec {
   std::string model_type;
   std::string backend_type;
   std::string model_path;
-  nlohmann::json model_config = nlohmann::json::object();
-  nlohmann::json backend_config = nlohmann::json::object();
+  nlohmann::json model_params = nlohmann::json::object();
+  nlohmann::json backend_params = nlohmann::json::object();
   ExecutionTarget execution_target;
 };
 

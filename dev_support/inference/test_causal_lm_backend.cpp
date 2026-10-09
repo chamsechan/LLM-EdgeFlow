@@ -2,8 +2,17 @@
 
 #include <utility>
 
+#include "contracts/parameters.h"
+
 namespace llm_edgeflow {
 namespace test {
+namespace {
+
+struct Params {};
+
+Parameters<Params> ParamSpec() { return {}; }
+
+}  // namespace
 
 std::atomic<int> TestCausalLmBackend::load_count_{0};
 
@@ -47,6 +56,7 @@ BackendDefinition TestCausalLmBackend::MakeDefinition() {
   def.description = "Test Text Generation Backend Fixture";
   def.supported_protocols = {ExecutionProtocol::kTextGeneration};
   def.concurrency = InferenceConcurrency::kSerialized;
+  def.params = ParamSpec();
   return def;
 }
 
@@ -61,6 +71,7 @@ std::shared_ptr<IBackendSession> TestCausalLmBackend::Load(
     return nullptr;
   }
   try {
+    (void)spec.Params<Params>();
     return std::make_shared<TestCausalLmSession>(spec.model_path);
   } catch (...) {
     return nullptr;

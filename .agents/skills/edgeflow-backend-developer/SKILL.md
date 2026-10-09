@@ -24,7 +24,10 @@ description: 新增或修改 LLM-EdgeFlow Backend 的厂商 SDK、硬件运行�
 3. Provider 继承 `BackendIdentity<Backend>` 并只在 `kBackendType` 声明类型名；从
    `MakeBackendDefinition<Backend>()` 开始注册 `BackendDefinition` 与
    `REGISTER_BACKEND_WITH_DEFINITION`，声明全部字段、默认值、
-   范围和协议；额外纯配置约束使用 `validate_config`，Load 复用同一解析规则。
+   范围和协议。参数按 `Params`、`ParamSpec()`、`def.params = ParamSpec()`、
+   `spec.Params<Params>()` 四段编写；额外纯参数约束放在 `ParamSpec().Validate`。
+   Factory 在 Provider 创建前解析一次，`Load` 只读取参数并检查设备、文件和会话资源。
+   直接调用 `Load` 的测试先用 Definition 的 `params.Parse` 产生同类型参数。
    prompt 格式、图像解码、向量池化等模型语义交给 Model。
 
 ## 把 vendor 依赖留在 Backend

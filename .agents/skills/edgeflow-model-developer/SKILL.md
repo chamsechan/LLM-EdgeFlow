@@ -19,12 +19,18 @@ description: 新增或修改 LLM-EdgeFlow Model 的预处理、输出解释和�
   不进入 Model。需要新执行运行时，转 [Backend skill](../edgeflow-backend-developer/SKILL.md)；
   必须扩展中性协议时按跨层契约变更处理，不能直接引用具体 Backend。
 - 通过 `REGISTER_MODEL_WITH_DEFINITION` 注册完整 `ModelDefinition`，声明能力、执行协议、
-  并发约束及 `config_fields`。身份只写一次：继承 `ModelIdentity<Model, 能力接口>` 并声明
+  并发约束及 `params`。身份只写一次：继承 `ModelIdentity<Model, 能力接口>` 并声明
   `kModelType`、`kConcurrency`，Definition 从 `MakeModelDefinition<Model>()` 开始。
   不要在 Web、skill 或 Node 再维护模型列表。
-- 额外配置语义写入纯函数 `validate_config`：输入已完成字段校验和默认值补齐，函数不做
-  文件/资源 I/O；Validator 和 Factory 会在 Backend 创建/加载前执行。直接 Create 复用
-  相同语义检查，资源存在性、Tensor metadata 和会话相关检查留在创建阶段。
+- 参数按四段编写：`Params` 结构、返回 `Parameters<Params>` 的 `ParamSpec()`、
+  `def.params = ParamSpec()`、创建时 `ctx.Params<Params>()`。默认值仅写在 `Field` 声明中；
+  纯参数语义用 `ParamSpec().Validate`，不做文件/资源 I/O。
+  Validator 在规划时执行参数校验，Factory 在创建前分别解析模型、后端参数一次，
+  `Create` 读取只读参数，不复查纯参数。直接调用 `Create` 的测试须先用 Definition 的
+  `params.Parse` 产生参数。资源存在性、Tensor metadata 和会话检查留在创建阶段。
+- `std::optional<T>` 字段不写时为空，不能声明 `Required()` 或 `Default()`。
+  BGE 用 `ResolveFromModel` 读取固定形状；配置与固定值冲突时报错，无法读取时用已声明
+  fallback 或提示填写参数。Catalog 展示声明，创建日志记录最终值。
 - 固定 Tensor 批处理用 `FixedBatchExecutor::Execute`；普通逐项路径用 `ExecuteItems`。
   遵循各 helper 的执行/补齐协议，框架负责 provenance、去 padding 和失败清空；
   不把非空固定批改成逐项调用。BatchPolicy 来自 Session。

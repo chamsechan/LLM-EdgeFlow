@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/log.h"
 
 #ifdef HAVE_ONNXRUNTIME
@@ -17,10 +18,6 @@
 #endif
 
 namespace llm_edgeflow {
-
-#ifdef HAVE_ONNXRUNTIME
-static const BackendDefinition& OnnxRuntimeBackendDefinition();
-#endif
 
 namespace onnxruntime_detail {
 
@@ -318,6 +315,38 @@ bool ValidateExecutionTarget(const ExecutionTarget& target,
 
 namespace {
 
+struct Params {
+  int max_batch_size;
+  int intra_op_num_threads;
+  int inter_op_num_threads;
+  std::string graph_optimization_level;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      Field("max_batch_size", &Params::max_batch_size)
+          .Default(4)
+          .Range(1, 1024)
+          .Description("动态 batch 的样本数上限；静态 batch "
+                       "模型使用张量形状声明的固定批次。"),
+      Field("intra_op_num_threads", &Params::intra_op_num_threads)
+          .Default(2)
+          .Range(1, 64)
+          .Description("ONNX Runtime 单个算子内部的 CPU 线程数。"),
+      Field("inter_op_num_threads", &Params::inter_op_num_threads)
+          .Default(1)
+          .Range(1, 64)
+          .Description("传给 ONNX Runtime "
+                       "的算子间线程数；是否使用由运行时执行模式决定。"),
+      Field("graph_optimization_level", &Params::graph_optimization_level)
+          .Default("all")
+          .Enum({"none", "basic", "extended", "all"})
+          .Description(
+              "传给 ONNX Runtime 的图优化级别：none 关闭，basic/extended/all "
+              "依次选择对应优化集合。"),
+  });
+}
+
 std::optional<ElementType> TryMapOnnxElementType(
     ONNXTensorElementDataType onnx_type) noexcept {
   switch (onnx_type) {
@@ -576,6 +605,7 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
         "(HAVE_ONNXRUNTIME missing)");
     return nullptr;
 #else
+    const auto& p = spec.Params<Params>();
     if (spec.model_path.empty()) {
       SetDiagnosticNoexcept(diagnostic, "Model path is empty");
       return nullptr;
@@ -593,26 +623,16 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
                                           "OnnxRuntimeBackend");
 
     Ort::SessionOptions session_options;
-    int intra_threads = ConfigValueOrDefault<int>(
-        spec.backend_config, OnnxRuntimeBackendDefinition().config_fields,
-        "intra_op_num_threads");
-    int inter_threads = ConfigValueOrDefault<int>(
-        spec.backend_config, OnnxRuntimeBackendDefinition().config_fields,
-        "inter_op_num_threads");
-    std::string opt_level_str = ConfigValueOrDefault<std::string>(
-        spec.backend_config, OnnxRuntimeBackendDefinition().config_fields,
-        "graph_optimization_level");
+    session_options.SetIntraOpNumThreads(p.intra_op_num_threads);
+    session_options.SetInterOpNumThreads(p.inter_op_num_threads);
 
-    session_options.SetIntraOpNumThreads(intra_threads);
-    session_options.SetInterOpNumThreads(inter_threads);
-
-    if (opt_level_str == "none") {
+    if (p.graph_optimization_level == "none") {
       session_options.SetGraphOptimizationLevel(
           GraphOptimizationLevel::ORT_DISABLE_ALL);
-    } else if (opt_level_str == "basic") {
+    } else if (p.graph_optimization_level == "basic") {
       session_options.SetGraphOptimizationLevel(
           GraphOptimizationLevel::ORT_ENABLE_BASIC);
-    } else if (opt_level_str == "extended") {
+    } else if (p.graph_optimization_level == "extended") {
       session_options.SetGraphOptimizationLevel(
           GraphOptimizationLevel::ORT_ENABLE_EXTENDED);
     } else {
@@ -708,12 +728,10 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
       outputs.push_back(std::move(out_spec));
     }
 
-    const size_t config_max_batch = ConfigValueOrDefault<int>(
-        spec.backend_config, OnnxRuntimeBackendDefinition().config_fields,
-        "max_batch_size");
     BatchPolicy policy;
-    if (!onnxruntime_detail::InferBatchPolicy(inputs, outputs, config_max_batch,
-                                              &policy, diagnostic)) {
+    if (!onnxruntime_detail::InferBatchPolicy(
+            inputs, outputs, static_cast<size_t>(p.max_batch_size), &policy,
+            diagnostic)) {
       return nullptr;
     }
 
@@ -742,42 +760,7 @@ static const BackendDefinition& OnnxRuntimeBackendDefinition() {
     def.description = "Microsoft ONNX Runtime TensorGraph inference backend";
     def.supported_protocols = {ExecutionProtocol::kTensorGraph};
     def.concurrency = InferenceConcurrency::kConcurrent;
-    def.config_fields = {
-        {"max_batch_size",
-         ConfigValueKind::kInteger,
-         false,
-         4,
-         1.0,
-         1024.0,
-         {},
-         "动态 batch 的样本数上限；静态 batch "
-         "模型使用张量形状声明的固定批次。"},
-        {"intra_op_num_threads",
-         ConfigValueKind::kInteger,
-         false,
-         2,
-         1.0,
-         64.0,
-         {},
-         "ONNX Runtime 单个算子内部的 CPU 线程数。"},
-        {"inter_op_num_threads",
-         ConfigValueKind::kInteger,
-         false,
-         1,
-         1.0,
-         64.0,
-         {},
-         "传给 ONNX Runtime 的算子间线程数；是否使用由运行时执行模式决定。"},
-        {"graph_optimization_level",
-         ConfigValueKind::kString,
-         false,
-         "all",
-         std::nullopt,
-         std::nullopt,
-         {"none", "basic", "extended", "all"},
-         "传给 ONNX Runtime 的图优化级别：none 关闭，basic/extended/all "
-         "依次选择对应优化集合。"},
-    };
+    def.params = ParamSpec();
     return def;
   }();
   return definition;

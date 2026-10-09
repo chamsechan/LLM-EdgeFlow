@@ -6,15 +6,37 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
 
 namespace llm_edgeflow {
 
-static const ModelDefinition& WhisperAsrModelDefinition();
-
 namespace {
+
+struct Params {
+  std::string language;
+  int max_audio_seconds = 30;
+  int max_output_bytes = 65536;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>(
+      {Field("language", &Params::language)
+           .Default("zh")
+           .Enum({"zh", "en", "auto"})
+           .Description("转写语言：zh 为中文，en 为英文，auto "
+                        "自动识别；须受所选模型支持。"),
+       Field("max_audio_seconds", &Params::max_audio_seconds)
+           .Default(30)
+           .Range(1, 60)
+           .Description("每段音频的时长上限，单位为秒。"),
+       Field("max_output_bytes", &Params::max_output_bytes)
+           .Default(65536)
+           .Range(1, 65536)
+           .Description("每段转写文本的 UTF-8 字节数上限。")});
+}
 
 inline std::string TrimAscii(std::string_view text) {
   const auto start = text.find_first_not_of(" \t\r\n");
@@ -28,45 +50,26 @@ inline std::string TrimAscii(std::string_view text) {
 std::shared_ptr<IModel> WhisperAsrModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   try {
+    const auto& params = context.Params<Params>();
     auto session = std::dynamic_pointer_cast<IAudioTranscriptionSession>(
         context.backend_session);
-    if (!session ||
-        session->Protocol() != ExecutionProtocol::kAudioTranscription ||
-        session->GetBatchPolicy().max_batch_size != 1 ||
+    if (!session || session->GetBatchPolicy().max_batch_size != 1 ||
         session->GetBatchPolicy().fixed_batch_size != 0) {
       throw std::runtime_error(
           "whisper_asr requires an IAudioTranscriptionSession with batch "
           "policy {1, 0}");
     }
-    const std::string language = ConfigValueOrDefault<std::string>(
-        context.model_config, WhisperAsrModelDefinition().config_fields,
-        "language");
-    const int max_audio_seconds = ConfigValueOrDefault<int>(
-        context.model_config, WhisperAsrModelDefinition().config_fields,
-        "max_audio_seconds");
-    const int max_output_bytes = ConfigValueOrDefault<int>(
-        context.model_config, WhisperAsrModelDefinition().config_fields,
-        "max_output_bytes");
-
-    if (language != "zh" && language != "en" && language != "auto") {
-      throw std::runtime_error("Invalid language for whisper_asr: " + language);
-    }
-    if (max_audio_seconds < 1 || max_audio_seconds > 60) {
-      throw std::runtime_error("max_audio_seconds must be between 1 and 60");
-    }
-    if (max_output_bytes < 1 || max_output_bytes > 65536) {
-      throw std::runtime_error("max_output_bytes must be between 1 and 65536");
-    }
-    if (!session->SupportsLanguage(language)) {
+    if (!session->SupportsLanguage(params.language)) {
       throw std::runtime_error("Backend session does not support language: " +
-                               language);
+                               params.language);
     }
 
     auto model = std::make_shared<WhisperAsrModel>();
     model->session_ = std::move(session);
-    model->max_audio_seconds_ = max_audio_seconds;
-    model->options_.language = language;
-    model->options_.max_output_bytes = static_cast<size_t>(max_output_bytes);
+    model->max_audio_seconds_ = params.max_audio_seconds;
+    model->options_.language = params.language;
+    model->options_.max_output_bytes =
+        static_cast<size_t>(params.max_output_bytes);
     return model;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
@@ -196,31 +199,7 @@ static const ModelDefinition& WhisperAsrModelDefinition() {
     definition.description =
         "Whisper automatic speech recognition model for float32 PCM";
     definition.required_protocol = ExecutionProtocol::kAudioTranscription;
-    definition.config_fields = {
-        ConfigFieldDefinition{"language",
-                              ConfigValueKind::kString,
-                              false,
-                              "zh",
-                              std::nullopt,
-                              std::nullopt,
-                              {"zh", "en", "auto"},
-                              "Target transcription language"},
-        ConfigFieldDefinition{"max_audio_seconds",
-                              ConfigValueKind::kInteger,
-                              false,
-                              30,
-                              1.0,
-                              60.0,
-                              {},
-                              "Maximum audio length in seconds"},
-        ConfigFieldDefinition{"max_output_bytes",
-                              ConfigValueKind::kInteger,
-                              false,
-                              65536,
-                              1.0,
-                              65536.0,
-                              {},
-                              "Maximum transcription output bytes"}};
+    definition.params = ParamSpec();
     return definition;
   }();
   return definition;

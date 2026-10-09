@@ -120,7 +120,12 @@ struct BackendLoadSpec {
       : requested_protocol(protocol) {}
 
   std::string model_path;
-  nlohmann::json backend_config = nlohmann::json::object();
+  std::shared_ptr<const ParameterValues> params;
+  template <typename P>
+  const P& Params() const {
+    if (!params) throw std::logic_error("Missing parsed parameters");
+    return params->Get<P>();
+  }
   ExecutionProtocol requested_protocol;
   ExecutionTarget execution_target;
 };

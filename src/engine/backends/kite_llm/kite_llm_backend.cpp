@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "engine/backend_registry.h"
 #include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
@@ -25,10 +26,6 @@
 #endif
 
 namespace llm_edgeflow {
-
-#ifdef HAVE_KITELLM
-static const BackendDefinition& KiteLlmBackendDefinition();
-#endif
 
 namespace {
 
@@ -65,6 +62,20 @@ bool ValidateExecutionTarget(const ExecutionTarget& target,
 }
 
 #ifdef HAVE_KITELLM
+
+struct Params {
+  std::string run_config_file;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      Field("run_config_file", &Params::run_config_file)
+          .Default("")
+          .Description(
+              "可选的 kiteLLM 运行配置文件，相对 model_path 解析；设备 ID "
+              "通过原生参数接口传入"),
+  });
+}
 
 bool ValidateCpuRunConfig(const std::string& platform,
                           const nlohmann::json& config,
@@ -488,6 +499,7 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
                           "kiteLLM SDK was not compiled into this build");
     return nullptr;
 #else
+    const auto& p = spec.Params<Params>();
     if (spec.model_path.empty()) {
       SetDiagnosticNoexcept(diagnostic, "kiteLLM model path is empty");
       return nullptr;
@@ -499,24 +511,8 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
           "kiteLLM model path is not a regular file: " + spec.model_path);
       return nullptr;
     }
-    if (!spec.backend_config.is_object()) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "kiteLLM backend_config must be an object");
-      return nullptr;
-    }
-    for (const auto& [key, value] : spec.backend_config.items()) {
-      (void)value;
-      if (key != "run_config_file") {
-        SetDiagnosticNoexcept(diagnostic,
-                              "Unknown kiteLLM backend_config field: " + key);
-        return nullptr;
-      }
-    }
-    const std::string run_config_file = ConfigValueOrDefault<std::string>(
-        spec.backend_config, KiteLlmBackendDefinition().config_fields,
-        "run_config_file");
     std::string resolved_run_config;
-    if (!ResolveRunConfig(spec.model_path, run_config_file,
+    if (!ResolveRunConfig(spec.model_path, p.run_config_file,
                           &resolved_run_config, diagnostic)) {
       return nullptr;
     }
@@ -612,16 +608,7 @@ static const BackendDefinition& KiteLlmBackendDefinition() {
         ExecutionProtocol::kImageTextGeneration,
         ExecutionProtocol::kGeneratedTokenEmbedding};
     definition.concurrency = InferenceConcurrency::kSerialized;
-    definition.config_fields = {
-        {"run_config_file",
-         ConfigValueKind::kString,
-         false,
-         "",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "Optional model-relative kiteLLM run-config file; device ID is passed "
-         "through the native parameter API"}};
+    definition.params = ParamSpec();
     return definition;
   }();
   return definition;

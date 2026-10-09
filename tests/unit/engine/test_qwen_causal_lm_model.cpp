@@ -90,14 +90,20 @@ TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireTextGeneration) {
 
   ModelCreateContext invalid;
   std::string diagnostic;
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                       &invalid.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(QwenCausalLmModel::Create(invalid, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   auto session = std::make_shared<ScriptedGenerationSession>();
   ModelCreateContext valid;
   valid.backend_session = session;
-  valid.model_config = {{"system_prompt", "You are concise."},
-                        {"random_seed", 7}};
+  const nlohmann::json model_params = {{"system_prompt", "You are concise."},
+                                       {"random_seed", 7}};
+  ASSERT_TRUE(
+      definition->params.Parse(model_params, &valid.params, &diagnostic))
+      << diagnostic;
   auto model = QwenCausalLmModel::Create(valid, &diagnostic);
   ASSERT_NE(model, nullptr) << diagnostic;
   EXPECT_EQ(model->ModelType(), "qwen_causal_lm");

@@ -63,13 +63,11 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   model = ValidModelDefinition("invalid_model_schema");
-  model.config_fields = {ConfigFieldDefinition(
-      "threads", ConfigValueKind::kInteger, false, 4, 10, 2)};
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
-
-  model = ValidModelDefinition("invalid_model_kind");
-  model.config_fields = {
-      ConfigFieldDefinition("value", static_cast<ConfigValueKind>(999), false)};
+  struct InvalidRangeParams {
+    std::optional<int> threads;
+  };
+  model.params = Parameters<InvalidRangeParams>{
+      Field("threads", &InvalidRangeParams::threads).Range(10, 2)};
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   auto backend = ValidBackendDefinition("");

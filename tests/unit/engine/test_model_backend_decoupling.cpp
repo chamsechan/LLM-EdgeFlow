@@ -19,6 +19,7 @@
 #include "contracts/config_schema.h"
 #include "contracts/diagnostic.h"
 #include "contracts/inference_payloads.h"
+#include "contracts/parameters.h"
 #include "contracts/traceable_item.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -36,6 +37,7 @@
 #include "engine/model_runtime_factory.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "engine/models/bge_reranker/bge_reranker_model.h"
+#include "engine/models/common/from_model.h"
 #include "engine/models/generated_text_embedding/generated_text_embedding_model.h"
 #include "engine/models/vision_document/image_decode.h"
 #include "engine/models/vision_document/vision_document_model.h"
@@ -69,6 +71,9 @@ namespace {
  */
 class TestEmbeddingModel : public IEmbeddingModel {
  public:
+  struct Params {
+    int dimension = 384;
+  };
   static constexpr const char* kModelType = "test_embedding_model";
   static constexpr const char* kCapability = "embedding";
 
@@ -79,10 +84,10 @@ class TestEmbeddingModel : public IEmbeddingModel {
     def.description = "Test Embedding Model for Unit Tests";
     def.required_protocol = ExecutionProtocol::kTensorGraph;
     def.concurrency = InferenceConcurrency::kConcurrent;
-    def.config_fields = {
-        ConfigFieldDefinition("dimension", ConfigValueKind::kInteger, false,
-                              384, 1, 4096, {}, "Embedding dimension"),
-    };
+    def.params = Parameters<Params>{Field("dimension", &Params::dimension)
+                                        .Default(384)
+                                        .Range(1, 4096)
+                                        .Description("Embedding dimension")};
     return def;
   }
 
@@ -90,6 +95,7 @@ class TestEmbeddingModel : public IEmbeddingModel {
       const ModelCreateContext& context,
       std::string* diagnostic = nullptr) noexcept {
     try {
+      (void)context.Params<Params>();
       auto graph_sess = std::dynamic_pointer_cast<ITensorGraphSession>(
           context.backend_session);
       if (!graph_sess) {
@@ -253,9 +259,31 @@ class DeclaredConcurrentTestBackend final : public IInferenceBackend {
 
 class ModelValidationBackend final : public IInferenceBackend {
  public:
+  struct Params {
+    int threads = 1;
+    std::string validation;
+  };
   static constexpr const char* kBackendType = "model_validation_probe_backend";
   inline static int provider_calls = 0;
   inline static int load_calls = 0;
+  inline static int validation_calls = 0;
+  inline static nlohmann::json validated_config;
+  inline static nlohmann::json loaded_config;
+  inline static bool return_session = false;
+  inline static ExecutionProtocol session_protocol =
+      ExecutionProtocol::kTensorGraph;
+
+  class Session final : public test::TestTensorSession {
+   public:
+    using test::TestTensorSession::TestTensorSession;
+    const std::string& BackendType() const noexcept override {
+      static const std::string type = kBackendType;
+      return type;
+    }
+    ExecutionProtocol Protocol() const noexcept override {
+      return session_protocol;
+    }
+  };
 
   static BackendDefinition MakeDefinition() {
     BackendDefinition definition;
@@ -263,6 +291,20 @@ class ModelValidationBackend final : public IInferenceBackend {
     definition.supported_protocols = {ExecutionProtocol::kTensorGraph,
                                       ExecutionProtocol::kImageTextGeneration};
     definition.concurrency = InferenceConcurrency::kConcurrent;
+    auto params = Parameters<Params>{
+        Field("threads", &Params::threads).Default(1).Range(1, 8),
+        Field("validation", &Params::validation).Default("accept")};
+    params.Validate([](const Params& params, std::string* diagnostic) {
+      ++validation_calls;
+      validated_config = {{"threads", params.threads},
+                          {"validation", params.validation}};
+      if (params.validation == "reject") {
+        SetDiagnosticNoexcept(diagnostic, "backend validator probe rejection");
+        return false;
+      }
+      return true;
+    });
+    definition.params = std::move(params);
     return definition;
   }
 
@@ -272,10 +314,19 @@ class ModelValidationBackend final : public IInferenceBackend {
   }
 
   std::shared_ptr<IBackendSession> Load(
-      const BackendLoadSpec&, std::string* diagnostic) noexcept override {
-    ++load_calls;
-    SetDiagnosticNoexcept(diagnostic, "validation probe stopped after Load");
-    return nullptr;
+      const BackendLoadSpec& spec, std::string* diagnostic) noexcept override {
+    try {
+      ++load_calls;
+      const auto& params = spec.Params<Params>();
+      loaded_config = {{"threads", params.threads},
+                       {"validation", params.validation}};
+      if (return_session) return std::make_shared<Session>(spec.model_path);
+      SetDiagnosticNoexcept(diagnostic, "validation probe stopped after Load");
+      return nullptr;
+    } catch (const std::exception& exception) {
+      SetDiagnosticNoexcept(diagnostic, exception.what());
+      return nullptr;
+    }
   }
 };
 
@@ -302,6 +353,10 @@ class DiagnosticAllocationException final : public std::exception {
 
 class ConfigValidatedEmbeddingModel final : public TestEmbeddingModel {
  public:
+  struct Params {
+    int dimension = 384;
+    std::string validation;
+  };
   using TestEmbeddingModel::TestEmbeddingModel;
   static constexpr const char* kModelType = "config_validated_embedding_probe";
   inline static int validation_calls = 0;
@@ -314,13 +369,14 @@ class ConfigValidatedEmbeddingModel final : public TestEmbeddingModel {
   static ModelDefinition MakeDefinition() {
     auto definition = TestEmbeddingModel::MakeDefinition();
     definition.model_type = kModelType;
-    definition.config_fields.emplace_back(
-        "validation", ConfigValueKind::kString, false, "accept");
-    definition.validate_config = [](const nlohmann::json& config,
-                                    std::string* diagnostic) {
+    auto params = Parameters<Params>{
+        Field("dimension", &Params::dimension).Default(384).Range(1, 4096),
+        Field("validation", &Params::validation).Default("accept")};
+    params.Validate([](const Params& params, std::string* diagnostic) {
       ++validation_calls;
-      validated_config = config;
-      const auto behavior = config.at("validation").get<std::string>();
+      validated_config = {{"dimension", params.dimension},
+                          {"validation", params.validation}};
+      const auto& behavior = params.validation;
       if (behavior == "throw_standard")
         throw std::runtime_error("model validator probe exception");
       if (behavior == "throw_unknown") throw 7;
@@ -332,14 +388,17 @@ class ConfigValidatedEmbeddingModel final : public TestEmbeddingModel {
         return false;
       }
       return true;
-    };
+    });
+    definition.params = std::move(params);
     return definition;
   }
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string*) {
     ++create_calls;
-    created_config = context.model_config;
+    const auto& params = context.Params<Params>();
+    created_config = {{"dimension", params.dimension},
+                      {"validation", params.validation}};
     auto session =
         std::dynamic_pointer_cast<ITensorGraphSession>(context.backend_session);
     if (!session) return nullptr;
@@ -376,6 +435,11 @@ class ModelConfigValidationTest : public ::testing::Test {
   static void ResetObservations() {
     ModelValidationBackend::provider_calls = 0;
     ModelValidationBackend::load_calls = 0;
+    ModelValidationBackend::validation_calls = 0;
+    ModelValidationBackend::validated_config = nullptr;
+    ModelValidationBackend::loaded_config = nullptr;
+    ModelValidationBackend::return_session = false;
+    ModelValidationBackend::session_protocol = ExecutionProtocol::kTensorGraph;
     ConfigValidatedEmbeddingModel::validation_calls = 0;
     ConfigValidatedEmbeddingModel::create_calls = 0;
     ConfigValidatedEmbeddingModel::validated_config = nullptr;
@@ -391,7 +455,8 @@ class ModelConfigValidationTest : public ::testing::Test {
                {"model_type", spec.model_type},
                {"backend", spec.backend_type},
                {"model_path", spec.model_path},
-               {"model_config", spec.model_config}}}},
+               {"model_config", spec.model_params},
+               {"backend_config", spec.backend_params}}}},
             {"pipeline",
              {{{"id", "rules"},
                {"node_type", "TextRuleMatchNode"},
@@ -607,8 +672,8 @@ TEST(ModelBackendDecouplingTest, ModelRuntimeFactoryEndToEnd) {
   spec.model_type = TestEmbeddingModel::kModelType;
   spec.backend_type = test::TestTensorBackend::kBackendType;
   spec.model_path = "/tmp/test_models/model.bin";
-  spec.model_config = {{"dimension", 384}};
-  spec.backend_config = {};
+  spec.model_params = {{"dimension", 384}};
+  spec.backend_params = nlohmann::json::object();
 
   std::string diag;
   auto model = ModelRuntimeFactory::Create(spec, &diag);
@@ -629,6 +694,42 @@ TEST(ModelBackendDecouplingTest, ModelRuntimeFactoryEndToEnd) {
   ASSERT_EQ(outputs.size(), 1U);
   EXPECT_EQ(outputs[0].req_id, 100U);
   EXPECT_EQ(outputs[0].data.size(), 384U);
+}
+
+TEST(ModelBackendDecouplingTest, ResolveFromModelSelectsDeclaredValueSources) {
+  struct Case {
+    std::optional<int64_t> configured;
+    std::optional<int64_t> detected;
+    std::optional<int64_t> fallback;
+    int64_t expected;
+  };
+  const Case cases[] = {{256, std::nullopt, 512, 256},
+                        {256, 256, 512, 256},
+                        {std::nullopt, 384, 512, 384},
+                        {std::nullopt, std::nullopt, 512, 512}};
+  for (const auto& entry : cases) {
+    int64_t resolved = -1;
+    std::string diagnostic;
+    ASSERT_TRUE(ResolveFromModel("embedding_dim", entry.configured,
+                                 entry.detected, entry.fallback, &resolved,
+                                 &diagnostic))
+        << diagnostic;
+    EXPECT_EQ(resolved, entry.expected);
+  }
+
+  int64_t resolved = -1;
+  std::string diagnostic;
+  EXPECT_FALSE(
+      ResolveFromModel("embedding_dim", 256, 384, 512, &resolved, &diagnostic));
+  EXPECT_EQ(resolved, -1);
+  EXPECT_NE(diagnostic.find("does not match model value"), std::string::npos);
+  diagnostic.clear();
+  EXPECT_FALSE(ResolveFromModel("embedding_dim", std::nullopt, std::nullopt,
+                                std::nullopt, &resolved, &diagnostic));
+  EXPECT_EQ(resolved, -1);
+  EXPECT_NE(diagnostic.find("specify it in model_config"), std::string::npos);
+  EXPECT_FALSE(ResolveFromModel("embedding_dim", std::nullopt, std::nullopt,
+                                std::nullopt, &resolved, nullptr));
 }
 
 TEST_F(ModelConfigValidationTest,
@@ -657,7 +758,7 @@ TEST_F(ModelConfigValidationTest,
     spec.model_type = test_case.model_type;
     spec.backend_type = ModelValidationBackend::kBackendType;
     spec.model_path = "validation.fixture";
-    spec.model_config = test_case.config;
+    spec.model_params = test_case.config;
 
     const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
     ASSERT_FALSE(plan.report.ok);
@@ -689,7 +790,7 @@ TEST_F(ModelConfigValidationTest,
     spec.backend_type = ModelValidationBackend::kBackendType;
     spec.model_path = "validation.fixture";
     if (spec.model_type == "bge_embedding")
-      spec.model_config["embedding_dim"] = 384;
+      spec.model_params["embedding_dim"] = 384;
 
     const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
@@ -715,14 +816,14 @@ TEST_F(ModelConfigValidationTest, NormalizedDefaultsReachValidatorAndCreator) {
     spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
     spec.backend_type = test::TestTensorBackend::kBackendType;
     spec.model_path = "validation.fixture";
-    spec.model_config = config;
+    spec.model_params = config;
     const nlohmann::json expected = {
         {"dimension", config.value("dimension", 384)},
         {"validation", "accept"}};
 
     const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
-    EXPECT_GE(ConfigValidatedEmbeddingModel::validation_calls, 1);
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
     EXPECT_EQ(ConfigValidatedEmbeddingModel::validated_config, expected);
     EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 0);
     EXPECT_FALSE(test::TestTensorBackend::RequestedProtocol().has_value());
@@ -731,13 +832,95 @@ TEST_F(ModelConfigValidationTest, NormalizedDefaultsReachValidatorAndCreator) {
     std::string diagnostic;
     auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
     ASSERT_NE(model, nullptr) << diagnostic;
-    EXPECT_GE(ConfigValidatedEmbeddingModel::validation_calls, 1);
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
     EXPECT_EQ(ConfigValidatedEmbeddingModel::validated_config, expected);
     EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 1);
     EXPECT_EQ(ConfigValidatedEmbeddingModel::created_config, expected);
     EXPECT_EQ(test::TestTensorBackend::RequestedProtocol(),
               ExecutionProtocol::kTensorGraph);
   }
+}
+
+TEST_F(ModelConfigValidationTest, FactoryParsesEachParameterGroupExactlyOnce) {
+  for (bool override_defaults : {false, true}) {
+    SCOPED_TRACE(override_defaults);
+    ResetObservations();
+    ModelValidationBackend::return_session = true;
+    ModelLoadSpec spec;
+    spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
+    spec.backend_type = ModelValidationBackend::kBackendType;
+    spec.model_path = "validation.fixture";
+    if (override_defaults) {
+      spec.model_params = {{"dimension", 256}};
+      spec.backend_params = {{"threads", 4}};
+    }
+    const nlohmann::json expected_model = {
+        {"dimension", override_defaults ? 256 : 384}, {"validation", "accept"}};
+    const nlohmann::json expected_backend = {
+        {"threads", override_defaults ? 4 : 1}, {"validation", "accept"}};
+
+    std::string diagnostic;
+    ASSERT_NE(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr)
+        << diagnostic;
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
+    EXPECT_EQ(ModelValidationBackend::validation_calls, 1);
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::validated_config, expected_model);
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::created_config, expected_model);
+    EXPECT_EQ(ModelValidationBackend::validated_config, expected_backend);
+    EXPECT_EQ(ModelValidationBackend::loaded_config, expected_backend);
+    EXPECT_EQ(ModelValidationBackend::provider_calls, 1);
+    EXPECT_EQ(ModelValidationBackend::load_calls, 1);
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 1);
+  }
+}
+
+TEST_F(ModelConfigValidationTest,
+       FactoryRejectsInvalidBackendParametersBeforeProviderSideEffects) {
+  for (const auto& config :
+       std::vector<nlohmann::json>{{{"threads", 0}},
+                                   {{"threads", 9}},
+                                   {{"threads", "invalid"}},
+                                   {{"unknown_field", true}},
+                                   {{"validation", "reject"}}}) {
+    SCOPED_TRACE(config.dump());
+    ResetObservations();
+    ModelLoadSpec spec;
+    spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
+    spec.backend_type = ModelValidationBackend::kBackendType;
+    spec.model_path = "validation.fixture";
+    spec.backend_params = config;
+    std::string diagnostic;
+    EXPECT_EQ(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr);
+    EXPECT_NE(diagnostic.find("Invalid backend configuration"),
+              std::string::npos)
+        << diagnostic;
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
+    EXPECT_EQ(ModelValidationBackend::validation_calls,
+              config.contains("validation") ? 1 : 0);
+    EXPECT_EQ(ModelValidationBackend::provider_calls, 0);
+    EXPECT_EQ(ModelValidationBackend::load_calls, 0);
+    EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 0);
+  }
+}
+
+TEST_F(ModelConfigValidationTest,
+       FactoryRejectsLoadedSessionProtocolBeforeModelCreation) {
+  ModelValidationBackend::return_session = true;
+  ModelValidationBackend::session_protocol =
+      ExecutionProtocol::kImageTextGeneration;
+  ModelLoadSpec spec;
+  spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
+  spec.backend_type = ModelValidationBackend::kBackendType;
+  spec.model_path = "validation.fixture";
+  std::string diagnostic;
+  EXPECT_EQ(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("Backend session protocol"), std::string::npos)
+      << diagnostic;
+  EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
+  EXPECT_EQ(ModelValidationBackend::validation_calls, 1);
+  EXPECT_EQ(ModelValidationBackend::provider_calls, 1);
+  EXPECT_EQ(ModelValidationBackend::load_calls, 1);
+  EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 0);
 }
 
 TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
@@ -751,11 +934,11 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
       {{{"dimension", 0}}, false, ""},
       {{{"unknown_field", true}}, false, ""},
       {{{"validation", "reject"}}, true, "model validator probe rejection"},
-      {{{"validation", "reject_silent"}}, true, "Invalid model configuration"},
+      {{{"validation", "reject_silent"}}, true, "Semantic validation failed"},
       {{{"validation", "throw_standard"}},
        true,
        "model validator probe exception"},
-      {{{"validation", "throw_unknown"}}, true, "unknown exception"},
+      {{{"validation", "throw_unknown"}}, true, "Unknown exception"},
   };
   for (const auto& test_case : cases) {
     SCOPED_TRACE(test_case.config.dump());
@@ -764,7 +947,7 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
     spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
     spec.backend_type = ModelValidationBackend::kBackendType;
     spec.model_path = "validation.fixture";
-    spec.model_config = test_case.config;
+    spec.model_params = test_case.config;
 
     const auto plan = PipelineValidator::ValidateAndPlan(Document(spec));
     ASSERT_FALSE(plan.report.ok);
@@ -780,7 +963,7 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
       EXPECT_EQ(rejected.path.find("/models/0/model_config/"), 0U);
     }
     if (test_case.calls_validator) {
-      EXPECT_GE(ConfigValidatedEmbeddingModel::validation_calls, 1);
+      EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
     } else {
       EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 0);
     }
@@ -792,11 +975,12 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
     EXPECT_EQ(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr);
     EXPECT_FALSE(diagnostic.empty());
     if (test_case.calls_validator) {
-      EXPECT_GE(ConfigValidatedEmbeddingModel::validation_calls, 1);
+      EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
     } else {
       EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 0);
     }
     EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 0);
+    EXPECT_EQ(ModelValidationBackend::validation_calls, 0);
     EXPECT_EQ(ModelValidationBackend::provider_calls, 0);
     EXPECT_EQ(ModelValidationBackend::load_calls, 0);
   }
@@ -814,7 +998,7 @@ TEST_F(ModelConfigValidationTest, FactoryPreservesExceptionReasons) {
     spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
     spec.backend_type = ModelValidationBackend::kBackendType;
     spec.model_path = "validation.fixture";
-    spec.model_config = {{"validation", behavior}};
+    spec.model_params = {{"validation", behavior}};
     std::string diagnostic;
     EXPECT_EQ(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr);
     EXPECT_NE(diagnostic.find(expected_reason), std::string::npos)
@@ -832,13 +1016,13 @@ TEST_F(ModelConfigValidationTest,
   spec.model_type = ConfigValidatedEmbeddingModel::kModelType;
   spec.backend_type = ModelValidationBackend::kBackendType;
   spec.model_path = "validation.fixture";
-  spec.model_config = {{"validation", "throw_diagnostic_allocation"}};
+  spec.model_params = {{"validation", "throw_diagnostic_allocation"}};
   std::optional<test_support::ScopedAllocationFailure> failure;
   ConfigValidatedEmbeddingModel::diagnostic_failure = &failure;
   std::string diagnostic;
 
-  // what() 在 Factory 进入 catch 块后才启用下一次分配失败；较长的原因使 append
-  // 必须分配内存。查找 Definition、归一化和校验期间都未启用分配失败。
+  // what() 在参数校验进入 catch 块后才启用下一次分配失败；较长的原因需分配
+  // 诊断字符串。查找 Definition、归一化和执行校验器期间未启用分配失败。
   auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
   const bool injected = failure.has_value() && failure->Triggered();
   failure.reset();
@@ -853,31 +1037,26 @@ TEST_F(ModelConfigValidationTest,
   EXPECT_EQ(ModelValidationBackend::load_calls, 0);
 }
 
-TEST_F(ModelConfigValidationTest, DirectBgeCreationRejectsInvalidStringFields) {
-  using CreateFn =
-      std::shared_ptr<IModel> (*)(const ModelCreateContext&, std::string*);
-  const std::pair<const char*, CreateFn> creators[] = {
-      {BgeEmbeddingModel::kModelType, BgeEmbeddingModel::Create},
-      {BgeRerankerModel::kModelType, BgeRerankerModel::Create},
-  };
+TEST_F(ModelConfigValidationTest,
+       BgeParameterSchemaRejectsInvalidStringFields) {
   const nlohmann::json invalid_values[] = {
       42, true, nullptr, nlohmann::json::array(), nlohmann::json::object(), ""};
-  for (const auto& [model_type, create] : creators) {
+  for (const char* model_type :
+       {BgeEmbeddingModel::kModelType, BgeRerankerModel::kModelType}) {
     SCOPED_TRACE(model_type);
+    const auto definition = ModelRegistry::Instance().Find(model_type);
+    ASSERT_TRUE(definition.has_value());
     for (const char* field : {"tokenizer_file", "output_name"}) {
       SCOPED_TRACE(field);
       for (const auto& value : invalid_values) {
         SCOPED_TRACE(value.dump());
-        // 不存在 Backend 会话或模型资源；类型校验优先。
-        ModelCreateContext context;
-        context.model_config[field] = value;
+        // 参数错误在创建会话或打开模型资源前拒绝。
+        std::shared_ptr<const ParameterValues> params;
         std::string diagnostic;
-        std::shared_ptr<IModel> model;
-        EXPECT_NO_THROW(model = create(context, &diagnostic));
-        EXPECT_EQ(model, nullptr);
-        EXPECT_EQ(diagnostic, std::string("Field '") + field +
-                                  (value.is_string() ? "' cannot be empty"
-                                                     : "' must be a string"));
+        EXPECT_FALSE(
+            definition->params.Parse({{field, value}}, &params, &diagnostic));
+        EXPECT_EQ(params, nullptr);
+        EXPECT_NE(diagnostic.find(field), std::string::npos) << diagnostic;
       }
     }
   }
@@ -1109,8 +1288,13 @@ TEST(ModelBackendDecouplingTest,
   auto session = std::make_shared<DocumentImageSession>();
   ModelCreateContext context;
   context.backend_session = session;
-  context.model_config = {{"patch_size", 2}};
   std::string error;
+  const auto definition =
+      ModelRegistry::Instance().Find(VisionDocumentModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(
+      definition->params.Parse({{"patch_size", 2}}, &context.params, &error))
+      << error;
   auto model = std::dynamic_pointer_cast<IOcrModel>(
       VisionDocumentModel::Create(context, &error));
   ASSERT_NE(model, nullptr) << error;
@@ -1136,8 +1320,12 @@ TEST(ModelBackendDecouplingTest,
   EXPECT_EQ(model->Recognize({}, &outputs, &diagnostic), 0);
   EXPECT_TRUE(diagnostic.empty());
   EXPECT_NE(model->Recognize({}, nullptr), 0);
-  context.model_config = {{"patch_size", 0}};
-  EXPECT_EQ(VisionDocumentModel::Create(context, &error), nullptr);
+  EXPECT_FALSE(
+      definition->params.Parse({{"patch_size", 0}}, &context.params, &error));
+  EXPECT_FALSE(error.empty());
+  ASSERT_TRUE(
+      definition->params.Parse({{"patch_size", 2}}, &context.params, &error))
+      << error;
   context.backend_session.reset();
   EXPECT_EQ(VisionDocumentModel::Create(context, &error), nullptr);
 }
@@ -1188,12 +1376,24 @@ class GeneratedEmbeddingSession final : public IGeneratedTokenEmbeddingSession {
   size_t fail_call = 0;
 };
 ModelCreateContext EmbeddingContext(
-    const std::shared_ptr<GeneratedEmbeddingSession>& session) {
+    const std::shared_ptr<GeneratedEmbeddingSession>& session,
+    const char* pooling = "mean") {
   ModelCreateContext context;
   context.backend_session = session;
-  context.model_config = {{"embedding_dim", 2},  {"max_tokens", 3},
-                          {"prefix", "prefix:"}, {"suffix", ":suffix"},
-                          {"add_bos", true},     {"pooling", "mean"}};
+  const auto definition =
+      ModelRegistry::Instance().Find(GeneratedTextEmbeddingModel::kModelType);
+  EXPECT_TRUE(definition.has_value());
+  if (definition) {
+    std::string error;
+    EXPECT_TRUE(definition->params.Parse({{"embedding_dim", 2},
+                                          {"max_tokens", 3},
+                                          {"prefix", "prefix:"},
+                                          {"suffix", ":suffix"},
+                                          {"add_bos", true},
+                                          {"pooling", pooling}},
+                                         &context.params, &error))
+        << error;
+  }
   return context;
 }
 }  // namespace
@@ -1220,7 +1420,7 @@ TEST(ModelBackendDecouplingTest,
   EXPECT_NEAR(output[0].data[1], .8f, 1e-6f);
   ASSERT_EQ(model->Embed({inputs[0]}, {false}, &output), 0);
   EXPECT_EQ(output[0].data, (std::vector<float>{1.5f, 2.0f}));
-  context.model_config["pooling"] = "last";
+  context = EmbeddingContext(session, "last");
   model = std::dynamic_pointer_cast<IEmbeddingModel>(
       GeneratedTextEmbeddingModel::Create(context, &error));
   ASSERT_NE(model, nullptr) << error;
@@ -1271,6 +1471,9 @@ TEST(ModelBackendDecouplingTest,
   auto session = std::make_shared<GeneratedEmbeddingSession>();
   auto context = EmbeddingContext(session);
   std::string error;
+  const auto definition =
+      ModelRegistry::Instance().Find(GeneratedTextEmbeddingModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
   for (const auto& entry :
        std::vector<nlohmann::json>{{{"embedding_dim", 0}},
                                    {{"embedding_dim", 65537}},
@@ -1279,19 +1482,24 @@ TEST(ModelBackendDecouplingTest,
                                    {{"max_tokens", 0}},
                                    {{"max_tokens", 65}},
                                    {{"pooling", "cls"}}}) {
-    auto invalid = context;
-    invalid.model_config.update(entry);
-    EXPECT_EQ(GeneratedTextEmbeddingModel::Create(invalid, &error), nullptr);
+    auto invalid = nlohmann::json{{"embedding_dim", 2}};
+    invalid.update(entry);
+    std::shared_ptr<const ParameterValues> params;
+    EXPECT_FALSE(definition->params.Parse(invalid, &params, &error));
+    EXPECT_EQ(params, nullptr);
+    EXPECT_FALSE(error.empty());
   }
-  context.model_config.erase("embedding_dim");
-  EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
+  EXPECT_FALSE(definition->params.Parse(nlohmann::json::object(),
+                                        &context.params, &error));
+  EXPECT_FALSE(error.empty());
   context = EmbeddingContext(session);
   session->policy = {1, 1};
   EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
   session->policy = {2, 0};
   EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
   session->policy = {1, 0};
-  session->protocol = ExecutionProtocol::kTextGeneration;
+  context.backend_session =
+      std::make_shared<test::TestTensorSession>("wrong-interface.fixture");
   EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
   context.backend_session.reset();
   EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
@@ -1300,7 +1508,7 @@ TEST(ModelBackendDecouplingTest,
     spec.model_type = "generated_text_embedding";
     spec.backend_type = "onnxruntime";
     spec.model_path = "does-not-exist";
-    spec.model_config = {{"embedding_dim", 2}};
+    spec.model_params = {{"embedding_dim", 2}};
     EXPECT_EQ(ModelRuntimeFactory::Create(spec, &error), nullptr);
     EXPECT_NE(error.find("generated_token_embedding"), std::string::npos);
   }
@@ -1368,8 +1576,13 @@ TEST(ModelBackendDecouplingTest,
   auto session = std::make_shared<FakeAudioTranscriptionSession>();
   ModelCreateContext context;
   context.backend_session = session;
-
   std::string error;
+  const auto definition =
+      ModelRegistry::Instance().Find(WhisperAsrModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                       &context.params, &error))
+      << error;
 
   // 1. 使用默认值成功创建
   auto model = WhisperAsrModel::Create(context, &error);
@@ -1379,13 +1592,15 @@ TEST(ModelBackendDecouplingTest,
   EXPECT_EQ(model->Concurrency(), InferenceConcurrency::kConcurrent);
 
   // 2. 会话为空
-  ModelCreateContext null_ctx;
+  auto null_ctx = context;
+  null_ctx.backend_session.reset();
   EXPECT_EQ(WhisperAsrModel::Create(null_ctx, &error), nullptr);
 
-  // 3. 协议错误
-  session->protocol = ExecutionProtocol::kTextGeneration;
+  // 3. 会话不实现所需接口（协议由 Factory 统一核对）
+  context.backend_session =
+      std::make_shared<test::TestTensorSession>("wrong-interface.fixture");
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
-  session->protocol = ExecutionProtocol::kAudioTranscription;
+  context.backend_session = session;
 
   // 4. 批策略不兼容
   session->policy = {2, 0};
@@ -1395,28 +1610,36 @@ TEST(ModelBackendDecouplingTest,
   session->policy = {1, 0};
 
   // 5. 配置校验：非法 language
-  context.model_config = {{"language", "fr"}};
-  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
-  context.model_config = {{"language", ""}};
-  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  EXPECT_FALSE(
+      definition->params.Parse({{"language", "fr"}}, &context.params, &error));
+  EXPECT_FALSE(error.empty());
+  EXPECT_FALSE(
+      definition->params.Parse({{"language", ""}}, &context.params, &error));
+  EXPECT_FALSE(error.empty());
 
   // 6. 会话不支持该语言
   session->supported_languages = {"en"};
-  context.model_config = {{"language", "zh"}};
+  ASSERT_TRUE(
+      definition->params.Parse({{"language", "zh"}}, &context.params, &error))
+      << error;
   EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
   session->supported_languages = {"zh", "en", "auto"};
 
   // 7. 配置校验：max_audio_seconds 范围 [1, 60]
-  context.model_config = {{"max_audio_seconds", 0}};
-  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
-  context.model_config = {{"max_audio_seconds", 61}};
-  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  EXPECT_FALSE(definition->params.Parse({{"max_audio_seconds", 0}},
+                                        &context.params, &error));
+  EXPECT_FALSE(error.empty());
+  EXPECT_FALSE(definition->params.Parse({{"max_audio_seconds", 61}},
+                                        &context.params, &error));
+  EXPECT_FALSE(error.empty());
 
   // 8. 配置校验：max_output_bytes 范围 [1, 65536]
-  context.model_config = {{"max_output_bytes", 0}};
-  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
-  context.model_config = {{"max_output_bytes", 65537}};
-  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  EXPECT_FALSE(definition->params.Parse({{"max_output_bytes", 0}},
+                                        &context.params, &error));
+  EXPECT_FALSE(error.empty());
+  EXPECT_FALSE(definition->params.Parse({{"max_output_bytes", 65537}},
+                                        &context.params, &error));
+  EXPECT_FALSE(error.empty());
 }
 
 TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
@@ -1424,11 +1647,15 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   session->transcript_to_return = "  你好世界  \n";
   ModelCreateContext context;
   context.backend_session = session;
-  context.model_config = {{"language", "zh"},
-                          {"max_audio_seconds", 30},
-                          {"max_output_bytes", 1024}};
-
   std::string error;
+  const auto definition =
+      ModelRegistry::Instance().Find(WhisperAsrModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(definition->params.Parse({{"language", "zh"},
+                                        {"max_audio_seconds", 30},
+                                        {"max_output_bytes", 1024}},
+                                       &context.params, &error))
+      << error;
   auto model = std::dynamic_pointer_cast<IAsrModel>(
       WhisperAsrModel::Create(context, &error));
   ASSERT_NE(model, nullptr) << error;
@@ -1575,8 +1802,7 @@ TEST(ModelBackendDecouplingTest,
      GeneratedEmbeddingHandlesFiniteExtremesAndZero) {
   auto session = std::make_shared<GeneratedEmbeddingSession>();
   for (const char* pooling : {"mean", "last"}) {
-    auto context = EmbeddingContext(session);
-    context.model_config["pooling"] = pooling;
+    auto context = EmbeddingContext(session, pooling);
     auto model = std::dynamic_pointer_cast<IEmbeddingModel>(
         GeneratedTextEmbeddingModel::Create(context, nullptr));
     ASSERT_NE(model, nullptr);
@@ -1611,6 +1837,12 @@ TEST(ModelBackendDecouplingTest,
     auto backend = BackendRegistry::Instance().Create(type);
     ASSERT_NE(backend, nullptr);
     BackendLoadSpec spec{static_cast<ExecutionProtocol>(999)};
+    const auto definition = BackendRegistry::Instance().Find(type);
+    ASSERT_TRUE(definition.has_value());
+    std::string config_diagnostic;
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
+                                         &config_diagnostic))
+        << type << ": " << config_diagnostic;
     bool injected = false;
     for (int step = 0; step < 4; ++step) {
       std::string diagnostic;

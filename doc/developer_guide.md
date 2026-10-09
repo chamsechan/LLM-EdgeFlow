@@ -178,12 +178,18 @@ Model 继承 [`ModelIdentity<Model, 能力接口>`](../include/engine/model_iden
 [`BackendIdentity<Backend>`](../include/engine/backend_identity.h)，Definition 从
 `MakeBackendDefinition<Backend>()` 开始。创建时工厂仍逐项核对实例、Session 与 Definition。
 
-Model 的字段类型、默认值和范围由 `config_fields` 声明，创建时用 `ConfigValueOrDefault` 读取，
-默认值只写在声明中；字段之间或文本内容的额外规则
-放在可选的 `ModelDefinition::validate_config` 中。Validator 与 ModelRuntimeFactory
-均先完成字段校验和默认值补齐，再调用此纯函数；失败时不创建 Backend 或加载模型。
-该函数只检查配置，不读文件或创建会话。直接 Model 创建入口应复用相同语义检查；
-依赖真实会话、模型资源或 Tensor 形状的检查继续留在创建阶段。
+Model 和 Backend 参数采用四段写法：`Params` 结构、返回 `Parameters<Params>` 的
+`ParamSpec()`、`def.params = ParamSpec()`、消费时 `ctx.Params<Params>()` 或
+`spec.Params<Params>()`。`Field` 声明类型、默认值、范围与说明，默认值只写一次；
+额外纯参数规则放在 `ParamSpec().Validate`，不读文件或创建会话。
+Validator 规划时检查字段与语义；ModelRuntimeFactory 在创建 Provider 前分别解析两组
+参数一次。Model `Create` 和 Backend `Load` 读取只读值，只检查真实会话、资源和形状。
+直接调用创建入口的测试先用注册 Definition 的 `params.Parse` 产生对应参数。
+
+可选标量成员使用 `std::optional<T>`：不写时为空，不能声明 `Required()` 或 `Default()`，
+Catalog 中非必填且无默认值。BGE 的维度和编码长度通过
+[`ResolveFromModel`](../src/engine/models/common/from_model.h) 从固定形状读取；配置与模型值
+冲突时报错，动态编码长度回退到 512，动态向量维度必须填写。创建日志记录最终值。
 
 逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
 `TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，
@@ -204,9 +210,7 @@ Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负�
 TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的
 `model_config.normalize`，已有配置应将该选择移到消费节点。
 
-后端有跨字段约束时，通过 `BackendDefinition.validate_config` 注册纯配置校验函数。
-PipelineValidator 在字段检查和默认值展开后调用；Backend 初始化复用同一解析规则。
-回调不得加载模型或访问外部资源，例如 llama.cpp 的 `decode_batch_size` 不得大于
+后端跨字段约束同样用 `ParamSpec().Validate`，例如 llama.cpp 的 `decode_batch_size` 不得大于
 `context_size`。环境、设备和资产可用性仍由实际加载路径检查。
 
 其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的

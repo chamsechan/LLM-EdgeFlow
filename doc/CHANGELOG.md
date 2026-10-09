@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Model 与 Backend 共用类型化参数声明，创建前各解析一次并只读共享；BGE 维度与编码长度
+可从固定张量形状读取，显式值冲突时拒绝，动态编码长度默认 512。
+
 SDK 新增有序 I/O 预检 `ResolveOperatorConfigIo`，返回宿主类型、业务、结构名及必需性；
 预检与 Create 共用配置校验且不加载模型。Demo 按输入载体组合与输出结构登记，统一分批、
 多输出展示和租约释放；Control 必须显式指定文件与命令，规则更新示例使用 `keyword_match_control` Profile。

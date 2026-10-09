@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -247,6 +248,32 @@ struct FieldTypeTraits<std::vector<std::string>> {
   }
 };
 
+namespace detail {
+template <typename T>
+struct IsOptionalField : std::false_type {};
+template <typename T>
+struct IsOptionalField<std::optional<T>> : std::true_type {};
+}  // namespace detail
+
+template <typename T>
+struct FieldTypeTraits<std::optional<T>> {
+  static_assert(std::is_same_v<T, std::string> || std::is_same_v<T, bool> ||
+                    std::is_same_v<T, int> || std::is_same_v<T, int64_t> ||
+                    std::is_same_v<T, float> || std::is_same_v<T, double>,
+                "Optional parameters require a supported scalar type");
+  static constexpr ConfigValueKind kKind = FieldTypeTraits<T>::kKind;
+  static bool Extract(const nlohmann::json& value, std::optional<T>* out,
+                      std::string* error) {
+    T parsed{};
+    if (!FieldTypeTraits<T>::Extract(value, &parsed, error)) return false;
+    *out = std::move(parsed);
+    return true;
+  }
+  static nlohmann::json ToJson(const std::optional<T>& value) {
+    return value ? FieldTypeTraits<T>::ToJson(*value) : nlohmann::json();
+  }
+};
+
 template <typename ParamsT>
 class ParameterFieldBinding {
  public:
@@ -341,6 +368,9 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
       if (has_default_) {
         out->*member_ptr_ = default_val_;
         return true;
+      }
+      if constexpr (detail::IsOptionalField<MemberT>::value) {
+        out->*member_ptr_ = std::nullopt;
       }
       return true;
     }
@@ -445,7 +475,12 @@ class FieldBuilder {
   }
 
   std::unique_ptr<ParameterFieldBinding<ParamsT>> Build() const {
-    if (required_ == has_default_) {
+    if constexpr (detail::IsOptionalField<MemberT>::value) {
+      if (required_ || has_default_) {
+        throw std::invalid_argument("Optional field '" + name_ +
+                                    "' cannot declare Required or Default");
+      }
+    } else if (required_ == has_default_) {
       throw std::invalid_argument(
           "Field '" + name_ +
           "' must declare exactly one of Required or Default");
@@ -652,7 +687,12 @@ class Parameters {
       }
       return true;
     } catch (const std::exception& e) {
-      SetDiagnosticNoexcept(err, e.what());
+      const std::string_view reason = e.what();
+      SetDiagnosticNoexcept(err, reason);
+      // 保留原创建工厂在一次临时诊断分配失败后仍能报告原因的行为。
+      if (err && err->empty() && !reason.empty()) {
+        SetDiagnosticNoexcept(err, reason);
+      }
       return false;
     } catch (...) {
       SetDiagnosticNoexcept(err, "Unknown exception validating parameters");
@@ -700,9 +740,15 @@ class Parameters {
       std::vector<ConfigFieldValidationError> validation_errors;
       if (!ValidateAndNormalizeFields(definitions_, config, &normalized,
                                       &validation_errors)) {
-        SetDiagnosticNoexcept(error, validation_errors.empty()
-                                         ? "Invalid configuration"
-                                         : validation_errors.front().message);
+        if (validation_errors.empty()) {
+          SetDiagnosticNoexcept(error, "Invalid configuration");
+        } else {
+          const auto& invalid = validation_errors.front();
+          SetDiagnosticNoexcept(error, invalid.field_name.empty()
+                                           ? invalid.message
+                                           : "Field '" + invalid.field_name +
+                                                 "': " + invalid.message);
+        }
         return std::nullopt;
       }
       return ParseNormalized(normalized, error);
@@ -783,7 +829,7 @@ class Parameters<NoParameters> {
       const nlohmann::json& config,
       std::string* error = nullptr) const noexcept {
     if (error) error->clear();
-    if (!config.empty()) {
+    try {
       nlohmann::json normalized;
       std::vector<ConfigFieldValidationError> validation_errors;
       if (!ValidateAndNormalizeFields({}, config, &normalized,
@@ -793,8 +839,13 @@ class Parameters<NoParameters> {
                                          : validation_errors.front().message);
         return std::nullopt;
       }
+      return NoParameters{};
+    } catch (const std::exception& exception) {
+      SetDiagnosticNoexcept(error, exception.what());
+    } catch (...) {
+      SetDiagnosticNoexcept(error, "Unknown exception parsing parameters");
     }
-    return NoParameters{};
+    return std::nullopt;
   }
 
   std::optional<NoParameters> ParseNormalized(

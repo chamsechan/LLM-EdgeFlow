@@ -1,0 +1,86 @@
+#pragma once
+
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <typeindex>
+#include <utility>
+#include <vector>
+
+#include "contracts/parameters.h"
+
+namespace llm_edgeflow {
+
+// 参数在创建时解析，之后只读共享；不要求参数结构可复制。
+class ParameterValues {
+ public:
+  template <typename P>
+  const P& Get() const {
+    if (type_ != std::type_index(typeid(P))) {
+      throw std::logic_error("Parameter type does not match its declaration");
+    }
+    return *static_cast<const P*>(value_.get());
+  }
+
+ private:
+  friend class ParameterSet;
+  template <typename P>
+  explicit ParameterValues(P value)
+      : value_(std::make_shared<const P>(std::move(value))), type_(typeid(P)) {}
+
+  std::shared_ptr<const void> value_;
+  std::type_index type_;
+};
+
+class ParameterSet {
+ public:
+  ParameterSet() : ParameterSet(Parameters<NoParameters>{}) {}
+
+  template <typename P>
+  ParameterSet(
+      Parameters<P> spec) {  // NOLINT: Definition accepts a typed spec.
+    auto owned = std::make_shared<const Parameters<P>>(std::move(spec));
+    fields_ = owned->Fields();
+    parse_ = [owned](const nlohmann::json& config,
+                     std::shared_ptr<const ParameterValues>* values,
+                     std::string* error) {
+      auto parsed = owned->Parse(config, error);
+      if (!parsed) return false;
+      *values = std::shared_ptr<const ParameterValues>(
+          new ParameterValues(std::move(*parsed)));
+      return true;
+    };
+  }
+
+  const std::vector<ConfigFieldDefinition>& Fields() const noexcept {
+    return fields_;
+  }
+
+  bool Parse(const nlohmann::json& config,
+             std::shared_ptr<const ParameterValues>* values,
+             std::string* error = nullptr) const noexcept {
+    if (error) error->clear();
+    if (!values) {
+      SetDiagnosticNoexcept(error, "Null parameter values output");
+      return false;
+    }
+    values->reset();
+    try {
+      return parse_(config, values, error);
+    } catch (const std::exception& exception) {
+      SetDiagnosticNoexcept(error, exception.what());
+    } catch (...) {
+      SetDiagnosticNoexcept(error, "Unknown exception parsing parameters");
+    }
+    return false;
+  }
+
+ private:
+  std::vector<ConfigFieldDefinition> fields_;
+  std::function<bool(const nlohmann::json&,
+                     std::shared_ptr<const ParameterValues>*, std::string*)>
+      parse_;
+};
+
+}  // namespace llm_edgeflow

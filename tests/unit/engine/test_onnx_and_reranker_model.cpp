@@ -365,39 +365,48 @@ TEST_F(OnnxAndRerankerModelTest, ModelSidecarSecurityAndCreation) {
   context.backend_session =
       std::make_shared<FakeRerankTensorGraphSession>(true);
   context.model_resource_root = model_root.string();
-  context.model_config = {
+  nlohmann::json model_params = {
       {"tokenizer_file", "vocab.txt"}, {"max_length", 16},
       {"output_name", "logits"},       {"score_activation", "sigmoid"},
       {"max_batch_size", 4},
   };
 
   std::string diag;
+  const auto definition =
+      ModelRegistry::Instance().Find(BgeRerankerModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(definition->params.Parse(model_params, &context.params, &diag))
+      << diag;
   EXPECT_NE(BgeRerankerModel::Create(context, &diag), nullptr) << diag;
 
   // 1. 相对路径词法逃逸拦截
-  context.model_config["tokenizer_file"] = "../outside/vocab.txt";
+  model_params["tokenizer_file"] = "../outside/vocab.txt";
   diag.clear();
+  ASSERT_TRUE(definition->params.Parse(model_params, &context.params, &diag))
+      << diag;
   EXPECT_EQ(BgeRerankerModel::Create(context, &diag), nullptr);
   EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
 
   // 2. 同前缀兄弟目录逃逸拦截
-  context.model_config["tokenizer_file"] = "../model-escape/vocab.txt";
+  model_params["tokenizer_file"] = "../model-escape/vocab.txt";
   diag.clear();
+  ASSERT_TRUE(definition->params.Parse(model_params, &context.params, &diag))
+      << diag;
   EXPECT_EQ(BgeRerankerModel::Create(context, &diag), nullptr);
   EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
 
   // 3. 非法 score_activation
-  context.model_config["tokenizer_file"] = "vocab.txt";
-  context.model_config["score_activation"] = "invalid_act";
+  model_params["tokenizer_file"] = "vocab.txt";
+  model_params["score_activation"] = "invalid_act";
   diag.clear();
-  EXPECT_EQ(BgeRerankerModel::Create(context, &diag), nullptr);
+  EXPECT_FALSE(definition->params.Parse(model_params, &context.params, &diag));
   EXPECT_NE(diag.find("score_activation"), std::string::npos);
 
   // 4. 非法 max_length
-  context.model_config["score_activation"] = "sigmoid";
-  context.model_config["max_length"] = 2;  // < 3
+  model_params["score_activation"] = "sigmoid";
+  model_params["max_length"] = 2;  // < 3
   diag.clear();
-  EXPECT_EQ(BgeRerankerModel::Create(context, &diag), nullptr);
+  EXPECT_FALSE(definition->params.Parse(model_params, &context.params, &diag));
   EXPECT_NE(diag.find("max_length"), std::string::npos);
 }
 
@@ -412,13 +421,18 @@ TEST_F(OnnxAndRerankerModelTest,
   ModelCreateContext context;
   context.backend_session = fake_session;
   context.model_resource_root = model_root.string();
-  context.model_config = {
+  nlohmann::json model_params = {
       {"tokenizer_file", "vocab.txt"}, {"max_length", 16},
       {"output_name", "logits"},       {"score_activation", "sigmoid"},
       {"max_batch_size", 4},
   };
 
   std::string diag;
+  const auto definition =
+      ModelRegistry::Instance().Find(BgeRerankerModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(definition->params.Parse(model_params, &context.params, &diag))
+      << diag;
   // 0. 基准合法配置
   EXPECT_NE(BgeRerankerModel::Create(context, &diag), nullptr) << diag;
 
@@ -469,8 +483,8 @@ TEST_F(OnnxAndRerankerModelTest,
   });
   diag.clear();
   EXPECT_EQ(BgeRerankerModel::Create(context, &diag), nullptr);
-  EXPECT_NE(diag.find("does not match configured max_length"),
-            std::string::npos);
+  EXPECT_NE(diag.find("max_length"), std::string::npos);
+  EXPECT_NE(diag.find("does not match model value"), std::string::npos);
 
   // 7. batch/sequence 的 0 维不是动态维度，必须拒绝
   fake_session->SetInputs({
@@ -591,6 +605,79 @@ TEST_F(OnnxAndRerankerModelTest,
   fake_session->SetOutputs({{"logits", ElementType::kFloat32, {4, 1}}});
   diag.clear();
   EXPECT_NE(BgeRerankerModel::Create(context, &diag), nullptr) << diag;
+}
+
+TEST_F(OnnxAndRerankerModelTest,
+       ResolvesOmittedSequenceLengthAndRejectsFixedShapeConflict) {
+  WriteTestVocab(temp_dir_ / "vocab.txt");
+  auto session = std::make_shared<FakeRerankTensorGraphSession>();
+  ModelCreateContext context;
+  context.backend_session = session;
+  context.model_resource_root = temp_dir_.string();
+  const auto definition =
+      ModelRegistry::Instance().Find(BgeRerankerModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  nlohmann::json model_params = nlohmann::json::object();
+  std::string diagnostic;
+  ASSERT_TRUE(
+      definition->params.Parse(model_params, &context.params, &diagnostic))
+      << diagnostic;
+  auto model = std::dynamic_pointer_cast<BgeRerankerModel>(
+      BgeRerankerModel::Create(context, &diagnostic));
+  ASSERT_NE(model, nullptr) << diagnostic;
+  EXPECT_EQ(model->MaxLength(), 16u);
+  ScoreBatch output;
+  ASSERT_EQ(model->Score({{9, 4, QueryCandidatePair("hello", "world")}},
+                         &output, &diagnostic),
+            0)
+      << diagnostic;
+  ASSERT_EQ(output.size(), 1u);
+  EXPECT_EQ(output.front().req_id, 9u);
+  EXPECT_EQ(output.front().sub_id, 4u);
+
+  model_params["max_length"] = 32;
+  ASSERT_TRUE(
+      definition->params.Parse(model_params, &context.params, &diagnostic))
+      << diagnostic;
+  EXPECT_EQ(BgeRerankerModel::Create(context, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("max_length"), std::string::npos);
+  EXPECT_NE(diagnostic.find("does not match model value"), std::string::npos);
+
+  model_params.erase("max_length");
+  session->SetInputs({{"input_ids", ElementType::kInt64, {-1, -1}},
+                      {"attention_mask", ElementType::kInt64, {-1, -1}}});
+  ASSERT_TRUE(
+      definition->params.Parse(model_params, &context.params, &diagnostic))
+      << diagnostic;
+  model = std::dynamic_pointer_cast<BgeRerankerModel>(
+      BgeRerankerModel::Create(context, &diagnostic));
+  ASSERT_NE(model, nullptr) << diagnostic;
+  EXPECT_EQ(model->MaxLength(), 512u);
+}
+
+TEST_F(OnnxAndRerankerModelTest, RejectsUnsupportedDetectedSequenceLength) {
+  WriteTestVocab(temp_dir_ / "vocab.txt");
+  const auto definition =
+      ModelRegistry::Instance().Find(BgeRerankerModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ModelCreateContext context;
+  context.model_resource_root = temp_dir_.string();
+
+  for (const int64_t sequence_length : {1, 2, 4097}) {
+    SCOPED_TRACE(sequence_length);
+    auto session = std::make_shared<FakeRerankTensorGraphSession>();
+    session->SetInputs(
+        {{"input_ids", ElementType::kInt64, {-1, sequence_length}},
+         {"attention_mask", ElementType::kInt64, {-1, sequence_length}}});
+    context.backend_session = session;
+    std::string diagnostic;
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                         &context.params, &diagnostic))
+        << diagnostic;
+    EXPECT_EQ(BgeRerankerModel::Create(context, &diagnostic), nullptr);
+    EXPECT_NE(diagnostic.find("max_length"), std::string::npos);
+    EXPECT_NE(diagnostic.find("[3, 4096]"), std::string::npos);
+  }
 }
 
 TEST_F(OnnxAndRerankerModelTest, ModelScoringActivationAndNumericalStability) {
@@ -821,11 +908,16 @@ TEST_F(OnnxAndRerankerModelTest, FixedAndDynamicBatchScheduling) {
   out << "[PAD]\n[UNK]\n[CLS]\n[SEP]\nword\n";
   out.close();
 
-  mctx.model_config = {
+  const nlohmann::json model_params = {
       {"tokenizer_file", "vocab.txt"},
       {"max_batch_size", 1},  // 小于 fixed_batch_size (2) -> 必须明确拒绝
   };
   std::string diag;
+  const auto definition =
+      ModelRegistry::Instance().Find(BgeRerankerModel::kModelType);
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(definition->params.Parse(model_params, &mctx.params, &diag))
+      << diag;
   auto rejected_model =
       ModelRegistry::Instance().Create("bge_reranker", mctx, &diag);
   EXPECT_EQ(rejected_model, nullptr);
@@ -870,12 +962,18 @@ TEST_F(OnnxAndRerankerModelTest, RealOnnxRuntimeRerankFixtureExecution) {
 
   BackendLoadSpec bspec{ExecutionProtocol::kTensorGraph};
   bspec.model_path = onnx_path.string();
-  bspec.backend_config = {
+  const nlohmann::json backend_params = {
       {"max_batch_size", 4},
       {"intra_op_num_threads", 1},
       {"inter_op_num_threads", 1},
   };
   std::string diag;
+  const auto backend_definition =
+      BackendRegistry::Instance().Find("onnxruntime");
+  ASSERT_TRUE(backend_definition.has_value());
+  ASSERT_TRUE(
+      backend_definition->params.Parse(backend_params, &bspec.params, &diag))
+      << diag;
   auto session = backend->Load(bspec, &diag);
   ASSERT_NE(session, nullptr) << diag;
 
@@ -886,7 +984,7 @@ TEST_F(OnnxAndRerankerModelTest, RealOnnxRuntimeRerankFixtureExecution) {
   ModelCreateContext mctx;
   mctx.backend_session = tensor_session;
   mctx.model_resource_root = vocab_path.parent_path().string();
-  mctx.model_config = {
+  const nlohmann::json model_params = {
       {"tokenizer_file", vocab_path.filename().string()},
       {"do_lower_case", true},
       {"max_length", 32},
@@ -894,6 +992,11 @@ TEST_F(OnnxAndRerankerModelTest, RealOnnxRuntimeRerankFixtureExecution) {
       {"score_activation", "sigmoid"},
       {"max_batch_size", 4},
   };
+  const auto model_definition =
+      ModelRegistry::Instance().Find(BgeRerankerModel::kModelType);
+  ASSERT_TRUE(model_definition.has_value());
+  ASSERT_TRUE(model_definition->params.Parse(model_params, &mctx.params, &diag))
+      << diag;
   auto model = ModelRegistry::Instance().Create("bge_reranker", mctx, &diag);
   ASSERT_NE(model, nullptr) << diag;
 

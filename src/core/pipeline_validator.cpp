@@ -455,7 +455,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       nlohmann::json normalized_mcfg = nlohmann::json::object();
       std::vector<ValidationDiagnostic> mcfg_diags;
       const bool model_fields_valid = ValidateAndNormalizeConfig(
-          model_def_opt->config_fields, model.model_config, &normalized_mcfg,
+          model_def_opt->params.Fields(), model.model_config, &normalized_mcfg,
           &mcfg_diags,
           "/models/" + std::to_string(model.source_index) + "/model_config",
           DiagnosticCode::kUnknownModelConfigField);
@@ -463,28 +463,22 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         report.diagnostics.push_back(std::move(d));
       }
 
-      if (model_fields_valid && model_def_opt->validate_config) {
+      if (model_fields_valid) {
         const std::string path =
             "/models/" + std::to_string(model.source_index) + "/model_config";
         std::string diagnostic;
-        try {
-          if (!model_def_opt->validate_config(normalized_mcfg, &diagnostic)) {
-            Add(&report, DiagnosticCode::kInvalidCombination, path,
-                diagnostic.empty() ? "Invalid model configuration"
-                                   : diagnostic);
-          }
-        } catch (const std::exception& e) {
-          Add(&report, DiagnosticCode::kInvalidCombination, path, e.what());
-        } catch (...) {
+        std::shared_ptr<const ParameterValues> values;
+        if (!model_def_opt->params.Parse(normalized_mcfg, &values,
+                                         &diagnostic)) {
           Add(&report, DiagnosticCode::kInvalidCombination, path,
-              "Model configuration validator threw an unknown exception");
+              diagnostic.empty() ? "Invalid model configuration" : diagnostic);
         }
       }
 
       nlohmann::json normalized_bcfg = nlohmann::json::object();
       std::vector<ValidationDiagnostic> bcfg_diags;
       const bool backend_fields_valid = ValidateAndNormalizeConfig(
-          backend_def_opt->config_fields, model.backend_config,
+          backend_def_opt->params.Fields(), model.backend_config,
           &normalized_bcfg, &bcfg_diags,
           "/models/" + std::to_string(model.source_index) + "/backend_config",
           DiagnosticCode::kUnknownBackendConfigField);
@@ -492,21 +486,16 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         report.diagnostics.push_back(std::move(d));
       }
 
-      if (backend_fields_valid && backend_def_opt->validate_config) {
+      if (backend_fields_valid) {
         const std::string path =
             "/models/" + std::to_string(model.source_index) + "/backend_config";
         std::string diagnostic;
-        try {
-          if (!backend_def_opt->validate_config(normalized_bcfg, &diagnostic)) {
-            Add(&report, DiagnosticCode::kInvalidCombination, path,
-                diagnostic.empty() ? "Invalid backend configuration"
-                                   : diagnostic);
-          }
-        } catch (const std::exception& e) {
-          Add(&report, DiagnosticCode::kInvalidCombination, path, e.what());
-        } catch (...) {
+        std::shared_ptr<const ParameterValues> values;
+        if (!backend_def_opt->params.Parse(normalized_bcfg, &values,
+                                           &diagnostic)) {
           Add(&report, DiagnosticCode::kInvalidCombination, path,
-              "Backend configuration validator threw an unknown exception");
+              diagnostic.empty() ? "Invalid backend configuration"
+                                 : diagnostic);
         }
       }
 

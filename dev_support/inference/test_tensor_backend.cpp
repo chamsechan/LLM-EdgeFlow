@@ -2,8 +2,17 @@
 
 #include <utility>
 
+#include "contracts/parameters.h"
+
 namespace llm_edgeflow {
 namespace test {
+namespace {
+
+struct Params {};
+
+Parameters<Params> ParamSpec() { return {}; }
+
+}  // namespace
 
 std::atomic<int> TestTensorBackend::requested_protocol_{-1};
 
@@ -47,6 +56,7 @@ BackendDefinition TestTensorBackend::MakeDefinition() {
   def.description = "Test Tensor Backend Fixture";
   def.supported_protocols = {ExecutionProtocol::kTensorGraph};
   def.concurrency = InferenceConcurrency::kConcurrent;
+  def.params = ParamSpec();
   return def;
 }
 
@@ -65,6 +75,7 @@ std::shared_ptr<IBackendSession> TestTensorBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   (void)diagnostic;
   try {
+    (void)spec.Params<Params>();
     requested_protocol_.store(static_cast<int>(spec.requested_protocol),
                               std::memory_order_relaxed);
     return std::make_shared<TestTensorSession>(spec.model_path);

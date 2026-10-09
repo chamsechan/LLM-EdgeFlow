@@ -56,6 +56,8 @@ foreach(pair "ONNXRUNTIME:onnxruntime_cxx_api.h" "LLAMACPP:llama.h" "WHISPERCPP:
 endforeach()
 
 check_header(model_execution engine/model_interface.h TRUE)
+check_header(model_execution contracts/parameters.h TRUE)
+check_header(model_execution contracts/parameter_set.h TRUE)
 check_header(model_execution engine/models/bge_common/bert_wordpiece_tokenizer.h TRUE)
 check_header(capability_nodes nodes/node_base.h TRUE)
 check_header(capability_nodes nodes/authoring.h TRUE)

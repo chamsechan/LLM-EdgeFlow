@@ -10,15 +10,37 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
 
 namespace llm_edgeflow {
 
-static const ModelDefinition& QwenCausalLmModelDefinition();
-
 namespace {
+
+struct Params {
+  std::string system_prompt;
+  bool add_bos = false;
+  int64_t random_seed = -1;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>(
+      {Field("system_prompt", &Params::system_prompt)
+           .Default("")
+           .Description(
+               "Qwen ChatML 的 system 角色内容；空字符串时省略该角色。"),
+       Field("add_bos", &Params::add_bos)
+           .Default(false)
+           .Description(
+               "分词时请求添加 BOS 起始 token，须与所选权重的分词约定一致。"),
+       Field("random_seed", &Params::random_seed)
+           .Default(-1)
+           .Range(-1, std::numeric_limits<int32_t>::max())
+           .Description("-1 不显式指定随机种子；非负值结合 req_id/sub_id "
+                        "派生每条输入的采样种子。")});
+}
 
 uint64_t MixSeed(uint64_t seed, uint32_t req_id, uint32_t sub_id) noexcept {
   seed ^= static_cast<uint64_t>(req_id) + 0x9e3779b97f4a7c15ULL + (seed << 6U) +
@@ -33,9 +55,10 @@ uint64_t MixSeed(uint64_t seed, uint32_t req_id, uint32_t sub_id) noexcept {
 std::shared_ptr<IModel> QwenCausalLmModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
   try {
+    const auto& params = ctx.Params<Params>();
     auto session =
         std::dynamic_pointer_cast<ITextGenerationSession>(ctx.backend_session);
-    if (!session || session->Protocol() != ExecutionProtocol::kTextGeneration) {
+    if (!session) {
       if (diagnostic) {
         *diagnostic =
             "Backend session does not implement the text-generation protocol";
@@ -51,21 +74,9 @@ std::shared_ptr<IModel> QwenCausalLmModel::Create(const ModelCreateContext& ctx,
       return nullptr;
     }
 
-    const std::string system_prompt = ConfigValueOrDefault<std::string>(
-        ctx.model_config, QwenCausalLmModelDefinition().config_fields,
-        "system_prompt");
-    const bool add_bos = ConfigValueOrDefault<bool>(
-        ctx.model_config, QwenCausalLmModelDefinition().config_fields,
-        "add_bos");
-    const int64_t random_seed = ConfigValueOrDefault<int64_t>(
-        ctx.model_config, QwenCausalLmModelDefinition().config_fields,
-        "random_seed");
-    if (random_seed < -1) {
-      if (diagnostic) *diagnostic = "random_seed must be -1 or non-negative";
-      return nullptr;
-    }
     return std::make_shared<QwenCausalLmModel>(
-        std::move(session), system_prompt, add_bos, random_seed);
+        std::move(session), params.system_prompt, params.add_bos,
+        params.random_seed);
   } catch (const std::exception& e) {
     if (diagnostic) {
       *diagnostic = std::string("Qwen model creation exception: ") + e.what();
@@ -180,33 +191,7 @@ static const ModelDefinition& QwenCausalLmModelDefinition() {
     definition.description =
         "Qwen ChatML model using the unified text-generation protocol";
     definition.required_protocol = ExecutionProtocol::kTextGeneration;
-    definition.config_fields = {
-        {"system_prompt",
-         ConfigValueKind::kString,
-         false,
-         "",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "Qwen ChatML 的 system 角色内容；空字符串时省略该角色。"},
-        {"add_bos",
-         ConfigValueKind::kBoolean,
-         false,
-         false,
-         std::nullopt,
-         std::nullopt,
-         {},
-         "分词时请求添加 BOS 起始 token，须与所选权重的分词约定一致。"},
-        {"random_seed",
-         ConfigValueKind::kInteger,
-         false,
-         -1,
-         -1.0,
-         static_cast<double>(std::numeric_limits<int32_t>::max()),
-         {},
-         "-1 不显式指定随机种子；非负值结合 req_id/sub_id "
-         "派生每条输入的采样种子。"},
-    };
+    definition.params = ParamSpec();
     return definition;
   }();
   return definition;
