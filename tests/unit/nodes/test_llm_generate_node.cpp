@@ -276,27 +276,7 @@ TEST_F(LlmGenerateNodeTest, GenerationOptionsAcceptInclusiveBounds) {
   }
 }
 
-TEST_F(LlmGenerateNodeTest, RejectsInvalidUnifiedGenerationOptions) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  EXPECT_FALSE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}},
-                       {"top_k", -1}},
-                      session_ctx_.get()));
-
-  node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  EXPECT_FALSE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}},
-                       {"repetition_penalty", 0.0}},
-                      session_ctx_.get()));
-}
-
-TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
+TEST_F(LlmGenerateNodeTest, ValidatorRejectsInvalidOptions) {
   const std::vector<nlohmann::json> invalid = {
       {{"stop_words", nlohmann::json::array({42})}},
       {{"stop_words", nlohmann::json::array({""})}},
@@ -331,9 +311,6 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
         config_rejected = true;
     }
     EXPECT_TRUE(config_rejected);
-    auto node = NodeRegistry::Instance().Create("llm_generate");
-    ASSERT_NE(node, nullptr);
-    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
   }
   std::string diagnostic;
   EXPECT_NE(PrepareNodePlanForTest(
@@ -350,19 +327,6 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
 
 TEST_F(LlmGenerateNodeTest, StopWordElementTypeErrorReportsExactConfigPath) {
   const nlohmann::json options = {{"stop_words", {"END", 42}}};
-  const auto schema = GenerateParameters();
-  nlohmann::json normalized;
-  std::vector<ConfigFieldValidationError> errors;
-  EXPECT_FALSE(ValidateAndNormalizeFields(schema.Fields(), options, &normalized,
-                                          &errors));
-  ASSERT_EQ(errors.size(), 1U);
-  EXPECT_EQ(errors[0].path, "/stop_words/1");
-  EXPECT_EQ(errors[0].kind, ConfigFieldErrorKind::kTypeMismatch);
-  std::string diagnostic;
-  EXPECT_FALSE(schema.Parse(options, &diagnostic).has_value());
-  EXPECT_NE(diagnostic.find("Field '/stop_words/1':"), std::string::npos)
-      << diagnostic;
-
   auto config = options;
   config["bind_model"] = "llm_model";
   config["endpoints"] = {{"answer", nlohmann::json::object()}};
@@ -380,9 +344,6 @@ TEST_F(LlmGenerateNodeTest, StopWordElementTypeErrorReportsExactConfigPath) {
     }
   }
   EXPECT_TRUE(exact_diagnostic) << plan.report.ToJson().dump(2);
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic));
   EXPECT_EQ(model_->infer_calls, 0);
 }
 

@@ -104,6 +104,10 @@ TEST(ConverterContractsTest,
   EXPECT_EQ(resolved, fs::weakly_canonical(base / "nested/missing.bin"));
   EXPECT_FALSE(fs::exists(resolved));
   ASSERT_TRUE(
+      ResolveFileUnderDirectory(base, "..name/missing.bin", &resolved, &error))
+      << error;
+  EXPECT_EQ(resolved, fs::weakly_canonical(base / "..name/missing.bin"));
+  ASSERT_TRUE(
       ResolveFileUnderDirectory({}, "nested\\missing.bin", &resolved, &error));
   EXPECT_EQ(resolved, fs::path("nested/missing.bin"));
   fs::create_directories(directory.root / "outside");

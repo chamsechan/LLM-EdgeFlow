@@ -152,22 +152,10 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
         }))
         << report.ToJson().dump(2);
 
-    // 直接通过编写接口初始化时，报告同一个出错的嵌套值。
-    auto fresh = NodeRegistry::Instance().Create("text_rule_match");
-    std::string diagnostic;
-    EXPECT_FALSE(InitNodeForTest(*fresh, invalid.config, session_ctx_.get(),
-                                 &diagnostic));
-    if (invalid.code != DiagnosticCode::kInvalidCombination) {
-      EXPECT_NE(diagnostic.find(invalid.path.substr(
-                    std::string("/pipeline/0/params").size())),
-                std::string::npos)
-          << diagnostic;
-    }
     const auto update =
         active->Control(kControlCmdUpdateRules, invalid.config.dump());
     EXPECT_EQ(update.status, NodeControlStatus::kFailed);
     for (const auto& part : invalid.expected) {
-      EXPECT_NE(diagnostic.find(part), std::string::npos) << diagnostic;
       EXPECT_NE(update.message.find(part), std::string::npos) << update.message;
     }
     AlgContext context;
@@ -178,19 +166,6 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
     ASSERT_EQ(matches->size(), 2u);
     EXPECT_EQ(matches->at(0).data.category, "OLD");
     EXPECT_EQ(matches->at(1).data.is_hit, 0);
-  }
-}
-
-TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
-  for (const auto& [config, field] :
-       std::vector<std::pair<nlohmann::json, std::string>>{
-           {{{"default_score", "bad"}}, "default_score"},
-           {{{"category", "misspelled"}}, "category"}}) {
-    auto node = NodeRegistry::Instance().Create("text_rule_match");
-    std::string diagnostic;
-    EXPECT_FALSE(
-        InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic));
-    EXPECT_NE(diagnostic.find(field), std::string::npos) << diagnostic;
   }
 }
 

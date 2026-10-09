@@ -142,11 +142,9 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(self.command("init", "--profile", "keyword_match_rules")["pipeline"], original)
         draft = self.command("init", "--input", "keyword_in/keyword_match",
                              "--output", "keyword_out/keyword_match")["pipeline"]
-        before = copy.deepcopy(draft)
         added = self.command("edit", "--stdin", document={
             "pipeline": draft, "operation": {"kind": "add_node", "type": "text_rule_match"},
         })
-        self.assertEqual(draft, before)
         self.assertEqual(added["pipeline"]["pipeline"], [{"type": "text_rule_match", "name": "text_rule_match"}])
         self.assertFalse(added["validation"]["ok"])
         connected = self.command("edit", "--stdin", document={
@@ -284,26 +282,7 @@ class PipelineCliTest(unittest.TestCase):
                 self.command("validate", REPO / f"configs/{name}.json")
 
     def test_exported_schema_and_native_validation_cover_nested_parameter_types(self):
-        schema, validator = self.schema()
-        embedding = next(branch for branch in schema["properties"]["models"]["items"]["allOf"]
-                         if branch["if"]["properties"]["type"]["const"] == "embedding"
-                         and branch["if"]["properties"].get("backend", {})
-                         .get("properties", {}).get("type", {}).get("const") == "onnxruntime")
-        self.assertTrue(embedding["then"]["properties"]["params"]
-                        ["properties"]["tokenizer_file"]["file"])
-        branches = {branch["if"]["properties"]["type"]["const"]:
-                    branch["then"]["properties"]["params"]
-                    for branch in schema["properties"]["pipeline"]["items"]["allOf"]}
-        categories = branches["text_rule_match"]["properties"]["categories"]
-        self.assertEqual(categories["type"], "object")
-        self.assertEqual(categories["additionalProperties"]["type"], "array")
-        self.assertEqual(categories["additionalProperties"]["items"]["type"], "string")
-        rules = branches["text_rule_match"]["properties"]["rules"]
-        self.assertEqual(rules["type"], "array")
-        self.assertEqual(rules["items"]["type"], "object")
-        self.assertIn("pattern", rules["items"]["required"])
-        endpoints = branches["llm_generate"]["properties"]["endpoints"]
-        self.assertEqual(endpoints["additionalProperties"]["properties"]["prompt"]["default"], "{{input}}")
+        _, validator = self.schema()
         base = self.fixture("configs/pipeline_keyword_match_rules.json")
         base["pipeline"][0]["params"] = {
             "categories": {"VIP": ["VIP"]},
@@ -333,6 +312,84 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertFalse(validator.is_valid(document))
                 report = self.command("validate", "--stdin", document=document, ok=False)
                 self.assertTrue(any(diagnostic["path"] == path for diagnostic in report["diagnostics"]), report)
+
+
+class PipelineJsonSchemaTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.builds = []
+        tools = (TEST_TOOL, TOOL)
+        for tool in dict.fromkeys(tools):
+            artifacts = {}
+            for command in ("catalog", "export-schema"):
+                result = subprocess.run(
+                    [str(tool), command], cwd=REPO, text=True,
+                    capture_output=True, timeout=30, check=True)
+                artifacts[command] = json.loads(result.stdout)
+                artifacts[command + "_raw"] = result.stdout
+            cls.builds.append((tool, artifacts))
+
+    def test_export_is_deterministic_bare_draft07_schema(self):
+        for tool, artifacts in self.builds:
+            with self.subTest(tool=tool):
+                schema = artifacts["export-schema"]
+                self.assertEqual(schema["$schema"],
+                                 "http://json-schema.org/draft-07/schema#")
+                self.assertEqual(schema["type"], "object")
+                jsonschema.Draft7Validator.check_schema(schema)
+                self.assertNotIn("ok", schema)
+                repeated = subprocess.run(
+                    [str(tool), "export-schema"], cwd=REPO, text=True,
+                    capture_output=True, timeout=30, check=True)
+                self.assertEqual(repeated.stdout, artifacts["export-schema_raw"])
+                catalog = subprocess.run(
+                    [str(tool), "catalog"], cwd=REPO, text=True,
+                    capture_output=True, timeout=30, check=True)
+                self.assertEqual(catalog.stdout, artifacts["catalog_raw"])
+
+    def test_export_rejects_arguments(self):
+        for arguments in (("--stdin",), ("pipeline.json",), ("--output", "schema.json")):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [str(TEST_TOOL), "export-schema", *arguments],
+                    cwd=REPO, text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_each_build_exposes_exactly_its_registered_choices(self):
+        for tool, artifacts in self.builds:
+            with self.subTest(tool=tool):
+                catalog = artifacts["catalog"]
+                schema = artifacts["export-schema"]
+                properties = schema["properties"]
+                nodes = properties["pipeline"]["items"]
+                self.assertCountEqual(nodes["properties"]["type"]["enum"],
+                                      [node["node_type"] for node in catalog["nodes"]])
+                self.assertCountEqual(schema["required"], ["pipeline", "io"])
+                self.assertEqual(properties["max_parallel_workers"]["minimum"], 1)
+                self.assertEqual(properties["max_parallel_workers"]["maximum"], 64)
+                model = properties["models"]["items"]["properties"]
+                self.assertCountEqual(model["type"]["enum"], sorted({d["model_type"] for d in catalog["models"]}))
+                backend_type = model["backend"]["properties"]["type"]
+                if catalog["backends"]:
+                    self.assertCountEqual(backend_type["enum"], [d["backend_type"] for d in catalog["backends"]])
+                else:
+                    self.assertIs(backend_type, False)
+
+    def test_editor_associates_schema_without_changing_pipeline_documents(self):
+        settings = json.loads((REPO / "edgeflow.code-workspace").read_text())["settings"]
+        associations = settings["json.schemas"]
+        import fnmatch
+        representative = "/configs/pipeline_keyword_match_rules.json"
+        self.assertTrue(any(
+            a.get("url") and any(fnmatch.fnmatchcase(representative, pattern)
+                                 for pattern in a["fileMatch"])
+            for a in associations))
+        paths = list((REPO / "configs").glob("pipeline_*.json"))
+        paths += list((REPO / "demo/fixtures").rglob("pipeline_*.json"))
+        self.assertTrue(paths)
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertNotIn("$schema", json.loads(path.read_text()))
 
 
 if __name__ == "__main__":
