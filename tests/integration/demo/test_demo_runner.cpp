@@ -1,17 +1,24 @@
 #include <gtest/gtest.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
 #include "core/node_registry.h"
+#include "core/pipeline_catalog.h"
 #include "demo/common/dataset_reader.h"
+#include "demo/common/demo_io_registry.h"
 #include "demo/common/demo_options.h"
-#include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
 #include "dev_support/node_authoring/legacy_node_base.h"
@@ -21,6 +28,7 @@
 #include "nlohmann/json.hpp"
 #include "nodes/node_base.h"
 #include "tests/support/control_test_utils.h"
+#include "tests/support/registry_test_access.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
@@ -74,6 +82,111 @@ NodeDefinition DemoStatusDefinition() {
 }
 
 REGISTER_NODE_WITH_DEFINITION(TestDemoStatusNode, DemoStatusDefinition());
+
+// 用两个真实 KeywordOutput 槽验证 runner 合并，复用生产编码与展示。
+int EncodeDemoMultiOutput(AlgContext* context,
+                          const OutputEncodeOptions& options,
+                          ExternalOutputBatchView* destination,
+                          size_t* written_count, AdapterStatus* status) {
+  if (!destination) return -1;
+  const auto* converter =
+      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
+  if (!converter) return -1;
+  for (const char* slot : {"primary", "secondary"}) {
+    ExternalOutputBatchView view;
+    view.count = destination->count;
+    view.leased_slots["keyword_out"] = destination->leased_slots.at(slot);
+    view.slot_types["keyword_out"] = destination->slot_types.at(slot);
+    view.pool_specs["keyword_out"] = destination->pool_specs.at(slot);
+    const int ret =
+        converter->encode_fn(context, options, &view, written_count, status);
+    if (ret != 0) return ret;
+    if (std::string(slot) == "secondary") {
+      for (size_t i = 0; i < *written_count; ++i) {
+        auto* output =
+            view.GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
+        output->status_code = output->is_hit ? 0 : -17;
+        output->is_hit = !output->is_hit;
+      }
+    }
+  }
+  return 0;
+}
+
+bool RegisterDemoIoFixtures() {
+  const auto production_biz = PipelineCatalog::FindBiz("keyword_match");
+  const auto* production_output =
+      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
+  const auto* production_input =
+      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
+  if (!production_biz || !production_output || !production_input) return false;
+  if (!IoBindingRegistry::Instance().FindBinding("test_demo_multi_output")) {
+    auto biz = *production_biz;
+    biz.biz_name = "test_demo_multi_output";
+    if (!PipelineCatalog::RegisterBizDefinition(biz)) return false;
+    auto output = *production_output;
+    output.converter_id = "test_demo_multi_output";
+    output.external_slots = {production_output->external_slots[0],
+                             production_output->external_slots[0]};
+    output.external_slots[0].slot_name = "primary";
+    output.external_slots[0].key_suffix = "primary";
+    output.external_slots[1].slot_name = "secondary";
+    output.external_slots[1].key_suffix = "secondary";
+    output.encode_fn = &EncodeDemoMultiOutput;
+    if (!IoConverterRegistry::Instance().RegisterOutputConverter(output))
+      return false;
+    if (!IoBindingRegistry::Instance().RegisterBinding(
+            {biz.biz_name, "keyword.plain", output.converter_id}))
+      return false;
+  }
+  if (!IoBindingRegistry::Instance().FindBinding(
+          "test_demo_unsupported_inputs")) {
+    auto biz = *production_biz;
+    biz.biz_name = "test_demo_unsupported_inputs";
+    if (!PipelineCatalog::RegisterBizDefinition(biz)) return false;
+    auto input = *production_input;
+    input.converter_id = "test_demo_unsupported_inputs";
+    input.external_slots = {production_input->external_slots[0],
+                            production_input->external_slots[0]};
+    input.external_slots[1].slot_name = "extra";
+    input.external_slots[1].key_suffix = "extra";
+    if (!IoConverterRegistry::Instance().RegisterInputConverter(input))
+      return false;
+    if (!IoBindingRegistry::Instance().RegisterBinding(
+            {biz.biz_name, input.converter_id, "keyword.result"}))
+      return false;
+  }
+  return true;
+}
+
+class ScopedDemoIoFixtures {
+ public:
+  ScopedDemoIoFixtures()
+      : bizs_(PipelineCatalog::Bizs()),
+        inputs_(IoConverterRegistry::Instance().AllInputConverters()),
+        outputs_(IoConverterRegistry::Instance().AllOutputConverters()),
+        bindings_(IoBindingRegistry::Instance().AllBindings()) {}
+  ~ScopedDemoIoFixtures() {
+    IoBindingRegistry::Instance().ClearForTesting();
+    IoConverterRegistry::Instance().ClearForTesting();
+    test_support::RegistryTestAccess::ResetBizs();
+    EXPECT_TRUE(PipelineCatalog::RegisterBizDefinitions(bizs_));
+    for (const auto& input : inputs_)
+      EXPECT_TRUE(
+          IoConverterRegistry::Instance().RegisterInputConverter(input));
+    for (const auto& output : outputs_)
+      EXPECT_TRUE(
+          IoConverterRegistry::Instance().RegisterOutputConverter(output));
+    for (const auto& binding : bindings_)
+      EXPECT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  }
+
+ private:
+  std::vector<BizDefinition> bizs_;
+  std::vector<InputConverterDefinition> inputs_;
+  std::vector<OutputConverterDefinition> outputs_;
+  std::vector<IoBindingDefinition> bindings_;
+};
 
 }  // namespace
 }  // namespace llm_edgeflow::test
@@ -187,17 +300,13 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   opts.chip = "cpu";
   opts.device_id = 0;
   opts.batch_size = 1;
-  std::string resolution_error;
-  ASSERT_TRUE(ResolveConfigBiz(&opts, &resolution_error)) << resolution_error;
-  const auto* desc = DemoRegistry::Instance().Find(opts.biz);
-  ASSERT_NE(desc, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
-  const int result = desc->run(opts);
+  const int result = RunOperatorDemo(opts);
   EXPECT_EQ(ops.DeInit(), 0);
   ASSERT_EQ(result, 0);
 
-  std::ifstream results(temporary.path / "output" / opts.biz / "results.jsonl");
+  std::ifstream results(temporary.path / "output/pipeline/results.jsonl");
   ASSERT_TRUE(results.good());
   std::string line;
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
@@ -259,7 +368,6 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   int ret = ParseCommandLine(argc, const_cast<char**>(argv), &opts, &err);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(opts.profile, "entity_extract_mock");
-  EXPECT_TRUE(opts.biz.empty());
   EXPECT_EQ(opts.config_path,
             "demo/fixtures/mock/pipeline_entity_extract.conf");
   EXPECT_EQ(opts.dataset_path, "data/corpus_entity_extract.txt");
@@ -275,9 +383,9 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
 }
 
 TEST(DemoRunnerTest, UnknownCommandLineFlagsAreRejected) {
-  for (const char* flag : {"--biz", "-b", "--business", "--unknown-option"}) {
+  for (const char* flag : {"--unknown-option"}) {
     SCOPED_TRACE(flag);
-    const char* argv[] = {"alg_demo", flag, "entity_extract"};
+    const char* argv[] = {"alg_demo", flag, "value"};
     DemoOptions opts;
     std::string err;
     EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &opts, &err), 2);
@@ -285,16 +393,23 @@ TEST(DemoRunnerTest, UnknownCommandLineFlagsAreRejected) {
   }
 }
 
-TEST(DemoRunnerTest, ConfigAloneResolvesRegisteredRunner) {
+TEST(DemoRunnerTest, ConfigAloneResolvesRegisteredCarriers) {
   const char* argv[] = {"alg_demo", "--config",
                         "configs/pipeline_keyword_match_rules.conf"};
   DemoOptions options;
   std::string error;
   ASSERT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &options, &error), 0);
-  EXPECT_TRUE(options.biz.empty());
-  ASSERT_TRUE(ResolveConfigBiz(&options, &error)) << error;
-  EXPECT_EQ(options.biz, "keyword_match");
-  ASSERT_NE(DemoRegistry::Instance().Find(options.biz), nullptr);
+  OperatorIoContract contract;
+  ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  ASSERT_EQ(contract.outputs.size(), 1U);
+  EXPECT_EQ(contract.inputs[0].type, "keyword_in");
+  EXPECT_EQ(contract.outputs[0].type, "keyword_out");
+  EXPECT_NE(DemoIoRegistry::Instance().FindInput(contract.inputs[0].type_name),
+            nullptr);
+  EXPECT_NE(
+      DemoIoRegistry::Instance().FindOutput(contract.outputs[0].type_name),
+      nullptr);
 }
 
 // CLI 错误保持退出码 2。
@@ -370,7 +485,6 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   int ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
   EXPECT_EQ(ret, 0) << "Error: " << err;
 
-  EXPECT_TRUE(merged.biz.empty());
   EXPECT_EQ(merged.config_path,
             "demo/fixtures/mock/pipeline_entity_extract.conf");
   EXPECT_EQ(merged.dataset_path, "data/corpus_entity_extract.txt");
@@ -429,31 +543,28 @@ TEST(DemoRunnerTest, ProfileOwnsExecutionSettings) {
   }
 }
 
-TEST(DemoRunnerTest, ConfigOverrideDeterminesResolvedBiz) {
+TEST(DemoRunnerTest, ConfigOverrideDeterminesResolvedCarriers) {
   DemoOptions cli;
   cli.profile = "entity_extract_mock";
-  cli.biz = "stale_resolved_value";
   cli.config_path = "configs/pipeline_keyword_match_rules.conf";
   cli.has_config_path = true;
   DemoOptions merged;
   std::string error;
   ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &merged, &error), 0)
       << error;
-  EXPECT_TRUE(merged.biz.empty());
   EXPECT_EQ(merged.config_path, cli.config_path);
-  ASSERT_TRUE(ResolveConfigBiz(&merged, &error)) << error;
-  EXPECT_EQ(merged.biz, "keyword_match");
-  ASSERT_NE(DemoRegistry::Instance().Find(merged.biz), nullptr);
+  OperatorIoContract contract;
+  ASSERT_TRUE(ResolveConfigIo(merged, &contract, &error)) << error;
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  ASSERT_EQ(contract.outputs.size(), 1U);
+  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorKeywordInput");
+  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorKeywordOutput");
 }
 
 TEST(DemoRunnerTest, ProfileRejectsUnknownFieldsAndInvalidShapes) {
   KiteDemoDirectory temporary;
   const auto path = temporary.path / "profiles.json";
   const std::vector<std::pair<nlohmann::json, std::string>> cases = {
-      {{{"config", "configs/pipeline_keyword_match_rules.conf"},
-        {"dataset", "data/corpus_keyword_match.txt"},
-        {"biz", "keyword_match"}},
-       "Unknown Profile field: 'biz'"},
       {{{"config", "configs/pipeline_keyword_match_rules.conf"},
         {"dataset", "data/corpus_keyword_match.txt"},
         {"datset", "data/corpus_keyword_match.txt"}},
@@ -556,46 +667,415 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   std::filesystem::remove(temp_invalid_json);
 }
 
-// 4. 测试 DemoRegistry 注册与冲突检测
+// 登记冲突用局部注册表验证，不改变进程中的生产登记。
 TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
-  auto& reg = DemoRegistry::Instance();
-  struct RestoreRegistry {
-    std::vector<DemoDescriptor> saved;
-    ~RestoreRegistry() {
-      auto& registry = DemoRegistry::Instance();
-      registry.ResetForTesting();
-      for (const auto& descriptor : saved)
-        EXPECT_TRUE(registry.Register(descriptor));
-    }
-  } restore{reg.ListDescriptors()};
-
-  // Demo 分派直接使用 Pipeline 的业务标识。
-  for (const char* biz :
-       {"entity_extract", "keyword_match", "doc_qa", "dialogue_audit",
-        "ocr_invoice_qa", "audio_asr_intent", "cross_rerank", "translate"}) {
-    SCOPED_TRACE(biz);
-    const auto* descriptor = reg.Find(biz);
-    ASSERT_NE(descriptor, nullptr);
-    EXPECT_EQ(descriptor->biz_name, biz);
-    EXPECT_NE(descriptor->run, nullptr);
+  const auto& production = DemoIoRegistry::Instance();
+  EXPECT_FALSE(production.HasConflict());
+  for (const char* type :
+       {"CompanyOperatorKeywordInput", "CompanyOperatorEntityInput",
+        "CompanyOperatorDocInput", "CompanyOperatorAuditInput",
+        "CompanyOperatorRerankInput", "CompanyOperatorAudioInput",
+        "CompanyFrame,CompanyString"}) {
+    SCOPED_TRACE(type);
+    EXPECT_NE(production.FindInput(type), nullptr);
   }
+  for (const char* type :
+       {"CompanyOperatorKeywordOutput", "CompanyOperatorEntityOutput",
+        "CompanyOperatorDocOutput", "CompanyOperatorAuditOutput",
+        "CompanyOperatorRerankOutput", "CompanyOperatorAudioOutput",
+        "CompanyOdOutput"}) {
+    SCOPED_TRACE(type);
+    EXPECT_NE(production.FindOutput(type), nullptr);
+  }
+  EXPECT_EQ(production.FindInput("CompanyString,CompanyFrame"), nullptr);
 
-  EXPECT_FALSE(reg.Register(
-      {"entity_extract", "Duplicate", [](const DemoOptions&) { return 0; }}));
-  EXPECT_TRUE(reg.HasConflict());
+  const BuildRequestsFn build = [](const DemoOptions&,
+                                   const std::vector<OperatorIoEntry>&,
+                                   DemoRequestBatch*) { return 0; };
+  const ShowResultFn show = [](const void*, const nlohmann::json&, uint64_t*,
+                               int32_t*, nlohmann::json*) {};
+  DemoIoRegistry registry;
+  EXPECT_TRUE(registry.RegisterInput("Z", build));
+  EXPECT_TRUE(registry.RegisterInput("A,B", build));
+  EXPECT_TRUE(registry.RegisterOutput("Z", show));
+  EXPECT_TRUE(registry.RegisterOutput("A", show));
+  EXPECT_FALSE(registry.HasConflict());
+  EXPECT_EQ(registry.FindInput("A,B"), build);
+  EXPECT_EQ(registry.FindInput("B,A"), nullptr);
+  EXPECT_EQ(registry.FindOutput("A"), show);
+  EXPECT_EQ(registry.FindOutput("unknown"), nullptr);
+  EXPECT_EQ(registry.ListInputs(), (std::vector<std::string>{"A,B", "Z"}));
+  EXPECT_EQ(registry.ListOutputs(), (std::vector<std::string>{"A", "Z"}));
+  EXPECT_FALSE(registry.RegisterInput("A,B", build));
+  EXPECT_FALSE(registry.RegisterOutput("A", show));
+  EXPECT_FALSE(registry.RegisterInput("", build));
+  EXPECT_FALSE(registry.RegisterOutput("", show));
+  EXPECT_FALSE(registry.RegisterInput("null", nullptr));
+  EXPECT_FALSE(registry.RegisterOutput("null", nullptr));
+  EXPECT_EQ(registry.FindInput("null"), nullptr);
+  EXPECT_EQ(registry.FindOutput("null"), nullptr);
+  EXPECT_TRUE(registry.HasConflict());
+  EXPECT_FALSE(production.HasConflict());
+}
+
+TEST(DemoRunnerTest, UnsupportedInputCombinationListsRegisteredCarriers) {
+  llm_edgeflow::test::ScopedDemoIoFixtures fixtures;
+  ASSERT_TRUE(llm_edgeflow::test::RegisterDemoIoFixtures());
+  KiteDemoDirectory temporary;
+  std::ifstream pipeline_file("configs/pipeline_keyword_match_rules.json");
+  ASSERT_TRUE(pipeline_file.good());
+  auto pipeline = nlohmann::json::parse(pipeline_file);
+  pipeline["deployment"]["io"]["io_binding"] = "test_demo_unsupported_inputs";
+  std::ofstream(temporary.path / "pipeline.json") << pipeline;
+  std::ofstream(temporary.path / "pipeline.conf")
+      << R"({"pipe_path":"pipeline.json"})";
+  DemoOptions options;
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = "data/corpus_keyword_match.txt";
+  options.output_dir = temporary.path.string();
+  OperatorIoContract contract;
+  std::string error;
+  ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
+  ASSERT_EQ(contract.inputs.size(), 2U);
+  testing::internal::CaptureStderr();
+  const int ret = RunOperatorDemo(options);
+  const auto diagnostic = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(ret, 3);
+  EXPECT_NE(diagnostic.find(
+                "CompanyOperatorKeywordInput,CompanyOperatorKeywordInput"),
+            std::string::npos);
+  EXPECT_NE(diagnostic.find("input: CompanyFrame,CompanyString"),
+            std::string::npos);
+  EXPECT_NE(diagnostic.find("output: CompanyOperatorKeywordOutput"),
+            std::string::npos);
   EXPECT_FALSE(
-      reg.Register({"", "Empty", [](const DemoOptions&) { return 0; }}));
-  EXPECT_FALSE(reg.Register({"dummy_new", "NullFunc", nullptr}));
-  EXPECT_EQ(reg.Find("dummy_new"), nullptr);
+      std::filesystem::exists(temporary.path / "pipeline/results.jsonl"));
+}
 
-  reg.ResetForTesting();
-  EXPECT_EQ(reg.Find("entity_extract"), nullptr);
-  EXPECT_TRUE(reg.Register(
-      {"new_domain", "Domain", [](const DemoOptions&) { return 0; }}));
-  const auto* added = reg.Find("new_domain");
-  ASSERT_NE(added, nullptr);
-  EXPECT_EQ(added->biz_name, "new_domain");
-  EXPECT_EQ(reg.Find("entity_extract"), nullptr);
+TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
+  llm_edgeflow::test::ScopedDemoIoFixtures fixtures;
+  ASSERT_TRUE(llm_edgeflow::test::RegisterDemoIoFixtures());
+  KiteDemoDirectory temporary;
+  std::ifstream pipeline_file("configs/pipeline_keyword_match_rules.json");
+  ASSERT_TRUE(pipeline_file.good());
+  auto pipeline = nlohmann::json::parse(pipeline_file);
+  pipeline["deployment"]["io"] = {
+      {"io_binding", "test_demo_multi_output"},
+      {"out_mem",
+       {{"primary", {{"capacities", {{"match_result_json", 2047}}}}},
+        {"secondary", {{"capacities", {{"match_result_json", 2047}}}}}}}};
+  std::ofstream(temporary.path / "pipeline.json") << pipeline;
+  std::ofstream(temporary.path / "pipeline.conf")
+      << R"({"pipe_path":"pipeline.json"})";
+  std::ofstream(temporary.path / "input.txt")
+      << "初始化自检\n普通文本\n初始化自检\n";
+  DemoOptions options;
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = temporary.path.string();
+  options.batch_size = 1;
+  options.depth_num = 1;  // 三批必须复用每个槽的同一个池块。
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(RunOperatorDemo(options), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
+
+  std::ifstream results(temporary.path / "pipeline/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  for (int index = 0; index < 3; ++index) {
+    ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+    const auto sample = nlohmann::json::parse(line);
+    EXPECT_EQ(sample["request_id"], 20001 + index);
+    EXPECT_EQ(sample["status"], index == 1 ? -17 : 0);
+    const auto& output = sample["output"];
+    EXPECT_EQ(output.size(), 4U);
+    EXPECT_FALSE(output.contains("is_hit"));
+    EXPECT_FALSE(output.contains("match_result"));
+    EXPECT_EQ(output["primary.is_hit"], index != 1);
+    EXPECT_EQ(output["secondary.is_hit"], index == 1);
+    EXPECT_TRUE(output["primary.match_result"].is_object());
+    EXPECT_EQ(output["primary.match_result"], output["secondary.match_result"]);
+    if (index != 1) {
+      EXPECT_NE(output["primary.match_result"].dump().find("SYSTEM_INIT"),
+                std::string::npos);
+    }
+  }
+  EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
+  std::ifstream summary_file(temporary.path / "pipeline/summary.json");
+  ASSERT_TRUE(summary_file.good());
+  const auto summary = nlohmann::json::parse(summary_file);
+  EXPECT_EQ(summary["total_samples"], 3);
+  EXPECT_EQ(summary["success_count"], 2);
+  EXPECT_EQ(summary["failed_count"], 1);
+}
+
+TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
+  KiteDemoDirectory temporary;
+  std::ifstream rerank_source("configs/pipeline_cross_rerank_cpu.json");
+  ASSERT_TRUE(rerank_source.good());
+  auto rerank_pipeline = nlohmann::json::parse(rerank_source);
+  auto& model = rerank_pipeline["models"][0];
+  model["model_type"] = "test_biz_rerank";
+  model["backend"] = "test_tensor_backend";
+  model["model_path"] = "rerank.fixture";
+  model["model_config"] = nlohmann::json::object();
+  model["backend_config"] = nlohmann::json::object();
+  std::ofstream(temporary.path / "rerank.json") << rerank_pipeline;
+  std::ofstream(temporary.path / "rerank.conf")
+      << R"({"pipe_path":"rerank.json"})";
+  struct Case {
+    std::string config;
+    const char* dataset;
+    uint64_t request_id;
+    size_t count;
+    const char* output_field;
+    const char* suite = "smoke";
+  };
+  const std::vector<Case> cases = {
+      {"configs/pipeline_keyword_match_rules.conf",
+       "data/corpus_keyword_match.txt", 20001, 2, "is_hit"},
+      {"demo/fixtures/mock/pipeline_entity_extract.conf",
+       "data/corpus_entity_extract.txt", 30001, 1, "entities"},
+      {"demo/fixtures/mock/pipeline_doc_qa.conf", "data/corpus_doc_qa.txt",
+       10001, 2, "answer_text"},
+      {"demo/fixtures/mock/pipeline_dialogue_audit.conf",
+       "data/corpus_dialogue_audit.txt", 40001, 2, "audit_verdict"},
+      {"demo/fixtures/mock/pipeline_ocr_invoice_qa.conf",
+       "data/corpus_ocr_invoice_qa.txt", 60001, 1, "extracted_invoice"},
+      {"demo/fixtures/mock/pipeline_audio_asr_intent.conf",
+       "data/corpus_audio_asr_intent.txt", 70001, 1, "transcribed_text"},
+      {"demo/fixtures/mock/pipeline_audio_asr_intent.conf",
+       "data/corpus_audio_asr_intent_whisper.jsonl", 70001, 1,
+       "transcribed_text", "real"},
+      {(temporary.path / "rerank.conf").string(),
+       "data/corpus_cross_rerank.txt", 80001, 1, "ranked_results"}};
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.config);
+    DemoOptions options;
+    options.config_path = test_case.config;
+    options.dataset_path = test_case.dataset;
+    options.suite = test_case.suite;
+    OperatorIoContract contract;
+    std::string error;
+    ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
+    std::string types;
+    for (const auto& entry : contract.inputs) {
+      if (!types.empty()) types += ',';
+      types += entry.type_name;
+    }
+    const auto build = DemoIoRegistry::Instance().FindInput(types);
+    ASSERT_NE(build, nullptr);
+    DemoRequestBatch batch;
+    std::weak_ptr<void> lifetime;
+    {
+      DemoRequestBatch built;
+      ASSERT_EQ(build(options, contract.inputs, &built), 0);
+      ASSERT_NE(built.storage, nullptr);
+      lifetime = built.storage;
+      batch = std::move(built);
+    }
+    EXPECT_FALSE(lifetime.expired());
+    ASSERT_EQ(batch.requests.size(), test_case.count);
+    for (const auto& row : batch.requests) {
+      ASSERT_EQ(row.size(), contract.inputs.size());
+      for (const auto& entry : contract.inputs)
+        ASSERT_NE(row.at("demo." + entry.type), nullptr);
+    }
+    if (contract.inputs.size() == 2) {
+      EXPECT_EQ(contract.inputs[0].type_name, "CompanyFrame");
+      EXPECT_EQ(contract.inputs[1].type_name, "CompanyString");
+    }
+    OperatorFunc instance_ops{};
+    void* handle = nullptr;
+    ASSERT_EQ(CreateOperatorInstance(options, "DemoStorageTest", &instance_ops,
+                                     &handle),
+              0);
+    std::vector<nlohmann::json> copied_outputs;
+    {
+      OperatorHandleGuard guard(instance_ops, handle);
+      for (size_t i = 0; i < batch.requests.size(); ++i) {
+        NamedIoBatch inputs{batch.requests[i]}, outputs(1);
+        ASSERT_EQ(contract.outputs.size(), 1U);
+        const auto& entry = contract.outputs[0];
+        outputs[0]["demo." + entry.type] = nullptr;
+        ASSERT_EQ(instance_ops.Process(handle, inputs, outputs), 0)
+            << GetOperatorLastError();
+        const auto show =
+            DemoIoRegistry::Instance().FindOutput(entry.type_name);
+        ASSERT_NE(show, nullptr);
+        uint64_t request_id = 0;
+        int32_t status = 0;
+        nlohmann::json displayed = nlohmann::json::object();
+        const auto info = i < batch.request_info.size()
+                              ? batch.request_info[i]
+                              : nlohmann::json::object();
+        const auto& output = outputs[0].at("demo." + entry.type);
+        ASSERT_NE(output, nullptr);
+        show(output.get(), info, &request_id, &status, &displayed);
+        EXPECT_EQ(request_id, test_case.request_id + i);
+        EXPECT_EQ(status, 0);
+        EXPECT_TRUE(displayed.contains(test_case.output_field));
+        if (entry.type_name == "CompanyOperatorRerankOutput") {
+          EXPECT_EQ(displayed["query"], "怎么办理7天无理由退款？");
+          ASSERT_EQ(displayed["ranked_results"].size(), 3U);
+          EXPECT_EQ(displayed["ranked_results"][0]["passage_index"], 1);
+          EXPECT_EQ(displayed["ranked_results"][0]["passage_text"],
+                    "条款B: 售后退款支持7天无理由，原路退回付款账户。");
+          nlohmann::json without_info = nlohmann::json::object();
+          show(output.get(), nlohmann::json::object(), &request_id, &status,
+               &without_info);
+          EXPECT_EQ(request_id, 80001U);
+          EXPECT_EQ(status, 0);
+          EXPECT_FALSE(without_info.contains("query"));
+          ASSERT_EQ(without_info["ranked_results"].size(), 3U);
+          for (const auto& ranked : without_info["ranked_results"])
+            EXPECT_FALSE(ranked.contains("passage_text"));
+          EXPECT_EQ(without_info["ranked_results"][0]["passage_index"], 1);
+        } else if (entry.type_name == "CompanyOperatorAuditOutput") {
+          EXPECT_EQ(displayed["channel"], info["channel"]);
+          nlohmann::json without_info = nlohmann::json::object();
+          show(output.get(), nlohmann::json::object(), &request_id, &status,
+               &without_info);
+          EXPECT_FALSE(without_info.contains("channel"));
+          EXPECT_EQ(without_info["audit_verdict"], displayed["audit_verdict"]);
+        }
+        copied_outputs.push_back(std::move(displayed));
+      }
+    }
+    batch = DemoRequestBatch{};
+    EXPECT_TRUE(lifetime.expired());
+    for (const auto& displayed : copied_outputs)
+      EXPECT_TRUE(displayed.contains(test_case.output_field));
+    if (std::string(test_case.output_field) == "ranked_results") {
+      EXPECT_EQ(copied_outputs[0]["ranked_results"][0]["passage_text"],
+                "条款B: 售后退款支持7天无理由，原路退回付款账户。");
+    }
+  }
+  EXPECT_EQ(ops.DeInit(), 0);
+}
+
+TEST(DemoRunnerTest, EntityAndTranslateShareCarrierBuildersAndDisplays) {
+  DemoOptions entity;
+  entity.config_path = "demo/fixtures/mock/pipeline_entity_extract.conf";
+  OperatorIoContract entity_contract, translate_contract;
+  std::string error;
+  ASSERT_TRUE(ResolveConfigIo(entity, &entity_contract, &error)) << error;
+  KiteDemoDirectory temporary;
+  const std::string envelope =
+      R"({"query":"Hello world","endpoint":"translate","extra":{"keep":true}})";
+  std::ofstream(temporary.path / "input.jsonl") << envelope << '\n';
+  DemoOptions translate;
+  translate.config_path = "demo/fixtures/mock/pipeline_translate.conf";
+  translate.dataset_path = (temporary.path / "input.jsonl").string();
+  translate.output_dir = temporary.path.string();
+  ASSERT_TRUE(ResolveConfigIo(translate, &translate_contract, &error)) << error;
+  ASSERT_EQ(entity_contract.inputs.size(), 1U);
+  ASSERT_EQ(translate_contract.inputs.size(), 1U);
+  ASSERT_EQ(entity_contract.outputs.size(), 1U);
+  ASSERT_EQ(translate_contract.outputs.size(), 1U);
+  const auto& registry = DemoIoRegistry::Instance();
+  const auto build = registry.FindInput(translate_contract.inputs[0].type_name);
+  ASSERT_NE(build, nullptr);
+  EXPECT_EQ(build, registry.FindInput(entity_contract.inputs[0].type_name));
+  EXPECT_EQ(registry.FindOutput(translate_contract.outputs[0].type_name),
+            registry.FindOutput(entity_contract.outputs[0].type_name));
+  DemoRequestBatch batch;
+  ASSERT_EQ(build(translate, translate_contract.inputs, &batch), 0);
+  ASSERT_EQ(batch.requests.size(), 1U);
+  const auto* carrier = static_cast<const CompanyOperatorEntityInput*>(
+      batch.requests[0].at("demo.entity_in").get());
+  ASSERT_NE(carrier, nullptr);
+  ASSERT_NE(carrier->sentence_text, nullptr);
+  EXPECT_EQ(
+      std::string(carrier->sentence_text->data, carrier->sentence_text->length),
+      envelope);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(RunOperatorDemo(translate), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
+  std::ifstream results(temporary.path / "pipeline_translate/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+  const auto sample = nlohmann::json::parse(line);
+  EXPECT_EQ(sample["request_id"], 30001);
+  EXPECT_EQ(sample["status"], 0);
+  EXPECT_TRUE(sample["output"]["entities"]["translated"].is_string());
+}
+
+TEST(DemoRunnerTest, AudioDatasetRequirementsUseSuiteClassification) {
+  DemoOptions options;
+  options.config_path = "demo/fixtures/mock/pipeline_audio_asr_intent.conf";
+  options.dataset_path = "data/corpus_audio_asr_intent.txt";
+  OperatorIoContract contract;
+  std::string error;
+  ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  const auto build =
+      DemoIoRegistry::Instance().FindInput(contract.inputs[0].type_name);
+  ASSERT_NE(build, nullptr);
+  DemoRequestBatch batch;
+  options.suite = "smoke";
+  options.profile = "audio_whisper_named_profile";
+  ASSERT_EQ(build(options, contract.inputs, &batch), 0);
+  ASSERT_EQ(batch.requests.size(), 1U);
+  options.suite = "real";
+  options.profile = "audio_named_profile";
+  EXPECT_EQ(build(options, contract.inputs, &batch), 4);
+  options.dataset_path.clear();
+  EXPECT_EQ(build(options, contract.inputs, &batch), 4);
+  options.allow_fallback_sample = true;
+  ASSERT_EQ(build(options, contract.inputs, &batch), 0);
+  ASSERT_EQ(batch.requests.size(), 1U);
+  options.allow_fallback_sample = false;
+  options.dataset_path = "data/corpus_audio_asr_intent_whisper.jsonl";
+  ASSERT_EQ(build(options, contract.inputs, &batch), 0);
+  ASSERT_NE(batch.storage, nullptr);
+  ASSERT_EQ(batch.requests.size(), 1U);
+  const auto* carrier = static_cast<const CompanyOperatorAudioInput*>(
+      batch.requests[0].at("demo.audio_in").get());
+  ASSERT_NE(carrier, nullptr);
+  EXPECT_EQ(carrier->request_id, 70001U);
+  EXPECT_EQ(carrier->sample_rate, 16000);
+  EXPECT_EQ(
+      carrier->pcm_length,
+      std::filesystem::file_size("data/audio/nav_001.f32") / sizeof(float));
+  ASSERT_NE(carrier->pcm_buffer, nullptr);
+}
+
+TEST(DemoRunnerTest, AllSuitePreservesRealAudioProfileDatasetRequirements) {
+  KiteDemoDirectory temporary;
+  const auto profiles_path = temporary.path / "profiles.json";
+  const nlohmann::json profiles = {
+      {"profiles",
+       {{"real_audio",
+         {{"config", std::filesystem::absolute(
+                         "demo/fixtures/mock/pipeline_audio_asr_intent.conf")
+                         .string()},
+          {"dataset",
+           std::filesystem::absolute("data/corpus_audio_asr_intent.txt")
+               .string()},
+          {"suite", "real"}}}}}};
+  std::ofstream(profiles_path) << profiles;
+  const auto output_dir = temporary.path / "results";
+  ASSERT_TRUE(std::filesystem::is_regular_file(EDGEFLOW_DEMO_BINARY));
+  const pid_t child = fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    execl(EDGEFLOW_DEMO_BINARY, "alg_demo", "--profiles-file",
+          profiles_path.c_str(), "--suite", "all", "--output-dir",
+          output_dir.c_str(), static_cast<char*>(nullptr));
+    _exit(127);
+  }
+  int status = 0;
+  ASSERT_EQ(waitpid(child, &status, 0), child);
+  ASSERT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(WEXITSTATUS(status), 4);
+  EXPECT_FALSE(
+      std::filesystem::exists(output_dir / "real_audio/results.jsonl"));
 }
 
 TEST(DemoRunnerTest,
@@ -615,12 +1095,7 @@ TEST(DemoRunnerTest,
               0)
         << error;
     options.batch_size = 2;  // 覆盖多请求的自定义 Node 执行。
-    std::string resolution_error;
-    ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
-        << resolution_error;
-    const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
-    ASSERT_NE(descriptor, nullptr);
-    ASSERT_EQ(descriptor->run(options), 0);
+    ASSERT_EQ(RunOperatorDemo(options), 0);
     std::ifstream results(temporary.path / profile / "results.jsonl");
     ASSERT_TRUE(results.good());
     std::string line;
@@ -629,7 +1104,7 @@ TEST(DemoRunnerTest,
       const auto sample = nlohmann::json::parse(line);
       EXPECT_EQ(sample["status"], 0);
       const auto& output = sample["output"];
-      if (options.biz == "entity_extract") {
+      if (std::string(profile) == "entity_extract_custom_mock") {
         EXPECT_EQ(sample["request_id"], 30001 + index);
         ASSERT_TRUE(output.contains("entities"));
         EXPECT_EQ(output["entities"]["nouns"],
@@ -649,7 +1124,8 @@ TEST(DemoRunnerTest,
       }
       ++index;
     }
-    EXPECT_EQ(index, options.biz == "entity_extract" ? 1U : 2U);
+    EXPECT_EQ(index,
+              std::string(profile) == "entity_extract_custom_mock" ? 1U : 2U);
     std::ifstream summary_file(temporary.path / profile / "summary.json");
     const auto summary = nlohmann::json::parse(summary_file);
     EXPECT_EQ(summary["failed_count"], 0);
@@ -682,10 +1158,10 @@ TEST(DemoRunnerTest, DatasetReaderFunctions) {
 
 // 6. 测试 ResultWriter 结果落盘、错误样本记录与 --append 模式累计摘要口径
 TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
+  KiteDemoDirectory temporary;
   DemoOptions opts;
   opts.profile = "test_profile_unit";
-  opts.biz = "unit_test";
-  opts.output_dir = "./results/test_out_unit";
+  opts.output_dir = temporary.path.string();
   opts.append = false;
 
   ResultWriter writer(opts);
@@ -727,7 +1203,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
       count++;
       auto obj = nlohmann::json::parse(line);
       EXPECT_EQ(obj["profile"], "test_profile_unit");
-      EXPECT_EQ(obj["biz"], "unit_test");
+      EXPECT_FALSE(obj.contains("biz"));
       if (obj["request_id"] == 9002) {
         EXPECT_EQ(obj["status"], 5);
         EXPECT_EQ(obj["error"], "Mock inference error for sample");
@@ -741,7 +1217,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
     std::ifstream s_ifs(summary_path);
     nlohmann::json summary_obj;
     s_ifs >> summary_obj;
-    EXPECT_EQ(summary_obj["biz"], "unit_test");
+    EXPECT_FALSE(summary_obj.contains("biz"));
     EXPECT_EQ(summary_obj["total_samples"], 2);
     EXPECT_EQ(summary_obj["success_count"], 1);
     EXPECT_EQ(summary_obj["failed_count"], 1);
@@ -776,20 +1252,73 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   }
 }
 
-// 原生解析提供业务标识，并清除过期结果。
-TEST(DemoRunnerTest, ConfigBizResolution) {
+TEST(DemoRunnerTest,
+     ResultWriterUsesProfileThenConfigStemThenDefaultDirectory) {
+  KiteDemoDirectory temporary;
+  DemoOptions options;
+  options.config_path = "nested/selected_pipeline.conf";
+  options.output_dir = temporary.path.string();
+  options.profile = "chosen_profile";
+  EXPECT_EQ(ResultWriter(options).GetTargetOutputDir(),
+            (temporary.path / "chosen_profile").string());
+  options.profile.clear();
+  ResultWriter writer(options);
+  EXPECT_EQ(writer.GetTargetOutputDir(),
+            (temporary.path / "selected_pipeline").string());
+  DemoSampleResult sample;
+  sample.request_id = 19;
+  sample.output = {{"answer", "retained"}};
   std::string error;
-  for (const auto& entry : std::vector<std::pair<std::string, std::string>>{
-           {"demo/fixtures/mock/pipeline_entity_extract.conf",
-            "entity_extract"},
-           {"demo/fixtures/mock/pipeline_doc_qa.conf", "doc_qa"},
-           {"demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "doc_qa"},
-           {"configs/pipeline_keyword_match_rules.conf", "keyword_match"}}) {
+  ASSERT_EQ(writer.WriteResults({sample}, 0.0, &error), 0) << error;
+  std::ifstream results(temporary.path / "selected_pipeline/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+  const auto record = nlohmann::json::parse(line);
+  EXPECT_EQ(record["profile"], "selected_pipeline");
+  EXPECT_EQ(record["output"], sample.output);
+  std::ifstream summary_file(temporary.path / "selected_pipeline/summary.json");
+  ASSERT_TRUE(summary_file.good());
+  EXPECT_EQ(nlohmann::json::parse(summary_file)["profile"],
+            "selected_pipeline");
+  options.config_path.clear();
+  EXPECT_EQ(ResultWriter(options).GetTargetOutputDir(),
+            (temporary.path / "default").string());
+}
+
+// SDK 预检返回载体信息，失败时清除两侧过期结果。
+TEST(DemoRunnerTest, ConfigIoResolutionAndFailureClearsContract) {
+  struct Case {
+    const char* config;
+    const char* name;
+    const char* input;
+    const char* output;
+  };
+  std::string error;
+  OperatorIoContract contract;
+  for (const auto& entry :
+       {Case{"demo/fixtures/mock/pipeline_entity_extract.conf",
+             "entity_extract", "CompanyOperatorEntityInput",
+             "CompanyOperatorEntityOutput"},
+        Case{"demo/fixtures/mock/pipeline_doc_qa.conf", "doc_qa",
+             "CompanyOperatorDocInput", "CompanyOperatorDocOutput"},
+        Case{"demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "doc_qa",
+             "CompanyOperatorDocInput", "CompanyOperatorDocOutput"},
+        Case{"configs/pipeline_keyword_match_rules.conf", "keyword_match",
+             "CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"}}) {
     DemoOptions options;
-    options.config_path = entry.first;
-    options.biz = "stale_resolved_value";
-    ASSERT_TRUE(ResolveConfigBiz(&options, &error)) << error;
-    EXPECT_EQ(options.biz, entry.second);
+    options.config_path = entry.config;
+    ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
+    ASSERT_EQ(contract.inputs.size(), 1U);
+    ASSERT_EQ(contract.outputs.size(), 1U);
+    EXPECT_EQ(contract.inputs[0].name, entry.name);
+    EXPECT_EQ(contract.inputs[0].type_name, entry.input);
+    EXPECT_EQ(contract.outputs[0].name, entry.name);
+    EXPECT_EQ(contract.outputs[0].type_name, entry.output);
+    EXPECT_TRUE(contract.inputs[0].required);
+    EXPECT_TRUE(contract.outputs[0].required);
+    EXPECT_FALSE(contract.inputs[0].service_type.has_value());
+    EXPECT_FALSE(contract.outputs[0].service_type.has_value());
   }
 
   KiteDemoDirectory temporary;
@@ -797,23 +1326,24 @@ TEST(DemoRunnerTest, ConfigBizResolution) {
   std::ofstream(bad_conf) << R"({"pipe_path":123})";
   DemoOptions options;
   options.config_path = bad_conf.string();
-  options.biz = "stale_resolved_value";
-  EXPECT_FALSE(ResolveConfigBiz(&options, &error));
-  EXPECT_TRUE(options.biz.empty());
+  EXPECT_FALSE(ResolveConfigIo(options, &contract, &error));
+  EXPECT_TRUE(contract.inputs.empty());
+  EXPECT_TRUE(contract.outputs.empty());
   EXPECT_NE(error.find("pipe_path"), std::string::npos);
-  EXPECT_FALSE(ResolveConfigBiz(nullptr, &error));
+  EXPECT_FALSE(ResolveConfigIo(options, nullptr, &error));
 
   char err_buf[256]{};
-  std::string biz;
-  EXPECT_EQ(ResolveOperatorConfigBiz(
-                ".", "demo/fixtures/mock/pipeline_entity_extract.conf", &biz,
-                err_buf, sizeof(err_buf)),
+  ASSERT_EQ(ResolveOperatorConfigIo(
+                ".", "demo/fixtures/mock/pipeline_entity_extract.conf",
+                &contract, err_buf, sizeof(err_buf)),
             0);
-  EXPECT_EQ(biz, "entity_extract");
-  EXPECT_EQ(ResolveOperatorConfigBiz(".", "non_existent_conf_file.conf", &biz,
-                                     err_buf, sizeof(err_buf)),
+  ASSERT_EQ(contract.inputs.size(), 1U);
+  ASSERT_EQ(contract.outputs.size(), 1U);
+  EXPECT_EQ(ResolveOperatorConfigIo(".", "non_existent_conf_file.conf",
+                                    &contract, err_buf, sizeof(err_buf)),
             -2);
-  EXPECT_TRUE(biz.empty());
+  EXPECT_TRUE(contract.inputs.empty());
+  EXPECT_TRUE(contract.outputs.empty());
 }
 
 // P1-2: 测试显式指定不存在或非法的 Control 文件 Fail-Closed
@@ -829,21 +1359,18 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
     std::string err;
     ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err), 0)
         << err;
-    std::string resolution_error;
-    ASSERT_TRUE(ResolveConfigBiz(&opts, &resolution_error)) << resolution_error;
-    const auto* desc = DemoRegistry::Instance().Find(opts.biz);
-    ASSERT_NE(desc, nullptr);
+    opts.control_cmd = std::string(profile) == "keyword_match_rules" ? 1 : 2;
 
     opts.control_file = (temporary.path / "missing.json").string();
-    EXPECT_EQ(desc->run(opts), 3);
+    EXPECT_EQ(RunOperatorDemo(opts), 3);
     opts.control_file = "";
-    EXPECT_EQ(desc->run(opts), 3);
+    EXPECT_EQ(RunOperatorDemo(opts), 3);
 
     const auto payload_path = temporary.path / "control.json";
     opts.control_file = payload_path.string();
     for (const char* payload : {"NOT_VALID_JSON{{{", "[]"}) {
       std::ofstream(payload_path) << payload;
-      EXPECT_EQ(desc->run(opts), 3);
+      EXPECT_EQ(RunOperatorDemo(opts), 3);
     }
   }
 
@@ -861,15 +1388,10 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   options.output_dir = (temporary.path / "results").string();
   options.control_cmd = 2000000041;
   options.control_file = (temporary.path / "control.json").string();
-  std::string resolution_error;
-  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
-      << resolution_error;
-  const auto* demo = DemoRegistry::Instance().Find(options.biz);
-  ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
-  ASSERT_EQ(demo->run(options), 0);
-  std::ifstream results(temporary.path / "results/keyword_match/results.jsonl");
+  ASSERT_EQ(RunOperatorDemo(options), 0);
+  std::ifstream results(temporary.path / "results/pipeline/results.jsonl");
   ASSERT_TRUE(results.good());
   std::string line;
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
@@ -878,11 +1400,11 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   EXPECT_EQ(record["output"]["is_hit"], true);
   EXPECT_NE(record.dump().find("PREFIX_APPLIED"), std::string::npos);
   options.control_file.reset();
-  EXPECT_EQ(demo->run(options),
+  EXPECT_EQ(RunOperatorDemo(options),
             3);  // 绝不替换为默认规则 payload。
   options.control_file = (temporary.path / "control.json").string();
   options.control_cmd = 19999;
-  EXPECT_EQ(demo->run(options), 5);
+  EXPECT_EQ(RunOperatorDemo(options), 5);
   EXPECT_EQ(ops.DeInit(), 0);
 }
 
@@ -907,16 +1429,11 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   options.dataset_path = (temporary.path / "input.txt").string();
   options.output_dir = temporary.path.string();
   options.batch_size = 2;
-  std::string resolution_error;
-  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
-      << resolution_error;
-  const auto* demo = DemoRegistry::Instance().Find(options.biz);
-  ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
-  ASSERT_EQ(demo->run(options), 0);
+  ASSERT_EQ(RunOperatorDemo(options), 0);
 
-  std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+  std::ifstream results(temporary.path / "pipeline/results.jsonl");
   ASSERT_TRUE(results.good());
   std::string line;
   for (int index = 0; index < 2; ++index) {
@@ -926,7 +1443,7 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
     EXPECT_EQ(sample["status"], index == 0 ? 0 : -42);
   }
   EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
-  std::ifstream summary_file(temporary.path / "keyword_match/summary.json");
+  std::ifstream summary_file(temporary.path / "pipeline/summary.json");
   ASSERT_TRUE(summary_file.good());
   const auto summary = nlohmann::json::parse(summary_file);
   EXPECT_EQ(summary["total_samples"], 2);
@@ -935,7 +1452,7 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   EXPECT_EQ(ops.DeInit(), 0);
 }
 
-TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
+TEST(DemoRunnerTest, KeywordControlProfileAndCliFileOverride) {
   KiteDemoDirectory temporary;
   const auto dataset = temporary.path / "input.txt";
   std::ofstream(dataset) << "初始化自检\nVIP专员\n";
@@ -943,16 +1460,13 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   options.config_path = "configs/pipeline_keyword_match_rules.conf";
   options.dataset_path = dataset.string();
   options.output_dir = temporary.path.string();
-  std::string resolution_error;
-  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
-      << resolution_error;
-  const auto* demo = DemoRegistry::Instance().Find(options.biz);
-  ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   auto run_and_read = [&]() {
-    EXPECT_EQ(demo->run(options), 0);
-    std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+    EXPECT_EQ(RunOperatorDemo(options), 0);
+    std::ifstream results(
+        std::filesystem::path(ResultWriter(options).GetTargetOutputDir()) /
+        "results.jsonl");
     std::vector<nlohmann::json> samples;
     std::string line;
     while (std::getline(results, line))
@@ -966,7 +1480,18 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   EXPECT_NE(configured[0].dump().find("SYSTEM_INIT"), std::string::npos);
   EXPECT_EQ(configured[1]["output"]["is_hit"], false);
 
-  options.example_control = true;
+  DemoOptions cli;
+  cli.profile = "keyword_match_control";
+  cli.dataset_path = dataset.string();
+  cli.has_dataset_path = true;
+  cli.output_dir = temporary.path.string();
+  std::string error;
+  ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
+            0)
+      << error;
+  EXPECT_EQ(options.suite, "real");
+  EXPECT_EQ(options.control_cmd, 1);
+  EXPECT_EQ(options.control_file, "data/keyword_match_control.json");
   const auto example = run_and_read();
   ASSERT_EQ(example.size(), 2U);
   EXPECT_EQ(example[0]["output"]["is_hit"], false);
@@ -975,40 +1500,18 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
 
   const auto control_path = temporary.path / "control.json";
   std::ofstream(control_path) << R"({"categories":{"FILE_RULE":["自检"]}})";
-  options.control_file = control_path.string();
+  cli.control_file = control_path.string();
+  cli.has_control_file = true;
+  ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
+            0)
+      << error;
+  EXPECT_EQ(options.control_file, control_path.string());
   const auto explicit_file = run_and_read();
   ASSERT_EQ(explicit_file.size(), 2U);
   EXPECT_EQ(explicit_file[0]["output"]["is_hit"], true);
   EXPECT_NE(explicit_file[0].dump().find("FILE_RULE"), std::string::npos);
   EXPECT_EQ(explicit_file[1]["output"]["is_hit"], false);
   EXPECT_EQ(ops.DeInit(), 0);
-}
-
-TEST(DemoRunnerTest, ExampleControlCliAndRejectsUnknownFlag) {
-  std::string error;
-  {
-    DemoOptions options;
-    const char* args[] = {"alg_demo", "--example-control"};
-    ASSERT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
-              0)
-        << error;
-    EXPECT_TRUE(options.example_control);
-  }
-  {
-    DemoOptions options;
-    const char* args[] = {"alg_demo"};
-    ASSERT_EQ(ParseCommandLine(1, const_cast<char**>(args), &options, &error),
-              0)
-        << error;
-    EXPECT_FALSE(options.example_control);
-  }
-  {
-    DemoOptions options;
-    const char* args[] = {"alg_demo", "--unknown-option"};
-    EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
-              2);
-    EXPECT_NE(error.find("Unknown CLI option"), std::string::npos);
-  }
 }
 
 TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
@@ -1021,11 +1524,6 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
             0)
       << error;
-  std::string resolution_error;
-  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
-      << resolution_error;
-  const auto* demo = DemoRegistry::Instance().Find(options.biz);
-  ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
@@ -1035,7 +1533,7 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
     std::getline(results, line);
     return nlohmann::json::parse(line);
   };
-  ASSERT_EQ(demo->run(options), 0);
+  ASSERT_EQ(RunOperatorDemo(options), 0);
   const auto original = read_sample();
   EXPECT_EQ(original["request_id"], 60001);
   EXPECT_EQ(original["output"]["extracted_invoice"]["invoice_code"],
@@ -1044,8 +1542,9 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   const auto control_path = temporary.path / "control.json";
   std::ofstream(control_path) << R"({"template":"提取实体：{{primary}}"})";
   options.control_file = control_path.string();
-  // 未指定 ID 时，OCR 默认使用其注册的 prompt 更新命令。
-  ASSERT_EQ(demo->run(options), 0);
+  EXPECT_EQ(RunOperatorDemo(options), 3);
+  options.control_cmd = 2;
+  ASSERT_EQ(RunOperatorDemo(options), 0);
   const auto updated = read_sample();
   EXPECT_EQ(updated["status"], 0);
   EXPECT_EQ(updated["request_id"], 60001);
@@ -1053,12 +1552,12 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   EXPECT_FALSE(updated["output"]["extracted_invoice"].contains("invoice_code"));
 
   options.control_cmd = 19999;
-  EXPECT_EQ(demo->run(options), 5);
+  EXPECT_EQ(RunOperatorDemo(options), 5);
   options.control_cmd = 0;
-  EXPECT_EQ(demo->run(options), 3);
+  EXPECT_EQ(RunOperatorDemo(options), 3);
   options.control_cmd = 2;
   options.control_file.reset();
-  EXPECT_EQ(demo->run(options), 3);
+  EXPECT_EQ(RunOperatorDemo(options), 3);
   EXPECT_EQ(ops.DeInit(), 0);
 }
 
@@ -1107,21 +1606,17 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
-  const auto* desc = DemoRegistry::Instance().Find("keyword_match");
-  ASSERT_NE(desc, nullptr);
-
   DemoOptions opts;
   opts.profile = "keyword_match_rules";
   std::string err;
   int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
   ASSERT_EQ(ret, 0);
-  ASSERT_TRUE(ResolveConfigBiz(&opts, &err)) << err;
 
   // 指定 batch_size = 1 (数据集有 2 条样本，必须分 2 批执行)
   opts.batch_size = 1;
   opts.output_dir = "./results/test_chunking_out";
 
-  EXPECT_EQ(desc->run(opts), 0);
+  EXPECT_EQ(RunOperatorDemo(opts), 0);
 
   // 验证结果文件中有 2 条记录
   std::string jsonl_path =
@@ -1137,20 +1632,45 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
   ops.DeInit();
 }
 
+TEST(DemoRunnerTest, OversizedProcessBatchFailsWithoutWritingSuccessResults) {
+  KiteDemoDirectory temporary;
+  std::ofstream dataset(temporary.path / "input.txt");
+  for (int i = 0; i < 65; ++i) dataset << "初始化自检\n";
+  dataset.close();
+  DemoOptions options;
+  options.config_path = "configs/pipeline_keyword_match_rules.conf";
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = temporary.path.string();
+  options.batch_size = 65;
+  options.depth_num = 65;
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  EXPECT_EQ(RunOperatorDemo(options), 5);
+  EXPECT_EQ(ops.DeInit(), 0);
+  EXPECT_FALSE(std::filesystem::exists(
+      temporary.path / "pipeline_keyword_match_rules/results.jsonl"));
+  EXPECT_FALSE(std::filesystem::exists(
+      temporary.path / "pipeline_keyword_match_rules/summary.json"));
+}
+
 // 8. 测试全业务 Demo Case 执行 (集成测试)
 TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
   std::vector<std::string> smoke_profiles = {
-      "entity_extract_mock", "keyword_match_rules", "doc_qa_mock",
-      "dialogue_audit_mock", "ocr_invoice_qa_mock", "audio_asr_intent_mock"};
+      "audio_asr_intent_mock", "dialogue_audit_mock",
+      "doc_qa_custom_mock",    "doc_qa_mock",
+      "doc_qa_rerank_mock",    "entity_extract_custom_mock",
+      "entity_extract_mock",   "keyword_match_rules",
+      "ocr_invoice_qa_mock"};
 
   nlohmann::json profiles;
   std::string err;
   ASSERT_EQ(
       LoadAndValidateProfilesDocument("demo/profiles.json", &profiles, &err), 0)
       << err;
+  EXPECT_EQ(SelectProfilesForSuite(profiles, "smoke"), smoke_profiles);
 
   for (const auto& prof_name : smoke_profiles) {
     DemoOptions cli_opt;
@@ -1161,13 +1681,8 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
     int ret = MergeProfileOptions(profiles, cli_opt, &merged_opt, &err);
     ASSERT_EQ(ret, 0) << "Profile merge failed for " << prof_name << ": "
                       << err;
-    std::string resolution_error;
-    ASSERT_TRUE(ResolveConfigBiz(&merged_opt, &resolution_error))
-        << resolution_error;
-    const auto* desc = DemoRegistry::Instance().Find(merged_opt.biz);
-    ASSERT_NE(desc, nullptr) << "Business not registered: " << merged_opt.biz;
 
-    int run_ret = desc->run(merged_opt);
+    int run_ret = RunOperatorDemo(merged_opt);
     EXPECT_EQ(run_ret, 0) << "Execution failed for profile: " << prof_name;
   }
 
@@ -1186,7 +1701,6 @@ TEST(DemoRunnerTest, DeploymentProfilesFileSelection) {
   ASSERT_EQ(
       LoadAndMergeProfiles(options.profiles_file, options, &merged, &error), 0)
       << error;
-  EXPECT_TRUE(merged.biz.empty());
   EXPECT_EQ(merged.config_path, "configs/pipeline_entity_extract_kite.conf");
   nlohmann::json profiles;
   ASSERT_EQ(
@@ -1220,13 +1734,7 @@ TEST(DemoRunnerTest, RealKiteDeploymentProfiles) {
     const int merged = MergeProfileOptions(profiles, cli, &options, &error);
     EXPECT_EQ(merged, 0) << error;
     if (merged) continue;
-    std::string resolution_error;
-    ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
-        << resolution_error;
-    const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
-    EXPECT_NE(descriptor, nullptr);
-    if (!descriptor) continue;
-    EXPECT_EQ(descriptor->run(options), 0) << name;
+    EXPECT_EQ(RunOperatorDemo(options), 0) << name;
   }
   EXPECT_EQ(ops.DeInit(), 0);
 }

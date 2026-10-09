@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+SDK 新增有序 I/O 预检 `ResolveOperatorConfigIo`，返回宿主类型、业务、结构名及必需性；
+预检与 Create 共用配置校验且不加载模型。Demo 按输入载体组合与输出结构登记，统一分批、
+多输出展示和租约释放；Control 必须显式指定文件与命令，规则更新示例使用 `keyword_match_control` Profile。
+
+
 `src/engine/models/`、`src/engine/backends/` 下的 `.cpp` 自动编入，新增 Model/Backend 不再修改 CMakeLists。
 
 注册冲突时，`Init` 的日志和 `GetOperatorLastError()`、Pipeline 校验的 Model/Backend 诊断都列出具体原因；

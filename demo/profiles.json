@@ -125,6 +125,17 @@
       "device_id": 0,
       "chip": "cpu",
       "depth": 1
+    },
+    "keyword_match_control": {
+      "config": "configs/pipeline_keyword_match_rules.conf",
+      "dataset": "data/corpus_keyword_match.txt",
+      "suite": "real",
+      "batch_size": 2,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 2,
+      "control_file": "data/keyword_match_control.json",
+      "control_cmd": 1
     }
   }
 }

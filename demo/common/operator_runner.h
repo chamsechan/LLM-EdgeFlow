@@ -1,15 +1,18 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "demo/common/dataset_reader.h"
+#include "demo/common/demo_io_registry.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/result_writer.h"
 #include "edgeflow/operator/interface.h"
@@ -63,33 +66,22 @@ inline bool ResolveModelRootAndConfig(const std::string& conf_path,
   return true;
 }
 
-/**
- * @brief 由 SDK 解析最终配置，取得 Demo 分发所需的业务身份。
- */
-inline bool ResolveConfigBiz(DemoOptions* options, std::string* error_msg) {
-  if (!options) {
-    if (error_msg) *error_msg = "Null DemoOptions pointer";
-    return false;
+inline bool ResolveConfigIo(const DemoOptions& options,
+                            llm_edgeflow::operator_api::OperatorIoContract* out,
+                            std::string* error) {
+  std::string root;
+  std::string config;
+  ResolveModelRootAndConfig(options.config_path, &root, &config);
+  char diagnostic[512] = {};
+  const int ret = llm_edgeflow::operator_api::ResolveOperatorConfigIo(
+      root.c_str(), config.c_str(), out, diagnostic, sizeof(diagnostic));
+  if (ret == 0) return true;
+  if (error) {
+    *error = diagnostic[0] ? diagnostic
+                           : "Operator config resolution failed (code " +
+                                 std::to_string(ret) + ")";
   }
-  options->biz.clear();
-  std::string model_root;
-  std::string cfg_rel;
-  ResolveModelRootAndConfig(options->config_path, &model_root, &cfg_rel);
-
-  char err_buf[512] = {0};
-  int ret = llm_edgeflow::operator_api::ResolveOperatorConfigBiz(
-      model_root.c_str(), cfg_rel.c_str(), &options->biz, err_buf,
-      sizeof(err_buf));
-  if (ret != 0) {
-    if (error_msg) {
-      *error_msg = (err_buf[0] != '\0')
-                       ? std::string(err_buf)
-                       : "Operator config resolution failed (code " +
-                             std::to_string(ret) + ")";
-    }
-    return false;
-  }
-  return true;
+  return false;
 }
 
 /**
@@ -113,74 +105,38 @@ struct OperatorHandleGuard {
   OperatorHandleGuard& operator=(const OperatorHandleGuard&) = delete;
 };
 
-/**
- * @brief 下发单槽位与多槽位 Demo 共用的显式或示例 Control。
- * @return 0 成功，3 参数/文件错误，5 Operator Control 失败。
- */
+// Control 必须显式提供命令号和 JSON 文件。
 inline int ApplyOperatorControl(
     const DemoOptions& options,
-    const llm_edgeflow::operator_api::OperatorFunc& ops, void* raw_handle,
-    llm_edgeflow::operator_api::ControlCommand ctrl_cmd,
-    const char* default_ctrl_json = nullptr) {
+    const llm_edgeflow::operator_api::OperatorFunc& ops, void* handle) {
   using namespace llm_edgeflow::operator_api;
-
-  std::string control_payload;
-  std::string err;
-  if (options.control_cmd.has_value() &&
-      (*options.control_cmd <= 0 || !options.control_file.has_value() ||
-       options.control_file->empty())) {
-    std::cerr << "[OperatorRunner ERROR] --control-cmd requires a positive ID "
-                 "and a non-empty --control-file"
+  if (!options.control_file && !options.control_cmd) return 0;
+  if (!options.control_file || options.control_file->empty() ||
+      !options.control_cmd || *options.control_cmd <= 0) {
+    std::cerr << "[OperatorRunner ERROR] Control requires a positive "
+                 "--control-cmd and a non-empty --control-file"
               << std::endl;
     return 3;
   }
-  if (options.control_file.has_value()) {
-    if (options.control_file->empty()) {
-      std::cerr
-          << "[OperatorRunner ERROR] --control-file requires a non-empty path"
-          << std::endl;
-      return 3;
-    }
-    if (!ReadTextFile(*options.control_file, &control_payload, &err)) {
-      std::cerr
-          << "[OperatorRunner ERROR] Failed to read explicit control file '"
-          << *options.control_file << "': " << err << std::endl;
-      return 3;
-    }
-    try {
-      auto parsed_check = nlohmann::json::parse(control_payload);
-      if (!parsed_check.is_object()) {
-        std::cerr << "[OperatorRunner ERROR] Control file content must be a "
-                     "JSON object"
-                  << std::endl;
-        return 3;
-      }
-    } catch (const std::exception& e) {
-      std::cerr
-          << "[OperatorRunner ERROR] Invalid JSON syntax in control file: "
-          << e.what() << std::endl;
-      return 3;
-    }
-  } else if (options.example_control && default_ctrl_json != nullptr) {
-    control_payload = default_ctrl_json;
+  std::string payload;
+  std::string error;
+  if (!ReadTextFile(*options.control_file, &payload, &error)) {
+    std::cerr << "[OperatorRunner ERROR] " << error << std::endl;
+    return 3;
   }
-
-  if (!control_payload.empty()) {
-    std::cout << "[OperatorRunner] Invoking ops.Control to dynamically push "
-                 "parameters..."
-              << std::endl;
-    ControlJsonParam ctrl_param{
-        options.control_cmd.value_or(static_cast<int>(ctrl_cmd)),
-        control_payload.c_str()};
-    int ctrl_ret = ops.Control(raw_handle, ControlCommand::kJson, &ctrl_param);
-    if (ctrl_ret != 0) {
-      std::cerr << "[OperatorRunner ERROR] ops.Control failed: code="
-                << ctrl_ret << " (Operator error: " << GetOperatorLastError()
-                << ")" << std::endl;
-      return 5;
-    }
+  const auto parsed = nlohmann::json::parse(payload, nullptr, false);
+  if (!parsed.is_object()) {
+    std::cerr
+        << "[OperatorRunner ERROR] Control file must contain a JSON object"
+        << std::endl;
+    return 3;
   }
-
+  ControlJsonParam parameter{*options.control_cmd, payload.c_str()};
+  if (ops.Control(handle, ControlCommand::kJson, &parameter) != 0) {
+    std::cerr << "[OperatorRunner ERROR] ops.Control failed: "
+              << GetOperatorLastError() << std::endl;
+    return 5;
+  }
   return 0;
 }
 
@@ -243,117 +199,126 @@ inline int CreateOperatorInstance(
   return 0;
 }
 
-/**
- * @brief 通用 Operator 单槽位生命周期与调度执行器
- */
-template <typename TInput, typename TOutput, typename TResultExtractor>
-int RunOperatorWithExtractor(
-    const DemoOptions& options, std::string_view input_slot,
-    std::string_view output_slot, const std::vector<TInput>& inputs,
-    TResultExtractor&& extractor,
-    std::vector<double>* out_latencies_ms = nullptr,
-    llm_edgeflow::operator_api::ControlCommand ctrl_cmd =
-        llm_edgeflow::operator_api::ControlCommand::kUpdateRules,
-    const char* default_ctrl_json = nullptr) {
+inline int RunOperatorDemo(const DemoOptions& options) {
   using namespace llm_edgeflow::operator_api;
-
-  if (inputs.empty()) {
-    std::cerr << "[OperatorRunner ERROR] Inputs vector is empty." << std::endl;
+  OperatorIoContract contract;
+  std::string error;
+  if (!ResolveConfigIo(options, &contract, &error)) {
+    std::cerr << "[OperatorRunner ERROR] " << error << std::endl;
+    return 3;
+  }
+  auto& registry = DemoIoRegistry::Instance();
+  if (registry.HasConflict()) {
+    std::cerr << "[OperatorRunner ERROR] Conflicting Demo I/O registrations"
+              << std::endl;
+    return 3;
+  }
+  std::string input_types;
+  for (const auto& entry : contract.inputs) {
+    if (!input_types.empty()) input_types += ",";
+    input_types += entry.type_name;
+  }
+  const auto build = registry.FindInput(input_types);
+  std::vector<ShowResultFn> displays;
+  for (const auto& entry : contract.outputs) {
+    displays.push_back(registry.FindOutput(entry.type_name));
+  }
+  if (!build ||
+      std::find(displays.begin(), displays.end(), nullptr) != displays.end()) {
+    std::cerr << "[OperatorRunner ERROR] Unsupported I/O carriers: "
+              << input_types << std::endl;
+    for (const auto& type : registry.ListInputs())
+      std::cerr << "  input: " << type << '\n';
+    for (const auto& type : registry.ListOutputs())
+      std::cerr << "  output: " << type << '\n';
+    return 3;
+  }
+  DemoRequestBatch requests;
+  const int build_ret = build(options, contract.inputs, &requests);
+  if (build_ret != 0) return build_ret;
+  if (requests.requests.empty()) {
+    std::cerr << "[OperatorRunner ERROR] Dataset has no requests" << std::endl;
     return 4;
   }
-
   OperatorFunc ops{};
-  void* raw_handle = nullptr;
-  const int init_ret =
-      CreateOperatorInstance(options, "OperatorRunner", &ops, &raw_handle);
-  if (init_ret != 0) return init_ret;
-
-  OperatorHandleGuard guard(ops, raw_handle);
-
-  const int control_ret = ApplyOperatorControl(options, ops, raw_handle,
-                                               ctrl_cmd, default_ctrl_json);
+  void* handle = nullptr;
+  const int create_ret =
+      CreateOperatorInstance(options, "OperatorRunner", &ops, &handle);
+  if (create_ret != 0) return create_ret;
+  OperatorHandleGuard guard(ops, handle);
+  const int control_ret = ApplyOperatorControl(options, ops, handle);
   if (control_ret != 0) return control_ret;
 
-  const int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
-  size_t total_inputs = inputs.size();
-  if (out_latencies_ms) {
-    out_latencies_ms->assign(total_inputs, 0.0);
-  }
-
-  std::string in_key(input_slot);
-  std::string out_key(output_slot);
-
-  size_t processed_count = 0;
-  double total_elapsed_ms = 0.0;
-
-  while (processed_count < total_inputs) {
-    size_t chunk_size = std::min(static_cast<size_t>(max_batch_size),
-                                 total_inputs - processed_count);
-
-    NamedIoBatch in_batch(chunk_size);
-    NamedIoBatch out_batch(chunk_size);
-
-    for (size_t i = 0; i < chunk_size; ++i) {
-      size_t idx = processed_count + i;
-      in_batch[i][in_key] = MakeBorrowedOperatorInput(&inputs[idx]);
-      out_batch[i][out_key] = std::shared_ptr<void>();
+  std::vector<DemoSampleResult> samples(requests.requests.size());
+  const size_t batch_size = options.batch_size > 0 ? options.batch_size : 1;
+  double duration = 0.0;
+  const nlohmann::json empty_info = nlohmann::json::object();
+  for (size_t offset = 0; offset < requests.requests.size();
+       offset += batch_size) {
+    const size_t count =
+        std::min(batch_size, requests.requests.size() - offset);
+    NamedIoBatch inputs(requests.requests.begin() + offset,
+                        requests.requests.begin() + offset + count);
+    NamedIoBatch outputs(count);
+    for (auto& row : outputs) {
+      for (const auto& entry : contract.outputs) row["demo." + entry.type] = {};
     }
-
-    std::cout << "[OperatorRunner] Dispatching chunk [" << processed_count
-              << ".." << (processed_count + chunk_size - 1) << " / "
-              << total_inputs << "] (size=" << chunk_size
-              << ", max_batch=" << max_batch_size << ") via ops.Process ("
-              << in_key << " -> " << out_key << ")..." << std::endl;
-
-    auto start_time = std::chrono::high_resolution_clock::now();
-    int ret = ops.Process(raw_handle, in_batch, out_batch);
-    auto end_time = std::chrono::high_resolution_clock::now();
-
-    double chunk_elapsed_ms =
-        std::chrono::duration<double, std::milli>(end_time - start_time)
-            .count();
-    total_elapsed_ms += chunk_elapsed_ms;
-
+    const auto start = std::chrono::steady_clock::now();
+    const int ret = ops.Process(handle, inputs, outputs);
+    const double elapsed = std::chrono::duration<double, std::milli>(
+                               std::chrono::steady_clock::now() - start)
+                               .count();
+    duration += elapsed;
     if (ret != 0) {
-      std::string op_err = GetOperatorLastError();
-      std::cerr << "[OperatorRunner ERROR] ops.Process failed at chunk "
-                   "starting index "
-                << processed_count << ": code=" << ret << " (" << op_err << ")"
-                << std::endl;
-      if (op_err.find("exceeds effective batch limit") != std::string::npos) {
-        std::cerr << "[OperatorRunner HINT] 单次批次超过有效上限；用 "
-                     "alg_pipeline_tool resolve-conf <conf> --root <root> "
-                     "--depth <depth> 查看 effective_process_batch_limit"
-                  << std::endl;
-      }
+      std::cerr << "[OperatorRunner ERROR] ops.Process failed: "
+                << GetOperatorLastError() << std::endl;
       return 5;
     }
-
-    for (size_t i = 0; i < chunk_size; ++i) {
-      size_t idx = processed_count + i;
-      if (out_batch[i][out_key] && out_batch[i][out_key].get()) {
-        const auto* out_ptr =
-            static_cast<const TOutput*>(out_batch[i][out_key].get());
-        extractor(idx, *out_ptr);
+    for (size_t i = 0; i < count; ++i) {
+      auto& sample = samples[offset + i];
+      sample.latency_ms = elapsed / count;
+      sample.output = nlohmann::json::object();
+      const auto& info = offset + i < requests.request_info.size()
+                             ? requests.request_info[offset + i]
+                             : empty_info;
+      std::vector<nlohmann::json> parts(contract.outputs.size(),
+                                        nlohmann::json::object());
+      std::map<std::string, size_t> field_counts;
+      for (size_t j = 0; j < contract.outputs.size(); ++j) {
+        const auto& entry = contract.outputs[j];
+        const auto found = outputs[i].find("demo." + entry.type);
+        if (found == outputs[i].end() || !found->second) {
+          if (!entry.required) continue;
+          std::cerr << "[OperatorRunner ERROR] Missing output: " << entry.type
+                    << std::endl;
+          return 5;
+        }
+        uint64_t request_id = 0;
+        int32_t status = 0;
+        displays[j](found->second.get(), info, &request_id, &status, &parts[j]);
+        if (j == 0) sample.request_id = request_id;
+        if (status != 0 && sample.status == 0) sample.status = status;
+        for (const auto& field : parts[j].items()) ++field_counts[field.key()];
       }
-    }
-
-    if (out_latencies_ms) {
-      double per_sample_ms =
-          chunk_size > 0 ? (chunk_elapsed_ms / chunk_size) : 0.0;
-      for (size_t i = 0; i < chunk_size; ++i) {
-        (*out_latencies_ms)[processed_count + i] = per_sample_ms;
+      for (size_t j = 0; j < parts.size(); ++j) {
+        for (const auto& field : parts[j].items()) {
+          const auto key = field_counts[field.key()] > 1
+                               ? contract.outputs[j].type + "." + field.key()
+                               : field.key();
+          sample.output[key] = field.value();
+        }
       }
+      std::cout << "[OperatorRunner] Request " << sample.request_id << ": "
+                << sample.output.dump() << std::endl;
     }
-
-    out_batch.clear();
-    processed_count += chunk_size;
+    // 先把结果复制为 JSON，再归还本批次的所有输出租约。
+    outputs.clear();
   }
-
-  std::cout << "[OperatorRunner] All " << total_inputs
-            << " sample(s) dispatched in " << total_elapsed_ms << " ms."
-            << std::endl;
-  return 0;
+  ResultWriter writer(options);
+  const int write_ret = writer.WriteResults(samples, duration, &error);
+  if (write_ret != 0)
+    std::cerr << "[OperatorRunner ERROR] " << error << std::endl;
+  return write_ret;
 }
 
 }  // namespace alg_demo

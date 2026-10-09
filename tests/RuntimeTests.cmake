@@ -147,6 +147,9 @@ target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   llm_edgeflow::internal_runtime edgeflow_pipeline_tooling GTest::gtest
   GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
+target_compile_definitions(edgeflow_test_tooling_runner PRIVATE
+  EDGEFLOW_DEMO_BINARY="$<TARGET_FILE:alg_demo>")
+add_dependencies(edgeflow_test_tooling_runner alg_demo)
 
 if(LLM_EDGEFLOW_HAS_WHISPERCPP)
   target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_WHISPERCPP=1)

@@ -91,9 +91,10 @@ original Profile alone only when its configuration already points to the intende
 Execution settings `chip`, `device_id`, `batch_size`, and `depth` come only from Profile JSON;
 there are no corresponding CLI options. Without a Profile, Demo uses CPU, device 0, batch 1,
 and depth 1. Use `--profiles-file <path> --profile <name>` to select different execution settings.
-Demo uses the selected Pipeline defaults (by default, no example Control is sent). Use
-`--example-control` only for the built-in update demonstration, and provide a Control file
-only when it is part of the requested scenario. Verify request IDs, status and expected
+Demo uses the selected Pipeline defaults. Provide a Control file together with a positive
+`--control-cmd` only when the scenario needs a runtime update; missing either returns 3.
+The explicit rule-update example is `--profile keyword_match_control`. SDK I/O preflight selects
+request construction and result display by host carrier types. Verify request IDs, status and expected
 output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./tools/pipeline_studio/server.py --web` or `./tools/pipeline_studio/server.py <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.
