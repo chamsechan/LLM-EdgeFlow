@@ -1304,8 +1304,8 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   ASSERT_TRUE(config_in.good());
   nlohmann::json pipeline_config;
   config_in >> pipeline_config;
-  pipeline_config.erase("deployment");
-  pipeline_config["biz_name"] = "doc_qa";
+  pipeline_config.erase("io");
+
   pipeline_config["models"][0]["model_path"] = onnx_path.string();
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();
@@ -1322,7 +1322,13 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
       {"backend_config", nlohmann::json::object()}};
   Pipeline pipeline;
   PipelineDiagnostic pdiag;
-  bool build_ok = BuildTestPipeline(pipeline, pipeline_config, &pdiag);
+  const auto boundary = MakeTestBoundary(
+      {{"raw_docs", "TextBatch"}, {"raw_queries", "TextBatch"}},
+      {{"llm_answers", "TextBatch"},
+       {"intent_matches", "RuleMatchBatch"},
+       {"doc_chunk_counts", "Int32Batch"}});
+  bool build_ok =
+      BuildTestPipeline(pipeline, pipeline_config, boundary, &pdiag);
   ASSERT_TRUE(build_ok) << pdiag.message << " at " << pdiag.path;
   EXPECT_TRUE(pipeline.IsReady());
 

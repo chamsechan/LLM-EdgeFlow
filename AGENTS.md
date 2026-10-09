@@ -22,7 +22,7 @@ sections before editing or delivering.
 
   | Component / task | Skill |
   | :--- | :--- |
-  | Operator input/output, Converter, IoBinding | [edgeflow-adapter-developer](.agents/skills/edgeflow-adapter-developer/SKILL.md) |
+  | Operator input/output, Converter, I/O parameters | [edgeflow-adapter-developer](.agents/skills/edgeflow-adapter-developer/SKILL.md) |
   | Node: item transforms, text LLM, multi-port/model algorithms, derived output | [edgeflow-node-developer](.agents/skills/edgeflow-node-developer/SKILL.md) |
   | Model semantics and preprocessing | [edgeflow-model-developer](.agents/skills/edgeflow-model-developer/SKILL.md) |
   | Backend runtime and resources | [edgeflow-backend-developer](.agents/skills/edgeflow-backend-developer/SKILL.md) |
@@ -51,7 +51,9 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
 - **Integration:** the C++ Operator API (`llm_edgeflow::operator_api`) is the sole public
   algorithm interface. Exported table functions retain `noexcept` and both
   `catch (const std::exception&)` and `catch (...)` barriers. Registered `InputConverter`,
-  `OutputConverter`, and `IoBinding` own biz conversion, not central dispatch or lower layers.
+  `OutputConverter` own biz conversion, not central dispatch or lower layers.
+  Pipeline `io.input` / `io.output` select converters by `(type, name)`; their typed ports form
+  the explicit Core boundary. One registration owns one host slot and immutable parameters.
   The complete external request/response is the SDK contract: validation/field selection and
   response assembly/capacity/serialization stay in Adapter, never Demo/Python. Demo may build
   carriers, hold buffers, invoke the SDK and display/copy results. Shared DTO types do not imply

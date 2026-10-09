@@ -1,8 +1,17 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "doc_qa"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "doc_in",
+        "name": "doc_qa"
+      }
+    ],
+    "output": [
+      {
+        "type": "doc_out",
+        "name": "doc_qa"
+      }
+    ]
   },
   "models": [
     {

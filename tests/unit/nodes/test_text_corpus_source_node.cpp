@@ -12,6 +12,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -91,13 +92,13 @@ TEST_F(TextCorpusSourceNodeTest,
         InitNodeForTest(*node, item.config, session_ctx_.get(), &diagnostic));
     EXPECT_NE(diagnostic.find(item.path), std::string::npos) << diagnostic;
     const nlohmann::json pipeline = {
-        {"biz_name", "keyword_match"},
         {"models", nlohmann::json::array()},
         {"pipeline",
          nlohmann::json::array({{{"id", "source"},
                                  {"node_type", "TextCorpusSourceNode"},
                                  {"config", item.config}}})}};
-    const auto report = PipelineValidator::Validate(pipeline);
+    const auto report =
+        PipelineValidator::Validate(pipeline, MakeTestBoundary());
     EXPECT_FALSE(report.ok);
     EXPECT_TRUE(
         std::any_of(report.diagnostics.begin(), report.diagnostics.end(),

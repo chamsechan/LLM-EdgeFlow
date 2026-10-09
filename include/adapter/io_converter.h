@@ -4,12 +4,15 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "adapter/adapter_status.h"
 #include "adapter/operator_io_contracts.h"
+#include "contracts/parameter_set.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/port_definition.h"
@@ -76,6 +79,7 @@ class ExternalInputBatchView {
 class ExternalOutputBatchView {
  public:
   size_t count = 0;
+  bool required = true;
   std::unordered_map<std::string, std::vector<void*>> leased_slots;
   std::unordered_map<std::string, std::string> slot_types;
   std::unordered_map<std::string, const ResolvedOutputPoolSpec*> pool_specs;
@@ -98,108 +102,80 @@ class ExternalOutputBatchView {
     }
     return static_cast<T*>(it->second[index]);
   }
-
-  size_t GetSlotCapacity(const std::string& slot_name,
-                         const std::string& field_name,
-                         size_t default_cap = 0) const {
-    const auto* spec = GetPoolSpec(slot_name);
-    if (!spec) return default_cap;
-    auto it = spec->capacities.find(field_name);
-    return it == spec->capacities.end() ? default_cap : it->second;
-  }
 };
 
 /**
  * @brief 输入解码选项与调用诊断上下文
  */
+inline constexpr size_t kMaxProcessBatchSize = 64;
+inline constexpr char kCommonIoName[] = "common";
+
 struct InputDecodeOptions {
-  std::string converter_id;
-  // 由 Operator 填入的有效批大小上限；0 表示不检查上限。
-  size_t max_batch_size = 0;
-  // 每次调用独有的表，归 Operator 所有。尽管 options 为 const，Converter
-  // 仍按输入顺序在此写入每行的外部请求 ID。
+  std::string type;
+  std::string name;
   std::vector<uint64_t>* request_ids = nullptr;
+  const ParameterValues* params = nullptr;
+
+  std::string Label() const { return type + "/" + name; }
+  template <typename P>
+  const P& Params() const {
+    if (!params) throw std::logic_error("Missing parsed input parameters");
+    return params->Get<P>();
+  }
 };
 
-/**
- * @brief 输出编码选项与调用诊断上下文
- */
 struct OutputEncodeOptions {
-  std::string converter_id;
-  // 同一张调用表的只读视图：第 i 项是第 i 个输入行的外部 ID。
+  std::string type;
+  std::string name;
   const std::vector<uint64_t>* request_ids = nullptr;
+  const ParameterValues* params = nullptr;
+
+  std::string Label() const { return type + "/" + name; }
+  template <typename P>
+  const P& Params() const {
+    if (!params) throw std::logic_error("Missing parsed output parameters");
+    return params->Get<P>();
+  }
 };
 
-/**
- * @brief 外部槽位定义 (Operator 槽位)
- */
 struct ExternalSlotDefinition {
-  std::string slot_name;
   std::string type_id;
-  PortDirection direction = PortDirection::kInput;
+  std::string type_suffix;
   bool required = true;
-  std::string type_suffix;  // Operator ValueType 规范后缀 (如 "plain_text",
-                            // "entity_out")
-  std::string key_suffix;  // 外部 map key 后缀 (为空时使用 type_suffix)
-
-  ExternalSlotDefinition() = default;
-  ExternalSlotDefinition(std::string slot_name, std::string type_id,
-                         PortDirection direction = PortDirection::kInput,
-                         bool required = true, std::string type_suffix = "",
-                         std::string key_suffix = "")
-      : slot_name(std::move(slot_name)),
-        type_id(std::move(type_id)),
-        direction(direction),
-        required(required),
-        type_suffix(std::move(type_suffix)),
-        key_suffix(std::move(key_suffix)) {}
-
-  const std::string& KeySuffix() const {
-    return !key_suffix.empty() ? key_suffix : type_suffix;
-  }
+  std::string allocator;
+  std::string allocator_params;
+  uint32_t metadata_count = 0;
+  int32_t metadata_type_id = 0;
 };
 
-// 外部载体类型标签：按声明顺序拼接槽位类型，如 "CompanyFrame,CompanyString"。
-inline std::string ExternalType(
-    const std::vector<ExternalSlotDefinition>& slots) {
-  std::string joined;
-  for (const auto& slot : slots) {
-    if (!joined.empty()) joined += ",";
-    joined += slot.type_id;
-  }
-  return joined;
-}
-
-// 统一输入/输出转换回调函数指针类型
 using DecodeInputFn = int (*)(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               AlgContext* context, AdapterStatus* status);
-
 using EncodeOutputFn = int (*)(AlgContext* context,
                                const OutputEncodeOptions& options,
                                ExternalOutputBatchView* destination,
                                size_t* written_count, AdapterStatus* status);
 
-/**
- * @brief 输入转换器 Definition
- */
 struct InputConverterDefinition {
-  std::string converter_id;
-  std::vector<ExternalSlotDefinition> external_slots;
-  std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
-
+  std::string type;
+  std::string name;
+  std::optional<int32_t> service_type;
+  ExternalSlotDefinition slot;
+  std::vector<NodePortDefinition> logical_ports;
+  ParameterSet params;
   DecodeInputFn decode_fn = nullptr;
+  std::string Label() const { return type + "/" + name; }
 };
 
-/**
- * @brief 输出转换器 Definition
- */
 struct OutputConverterDefinition {
-  std::string converter_id;
-  std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
-  std::vector<ExternalSlotDefinition> external_slots;
-
+  std::string type;
+  std::string name;
+  std::optional<int32_t> service_type;
+  ExternalSlotDefinition slot;
+  std::vector<NodePortDefinition> logical_ports;
+  ParameterSet params;
   EncodeOutputFn encode_fn = nullptr;
+  std::string Label() const { return type + "/" + name; }
 };
 
 }  // namespace llm_edgeflow

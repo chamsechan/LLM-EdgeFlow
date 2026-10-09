@@ -66,26 +66,6 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   ParsedPipelineConfig result;
 
-  // 3. biz_name 是唯一业务标识字段，必须存在且为非空字符串。
-  if (shape::MissingRequired(root, structure, "biz_name")) {
-    SetDiag(diagnostic, DiagnosticCode::kMissingField, "/biz_name",
-            "Missing required field 'biz_name'");
-    return false;
-  }
-  if (!shape::HasType(root["biz_name"],
-                      shape::Property(structure, "biz_name"))) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/biz_name",
-            "Field 'biz_name' must be a string");
-    return false;
-  }
-  result.biz_name = root["biz_name"].get<std::string>();
-  if (shape::TooShort(root["biz_name"],
-                      shape::Property(structure, "biz_name"))) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/biz_name",
-            "Field 'biz_name' cannot be empty");
-    return false;
-  }
-
   // 同一个 worker 预算同时控制串行和并行执行。
   if (root.contains("max_parallel_workers")) {
     if (!shape::HasType(root["max_parallel_workers"],

@@ -231,11 +231,6 @@ struct FieldTypeTraits<std::optional<T>> {
 
 namespace detail {
 
-struct ParameterSerialization {
-  template <typename P>
-  static nlohmann::json Encode(const Parameters<P>& spec, const P& value);
-};
-
 template <typename T>
 struct ParameterContainer {
   static constexpr bool kArray = false;
@@ -297,7 +292,7 @@ nlohmann::json SerializeParameterValue(
     }
     return result;
   } else if constexpr (FieldTypeTraits<T>::kKind == ConfigValueKind::kObject) {
-    return ParameterSerialization::Encode(*item_spec, value);
+    return item_spec->Read(value);
   } else {
     return FieldTypeTraits<T>::ToJson(value);
   }
@@ -351,11 +346,7 @@ class ParameterFieldBinding {
       const ParameterFieldBinding<ParamsT>& other) const = 0;
   virtual std::unique_ptr<ParameterFieldBinding<ParamsT>> Clone() const = 0;
 
- private:
-  friend class Parameters<ParamsT>;
-  template <typename Outer, typename Inner>
-  friend class IncludedFieldBinding;
-  virtual std::optional<nlohmann::json> Encode(const ParamsT& values) const = 0;
+  virtual std::optional<nlohmann::json> Read(const ParamsT& values) const = 0;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -439,7 +430,7 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   }
 
  private:
-  std::optional<nlohmann::json> Encode(const ParamsT& values) const override {
+  std::optional<nlohmann::json> Read(const ParamsT& values) const override {
     if constexpr (detail::IsOptionalField<MemberT>::value) {
       if (!(values.*member_ptr_)) return std::nullopt;
     }
@@ -610,8 +601,8 @@ class IncludedFieldBinding final : public ParameterFieldBinding<Outer> {
   }
 
  private:
-  std::optional<nlohmann::json> Encode(const Outer& values) const override {
-    return binding_->Encode(values.*member_);
+  std::optional<nlohmann::json> Read(const Outer& values) const override {
+    return binding_->Read(values.*member_);
   }
   Inner Outer::*member_;
   std::unique_ptr<ParameterFieldBinding<Inner>> binding_;
@@ -900,16 +891,16 @@ class Parameters {
     return parsed.has_value();
   }
 
- private:
-  friend struct detail::ParameterSerialization;
-  nlohmann::json Encode(const ParamsT& values) const {
+  nlohmann::json Read(const ParamsT& values) const {
     auto result = nlohmann::json::object();
     for (const auto& binding : bindings_) {
-      auto value = binding->Encode(values);
+      auto value = binding->Read(values);
       if (value) result[binding->Name()] = std::move(*value);
     }
     return result;
   }
+
+ private:
   std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> bindings_;
   std::vector<ConfigFieldDefinition> definitions_;
   PrepareFunction prepare_fn_;
@@ -983,17 +974,9 @@ class Parameters<NoParameters> {
     return true;
   }
 
- private:
-  friend struct detail::ParameterSerialization;
-  nlohmann::json Encode(const NoParameters&) const {
+  nlohmann::json Read(const NoParameters&) const {
     return nlohmann::json::object();
   }
 };
-
-template <typename P>
-nlohmann::json detail::ParameterSerialization::Encode(const Parameters<P>& spec,
-                                                      const P& value) {
-  return spec.Encode(value);
-}
 
 }  // namespace llm_edgeflow

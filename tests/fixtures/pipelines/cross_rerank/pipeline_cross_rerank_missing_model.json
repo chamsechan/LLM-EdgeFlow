@@ -1,8 +1,17 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "cross_rerank"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "rerank_in",
+        "name": "cross_rerank"
+      }
+    ],
+    "output": [
+      {
+        "type": "rerank_out",
+        "name": "cross_rerank"
+      }
+    ]
   },
   "models": [
     {

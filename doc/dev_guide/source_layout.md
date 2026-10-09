@@ -62,18 +62,15 @@ include/platform_mock/            本地平台公共定义模拟
   error_codes.h
   operator_data_types.h / operator_types.h
 include/adapter/                  源码扩展契约与辅助接口
-  io_binding.h
   io_converter.h
-  io_binding_registry.h
   io_converter_registry.h
   operator_value_type.h
 src/adapter/
   shared_algorithm_runtime.cpp/.h
   deployment_io_config.cpp/.h
-  io_binding_resolver.cpp/.h
+  io_plan_resolver.cpp/.h
   input/                          各业务输入转换器
   output/                         各业务输出转换器
-  biz/                            各业务 I/O 绑定声明
   operator/                       Operator 通用机制
     operator_config_resolver.cpp/.h
     operator_process_binding.cpp/.h
@@ -85,7 +82,7 @@ src/adapter/
 `OutputConverter` 函数回调及各自的 Definition，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
 常见单槽、每请求一行的回调使用 `DecodeRequestRows` / `EncodeResultRows` 调用普通业务函数，
 批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
-各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
+每个转换器登记一个宿主槽、typed 逻辑端口与共享参数声明；Pipeline 根 `io` 选择这些登记。
 端口 Definition 与回调共用同一 typed 端口常量，端口名即业务键名，
 绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>` /
 `ExternalOutputSlot<T>` 推导类型和默认同名后缀，输出容量字段由已注册 ValueType 决定；
@@ -143,28 +140,20 @@ src/engine/
 
 | 名称 | 含义 |
 | --- | --- |
-| `InputConverterDefinition.converter_id` / `OutputConverterDefinition.converter_id` | 独立输入、输出转换器标识 |
-| `BizDefinition.biz_name` | 业务 ID，例如 `doc_qa`；每个业务只有一个 `IoBindingDefinition`，同样以它标识 |
+| Converter `(type, name)` | 按方向唯一；type 是宿主 key 后缀，name 对应业务值 |
 | `NodePortDefinition.logical_name` | Node 的逻辑端口名称，由 Pipeline 映射到具体黑板键 |
-| `BizPortDefinition.blackboard_key` | 业务 ingress/egress 使用的实际黑板键 |
+| `IoPortDefinition.blackboard_key` | 输入/输出边界使用的实际黑板键 |
 
-普通配置只在 `deployment.io.io_binding` 填写业务名；框架沿该业务的绑定获得业务边界。
-框架沿注册关系选择转换器和槽位，不按名字拼写推导载体类型。
-
-一个业务只使用一个 `snake_case` 词根，按 I/O 契约的实际语义命名，例如 `ocr_invoice_qa`：
-
-| 位置 | 形式 | 示例 |
-| --- | --- | --- |
-| `biz_name`、`deployment.io.io_binding` | `<词根>` | `dialogue_audit` |
-| 绑定源码 | `src/adapter/biz/<词根>_bindings.cpp` | `dialogue_audit_bindings.cpp` |
-| 方案、数据集与 Profile | `pipeline_<词根>_<变体>`、`corpus_<词根>`、`<词根>_<变体>` | `pipeline_dialogue_audit_kite.json` |
-| 中文名 | `BizDefinition.display_name` | 对话合规审核 |
+配置在根 `io.input` / `io.output` 的每项填写 `type`、`name` 和可选 `params`。
+框架按方向和这一对标识查找登记，由所选端口组成 Core 边界。
+同一方向复用载体 type 时，宿主 key 使用 `name.type`；唯一 type 接受任意非空前缀。
+业务 name 使用 `snake_case`，描述外部请求/响应的语义，例如 `ocr_invoice_qa`。
+方案、数据集与 Profile 可以沿用对应词根和部署变体；它们不定义新载体类型或转换器身份。
 
 Demo 按宿主载体组织在 `demo/input/`、`demo/output/`，文件名描述载体及展示，
 由 `REGISTER_DEMO_INPUT` / `REGISTER_DEMO_OUTPUT` 登记；同一载体上的业务共享这些代码。
 
-转换器按数据形态命名，例如 `text.plain`，可被多个业务复用，不使用业务词根。
-业务名与转换器 ID 都不带版本号：发布前直接改名，发布后的不兼容变化见
+转换器由宿主后缀和业务名配对标识，不带版本号：发布前直接改名，发布后的不兼容变化见
 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
 
 外部槽名在所属转换器 `.cpp` 内声明一次，回调与 Definition 复用；仅用一次的 schema ID 保持原位。

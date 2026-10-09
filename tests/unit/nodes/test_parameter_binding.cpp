@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "contracts/config_schema_validation.h"
@@ -154,6 +155,9 @@ TEST(ParameterBindingTest, ParameterSetParsesRawAndNormalizedValuesEqually) {
             raw_values->Get<SampleParams>().mode);
   EXPECT_EQ(normalized_values->Get<SampleParams>().count,
             raw_values->Get<SampleParams>().count);
+  EXPECT_EQ(raw_values->Effective(),
+            (nlohmann::json{{"mode", "slow"}, {"count", 20}}));
+  EXPECT_EQ(normalized_values->Effective(), raw_values->Effective());
   EXPECT_THROW(raw_values->Get<OptionalParams>(), std::logic_error);
 
   EXPECT_FALSE(set.Parse({{"count", 0}}, &raw_values, &diagnostic));
@@ -171,6 +175,8 @@ TEST(ParameterBindingTest, DefaultParameterSetAcceptsOnlyEmptyObject) {
   ASSERT_TRUE(set.Parse(nlohmann::json::object(), &values, &diagnostic));
   ASSERT_NE(values, nullptr);
   EXPECT_NO_THROW(values->Get<NoParameters>());
+  EXPECT_EQ(values->Effective(), nlohmann::json::object());
+  EXPECT_FALSE(values->Integer("missing").has_value());
   for (const auto& invalid :
        std::vector<nlohmann::json>{{{"unknown_field", 1}},
                                    nlohmann::json::array(),
@@ -181,6 +187,88 @@ TEST(ParameterBindingTest, DefaultParameterSetAcceptsOnlyEmptyObject) {
     EXPECT_FALSE(set.Parse(invalid, &values, &diagnostic));
     EXPECT_EQ(values, nullptr);
     EXPECT_FALSE(diagnostic.empty());
+  }
+}
+
+TEST(ParameterBindingTest, EffectiveValuesOmitUnsetOptionalFields) {
+  const ParameterSet set(OptionalParamSpec());
+  std::shared_ptr<const ParameterValues> values;
+  std::string diagnostic;
+  ASSERT_TRUE(set.Parse(nlohmann::json::object(), &values, &diagnostic))
+      << diagnostic;
+  EXPECT_EQ(values->Effective(), nlohmann::json::object());
+  EXPECT_FALSE(values->Integer("count").has_value());
+
+  const nlohmann::json config = {
+      {"count", 4}, {"enabled", false}, {"mode", "slow"}, {"ratio", 0.75}};
+  ASSERT_TRUE(set.Parse(config, &values, &diagnostic)) << diagnostic;
+  EXPECT_EQ(values->Effective(), config);
+  EXPECT_EQ(values->Integer("count"), 4);
+  EXPECT_FALSE(values->Effective().contains("big_id"));
+  EXPECT_FALSE(values->Effective().contains("score"));
+}
+
+TEST(ParameterBindingTest, EffectiveValuesReflectPrepareAndKeepMoveOnlyState) {
+  struct Params {
+    int count = 0;
+    std::unique_ptr<int> derived;
+    std::string prepared;
+  };
+  int prepare_calls = 0;
+  ParameterSet set(
+      Parameters<Params>{Field("count", &Params::count).Default(3)}.Prepare(
+          [&prepare_calls](Params* params, std::string*) {
+            ++prepare_calls;
+            params->count *= 2;
+            params->derived = std::make_unique<int>(params->count);
+            params->prepared = "compiled";
+            return true;
+          }));
+  std::shared_ptr<const ParameterValues> values;
+  std::string diagnostic;
+  ASSERT_TRUE(set.Parse(nlohmann::json::object(), &values, &diagnostic))
+      << diagnostic;
+  EXPECT_EQ(prepare_calls, 1);
+  EXPECT_EQ(values->Effective(), (nlohmann::json{{"count", 6}}));
+  EXPECT_EQ(values->Integer("count"), 6);
+  const auto& params = values->Get<Params>();
+  EXPECT_EQ(params.count, 6);
+  ASSERT_NE(params.derived, nullptr);
+  EXPECT_EQ(*params.derived, 6);
+  EXPECT_EQ(params.prepared, "compiled");
+  EXPECT_EQ(prepare_calls, 1);
+}
+
+TEST(ParameterBindingTest, IntegerReadsOnlyRepresentableIntegerJsonValues) {
+  struct Params {
+    nlohmann::json value;
+  };
+  const ParameterSet set(
+      Parameters<Params>{Field("value", &Params::value).Required()});
+  const std::vector<std::pair<nlohmann::json, std::optional<int64_t>>> cases = {
+      {std::numeric_limits<int64_t>::min(),
+       std::numeric_limits<int64_t>::min()},
+      {std::numeric_limits<int64_t>::max(),
+       std::numeric_limits<int64_t>::max()},
+      {uint64_t{7}, int64_t{7}},
+      {static_cast<uint64_t>(std::numeric_limits<int64_t>::max()),
+       std::numeric_limits<int64_t>::max()},
+      {static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1,
+       std::nullopt},
+      {std::numeric_limits<uint64_t>::max(), std::nullopt},
+      {7.0, std::nullopt},
+      {"7", std::nullopt},
+      {true, std::nullopt},
+      {nlohmann::json::array(), std::nullopt},
+      {nlohmann::json::object(), std::nullopt}};
+  for (const auto& [input, expected] : cases) {
+    SCOPED_TRACE(input.dump());
+    std::shared_ptr<const ParameterValues> values;
+    std::string diagnostic;
+    ASSERT_TRUE(set.Parse({{"value", input}}, &values, &diagnostic))
+        << diagnostic;
+    EXPECT_EQ(values->Integer("value"), expected);
+    EXPECT_FALSE(values->Integer("missing").has_value());
   }
 }
 
@@ -354,6 +442,51 @@ Parameters<ElementsParams> ElementsParamSpec() {
       Field("endpoints", &ElementsParams::endpoints)
           .Default({})
           .Items(ElementParamSpec())};
+}
+
+TEST(ParameterBindingTest,
+     ReadProjectsCurrentIncludedAndNestedDeclaredMembers) {
+  struct Common {
+    int capacity = 0;
+    std::optional<std::string> label;
+    std::string derived;
+  };
+  struct Params {
+    Common common;
+    std::vector<std::vector<ElementParams>> rows;
+    std::map<std::string, std::vector<ElementParams>> endpoints;
+    std::string derived;
+  };
+  const auto schema =
+      Parameters<Params>{
+          Field("rows", &Params::rows).Default({}).Items(ElementParamSpec()),
+          Field("endpoints", &Params::endpoints)
+              .Default({})
+              .Items(ElementParamSpec())}
+          .Include(&Params::common,
+                   Parameters<Common>{
+                       Field("capacity", &Common::capacity).Default(1),
+                       Field("label", &Common::label)});
+  Params values;
+  values.common = {7, std::nullopt, "hidden common state"};
+  values.rows = {{ElementParams{"row", 3, "hidden row state"}}};
+  values.endpoints = {
+      {"a/b~c", {ElementParams{"clock", 4, "hidden map state"}}}};
+  values.derived = "hidden outer state";
+  const nlohmann::json expected = {
+      {"capacity", 7},
+      {"rows", nlohmann::json::array({nlohmann::json::array(
+                   {{{"name", "row"}, {"weight", 3}}})})},
+      {"endpoints",
+       {{"a/b~c",
+         nlohmann::json::array({{{"name", "clock"}, {"weight", 4}}})}}}};
+  EXPECT_EQ(schema.Read(values), expected);
+  values.common.label = "supplied";
+  values.rows[0][0].weight = 8;
+  auto updated = expected;
+  updated["label"] = "supplied";
+  updated["rows"][0][0]["weight"] = 8;
+  EXPECT_EQ(schema.Read(values), updated);
 }
 
 TEST(ParameterBindingTest, StructItemsNormalizeDefaultsAndRunElementHooks) {

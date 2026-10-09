@@ -1,32 +1,8 @@
 {
   "cases": [
     {
-      "name": "unknown_business",
-      "biz_type": 2,
-      "pipeline": {
-        "biz_name": "unknown_biz_xyz",
-        "models": [],
-        "pipeline": [
-          {
-            "id": "keyword",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {}
-          }
-        ]
-      },
-      "required_codes": [
-        "UNKNOWN_BIZ"
-      ],
-      "primary_code": "UNKNOWN_BIZ",
-      "primary_path": "/biz_name",
-      "runtime_error_code": -2
-    },
-    {
       "name": "unknown_node_type",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -42,13 +18,25 @@
       ],
       "primary_code": "UNKNOWN_NODE_TYPE",
       "primary_path": "/pipeline/0/node_type",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
     },
     {
       "name": "unknown_config_field",
-      "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
         "models": [
           {
             "model_id": "llm",
@@ -106,13 +94,25 @@
       ],
       "primary_code": "UNKNOWN_CONFIG_FIELD",
       "primary_path": "/pipeline/1/config/unsupported_option",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "entity_in",
+            "name": "entity_extract"
+          }
+        ],
+        "output": [
+          {
+            "type": "entity_out",
+            "name": "entity_extract"
+          }
+        ]
+      }
     },
     {
       "name": "config_field_range",
-      "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
         "models": [
           {
             "model_id": "llm",
@@ -170,13 +170,25 @@
       ],
       "primary_code": "CONFIG_FIELD_RANGE",
       "primary_path": "/pipeline/1/config/max_tokens",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "entity_in",
+            "name": "entity_extract"
+          }
+        ],
+        "output": [
+          {
+            "type": "entity_out",
+            "name": "entity_extract"
+          }
+        ]
+      }
     },
     {
       "name": "model_capability_mismatch",
-      "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
         "models": [
           {
             "model_id": "embedding",
@@ -233,13 +245,25 @@
       ],
       "primary_code": "MODEL_CAPABILITY_MISMATCH",
       "primary_path": "/pipeline/1/config/bind_model",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "entity_in",
+            "name": "entity_extract"
+          }
+        ],
+        "output": [
+          {
+            "type": "entity_out",
+            "name": "entity_extract"
+          }
+        ]
+      }
     },
     {
       "name": "dag_cycle",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -277,13 +301,25 @@
       ],
       "primary_code": "DAG_CYCLE",
       "primary_path": "/pipeline",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
     },
     {
       "name": "missing_input_producer",
-      "biz_type": 1,
       "pipeline": {
-        "biz_name": "doc_qa",
         "models": [],
         "pipeline": [
           {
@@ -302,13 +338,25 @@
       ],
       "primary_code": "MISSING_INPUT_PRODUCER",
       "primary_path": "/pipeline/0/inputs/text",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "doc_in",
+            "name": "doc_qa"
+          }
+        ],
+        "output": [
+          {
+            "type": "doc_out",
+            "name": "doc_qa"
+          }
+        ]
+      }
     },
     {
       "name": "parallel_write_conflict",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -344,13 +392,25 @@
       ],
       "primary_code": "DUPLICATE_PORT_PRODUCER",
       "primary_path": "/pipeline/1/outputs/matches",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
     },
     {
       "name": "missing_node_id",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -365,36 +425,25 @@
       ],
       "primary_code": "MISSING_FIELD",
       "primary_path": "/pipeline/0/id",
-      "runtime_error_code": -2
-    },
-    {
-      "name": "removed_execution_mode",
-      "biz_type": 2,
-      "pipeline": {
-        "biz_name": "keyword_match",
-        "models": [],
-        "pipeline": [
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
           {
-            "id": "kw",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {}
+            "type": "keyword_in",
+            "name": "keyword_match"
           }
         ],
-        "execution_mode": "quantum"
-      },
-      "required_codes": [
-        "UNKNOWN_FIELD"
-      ],
-      "primary_code": "UNKNOWN_FIELD",
-      "primary_path": "/execution_mode",
-      "runtime_error_code": -2
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
     },
     {
       "name": "duplicate_dependency",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -431,13 +480,25 @@
       ],
       "primary_code": "DUPLICATE_DEPENDENCY",
       "primary_path": "/pipeline/1/depends_on/1",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
     },
     {
       "name": "invalid_dependency",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
@@ -461,7 +522,60 @@
       ],
       "primary_code": "INVALID_DEPENDENCY",
       "primary_path": "/pipeline/0/depends_on/0",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_node_field",
+      "pipeline": {
+        "models": [],
+        "pipeline": [
+          {
+            "id": "keyword",
+            "node_type": "TextRuleMatchNode",
+            "inputs": {
+              "text": "input_sentences"
+            },
+            "outputs": {
+              "matches": "rule_matches"
+            },
+            "unexpected_option": true
+          }
+        ]
+      },
+      "required_codes": [
+        "UNKNOWN_FIELD"
+      ],
+      "primary_code": "UNKNOWN_FIELD",
+      "primary_path": "/pipeline/0/unexpected_option",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match"
+          }
+        ]
+      }
     }
   ]
 }

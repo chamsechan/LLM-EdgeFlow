@@ -208,9 +208,14 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   ASSERT_TRUE(cfg_in.is_open());
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
-  pipe_json.erase("deployment");
-  pipe_json["biz_name"] = "doc_qa";
-  ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, &diagnostic))
+  pipe_json.erase("io");
+
+  const auto boundary = MakeTestBoundary(
+      {{"raw_docs", "TextBatch"}, {"raw_queries", "TextBatch"}},
+      {{"llm_answers", "TextBatch"},
+       {"intent_matches", "RuleMatchBatch"},
+       {"doc_chunk_counts", "Int32Batch"}});
+  ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, boundary, &diagnostic))
       << diagnostic.message;
 
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt, "{}"), 0);
@@ -228,7 +233,6 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
 namespace {
 nlohmann::json TemplatePipeline(const nlohmann::json& config) {
   auto root = nlohmann::json::parse(R"({
-  "biz_name": "keyword_match",
   "models": [],
   "pipeline": [
     {
@@ -265,7 +269,9 @@ TEST_F(TextTemplateNodeTest, UnconnectedInputVariableFailsPreparation) {
     SCOPED_TRACE(variable);
     const std::string pattern = "Q={{primary}}|V={{" + variable + "}}";
     auto root = TemplatePipeline({{"template", pattern}});
-    const auto invalid = PipelineValidator::ValidateAndPlan(root);
+    const auto invalid = PipelineValidator::ValidateAndPlan(
+        root, MakeTestBoundary({{"input_sentences", "TextBatch"}},
+                               {{"rule_matches", "RuleMatchBatch"}}));
     ASSERT_FALSE(invalid.report.ok);
     EXPECT_TRUE(
         std::any_of(invalid.report.diagnostics.begin(),
@@ -381,7 +387,9 @@ TEST_F(TextTemplateNodeTest,
        ControlRejectsUnconnectedBuiltinAndRetainsConfiguration) {
   Pipeline pipeline;
   ASSERT_TRUE(BuildTestPipeline(
-      pipeline, TemplatePipeline({{"template", "{{primary}}"}})));
+      pipeline, TemplatePipeline({{"template", "{{primary}}"}}),
+      MakeTestBoundary({{"input_sentences", "TextBatch"}},
+                       {{"rule_matches", "RuleMatchBatch"}})));
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
                              R"({"template":"{{context}}"})"),
             0);

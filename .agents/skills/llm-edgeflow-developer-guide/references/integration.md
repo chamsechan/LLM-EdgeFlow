@@ -1,50 +1,54 @@
 # Integration
 
-Use this reference for new modalities, Operator structures, Converter behavior, business binding registration, or allowed Pipeline names.
+Use this reference for public Operator structures, Converter behavior, I/O selection and parameters.
+Read the affected sections of [business onboarding](../../../../doc/dev_guide/business_onboarding.md)
+and [output allocation](../../../../doc/dev_guide/operator_output_allocation.md).
 
-Business input/output means the complete public Operator SDK request/response, including serialized
-payload semantics. `InputConverterDefinition::decode_fn` and `OutputConverterDefinition::encode_fn`
-must implement that contract inside the SDK;
-Demo/Python cannot perform the missing field selection or response assembly. Reusing a host struct
-does not imply payload compatibility. Follow [the boundary and carrier distinction](../../../../doc/dev_guide/business_onboarding.md#输入输出以-operator-接口为边界).
+The complete Operator request/response is the SDK contract. Input converters validate and select
+fields; output converters assemble and serialize responses. Demo holds carriers, invokes the SDK,
+and displays or copies the result. Reusing a host struct does not imply compatible payload semantics.
 
-Start with [business onboarding](../../../../doc/dev_guide/business_onboarding.md) to select the requested
-integration path. Reuse the converters when the external contract is unchanged. Adding a production
-binding to the current shared SDK requires matching input and output converters and an explicit IoBinding registration.
-For a new platform host type, add its struct, its traits in `include/adapter/io_converter.h` and
-one ValueType entry (capacity, initialization and release) in `operator_builtin_value_types.cpp`;
-the three stay one-to-one. Add a new nested layout for an existing type as a named allocator in its
-own `.cpp` (`REGISTER_OPERATOR_OUTPUT_ALLOCATOR` from `adapter/operator_value_type.h`), not as a branch
-in the existing implementation; use `params` for values tunable within one implementation. Converters
-that write nested layouts check `spec.allocator` and reject layouts they do not support. Keep queue
-depth out of ValueType and allocator callbacks. For multiple outputs
-or config-selected nested payloads, follow the
-[output allocation guide](../../../../doc/dev_guide/operator_output_allocation.md): slot Definitions determine the outer type; deployment only overrides allocator and parameters. Required slots use registered defaults; optional slots are enabled explicitly. Map keys do not infer layout.
-Keep configuration reading in Create-time Integration. `OperatorConfigResolver` validates
-slot configurations, allocator and capacities. It is not a Pipeline Node and does not run per request.
+1. Settle external fields, ownership, cardinality, limits and failure behavior under CONTRIBUTING.
+2. The public API is `edgeflow/operator/interface.h`. Platform substitutes live only in
+   `include/platform_mock/`; they require actual-header verification in the authorized internal network.
+3. Keep the exported table functions `noexcept`, with both `catch (const std::exception&)` and
+   `catch (...)` barriers in `operator_adapter.cpp`.
+4. Register ordinary input callbacks under `src/adapter/input/` and output callbacks under
+   `src/adapter/output/`, using `REGISTER_INPUT_CONVERTER` / `REGISTER_OUTPUT_CONVERTER`.
+   Each direction identifies a registration by `(type, name)`. Its single slot has matching
+   `type_suffix` and `type_id`; logical ports are typed internal Blackboard keys.
+5. Pipeline root `io.input` / `io.output` are nonempty arrays of `{type, name, params?}`.
+   Selected converter ports form the mandatory `PipelineIoBoundary` passed to Core validation.
+   Each input must publish distinct ports. At least one selected input struct declares request IDs;
+   all input items pair by batch row, with matching IDs where present. Named services on structs with
+   a declared `service_type` require an explicit expected value. `common` or a struct without that
+   member has no expected service value. Lookup never falls back to `common`.
+6. Parameters use `Parameters<P>` and immutable `ParameterValues`. Parse, Prepare and Validate run
+   during creation; `options.Params<P>()` supplies the same typed values to all Process calls.
+   `Effective()` reads declared members after Prepare, and omits unset optional members.
 
-1. Public Operator contract or new modality changes meet the design review criteria in
-   `CONTRIBUTING.md`. Map the external contract, ownership, cardinality, batch bounds, and
-   failure behavior before implementation.
-2. Operator public API lives in `include/edgeflow/operator/interface.h`; `types.h` forwards platform data structures. Platform mock interaction types live in `include/platform_mock/operator_types.h`, and payload structures in `operator_data_types.h`; see that directory's README for the distinction from real company headers.
-3. Preserve exported Operator functions and their exception barrier in `src/adapter/operator/operator_adapter.cpp`: `noexcept`, `try`, `catch (const std::exception&)`, and `catch (...)`.
-4. Implement ordinary `DecodeInputFn` callbacks in `InputConverterDefinition` under `src/adapter/input/`, `EncodeOutputFn` callbacks in `OutputConverterDefinition` under `src/adapter/output/`, and business binding through `IoBindingDefinition` under `src/adapter/biz/`. Register through `REGISTER_INPUT_CONVERTER`, `REGISTER_OUTPUT_CONVERTER`, and `REGISTER_IO_BINDING`.
-5. Register `BizDefinition` with `PipelineCatalog::RegisterBizDefinition` to declare `biz_name` and complete ingress/egress Blackboard ports. `IoBindingDefinition` selects converters and defaults to the standard batch bound of 64; converter logical port names are the biz Blackboard keys. External Pipeline JSON requires `deployment.io.io_binding` and rejects root `biz_name`; Integration derives the internal business boundary from the selected registration. Demo resolves its runner through the SDK configuration query; neither CLI nor Profile accepts a business selector. Each biz registers exactly one binding, so the biz identifies one external contract; a second binding for the same biz is a registry conflict that fails SDK initialization.
-6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
+A unique carrier type accepts any nonempty host-key namespace. Repeated types within one direction
+require `name.type` keys, so empty output pointers can be routed uniquely. Inputs additionally
+validate service values before decoding. The batch bound is `min(max_frame_depth, 64)`.
 
-Bindings default to the framework standard batch bound of 64; override
-`IoBindingDefinition::max_batch_size` only when measurements require a smaller bound. The binding is
-the only source of this limit; converters do not declare one. A binding limit of zero fails the
-registry audit and [deployment preparation](../../../../src/adapter/deployment_preparation.cpp).
-[Operator creation](../../../../src/adapter/operator/operator_adapter.cpp) further caps the effective
-Process batch limit at the output pool depth; a larger binding limit cannot relax another limit.
+For one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows` from
+`converter_authoring.h`. Multiple logical streams and aggregations retain explicit algorithms.
+Copy inputs into request-owned `AlgContext` values; never retain host pointers across Process calls.
+`OutputStringWriter` uses the leased pool specification and explicit lengths.
 
-For one required host slot, one business payload stream and one payload/result per request,
-use `DecodeRequestRows` / `EncodeResultRows`
-from `converter_authoring.h`. Business callbacks handle one owned payload or one borrowed output row;
-helpers own looping, provenance, request IDs and diagnostic location. `OutputStringWriter`
-uses actual pool capacities and explicit string lengths. Do not retain its borrowed view or pointers.
-Independent metadata streams, multi-slot, expanded and aggregated conversions keep their explicit
-algorithms and existing lower-level helpers; a single external slot alone does not imply a single stream.
+Every output string has an integer `<field>_max_bytes` parameter with minimum 1 and a valid default.
+Platform layouts declare only the hard maximum; Catalog/schema supplement the corresponding bound.
+Allocator name, allocator parameters and metadata count/type are fixed in the converter slot.
+`IoConverterRegistry::Audit()` checks all registrations and normalizes allocator parameters once,
+including unselected registrations. Create consumes those immutable results. Optional outputs
+always own pools and may omit host keys per row; their views retain batch row positions. All outputs
+are published together after successful encoding; failure returns all leases.
 
-Use `tests/contract/abi/test_cpp_operator_sdk.cpp`, `tests/contract/abi/test_operator_safety.cpp`, `tests/contract/abi/test_adapter_contract_security.cpp`, and existing modality converters as live templates. If the change also adds nodes, read `capability-nodes.md`; if it changes Core contract behavior, read `orchestration.md`.
+New host types require matching mock declarations, traits in `io_converter.h`, and ValueType
+registration in `operator_builtin_value_types.cpp`. Declare actual request ID/service members with
+`SetRequestIdMember` / `SetServiceTypeMember`; do not infer memory layouts. New nested layouts use
+`REGISTER_OPERATOR_OUTPUT_ALLOCATOR` and their own allocation/reset/budget implementation.
+See the output allocation guide for ownership and actual-platform acceptance limits.
+
+Use the existing Adapter/Operator/ABI tests, including converter contract tests and golden Operator
+results. Cross-layer changes also read `orchestration.md`; new Nodes read `capability-nodes.md`.

@@ -18,8 +18,7 @@ struct DocumentValidationResult {
 /**
  * @brief 校验 Pipeline 文档（CLI 与 Authoring 共用适配）
  *
- * 统一处理带/不带 deployment 的文档，并根据模式调用
- * Validate/Explain/ValidateAndPlan， 投影有效模型路径来源，保留完整 Core 报告。
+ * 通过共享接入准备入口解析 IO 边界，再调用 Core 校验并保留完整报告。
  */
 DocumentValidationResult ValidatePipelineDocument(
     const nlohmann::json& document, DocumentValidationMode mode);

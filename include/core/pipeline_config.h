@@ -49,7 +49,6 @@ struct ParsedNodeConfig {
  * @brief 解析后的完整管线配置
  */
 struct ParsedPipelineConfig {
-  std::string biz_name;
   size_t max_parallel_workers = 1;
   std::vector<ParsedModelConfig> models;
   std::vector<ParsedNodeConfig> nodes;

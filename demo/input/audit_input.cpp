@@ -72,9 +72,9 @@ int BuildAuditRequests(
     storage->dialogue_strs.push_back(
         {static_cast<int32_t>(storage->dialogues[i].size()),
          const_cast<char*>(storage->dialogues[i].data())});
-    storage->carriers.push_back({static_cast<uint64_t>(40001 + i),
-                                 &storage->dialogue_strs.back(),
-                                 &storage->channel_strs.back()});
+    storage->carriers.push_back(
+        {static_cast<uint64_t>(40001 + i), inputs[0].service_type.value_or(0),
+         &storage->dialogue_strs.back(), &storage->channel_strs.back()});
     batch.request_info.push_back({{"channel", storage->channels[i]}});
   }
 

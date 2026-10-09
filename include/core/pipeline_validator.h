@@ -83,19 +83,17 @@ struct ValidatedPipelinePlan {
 };
 
 struct PipelineIoBoundary {
-  std::vector<BizPortDefinition> input_published_ports;
-  std::vector<BizPortDefinition> output_consumed_ports;
+  std::vector<IoPortDefinition> input_published_ports;
+  std::vector<IoPortDefinition> output_consumed_ports;
 };
 
 class PipelineValidator {
  public:
   static ValidatedPipelinePlan ValidateAndPlan(
-      const nlohmann::json& root,
-      const PipelineIoBoundary* io_boundary = nullptr);
+      const nlohmann::json& root, const PipelineIoBoundary& io_boundary);
 
-  static ValidationReport Validate(
-      const nlohmann::json& root,
-      const PipelineIoBoundary* io_boundary = nullptr);
+  static ValidationReport Validate(const nlohmann::json& root,
+                                   const PipelineIoBoundary& io_boundary);
 };
 
 /**

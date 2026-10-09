@@ -102,7 +102,11 @@ int main() {
   if (val_ret != 0 || resolved_io.inputs.size() != 1 ||
       resolved_io.outputs.size() != 1 ||
       resolved_io.inputs[0].type != "keyword_in" ||
-      resolved_io.outputs[0].type != "keyword_out") {
+      resolved_io.outputs[0].type != "keyword_out" ||
+      resolved_io.inputs[0].name != "keyword_match" ||
+      resolved_io.outputs[0].name != "keyword_match" ||
+      resolved_io.inputs[0].service_type != kMockServiceKeywordMatch ||
+      resolved_io.outputs[0].service_type != kMockServiceKeywordMatch) {
     std::fprintf(stderr,
                  "[SDK Consumer Test] ResolveOperatorConfigIo failed: %s\n",
                  err_buf);
@@ -131,6 +135,7 @@ int main() {
                     const_cast<char*>(text1.data())};
   CompanyOperatorKeywordInput in_req1{};
   in_req1.request_id = 1001;
+  in_req1.service_type = kMockServiceKeywordMatch;
   in_req1.sentence_text = &cs1;
 
   llm_edgeflow::operator_api::NamedIoBatch inputs(1);
@@ -154,7 +159,8 @@ int main() {
     return 10;
   }
   auto* out_dto = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-  if (out_dto->request_id != 1001 || out_dto->status_code != 0) {
+  if (out_dto->request_id != 1001 || out_dto->status_code != 0 ||
+      out_dto->service_type != kMockServiceKeywordMatch) {
     std::fprintf(
         stderr,
         "[SDK Consumer Test] Unexpected output values: req_id=%lu status=%d\n",

@@ -1,8 +1,17 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "audio_asr_intent"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "audio_in",
+        "name": "audio_asr_intent"
+      }
+    ],
+    "output": [
+      {
+        "type": "audio_out",
+        "name": "audio_asr_intent"
+      }
+    ]
   },
   "models": [
     {

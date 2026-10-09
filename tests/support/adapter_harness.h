@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,6 +17,37 @@
 namespace llm_edgeflow {
 namespace test {
 
+template <typename Definition>
+std::shared_ptr<const ParameterValues> ParseConverterParametersForTest(
+    const Definition& definition,
+    const nlohmann::json& config = nlohmann::json::object()) {
+  std::shared_ptr<const ParameterValues> values;
+  std::string diagnostic;
+  if (!definition.params.Parse(config, &values, &diagnostic))
+    throw std::invalid_argument(definition.Label() + ": " + diagnostic);
+  return values;
+}
+
+template <typename Options>
+class ParsedConverterOptions : public Options {
+ public:
+  template <typename Definition>
+  explicit ParsedConverterOptions(
+      const Definition& definition,
+      const nlohmann::json& config = nlohmann::json::object())
+      : values_(ParseConverterParametersForTest(definition, config)) {
+    this->type = definition.type;
+    this->name = definition.name;
+    this->params = values_.get();
+  }
+
+ private:
+  std::shared_ptr<const ParameterValues> values_;
+};
+
+using ParsedInputOptions = ParsedConverterOptions<InputDecodeOptions>;
+using ParsedOutputOptions = ParsedConverterOptions<OutputEncodeOptions>;
+
 /**
  * @brief 测试专用 Adapter / Converter 契约夹具
  *
@@ -26,13 +58,19 @@ class AdapterHarness {
  public:
   AdapterHarness(const InputConverterDefinition* input_conv,
                  const OutputConverterDefinition* output_conv)
-      : in_conv_(input_conv), out_conv_(output_conv) {}
+      : in_conv_(input_conv),
+        out_conv_(output_conv),
+        input_params_(input_conv ? ParseConverterParametersForTest(*input_conv)
+                                 : nullptr),
+        output_params_(output_conv
+                           ? ParseConverterParametersForTest(*output_conv)
+                           : nullptr) {}
 
   explicit AdapterHarness(const InputConverterDefinition* input_conv)
-      : in_conv_(input_conv), out_conv_(nullptr) {}
+      : AdapterHarness(input_conv, nullptr) {}
 
   explicit AdapterHarness(const OutputConverterDefinition* output_conv)
-      : in_conv_(nullptr), out_conv_(output_conv) {}
+      : AdapterHarness(nullptr, output_conv) {}
 
   AlgContext& Context() { return ctx_; }
   const AlgContext& Context() const { return ctx_; }
@@ -47,11 +85,9 @@ class AdapterHarness {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     ExternalInputBatchView view;
     view.count = inputs.size();
-    std::string slot_name = in_conv_->external_slots.empty()
-                                ? ""
-                                : in_conv_->external_slots[0].slot_name;
+    const std::string& slot_name = in_conv_->type;
     if (!slot_name.empty()) {
-      view.slot_types[slot_name] = in_conv_->external_slots[0].type_id;
+      view.slot_types[slot_name] = in_conv_->slot.type_id;
       for (const void* input : inputs)
         view.slots[slot_name].emplace_back(const_cast<void*>(input),
                                            [](void*) {});
@@ -62,7 +98,9 @@ class AdapterHarness {
   int DecodeOperator(const ExternalInputBatchView& view) {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     InputDecodeOptions options;
-    options.converter_id = in_conv_->converter_id;
+    options.type = in_conv_->type;
+    options.name = in_conv_->name;
+    options.params = input_params_.get();
     options.request_ids = &request_ids_;
 
     return in_conv_->decode_fn(view, options, &ctx_, &status_);
@@ -82,11 +120,9 @@ class AdapterHarness {
     }
     ExternalOutputBatchView view;
     view.count = outputs->size();
-    std::string slot_name = out_conv_->external_slots.empty()
-                                ? ""
-                                : out_conv_->external_slots[0].slot_name;
+    const std::string& slot_name = out_conv_->type;
     if (!slot_name.empty()) {
-      view.slot_types[slot_name] = out_conv_->external_slots[0].type_id;
+      view.slot_types[slot_name] = out_conv_->slot.type_id;
       view.leased_slots[slot_name] = output_ptrs;
       view.pool_specs[slot_name] = &pool_spec;
     }
@@ -101,7 +137,9 @@ class AdapterHarness {
   int EncodeOperator(ExternalOutputBatchView* view, size_t* written_count) {
     if (!out_conv_ || !out_conv_->encode_fn || !view) return -1;
     OutputEncodeOptions options;
-    options.converter_id = out_conv_->converter_id;
+    options.type = out_conv_->type;
+    options.name = out_conv_->name;
+    options.params = output_params_.get();
     options.request_ids = &request_ids_;
     return out_conv_->encode_fn(&ctx_, options, view, written_count, &status_);
   }
@@ -163,6 +201,8 @@ class AdapterHarness {
  private:
   const InputConverterDefinition* in_conv_ = nullptr;
   const OutputConverterDefinition* out_conv_ = nullptr;
+  std::shared_ptr<const ParameterValues> input_params_;
+  std::shared_ptr<const ParameterValues> output_params_;
   AlgContext ctx_;
   AdapterStatus status_;
   std::vector<uint64_t> request_ids_;

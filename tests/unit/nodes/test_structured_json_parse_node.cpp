@@ -13,6 +13,7 @@
 #include "core/session_context.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -275,13 +276,13 @@ TEST_F(StructuredJsonParseNodeTest, RejectsInvalidFieldTypeContracts) {
     EXPECT_NE(diagnostic.find("/field_types/risk"), std::string::npos)
         << diagnostic;
     const nlohmann::json pipeline = {
-        {"biz_name", "keyword_match"},
         {"models", nlohmann::json::array()},
         {"pipeline",
          nlohmann::json::array({{{"id", "parse"},
                                  {"node_type", "StructuredJsonParseNode"},
                                  {"config", config}}})}};
-    const auto report = PipelineValidator::Validate(pipeline);
+    const auto report =
+        PipelineValidator::Validate(pipeline, MakeTestBoundary());
     EXPECT_FALSE(report.ok);
     EXPECT_TRUE(std::any_of(
         report.diagnostics.begin(), report.diagnostics.end(),

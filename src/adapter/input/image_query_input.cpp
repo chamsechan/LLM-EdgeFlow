@@ -17,85 +17,115 @@ namespace {
 constexpr const char* kFrameSlot = "frame";
 constexpr const char* kQuerySlot = "string";
 
-int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
-                                  const InputDecodeOptions& options,
-                                  AlgContext* context, AdapterStatus* status) {
+int DecodeOperatorFrameInput(const ExternalInputBatchView& source,
+                             const InputDecodeOptions& options,
+                             AlgContext* context, AdapterStatus* status) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> raw_req_ids;
   ImageRefBatch raw_images;
-  TextBatch raw_queries;
 
   raw_req_ids.reserve(source.count);
   raw_images.reserve(source.count);
-  raw_queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
     const auto* frame =
         ReadInputSlot<CompanyFrame>(source, kFrameSlot, i, options, status);
     if (!frame) return COMPANY_ALG_ERR_INVALID_INPUT;
-    const auto* query =
-        ReadInputSlot<CompanyString>(source, kQuerySlot, i, options, status);
-    if (!query) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     if (!IsValidInputString(frame->image_uri)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid frame.image_uri CompanyString", "frame.image_uri",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(frame->image_uri->length) >
         biz_input::kMaxImageUriBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "image_uri length exceeds limit", "frame.image_uri",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-
-    if (!IsValidInputString(query)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Invalid query CompanyString", kQuerySlot,
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-    if (static_cast<size_t>(query->length) > biz_input::kMaxTextBytes) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "query length exceeds limit", kQuerySlot,
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     std::string image_path = CopyInputString(*frame->image_uri);
-    std::string query_prompt = CopyInputString(*query);
 
     raw_req_ids.push_back(frame->request_id);
     raw_images.emplace_back(static_cast<uint32_t>(i), 0, std::move(image_path));
-    raw_queries.emplace_back(static_cast<uint32_t>(i), 0,
-                             std::move(query_prompt));
   }
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kImagePaths, std::move(raw_images),
-          options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, kUserQueries, std::move(raw_queries),
-          options.converter_id.c_str(), status)) {
+          *context, kImagePaths, std::move(raw_images), options.Label().c_str(),
+          status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   return COMPANY_ALG_SUCCESS;
 }
 
-InputConverterDefinition MakeOperatorImageQueryInputConverter() {
+int DecodeOperatorQueryInput(const ExternalInputBatchView& source,
+                             const InputDecodeOptions& options,
+                             AlgContext* context, AdapterStatus* status) {
+  if (!ValidateDecodeRequest(source, options, context, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  }
+
+  TextBatch raw_queries;
+  raw_queries.reserve(source.count);
+
+  for (size_t i = 0; i < source.count; ++i) {
+    const auto* query =
+        ReadInputSlot<CompanyString>(source, kQuerySlot, i, options, status);
+    if (!query) return COMPANY_ALG_ERR_INVALID_INPUT;
+
+    if (!IsValidInputString(query)) {
+      return AdapterValidationHelper::ReturnInvalidInput(
+          status, "Invalid query CompanyString", kQuerySlot,
+          options.Label().c_str(), static_cast<int>(i));
+    }
+    if (static_cast<size_t>(query->length) > biz_input::kMaxTextBytes) {
+      return AdapterValidationHelper::ReturnInvalidInput(
+          status, "query length exceeds limit", kQuerySlot,
+          options.Label().c_str(), static_cast<int>(i));
+    }
+
+    std::string query_prompt = CopyInputString(*query);
+    raw_queries.emplace_back(static_cast<uint32_t>(i), 0,
+                             std::move(query_prompt));
+  }
+
+  if (!AdapterValidationHelper::PublishContextValue(
+          *context, kUserQueries, std::move(raw_queries),
+          options.Label().c_str(), status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  }
+
+  return COMPANY_ALG_SUCCESS;
+}
+
+InputConverterDefinition MakeOperatorFrameInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "image_query.plain";
-  def.external_slots = {ExternalInputSlot<CompanyFrame>(kFrameSlot),
-                        ExternalInputSlot<CompanyString>(kQuerySlot)};
-  def.logical_ports = {OutputPort(kImagePaths), OutputPort(kUserQueries)};
-  def.decode_fn = &DecodeOperatorImageQueryInput;
+  def.type = kFrameSlot;
+  def.name = "ocr_invoice_qa";
+  def.service_type = kMockServiceOcrInvoiceQa;
+  def.slot = ExternalInputSlot<CompanyFrame>(kFrameSlot);
+  def.logical_ports = {OutputPort(kImagePaths)};
+  def.decode_fn = &DecodeOperatorFrameInput;
   return def;
 }
 
-REGISTER_INPUT_CONVERTER(MakeOperatorImageQueryInputConverter());
+InputConverterDefinition MakeOperatorQueryInputConverter() {
+  InputConverterDefinition def;
+  def.type = kQuerySlot;
+  def.name = "ocr_invoice_qa";
+  def.slot = ExternalInputSlot<CompanyString>(kQuerySlot);
+  def.logical_ports = {OutputPort(kUserQueries)};
+  def.decode_fn = &DecodeOperatorQueryInput;
+  return def;
+}
+
+REGISTER_INPUT_CONVERTER(MakeOperatorFrameInputConverter());
+REGISTER_INPUT_CONVERTER(MakeOperatorQueryInputConverter());
 
 }  // namespace
 }  // namespace llm_edgeflow

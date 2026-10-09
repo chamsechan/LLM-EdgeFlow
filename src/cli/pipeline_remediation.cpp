@@ -527,22 +527,11 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       rem.facts["candidate_node_ids"] = candidate_node_ids;
       diag->remediation = std::move(rem);
     }
-  } else if (diag->code == DiagnosticCode::kMissingBizOutput) {
+  } else if (diag->code == DiagnosticCode::kMissingOutputProducer) {
     ValidationRemediation rem;
-    rem.cause = RemediationCause::kMissingBizOutput;
-    rem.summary = "Pipeline 未产出 biz '" + root.value("biz_name", "") +
-                  "' 所需的输出 '" + diag->port + "'。";
-    rem.facts["biz_name"] = root.value("biz_name", "");
+    rem.cause = RemediationCause::kMissingOutputProducer;
+    rem.summary = diag->message;
     rem.facts["bound_key"] = diag->port;
-    const auto* biz = catalog.FindBiz(root.value("biz_name", ""));
-    if (biz) {
-      for (const auto& eg : biz->egress) {
-        if (eg.blackboard_key == diag->port) {
-          rem.facts["expected_type"] = eg.type_id;
-          break;
-        }
-      }
-    }
     diag->remediation = std::move(rem);
   } else if (diag->code == DiagnosticCode::kPortCardinalityMismatch ||
              diag->code == DiagnosticCode::kPortProvenanceMismatch ||
@@ -587,14 +576,14 @@ void AttachRemediation(const nlohmann::json& root, ValidationReport* report) {
 }
 
 ValidationReport ValidateWithRemediation(
-    const nlohmann::json& root, const PipelineIoBoundary* io_boundary) {
+    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
   ValidationReport report = PipelineValidator::Validate(root, io_boundary);
   AttachRemediation(root, &report);
   return report;
 }
 
 ValidationReport ExplainPipeline(const nlohmann::json& root,
-                                 const PipelineIoBoundary* io_boundary) {
+                                 const PipelineIoBoundary& io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
   ValidationReport report = ValidateWithRemediation(root, io_boundary);
   if (report.ok) {

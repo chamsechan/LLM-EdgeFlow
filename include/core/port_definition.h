@@ -43,35 +43,20 @@ struct NodePortDefinition : PortContract {
   const std::string& Name() const { return logical_name; }
 };
 
-struct BizPortDefinition : PortContract {
+struct IoPortDefinition : PortContract {
   std::string blackboard_key;
 
-  BizPortDefinition() = default;
-  BizPortDefinition(std::string name, std::string type, bool req = true,
-                    std::string card = "1:1",
-                    std::string provenance = "preserve",
-                    std::string life = "request", std::string life_config = {})
+  IoPortDefinition() = default;
+  IoPortDefinition(std::string name, std::string type, bool req = true,
+                   std::string card = "1:1",
+                   std::string provenance = "preserve",
+                   std::string life = "request", std::string life_config = {})
       : PortContract(std::move(type), req, std::move(card),
                      std::move(provenance), std::move(life),
                      std::move(life_config)),
         blackboard_key(std::move(name)) {}
   const std::string& Name() const { return blackboard_key; }
 };
-
-template <typename T>
-inline BizPortDefinition RequiredBizInput(const BlackboardKey<T>& key) {
-  return {key.name, key.type_id, true};
-}
-
-template <typename T>
-inline BizPortDefinition OptionalBizInput(const BlackboardKey<T>& key) {
-  return {key.name, key.type_id, false};
-}
-
-template <typename T>
-inline BizPortDefinition BizOutput(const BlackboardKey<T>& key) {
-  return {key.name, key.type_id, true};
-}
 
 template <typename T>
 inline NodePortDefinition RequiredInputPort(

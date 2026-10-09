@@ -134,6 +134,7 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
 
   CompanyOperatorDocInput in{};
   in.request_id = 101;
+  in.service_type = kMockServiceDocQa;
   in.doc_text = &cs_doc;
   in.query_text = &cs_query;
 
@@ -150,6 +151,7 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorDocOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 101u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceDocQa);
   EXPECT_EQ(out_dto->status_code, 0);
   ASSERT_NE(out_dto->intent_name, nullptr);
   EXPECT_STREQ(out_dto->intent_name->data, "TECH_ARCHITECTURE");
@@ -175,6 +177,7 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
                             const_cast<char*>(sentence.data())};
   CompanyOperatorKeywordInput in{};
   in.request_id = 1001;
+  in.service_type = kMockServiceKeywordMatch;
   in.sentence_text = &cs_sentence;
 
   ControlUpdateRulesParam rules_param{
@@ -196,6 +199,7 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 1001u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceKeywordMatch);
   EXPECT_EQ(out_dto->is_hit, 1);
   ASSERT_NE(out_dto->match_result_json, nullptr);
   EXPECT_NE(std::string(out_dto->match_result_json->data,
@@ -222,6 +226,7 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
 
   CompanyOperatorEntityInput in{};
   in.request_id = 3001;
+  in.service_type = kMockServiceEntityExtract;
   in.sentence_text = &cs_text;
 
   NamedIoBatch inputs(1);
@@ -237,6 +242,7 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 3001u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceEntityExtract);
   ASSERT_NE(out_dto->entities_json, nullptr);
   EXPECT_GT(out_dto->entities_json->length, 0);
 
@@ -262,6 +268,7 @@ TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
 
   CompanyOperatorAuditInput in{};
   in.request_id = 4001;
+  in.service_type = kMockServiceDialogueAudit;
   in.user_text = &cs_user;
   in.channel_name = &cs_chan;
 
@@ -278,6 +285,7 @@ TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorAuditOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 4001u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceDialogueAudit);
   EXPECT_EQ(out_dto->status_code, 0);
   ASSERT_NE(out_dto->risk_level, nullptr);
   ASSERT_NE(out_dto->matched_policy_clause, nullptr);
@@ -304,7 +312,7 @@ TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   CompanyString cs_query{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
 
-  CompanyFrame frame{5001, &cs_img, nullptr};
+  CompanyFrame frame{5001, kMockServiceOcrInvoiceQa, &cs_img, nullptr};
 
   NamedIoBatch inputs(1);
   inputs[0]["ocr_channel.frame"] = MakeBorrowedOperatorInput(&frame);
@@ -320,6 +328,7 @@ TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOdOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 5001u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceOcrInvoiceQa);
   EXPECT_GT(out_dto->detected_box_count, 0);
   ASSERT_NE(out_dto->result_json, nullptr);
   EXPECT_GT(out_dto->result_json->length, 0);
@@ -344,11 +353,14 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   // 样本 3：未匹配的通用语音指令 (sum = 80，> 40 且 <= 120)
   std::vector<float> pcm_gen(16000, 0.005f);  // sum = 80
 
-  CompanyOperatorAudioInput in1{6001, pcm_nav.data(),
+  CompanyOperatorAudioInput in1{6001, kMockServiceAudioAsrIntent,
+                                pcm_nav.data(),
                                 static_cast<int32_t>(pcm_nav.size()), 16000};
-  CompanyOperatorAudioInput in2{6002, pcm_hvac.data(),
+  CompanyOperatorAudioInput in2{6002, kMockServiceAudioAsrIntent,
+                                pcm_hvac.data(),
                                 static_cast<int32_t>(pcm_hvac.size()), 16000};
-  CompanyOperatorAudioInput in3{6003, pcm_gen.data(),
+  CompanyOperatorAudioInput in3{6003, kMockServiceAudioAsrIntent,
+                                pcm_gen.data(),
                                 static_cast<int32_t>(pcm_gen.size()), 16000};
 
   NamedIoBatch inputs(3);
@@ -370,6 +382,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   ASSERT_NE(out_sp1, nullptr);
   auto* out_dto1 = static_cast<CompanyOperatorAudioOutput*>(out_sp1.get());
   EXPECT_EQ(out_dto1->request_id, 6001u);
+  EXPECT_EQ(out_dto1->service_type, kMockServiceAudioAsrIntent);
   EXPECT_EQ(out_dto1->status_code, 0);
   ASSERT_NE(out_dto1->transcribed_text, nullptr);
   ASSERT_NE(out_dto1->intent_slot_json, nullptr);
@@ -391,6 +404,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   ASSERT_NE(out_sp2, nullptr);
   auto* out_dto2 = static_cast<CompanyOperatorAudioOutput*>(out_sp2.get());
   EXPECT_EQ(out_dto2->request_id, 6002u);
+  EXPECT_EQ(out_dto2->service_type, kMockServiceAudioAsrIntent);
   EXPECT_EQ(out_dto2->status_code, 0);
   ASSERT_NE(out_dto2->transcribed_text, nullptr);
   ASSERT_NE(out_dto2->intent_slot_json, nullptr);
@@ -411,6 +425,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   ASSERT_NE(out_sp3, nullptr);
   auto* out_dto3 = static_cast<CompanyOperatorAudioOutput*>(out_sp3.get());
   EXPECT_EQ(out_dto3->request_id, 6003u);
+  EXPECT_EQ(out_dto3->service_type, kMockServiceAudioAsrIntent);
   EXPECT_EQ(out_dto3->status_code, 0);
   ASSERT_NE(out_dto3->transcribed_text, nullptr);
   ASSERT_NE(out_dto3->intent_slot_json, nullptr);
@@ -488,6 +503,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
 
   CompanyOperatorRerankInput in{};
   in.request_id = 7001;
+  in.service_type = kMockServiceCrossRerank;
   in.query_text = &q_cs;
   in.candidate_passages[0] = &p1_cs;
   in.candidate_passages[1] = &p2_cs;
@@ -504,6 +520,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 7001u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceCrossRerank);
   EXPECT_GT(out_dto->count, 0);
 
   outputs.clear();
@@ -525,6 +542,7 @@ TEST_F(OperatorGoldenTest, TranslateGolden) {
 
   CompanyOperatorEntityInput in{};
   in.request_id = 8001;
+  in.service_type = kMockServiceTranslate;
   in.sentence_text = &cs_text;
 
   NamedIoBatch inputs(1);
@@ -540,6 +558,7 @@ TEST_F(OperatorGoldenTest, TranslateGolden) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->request_id, 8001u);
+  EXPECT_EQ(out_dto->service_type, kMockServiceTranslate);
   EXPECT_EQ(out_dto->status_code, 0);
   ASSERT_NE(out_dto->entities_json, nullptr);
   EXPECT_GT(out_dto->entities_json->length, 0);

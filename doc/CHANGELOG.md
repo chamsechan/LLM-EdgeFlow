@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Pipeline 用 `io.input` / `io.output` 的 `(type, name)` 选择单载体 Converter，删除 Core 业务登记和
+IoBinding。Converter 参数只读共享，输出字符串容量的默认值归 Converter、平台仅声明硬上限；
+预检与 Create 共用准备结果和容量预算。同类型的多个载体以 `name.type` 区分，Process 在转换前
+核对模拟平台的业务值与请求 ID，并保留可选输出的行位置；多输出失败时不发布任何租约。
+
 文本节点统一使用类型化字段与字段 Control。模板变量只引用已连接的输入，更新重新编译并校验；
 规则元素声明负责默认值、约束与正则编译。结构化解析的 `fallback` 直接使用 JSON 值，
 语料源的 `corpus` 必填且可以为空数组。删除旧参数解析器和手写 Control 更新接口。

@@ -12,10 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 #include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_io_registry.h"
 #include "demo/common/demo_options.h"
@@ -28,7 +26,6 @@
 #include "nlohmann/json.hpp"
 #include "nodes/node_base.h"
 #include "tests/support/control_test_utils.h"
-#include "tests/support/registry_test_access.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
@@ -83,78 +80,62 @@ NodeDefinition DemoStatusDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(TestDemoStatusNode, DemoStatusDefinition());
 
-// 用两个真实 KeywordOutput 槽验证 runner 合并，复用生产编码与展示。
-int EncodeDemoMultiOutput(AlgContext* context,
-                          const OutputEncodeOptions& options,
-                          ExternalOutputBatchView* destination,
-                          size_t* written_count, AdapterStatus* status) {
+// 第二个同类型登记复用生产编码，随后生成独立业务结果。
+int EncodeDemoSecondaryOutput(AlgContext* context,
+                              const OutputEncodeOptions& options,
+                              ExternalOutputBatchView* destination,
+                              size_t* written_count, AdapterStatus* status) {
   if (!destination) return -1;
-  const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "keyword_out", "keyword_match");
   if (!converter) return -1;
-  for (const char* slot : {"primary", "secondary"}) {
-    ExternalOutputBatchView view;
-    view.count = destination->count;
-    view.leased_slots["keyword_out"] = destination->leased_slots.at(slot);
-    view.slot_types["keyword_out"] = destination->slot_types.at(slot);
-    view.pool_specs["keyword_out"] = destination->pool_specs.at(slot);
-    const int ret =
-        converter->encode_fn(context, options, &view, written_count, status);
-    if (ret != 0) return ret;
-    if (std::string(slot) == "secondary") {
-      for (size_t i = 0; i < *written_count; ++i) {
-        auto* output =
-            view.GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
-        output->status_code = output->is_hit ? 0 : -17;
-        output->is_hit = !output->is_hit;
-      }
-    }
+  const int ret = converter->encode_fn(context, options, destination,
+                                       written_count, status);
+  if (ret != 0) return ret;
+  for (size_t i = 0; i < *written_count; ++i) {
+    auto* output =
+        destination->GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
+    output->status_code = output->is_hit ? 0 : -17;
+    output->is_hit = !output->is_hit;
   }
   return 0;
 }
 
+int demo_input_decode_count = 0;
+
+int DecodeDemoUnsupportedInput(const ExternalInputBatchView& source,
+                               const InputDecodeOptions& options,
+                               AlgContext* context, AdapterStatus* status) {
+  ++demo_input_decode_count;
+  const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword_in", "keyword_match");
+  if (!converter) return -1;
+  return converter->decode_fn(source, options, context, status);
+}
+
 bool RegisterDemoIoFixtures() {
-  const auto production_biz = PipelineCatalog::FindBiz("keyword_match");
+  auto& registry = IoConverterRegistry::Instance();
   const auto* production_output =
-      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
+      registry.FindOutputConverter("keyword_out", "keyword_match");
   const auto* production_input =
-      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
-  if (!production_biz || !production_output || !production_input) return false;
-  if (!IoBindingRegistry::Instance().FindBinding("test_demo_multi_output")) {
-    auto biz = *production_biz;
-    biz.biz_name = "test_demo_multi_output";
-    if (!PipelineCatalog::RegisterBizDefinition(biz)) return false;
+      registry.FindInputConverter("keyword_in", "keyword_match");
+  if (!production_output || !production_input) return false;
+  for (int index = 0; index < 2; ++index) {
     auto output = *production_output;
-    output.converter_id = "test_demo_multi_output";
-    output.external_slots = {production_output->external_slots[0],
-                             production_output->external_slots[0]};
-    output.external_slots[0].slot_name = "primary";
-    output.external_slots[0].key_suffix = "primary";
-    output.external_slots[1].slot_name = "secondary";
-    output.external_slots[1].key_suffix = "secondary";
-    output.encode_fn = &EncodeDemoMultiOutput;
-    if (!IoConverterRegistry::Instance().RegisterOutputConverter(output))
-      return false;
-    if (!IoBindingRegistry::Instance().RegisterBinding(
-            {biz.biz_name, "keyword.plain", output.converter_id}))
-      return false;
+    output.name = index == 0 ? "test_demo_primary" : "test_demo_secondary";
+    output.service_type = 10031 + index;
+    if (index == 1) output.encode_fn = &EncodeDemoSecondaryOutput;
+    if (!registry.RegisterOutputConverter(output)) return false;
   }
-  if (!IoBindingRegistry::Instance().FindBinding(
-          "test_demo_unsupported_inputs")) {
-    auto biz = *production_biz;
-    biz.biz_name = "test_demo_unsupported_inputs";
-    if (!PipelineCatalog::RegisterBizDefinition(biz)) return false;
+  demo_input_decode_count = 0;
+  for (int index = 0; index < 2; ++index) {
     auto input = *production_input;
-    input.converter_id = "test_demo_unsupported_inputs";
-    input.external_slots = {production_input->external_slots[0],
-                            production_input->external_slots[0]};
-    input.external_slots[1].slot_name = "extra";
-    input.external_slots[1].key_suffix = "extra";
-    if (!IoConverterRegistry::Instance().RegisterInputConverter(input))
-      return false;
-    if (!IoBindingRegistry::Instance().RegisterBinding(
-            {biz.biz_name, input.converter_id, "keyword.result"}))
-      return false;
+    input.name =
+        index == 0 ? "test_demo_input_primary" : "test_demo_input_secondary";
+    input.service_type = 10041 + index;
+    if (index == 1) input.logical_ports[0].logical_name = "unused_sentences";
+    input.decode_fn = &DecodeDemoUnsupportedInput;
+    if (!registry.RegisterInputConverter(input)) return false;
   }
   return true;
 }
@@ -162,30 +143,21 @@ bool RegisterDemoIoFixtures() {
 class ScopedDemoIoFixtures {
  public:
   ScopedDemoIoFixtures()
-      : bizs_(PipelineCatalog::Bizs()),
-        inputs_(IoConverterRegistry::Instance().AllInputConverters()),
-        outputs_(IoConverterRegistry::Instance().AllOutputConverters()),
-        bindings_(IoBindingRegistry::Instance().AllBindings()) {}
+      : inputs_(IoConverterRegistry::Instance().AllInputConverters()),
+        outputs_(IoConverterRegistry::Instance().AllOutputConverters()) {}
   ~ScopedDemoIoFixtures() {
-    IoBindingRegistry::Instance().ClearForTesting();
     IoConverterRegistry::Instance().ClearForTesting();
-    test_support::RegistryTestAccess::ResetBizs();
-    EXPECT_TRUE(PipelineCatalog::RegisterBizDefinitions(bizs_));
     for (const auto& input : inputs_)
       EXPECT_TRUE(
           IoConverterRegistry::Instance().RegisterInputConverter(input));
     for (const auto& output : outputs_)
       EXPECT_TRUE(
           IoConverterRegistry::Instance().RegisterOutputConverter(output));
-    for (const auto& binding : bindings_)
-      EXPECT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
   }
 
  private:
-  std::vector<BizDefinition> bizs_;
   std::vector<InputConverterDefinition> inputs_;
   std::vector<OutputConverterDefinition> outputs_;
-  std::vector<IoBindingDefinition> bindings_;
 };
 
 }  // namespace
@@ -725,7 +697,9 @@ TEST(DemoRunnerTest, UnsupportedInputCombinationListsRegisteredCarriers) {
   std::ifstream pipeline_file("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(pipeline_file.good());
   auto pipeline = nlohmann::json::parse(pipeline_file);
-  pipeline["deployment"]["io"]["io_binding"] = "test_demo_unsupported_inputs";
+  pipeline["io"]["input"] = {
+      {{"type", "keyword_in"}, {"name", "test_demo_input_primary"}},
+      {{"type", "keyword_in"}, {"name", "test_demo_input_secondary"}}};
   std::ofstream(temporary.path / "pipeline.json") << pipeline;
   std::ofstream(temporary.path / "pipeline.conf")
       << R"({"pipe_path":"pipeline.json"})";
@@ -737,10 +711,18 @@ TEST(DemoRunnerTest, UnsupportedInputCombinationListsRegisteredCarriers) {
   std::string error;
   ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
   ASSERT_EQ(contract.inputs.size(), 2U);
+  EXPECT_EQ(contract.inputs[0].type, "keyword_in");
+  EXPECT_EQ(contract.inputs[1].type, "keyword_in");
+  EXPECT_EQ(contract.inputs[0].name, "test_demo_input_primary");
+  EXPECT_EQ(contract.inputs[1].name, "test_demo_input_secondary");
+  EXPECT_EQ(contract.inputs[0].service_type, 10041);
+  EXPECT_EQ(contract.inputs[1].service_type, 10042);
+  EXPECT_EQ(llm_edgeflow::test::demo_input_decode_count, 0);
   testing::internal::CaptureStderr();
   const int ret = RunOperatorDemo(options);
   const auto diagnostic = testing::internal::GetCapturedStderr();
   EXPECT_EQ(ret, 3);
+  EXPECT_EQ(llm_edgeflow::test::demo_input_decode_count, 0);
   EXPECT_NE(diagnostic.find(
                 "CompanyOperatorKeywordInput,CompanyOperatorKeywordInput"),
             std::string::npos);
@@ -759,11 +741,13 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
   std::ifstream pipeline_file("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(pipeline_file.good());
   auto pipeline = nlohmann::json::parse(pipeline_file);
-  pipeline["deployment"]["io"] = {
-      {"io_binding", "test_demo_multi_output"},
-      {"out_mem",
-       {{"primary", {{"capacities", {{"match_result_json", 2047}}}}},
-        {"secondary", {{"capacities", {{"match_result_json", 2047}}}}}}}};
+  pipeline["io"]["output"] = {
+      {{"type", "keyword_out"},
+       {"name", "test_demo_primary"},
+       {"params", {{"match_result_json_max_bytes", 2047}}}},
+      {{"type", "keyword_out"},
+       {"name", "test_demo_secondary"},
+       {"params", {{"match_result_json_max_bytes", 2047}}}}};
   std::ofstream(temporary.path / "pipeline.json") << pipeline;
   std::ofstream(temporary.path / "pipeline.conf")
       << R"({"pipe_path":"pipeline.json"})";
@@ -775,6 +759,16 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
   options.output_dir = temporary.path.string();
   options.batch_size = 1;
   options.depth_num = 1;  // 三批必须复用每个槽的同一个池块。
+  OperatorIoContract contract;
+  std::string error;
+  ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
+  ASSERT_EQ(contract.outputs.size(), 2U);
+  EXPECT_EQ(contract.outputs[0].type, "keyword_out");
+  EXPECT_EQ(contract.outputs[1].type, "keyword_out");
+  EXPECT_EQ(contract.outputs[0].name, "test_demo_primary");
+  EXPECT_EQ(contract.outputs[1].name, "test_demo_secondary");
+  EXPECT_EQ(contract.outputs[0].service_type, 10031);
+  EXPECT_EQ(contract.outputs[1].service_type, 10032);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   ASSERT_EQ(RunOperatorDemo(options), 0);
@@ -792,13 +786,22 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
     EXPECT_EQ(output.size(), 4U);
     EXPECT_FALSE(output.contains("is_hit"));
     EXPECT_FALSE(output.contains("match_result"));
-    EXPECT_EQ(output["primary.is_hit"], index != 1);
-    EXPECT_EQ(output["secondary.is_hit"], index == 1);
-    EXPECT_TRUE(output["primary.match_result"].is_object());
-    EXPECT_EQ(output["primary.match_result"], output["secondary.match_result"]);
+    ASSERT_TRUE(output.contains("test_demo_primary.keyword_out.is_hit"));
+    ASSERT_TRUE(output.contains("test_demo_secondary.keyword_out.is_hit"));
+    ASSERT_TRUE(output.contains("test_demo_primary.keyword_out.match_result"));
+    ASSERT_TRUE(
+        output.contains("test_demo_secondary.keyword_out.match_result"));
+    EXPECT_EQ(output["test_demo_primary.keyword_out.is_hit"], index != 1);
+    EXPECT_EQ(output["test_demo_secondary.keyword_out.is_hit"], index == 1);
+    EXPECT_TRUE(
+        output["test_demo_primary.keyword_out.match_result"].is_object());
+    EXPECT_EQ(output["test_demo_primary.keyword_out.match_result"],
+              output["test_demo_secondary.keyword_out.match_result"]);
     if (index != 1) {
-      EXPECT_NE(output["primary.match_result"].dump().find("SYSTEM_INIT"),
-                std::string::npos);
+      EXPECT_NE(
+          output["test_demo_primary.keyword_out.match_result"].dump().find(
+              "SYSTEM_INIT"),
+          std::string::npos);
     }
   }
   EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
@@ -1293,19 +1296,23 @@ TEST(DemoRunnerTest, ConfigIoResolutionAndFailureClearsContract) {
     const char* name;
     const char* input;
     const char* output;
+    int32_t service_type;
   };
   std::string error;
   OperatorIoContract contract;
   for (const auto& entry :
        {Case{"demo/fixtures/mock/pipeline_entity_extract.conf",
              "entity_extract", "CompanyOperatorEntityInput",
-             "CompanyOperatorEntityOutput"},
+             "CompanyOperatorEntityOutput", kMockServiceEntityExtract},
         Case{"demo/fixtures/mock/pipeline_doc_qa.conf", "doc_qa",
-             "CompanyOperatorDocInput", "CompanyOperatorDocOutput"},
+             "CompanyOperatorDocInput", "CompanyOperatorDocOutput",
+             kMockServiceDocQa},
         Case{"demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "doc_qa",
-             "CompanyOperatorDocInput", "CompanyOperatorDocOutput"},
+             "CompanyOperatorDocInput", "CompanyOperatorDocOutput",
+             kMockServiceDocQa},
         Case{"configs/pipeline_keyword_match_rules.conf", "keyword_match",
-             "CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"}}) {
+             "CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput",
+             kMockServiceKeywordMatch}}) {
     DemoOptions options;
     options.config_path = entry.config;
     ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
@@ -1317,8 +1324,8 @@ TEST(DemoRunnerTest, ConfigIoResolutionAndFailureClearsContract) {
     EXPECT_EQ(contract.outputs[0].type_name, entry.output);
     EXPECT_TRUE(contract.inputs[0].required);
     EXPECT_TRUE(contract.outputs[0].required);
-    EXPECT_FALSE(contract.inputs[0].service_type.has_value());
-    EXPECT_FALSE(contract.outputs[0].service_type.has_value());
+    EXPECT_EQ(contract.inputs[0].service_type, entry.service_type);
+    EXPECT_EQ(contract.outputs[0].service_type, entry.service_type);
   }
 
   KiteDemoDirectory temporary;

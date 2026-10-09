@@ -14,7 +14,6 @@ namespace llm_edgeflow {
   X(kInvalidCombination, "INVALID_COMBINATION")                  \
   X(kDuplicateModelId, "DUPLICATE_MODEL_ID")                     \
   X(kDuplicateNodeId, "DUPLICATE_NODE_ID")                       \
-  X(kUnknownBiz, "UNKNOWN_BIZ")                                  \
   X(kUnknownNodeType, "UNKNOWN_NODE_TYPE")                       \
   X(kUnknownModelType, "UNKNOWN_MODEL_TYPE")                     \
   X(kUnknownBackend, "UNKNOWN_BACKEND")                          \
@@ -34,7 +33,7 @@ namespace llm_edgeflow {
   X(kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE")           \
   X(kMissingInputProducer, "MISSING_INPUT_PRODUCER")             \
   X(kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER")           \
-  X(kMissingBizOutput, "MISSING_BIZ_OUTPUT")                     \
+  X(kMissingOutputProducer, "MISSING_OUTPUT_PRODUCER")           \
   X(kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT")           \
   X(kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH")       \
   X(kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH")         \

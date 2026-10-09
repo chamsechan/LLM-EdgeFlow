@@ -81,7 +81,8 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
     for (const auto& [field, field_config] :
          binding.output_layout.string_capacity_fields) {
       if (candidate.capacities.find(field) == candidate.capacities.end()) {
-        candidate.capacities[field] = field_config.default_capacity;
+        if (err) *err = "Missing output capacity field: " + field;
+        return false;
       }
     }
 
@@ -451,8 +452,7 @@ int OperatorValueTypeRegistry::GlobalInit() {
       }
       for (const auto& [field, config] :
            binding.output_layout.string_capacity_fields) {
-        if (field.empty() || config.default_capacity == 0 ||
-            config.max_capacity < config.default_capacity) {
+        if (field.empty() || config.max_capacity == 0) {
           return false;
         }
       }

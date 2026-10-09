@@ -331,8 +331,7 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
 }
 
 TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
-  RegisterTestBizs(
-      {"rerank_port_constraint_fixture"},
+  const auto boundary = MakeTestBoundary(
       {{"doc_candidates", "RankedTextBatch", true, "N:1"}},
       {{"ranked_results", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
   auto has_constraint_err = [](const ValidationReport& r) {
@@ -344,7 +343,6 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
 
   // 绑定了 candidates 却缺少 query -> 失败
   nlohmann::json bad_pipeline = {
-      {"biz_name", "rerank_port_constraint_fixture"},
       {"models",
        {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
@@ -357,7 +355,7 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
          {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model"}}}}}}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(bad_pipeline);
+  auto plan = PipelineValidator::ValidateAndPlan(bad_pipeline, boundary);
   EXPECT_FALSE(plan.report.ok);
   EXPECT_TRUE(has_constraint_err(plan.report)) << plan.report.ToJson().dump();
 }

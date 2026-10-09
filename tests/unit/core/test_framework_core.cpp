@@ -214,16 +214,16 @@ TEST(SessionContextTest, SingleFlightSharesFactoryFailureAndAllowsRetry) {
 
 // 5. 测试 RuntimeOptions 与 Model/Backend 新方言构建
 TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
-  RegisterTestBizs({"test_runtime_opts"}, {{"text", "TextBatch"}},
-                   {{"chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
+  const auto boundary = MakeTestBoundary(
+      {{"text", "TextBatch"}},
+      {{"chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
   Pipeline pipe;
   RuntimeOptions opts;
   opts.device_id = 2;
   opts.has_device_id = true;
   pipe.GetSessionContext().SetRuntimeOptions(opts);
 
-  nlohmann::json root_cfg = {{"biz_name", "test_runtime_opts"},
-                             {"models",
+  nlohmann::json root_cfg = {{"models",
                               {{{"model_id", "test_mock_llm"},
                                 {"model_type", "test_biz_llm"},
                                 {"backend", "test_causal_lm_backend"},
@@ -237,7 +237,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
                                 {"depends_on", nlohmann::json::array()}}}}};
 
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipe, root_cfg, &diag);
+  bool ok = BuildTestPipeline(pipe, root_cfg, boundary, &diag);
   EXPECT_TRUE(ok) << "Build failed: " << diag.message
                   << " (code: " << static_cast<int>(diag.code)
                   << ", path: " << diag.path << ")";

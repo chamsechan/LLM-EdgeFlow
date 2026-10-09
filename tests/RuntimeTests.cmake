@@ -279,7 +279,7 @@ edgeflow_add_runner_test(RuntimeControlAndHotSwapTest edgeflow_test_adapter_runn
 edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runner
   "AdapterContractSecurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
-  "OperatorApiTest.*" "${_edgeflow_tier2}")
+  "OperatorApiTest.*:IoParametersTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
@@ -290,8 +290,8 @@ edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
   "AdapterPurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
   "IoConverterTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(IoBindingRegistryTest edgeflow_test_adapter_runner
-  "IoBindingRegistryTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
+  "IoConverterRegistryTest.*:ConverterContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConvertersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
@@ -546,7 +546,7 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorGoldenTest
   AdapterPurityTest
   IoConverterTest
-  IoBindingRegistryTest
+  IoConverterRegistryTest
   TextConvertersTest
   ComplexConvertersTest
   DocQaRerankTest

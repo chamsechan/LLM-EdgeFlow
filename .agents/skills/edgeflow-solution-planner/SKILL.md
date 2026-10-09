@@ -25,7 +25,7 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool catalog --io-binding <existing_biz_name>
+./build/alg_pipeline_tool catalog
 ./build/alg_pipeline_tool describe-node <node_type>
 ./build/alg_pipeline_tool describe-model <model_type>
 ./build/alg_pipeline_tool describe-backend <backend_type>
@@ -58,7 +58,7 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 - `config` 的模型引用字段填写 `models[].model_id`；能力来自 Model Definition。
   并发先沿用默认 `max_parallel_workers=1`；需要并行时检查 Node、Model、Backend 的真实
   声明，再用 plan 验证，不把拓扑分层直接等同于可并行执行。
-- 部署使用 `deployment.io.io_binding` 与 `out_mem`；`.conf` 只用 `pipe_path` 定位 JSON。
+- 部署在根 `io.input` / `io.output` 选择 `{type, name, params?}`；`.conf` 只用 `pipe_path` 定位 JSON。
   模型路径属于 `models[].model_path`。复用现有合法配置，避免猜测容量字段或模型参数。
 
 全为现有能力时，输出候选 Pipeline 并用目标工具 `validate`、`plan` 核实图与计划。

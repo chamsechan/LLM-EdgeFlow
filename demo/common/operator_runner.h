@@ -220,9 +220,16 @@ inline int RunOperatorDemo(const DemoOptions& options) {
   }
   const auto build = registry.FindInput(input_types);
   std::vector<ShowResultFn> displays;
+  std::map<std::string, size_t> output_type_counts;
   for (const auto& entry : contract.outputs) {
     displays.push_back(registry.FindOutput(entry.type_name));
+    ++output_type_counts[entry.type];
   }
+  std::vector<std::string> output_keys;
+  for (const auto& entry : contract.outputs)
+    output_keys.push_back(output_type_counts[entry.type] > 1
+                              ? entry.name + "." + entry.type
+                              : "demo." + entry.type);
   if (!build ||
       std::find(displays.begin(), displays.end(), nullptr) != displays.end()) {
     std::cerr << "[OperatorRunner ERROR] Unsupported I/O carriers: "
@@ -261,7 +268,7 @@ inline int RunOperatorDemo(const DemoOptions& options) {
                         requests.requests.begin() + offset + count);
     NamedIoBatch outputs(count);
     for (auto& row : outputs) {
-      for (const auto& entry : contract.outputs) row["demo." + entry.type] = {};
+      for (const auto& key : output_keys) row[key] = {};
     }
     const auto start = std::chrono::steady_clock::now();
     const int ret = ops.Process(handle, inputs, outputs);
@@ -286,7 +293,7 @@ inline int RunOperatorDemo(const DemoOptions& options) {
       std::map<std::string, size_t> field_counts;
       for (size_t j = 0; j < contract.outputs.size(); ++j) {
         const auto& entry = contract.outputs[j];
-        const auto found = outputs[i].find("demo." + entry.type);
+        const auto found = outputs[i].find(output_keys[j]);
         if (found == outputs[i].end() || !found->second) {
           if (!entry.required) continue;
           std::cerr << "[OperatorRunner ERROR] Missing output: " << entry.type
@@ -301,9 +308,13 @@ inline int RunOperatorDemo(const DemoOptions& options) {
         for (const auto& field : parts[j].items()) ++field_counts[field.key()];
       }
       for (size_t j = 0; j < parts.size(); ++j) {
+        const auto& entry = contract.outputs[j];
+        const auto prefix = output_type_counts[entry.type] > 1
+                                ? entry.name + "." + entry.type
+                                : entry.type;
         for (const auto& field : parts[j].items()) {
           const auto key = field_counts[field.key()] > 1
-                               ? contract.outputs[j].type + "." + field.key()
+                               ? prefix + "." + field.key()
                                : field.key();
           sample.output[key] = field.value();
         }

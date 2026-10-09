@@ -56,8 +56,9 @@ int BuildEntityRequests(
     storage->text_strs.push_back(
         {static_cast<int32_t>(storage->lines[i].size()),
          const_cast<char*>(storage->lines[i].data())});
-    storage->carriers.push_back(
-        {static_cast<uint64_t>(30001 + i), &storage->text_strs.back()});
+    storage->carriers.push_back({static_cast<uint64_t>(30001 + i),
+                                 inputs[0].service_type.value_or(0),
+                                 &storage->text_strs.back()});
   }
 
   DemoRequestBatch batch;

@@ -85,24 +85,36 @@ pipeline["pipeline"][0]["node_type"] = "ScaffoldControlNode"
 with output.open("a", encoding="utf-8") as stream:
     stream.write('''
 #include <filesystem>
+
 #include "adapter/deployment_io_config.h"
-#include "adapter/io_binding_resolver.h"
+#include "adapter/io_plan_resolver.h"
 
 namespace llm_edgeflow {
-TEST(CustomNodeCatalogTest, ControlTutorialDeploymentUsesCurrentNativeContracts) {
+TEST(CustomNodeCatalogTest,
+     ControlTutorialDeploymentUsesCurrentNativeContracts) {
 ''')
     stream.write("  const std::filesystem::path directory = " + json.dumps(str(tutorial_dir.resolve())) + ";\n")
     stream.write('''  DeploymentIoConfig parsed;
   std::string error;
   ASSERT_TRUE(DeploymentIoConfig::ReadFromFile(
-      (directory / "pipeline.conf").string(), &parsed, &error)) << error;
+      (directory / "pipeline.conf").string(), &parsed, &error))
+      << error;
   EXPECT_EQ(std::filesystem::path(parsed.resolved_pipe_path),
             std::filesystem::canonical(directory / "pipeline.json"));
   std::unique_ptr<ValidatedIoPlan> plan;
-  ASSERT_EQ(IoBindingResolver::ResolveFromConfig(
-                parsed, directory.string(), &plan, &error), 0) << error;
+  ASSERT_EQ(IoPlanResolver::ResolveFromConfig(parsed, directory.string(), &plan,
+                                              &error),
+            0)
+      << error;
   ASSERT_NE(plan, nullptr);
-  EXPECT_EQ(plan->binding.biz_name, "keyword_match");
+  ASSERT_EQ(plan->inputs.size(), 1U);
+  ASSERT_EQ(plan->outputs.size(), 1U);
+  ASSERT_NE(plan->inputs[0].converter, nullptr);
+  ASSERT_NE(plan->outputs[0].converter, nullptr);
+  EXPECT_EQ(plan->inputs[0].converter->type, "keyword_in");
+  EXPECT_EQ(plan->inputs[0].converter->name, "keyword_match");
+  EXPECT_EQ(plan->outputs[0].converter->type, "keyword_out");
+  EXPECT_EQ(plan->outputs[0].converter->name, "keyword_match");
 }
 }  // namespace llm_edgeflow
 ''')

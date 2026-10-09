@@ -131,6 +131,7 @@
 | 参数未知、类型错误、超出范围、不在枚举内 | 与节点相同：`UNKNOWN_CONFIG_FIELD`、`CONFIG_FIELD_TYPE`、`CONFIG_FIELD_RANGE`、`CONFIG_FIELD_ENUM` | `/io/input/<i>/params/<参数>` 或 `/io/output/<i>/params/<参数>` |
 | `Prepare`/`Validate` 失败 | `INVALID_COMBINATION`（与节点、模型的语义校验相同） | `/io/input/<i>/params` 或 `/io/output/<i>/params` |
 | 尺寸参数超过平台上限 | `CONFIG_FIELD_RANGE` | `/io/output/<i>/params/<参数>` |
+| 单项输出池计算或预算检查失败 | `INVALID_OUTPUT_ALLOCATION` | `/io/output/<i>` |
 | 句柄的输出池总预算超限 | `INVALID_OUTPUT_ALLOCATION`（保留） | `/io/output` |
 
 运行时（Process）有两种情况整批按输入非法处理：
@@ -496,7 +497,7 @@ AdapterStatus EncodeRow(const std::string& text, SomeOutput* out,
 
 ### 5.5 每侧多项
 
-`io.input`、`io.output` 都可以有多项，每项对应一个宿主结构体。
+`io.input`、`io.output` 都可以有多项，每项对应一个宿主结构体。同一方向只有一项使用某个 `type` 时，宿主 key 可继续使用任意非空前缀；同一方向多项复用该 `type` 时，key 必须为 `name.type`，例如 `entity_extract.entity_out` 与 `translate.entity_out`。这让初始为空的输出 key 也能唯一对应登记，输入仍逐项核对 `service_type`。
 
 **输入侧**：
 - 每项各自按 `type` 从宿主 map 中取出结构体，核对 `service_type`，再交给各自的 converter 解析。

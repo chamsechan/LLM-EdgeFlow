@@ -78,7 +78,6 @@ class Pipeline {
 
   SessionContext& GetSessionContext() { return *session_ctx_; }
   const SessionContext& GetSessionContext() const { return *session_ctx_; }
-  const std::string& GetBizName() const { return plan_->config.biz_name; }
   ExecutionMode GetExecutionMode() const { return execution_mode_; }
   const std::vector<std::string>& GetTopologicalOrder() const {
     return plan_->report.topological_order;
