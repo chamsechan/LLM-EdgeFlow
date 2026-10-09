@@ -19,12 +19,11 @@
 #include "demo/common/demo_options.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "dev_support/node_authoring/legacy_node_base.h"
 #include "edgeflow/log.h"
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
-#include "nodes/node_base.h"
+#include "nodes/authoring.h"
 #include "tests/support/control_test_utils.h"
 
 using namespace alg_demo;
@@ -33,52 +32,30 @@ using namespace llm_edgeflow::operator_api;
 namespace llm_edgeflow::test {
 namespace {
 
-class TestDemoStatusNode final : public LegacyNodeBase {
- public:
-  inline static constexpr char kNodeType[] = "test_demo_status";
-  TestDemoStatusNode()
-      : LegacyNodeBase(kNodeType), input_("text"), output_("matches") {}
-
- protected:
-  bool InitNode(const NodeInitContext& init, const nlohmann::json&,
-                SessionContext&) override {
-    BindPort(init, input_);
-    BindPort(init, output_);
-    return true;
-  }
-  int ProcessNode(AlgContext& context) override {
-    const auto* input = input_.Require(context, -9001);
-    if (!input) return -9001;
-    RuleMatchBatch results;
-    for (const auto& item : *input) {
-      RuleMatchItem result;
-      result.status_code = item.data == "fail" ? -42 : 0;
-      results.emplace_back(item.req_id, item.sub_id, std::move(result));
-    }
-    output_.Set(context, std::move(results));
-    return 0;
-  }
-
- private:
-  BoundInput<TextBatch> input_;
-  BoundOutput<RuleMatchBatch> output_;
+struct DemoStatusInputs {
+  const TextBatch* text = nullptr;
 };
 
-NodeDefinition DemoStatusDefinition() {
-  NodeDefinition definition;
-  definition.node_type = TestDemoStatusNode::kNodeType;
-  definition.category = "test";
-  definition.description = "Mixed per-sample status fixture for Demo output";
-  definition.inputs = {
-      RequiredInputPort("text", BlackboardKey<TextBatch>{"text", "TextBatch"},
-                        "1:1", "preserve", "request")};
-  definition.outputs = {OutputPort(
-      "matches", BlackboardKey<RuleMatchBatch>{"matches", "RuleMatchBatch"},
-      "1:1", "preserve", "request")};
-  return definition;
+NodeResult<RuleMatchBatch> DemoStatusRun(const DemoStatusInputs& inputs) {
+  RuleMatchBatch results;
+  for (const auto& item : *inputs.text) {
+    RuleMatchItem result;
+    result.status_code = item.data == "fail" ? -42 : 0;
+    results.emplace_back(item.req_id, item.sub_id, std::move(result));
+  }
+  return NodeResult<RuleMatchBatch>::Success(std::move(results));
 }
 
-REGISTER_NODE_WITH_DEFINITION(TestDemoStatusNode, DemoStatusDefinition());
+auto DemoStatusSpec() {
+  return MakeNodeSpec(InputsOf<DemoStatusInputs>{Required(
+                          "text", &DemoStatusInputs::text)},
+                      PreservedOutput<RuleMatchBatch>("matches", "text"),
+                      DemoStatusRun)
+      .Category("test")
+      .Description("Mixed per-sample status fixture for Demo output");
+}
+
+REGISTER_FUNCTION_NODE(test_demo_status, DemoStatusSpec());
 
 // 第二个同类型登记复用生产编码，随后生成独立业务结果。
 int EncodeDemoSecondaryOutput(AlgContext* context,
@@ -1207,7 +1184,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
       count++;
       auto obj = nlohmann::json::parse(line);
       EXPECT_EQ(obj["profile"], "test_profile_unit");
-      EXPECT_FALSE(obj.contains("biz"));
       if (obj["request_id"] == 9002) {
         EXPECT_EQ(obj["status"], 5);
         EXPECT_EQ(obj["error"], "Mock inference error for sample");
@@ -1221,7 +1197,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
     std::ifstream s_ifs(summary_path);
     nlohmann::json summary_obj;
     s_ifs >> summary_obj;
-    EXPECT_FALSE(summary_obj.contains("biz"));
     EXPECT_EQ(summary_obj["total_samples"], 2);
     EXPECT_EQ(summary_obj["success_count"], 1);
     EXPECT_EQ(summary_obj["failed_count"], 1);

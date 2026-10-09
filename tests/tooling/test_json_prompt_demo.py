@@ -43,7 +43,6 @@ class JsonPromptDemoTest(unittest.TestCase):
         payload = json.dumps({"query": query, "src_lan": "ignored"})
 
         def native_demo(command, **kwargs):
-            self.assertNotIn("--biz", command)
             self.assertEqual(command[command.index("--config") + 1],
                              "configs/pipeline_translate_cpu.conf")
             dataset = Path(command[command.index("--dataset") + 1])

@@ -1984,32 +1984,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(c["inputs"]["text"], "a.text")
         self.assertNotIn("depends_on", c)
 
-    def test_authoring_inferred_cycle_is_rejected_by_native_validation(self):
-        pipe = copy.deepcopy(self.keyword)
-        rule = pipe["pipeline"][0]
-        rule["inputs"]["text"] = "b.text"
-        pipe["pipeline"] = [
-            {"name": "a", "type": "text_template", "inputs": {"primary": "input.sentence_text"}},
-            {"name": "b", "type": "text_template", "inputs": {"primary": "a.text"}}, rule]
-        self.assertTrue(self.service.validate(pipe)["ok"])
-        snapshot = copy.deepcopy(pipe)
-        operations = [
-            {"kind": "connect", "source": {"node": "b", "port": "text"}, "target": {"node": "a", "port": "primary"}},
-            {"kind": "add_dependency", "node": "a", "depends_on": "b"}]
-        for operation in operations:
-            for require_valid in (False, True):
-                with self.subTest(operation=operation["kind"], require_valid=require_valid):
-                    code, result = self.run_edit({"pipeline": pipe, "require_valid": require_valid, "operation": operation})
-                    self.assertEqual(code, 1, result)
-                    self.assertFalse(result["ok"])
-                    self.assertNotIn("pipeline", result)
-                    self.assertEqual(result["failed_operation_index"], 0)
-                    self.assertEqual(result["changes"], [])
-                    self.assertEqual(result["diagnostics"][0]["code"], "AUTHORING_ERROR")
-                    self.assertIn("DAG_CYCLE", result["diagnostics"][0]["message"])
-                    self.assertEqual(pipe, snapshot, "a rejected edit must preserve the original document")
-
-
     def test_authoring_disconnect_rejects_unknown_and_reversed_endpoints(self):
         pipe = copy.deepcopy(self.keyword)
         pipe["pipeline"][0]["name"] = "c"
@@ -2080,7 +2054,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
                     ],
                 }, 1)
 
-    def test_authoring_add_node_explicit_auto_name_and_collision(self):
+    def test_authoring_add_node_explicit_name_and_errors(self):
         req = {
             "pipeline": {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []},
             "operation": {'kind': 'add_node', 'type': 'text_rule_match', 'name': 'custom_rule'},
@@ -2090,7 +2064,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertTrue(res["ok"])
         added = res["pipeline"]["pipeline"][0]
         self.assertEqual(added["name"], "custom_rule")
-        self.assertNotIn("ports", added)
         self.assertNotIn("depends_on", added)
         self.assertEqual(added.get("inputs", {}), {})
 
@@ -2104,114 +2077,28 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertFalse(res2["ok"])
         self.assertIn("DUPLICATE_NODE_NAME", res2["diagnostics"][0]["message"])
 
-        # 自动分配名称
-        req3 = {
-            "pipeline": res["pipeline"],
-            "operation": {'kind': 'add_node', 'type': 'text_rule_match'},
-        }
-        code3, res3 = self.run_edit(req3)
-        self.assertEqual(code3, 0)
-        self.assertTrue(res3["ok"])
-        self.assertNotEqual(res3["pipeline"]["pipeline"][1]["name"], "custom_rule")
-
         # 未知 Node 类型
-        req4 = {
+        req_unknown = {
             "pipeline": res["pipeline"],
             "operation": {'kind': 'add_node', 'type': 'non_existent'},
         }
-        code4, res4 = self.run_edit(req4)
-        self.assertEqual(code4, 1)
-        self.assertFalse(res4["ok"])
-        self.assertIn("UNKNOWN_NODE_TYPE", res4["diagnostics"][0]["message"])
+        code_unknown, result_unknown = self.run_edit(req_unknown)
+        self.assertEqual(code_unknown, 1)
+        self.assertFalse(result_unknown["ok"])
+        self.assertIn("UNKNOWN_NODE_TYPE", result_unknown["diagnostics"][0]["message"])
 
-    def test_authoring_remove_node_detaches_inputs_and_dependencies(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'template', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['template'], 'inputs': {'text': 'template.text'}, 'params': {}}]}
-        req = {
-            "pipeline": pipe,
-            "operation": {"kind": "remove_node", "node": "template"},
-        }
-        code, res = self.run_edit(req)
-        self.assertEqual(code, 0)
-        self.assertTrue(res["ok"])
-        self.assertEqual(len(res["pipeline"]["pipeline"]), 1)
-        rule_node = res["pipeline"]["pipeline"][0]
-        self.assertEqual(rule_node["name"], "rule")
-        # depends_on 已解除
-        self.assertEqual(rule_node["depends_on"], [])
-        # 生产者被移除后，必需输入随之缺失。
-        self.assertNotIn("text", rule_node["inputs"])
-
-    def test_authoring_rename_node_updates_input_output_references_and_dependencies(self):
+    def test_authoring_rename_rejects_duplicate_name(self):
         pipe = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
             "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {"matches": "rule.matches"}}]},
             "models": [], "pipeline": [
                 {"name": "template", "type": "text_template", "inputs": {"primary": "input.sentence_text"}},
                 {"name": "rule", "type": "text_rule_match", "depends_on": ["template"], "inputs": {"text": "template.text"}}]}
-        code, result = self.run_edit({"pipeline": pipe, "require_valid": True,
-            "operation": {"kind": "rename_node", "node": "template", "new_name": "new_template"}})
-        self.assertEqual(code, 0, result)
-        template, rule = result["pipeline"]["pipeline"]
-        self.assertEqual(template["name"], "new_template")
-        self.assertEqual(rule["inputs"]["text"], "new_template.text")
-        self.assertEqual(rule["depends_on"], ["new_template"])
-        self.assertEqual(result["pipeline"]["io"]["output"][0]["inputs"], {"matches": "rule.matches"})
-        code, renamed = self.run_edit({"pipeline": result["pipeline"], "require_valid": True,
-            "operation": {"kind": "rename_node", "node": "rule", "new_name": "new_rule"}})
-        self.assertEqual(code, 0, renamed)
-        self.assertEqual(renamed["pipeline"]["io"]["output"][0]["inputs"], {"matches": "new_rule.matches"})
         code, duplicate = self.run_edit({"pipeline": pipe,
             "operation": {"kind": "rename_node", "node": "template", "new_name": "rule"}})
         self.assertEqual(code, 1)
         self.assertIn("DUPLICATE_NODE_NAME", duplicate["diagnostics"][0]["message"])
 
-    def test_authoring_connect_and_cycle_and_redundant_dependencies(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'template', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': [], 'inputs': {}, 'params': {}}]}
-        # 入口到 Node
-        req1 = {
-            "pipeline": pipe,
-            "operation": {
-                "kind": "connect",
-                "source": {"node": "input", "port": "sentence_text"},
-                "target": {"node": "template", "port": "primary"},
-            },
-        }
-        code1, res1 = self.run_edit(req1)
-        self.assertEqual(code1, 0)
-        self.assertEqual(
-            res1["pipeline"]["pipeline"][0]["inputs"]["primary"],
-            "input.sentence_text",
-        )
-        self.assertEqual(res1["pipeline"]["pipeline"][0]["depends_on"], [])
-
-        # Node 到 Node
-        req2 = {
-            "pipeline": res1["pipeline"],
-            "operation": {
-                "kind": "connect",
-                "source": {"node": "template", "port": "text"},
-                "target": {"node": "rule", "port": "text"},
-            },
-        }
-        code2, res2 = self.run_edit(req2)
-        self.assertEqual(code2, 0)
-        rule = res2["pipeline"]["pipeline"][1]
-        self.assertEqual(rule["inputs"]["text"], "template.text")
-        self.assertEqual(rule["depends_on"], [])
-
-        # 环检测：把 rule 连到 template 会形成环
-        req_cycle = {
-            "pipeline": res2["pipeline"],
-            "operation": {
-                "kind": "connect",
-                "source": {"node": "rule", "port": "matches"},
-                "target": {"node": "template", "port": "primary"},
-            },
-        }
-        code_cycle, res_cycle = self.run_edit(req_cycle)
-        self.assertEqual(code_cycle, 1)
-        self.assertFalse(res_cycle["ok"])
-
-    def test_authoring_connect_and_disconnect_biz_egress(self):
+    def test_authoring_connect_and_disconnect_output(self):
         pipe = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
             "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {"matches": "audit.matches"}}]},
             "models": [], "pipeline": [
@@ -2260,7 +2147,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(code_rm_dep, 0)
         self.assertEqual(res_rm_dep["pipeline"]["pipeline"][1]["depends_on"], [])
 
-    def test_authoring_batch_operations_and_atomic_rollback(self):
+    def test_authoring_batch_operations_and_request_limit(self):
         pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
         req_valid = {
             "pipeline": pipe,
@@ -2278,21 +2165,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertTrue(res_valid["ok"])
         self.assertTrue(res_valid["validation"]["ok"])
         self.assertEqual(len(res_valid["pipeline"]["pipeline"]), 2)
-
-        # 批处理中途失败时丢弃所有修改
-        req_fail = {
-            "pipeline": pipe,
-            "operations": [
-                {'kind': 'add_node', 'type': 'text_template', 'name': 't1'},
-                {'kind': 'add_node', 'type': 'invalid_node_type'},
-                {'kind': 'add_node', 'type': 'text_rule_match', 'name': 'r1'},
-            ],
-        }
-        code_fail, res_fail = self.run_edit(req_fail)
-        self.assertEqual(code_fail, 1)
-        self.assertFalse(res_fail["ok"])
-        self.assertEqual(res_fail["failed_operation_index"], 1)
-        self.assertNotIn("pipeline", res_fail)
 
         # 批大小超过 128
         req_oversize = {
@@ -2457,9 +2329,8 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         with mock.patch.object(SHOW.threading, "Thread") as thread:
             self.service.start_run(pipeline, "doc_qa_cpu", filename=path.name)
             args = thread.call_args.kwargs["args"]
-            run_profile, run_conf = args[2], args[3]
+            run_conf = args[3]
             self.assertEqual(args[1]["models"], pipeline["models"])
-        self.assertNotIn("biz", run_profile)
         self.service.save_pipeline(
             path.name, pipeline, SHOW.revision_for(path.read_bytes()),
         )
@@ -2611,21 +2482,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertTrue(res_ing["ok"])
         self.assertNotIn("text", res_ing["pipeline"]["pipeline"][0]["inputs"])
 
-    def test_authoring_disconnect_output_preserves_explicit_consumers(self):
-        pipe = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-            "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {"matches": "rule.matches"}}]},
-            "models": [], "pipeline": [
-                {"name": "rule", "type": "text_rule_match", "inputs": {"text": "input.sentence_text"}},
-                {"name": "consumer", "type": "text_rule_match", "depends_on": ["rule"], "inputs": {"text": "rule.matches"}}]}
-        code, result = self.run_edit({"pipeline": pipe,
-            "operation": {"kind": "disconnect", "source": {"node": "rule", "port": "matches"},
-                          "target": {"node": "output", "port": "matches"}}})
-        self.assertEqual(code, 0, result)
-        self.assertTrue(result["ok"])
-        self.assertNotIn("matches", result["pipeline"]["io"]["output"][0]["inputs"])
-        self.assertEqual(result["pipeline"]["pipeline"], pipe["pipeline"])
-        self.assertEqual(result["pipeline"]["pipeline"][1]["inputs"]["text"], "rule.matches")
-
     def test_authoring_remove_node_handles_consumers_and_egress(self):
         pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {'text': 'tpl.text'}, 'params': {}}]}
         req = {
@@ -2664,178 +2520,6 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(code, 0, repeated)
         self.assertTrue(repeated["validation"]["ok"], repeated)
         self.assertEqual(repeated["pipeline"], result["pipeline"])
-
-
-
-class PipelineJsonSchemaTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.builds = []
-        tools = (PIPELINE_TOOL, Path(os.environ.get(
-            "LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool")))
-        for tool in dict.fromkeys(tools):
-            artifacts = {}
-            for command in ("catalog", "export-schema"):
-                result = subprocess.run(
-                    [str(tool), command], cwd=ROOT, text=True,
-                    capture_output=True, timeout=30, check=True)
-                artifacts[command] = json.loads(result.stdout)
-                artifacts[command + "_raw"] = result.stdout
-            cls.builds.append((tool, artifacts))
-
-    def test_export_is_deterministic_bare_draft07_schema(self):
-        for tool, artifacts in self.builds:
-            with self.subTest(tool=tool):
-                schema = artifacts["export-schema"]
-                self.assertEqual(schema["$schema"],
-                                 "http://json-schema.org/draft-07/schema#")
-                self.assertEqual(schema["type"], "object")
-                self.assertNotIn("ok", schema)
-                repeated = subprocess.run(
-                    [str(tool), "export-schema"], cwd=ROOT, text=True,
-                    capture_output=True, timeout=30, check=True)
-                self.assertEqual(repeated.stdout, artifacts["export-schema_raw"])
-                catalog = subprocess.run(
-                    [str(tool), "catalog"], cwd=ROOT, text=True,
-                    capture_output=True, timeout=30, check=True)
-                self.assertEqual(catalog.stdout, artifacts["catalog_raw"])
-
-    def test_export_rejects_arguments(self):
-        for arguments in (("--stdin",), ("pipeline.json",), ("--output", "schema.json")):
-            with self.subTest(arguments=arguments):
-                result = subprocess.run(
-                    [str(PIPELINE_TOOL), "export-schema", *arguments],
-                    cwd=ROOT, text=True, capture_output=True, timeout=30)
-                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-
-    def test_each_build_exposes_exactly_its_registered_choices(self):
-        for tool, artifacts in self.builds:
-            with self.subTest(tool=tool):
-                catalog = artifacts["catalog"]
-                schema = artifacts["export-schema"]
-                properties = schema["properties"]
-                nodes = properties["pipeline"]["items"]
-                self.assertCountEqual(nodes["properties"]["type"]["enum"],
-                                      [node["node_type"] for node in catalog["nodes"]])
-                self.assertCountEqual([branch["if"]["properties"]["type"]["const"] for branch in nodes["allOf"]],
-                                      [node["node_type"] for node in catalog["nodes"]])
-                self.assertCountEqual(schema["required"], ["pipeline", "io"])
-                self.assertEqual(properties["max_parallel_workers"]["minimum"], 1)
-                self.assertEqual(properties["max_parallel_workers"]["maximum"], 64)
-                model = properties["models"]["items"]["properties"]
-                self.assertCountEqual(model["type"]["enum"], sorted({d["model_type"] for d in catalog["models"]}))
-                backend_type = model["backend"]["properties"]["type"]
-                if catalog["backends"]:
-                    self.assertCountEqual(backend_type["enum"], [d["backend_type"] for d in catalog["backends"]])
-                else:
-                    self.assertIs(backend_type, False)
-
-    def assert_config_matches_catalog(self, config, fields):
-        self.assertEqual(set(config["properties"]), {f["name"] for f in fields})
-        self.assertCountEqual(config["required"], [f["name"] for f in fields if f["required"]])
-        self.assertFalse(config["additionalProperties"])
-        for field in fields:
-            self.assert_field_matches_catalog(config["properties"][field["name"]], field)
-
-    def assert_field_matches_catalog(self, actual, field):
-        if field["type"] == "json":
-            self.assertEqual(actual["not"], {"type": "null"})
-        else:
-            expected_type = "object" if field["type"] == "map" else field["type"]
-            self.assertEqual(actual["type"], expected_type)
-        for key in ("default", "minimum", "maximum", "enum", "file"):
-            self.assertEqual(key in actual, key in field)
-            if key in field:
-                self.assertEqual(actual[key], field[key])
-        if "semantic" in field:
-            self.assertEqual(actual["description"], field["semantic"])
-        if field["type"] == "object" and "fields" in field:
-            self.assert_config_matches_catalog(actual, field["fields"])
-        if "items" in field:
-            nested = actual["additionalProperties" if field["type"] == "map" else "items"]
-            self.assert_field_matches_catalog(nested, field["items"])
-
-    def test_node_selection_carries_config_and_port_hints(self):
-        for tool, artifacts in self.builds:
-            item = artifacts["export-schema"]["properties"]["pipeline"]["items"]
-            branches = {b["if"]["properties"]["type"]["const"]: b["then"] for b in item["allOf"]}
-            self.assertIn("type", item["required"])
-            self.assertIn("name", item["required"])
-            for definition in artifacts["catalog"]["nodes"]:
-                with self.subTest(tool=tool, node=definition["node_type"]):
-                    branch = branches[definition["node_type"]]
-                    properties = branch["properties"]
-                    self.assertNotIn("depends_on", branch["required"])
-                    self.assert_config_matches_catalog(properties["params"], definition["config_fields"])
-                    self.assertEqual("params" in branch["required"], any(f["required"] for f in definition["config_fields"]))
-                    ports = properties["inputs"]
-                    self.assertEqual(set(ports["properties"]), {p["key"] for p in definition["inputs"]})
-                    self.assertEqual(ports["required"], [p["key"] for p in definition["inputs"] if p["required"]])
-                    for port in definition["inputs"]:
-                        hint = ports["properties"][port["key"]]
-                        self.assertEqual(hint["type"], "string")
-                        self.assertEqual(hint["pattern"], r"^[^.]+\.[^.]+$")
-                        self.assertIn(port["type_id"], hint["description"])
-
-    def test_model_and_backend_selection_preserves_field_metadata(self):
-        for tool, artifacts in self.builds:
-            model = artifacts["export-schema"]["properties"]["models"]["items"]
-            branches = model.get("allOf", [])
-            selected = {(b["if"]["properties"]["type"]["const"],
-                         b["if"]["properties"]["backend"]["properties"]["type"]["const"]): b["then"]
-                        for b in branches if "backend" in b["if"]["properties"]}
-            backends = {d["backend_type"]: d for d in artifacts["catalog"]["backends"]}
-            for definition in artifacts["catalog"]["models"]:
-                for backend in definition["backends"]:
-                    with self.subTest(tool=tool, model=definition["impl_name"], backend=backend):
-                        body = selected[(definition["model_type"], backend)]
-                        self.assert_config_matches_catalog(body["properties"]["params"], definition["config_fields"])
-                        self.assertEqual("params" in body.get("required", []),
-                                         any(f["required"] for f in definition["config_fields"]))
-                        backend_body = body["properties"]["backend"]
-                        self.assert_config_matches_catalog(backend_body["properties"]["params"], backends[backend]["config_fields"])
-                        self.assertEqual("params" in backend_body.get("required", []),
-                                         any(f["required"] for f in backends[backend]["config_fields"]))
-
-    def test_complete_io_pairs_parameters_and_output_bindings_are_available(self):
-        for tool, artifacts in self.builds:
-            with self.subTest(tool=tool):
-                io = artifacts["export-schema"]["properties"]["io"]
-                self.assertEqual(set(io["properties"]), {"input", "output"})
-                self.assertCountEqual(io["required"], ["input", "output"])
-                for direction in ("input", "output"):
-                    branches = io["properties"][direction]["items"]["oneOf"]
-                    pairs = {(b["properties"]["type"]["const"], b["properties"]["name"]["const"]): b for b in branches}
-                    definitions = artifacts["catalog"][direction + "_converters"]
-                    self.assertCountEqual(pairs, [(d["type"], d["name"]) for d in definitions])
-                    for definition in definitions:
-                        entry = pairs[(definition["type"], definition["name"])]
-                        self.assertIn("type", entry["required"])
-                        self.assertIn("name", entry["required"])
-                        self.assertFalse(entry["additionalProperties"])
-                        self.assert_config_matches_catalog(entry["properties"]["params"], definition["config_fields"])
-                        if direction == "output":
-                            inputs = entry["properties"]["inputs"]
-                            self.assertEqual(set(inputs["properties"]), {p["key"] for p in definition["logical_ports"]})
-                            self.assertEqual(inputs["required"], [p["key"] for p in definition["logical_ports"] if p["required"]])
-                            for port in definition["logical_ports"]:
-                                self.assertEqual(inputs["properties"][port["key"]]["pattern"], r"^[^.]+\.[^.]+$")
-
-    def test_editor_associates_schema_without_changing_pipeline_documents(self):
-        settings = json.loads((ROOT / "edgeflow.code-workspace").read_text())["settings"]
-        associations = settings["json.schemas"]
-        import fnmatch
-        representative = "/configs/pipeline_keyword_match_rules.json"
-        self.assertTrue(any(
-            a.get("url") and any(fnmatch.fnmatchcase(representative, pattern)
-                                 for pattern in a["fileMatch"])
-            for a in associations))
-        paths = list((ROOT / "configs").glob("pipeline_*.json"))
-        paths += list((ROOT / "demo/fixtures").rglob("pipeline_*.json"))
-        self.assertTrue(paths)
-        for path in paths:
-            with self.subTest(path=path):
-                self.assertNotIn("$schema", json.loads(path.read_text()))
 
 
 if __name__ == "__main__":

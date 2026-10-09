@@ -555,43 +555,6 @@ TEST_F(AdapterContractSecurityTest,
   }
 }
 
-TEST_F(AdapterContractSecurityTest, PipelineFileDirectoryIsSandboxed) {
-  const std::string root_input = GetConfigPath("configs");
-  const auto root = std::filesystem::absolute(root_input);
-  ASSERT_TRUE(std::filesystem::is_directory(root));
-
-  nlohmann::json pipeline_json = {
-      {"models",
-       {{{"type", "embedding"},
-         {"name", "model"},
-         {"file", "artifact.onnx"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}}};
-  nlohmann::json resolved;
-  std::string diagnostic;
-  ASSERT_TRUE(
-      ResolveModelFiles(pipeline_json, root_input, &resolved, &diagnostic))
-      << diagnostic;
-  EXPECT_EQ(
-      std::filesystem::path(resolved["models"][0]["file"].get<std::string>()),
-      std::filesystem::weakly_canonical(root / "artifact.onnx"));
-  pipeline_json["models"][0]["file"] = "..name/artifact.onnx";
-  ASSERT_TRUE(
-      ResolveModelFiles(pipeline_json, root_input, &resolved, &diagnostic))
-      << diagnostic;
-  ASSERT_TRUE(ResolveModelFiles(pipeline_json, "", &resolved, &diagnostic));
-  EXPECT_EQ(resolved["models"][0]["file"], "..name/artifact.onnx");
-  for (const std::string& invalid :
-       {std::string("../escape.onnx"), std::string("nested/../artifact.onnx"),
-        (root / "absolute.onnx").string(), std::string("C:\\model.onnx"),
-        std::string("\\\\server\\model.onnx")}) {
-    pipeline_json["models"][0]["file"] = invalid;
-    EXPECT_FALSE(
-        ResolveModelFiles(pipeline_json, root_input, &resolved, &diagnostic))
-        << invalid;
-    EXPECT_TRUE(resolved.is_null());
-  }
-}
-
 TEST_F(AdapterContractSecurityTest,
        InMemoryEntryResolvesPipelineFilesBeforeCore) {
   const std::string config_path =

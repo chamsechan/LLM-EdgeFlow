@@ -236,25 +236,31 @@ TEST(PipelineAuthoringTest, NativeValidationFindsCycleIntroducedByReferences) {
       ValidatePipelineDocument(cyclic, DocumentValidationMode::kValidate);
   EXPECT_FALSE(native.ok);
   EXPECT_TRUE(HasDiagnostic(native.response, "DAG_CYCLE"));
-  for (const bool require_valid : {true, false}) {
-    SCOPED_TRACE(require_valid);
-    const Json request = {
-        {"pipeline", original},
-        {"require_valid", require_valid},
-        {"operation",
-         {{"kind", "connect"},
-          {"source", {{"node", "decorate"}, {"port", "text"}}},
-          {"target", {{"node", "answer"}, {"port", "primary"}}}}}};
-    const auto before = request.dump();
-    const auto rejected = PipelineAuthoring::ApplyRequest(request);
-    EXPECT_FALSE(rejected.ok);
-    EXPECT_FALSE(rejected.pipeline.has_value());
-    EXPECT_FALSE(rejected.ToJson().contains("pipeline"));
-    EXPECT_EQ(rejected.failed_operation_index, 0U);
-    ASSERT_FALSE(rejected.diagnostics.empty());
-    EXPECT_NE(rejected.diagnostics.front().find("DAG_CYCLE"),
-              std::string::npos);
-    EXPECT_EQ(request.dump(), before);
+  const std::vector<Json> operations = {
+      {{"kind", "connect"},
+       {"source", {{"node", "decorate"}, {"port", "text"}}},
+       {"target", {{"node", "answer"}, {"port", "primary"}}}},
+      {{"kind", "add_dependency"},
+       {"node", "answer"},
+       {"depends_on", "decorate"}}};
+  for (const auto& operation : operations) {
+    SCOPED_TRACE(operation.dump());
+    for (const bool require_valid : {true, false}) {
+      SCOPED_TRACE(require_valid);
+      const Json request = {{"pipeline", original},
+                            {"require_valid", require_valid},
+                            {"operation", operation}};
+      const auto before = request.dump();
+      const auto rejected = PipelineAuthoring::ApplyRequest(request);
+      EXPECT_FALSE(rejected.ok);
+      EXPECT_FALSE(rejected.pipeline.has_value());
+      EXPECT_FALSE(rejected.ToJson().contains("pipeline"));
+      EXPECT_EQ(rejected.failed_operation_index, 0U);
+      ASSERT_FALSE(rejected.diagnostics.empty());
+      EXPECT_NE(rejected.diagnostics.front().find("DAG_CYCLE"),
+                std::string::npos);
+      EXPECT_EQ(request.dump(), before);
+    }
   }
 }
 
