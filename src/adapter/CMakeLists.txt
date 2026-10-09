@@ -1,19 +1,17 @@
-# 框架机制显式列出；业务 Converter 与 binding 递归收集，下次构建时编译。
-file(GLOB_RECURSE EDGEFLOW_ADAPTER_BIZ_SOURCES CONFIGURE_DEPENDS
+# 框架机制显式列出；业务 Converter 递归收集，下次构建时编译。
+file(GLOB_RECURSE EDGEFLOW_ADAPTER_CONVERTER_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/input/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/output/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/biz/*.cpp")
+  "${CMAKE_CURRENT_SOURCE_DIR}/output/*.cpp")
 target_sources(edgeflow_integration_objects PRIVATE
   deployment_model_resolver.cpp
   deployment_preparation.cpp
-  deployment_structure.cpp
+  io_structure.cpp
   io_converter_registry.cpp
-  io_binding_registry.cpp
   deployment_io_config.cpp
   pipeline_document.cpp
-  io_binding_resolver.cpp
+  io_plan_resolver.cpp
   io_catalog.cpp
-  ${EDGEFLOW_ADAPTER_BIZ_SOURCES}
+  ${EDGEFLOW_ADAPTER_CONVERTER_SOURCES}
   operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp
   operator/operator_control_registry.cpp

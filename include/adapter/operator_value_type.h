@@ -37,7 +37,6 @@ struct InputLimits {
 };
 
 struct OutputCapacityFieldConfig {
-  uint32_t default_capacity = 0;
   uint32_t max_capacity = 0;
 };
 
@@ -146,8 +145,8 @@ using NormalizeOutputParametersFn = std::function<bool(
     std::shared_ptr<const OutputAllocationParameters>* normalized,
     std::string* error)>;
 
-// 只解析本结构的参数，且仅在 Create 时解析一次。Parser 签名为
-// bool(const std::string&, T*, std::string*)。T 为普通 struct，
+// 只解析本结构的参数，由 Converter Audit 每个注册归一化一次并缓存。Parser
+// 签名为 bool(const std::string&, T*, std::string*)。T 为普通 struct，
 // 此后由框架负责不可变所有权和受检访问。
 template <typename T, typename Parser>
 NormalizeOutputParametersFn MakeOutputParameterParser(Parser parse) {
@@ -172,6 +171,9 @@ struct OperatorValueTypeBinding {
   IoDirection direction = IoDirection::kUnknown;
   OperatorOutputLayoutDescriptor output_layout;
   ValidateExternalFn validate_external;
+  std::function<uint64_t(const void*)> read_request_id;
+  std::function<int32_t(const void*)> read_service_type;
+  std::function<void(void*, int32_t)> write_service_type;
   AllocateExternalFn allocate_external;
   ResetExternalFn reset_external;
   DestroyExternalFn destroy_external;
@@ -203,6 +205,31 @@ constexpr const char* HostTypeName() {
                 "Declare the host struct with DECLARE_EXTERNAL_TYPE_TRAITS "
                 "before registering its ValueType");
   return ExternalTypeTraits<T>::TypeName();
+}
+
+template <typename T>
+void SetRequestIdMember(OperatorValueTypeBinding* binding,
+                        uint64_t T::*member) {
+  if (!binding || !member)
+    throw std::invalid_argument("Invalid request ID member");
+  binding->read_request_id = [member](const void* value) {
+    return static_cast<const T*>(value)->*member;
+  };
+}
+
+template <typename T>
+void SetServiceTypeMember(OperatorValueTypeBinding* binding,
+                          int32_t T::*member) {
+  if (!binding || !member)
+    throw std::invalid_argument("Invalid service type member");
+  binding->read_service_type = [member](const void* value) {
+    return static_cast<const T*>(value)->*member;
+  };
+  if (binding->direction == IoDirection::kOutput) {
+    binding->write_service_type = [member](void* value, int32_t service) {
+      static_cast<T*>(value)->*member = service;
+    };
+  }
 }
 
 // 外部空值诊断和类型擦除保留在绑定边界。

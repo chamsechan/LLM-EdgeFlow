@@ -6,16 +6,12 @@
 #include <unordered_map>
 
 #include "adapter/deployment_io_config.h"
-#include "adapter/deployment_structure.h"
-#include "adapter/io_binding_resolver.h"
+#include "adapter/io_plan_resolver.h"
 #include "adapter/pipeline_document.h"
 #include "contracts/diagnostic.h"
-#include "contracts/json_structure.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
-
-namespace structure = json_structure;
 
 namespace {
 
@@ -116,137 +112,6 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
 
 }  // namespace
 
-int OperatorConfigResolver::ResolveOutputAllocation(
-    const nlohmann::json& config, const ExternalSlotDefinition& slot,
-    ResolvedOutputPoolSpec* result, std::string* parameter_text,
-    std::string* error) {
-  const auto& shape = OutputAllocationStructure();
-  if (!structure::HasType(config, shape)) {
-    if (error) *error = "Output allocation must be an object";
-    return -2;
-  }
-  for (const auto& [field, value] : config.items()) {
-    if (!structure::AllowsProperty(shape, field)) {
-      if (error) *error = "Unknown output allocation field: " + field;
-      return -2;
-    }
-  }
-  ResolvedOutputPoolSpec requested;
-  requested.type = slot.type_suffix;
-  if (config.contains("allocator")) {
-    if (!structure::HasType(config["allocator"],
-                            structure::Property(shape, "allocator")) ||
-        structure::TooShort(config["allocator"],
-                            structure::Property(shape, "allocator"))) {
-      if (error) *error = "Output allocator must be a nonempty string";
-      return -2;
-    }
-    requested.allocator = config["allocator"].get<std::string>();
-  }
-  const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
-      requested.type, requested.allocator);
-  if (!binding) {
-    if (error)
-      *error = "No registered output allocator '" + requested.allocator +
-               "' for type '" + requested.type + "'";
-    return -2;
-  }
-  if (!parameter_text) {
-    if (error) *error = "Null output parameter text destination";
-    return -2;
-  }
-  // params 原样序列化后交给所选实现解析；未配置时为 "{}"。
-  try {
-    const auto params = config.find("params");
-    *parameter_text = params == config.end() ? "{}" : params->dump();
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(error, e.what());
-    return -2;
-  }
-  if (!NormalizeOutputParameters(*binding, *parameter_text, &requested.params,
-                                 error)) {
-    return -2;
-  }
-  if (config.contains("meta_num")) {
-    const auto& meta_shape = structure::Property(shape, "meta_num");
-    uint64_t mnum = 0;
-    if (config["meta_num"].is_number_unsigned()) {
-      mnum = config["meta_num"].get<uint64_t>();
-    } else if (structure::HasType(config["meta_num"], meta_shape) &&
-               !structure::BelowMinimum(config["meta_num"].get<int64_t>(),
-                                        meta_shape)) {
-      mnum = static_cast<uint64_t>(config["meta_num"].get<int64_t>());
-    } else {
-      if (error) *error = "config.meta_num must be non-negative integer";
-      return -2;
-    }
-    if (structure::AboveMaximum(mnum, meta_shape)) {
-      if (error) *error = "config.meta_num exceeds uint32 range";
-      return -2;
-    }
-    requested.meta_num = static_cast<uint32_t>(mnum);
-  }
-
-  if (config.contains("metadata_type_id")) {
-    const auto& type_shape = structure::Property(shape, "metadata_type_id");
-    if (config["metadata_type_id"].is_number_unsigned()) {
-      uint64_t uval = config["metadata_type_id"].get<uint64_t>();
-      if (structure::AboveMaximum(uval, type_shape)) {
-        if (error) *error = "config.metadata_type_id exceeds int32 range";
-        return -2;
-      }
-      requested.metadata_type_id = static_cast<int32_t>(uval);
-    } else if (structure::HasType(config["metadata_type_id"], type_shape)) {
-      int64_t ival = config["metadata_type_id"].get<int64_t>();
-      if (structure::BelowMinimum(ival, type_shape) ||
-          structure::AboveMaximum(ival, type_shape)) {
-        if (error) *error = "config.metadata_type_id exceeds int32 range";
-        return -2;
-      }
-      requested.metadata_type_id = static_cast<int32_t>(ival);
-    } else {
-      if (error) *error = "config.metadata_type_id must be integer";
-      return -2;
-    }
-  }
-
-  if (config.contains("capacities")) {
-    const auto& capacities_shape = structure::Property(shape, "capacities");
-    if (!structure::HasType(config["capacities"], capacities_shape)) {
-      if (error) *error = "config.capacities must be an object";
-      return -2;
-    }
-    const auto& capacity_shape = capacities_shape.at("additionalProperties");
-    for (const auto& [cap_field, cap_val] : config["capacities"].items()) {
-      uint64_t uval = 0;
-      if (cap_val.is_number_unsigned()) {
-        uval = cap_val.get<uint64_t>();
-      } else if (structure::HasType(cap_val, capacity_shape) &&
-                 !structure::BelowMinimum(cap_val.get<int64_t>(),
-                                          capacity_shape)) {
-        uval = static_cast<uint64_t>(cap_val.get<int64_t>());
-      } else {
-        if (error) {
-          *error = "Capacity for field '" + cap_field +
-                   "' must be positive unsigned integer";
-        }
-        return -2;
-      }
-      if (structure::BelowMinimum(uval, capacity_shape) ||
-          structure::AboveMaximum(uval, capacity_shape)) {
-        if (error) {
-          *error = "Capacity for field '" + cap_field +
-                   "' must fit a positive uint32";
-        }
-        return -2;
-      }
-      requested.capacities[cap_field] = static_cast<uint32_t>(uval);
-    }
-  }
-
-  return ResolveOutputPoolSpec(*binding, requested, result, error) ? 0 : -2;
-}
-
 int OperatorConfigResolver::Resolve(
     const char* model_path, const char* cfg_file_name,
     ResolvedOperatorConfig* result, std::string* error_msg,
@@ -332,10 +197,10 @@ int OperatorConfigResolver::Resolve(
       return -2;
     }
 
-    // 解析接入绑定计划
+    // 解析接入计划
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string plan_err;
-    int plan_ret = IoBindingResolver::ResolveFromConfig(
+    int plan_ret = IoPlanResolver::ResolveFromConfig(
         dep_config, canon_root.string(), &io_plan, &plan_err, out_diagnostic,
         effective_depth);
     if (plan_ret != 0) {
@@ -348,7 +213,7 @@ int OperatorConfigResolver::Resolve(
     result->model_root_path = canon_root;
     result->effective_frame_depth = effective_depth;
     result->effective_process_batch_limit = static_cast<uint32_t>(
-        std::min<size_t>(effective_depth, io_plan->effective_max_batch_size));
+        std::min<size_t>(effective_depth, kMaxProcessBatchSize));
 
     result->io_plan = std::move(io_plan);
 

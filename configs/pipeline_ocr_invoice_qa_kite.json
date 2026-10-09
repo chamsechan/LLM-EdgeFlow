@@ -1,8 +1,21 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "ocr_invoice_qa"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "frame",
+        "name": "ocr_invoice_qa"
+      },
+      {
+        "type": "string",
+        "name": "ocr_invoice_qa"
+      }
+    ],
+    "output": [
+      {
+        "type": "od_out",
+        "name": "ocr_invoice_qa"
+      }
+    ]
   },
   "models": [
     {

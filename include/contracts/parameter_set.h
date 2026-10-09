@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <typeindex>
@@ -23,14 +26,32 @@ class ParameterValues {
     return *static_cast<const P*>(value_.get());
   }
 
+  const nlohmann::json& Effective() const noexcept { return effective_; }
+
+  std::optional<int64_t> Integer(const std::string& name) const {
+    const auto value = effective_.find(name);
+    if (value == effective_.end()) return std::nullopt;
+    if (value->is_number_unsigned()) {
+      const auto number = value->get<uint64_t>();
+      if (number > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+        return std::nullopt;
+      return static_cast<int64_t>(number);
+    }
+    if (!value->is_number_integer()) return std::nullopt;
+    return value->get<int64_t>();
+  }
+
  private:
   friend class ParameterSet;
   template <typename P>
-  explicit ParameterValues(P value)
-      : value_(std::make_shared<const P>(std::move(value))), type_(typeid(P)) {}
+  explicit ParameterValues(P value, nlohmann::json effective)
+      : value_(std::make_shared<const P>(std::move(value))),
+        type_(typeid(P)),
+        effective_(std::move(effective)) {}
 
   std::shared_ptr<const void> value_;
   std::type_index type_;
+  nlohmann::json effective_;
 };
 
 class ParameterSet {
@@ -47,8 +68,9 @@ class ParameterSet {
                      std::string* error) {
       auto parsed = owned->Parse(config, error);
       if (!parsed) return false;
+      auto effective = owned->Read(*parsed);
       *values = std::shared_ptr<const ParameterValues>(
-          new ParameterValues(std::move(*parsed)));
+          new ParameterValues(std::move(*parsed), std::move(effective)));
       return true;
     };
   }

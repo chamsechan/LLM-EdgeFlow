@@ -26,7 +26,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
 
   const auto* res = ReadOutputValue(*context, kRankedResults, options, status);
@@ -37,7 +37,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
 
   std::vector<const RankedTextBatch::value_type*> first;
   if (!IndexResults(res, raw_req_ids, &first, "ranked_results",
-                    options.converter_id.c_str(), status, true)) {
+                    options.Label().c_str(), status, true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -55,7 +55,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
           list[k].original_sub_id >= 8) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid ranked result", "ranked_results",
-            options.converter_id.c_str());
+            options.Label().c_str());
       }
     }
   }
@@ -64,7 +64,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination count is less than output count", "destination",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
 
   for (size_t i = 0; i < count; ++i) {
@@ -73,7 +73,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing rerank_out slot item", kOutputSlot,
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     out->request_id = (*raw_req_ids)[i];
@@ -94,9 +94,10 @@ int EncodeOperatorRerankResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "rerank_result.plain";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "cross_rerank";
+  def.service_type = kMockServiceCrossRerank;
+  def.slot = ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kRankedResults, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;
   return def;

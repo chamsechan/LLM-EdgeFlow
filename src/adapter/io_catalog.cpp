@@ -1,125 +1,50 @@
 #include "adapter/io_catalog.h"
 
-#include <algorithm>
-#include <set>
-#include <utility>
-#include <vector>
-
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 
 namespace llm_edgeflow {
 namespace {
-
-nlohmann::json SlotJson(const ExternalSlotDefinition& slot) {
-  return {{"slot_name", slot.slot_name},
-          {"type_id", slot.type_id},
-          {"type_suffix", slot.type_suffix},
-          {"key_suffix", slot.KeySuffix()},
-          {"direction",
-           slot.direction == PortDirection::kInput ? "input" : "output"},
-          {"required", slot.required},
-          {"capacity_fields", EffectiveCapacityFields(slot)}};
+template <typename Definition>
+nlohmann::json ConverterJson(const Definition& def,
+                             const std::vector<ConfigFieldDefinition>& fields) {
+  auto ports = nlohmann::json::array();
+  for (const auto& port : def.logical_ports)
+    ports.push_back(PipelineCatalog::PortToJson(port.logical_name, port));
+  auto parameters = nlohmann::json::array();
+  for (const auto& field : fields)
+    parameters.push_back(ConfigFieldToJson(field));
+  nlohmann::json result = {{"type", def.type},
+                           {"name", def.name},
+                           {"slot",
+                            {{"type_id", def.slot.type_id},
+                             {"type_suffix", def.slot.type_suffix},
+                             {"required", def.slot.required},
+                             {"allocator", def.slot.allocator},
+                             {"allocator_params", def.slot.allocator_params},
+                             {"metadata_count", def.slot.metadata_count},
+                             {"metadata_type_id", def.slot.metadata_type_id}}},
+                           {"logical_ports", std::move(ports)},
+                           {"params", std::move(parameters)}};
+  if (def.service_type) result["service_type"] = *def.service_type;
+  return result;
 }
-
-nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {
-  nlohmann::json slots = nlohmann::json::array();
-  for (const auto& s : conv.external_slots) slots.push_back(SlotJson(s));
-  nlohmann::json ports = nlohmann::json::array();
-  for (const auto& p : conv.logical_ports)
-    ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
-
-  return {{"converter_id", conv.converter_id},
-          {"external_type", ExternalType(conv.external_slots)},
-          {"external_slots", std::move(slots)},
-          {"logical_ports", std::move(ports)}};
-}
-
-nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
-  nlohmann::json slots = nlohmann::json::array();
-  for (const auto& s : conv.external_slots) slots.push_back(SlotJson(s));
-  nlohmann::json ports = nlohmann::json::array();
-  for (const auto& p : conv.logical_ports)
-    ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
-
-  return {{"converter_id", conv.converter_id},
-          {"external_type", ExternalType(conv.external_slots)},
-          {"external_slots", std::move(slots)},
-          {"logical_ports", std::move(ports)}};
-}
-
-nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
-  return {{"biz_name", b.biz_name},
-          {"input_converter_id", b.input_converter_id},
-          {"output_converter_id", b.output_converter_id},
-          {"max_batch_size", b.max_batch_size}};
-}
-
 }  // namespace
 
-nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
-                                 const std::string& biz_filter) {
-  // 聚合 IO Bindings 与 Converters
-  auto all_bindings = IoBindingRegistry::Instance().AllBindings();
-  std::sort(all_bindings.begin(), all_bindings.end(),
-            [](const IoBindingDefinition& a, const IoBindingDefinition& b) {
-              return a.biz_name < b.biz_name;
-            });
-
-  std::set<std::string> active_input_converters;
-  std::set<std::string> active_output_converters;
-
-  nlohmann::json io_bindings = nlohmann::json::array();
-  for (const auto& b : all_bindings) {
-    if (!biz_filter.empty() && b.biz_name != biz_filter) continue;
-    active_input_converters.insert(b.input_converter_id);
-    active_output_converters.insert(b.output_converter_id);
-    io_bindings.push_back(IoBindingToJson(b));
-  }
-
-  auto all_input_converters =
-      IoConverterRegistry::Instance().AllInputConverters();
-  std::sort(
-      all_input_converters.begin(), all_input_converters.end(),
-      [](const InputConverterDefinition& a, const InputConverterDefinition& b) {
-        return a.converter_id < b.converter_id;
-      });
-
-  nlohmann::json input_converters = nlohmann::json::array();
-  for (const auto& c : all_input_converters) {
-    if (!biz_filter.empty() && active_input_converters.find(c.converter_id) ==
-                                   active_input_converters.end()) {
-      continue;
-    }
-    input_converters.push_back(InputConverterToJson(c));
-  }
-
-  auto all_output_converters =
-      IoConverterRegistry::Instance().AllOutputConverters();
-  std::sort(all_output_converters.begin(), all_output_converters.end(),
-            [](const OutputConverterDefinition& a,
-               const OutputConverterDefinition& b) {
-              return a.converter_id < b.converter_id;
-            });
-
-  nlohmann::json output_converters = nlohmann::json::array();
-  for (const auto& c : all_output_converters) {
-    if (!biz_filter.empty() && active_output_converters.find(c.converter_id) ==
-                                   active_output_converters.end()) {
-      continue;
-    }
-    output_converters.push_back(OutputConverterToJson(c));
-  }
-
-  auto result = PipelineCatalog::ToJson(snapshot, biz_filter);
-  result["input_converters"] = std::move(input_converters);
-  result["output_converters"] = std::move(output_converters);
-  result["io_bindings"] = std::move(io_bindings);
+nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot) {
+  auto result = PipelineCatalog::ToJson(snapshot);
+  auto inputs = nlohmann::json::array();
+  auto outputs = nlohmann::json::array();
+  const auto& registry = IoConverterRegistry::Instance();
+  for (const auto& def : registry.AllInputConverters())
+    inputs.push_back(ConverterJson(def, def.params.Fields()));
+  for (const auto& def : registry.AllOutputConverters())
+    outputs.push_back(ConverterJson(def, OutputConverterParameterFields(def)));
+  result["input_converters"] = std::move(inputs);
+  result["output_converters"] = std::move(outputs);
   return result;
 }
 
-nlohmann::json IoCatalog::ToJson(const std::string& biz_filter) {
-  return ToJson(PipelineCatalog::Snapshot(), biz_filter);
+nlohmann::json IoCatalog::ToJson() {
+  return ToJson(PipelineCatalog::Snapshot());
 }
-
 }  // namespace llm_edgeflow

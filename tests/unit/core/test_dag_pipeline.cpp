@@ -343,22 +343,12 @@ REGISTER_NODE_WITH_DEFINITION(SecondFailingDagNode,
 // -----------------------------------------------------------------------------
 // GTest 测试套件
 // -----------------------------------------------------------------------------
-class DagPipelineTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    RegisterTestBizs(
-        {"cyclic_pipeline", "diamond_dag_test", "invalid_dep_pipeline",
-         "invocation_failure_test", "parallel_diagnostic_failure",
-         "parallel_error_diagnostic_test", "parallel_exception_test",
-         "parallel_wavefront_dag", "self_loop_pipeline", "shuffled_dag_test"});
-  }
-};
+class DagPipelineTest : public ::testing::Test {};
 
 // 1. 乱序书写自动拓扑重排 (Shuffled JSON -> Correct Order)
 TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
   // JSON 中故意将 D 写在最前，B 和 C 其次，A 写在最后 (逆序输入)
   nlohmann::json config = {
-      {"biz_name", "shuffled_dag_test"},
       {"pipeline",
        {{{"id", "node_d"},
          {"node_type", "DagTestNodeD"},
@@ -376,7 +366,7 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
     SCOPED_TRACE(workers);
     config["max_parallel_workers"] = workers;
     Pipeline pipeline;
-    bool ok = BuildTestPipeline(pipeline, config, nullptr);
+    bool ok = BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr);
     ASSERT_TRUE(ok);
 
     // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
@@ -407,7 +397,6 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
 // 2. 钻石分支与汇聚拓扑测试 (Diamond Branch & Merge)
 TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
   nlohmann::json config = {
-      {"biz_name", "diamond_dag_test"},
       {"pipeline",
        {{{"id", "A"},
          {"node_type", "DagTestNodeA"},
@@ -427,7 +416,7 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
          {"depends_on", {"B", "C"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
 
   AlgContext req_ctx;
   ResetExecutionTrace();
@@ -444,7 +433,6 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
 // 3. 循环依赖死锁检测 (Cycle Detection: A -> B -> C -> A)
 TEST_F(DagPipelineTest, CycleDetectionRejection) {
   nlohmann::json cyclic_config = {
-      {"biz_name", "cyclic_pipeline"},
       {"pipeline",
        {
            {{"id", "A"},
@@ -461,7 +449,8 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
        }}};
 
   Pipeline pipeline;
-  bool ok = BuildTestPipeline(pipeline, cyclic_config, nullptr);
+  bool ok =
+      BuildTestPipeline(pipeline, cyclic_config, MakeTestBoundary(), nullptr);
   // 必须拦截成环并返回 false，禁止启动
   EXPECT_FALSE(ok);
 }
@@ -469,31 +458,30 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
 // 4. 自环死锁检测 (Self Loop: A -> A)
 TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
   nlohmann::json self_loop_config = {
-      {"biz_name", "self_loop_pipeline"},
       {"pipeline",
        {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, self_loop_config, nullptr));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, self_loop_config, MakeTestBoundary(),
+                                 nullptr));
 }
 
 // 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
 TEST_F(DagPipelineTest, InvalidDependencyRejection) {
   nlohmann::json invalid_dep_config = {
-      {"biz_name", "invalid_dep_pipeline"},
       {"pipeline",
        {{{"id", "A"},
          {"node_type", "DagTestNodeA"},
          {"depends_on", {"ghost_non_existent_node"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, invalid_dep_config, nullptr));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, invalid_dep_config,
+                                 MakeTestBoundary(), nullptr));
 }
 
 // 6. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
 TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   nlohmann::json parallel_config = {
-      {"biz_name", "parallel_wavefront_dag"},
       {"max_parallel_workers", 4},
       {"pipeline",
        {// Layer 0: Root 节点 A
@@ -517,7 +505,8 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
          {"depends_on", {"node_b", "node_c"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, parallel_config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, parallel_config, MakeTestBoundary(),
+                                nullptr));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
@@ -541,7 +530,6 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
 
 TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
   nlohmann::json config = {
-      {"biz_name", "parallel_wavefront_dag"},
       {"pipeline",
        {{{"id", "node_a"}, {"node_type", DagTestNodeA::kNodeType}},
         {{"id", "node_b"},
@@ -558,7 +546,7 @@ TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
   for (int workers : {4, 1}) {
     SCOPED_TRACE(workers);
     config["max_parallel_workers"] = workers;
-    const auto report = PipelineValidator::Validate(config);
+    const auto report = PipelineValidator::Validate(config, MakeTestBoundary());
     ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
     const std::vector<std::vector<std::string>> expected_layers =
         workers > 1 ? std::vector<std::vector<std::string>>{{"node_a"},
@@ -573,7 +561,8 @@ TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
         (std::vector<std::string>{"node_a", "node_b", "node_c", "node_d"}));
 
     Pipeline pipeline;
-    ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+    ASSERT_TRUE(
+        BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
     AlgContext context;
     ResetExecutionTrace();
     EXPECT_EQ(pipeline.Execute(&context), 0);
@@ -587,7 +576,6 @@ TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
 
 TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
   const nlohmann::json config = {
-      {"biz_name", "parallel_exception_test"},
       {"max_parallel_workers", 2},
       {"pipeline",
        nlohmann::json::array({{{"id", "throwing"},
@@ -599,7 +587,7 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
 
   GatedProcessDagNode::Reset();
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
 
   AlgContext context;
   auto execution = std::async(std::launch::async,
@@ -618,7 +606,6 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
 
 TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
   const nlohmann::json config = {
-      {"biz_name", "parallel_error_diagnostic_test"},
       {"max_parallel_workers", 2},
       {"pipeline",
        nlohmann::json::array({{{"id", "first"},
@@ -630,7 +617,7 @@ TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
 
   ParallelFailureCoordinator::Reset();
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
 
   AlgContext context;
   EXPECT_EQ(pipeline.Execute(&context), -8101);
@@ -684,14 +671,14 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
     for (int failure = 0; failure < 4; ++failure) {
       ThrowingProcessDagNode::failure_mode = failure;
       nlohmann::json config = {
-          {"biz_name", "invocation_failure_test"},
           {"max_parallel_workers", workers},
           {"pipeline",
            {{{"id", "failing"},
              {"node_type", ThrowingProcessDagNode::kNodeType},
              {"depends_on", nlohmann::json::array()}}}}};
       Pipeline pipeline;
-      EXPECT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+      EXPECT_TRUE(
+          BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
       AlgContext ctx;
       ctx.SetError(-9998, "stale diagnostic");
       const int expected = failure < 2 ? -1 : (failure == 2 ? -8103 : -8104);
@@ -712,7 +699,6 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
 
 TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
   const nlohmann::json config = {
-      {"biz_name", "parallel_diagnostic_failure"},
       {"max_parallel_workers", 2},
       {"pipeline",
        {{{"id", "failing"},
@@ -723,7 +709,7 @@ TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
          {"depends_on", nlohmann::json::array()}}}}};
   GatedProcessDagNode::Reset();
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
   ThrowingProcessDagNode::failure_mode = 4;
   AlgContext ctx;
   auto execution = std::async(std::launch::async, [&] {

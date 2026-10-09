@@ -13,7 +13,6 @@
 #include <vector>
 
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -25,13 +24,11 @@ using namespace llm_edgeflow::operator_api;
 class OperatorSafetyTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
     llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
     Get_LLM_EDGEFLOW_OperatorTable().Init();
   }
   void TearDown() override {
     Get_LLM_EDGEFLOW_OperatorTable().DeInit();
-    llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
     llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
   }
 };
@@ -102,8 +99,8 @@ TEST_F(OperatorSafetyTest, EndToEndDynamicControlAndVerification) {
   CompanyString cs1{static_cast<int32_t>(s1.size()),
                     const_cast<char*>(s1.data())};
 
-  CompanyOperatorKeywordInput req0{101, &cs0};
-  CompanyOperatorKeywordInput req1{102, &cs1};
+  CompanyOperatorKeywordInput req0{101, kMockServiceKeywordMatch, &cs0};
+  CompanyOperatorKeywordInput req1{102, kMockServiceKeywordMatch, &cs1};
 
   NamedIoBatch inputs(2);
   inputs[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req0);
@@ -158,8 +155,8 @@ TEST_F(OperatorSafetyTest, OutputBatchSizeMismatchProtection) {
   CompanyString cs1{static_cast<int32_t>(s1.size()),
                     const_cast<char*>(s1.data())};
 
-  CompanyOperatorKeywordInput req0{101, &cs0};
-  CompanyOperatorKeywordInput req1{102, &cs1};
+  CompanyOperatorKeywordInput req0{101, kMockServiceKeywordMatch, &cs0};
+  CompanyOperatorKeywordInput req1{102, kMockServiceKeywordMatch, &cs1};
 
   NamedIoBatch inputs(2);
   inputs[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req0);
@@ -195,7 +192,7 @@ TEST_F(OperatorSafetyTest, NullOrMissingSlotInBatchInputs) {
   std::string s0 = "请联系VIP专员";
   CompanyString cs0{static_cast<int32_t>(s0.size()),
                     const_cast<char*>(s0.data())};
-  CompanyOperatorKeywordInput req0{101, &cs0};
+  CompanyOperatorKeywordInput req0{101, kMockServiceKeywordMatch, &cs0};
 
   NamedIoBatch inputs_with_missing_slot(2);
   inputs_with_missing_slot[0]["client_channel.keyword_in"] =
@@ -224,7 +221,7 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
 
   CompanyString text{1, nullptr};
-  CompanyOperatorKeywordInput request{42, &text};
+  CompanyOperatorKeywordInput request{42, kMockServiceKeywordMatch, &text};
   NamedIoBatch inputs(1);
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&request);
   NamedIoBatch outputs(1);
@@ -244,7 +241,7 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(std::string(GetOperatorLastError()),
-            "Invalid output key format in frame 0: invalid_output_key");
+            "Invalid key format in frame 0: invalid_output_key");
   EXPECT_EQ(outputs[0].at("invalid_output_key"), nullptr);
 
   outputs[0].clear();
@@ -279,8 +276,9 @@ TEST_F(OperatorSafetyTest,
   char overflow[] = "overflow";
   CompanyString first_text{8, ordinary};
   CompanyString second_text{8, overflow};
-  CompanyOperatorKeywordInput first{41, &first_text};
-  CompanyOperatorKeywordInput second{42, &second_text};
+  CompanyOperatorKeywordInput first{41, kMockServiceKeywordMatch, &first_text};
+  CompanyOperatorKeywordInput second{42, kMockServiceKeywordMatch,
+                                     &second_text};
   NamedIoBatch inputs(2);
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&first);
   inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&second);
@@ -309,22 +307,6 @@ TEST_F(OperatorSafetyTest,
   }
 }
 
-// 6. 测试 IoBinding 注册冲突防护与定义机器可读性
-TEST_F(OperatorSafetyTest, IoBindingRegistryConflictDetectionAndDescriptor) {
-  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  const auto* binding = registry.FindBinding("keyword_match");
-  ASSERT_NE(binding, nullptr);
-
-  EXPECT_EQ(binding->biz_name, "keyword_match");
-
-  EXPECT_GT(binding->max_batch_size, 0);
-
-  // 测试重复 binding 注册拦截
-  bool reg_dup_ret = registry.RegisterBinding(*binding);
-  EXPECT_FALSE(reg_dup_ret) << "Duplicate biz binding registration must fail";
-  registry.ResetConflictForTesting();
-}
-
 // 7. 测试 RuntimeOptions 与设备参数贯通
 TEST_F(OperatorSafetyTest, RuntimeOptionsAndDevicePropagation) {
   auto op = Get_LLM_EDGEFLOW_OperatorTable();
@@ -344,89 +326,8 @@ TEST_F(OperatorSafetyTest, RuntimeOptionsAndDevicePropagation) {
   EXPECT_EQ(op.Destroy(handle1), 0);
 }
 
-// 8. 测试配置中未知/缺失 binding 在 Create 前置拦截
-TEST_F(OperatorSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
-  auto op = Get_LLM_EDGEFLOW_OperatorTable();
-
-  // 1) 传入不存在的接入配置
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "non_existent_config.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-  void* handle = nullptr;
-  int ret = op.Create(&handle, &param);
-  EXPECT_NE(ret, 0);
-  EXPECT_EQ(handle, nullptr);
-
-  // 2) 缺失 io_binding、3) 未知业务名；有效业务名作为对照可以创建。
-  const auto directory =
-      std::filesystem::temp_directory_path() /
-      ("edgeflow-io-binding-" +
-       std::to_string(
-           std::chrono::steady_clock::now().time_since_epoch().count()));
-  std::filesystem::create_directory(directory);
-  std::ifstream source("configs/pipeline_keyword_match_rules.json");
-  ASSERT_TRUE(source.is_open());
-  nlohmann::json pipeline;
-  source >> pipeline;
-  std::ofstream(directory / "pipeline.conf")
-      << nlohmann::json({{"pipe_path", "pipeline.json"}}).dump();
-  const std::string model_path = directory.string();
-  param.model_path = model_path.c_str();
-  param.cfg_file_name = "pipeline.conf";
-  param.max_frame_depth = 8;
-  const auto create_with = [&](const nlohmann::json& document) {
-    std::ofstream(directory / "pipeline.json") << document.dump();
-    void* created = nullptr;
-    const int code = op.Create(&created, &param);
-    if (created) op.Destroy(created);
-    return code;
-  };
-
-  auto missing = pipeline;
-  missing["deployment"]["io"].erase("io_binding");
-  EXPECT_NE(create_with(missing), 0);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("io_binding"),
-            std::string::npos);
-
-  auto unknown = pipeline;
-  unknown["deployment"]["io"]["io_binding"] = "unknown_biz";
-  EXPECT_NE(create_with(unknown), 0);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("unknown_biz"),
-            std::string::npos);
-
-  EXPECT_EQ(create_with(pipeline), 0) << GetOperatorLastError();
-  std::filesystem::remove_all(directory);
-}
-
-// 9. 测试 Registry 冲突 fail-closed 导致 Init 失败
-TEST_F(OperatorSafetyTest, FailClosedRegistryConflictAndInitFailure) {
-  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  registry.ResetConflictForTesting();
-  auto op = Get_LLM_EDGEFLOW_OperatorTable();
-
-  // 初始干净状态 Init 成功
-  EXPECT_EQ(op.Init(), 0);
-
-  // 注册冲突（重复注册 binding）
-  const auto* binding = registry.FindBinding("keyword_match");
-  ASSERT_NE(binding, nullptr);
-  bool reg_ret = registry.RegisterBinding(*binding);
-  EXPECT_FALSE(reg_ret);
-  EXPECT_TRUE(registry.HasConflict());
-
-  // 注册冲突发生后，Init 必须 fail-closed 返回 -6
-  EXPECT_EQ(op.Init(), -6);
-
-  // 测试结束后清理恢复干净状态
-  registry.ResetConflictForTesting();
-  EXPECT_FALSE(registry.HasConflict());
-  EXPECT_EQ(op.Init(), 0);
-}
-
 // 10. 测试有效批次上限契约强制执行
-TEST_F(OperatorSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
+TEST_F(OperatorSafetyTest, FrameworkProcessBatchLimitEnforcement) {
   auto op = Get_LLM_EDGEFLOW_OperatorTable();
   CreateParam param{};
   param.model_path = ".";
@@ -438,7 +339,7 @@ TEST_F(OperatorSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
   void* handle = nullptr;
   ASSERT_EQ(op.Create(&handle, &param), 0);
 
-  // 构造 65 条输入数据 (超过 max_batch_size = 64 上限)
+  // 构造 65 条输入数据，超过框架的 64 条上限
   std::string s = "测试输入";
   CompanyString cs{static_cast<int32_t>(s.size()), const_cast<char*>(s.data())};
   std::vector<CompanyOperatorKeywordInput> reqs(65);
@@ -446,97 +347,18 @@ TEST_F(OperatorSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
   NamedIoBatch outputs(65);
   for (int i = 0; i < 65; ++i) {
     reqs[i].request_id = i + 1;
+    reqs[i].service_type = kMockServiceKeywordMatch;
     reqs[i].sentence_text = &cs;
     inputs[i]["client_channel.keyword_in"] =
         MakeBorrowedOperatorInput(&reqs[i]);
     outputs[i]["client_channel.keyword_out"] = nullptr;
   }
 
-  // 超过 max_batch_size -> 必须被前置拦截返回错误
+  // 超过框架批次上限时必须前置拦截并返回错误
   int ret = op.Process(handle, inputs, outputs);
   EXPECT_NE(ret, 0);
 
   EXPECT_EQ(op.Destroy(handle), 0);
-}
-
-TEST_F(OperatorSafetyTest, BindingBatchLimitOverridesLargerPoolAndConverters) {
-  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-  const auto* original = registry.FindBinding("keyword_match");
-  ASSERT_NE(original, nullptr);
-  auto binding = *original;
-  binding.max_batch_size = 1;
-
-  const auto directory =
-      std::filesystem::temp_directory_path() /
-      ("edgeflow-binding-batch-" +
-       std::to_string(
-           std::chrono::steady_clock::now().time_since_epoch().count()));
-  struct Cleanup {
-    std::vector<llm_edgeflow::IoBindingDefinition> bindings;
-    std::filesystem::path directory;
-    ~Cleanup() {
-      auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
-      registry.ClearForTesting();
-      for (const auto& binding : bindings)
-        EXPECT_TRUE(registry.RegisterBinding(binding));
-      std::error_code error;
-      std::filesystem::remove_all(directory, error);
-    }
-  } cleanup{registry.AllBindings(), directory};
-  // 每个业务只有一个 binding：用收紧批次的副本替换原 binding。
-  registry.ClearForTesting();
-  for (const auto& saved : cleanup.bindings) {
-    if (saved.biz_name != binding.biz_name) {
-      ASSERT_TRUE(registry.RegisterBinding(saved));
-    }
-  }
-  ASSERT_TRUE(registry.RegisterBinding(binding));
-  std::filesystem::create_directory(directory);
-  std::ifstream source("configs/pipeline_keyword_match_rules.json");
-  ASSERT_TRUE(source.is_open());
-  nlohmann::json pipeline;
-  source >> pipeline;
-  pipeline["deployment"]["io"]["io_binding"] = binding.biz_name;
-  std::ofstream(directory / "pipeline.json") << pipeline.dump();
-  std::ofstream(directory / "pipeline.conf")
-      << nlohmann::json({{"pipe_path", "pipeline.json"}}).dump();
-
-  auto op = Get_LLM_EDGEFLOW_OperatorTable();
-  CreateParam param{};
-  param.model_path = directory.c_str();
-  param.cfg_file_name = "pipeline.conf";
-  param.compute_platform = ComputePlatform::kCpu;
-  param.max_frame_depth = 8;
-  void* raw_handle = nullptr;
-  ASSERT_EQ(op.Create(&raw_handle, &param), COMPANY_ALG_SUCCESS)
-      << GetOperatorLastError();
-  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
-
-  char text[] = "ordinary request";
-  CompanyString sentence{static_cast<int32_t>(std::strlen(text)), text};
-  CompanyOperatorKeywordInput requests[] = {{41, &sentence}, {42, &sentence}};
-  NamedIoBatch inputs(2);
-  NamedIoBatch outputs(2);
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    inputs[i]["client.keyword_in"] = MakeBorrowedOperatorInput(&requests[i]);
-    outputs[i]["client.keyword_out"] = nullptr;
-  }
-  EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(std::string(GetOperatorLastError()),
-            "Input batch size 2 exceeds effective batch limit 1");
-  for (const auto& output : outputs)
-    EXPECT_EQ(output.at("client.keyword_out"), nullptr);
-
-  inputs.resize(1);
-  outputs.resize(1);
-  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
-      << GetOperatorLastError();
-  auto* result = static_cast<CompanyOperatorKeywordOutput*>(
-      outputs[0].at("client.keyword_out").get());
-  ASSERT_NE(result, nullptr);
-  EXPECT_EQ(result->request_id, 41U);
-  EXPECT_EQ(result->is_hit, 0);
 }
 
 // 11. 同一 handle 的并发 Process 由接入适配层串行化，停流 join 后才允许 Destroy
@@ -571,7 +393,8 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
         std::string s = "same handle request";
         CompanyString cs{static_cast<int32_t>(s.size()),
                          const_cast<char*>(s.data())};
-        CompanyOperatorKeywordInput input{request_id, &cs};
+        CompanyOperatorKeywordInput input{request_id, kMockServiceKeywordMatch,
+                                          &cs};
 
         NamedIoBatch inputs(1);
         inputs[0]["client_channel.keyword_in"] =
@@ -613,7 +436,7 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
 TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   const auto* out_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindOutputConverter(
-          "document.structured");
+          "entity_out", "entity_extract");
   ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;
@@ -651,7 +474,8 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
 
   llm_edgeflow::OutputEncodeOptions options;
 
-  options.converter_id = out_conv->converter_id;
+  options.type = out_conv->type;
+  options.name = out_conv->name;
   options.request_ids = &request_ids;
 
   size_t written_count = 0;

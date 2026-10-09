@@ -44,13 +44,13 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
     if (!IsValidInputString(in->query_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid query_text CompanyString", "rerank_in.query_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(in->query_text->length) >
         biz_input::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query_text length exceeds limit", "rerank_in.query_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     if (in->candidate_count < 1 ||
@@ -59,7 +59,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
           status,
           "candidate_count out of valid range [1, " +
               std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) + "]",
-          "rerank_in.candidate_count", options.converter_id.c_str(),
+          "rerank_in.candidate_count", options.Label().c_str(),
           static_cast<int>(i));
     }
 
@@ -72,13 +72,13 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
       if (!IsValidInputString(pass)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid candidate passage CompanyString",
-            "rerank_in.candidate_passages", options.converter_id.c_str(),
+            "rerank_in.candidate_passages", options.Label().c_str(),
             static_cast<int>(i));
       }
       if (static_cast<size_t>(pass->length) > kMaxCandidatePassageBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "candidate passage length exceeds limit",
-            "rerank_in.candidate_passages", options.converter_id.c_str(),
+            "rerank_in.candidate_passages", options.Label().c_str(),
             static_cast<int>(i));
       }
 
@@ -93,14 +93,14 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kRerankQueries, std::move(queries),
-          options.converter_id.c_str(), status) ||
+          *context, kRerankQueries, std::move(queries), options.Label().c_str(),
+          status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, kRerankCandidates, std::move(candidates),
-          options.converter_id.c_str(), status) ||
+          options.Label().c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kRerankPairs, std::move(pairs),
-          options.converter_id.c_str(), status)) {
+          *context, kRerankPairs, std::move(pairs), options.Label().c_str(),
+          status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -109,9 +109,10 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorRerankInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "rerank.plain";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot)};
+  def.type = kInputSlot;
+  def.name = "cross_rerank";
+  def.service_type = kMockServiceCrossRerank;
+  def.slot = ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot);
   def.logical_ports = {OutputPort(kRerankQueries),
                        OutputPort(kRerankCandidates, "N:1"),
                        OutputPort(kRerankPairs, "N:1")};

@@ -17,6 +17,20 @@ namespace {
 
 constexpr const char* kOutputSlot = "audio_out";
 
+struct Params {
+  int64_t transcribed_text_max_bytes = 0;
+  int64_t intent_slot_json_max_bytes = 0;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      MaxBytes("transcribed_text", &Params::transcribed_text_max_bytes)
+          .Default(511),
+      MaxBytes("intent_slot_json", &Params::intent_slot_json_max_bytes)
+          .Default(1023),
+  });
+}
+
 int EncodeOperatorAudioResult(AlgContext* context,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
@@ -24,7 +38,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
+        options.Label().c_str());
   }
 
   const auto* transcripts =
@@ -42,17 +56,17 @@ int EncodeOperatorAudioResult(AlgContext* context,
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
-        "destination", options.converter_id.c_str());
+        "destination", options.Label().c_str());
   }
 
   std::vector<const TextBatch::value_type*> transcripts_by_request;
   if (!IndexResults(transcripts, raw_req_ids, &transcripts_by_request,
-                    "transcripts", options.converter_id.c_str(), status)) {
+                    "transcripts", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
   std::vector<const RuleMatchBatch::value_type*> intent_slots_by_request;
   if (!IndexResults(intent_slots, raw_req_ids, &intent_slots_by_request,
-                    "intent_slots", options.converter_id.c_str(), status)) {
+                    "intent_slots", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -62,7 +76,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing audio_out slot item", kOutputSlot,
-          options.converter_id.c_str(), static_cast<int>(i));
+          options.Label().c_str(), static_cast<int>(i));
     }
 
     out->request_id = (*raw_req_ids)[i];
@@ -89,11 +103,13 @@ int EncodeOperatorAudioResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "audio_result.plain";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "audio_asr_intent";
+  def.service_type = kMockServiceAudioAsrIntent;
+  def.slot = ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kTranscripts),
                        RequiredInputPort(kIntentSlots)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorAudioResult;
   return def;
 }

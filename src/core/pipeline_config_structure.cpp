@@ -34,8 +34,7 @@ const nlohmann::json& PipelineConfigStructure() {
                          {"comment", {{"type", "string"}}}},
                         {"model_id", "model_type", "backend", "model_path"});
     auto result = Object(
-        {{"biz_name", NonemptyString()},
-         {"comment", {{"type", "string"}}},
+        {{"comment", {{"type", "string"}}},
          {"max_parallel_workers",
           {{"type", "integer"},
            {"minimum", 1},
@@ -48,7 +47,7 @@ const nlohmann::json& PipelineConfigStructure() {
            {"minItems", 1},
            {"maxItems", 256},
            {"items", std::move(node)}}}},
-        {"biz_name", "pipeline"});
+        {"pipeline"});
     return result;
   }();
   return shape;

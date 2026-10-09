@@ -6,6 +6,7 @@
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "adapter/io_converter.h"
@@ -33,8 +34,8 @@ OperatorValueTypeBinding MakeBusinessSummaryBinding() {
   std::string summary_name = "summary";
   auto binding = MakePooledOutputBinding<BusinessSummaryOutput>(
       "test_business_summary",
-      {{title_name, &BusinessSummaryOutput::title, {7, 31}},
-       {summary_name, &BusinessSummaryOutput::summary, {15, 63}}},
+      {{title_name, &BusinessSummaryOutput::title, {31}},
+       {summary_name, &BusinessSummaryOutput::summary, {63}}},
       [](BusinessSummaryOutput& output) noexcept { output.request_id = 0; });
   title_name.assign(title_name.size(), 'x');
   summary_name.assign(summary_name.size(), 'x');
@@ -54,13 +55,14 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_EQ(binding.external_c_type_name, "BusinessSummaryOutput");
   ASSERT_EQ(binding.output_layout.string_capacity_fields.size(), 2U);
   EXPECT_EQ(
-      binding.output_layout.string_capacity_fields.at("title").default_capacity,
-      7U);
+      binding.output_layout.string_capacity_fields.at("title").max_capacity,
+      31U);
   EXPECT_EQ(
       binding.output_layout.string_capacity_fields.at("summary").max_capacity,
       63U);
   ResolvedOutputPoolSpec spec;
   spec.type = binding.canonical_suffix;
+  spec.capacities["title"] = 7;
   spec.capacities["summary"] = 23;
   size_t bytes = 0;
   std::string error;
@@ -129,11 +131,11 @@ TEST_F(OperatorOutputPoolTest,
        AuthoredOutputRejectsAmbiguousFieldDescriptions) {
   using Field = OutputStringField<BusinessSummaryOutput>;
   const std::vector<std::vector<Field>> invalid_fields = {
-      {{"", &BusinessSummaryOutput::title, {7, 31}}},
-      {{"title", &BusinessSummaryOutput::title, {7, 31}},
-       {"title", &BusinessSummaryOutput::summary, {15, 63}}},
-      {{"title", &BusinessSummaryOutput::title, {7, 31}},
-       {"summary", &BusinessSummaryOutput::title, {15, 63}}}};
+      {{"", &BusinessSummaryOutput::title, {31}}},
+      {{"title", &BusinessSummaryOutput::title, {31}},
+       {"title", &BusinessSummaryOutput::summary, {63}}},
+      {{"title", &BusinessSummaryOutput::title, {31}},
+       {"summary", &BusinessSummaryOutput::title, {63}}}};
   for (const auto& fields : invalid_fields) {
     EXPECT_THROW(MakePooledOutputBinding<BusinessSummaryOutput>(
                      "test_invalid_fields", fields,
@@ -150,6 +152,7 @@ TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -177,6 +180,7 @@ TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -283,7 +287,7 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
 }
 
 TEST_F(OperatorOutputPoolTest,
-       EntityOutputReusePreservesDefaultAndCustomCapacity) {
+       EntityOutputReusePreservesDeclaredAndCustomCapacity) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
   ASSERT_NE(binding, nullptr);
@@ -291,7 +295,7 @@ TEST_F(OperatorOutputPoolTest,
     SCOPED_TRACE(capacity);
     ResolvedOutputPoolSpec spec;
     spec.type = "entity_out";
-    if (capacity != 2047u) spec.capacities["entities_json"] = capacity;
+    spec.capacities["entities_json"] = capacity;
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
     ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
@@ -460,6 +464,7 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
     SCOPED_TRACE(type_id);
     ResolvedOutputPoolSpec spec;
     spec.type = "od_out";
+    spec.capacities["result_json"] = 2047;
     spec.metadata_type_id = type_id;
     spec.meta_num = type_id == 0 ? 0 : 3;
     std::shared_ptr<OutputPoolState> pool;
@@ -572,6 +577,7 @@ TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -609,6 +615,7 @@ TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -691,12 +698,24 @@ TEST_F(OperatorOutputPoolTest,
        EveryAllocationFailureReleasesResourcesAndAllowsRetry) {
   const auto nested_binding = test_support::MakeNestedOutputBinding();
   const auto authored_binding = MakeBusinessSummaryBinding();
-  const char* types[] = {
-      "keyword_out", "entity_out",      "doc_out",
-      "audit_out",   "audio_out",       "rerank_out",
-      "od_out",      "test_nested_out", "test_business_summary"};
-  for (const char* type : types) {
-    const std::string suffix(type);
+  const struct {
+    const char* type;
+    std::unordered_map<std::string, uint32_t> capacities;
+  } cases[] = {
+      {"keyword_out", {{"match_result_json", 2047}}},
+      {"entity_out", {{"entities_json", 2047}}},
+      {"doc_out", {{"intent_name", 63}, {"answer_text", 1023}}},
+      {"audit_out",
+       {{"risk_level", 31},
+        {"matched_policy_clause", 255},
+        {"audit_verdict_json", 1023}}},
+      {"audio_out", {{"transcribed_text", 511}, {"intent_slot_json", 1023}}},
+      {"rerank_out", {}},
+      {"od_out", {{"result_json", 2047}}},
+      {"test_nested_out", {}},
+      {"test_business_summary", {{"title", 7}, {"summary", 15}}}};
+  for (const auto& test : cases) {
+    const std::string suffix(test.type);
     const auto* binding =
         suffix == nested_binding.canonical_suffix
             ? &nested_binding
@@ -706,6 +725,7 @@ TEST_F(OperatorOutputPoolTest,
     ASSERT_NE(binding, nullptr);
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
+    spec.capacities = test.capacities;
     if (suffix == "od_out") {
       spec.meta_num = 5;
       spec.metadata_type_id = 1;
@@ -907,6 +927,7 @@ TEST_F(OperatorOutputPoolTest,
   constexpr uint32_t kDepth = 3;
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix(spec.type);
   std::shared_ptr<OutputPoolState> pool;
@@ -927,7 +948,7 @@ TEST_F(OperatorOutputPoolTest,
       void* block = nullptr;
       ASSERT_EQ(pool->Acquire(&block), 0);
       lease.Track(pool, block);
-      acquired.push_back({i, "client.keyword_out", pool, block, "keyword_out"});
+      acquired.push_back({i, "client.keyword_out", pool, block, 0});
     }
     bool threw = false;
     bool injected = false;
@@ -1077,6 +1098,7 @@ TEST_F(OperatorOutputPoolTest,
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -1124,6 +1146,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool_a;
   std::shared_ptr<OutputPoolState> pool_b;
@@ -1140,12 +1163,10 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
 
   // 构造单帧多槽位: slot_a 和 slot_b
   std::vector<std::vector<FrameOutputBinding>> frame_bindings(1);
-  frame_bindings[0].push_back({"slot_a_key", "slot_a", "keyword_out"});
-  frame_bindings[0].push_back({"slot_b_key", "slot_b", "keyword_out"});
+  frame_bindings[0].push_back({"slot_a_key", 0});
+  frame_bindings[0].push_back({"slot_b_key", 1});
 
-  std::unordered_map<std::string, std::shared_ptr<OutputPoolState>> pools;
-  pools["slot_a"] = pool_a;
-  pools["slot_b"] = pool_b;
+  std::vector<std::shared_ptr<OutputPoolState>> pools = {pool_a, pool_b};
 
   // 执行获取：slot_a 成功，slot_b 失败
   {
@@ -1155,7 +1176,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
     int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
                                           &acquired, &acq_err);
     EXPECT_EQ(ret, -4);
-    EXPECT_NE(acq_err.find("Output pool exhausted for slot slot_b"),
+    EXPECT_NE(acq_err.find("Output pool exhausted for slot 1"),
               std::string::npos);
     // guard 析构触发 Rollback
   }
@@ -1169,7 +1190,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
   ASSERT_EQ(OutputPoolState::Create("keyword_out", 1, spec, binding,
                                     &pool_b_new, &err),
             0);
-  pools["slot_b"] = pool_b_new;
+  pools[1] = pool_b_new;
 
   // 下一次合法调用能够成功
   {
@@ -1194,6 +1215,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
 
   ResolvedOutputPoolSpec spec;
   spec.type = "keyword_out";
+  spec.capacities["match_result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
@@ -1201,13 +1223,12 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
       OutputPoolState::Create("keyword_out", 2, spec, binding, &pool, &err), 0);
   ASSERT_EQ(pool->FreeBlockCount(), 2u);
 
-  // 第 0 帧使用有效槽位 keyword_out，第 1 帧使用缺失槽位 missing_slot
+  // 第 0 帧使用有效输出索引 0，第 1 帧使用缺失输出索引 1
   std::vector<std::vector<FrameOutputBinding>> frame_bindings(2);
-  frame_bindings[0].push_back({"k0", "keyword_out", "keyword_out"});
-  frame_bindings[1].push_back({"k1", "missing_slot", "keyword_out"});
+  frame_bindings[0].push_back({"k0", 0});
+  frame_bindings[1].push_back({"k1", 1});
 
-  std::unordered_map<std::string, std::shared_ptr<OutputPoolState>> pools;
-  pools["keyword_out"] = pool;
+  std::vector<std::shared_ptr<OutputPoolState>> pools = {pool};
 
   {
     ScopedOutputLeaseGuard guard;
@@ -1216,7 +1237,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
     int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
                                           &acquired, &acq_err);
     EXPECT_EQ(ret, -5);
-    EXPECT_NE(acq_err.find("Missing output pool for slot missing_slot"),
+    EXPECT_NE(acq_err.find("Missing output pool for slot 1"),
               std::string::npos);
   }
 
@@ -1227,7 +1248,7 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
   // 下一次单帧合法调用必须成功
   {
     std::vector<std::vector<FrameOutputBinding>> single_frame(1);
-    single_frame[0].push_back({"k0", "keyword_out", "keyword_out"});
+    single_frame[0].push_back({"k0", 0});
     ScopedOutputLeaseGuard guard;
     std::vector<AcquiredOutputBlock> acquired;
     std::string acq_err;

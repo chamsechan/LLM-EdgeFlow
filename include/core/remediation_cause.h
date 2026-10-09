@@ -12,7 +12,7 @@ namespace llm_edgeflow {
   X(kNoCompatibleInputSource, "no_compatible_input_source") \
   X(kDuplicateDependency, "duplicate_dependency")           \
   X(kUnknownDependency, "unknown_dependency")               \
-  X(kMissingBizOutput, "missing_biz_output")                \
+  X(kMissingOutputProducer, "missing_output_producer")      \
   X(kPortFlowMismatch, "port_flow_mismatch")                \
   X(kUnknownNodeType, "unknown_node_type")                  \
   X(kUnknownModelType, "unknown_model_type")                \

@@ -11,6 +11,18 @@
 extern "C" {
 #endif
 
+// 外网测试占位值，进入内网后必须核对真实 SDK 枚举。
+enum {
+  kMockServiceKeywordMatch = 1,
+  kMockServiceEntityExtract = 2,
+  kMockServiceDocQa = 3,
+  kMockServiceDialogueAudit = 4,
+  kMockServiceOcrInvoiceQa = 5,
+  kMockServiceAudioAsrIntent = 6,
+  kMockServiceCrossRerank = 7,
+  kMockServiceTranslate = 8
+};
+
 /**
  * @brief Operator C 字符串镜像结构 (显式长度与可变指针，零拷贝借用/池化持有)
  */
@@ -42,6 +54,7 @@ typedef struct CompanyAny {
  */
 typedef struct CompanyFrame {
   uint64_t request_id;
+  int32_t service_type;
   const CompanyString* image_uri;
   const CompanyAny* metadata;
 } CompanyFrame;
@@ -51,6 +64,7 @@ typedef struct CompanyFrame {
  */
 typedef struct CompanyOdOutput {
   uint64_t request_id;
+  int32_t service_type;
   int32_t detected_box_count;
   CompanyString* result_json;
   CompanyAny* metadata;
@@ -62,6 +76,7 @@ typedef struct CompanyOdOutput {
  */
 typedef struct CompanyOperatorAuditInput {
   uint64_t request_id;
+  int32_t service_type;
   const CompanyString* user_text;
   const CompanyString* channel_name;
 } CompanyOperatorAuditInput;
@@ -71,6 +86,7 @@ typedef struct CompanyOperatorAuditInput {
  */
 typedef struct CompanyOperatorAuditOutput {
   uint64_t request_id;
+  int32_t service_type;
   CompanyString* risk_level;
   float risk_score;
   CompanyString* matched_policy_clause;
@@ -83,6 +99,7 @@ typedef struct CompanyOperatorAuditOutput {
  */
 typedef struct CompanyOperatorKeywordInput {
   uint64_t request_id;
+  int32_t service_type;
   const CompanyString* sentence_text;
 } CompanyOperatorKeywordInput;
 
@@ -91,6 +108,7 @@ typedef struct CompanyOperatorKeywordInput {
  */
 typedef struct CompanyOperatorKeywordOutput {
   uint64_t request_id;
+  int32_t service_type;
   int32_t is_hit;
   CompanyString* match_result_json;
   int32_t status_code;
@@ -101,6 +119,7 @@ typedef struct CompanyOperatorKeywordOutput {
  */
 typedef struct CompanyOperatorEntityInput {
   uint64_t request_id;
+  int32_t service_type;
   const CompanyString* sentence_text;
 } CompanyOperatorEntityInput;
 
@@ -109,6 +128,7 @@ typedef struct CompanyOperatorEntityInput {
  */
 typedef struct CompanyOperatorEntityOutput {
   uint64_t request_id;
+  int32_t service_type;
   CompanyString* entities_json;
   int32_t status_code;
 } CompanyOperatorEntityOutput;
@@ -118,6 +138,7 @@ typedef struct CompanyOperatorEntityOutput {
  */
 typedef struct CompanyOperatorDocInput {
   uint64_t request_id;
+  int32_t service_type;
   const CompanyString* doc_text;
   const CompanyString* query_text;
 } CompanyOperatorDocInput;
@@ -127,6 +148,7 @@ typedef struct CompanyOperatorDocInput {
  */
 typedef struct CompanyOperatorDocOutput {
   uint64_t request_id;
+  int32_t service_type;
   CompanyString* intent_name;
   float confidence;
   CompanyString* answer_text;
@@ -139,6 +161,7 @@ typedef struct CompanyOperatorDocOutput {
  */
 typedef struct CompanyOperatorAudioInput {
   uint64_t request_id;
+  int32_t service_type;
   const float* pcm_buffer;
   int32_t pcm_length;
   int32_t sample_rate;
@@ -149,6 +172,7 @@ typedef struct CompanyOperatorAudioInput {
  */
 typedef struct CompanyOperatorAudioOutput {
   uint64_t request_id;
+  int32_t service_type;
   CompanyString* transcribed_text;
   CompanyString* intent_slot_json;
   int32_t status_code;
@@ -161,6 +185,7 @@ typedef struct CompanyOperatorAudioOutput {
  */
 typedef struct CompanyOperatorRerankInput {
   uint64_t request_id;
+  int32_t service_type;
   const CompanyString* query_text;
   const CompanyString*
       candidate_passages[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
@@ -172,6 +197,7 @@ typedef struct CompanyOperatorRerankInput {
  */
 typedef struct CompanyOperatorRerankOutput {
   uint64_t request_id;
+  int32_t service_type;
   float scores[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t sorted_indices[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t count;

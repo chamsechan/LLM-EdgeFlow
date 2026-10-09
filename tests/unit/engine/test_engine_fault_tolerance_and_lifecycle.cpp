@@ -187,7 +187,6 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
 
 // 2. 5 层深度复杂波前 DAG 拓扑执行测试 (Layer 0 ~ Layer 4)
 TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
-  llm_edgeflow::RegisterTestBizs({"deep_5_layer_dag"});
   using namespace llm_edgeflow;
 
   // 构建 5 层 11 节点复杂 DAG 图:
@@ -196,8 +195,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   // Layer 2: M1, M2 (依赖 A1, A2, A3)
   // Layer 3: B1, B2, B3 (依赖 M1, M2)
   // Layer 4: Final (依赖 B1, B2, B3)
-  nlohmann::json deep_dag_config = {{"biz_name", "deep_5_layer_dag"},
-                                    {"max_parallel_workers", 4},
+  nlohmann::json deep_dag_config = {{"max_parallel_workers", 4},
                                     {"pipeline",
                                      {{{"id", "R1"},
                                        {"node_type", "DeepDagNode"},
@@ -249,7 +247,8 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
                                        {"depends_on", {"B1", "B2", "B3"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, deep_dag_config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, deep_dag_config, MakeTestBoundary(),
+                                nullptr));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
@@ -330,6 +329,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
                               const_cast<char*>(sentence.data())};
     CompanyOperatorKeywordInput in_req{};
     in_req.request_id = static_cast<uint64_t>(10000 + cycle);
+    in_req.service_type = kMockServiceKeywordMatch;
     in_req.sentence_text = &cs_sentence;
 
     operator_api::NamedIoBatch inputs(1);

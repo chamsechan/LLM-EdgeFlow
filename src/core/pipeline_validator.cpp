@@ -124,7 +124,7 @@ nlohmann::json ShapeFacts(const KeyShape& shape) {
   return {{"kind", "unknown"}};
 }
 
-// Biz 和 IO 边界端口按请求计数："1:1" 恰为一个条目，
+// IO 边界端口按请求计数："1:1" 恰为一个条目，
 // 其他声明均为归属该请求的集合。
 KeyShape BoundaryShape(const PortContract& port, std::string origin) {
   return port.cardinality == "1:1" ? KeyShape::PerRequest()
@@ -361,7 +361,7 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
 
 ValidatedPipelinePlan ValidateAndPlanInternal(
     const nlohmann::json& root, const PipelineCatalogSnapshot& catalog,
-    const PipelineIoBoundary* io_boundary = nullptr) {
+    const PipelineIoBoundary& io_boundary) {
   ValidatedPipelinePlan plan;
   ValidationReport& report = plan.report;
 
@@ -376,11 +376,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     return plan;
   }
   const auto& parsed = plan.config;
-  const auto* biz = catalog.FindBiz(parsed.biz_name);
-  if (!biz) {
-    Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
-        "No registered biz contract accepts pipeline name: " + parsed.biz_name);
-  }
   if (catalog.node_registry_has_conflict) {
     std::string message = "Node registry contains registration conflicts";
     for (const auto& error : catalog.node_registry_errors) {
@@ -408,7 +403,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
   std::unordered_set<std::string> unresolved_model_ids;
   std::unordered_set<std::string> unresolved_output_keys;
-  std::unordered_set<std::string> reported_missing_outputs;
   std::unordered_map<std::string, std::string> model_capabilities;
   std::unordered_map<std::string, InferenceConcurrency> model_concurrency;
   for (const auto& model : parsed.models) {
@@ -608,47 +602,9 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
-  std::unordered_map<std::string, BizPortDefinition> ingress;
-  if (biz) {
-    for (const auto& port : biz->ingress) ingress[port.blackboard_key] = port;
-  }
-  if (io_boundary) {
-    std::unordered_map<std::string, BizPortDefinition> input_pub;
-    for (const auto& port : io_boundary->input_published_ports) {
-      input_pub[port.blackboard_key] = port;
-    }
-    if (biz) {
-      for (const auto& req_in : biz->ingress) {
-        if (!req_in.required) continue;
-        auto it = input_pub.find(req_in.blackboard_key);
-        if (it == input_pub.end()) {
-          Add(&report, DiagnosticCode::kMissingInputProducer, "/io/input",
-              "IO boundary input does not publish required biz ingress port: " +
-                  req_in.blackboard_key,
-              "$io_input", req_in.blackboard_key);
-        } else {
-          if (it->second.type_id != req_in.type_id) {
-            Add(&report, DiagnosticCode::kMissingInputProducer, "/io/input",
-                "IO boundary input port type mismatch for '" +
-                    req_in.blackboard_key + "': expected '" + req_in.type_id +
-                    "', got '" + it->second.type_id + "'",
-                "$io_input", req_in.blackboard_key);
-          } else {
-            ValidatePortFlowContract(
-                it->second, req_in, "/io/input", "$io_input", "$ingress",
-                PortDirection::kOutput, req_in.blackboard_key,
-                req_in.blackboard_key, &report);
-            ValidateBoundaryShape(
-                BoundaryShape(it->second, "$ingress." + req_in.blackboard_key),
-                it->second, req_in, "/io/input", "$io_input", "$ingress",
-                req_in.blackboard_key, &report);
-          }
-        }
-      }
-    }
-    for (const auto& port : io_boundary->input_published_ports) {
-      ingress[port.blackboard_key] = port;
-    }
+  std::unordered_map<std::string, IoPortDefinition> ingress;
+  for (const auto& port : io_boundary.input_published_ports) {
+    ingress[port.blackboard_key] = port;
   }
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortContract>>>
@@ -714,7 +670,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
   const size_t pre_topology_errors = report.diagnostics.size();
   ResolveTopology(nodes, &report);
-  if (report.diagnostics.size() != pre_topology_errors || !biz ||
+  if (report.diagnostics.size() != pre_topology_errors ||
       report.topological_order.size() != nodes.size()) {
     finish_plan(plan);
     return plan;
@@ -866,7 +822,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           item_shape = KeyShape::Unknown();
         }
       }
-      if (!found && biz && !has_only_unresolved_source(actual_key)) {
+      if (!found && !has_only_unresolved_source(actual_key)) {
         std::vector<std::string> suggestions;
         for (const auto& candidate : catalog.nodes) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
@@ -877,7 +833,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           }
         }
         Add(&report, DiagnosticCode::kMissingInputProducer, input_path,
-            "No unique compatible biz ingress or node produces port '" +
+            "No unique compatible IO ingress or node produces port '" +
                 input.logical_name + "' (bound key: '" + actual_key +
                 "') of type '" + input.type_id + "'",
             id, input.logical_name, {}, suggestions);
@@ -974,101 +930,54 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     plan.node_plans[id] = std::move(node_plan);
   }
 
-  if (biz) {
-    for (const auto& consumer : biz->egress) {
-      auto it = producers.find(consumer.blackboard_key);
-      if (it == producers.end() || it->second.empty()) {
-        if (consumer.required &&
-            !has_only_unresolved_source(consumer.blackboard_key)) {
-          Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",
-              "Pipeline does not produce required biz output: " +
-                  consumer.blackboard_key,
-              {}, consumer.blackboard_key);
-          reported_missing_outputs.insert(consumer.blackboard_key);
+  for (const auto& consumer : io_boundary.output_consumed_ports) {
+    auto it = producers.find(consumer.blackboard_key);
+    if (it == producers.end() || it->second.empty()) {
+      auto ing_it = ingress.find(consumer.blackboard_key);
+      if (ing_it != ingress.end()) {
+        if (ing_it->second.type_id != consumer.type_id) {
+          Add(&report, DiagnosticCode::kMissingOutputProducer, "/io/output",
+              "IO boundary output type mismatch for '" +
+                  consumer.blackboard_key + "': expected '" + consumer.type_id +
+                  "', got '" + ing_it->second.type_id + "'",
+              "$ingress", consumer.blackboard_key, {"$io_output"});
+        } else {
+          ValidatePortFlowContract(
+              ing_it->second, consumer, "/io/output", "$ingress", "$io_output",
+              PortDirection::kOutput, consumer.blackboard_key,
+              consumer.blackboard_key, &report);
+          ValidateBoundaryShape(shape_of(consumer.blackboard_key),
+                                ing_it->second, consumer, "/io/output",
+                                "$ingress", "$io_output",
+                                consumer.blackboard_key, &report);
         }
         continue;
       }
-      const auto& [producer_id, producer_port] = it->second.back();
-      const auto& producer_node = *node_by_id.at(producer_id);
-      std::string output_path =
-          "/pipeline/" + std::to_string(producer_node.source_index);
-      for (const auto& [logical_key, actual_key] :
-           producer_node.ports.outputs) {
-        if (actual_key == consumer.blackboard_key) {
-          output_path += "/outputs/" + logical_key;
-          break;
-        }
+      if (consumer.required &&
+          !has_only_unresolved_source(consumer.blackboard_key)) {
+        Add(&report, DiagnosticCode::kMissingOutputProducer, "/io/output",
+            "Pipeline does not produce required IO boundary output: " +
+                consumer.blackboard_key,
+            {}, consumer.blackboard_key);
       }
-      if (producer_port.type_id != consumer.type_id) {
-        Add(&report, DiagnosticCode::kMissingBizOutput, output_path,
-            "Biz output type mismatch for '" + consumer.blackboard_key +
-                "': expected '" + consumer.type_id + "', got '" +
-                producer_port.type_id + "'",
-            producer_id, consumer.blackboard_key, {"$egress"});
-        continue;
-      }
-      ValidatePortFlowContract(producer_port, consumer, output_path,
-                               producer_id, "$egress", PortDirection::kOutput,
-                               consumer.blackboard_key, consumer.blackboard_key,
-                               &report);
-      ValidateBoundaryShape(shape_of(consumer.blackboard_key), producer_port,
-                            consumer, output_path, producer_id, "$egress",
-                            consumer.blackboard_key, &report);
+      continue;
     }
-  }
-
-  if (io_boundary) {
-    for (const auto& consumer : io_boundary->output_consumed_ports) {
-      auto it = producers.find(consumer.blackboard_key);
-      if (it == producers.end() || it->second.empty()) {
-        auto ing_it = ingress.find(consumer.blackboard_key);
-        if (ing_it != ingress.end()) {
-          if (ing_it->second.type_id != consumer.type_id) {
-            Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
-                "IO boundary output type mismatch for '" +
-                    consumer.blackboard_key + "': expected '" +
-                    consumer.type_id + "', got '" + ing_it->second.type_id +
-                    "'",
-                "$ingress", consumer.blackboard_key, {"$io_output"});
-          } else {
-            ValidatePortFlowContract(
-                ing_it->second, consumer, "/io/output", "$ingress",
-                "$io_output", PortDirection::kOutput, consumer.blackboard_key,
-                consumer.blackboard_key, &report);
-            ValidateBoundaryShape(shape_of(consumer.blackboard_key),
-                                  ing_it->second, consumer, "/io/output",
-                                  "$ingress", "$io_output",
-                                  consumer.blackboard_key, &report);
-          }
-          continue;
-        }
-        if (consumer.required &&
-            !has_only_unresolved_source(consumer.blackboard_key) &&
-            !reported_missing_outputs.count(consumer.blackboard_key)) {
-          Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
-              "Pipeline does not produce required IO boundary output: " +
-                  consumer.blackboard_key,
-              {}, consumer.blackboard_key);
-        }
-        continue;
-      }
-      const auto& [producer_id, producer_port] = it->second.back();
-      if (producer_port.type_id != consumer.type_id) {
-        Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
-            "IO boundary output type mismatch for '" + consumer.blackboard_key +
-                "': expected '" + consumer.type_id + "', got '" +
-                producer_port.type_id + "'",
-            producer_id, consumer.blackboard_key, {"$io_output"});
-        continue;
-      }
-      ValidatePortFlowContract(producer_port, consumer, "/io/output",
-                               producer_id, "$io_output",
-                               PortDirection::kOutput, consumer.blackboard_key,
-                               consumer.blackboard_key, &report);
-      ValidateBoundaryShape(shape_of(consumer.blackboard_key), producer_port,
-                            consumer, "/io/output", producer_id, "$io_output",
-                            consumer.blackboard_key, &report);
+    const auto& [producer_id, producer_port] = it->second.back();
+    if (producer_port.type_id != consumer.type_id) {
+      Add(&report, DiagnosticCode::kMissingOutputProducer, "/io/output",
+          "IO boundary output type mismatch for '" + consumer.blackboard_key +
+              "': expected '" + consumer.type_id + "', got '" +
+              producer_port.type_id + "'",
+          producer_id, consumer.blackboard_key, {"$io_output"});
+      continue;
     }
+    ValidatePortFlowContract(producer_port, consumer, "/io/output", producer_id,
+                             "$io_output", PortDirection::kOutput,
+                             consumer.blackboard_key, consumer.blackboard_key,
+                             &report);
+    ValidateBoundaryShape(shape_of(consumer.blackboard_key), producer_port,
+                          consumer, "/io/output", producer_id, "$io_output",
+                          consumer.blackboard_key, &report);
   }
 
   if (parsed.max_parallel_workers > 1) {
@@ -1186,13 +1095,13 @@ nlohmann::json ValidationReport::ToJson() const {
 }
 
 ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
-    const nlohmann::json& root, const PipelineIoBoundary* io_boundary) {
+    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
   return ValidateAndPlanInternal(root, catalog, io_boundary);
 }
 
 ValidationReport PipelineValidator::Validate(
-    const nlohmann::json& root, const PipelineIoBoundary* io_boundary) {
+    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
   return ValidateAndPlan(root, io_boundary).report;
 }
 

@@ -1,8 +1,17 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "dialogue_audit"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "audit_in",
+        "name": "dialogue_audit"
+      }
+    ],
+    "output": [
+      {
+        "type": "audit_out",
+        "name": "dialogue_audit"
+      }
+    ]
   },
   "models": [
     {

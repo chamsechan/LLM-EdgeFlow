@@ -83,7 +83,8 @@ mkdir -p build/control_tutorial
 
 ```json
 {
-  "deployment": {"io": {"io_binding": "keyword_match"}},
+  "io": {"input": [{"type":"keyword_in","name":"keyword_match"}],
+         "output": [{"type":"keyword_out","name":"keyword_match"}]},
   "models": [],
   "pipeline": [
     {

@@ -132,7 +132,7 @@ graph TD
   1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ResolveOperatorConfigIo()`；
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
   3. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
-  4. 由注册的 Input/Output Converter 与 IoBinding 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
+  4. 由注册的 Input/Output Converter 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
   5. 管理有界输出池与租约生命周期，执行同句柄 Process/Control 串行化。
 
 业务需求中的输入输出以 Operator 接口边界为准，包含载体中的业务字段和序列化格式。
@@ -155,7 +155,10 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 
 - 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
-- C++ Operator API 根据 Key 的最后一个点号解析外部槽位的 `key_suffix`；槽位的 `type_suffix` 再选择 `OperatorValueTypeRegistry` 中的外部 C++ 类型。不同槽位后缀可以复用同一类型。`IoBindingRegistry` 负责关联转换器与业务契约，转换器逻辑端口名即内部 Pipeline 的 Blackboard Key，具体区别见[输出分配方案](dev_guide/operator_output_allocation.md)。
+- Pipeline 根 `io.input` / `io.output` 按 `(type, name)` 选择单槽转换器。`type` 是宿主 key 后缀，
+  `name` 对应结构体业务值；唯一 type 接受任意前缀，重复 type 使用 `name.type`。
+  平台登记显式声明请求 ID 与业务成员，Process 逐行检查服务值和多项 ID 一致性。
+  转换器 typed 端口组合成 Core 的必传 I/O 边界，见[输出分配方案](dev_guide/operator_output_allocation.md)。
 - 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
@@ -164,16 +167,14 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
-- 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
+- 值类型表、转换器注册表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0；共享库不带 SOVERSION，
   导出符号不带版本节点。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
-  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；配置必须在 `deployment.io.io_binding` 填写业务名，
-  接入适配层据此找到该业务的绑定与边界，外部文档不另设根级 `biz_name`。模型路径只在
-  `models[].model_path` 中配置，相对路径以宿主传入的部署根为基准；
-  Pipeline 的 `deployment.io.out_mem` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
-  最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
-  将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
+  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；根 `io` 选择转换器与参数，所选端口形成明确边界。
+  模型路径当前只在 `models[].model_path` 中配置，相对宿主部署根解析。
+  输出参数在 Create 中按共享声明解析；Prepare 后尺寸生成池规格，平台登记只保留硬上限。
+  分配器、布局参数和 metadata 固定在槽声明中，布局参数由注册审计归一化并共享。
   每个逻辑输出槽位拥有独立输出池，
   池深只由框架应用；分配实现只处理一份完整输出。见
   [输出分配方案](dev_guide/operator_output_allocation.md)。

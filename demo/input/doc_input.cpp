@@ -68,9 +68,9 @@ int BuildDocRequests(
     storage->query_strs.push_back(
         {static_cast<int32_t>(storage->queries[i].size()),
          const_cast<char*>(storage->queries[i].data())});
-    storage->carriers.push_back({static_cast<uint64_t>(10001 + i),
-                                 &storage->doc_strs.back(),
-                                 &storage->query_strs.back()});
+    storage->carriers.push_back(
+        {static_cast<uint64_t>(10001 + i), inputs[0].service_type.value_or(0),
+         &storage->doc_strs.back(), &storage->query_strs.back()});
   }
 
   DemoRequestBatch batch;

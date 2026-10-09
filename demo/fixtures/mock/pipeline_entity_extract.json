@@ -1,8 +1,17 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "entity_extract"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "entity_extract"
+      }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "entity_extract"
+      }
+    ]
   },
   "models": [
     {

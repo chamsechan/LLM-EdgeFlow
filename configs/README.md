@@ -45,30 +45,30 @@ Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于
 必须显式填写 `models[].model_id`；普通参数仍按 Definition 补齐默认值。
 `max_parallel_workers` 范围为 1–64，默认 1，大于 1 时启用并行调度和相应安全检查。
 
-## 业务入口与输出配置
+## 输入输出与参数
 
-每份 Pipeline 显式在 `deployment.io.io_binding` 填写业务名，它选择该业务唯一的绑定，决定外部 C 结构体与内部数据的转换契约。
-框架从注册关系获得业务边界、输入/输出转换器、端口和输出类型，不靠文件名或后缀猜测。
-Demo 根据配置自动选取运行入口，Profile 只保存配置路径、数据集和执行参数。
-每个业务只注册一个 binding；同一业务的第二个 binding 会被注册审计拒绝，SDK 初始化失败。
+Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)` 选择已注册转换器。
+`type` 是宿主 key 后缀，`name` 对应平台业务值；每份登记拥有一个宿主槽。所选 typed 端口组合
+成传给 Core 的明确边界。Demo 从 SDK 预检查询载体与业务值，Profile 保存运行预设。
 
 ```json
 {
-  "deployment": {
-    "io": {
-      "io_binding": "keyword_match"
-    }
+  "io": {
+    "input": [{"type":"keyword_in", "name":"keyword_match"}],
+    "output": [{"type":"keyword_out", "name":"keyword_match"}]
   }
 }
 ```
 
-必需输出槽自动采用注册的默认 allocator、容量与零 metadata。仅覆盖值写入
-`deployment.io.out_mem`；输出类型直接来自注册的槽位定义。
-可选输出槽通过显式槽配置启用，`{}` 表示默认值；`out_mem` 可以省略，`io_binding` 必须保留。
-`out_mem.params` 表示分配器布局参数，Node 算法参数仍在节点 `config` 中。
+可选 `params` 只填写必要覆盖，未写字段用代码声明的默认值。输出每个字符串有
+`<field>_max_bytes` 整数参数，范围为 1 到平台硬上限，例如 `answer_text_max_bytes: 4095`。
+翻译输出默认值为 8191；分配器、布局参数和 metadata 固定在登记，不由配置选择。
+参数在 Create 中解析、Prepare、Validate，生效值来自 Prepare 后的声明成员。
+可选输出也总是有池；宿主可按行省略 key。重复载体 type 的项使用 `name.type` 宿主 key，
+唯一 type 继续接受任意非空前缀。有效 Process 批次上限为 `min(max_frame_depth, 64)`。
 
-`validate/plan` 与 Operator 共用部署准备和校验入口；`resolve-conf` 同时列出实际业务、
-binding 与完整输出池规格。派生的业务名仅为查询结果，不需要写回配置。
+`validate` / `plan` 与 Operator 共用接入准备和 Core 校验入口。
+本轮重构的工具升级在第 9 步完成；过渡阶段高级配置编辑与 schema 命令明确提示暂不支持。
 
 ## 手写 JSON 的补全
 

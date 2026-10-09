@@ -210,8 +210,7 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
 }
 
 nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_config) {
-  return {{"biz_name", "schema_fixture_biz"},
-          {"models",
+  return {{"models",
            {{{"model_id", "probe_model"},
              {"model_type", SchemaProbeModel::kModelType},
              {"backend", SchemaProbeBackend::kBackendType},
@@ -232,14 +231,10 @@ REGISTER_BACKEND_WITH_DEFINITION(SchemaProbeBackend,
 
 }  // namespace
 
-class DefinitionSchemaValidationTest : public ::testing::Test {
- protected:
-  void SetUp() override { RegisterTestBizs({"schema_fixture_biz"}); }
-};
+class DefinitionSchemaValidationTest : public ::testing::Test {};
 
 TEST_F(DefinitionSchemaValidationTest, EnforcesRequiredField) {
   nlohmann::json pipeline = {
-      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
@@ -247,7 +242,7 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesRequiredField) {
                                {"depends_on", nlohmann::json::array()},
                                {"config", nlohmann::json::object()}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
   ASSERT_FALSE(plan.report.diagnostics.empty());
   auto it =
@@ -325,9 +320,9 @@ TEST_F(DefinitionSchemaValidationTest, ElementHooksReportOwningParameterPath) {
   for (const auto& [config, suffix, message] : cases) {
     SCOPED_TRACE(config.dump());
     const auto plan = PipelineValidator::ValidateAndPlan(
-        {{"biz_name", "schema_fixture_biz"},
-         {"pipeline",
-          {{{"id", "probe"}, {"node_type", type}, {"config", config}}}}});
+        {{"pipeline",
+          {{{"id", "probe"}, {"node_type", type}, {"config", config}}}}},
+        MakeTestBoundary());
     EXPECT_FALSE(plan.report.ok);
     const auto diagnostic =
         std::find_if(plan.report.diagnostics.begin(),
@@ -343,7 +338,6 @@ TEST_F(DefinitionSchemaValidationTest, ElementHooksReportOwningParameterPath) {
 
 TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
   nlohmann::json pipeline = {
-      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -352,7 +346,7 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
              {"depends_on", nlohmann::json::array()},
              {"config", {{"req_str", "hello"}, {"opt_int", 200}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
   auto it =
       std::find_if(plan.report.diagnostics.begin(),
@@ -365,7 +359,6 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
 
 TEST_F(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
   nlohmann::json pipeline = {
-      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -375,7 +368,7 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
              {"config",
               {{"req_str", "hello"}, {"enum_mode", "invalid_choice"}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
   auto it = std::find_if(plan.report.diagnostics.begin(),
                          plan.report.diagnostics.end(), [](const auto& item) {
@@ -387,7 +380,6 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
 
 TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   nlohmann::json pipeline = {
-      {"biz_name", "schema_fixture_biz"},
       {"models",
        nlohmann::json::array(
            {{{"model_id", "probe_model"},
@@ -403,7 +395,7 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"req_str", "valid"}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
 
   bool has_range = false;
@@ -430,8 +422,8 @@ TEST_F(DefinitionSchemaValidationTest,
     SchemaProbeBackend::ResetCounts();
     SchemaProbeModel::ResetCounts();
     SchemaProbeNode::ResetCounts();
-    const auto plan =
-        PipelineValidator::ValidateAndPlan(MakeSchemaProbePipeline(config));
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        MakeSchemaProbePipeline(config), MakeTestBoundary());
     EXPECT_TRUE(plan.report.ok);
     EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
     EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"),
@@ -451,7 +443,8 @@ TEST_F(DefinitionSchemaValidationTest,
   SchemaProbeModel::ResetCounts();
   SchemaProbeNode::ResetCounts();
   const auto input = MakeSchemaProbePipeline({{"precision", "int8"}});
-  const auto plan = PipelineValidator::ValidateAndPlan(input);
+  const auto plan =
+      PipelineValidator::ValidateAndPlan(input, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
   const auto diagnostic =
       std::find_if(plan.report.diagnostics.begin(),
@@ -466,7 +459,8 @@ TEST_F(DefinitionSchemaValidationTest,
 
   Pipeline pipeline;
   PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, input, &build_diagnostic));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, input, MakeTestBoundary(),
+                                 &build_diagnostic));
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
   EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
   EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
@@ -482,8 +476,8 @@ TEST_F(DefinitionSchemaValidationTest,
                              nlohmann::json{{"undeclared", 1}}}) {
     SCOPED_TRACE(config.dump());
     SchemaProbeBackend::ResetCounts();
-    const auto plan =
-        PipelineValidator::ValidateAndPlan(MakeSchemaProbePipeline(config));
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        MakeSchemaProbePipeline(config), MakeTestBoundary());
     EXPECT_FALSE(plan.report.ok);
     EXPECT_EQ(SchemaProbeBackend::s_validate_count, 0);
     EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
@@ -495,7 +489,8 @@ TEST_F(DefinitionSchemaValidationTest,
   for (const int device_id : {15, 16}) {
     SchemaProbeBackend::ResetCounts();
     const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline({{"device_id", device_id}}));
+        MakeSchemaProbePipeline({{"device_id", device_id}}),
+        MakeTestBoundary());
     EXPECT_FALSE(plan.report.ok);
     EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
     const auto diagnostic =
@@ -518,7 +513,6 @@ TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   SchemaProbeBackend::ResetCounts();
 
   nlohmann::json invalid_pipeline = {
-      {"biz_name", "schema_fixture_biz"},
       {"models",
        nlohmann::json::array({{{"model_id", "probe_model"},
                                {"model_type", SchemaProbeModel::kModelType},
@@ -534,7 +528,8 @@ TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool built = BuildTestPipeline(pipeline, invalid_pipeline, &diag);
+  bool built =
+      BuildTestPipeline(pipeline, invalid_pipeline, MakeTestBoundary(), &diag);
   EXPECT_FALSE(built);
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
 
@@ -995,18 +990,10 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
                          NodePortDefinition{"text", "TextBatch", false, "1:1",
                                             "preserve", "request"}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_key_node));
-
-  // 含非法端口的 Biz 定义
-  BizDefinition invalid_biz;
-  invalid_biz.biz_name = "invalid_port_biz";
-  invalid_biz.ingress = {
-      BizPortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(invalid_biz));
 }
 
 TEST_F(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
   nlohmann::json pipeline = {
-      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -1015,7 +1002,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
              {"depends_on", nlohmann::json::array()},
              {"config", {{"req_str", "hello"}, {"opt_int", 20.5}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
   EXPECT_FALSE(plan.report.ok);
   auto it = std::find_if(plan.report.diagnostics.begin(),
                          plan.report.diagnostics.end(), [](const auto& item) {
@@ -1031,14 +1018,14 @@ TEST_F(DefinitionSchemaValidationTest,
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 1;
   nlohmann::json pipeline_field_fail = {
-      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", "ThrowingValidateConfigNode"},
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"req_num", "not_an_int"}}}}})}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(pipeline_field_fail);
+  auto plan1 = PipelineValidator::ValidateAndPlan(pipeline_field_fail,
+                                                  MakeTestBoundary());
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_FALSE(ThrowingValidateConfigNode::s_called);
 
@@ -1047,14 +1034,14 @@ TEST_F(DefinitionSchemaValidationTest,
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 1;
   nlohmann::json pipeline_std_throw = {
-      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", "ThrowingValidateConfigNode"},
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"req_num", 50}}}}})}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(pipeline_std_throw);
+  auto plan2 = PipelineValidator::ValidateAndPlan(pipeline_std_throw,
+                                                  MakeTestBoundary());
   EXPECT_FALSE(plan2.report.ok);
   EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
   auto it2 =
@@ -1070,7 +1057,8 @@ TEST_F(DefinitionSchemaValidationTest,
   // -> 映射为 kInvalidCombination
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 2;
-  auto plan3 = PipelineValidator::ValidateAndPlan(pipeline_std_throw);
+  auto plan3 = PipelineValidator::ValidateAndPlan(pipeline_std_throw,
+                                                  MakeTestBoundary());
   EXPECT_FALSE(plan3.report.ok);
   EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
   auto it3 =
@@ -1155,11 +1143,11 @@ TEST_F(DefinitionSchemaValidationTest,
 
 TEST_F(DefinitionSchemaValidationTest,
        PortNamesKeepTheirRolesAndCatalogSpelling) {
-  static_assert(!std::is_convertible_v<NodePortDefinition, BizPortDefinition>);
-  static_assert(!std::is_convertible_v<BizPortDefinition, NodePortDefinition>);
+  static_assert(!std::is_convertible_v<NodePortDefinition, IoPortDefinition>);
+  static_assert(!std::is_convertible_v<IoPortDefinition, NodePortDefinition>);
   const BlackboardKey<TextBatch> key{"request_text", "TextBatch"};
   const auto input = RequiredInputPort("text", key);
-  const auto ingress = RequiredBizInput(key);
+  const IoPortDefinition ingress{key.name, key.type_id, true};
   EXPECT_EQ(input.logical_name, "text");
   EXPECT_EQ(ingress.blackboard_key, "request_text");
   NodeDefinition node;
@@ -1170,7 +1158,7 @@ TEST_F(DefinitionSchemaValidationTest,
   EXPECT_FALSE(json["inputs"][0].contains("logical_name"));
 }
 
-TEST_F(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
+TEST_F(DefinitionSchemaValidationTest, NodesRejectEmptyFlowMetadata) {
   for (int field = 0; field < 3; ++field) {
     NodePortDefinition port{"value", "TextBatch", true,
                             "1:1",   "preserve",  "request"};
@@ -1180,13 +1168,7 @@ TEST_F(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
     NodeDefinition node;
     node.node_type = "invalid_empty_flow_node";
     node.outputs = {port};
-    BizDefinition biz;
-    biz.biz_name = "invalid_empty_flow_biz";
-    BizPortDefinition biz_port{"value", "TextBatch"};
-    static_cast<PortContract&>(biz_port) = port;
-    biz.egress = {biz_port};
     EXPECT_FALSE(ValidateNodeDefinitionStructure(node));
-    EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(biz));
   }
 }
 

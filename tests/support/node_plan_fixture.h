@@ -64,38 +64,29 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
                       {"backend", backend},
                       {"model_path", "mock.bin"}});
   }
-  BizDefinition biz{"fixture_" + input_prefix + output_prefix + type};
+  PipelineIoBoundary boundary;
   nlohmann::json inputs = nlohmann::json::object();
   nlohmann::json outputs = nlohmann::json::object();
   auto bind = [&](const NodePortDefinition& port, const std::string& prefix,
-                  std::vector<BizPortDefinition>* boundary,
+                  std::vector<IoPortDefinition>* ports,
                   nlohmann::json* bindings) {
-    BizPortDefinition external;
+    IoPortDefinition external;
     static_cast<PortContract&>(external) = port;
     external.blackboard_key = prefix + port.logical_name;
     if (!port.lifetime_config_field.empty()) {
       external.lifetime =
           normalized.value(port.lifetime_config_field, port.lifetime);
       external.lifetime_config_field.clear();
-      biz.biz_name += "_" + port.logical_name + "_" + external.lifetime;
     }
     (*bindings)[port.logical_name] = external.blackboard_key;
-    boundary->push_back(std::move(external));
+    ports->push_back(std::move(external));
   };
   for (const auto& port : definition->inputs) {
-    if (omitted.count(port.logical_name)) {
-      biz.biz_name += "_omit_" + port.logical_name;
-    } else {
-      bind(port, input_prefix, &biz.ingress, &inputs);
-    }
+    if (!omitted.count(port.logical_name))
+      bind(port, input_prefix, &boundary.input_published_ports, &inputs);
   }
   for (const auto& port : definition->outputs)
-    bind(port, output_prefix, &biz.egress, &outputs);
-  if (!PipelineCatalog::FindBiz(biz.biz_name) &&
-      !PipelineCatalog::RegisterBizDefinition(biz)) {
-    if (error) *error = "Failed to register Node fixture business";
-    return nullptr;
-  }
+    bind(port, output_prefix, &boundary.output_consumed_ports, &outputs);
   nlohmann::json node = {{"id", "fixture_node"},
                          {"node_type", type},
                          {"depends_on", nlohmann::json::array()},
@@ -103,9 +94,9 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
                          {"inputs", std::move(inputs)},
                          {"outputs", std::move(outputs)}};
   auto result = PipelineValidator::ValidateAndPlan(
-      {{"biz_name", biz.biz_name},
-       {"models", std::move(models)},
-       {"pipeline", nlohmann::json::array({std::move(node)})}});
+      {{"models", std::move(models)},
+       {"pipeline", nlohmann::json::array({std::move(node)})}},
+      boundary);
   if (!result.report.ok) {
     if (error) *error = result.report.diagnostics.front().message;
     return nullptr;

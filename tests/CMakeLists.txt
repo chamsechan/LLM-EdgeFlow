@@ -25,8 +25,6 @@ endif()
 # 校验一致性测试使用确定性注册，不污染生产 CLI 或共享 SDK。
 add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/cli/alg_pipeline_tool.cpp
-  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_authoring.cpp
-  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_json_schema.cpp
   ${PROJECT_SOURCE_DIR}/src/cli/pipeline_document_validation.cpp
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)

@@ -16,6 +16,17 @@ namespace {
 
 constexpr const char* kOutputSlot = "keyword_out";
 
+struct Params {
+  int64_t match_result_json_max_bytes = 0;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      MaxBytes("match_result_json", &Params::match_result_json_max_bytes)
+          .Default(2047),
+  });
+}
+
 AdapterStatus EncodeKeyword(const RuleMatchItem& result,
                             CompanyOperatorKeywordOutput* output,
                             const OutputStringWriter& writer) {
@@ -36,10 +47,12 @@ int EncodeOperatorKeywordResult(AlgContext* context,
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "keyword.result";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot)};
+  def.type = kOutputSlot;
+  def.name = "keyword_match";
+  def.service_type = kMockServiceKeywordMatch;
+  def.slot = ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kRuleMatches)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;
 }

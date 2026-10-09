@@ -22,16 +22,16 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 | 架构层 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
-| **接入适配层（Integration）** | 新增输入/输出结构、转换器与业务绑定 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp`<br>`src/adapter/biz/<biz>_bindings.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`IoBindingDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER`<br>`REGISTER_IO_BINDING` |
+| **接入适配层（Integration）** | 新增输入/输出结构、转换器与 I/O 参数 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER` |
 | **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
 | **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `MakeNodeSpec`<br>`REGISTER_FUNCTION_NODE(NodeName, spec)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
 
-## 1. 接入适配层：如何新增一个业务的 Operator 转换器与绑定
+## 1. 接入适配层：如何新增一个业务的 Operator 转换器
 
-> ⚠️ **平台治理红线**：业务接入采用独立的 InputConverter、OutputConverter 与 IoBinding 注册，严禁在 central dispatch 开关中侵入硬编码。
+> ⚠️ **平台治理红线**：业务接入采用独立的 InputConverter、OutputConverter 注册，严禁在 central dispatch 开关中侵入硬编码。
 
 业务需求的输入输出以完整 Operator 请求/响应为准，由输入/输出转换器解包、转换和组装。
 即使复用同一个 DTO 结构，字符串内部协议变化仍可能需要转换器实现；不能用 Demo
@@ -42,8 +42,8 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistry` 注册
 外部类型、规范后缀及校验/分配生命周期；`InputConverter` 负责读取和深拷贝完整请求，
-`OutputConverter` 使用 Create 期输出池组装完整响应。`IoBindingDefinition` 声明业务与
-转换器，注册审计检查端口、类型和契约一致性。
+`OutputConverter` 使用 Create 期输出池组装完整响应。每个方向按 `(type, name)` 登记，
+一份登记拥有一个宿主槽；注册审计检查全部转换器的端口、平台结构和参数声明。
 
 `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
 转义的 NUL 可在解包后保留。输出按显式长度复制，二进制内容使用 `CompanyBuffer`。
@@ -55,14 +55,14 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
-`cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果必须留在该配置文件的目录内；Pipeline 必须填写 `deployment.io.io_binding`，
-可按需配置 `deployment.io.out_mem`。模型路径只在 `models[].model_path` 中填写，
-相对路径以宿主传入的部署根为基准。各路径的相对基准、存在性和目录边界见
-[配置路径](../configs/README.md#配置路径)。业务身份由 binding 推导。
-Demo 通过 `ResolveOperatorConfigIo` 查询输入、输出载体，按结构名组合选择构造与展示；
-相同载体上的不同业务复用 Demo。必需输出槽自动采用注册默认值。
-输出类型来自已注册的逻辑槽位，普通配置只覆盖分配方案、参数和容量；Resolver 按实际队列
-深度审计预算；转换器消费已解析的方案，不重复解析部署 JSON 或补默认值。
+`cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果留在该配置文件的目录内。
+Pipeline 根 `io.input` / `io.output` 以非空数组选择 `{type, name, params?}`；参数省略项使用转换器默认值。
+模型路径当前在 `models[].model_path` 中填写，相对路径以宿主部署根为基准，详见
+[配置路径](../configs/README.md#配置路径)。所选转换器的 typed 端口组成传给 Core 的明确边界。
+Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组合选择构造和展示；同一载体复用 Demo。
+每个输出字符串由转换器的 `MaxBytes` 参数声明默认容量，平台登记只保留硬上限。
+分配器、布局参数和 metadata 固定在槽声明中；审计归一化布局参数，Create 按 `Prepare` 后尺寸生成池规格。
+可选输出也始终分配池；多项输出全部成功后发布，失败归还全部租约。
 完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
 
 ### Adapter 实施检查表
@@ -71,7 +71,7 @@ Demo 通过 `ResolveOperatorConfigIo` 查询输入、输出载体，按结构名
 共享 [`biz_input_constraints.h`](../include/adapter/biz_input_constraints.h) 的渠道和音频限制，
 显式部署限制可更严格。
 
-Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求 `1:1 / preserve`；
+输出转换器的逻辑端口描述 Adapter 消费的内部值。普通一对一出口仍要求 `1:1 / preserve`；
 CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
@@ -81,12 +81,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
    `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
-4. 在 `src/adapter/biz/` 声明 `BizDefinition` 并实现 `IoBinding` 绑定：选择转换器、
-   批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖；转换器逻辑端口名即 Blackboard Key，绑定不做改名。
-5. 解码与编码使用 `core/common_contracts.h` 中的中性值类型，并在
-   `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
-   Core、Node 和 Engine 不得包含该业务 key 头。
-6. 扩展对应的 Operator 契约测试与安全测试。
+4. 用 `(type, name)` 登记一个宿主槽与 typed 逻辑端口；配置选择输入/输出登记，接入准备组合
+   明确边界交给 Core。批次上限为 `min(max_frame_depth, 64)`；带业务成员的非 common 登记须声明期望值。
 
 ---
 
@@ -104,12 +100,12 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
   Core 的 `SessionContext::GetOrCreateResource` 对同名同型资源提供 single-flight 创建。同一次创建中的等待者
   共享结果或异常；失败不进入缓存，后续调用可重试。
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
-  `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
+  `Nodes/Models/Backends/FindNode/FindModel/FindBackend` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
 
 Validator 为未注册的 Node、Model 和 Backend 提供原因及按编辑距离排序的相近名称。
 已声明模型因 `model_type` 未注册而无法解析时，只报告根因；未知节点的显式输出键没有任何
-已知生产者或业务 ingress 时，抑制该键的缺少生产者诊断。已知来源的类型不符、重复生产者、
-ingress 冲突和模型能力不符仍照常报告。业务出口与 IO 边界的同一缺失键保留 `/pipeline` 的一条诊断。
+已知生产者或输入边界 时，抑制该键的缺少生产者诊断。已知来源的类型不符、重复生产者、
+ingress 冲突和模型能力不符仍照常报告。输出边界的缺失生产者使用 `MISSING_OUTPUT_PRODUCER`。
 
 Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
@@ -121,7 +117,7 @@ Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64�
 
 ## 3. 能力节点层：如何新增通用或自定义 Node
 
-先运行 `alg_pipeline_tool catalog --io-binding <biz_name>` 和 `describe-node`。只有现有操作无法闭合
+先运行 `alg_pipeline_tool catalog` 和 `describe-node`。只有现有操作无法闭合
 typed port 契约时才新增 Node。Node 必须：
 
 - 通用操作放在 `src/common_nodes/`；领域算法与特定前后处理放在 `src/custom_nodes/`，

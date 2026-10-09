@@ -16,7 +16,6 @@ DocumentValidationResult ValidatePipelineDocument(
   {
     DeploymentPrepareOptions options;
 
-    options.path_mode = DeploymentPathMode::kLexicalOnly;
     options.model_root_dir = "";
 
     DeploymentDiagnostic diag;
@@ -40,10 +39,9 @@ DocumentValidationResult ValidatePipelineDocument(
   }
   auto report = mode == DocumentValidationMode::kExplain
                     ? ExplainPipeline(prepared.neutral_pipeline_json,
-                                      &prepared.io_boundary)
+                                      prepared.io_boundary)
                     : ValidateWithRemediation(prepared.neutral_pipeline_json,
-                                              &prepared.io_boundary);
-  ProjectDeploymentDiagnostics(&report);
+                                              prepared.io_boundary);
   result.ok = report.ok;
   result.response = report.ToJson();
   if (mode == DocumentValidationMode::kPlan && report.ok)

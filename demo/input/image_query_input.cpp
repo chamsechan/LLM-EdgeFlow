@@ -57,7 +57,8 @@ int BuildImageQueryRequests(
 
   storage->image_str = {static_cast<int32_t>(storage->image.size()),
                         const_cast<char*>(storage->image.data())};
-  storage->frame = {60001, &storage->image_str, nullptr};
+  storage->frame = {60001, inputs[0].service_type.value_or(0),
+                    &storage->image_str, nullptr};
   storage->prompt_str = {static_cast<int32_t>(storage->prompt.size()),
                          const_cast<char*>(storage->prompt.data())};
 

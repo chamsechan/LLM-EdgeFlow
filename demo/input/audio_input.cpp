@@ -70,9 +70,10 @@ int BuildAudioRequests(
   if (loaded_from_dataset) {
     storage->carriers.reserve(storage->dataset_samples.size());
     for (const auto& sample : storage->dataset_samples) {
-      storage->carriers.push_back({sample.request_id, sample.pcm_data.data(),
-                                   static_cast<int32_t>(sample.pcm_data.size()),
-                                   sample.sample_rate});
+      storage->carriers.push_back(
+          {sample.request_id, inputs[0].service_type.value_or(0),
+           sample.pcm_data.data(), static_cast<int32_t>(sample.pcm_data.size()),
+           sample.sample_rate});
     }
   } else {
     if (is_real_profile && !options.allow_fallback_sample) {
@@ -84,7 +85,8 @@ int BuildAudioRequests(
     }
     storage->fallback_buffers.emplace_back(16000, 0.01f);
     storage->carriers.push_back(
-        {70001, storage->fallback_buffers[0].data(),
+        {70001, inputs[0].service_type.value_or(0),
+         storage->fallback_buffers[0].data(),
          static_cast<int32_t>(storage->fallback_buffers[0].size()), 16000});
   }
 

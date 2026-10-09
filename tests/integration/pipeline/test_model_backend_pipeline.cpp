@@ -175,10 +175,6 @@ REGISTER_NODE_WITH_DEFINITION(MockEmbeddingConsumerNode,
 class ModelBackendPipelineTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    RegisterTestBizs({"cap_mismatch_test", "diag_test", "model_plan_test",
-                      "model_root_dir_test", "path_escape_test",
-                      "pipeline_atomic_rollback", "pipeline_build_success",
-                      "proto_mismatch_test", "runtime_root_propagate_test"});
     g_backend_create_count = 0;
     g_backend_load_count = 0;
     g_model_create_count = 0;
@@ -334,7 +330,6 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
 TEST_F(ModelBackendPipelineTest,
        ValidatorInfersModelCapabilityWithZeroSideEffects) {
   nlohmann::json cfg = {
-      {"biz_name", "model_plan_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},
@@ -351,7 +346,7 @@ TEST_F(ModelBackendPipelineTest,
                    }})},
   };
 
-  auto plan = PipelineValidator::ValidateAndPlan(cfg);
+  auto plan = PipelineValidator::ValidateAndPlan(cfg, MakeTestBoundary());
 
   EXPECT_TRUE(plan.report.ok)
       << (plan.report.diagnostics.empty() ? ""
@@ -381,8 +376,8 @@ TEST_F(ModelBackendPipelineTest,
 
 TEST_F(ModelBackendPipelineTest,
        UnifiedQwenPlanAcceptsEveryRegisteredGenerationBackend) {
-  RegisterTestBizs({"unified_qwen_backend_swap_test"},
-                   {{"prompt", "TextBatch"}}, {{"text", "TextBatch"}});
+  const auto boundary =
+      MakeTestBoundary({{"prompt", "TextBatch"}}, {{"text", "TextBatch"}});
   const auto model_definition =
       ModelRegistry::Instance().Find("qwen_causal_lm");
   ASSERT_TRUE(model_definition.has_value());
@@ -401,7 +396,6 @@ TEST_F(ModelBackendPipelineTest,
     const std::string& backend_name = backend_definition.backend_type;
 
     nlohmann::json config = {
-        {"biz_name", "unified_qwen_backend_swap_test"},
         {"models",
          nlohmann::json::array({{{"model_id", "llm"},
                                  {"model_type", "qwen_causal_lm"},
@@ -414,7 +408,7 @@ TEST_F(ModelBackendPipelineTest,
                                  {"depends_on", nlohmann::json::array()},
                                  {"config", {{"bind_model", "llm"}}}}})},
     };
-    const auto plan = PipelineValidator::ValidateAndPlan(config);
+    const auto plan = PipelineValidator::ValidateAndPlan(config, boundary);
     EXPECT_TRUE(plan.report.ok)
         << backend_name << ": "
         << (plan.report.diagnostics.empty()
@@ -427,7 +421,8 @@ TEST_F(ModelBackendPipelineTest,
     }
 
     config["models"][0]["backend_config"] = {{"misspelled_backend_setting", 1}};
-    const auto invalid_plan = PipelineValidator::ValidateAndPlan(config);
+    const auto invalid_plan =
+        PipelineValidator::ValidateAndPlan(config, boundary);
     EXPECT_FALSE(invalid_plan.report.ok) << backend_name;
     EXPECT_TRUE(std::any_of(
         invalid_plan.report.diagnostics.begin(),
@@ -459,7 +454,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
       });
 
   nlohmann::json cfg = {
-      {"biz_name", "proto_mismatch_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},  // 需要 kTensorGraph
@@ -474,7 +468,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(cfg);
+  auto report = PipelineValidator::Validate(cfg, MakeTestBoundary());
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -491,7 +485,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
 // 3. Pipeline 构建与原子化实例化测试
 TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   nlohmann::json cfg = {
-      {"biz_name", "pipeline_build_success"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},
@@ -509,7 +502,7 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
+  bool ok = BuildTestPipeline(pipeline, cfg, MakeTestBoundary(), &diag);
 
   EXPECT_TRUE(ok) << diag.message;
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
@@ -549,7 +542,6 @@ TEST_F(ModelBackendPipelineTest,
       });
 
   nlohmann::json cfg = {
-      {"biz_name", "pipeline_atomic_rollback"},
       {"models", nlohmann::json::array({
                      {
                          {"model_id", "good_model"},
@@ -574,7 +566,7 @@ TEST_F(ModelBackendPipelineTest,
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
+  bool ok = BuildTestPipeline(pipeline, cfg, MakeTestBoundary(), &diag);
 
   EXPECT_FALSE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
@@ -595,7 +587,6 @@ TEST_F(ModelBackendPipelineTest,
 
 TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {
   nlohmann::json cfg_escape = {
-      {"biz_name", "path_escape_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},
@@ -610,7 +601,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(cfg_escape);
+  auto report = PipelineValidator::Validate(cfg_escape, MakeTestBoundary());
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -628,7 +619,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {
 TEST_F(ModelBackendPipelineTest,
        ValidatorUnknownModelAndBackendConfigFieldDiagnostics) {
   nlohmann::json cfg = {
-      {"biz_name", "diag_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},
@@ -645,7 +635,7 @@ TEST_F(ModelBackendPipelineTest,
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(cfg);
+  auto report = PipelineValidator::Validate(cfg, MakeTestBoundary());
   EXPECT_FALSE(report.ok);
 
   bool found_model_cfg_diag = false;
@@ -668,7 +658,6 @@ TEST_F(ModelBackendPipelineTest,
 
 TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
   nlohmann::json cfg = {
-      {"biz_name", "model_root_dir_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},
@@ -683,7 +672,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
                    }})},
   };
 
-  auto plan = PipelineValidator::ValidateAndPlan(cfg);
+  auto plan = PipelineValidator::ValidateAndPlan(cfg, MakeTestBoundary());
   EXPECT_TRUE(plan.report.ok);
   ASSERT_EQ(plan.models.size(), 1u);
   EXPECT_EQ(plan.models[0].resolved_model_path, "models/bge/model.onnx");
@@ -691,7 +680,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
 
 TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   nlohmann::json cfg = {
-      {"biz_name", "runtime_root_propagate_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
                      {"model_type", "mock_bge_embedding"},
@@ -714,7 +702,7 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   pipeline.GetSessionContext().SetRuntimeOptions(opts);
 
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
+  bool ok = BuildTestPipeline(pipeline, cfg, MakeTestBoundary(), &diag);
   EXPECT_TRUE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 

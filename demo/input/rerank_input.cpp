@@ -63,6 +63,7 @@ int BuildRerankRequests(
                                   COMPANY_OPERATOR_MAX_RERANK_CANDIDATES);
   storage->passage_cs.reserve(cand_count);
   storage->carrier.request_id = 80001;
+  storage->carrier.service_type = inputs[0].service_type.value_or(0);
   storage->carrier.query_text = &storage->query_cs;
   storage->carrier.candidate_count = cand_count;
   for (int i = 0; i < cand_count; ++i) {

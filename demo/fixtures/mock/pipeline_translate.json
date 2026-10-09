@@ -1,4 +1,18 @@
 {
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "translate"
+      }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "translate"
+      }
+    ]
+  },
   "models": [
     {
       "model_type": "test_biz_llm",
@@ -28,10 +42,5 @@
         "text": "llm_answers"
       }
     }
-  ],
-  "deployment": {
-    "io": {
-      "io_binding": "translate"
-    }
-  }
+  ]
 }

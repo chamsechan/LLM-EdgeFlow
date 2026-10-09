@@ -50,9 +50,10 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
 
 InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "text.plain";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot)};
+  def.type = kEntitySlot;
+  def.name = "entity_extract";
+  def.service_type = kMockServiceEntityExtract;
+  def.slot = ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot);
   def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
@@ -60,9 +61,10 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
 
 InputConverterDefinition MakeOperatorKeywordInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "keyword.plain";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorKeywordInput>(kKeywordSlot)};
+  def.type = kKeywordSlot;
+  def.name = "keyword_match";
+  def.service_type = kMockServiceKeywordMatch;
+  def.slot = ExternalInputSlot<CompanyOperatorKeywordInput>(kKeywordSlot);
   def.logical_ports = {OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;
