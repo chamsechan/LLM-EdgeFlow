@@ -5,8 +5,7 @@
 #include <vector>
 
 #include "contracts/config_schema_validation.h"
-#include "nodes/node_config_parser.h"
-#include "nodes/parameter_binding.h"
+#include "contracts/parameters.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -36,14 +35,14 @@ TEST(ParameterBindingTest, RejectsComplexParserFieldNameCollisions) {
   field.name = "count";
   field.kind = ConfigValueKind::kInteger;
   field.required = true;
-  NodeConfigParser<SampleParams> parser(
+  ConfigParser<SampleParams> parser(
       {field},
       [](const nlohmann::json&, SampleParams*, std::string*) { return true; });
   auto schema =
       Parameters<SampleParams>{Field("count", &SampleParams::count).Default(1)};
   EXPECT_THROW(schema.WithParser(parser), std::invalid_argument);
   auto empty = Parameters<SampleParams>{};
-  EXPECT_THROW(empty.WithParser(NodeConfigParser<SampleParams>(
+  EXPECT_THROW(empty.WithParser(ConfigParser<SampleParams>(
                    {field, field}, [](const nlohmann::json&, SampleParams*,
                                       std::string*) { return true; })),
                std::invalid_argument);

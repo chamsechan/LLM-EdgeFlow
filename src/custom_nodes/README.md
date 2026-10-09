@@ -84,7 +84,7 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 
 ### 参数复杂时，使用普通结构和解析封装
 
-`Parameters<Params>.WithParser(NodeConfigParser<Params>(fields, parse))` 保存复杂字段与
+`Parameters<Params>.WithParser(ConfigParser<Params>(fields, parse))` 保存复杂字段与
 `bool(const nlohmann::json&, Params*, std::string*)` 解析函数。解析器接收已规范化 JSON，
 返回持有自身字符串和容器的普通对象；不保存 JSON 指针，不序列化后重解析。
 它与 `Field` 可组合，框架拒绝重名字段，预检和初始化共享语义规则。
