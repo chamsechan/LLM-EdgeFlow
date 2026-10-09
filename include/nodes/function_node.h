@@ -122,15 +122,19 @@ struct PortFlow {
   std::string cardinality = "1:1";
   std::string provenance = "preserve";
   std::string lifetime = "request";
-  std::string lifetime_config_field;
+  std::string lifetime_from_input;
 
   PortFlow() = default;
   PortFlow(std::string card, std::string prov, std::string life = "request",
-           std::string lifetime_field = {})
+           std::string lifetime_input = {})
       : cardinality(std::move(card)),
         provenance(std::move(prov)),
         lifetime(std::move(life)),
-        lifetime_config_field(std::move(lifetime_field)) {}
+        lifetime_from_input(std::move(lifetime_input)) {}
+  PortFlow(std::string card, std::string prov, FollowLifetime follow)
+      : cardinality(std::move(card)),
+        provenance(std::move(prov)),
+        lifetime_from_input(std::move(follow.input)) {}
   PortFlow(InputFlow flow)  // NOLINT
       : cardinality(flow == InputFlow::AggregateByRequest ? "N:1" : "1:1"),
         provenance(flow == InputFlow::AggregateByRequest ? "aggregate"
@@ -203,7 +207,7 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
                               flow_.cardinality,
                               flow_.provenance,
                               flow_.lifetime,
-                              flow_.lifetime_config_field};
+                              flow_.lifetime_from_input};
   }
 
   bool BindPort(const NodeInitContext& init_ctx) override {
@@ -468,15 +472,16 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
             flow_.cardinality,
             flow_.provenance,
             flow_.lifetime,
-            flow_.lifetime_config_field};
+            flow_.lifetime_from_input};
   }
   const std::string& Anchor() const override { return anchor_; }
   bool Bind(const NodeInitContext& init) override {
     auto result =
         detail::ResolvePortBinding(*init.plan, PortDirection::kOutput, port_);
-    if (result.status == detail::PortBindingStatus::kUnbound)
-      return init.Fail("Output port '" + port_.LogicalName() +
-                       "' has no binding in plan");
+    if (result.status == detail::PortBindingStatus::kUnbound) {
+      port_.Resolve({});
+      return true;
+    }
     if (result.status == detail::PortBindingStatus::kTypeMismatch)
       return init.Fail("Output port type mismatch for '" + port_.LogicalName() +
                        "' (expected: " + port_.TypeId() +
@@ -664,7 +669,7 @@ class ModelSlotBinding {
   virtual ConfigFieldDefinition ToConfigField() const = 0;
   virtual bool Bind(const NodeInitContext& init_ctx,
                     SessionContext& session_ctx,
-                    const nlohmann::json& normalized_config, ModelsT* models,
+                    const nlohmann::json& normalized_params, ModelsT* models,
                     std::string* err) = 0;
   virtual std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const = 0;
 };
@@ -1001,12 +1006,11 @@ class NodeSpec {
       }
     }
 
-    def.validate_config = [params = params_](
-                              const nlohmann::json& cfg,
-                              const std::unordered_set<std::string>& conn,
-                              std::string* err, std::string* field_path) {
-      return params.ValidateWithBindings(cfg, conn, err, field_path);
-    };
+    def.validate_config =
+        [params = params_](const nlohmann::json& cfg, const BindingFacts& facts,
+                           std::string* err, std::string* field_path) {
+          return params.ValidateWithBindings(cfg, facts, err, field_path);
+        };
     for (const auto& cmd : control_commands_) {
       def.control_commands.push_back(cmd.ToCommandDefinition(params_));
     }

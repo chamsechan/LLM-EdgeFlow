@@ -4,15 +4,19 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kAnswerText = MakeBlackboardKey<TextBatch>("answer_text");
+constexpr auto kIntent = MakeBlackboardKey<RuleMatchBatch>("intent");
+constexpr auto kChunkCount = MakeBlackboardKey<Int32Batch>("chunk_count");
 
 constexpr const char* kOutputSlot = "doc_out";
 
@@ -39,18 +43,18 @@ int EncodeOperatorDocAnswer(AlgContext* context,
   }
 
   const auto* answers =
-      ReadOutputValue(*context, kLlmAnswers, options, status, "answers");
+      ReadOutputValue(*context, kAnswerText, options, status, "answers");
   if (!answers) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_matches =
-      ReadOutputValue(*context, kIntentMatches, options, status);
+      ReadOutputValue(*context, kIntent, options, status);
   if (!intent_matches) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* chunk_counts =
-      ReadOutputValue(*context, kDocChunkCounts, options, status);
+      ReadOutputValue(*context, kChunkCount, options, status);
   if (!chunk_counts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = answers->size();
@@ -109,9 +113,9 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   def.name = "doc_qa";
   def.service_type = kMockServiceDocQa;
   def.slot = ExternalOutputSlot<CompanyOperatorDocOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kLlmAnswers),
-                       RequiredInputPort(kIntentMatches),
-                       RequiredInputPort(kDocChunkCounts)};
+  def.logical_ports = {RequiredInputPort(kAnswerText),
+                       RequiredInputPort(kIntent),
+                       RequiredInputPort(kChunkCount)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorDocAnswer;
   return def;

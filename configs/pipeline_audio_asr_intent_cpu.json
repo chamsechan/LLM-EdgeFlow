@@ -9,7 +9,11 @@
     "output": [
       {
         "type": "audio_out",
-        "name": "audio_asr_intent"
+        "name": "audio_asr_intent",
+        "inputs": {
+          "transcribed_text": "transcribe_audio.text",
+          "intent_slot": "match_intent.matches"
+        }
       }
     ]
   },
@@ -25,22 +29,19 @@
   ],
   "pipeline": [
     {
-      "id": "transcribe",
-      "node_type": "AsrTranscribeNode",
-      "config": {
+      "type": "asr_transcribe",
+      "name": "transcribe_audio",
+      "params": {
         "bind_model": "asr_model"
       },
       "inputs": {
-        "audio": "audio_inputs"
-      },
-      "outputs": {
-        "text": "transcripts"
+        "audio": "input.audio"
       }
     },
     {
-      "id": "intent",
-      "node_type": "TextRuleMatchNode",
-      "config": {
+      "type": "text_rule_match",
+      "name": "match_intent",
+      "params": {
         "default_category": "UNCLASSIFIED",
         "categories": {
           "NAVIGATION": [
@@ -53,10 +54,7 @@
         }
       },
       "inputs": {
-        "text": "transcripts"
-      },
-      "outputs": {
-        "matches": "intent_slots"
+        "text": "transcribe_audio.text"
       }
     }
   ]

@@ -68,7 +68,7 @@ class Pipeline {
    */
   // 调用须与 Execute/Control 在外部串行化。广播更新不具事务性，error 会指出
   // 失败的实例。JSON 信封
-  // {"$edgeflow_control":1,"node_id":"id","payload":{...}} 只作用于一个实例。
+  // {"$edgeflow_control":1,"node":"name","payload":{...}} 只作用于一个实例。
   int Control(int cmd, const std::string& json_param,
               std::string* error = nullptr,
               ControlFailureStage* failure_stage = nullptr);
@@ -93,7 +93,7 @@ class Pipeline {
     std::string message;
   };
   static NodeExecutionResult ExecuteNodeSafely(INode* node, AlgContext* req_ctx,
-                                               std::string_view node_id);
+                                               std::string_view node_name);
 
   friend class PipelineConfigTest;
   std::function<void()> test_internal_hook_;

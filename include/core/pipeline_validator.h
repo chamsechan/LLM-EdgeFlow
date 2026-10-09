@@ -40,7 +40,7 @@ struct ValidationDiagnostic {
   std::string path;
   std::string message;
   std::string severity = "error";
-  std::string node_id;
+  std::string node_name;
   std::string port;
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
@@ -78,6 +78,7 @@ struct ValidatedModelPlan {
 struct ValidatedPipelinePlan {
   ParsedPipelineConfig config;
   std::vector<ValidatedModelPlan> models;
+  std::vector<IoPortDefinition> input_ports;  // 被引用的输入项输出。
   std::unordered_map<std::string, ValidatedNodePlan> node_plans;
   ValidationReport report;
 };

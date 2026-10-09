@@ -62,8 +62,8 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     for (size_t i = 0; i < entries.size(); ++i) {
       const auto entry_path = path + "/" + std::to_string(i);
       const auto& entry = entries[i];
-      if (!CheckObject(entry, IoEntryStructure(), entry_path, out_error,
-                       out_error_path))
+      if (!CheckObject(entry, IoEntryStructure(std::string(side) == "output"),
+                       entry_path, out_error, out_error_path))
         return false;
       for (const auto* field : {"type", "name"}) {
         if (!entry[field].is_string() ||
@@ -72,9 +72,21 @@ bool SplitPipelineDocument(const nlohmann::json& root,
       }
       if (entry.contains("params") && !entry["params"].is_object())
         return fail(entry_path + "/params", "Expected an object");
-      destination.push_back({entry["type"].get<std::string>(),
-                             entry["name"].get<std::string>(),
-                             entry.value("params", nlohmann::json::object())});
+      IoEntryConfig parsed{entry["type"].get<std::string>(),
+                           entry["name"].get<std::string>(),
+                           entry.value("params", nlohmann::json::object()),
+                           {}};
+      if (entry.contains("inputs")) {
+        if (!entry["inputs"].is_object())
+          return fail(entry_path + "/inputs", "Expected an object");
+        for (const auto& [port, source] : entry["inputs"].items()) {
+          if (!source.is_string())
+            return fail(entry_path + "/inputs/" + EscapeJsonPointer(port),
+                        "Input source must be a string in name.port form");
+          parsed.inputs[port] = source.get<std::string>();
+        }
+      }
+      destination.push_back(std::move(parsed));
     }
   }
   result.neutral_pipeline_json = root;

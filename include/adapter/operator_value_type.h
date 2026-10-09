@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "adapter/biz_input_constraints.h"
+#include "adapter/input_limits.h"
 #include "adapter/operator_io_contracts.h"
 #include "edgeflow/operator/types.h"
 
@@ -21,19 +21,20 @@ namespace llm_edgeflow {
  * @brief 宿主输入的安全上限
  *
  * 值类型在读取宿主内存前用这些上限检查指针与长度；默认值全部来自
- * biz_input 常量，Operator 不提供配置项。测试和自定义值类型可传入更小的上限。
+ * input_limits 常量，Operator
+ * 不提供配置项。测试和自定义值类型可传入更小的上限。
  */
 struct InputLimits {
-  size_t max_text_bytes = biz_input::kMaxTextBytes;
-  size_t max_doc_text_bytes = biz_input::kMaxDocTextBytes;
-  size_t max_image_uri_bytes = biz_input::kMaxImageUriBytes;
+  size_t max_text_bytes = input_limits::kMaxTextBytes;
+  size_t max_doc_text_bytes = input_limits::kMaxDocTextBytes;
+  size_t max_image_uri_bytes = input_limits::kMaxImageUriBytes;
   int32_t max_audio_pcm_samples =
-      biz_input::kMaxAudioPcmSamples;  // 96 万个采样点
-  size_t max_audio_pcm_bytes = biz_input::kMaxAudioPcmBytes;  // 10 MiB
-  int32_t min_sample_rate = biz_input::kMinSampleRate;
-  int32_t max_sample_rate = biz_input::kMaxSampleRate;
-  size_t max_buffer_bytes = biz_input::kMaxBufferBytes;
-  size_t max_any_bytes = biz_input::kMaxAnyBytes;
+      input_limits::kMaxAudioPcmSamples;  // 96 万个采样点
+  size_t max_audio_pcm_bytes = input_limits::kMaxAudioPcmBytes;  // 10 MiB
+  int32_t min_sample_rate = input_limits::kMinSampleRate;
+  int32_t max_sample_rate = input_limits::kMaxSampleRate;
+  size_t max_buffer_bytes = input_limits::kMaxBufferBytes;
+  size_t max_any_bytes = input_limits::kMaxAnyBytes;
 };
 
 struct OutputCapacityFieldConfig {

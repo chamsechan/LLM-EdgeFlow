@@ -17,7 +17,7 @@ and displays or copies the result. Reusing a host struct does not imply compatib
    `src/adapter/output/`, using `REGISTER_INPUT_CONVERTER` / `REGISTER_OUTPUT_CONVERTER`.
    Each direction identifies a registration by `(type, name)`. Its single slot has matching
    `type_suffix` and `type_id`; logical ports are typed internal Blackboard keys.
-5. Pipeline root `io.input` / `io.output` are nonempty arrays of `{type, name, params?}`.
+5. Pipeline root `io.input` / `io.output` are nonempty arrays selecting `{type, name, params?}`; outputs also declare `inputs`.
    Selected converter ports form the mandatory `PipelineIoBoundary` passed to Core validation.
    Each input must publish distinct ports. At least one selected input struct declares request IDs;
    all input items pair by batch row, with matching IDs where present. Named services on structs with
@@ -57,3 +57,7 @@ See the output allocation guide for ownership and actual-platform acceptance lim
 
 Use the existing Adapter/Operator/ABI tests, including converter contract tests and golden Operator
 results. Cross-layer changes also read `orchestration.md`; new Nodes read `capability-nodes.md`.
+
+Converter ports are local logical names. Output entries connect every required port to
+`node.port` or `input.port`; callbacks read/write via `options.Port(logical_name)`. The immutable
+selection owns these mappings. Unreferenced input ports return an empty name and skip publication.

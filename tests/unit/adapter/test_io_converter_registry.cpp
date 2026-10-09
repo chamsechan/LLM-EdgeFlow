@@ -87,7 +87,7 @@ InputConverterDefinition TestInput() {
   def.service_type = 1001;
   def.slot = ExternalInputSlot<CompanyOperatorEntityInput>(def.type);
   def.logical_ports = {
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
+      NodePortDefinition("sentence_text", "TextBatch", true, "1:1")};
   def.decode_fn = DummyDecode;
   return def;
 }
@@ -98,21 +98,23 @@ OutputConverterDefinition TestOutput() {
   def.service_type = 1001;
   def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(def.type);
   def.logical_ports = {
-      NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
+      NodePortDefinition("answer_text", "TextBatch", true, "1:1")};
   def.params = SizeParameters();
   def.encode_fn = DummyEncode;
   return def;
 }
 nlohmann::json TestIo() {
   return {{"input", {{{"type", "entity_in"}, {"name", "test_service"}}}},
-          {"output", {{{"type", "entity_out"}, {"name", "test_service"}}}}};
+          {"output",
+           {{{"type", "entity_out"},
+             {"name", "test_service"},
+             {"inputs", {{"answer_text", "copy.text"}}}}}}};
 }
 nlohmann::json DefaultPipelineNodes() {
-  return {{{"id", "copy"},
-           {"node_type", "TextTemplateNode"},
-           {"inputs", {{"primary", "input_sentences"}}},
-           {"outputs", {{"text", "llm_answers"}}},
-           {"config", {{"template", "{{primary}}"}}}}};
+  return {{{"name", "copy"},
+           {"type", "text_template"},
+           {"inputs", {{"primary", "input.sentence_text"}}},
+           {"params", {{"template", "{{primary}}"}}}}};
 }
 nlohmann::json TestDocument() {
   return {{"io", TestIo()},
@@ -433,9 +435,50 @@ TEST_F(IoConverterRegistryTest, SplitKeepsCoreNeutralAndBoundaryExplicit) {
   ASSERT_EQ(prepared.io_boundary.input_published_ports.size(), 1u);
   ASSERT_EQ(prepared.io_boundary.output_consumed_ports.size(), 1u);
   EXPECT_EQ(prepared.io_boundary.input_published_ports.front().Name(),
-            "input_sentences");
+            "input.sentence_text");
   EXPECT_EQ(prepared.io_boundary.output_consumed_ports.front().Name(),
-            "llm_answers");
+            "copy.text");
+}
+
+TEST_F(IoConverterRegistryTest, PlannedConvertersOwnExplicitPortBindings) {
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string error;
+  ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(TestDocument(), "", &plan,
+                                                    &error),
+            0)
+      << error;
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->inputs.size(), 1u);
+  ASSERT_EQ(plan->outputs.size(), 1u);
+  EXPECT_EQ(plan->inputs[0].ports,
+            (IoPortBindings{{"sentence_text", "input.sentence_text"}}));
+  EXPECT_EQ(plan->outputs[0].ports,
+            (IoPortBindings{{"answer_text", "copy.text"}}));
+  EXPECT_EQ(plan->resolved_pipeline_json["io"]["output"][0]["inputs"],
+            nlohmann::json({{"answer_text", "copy.text"}}));
+}
+
+TEST_F(IoConverterRegistryTest,
+       MissingOutputConnectionDiffersFromExplicitEmptySource) {
+  for (bool explicit_empty : {false, true}) {
+    auto document = TestDocument();
+    if (explicit_empty)
+      document["io"]["output"][0]["inputs"]["answer_text"] = "";
+    else
+      document["io"]["output"][0].erase("inputs");
+    std::unique_ptr<ValidatedIoPlan> plan;
+    std::string error;
+    DeploymentDiagnostic diagnostic;
+    EXPECT_NE(IoPlanResolver::ResolveFromPipelineJson(document, "", &plan,
+                                                      &error, &diagnostic),
+              0);
+    EXPECT_EQ(plan, nullptr);
+    EXPECT_EQ(diagnostic.code,
+              explicit_empty ? "FIELD_TYPE" : "MISSING_OUTPUT_PRODUCER");
+    EXPECT_EQ(diagnostic.path, explicit_empty
+                                   ? "/io/output/0/inputs/answer_text"
+                                   : "/io/output/0/inputs");
+  }
 }
 
 TEST_F(IoConverterRegistryTest,
@@ -454,6 +497,12 @@ TEST_F(IoConverterRegistryTest,
       {nlohmann::json::json_pointer("/io/input/0"), 1, "/io/input/0"},
       {nlohmann::json::json_pointer("/io/input/0/type"), "",
        "/io/input/0/type"},
+      {nlohmann::json::json_pointer("/io/input/0/inputs"),
+       nlohmann::json::object(), "/io/input/0/inputs"},
+      {nlohmann::json::json_pointer("/inputs"), nlohmann::json::object(),
+       "/inputs"},
+      {nlohmann::json::json_pointer("/io/output/0/inputs_extra"),
+       nlohmann::json::object(), "/io/output/0/inputs_extra"},
       {nlohmann::json::json_pointer("/io/output/0/name"), false,
        "/io/output/0/name"},
       {nlohmann::json::json_pointer("/io/output/0/params"), 17,
@@ -545,7 +594,7 @@ TEST_F(IoConverterRegistryTest, SelectedInputsRejectDuplicateLogicalProducers) {
   EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
   EXPECT_EQ(diagnostic.code, "DUPLICATE_PORT_PRODUCER");
   EXPECT_EQ(diagnostic.path, "/io/input/1");
-  EXPECT_NE(diagnostic.message.find("input_sentences"), std::string::npos);
+  EXPECT_NE(diagnostic.message.find("sentence_text"), std::string::npos);
   EXPECT_TRUE(prepared.inputs.empty());
   EXPECT_TRUE(prepared.outputs.empty());
   EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());

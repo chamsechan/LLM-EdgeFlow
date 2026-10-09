@@ -4,7 +4,7 @@
 
 namespace llm_edgeflow {
 namespace custom_nodes {
-namespace StarterControlNode_impl {
+namespace starter_control_impl {
 
 struct Inputs {
   const TextBatch* input = nullptr;
@@ -53,8 +53,8 @@ auto Spec() {
       });
 }
 
-REGISTER_FUNCTION_NODE(StarterControlNode, Spec());
+REGISTER_FUNCTION_NODE(starter_control, Spec());
 
-}  // namespace StarterControlNode_impl
+}  // namespace starter_control_impl
 }  // namespace custom_nodes
 }  // namespace llm_edgeflow

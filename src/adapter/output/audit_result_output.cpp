@@ -5,7 +5,6 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -15,6 +14,10 @@
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kVerdict = MakeBlackboardKey<StructuredDocumentBatch>("verdict");
+constexpr auto kMatchedPolicy =
+    MakeBlackboardKey<RankedTextBatch>("matched_policy");
 
 constexpr const char* kOutputSlot = "audit_out";
 
@@ -45,8 +48,8 @@ int EncodeOperatorAuditResult(AlgContext* context,
         options.Label().c_str());
   }
 
-  const auto* verdicts = ReadOutputValue(*context, kStructuredVerdicts, options,
-                                         status, "verdicts");
+  const auto* verdicts =
+      ReadOutputValue(*context, kVerdict, options, status, "verdicts");
   if (!verdicts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* matched_policy =
@@ -150,7 +153,7 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   def.name = "dialogue_audit";
   def.service_type = kMockServiceDialogueAudit;
   def.slot = ExternalOutputSlot<CompanyOperatorAuditOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kStructuredVerdicts),
+  def.logical_ports = {RequiredInputPort(kVerdict),
                        RequiredInputPort(kMatchedPolicy, "N:1")};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorAuditResult;

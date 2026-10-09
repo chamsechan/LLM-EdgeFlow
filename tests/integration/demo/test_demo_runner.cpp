@@ -35,7 +35,7 @@ namespace {
 
 class TestDemoStatusNode final : public LegacyNodeBase {
  public:
-  inline static constexpr char kNodeType[] = "TestDemoStatusNode";
+  inline static constexpr char kNodeType[] = "test_demo_status";
   TestDemoStatusNode()
       : LegacyNodeBase(kNodeType), input_("text"), output_("matches") {}
 
@@ -249,12 +249,12 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
                       {"params", {{"run_config_file", "run.json"}}}};
   model["file"] = "model.gguf";
   for (auto& node : pipeline["pipeline"]) {
-    if (node["node_type"] == "LlmGenerateNode") {
-      node["config"]["temperature"] = 0.0;
+    if (node["type"] == "llm_generate") {
+      node["params"]["temperature"] = 0.0;
     }
-    if (node["node_type"] == "StructuredJsonParseNode") {
-      node["config"].erase("fallback");
-      node["config"]["failure_policy"] = "fail";
+    if (node["type"] == "structured_json_parse") {
+      node["params"].erase("fallback");
+      node["params"]["failure_policy"] = "fail";
     }
   }
 
@@ -744,9 +744,11 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
   pipeline["io"]["output"] = {
       {{"type", "keyword_out"},
        {"name", "test_demo_primary"},
+       {"inputs", {{"matches", "match_keywords.matches"}}},
        {"params", {{"match_result_json_max_bytes", 2047}}}},
       {{"type", "keyword_out"},
        {"name", "test_demo_secondary"},
+       {"inputs", {{"matches", "match_keywords.matches"}}},
        {"params", {{"match_result_json_max_bytes", 2047}}}}};
   std::ofstream(temporary.path / "pipeline.json") << pipeline;
   std::ofstream(temporary.path / "pipeline.conf")
@@ -1419,8 +1421,8 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   std::ifstream pipeline_file("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(pipeline_file.good());
   auto pipeline = nlohmann::json::parse(pipeline_file);
-  pipeline["pipeline"][0]["node_type"] = "TestDemoStatusNode";
-  pipeline["pipeline"][0].erase("config");
+  pipeline["pipeline"][0]["type"] = "test_demo_status";
+  pipeline["pipeline"][0].erase("params");
   const auto pipeline_path = temporary.path / "pipeline.json";
   std::ofstream(pipeline_path) << pipeline.dump();
   std::ifstream conf_file("configs/pipeline_keyword_match_rules.conf");

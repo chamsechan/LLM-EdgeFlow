@@ -12,20 +12,21 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
   const nlohmann::json pipeline = {
       {"io",
        {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
-        {"output", {{{"type", "keyword_out"}, {"name", "keyword_match"}}}}}},
+        {"output",
+         {{{"type", "keyword_out"},
+           {"name", "keyword_match"},
+           {"inputs", {{"matches", "matcher.matches"}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline",
-       {{{"id", "prefix"},
-         {"node_type", "TestControlNode"},
+       {{{"name", "prefix"},
+         {"type", "test_control"},
          {"depends_on", nlohmann::json::array()},
-         {"inputs", {{"input", "input_sentences"}}},
-         {"outputs", {{"output", "prefixed"}}}},
-        {{"id", "matcher"},
-         {"node_type", "TextRuleMatchNode"},
+         {"inputs", {{"input", "input.sentence_text"}}}},
+        {{"name", "matcher"},
+         {"type", "text_rule_match"},
          {"depends_on", {"prefix"}},
-         {"inputs", {{"text", "prefixed"}}},
-         {"outputs", {{"matches", "rule_matches"}}},
-         {"config", {{"categories", {{"PREFIX_APPLIED", {"VIP:sample"}}}}}}}}}};
+         {"inputs", {{"text", "prefix.output"}}},
+         {"params", {{"categories", {{"PREFIX_APPLIED", {"VIP:sample"}}}}}}}}}};
   const nlohmann::json conf = {{"pipe_path", "pipeline.json"}};
   std::ofstream(directory / "pipeline.json") << pipeline.dump(2);
   std::ofstream(directory / "pipeline.conf") << conf.dump(2);

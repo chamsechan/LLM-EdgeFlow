@@ -40,7 +40,7 @@ auto Spec() {
       .Description("LLM authoring starter");
 }
 
-REGISTER_FUNCTION_NODE(StarterLlmNode, Spec());
+REGISTER_FUNCTION_NODE(starter_llm, Spec());
 
 }  // namespace
 }  // namespace custom_nodes

@@ -65,7 +65,7 @@ auto Spec() {
           "Batch starter with traceable GroupByRequest reference aggregation");
 }
 
-REGISTER_FUNCTION_NODE(StarterBatchGroupNode, Spec());
+REGISTER_FUNCTION_NODE(starter_batch_group, Spec());
 
 }  // namespace starter_batch_group
 }  // namespace custom_nodes

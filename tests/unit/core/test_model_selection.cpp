@@ -23,11 +23,10 @@ nlohmann::json SelectedModel(const char* type, const char* name,
           {"backend", {{"type", backend}}}};
 }
 nlohmann::json EmbeddingNode(const char* name, const char* model) {
-  return {{"id", name},
-          {"node_type", "TextEmbeddingNode"},
-          {"config", {{"bind_model", model}}},
-          {"inputs", {{"text", "source"}}},
-          {"outputs", {{"embedding", std::string(name) + "_embedding"}}}};
+  return {{"name", name},
+          {"type", "text_embedding"},
+          {"params", {{"bind_model", model}}},
+          {"inputs", {{"text", "input.source"}}}};
 }
 
 const ValidationDiagnostic* FindCode(const ValidationReport& report,
@@ -73,7 +72,7 @@ TEST(ModelBackendDecouplingTest, ModelBackendSuggestionsStayWithinCategory) {
         {"models", {SelectedModel("embedding", "encoder", backend)}},
         {"pipeline", {EmbeddingNode("embed", "encoder")}}};
     const auto result = PipelineValidator::ValidateAndPlan(
-        document, MakeTestBoundary({{"source", "TextBatch"}}));
+        document, MakeTestBoundary({{"input.source", "TextBatch"}}));
     const auto code = std::string(backend) == "not_a_backend"
                           ? DiagnosticCode::kUnknownBackend
                           : DiagnosticCode::kBackendProtocolMismatch;
@@ -100,7 +99,7 @@ TEST(ModelBackendDecouplingTest,
       {"pipeline",
        {EmbeddingNode("embed_first", "first"),
         EmbeddingNode("embed_second", "second")}}};
-  const auto boundary = MakeTestBoundary({{"source", "TextBatch"}});
+  const auto boundary = MakeTestBoundary({{"input.source", "TextBatch"}});
   auto result = PipelineValidator::ValidateAndPlan(document, boundary);
   ASSERT_TRUE(result.report.ok) << result.report.diagnostics.front().message;
   ASSERT_EQ(result.models.size(), 2U);
@@ -116,7 +115,7 @@ TEST(ModelBackendDecouplingTest,
   const auto* unused = FindCode(result.report, DiagnosticCode::kUnusedModel);
   ASSERT_NE(unused, nullptr);
   EXPECT_EQ(unused->path, "/models/1/name");
-  document["pipeline"][0]["node_type"] = "unregistered_node";
+  document["pipeline"][0]["type"] = "unregistered_node";
   result = PipelineValidator::ValidateAndPlan(document, boundary);
   EXPECT_NE(FindCode(result.report, DiagnosticCode::kUnknownNodeType), nullptr);
   EXPECT_EQ(FindCode(result.report, DiagnosticCode::kUnusedModel), nullptr);
@@ -209,7 +208,7 @@ TEST(ModelBackendDecouplingTest,
                 {{"models",
                   {SelectedModel("embedding", "encoder", "onnxruntime")}},
                  {"pipeline", {EmbeddingNode("embed", "encoder")}}},
-                MakeTestBoundary({{"source", "TextBatch"}}));
+                MakeTestBoundary({{"input.source", "TextBatch"}}));
             const auto* conflict =
                 FindCode(result.report, DiagnosticCode::kRegistryConflict);
             passed &=

@@ -40,14 +40,14 @@
 先查询当前构建，确认要复用的业务和节点：
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding entity_extract
-./build/alg_pipeline_tool describe-node StructuredJsonParseNode
+./build/alg_pipeline_tool catalog
+./build/alg_pipeline_tool describe-node structured_json_parse
 ```
 
 再生成源码：
 
 ```bash
-./tools/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --write-test
+./tools/scaffold_custom_node.py my_business_llm --kind model -m llm --write-test
 ```
 
 打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成四部分：
@@ -96,10 +96,10 @@ return answer;
 ```bash
 ./scripts/format.sh
 cmake --build build --target alg_sdk alg_pipeline_tool alg_pipeline_tool_test alg_demo -j 4
-./build/alg_pipeline_tool describe-node MyBusinessLlmNode
+./build/alg_pipeline_tool describe-node my_business_llm
 ```
 
-看到 `node_type` 为 `MyBusinessLlmNode`、输入输出为 `TextBatch`，说明构建和注册已完成。
+看到类型为 `my_business_llm`、输入输出为 `TextBatch`，说明构建和注册已完成。
 新文件在下次构建时自动编入，重新编译后才会进入 Catalog。
 
 ## 5. 复用已有方案和 Adapter
@@ -112,35 +112,36 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.json demo/fixtures/mock/pip
 cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pipeline_first_node.conf
 ```
 
-编辑 `pipeline_first_node.json` 中 `id` 为 `custom_prompt` 的节点，做两处修改：
+编辑 `pipeline_first_node.json` 中 `name` 为 `custom_prompt` 的节点，做两处修改：
 
-- `node_type` 改成 `MyBusinessLlmNode`。
-- 将整个 `config` 对象替换为下面的内容。新节点声明了模型绑定和 `max_tokens`、`temperature`
+- `type` 改成 `my_business_llm`。
+- 将整个 `params` 对象替换为下面的内容。新节点声明了模型绑定和 `max_tokens`、`temperature`
   等生成参数（不写时使用默认值），不接受完整样例的模板和清洗字段。
 
 ```json
 {"bind_model": "entity_llm"}
 ```
 
-保留该节点的 `inputs` 和 `outputs`，以及其他模型与 JSON 解析节点。
-Validator 根据输入数据的唯一生产者推导执行依赖，无需重复填写 `depends_on`；
+保留该节点的 `inputs`，以及其他模型、JSON 解析节点和 `io` 输出连线。
+Validator 根据 `节点名.端口名` 引用推导执行依赖，无需重复填写 `depends_on`；
 该字段仅用于没有数据连接的额外执行顺序。模型引用必须显式填写，不使用约定实例名作为默认值。
 在 `pipeline_first_node.conf` 中，将 `pipe_path` 改为
-`pipeline_first_node.json`（`.conf` 仅包含该定位字段；接入绑定与输出容量沿用 JSON 中的 `deployment`）。
+`pipeline_first_node.json`（`.conf` 仅包含该定位字段；接入选择、输出连线与容量参数沿用 JSON 根 `io`）。
 
 此时数据经过：
 
 ```mermaid
 flowchart LR
     A[平台输入文本] --> B[已有 Adapter 解包]
-    B --> C[MyBusinessLlmNode: 前处理 → 模型 → 后处理]
+    B --> C[my_business_llm: 前处理 → 模型 → 后处理]
     C --> D[已有 JSON 解析节点]
     D --> E[已有 Adapter 打包实体结果]
 ```
 
-为什么节点里叫 `input`，方案里却叫 `input_sentences`？前者是这个操作的接口名，后者是
-当前方案给数据取的名字；`inputs` 将它们连起来，`outputs` 为输出数据指定名字。
-下一个方案可以换数据名，节点代码继续复用。
+节点的 `input` 是操作的输入端口。`"inputs":{"input":"input.sentence_text"}` 将它连接到
+输入转换器发布的 `sentence_text`；后续节点通过 `custom_prompt.output` 读取本节点的输出。
+节点条目只声明输入引用，输出名称来自 Spec。`io.output` 的 `inputs` 明确最终回包的来源，
+例如实体输出的 `entities` 连接 JSON 解析节点的 `document`。更换方案时修改引用即可复用节点代码。
 
 ## 6. 校验并运行同一个 Demo
 

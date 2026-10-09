@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+节点条目改为 `type`、`name`、`params` 与显式 `inputs` 引用，类型名统一为 snake_case。
+连线与回包使用 `节点名.端口名` / `input.端口名`，未引用的输出不发布；端口生命周期跟随实际输入，
+检索缓存和共享候选由计划推导。`llm_generate` 支持非空 `endpoints` 映射，提供原文/JSON 文本和
+结构化回答两种输出，任一 endpoint 失败均不发布；重排输入统一为 queries 与 ranked candidates。
+定向 Control 信封使用 `node`，脚手架和教程采用相同节点与连线格式。
+
 模型条目统一为 `type`、`name`、`file`、`params` 与 `backend: {type, params?}`，按类别和后端
 协议选择唯一实现；注册审计拒绝歧义，未被节点使用的模型报错。文件与文件参数相对 Pipeline
 JSON 目录解析，拒绝绝对路径、父目录分量和符号链接越界，预检允许尚未部署的权重。

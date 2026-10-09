@@ -76,8 +76,8 @@ class CommonNodesTest : public ::testing::Test {
 
 TEST_F(CommonNodesTest, ModelBindingsAreExplicitWithoutInstanceDefaults) {
   for (const char* name :
-       {"LlmGenerateNode", "TextEmbeddingNode", "TextRerankNode",
-        "AsrTranscribeNode", "OcrDetectNode", "PromptGuidedLlmNode"}) {
+       {"llm_generate", "text_embedding", "text_rerank", "asr_transcribe",
+        "ocr_detect", "prompt_guided_llm"}) {
     SCOPED_TRACE(name);
     const auto definition = PipelineCatalog::FindNode(name);
     ASSERT_TRUE(definition.has_value());
@@ -96,15 +96,17 @@ TEST_F(CommonNodesTest, ModelBindingsAreExplicitWithoutInstanceDefaults) {
     auto node = NodeRegistry::Instance().Create(name);
     ASSERT_NE(node, nullptr);
     std::string error;
-    EXPECT_FALSE(InitNodeForTest(*node, nlohmann::json::object(),
-                                 session_ctx_.get(), &error));
+    nlohmann::json params = nlohmann::json::object();
+    if (std::string(name) == "llm_generate")
+      params["endpoints"] = {{"answer", nlohmann::json::object()}};
+    EXPECT_FALSE(InitNodeForTest(*node, params, session_ctx_.get(), &error));
     EXPECT_NE(error.find("bind_model"), std::string::npos) << error;
   }
 }
 
-// 1. TextTemplateNode：占位符校验、拼接、溢出策略、Control
+// 1. text_template：占位符校验、拼接、溢出策略、Control
 TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
   // 1.1 非法占位符应导致 Init 失败
@@ -160,9 +162,9 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data, "NewTemplate: What is LLM?");
 }
 
-// 1.4 TextTemplateNode 聚合输入按请求关联，并保持主输入的 sub_id
+// 1.4 text_template 聚合输入按请求关联，并保持主输入的 sub_id
 TEST_F(CommonNodesTest, TextTemplateNodeTypedPortsAndSubIdPreservation) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -205,9 +207,9 @@ TEST_F(CommonNodesTest, TextTemplateNodeTypedPortsAndSubIdPreservation) {
   }
 }
 
-// 2. TextChunkNode：分块、重叠、来源追踪
+// 2. text_chunk：分块、重叠、来源追踪
 TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("text_chunk");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"chunk_size", 10}, {"overlap", 2}};
@@ -228,9 +230,9 @@ TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
   EXPECT_EQ((*out)[1].sub_id, 1u);
 }
 
-// 3. TextRuleMatchNode：类别、正则命名捕获、常量、Control
+// 3. text_rule_match：类别、正则命名捕获、常量、Control
 TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"categories", {{"GREETING", {"你好", "hello"}}}},
@@ -293,9 +295,9 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data.slots["city"], "北京");
 }
 
-// 4. StructuredJsonParseNode：直接解析、Markdown 代码块、截断输入、失败策略
+// 4. structured_json_parse：直接解析、Markdown 代码块、截断输入、失败策略
 TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"fallback", {{"entities", nlohmann::json::array()}}},
@@ -331,13 +333,14 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   EXPECT_EQ((*out)[3].data.json_payload, "{\"entities\":[]}");
 }
 
-// 5. TextEmbeddingNode：L2 归一化与会话级缓存
+// 5. text_embedding：L2 归一化与会话级缓存
 TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model"}, {"lifetime", "session"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  nlohmann::json cfg = {{"bind_model", "embed_model"}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr, {},
+                              {{"text", "session"}}));
 
   AlgContext ctx1;
   TextBatch input;
@@ -360,14 +363,14 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   EXPECT_EQ((*out1)[0].data, (*out2)[0].data);
 }
 
-// 6. VectorTopKNode：余弦相似度与共享候选池
+// 6. vector_top_k：余弦相似度与共享候选池
 TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("vector_top_k");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
-  cfg["candidate_scope"] = "shared";
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr, {},
+                              {{"candidates", "session"}}));
 
   AlgContext ctx;
   EmbeddingBatch queries;
@@ -398,14 +401,13 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
   EXPECT_EQ((*out)[1].data.text, "Partial match passage");
 }
 
-// 7. TextRerankNode：交叉编码器精排
+// 7. text_rerank：交叉编码器精排
 TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("text_rerank");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
-                              {"pairs", "candidate_texts"}));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch queries;
@@ -423,148 +425,20 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   ASSERT_EQ(out->size(), 1u);
 }
 
-// 7.1 TextRerankNode 端口组合约束校验
-TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
-  const auto boundary = MakeTestBoundary(
-      {{"any_pairs", "QueryCandidatesBatch", false},
-       {"any_queries", "TextBatch", false},
-       {"any_candidates", "RankedTextBatch", false, "N:1"},
-       {"any_candidate_texts", "TextBatch", false, "N:1"}},
-      {{"ranked_results", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
-  auto has_constraint_err = [](const ValidationReport& rep) {
-    return std::any_of(rep.diagnostics.begin(), rep.diagnostics.end(),
-                       [](const auto& d) {
-                         return d.code == DiagnosticCode::kInvalidCombination &&
-                                d.message.find(
-                                    "TextRerankNode requires exactly one input "
-                                    "group") != std::string::npos;
-                       });
-  };
-
-  // 合法组合 1：仅 'pairs' 输入
-  nlohmann::json valid_pipeline_pairs = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs", {{"pairs", "any_pairs"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan_pairs =
-      PipelineValidator::ValidateAndPlan(valid_pipeline_pairs, boundary);
-  EXPECT_TRUE(plan_pairs.report.ok);
-
-  // 合法组合 2：'queries' + 'candidates'
-  nlohmann::json valid_pipeline_qc = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs",
-          {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan_qc =
-      PipelineValidator::ValidateAndPlan(valid_pipeline_qc, boundary);
-  EXPECT_TRUE(plan_qc.report.ok);
-
-  // 合法组合 3：'queries' + 'candidate_texts'
-  nlohmann::json valid_pipeline_qct = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs",
-          {{"queries", "any_queries"},
-           {"candidate_texts", "any_candidate_texts"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan_qct =
-      PipelineValidator::ValidateAndPlan(valid_pipeline_qct, boundary);
-  EXPECT_TRUE(plan_qct.report.ok);
-
-  // 非法情形 1：只有 candidates，缺少 queries
-  nlohmann::json bad_pipeline_1 = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs", {{"candidates", "some_cand"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1, boundary);
-  EXPECT_FALSE(plan1.report.ok);
-  EXPECT_TRUE(has_constraint_err(plan1.report));
-
-  // 非法情形 2：只有 queries，缺少 candidates
-  nlohmann::json bad_pipeline_2 = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs", {{"queries", "some_queries"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2, boundary);
-  EXPECT_FALSE(plan2.report.ok);
-  EXPECT_TRUE(has_constraint_err(plan2.report));
-
-  // 非法情形 3：pairs + candidates (组合冲突)
-  nlohmann::json bad_pipeline_3 = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs", {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan3 = PipelineValidator::ValidateAndPlan(bad_pipeline_3, boundary);
-  EXPECT_FALSE(plan3.report.ok);
-  EXPECT_TRUE(has_constraint_err(plan3.report));
-
-  // 非法情形 4：queries + candidates + candidate_texts (冲突)
-  nlohmann::json bad_pipeline_4 = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextRerankNode"},
-         {"node_type", "TextRerankNode"},
-         {"inputs",
-          {{"queries", "any_queries"},
-           {"candidates", "any_candidates"},
-           {"candidate_texts", "any_candidate_texts"}}},
-         {"outputs", {{"ranked", "ranked_results"}}},
-         {"config", {{"bind_model", "rerank_model"}}}}}}};
-  auto plan4 = PipelineValidator::ValidateAndPlan(bad_pipeline_4, boundary);
-  EXPECT_FALSE(plan4.report.ok);
-  EXPECT_TRUE(has_constraint_err(plan4.report));
+TEST_F(CommonNodesTest, TextRerankRequiresQueriesAndRankedCandidates) {
+  auto valid = NodeRegistry::Instance().Create("text_rerank");
+  ASSERT_NE(valid, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*valid, {{"bind_model", "rerank_model"}},
+                              session_ctx_.get()));
+  for (const char* port : {"queries", "candidates"}) {
+    SCOPED_TRACE(port);
+    std::string error;
+    auto plan =
+        PrepareNodePlanForTest("text_rerank", {{"bind_model", "rerank_model"}},
+                               {port}, "", "", &error);
+    EXPECT_EQ(plan, nullptr);
+    EXPECT_NE(error.find(port), std::string::npos);
+  }
 }
 
 namespace {
@@ -599,19 +473,19 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
 
 }  // namespace
 
-// 7.2 TextEmbeddingNode 会话缓存 single-flight 并发测试
+// 7.2 text_embedding 会话缓存 single-flight 并发测试
 TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   auto counting_model = std::make_shared<CountingEmbeddingModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "counting_embed_model", counting_model,
                                 "test-v1"));
 
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "counting_embed_model"},
-                        {"lifetime", "session"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  nlohmann::json cfg = {{"bind_model", "counting_embed_model"}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr, {},
+                              {{"text", "session"}}));
 
   constexpr int kNumThreads = 8;
   std::vector<std::thread> threads;
@@ -655,19 +529,21 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   }
 }
 
-// 8. LlmGenerateNode：prompt 推理
+// 8. llm_generate：prompt 推理
 TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("llm_generate");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {
-      {"bind_model", "llm_model"}, {"temperature", 0.5}, {"max_tokens", 64}};
+  nlohmann::json cfg = {{"bind_model", "llm_model"},
+                        {"endpoints", {{"answer", nlohmann::json::object()}}},
+                        {"temperature", 0.5},
+                        {"max_tokens", 64}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch prompts;
   prompts.emplace_back(1, 0, "Explain quantum physics");
-  ctx.Publish("prompt", prompts);
+  ctx.Publish("input", prompts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
   const auto* out = ctx.Read<TextBatch>("text");
@@ -676,9 +552,9 @@ TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
   EXPECT_FALSE((*out)[0].data.empty());
 }
 
-// 9. AsrTranscribeNode：语音转写
+// 9. asr_transcribe：语音转写
 TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
+  auto node = NodeRegistry::Instance().Create("asr_transcribe");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "asr_model"}};
@@ -697,9 +573,9 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   EXPECT_FALSE((*out)[0].data.empty());
 }
 
-// 10. OcrDetectNode：OCR 检测框与文本识别
+// 10. ocr_detect：OCR 检测框与文本识别
 TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("OcrDetectNode");
+  auto node = NodeRegistry::Instance().Create("ocr_detect");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "ocr_model"}};
@@ -719,9 +595,9 @@ TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
   EXPECT_FALSE((*out_text)[0].data.empty());
 }
 
-// 11. TextCorpusSourceNode：静态语料输出
+// 11. text_corpus_source：静态语料输出
 TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
-  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
+  auto node = NodeRegistry::Instance().Create("text_corpus_source");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -737,9 +613,9 @@ TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
   EXPECT_EQ((*out)[1].data, "Clause 2: Security");
 }
 
-// 12. StructuredJsonParseNode required_fields 校验
+// 12. structured_json_parse required_fields 校验
 TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"required_fields", {"risk_level", "risk_score"}},
@@ -870,7 +746,7 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
   }
   // 与 Validator 相同：按 Definition 字段填入默认值。
   ASSERT_TRUE(ValidateAndNormalizeFields(def->config_fields, config,
-                                         &plan.normalized_config, nullptr));
+                                         &plan.normalized_params, nullptr));
   ASSERT_TRUE(node->Init({&plan, session}));
   Input input;
   for (const auto& id :
@@ -898,9 +774,11 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
                                 "generate_contract", model, "v1"));
   for (bool custom_options : {false, true}) {
     SCOPED_TRACE(custom_options);
-    auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+    auto node = NodeRegistry::Instance().Create("llm_generate");
     ASSERT_NE(node, nullptr);
-    nlohmann::json config = {{"bind_model", "generate_contract"}};
+    nlohmann::json config = {
+        {"bind_model", "generate_contract"},
+        {"endpoints", {{"answer", nlohmann::json::object()}}}};
     if (custom_options) {
       config.update({{"temperature", 0.5},
                      {"max_tokens", 64},
@@ -914,7 +792,7 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
     const TextBatch prompts{
         {17, 4, "first"}, {29, 8, "second"}, {17, 9, "third"}};
     AlgContext ctx;
-    ctx.Publish("prompt", prompts);
+    ctx.Publish("input", prompts);
     ASSERT_EQ(node->Process(&ctx), 0) << ctx.GetErrorMessage();
     EXPECT_EQ(model->calls, before + 1);  // 批调度由 Model 负责。
     ASSERT_EQ(model->prompts.size(), prompts.size());
@@ -939,7 +817,7 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
               custom_options ? (std::vector<std::string>{"END", "STOP"})
                              : std::vector<std::string>{});
     AlgContext empty;
-    empty.Publish("prompt", TextBatch{});
+    empty.Publish("input", TextBatch{});
     ASSERT_EQ(node->Process(&empty), 0);
     ASSERT_NE(empty.Read<TextBatch>("text"), nullptr);
     EXPECT_TRUE(empty.Read<TextBatch>("text")->empty());
@@ -951,10 +829,13 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesFailureCodesWithoutPublishing) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "generate_contract", model, "v1"));
-  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("llm_generate");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "generate_contract"}},
-                              session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node,
+                      {{"bind_model", "generate_contract"},
+                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
+                      session_ctx_.get()));
   for (int fault = 0; fault < 6; ++fault) {
     SCOPED_TRACE(fault);
     model->result = fault == 2 ? -99 : 0;
@@ -962,9 +843,8 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesFailureCodesWithoutPublishing) {
     model->wrong_request = fault == 4;
     model->wrong_sub_id = fault == 5;
     AlgContext ctx;
-    if (fault == 1) ctx.Publish("prompt", Int32Batch{{1, 0, 123}});
-    if (fault >= 2)
-      ctx.Publish("prompt", TextBatch{{17, 4, "a"}, {29, 8, "b"}});
+    if (fault == 1) ctx.Publish("input", Int32Batch{{1, 0, 123}});
+    if (fault >= 2) ctx.Publish("input", TextBatch{{17, 4, "a"}, {29, 8, "b"}});
     const int expected =
         fault < 2    ? node_error::author_node::kMissingInput
         : fault == 2 ? -99
@@ -974,6 +854,7 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesFailureCodesWithoutPublishing) {
     EXPECT_EQ(node->Process(&ctx), expected);
     EXPECT_FALSE(ctx.IsOk());
     EXPECT_FALSE(ctx.Has("text"));
+    EXPECT_FALSE(ctx.Has("document"));
     EXPECT_EQ(model->calls, before + (fault >= 2 ? 1 : 0));
   }
 }
@@ -988,7 +869,7 @@ TEST_F(CommonNodesTest,
     model->fail_first_calls = fault == 1 ? 1 : 0;
     model->result = fault == 2 ? -99 : 0;
     model->wrong_request = fault == 3;
-    NodeHarness harness("StarterBatchNode");
+    NodeHarness harness("starter_batch");
     harness.Config({{"bind_model", "starter_llm"}, {"retry_once", true}});
     harness.BindModel("starter_llm", model);
     harness.TextInputWithBatch("questions",
@@ -1026,7 +907,7 @@ TEST_F(CommonNodesTest,
     embedding->result = fault == 1 ? -99 : 0;
     embedding->empty_embedding = fault == 2;
     llm->wrong_sub_id = fault == 3;
-    NodeHarness harness("StarterMultiModelNode");
+    NodeHarness harness("starter_multi_model");
     harness.Config(
         {{"bind_llm", "starter_llm"}, {"bind_embedding", "starter_embedding"}});
     harness.BindModel("starter_llm", llm);
@@ -1059,7 +940,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "prompt_contract", model, "v1"));
-  auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+  auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
       {"prompt_template",
@@ -1114,18 +995,18 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
                                 model, "v1"));
   const nlohmann::json config = {{"bind_model", "entity_llm"}};
   auto document = CustomPipeline("entity_extract");
-  document["pipeline"][0]["config"] = config;
+  document["pipeline"][0]["params"] = config;
   const auto validated = PipelineValidator::ValidateAndPlan(
-      document,
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"extracted_entities", "StructuredDocumentBatch"}}));
+      document, MakeTestBoundary(
+                    {{"input.sentence_text", "TextBatch"}},
+                    {{"parse_entities.document", "StructuredDocumentBatch"}}));
   ASSERT_TRUE(validated.report.ok) << validated.report.ToJson().dump(2);
-  const auto& plan = validated.node_plans.at("custom_prompt");
+  const auto& plan = validated.node_plans.at("generate_entities");
   const std::string input = R"({"name":"literal {context}"})";
-  EXPECT_EQ(plan.normalized_config["max_tokens"], 128);
+  EXPECT_EQ(plan.normalized_params["max_tokens"], 128);
   for (bool native_plan : {false, true}) {
     SCOPED_TRACE(native_plan);
-    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
     ASSERT_NE(node, nullptr);
     std::string error = "old error";
     NodeInitContext init;
@@ -1140,8 +1021,9 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
     }
     EXPECT_TRUE(error.empty());
     AlgContext context;
-    const std::string input_key = native_plan ? "input_sentences" : "input";
-    const std::string output_key = native_plan ? "llm_raw_answer" : "output";
+    const std::string input_key = native_plan ? "input.sentence_text" : "input";
+    const std::string output_key =
+        native_plan ? "generate_entities.output" : "output";
     context.Publish(input_key, TextBatch{{77, 4, input}});
     ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
     ASSERT_EQ(model->prompts.size(), 1u);
@@ -1172,8 +1054,8 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
        "{\"nested\":{\"context\":\"" + value + "\"}}"}};
   for (const auto& [pattern, expected] : cases) {
     SCOPED_TRACE(pattern);
-    auto common = NodeRegistry::Instance().Create("TextTemplateNode");
-    auto custom = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    auto common = NodeRegistry::Instance().Create("text_template");
+    auto custom = NodeRegistry::Instance().Create("prompt_guided_llm");
     ASSERT_TRUE(
         InitNodeForTest(*common, {{"template", pattern}}, session_ctx_.get()));
     ASSERT_TRUE(InitNodeForTest(
@@ -1207,15 +1089,15 @@ TEST_F(CommonNodesTest,
        {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
     SCOPED_TRACE(pattern);
     auto doc = CustomPipeline("entity_extract");
-    auto& config = doc["pipeline"][0]["config"];
+    auto& config = doc["pipeline"][0]["params"];
     config["prompt_template"] = pattern;
     const auto result = PipelineValidator::ValidateAndPlan(
-        doc,
-        MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                         {{"extracted_entities", "StructuredDocumentBatch"}}));
+        doc, MakeTestBoundary(
+                 {{"input.sentence_text", "TextBatch"}},
+                 {{"parse_entities.document", "StructuredDocumentBatch"}}));
     EXPECT_FALSE(result.report.ok);
     config["bind_model"] = "prompt_contract";
-    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
     EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
   }
 
@@ -1226,7 +1108,7 @@ TEST_F(CommonNodesTest,
            {"{{ input }}|{literal_braces}", "value|{literal_braces}"},
            {"prefix: {{input}} | suffix", "prefix: value | suffix"}}) {
     SCOPED_TRACE(pattern);
-    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
     ASSERT_TRUE(InitNodeForTest(
         *node,
         {{"bind_model", "prompt_contract"}, {"prompt_template", pattern}},
@@ -1242,8 +1124,8 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "prompt_contract", model, "v1"));
-  for (const char* name : {"PromptGuidedLlmNode", "ScaffoldModelLlmNode",
-                           "ScaffoldTutorialLlmNode"}) {
+  for (const char* name :
+       {"prompt_guided_llm", "scaffold_model_llm", "scaffold_tutorial_llm"}) {
     SCOPED_TRACE(name);
     auto node = NodeRegistry::Instance().Create(name);
     ASSERT_NE(node, nullptr);
@@ -1286,7 +1168,7 @@ TEST_F(CommonNodesTest, GeneratedLlmNodeReadsGenerationOptionsFromConfig) {
        2048, 0.0f}};
   for (const auto& [config, max_tokens, temperature] : cases) {
     SCOPED_TRACE(config.dump());
-    auto node = NodeRegistry::Instance().Create("ScaffoldModelLlmNode");
+    auto node = NodeRegistry::Instance().Create("scaffold_model_llm");
     ASSERT_NE(node, nullptr);
     ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get()));
     AlgContext ctx;
@@ -1387,7 +1269,7 @@ TEST_F(CommonNodesTest, GenerateParametersCombinesOwnFieldsWithGeneration) {
 }
 
 TEST_F(CommonNodesTest, PromptContextIsExplicitAndRequiredWhenUsed) {
-  auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+  auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "prompt_contract", model, "v1"));
@@ -1438,14 +1320,14 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     nlohmann::json config = {{"bind_model", "entity_llm"},
                              {"prompt_template", "{{input}}"}};
     config.update(bad);
-    doc["pipeline"][0]["config"] = config;
+    doc["pipeline"][0]["params"] = config;
     const auto preflight = PipelineValidator::ValidateAndPlan(
-        doc,
-        MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                         {{"extracted_entities", "StructuredDocumentBatch"}}));
+        doc, MakeTestBoundary(
+                 {{"input.sentence_text", "TextBatch"}},
+                 {{"parse_entities.document", "StructuredDocumentBatch"}}));
     EXPECT_FALSE(preflight.report.ok);
     config["bind_model"] = "llm_model";
-    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
     ASSERT_NE(node, nullptr);
     std::string init_error;
     EXPECT_FALSE(
@@ -1453,7 +1335,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     EXPECT_FALSE(init_error.empty());
     bool matching_diagnostic = false;
     for (const auto& diagnostic : preflight.report.diagnostics) {
-      if (diagnostic.path.rfind("/pipeline/0/config", 0) == 0 &&
+      if (diagnostic.path.rfind("/pipeline/0/params", 0) == 0 &&
           init_error.find(diagnostic.message) != std::string::npos) {
         matching_diagnostic = true;
       }
@@ -1462,13 +1344,14 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
   }
   auto doc = CustomPipeline("doc_qa");
   doc["pipeline"][2]["inputs"].erase("context");
-  EXPECT_FALSE(PipelineValidator::ValidateAndPlan(
-                   doc, MakeTestBoundary({{"raw_docs", "TextBatch"},
-                                          {"raw_queries", "TextBatch"}},
-                                         {{"llm_answers", "TextBatch"},
-                                          {"intent_matches", "RuleMatchBatch"},
-                                          {"doc_chunk_counts", "Int32Batch"}}))
-                   .report.ok);
+  EXPECT_FALSE(
+      PipelineValidator::ValidateAndPlan(
+          doc, MakeTestBoundary({{"input.doc_text", "TextBatch"},
+                                 {"input.query_text", "TextBatch"}},
+                                {{"generate_answer.output", "TextBatch"},
+                                 {"match_intent.matches", "RuleMatchBatch"},
+                                 {"chunk_docs.chunk_counts", "Int32Batch"}}))
+          .report.ok);
 }
 
 TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
@@ -1476,14 +1359,14 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
        std::vector<std::pair<std::string, PipelineIoBoundary>>{
            {"entity_extract",
             MakeTestBoundary(
-                {{"input_sentences", "TextBatch"}},
-                {{"extracted_entities", "StructuredDocumentBatch"}})},
+                {{"input.sentence_text", "TextBatch"}},
+                {{"parse_entities.document", "StructuredDocumentBatch"}})},
            {"doc_qa",
-            MakeTestBoundary(
-                {{"raw_docs", "TextBatch"}, {"raw_queries", "TextBatch"}},
-                {{"llm_answers", "TextBatch"},
-                 {"intent_matches", "RuleMatchBatch"},
-                 {"doc_chunk_counts", "Int32Batch"}})}}) {
+            MakeTestBoundary({{"input.doc_text", "TextBatch"},
+                              {"input.query_text", "TextBatch"}},
+                             {{"generate_answer.output", "TextBatch"},
+                              {"match_intent.matches", "RuleMatchBatch"},
+                              {"chunk_docs.chunk_counts", "Int32Batch"}})}}) {
     auto plan =
         PipelineValidator::ValidateAndPlan(CustomPipeline(fixture), boundary);
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
@@ -1493,28 +1376,29 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
                                     std::make_shared<test::TestCausalLmSession>(
                                         "llm.fixture", BatchPolicy{2, 2})),
                                 "v1"));
-  for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode"}) {
+  for (const char* name : {"scaffold_compute", "scaffold_model_llm"}) {
     auto doc = CustomPipeline("entity_extract");
-    doc["pipeline"][0]["node_type"] = name;
-    doc["pipeline"][0]["config"] =
-        std::string(name) == "ScaffoldComputeNode"
+    doc["pipeline"][0]["type"] = name;
+    doc["pipeline"][0]["params"] =
+        std::string(name) == "scaffold_compute"
             ? nlohmann::json::object()
             : nlohmann::json{{"bind_model", "entity_llm"}};
-    if (std::string(name) == "ScaffoldComputeNode") doc.erase("models");
+    if (std::string(name) == "scaffold_compute") doc.erase("models");
     auto plan = PipelineValidator::ValidateAndPlan(
-        doc,
-        MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                         {{"extracted_entities", "StructuredDocumentBatch"}}));
+        doc, MakeTestBoundary(
+                 {{"input.sentence_text", "TextBatch"}},
+                 {{"parse_entities.document", "StructuredDocumentBatch"}}));
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
     auto node = NodeRegistry::Instance().Create(name);
     // 使用真实的原生计划，包括归一化后的配置和键。
-    const auto& node_plan = plan.node_plans.at("custom_prompt");
+    const auto& node_plan = plan.node_plans.at("generate_entities");
     ASSERT_TRUE(node->Init({&node_plan, session_ctx_.get()}));
     AlgContext ctx;
-    ctx.Publish("input_sentences", TextBatch{{31, 7, "实体"}});
+    ctx.Publish("input.sentence_text", TextBatch{{31, 7, "实体"}});
     ASSERT_EQ(node->Process(&ctx), 0);
-    ASSERT_NE(ctx.Read<TextBatch>("llm_raw_answer"), nullptr);
-    EXPECT_EQ(ctx.Read<TextBatch>("llm_raw_answer")->front().req_id, 31U);
+    ASSERT_NE(ctx.Read<TextBatch>("generate_entities.output"), nullptr);
+    EXPECT_EQ(ctx.Read<TextBatch>("generate_entities.output")->front().req_id,
+              31U);
   }
 }
 
@@ -1525,28 +1409,28 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
                                 model, "v1"));
   auto document = CustomPipeline("entity_extract");
-  document["pipeline"][0]["node_type"] = "ScaffoldTutorialLlmNode";
-  document["pipeline"][0]["config"] = {{"bind_model", "entity_llm"}};
+  document["pipeline"][0]["type"] = "scaffold_tutorial_llm";
+  document["pipeline"][0]["params"] = {{"bind_model", "entity_llm"}};
   const auto plan = PipelineValidator::ValidateAndPlan(
-      document,
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"extracted_entities", "StructuredDocumentBatch"}}));
+      document, MakeTestBoundary(
+                    {{"input.sentence_text", "TextBatch"}},
+                    {{"parse_entities.document", "StructuredDocumentBatch"}}));
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
-  auto node = NodeRegistry::Instance().Create("ScaffoldTutorialLlmNode");
+  auto node = NodeRegistry::Instance().Create("scaffold_tutorial_llm");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      node->Init({&plan.node_plans.at("custom_prompt"), session_ctx_.get()}));
+  ASSERT_TRUE(node->Init(
+      {&plan.node_plans.at("generate_entities"), session_ctx_.get()}));
 
   // 乱序的请求 ID 和非零 sub_id 经过两个文本函数后必须保持不变。
   const TextBatch inputs{{51, 8, "张三"}, {19, 3, "李四"}};
   AlgContext ctx;
-  ctx.Publish("input_sentences", inputs);
+  ctx.Publish("input.sentence_text", inputs);
   ASSERT_EQ(node->Process(&ctx), 0);
   ASSERT_EQ(model->prompts.size(), inputs.size());
-  const auto* output = ctx.Read<TextBatch>("llm_raw_answer");
+  const auto* output = ctx.Read<TextBatch>("generate_entities.output");
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), inputs.size());
-  const auto* unchanged = ctx.Read<TextBatch>("input_sentences");
+  const auto* unchanged = ctx.Read<TextBatch>("input.sentence_text");
   ASSERT_NE(unchanged, nullptr);
   for (size_t i = 0; i < inputs.size(); ++i) {
     const auto expected = "实体抽取：\n" + inputs[i].data;
@@ -1560,19 +1444,19 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
 }
 
 TEST_F(CommonNodesTest, GeneratedCapabilityTemplatesCompileBindAndExecute) {
-  CheckScaffoldExecution<TextBatch, TextBatch>("ScaffoldComputeNode", "",
+  CheckScaffoldExecution<TextBatch, TextBatch>("scaffold_compute", "",
                                                session_ctx_.get());
-  CheckScaffoldExecution<TextBatch, TextBatch>("ScaffoldModelLlmNode",
+  CheckScaffoldExecution<TextBatch, TextBatch>("scaffold_model_llm",
                                                "llm_model", session_ctx_.get());
   CheckScaffoldExecution<TextBatch, EmbeddingBatch>(
-      "ScaffoldModelEmbeddingNode", "embed_model", session_ctx_.get());
+      "scaffold_model_embedding", "embed_model", session_ctx_.get());
   CheckScaffoldExecution<AudioPcmBatch, TextBatch>(
-      "ScaffoldModelAsrNode", "asr_model", session_ctx_.get());
+      "scaffold_model_asr", "asr_model", session_ctx_.get());
   CheckScaffoldExecution<QueryCandidatesBatch, ScoreBatch>(
-      "ScaffoldModelRerankNode", "rerank_model", session_ctx_.get());
+      "scaffold_model_rerank", "rerank_model", session_ctx_.get());
   CheckScaffoldExecution<ImageRefBatch, OcrDocumentBatch>(
-      "ScaffoldModelOcrNode", "ocr_model", session_ctx_.get());
-  auto node = NodeRegistry::Instance().Create("ScaffoldConversionNode");
+      "scaffold_model_ocr", "ocr_model", session_ctx_.get());
+  auto node = NodeRegistry::Instance().Create("scaffold_conversion");
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
   AlgContext ctx;

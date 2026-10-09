@@ -23,6 +23,7 @@ inline BindingFacts MakeBindingFacts(const NodeInitContext& ctx) {
     if (port.direction == PortDirection::kInput &&
         !port.blackboard_key.empty()) {
       facts.connected_inputs.insert(port.logical_name);
+      facts.input_lifetimes[port.logical_name] = port.lifetime;
     }
   }
   return facts;

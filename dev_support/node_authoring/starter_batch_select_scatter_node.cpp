@@ -80,7 +80,7 @@ auto Spec() {
           "scatter replacement");
 }
 
-REGISTER_FUNCTION_NODE(StarterBatchSelectScatterNode, Spec());
+REGISTER_FUNCTION_NODE(starter_batch_select_scatter, Spec());
 
 }  // namespace starter_batch_select_scatter
 }  // namespace custom_nodes

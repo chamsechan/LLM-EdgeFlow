@@ -52,8 +52,8 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
     auto instance = NodeRegistry::Instance().Create(node_def.node_type);
     EXPECT_NE(instance, nullptr)
         << "Failed to create node instance: " << node_def.node_type;
-    if (node_def.node_type == "TextChunkNode") {
-      EXPECT_EQ(instance->Name(), "TextChunkNode");
+    if (node_def.node_type == "text_chunk") {
+      EXPECT_EQ(instance->Name(), "text_chunk");
     }
 
     // FindNode 查询一致性
@@ -64,17 +64,17 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   }
 
   // 必须包含 11 个 Phase-1 Common 算子
-  EXPECT_TRUE(seen_types.count("TextTemplateNode"));
-  EXPECT_TRUE(seen_types.count("TextChunkNode"));
-  EXPECT_TRUE(seen_types.count("TextRuleMatchNode"));
-  EXPECT_TRUE(seen_types.count("StructuredJsonParseNode"));
-  EXPECT_TRUE(seen_types.count("TextEmbeddingNode"));
-  EXPECT_TRUE(seen_types.count("VectorTopKNode"));
-  EXPECT_TRUE(seen_types.count("TextRerankNode"));
-  EXPECT_TRUE(seen_types.count("LlmGenerateNode"));
-  EXPECT_TRUE(seen_types.count("AsrTranscribeNode"));
-  EXPECT_TRUE(seen_types.count("OcrDetectNode"));
-  EXPECT_TRUE(seen_types.count("TextCorpusSourceNode"));
+  EXPECT_TRUE(seen_types.count("text_template"));
+  EXPECT_TRUE(seen_types.count("text_chunk"));
+  EXPECT_TRUE(seen_types.count("text_rule_match"));
+  EXPECT_TRUE(seen_types.count("structured_json_parse"));
+  EXPECT_TRUE(seen_types.count("text_embedding"));
+  EXPECT_TRUE(seen_types.count("vector_top_k"));
+  EXPECT_TRUE(seen_types.count("text_rerank"));
+  EXPECT_TRUE(seen_types.count("llm_generate"));
+  EXPECT_TRUE(seen_types.count("asr_transcribe"));
+  EXPECT_TRUE(seen_types.count("ocr_detect"));
+  EXPECT_TRUE(seen_types.count("text_corpus_source"));
 }
 
 TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
@@ -156,8 +156,8 @@ TEST_F(CatalogContractSsotTest, AllProductionConvertersAreRegistered) {
 
 // 4. 不存在的实体查询返回空值。
 TEST_F(CatalogContractSsotTest, FindReturnsEmptyForNonexistentEntities) {
-  EXPECT_FALSE(PipelineCatalog::FindNode("NonExistentNode12345").has_value());
-  EXPECT_EQ(NodeRegistry::Instance().Create("NonExistentNode123"), nullptr);
+  EXPECT_FALSE(PipelineCatalog::FindNode("non_existent_node12345").has_value());
+  EXPECT_EQ(NodeRegistry::Instance().Create("non_existent_node123"), nullptr);
   EXPECT_FALSE(
       PipelineCatalog::FindModel("non_existent_model_999").has_value());
   EXPECT_FALSE(
@@ -181,7 +181,7 @@ TEST_F(CatalogContractSsotTest,
   std::thread registrar([&]() {
     for (int i = 0; i < 16; ++i) {
       NodeDefinition def;
-      def.node_type = "CatalogSnapshotProbe_" + std::to_string(i);
+      def.node_type = "catalog_snapshot_probe_" + std::to_string(i);
       def.category = "snapshot_test";
       def.description = "catalog snapshot probe";
       if (!NodeRegistry::Instance().Register(
@@ -201,9 +201,10 @@ TEST_F(CatalogContractSsotTest,
 
   EXPECT_TRUE(registration_ok.load());
   EXPECT_EQ(original.nodes.front().node_type, original_first);
-  EXPECT_EQ(original.FindNode("CatalogSnapshotProbe_0"), nullptr);
+  EXPECT_EQ(original.FindNode("catalog_snapshot_probe_0"), nullptr);
   EXPECT_EQ(PipelineCatalog::ToJson(original), original_json);
-  EXPECT_TRUE(PipelineCatalog::FindNode("CatalogSnapshotProbe_0").has_value());
+  EXPECT_TRUE(
+      PipelineCatalog::FindNode("catalog_snapshot_probe_0").has_value());
   EXPECT_EQ(PipelineCatalog::Snapshot().nodes.size(),
             original.nodes.size() + 16);
 }
@@ -226,7 +227,7 @@ TEST_F(CatalogContractSsotTest, ToJsonSerialization) {
     for (const auto& port : node.at("outputs")) {
       EXPECT_TRUE(port.at("type_id").is_string());
     }
-    found_match_node |= node.at("node_type") == "TextRuleMatchNode";
+    found_match_node |= node.at("node_type") == "text_rule_match";
   }
   EXPECT_TRUE(found_match_node);
 }
@@ -423,7 +424,7 @@ TEST_F(CatalogContractSsotTest,
 // R6: 并发同名注册只有一个成功，另一方失败锁存
 TEST_F(CatalogContractSsotTest, ConcurrentSameNameRegistrationSingleWinner) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
-  const std::string race_type = "ConcurrentRaceNode";
+  const std::string race_type = "concurrent_race";
   ASSERT_FALSE(NodeRegistry::Instance().Has(race_type));
 
   std::atomic<int> start_flag{0};
@@ -468,8 +469,8 @@ TEST_F(CatalogContractSsotTest, ConcurrentSameNameRegistrationSingleWinner) {
 // R6: 并发不同类型相同 Control ID 的冲突在提交时被发现
 TEST_F(CatalogContractSsotTest, ConcurrentConflictingControlIdDetected) {
   test_support::RegistryTestAccess::ScopedNodeState scoped;
-  const std::string node_a = "ConcurrentControlNodeA";
-  const std::string node_b = "ConcurrentControlNodeB";
+  const std::string node_a = "concurrent_control_node_a";
+  const std::string node_b = "concurrent_control_node_b";
   ASSERT_FALSE(NodeRegistry::Instance().Has(node_a));
   ASSERT_FALSE(NodeRegistry::Instance().Has(node_b));
 
@@ -552,7 +553,7 @@ TEST_F(CatalogContractSsotTest,
   });
 
   for (int i = 0; i < 16; ++i) {
-    const std::string node_name = "SnapshotWriterNode_" + std::to_string(i);
+    const std::string node_name = "snapshot_writer_node_" + std::to_string(i);
     NodeDefinition def;
     def.node_type = node_name;
     def.category = "snapshot_test";
@@ -576,17 +577,17 @@ TEST_F(CatalogContractSsotTest, ScopedNodeStateRestoresCleanly) {
   {
     test_support::RegistryTestAccess::ScopedNodeState scoped;
     NodeDefinition def;
-    def.node_type = "ScopedTempNode";
+    def.node_type = "scoped_temp";
     def.category = "temp";
     def.description = "temp";
     EXPECT_TRUE(NodeRegistry::Instance().Register(
-        "ScopedTempNode", []() -> std::unique_ptr<INode> { return nullptr; },
+        "scoped_temp", []() -> std::unique_ptr<INode> { return nullptr; },
         def));
-    EXPECT_TRUE(NodeRegistry::Instance().Has("ScopedTempNode"));
+    EXPECT_TRUE(NodeRegistry::Instance().Has("scoped_temp"));
     EXPECT_EQ(NodeRegistry::Instance().ListDefinitions().size(),
               original_count + 1);
   }
-  EXPECT_FALSE(NodeRegistry::Instance().Has("ScopedTempNode"));
+  EXPECT_FALSE(NodeRegistry::Instance().Has("scoped_temp"));
   EXPECT_EQ(NodeRegistry::Instance().ListDefinitions().size(), original_count);
   EXPECT_EQ(NodeRegistry::Instance().HasConflict(), original_conflict);
 }

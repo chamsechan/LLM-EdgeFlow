@@ -38,11 +38,6 @@ CAPABILITY_MAP = {
 }
 
 
-def to_snake_case(name):
-    s = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s).lower()
-
-
 def cpp_string(value):
     return json.dumps(value, ensure_ascii=False)
 
@@ -113,7 +108,7 @@ REGISTER_FUNCTION_NODE({name}, Spec());
 
 def render_llm_starter(name, description, in_name, out_name):
     source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
-    source = source.replace("StarterLlmNode", name)
+    source = source.replace("starter_llm", name)
     literals = {
         '"input"': cpp_string(in_name),
         '"output"': cpp_string(out_name),
@@ -170,7 +165,7 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
                 or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve")):
             raise ValueError("Control starter requires --kind compute and TextBatch 1:1 preserve ports; copy its Control fragment for other Node kinds")
         source = STARTER_CONTROL_TEMPLATE.read_text(encoding="utf-8")
-        source = source.replace("StarterControlNode", name)
+        source = source.replace("starter_control", name)
         source = re.sub(r"kUpdatePrefix = \d+;", f"kUpdatePrefix = {control_id};", source)
         literals = {'"input"': cpp_string(in_name), '"output"': cpp_string(out_name),
                     '"Control authoring starter"': cpp_string(description)}
@@ -419,9 +414,9 @@ TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
   ASSERT_TRUE(definition.has_value());
   ASSERT_TRUE(static_cast<bool>(definition->validate_config));
   std::string error;
-  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), {{}}, &error, nullptr));
+  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), BindingFacts{{}}, &error, nullptr));
   const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
-  EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error, nullptr));
+  EXPECT_FALSE(definition->validate_config(invalid, BindingFacts{{}}, &error, nullptr));
   EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
   NodeHarness harness({cpp_string(name)});
   auto result = harness.Config(invalid).Run();
@@ -930,7 +925,7 @@ def main():
     parser.add_argument("--output-dir", default="src/custom_nodes")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("-f", "--force", action="store_true")
-    parser.add_argument("--write-test", action="store_true", help="Write an automatically discovered test in tests/unit/nodes/test_<snake_name>.cpp")
+    parser.add_argument("--write-test", action="store_true", help="Write an automatically discovered test in tests/unit/nodes/test_<node_name>_node.cpp")
     parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
     parser.add_argument("--self-test", action="store_true", help="Run the generator's Python tests")
     args = parser.parse_args()
@@ -938,15 +933,15 @@ def main():
     if args.self_test:
         import subprocess
         return subprocess.call([sys.executable, str(root / "tests/tooling/test_scaffold_custom_node.py")])
-    if not args.node_name or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", args.node_name):
-        parser.error("node_name must be a PascalCase C++ identifier")
+    if not args.node_name or not re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", args.node_name):
+        parser.error("node_name must be a snake_case identifier")
 
     if args.write_test and args.force:
         parser.error("--write-test rejects --force to prevent multi-file overwrite; remove existing files explicitly")
     if args.write_test and args.output_dir != "src/custom_nodes":
         parser.error("--write-test requires the standard source directory src/custom_nodes")
 
-    name = args.node_name if args.node_name.endswith("Node") else args.node_name + "Node"
+    name = args.node_name
     if args.kind == "compute" and args.model_capability:
         parser.error("--model-capability requires --kind model")
     capability = (args.model_capability or "llm") if args.kind != "compute" else None
@@ -957,8 +952,8 @@ def main():
         content = render_node(name, args.description or f"Custom algorithm node {name}.",
                               args.kind, capability, in_port, out_port, args.control_id)
 
-        target = root / args.output_dir / (to_snake_case(name) + ".cpp")
-        test_filename = f"test_{to_snake_case(name)}.cpp"
+        target = root / args.output_dir / (name + "_node.cpp")
+        test_filename = f"test_{name}_node.cpp"
         test_target = root / "tests/unit/nodes" / test_filename
 
         plan = ChangePlan()

@@ -337,6 +337,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       options.type = def.type;
       options.name = def.name;
       options.params = selected.params.get();
+      options.ports = &selected.ports;
       options.request_ids = binding->read_request_id ? &decoded_ids : nullptr;
       llm_edgeflow::AdapterStatus status;
       const int result =
@@ -400,6 +401,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       options.type = def.type;
       options.name = def.name;
       options.params = selected.params.get();
+      options.ports = &selected.ports;
       options.request_ids = &request_ids;
       size_t written_count = 0;
       llm_edgeflow::AdapterStatus status;

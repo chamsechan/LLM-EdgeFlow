@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "adapter/adapter_status.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/deployment_io_config.h"
 #include "adapter/io_converter.h"
@@ -27,6 +26,15 @@
 #include "platform_mock/operator_data_types.h"
 #include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
+
+namespace llm_edgeflow {
+namespace {
+constexpr auto kSentenceText = MakeBlackboardKey<TextBatch>("sentence_text");
+constexpr auto kAnswerText = MakeBlackboardKey<TextBatch>("answer_text");
+constexpr auto kIntent = MakeBlackboardKey<RuleMatchBatch>("intent");
+constexpr auto kChunkCount = MakeBlackboardKey<Int32Batch>("chunk_count");
+}  // namespace
+}  // namespace llm_edgeflow
 
 namespace llm_edgeflow {
 
@@ -158,8 +166,8 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   const auto& req_ids = harness.RequestIds();
-  const auto* docs = harness.Context().Read<TextBatch>("raw_docs");
-  const auto* queries = harness.Context().Read<TextBatch>("raw_queries");
+  const auto* docs = harness.Context().Read<TextBatch>("doc_text");
+  const auto* queries = harness.Context().Read<TextBatch>("query_text");
   ASSERT_EQ(req_ids.size(), 1U);
   ASSERT_NE(docs, nullptr);
   ASSERT_NE(queries, nullptr);
@@ -170,15 +178,15 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   // 输出编码
   TextBatch answers;
   answers.emplace_back(0, 0, "Model Generated Answer");
-  harness.Publish("llm_answers", std::move(answers));
+  harness.Publish("answer_text", std::move(answers));
 
   RuleMatchBatch intents;
   intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "query", 0.95f));
-  harness.Publish("intent_matches", std::move(intents));
+  harness.Publish("intent", std::move(intents));
 
   Int32Batch chunk_counts;
   chunk_counts.emplace_back(0, 0, 1);
-  harness.Publish("doc_chunk_counts", std::move(chunk_counts));
+  harness.Publish("chunk_count", std::move(chunk_counts));
 
   DocOutputFixture doc_fix;
   std::vector<CompanyOperatorDocOutput> outputs = {doc_fix.out};
@@ -210,7 +218,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
 
   RuleMatchBatch matches;
   matches.emplace_back(0, 0, RuleMatchItem(1, "TEST_CAT", "测试", 0.5f));
-  harness.Publish("rule_matches", std::move(matches));
+  harness.Publish("matches", std::move(matches));
 
   KeywordOutputFixture kw_fix;
   std::vector<CompanyOperatorKeywordOutput> outputs = {kw_fix.out};
@@ -242,7 +250,7 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   StructuredDocumentBatch entities;
   entities.emplace_back(
       0, 0, JsonDocumentItem("[\"E1\"]", true, JsonParseStatus::kOk));
-  harness.Publish("extracted_entities", std::move(entities));
+  harness.Publish("entities", std::move(entities));
 
   EntityOutputFixture ent_fix;
   std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
@@ -278,7 +286,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
       JsonDocumentItem("{\"risk_level\":\"SAFE\",\"risk_score\":0.1}", true,
                        JsonParseStatus::kOk, "",
                        {{"risk_level", "SAFE"}, {"risk_score", 0.1f}}));
-  harness.Publish("structured_verdicts", std::move(verdicts));
+  harness.Publish("verdict", std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Clause 1", 1.0f, 1, 0));
@@ -334,19 +342,19 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   query_options.request_ids = &request_ids;
   ASSERT_EQ(query_converter->decode_fn(in_view, query_options, &ctx, &status),
             0);
-  ASSERT_NE(ctx.Read<TextBatch>("user_queries"), nullptr);
-  EXPECT_EQ(ctx.Read<TextBatch>("user_queries")->front().data, "Total amount?");
+  ASSERT_NE(ctx.Read<TextBatch>("question"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("question")->front().data, "Total amount?");
 
   StructuredDocumentBatch invoices;
   invoices.emplace_back(
       0, 0, JsonDocumentItem("{\"total\":99.9}", true, JsonParseStatus::kOk));
-  ctx.Publish("extracted_invoice_json", std::move(invoices));
+  ctx.Publish("result", std::move(invoices));
 
   OcrDocumentBatch ocr_docs;
   OcrDocumentItem ocr_item;
   ocr_item.boxes.push_back({0, 0, 10, 10, "Total", 0.99f});
   ocr_docs.emplace_back(0, 0, std::move(ocr_item));
-  ctx.Publish("ocr_docs", std::move(ocr_docs));
+  ctx.Publish("document", std::move(ocr_docs));
 
   OdOutputFixture od_fix;
   TestOutputBatchView out_view;
@@ -385,11 +393,11 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
 
   TextBatch transcripts;
   transcripts.emplace_back(0, 0, "turn left");
-  harness.Publish("transcripts", std::move(transcripts));
+  harness.Publish("transcribed_text", std::move(transcripts));
 
   RuleMatchBatch intent_slots;
   intent_slots.emplace_back(0, 0, RuleMatchItem(1, "NAV", "", 0.5f));
-  harness.Publish("intent_slots", std::move(intent_slots));
+  harness.Publish("intent_slot", std::move(intent_slots));
 
   AudioOutputFixture audio_fix;
   std::vector<CompanyOperatorAudioOutput> outputs = {audio_fix.out};
@@ -435,7 +443,7 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   RankedTextBatch ranked;
   ranked.emplace_back(0, 0, RankedCandidate("cand1", 0.85f, 1, 1));
   ranked.emplace_back(0, 1, RankedCandidate("cand0", 0.45f, 2, 0));
-  harness.Publish("ranked_results", std::move(ranked));
+  harness.Publish("ranked", std::move(ranked));
 
   std::vector<CompanyOperatorRerankOutput> outputs(1);
   ASSERT_EQ(harness.EncodeOperator(&outputs), 0);
@@ -466,7 +474,7 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
 
   TextBatch answers;
   answers.emplace_back(0, 0, "Bonjour");
-  harness.Publish("llm_answers", std::move(answers));
+  harness.Publish("translation", std::move(answers));
 
   EntityOutputFixture ent_fix;
   std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
@@ -488,7 +496,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
       IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
-  // 情形 1：缺少 llm_answers
+  // 情形 1：缺少 answer_text
   {
     test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
@@ -497,29 +505,29 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     EXPECT_NE(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
   }
 
-  // 情形 2：有 llm_answers 但缺少 intent_matches -> 必须 fail-closed
+  // 情形 2：有 answer_text 但缺少 intent -> 必须 fail-closed
   {
     test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
-    harness.Publish("llm_answers", std::move(answers));
+    harness.Publish("answer_text", std::move(answers));
     DocOutputFixture fix;
     std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
     EXPECT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 
-  // 情形 3：有 intent_matches 但缺少显式分块计数 -> 必须 fail-closed
+  // 情形 3：有 intent 但缺少显式分块计数 -> 必须 fail-closed
   {
     test::AdapterHarness harness(out_conv);
     harness.SetRequestIds(std::vector<uint64_t>{1001});
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
-    harness.Publish("llm_answers", std::move(answers));
+    harness.Publish("answer_text", std::move(answers));
     RuleMatchBatch intents;
     intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", 0.9f));
-    harness.Publish("intent_matches", std::move(intents));
+    harness.Publish("intent", std::move(intents));
     DocOutputFixture fix;
     std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
     EXPECT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()),
@@ -531,13 +539,13 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     test::AdapterHarness harness(out_conv);
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
-    harness.Publish("llm_answers", std::move(answers));
+    harness.Publish("answer_text", std::move(answers));
     RuleMatchBatch intents;
     intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", 0.9f));
-    harness.Publish("intent_matches", std::move(intents));
+    harness.Publish("intent", std::move(intents));
     Int32Batch chunk_counts;
     chunk_counts.emplace_back(0, 0, 1);
-    harness.Publish("doc_chunk_counts", std::move(chunk_counts));
+    harness.Publish("chunk_count", std::move(chunk_counts));
     DocOutputFixture fix;
     TestOutputBatchView destination;
     destination.count = 1;
@@ -573,7 +581,7 @@ TEST_F(AdapterPurityTest,
   verdicts.emplace_back(
       0, 0,
       JsonDocumentItem("{}", true, JsonParseStatus::kOk, "", incomplete_obj));
-  harness.Publish("structured_verdicts", std::move(verdicts));
+  harness.Publish("verdict", std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Clause", 1.0f, 1));
@@ -603,7 +611,7 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
           JsonDocumentItem("{}", true, parse_status, "",
                            {{"risk_level", "SAFE"}, {"risk_score", 0.1f}}));
     }
-    harness.Publish("structured_verdicts", std::move(verdicts));
+    harness.Publish("verdict", std::move(verdicts));
     harness.Publish("matched_policy",
                     RankedTextBatch{{0, 0, {"req0 first", 1.0f, 1, 1}},
                                     {0, 1, {"req0 second", 0.5f, 2, 2}},
@@ -634,7 +642,7 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
     harness.SetRequestIds(std::vector<uint64_t>{100, 200});
     RuleMatchBatch matches;
     for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
-    harness.Publish("rule_matches", std::move(matches));
+    harness.Publish("matches", std::move(matches));
 
     KeywordOutputFixture fix0, fix1;
     std::vector<CompanyOperatorKeywordOutput> outputs = {fix0.out, fix1.out};
@@ -681,10 +689,10 @@ TEST_F(AdapterPurityTest,
 
   AlgContext ctx;
   const std::vector<uint64_t> request_ids{10};
-  ctx.Publish("llm_answers", TextBatch{{0, 0, long_answer}});
-  ctx.Publish("intent_matches",
+  ctx.Publish("answer_text", TextBatch{{0, 0, long_answer}});
+  ctx.Publish("intent",
               RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
-  ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
+  ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
 
   const auto* op_conv =
       IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
@@ -756,11 +764,11 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
   for (bool overflow : {false, true}) {
     SCOPED_TRACE(overflow);
     AlgContext context;
-    context.Publish(kLlmAnswers,
+    context.Publish(kAnswerText,
                     TextBatch{{0, 0, overflow ? "12345" : "1234"}});
-    context.Publish(kIntentMatches,
+    context.Publish(kIntent,
                     RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
-    context.Publish(kDocChunkCounts, Int32Batch{{0, 0, 3}});
+    context.Publish(kChunkCount, Int32Batch{{0, 0, 3}});
 
     // 容量按 payload 字节计；存储还需为结束符预留空间。
     char answer[6] = {'o', 'l', 'd', '\0', '#', '!'};
@@ -818,7 +826,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
   buffer[11] = 'X';
   buffer[12] = 'X';
 
-  const auto* sentences = harness.Context().Read<TextBatch>("input_sentences");
+  const auto* sentences = harness.Context().Read<TextBatch>("query");
   ASSERT_NE(sentences, nullptr);
   EXPECT_EQ((*sentences)[0].data, "original query");
 }
@@ -843,7 +851,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
   ASSERT_EQ(harness.DecodeOperator({&in0, &in1}), 0);
 
   const auto& req_ids = harness.RequestIds();
-  const auto* sentences = harness.Context().Read<TextBatch>("input_sentences");
+  const auto* sentences = harness.Context().Read<TextBatch>("query");
   ASSERT_EQ(req_ids.size(), 2U);
   ASSERT_NE(sentences, nullptr);
   EXPECT_EQ(req_ids[0], 1234u);
@@ -852,7 +860,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
   EXPECT_EQ((*sentences)[1].req_id, 1u);
 
   TextBatch answers{{0, 0, "ans0"}, {1, 0, "ans1"}};
-  harness.Publish("llm_answers", std::move(answers));
+  harness.Publish("translation", std::move(answers));
 
   EntityOutputFixture fix0, fix1;
   std::vector<CompanyOperatorEntityOutput> outputs = {fix0.out, fix1.out};
@@ -881,7 +889,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
 
   // 请求 ID 表和业务值都不得发布。
   EXPECT_TRUE(harness.RequestIds().empty());
-  EXPECT_EQ(harness.Context().Read<TextBatch>("input_sentences"), nullptr);
+  EXPECT_EQ(harness.Context().Read<TextBatch>("query"), nullptr);
 }
 
 TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
@@ -899,9 +907,9 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
                          {1, 0, RuleMatchItem(2, "INTENT_1", "", 0.8f)}};
   Int32Batch chunks{{0, 0, 3}, {1, 0, 5}};
 
-  harness.Publish("llm_answers", std::move(answers));
-  harness.Publish("intent_matches", std::move(intents));
-  harness.Publish("doc_chunk_counts", std::move(chunks));
+  harness.Publish("answer_text", std::move(answers));
+  harness.Publish("intent", std::move(intents));
+  harness.Publish("chunk_count", std::move(chunks));
 
   DocOutputFixture fix0, fix1;
   std::vector<CompanyOperatorDocOutput> outputs = {fix0.out, fix1.out};
@@ -946,8 +954,7 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
                           text_str.data()};
     CompanyOperatorEntityInput in{8001, kMockServiceEntityExtract, &cs_text};
     EXPECT_EQ(harness.DecodeOperator({&in}), 0);
-    const auto* sentences =
-        harness.Context().Read<TextBatch>("input_sentences");
+    const auto* sentences = harness.Context().Read<TextBatch>("sentence_text");
     ASSERT_NE(sentences, nullptr);
     EXPECT_EQ((*sentences)[0].data, "entity sentence");
   }
@@ -960,8 +967,7 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
                           text_str.data()};
     CompanyOperatorKeywordInput in{8002, kMockServiceKeywordMatch, &cs_text};
     EXPECT_EQ(harness.DecodeOperator({&in}), 0);
-    const auto* sentences =
-        harness.Context().Read<TextBatch>("input_sentences");
+    const auto* sentences = harness.Context().Read<TextBatch>("sentence_text");
     ASSERT_NE(sentences, nullptr);
     EXPECT_EQ((*sentences)[0].data, "keyword sentence");
   }
@@ -981,7 +987,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
     batch.emplace_back(
         0, 0,
         JsonDocumentItem("[\"PERSON: Alice\"]", true, JsonParseStatus::kOk));
-    harness.Publish("extracted_entities", std::move(batch));
+    harness.Publish("entities", std::move(batch));
 
     EntityOutputFixture ent_fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
@@ -999,7 +1005,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
     batch.emplace_back(
         0, 0,
         JsonDocumentItem("{\"summary\":\"ok\"}", true, JsonParseStatus::kOk));
-    harness.Publish("extracted_entities", std::move(batch));
+    harness.Publish("entities", std::move(batch));
 
     EntityOutputFixture ent_fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
@@ -1018,7 +1024,7 @@ TEST_F(AdapterPurityTest,
   custom_in_def.name = "test_multi_field";
   custom_in_def.slot =
       ExternalInputSlot<CustomMultiFieldInput>(custom_in_def.type);
-  custom_in_def.logical_ports = {OutputPort(kInputSentences)};
+  custom_in_def.logical_ports = {OutputPort(kSentenceText)};
   custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
                                const InputDecodeOptions& options,
                                AlgContext* ctx, AdapterStatus* status) -> int {
@@ -1035,7 +1041,7 @@ TEST_F(AdapterPurityTest,
     if (!PublishRequestIds(options, std::move(ids), status)) {
       return status->Code();
     }
-    ctx->Publish(kInputSentences, texts);
+    ctx->Publish(options.Port(kSentenceText.name), std::move(texts));
     return 0;
   };
 
@@ -1081,8 +1087,8 @@ TEST_F(AdapterPurityTest,
     ASSERT_EQ(in_b->decode_fn(view, opts, &ctx_b, &st), 0);
   }
 
-  const auto* texts_a = ctx_a.Read<TextBatch>("input_sentences");
-  const auto* texts_b = ctx_b.Read<TextBatch>("input_sentences");
+  const auto* texts_a = ctx_a.Read<TextBatch>("sentence_text");
+  const auto* texts_b = ctx_b.Read<TextBatch>("sentence_text");
   ASSERT_NE(texts_a, nullptr);
   ASSERT_NE(texts_b, nullptr);
   EXPECT_EQ((*texts_a)[0].data, (*texts_b)[0].data);
@@ -1102,7 +1108,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     test::AdapterHarness harness(out_a);
     harness.SetRequestIds(std::vector<uint64_t>{5001});
     harness.Publish(
-        "extracted_entities",
+        "entities",
         StructuredDocumentBatch{
             {0, 0,
              JsonDocumentItem("[\"item_1\"]", true, JsonParseStatus::kOk)}});
@@ -1124,7 +1130,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     harness.SetRequestIds(std::vector<uint64_t>{5001});
     RuleMatchItem urgent(1, "URGENT", "急", 1.0f);
     urgent.slots["flag"] = "urgent";
-    harness.Publish("rule_matches", RuleMatchBatch{{0, 0, urgent}});
+    harness.Publish("matches", RuleMatchBatch{{0, 0, urgent}});
     ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
     EXPECT_EQ(outputs[0].request_id, 5001U);
     EXPECT_EQ(outputs[0].is_hit, 1);
@@ -1168,7 +1174,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     AdapterStatus st;
 
     EXPECT_EQ(plain_conv->decode_fn(plain_view, opts, &ctx, &st), 0);
-    const auto* s = ctx.Read<TextBatch>("input_sentences");
+    const auto* s = ctx.Read<TextBatch>("sentence_text");
     ASSERT_NE(s, nullptr);
     EXPECT_EQ((*s)[0].data, "Hello plain text");
   }
@@ -1196,7 +1202,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     AlgContext ctx;
     AdapterStatus st;
     EXPECT_EQ(json_conv->decode_fn(json_view, json_options, &ctx, &st), 0);
-    const auto* s = ctx.Read<TextBatch>("input_sentences");
+    const auto* s = ctx.Read<TextBatch>("query");
     ASSERT_NE(s, nullptr);
     EXPECT_EQ((*s)[0].data, "Hello JSON");
   }
@@ -1207,14 +1213,16 @@ TEST_F(AdapterPurityTest, UnknownConverterPairsFailBeforeExecution) {
   nlohmann::json document = {
       {"io",
        {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
-        {"output", {{{"type", "keyword_out"}, {"name", "keyword_match"}}}}}},
+        {"output",
+         {{{"type", "keyword_out"},
+           {"name", "keyword_match"},
+           {"inputs", {{"matches", "rules.matches"}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline",
-       {{{"id", "rules"},
-         {"node_type", "TextRuleMatchNode"},
-         {"inputs", {{"text", "input_sentences"}}},
-         {"outputs", {{"matches", "rule_matches"}}},
-         {"config", {{"categories", {{"SYSTEM_INIT", {"init"}}}}}}}}}};
+       {{{"name", "rules"},
+         {"type", "text_rule_match"},
+         {"inputs", {{"text", "input.sentence_text"}}},
+         {"params", {{"categories", {{"SYSTEM_INIT", {"init"}}}}}}}}}};
   for (const char* side : {"input", "output"}) {
     auto invalid = document;
     invalid["io"][side][0]["name"] = "unknown_service";

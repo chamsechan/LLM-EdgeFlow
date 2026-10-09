@@ -106,10 +106,10 @@ static std::vector<std::string> SnapshotDeepDagTrace() {
 
 class DeepDagNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DeepDagNode";
+  inline static constexpr char kNodeType[] = "deep_dag";
   bool Init(const NodeInitContext& init_ctx) override {
     if (!init_ctx.plan || !init_ctx.session_ctx) return false;
-    name_ = init_ctx.plan->normalized_config.value("node_name", "DeepDagNode");
+    name_ = init_ctx.plan->normalized_params.value("node_name", "deep_dag");
     return true;
   }
 
@@ -137,7 +137,7 @@ inline NodeDefinition MakeDeepDagNodeDef() {
   def.category = "test";
   def.description = "test deep dag node";
   def.config_fields = {ConfigFieldDefinition{
-      "node_name", ConfigValueKind::kString, false, "DeepDagNode"}};
+      "node_name", ConfigValueKind::kString, false, "deep_dag"}};
   def.parallel_safe = true;
   return def;
 }
@@ -196,53 +196,53 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   // Layer 4: Final (依赖 B1, B2, B3)
   nlohmann::json deep_dag_config = {{"max_parallel_workers", 4},
                                     {"pipeline",
-                                     {{{"id", "R1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "R1"}}},
+                                     {{{"name", "R1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "R1"}}},
                                        {"depends_on", nlohmann::json::array()}},
-                                      {{"id", "R2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "R2"}}},
+                                      {{"name", "R2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "R2"}}},
                                        {"depends_on", nlohmann::json::array()}},
 
-                                      {{"id", "A1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "A1"}}},
+                                      {{"name", "A1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A1"}}},
                                        {"depends_on", {"R1"}}},
-                                      {{"id", "A2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "A2"}}},
+                                      {{"name", "A2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A2"}}},
                                        {"depends_on", {"R1", "R2"}}},
-                                      {{"id", "A3"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "A3"}}},
+                                      {{"name", "A3"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A3"}}},
                                        {"depends_on", {"R2"}}},
 
-                                      {{"id", "M1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "M1"}}},
+                                      {{"name", "M1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "M1"}}},
                                        {"depends_on", {"A1", "A2"}}},
-                                      {{"id", "M2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "M2"}}},
+                                      {{"name", "M2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "M2"}}},
                                        {"depends_on", {"A2", "A3"}}},
 
-                                      {{"id", "B1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "B1"}}},
+                                      {{"name", "B1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B1"}}},
                                        {"depends_on", {"M1"}}},
-                                      {{"id", "B2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "B2"}}},
+                                      {{"name", "B2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B2"}}},
                                        {"depends_on", {"M1", "M2"}}},
-                                      {{"id", "B3"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "B3"}}},
+                                      {{"name", "B3"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B3"}}},
                                        {"depends_on", {"M2"}}},
 
-                                      {{"id", "Final"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "Final"}}},
+                                      {{"name", "Final"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "Final"}}},
                                        {"depends_on", {"B1", "B2", "B3"}}}}}};
 
   Pipeline pipeline;

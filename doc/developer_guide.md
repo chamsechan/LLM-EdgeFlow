@@ -68,7 +68,7 @@ Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组
 ### Adapter 实施检查表
 
 `InputConverter` 负责业务字段校验及深拷贝；批次预检不能替代字段校验。
-共享 [`biz_input_constraints.h`](../include/adapter/biz_input_constraints.h) 的渠道和音频限制，
+共享 [`input_limits.h`](../include/adapter/input_limits.h) 的渠道和音频限制，
 显式部署限制可更严格。
 
 输出转换器的逻辑端口描述 Adapter 消费的内部值。普通一对一出口仍要求 `1:1 / preserve`；
@@ -90,7 +90,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
 
-- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点 `inputs` 的 `节点名.端口名` 引用推导依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
@@ -141,6 +141,15 @@ LLM 采样参数复用 [`GenerateParameters()`](../include/nodes/generate_parame
 `Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`。被并入字段
 在 JSON 中平铺，重名报错，其 `Prepare` / `Validate` 先于外层执行。生成字段是普通 `Field`，
 也可加入 `WithControls`。
+
+`llm_generate` 接收 `input`，要求非空 `endpoints` 映射；每个 endpoint 的 `prompt` 默认
+`{{input}}`，只允许这个变量。节点级生成选项由所有 endpoint 共用。`document` 始终为
+`{endpoint: 原文回答}`；单 endpoint 的 `text` 保留原文，多 endpoint 时为该对象的 JSON 文本。
+单 endpoint 的回答无法编码成 JSON（如非法 UTF-8）时，`text` 仍保留原始字节，`document`
+标记解析失败；多 endpoint 的 JSON 序列化失败时不发布输出。任何 endpoint 生成失败也不发布输出。
+输入生命周期来自计划；`FollowLifetime("text")` 声明
+输出跟随输入，`BindingFacts::InputLifetime` 用于派生缓存或共享候选行为。
+
 
 数组和映射参数使用 `std::vector<T>` / `std::map<std::string, T>`；结构体元素通过
 `.Items(Parameters<Element>{...})` 声明。`Range` / `Enum` 约束标量叶子，诊断路径包含元素

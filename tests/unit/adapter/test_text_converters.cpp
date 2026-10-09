@@ -53,7 +53,7 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
   EXPECT_EQ(request_ids[0], 1001U);
   EXPECT_EQ(request_ids[1], 1002U);
 
-  const auto* sentences = ctx.Read<TextBatch>("input_sentences");
+  const auto* sentences = ctx.Read<TextBatch>("sentence_text");
   ASSERT_NE(sentences, nullptr);
   ASSERT_EQ(sentences->size(), 2U);
   EXPECT_EQ((*sentences)[0].data, "Hello world");
@@ -86,7 +86,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   int ret = conv->decode_fn(valid_view, options, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
-  const auto* sentences = ctx.Read<TextBatch>("input_sentences");
+  const auto* sentences = ctx.Read<TextBatch>("query");
   ASSERT_NE(sentences, nullptr);
   ASSERT_EQ(sentences->size(), 1U);
   EXPECT_EQ((*sentences)[0].data, "Translate me!");
@@ -120,7 +120,7 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   AlgContext ctx;
   std::vector<uint64_t> req_ids = {3001};
   TextBatch answers = {{0, 0, "Bonjour le monde"}};
-  ctx.Publish("llm_answers", answers);
+  ctx.Publish("translation", answers);
 
   char buf[2048] = {0};
   CompanyString cs_buf{2047, buf};
@@ -172,7 +172,8 @@ TEST_F(TextConvertersTest, SameCarrierSelectsBusinessPayload) {
     AdapterStatus status;
     EXPECT_EQ(conv->decode_fn(view, options, &context, &status),
               COMPANY_ALG_SUCCESS);
-    const auto* sentences = context.Read<TextBatch>("input_sentences");
+    const auto* sentences = context.Read<TextBatch>(options.Port(
+        name == std::string("translate") ? "query" : "sentence_text"));
     return sentences && sentences->size() == 1 ? sentences->front().data
                                                : std::string();
   };
@@ -194,7 +195,7 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  ASSERT_TRUE(context.Publish("llm_answers", TextBatch{{0, 0, "hello"}}));
+  ASSERT_TRUE(context.Publish("translation", TextBatch{{0, 0, "hello"}}));
   EXPECT_EQ(conv->encode_fn(&context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");

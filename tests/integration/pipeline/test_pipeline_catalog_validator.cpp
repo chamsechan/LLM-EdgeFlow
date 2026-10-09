@@ -24,13 +24,14 @@
 #include "nodes/node_base.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/pipeline_test_utils.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
 
 class StudioCatalogProbeNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "StudioCatalogProbeNode";
+  inline static constexpr char kNodeType[] = "studio_catalog_probe";
   bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
@@ -77,20 +78,18 @@ PreparedDeployment UnknownProducerFixture(size_t known_producers = 0) {
   auto& pipeline = fixture.neutral_pipeline_json["pipeline"];
   const auto prototype = pipeline[0];
   auto unknown = prototype;
-  unknown["id"] = "unknown";
-  unknown["node_type"] = "TextRuleMatchNod";
-  unknown["outputs"]["matches"] = "shared_key";
+  unknown["name"] = "unknown";
+  unknown["type"] = "text_rule_matc";
   pipeline.push_back(unknown);
   for (size_t i = 0; i < known_producers; ++i) {
     auto known = prototype;
-    known["id"] = "known_" + std::to_string(i);
-    known["outputs"]["matches"] = "shared_key";
+    known["name"] = "known_" + std::to_string(i);
     pipeline.push_back(known);
   }
   auto consumer = prototype;
-  consumer["id"] = "consumer";
-  consumer["inputs"]["text"] = "shared_key";
-  consumer["outputs"]["matches"] = "consumer_matches";
+  consumer["name"] = "consumer";
+  consumer["inputs"]["text"] =
+      known_producers == 0 ? "unknown.matches" : "known_0.matches";
   pipeline.push_back(consumer);
   return fixture;
 }
@@ -134,12 +133,12 @@ TEST(PipelineValidatorTest,
 TEST(PipelineValidatorTest, UndeclaredModelReferenceIsStillReported) {
   auto fixture = LoadRegistrationFixture(
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
-  fixture.neutral_pipeline_json["pipeline"][0]["config"]["bind_model"] =
+  fixture.neutral_pipeline_json["pipeline"][0]["params"]["bind_model"] =
       "undeclared";
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownModelReference,
-                           "/pipeline/0/config/bind_model"),
+                           "/pipeline/0/params/bind_model"),
             nullptr);
 }
 
@@ -175,8 +174,7 @@ TEST(PipelineValidatorTest, UnknownBackendHasRemediation) {
 TEST(PipelineValidatorTest, UnknownNodeTypeSuppressesMissingOutputCascade) {
   auto fixture =
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
-  fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
-      "TextRuleMatchNod";
+  fixture.neutral_pipeline_json["pipeline"][0]["type"] = "text_rule_matc";
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 1u) << report.ToJson().dump(2);
@@ -184,7 +182,7 @@ TEST(PipelineValidatorTest, UnknownNodeTypeSuppressesMissingOutputCascade) {
   ASSERT_NE(d, nullptr);
   ASSERT_TRUE(d->remediation.has_value());
   EXPECT_EQ(d->remediation->cause, RemediationCause::kUnknownNodeType);
-  EXPECT_EQ(d->suggestions, std::vector<std::string>{"TextRuleMatchNode"});
+  EXPECT_EQ(d->suggestions, std::vector<std::string>{"text_rule_match"});
   EXPECT_EQ(d->remediation->facts["candidate_node_types"], d->suggestions);
   EXPECT_NE(d->remediation->summary.find("重新构建"), std::string::npos);
 }
@@ -192,8 +190,7 @@ TEST(PipelineValidatorTest, UnknownNodeTypeSuppressesMissingOutputCascade) {
 TEST(PipelineValidatorTest, DistantUnknownNamesHaveNoSuggestions) {
   auto fixture =
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
-  fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
-      "ZZZZZZZZZZZZZZZZZZZZ";
+  fixture.neutral_pipeline_json["pipeline"][0]["type"] = "ZZZZZZZZZZZZZZZZZZZZ";
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   const auto* d = FindDiagnostic(report, DiagnosticCode::kUnknownNodeType);
@@ -208,16 +205,18 @@ TEST(PipelineValidatorTest, MissingOutputProducerIsReportedOnce) {
   auto fixture =
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
   fixture.neutral_pipeline_json["pipeline"] = {
-      {{"id", "probe"}, {"node_type", "StudioCatalogProbeNode"}}};
+      {{"name", "probe"}, {"type", "studio_catalog_probe"}}};
+  fixture.io_boundary.output_consumed_ports[0].blackboard_key.clear();
+  fixture.io_boundary.output_consumed_ports[0].has_binding = false;
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   const auto* d =
       FindDiagnostic(report, DiagnosticCode::kMissingOutputProducer);
   ASSERT_NE(d, nullptr) << report.ToJson().dump(2);
-  EXPECT_EQ(d->path, "/io/output");
+  EXPECT_EQ(d->path, "/io/output/0/inputs");
   ASSERT_TRUE(d->remediation.has_value());
   EXPECT_EQ(d->remediation->cause, RemediationCause::kMissingOutputProducer);
-  EXPECT_EQ(d->remediation->facts.at("bound_key"), "rule_matches");
+  EXPECT_EQ(d->remediation->facts.at("bound_key"), "");
   EXPECT_EQ(std::count_if(report.diagnostics.begin(), report.diagnostics.end(),
                           [](const auto& item) {
                             return item.code ==
@@ -229,7 +228,7 @@ TEST(PipelineValidatorTest, MissingOutputProducerIsReportedOnce) {
 TEST(PipelineValidatorTest, UnknownConfigFieldSuggestionsAreRanked) {
   auto fixture =
       LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
-  auto& config = fixture.neutral_pipeline_json["pipeline"][0]["config"];
+  auto& config = fixture.neutral_pipeline_json["pipeline"][0]["params"];
   config["categoriess"] = config["categories"];
   config.erase("categories");
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
@@ -258,91 +257,36 @@ TEST(PipelineValidatorTest, UnknownNodeDoesNotHideKnownProducerTypeMismatch) {
                                               fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
+  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kPortTypeMismatch,
                            "/pipeline/3/inputs/text"),
-            nullptr);
-}
-
-TEST(PipelineValidatorTest, UnknownNodeDoesNotHideDuplicateProducers) {
-  auto fixture = UnknownProducerFixture(2);
-  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
-                                              fixture.io_boundary);
-  ASSERT_EQ(report.diagnostics.size(), 3u) << report.ToJson().dump(2);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kDuplicatePortProducer,
-                           "/pipeline/3/outputs/matches"),
-            nullptr);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
-                           "/pipeline/4/inputs/text"),
             nullptr);
 }
 
 TEST(PipelineValidatorTest, UnknownNodeDoesNotHideIngressTypeMismatch) {
   auto fixture = UnknownProducerFixture();
   auto& pipeline = fixture.neutral_pipeline_json["pipeline"];
-  pipeline[1]["outputs"]["matches"] = "input_sentences";
-  pipeline[2]["node_type"] = "VectorTopKNode";
-  pipeline[2]["config"] = nlohmann::json::object();
-  pipeline[2]["inputs"] = {{"queries", "input_sentences"},
-                           {"candidates", "input_sentences"}};
-  pipeline[2]["outputs"] = nlohmann::json::object();
+  pipeline[2]["type"] = "vector_top_k";
+  pipeline[2]["params"] = nlohmann::json::object();
+  pipeline[2]["inputs"] = {{"queries", "input.sentence_text"},
+                           {"candidates", "input.sentence_text"},
+                           {"candidate_texts", "input.sentence_text"}};
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
+  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kPortTypeMismatch,
                            "/pipeline/2/inputs/queries"),
             nullptr)
       << report.ToJson().dump(2);
 }
 
-TEST(PipelineValidatorTest,
-     UnknownNodeDoesNotHideKnownProducerIngressConflict) {
-  auto fixture = UnknownProducerFixture(1);
-  auto& pipeline = fixture.neutral_pipeline_json["pipeline"];
-  pipeline[1]["outputs"]["matches"] = "input_sentences";
-  pipeline[2]["outputs"]["matches"] = "input_sentences";
-  pipeline[3]["inputs"]["text"] = "input_sentences";
-  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
-                                              fixture.io_boundary);
-  ASSERT_EQ(report.diagnostics.size(), 5u) << report.ToJson().dump(2);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownNodeType), nullptr);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kDuplicatePortProducer,
-                           "/pipeline/2/outputs/matches"),
-            nullptr);
-  for (const auto* path : {"/pipeline/0/inputs/text", "/pipeline/2/inputs/text",
-                           "/pipeline/3/inputs/text"}) {
-    EXPECT_NE(
-        FindDiagnostic(report, DiagnosticCode::kMissingInputProducer, path),
-        nullptr)
-        << path;
-  }
-}
-
 TEST(PipelineValidatorTest, UnknownNodeDoesNotHideUnrelatedMissingInput) {
   auto fixture = UnknownProducerFixture();
-  fixture.neutral_pipeline_json["pipeline"][2]["inputs"]["text"] =
-      "unrelated_key";
+  fixture.neutral_pipeline_json["pipeline"][2]["inputs"].erase("text");
   const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
                                               fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingInputProducer,
-                           "/pipeline/2/inputs/text"),
-            nullptr);
-}
-
-TEST(PipelineValidatorTest,
-     UnknownNodeWithoutOutputMappingDoesNotHideMissingOutput) {
-  auto fixture =
-      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
-  fixture.neutral_pipeline_json["pipeline"][0]["node_type"] =
-      "TextRuleMatchNod";
-  fixture.neutral_pipeline_json["pipeline"][0]["outputs"] =
-      nlohmann::json::object();
-  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
-                                              fixture.io_boundary);
-  ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
-  EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kMissingOutputProducer,
-                           "/io/output"),
+                           "/pipeline/2/inputs"),
             nullptr);
 }
 
@@ -356,18 +300,19 @@ TEST(PipelineValidatorTest, UnknownModelTypeDoesNotHideTypeMismatch) {
                             {"backend", {{"type", "test_tensor_backend"}}},
                             {"file", "fixture.bin"},
                             {"params", nlohmann::json::object()}});
-  root["pipeline"][0]["config"]["bind_model"] = "known_embedding";
+  root["pipeline"][0]["params"]["bind_model"] = "known_embedding";
   root["pipeline"].push_back(
-      {{"id", "unresolved_llm_user"},
-       {"node_type", "LlmGenerateNode"},
-       {"config", {{"bind_model", "entity_llm"}}},
-       {"inputs", {{"prompt", "input_sentences"}}},
-       {"outputs", {{"text", "unresolved_llm_answer"}}}});
+      {{"name", "unresolved_llm_user"},
+       {"type", "llm_generate"},
+       {"params",
+        {{"bind_model", "entity_llm"},
+         {"endpoints", {{"answer", nlohmann::json::object()}}}}},
+       {"inputs", {{"input", "input.sentence_text"}}}});
   const auto report = ValidateWithRemediation(root, fixture.io_boundary);
   ASSERT_EQ(report.diagnostics.size(), 2u) << report.ToJson().dump(2);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kUnknownModelType), nullptr);
   EXPECT_NE(FindDiagnostic(report, DiagnosticCode::kModelTypeMismatch,
-                           "/pipeline/0/config/bind_model"),
+                           "/pipeline/0/params/bind_model"),
             nullptr);
 }
 
@@ -404,14 +349,14 @@ TEST(PipelineCatalogTest, OutputIsDeterministicAndConflictFree) {
 }
 
 TEST(PipelineCatalogTest, DefinitionRegistrationMakesNewNodeDiscoverable) {
-  const auto definition = PipelineCatalog::FindNode("StudioCatalogProbeNode");
+  const auto definition = PipelineCatalog::FindNode("studio_catalog_probe");
   ASSERT_TRUE(definition.has_value());
   EXPECT_EQ(definition->description, "Catalog auto-discovery probe");
   const auto catalog = PipelineCatalog::ToJson();
-  EXPECT_TRUE(std::any_of(
-      catalog["nodes"].begin(), catalog["nodes"].end(), [](const auto& item) {
-        return item["node_type"] == "StudioCatalogProbeNode";
-      }));
+  EXPECT_TRUE(std::any_of(catalog["nodes"].begin(), catalog["nodes"].end(),
+                          [](const auto& item) {
+                            return item["node_type"] == "studio_catalog_probe";
+                          }));
 }
 
 TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
@@ -482,8 +427,7 @@ TEST(PipelineValidatorTest, CoreLeavesModelFileRulesToIntegration) {
 
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const auto boundary =
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"extracted_entities", "StructuredDocumentBatch"}});
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}}, {});
 
   const nlohmann::json pipeline = {
       {"models",
@@ -493,18 +437,19 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
          {"file", "fixture.bin"},
          {"params", nlohmann::json::object()}}}},
       {"pipeline",
-       {{{"id", "pre"},
-         {"node_type", "TextTemplateNode"},
+       {{{"name", "pre"},
+         {"type", "text_template"},
          {"depends_on", nlohmann::json::array()}},
-        {{"id", "llm"},
-         {"node_type", "LlmGenerateNode"},
+        {{"name", "llm"},
+         {"type", "llm_generate"},
          {"depends_on", {"pre"}},
-         {"config",
+         {"params",
           {{"bind_model", "llm_model"},
            {"max_tokens", 0},
-           {"invented", true}}}},
-        {{"id", "post"},
-         {"node_type", "StructuredJsonParseNode"},
+           {"invented", true},
+           {"endpoints", {{"answer", nlohmann::json::object()}}}}}},
+        {{"name", "post"},
+         {"type", "structured_json_parse"},
          {"depends_on", {"llm"}}}}}};
   const auto report = ValidateWithRemediation(pipeline, boundary);
   EXPECT_FALSE(report.ok);
@@ -535,8 +480,8 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
 
 TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
   const auto boundary =
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"extracted_entities", "StructuredDocumentBatch"}});
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}},
+                       {{"post.document", "StructuredDocumentBatch"}});
 
   const nlohmann::json config = {
       {"max_parallel_workers", 4},
@@ -546,28 +491,28 @@ TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
          {"backend", {{"type", "test_causal_lm_backend"}}},
          {"file", "fixture.gguf"}}}},
       {"pipeline",
-       {{{"id", "pre"},
-         {"node_type", "TextTemplateNode"},
+       {{{"name", "pre"},
+         {"type", "text_template"},
          {"depends_on", nlohmann::json::array()},
-         {"inputs", {{"primary", "input_sentences"}}},
-         {"outputs", {{"text", "prompt_text"}}}},
-        {{"id", "left"},
-         {"node_type", "LlmGenerateNode"},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"name", "left"},
+         {"type", "llm_generate"},
          {"depends_on", {"pre"}},
-         {"config", {{"bind_model", "serialized_llm"}}},
-         {"inputs", {{"prompt", "prompt_text"}}},
-         {"outputs", {{"text", "ans_left"}}}},
-        {{"id", "right"},
-         {"node_type", "LlmGenerateNode"},
+         {"params",
+          {{"bind_model", "serialized_llm"},
+           {"endpoints", {{"answer", nlohmann::json::object()}}}}},
+         {"inputs", {{"input", "pre.text"}}}},
+        {{"name", "right"},
+         {"type", "llm_generate"},
          {"depends_on", {"pre"}},
-         {"config", {{"bind_model", "serialized_llm"}}},
-         {"inputs", {{"prompt", "prompt_text"}}},
-         {"outputs", {{"text", "ans_right"}}}},
-        {{"id", "post"},
-         {"node_type", "StructuredJsonParseNode"},
+         {"params",
+          {{"bind_model", "serialized_llm"},
+           {"endpoints", {{"answer", nlohmann::json::object()}}}}},
+         {"inputs", {{"input", "pre.text"}}}},
+        {{"name", "post"},
+         {"type", "structured_json_parse"},
          {"depends_on", {"left", "right"}},
-         {"inputs", {{"text", "ans_left"}}},
-         {"outputs", {{"document", "extracted_entities"}}}}}}};
+         {"inputs", {{"text", "left.text"}}}}}}};
 
   const auto report = ValidateWithRemediation(config, boundary);
   ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
@@ -598,21 +543,31 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
                                         entry.at("name").get<std::string>());
       ASSERT_NE(converter, nullptr);
       for (const auto& port : converter->logical_ports) {
-        inputs.emplace_back(port.logical_name, port.type_id, port.required,
-                            port.cardinality, port.provenance_policy,
-                            port.lifetime, port.lifetime_config_field);
+        IoPortDefinition definition;
+        static_cast<PortContract&>(definition) = port;
+        definition.blackboard_key = "input." + port.logical_name;
+        definition.logical_name = port.logical_name;
+        inputs.push_back(std::move(definition));
       }
     }
+    size_t output_index = 0;
     for (const auto& entry : io_descriptor.at("output")) {
       const auto* converter =
           converters.FindOutputConverter(entry.at("type").get<std::string>(),
                                          entry.at("name").get<std::string>());
       ASSERT_NE(converter, nullptr);
       for (const auto& port : converter->logical_ports) {
-        outputs.emplace_back(port.logical_name, port.type_id, port.required,
-                             port.cardinality, port.provenance_policy,
-                             port.lifetime, port.lifetime_config_field);
+        IoPortDefinition definition;
+        static_cast<PortContract&>(definition) = port;
+        definition.logical_name = port.logical_name;
+        definition.path =
+            "/io/output/" + std::to_string(output_index) + "/inputs";
+        const auto bindings = entry.value("inputs", nlohmann::json::object());
+        definition.has_binding = bindings.contains(port.logical_name);
+        definition.blackboard_key = bindings.value(port.logical_name, "");
+        outputs.push_back(std::move(definition));
       }
+      ++output_index;
     }
     const auto boundary =
         MakeTestBoundary(std::move(inputs), std::move(outputs));
@@ -692,13 +647,13 @@ namespace llm_edgeflow {
 TEST(PipelineValidatorTest,
      NestedAndCrossFieldErrorsFailBeforeMaterialization) {
   const std::vector<std::pair<std::string, nlohmann::json>> cases = {
-      {"TextChunkNode", {{"chunk_size", 8}, {"overlap", 8}}},
-      {"TextTemplateNode", {{"template", "{{unknown_variable}}"}}},
-      {"TextTemplateNode", {{"template", "{{unclosed"}}},
-      {"StructuredJsonParseNode", {{"field_types", {{"x", "unsupported"}}}}},
-      {"StructuredJsonParseNode", {{"required_fields", {"risk"}}}},
-      {"TextCorpusSourceNode", {{"corpus", {"valid", 42}}}},
-      {"TextRuleMatchNode",
+      {"text_chunk", {{"chunk_size", 8}, {"overlap", 8}}},
+      {"text_template", {{"template", "{{unknown_variable}}"}}},
+      {"text_template", {{"template", "{{unclosed"}}},
+      {"structured_json_parse", {{"field_types", {{"x", "unsupported"}}}}},
+      {"structured_json_parse", {{"required_fields", {"risk"}}}},
+      {"text_corpus_source", {{"corpus", {"valid", 42}}}},
+      {"text_rule_match",
        {{"rules", {{{"strategy", "regex"}, {"pattern", "["}}}}}},
   };
   for (const auto& [type, config] : cases) {
@@ -708,16 +663,16 @@ TEST(PipelineValidatorTest,
     stream >> root;
     auto fixture = PrepareExternalFixtureForCore(root);
     root = fixture.neutral_pipeline_json;
-    root["pipeline"].push_back({{"id", "invalid"},
-                                {"node_type", type},
+    root["pipeline"].push_back({{"name", "invalid"},
+                                {"type", type},
                                 {"depends_on", nlohmann::json::array()},
-                                {"config", config}});
+                                {"params", config}});
     const auto report = ValidateWithRemediation(root, fixture.io_boundary);
     EXPECT_FALSE(report.ok);
     EXPECT_TRUE(
         std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
                     [](const auto& d) {
-                      return d.node_id == "invalid" &&
+                      return d.node_name == "invalid" &&
                              (d.code == DiagnosticCode::kInvalidCombination ||
                               d.code == DiagnosticCode::kConfigFieldType ||
                               d.code == DiagnosticCode::kConfigFieldEnum);
@@ -738,23 +693,21 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   auto fixture = PrepareExternalFixtureForCore(root);
   root = fixture.neutral_pipeline_json;
   root["pipeline"] =
-      nlohmann::json::array({{{"id", "a"},
-                              {"node_type", "TextTemplateNode"},
+      nlohmann::json::array({{{"name", "a"},
+                              {"type", "text_template"},
                               {"depends_on", nlohmann::json::array()},
-                              {"config", {{"template", "UNDECLARED"}}},
-                              {"inputs", {{"primary", "input_sentences"}}},
-                              {"outputs", {{"text", "context"}}}},
-                             {{"id", "b"},
-                              {"node_type", "TextTemplateNode"},
+                              {"params", {{"template", "UNDECLARED"}}},
+                              {"inputs", {{"primary", "input.sentence_text"}}}},
+                             {{"name", "b"},
+                              {"type", "text_template"},
                               {"depends_on", {"a"}},
-                              {"config", {{"template", "{{primary}}|"}}},
-                              {"inputs", {{"primary", "input_sentences"}}},
-                              {"outputs", {{"text", "rendered"}}}},
-                             {{"id", "rule"},
-                              {"node_type", "TextRuleMatchNode"},
+                              {"params", {{"template", "{{primary}}|"}}},
+                              {"inputs", {{"primary", "input.sentence_text"}}}},
+                             {{"name", "rule"},
+                              {"type", "text_rule_match"},
                               {"depends_on", {"b"}},
-                              {"inputs", {{"text", "rendered"}}},
-                              {"outputs", {{"matches", "rule_matches"}}}}});
+                              {"inputs", {{"text", "b.text"}}}}});
+  fixture.io_boundary.output_consumed_ports[0].blackboard_key = "rule.matches";
   const auto plan =
       PipelineValidator::ValidateAndPlan(root, fixture.io_boundary);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
@@ -762,10 +715,10 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   Pipeline pipeline;
   ASSERT_TRUE(BuildTestPipeline(pipeline, root, fixture.io_boundary));
   AlgContext ctx;
-  ctx.Publish("input_sentences", TextBatch{{0, 0, "USER"}});
+  ctx.Publish("input.sentence_text", TextBatch{{0, 0, "USER"}});
   ASSERT_EQ(pipeline.Execute(&ctx), 0);
-  ASSERT_NE(ctx.Read<TextBatch>("rendered"), nullptr);
-  EXPECT_EQ(ctx.Read<TextBatch>("rendered")->at(0).data, "USER|");
+  ASSERT_NE(ctx.Read<TextBatch>("b.text"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("b.text")->at(0).data, "USER|");
 }
 
 TEST(PipelineValidatorTest,
@@ -786,7 +739,7 @@ TEST(PipelineValidatorTest,
       PipelineValidator::ValidateAndPlan(root, fixture.io_boundary);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   ASSERT_EQ(plan.report.topological_order.size(), 2U);
-  EXPECT_EQ(plan.report.topological_order.front(), "custom_prompt");
+  EXPECT_EQ(plan.report.topological_order.front(), "generate_entities");
 }
 
 TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
@@ -799,8 +752,8 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   root = fixture.neutral_pipeline_json;
 
   // 把 "temperature" 误拼为 "temprature"
-  root["pipeline"][0]["config"]["temprature"] = 0.1;
-  root["pipeline"][0]["config"].erase("temperature");
+  root["pipeline"][0]["params"]["temprature"] = 0.1;
+  root["pipeline"][0]["params"].erase("temperature");
 
   const auto report = ExplainPipeline(root, fixture.io_boundary);
   EXPECT_FALSE(report.ok);
@@ -809,7 +762,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   const ValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kUnknownConfigField &&
-        diag.path == "/pipeline/0/config/temprature") {
+        diag.path == "/pipeline/0/params/temprature") {
       target_diag = &diag;
       break;
     }
@@ -834,8 +787,8 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   bool found_move = false;
   for (const auto& op : fix.patch) {
     if (op.value("op", "") == "move" &&
-        op.value("from", "") == "/pipeline/0/config/temprature" &&
-        op.value("path", "") == "/pipeline/0/config/temperature") {
+        op.value("from", "") == "/pipeline/0/params/temprature" &&
+        op.value("path", "") == "/pipeline/0/params/temperature") {
       found_move = true;
       break;
     }
@@ -850,8 +803,8 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
 }
 
 TEST(PipelineValidatorTest, ExplainRespectsFixBounds) {
-  const auto boundary = MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                                         {{"rule_matches", "RuleMatchBatch"}});
+  const auto boundary =
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}}, {});
 
   // 构造含 5 个独立上游 Node 和 4 个依赖非法的消费 Node 的 Pipeline。
   // 若不设上限，每个消费者会产生 8 个候选修复，共 32 个。
@@ -860,17 +813,17 @@ TEST(PipelineValidatorTest, ExplainRespectsFixBounds) {
                          {"pipeline", nlohmann::json::array()}};
 
   for (int i = 0; i < 5; ++i) {
-    root["pipeline"].push_back({{"id", "upstream_" + std::to_string(i)},
-                                {"node_type", "TextCorpusSourceNode"},
+    root["pipeline"].push_back({{"name", "upstream_" + std::to_string(i)},
+                                {"type", "text_corpus_source"},
                                 {"depends_on", nlohmann::json::array()},
-                                {"config", {{"corpus", {"sample"}}}}});
+                                {"params", {{"corpus", {"sample"}}}}});
   }
 
   for (int i = 0; i < 4; ++i) {
-    root["pipeline"].push_back({{"id", "consumer_" + std::to_string(i)},
-                                {"node_type", "TextCorpusSourceNode"},
+    root["pipeline"].push_back({{"name", "consumer_" + std::to_string(i)},
+                                {"type", "text_corpus_source"},
                                 {"depends_on", {"nonexistent_node"}},
-                                {"config", {{"corpus", {"sample"}}}}});
+                                {"params", {{"corpus", {"sample"}}}}});
   }
 
   const auto report = ExplainPipeline(root, boundary);
@@ -917,11 +870,11 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
 
   // 引入两个相互独立的错误：
   // 1. custom_prompt 中的配置字段拼写错误 ("temprature" 而非 "temperature")
-  root["pipeline"][0]["config"]["temprature"] = 0.1;
-  root["pipeline"][0]["config"].erase("temperature");
+  root["pipeline"][0]["params"]["temprature"] = 0.1;
+  root["pipeline"][0]["params"].erase("temperature");
 
-  // 2. node_2_StructuredJsonParseNode 中仍未解决的非法配置
-  root["pipeline"][1]["config"]["field_types"] = {
+  // 2. parse_entities 中仍未解决的非法配置
+  root["pipeline"][1]["params"]["field_types"] = {
       {"field_x", "unsupported_type"}};
 
   const auto report = ExplainPipeline(root, fixture.io_boundary);
@@ -931,7 +884,7 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   const ValidationDiagnostic* typo_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kUnknownConfigField &&
-        diag.path == "/pipeline/0/config/temprature") {
+        diag.path == "/pipeline/0/params/temprature") {
       typo_diag = &diag;
       break;
     }
@@ -957,7 +910,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   root = fixture.neutral_pipeline_json;
 
   // 显式把输入连接到没有生产者的键。
-  root["pipeline"][1]["inputs"]["text"] = "missing_result";
+  root["pipeline"][1]["inputs"]["text"] = "missing_result.output";
 
   const auto report = ValidateWithRemediation(root, fixture.io_boundary);
   EXPECT_FALSE(report.ok);
@@ -965,9 +918,8 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
 
   const ValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
-    if (diag.code == DiagnosticCode::kMissingInputProducer &&
-        diag.node_id == "node_2_StructuredJsonParseNode" &&
-        diag.port == "text") {
+    if (diag.code == DiagnosticCode::kUnknownNodeReference &&
+        diag.node_name == "parse_entities" && diag.port == "text") {
       target_diag = &diag;
       break;
     }
@@ -978,35 +930,34 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   EXPECT_FALSE(target_diag->remediation->summary.empty());
   EXPECT_FALSE(target_diag->remediation->facts.empty());
   EXPECT_EQ(target_diag->remediation->cause,
-            RemediationCause::kNoCompatibleInputSource);
-  EXPECT_EQ(target_diag->remediation->facts.at("bound_key"), "missing_result");
+            RemediationCause::kUnknownNodeReference);
+  EXPECT_EQ(target_diag->remediation->facts.at("bound_key"),
+            "missing_result.output");
   EXPECT_TRUE(target_diag->remediation->fixes.empty());
 }
 
 TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
-  const auto boundary =
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"extracted_entities", "StructuredDocumentBatch"}});
+  const auto boundary = MakeTestBoundary(
+      {{"input.sentence_text", "TextBatch"}},
+      {{"parse_entities.document", "StructuredDocumentBatch"}});
 
   nlohmann::json root = {{"models", nlohmann::json::array()},
                          {"pipeline",
-                          {{{"id", "custom_prompt"},
-                            {"node_type", "PromptGuidedLlmNode"},
+                          {{{"name", "custom_prompt"},
+                            {"type", "prompt_guided_llm"},
                             {"depends_on", nlohmann::json::array()},
-                            {"inputs", {{"input", "input_sentences"}}},
-                            {"outputs", {{"output", "llm_raw_answer"}}},
-                            {"config",
+                            {"inputs", {{"input", "input.sentence_text"}}},
+                            {"params",
                              {{"bind_model", "missing_model"},
                               {"prompt_template", "Hello {{input}}"},
                               {"strip_markdown", true},
                               {"temperature", 0.1},
                               {"max_tokens", 64}}}},
-                           {{"id", "node_2_StructuredJsonParseNode"},
-                            {"node_type", "StructuredJsonParseNode"},
+                           {{"name", "parse_entities"},
+                            {"type", "structured_json_parse"},
                             {"depends_on", {"custom_prompt"}},
-                            {"inputs", {{"text", "llm_raw_answer"}}},
-                            {"outputs", {{"document", "extracted_entities"}}},
-                            {"config", {{"failure_policy", "fail"}}}}}}};
+                            {"inputs", {{"text", "custom_prompt.output"}}},
+                            {"params", {{"failure_policy", "fail"}}}}}}};
 
   for (int i = 0; i < 10; ++i) {
     char name_buf[32];
@@ -1059,7 +1010,7 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
   const auto reachable_report = ExplainPipeline(reachable, boundary);
   const auto* reference =
       FindDiagnostic(reachable_report, DiagnosticCode::kUnknownModelReference,
-                     "/pipeline/0/config/bind_model");
+                     "/pipeline/0/params/bind_model");
   ASSERT_NE(reference, nullptr);
   ASSERT_TRUE(reference->remediation.has_value());
   ASSERT_FALSE(reference->remediation->fixes.empty());
@@ -1071,8 +1022,7 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
 
 TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
   const auto boundary =
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"extracted_entities", "StructuredDocumentBatch"}});
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}}, {});
 
   nlohmann::json root = {{"models",
                           {{{"name", "broken_model"},
@@ -1083,12 +1033,11 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
                             {"file", "fixture.bin"},
                             {"params", {{"max_seq_len", 0}}}}}},
                          {"pipeline",
-                          {{{"id", "llm_node"},
-                            {"node_type", "PromptGuidedLlmNode"},
+                          {{{"name", "llm_node"},
+                            {"type", "prompt_guided_llm"},
                             {"depends_on", nlohmann::json::array()},
-                            {"inputs", {{"input", "input_sentences"}}},
-                            {"outputs", {{"output", "llm_raw_answer"}}},
-                            {"config",
+                            {"inputs", {{"input", "input.sentence_text"}}},
+                            {"params",
                              {{"bind_model", "missing_model"},
                               {"prompt_template", "Hello {{input}}"},
                               {"strip_markdown", true},
@@ -1103,7 +1052,7 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
             nullptr);
   const auto* reference =
       FindDiagnostic(report, DiagnosticCode::kUnknownModelReference,
-                     "/pipeline/0/config/bind_model");
+                     "/pipeline/0/params/bind_model");
   ASSERT_NE(reference, nullptr);
   ASSERT_TRUE(reference->remediation.has_value());
   EXPECT_EQ(reference->remediation->facts["candidate_model_names"],
@@ -1128,49 +1077,87 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
   EXPECT_FALSE(proposed_broken_model);
 }
 
+TEST(PipelineValidatorTest, IoTypeMismatchSuggestsAnotherOutputOfSameNode) {
+  auto fixture = LoadRegistrationFixture(
+      "demo/fixtures/mock/pipeline_entity_extract.json");
+  const auto& nodes = fixture.neutral_pipeline_json["pipeline"];
+  const auto generator =
+      std::find_if(nodes.begin(), nodes.end(), [](const auto& node) {
+        return node.value("type", "") == "llm_generate";
+      });
+  ASSERT_NE(generator, nodes.end());
+  auto node = *generator;
+  const std::string name = node.at("name").get<std::string>();
+  node["inputs"]["input"] = "input.sentence_text";
+  fixture.neutral_pipeline_json["pipeline"] = nlohmann::json::array({node});
+  ASSERT_EQ(fixture.io_boundary.output_consumed_ports.size(), 1U);
+  auto& output = fixture.io_boundary.output_consumed_ports[0];
+  output.blackboard_key = name + ".text";
+
+  const auto report = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                              fixture.io_boundary);
+  ASSERT_FALSE(report.ok);
+  ASSERT_EQ(report.diagnostics.size(), 1U) << report.ToJson();
+  const auto& diagnostic = report.diagnostics[0];
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kPortTypeMismatch);
+  EXPECT_EQ(diagnostic.path, "/io/output/0/inputs/entities");
+  EXPECT_EQ(diagnostic.node_name, name);
+  EXPECT_EQ(diagnostic.port, "entities");
+  ASSERT_TRUE(diagnostic.remediation.has_value());
+  const auto& remediation = *diagnostic.remediation;
+  EXPECT_EQ(remediation.cause, RemediationCause::kPortTypeMismatch);
+  EXPECT_EQ(remediation.facts.at("bound_key"), name + ".text");
+  EXPECT_EQ(remediation.facts.at("expected_type"), "StructuredDocumentBatch");
+  const auto candidates =
+      remediation.facts.at("candidate_sources").get<std::vector<std::string>>();
+  EXPECT_EQ(candidates, std::vector<std::string>{name + ".document"});
+
+  output.blackboard_key = name + ".document";
+  const auto repaired = ValidateWithRemediation(fixture.neutral_pipeline_json,
+                                                fixture.io_boundary);
+  EXPECT_TRUE(repaired.ok) << repaired.ToJson();
+}
+
 TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
-  const auto boundary = MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                                         {{"rule_matches", "RuleMatchBatch"}});
+  auto boundary =
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}},
+                       {{"rules_per_request.matches", "RuleMatchBatch"}});
 
   nlohmann::json root = {
       {"pipeline",
-       {{{"id", "chunk"},
-         {"node_type", "TextChunkNode"},
-         {"config", {{"chunk_size", 4}}},
-         {"inputs", {{"text", "input_sentences"}}},
-         {"outputs",
-          {{"chunks", "sentence_chunks"},
-           {"chunk_counts", "sentence_chunk_counts"}}}},
-        {{"id", "rules_per_chunk"},
-         {"node_type", "TextRuleMatchNode"},
-         {"config", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
-         {"inputs", {{"text", "sentence_chunks"}}},
-         {"outputs", {{"matches", "chunk_matches"}}}},
-        {{"id", "rules_per_request"},
-         {"node_type", "TextRuleMatchNode"},
-         {"config", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
-         {"inputs", {{"text", "input_sentences"}}},
-         {"outputs", {{"matches", "rule_matches"}}}}}}};
+       {{{"name", "chunk"},
+         {"type", "text_chunk"},
+         {"params", {{"chunk_size", 4}}},
+         {"inputs", {{"text", "input.sentence_text"}}}},
+        {{"name", "rules_per_chunk"},
+         {"type", "text_rule_match"},
+         {"params", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
+         {"inputs", {{"text", "chunk.chunks"}}}},
+        {{"name", "rules_per_request"},
+         {"type", "text_rule_match"},
+         {"params", {{"categories", {{"SYSTEM_INIT", {"初始化"}}}}}},
+         {"inputs", {{"text", "input.sentence_text"}}}}}}};
 
+  boundary.output_consumed_ports[0].logical_name = "matches";
+  boundary.output_consumed_ports[0].path = "/io/output/0/inputs";
   const auto accepted = ValidateWithRemediation(root, boundary);
   EXPECT_TRUE(accepted.ok) << accepted.ToJson().dump();
 
   // 逐分块的匹配结果不能作为每请求一行的 I/O 输出。
-  root["pipeline"][1]["outputs"]["matches"] = "rule_matches";
-  root["pipeline"][2]["outputs"]["matches"] = "request_matches";
+  boundary.output_consumed_ports[0].blackboard_key = "rules_per_chunk.matches";
   const auto rejected = ValidateWithRemediation(root, boundary);
   ASSERT_FALSE(rejected.ok);
   ASSERT_EQ(rejected.diagnostics.size(), 1u) << rejected.ToJson().dump();
   EXPECT_EQ(rejected.diagnostics[0].code,
             DiagnosticCode::kPortCardinalityMismatch);
-  EXPECT_EQ(rejected.diagnostics[0].path, "/io/output");
-  EXPECT_EQ(rejected.diagnostics[0].port, "rule_matches");
+  EXPECT_EQ(rejected.diagnostics[0].path, "/io/output/0/inputs/matches");
+  EXPECT_EQ(rejected.diagnostics[0].port, "matches");
   const auto& egress = rejected.diagnostics[0];
   ASSERT_TRUE(egress.remediation.has_value());
   EXPECT_EQ(egress.remediation->cause, RemediationCause::kPortFlowMismatch);
   EXPECT_NE(egress.remediation->summary.find("生产者 'rules_per_chunk'"),
             std::string::npos);
-  EXPECT_NE(egress.remediation->summary.find("消费者 '$io_output'"),
+  EXPECT_NE(egress.remediation->summary.find("消费者 'output'"),
             std::string::npos);
   EXPECT_NE(egress.remediation->summary.find("chunk.chunks"),
             std::string::npos);
@@ -1183,9 +1170,9 @@ TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
                                        {"origin", "chunk.chunks"}};
   const nlohmann::json expected_shape = {{"kind", "per_request"}};
   const auto& facts = egress.remediation->facts;
-  EXPECT_EQ(facts.at("producer_id"), "rules_per_chunk");
-  EXPECT_EQ(facts.at("consumer_id"), "$io_output");
-  EXPECT_EQ(facts.at("bound_key"), "rule_matches");
+  EXPECT_EQ(facts.at("producer_name"), "rules_per_chunk");
+  EXPECT_EQ(facts.at("consumer_name"), "output");
+  EXPECT_EQ(facts.at("bound_key"), "rules_per_chunk.matches");
   EXPECT_EQ(facts.at("actual"), declaration);
   EXPECT_EQ(facts.at("expected"), declaration);
   EXPECT_EQ(facts.at("actual_shape"), actual_shape);
@@ -1195,44 +1182,50 @@ TEST(PipelineValidatorTest, SplitItemsFeedItemWiseNodeButNotPerRequestEgress) {
 }
 
 TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
-  const auto boundary = MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                                         {{"rule_matches", "RuleMatchBatch"}});
+  test_support::RegistryTestAccess::ScopedNodeState state;
+  NodeDefinition consumer_definition;
+  consumer_definition.node_type = "session_text_consumer_fixture";
+  consumer_definition.category = "test";
+  consumer_definition.inputs = {
+      {"flow", "TextBatch", true, "1:1", "preserve", "session"}};
+  ASSERT_TRUE(NodeRegistry::Instance().Register(
+      consumer_definition.node_type,
+      []() -> std::unique_ptr<INode> { return nullptr; }, consumer_definition));
+  const auto boundary =
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}}, {});
 
   nlohmann::json root = {{"models", nlohmann::json::array()},
                          {"pipeline",
-                          {{{"id", "producer"},
-                            {"node_type", "TextChunkNode"},
+                          {{{"name", "producer"},
+                            {"type", "text_chunk"},
                             {"depends_on", nlohmann::json::array()},
-                            {"inputs", {{"text", "input_sentences"}}},
-                            {"outputs", {{"chunks", "chunk_text"}}}},
-                           {{"id", "consumer"},
-                            {"node_type", "TextEmbeddingNode"},
+                            {"inputs", {{"text", "input.sentence_text"}}}},
+                           {{"name", "consumer"},
+                            {"type", consumer_definition.node_type},
                             {"depends_on", {"producer"}},
-                            {"inputs", {{"text", "chunk_text"}}},
-                            {"outputs", {{"embedding", "chunk_embeddings"}}},
-                            {"config", {{"lifetime", "session"}}}}}}};
+                            {"inputs", {{"flow", "producer.chunks"}}}}}}};
 
   const auto report = ValidateWithRemediation(root, boundary);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
-  // 请求作用域的分块不能支撑会话作用域的 embedding 缓存。
+  // 请求作用域的分块不能连接要求会话作用域的消费端口。
   const ValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kPortLifetimeMismatch &&
-        diag.node_id == "consumer" && diag.port == "text") {
+        diag.node_name == "consumer" && diag.port == "flow") {
       target_diag = &diag;
       break;
     }
   }
 
-  ASSERT_NE(target_diag, nullptr);
+  ASSERT_NE(target_diag, nullptr) << report.ToJson();
   ASSERT_TRUE(target_diag->remediation.has_value());
   EXPECT_EQ(target_diag->remediation->cause,
             RemediationCause::kPortFlowMismatch);
   EXPECT_EQ(target_diag->remediation->facts.value("bound_key", ""),
-            "chunk_text");
-  EXPECT_EQ(target_diag->remediation->facts.value("producer_id", ""),
+            "producer.chunks");
+  EXPECT_EQ(target_diag->remediation->facts.value("producer_name", ""),
             "producer");
 
   ASSERT_TRUE(target_diag->remediation->facts.contains("expected"));
@@ -1247,7 +1240,7 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   EXPECT_TRUE(actual.contains("cardinality"));
   EXPECT_TRUE(actual.contains("provenance_policy"));
   EXPECT_TRUE(actual.contains("lifetime"));
-  EXPECT_EQ(target_diag->remediation->facts.at("consumer_id"), "consumer");
+  EXPECT_EQ(target_diag->remediation->facts.at("consumer_name"), "consumer");
   EXPECT_EQ(expected.at("type_id"), "TextBatch");
   EXPECT_EQ(actual.at("type_id"), "TextBatch");
   EXPECT_EQ(expected.at("lifetime"), "session");
@@ -1259,24 +1252,24 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
 
 TEST(PipelineValidatorTest,
      ExplainHandlesMultipleDifferentDuplicateDependencies) {
-  const auto boundary = MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                                         {{"rule_matches", "RuleMatchBatch"}});
+  const auto boundary =
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}}, {});
 
   nlohmann::json root = {
       {"models", nlohmann::json::array()},
       {"pipeline",
-       {{{"id", "dep_a"},
-         {"node_type", "TextCorpusSourceNode"},
+       {{{"name", "dep_a"},
+         {"type", "text_corpus_source"},
          {"depends_on", nlohmann::json::array()},
-         {"config", {{"corpus", {"a"}}}}},
-        {{"id", "dep_b"},
-         {"node_type", "TextCorpusSourceNode"},
+         {"params", {{"corpus", {"a"}}}}},
+        {{"name", "dep_b"},
+         {"type", "text_corpus_source"},
          {"depends_on", nlohmann::json::array()},
-         {"config", {{"corpus", {"b"}}}}},
-        {{"id", "consumer"},
-         {"node_type", "TextCorpusSourceNode"},
+         {"params", {{"corpus", {"b"}}}}},
+        {{"name", "consumer"},
+         {"type", "text_corpus_source"},
          {"depends_on", {"dep_a", "dep_a", "dep_b", "dep_b"}},
-         {"config", {{"corpus", {"c"}}}}}}}};
+         {"params", {{"corpus", {"c"}}}}}}}};
 
   const auto report = ExplainPipeline(root, boundary);
   EXPECT_FALSE(report.ok);
@@ -1296,7 +1289,7 @@ TEST(PipelineValidatorTest,
 
   ASSERT_NE(diag_a, nullptr);
   ASSERT_TRUE(diag_a->remediation.has_value());
-  EXPECT_EQ(diag_a->remediation->facts.value("dependency_id", ""), "dep_a");
+  EXPECT_EQ(diag_a->remediation->facts.value("dependency_name", ""), "dep_a");
   ASSERT_FALSE(diag_a->remediation->fixes.empty());
   bool found_remove_a = false;
   for (const auto& fix : diag_a->remediation->fixes) {
@@ -1311,7 +1304,7 @@ TEST(PipelineValidatorTest,
 
   ASSERT_NE(diag_b, nullptr);
   ASSERT_TRUE(diag_b->remediation.has_value());
-  EXPECT_EQ(diag_b->remediation->facts.value("dependency_id", ""), "dep_b");
+  EXPECT_EQ(diag_b->remediation->facts.value("dependency_name", ""), "dep_b");
   ASSERT_FALSE(diag_b->remediation->fixes.empty());
   bool found_remove_b = false;
   for (const auto& fix : diag_b->remediation->fixes) {

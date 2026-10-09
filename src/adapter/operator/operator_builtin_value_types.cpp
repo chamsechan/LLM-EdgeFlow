@@ -195,7 +195,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           if (ret != 0) return ret;
           if (in.channel_name) {
             ret = ValidateCompanyString(in.channel_name,
-                                        biz_input::kMaxChannelNameBytes,
+                                        input_limits::kMaxChannelNameBytes,
                                         "channel_name", err);
             if (ret != 0) return ret;
           }

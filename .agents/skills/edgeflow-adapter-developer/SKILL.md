@@ -22,7 +22,7 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 | --- | --- |
 | 请求校验、字段选择与内部 payload | `src/adapter/input/`，`InputConverterDefinition` + `REGISTER_INPUT_CONVERTER` |
 | 完整响应组装、序列化和拷贝 | `src/adapter/output/`，`OutputConverterDefinition` + `REGISTER_OUTPUT_CONVERTER` |
-| 接入选择与边界 | Pipeline 根 `io.input` / `io.output` 以 `(type, name)` 选择登记；每个登记拥有一个宿主槽，转换器 typed 端口组合成 Core 的明确边界 |
+| 接入选择与边界 | Pipeline 根 `io.input` / `io.output` 以 `(type, name)` 选择登记；每个登记拥有一个宿主槽，转换器 typed 逻辑端口组合成 Core 的明确边界，输出项 `inputs` 指定每个必填端口的来源 |
 | 确需新的宿主值类型/分配方式 | `include/adapter/operator_value_type.h`，按 [输出分配指南](../../../doc/dev_guide/operator_output_allocation.md) 注册 |
 
 从 [翻译输入](../../../src/adapter/input/translate_json_input.cpp)、
@@ -38,7 +38,8 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 也不把这些操作放进 Demo、Node 或 Core。`type` 是宿主后缀，`name` 对应业务值；
 `common` 表示该载体的默认处理。参数通过 `Parameters<P>` 声明；字符串尺寸使用
 `MaxBytes`，默认值在转换器中声明，平台登记只保留硬上限。`Prepare` / `Validate` 在创建时执行，
-运行时通过 `options.Params<P>()` 只读访问。有效批次上限为 `min(max_frame_depth, 64)`。
+运行时通过 `options.Params<P>()` 只读访问。端口以 `options.Port(逻辑名)` 读写；
+未引用的输入端口返回空名，由发布 helper 跳过。限额共享头为 `adapter/input_limits.h`。有效批次上限为 `min(max_frame_depth, 64)`。
 若需 Demo，只补载体、调用与展示注册，不复制业务转换。
 
 ## 验证新增路径

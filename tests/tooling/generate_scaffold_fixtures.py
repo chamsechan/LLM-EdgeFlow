@@ -11,13 +11,13 @@ import tempfile
 root = Path(__file__).resolve().parents[2]
 output = Path(sys.argv[1])
 output.parent.mkdir(parents=True, exist_ok=True)
-cases = [("ScaffoldComputeNode", ["--kind", "compute"]),
-         ("ScaffoldConversionNode", ["--out-port", "output:Int32Batch"]),
-         ("ScaffoldSplitStubNode", ["--out-port", "output:TextBatch:1:N:generate_sub_id"])]
+cases = [("scaffold_compute", ["--kind", "compute"]),
+         ("scaffold_conversion", ["--out-port", "output:Int32Batch"]),
+         ("scaffold_split_stub", ["--out-port", "output:TextBatch:1:N:generate_sub_id"])]
 for cap in ("llm", "embedding", "asr", "ocr", "rerank"):
-    cases.append((f"ScaffoldModel{cap.capitalize()}Node", ["--kind", "model", "-m", cap]))
-cases.append(("ScaffoldTutorialLlmNode", ["--kind", "model", "-m", "llm"]))
-cases.append(("ScaffoldControlNode", ["--control-id", "2000000042"]))
+    cases.append((f"scaffold_model_{cap}", ["--kind", "model", "-m", cap]))
+cases.append(("scaffold_tutorial_llm", ["--kind", "model", "-m", "llm"]))
+cases.append(("scaffold_control", ["--control-id", "2000000042"]))
 
 
 def apply_documented_text_functions(code):
@@ -39,13 +39,13 @@ def apply_documented_text_functions(code):
 
 with output.open("w", encoding="utf-8") as stream:
     standalone_cases = [
-        ("ScaffoldWrittenTextNode", ["--kind", "compute"]),
-        ("ScaffoldWrittenAudioNode", ["--kind", "compute", "--in-port", "input:AudioPcmBatch",
+        ("scaffold_written_text", ["--kind", "compute"]),
+        ("scaffold_written_audio", ["--kind", "compute", "--in-port", "input:AudioPcmBatch",
                                       "--out-port", "output:AudioPcmBatch"]),
-        ("ScaffoldWrittenControlNode", ["--control-id", "2000000043"]),
+        ("scaffold_written_control", ["--control-id", "2000000043"]),
     ]
-    standalone_cases.append(("ScaffoldWrittenLlmNode", ["--kind", "model", "-m", "llm"]))
-    standalone_cases.append(("ScaffoldWrittenMapNode", ["--kind", "compute"]))
+    standalone_cases.append(("scaffold_written_llm", ["--kind", "model", "-m", "llm"]))
+    standalone_cases.append(("scaffold_written_map", ["--kind", "compute"]))
     standalone_cases.extend(cases)
     with tempfile.TemporaryDirectory(prefix="edgeflow-written-fixtures-") as directory:
         fixture_root = Path(directory)
@@ -77,9 +77,9 @@ if len(json_blocks) < 2:
 tutorial_dir = output.parent / "control_tutorial"
 tutorial_dir.mkdir(parents=True, exist_ok=True)
 pipeline = json.loads(json_blocks[0])
-if pipeline["pipeline"][0]["node_type"] != "PrefixControlNode":
+if pipeline["pipeline"][0]["type"] != "prefix_control":
     raise RuntimeError("Control walkthrough node no longer matches the generated fixture")
-pipeline["pipeline"][0]["node_type"] = "ScaffoldControlNode"
+pipeline["pipeline"][0]["type"] = "scaffold_control"
 (tutorial_dir / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
 (tutorial_dir / "pipeline.conf").write_text(json_blocks[1], encoding="utf-8")
 with output.open("a", encoding="utf-8") as stream:

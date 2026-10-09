@@ -109,7 +109,7 @@ inline const T* ReadOutputValue(AlgContext& context,
                                 const OutputEncodeOptions& options,
                                 AdapterStatus* status,
                                 const char* field_path = nullptr) {
-  const auto* value = context.Read(port);
+  const auto* value = context.Read<T>(options.Port(port.name));
   if (!value) {
     AdapterValidationHelper::ReturnInvalidInput(
         status, std::string("Missing required context value: ") + port.name,
@@ -241,8 +241,8 @@ int DecodeRequestRows(
   }
   if (!PublishRequestIds(options, std::move(ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, payload_port, std::move(payloads), options.Label().c_str(),
-          status))
+          *context, options.Port(payload_port.name), std::move(payloads),
+          options.Label().c_str(), status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
   return COMPANY_ALG_SUCCESS;
 }

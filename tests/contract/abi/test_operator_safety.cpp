@@ -12,12 +12,20 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/io_converter_registry.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/error_codes.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
+
+namespace llm_edgeflow {
+namespace {
+constexpr auto kEntities =
+    MakeBlackboardKey<StructuredDocumentBatch>("entities");
+}  // namespace
+}  // namespace llm_edgeflow
 
 using namespace llm_edgeflow::operator_api;
 
@@ -451,7 +459,7 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
       1, 0,
       llm_edgeflow::JsonDocumentItem("invalid", false,
                                      llm_edgeflow::JsonParseStatus::kFailed));
-  ctx.Publish(llm_edgeflow::kExtractedEntities, std::move(entities));
+  ctx.Publish(llm_edgeflow::kEntities, std::move(entities));
 
   char buf0[512] = {0};
   char buf1[512] = {0};
@@ -473,6 +481,9 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   out_view.SetCapacity("entity_out", "entities_json", 511);
 
   llm_edgeflow::OutputEncodeOptions options;
+  const llm_edgeflow::IoPortBindings options_ports =
+      llm_edgeflow::test::ConverterPortsForTest(*out_conv);
+  options.ports = &options_ports;
 
   options.type = out_conv->type;
   options.name = out_conv->name;

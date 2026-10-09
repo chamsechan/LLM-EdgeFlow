@@ -55,14 +55,16 @@ inline NodeDefinition MakeDagNodeDef(const std::string& type,
 // 辅助测试算子定义
 class DagTestNodeA : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DagTestNodeA";
+  inline static constexpr char kNodeType[] = "dag_test_node_a";
   bool Init(const NodeInitContext& init_ctx) override {
-    (void)init_ctx;
-    return true;
+    plan_ = init_ctx.plan;
+    return plan_ != nullptr;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeA");
-    req_ctx->Publish("node_a_out", std::string("DataFromA"));
+    if (const auto* output =
+            plan_->FindPort("node_a_out", PortDirection::kOutput))
+      req_ctx->Publish(output->blackboard_key, std::string("DataFromA"));
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -74,6 +76,9 @@ class DagTestNodeA : public INode {
     static const std::string name = kNodeType;
     return name;
   }
+
+ private:
+  const ValidatedNodePlan* plan_ = nullptr;
 };
 REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
                               MakeDagNodeDef(DagTestNodeA::kNodeType, {},
@@ -81,17 +86,21 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
 
 class DagTestNodeB : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DagTestNodeB";
+  inline static constexpr char kNodeType[] = "dag_test_node_b";
   bool Init(const NodeInitContext& init_ctx) override {
-    (void)init_ctx;
-    return true;
+    plan_ = init_ctx.plan;
+    return plan_ != nullptr;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeB");
     // 必须依赖 NodeA 的输出
-    auto* a_out = req_ctx->Read<std::string>("node_a_out");
+    auto* a_out = req_ctx->Read<std::string>(
+        plan_->FindPort("node_a_out")->blackboard_key);
     if (!a_out) return -101;
-    req_ctx->Publish("node_b_out", std::string("DataFromB_after_") + *a_out);
+    if (const auto* output =
+            plan_->FindPort("node_b_out", PortDirection::kOutput))
+      req_ctx->Publish(output->blackboard_key,
+                       std::string("DataFromB_after_") + *a_out);
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -103,6 +112,9 @@ class DagTestNodeB : public INode {
     static const std::string name = kNodeType;
     return name;
   }
+
+ private:
+  const ValidatedNodePlan* plan_ = nullptr;
 };
 REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
                               MakeDagNodeDef(DagTestNodeB::kNodeType,
@@ -111,17 +123,21 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
 
 class DagTestNodeC : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DagTestNodeC";
+  inline static constexpr char kNodeType[] = "dag_test_node_c";
   bool Init(const NodeInitContext& init_ctx) override {
-    (void)init_ctx;
-    return true;
+    plan_ = init_ctx.plan;
+    return plan_ != nullptr;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeC");
     // 依赖 NodeA 的输出 (分支 2)
-    auto* a_out = req_ctx->Read<std::string>("node_a_out");
+    auto* a_out = req_ctx->Read<std::string>(
+        plan_->FindPort("node_a_out")->blackboard_key);
     if (!a_out) return -102;
-    req_ctx->Publish("node_c_out", std::string("DataFromC_after_") + *a_out);
+    if (const auto* output =
+            plan_->FindPort("node_c_out", PortDirection::kOutput))
+      req_ctx->Publish(output->blackboard_key,
+                       std::string("DataFromC_after_") + *a_out);
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -133,6 +149,9 @@ class DagTestNodeC : public INode {
     static const std::string name = kNodeType;
     return name;
   }
+
+ private:
+  const ValidatedNodePlan* plan_ = nullptr;
 };
 REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
                               MakeDagNodeDef(DagTestNodeC::kNodeType,
@@ -141,7 +160,7 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
 
 class DagTestUnsafeNodeC : public DagTestNodeC {
  public:
-  inline static constexpr char kNodeType[] = "DagTestUnsafeNodeC";
+  inline static constexpr char kNodeType[] = "dag_test_unsafe_node_c";
   const std::string& Name() const override {
     static const std::string name = kNodeType;
     return name;
@@ -160,19 +179,23 @@ REGISTER_NODE_WITH_DEFINITION(DagTestUnsafeNodeC, MakeUnsafeDagNodeDef());
 
 class DagTestNodeD : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DagTestNodeD";
+  inline static constexpr char kNodeType[] = "dag_test_node_d";
   bool Init(const NodeInitContext& init_ctx) override {
-    (void)init_ctx;
-    return true;
+    plan_ = init_ctx.plan;
+    return plan_ != nullptr;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeD");
     // 汇聚 NodeB 和 NodeC 两个分支
-    auto* b_out = req_ctx->Read<std::string>("node_b_out");
-    auto* c_out = req_ctx->Read<std::string>("node_c_out");
+    auto* b_out = req_ctx->Read<std::string>(
+        plan_->FindPort("node_b_out")->blackboard_key);
+    auto* c_out = req_ctx->Read<std::string>(
+        plan_->FindPort("node_c_out")->blackboard_key);
     if (!b_out || !c_out) return -103;
 
-    req_ctx->Publish("final_dag_result", *b_out + " + " + *c_out);
+    if (const auto* output =
+            plan_->FindPort("final_dag_result", PortDirection::kOutput))
+      req_ctx->Publish(output->blackboard_key, *b_out + " + " + *c_out);
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -184,6 +207,9 @@ class DagTestNodeD : public INode {
     static const std::string name = kNodeType;
     return name;
   }
+
+ private:
+  const ValidatedNodePlan* plan_ = nullptr;
 };
 REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
                               MakeDagNodeDef(DagTestNodeD::kNodeType,
@@ -193,7 +219,7 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
 
 class ThrowingProcessDagNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "ThrowingProcessDagNode";
+  inline static constexpr char kNodeType[] = "throwing_process_dag";
   bool Init(const NodeInitContext&) override { return true; }
   static inline int failure_mode = 0;
   int Process(AlgContext* ctx) override {
@@ -217,7 +243,7 @@ REGISTER_NODE_WITH_DEFINITION(ThrowingProcessDagNode,
 
 class GatedProcessDagNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "GatedProcessDagNode";
+  inline static constexpr char kNodeType[] = "gated_process_dag";
 
   static void Reset() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -305,7 +331,7 @@ class ParallelFailureCoordinator {
 
 class FirstFailingDagNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "FirstFailingDagNode";
+  inline static constexpr char kNodeType[] = "first_failing_dag";
   bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext* req_ctx) override {
     req_ctx->SetError(-8101, "first parallel failure");
@@ -323,7 +349,7 @@ REGISTER_NODE_WITH_DEFINITION(FirstFailingDagNode,
 
 class SecondFailingDagNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "SecondFailingDagNode";
+  inline static constexpr char kNodeType[] = "second_failing_dag";
   bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext* req_ctx) override {
     ParallelFailureCoordinator::WaitForFirst();
@@ -350,23 +376,26 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
   // JSON 中故意将 D 写在最前，B 和 C 其次，A 写在最后 (逆序输入)
   nlohmann::json config = {
       {"pipeline",
-       {{{"id", "node_d"},
-         {"node_type", "DagTestNodeD"},
+       {{{"name", "node_d"},
+         {"type", "dag_test_node_d"},
          {"inputs",
-          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}}},
-        {{"id", "node_c"},
-         {"node_type", "DagTestNodeC"},
-         {"inputs", {{"node_a_out", "node_a_out"}}}},
-        {{"id", "node_b"},
-         {"node_type", "DagTestNodeB"},
-         {"inputs", {{"node_a_out", "node_a_out"}}}},
-        {{"id", "node_a"}, {"node_type", "DagTestNodeA"}}}}};
+          {{"node_b_out", "node_b.node_b_out"},
+           {"node_c_out", "node_c.node_c_out"}}}},
+        {{"name", "node_c"},
+         {"type", "dag_test_node_c"},
+         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
+        {{"name", "node_b"},
+         {"type", "dag_test_node_b"},
+         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
+        {{"name", "node_a"}, {"type", "dag_test_node_a"}}}}};
 
   for (int workers : {1, 4}) {
     SCOPED_TRACE(workers);
     config["max_parallel_workers"] = workers;
     Pipeline pipeline;
-    bool ok = BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr);
+    bool ok = BuildTestPipeline(
+        pipeline, config,
+        MakeTestBoundary({}, {{"node_d.final_dag_result", "string"}}), nullptr);
     ASSERT_TRUE(ok);
 
     // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
@@ -387,7 +416,7 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
     EXPECT_EQ(trace[0], "NodeA");
     EXPECT_EQ(trace[3], "NodeD");
 
-    auto* final_res = req_ctx.Read<std::string>("final_dag_result");
+    auto* final_res = req_ctx.Read<std::string>("node_d.final_dag_result");
     ASSERT_NE(final_res, nullptr);
     EXPECT_EQ(*final_res,
               "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
@@ -398,21 +427,21 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
 TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
   nlohmann::json config = {
       {"pipeline",
-       {{{"id", "A"},
-         {"node_type", "DagTestNodeA"},
+       {{{"name", "A"},
+         {"type", "dag_test_node_a"},
          {"depends_on", nlohmann::json::array()}},
-        {{"id", "B"},
-         {"node_type", "DagTestNodeB"},
-         {"inputs", {{"node_a_out", "node_a_out"}}},
+        {{"name", "B"},
+         {"type", "dag_test_node_b"},
+         {"inputs", {{"node_a_out", "A.node_a_out"}}},
          {"depends_on", {"A"}}},
-        {{"id", "C"},
-         {"node_type", "DagTestNodeC"},
-         {"inputs", {{"node_a_out", "node_a_out"}}},
+        {{"name", "C"},
+         {"type", "dag_test_node_c"},
+         {"inputs", {{"node_a_out", "A.node_a_out"}}},
          {"depends_on", {"A"}}},
-        {{"id", "D"},
-         {"node_type", "DagTestNodeD"},
+        {{"name", "D"},
+         {"type", "dag_test_node_d"},
          {"inputs",
-          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}},
+          {{"node_b_out", "B.node_b_out"}, {"node_c_out", "C.node_c_out"}}},
          {"depends_on", {"B", "C"}}}}}};
 
   Pipeline pipeline;
@@ -435,16 +464,16 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
   nlohmann::json cyclic_config = {
       {"pipeline",
        {
-           {{"id", "A"},
-            {"node_type", "DagTestNodeA"},
+           {{"name", "A"},
+            {"type", "dag_test_node_a"},
             {"depends_on", {"C"}}},  // A 依赖 C
-           {{"id", "B"},
-            {"node_type", "DagTestNodeB"},
-            {"inputs", {{"node_a_out", "node_a_out"}}},
+           {{"name", "B"},
+            {"type", "dag_test_node_b"},
+            {"inputs", {{"node_a_out", "A.node_a_out"}}},
             {"depends_on", {"A"}}},  // B 依赖 A
-           {{"id", "C"},
-            {"node_type", "DagTestNodeC"},
-            {"inputs", {{"node_a_out", "node_a_out"}}},
+           {{"name", "C"},
+            {"type", "dag_test_node_c"},
+            {"inputs", {{"node_a_out", "A.node_a_out"}}},
             {"depends_on", {"B"}}}  // C 依赖 B (构成闭环)
        }}};
 
@@ -459,7 +488,7 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
 TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
   nlohmann::json self_loop_config = {
       {"pipeline",
-       {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
+       {{{"name", "A"}, {"type", "dag_test_node_a"}, {"depends_on", {"A"}}}}}};
 
   Pipeline pipeline;
   EXPECT_FALSE(BuildTestPipeline(pipeline, self_loop_config, MakeTestBoundary(),
@@ -470,8 +499,8 @@ TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
 TEST_F(DagPipelineTest, InvalidDependencyRejection) {
   nlohmann::json invalid_dep_config = {
       {"pipeline",
-       {{{"id", "A"},
-         {"node_type", "DagTestNodeA"},
+       {{{"name", "A"},
+         {"type", "dag_test_node_a"},
          {"depends_on", {"ghost_non_existent_node"}}}}}};
 
   Pipeline pipeline;
@@ -485,28 +514,30 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
       {"max_parallel_workers", 4},
       {"pipeline",
        {// Layer 0: Root 节点 A
-        {{"id", "node_a"},
-         {"node_type", "DagTestNodeA"},
+        {{"name", "node_a"},
+         {"type", "dag_test_node_a"},
          {"depends_on", nlohmann::json::array()}},
         // Layer 1: 兄弟节点 B 和 C 均依赖 A，在 Layer 1 并发执行
-        {{"id", "node_b"},
-         {"node_type", "DagTestNodeB"},
-         {"inputs", {{"node_a_out", "node_a_out"}}},
+        {{"name", "node_b"},
+         {"type", "dag_test_node_b"},
+         {"inputs", {{"node_a_out", "node_a.node_a_out"}}},
          {"depends_on", {"node_a"}}},
-        {{"id", "node_c"},
-         {"node_type", "DagTestNodeC"},
-         {"inputs", {{"node_a_out", "node_a_out"}}},
+        {{"name", "node_c"},
+         {"type", "dag_test_node_c"},
+         {"inputs", {{"node_a_out", "node_a.node_a_out"}}},
          {"depends_on", {"node_a"}}},
         // Layer 2: 汇聚节点 D，依赖 B 和 C
-        {{"id", "node_d"},
-         {"node_type", "DagTestNodeD"},
+        {{"name", "node_d"},
+         {"type", "dag_test_node_d"},
          {"inputs",
-          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}},
+          {{"node_b_out", "node_b.node_b_out"},
+           {"node_c_out", "node_c.node_c_out"}}},
          {"depends_on", {"node_b", "node_c"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, parallel_config, MakeTestBoundary(),
-                                nullptr));
+  ASSERT_TRUE(BuildTestPipeline(
+      pipeline, parallel_config,
+      MakeTestBoundary({}, {{"node_d.final_dag_result", "string"}}), nullptr));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
@@ -522,7 +553,7 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   int ret = pipeline.Execute(&req_ctx);
   EXPECT_EQ(ret, 0);
 
-  auto* final_res = req_ctx.Read<std::string>("final_dag_result");
+  auto* final_res = req_ctx.Read<std::string>("node_d.final_dag_result");
   ASSERT_NE(final_res, nullptr);
   EXPECT_EQ(*final_res,
             "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
@@ -531,17 +562,18 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
 TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
   nlohmann::json config = {
       {"pipeline",
-       {{{"id", "node_a"}, {"node_type", DagTestNodeA::kNodeType}},
-        {{"id", "node_b"},
-         {"node_type", DagTestNodeB::kNodeType},
-         {"inputs", {{"node_a_out", "node_a_out"}}}},
-        {{"id", "node_c"},
-         {"node_type", DagTestUnsafeNodeC::kNodeType},
-         {"inputs", {{"node_a_out", "node_a_out"}}}},
-        {{"id", "node_d"},
-         {"node_type", DagTestNodeD::kNodeType},
+       {{{"name", "node_a"}, {"type", DagTestNodeA::kNodeType}},
+        {{"name", "node_b"},
+         {"type", DagTestNodeB::kNodeType},
+         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
+        {{"name", "node_c"},
+         {"type", DagTestUnsafeNodeC::kNodeType},
+         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
+        {{"name", "node_d"},
+         {"type", DagTestNodeD::kNodeType},
          {"inputs",
-          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}}}}}};
+          {{"node_b_out", "node_b.node_b_out"},
+           {"node_c_out", "node_c.node_c_out"}}}}}}};
 
   for (int workers : {4, 1}) {
     SCOPED_TRACE(workers);
@@ -561,12 +593,14 @@ TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
         (std::vector<std::string>{"node_a", "node_b", "node_c", "node_d"}));
 
     Pipeline pipeline;
-    ASSERT_TRUE(
-        BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
+    ASSERT_TRUE(BuildTestPipeline(
+        pipeline, config,
+        MakeTestBoundary({}, {{"node_d.final_dag_result", "string"}}),
+        nullptr));
     AlgContext context;
     ResetExecutionTrace();
     EXPECT_EQ(pipeline.Execute(&context), 0);
-    const auto* result = context.Read<std::string>("final_dag_result");
+    const auto* result = context.Read<std::string>("node_d.final_dag_result");
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(*result, "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
     EXPECT_EQ(SnapshotExecutionTrace(),
@@ -578,11 +612,11 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
   const nlohmann::json config = {
       {"max_parallel_workers", 2},
       {"pipeline",
-       nlohmann::json::array({{{"id", "throwing"},
-                               {"node_type", ThrowingProcessDagNode::kNodeType},
+       nlohmann::json::array({{{"name", "throwing"},
+                               {"type", ThrowingProcessDagNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}},
-                              {{"id", "gated"},
-                               {"node_type", GatedProcessDagNode::kNodeType},
+                              {{"name", "gated"},
+                               {"type", GatedProcessDagNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
 
   GatedProcessDagNode::Reset();
@@ -608,11 +642,11 @@ TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
   const nlohmann::json config = {
       {"max_parallel_workers", 2},
       {"pipeline",
-       nlohmann::json::array({{{"id", "first"},
-                               {"node_type", FirstFailingDagNode::kNodeType},
+       nlohmann::json::array({{{"name", "first"},
+                               {"type", FirstFailingDagNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}},
-                              {{"id", "second"},
-                               {"node_type", SecondFailingDagNode::kNodeType},
+                              {{"name", "second"},
+                               {"type", SecondFailingDagNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
 
   ParallelFailureCoordinator::Reset();
@@ -670,12 +704,11 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
   for (int workers : {1, 4}) {
     for (int failure = 0; failure < 4; ++failure) {
       ThrowingProcessDagNode::failure_mode = failure;
-      nlohmann::json config = {
-          {"max_parallel_workers", workers},
-          {"pipeline",
-           {{{"id", "failing"},
-             {"node_type", ThrowingProcessDagNode::kNodeType},
-             {"depends_on", nlohmann::json::array()}}}}};
+      nlohmann::json config = {{"max_parallel_workers", workers},
+                               {"pipeline",
+                                {{{"name", "failing"},
+                                  {"type", ThrowingProcessDagNode::kNodeType},
+                                  {"depends_on", nlohmann::json::array()}}}}};
       Pipeline pipeline;
       EXPECT_TRUE(
           BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
@@ -698,15 +731,14 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
 }
 
 TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
-  const nlohmann::json config = {
-      {"max_parallel_workers", 2},
-      {"pipeline",
-       {{{"id", "failing"},
-         {"node_type", ThrowingProcessDagNode::kNodeType},
-         {"depends_on", nlohmann::json::array()}},
-        {{"id", "gated"},
-         {"node_type", GatedProcessDagNode::kNodeType},
-         {"depends_on", nlohmann::json::array()}}}}};
+  const nlohmann::json config = {{"max_parallel_workers", 2},
+                                 {"pipeline",
+                                  {{{"name", "failing"},
+                                    {"type", ThrowingProcessDagNode::kNodeType},
+                                    {"depends_on", nlohmann::json::array()}},
+                                   {{"name", "gated"},
+                                    {"type", GatedProcessDagNode::kNodeType},
+                                    {"depends_on", nlohmann::json::array()}}}}};
   GatedProcessDagNode::Reset();
   Pipeline pipeline;
   ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));

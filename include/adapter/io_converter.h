@@ -110,13 +110,21 @@ class ExternalOutputBatchView {
 inline constexpr size_t kMaxProcessBatchSize = 64;
 inline constexpr char kCommonIoName[] = "common";
 
+using IoPortBindings = std::unordered_map<std::string, std::string>;
+
 struct InputDecodeOptions {
   std::string type;
   std::string name;
   std::vector<uint64_t>* request_ids = nullptr;
   const ParameterValues* params = nullptr;
+  const IoPortBindings* ports = nullptr;
 
   std::string Label() const { return type + "/" + name; }
+  std::string Port(const std::string& logical_port) const {
+    if (!ports) return {};
+    const auto it = ports->find(logical_port);
+    return it == ports->end() ? std::string{} : it->second;
+  }
   template <typename P>
   const P& Params() const {
     if (!params) throw std::logic_error("Missing parsed input parameters");
@@ -129,8 +137,14 @@ struct OutputEncodeOptions {
   std::string name;
   const std::vector<uint64_t>* request_ids = nullptr;
   const ParameterValues* params = nullptr;
+  const IoPortBindings* ports = nullptr;
 
   std::string Label() const { return type + "/" + name; }
+  std::string Port(const std::string& logical_port) const {
+    if (!ports) return {};
+    const auto it = ports->find(logical_port);
+    return it == ports->end() ? std::string{} : it->second;
+  }
   template <typename P>
   const P& Params() const {
     if (!params) throw std::logic_error("Missing parsed output parameters");

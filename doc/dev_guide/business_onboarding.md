@@ -36,7 +36,7 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 已知类型名称时可以直接查询，输出复用当前构建的 Catalog：
 
 ```bash
-./build/alg_pipeline_tool describe-node TextRuleMatchNode
+./build/alg_pipeline_tool describe-node text_rule_match
 ./build/alg_pipeline_tool describe-model qwen_causal_lm
 ./build/alg_pipeline_tool describe-backend llama_cpp
 ```
@@ -67,7 +67,7 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool describe-node TextRuleMatchNode
+./build/alg_pipeline_tool describe-node text_rule_match
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
 ./build/alg_demo --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
@@ -83,7 +83,7 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 | 环节 | 样例文件 | 需要补齐时落实的内容 |
 | --- | --- | --- |
 | 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
-| 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[中性结果类型](../../include/core/common_contracts.h) | ingress/egress typed key 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
+| 内部数据边界 | [计划中的端口](../../include/core/validated_node_plan.h)、[中性结果类型](../../include/core/common_contracts.h) | converter 逻辑端口及 `节点名.端口名` 引用 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
 | Operator 类型注册（仅新平台宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新平台宿主类型在此登记一项，与平台结构、type traits 一一对应；已有类型的新嵌套布局用自己文件中的命名方案，见[实现与注册](operator_output_allocation.md#实现与注册) |

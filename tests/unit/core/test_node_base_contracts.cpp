@@ -30,7 +30,6 @@ TEST(NodeErrorCodesTest, ActiveBusinessAndAuthoringErrorsAreDistinct) {
   EXPECT_EQ(node_error::text_embedding::kSessionInferenceFailed, -5101);
   EXPECT_EQ(node_error::structured_json_parse::kParseFailed, -6102);
   EXPECT_EQ(node_error::text_template::kRenderedOutputTooLong, -6201);
-  EXPECT_EQ(node_error::text_rerank::kMissingInput, -7001);
 
   const std::vector<int> codes = {
       node_error::control::kInvalidRequest,
@@ -40,7 +39,6 @@ TEST(NodeErrorCodesTest, ActiveBusinessAndAuthoringErrorsAreDistinct) {
       node_error::structured_json_parse::kParseFailed,
       node_error::text_template::kRenderedOutputTooLong,
       node_error::text_template::kInvalidUtf8,
-      node_error::text_rerank::kMissingInput,
       node_error::author_node::kMissingInput,
       node_error::author_node::kBusinessError,
       node_error::author_node::kModelCallFailed,
@@ -55,7 +53,7 @@ TEST(NodeErrorCodesTest, ActiveBusinessAndAuthoringErrorsAreDistinct) {
 // 1. 抛异常的测试 Node
 class ExceptionThrowingNode : public NodeBase {
  public:
-  inline static constexpr char kNodeType[] = "ExceptionThrowingNode";
+  inline static constexpr char kNodeType[] = "exception_throwing";
   explicit ExceptionThrowingNode(bool throw_in_init = false)
       : NodeBase(kNodeType), throw_in_init_(throw_in_init) {}
 
@@ -89,7 +87,7 @@ TEST(NodeBaseContractsTest, InitAndProcessExceptionSafety) {
 
   std::string diagnostic = "stale";
   ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
+  plan.normalized_params = nlohmann::json::object();
   NodeInitContext init_ctx;
   init_ctx.plan = &plan;
   init_ctx.session_ctx = &session_ctx;
@@ -121,7 +119,7 @@ inline constexpr BlackboardKey<std::string> kTestOutputKey{"test_output_key",
 
 class HelperTestNode : public LegacyNodeBase {
  public:
-  inline static constexpr char kNodeType[] = "HelperTestNode";
+  inline static constexpr char kNodeType[] = "helper_test";
   HelperTestNode() : LegacyNodeBase(kNodeType) {}
 
  protected:
@@ -137,7 +135,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   HelperTestNode node;
   SessionContext session_ctx;
   ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
+  plan.normalized_params = nlohmann::json::object();
   ASSERT_TRUE(node.Init({&plan, &session_ctx}));
 
   // 缺少输入键
@@ -184,8 +182,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
 
 class BoundPortProbeNode : public LegacyNodeBase {
  public:
-  BoundPortProbeNode()
-      : LegacyNodeBase("BoundPortProbeNode"), input_("input") {}
+  BoundPortProbeNode() : LegacyNodeBase("bound_port_probe"), input_("input") {}
 
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json&,
@@ -201,7 +198,7 @@ class BoundPortProbeNode : public LegacyNodeBase {
 
 TEST(NodeBaseContractsTest, BindingRejectsDefinitionRuntimeTypeDrift) {
   ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
+  plan.normalized_params = nlohmann::json::object();
   plan.ports.push_back({"input", "actual_input", "integer", "1:1", "preserve",
                         "request", PortDirection::kInput});
   SessionContext session_ctx;
@@ -222,7 +219,7 @@ class MultiPortProbeNode : public LegacyNodeBase {
       MakeBlackboardKey<TextBatch>("combined");
   inline static constexpr auto kEcho = MakeBlackboardKey<TextBatch>("echo");
 
-  MultiPortProbeNode() : LegacyNodeBase("MultiPortProbeNode") {}
+  MultiPortProbeNode() : LegacyNodeBase("multi_port_probe") {}
   bool OptionalIsBound() const { return optional_.IsBound(); }
   bool CombinedIsBound() const { return combined_.IsBound(); }
   bool EchoIsBound() const { return echo_.IsBound(); }
@@ -257,7 +254,7 @@ TEST(NodeBaseContractsTest,
      BindPortsUsesPlannedKeysAndDisconnectsOptionalInput) {
   test_support::RegistryTestAccess::ScopedNodeState state_guard;
   NodeDefinition definition;
-  definition.node_type = "MultiPortProbeNode";
+  definition.node_type = "multi_port_probe";
   definition.inputs = {RequiredInputPort(MultiPortProbeNode::kFirst),
                        OptionalInputPort(MultiPortProbeNode::kOptional)};
   definition.outputs = {OutputPort(MultiPortProbeNode::kCombined),
@@ -307,7 +304,7 @@ TEST(NodeBaseContractsTest,
 
 TEST(NodeBaseContractsTest, BindPortsStopsAtFirstErrorInDeclarationOrder) {
   ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
+  plan.normalized_params = nlohmann::json::object();
   plan.ports = {{"first", "actual_first", "integer", "1:1", "preserve",
                  "request", PortDirection::kInput},
                 {"optional", "actual_optional", "TextBatch", "1:1", "preserve",
@@ -328,12 +325,12 @@ TEST(NodeBaseContractsTest, BindPortsStopsAtFirstErrorInDeclarationOrder) {
   EXPECT_FALSE(node.EchoIsBound());
 }
 
-TEST(NodeBaseContractsTest, OutputBindingRejectsMissingKeysBeforeTypeMismatch) {
+TEST(NodeBaseContractsTest,
+     OutputBindingAllowsUnusedPortsAndRejectsBoundTypeMismatch) {
   for (int fault = 0; fault < 3; ++fault) {
     SCOPED_TRACE(fault);
     ValidatedNodePlan plan;
-    plan.normalized_config = nlohmann::json::object();
-    // 运行时基类允许输入不绑定；必需输入由编写契约校验。
+    plan.normalized_params = nlohmann::json::object();
     plan.ports.push_back({"optional", "", "integer", "1:1", "preserve",
                           "request", PortDirection::kInput});
     if (fault != 0) {
@@ -341,19 +338,19 @@ TEST(NodeBaseContractsTest, OutputBindingRejectsMissingKeysBeforeTypeMismatch) {
                             "integer", "1:1", "preserve", "request",
                             PortDirection::kOutput});
     }
-    plan.ports.push_back({"echo", "actual_echo", "integer", "1:1", "preserve",
+    plan.ports.push_back({"echo", "actual_echo", "TextBatch", "1:1", "preserve",
                           "request", PortDirection::kOutput});
     SessionContext session;
     MultiPortProbeNode node;
     std::string diagnostic;
-    EXPECT_FALSE(node.Init({&plan, &session, &diagnostic}));
+    EXPECT_EQ(node.Init({&plan, &session, &diagnostic}), fault != 2);
     EXPECT_EQ(diagnostic, fault == 2
                               ? "Output port TypeId mismatch for combined "
                                 "(expected: TextBatch, bound: integer)"
-                              : "Output port is unbound in plan: combined");
+                              : "");
     EXPECT_FALSE(node.OptionalIsBound());
     EXPECT_FALSE(node.CombinedIsBound());
-    EXPECT_FALSE(node.EchoIsBound());
+    EXPECT_EQ(node.EchoIsBound(), fault != 2);
   }
 }
 
@@ -431,12 +428,10 @@ using MockAsrNode = AuthorNode<decltype(MockAsrSpec())>;
 
 TEST(NodeBaseContractsTest, FunctionAsrWorkflow) {
   test_support::RegistryTestAccess::ScopedNodeState state_guard;
-  auto definition = MockAsrSpec().BuildDefinition("MockAsrNode");
+  auto definition = MockAsrSpec().BuildDefinition("mock_asr");
   ASSERT_TRUE(NodeRegistry::Instance().Register(
       definition.node_type,
-      []() {
-        return std::make_unique<MockAsrNode>("MockAsrNode", MockAsrSpec());
-      },
+      []() { return std::make_unique<MockAsrNode>("mock_asr", MockAsrSpec()); },
       definition));
 
   SessionContext session_ctx;
@@ -444,7 +439,7 @@ TEST(NodeBaseContractsTest, FunctionAsrWorkflow) {
   RegisterTestModel(session_ctx.GetModelManager(), "test_asr_model", model,
                     "test-v1");
 
-  MockAsrNode node("MockAsrNode", MockAsrSpec());
+  MockAsrNode node("mock_asr", MockAsrSpec());
   ASSERT_TRUE(
       InitNodeForTest(node, {{"bind_model", "test_asr_model"}}, &session_ctx));
 

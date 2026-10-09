@@ -16,7 +16,7 @@ struct Inputs {
   const TextBatch* candidate_texts = nullptr;
 };
 struct Params {
-  std::string candidate_scope;
+  bool shared_candidates = false;
   int top_k{};
   float min_score{};
   std::string metric;
@@ -52,7 +52,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
     if (!query_requests.insert(query.req_id).second) {
       return NodeResult<RankedTextBatch>::Failure(
           NodeErrorKind::kBusinessError,
-          "VectorTopKNode requires one query per request; duplicate req_id=" +
+          "vector_top_k requires one query per request; duplicate req_id=" +
               std::to_string(query.req_id),
           -3102);
     }
@@ -73,7 +73,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
     req_candidate_indices[(*candidates)[i].req_id].push_back(i);
   }
 
-  const bool is_shared_candidates = params.candidate_scope == "shared";
+  const bool is_shared_candidates = params.shared_candidates;
   if (is_shared_candidates && !candidates->empty() &&
       (req_candidate_indices.size() != 1 || !req_candidate_indices.count(0))) {
     return NodeResult<RankedTextBatch>::Failure(
@@ -152,7 +152,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   }
 
   ALG_LOG_DEBUG(
-      "[VectorTopKNode] Processed %zu queries, returned %zu top ranked "
+      "[vector_top_k] Processed %zu queries, returned %zu top ranked "
       "items.\n",
       queries->size(), ranked_batch.size());
 
@@ -165,17 +165,12 @@ auto Spec() {
                  {Required("queries", &Inputs::queries),
                   Required("candidates", &Inputs::candidates,
                            PortFlow{"N:1", "preserve", "request"}),
-                  OptionalValue("candidate_texts", &Inputs::candidate_texts,
-                                PortFlow{"N:1", "preserve", "request"})}),
+                  Required("candidate_texts", &Inputs::candidate_texts,
+                           PortFlow{"N:1", "preserve", "request"})}),
              ProducedBatch<RankedTextBatch>(
                  "ranked", PortFlow{"1:N", "generate_sub_id", "request"}),
              Parameters<Params>(
-                 {Field("candidate_scope", &Params::candidate_scope)
-                      .Default("request")
-                      .Enum({"request", "shared"})
-                      .Description("request 只检索相同 req_id 的候选；shared "
-                                   "使用所有 req_id=0 的共享候选。"),
-                  Field("top_k", &Params::top_k)
+                 {Field("top_k", &Params::top_k)
                       .Default(1)
                       .Range(1, 1000)
                       .Description("每条查询按向量相似度降序返回的候选条数上限"
@@ -189,12 +184,18 @@ auto Spec() {
                       .Default("cosine")
                       .Enum({"cosine", "dot_product"})
                       .Description("cosine 使用余弦相似度；dot_product "
-                                   "使用原始向量点积，分数受向量模长影响。")}),
+                                   "使用原始向量点积，分数受向量模长影响。")})
+                 .Prepare([](Params* params, const BindingFacts& facts,
+                             std::string*) {
+                   params->shared_candidates =
+                       facts.InputLifetime("candidates") == "session";
+                   return true;
+                 }),
              &Run)
       .Category("common")
       .Description("Vector Top-K search and ranking node")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(VectorTopKNode, Spec());
+REGISTER_FUNCTION_NODE(vector_top_k, Spec());
 }  // namespace llm_edgeflow

@@ -207,7 +207,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     return false;
   }
 
-  std::unordered_set<std::string> seen_node_ids;
+  std::unordered_set<std::string> seen_node_names;
 
   for (size_t i = 0; i < root["pipeline"].size(); ++i) {
     const auto& node_elem = root["pipeline"][i];
@@ -229,112 +229,70 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       }
     }
 
-    // comment 字段类型检查 (R1-ACC-006)
-    if (node_elem.contains("comment") &&
-        !shape::HasType(node_elem["comment"],
-                        shape::Property(node_shape, "comment"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType,
-              node_path_prefix + "/comment",
-              "Field 'comment' must be a string");
-      return false;
-    }
-
     ParsedNodeConfig node_cfg;
     node_cfg.source_index = i;
-
-    // node_type (必填非空字符串)
-    if (shape::MissingRequired(node_elem, node_shape, "node_type")) {
-      SetDiag(diagnostic, DiagnosticCode::kMissingField,
-              node_path_prefix + "/node_type",
-              "Missing required field 'node_type'");
-      return false;
-    }
-    if (!shape::HasType(node_elem["node_type"],
-                        shape::Property(node_shape, "node_type"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType,
-              node_path_prefix + "/node_type",
-              "Field 'node_type' must be a string");
-      return false;
-    }
-    node_cfg.node_type = node_elem["node_type"].get<std::string>();
-    if (shape::TooShort(node_elem["node_type"],
-                        shape::Property(node_shape, "node_type"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldRange,
-              node_path_prefix + "/node_type",
-              "Field 'node_type' cannot be empty");
-      return false;
-    }
-
-    // 输入连接和输出名称使用相同的显式映射结构。
-    for (const char* direction : {"inputs", "outputs"}) {
-      if (!node_elem.contains(direction)) continue;
-      const auto& bindings = node_elem[direction];
-      const auto& mapping_shape = shape::Property(node_shape, direction);
-      const std::string mapping_path = node_path_prefix + "/" + direction;
-      if (!shape::HasType(bindings, mapping_shape)) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType, mapping_path,
-                std::string("Field '") + direction + "' must be an object");
+    for (const auto* field : {"type", "name"}) {
+      const auto at = node_path_prefix + "/" + field;
+      if (shape::MissingRequired(node_elem, node_shape, field)) {
+        SetDiag(diagnostic, DiagnosticCode::kMissingField, at,
+                std::string("Missing required field '") + field + "'");
         return false;
       }
-      auto& targets = std::string_view(direction) == "inputs"
-                          ? node_cfg.ports.inputs
-                          : node_cfg.ports.outputs;
-      for (auto it = bindings.begin(); it != bindings.end(); ++it) {
-        const auto& target_shape = mapping_shape.at("additionalProperties");
-        if (!shape::HasType(it.value(), target_shape)) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                  mapping_path + "/" + it.key(),
-                  "Port mapping target must be a string");
-          return false;
-        }
-        if (shape::TooShort(it.value(), target_shape)) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldRange,
-                  mapping_path + "/" + it.key(),
-                  "Port mapping target cannot be empty");
-          return false;
-        }
-        targets[it.key()] = it.value().get<std::string>();
+      if (!shape::HasType(node_elem[field],
+                          shape::Property(node_shape, field))) {
+        SetDiag(diagnostic, DiagnosticCode::kFieldType, at,
+                std::string("Field '") + field + "' must be a string");
+        return false;
+      }
+      if (shape::TooShort(node_elem[field],
+                          shape::Property(node_shape, field))) {
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange, at,
+                std::string("Field '") + field + "' cannot be empty");
+        return false;
       }
     }
-
-    // config (可选对象)
-    if (node_elem.contains("config")) {
-      if (!shape::HasType(node_elem["config"],
-                          shape::Property(node_shape, "config"))) {
+    node_cfg.node_type = node_elem["type"].get<std::string>();
+    node_cfg.name = node_elem["name"].get<std::string>();
+    if (node_cfg.name == "input" || node_cfg.name == "output" ||
+        node_cfg.name.find('.') != std::string::npos) {
+      SetDiag(diagnostic, DiagnosticCode::kInvalidNodeName,
+              node_path_prefix + "/name",
+              "Node name cannot be reserved or contain '.': " + node_cfg.name);
+      return false;
+    }
+    if (!seen_node_names.insert(node_cfg.name).second) {
+      SetDiag(diagnostic, DiagnosticCode::kDuplicateNodeName,
+              node_path_prefix + "/name",
+              "Duplicate node name: " + node_cfg.name);
+      return false;
+    }
+    if (node_elem.contains("params")) {
+      if (!node_elem["params"].is_object()) {
         SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                node_path_prefix + "/config",
-                "Field 'config' must be an object");
+                node_path_prefix + "/params",
+                "Field 'params' must be an object");
         return false;
       }
-      node_cfg.config = node_elem["config"];
-    } else {
-      node_cfg.config = nlohmann::json::object();
+      node_cfg.params = node_elem["params"];
     }
-
-    // id (必填非空字符串，唯一)
-    if (shape::MissingRequired(node_elem, node_shape, "id")) {
-      SetDiag(diagnostic, DiagnosticCode::kMissingField,
-              node_path_prefix + "/id",
-              "Missing required field 'id' in pipeline node");
-      return false;
+    if (node_elem.contains("inputs")) {
+      const auto& inputs = node_elem["inputs"];
+      if (!inputs.is_object()) {
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
+                node_path_prefix + "/inputs",
+                "Field 'inputs' must be an object");
+        return false;
+      }
+      for (const auto& [port, source] : inputs.items()) {
+        if (!source.is_string()) {
+          SetDiag(diagnostic, DiagnosticCode::kFieldType,
+                  node_path_prefix + "/inputs/" + EscapeJsonPointer(port),
+                  "Input source must be a string in name.port form");
+          return false;
+        }
+        node_cfg.ports.inputs[port] = source.get<std::string>();
+      }
     }
-    if (!shape::HasType(node_elem["id"], shape::Property(node_shape, "id"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType, node_path_prefix + "/id",
-              "Field 'id' must be a string");
-      return false;
-    }
-    node_cfg.id = node_elem["id"].get<std::string>();
-    if (shape::TooShort(node_elem["id"], shape::Property(node_shape, "id"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldRange, node_path_prefix + "/id",
-              "Field 'id' cannot be empty");
-      return false;
-    }
-    if (seen_node_ids.find(node_cfg.id) != seen_node_ids.end()) {
-      SetDiag(diagnostic, DiagnosticCode::kDuplicateNodeId,
-              node_path_prefix + "/id", "Duplicate node id: " + node_cfg.id);
-      return false;
-    }
-    seen_node_ids.insert(node_cfg.id);
 
     // 可选的附加顺序约束。数据依赖由 PipelineValidator
     // 根据输入/输出绑定规划。

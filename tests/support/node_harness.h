@@ -173,6 +173,12 @@ class NodeHarness {
     return *this;
   }
 
+  NodeHarness& InputLifetime(std::string port, std::string lifetime) {
+    input_lifetimes_[std::move(port)] = std::move(lifetime);
+    Reset();
+    return *this;
+  }
+
   bool EnsureInitialized() {
     if (initialized_) return true;
 
@@ -196,8 +202,9 @@ class NodeHarness {
 
     input_keys_.clear();
     output_keys_.clear();
-    plan_ = PrepareNodePlanForTest(node_type_, config_, omitted_ports_,
-                                   "bk_in_", "bk_out_", &init_diagnostic_);
+    plan_ =
+        PrepareNodePlanForTest(node_type_, config_, omitted_ports_, "bk_in_",
+                               "bk_out_", &init_diagnostic_, input_lifetimes_);
     if (!plan_) return false;
     for (const auto& port : plan_->ports) {
       auto& keys =
@@ -270,6 +277,7 @@ class NodeHarness {
       custom_inputs_;
   std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
   std::unordered_set<std::string> omitted_ports_;
+  std::unordered_map<std::string, std::string> input_lifetimes_;
 
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<ValidatedNodePlan> plan_;

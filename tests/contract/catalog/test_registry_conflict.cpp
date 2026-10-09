@@ -41,7 +41,7 @@ inline ModelDefinition MakeTestModelDef(const std::string& type) {
 
 class DummyNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DummyNode";
+  inline static constexpr char kNodeType[] = "dummy";
   bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   NodeControlResult Control(int, const std::string&) override {
@@ -65,7 +65,7 @@ const bool kAuthoringStartupAttempted = [] {
   const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
   if (!selected) return false;
   NodeRegistry::Instance().RegisterWithDefinitionFactory(
-      "BadAuthoringNode", [] { return std::make_unique<DummyNode>(); },
+      "bad_authoring", [] { return std::make_unique<DummyNode>(); },
       [selected] {
         const std::string scenario(selected);
         if (scenario == "invalid_default") {
@@ -84,7 +84,7 @@ const bool kAuthoringStartupAttempted = [] {
         } else if (scenario == "factory_exception") {
           throw std::runtime_error("authoring factory deliberately failed");
         }
-        return MakeTestNodeDef("BadAuthoringNode");
+        return MakeTestNodeDef("bad_authoring");
       });
   return true;
 }();
@@ -106,14 +106,14 @@ TEST(RegistryAuthoringStartupTest,
     ASSERT_EQ(scenario, "factory_exception");
     reason = "authoring factory deliberately failed";
   }
-  EXPECT_FALSE(NodeRegistry::Instance().Has("BadAuthoringNode"));
-  EXPECT_EQ(NodeRegistry::Instance().Create("BadAuthoringNode"), nullptr);
+  EXPECT_FALSE(NodeRegistry::Instance().Has("bad_authoring"));
+  EXPECT_EQ(NodeRegistry::Instance().Create("bad_authoring"), nullptr);
   ASSERT_TRUE(NodeRegistry::Instance().HasConflict());
 
   const nlohmann::json config = {
       {"pipeline",
-       nlohmann::json::array({{{"id", "dummy"},
-                               {"node_type", DummyNode::kNodeType},
+       nlohmann::json::array({{{"name", "dummy"},
+                               {"type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
   const auto validation =
       PipelineValidator::ValidateAndPlan(config, MakeTestBoundary());
@@ -121,7 +121,7 @@ TEST(RegistryAuthoringStartupTest,
   ASSERT_FALSE(validation.report.diagnostics.empty());
   const auto& diagnostic = validation.report.diagnostics.front();
   EXPECT_EQ(diagnostic.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_NE(diagnostic.message.find("BadAuthoringNode"), std::string::npos);
+  EXPECT_NE(diagnostic.message.find("bad_authoring"), std::string::npos);
   EXPECT_NE(diagnostic.message.find(reason), std::string::npos);
 
   Pipeline pipeline;
@@ -129,8 +129,7 @@ TEST(RegistryAuthoringStartupTest,
   EXPECT_FALSE(BuildTestPipeline(pipeline, config, MakeTestBoundary(),
                                  &build_diagnostic));
   EXPECT_EQ(build_diagnostic.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_NE(build_diagnostic.message.find("BadAuthoringNode"),
-            std::string::npos);
+  EXPECT_NE(build_diagnostic.message.find("bad_authoring"), std::string::npos);
   EXPECT_NE(build_diagnostic.message.find(reason), std::string::npos);
 }
 
@@ -174,8 +173,8 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0_DummyNode"},
-                               {"node_type", DummyNode::kNodeType},
+       nlohmann::json::array({{{"name", "dummy"},
+                               {"type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
   EXPECT_FALSE(BuildTestPipeline(pipe, cfg, MakeTestBoundary(), &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
@@ -201,8 +200,8 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
                                {"file", "unused.bin"},
                                {"params", nlohmann::json::object()}}})},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0_DummyNode"},
-                               {"node_type", DummyNode::kNodeType},
+       nlohmann::json::array({{{"name", "dummy"},
+                               {"type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
   EXPECT_FALSE(BuildTestPipeline(pipe, cfg, MakeTestBoundary(), &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);

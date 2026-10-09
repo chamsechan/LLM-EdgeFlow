@@ -57,17 +57,17 @@ graph TD
         CustomNodes["自定义节点扩展目录 (src/custom_nodes/)<br>复用现有接口，按操作组织文件"]
         
         subgraph CommonNodes["通用能力算子池 (src/common_nodes/)"]
-            LlmNode["LlmGenerateNode (大语言模型生成)"]
-            ChunkNode["TextChunkNode (文本切片)"]
-            RuleNode["TextRuleMatchNode (规则与关键词匹配)"]
-            EmbedNode["TextEmbeddingNode (向量提取)"]
-            TopKNode["VectorTopKNode (Top-K 检索)"]
-            RerankNode["TextRerankNode (精排评分)"]
-            TemplateNode["TextTemplateNode (提示词模板渲染)"]
-            JsonNode["StructuredJsonParseNode (JSON 结构化解析)"]
-            AsrNode["AsrTranscribeNode (语音转写)"]
-            OcrNode["OcrDetectNode (OCR 识别)"]
-            CorpusNode["TextCorpusSourceNode (语料源)"]
+            LlmNode["llm_generate (大语言模型生成)"]
+            ChunkNode["text_chunk (文本切片)"]
+            RuleNode["text_rule_match (规则与关键词匹配)"]
+            EmbedNode["text_embedding (向量提取)"]
+            TopKNode["vector_top_k (Top-K 检索)"]
+            RerankNode["text_rerank (精排评分)"]
+            TemplateNode["text_template (提示词模板渲染)"]
+            JsonNode["structured_json_parse (JSON 结构化解析)"]
+            AsrNode["asr_transcribe (语音转写)"]
+            OcrNode["ocr_detect (OCR 识别)"]
+            CorpusNode["text_corpus_source (语料源)"]
         end
     end
 
@@ -182,7 +182,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
-  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 根据节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，校验端口及 DAG 并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序。必需输入显式连接，可选输入省略即未连接；`max_parallel_workers` 默认 1，大于 1 时启用现有并行调度及安全检查；
+  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 根据节点 `inputs` 的 `节点名.端口名` 引用推导依赖，合并可选 `depends_on` 的额外顺序约束，校验端口及 DAG 并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序。必需输入显式连接，可选输入省略即未连接；`max_parallel_workers` 默认 1，大于 1 时启用现有并行调度及安全检查；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例
        （`ModelManager`）与 `SessionResourceKey<T>` 类型安全资源；同名异型访问在 cast 前
@@ -197,7 +197,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - **核心职责**：
   1. **算法工程师核心开发区**：算法使用普通函数，Spec 声明输入、输出、配置与模型，统一 `REGISTER_FUNCTION_NODE`；
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，`AuthorNode` 负责生命周期、端口读写、结果检查及快照，业务作者无需覆写；
-  3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
+  3. **模块化与配置组合**：11 类核心通用算子（`llm_generate`, `text_chunk`, `text_rule_match`, `text_embedding`, `vector_top_k`, `text_rerank`, `text_template`, `structured_json_parse`, `asr_transcribe`, `ocr_detect`, `text_corpus_source`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
   4. **领域扩展与复用**：用户算法集中在 `src/custom_nodes/`，按操作命名文件，可跨方案复用。
      所有生产 Node 共用函数式作者契约、能力节点层构建目标和注册机制；领域 Node 可完成前处理、声明绑定的
      模型调用与后处理，平台结构转换仍属于 Adapter。Core、Engine 和通用 Node 不依赖
@@ -212,7 +212,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：计算批次切片与补齐数量，Model 回调构造补齐输入；执行器剔除补齐输出并恢复 `(req_id, sub_id)` 溯源；
   5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend.type`、`file`、`backend.params` 完成；存在能力缺口时仍需扩展模型执行层。
 
-图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
+图像文档识别沿用 `ocr_detect → IOcrModel`：`VisionDocumentModel` 在模型执行层
 通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
 Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
 `boxes` 或置信度；Operator、DAG 端口和请求溯源遵守各层契约。
@@ -251,10 +251,10 @@ include 搜索范围不是编译器访问权限。`scripts/check_layer_dependenc
 LayerGuard 既注入反向依赖验证静态规则，也使用实际目标的 include 和编译宏执行正反编译
 探针，确认正常下层 API 可用、普通反向 include、越层私有头和 Backend 外的 vendor 头无法编译。
 
-业务 ingress/egress 的 Blackboard key 名称由接入适配层的
-`adapter/biz_blackboard_keys.h` 持有；流程编排层只提供 Blackboard 机制和中性值类型，
-能力节点层通过 `ValidatedNodePlan` 中已经解析的逻辑端口工作。这样业务槽位命名不会成为
-Core、Node 或 Engine 的隐含依赖。
+converter 在自己的登记中声明逻辑端口，并通过计划给出的实际数据名读写。
+输入发布为 `input.端口名`，节点输出为 `节点名.端口名`；输出 converter 的 `inputs` 显式选择来源。
+流程编排层推导依赖与实际生命周期，节点通过 `ValidatedNodePlan` 工作，只发布被引用的输出。
+Core、Nodes、Engine 不包含接入适配层头文件。
 
 ---
 

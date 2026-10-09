@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "contracts/config_schema_validation.h"
@@ -16,7 +17,8 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
     const std::string& type, const nlohmann::json& config,
     const std::unordered_set<std::string>& omitted,
     const std::string& input_prefix, const std::string& output_prefix,
-    std::string* error) {
+    std::string* error,
+    const std::unordered_map<std::string, std::string>& input_lifetimes = {}) {
   static std::mutex fixture_mutex;
   std::lock_guard<std::mutex> fixture_lock(fixture_mutex);
   const auto definition = PipelineCatalog::FindNode(type);
@@ -67,33 +69,28 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
   }
   PipelineIoBoundary boundary;
   nlohmann::json inputs = nlohmann::json::object();
-  nlohmann::json outputs = nlohmann::json::object();
-  auto bind = [&](const NodePortDefinition& port, const std::string& prefix,
-                  std::vector<IoPortDefinition>* ports,
-                  nlohmann::json* bindings) {
+  for (const auto& port : definition->inputs) {
+    if (omitted.count(port.logical_name)) continue;
     IoPortDefinition external;
     static_cast<PortContract&>(external) = port;
-    external.blackboard_key = prefix + port.logical_name;
-    if (!port.lifetime_config_field.empty()) {
-      external.lifetime =
-          normalized.value(port.lifetime_config_field, port.lifetime);
-      external.lifetime_config_field.clear();
-    }
-    (*bindings)[port.logical_name] = external.blackboard_key;
-    ports->push_back(std::move(external));
-  };
-  for (const auto& port : definition->inputs) {
-    if (!omitted.count(port.logical_name))
-      bind(port, input_prefix, &boundary.input_published_ports, &inputs);
+    external.blackboard_key = "input." + port.logical_name;
+    const auto life = input_lifetimes.find(port.logical_name);
+    if (life != input_lifetimes.end()) external.lifetime = life->second;
+    inputs[port.logical_name] = external.blackboard_key;
+    boundary.input_published_ports.push_back(std::move(external));
   }
-  for (const auto& port : definition->outputs)
-    bind(port, output_prefix, &boundary.output_consumed_ports, &outputs);
-  nlohmann::json node = {{"id", "fixture_node"},
-                         {"node_type", type},
-                         {"depends_on", nlohmann::json::array()},
-                         {"config", config},
-                         {"inputs", std::move(inputs)},
-                         {"outputs", std::move(outputs)}};
+  for (const auto& port : definition->outputs) {
+    IoPortDefinition consumer;
+    static_cast<PortContract&>(consumer) = port;
+    consumer.blackboard_key = "fixture_node." + port.logical_name;
+    consumer.lifetime_from_input.clear();
+    consumer.logical_name = port.logical_name;
+    boundary.output_consumed_ports.push_back(std::move(consumer));
+  }
+  nlohmann::json node = {{"name", "fixture_node"},
+                         {"type", type},
+                         {"params", config},
+                         {"inputs", std::move(inputs)}};
   auto result = PipelineValidator::ValidateAndPlan(
       {{"models", std::move(models)},
        {"pipeline", nlohmann::json::array({std::move(node)})}},
@@ -103,8 +100,16 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
     return nullptr;
   }
   if (error) error->clear();
-  return std::make_shared<ValidatedNodePlan>(
+  auto node_plan = std::make_shared<ValidatedNodePlan>(
       std::move(result.node_plans.at("fixture_node")));
+  // Unit callers choose local context keys; the graph above uses canonical
+  // references.
+  for (auto& port : node_plan->ports)
+    port.blackboard_key =
+        (port.direction == PortDirection::kInput ? input_prefix
+                                                 : output_prefix) +
+        port.logical_name;
+  return node_plan;
 }
 
 }  // namespace llm_edgeflow

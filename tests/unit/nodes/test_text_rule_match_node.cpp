@@ -30,7 +30,7 @@ class TextRuleMatchNodeTest : public ::testing::Test {
 };
 
 TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"categories",
@@ -70,11 +70,11 @@ TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleAndDefaultScores) {
       nullptr};
   for (const auto& score : invalid_scores) {
     SCOPED_TRACE(score.dump());
-    auto rule_node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+    auto rule_node = NodeRegistry::Instance().Create("text_rule_match");
     EXPECT_FALSE(InitNodeForTest(
         *rule_node, {{"rules", {{{"pattern", "hit"}, {"score", score}}}}},
         session_ctx_.get()));
-    auto default_node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+    auto default_node = NodeRegistry::Instance().Create("text_rule_match");
     EXPECT_FALSE(InitNodeForTest(*default_node, {{"default_score", score}},
                                  session_ctx_.get()));
   }
@@ -89,58 +89,55 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
   };
   const std::vector<InvalidCase> cases = {
       {{{"categories", {{"VIP", 123}}}},
-       "/pipeline/0/config/categories/VIP",
+       "/pipeline/0/params/categories/VIP",
        DiagnosticCode::kConfigFieldType,
        {"array"}},
       {{{"categories", {{"VIP", {"valid", false}}}}},
-       "/pipeline/0/config/categories/VIP/1",
+       "/pipeline/0/params/categories/VIP/1",
        DiagnosticCode::kConfigFieldType,
        {"string"}},
       {{{"rules",
          {{{"pattern", "valid"}}, {{"pattern", "bad"}, {"scroe", 1}}}}},
-       "/pipeline/0/config/rules/1/scroe",
+       "/pipeline/0/params/rules/1/scroe",
        DiagnosticCode::kUnknownConfigField,
        {"scroe"}},
       {{{"rules", {{{"pattern", "valid"}}, {{"pattern", 7}}}}},
-       "/pipeline/0/config/rules/1/pattern",
+       "/pipeline/0/params/rules/1/pattern",
        DiagnosticCode::kConfigFieldType,
        {"string"}},
       {{{"rules", {{{"pattern", "valid"}}, {{"category", "MISSING"}}}}},
-       "/pipeline/0/config/rules/1/pattern",
+       "/pipeline/0/params/rules/1/pattern",
        DiagnosticCode::kMissingConfigField,
        {"pattern"}},
       {{{"categories", {{"NEW", {"replacement"}}}},
         {"rules",
          {{{"pattern", "valid"}},
           {{"id", "broken"}, {"strategy", "regex"}, {"pattern", "("}}}}},
-       "/pipeline/0/config/rules",
+       "/pipeline/0/params/rules",
        DiagnosticCode::kInvalidCombination,
        {"Field 'rules'", "Array item 1", "pattern", "broken", "byte offset"}}};
   auto root = nlohmann::json::parse(R"({
   "models": [],
   "pipeline": [
     {
-      "id": "rules",
-      "node_type": "TextRuleMatchNode",
+      "type": "text_rule_match",
+      "name": "rules",
       "inputs": {
-        "text": "input_sentences"
-      },
-      "outputs": {
-        "matches": "rule_matches"
+        "text": "input.input_sentences"
       }
     }
   ]
 })");
-  auto active = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto active = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(active, nullptr);
   ASSERT_TRUE(InitNodeForTest(*active, {{"categories", {{"OLD", {"kept"}}}}},
                               session_ctx_.get()));
   for (const auto& invalid : cases) {
     SCOPED_TRACE(invalid.config.dump());
-    root["pipeline"][0]["config"] = invalid.config;
+    root["pipeline"][0]["params"] = invalid.config;
     const auto report = PipelineValidator::Validate(
-        root, MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                               {{"rule_matches", "RuleMatchBatch"}}));
+        root, MakeTestBoundary({{"input.input_sentences", "TextBatch"}},
+                               {{"rules.matches", "RuleMatchBatch"}}));
     ASSERT_FALSE(report.ok);
     EXPECT_TRUE(std::any_of(
         report.diagnostics.begin(), report.diagnostics.end(),
@@ -156,13 +153,13 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
         << report.ToJson().dump(2);
 
     // 直接通过编写接口初始化时，报告同一个出错的嵌套值。
-    auto fresh = NodeRegistry::Instance().Create("TextRuleMatchNode");
+    auto fresh = NodeRegistry::Instance().Create("text_rule_match");
     std::string diagnostic;
     EXPECT_FALSE(InitNodeForTest(*fresh, invalid.config, session_ctx_.get(),
                                  &diagnostic));
     if (invalid.code != DiagnosticCode::kInvalidCombination) {
       EXPECT_NE(diagnostic.find(invalid.path.substr(
-                    std::string("/pipeline/0/config").size())),
+                    std::string("/pipeline/0/params").size())),
                 std::string::npos)
           << diagnostic;
     }
@@ -189,7 +186,7 @@ TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
        std::vector<std::pair<nlohmann::json, std::string>>{
            {{{"default_score", "bad"}}, "default_score"},
            {{{"category", "misspelled"}}, "category"}}) {
-    auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+    auto node = NodeRegistry::Instance().Create("text_rule_match");
     std::string diagnostic;
     EXPECT_FALSE(
         InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic));
@@ -198,7 +195,7 @@ TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
 }
 
 TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_TRUE(InitNodeForTest(
       *node,
       {{"default_category", "FALLBACK"},
@@ -227,7 +224,7 @@ TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
 }
 
 TEST_F(TextRuleMatchNodeTest, MatchingOrderAndJsonConstantsRemainStable) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
   const nlohmann::json constants = {
       {"target", "override"},
@@ -270,7 +267,7 @@ TEST_F(TextRuleMatchNodeTest, MatchingOrderAndJsonConstantsRemainStable) {
 }
 
 TEST_F(TextRuleMatchNodeTest, EmptyRegexRemainsUnmatched) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_TRUE(InitNodeForTest(
       *node,
       {{"rules",
@@ -289,7 +286,7 @@ TEST_F(TextRuleMatchNodeTest, EmptyRegexRemainsUnmatched) {
 }
 
 TEST_F(TextRuleMatchNodeTest, PartialControlReplacesOnlyProvidedContainers) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_TRUE(InitNodeForTest(
       *node,
       {{"categories", {{"OLD", {"kept"}}}},
@@ -337,7 +334,7 @@ TEST_F(TextRuleMatchNodeTest, PartialControlReplacesOnlyProvidedContainers) {
 }
 
 TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_TRUE(InitNodeForTest(
       *node,
       {{"categories", {{"OLD", {"kept"}}}},
@@ -369,7 +366,7 @@ TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
 
 // Control 命令动态热替换规则，并拒绝无效更新
 TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -389,7 +386,7 @@ TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
 }
 
 TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -446,7 +443,7 @@ TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
 }
 
 TEST_F(TextRuleMatchNodeTest, MisspelledRuleCannotBecomeMatchAll) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_TRUE(InitNodeForTest(*node, {{"categories", {{"OLD", {"kept"}}}}},
                               session_ctx_.get()));
   const nlohmann::json invalid = {{"categories", {{"NEW", {"unrelated"}}}},
@@ -470,7 +467,7 @@ TEST_F(TextRuleMatchNodeTest, MisspelledRuleCannotBecomeMatchAll) {
 }
 
 TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"rules",
@@ -506,7 +503,7 @@ TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
 }
 
 TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"rules",
@@ -532,7 +529,7 @@ TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
 }
 
 TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -562,7 +559,7 @@ TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
 }
 
 TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -572,7 +569,7 @@ TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {
-  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
   auto configuration = [](const std::string& version) {
     return nlohmann::json{{"categories", {{version, {"hello"}}}},

@@ -257,7 +257,7 @@ auto Spec() {
       .PortConstraints(
           {PortGroupConstraint(PortConstraintKind::kAtLeastOneOf,
                                {"primary", "context", "matches", "document"},
-                               "TextTemplateNode requires at least one dynamic "
+                               "text_template requires at least one dynamic "
                                "input port to be bound")})
       .ParallelSafe(true)
       .WithControls({ReplaceFields(kControlCmdUpdatePrompt, "update_prompt",
@@ -265,6 +265,6 @@ auto Spec() {
 }
 }  // namespace
 
-REGISTER_FUNCTION_NODE(TextTemplateNode, Spec());
+REGISTER_FUNCTION_NODE(text_template, Spec());
 
 }  // namespace llm_edgeflow

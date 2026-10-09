@@ -4,15 +4,18 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kResult = MakeBlackboardKey<StructuredDocumentBatch>("result");
+constexpr auto kDocument = MakeBlackboardKey<OcrDocumentBatch>("document");
 
 constexpr const char* kOutputSlot = "od_out";
 
@@ -37,10 +40,10 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   }
 
   const auto* invoice_jsons =
-      ReadOutputValue(*context, kExtractedInvoiceJson, options, status);
+      ReadOutputValue(*context, kResult, options, status);
   if (!invoice_jsons) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* ocr_docs = ReadOutputValue(*context, kOcrDocs, options, status);
+  const auto* ocr_docs = ReadOutputValue(*context, kDocument, options, status);
   if (!ocr_docs) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
@@ -101,8 +104,8 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   def.name = "ocr_invoice_qa";
   def.service_type = kMockServiceOcrInvoiceQa;
   def.slot = ExternalOutputSlot<CompanyOdOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kExtractedInvoiceJson),
-                       RequiredInputPort(kOcrDocs)};
+  def.logical_ports = {RequiredInputPort(kResult),
+                       RequiredInputPort(kDocument)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorInvoiceResult;
   return def;

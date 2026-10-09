@@ -4,15 +4,18 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
+#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kImage = MakeBlackboardKey<ImageRefBatch>("image");
+constexpr auto kQuestion = MakeBlackboardKey<TextBatch>("question");
 
 constexpr const char* kFrameSlot = "frame";
 constexpr const char* kQuerySlot = "string";
@@ -41,7 +44,7 @@ int DecodeOperatorFrameInput(const ExternalInputBatchView& source,
           options.Label().c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(frame->image_uri->length) >
-        biz_input::kMaxImageUriBytes) {
+        input_limits::kMaxImageUriBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "image_uri length exceeds limit", "frame.image_uri",
           options.Label().c_str(), static_cast<int>(i));
@@ -55,8 +58,8 @@ int DecodeOperatorFrameInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kImagePaths, std::move(raw_images), options.Label().c_str(),
-          status)) {
+          *context, options.Port(kImage.name), std::move(raw_images),
+          options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -83,7 +86,7 @@ int DecodeOperatorQueryInput(const ExternalInputBatchView& source,
           status, "Invalid query CompanyString", kQuerySlot,
           options.Label().c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(query->length) > biz_input::kMaxTextBytes) {
+    if (static_cast<size_t>(query->length) > input_limits::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query length exceeds limit", kQuerySlot,
           options.Label().c_str(), static_cast<int>(i));
@@ -95,7 +98,7 @@ int DecodeOperatorQueryInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, kUserQueries, std::move(raw_queries),
+          *context, options.Port(kQuestion.name), std::move(raw_queries),
           options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -109,7 +112,7 @@ InputConverterDefinition MakeOperatorFrameInputConverter() {
   def.name = "ocr_invoice_qa";
   def.service_type = kMockServiceOcrInvoiceQa;
   def.slot = ExternalInputSlot<CompanyFrame>(kFrameSlot);
-  def.logical_ports = {OutputPort(kImagePaths)};
+  def.logical_ports = {OutputPort(kImage)};
   def.decode_fn = &DecodeOperatorFrameInput;
   return def;
 }
@@ -119,7 +122,7 @@ InputConverterDefinition MakeOperatorQueryInputConverter() {
   def.type = kQuerySlot;
   def.name = "ocr_invoice_qa";
   def.slot = ExternalInputSlot<CompanyString>(kQuerySlot);
-  def.logical_ports = {OutputPort(kUserQueries)};
+  def.logical_ports = {OutputPort(kQuestion)};
   def.decode_fn = &DecodeOperatorQueryInput;
   return def;
 }

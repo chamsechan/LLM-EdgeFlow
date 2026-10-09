@@ -12,7 +12,7 @@ struct Inputs {
   const TextBatch* text = nullptr;
 };
 struct Params {
-  std::string lifetime;
+  bool cache = false;
 };
 struct Models {
   EmbeddingCall encoder;
@@ -48,7 +48,7 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
                                const SessionResources& resources) {
   const auto& text = *inputs.text;
   if (text.empty()) return NodeResult<EmbeddingBatch>::Success({});
-  if (params.lifetime == "request") return models.encoder.Embed(text);
+  if (!params.cache) return models.encoder.Embed(text);
 
   SessionResourceKey<EmbeddingBatch> key(ConstructSessionCacheKey(
       models.encoder.ModelName(),
@@ -60,7 +60,7 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
   if (!cached.value()) {
     return NodeResult<EmbeddingBatch>::Failure(
         NodeErrorKind::kModelCallError,
-        "TextEmbeddingNode: single-flight inference failed",
+        "text_embedding: single-flight inference failed",
         node_error::text_embedding::kSessionInferenceFailed);
   }
   // 模型 facade 已校验缓存结果；PreservedOutput 在为本请求发布前
@@ -69,17 +69,15 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
 }
 
 auto Spec() {
-  const PortFlow flow{"1:1", "preserve", "request", "lifetime"};
+  const PortFlow flow{"1:1", "preserve", FollowLifetime("text")};
   return MakeNodeSpec(
-             InputsOf<Inputs>({Required("text", &Inputs::text, flow)}),
+             InputsOf<Inputs>({Required("text", &Inputs::text)}),
              PreservedOutput<EmbeddingBatch>("embedding", "text", flow),
-             Parameters<Params>(
-                 {Field("lifetime", &Params::lifetime)
-                      .Default("request")
-                      .Enum({"request", "session"})
-                      .Description("request 每次请求计算；session "
-                                   "按模型版本和输入缓存向量，输入"
-                                   "须满足 session 生命周期契约。")}),
+             Parameters<Params>{}.Prepare(
+                 [](Params* params, const BindingFacts& facts, std::string*) {
+                   params->cache = facts.InputLifetime("text") == "session";
+                   return true;
+                 }),
              ModelsOf<Models>(
                  {Model("encoder", "bind_model", &Models::encoder)}),
              &Run)
@@ -88,5 +86,5 @@ auto Spec() {
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextEmbeddingNode, Spec());
+REGISTER_FUNCTION_NODE(text_embedding, Spec());
 }  // namespace llm_edgeflow

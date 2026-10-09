@@ -134,7 +134,7 @@ NodeResult<RuleMatchBatch> Run(const Inputs& inputs, const Params& state) {
                                 : TextRegexSearchStatus::kNotMatched;
         if (status == TextRegexSearchStatus::kError) {
           ALG_LOG_ERROR(
-              "[TextRuleMatchNode] Regex execution failed for rule '%s': "
+              "[text_rule_match] Regex execution failed for rule '%s': "
               "%s\n",
               rule.id.c_str(), diagnostic.c_str());
           return NodeResult<RuleMatchBatch>::Failure(
@@ -188,6 +188,6 @@ auto Spec() {
 }
 }  // namespace
 
-REGISTER_FUNCTION_NODE(TextRuleMatchNode, Spec());
+REGISTER_FUNCTION_NODE(text_rule_match, Spec());
 
 }  // namespace llm_edgeflow

@@ -23,7 +23,7 @@ class TextCorpusSourceNodeTest : public ::testing::Test {
 };
 
 TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
-  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
+  auto node = NodeRegistry::Instance().Create("text_corpus_source");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -41,7 +41,7 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
     EXPECT_EQ(out->at(index).req_id, 0u);
     EXPECT_EQ(out->at(index).sub_id, index);
   }
-  const auto definition = PipelineCatalog::FindNode("TextCorpusSourceNode");
+  const auto definition = PipelineCatalog::FindNode("text_corpus_source");
   ASSERT_TRUE(definition.has_value());
   EXPECT_TRUE(definition->inputs.empty());
   ASSERT_EQ(definition->outputs.size(), 1u);
@@ -49,7 +49,7 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
 }
 
 TEST_F(TextCorpusSourceNodeTest, EmptyCorpusConfig) {
-  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
+  auto node = NodeRegistry::Instance().Create("text_corpus_source");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"corpus", nlohmann::json::array()}},
                               session_ctx_.get()));
@@ -85,7 +85,7 @@ TEST_F(TextCorpusSourceNodeTest,
        "/corpus/1"}};
   for (const auto& item : invalid) {
     SCOPED_TRACE(item.config.dump());
-    auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
+    auto node = NodeRegistry::Instance().Create("text_corpus_source");
     ASSERT_NE(node, nullptr);
     std::string diagnostic;
     EXPECT_FALSE(
@@ -93,17 +93,16 @@ TEST_F(TextCorpusSourceNodeTest,
     EXPECT_NE(diagnostic.find(item.path), std::string::npos) << diagnostic;
     const nlohmann::json pipeline = {
         {"models", nlohmann::json::array()},
-        {"pipeline",
-         nlohmann::json::array({{{"id", "source"},
-                                 {"node_type", "TextCorpusSourceNode"},
-                                 {"config", item.config}}})}};
+        {"pipeline", nlohmann::json::array({{{"name", "source"},
+                                             {"type", "text_corpus_source"},
+                                             {"params", item.config}}})}};
     const auto report =
         PipelineValidator::Validate(pipeline, MakeTestBoundary());
     EXPECT_FALSE(report.ok);
     EXPECT_TRUE(
         std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
                     [&](const auto& error) {
-                      return error.path == "/pipeline/0/config" + item.path &&
+                      return error.path == "/pipeline/0/params" + item.path &&
                              error.code == item.code;
                     }))
         << report.ToJson().dump(2);

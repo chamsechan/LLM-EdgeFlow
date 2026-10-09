@@ -26,10 +26,11 @@ struct NodeFixturePlans {
 inline bool InitNodeForTest(
     INode& node, const nlohmann::json& config, SessionContext* session_ctx,
     std::string* diagnostic = nullptr,
-    const std::unordered_set<std::string>& omitted = {}) {
+    const std::unordered_set<std::string>& omitted = {},
+    const std::unordered_map<std::string, std::string>& input_lifetimes = {}) {
   if (!session_ctx) return false;
-  auto plan =
-      PrepareNodePlanForTest(node.Name(), config, omitted, "", "", diagnostic);
+  auto plan = PrepareNodePlanForTest(node.Name(), config, omitted, "", "",
+                                     diagnostic, input_lifetimes);
   if (!plan) return false;
   auto owner = session_ctx->GetOrCreateResource(
       SessionResourceKey<NodeFixturePlans>{"node_fixture_plans"},

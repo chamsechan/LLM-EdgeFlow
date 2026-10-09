@@ -42,6 +42,8 @@ void AuditDefinition(const Definition& def,
   for (const auto& port : def.logical_ports) {
     if (port.logical_name.empty() || port.type_id.empty())
       fail("Logical port name and type must be nonempty");
+    if (port.logical_name.find('.') != std::string::npos)
+      fail("Logical port name cannot contain '.': " + port.logical_name);
     if (!names.insert(port.logical_name).second)
       fail("Duplicate logical port: " + port.logical_name);
   }

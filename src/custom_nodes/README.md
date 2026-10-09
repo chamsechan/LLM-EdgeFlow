@@ -63,7 +63,7 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 - `InputsOf` 绑定普通输入结构的只读批次指针。`Required` 要求输入，`Optional` 允许不连接；
   连接后仍允许当前请求缺值的业务，显式使用 `OptionalValue`。
 - `PreservedOutput` 声明 anchor，框架检查数量、顺序和来源。`ProducedBatch` 声明派生单输出，
-  `OutputsOf` / `Produced` 声明多输出；`PortFlow` 提供数量、来源、生命周期及其配置引用。
+  `OutputsOf` / `Produced` 声明多输出；`PortFlow` 提供数量、来源、生命周期；`FollowLifetime("text")` 声明输出跟随实际输入生命周期。
   拆分、聚合等派生输出的正确性由算法及测试保证，声明不会自动证明这些关系。
 - `ModelsOf` 中的 `Model` 根据成员类型绑定五种模型能力：`LlmCall`、`EmbeddingCall`、
   `AsrCall`、`OcrCall`、`RerankCall`。调用门面处理空批次、模型错误及保序校验。
@@ -100,26 +100,26 @@ LLM 生成参数复用 [`GenerateParameters()`](../../include/nodes/generate_par
 字段赋值后在 `Prepare` 中构建持有自身数据的派生状态，再执行语义与连线校验。
 字段 Control 会复用同一流程重建并校验候选，失败保持旧值，每次请求读取一次一致快照。
 
-[TextTemplateNode](../common_nodes/text_template_node.cpp) 在 `Prepare` 中编译模板，
+[text_template](../common_nodes/text_template_node.cpp) 在 `Prepare` 中编译模板，
 只允许已连接的 `primary`、`context`、`matches`、`document` 变量；未知变量或引用未连接端口
 在此拒绝。连接了端口但某请求没有数据时，该变量为空字符串。`update_prompt` 只替换 `template`；
 Operator 的 `prompt_id` 仍由接入层检查长度，但不转发到节点。
 
-[TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp) 用映射声明 `categories`，
+[text_rule_match](../common_nodes/text_rule_match_node.cpp) 用映射声明 `categories`，
 用 `Field("rules", ...).Items(...)` 声明规则字段，并在元素的 `Prepare` 中编译正则。
 `update_rules` 整体替换给出的 `categories` 或 `rules`，省略的项保持原值。
-[StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp) 的 `fallback` 直接填写
+[structured_json_parse](../common_nodes/structured_json_parse_node.cpp) 的 `fallback` 直接填写
 非 null JSON 值，例如 `{"fallback":{"category":"NONE"}}`。
-[TextCorpusSourceNode](../common_nodes/text_corpus_source_node.cpp) 没有输入端口，`corpus` 必填，
-可以是空数组。生成参数的 `Include` 参考 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。
+[text_corpus_source](../common_nodes/text_corpus_source_node.cpp) 没有输入端口，`corpus` 必填，
+可以是空数组。生成参数的 `Include` 参考 [prompt_guided_llm](prompt_guided_llm_node.cpp)。
 
 会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResult<T>`
 调用返回 `NodeResult<T>` 的工厂，通过 `GetModelRevision` 取得缓存身份所需的模型版本；参考
-[TextEmbeddingNode](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
+[text_embedding](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
 
 ## 完整参考样例
 
-[PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 展示提示词构建、LLM 调用与代码围栏清理，
+[prompt_guided_llm](prompt_guided_llm_node.cpp) 展示提示词构建、LLM 调用与代码围栏清理，
 承担进阶参考：多输入上下文、配置化模板、生成参数与严格校验。需要哪部分再参考哪部分，
 无需把整份解析逻辑复制到自己的节点。纯提示词组合仍可直接复用通用 Node。
 
@@ -147,7 +147,7 @@ Operator 的 `prompt_id` 仍由接入层检查长度，但不转发到节点。
 也纳入 `--suite smoke`。测试模型用于验证编排、来源和输出转换，不能据此评价模型效果。
 
 样例统一使用 `{{input}}` / `{{context}}` 占位符。
-它与 `TextTemplateNode` 共用解析器：`{{name}}` 统一替换变量，允许变量名两侧的空格；
+它与 `text_template` 共用解析器：`{{name}}` 统一替换变量，允许变量名两侧的空格；
 普通单个花括号（如 JSON）直接作为字面内容保留，例如 `{"question":"{{input}}"}`。
 双花括号不再表示字面转义。变量名由各 Node 声明：TextTemplate 的主文本叫 `primary`，
 本样例叫 `input`；复制模板时应对应替换，两者共有的 `context` 保持相同语义，未知变量会报错。
