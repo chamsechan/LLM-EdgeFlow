@@ -56,7 +56,7 @@ padding 与来源、失败清空；无效语义配置应在 Backend 创建/Load 
 ```bash
 cmake --build build --target edgeflow_test_core_runner alg_pipeline_tool -j 4
 (cd build && ctest -R '^(ModelBackendDecouplingTest|BatchExecutorTest)$' --output-on-failure)
-./build/alg_pipeline_tool describe-model <impl_name>
+./build/alg_pipeline_tool describe-model <model_category> <backend_type>
 ```
 
 再运行本模型的实际测试过滤器，检查注册后的方案 validate/plan 和加载路径。

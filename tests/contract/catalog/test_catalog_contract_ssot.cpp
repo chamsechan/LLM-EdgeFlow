@@ -220,7 +220,19 @@ TEST_F(CatalogContractSsotTest, ToJsonSerialization) {
   EXPECT_GE(full_catalog.at("nodes").size(), 11U);
   bool found_match_node = false;
   for (const auto& node : full_catalog.at("nodes")) {
-    EXPECT_TRUE(node.at("model_dependencies").is_array());
+    ASSERT_TRUE(node.at("model_dependencies").is_array());
+    const auto* definition =
+        snapshot.FindNode(node.at("node_type").get<std::string>());
+    ASSERT_NE(definition, nullptr);
+    ASSERT_EQ(node.at("model_dependencies").size(),
+              definition->model_dependencies.size());
+    for (size_t i = 0; i < definition->model_dependencies.size(); ++i) {
+      const auto& dependency = definition->model_dependencies[i];
+      EXPECT_EQ(node.at("model_dependencies").at(i),
+                (nlohmann::json{{"name", dependency.name},
+                                {"model_type", dependency.model_type},
+                                {"config_field", dependency.config_field}}));
+    }
     for (const auto& port : node.at("inputs")) {
       EXPECT_TRUE(port.at("type_id").is_string());
     }
@@ -230,6 +242,28 @@ TEST_F(CatalogContractSsotTest, ToJsonSerialization) {
     found_match_node |= node.at("node_type") == "text_rule_match";
   }
   EXPECT_TRUE(found_match_node);
+  for (const auto& model : full_catalog.at("models")) {
+    ASSERT_TRUE(model.at("impl_name").is_string());
+    ASSERT_TRUE(model.at("model_type").is_string());
+    ASSERT_TRUE(model.at("backends").is_array());
+    const auto definition =
+        PipelineCatalog::FindModel(model.at("impl_name").get<std::string>());
+    ASSERT_TRUE(definition.has_value());
+    EXPECT_EQ(model.at("model_type"), definition->model_type);
+    std::set<std::string> backend_types;
+    for (const auto& backend : model.at("backends")) {
+      ASSERT_TRUE(backend.is_string());
+      const auto type = backend.get<std::string>();
+      EXPECT_TRUE(backend_types.insert(type).second);
+      const auto implementations = ModelRegistry::Instance().FindImplementation(
+          definition->model_type, type);
+      EXPECT_TRUE(std::any_of(implementations.begin(), implementations.end(),
+                              [&](const auto& candidate) {
+                                return candidate.impl_name ==
+                                       definition->impl_name;
+                              }));
+    }
+  }
 }
 
 // 5b. IoCatalog 聚合转换器单槽、typed 端口和参数元数据。
@@ -264,7 +298,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogSerialization) {
       EXPECT_TRUE(slot.at("metadata_type_id").is_number_integer());
       ASSERT_TRUE(converter.at("logical_ports").is_array());
       EXPECT_FALSE(converter.at("logical_ports").empty());
-      ASSERT_TRUE(converter.at("params").is_array());
+      ASSERT_TRUE(converter.at("config_fields").is_array());
       const auto type = converter.at("type").get<std::string>();
       const auto name = converter.at("name").get<std::string>();
       const std::vector<NodePortDefinition>* ports = nullptr;
@@ -293,9 +327,10 @@ TEST_F(CatalogContractSsotTest, IoCatalogSerialization) {
         EXPECT_EQ(converter.at("logical_ports").at(i),
                   PipelineCatalog::PortToJson(port.logical_name, port));
       }
-      ASSERT_EQ(converter.at("params").size(), fields.size());
+      ASSERT_EQ(converter.at("config_fields").size(), fields.size());
       for (size_t i = 0; i < fields.size(); ++i) {
-        EXPECT_EQ(converter.at("params").at(i), ConfigFieldToJson(fields[i]));
+        EXPECT_EQ(converter.at("config_fields").at(i),
+                  ConfigFieldToJson(fields[i]));
       }
     }
   }
@@ -335,7 +370,7 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   EXPECT_EQ(input_slot.at("allocator_params"), "");
   EXPECT_EQ(input_slot.at("metadata_count"), 0);
   EXPECT_EQ(input_slot.at("metadata_type_id"), 0);
-  EXPECT_EQ(input->at("params"), nlohmann::json::array());
+  EXPECT_EQ(input->at("config_fields"), nlohmann::json::array());
 
   const auto& outputs = catalog.at("output_converters");
   const auto output = find_keyword(outputs);
@@ -351,8 +386,8 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   EXPECT_EQ(output_slot.at("allocator_params"), "");
   EXPECT_EQ(output_slot.at("metadata_count"), 0);
   EXPECT_EQ(output_slot.at("metadata_type_id"), 0);
-  ASSERT_EQ(output->at("params").size(), 1U);
-  const auto& capacity = output->at("params").at(0);
+  ASSERT_EQ(output->at("config_fields").size(), 1U);
+  const auto& capacity = output->at("config_fields").at(0);
   EXPECT_EQ(capacity.at("name"), "match_result_json_max_bytes");
   EXPECT_EQ(capacity.at("type"), "integer");
   EXPECT_EQ(capacity.at("required"), false);
@@ -412,8 +447,8 @@ TEST_F(CatalogContractSsotTest,
           return item.at("type") == "entity_out" && item.at("name") == name;
         });
     ASSERT_NE(converter, outputs.end());
-    ASSERT_EQ(converter->at("params").size(), 1U);
-    const auto& capacity = converter->at("params").at(0);
+    ASSERT_EQ(converter->at("config_fields").size(), 1U);
+    const auto& capacity = converter->at("config_fields").at(0);
     EXPECT_EQ(capacity.at("name"), "entities_json_max_bytes");
     EXPECT_EQ(capacity.at("default"), expected_default);
     EXPECT_EQ(capacity.at("minimum"), 1);

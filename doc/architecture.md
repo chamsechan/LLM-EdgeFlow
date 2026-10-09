@@ -34,7 +34,7 @@ graph TD
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
         PlatformFacade["C++ Operator 门面 (operator_adapter.cpp)<br>• 命名 I/O 槽位校验与 ValueType 转换<br>• 有界输出池租约生命周期管理<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)"]
-        IoBinding["I/O 绑定与转换注册 (io_binding_registry.cpp)<br>• IoBindingRegistry / IoConverterRegistry<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
+        Converters["I/O 转换注册 (io_converter_registry.cpp)<br>• 按 (type, name) 选择单槽 Converter<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
     end
 
     %% Orchestration
@@ -98,9 +98,9 @@ graph TD
 
     %% 连接关系
     Caller <==|命名 I/O 批次 NamedIoBatch| PlatformFacade
-    PlatformFacade --> IoBinding
+    PlatformFacade --> Converters
     PlatformFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
-    IoBinding -->|解包/打包| R_Ctx
+    Converters -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
     NodeApi --> NodeBase
@@ -116,7 +116,7 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class PlatformFacade,IoBinding integration;
+    class PlatformFacade,Converters integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,VisionModel,WhisperModel,OnnxBackend,LlamaCpp,KiteLlm,WhisperCpp model_execution;
@@ -172,7 +172,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   导出符号不带版本节点。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 只用 `pipe_path` 指向 Pipeline JSON；根 `io` 选择转换器与参数，所选端口形成明确边界。
-  模型路径当前只在 `models[].file` 中配置，相对宿主部署根解析。
+  模型文件在 `models[].file` 与声明为文件的参数中配置，相对 Pipeline JSON 目录解析。
   输出参数在 Create 中按共享声明解析；Prepare 后尺寸生成池规格，平台登记只保留硬上限。
   分配器、布局参数和 metadata 固定在槽声明中，布局参数由注册审计归一化并共享。
   每个逻辑输出槽位拥有独立输出池，

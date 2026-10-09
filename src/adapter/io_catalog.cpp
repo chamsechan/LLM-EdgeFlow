@@ -24,7 +24,7 @@ nlohmann::json ConverterJson(const Definition& def,
                              {"metadata_count", def.slot.metadata_count},
                              {"metadata_type_id", def.slot.metadata_type_id}}},
                            {"logical_ports", std::move(ports)},
-                           {"params", std::move(parameters)}};
+                           {"config_fields", std::move(parameters)}};
   if (def.service_type) result["service_type"] = *def.service_type;
   return result;
 }

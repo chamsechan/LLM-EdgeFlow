@@ -1,41 +1,14 @@
 export function compatibleModels(models = [], modelDefinitions = [], target = null) {
-  let requiredCapability = null;
-  if (typeof target === "string") {
-    requiredCapability = target;
-  } else if (target && typeof target === "object") {
-    if (target.capability) {
-      requiredCapability = target.capability;
-    } else if (Array.isArray(target.model_dependencies) && target.model_dependencies.length > 0) {
-      requiredCapability = target.model_dependencies[0].capability;
-    }
-  }
-  if (!requiredCapability) return [...models];
-
-  const capabilityByType = new Map(
-    modelDefinitions.map(definition => [definition.model_type, definition.capability])
-  );
-  return models.filter(model => {
-    const capability = capabilityByType.get(model.model_type);
-    return capability === requiredCapability;
-  });
+  const modelType = typeof target === "string" ? target : target?.model_type || target?.model_dependencies?.[0]?.model_type;
+  return modelType ? models.filter(model => model.type === modelType) : [...models];
 }
 
 export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
-  const definitionByType = new Map(
-    nodeDefinitions.map(definition => [definition.node_type, definition])
-  );
+  const definitionByType = new Map(nodeDefinitions.map(definition => [definition.node_type, definition]));
   const result = new Set();
   for (const node of nodes) {
-    const def = definitionByType.get(node.node_type);
-    if (!def) continue;
-    const fields = (def.model_dependencies || []).map(d => d.config_field);
-    for (const field of fields) {
-      const modelId = node.config?.[field];
-      if (typeof modelId === "string" && modelId.length > 0) {
-        result.add(node.id);
-        break;
-      }
-    }
+    const definition = definitionByType.get(node.type);
+    if ((definition?.model_dependencies || []).some(dependency => typeof node.params?.[dependency.config_field] === "string" && node.params[dependency.config_field].length > 0)) result.add(node.name);
   }
   return result;
 }
@@ -59,100 +32,72 @@ export function createLatestRequestGate() {
   };
 }
 
-export const INGRESS = "$ingress";
-export const EGRESS = "$egress";
+export const INGRESS = "input";
+export const EGRESS = "output";
 
-export function pipelineBinding(pipeline) {
-  return pipeline?.deployment?.io?.io_binding || "";
+export function pipelineIo(pipeline) {
+  const pairs = direction => (pipeline?.io?.[direction] || []).map(({type, name}) => ({type, name}));
+  return {input: pairs("input"), output: pairs("output")};
+}
+
+export function ioLabel(io) {
+  const label = direction => (io?.[direction] || []).map(entry => `${entry.type}/${entry.name}`).join(", ") || "未选择";
+  return `${label("input")} → ${label("output")}`;
 }
 
 export function graphDocument(pipeline, catalog) {
   const nodes = pipeline?.pipeline || [];
-  const binding = catalog.io_bindings?.find(binding => binding.biz_name === pipelineBinding(pipeline));
-  const biz = catalog.bizs?.find(biz => biz.biz_name === binding?.biz_name);
   const definitions = {};
-  for (const node of nodes) definitions[node.id] = catalog.nodes?.find(def => def.node_type === node.node_type) || {};
-  definitions[INGRESS] = { outputs: biz?.ingress || [], inputs: [] };
-  definitions[EGRESS] = { inputs: biz?.egress || [], outputs: [] };
-  const producerMap = new Map();
-  const addProducer = (key, prod) => {
-    if (!key) return;
-    const list = producerMap.get(key) || [];
-    list.push(prod);
-    producerMap.set(key, list);
+  for (const node of nodes) definitions[node.name] = catalog.nodes?.find(definition => definition.node_type === node.type) || {};
+  const ports = direction => {
+    const selected = (pipeline?.io?.[direction] || []).flatMap(entry => catalog[`${direction}_converters`]?.find(converter => converter.type === entry.type && converter.name === entry.name)?.logical_ports || []);
+    return [...new Map(selected.map(port => [port.key, port])).values()];
   };
-  for (const port of biz?.ingress || []) {
-    addProducer(port.key, { source: INGRESS, sourcePort: port.key });
-  }
-  for (const node of nodes) {
-    for (const port of definitions[node.id]?.outputs || []) {
-      const key = node.outputs?.[port.key] || port.key;
-      addProducer(key, { source: node.id, sourcePort: port.key });
-    }
-  }
+  definitions[INGRESS] = {outputs: ports("input"), inputs: []};
+  definitions[EGRESS] = {inputs: ports("output"), outputs: []};
   const edges = [];
+  const addReference = (reference, target, targetPort) => {
+    if (typeof reference !== "string") return;
+    const parts = reference.split(".");
+    if (parts.length === 2 && parts.every(Boolean)) edges.push({source: parts[0], sourcePort: parts[1], target, targetPort});
+  };
   for (const node of nodes) {
-    for (const port of definitions[node.id]?.inputs || []) {
-      const key = node.inputs?.[port.key];
-      if (key && producerMap.has(key)) {
-        const prods = producerMap.get(key);
-        if (prods.length === 1) {
-          edges.push({ ...prods[0], target: node.id, targetPort: port.key });
-        } else {
-          for (const prod of prods) {
-            edges.push({ ...prod, target: node.id, targetPort: port.key, ambiguous: true });
-          }
-        }
-      }
-    }
+    for (const [port, reference] of Object.entries(node.inputs || {})) addReference(reference, node.name, port);
     for (const source of node.depends_on || []) {
-      if (!edges.some(edge => edge.source === source && edge.target === node.id)) {
-        edges.push({ source, target: node.id, dependency: true });
-      }
+      if (!edges.some(edge => edge.source === source && edge.target === node.name)) edges.push({source, target: node.name, dependency: true});
     }
   }
-  for (const port of biz?.egress || []) {
-    if (producerMap.has(port.key)) {
-      const prods = producerMap.get(port.key);
-      if (prods.length === 1) {
-        edges.push({ ...prods[0], target: EGRESS, targetPort: port.key });
-      } else {
-        for (const prod of prods) {
-          edges.push({ ...prod, target: EGRESS, targetPort: port.key, ambiguous: true });
-        }
-      }
-    }
+  for (const entry of pipeline?.io?.output || []) {
+    for (const [port, reference] of Object.entries(entry.inputs || {})) addReference(reference, EGRESS, port);
   }
   return {
     definitions, edges,
     nodes: pipeline ? [
-      { id: INGRESS, node_type: "业务输入", depends_on: [] },
-      ...nodes.map(node => ({ ...node, depends_on: [...new Set([...(node.depends_on || []), ...edges.filter(edge => edge.target === node.id).map(edge => edge.source)])] })),
-      { id: EGRESS, node_type: "业务输出", depends_on: [...new Set(edges.filter(edge => edge.target === EGRESS).map(edge => edge.source))] },
+      {id: INGRESS, node_type: "业务输入", depends_on: []},
+      ...nodes.map(node => ({id: node.name, node_type: node.type, depends_on: [...new Set([...(node.depends_on || []), ...edges.filter(edge => edge.target === node.name).map(edge => edge.source)])]})),
+      {id: EGRESS, node_type: "业务输出", depends_on: [...new Set(edges.filter(edge => edge.target === EGRESS).map(edge => edge.source))]},
     ] : [],
   };
 }
 
-export function compatibleBackends(backends, modelDefinition) {
-  return backends.filter(backend => backend.supported_protocols.includes(modelDefinition?.required_protocol));
+export function compatibleBackends(backends = [], modelDefinition) {
+  return backends.filter(backend => modelDefinition?.backends?.includes(backend.backend_type));
 }
 
 export function modelAvailability(backends, modelDefinition) {
-  if (!modelDefinition) return { available: false, message: "当前构建未注册此模型类型" };
+  if (!modelDefinition) return {available: false, message: "当前构建未注册此模型类别"};
   const available = compatibleBackends(backends, modelDefinition).length > 0;
-  return {
-    available,
-    message: available ? "" : `当前构建无兼容 Backend（需要 ${modelDefinition.required_protocol} 协议）。可继续浏览；运行前请选择兼容模型或切换构建。`,
-  };
+  return {available, message: available ? "" : "当前构建无兼容 Backend。可继续浏览；运行前请选择兼容模型或切换构建。"};
 }
 
-// 只检查查看器使用的容器结构。ID、端口、字段、图合法性和模型兼容性
+// 只检查查看器使用的容器结构。名字、端口、字段、图合法性和模型兼容性
 // 仍由 Catalog/Validator 负责。
 export function assertBrowsablePipeline(pipeline) {
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   if (!object(pipeline) || !Array.isArray(pipeline.pipeline)) throw new Error("方案必须是包含 pipeline 数组的 JSON 对象");
   if (pipeline.pipeline.some(node => !object(node) || (node.depends_on != null && !Array.isArray(node.depends_on)))) throw new Error("pipeline 节点必须是对象，depends_on 必须是数组");
   if (pipeline.models != null && (!Array.isArray(pipeline.models) || pipeline.models.some(model => !object(model)))) throw new Error("models 必须是模型对象数组");
+  if (pipeline.io != null && (!object(pipeline.io) || ["input", "output"].some(direction => pipeline.io[direction] != null && (!Array.isArray(pipeline.io[direction]) || pipeline.io[direction].some(entry => !object(entry)))))) throw new Error("io.input 与 io.output 必须是登记对象数组");
 }
 
 export async function readPipelineFile(file) {
@@ -167,72 +112,47 @@ export function schemaDefaults(fields = []) {
   return Object.fromEntries(fields.filter(field => field.default !== undefined).map(field => [field.name, structuredClone(field.default)]));
 }
 
-export function upsertModel(pipeline, catalog, previousId, model) {
-  const definition = catalog.models.find(item => item.model_type === model.model_type);
-  if (!model.model_id?.trim() || !model.model_path?.trim() || !definition) throw new Error("请填写模型 ID、资产路径并选择模型类型");
+export function upsertModel(pipeline, catalog, previousName, model) {
+  const definition = catalog.models.find(item => item.model_type === model.type && item.backends?.includes(model.backend?.type));
+  if (!model.name?.trim() || !model.file?.trim() || !definition) throw new Error("请填写模型名、文件名并选择模型类别与 Backend");
   const availability = modelAvailability(catalog.backends, definition);
   if (!availability.available) throw new Error(availability.message);
-  if (!compatibleBackends(catalog.backends, definition).some(item => item.backend_type === model.backend)) throw new Error("Backend 与模型协议不兼容");
-  if (pipeline.models.some(item => item.model_id === model.model_id && item.model_id !== previousId)) throw new Error("模型 ID 重复");
+  if (pipeline.models.some(item => item.name === model.name && item.name !== previousName)) throw new Error("模型名重复");
   for (const node of pipeline.pipeline) {
-    const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
-    if (previousId && nodeDefinition) {
-      const deps = nodeDefinition.model_dependencies || [];
-      for (const dep of deps) {
-        if (node.config?.[dep.config_field] === previousId && dep.capability !== definition.capability) {
-          throw new Error("所选模型能力与引用节点不兼容");
-        }
-      }
+    const nodeDefinition = catalog.nodes.find(item => item.node_type === node.type);
+    for (const dependency of nodeDefinition?.model_dependencies || []) {
+      if (previousName && node.params?.[dependency.config_field] === previousName && dependency.model_type !== model.type) throw new Error("所选模型类别与引用节点不兼容");
     }
   }
-  const index = pipeline.models.findIndex(item => item.model_id === previousId);
+  const index = pipeline.models.findIndex(item => item.name === previousName);
   if (index < 0) pipeline.models.push(model); else pipeline.models[index] = model;
-  if (previousId && previousId !== model.model_id) {
+  if (previousName && previousName !== model.name) {
     for (const node of pipeline.pipeline) {
-      const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
-      if (nodeDefinition && node.config) {
-        const deps = nodeDefinition.model_dependencies || [];
-        for (const dep of deps) {
-          if (node.config[dep.config_field] === previousId) {
-            node.config[dep.config_field] = model.model_id;
-          }
-        }
+      const definition = catalog.nodes.find(item => item.node_type === node.type);
+      for (const dependency of definition?.model_dependencies || []) {
+        if (node.params?.[dependency.config_field] === previousName) node.params[dependency.config_field] = model.name;
       }
     }
   }
 }
 
-export function removeModel(pipeline, catalog, id) {
+export function removeModel(pipeline, catalog, name) {
   const used = pipeline.pipeline.some(node => {
-    const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
-    if (!nodeDefinition || !node.config) return false;
-    const deps = nodeDefinition.model_dependencies || [];
-    return deps.some(dep => node.config[dep.config_field] === id);
+    const definition = catalog.nodes.find(item => item.node_type === node.type);
+    return (definition?.model_dependencies || []).some(dependency => node.params?.[dependency.config_field] === name);
   });
   if (used) throw new Error("模型仍被节点使用，请先更换绑定");
-  pipeline.models = pipeline.models.filter(model => model.model_id !== id);
+  pipeline.models = pipeline.models.filter(model => model.name !== name);
 }
 
-export function assetModelPath(path, assetRoot = "models") {
-  const root = assetRoot.replace(/\/+$/, "");
-  return root && root !== "." ? `${root}/${path}` : path;
-}
-
-export function assetModel(asset, assetRoot = "models") {
+export function assetModel(asset) {
   const model = structuredClone(asset.model);
-  const modelPath = asset.paths["/model_path"];
-  const directory = modelPath.includes("/") ? modelPath.slice(0, modelPath.lastIndexOf("/") + 1) : "";
-  model.model_path = assetModelPath(modelPath, assetRoot);
   for (const [pointer, path] of Object.entries(asset.paths)) {
-    if (pointer === "/model_path") continue;
-    if (!path.startsWith(directory)) {
-      throw new Error("资产附属文件不在模型目录内，请在模型表单中填写可用的绝对附属文件路径");
-    }
     const parts = pointer.slice(1).split("/").map(part => part.replace(/~1/g, "/").replace(/~0/g, "~"));
     const field = parts.pop();
     let target = model;
     for (const part of parts) target = target[part];
-    target[field] = path.slice(directory.length);
+    target[field] = path;
   }
   return model;
 }

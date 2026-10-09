@@ -22,7 +22,7 @@ LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语�
 
 ## 框架提供什么
 
-- **组合算法流程**：Pipeline 以有向无环图（DAG）描述节点依赖，可组合规则、检索、模型调用和结果处理。执行前统一检查端口类型、依赖关系和并发写冲突。
+- **组合算法流程**：Pipeline 以有向无环图（DAG）描述节点依赖，可组合规则、检索、模型调用和结果处理。执行前统一检查端口类型、依赖关系、生命周期和并行安全。
 - **复用算法实现**：通用 Node 与自定义 Node 使用相同的类型端口和注册机制；单个节点可用于多个 Pipeline。
 - **管理模型执行**：Model 负责模型预后处理与输出语义，Backend 负责推理运行时。节点通过模型能力接口调用推理。
 - **对接宿主程序**：C++ Operator SDK 统一对接宿主程序，集中处理数据转换、资源生命周期和异常隔离。
@@ -76,8 +76,8 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 
 ```bash
 # 查询当前构建中可用的业务契约与节点
-./build/alg_pipeline_tool catalog --io-binding keyword_match
-./build/alg_pipeline_tool describe-node TextRuleMatchNode
+./build/alg_pipeline_tool catalog
+./build/alg_pipeline_tool describe-node text_rule_match
 
 # 查看经过校验的执行计划
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
@@ -114,7 +114,7 @@ flowchart TD
 
 | 文件 | 负责什么 | 示例 |
 | :--- | :--- | :--- |
-| Pipeline JSON | 节点、依赖、类型端口、模型路径与算法参数；`deployment.io` 声明接入绑定与输出容量 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
+| Pipeline JSON | 节点、依赖、类型端口、模型路径与算法参数；根 `io.input` / `io.output` 声明转换器、回包来源与输出容量 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
 | 部署 `.conf` | 仅用 `pipe_path` 指向 Pipeline JSON | [pipeline_keyword_match_rules.conf](configs/pipeline_keyword_match_rules.conf) |
 | Demo Profile（可选） | 运行预设：业务、配置、数据集和批大小等 | [demo/profiles.json](demo/profiles.json) |
 
@@ -176,7 +176,10 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 已授权的 PR 交付由交付脚本执行同一门禁，无需预先单独运行。
 
-该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18，以及架构图检查所需的 Java 17+；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
+该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18、架构图检查所需的 Java 17+，以及 Schema 测试所需的 Python `jsonschema`（Debian/Ubuntu 安装包为 `python3-jsonschema`）；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
+
+`jsonschema` 必须安装在 CMake 选中的 Python 环境中。使用已有解释器时，可先执行
+`./scripts/configure_build.sh "$PWD" "$PWD/build" dev-gate -DPython3_EXECUTABLE=/path/to/python3`，再运行门禁。
 
 项目尚未正式发布；当前产品版本标识为 **v11.0.0**。接口边界见[架构设计](doc/architecture.md)，当前基线见 [Changelog](doc/CHANGELOG.md)。
 

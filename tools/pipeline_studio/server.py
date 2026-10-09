@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from contextlib import contextmanager
 import hashlib
 import http.server
 import importlib.util
@@ -249,12 +250,47 @@ class WorkbenchService:
             items.append(
                 {
                     "filename": checked.name,
-                    "io_binding": SELECTION.pipeline_binding(pipeline),
+                    "io": self.io_pairs(pipeline),
                     "revision": revision_for(raw),
                 }
             )
         confs = [p.name for p in sorted(self.config_root.glob("*.conf")) if p.is_file()]
         return json_result(True, pipelines=items, deployments=confs)
+
+    @staticmethod
+    def io_pairs(pipeline: Any) -> dict[str, list[dict[str, str]]]:
+        inputs, outputs = SELECTION.pipeline_io(pipeline)
+        def pairs(entries):
+            if not isinstance(entries, list):
+                return []
+            return [{"type": item["type"], "name": item["name"]}
+                    for item in entries if isinstance(item, dict)
+                    and isinstance(item.get("type"), str)
+                    and isinstance(item.get("name"), str)]
+        return {"input": pairs(inputs), "output": pairs(outputs)}
+
+    @contextmanager
+    def temporary_documents(self, pipeline: Any, prefix: str):
+        """快照保留原目录的资源基准，只清理本次创建的隐藏文件。"""
+        self.config_root.mkdir(parents=True, exist_ok=True)
+        paths: list[Path] = []
+        try:
+            descriptor, name = tempfile.mkstemp(prefix=prefix, suffix=".json", dir=self.config_root)
+            pipeline_path = Path(name)
+            paths.append(pipeline_path)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(pipeline, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            descriptor, name = tempfile.mkstemp(prefix=prefix, suffix=".conf", dir=self.config_root)
+            conf_path = Path(name)
+            paths.append(conf_path)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump({"pipe_path": pipeline_path.name}, stream)
+                stream.write("\n")
+            yield pipeline_path, conf_path
+        finally:
+            for path in paths:
+                path.unlink(missing_ok=True)
 
     def save_targets(self, path: Path) -> list[str]:
         if path.name in self.generated_solutions:
@@ -283,8 +319,7 @@ class WorkbenchService:
         if not managed:
             return None
         return {"conf_name": managed["conf_path"].name,
-                "conf_revision": managed["conf_revision"],
-                "model_root": managed["model_root"]}
+                "conf_revision": managed["conf_revision"]}
 
     def invoke_tool(
         self, command: list[str], pipeline: Any | None = None
@@ -309,19 +344,20 @@ class WorkbenchService:
                 500,
             ) from error
 
-    def catalog(self, io_binding: str = "") -> dict[str, Any]:
-        args = ["catalog"]
-        if io_binding:
-            args.extend(["--io-binding", io_binding])
-        return self.invoke_tool(args)
+    def catalog(self) -> dict[str, Any]:
+        return self.invoke_tool(["catalog"])
 
     def assets(self) -> dict[str, Any]:
-        return {"ok": True, **SELECTION.asset_catalog()}
+        return {"ok": True, **SELECTION.asset_catalog(pipeline_dir=self.config_root)}
 
-    def verify_selection(self, pipeline: Any, variant: str = "", model_root: str = "models") -> dict[str, Any]:
+    def verify_selection(self, pipeline: Any, variant: str = "", filename: str = "") -> dict[str, Any]:
         try:
-            root = SELECTION.within(PROJECT_ROOT, model_root)
-            return SELECTION.inspect_selection(pipeline, PIPELINE_TOOL, root, variant=variant or None, pipeline_root=PROJECT_ROOT)
+            pipeline_dir = None
+            if filename:
+                path = self.managed_path(filename, must_exist=True)
+                pipeline_dir = path.parent
+            return SELECTION.inspect_selection(
+                pipeline, PIPELINE_TOOL, pipeline_dir, variant=variant or None)
         except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
             raise StudioError("SELECTION_CHECK_FAILED", str(error)) from error
 
@@ -430,13 +466,25 @@ class WorkbenchService:
 
 
     def init_pipeline(
-        self, io_binding: str, profile: str = "", empty: bool = False
+        self, inputs: list[dict[str, Any]] | None = None,
+        outputs: list[dict[str, Any]] | None = None, profile: str = "",
     ) -> dict[str, Any]:
-        args = ["init", "--io-binding", io_binding]
+        args = ["init"]
         if profile:
+            if inputs is not None or outputs is not None:
+                raise StudioError("INVALID_INIT_REQUEST", "Profile 不能与输入输出项同时指定")
             args.extend(["--profile", profile])
-        elif empty:
-            args.append("--empty")
+        else:
+            for option, entries in (("--input", inputs), ("--output", outputs)):
+                entries = [] if entries is None else entries
+                if not isinstance(entries, list):
+                    raise StudioError("INVALID_INIT_REQUEST", "输入和输出项必须是列表")
+                for entry in entries:
+                    if (not isinstance(entry, dict) or set(entry) != {"type", "name"}
+                            or any(not isinstance(entry[field], str) or not entry[field]
+                                   for field in ("type", "name"))):
+                        raise StudioError("INVALID_INIT_REQUEST", "输入输出项必须指定 type 和 name")
+                    args.extend([option, entry["type"] + "/" + entry["name"]])
         return self.invoke_tool(args)
 
     def save_pipeline(
@@ -446,11 +494,10 @@ class WorkbenchService:
         expected_revision: str | None,
         save_as: bool = False,
         profile_name: str = "",
-        model_root: str = "models",
     ) -> dict[str, Any]:
         path = self.managed_path(requested)
         if not save_as and path.name in self.generated_solutions:
-            return self.update_solution(path, pipeline, expected_revision, profile_name, model_root)
+            return self.update_solution(path, pipeline, expected_revision, profile_name)
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
@@ -467,13 +514,22 @@ class WorkbenchService:
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         self.config_root.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(
-            prefix=f".{path.stem}.", suffix=".tmp", dir=self.config_root
+            prefix=f".{path.stem}.", suffix=".json", dir=self.config_root
         )
         try:
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
+            report = self.invoke_tool(["validate", temporary])
+            if not report.get("ok"):
+                raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+            self.managed_path(path.name)
+            if path.exists():
+                if save_as:
+                    raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
+                if not expected_revision or revision_for(path.read_bytes()) != expected_revision:
+                    raise StudioError("REVISION_CONFLICT", "校验期间方案已被修改，请重新加载", 409)
             os.replace(temporary, path)
         finally:
             if os.path.exists(temporary):
@@ -488,7 +544,7 @@ class WorkbenchService:
         )
 
     def update_solution(self, path: Path, pipeline: Any, expected_revision: str | None,
-                        profile_name: str = "", model_root: str = "models") -> dict[str, Any]:
+                        profile_name: str = "") -> dict[str, Any]:
         with self.solution_lock:
             managed = self.generated_solutions[path.name]
             conf_path = managed["conf_path"]
@@ -503,7 +559,7 @@ class WorkbenchService:
 
             old_json, _ = check_revisions()
             profile, conf = self.deployment_candidate(
-                pipeline, profile_name, model_root, path.name)
+                pipeline, profile_name, path.name)
             report = self.validate(pipeline)
             if not report.get("ok"):
                 raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
@@ -512,36 +568,30 @@ class WorkbenchService:
             staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
             preserve_backup = False
             try:
-                staged_json = staging / "pipeline.json"
-                staged_conf = staging / "pipeline.conf"
                 backup_json = staging / "previous.json"
-                staged_json.write_bytes(encoded)
-                staged_conf_data = {"pipe_path": staged_json.name}
-                staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
-                configuration = self.resolve_run_conf(staged_conf, profile)
+                with self.temporary_documents(pipeline, ".studio-save-") as (staged_json, staged_conf):
+                    configuration = self.resolve_run_conf(staged_conf, profile)
 
-                # 原生校验使用的是暂存 JSON；安装后的路径具有相同的模型映射
-                # 和归一化后的 Node 配置。
-                configuration["conf_path"] = str(conf_path)
-                configuration["pipeline_path"] = str(path)
-                staged_conf.write_bytes(conf_encoded)
-                backup_json.write_bytes(old_json)
-                check_revisions()
-                os.replace(staged_json, path)
-                try:
-                    os.replace(staged_conf, conf_path)
-                except Exception:
+                    # 暂存文件和安装后的文件位于同一资源目录。
+                    configuration["conf_path"] = str(conf_path)
+                    configuration["pipeline_path"] = str(path)
+                    staged_conf.write_bytes(conf_encoded)
+                    backup_json.write_bytes(old_json)
+                    check_revisions()
+                    os.replace(staged_json, path)
                     try:
-                        os.replace(backup_json, path)
-                    except OSError as rollback_error:
-                        preserve_backup = True
-                        raise StudioError("SAVE_ROLLBACK_FAILED", f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
-                    raise
-                managed["conf_revision"] = revision_for(conf_encoded)
-                managed["pipeline_revision"] = revision_for(encoded)
-                managed["profile"] = profile
-                managed["model_root"] = model_root
-                return self.solution_result(path, pipeline, conf, encoded, profile, managed["model_root"], configuration)
+                        os.replace(staged_conf, conf_path)
+                    except Exception:
+                        try:
+                            os.replace(backup_json, path)
+                        except OSError as rollback_error:
+                            preserve_backup = True
+                            raise StudioError("SAVE_ROLLBACK_FAILED", f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
+                        raise
+                    managed["conf_revision"] = revision_for(conf_encoded)
+                    managed["pipeline_revision"] = revision_for(encoded)
+                    managed["profile"] = profile
+                    return self.solution_result(path, pipeline, conf, encoded, profile, configuration)
             except StudioError:
                 raise
             except Exception as error:
@@ -550,7 +600,7 @@ class WorkbenchService:
                 if not preserve_backup:
                     shutil.rmtree(staging)
 
-    def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any]:
+    def profile_inputs(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
         profiles = read_json(PROFILE_FILE).get("profiles", {})
         if profile_name not in profiles:
             raise StudioError("UNKNOWN_PROFILE", profile_name)
@@ -562,22 +612,12 @@ class WorkbenchService:
         profile_conf = PROJECT_ROOT / profile["config"]
         configuration = self.resolve_run_conf(profile_conf, profile)
         original = read_json(Path(configuration["pipeline_path"]))
-        if SELECTION.pipeline_binding(original) != SELECTION.pipeline_binding(pipeline):
-            raise StudioError("PROFILE_MISMATCH", "Profile 与I/O 契约不匹配")
-        outputs = original.get("deployment", {}).get("io", {}).get("out_mem", {})
-        return copy.deepcopy(profile), copy.deepcopy(outputs)
-
-    def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
-        if not isinstance(model_root, str) or not model_root or Path(model_root).is_absolute():
-            raise StudioError("INVALID_MODEL_ROOT", "模型目录必须是项目内的相对路径（例如 models 或 .）")
-        try:
-            return SELECTION.build_run_conf(pipeline, outputs, pipe_path, model_root, PROJECT_ROOT)
-        except (ValueError, TypeError, KeyError) as error:
-            raise StudioError("INVALID_DEPLOYMENT_PATH", str(error)) from error
+        if self.io_pairs(original) != self.io_pairs(pipeline):
+            raise StudioError("PROFILE_MISMATCH", "Profile 与 I/O 契约不匹配")
+        return copy.deepcopy(profile)
 
     def deployment_candidate(
-        self, pipeline: Any, profile_name: str = "", model_root: str = "models",
-        filename: str = "", conf_name: str = "",
+        self, pipeline: Any, profile_name: str = "", filename: str = "", conf_name: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """构建一份供预览、运行和保存共用的部署快照。"""
         if conf_name:
@@ -588,16 +628,13 @@ class WorkbenchService:
                 if len(matches) != 1:
                     raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "请先明确关联当前方案与部署配置")
                 filename = matches[0]
-        managed = None
-        path = None
-        if filename:
-            path = self.managed_path(filename)
-            managed = self.generated_solutions.get(path.name)
+        path = self.managed_path(filename) if filename else None
+        managed = self.generated_solutions.get(path.name) if path else None
         if conf_name and (not managed or managed["conf_path"] != requested_conf):
             raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "部署配置未关联到当前方案")
         if not managed:
-            profile, outputs = self.profile_inputs(pipeline, profile_name)
-            return profile, self.run_conf(pipeline, outputs, path or PROJECT_ROOT / "build/pipeline.json", model_root)
+            profile = self.profile_inputs(pipeline, profile_name)
+            return profile, {"pipe_path": path.name if path else "pipeline.json"}
         conf_path = managed["conf_path"]
         if (path.is_symlink() or conf_path.is_symlink()
                 or not path.is_file() or not conf_path.is_file()):
@@ -606,32 +643,27 @@ class WorkbenchService:
         if (revision_for(raw) != managed["pipeline_revision"]
                 or revision_for(conf_raw) != managed["conf_revision"]):
             raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新关联", 409)
-        original = json.loads(raw)
-        if SELECTION.pipeline_binding(original) != SELECTION.pipeline_binding(pipeline):
+        if self.io_pairs(json.loads(raw)) != self.io_pairs(pipeline):
             raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变 I/O 契约，请另存方案")
-        profile = self.profile_inputs(pipeline, profile_name)[0] if profile_name else copy.deepcopy(managed["profile"])
-        if "io" in original.get("deployment", {}):
-            pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
+        profile = self.profile_inputs(pipeline, profile_name) if profile_name else copy.deepcopy(managed["profile"])
         return profile, {"pipe_path": path.name}
 
     def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
         depth = max(int(profile.get("batch_size", 1)), int(profile.get("depth", 1)))
-        report = self.invoke_tool(["resolve-conf", str(conf_path.relative_to(PROJECT_ROOT)), "--root", str(PROJECT_ROOT), "--depth", str(depth)])
+        report = self.invoke_tool(["resolve-conf", conf_path.name, "--root",
+                                   str(conf_path.parent.resolve()), "--depth", str(depth)])
         if not report.get("ok"):
             raise StudioError("DEPLOYMENT_VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         return report["configuration"]
 
     @staticmethod
     def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path, configuration: dict[str, Any]) -> list[str]:
-        # 只快照之前传给 Demo 的设置，不含运行时 Control。
-        name = configuration["biz_name"]
-        run_profile = {
-            "config": str(conf_path),
-            "dataset": str(PROJECT_ROOT / profile["dataset"]),
-        }
-        for field in ("batch_size", "device_id", "chip", "depth"):
-            if field in profile:
-                run_profile[field] = profile[field]
+        name = conf_path.stem
+        run_profile = copy.deepcopy(profile)
+        run_profile["config"] = str(conf_path.resolve())
+        for field in ("dataset", "control_file"):
+            if field in run_profile:
+                run_profile[field] = str(PROJECT_ROOT / run_profile[field])
         output_dir.mkdir(parents=True, exist_ok=True)
         profile_path = output_dir / "demo-profile.json"
         if profile_path.is_symlink():
@@ -643,7 +675,7 @@ class WorkbenchService:
             "--output-dir", str(output_dir),
         ]
 
-    def save_solution(self, requested: str, pipeline: Any, profile_name: str, model_root: str = "models") -> dict[str, Any]:
+    def save_solution(self, requested: str, pipeline: Any, profile_name: str) -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
@@ -654,7 +686,7 @@ class WorkbenchService:
                 raise StudioError("SYMLINK_REJECTED", "拒绝写入符号链接方案")
             if target.exists():
                 raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
-        profile, conf = self.deployment_candidate(pipeline, profile_name, model_root, path.name)
+        profile, conf = self.deployment_candidate(pipeline, profile_name, path.name)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
         created = []
@@ -677,22 +709,22 @@ class WorkbenchService:
                 raise
             raise StudioError("SAVE_FAILED", str(error), 500) from error
         self.generated_solutions[path.name] = {
-            "profile": profile, "model_root": model_root,
+            "profile": profile,
             "conf_path": conf_path,
             "pipeline_revision": revision_for(encoded),
             "conf_revision": revision_for(conf_encoded),
         }
-        return self.solution_result(path, pipeline, conf, encoded, profile, model_root, configuration)
+        return self.solution_result(path, pipeline, conf, encoded, profile, configuration)
 
-    def solution_result(self, path: Path, pipeline: Any, conf: Any, encoded: bytes, profile: dict[str, Any], model_root: str, configuration: Any) -> dict[str, Any]:
+    def solution_result(self, path: Path, pipeline: Any, conf: Any, encoded: bytes, profile: dict[str, Any], configuration: Any) -> dict[str, Any]:
         conf_path = self.generated_solutions[path.name]["conf_path"]
         command_str = ""
         if profile and profile.get("dataset"):
-            command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem, configuration)
+            command = self.demo_command(profile, conf_path, PROJECT_ROOT / "output" / path.stem, configuration)
             command_str = f"cd {shlex.quote(str(PROJECT_ROOT))} && {shlex.join(command)}"
         return json_result(
             True, filename=path.name, conf_filename=conf_path.name, revision=revision_for(encoded),
-            pipeline=pipeline, conf=conf, model_root=model_root, configuration=configuration,
+            pipeline=pipeline, conf=conf, configuration=configuration,
             save_targets=self.save_targets(path),
             command=command_str,
             deployment=self.deployment_info(path.name),
@@ -721,7 +753,7 @@ class WorkbenchService:
         return candidate
 
     def associate_deployment(
-        self, pipeline_name: str, conf_name: str, model_root: str = "models",
+        self, pipeline_name: str, conf_name: str,
         profile_name: str = "",
     ) -> dict[str, Any]:
         pipe_path = self.managed_path(pipeline_name, must_exist=True)
@@ -740,9 +772,9 @@ class WorkbenchService:
 
         report = self.invoke_tool([
             "resolve-conf",
-            str(conf_path.relative_to(PROJECT_ROOT)),
+            conf_path.name,
             "--root",
-            str(PROJECT_ROOT),
+            str(conf_path.parent),
         ])
         if not report.get("ok"):
             raise StudioError("DEPLOYMENT_VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
@@ -757,18 +789,18 @@ class WorkbenchService:
             )
 
         if profile_name:
-            prof, _ = self.profile_inputs(pipeline, profile_name)
+            prof = self.profile_inputs(pipeline, profile_name)
         else:
             prof = None
             for name in read_json(PROFILE_FILE).get("profiles", {}):
                 try:
-                    prof, _ = self.profile_inputs(pipeline, name)
+                    prof = self.profile_inputs(pipeline, name)
                     break
                 except StudioError as error:
                     if error.code != "PROFILE_MISMATCH":
                         raise
             if prof is None:
-                raise StudioError("PROFILE_MISMATCH", "没有与该业务契约匹配的运行 Profile")
+                raise StudioError("PROFILE_MISMATCH", "没有与该 I/O 契约匹配的运行 Profile")
         configuration = self.resolve_run_conf(conf_path, prof)
         if pipe_path.read_bytes() != pipe_raw or conf_path.read_bytes() != conf_raw:
             raise StudioError("REVISION_CONFLICT", "关联期间文件已改变，请重新关联", 409)
@@ -778,7 +810,6 @@ class WorkbenchService:
                 "conf_path": conf_path,
                 "conf_revision": revision_for(conf_raw),
                 "pipeline_revision": revision_for(pipe_raw),
-                "model_root": model_root,
                 "profile": prof,
                 "is_associated": True,
             }
@@ -794,75 +825,43 @@ class WorkbenchService:
         )
 
     def preflight(
-        self,
-        pipeline: Any,
-        profile_name: str = "",
-        conf_name: str = "",
-        model_root: str = "models",
-        filename: str = "",
+        self, pipeline: Any, profile_name: str = "", conf_name: str = "", filename: str = "",
     ) -> dict[str, Any]:
         report = self.validate(pipeline, explain=True)
         if not report.get("ok"):
             return json_result(
-                False,
-                summary={
+                False, summary={
                     "status": "validation_failed",
-                    "io_binding": SELECTION.pipeline_binding(pipeline) if isinstance(pipeline, dict) else "",
+                    "io": self.io_pairs(pipeline) if isinstance(pipeline, dict) else {},
                     "project_root": str(PROJECT_ROOT),
                     "next_step": "请先修复 Pipeline 校验错误",
-                },
-                validation=report,
+                }, validation=report,
             )
-
-        staging_dir = PROJECT_ROOT / "build" if (PROJECT_ROOT / "build").is_dir() else PROJECT_ROOT
-        staging = Path(tempfile.mkdtemp(prefix=".studio-preflight-", dir=staging_dir))
-        try:
-            staged_pipe = staging / "pipeline.json"
-            staged_pipe.write_text(json.dumps(pipeline, ensure_ascii=False, indent=2))
-            staged_conf = staging / "pipeline.conf"
-
-            if not profile_name and not conf_name and filename not in self.generated_solutions:
-                return json_result(
-                    True,
-                    summary={
-                        "status": "no_deployment_conf",
-                        "io_binding": SELECTION.pipeline_binding(pipeline),
-                        "project_root": str(PROJECT_ROOT),
-                        "pipeline_snapshot": {
-                            "node_count": len(pipeline.get("pipeline", [])),
-                            "model_count": len(pipeline.get("models", [])),
-                        },
-                        "next_step": "Pipeline 校验通过。请关联部署配置或选择 Profile 进行部署预检。",
+        if not profile_name and not conf_name and filename not in self.generated_solutions:
+            return json_result(
+                True, summary={
+                    "status": "no_deployment_conf", "io": self.io_pairs(pipeline),
+                    "project_root": str(PROJECT_ROOT),
+                    "pipeline_snapshot": {
+                        "node_count": len(pipeline.get("pipeline", [])),
+                        "model_count": len(pipeline.get("models", [])),
                     },
-                    validation=report,
-                )
-
-            profile_obj, conf_data = self.deployment_candidate(
-                pipeline, profile_name, model_root, filename, conf_name)
-            staged_pipe.write_text(json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8")
-            staged_conf_data = {"pipe_path": staged_pipe.name}
-            staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
-            configuration = self.resolve_run_conf(staged_conf, profile_obj)
-
-            assets_status = []
+                    "next_step": "Pipeline 校验通过。请关联部署配置或选择 Profile 进行部署预检。",
+                }, validation=report,
+            )
+        profile, _ = self.deployment_candidate(pipeline, profile_name, filename, conf_name)
+        with self.temporary_documents(pipeline, ".studio-preflight-") as (_, staged_conf):
+            configuration = self.resolve_run_conf(staged_conf, profile)
+            assets = []
             all_assets_ready = True
-            for mpath_info in configuration.get("model_paths", []):
-                res_path = Path(mpath_info.get("resolved", ""))
-                status = "missing"
-                if res_path.is_file():
-                    status = "exists_unverified"
-                else:
-                    all_assets_ready = False
-                assets_status.append({
-                    "model_id": mpath_info.get("model_id", ""),
-                    "resolved_path": str(res_path),
-                    "source": mpath_info.get("source", ""),
-                    "status": status,
-                })
-
+            for info in configuration.get("model_files", []):
+                path = Path(info["resolved"])
+                exists = path.is_file()
+                all_assets_ready &= exists
+                assets.append({"model": info["model"], "path": info["path"],
+                               "resolved": str(path),
+                               "status": "exists_unverified" if exists else "missing"})
             tools_ready = PIPELINE_TOOL.is_file() and DEMO_BINARY.is_file()
-            overall_status = "ready" if (all_assets_ready and tools_ready) else "attention_required"
-
             next_steps = []
             if not all_assets_ready:
                 next_steps.append("部分模型资产文件缺失，请检查路径或准备模型。")
@@ -870,45 +869,33 @@ class WorkbenchService:
                 next_steps.append("Demo 可执行文件未就绪，请构建 build/alg_demo。")
             if all_assets_ready and tools_ready:
                 next_steps.append("配置与资源预检通过，可执行运行或成套保存。")
-
             summary = {
-                "status": overall_status,
-                "biz_name": configuration["biz_name"],
-                "io_binding": configuration["io_binding"],
-                "project_root": str(PROJECT_ROOT),
+                "status": "ready" if all_assets_ready and tools_ready else "attention_required",
+                "io": self.io_pairs(pipeline), "project_root": str(PROJECT_ROOT),
                 "pipeline_snapshot": {
                     "node_count": len(pipeline.get("pipeline", [])),
                     "model_count": len(pipeline.get("models", [])),
                 },
                 "conf_path": (self.generated_solutions[filename]["conf_path"].name
-                              if filename in self.generated_solutions else conf_name or (profile_name and f"profile:{profile_name}") or ""),
-                "model_paths": configuration.get("model_paths", []),
+                              if filename in self.generated_solutions else conf_name or
+                              (profile_name and f"profile:{profile_name}") or ""),
+                "model_files": configuration.get("model_files", []),
                 "output_pools": configuration.get("output_pools", {}),
                 "effective_pipeline": configuration.get("effective_pipeline", {}),
-                "assets": assets_status,
-                "tools": {
-                    "alg_pipeline_tool": PIPELINE_TOOL.is_file(),
-                    "alg_demo": DEMO_BINARY.is_file(),
-                },
+                "assets": assets,
+                "tools": {"alg_pipeline_tool": PIPELINE_TOOL.is_file(),
+                          "alg_demo": DEMO_BINARY.is_file()},
                 "next_step": " ".join(next_steps) if next_steps else "预检完成",
             }
-            return json_result(
-                True,
-                summary=summary,
-                configuration=configuration,
-                validation=report,
-            )
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+            return json_result(True, summary=summary, configuration=configuration, validation=report)
 
-
-    def start_run(self, pipeline: Any, profile_name: str, model_root: str = "models",
+    def start_run(self, pipeline: Any, profile_name: str,
                   filename: str = "", conf_name: str = "") -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         profile, conf = self.deployment_candidate(
-            pipeline, profile_name, model_root, filename, conf_name)
+            pipeline, profile_name, filename, conf_name)
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
                 raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)
@@ -942,69 +929,63 @@ class WorkbenchService:
                 temporary_parent = PROJECT_ROOT
             temporary = tempfile.TemporaryDirectory(prefix=".studio-run-", dir=temporary_parent)
             temp_root = Path(temporary.name)
-            pipeline_path = temp_root / "pipeline.json"
-            pipeline_path.write_text(
-                json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            temp_conf = {"pipe_path": pipeline_path.name}
-            conf_path = temp_root / "pipeline.conf"
-            conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
-            configuration = self.resolve_run_conf(conf_path, profile)
-            output_dir = temp_root / "results"
-            args = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), output_dir, configuration)
-            timeout = 300 if profile.get("suite", "smoke") == "smoke" else 1800
-            with self.job_lock:
-                job = self.jobs[job_id]
-                job["configuration"] = configuration
-                if job["cancel_requested"]:
-                    job["status"] = "cancelled"
-                    return
-                job["status"] = "running"
-                job["started_at"] = time.time()
-            if not DEMO_BINARY.is_file():
-                raise StudioError("DEMO_NOT_BUILT", "请先构建 build/alg_demo", 503)
-            process = subprocess.Popen(
-                args,
-                cwd=PROJECT_ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                start_new_session=True,
-            )
-            with self.job_lock:
-                self.jobs[job_id]["process"] = process
-            try:
-                stdout, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGTERM)
-                stdout, stderr = process.communicate(timeout=5)
-                raise StudioError("RUN_TIMEOUT", f"运行超过 {timeout} 秒", 408)
-            combined = (stdout + b"\n" + stderr)[-MAX_LOG_BYTES:]
-            result_files: dict[str, Any] = {}
-            for name in ("summary.json", "results.jsonl"):
-                matches = list(output_dir.rglob(name)) if output_dir.exists() else []
-                if not matches:
-                    continue
-                text = matches[0].read_text(encoding="utf-8", errors="replace")
-                if name.endswith(".json"):
-                    try:
-                        result_files[name] = json.loads(text)
-                    except json.JSONDecodeError:
-                        result_files[name] = text
-                else:
-                    result_files[name] = [
-                        json.loads(line) for line in text.splitlines() if line.strip()
-                    ]
-            with self.job_lock:
-                job = self.jobs[job_id]
-                job["logs"] = combined.decode("utf-8", errors="replace")
-                job["exit_code"] = process.returncode
-                job["result"] = result_files
-                job["status"] = "cancelled" if job["cancel_requested"] else (
-                    "completed" if process.returncode == 0 else "failed"
+            with self.temporary_documents(pipeline, ".studio-run-") as (_, conf_path):
+                configuration = self.resolve_run_conf(conf_path, profile)
+                output_dir = temp_root / "results"
+                args = self.demo_command(profile, conf_path, output_dir, configuration)
+                timeout = 300 if profile.get("suite", "smoke") == "smoke" else 1800
+                with self.job_lock:
+                    job = self.jobs[job_id]
+                    job["configuration"] = configuration
+                    if job["cancel_requested"]:
+                        job["status"] = "cancelled"
+                        return
+                    job["status"] = "running"
+                    job["started_at"] = time.time()
+                if not DEMO_BINARY.is_file():
+                    raise StudioError("DEMO_NOT_BUILT", "请先构建 build/alg_demo", 503)
+                process = subprocess.Popen(
+                    args,
+                    cwd=PROJECT_ROOT,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=False,
+                    start_new_session=True,
                 )
-                job["finished_at"] = time.time()
-                job["process"] = None
+                with self.job_lock:
+                    self.jobs[job_id]["process"] = process
+                try:
+                    stdout, stderr = process.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    stdout, stderr = process.communicate(timeout=5)
+                    raise StudioError("RUN_TIMEOUT", f"运行超过 {timeout} 秒", 408)
+                combined = (stdout + b"\n" + stderr)[-MAX_LOG_BYTES:]
+                result_files: dict[str, Any] = {}
+                for name in ("summary.json", "results.jsonl"):
+                    matches = list(output_dir.rglob(name)) if output_dir.exists() else []
+                    if not matches:
+                        continue
+                    text = matches[0].read_text(encoding="utf-8", errors="replace")
+                    if name.endswith(".json"):
+                        try:
+                            result_files[name] = json.loads(text)
+                        except json.JSONDecodeError:
+                            result_files[name] = text
+                    else:
+                        result_files[name] = [
+                            json.loads(line) for line in text.splitlines() if line.strip()
+                        ]
+                with self.job_lock:
+                    job = self.jobs[job_id]
+                    job["logs"] = combined.decode("utf-8", errors="replace")
+                    job["exit_code"] = process.returncode
+                    job["result"] = result_files
+                    job["status"] = "cancelled" if job["cancel_requested"] else (
+                        "completed" if process.returncode == 0 else "failed"
+                    )
+                    job["finished_at"] = time.time()
+                    job["process"] = None
         except Exception as error:
             with self.job_lock:
                 job = self.jobs[job_id]
@@ -1075,11 +1056,11 @@ def make_handler(service: WorkbenchService):
             if method in ("POST", "PUT", "DELETE"):
                 body = self._body()
             if method == "GET" and path == "/api/catalog":
-                payload = service.catalog(query.get("io_binding", [""])[0])
+                payload = service.catalog()
             elif method == "GET" and path == "/api/assets":
                 payload = service.assets()
             elif method == "POST" and path == "/api/selection":
-                payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""), body.get("model_root", "models"))
+                payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""), body.get("filename", ""))
             elif method == "GET" and path == "/api/profiles":
                 payload = service.profiles()
             elif method == "GET" and path == "/api/pipelines":
@@ -1123,20 +1104,18 @@ def make_handler(service: WorkbenchService):
                     body.get("pipeline"),
                     profile_name=body.get("profile", ""),
                     conf_name=body.get("conf_path", "") or body.get("conf_name", ""),
-                    model_root=body.get("model_root", "models"),
                     filename=body.get("filename", ""),
                 )
             elif method == "POST" and path == "/api/deployment/associate":
                 payload = service.associate_deployment(
                     body.get("pipeline_name", "") or body.get("filename", ""),
                     body.get("conf_name", "") or body.get("conf_path", ""),
-                    model_root=body.get("model_root", "models"),
                     profile_name=body.get("profile", ""),
                 )
             elif method == "POST" and path == "/api/init":
 
                 payload = service.init_pipeline(
-                    body.get("io_binding", ""), body.get("profile", ""), body.get("empty", False)
+                    body.get("input"), body.get("output"), body.get("profile", "")
                 )
             elif method == "POST" and path == "/api/pipelines":
                 payload = service.save_pipeline(
@@ -1144,7 +1123,7 @@ def make_handler(service: WorkbenchService):
                 )
             elif method == "POST" and path == "/api/solutions":
                 payload = service.save_solution(
-                    body.get("filename", ""), body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models")
+                    body.get("filename", ""), body.get("pipeline"), body.get("profile", "")
                 )
             elif method == "PUT" and path == "/api/pipeline":
                 payload = service.save_pipeline(
@@ -1153,11 +1132,10 @@ def make_handler(service: WorkbenchService):
                     body.get("revision"),
                     save_as=False,
                     profile_name=body.get("profile", ""),
-                    model_root=body.get("model_root", "models"),
                 )
             elif method == "POST" and path == "/api/runs":
                 payload = service.start_run(
-                    body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models"),
+                    body.get("pipeline"), body.get("profile", ""),
                     filename=body.get("filename", ""), conf_name=body.get("conf_name", ""),
                 )
             elif method == "DELETE" and path.startswith("/api/runs/"):
@@ -1209,19 +1187,22 @@ def make_handler(service: WorkbenchService):
 
 def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print(f"\nLLM-EdgeFlow Pipeline: {path}")
-    binding = SELECTION.pipeline_binding(pipeline)
-    print(f"I/O binding: {binding}")
-    nodes = pipeline.get("pipeline", [])
-    for index, node in enumerate(nodes):
-        node_id = node.get("id", "<missing-id>")
-        depends = node.get("depends_on", [])
-        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')}")
-        for direction in ("inputs", "outputs"):
-            mapping = json.dumps(node[direction], ensure_ascii=False) if direction in node else "<未声明>"
-            print(f"      {direction}: {mapping}")
-        print(f"      depends_on: {json.dumps(depends, ensure_ascii=False)} (额外顺序)")
+    inputs, outputs = SELECTION.pipeline_io(pipeline)
+    pairs = lambda items: ", ".join(item["type"] + "/" + item["name"] for item in items)
+    print(f"io: {pairs(inputs)} -> {pairs(outputs)}")
+    for model in pipeline.get("models", []):
+        print(f"  model {model.get('name', '<missing-name>')}: {model.get('type', 'unknown')}"
+              f" / {model.get('backend', {}).get('type', 'unknown')} / {model.get('file', '')}")
+    for index, node in enumerate(pipeline.get("pipeline", [])):
+        name = node.get("name", "<missing-name>")
+        print(f"  [{index}] {name}: {node.get('type', 'unknown')}")
+        mapping = json.dumps(node["inputs"], ensure_ascii=False) if "inputs" in node else "<未声明>"
+        print(f"      inputs: {mapping}")
+        print(f"      depends_on: {json.dumps(node.get('depends_on', []), ensure_ascii=False)} (额外顺序)")
+    for output in outputs:
+        print(f"  output {output['type']}/{output['name']}: "
+              f"{json.dumps(output.get('inputs', {}), ensure_ascii=False)}")
     print()
-
 
 def read_pipeline_file(path: Path) -> dict[str, Any]:
     if path.suffix.lower() != ".json" or not path.is_file():

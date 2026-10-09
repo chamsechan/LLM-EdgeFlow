@@ -40,12 +40,11 @@ int main(int argc, char** argv) {
   }
   bool tpl = std::string(argv[1]) == "template",
        concurrent = std::atoi(argv[2]);
-  const char* type = tpl ? "TextTemplateNode" : "TextRuleMatchNode";
+  const char* type = tpl ? "text_template" : "text_rule_match";
   auto node = NodeRegistry::Instance().Create(type);
   SessionContext session;
   nlohmann::json cfg =
-      tpl ? nlohmann::json{{"template", "V0: {{primary}} / {{role}}"},
-                           {"values", {{"role", "assistant"}}}}
+      tpl ? nlohmann::json{{"template", "V0: {{primary}} / assistant"}}
           : nlohmann::json{{"categories", {{"GREETING", {"hello", "hi"}}}},
                            {"rules", nlohmann::json::array(
                                          {{{"id", "world"},
@@ -55,7 +54,7 @@ int main(int argc, char** argv) {
   if (!node || !InitNodeForTest(*node, cfg, &session)) return 2;
   int cmd = tpl ? kControlCmdUpdatePrompt : kControlCmdUpdateRules;
   std::string update =
-      tpl ? R"({"template":"V1: {{primary}} / {{role}}","prompt_id":"pid_1"})"
+      tpl ? R"({"template":"V1: {{primary}} / assistant"})"
           : R"({"categories":{"GREETING":["hello","hi"],"EXTRA":["absent"]}})";
   node->Control(cmd, update);  // 预热 schema 静态变量
   for (int a = 0; a < 5; ++a) {

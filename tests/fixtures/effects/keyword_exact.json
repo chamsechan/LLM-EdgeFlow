@@ -1,6 +1,9 @@
 {
   "name": "keyword-selected-config",
-  "io_binding": "keyword_match",
+  "output": {
+    "type": "keyword_out",
+    "name": "keyword_match"
+  },
   "dataset": "keyword_inputs.txt",
   "minimum_pass_rate": 1.0,
   "samples": [

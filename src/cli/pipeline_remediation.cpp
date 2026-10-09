@@ -658,8 +658,16 @@ ValidationReport ValidateWithRemediation(
 
 ValidationReport ExplainPipeline(const nlohmann::json& root,
                                  const PipelineIoBoundary& io_boundary) {
+  return ExplainPipeline(root, ValidateWithRemediation(root, io_boundary),
+                         [&](const auto& patched) {
+                           return ValidateWithRemediation(patched, io_boundary);
+                         });
+}
+
+ValidationReport ExplainPipeline(
+    const nlohmann::json& root, ValidationReport report,
+    const std::function<ValidationReport(const nlohmann::json&)>& revalidate) {
   const auto catalog = PipelineCatalog::Snapshot();
-  ValidationReport report = ValidateWithRemediation(root, io_boundary);
   if (report.ok) {
     return report;
   }
@@ -802,11 +810,18 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
                    RemediationCause::kUnknownPortReference ||
                diag.remediation->cause == RemediationCause::kPortTypeMismatch ||
                diag.remediation->cause ==
-                   RemediationCause::kNoCompatibleInputSource) {
-      if (diag.path.rfind("/pipeline/", 0) != 0) continue;
-      const auto idx_end = diag.path.find('/', 10);
-      const auto index = std::stoul(diag.path.substr(10, idx_end - 10));
-      const auto& node = root["pipeline"][index];
+                   RemediationCause::kNoCompatibleInputSource ||
+               diag.remediation->cause ==
+                   RemediationCause::kMissingOutputProducer) {
+      const auto start = diag.path.rfind("/pipeline/", 0) == 0    ? 10U
+                         : diag.path.rfind("/io/output/", 0) == 0 ? 11U
+                                                                  : 0U;
+      if (!start) continue;
+      const auto container_path =
+          diag.path.substr(0, diag.path.find('/', start));
+      const nlohmann::json::json_pointer pointer(container_path);
+      if (!root.contains(pointer)) continue;
+      const auto& consumer = root.at(pointer);
       const auto source = diag.remediation->facts.value("bound_key", "");
       std::vector<std::string> candidates;
       const auto dot = source.find('.');
@@ -827,17 +842,16 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
       }
       for (const auto& candidate : candidates) {
         if (candidate == source) continue;
-        auto inputs = node.value("inputs", nlohmann::json::object());
+        auto inputs = consumer.value("inputs", nlohmann::json::object());
         inputs[diag.port] = candidate;
-        const auto node_path = "/pipeline/" + std::to_string(index);
         ValidationFix fix;
         fix.id = "connect-input-" + std::to_string(++fix_counter);
         fix.title = "将输入 '" + diag.port + "' 连接到 '" + candidate + "'";
         fix.effect = "使用已声明输出 '" + candidate + "' 作为输入来源。";
         fix.patch = nlohmann::json::array(
-            {{{"op", "test"}, {"path", node_path}, {"value", node}},
+            {{{"op", "test"}, {"path", container_path}, {"value", consumer}},
              {{"op", "add"},
-              {"path", node_path + "/inputs"},
+              {"path", container_path + "/inputs"},
               {"value", std::move(inputs)}}});
         candidate_fixes.push_back(std::move(fix));
       }
@@ -905,8 +919,7 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
       if (!patch_ok) continue;
 
       total_verification_attempts++;
-      ValidationReport new_report =
-          ValidateWithRemediation(patched_root, io_boundary);
+      ValidationReport new_report = revalidate(patched_root);
       if (new_report.ok) {
         fix.verification = "pipeline_valid";
         diag.remediation->fixes.push_back(std::move(fix));

@@ -102,7 +102,7 @@ flowchart LR
 - [Translate InputConverter](../../src/adapter/input/translate_json_input.cpp) 与 [OutputConverter](../../src/adapter/output/translation_json_output.cpp)
   复用 `entity_in/entity_out` 宿主类型和输出池，只增加 JSON 字段映射；统一 Demo 复用现有文本/JSON 运行函数。
 - [Pipeline](../../configs/pipeline_translate_cpu.json)仅使用已有 `llm_generate`，
-  直接将 `input_sentences` 原文传入模型，生成纯文本 `llm_answers`。翻译规则放在节点
+  直接将 `input.query` 原文传入模型，生成纯文本 `translate_text.text`。翻译规则放在节点
   `system_prompt` 参数中，由现有 C++ Model 组装对话提示词。每条请求只调用一次文本
   生成，没有格式修复或二次推理；自回归生成内部仍逐 token 解码。无关字段不会进入模型。
 - [部署配置](../../configs/pipeline_translate_cpu.conf)定位 Pipeline，Pipeline 中选择 Qwen Model / llama.cpp
@@ -123,7 +123,7 @@ Operator 的 JSON 输出池在本配置中为 8191 字节。当前上下文为 2
 ## 验证与后续需求
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding translate
+./build/alg_pipeline_tool catalog
 ./build/alg_pipeline_tool validate configs/pipeline_translate_cpu.json
 ./build/alg_pipeline_tool plan configs/pipeline_translate_cpu.json
 ./build/alg_pipeline_tool resolve-conf configs/pipeline_translate_cpu.conf --root . --depth 1

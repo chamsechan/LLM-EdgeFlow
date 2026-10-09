@@ -156,14 +156,16 @@ Demo 按宿主载体组织在 `demo/input/`、`demo/output/`，文件名描述�
 转换器由宿主后缀和业务名配对标识，不带版本号：发布前直接改名，发布后的不兼容变化见
 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
 
-外部槽名在所属转换器 `.cpp` 内声明一次，回调与 Definition 复用；仅用一次的 schema ID 保持原位。
+宿主槽在所属转换器 `.cpp` 内声明，回调通过选中项的 options 访问本地逻辑端口与不可变参数。
 
-业务端口使用 `RequiredBizInput`、`OptionalBizInput`、`BizOutput`；Node 端口使用
-`RequiredInputPort`、`OptionalInputPort`、`OutputPort`。两种端口类型不可相互隐式转换。
-Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑端口或业务黑板键。
+Node 与 Converter 的本地逻辑端口共用 `NodePortDefinition`，通过
+`RequiredInputPort`、`OptionalInputPort`、`OutputPort` 声明。接入准备将选中端口与实际引用
+组合成 `IoPortDefinition` 边界，交给 Core 验证。
+Catalog JSON 的 Node 与 Converter 端口 `key` 都是本地逻辑端口名。
+配置中的实际来源写为 `input.端口名` 或 `节点名.端口名`，由 Validator 形成 typed 黑板绑定。
 
-`core/port_definition.h`、`core/node_definition.h`、`core/biz_definition.h` 分别维护
-端口、Node 和业务元数据，Catalog 服务在 `core/pipeline_catalog.h`。
+`core/port_definition.h`、`core/node_definition.h` 分别维护端口与 Node 元数据；
+Converter 定义位于 `adapter/io_converter.h`，Catalog 查询位于 `core/pipeline_catalog.h` 和接入层 `IoCatalog`。
 `engine/inference_definition.h` 维护 Model/Backend 元数据；张量与 Host 内存辅助接口
 在 `engine/tensor.h`。`node_registry.h` 的主要类型是 `NodeRegistry`。
 

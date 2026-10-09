@@ -41,7 +41,7 @@ jobs:
         with:
           packages: >-
             build-essential ccache clang-format-18 curl default-jre-headless:java
-            mold ninja-build:ninja python3
+            mold ninja-build:ninja python3 python3-jsonschema
 
       - name: Use Minimum Supported CMake
         run: |
@@ -79,6 +79,8 @@ jobs:
       - name: Run Unified Full Quality Gate with mold
         run: |
           ccache -z
+          ./scripts/configure_build.sh "$PWD" "$PWD/build" dev-gate \
+            -DPython3_EXECUTABLE=/usr/bin/python3 -DLLM_EDGEFLOW_LINKER=mold
           LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_JOBS=4 \
             ./scripts/run_all_tests.sh
           ccache -s
@@ -210,8 +212,8 @@ jobs:
       - name: Cache Pinned GGUF
         uses: actions/cache@v4
         with:
-          path: models/qwen2.5-0.5b-instruct-q4_k_m.gguf
-          key: qwen2.5-0.5b-q4-k-m-74a4da8c9fdb
+          path: configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          key: qwen2.5-0.5b-q4-k-m-configs-v1-74a4da8c9fdb
 
       - name: Run Real Model and Public Profile
         run: |
@@ -284,11 +286,10 @@ jobs:
       - name: Cache Pinned Whisper Model
         uses: actions/cache@v4
         with:
-          path: models/ggml-base.bin
-          key: whisper-e2e-${{ hashFiles('models/asset_manifest.json') }}
+          path: configs/ggml-base.bin
+          key: whisper-e2e-configs-v1-${{ hashFiles('configs/asset_manifest.json') }}
           restore-keys: |
-            whisper-e2e-
-            whisper-ggml-base-
+            whisper-e2e-configs-v1-
 
       - name: Run Real Whisper E2E and Public Profile
         run: |
@@ -369,14 +370,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            models/qwen2.5-0.5b-instruct-q4_k_m.gguf
-            models/SmolVLM-256M-Instruct-Q8_0.gguf
-            models/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf
-            models/bge_base_zh_v1.5.onnx
-            models/bge_base_zh_v1.5_vocab.txt
-            models/ms_marco_tinybert_l2_v2_quantized.onnx
-            models/ms_marco_bert_vocab.txt
-          key: kite-demo-models-${{ hashFiles('scripts/fetch_real_test_models.sh') }}
+            configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
+            configs/SmolVLM-256M-Instruct-Q8_0.gguf
+            configs/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf
+            configs/bge_base_zh_v1.5.onnx
+            configs/bge_base_zh_v1.5_vocab.txt
+            configs/ms_marco_tinybert_l2_v2_quantized.onnx
+            configs/ms_marco_bert_vocab.txt
+          key: kite-demo-models-configs-v1-${{ hashFiles('scripts/fetch_real_test_models.sh') }}
 
       - name: Fetch and Verify Pinned Text and Vision Models
         run: ./scripts/fetch_real_test_models.sh --kite
@@ -403,9 +404,9 @@ jobs:
       - name: Verify Backend Registration and Real Model Tests
         env:
           LLM_EDGEFLOW_TEST_KITELLM_DEMOS: "1"
-          LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL: ${{ github.workspace }}/models/SmolVLM-256M-Instruct-Q8_0.gguf
+          LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL: ${{ github.workspace }}/configs/SmolVLM-256M-Instruct-Q8_0.gguf
           LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG: kite_vision_run.json
-          LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
         run: |
           test -s "${LLM_EDGEFLOW_TEST_KITELLM_MODEL}"
           ./build/variants/kite-cpu/alg_pipeline_tool catalog > build/variants/kite-cpu/catalog.json
@@ -421,8 +422,8 @@ jobs:
           kite = next(b for b in catalog["backends"] if b["backend_type"] == "kite_llm")
           assert "image_text_generation" in kite["supported_protocols"]
           assert "generated_token_embedding" in kite["supported_protocols"]
-          assert any(m["model_type"] == "generated_text_embedding" for m in catalog["models"])
-          assert any(m["model_type"] == "vision_document" for m in catalog["models"])
+          assert any(m["impl_name"] == "generated_text_embedding" and m["model_type"] == "embedding" for m in catalog["models"])
+          assert any(m["impl_name"] == "vision_document" and m["model_type"] == "ocr" for m in catalog["models"])
           configs = list(pathlib.Path("configs").glob("pipeline_*_kite*.json"))
           assert configs, "Kite deployment configurations are missing"
           for config in configs:

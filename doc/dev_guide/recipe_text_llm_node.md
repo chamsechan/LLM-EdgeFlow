@@ -12,19 +12,21 @@ LLM Node，保留其上下游 Blackboard 键与依赖关系。
 ```bash
 cmake --build build --target alg_pipeline_tool_test alg_demo
 python3 tools/dev_recipe.py prepare text-llm-node \
-  --name MySummaryNode --profile entity_extract_mock \
+  --name my_summary --profile entity_extract_mock \
   --tool build/alg_pipeline_tool_test --build-dir build \
-  --pipeline configs/pipeline_my_summary.json --json
+  --pipeline demo/fixtures/mock/pipeline_my_summary.json --json
 ```
 
-名字必须是 PascalCase C++ 标识符，省略 `Node` 后缀时会自动添加。目标必须未存在且 Node
-类型不能已注册。recipe 从 Catalog 选择唯一一个单输入/单输出、`TextBatch`、`1:1`、
-`preserve`、request lifetime 的 LLM 节点；没有兼容点或存在多个点时在写入前报错。
+名字使用 snake_case，同时作为登记的节点类型；C++ 类型与源码名由脚手架生成。目标必须未存在且
+类型不能已注册。Recipe 从 Catalog 选择唯一一个单输入、单个 `TextBatch` 输出、`1:1`、
+`preserve`、request lifetime 的 LLM 节点；其他输出必须未被引用。没有兼容点、存在多个点或
+结构化输出仍被使用时，在写入前报错。
 不会通过节点名称猜测能力，也不会回退替换第一个节点。
 
-源 Node 的逻辑端口（如 prompt/text）会映射为新模板的 input/output，实际键保持不变。
+源 Node 的逻辑端口映射为新模板的 input/output；所有下游与输出 Converter 的引用同步改为
+`新节点名.output`，额外顺序依赖同步更新。
 新模板不会自动复制被替换 Custom Node 的业务算法；替换自带提示词构造或结果加工的节点时，
-应在新的业务函数中实现所需行为，效果验收会检测行为差异。新节点的配置只写 `bind_model`，
+应在新的业务函数中实现所需行为，效果验收会检测行为差异。新节点的 `params` 只写 `bind_model`，
 `max_tokens`、`temperature` 等生成参数使用默认值；源节点调过的采样字段不会复制，需要时在
 方案配置中补上。
 
@@ -38,10 +40,10 @@ python3 tools/dev_recipe.py prepare text-llm-node \
 
 ```bash
 python3 tools/dev_recipe.py verify text-llm-node \
-  --name MySummaryNode --pipeline configs/pipeline_my_summary.json \
+  --name my_summary --pipeline demo/fixtures/mock/pipeline_my_summary.json \
   --tool build/alg_pipeline_tool_test --build-dir build \
-  --effects configs/pipeline_my_summary_effects.json \
-  --model-root . --manifest tests/fixtures/asset_manifest_test.json \
+  --effects demo/fixtures/mock/pipeline_my_summary_effects.json \
+  --manifest tests/fixtures/asset_manifest_test.json \
   --demo build/alg_demo --json
 ```
 
@@ -52,15 +54,14 @@ verify 依次完成：
    Demo 尚未存在时也可在此构建。
 3. 在更新后的 Catalog 中确认新 Node，并确认 Pipeline 实际使用该 Node。
 4. 原生 validate、plan 和 resolve-conf，确认部署指向本 Pipeline 和所选模型资产。
-5. 发现 `CustomNodeCatalogTest.MySummaryNode_*` 用例并要求非零，执行后要求全部通过。
+5. 发现 `CustomNodeCatalogTest.my_summary_*` 用例并要求非零，执行后要求全部通过。
 6. 校验资产哈希，运行实际修改的方案，核对每个请求的业务输出。
 
 任一步失败会保留失败阶段、原生报告及未完成步骤，返回非零状态。新增源码被 Node runner
 编译通过，不代表所选 CLI 或 Demo 已更新；verify 会明确构建这些独立目标。
 
-其他 Profile 的 `--effects`、`--model-root`、`--manifest` 使用方式见
-[提示词任务](recipe_prompt_config.md)。两条 recipe 只支持单输出 `deployment.io.out_mem`；多输出部署
-继续使用原生 Operator 流程。
+其他 Profile 的 `--effects`、`--manifest` 与资源目录要求见
+[提示词任务](recipe_prompt_config.md)。两条 Recipe 只支持一个输出 Converter；多输出部署使用原生 Operator 流程。
 
 ## 文件冲突
 

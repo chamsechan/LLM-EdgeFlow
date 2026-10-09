@@ -123,7 +123,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
   for (const auto& dep : definition.model_dependencies) {
     model_deps.push_back({
         {"name", dep.name},
-        {"capability", dep.model_type},
+        {"model_type", dep.model_type},
         {"config_field", dep.config_field},
     });
   }
@@ -144,9 +144,20 @@ nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
   for (const auto& field : definition.params.Fields()) {
     fields.push_back(ConfigFieldToJson(field));
   }
+  auto backends = nlohmann::json::array();
+  for (const auto& backend : Backends()) {
+    const auto implementations = ModelRegistry::Instance().FindImplementation(
+        definition.model_type, backend.backend_type);
+    if (std::any_of(implementations.begin(), implementations.end(),
+                    [&](const auto& candidate) {
+                      return candidate.impl_name == definition.impl_name;
+                    }))
+      backends.push_back(backend.backend_type);
+  }
   return {
-      {"model_type", definition.impl_name},
-      {"capability", definition.model_type},
+      {"impl_name", definition.impl_name},
+      {"model_type", definition.model_type},
+      {"backends", std::move(backends)},
       {"description", definition.description},
       {"required_protocol",
        ExecutionProtocolName(definition.required_protocol)},
