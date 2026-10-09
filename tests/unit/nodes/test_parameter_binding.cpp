@@ -567,24 +567,6 @@ TEST(ParameterBindingTest, FloatDefaultMetadataUsesShortestDecimalValues) {
   EXPECT_EQ(schema.Fields()[1].default_value.dump(), "0.9");
 }
 
-TEST(ParameterBindingTest, RejectsComplexParserFieldNameCollisions) {
-  ConfigFieldDefinition field;
-  field.name = "count";
-  field.kind = ConfigValueKind::kInteger;
-  field.required = true;
-  ConfigParser<SampleParams> parser(
-      {field},
-      [](const nlohmann::json&, SampleParams*, std::string*) { return true; });
-  auto schema =
-      Parameters<SampleParams>{Field("count", &SampleParams::count).Default(1)};
-  EXPECT_THROW(schema.WithParser(parser), std::invalid_argument);
-  auto empty = Parameters<SampleParams>{};
-  EXPECT_THROW(empty.WithParser(ConfigParser<SampleParams>(
-                   {field, field}, [](const nlohmann::json&, SampleParams*,
-                                      std::string*) { return true; })),
-               std::invalid_argument);
-}
-
 TEST(ParameterBindingTest, SuccessfulParseWithDefaultsAndOverrides) {
   auto schema = Parameters<SampleParams>({
       Field("mode", &SampleParams::mode)

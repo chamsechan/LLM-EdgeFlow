@@ -49,7 +49,7 @@ common Node 放在 `src/common_nodes/` 并明确 `.Category("common")`。生成�
 3. `Parameters` / `Field` 声明参数；数组用 `std::vector<T>`，映射用 `std::map<std::string, T>`，
    结构体元素用 `.Items(Parameters<Element>{...})`。`Range` / `Enum` 约束标量叶子，诊断路径
    指出元素下标或映射键；`nlohmann::json` 字段接受非 null JSON 值。跨字段与连线规则用
-   `Validate` / `ValidateBindings`。需要自定义解析时仍可用 `ConfigParser`，不重复字段校验。
+   `Validate` / `ValidateBindings`。模板片段、编译后的正则等派生状态在 `Prepare` 中构建。
 4. `ModelsOf` / `Model` 声明能力槽；成员类型 `LlmCall`、`EmbeddingCall`、`AsrCall`、`OcrCall`、
    `RerankCall` 决定能力。只传三个参数，例如 `Model("generator", "bind_model", &Models::generator)`；
    框架按成员能力生成引用 `models[].model_id` 的说明。配置必须显式引用 model_id；保留门面返回的
@@ -61,9 +61,8 @@ LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自�
 
 只在有需求时加入 Control 或缓存。`WithControls` 的 `ReplaceFields` payload 至少提供一个受控
 字段，只替换提供的字段；数组和映射整体替换，更新后重跑 `Prepare` / `Validate`，失败保持旧快照。
-仅由 `WithParser` 声明的字段不能直接加入字段 Control。typed Fields 与 parser 同时存在时，字段
-Control 还要求显式 `Prepare`。复杂 `WithControl` 返回完整有效候选，框架不会再跑初始化的
-`Prepare`；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用
+受控参数的 schema 来自字段声明，`bind_model` 不能受控。模板编译与规则编译也通过 `Prepare`
+在初始配置和更新时复用；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用
 `SessionResources::GetOrCreateResult`，key 显式纳入语义参数、输入和模型 revision。
 借用视图只在本次同步调用中使用。只有可证明线程安全时设置 `.ParallelSafe(true)`。
 

@@ -97,14 +97,16 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
 
   // 1.1 非法占位符应导致 Init 失败
   nlohmann::json invalid_cfg = {{"template", "Hello {{unknown_variable}}!"}};
-  EXPECT_FALSE(InitNodeForTest(*node, invalid_cfg, session_ctx_.get(), nullptr,
-                               {"attributes"}));
+  std::string diagnostic;
+  EXPECT_FALSE(
+      InitNodeForTest(*node, invalid_cfg, session_ctx_.get(), &diagnostic));
+  EXPECT_NE(diagnostic.find("unknown_variable"), std::string::npos)
+      << diagnostic;
 
-  // 1.2 合法占位符和静态值
+  // 1.2 合法占位符和字面文本
   nlohmann::json valid_cfg = {
       {"template",
-       "Prefix: {{tag}} | Query: {{primary}} | Context: {{context}}"},
-      {"values", {{"tag", "TEST_TAG"}}},
+       "Prefix: TEST_TAG | Query: {{primary}} | Context: {{context}}"},
       {"overflow_policy", "truncate"},
       {"max_length", 128}};
   EXPECT_TRUE(InitNodeForTest(*node, valid_cfg, session_ctx_.get()));
@@ -131,8 +133,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   EXPECT_NE((*out)[0].data.find("Large Language Model"), std::string::npos);
 
   // 1.3 通过 Control 更新 prompt
-  nlohmann::json update_json = {{"template", "NewTemplate: {{primary}}"},
-                                {"values", nlohmann::json::object()}};
+  nlohmann::json update_json = {{"template", "NewTemplate: {{primary}}"}};
   NodeControlResult c_res =
       node->Control(kControlCmdUpdatePrompt, update_json.dump());
   EXPECT_EQ(c_res.status, NodeControlStatus::kHandled);
@@ -147,42 +148,49 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data, "NewTemplate: What is LLM?");
 }
 
-// 1.4 TextTemplateNode 属性与 sub_id 保持
-TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
+// 1.4 TextTemplateNode 聚合输入按请求关联，并保持主输入的 sub_id
+TEST_F(CommonNodesTest, TextTemplateNodeTypedPortsAndSubIdPreservation) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
-      {"template", "User: {{primary}} | Role: {{role}} | Loc: {{location}}"},
-      {"allow_dynamic_attributes", true},
+      {"template",
+       "User: {{primary}} | Context: {{context}} | Doc: {{document}} | "
+       "Match: {{matches}}"},
+      {"separator", " / "},
       {"overflow_policy", "fail"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
-  TextBatch primary;
-  primary.emplace_back(100, 0, "Alice");
-  primary.emplace_back(100, 1, "Bob");
+  const TextBatch primary{
+      {100, 2, "Alice"}, {200, 9, "Carol"}, {100, 7, "Bob"}};
   ctx.Publish("primary", primary);
+  ctx.Publish("context",
+              RankedTextBatch{{200, 4, RankedCandidate("Shanghai", 1.0f)},
+                              {100, 6, RankedCandidate("Beijing", 1.0f)},
+                              {100, 3, RankedCandidate("Office", 0.5f)}});
+  ctx.Publish("document", OcrDocumentBatch{{100, 5, OcrDocumentItem{{}, "A"}},
+                                           {200, 8, OcrDocumentItem{{}, "B"}},
+                                           {100, 1, OcrDocumentItem{{}, "C"}}});
+  ctx.Publish("matches",
+              RuleMatchBatch{{200, 3, RuleMatchItem(1, "USER", "Carol")},
+                             {100, 8, RuleMatchItem(1, "ADMIN", "Alice")}});
 
-  TextAttributesBatch attrs;
-  attrs.emplace_back(100, 0,
-                     std::unordered_map<std::string, std::string>{
-                         {"role", "Admin"}, {"location", "Beijing"}});
-  attrs.emplace_back(100, 1,
-                     std::unordered_map<std::string, std::string>{
-                         {"role", "User"}, {"location", "Shanghai"}});
-  ctx.Publish("attributes", attrs);
-
-  EXPECT_EQ(node->Process(&ctx), 0);
+  ASSERT_EQ(node->Process(&ctx), 0);
   const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
-  ASSERT_EQ(out->size(), 2u);
-  EXPECT_EQ((*out)[0].req_id, 100u);
-  EXPECT_EQ((*out)[0].sub_id, 0u);
-  EXPECT_EQ((*out)[0].data, "User: Alice | Role: Admin | Loc: Beijing");
-  EXPECT_EQ((*out)[1].req_id, 100u);
-  EXPECT_EQ((*out)[1].sub_id, 1u);
-  EXPECT_EQ((*out)[1].data, "User: Bob | Role: User | Loc: Shanghai");
+  ASSERT_EQ(out->size(), primary.size());
+  const std::vector<std::string> expected = {
+      "User: Alice | Context: Beijing / Office | Doc: A / C | Match: ADMIN "
+      "(Alice)",
+      "User: Carol | Context: Shanghai | Doc: B | Match: USER (Carol)",
+      "User: Bob | Context: Beijing / Office | Doc: A / C | Match: ADMIN "
+      "(Alice)"};
+  for (size_t i = 0; i < out->size(); ++i) {
+    EXPECT_EQ((*out)[i].req_id, primary[i].req_id);
+    EXPECT_EQ((*out)[i].sub_id, primary[i].sub_id);
+    EXPECT_EQ((*out)[i].data, expected[i]);
+  }
 }
 
 // 2. TextChunkNode：分块、重叠、来源追踪
@@ -278,7 +286,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"fallback_json", "{\"entities\":[]}"},
+  nlohmann::json cfg = {{"fallback", {{"entities", nlohmann::json::array()}}},
                         {"extract_json_block", true},
                         {"failure_policy", "configured_fallback"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
@@ -758,31 +766,6 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
   }
 }
 
-// 13. TextTemplateNode 缺失变量时失败
-TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
-  ASSERT_NE(node, nullptr);
-
-  // allow_dynamic_attributes 默认为 false
-  nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
-                        {"allow_dynamic_attributes", true}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  // 提供属性
-  {
-    AlgContext ctx;
-    TextAttributesBatch attrs;
-    attrs.emplace_back(
-        1, 0,
-        std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
-    ctx.Publish("attributes", attrs);
-    EXPECT_EQ(node->Process(&ctx), 0);
-    const auto* out = ctx.Read<TextBatch>("text");
-    ASSERT_NE(out, nullptr);
-    EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
-  }
-}
-
 namespace {
 
 class PromptContractModel final : public ILlmModel {
@@ -1195,7 +1178,8 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
         {{"bind_model", "prompt_contract"}, {"prompt_template", pattern}},
         session_ctx_.get()));
     AlgContext common_ctx;
-    common_ctx.Publish("context_text", TextBatch{{17, 0, value}});
+    common_ctx.Publish("context",
+                       RankedTextBatch{{17, 0, RankedCandidate(value, 1.0f)}});
     ASSERT_EQ(common->Process(&common_ctx), 0);
     ASSERT_NE(common_ctx.Read<TextBatch>("text"), nullptr);
     ASSERT_EQ(common_ctx.Read<TextBatch>("text")->size(), 1U);

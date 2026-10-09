@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+文本节点统一使用类型化字段与字段 Control。模板变量只引用已连接的输入，更新重新编译并校验；
+规则元素声明负责默认值、约束与正则编译。结构化解析的 `fallback` 直接使用 JSON 值，
+语料源的 `corpus` 必填且可以为空数组。删除旧参数解析器和手写 Control 更新接口。
+
 参数声明支持数组、映射、结构体元素和非 null JSON 值，嵌套错误包含键名或下标。
 `Include` 平铺共享参数，`GenerateParameters()` 共用 `max_tokens=128`；模型槽的说明按能力生成。
 字段 Control 从参数声明生成 schema，允许部分替换，重建及校验失败时保留旧快照。

@@ -26,7 +26,6 @@ inline constexpr int kParseFailed = -6102;
 
 namespace text_template {
 inline constexpr int kRenderedOutputTooLong = -6201;
-inline constexpr int kMissingVariable = -6202;
 inline constexpr int kInvalidUtf8 = -6203;
 }  // namespace text_template
 

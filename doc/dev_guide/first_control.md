@@ -11,8 +11,8 @@
 | 控制命令的行为断言 | 已有节点测试套件 |
 | 新平台专有结构的转换和拷贝 | Integration；普通 JSON Control 使用已有通用入口 |
 
-所有节点通过同一 Spec 声明 Control：普通字段使用 `WithControls`，复杂模板/规则使用
-`WithControl` 声明 schema 和构建下一状态的函数。框架管理解析、writer 串行更新和不可变
+所有节点通过同一 Spec 的 `WithControls` / `ReplaceFields` 声明受控参数，payload schema
+由字段声明生成；模板和规则的派生状态在 `Prepare` 中重建。框架管理解析、writer 串行更新和不可变
 快照；业务函数每次接收一份一致的参数，不需要覆写生命周期。完整生产例子见
 [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 与
 [TextRuleMatchNode](../../src/common_nodes/text_rule_match_node.cpp)。
@@ -53,8 +53,8 @@
 
 初始配置写在节点的 `config`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；
 Control 下发新值后重跑 `Prepare` / `Validate`，校验成功才发布新快照，失败保持旧快照。
-非法初始配置会在预检拒绝，直接 Init 也返回具体原因。`WithParser` 和字段 Control 同时使用时
-仍须显式声明 `Prepare`；仅由 parser 声明的字段不能作为 `ReplaceFields` 的受控字段。
+非法初始配置会在预检拒绝，直接 Init 也返回具体原因。受控字段可以是任意支持的参数类型，
+`bind_model` 不能通过 Control 替换。
 
 框架采用 `ConfigurationSnapshot` 管理节点状态：更新在独立的 writer 锁内构建候选、校验成功后原子发布；正在执行的 Process 读取单次快照处理整批请求，互不干扰；更新失败保留旧配置。开发者只需关注普通参数绑定与业务逻辑，不需要手写互斥锁、JSON 解析或快照轮询。
 
@@ -144,8 +144,8 @@ int ret = ops.Control(handle, ControlCommand::kJson, &param);
 ```
 
 `kJson` 选择唯一参数结构；节点命令 ID 位于 `param.cmd_id`。payload 必须是非空字符串，
-解析结果为 JSON object。字段命令 `ReplaceFields` 拒绝空对象 `{}`；复杂 `WithControl`
-命令仍按自身 schema 校验。UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
+解析结果为 JSON object，`ReplaceFields` 拒绝空对象 `{}`，按受控字段的声明校验。
+UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先。
 命令与 `control_file` 必须成对，缺少任一项返回 3；未配置时不发送 Control。

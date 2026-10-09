@@ -148,13 +148,13 @@ LLM 采样参数复用 [`GenerateParameters()`](../include/nodes/generate_parame
 
 数组和映射参数使用 `std::vector<T>` / `std::map<std::string, T>`；结构体元素通过
 `.Items(Parameters<Element>{...})` 声明。`Range` / `Enum` 约束标量叶子，诊断路径包含元素
-下标或映射键；`nlohmann::json` 参数接受任意非 null JSON 值。需要自定义解析时仍可使用
-`WithParser(ConfigParser<Params>(fields, parse))`。
+下标或映射键；`nlohmann::json` 参数接受任意非 null JSON 值。字段赋值后，`Prepare` 构建
+模板片段或编译后的正则等派生状态，再执行语义和连线校验。
 
 模型槽写作 `Model("generator", "bind_model", &Models::generator)`，只有三个参数；引用
 `models[].model_id` 的说明由成员能力自动生成。字段控制命令 `ReplaceFields` 至少提供一个受控
 字段，只替换提供的字段；容器整体替换，重跑 `Prepare` / `Validate`，失败保持旧快照。
-复杂命令的 `WithControl` 写法仍可使用。
+所有参数更新用 `WithControls` 声明，payload schema 从字段生成；模型引用不能受控。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，与所有 Node 一样
 使用 `MakeNodeSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；Node 不绑定特定业务。
