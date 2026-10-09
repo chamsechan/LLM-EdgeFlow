@@ -27,12 +27,6 @@ inline constexpr int kControlCmdUpdateParams = 4;
 // ==============================================================================
 
 /**
- * @brief 文本命名标量属性批次 (TextAttributesBatch)
- */
-using TextAttributesBatch =
-    std::vector<TraceableItem<std::unordered_map<std::string, std::string>>>;
-
-/**
  * @brief 带打分与排名的排序候选载荷 (RankedCandidate)
  */
 struct RankedCandidate {
@@ -155,11 +149,6 @@ using StructuredDocumentBatch = std::vector<TraceableItem<JsonDocumentItem>>;
 template <>
 struct BlackboardTypeTraits<TextBatch> {
   static constexpr const char* TypeName() { return "TextBatch"; }
-};
-
-template <>
-struct BlackboardTypeTraits<TextAttributesBatch> {
-  static constexpr const char* TypeName() { return "TextAttributesBatch"; }
 };
 
 template <>

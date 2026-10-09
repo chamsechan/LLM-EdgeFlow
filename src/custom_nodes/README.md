@@ -81,7 +81,7 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 `.Items(Parameters<Element>{...})`。`Range` / `Enum` 约束标量叶子，错误路径指出下标或映射键；
 `nlohmann::json` 参数接受非 null JSON 值。完整声明见
 [参数与 Definition](../../doc/dev_guide/custom_node_concepts.md#3-definition让连线工具和运行器看懂你的操作)。
-普通字段 Control 使用 `WithControls` / `ReplaceFields`：payload 至少提供一个受控字段，只替换
+参数 Control 使用 `WithControls` / `ReplaceFields`：payload 至少提供一个受控字段，只替换
 提供的字段，容器整体替换；重跑 `Prepare` / `Validate`，失败保持旧快照。参考
 [Control 练习](../../doc/dev_guide/first_control.md)。
 
@@ -94,21 +94,24 @@ LLM 生成参数复用 [`GenerateParameters()`](../../include/nodes/generate_par
 字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 的长度是 UTF-8 字节预算，
 生成的 `max_tokens` 是 token 数。类型、范围和字段组合错误应拒绝，不静默改用默认值。
 
-### 参数复杂时，使用普通结构和解析封装
+### 复杂参数与派生状态
 
-`Parameters<Params>.WithParser(ConfigParser<Params>(fields, parse))` 保存复杂字段与
-`bool(const nlohmann::json&, Params*, std::string*)` 解析函数。解析器接收已规范化 JSON，
-返回持有自身字符串和容器的普通对象；不保存 JSON 指针，不序列化后重解析。
-它与 `Field` 可组合，框架拒绝重名字段，预检和初始化共享语义规则。
-解析器和基础字段赋值后，`Prepare` 可构建依赖这些字段的派生状态，再执行语义与连线校验。
-同时使用 `WithParser` 和字段 Control `WithControls` 时必须显式声明 `Prepare`，
-字段更新会通过它重建派生状态，再校验并发布。
+参数通过 `Field` 声明，结构体元素用 `Items`，共享参数组用 `Include`。
+字段赋值后在 `Prepare` 中构建持有自身数据的派生状态，再执行语义与连线校验。
+字段 Control 会复用同一流程重建并校验候选，失败保持旧值，每次请求读取一次一致快照。
 
-自定义解析参考 [StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp)；
-生成参数的 `Include` 参考 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。复杂 Control
-仍用 `.WithControl` 声明命令与构造下一状态的函数，参考 [TextTemplateNode](../common_nodes/text_template_node.cpp) 和
-[TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp)：框架串行处理更新，失败保持旧值，
-每次请求读取一次一致快照。
+[TextTemplateNode](../common_nodes/text_template_node.cpp) 在 `Prepare` 中编译模板，
+只允许已连接的 `primary`、`context`、`matches`、`document` 变量；未知变量或引用未连接端口
+在此拒绝。连接了端口但某请求没有数据时，该变量为空字符串。`update_prompt` 只替换 `template`；
+Operator 的 `prompt_id` 仍由接入层检查长度，但不转发到节点。
+
+[TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp) 用映射声明 `categories`，
+用 `Field("rules", ...).Items(...)` 声明规则字段，并在元素的 `Prepare` 中编译正则。
+`update_rules` 整体替换给出的 `categories` 或 `rules`，省略的项保持原值。
+[StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp) 的 `fallback` 直接填写
+非 null JSON 值，例如 `{"fallback":{"category":"NONE"}}`。
+[TextCorpusSourceNode](../common_nodes/text_corpus_source_node.cpp) 没有输入端口，`corpus` 必填，
+可以是空数组。生成参数的 `Include` 参考 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。
 
 会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResult<T>`
 调用返回 `NodeResult<T>` 的工厂，通过 `GetModelRevision` 取得缓存身份所需的模型版本；参考
@@ -157,8 +160,7 @@ prompt_prefix 中的花括号保留原文，不再作为模板解析。未知占
 `prompt_prefix` 是普通输入文本前缀，非空时在模板前追加一行。真正的 system 消息由模型的
 `model_config.system_prompt` 设置，不能用节点前缀替代该角色。
 
-TextTemplate 的 `missing_variable_policy` 也适用于内置变量。`fail` 会拒绝未连接的
-引用或缺失的主输入样本；需要保留占位符或填空时显式使用 `preserve/empty`。
+TextTemplate 引用的变量必须对应已连接的输入端口；某请求没有数据时填空。
 聚合输入批次存在而某请求没有结果时，仍表示合法的空上下文。
 
 模型失败、输出数量不符或 `(req_id, sub_id)` 不符时，节点返回错误且不发布结果。

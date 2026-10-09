@@ -75,9 +75,7 @@
     {
       "id": "node_3_StructuredJsonParseNode",
       "node_type": "StructuredJsonParseNode",
-      "config": {
-        "fallback_json": "{}"
-      },
+      "config": {},
       "inputs": {
         "text": "llm_raw_answer"
       },

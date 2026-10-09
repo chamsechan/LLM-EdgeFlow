@@ -199,15 +199,12 @@ Parameters<Params>{
 `Items` 提供。错误路径继续到元素下标或映射键，例如 `/pipeline/0/config/rules/1/score`、
 `/pipeline/0/config/categories/topic/0`。`nlohmann::json` 字段接受任意非 null JSON 值。
 
-需要自定义解析时，仍可用 `.WithParser(ConfigParser<YourConfig>(fields, parse))`
-与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
-再执行 `Prepare` 构建派生状态，最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的
-连线规则。parser 接收已规范化 JSON，不要再次序列化；依赖基础参数的派生成员应在
-`Prepare` 中重建。组合 `WithParser` 与字段 Control `WithControls` 时必须显式声明
-`Prepare`，更新字段后框架会再次执行它，再校验和发布候选状态。
+字段赋值后，`Prepare` 构建依赖参数的派生状态，例如模板片段和编译后的正则；随后执行
+`Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。结构体元素也按自己的声明补齐
+默认值、赋值，再运行元素的 `Prepare` / `Validate`。参数更新会复用这些规则重建并校验候选状态。
 
 复杂参数的完整例子见
-[复杂参数封装](../../src/custom_nodes/README.md#参数复杂时使用普通结构和解析封装)。
+[复杂参数与派生状态](../../src/custom_nodes/README.md#复杂参数与派生状态)。
 
 ## 改变数量或顺序时：来源编号
 
@@ -282,13 +279,10 @@ cardinality 是端口自身的声明，沿拆分传递的逐项输出仍可能�
 | 经设计和验证可安全共享的资源句柄 | 当前请求的 Context 指针、临时请求缓存 |
 
 “无请求状态”允许节点持有配置。在线更新时先校验新值，失败保留旧值，每次处理读取
-一致快照。普通字段使用 `WithControls` / `ReplaceFields`，payload 至少提供一个受控字段；
+一致快照。参数更新使用 `WithControls` / `ReplaceFields`，payload 至少提供一个受控字段；
 只替换提供的字段，数组和映射整体替换，随后重跑 `Prepare` / `Validate`，失败保持旧快照。
-复杂命令仍使用 `WithControl` 声明 schema 和
-构造下一状态的函数，框架串行处理更新并发布。见 [Control 练习](first_control.md)。
-复杂状态的初始构建与更新复用普通 `Build...State` 函数；更新回调负责构建完整候选，
-`WithControl` 不会再次运行初始化的 `Prepare`。模板编译和规则解析各有一个实现，
-配置与补丁可以使用不同结构。
+payload schema 由受控字段声明生成，框架串行处理更新并发布。模板编译与规则编译放在
+`Prepare` 中，初始配置和更新共用同一实现。见 [Control 练习](first_control.md)。
 
 默认顺序执行不要求作者填写并发声明；`parallel_safe=false` 是框架的保守默认。Pipeline 的
 `max_parallel_workers` 大于 1 时，框架把它放到单独的层顺序执行，不会自动加锁；声明
@@ -314,7 +308,7 @@ cardinality 是端口自身的声明，沿拆分传递的逐项输出仍可能�
 框架在发布前检查全部带 anchor 的输出，派生输出的编号和数量正确性由算法及测试保证。
 
 所有生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、
-TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一套生命周期写法。
+TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按场景维护另一套生命周期写法。
 函数较多时可拆成操作相关的 `.h/.cpp`，目录下的 `.cpp` 自动编入，保持目录按操作组织。
 
 从下面的现有实现中只取需要的部分：
@@ -329,8 +323,8 @@ TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一�
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
-| 多字段配置转为普通参数结构 | [Parameters](../../include/contracts/parameters.h) / `Field` / `Include`；需要自定义解析时使用 `ConfigParser` |
-| 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControl`，失败不替换旧配置 |
+| 多字段配置转为普通参数结构 | [Parameters](../../include/contracts/parameters.h) / `Field` / `Items` / `Include`；派生状态使用 `Prepare` |
+| 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControls` / `ReplaceFields`，复用 `Prepare`，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，

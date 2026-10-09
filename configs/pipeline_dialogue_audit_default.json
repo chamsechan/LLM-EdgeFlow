@@ -180,7 +180,7 @@
       "id": "node_8_StructuredJsonParseNode",
       "node_type": "StructuredJsonParseNode",
       "config": {
-        "fallback_json": "{\"verdict\": \"合规\", \"risk_level\": \"SAFE\", \"risk_score\": 0.10, \"suggestion\": \"无违规内容\"}",
+        "fallback": {"verdict": "合规", "risk_level": "SAFE", "risk_score": 0.1, "suggestion": "无违规内容"},
         "field_types": {
           "risk_level": "string",
           "risk_score": "number"

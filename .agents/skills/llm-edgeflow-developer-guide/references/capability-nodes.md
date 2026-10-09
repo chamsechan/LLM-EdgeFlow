@@ -25,9 +25,8 @@ Use this reference for production Node implementation. Start first-time LLM auth
    descriptions. Arrays use `std::vector<T>` and maps use `std::map<std::string, T>`; declare struct
    elements with `.Items(Parameters<Element>{...})`. `Range` / `Enum` constrain scalar leaves, and
    validation paths identify the array index or map key. `nlohmann::json` fields accept any non-null
-   JSON value. Use `Validate` / `ValidateBindings` for semantic and connection rules. Custom parsing
-   remains available through `WithParser(ConfigParser<Params>(fields, parse))`; consume normalized
-   JSON and own parsed values. `Prepare` rebuilds derived state before semantic/binding validation.
+   JSON value. Use `Validate` / `ValidateBindings` for semantic and connection rules. `Prepare`
+   builds owned derived state, such as template tokens or compiled regex, before those checks.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
    `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. `Model("generator", "bind_model",
    &Models::generator)` takes three arguments; the framework generates its `models[].model_id`
@@ -40,19 +39,15 @@ Use this reference for production Node implementation. Start first-time LLM auth
    model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.
    Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
    for single-flight waiters without caching them. Resource keys and model revision remain explicit.
-9. Use `WithControls` for typed `Field` updates, or `WithControl` for complex command schemas and ordinary
-   state-building functions. `ReplaceFields` requires at least one controlled field in its payload
-   and replaces only the supplied fields. Arrays and maps are replaced as complete values; field
+9. Use `WithControls` / `ReplaceFields` for parameter updates; the framework derives the payload
+   schema from the field declarations. `ReplaceFields` requires at least one controlled field in
+   its payload and replaces only the supplied fields. Arrays and maps are replaced as complete values; field
    updates rerun `Prepare` and `Validate` before publication. The framework serializes updates,
    retains the old snapshot on failure and reads one snapshot per request. TextTemplateNode and
    TextRuleMatchNode are production examples.
    Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
-   Share ordinary candidate-state builders between initialization and complex updates; `WithControl`
-   does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
-   Combining `WithParser` and field controls (`WithControls`) requires an explicit `Prepare`; field
-   updates rerun it before semantic/binding validation and candidate publication.
-   Parser-only fields are not typed bindings and cannot be selected by `WithControls`, even with
-   `Prepare`; use typed Fields or a complex `WithControl` updater with explicit normalization/validation.
+   Rebuild derived state in `Prepare` for both initialization and updates. All supported parameter
+   types can be controlled; model-reference fields cannot be controlled.
 10. Declare category and description in the Spec; Nodes are not restricted to particular businesses.
     Keep the default conservative parallel safety for sequential use; explicitly establish
     `.ParallelSafe(true)` only when making the implementation available to parallel graphs.

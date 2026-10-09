@@ -82,20 +82,39 @@ TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleAndDefaultScores) {
 TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
   struct InvalidCase {
     nlohmann::json config;
+    std::string path;
+    DiagnosticCode code;
     std::vector<std::string> expected;
   };
   const std::vector<InvalidCase> cases = {
-      {{{"categories", {{"VIP", 123}}}}, {"categories", "VIP", "array"}},
+      {{{"categories", {{"VIP", 123}}}},
+       "/pipeline/0/config/categories/VIP",
+       DiagnosticCode::kConfigFieldType,
+       {"array"}},
       {{{"categories", {{"VIP", {"valid", false}}}}},
-       {"categories", "VIP", "Array item 1", "string"}},
+       "/pipeline/0/config/categories/VIP/1",
+       DiagnosticCode::kConfigFieldType,
+       {"string"}},
       {{{"rules",
          {{{"pattern", "valid"}}, {{"pattern", "bad"}, {"scroe", 1}}}}},
-       {"rules", "Array item 1", "scroe"}},
+       "/pipeline/0/config/rules/1/scroe",
+       DiagnosticCode::kUnknownConfigField,
+       {"scroe"}},
+      {{{"rules", {{{"pattern", "valid"}}, {{"pattern", 7}}}}},
+       "/pipeline/0/config/rules/1/pattern",
+       DiagnosticCode::kConfigFieldType,
+       {"string"}},
+      {{{"rules", {{{"pattern", "valid"}}, {{"category", "MISSING"}}}}},
+       "/pipeline/0/config/rules/1/pattern",
+       DiagnosticCode::kMissingConfigField,
+       {"pattern"}},
       {{{"categories", {{"NEW", {"replacement"}}}},
         {"rules",
          {{{"pattern", "valid"}},
           {{"id", "broken"}, {"strategy", "regex"}, {"pattern", "("}}}}},
-       {"rules[1].pattern", "broken", "byte offset"}}};
+       "/pipeline/0/config/rules",
+       DiagnosticCode::kInvalidCombination,
+       {"Field 'rules'", "Array item 1", "pattern", "broken", "byte offset"}}};
   auto root = nlohmann::json::parse(R"({
   "biz_name": "keyword_match",
   "models": [],
@@ -124,7 +143,8 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
     EXPECT_TRUE(std::any_of(
         report.diagnostics.begin(), report.diagnostics.end(),
         [&](const auto& diagnostic) {
-          return diagnostic.path == "/pipeline/0/config" &&
+          return diagnostic.path == invalid.path &&
+                 diagnostic.code == invalid.code &&
                  std::all_of(invalid.expected.begin(), invalid.expected.end(),
                              [&](const auto& part) {
                                return diagnostic.message.find(part) !=
@@ -138,6 +158,12 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
     std::string diagnostic;
     EXPECT_FALSE(InitNodeForTest(*fresh, invalid.config, session_ctx_.get(),
                                  &diagnostic));
+    if (invalid.code != DiagnosticCode::kInvalidCombination) {
+      EXPECT_NE(diagnostic.find(invalid.path.substr(
+                    std::string("/pipeline/0/config").size())),
+                std::string::npos)
+          << diagnostic;
+    }
     const auto update =
         active->Control(kControlCmdUpdateRules, invalid.config.dump());
     EXPECT_EQ(update.status, NodeControlStatus::kFailed);
@@ -196,6 +222,116 @@ TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
   for (const auto& match : *matches) {
     EXPECT_TRUE(std::isfinite(match.data.score));
   }
+}
+
+TEST_F(TextRuleMatchNodeTest, MatchingOrderAndJsonConstantsRemainStable) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  const nlohmann::json constants = {
+      {"target", "override"},
+      {"integer", 7},
+      {"number", 2.5},
+      {"boolean", true},
+      {"array", nlohmann::json::array({1, "two", false})},
+      {"object", {{"enabled", true}}}};
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"categories", {{"Z_LAST", {"go"}}, {"A_FIRST", {"go"}}}},
+       {"rules",
+        {{{"id", "z_first"},
+          {"strategy", "regex"},
+          {"pattern", "(?<target>go)"},
+          {"category", "RULE_FIRST"},
+          {"score", 0.4},
+          {"constants", constants}},
+         {{"id", "a_second"},
+          {"pattern", "go"},
+          {"category", "RULE_SECOND"}}}}},
+      session_ctx_.get()));
+  AlgContext context;
+  context.Publish("text", TextBatch{{31, 7, "go"}});
+  ASSERT_EQ(node->Process(&context), 0);
+  const auto* matches = context.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 1u);
+  EXPECT_EQ(matches->front().req_id, 31u);
+  EXPECT_EQ(matches->front().sub_id, 7u);
+  const auto& match = matches->front().data;
+  EXPECT_EQ(match.category, "A_FIRST");
+  ASSERT_EQ(match.matches.size(), 4u);
+  EXPECT_EQ(match.matches[0].category, "A_FIRST");
+  EXPECT_EQ(match.matches[1].category, "Z_LAST");
+  EXPECT_EQ(match.matches[2].rule_id, "z_first");
+  EXPECT_EQ(match.matches[3].rule_id, "a_second");
+  EXPECT_FLOAT_EQ(match.matches[3].score, 1.0f);
+  EXPECT_EQ(match.slots, constants);
+}
+
+TEST_F(TextRuleMatchNodeTest, EmptyRegexRemainsUnmatched) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"rules",
+        {{{"strategy", "regex"}, {"pattern", ""}, {"category", "EMPTY"}}}}},
+      session_ctx_.get()));
+  AlgContext context;
+  context.Publish("text", TextBatch{{1, 4, ""}, {2, 5, "ordinary text"}});
+  ASSERT_EQ(node->Process(&context), 0);
+  const auto* matches = context.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 2u);
+  for (const auto& match : *matches) {
+    EXPECT_EQ(match.data.is_hit, 0);
+    EXPECT_TRUE(match.data.matches.empty());
+  }
+}
+
+TEST_F(TextRuleMatchNodeTest, PartialControlReplacesOnlyProvidedContainers) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"categories", {{"OLD", {"kept"}}}},
+       {"rules", {{{"pattern", "original"}, {"category", "OLD_RULE"}}}},
+       {"default_category", "FALLBACK"},
+       {"default_score", 0.25}},
+      session_ctx_.get()));
+  ASSERT_EQ(node->Control(kControlCmdUpdateRules,
+                          R"({"categories":{"NEW":["replacement"]}})")
+                .status,
+            NodeControlStatus::kHandled);
+  AlgContext categories_updated;
+  categories_updated.Publish(
+      "text",
+      TextBatch{{1, 0, "kept"}, {2, 0, "replacement"}, {3, 0, "original"}});
+  ASSERT_EQ(node->Process(&categories_updated), 0);
+  const auto* before = categories_updated.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(before, nullptr);
+  ASSERT_EQ(before->size(), 3u);
+  EXPECT_EQ(before->at(0).data.category, "FALLBACK");
+  EXPECT_FLOAT_EQ(before->at(0).data.score, 0.25f);
+  EXPECT_EQ(before->at(1).data.category, "NEW");
+  EXPECT_EQ(before->at(2).data.category, "OLD_RULE");
+
+  ASSERT_EQ(
+      node->Control(
+              kControlCmdUpdateRules,
+              R"({"rules":[{"pattern":"updated","category":"NEW_RULE"}]})")
+          .status,
+      NodeControlStatus::kHandled);
+  EXPECT_EQ(node->Control(kControlCmdUpdateRules, "{}").status,
+            NodeControlStatus::kFailed);
+  AlgContext rules_updated;
+  rules_updated.Publish(
+      "text",
+      TextBatch{{1, 0, "replacement"}, {2, 0, "original"}, {3, 0, "updated"}});
+  ASSERT_EQ(node->Process(&rules_updated), 0);
+  const auto* after = rules_updated.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(after, nullptr);
+  ASSERT_EQ(after->size(), 3u);
+  EXPECT_EQ(after->at(0).data.category, "NEW");
+  EXPECT_EQ(after->at(1).data.category, "FALLBACK");
+  EXPECT_FLOAT_EQ(after->at(1).data.score, 0.25f);
+  EXPECT_EQ(after->at(2).data.category, "NEW_RULE");
 }
 
 TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
