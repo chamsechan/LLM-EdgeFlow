@@ -36,10 +36,17 @@ class DevRecipeTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="edgeflow-recipe-contract-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
-        for relative in ("configs", "demo/fixtures", "data", "tests/fixtures"):
+        # Local model downloads are not part of the isolated contract fixture.
+        tracked_configs = subprocess.run(
+            ["git", "ls-files", "-z", "--", "configs"], cwd=ROOT,
+            capture_output=True, text=True, check=True).stdout.split("\0")
+        for relative in filter(None, tracked_configs):
+            destination = self.root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, destination)
+        for relative in ("demo/fixtures", "data", "tests/fixtures"):
             shutil.copytree(ROOT / relative, self.root / relative)
-        for relative in ("demo/profiles.json",
-                         "models/asset_manifest.json"):
+        for relative in ("demo/profiles.json",):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, destination)
@@ -67,7 +74,9 @@ class DevRecipeTest(unittest.TestCase):
 
     def prepare(self, kind="prompt-config", profile="keyword_match_rules", **options):
         function = RECIPE.prepare_prompt_config if kind == "prompt-config" else RECIPE.prepare_text_llm_node
-        arguments = dict(name="RecipeContractNode", profile_name=profile, tool_path=self.tool,
+        if profile in ("entity_extract_mock", "entity_extract_custom_mock") and "pipeline_target" not in options:
+            self.target = self.root / "demo/fixtures/mock/pipeline_recipe_contract.json"
+        arguments = dict(name="recipe_contract", profile_name=profile, tool_path=self.tool,
                          build_dir=self.build, pipeline_target=self.target, root=self.root)
         arguments.update(options)
         return function(**arguments)
@@ -75,7 +84,7 @@ class DevRecipeTest(unittest.TestCase):
     def verify(self, kind="prompt-config", **options):
         arguments = dict(recipe=kind, pipeline_path=self.target, tool_path=self.tool,
                          build_dir=self.build, effects_path=self.target.with_name(self.target.stem + "_effects.json"),
-                         model_root=self.root, demo_path=self.demo,
+                         demo_path=self.demo,
                          manifest_path=self.root / "tests/fixtures/asset_manifest_test.json", root=self.root)
         arguments.update(options)
         return RECIPE.verify_recipe(**arguments)
@@ -85,6 +94,7 @@ class DevRecipeTest(unittest.TestCase):
             return {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*")
                     if p.is_file() and self.build not in p.parents}
         before = files()
+        report = None
         try:
             report = self.prepare(**options)
         except (ValueError, RuntimeError):
@@ -93,6 +103,7 @@ class DevRecipeTest(unittest.TestCase):
             self.assertFalse(report["ok"], report)
             self.assertIsNotNone(report["failed_step"])
         self.assertEqual(before, files(), "Rejected preparation must not publish or alter files")
+        return report
 
     def test_list_recipes_has_stable_machine_report(self):
         stream = io.StringIO()
@@ -117,13 +128,13 @@ class DevRecipeTest(unittest.TestCase):
         report = self.prepare(profile="entity_extract_custom_mock")
         self.assertTrue(report["ok"], report)
         pipeline = json.loads(self.target.read_text())
-        self.assertEqual(pipeline["models"][0]["model_path"],
-                         "demo/fixtures/mock/artifacts/neutral-llm.fixture")
+        self.assertEqual(pipeline["models"][0]["file"], "artifacts/neutral-llm.fixture")
+        self.assertEqual(self.target.parent, self.root / "demo/fixtures/mock")
         conf = json.loads(self.target.with_suffix(".conf").read_text())
         self.assertEqual(conf, {"pipe_path": self.target.name})
         command = next(item["argv"] for item in report["next_commands"] if "verify" in item["argv"])
         self.assertIn("--manifest", command)
-        self.assertEqual(Path(command[command.index("--model-root") + 1]), self.root)
+        self.assertEqual(Path(command[command.index("--pipeline") + 1]), self.target)
         result = self.verify()
         self.assertTrue(result["ok"], result)
 
@@ -132,33 +143,49 @@ class DevRecipeTest(unittest.TestCase):
         spec.write_text(json.dumps({"dataset": "data/input.json"}))
         conf = self.root / "effect.conf"
         for document in ({"pipe_path": ""}, {"pipe_path": "  "},
-                         {"pipe_path": "pipeline.json", "unexpected": True},
-                         {"pipe_path": "pipeline.json", "outputs": {}}, []):
+                         {"pipe_path": "pipeline.json", "unexpected": True}, []):
             conf.write_text(json.dumps(document))
             with self.subTest(document=document), self.assertRaisesRegex(ValueError, "only non-empty"):
-                RECIPE.VERIFY_SELECTION.effect_inputs(spec, conf, DEMO)
+                RECIPE.VERIFY_SELECTION.effect_inputs(spec, conf, DEMO, self.root)
 
     def test_text_preparation_remaps_native_llm_ports_and_keeps_upstream_prompt(self):
         self.assertEqual(list((self.root / "tests").glob("*.cmake")), [])
+        source = self.root / "demo/fixtures/mock/pipeline_entity_extract.json"
+        pipeline = json.loads(source.read_text())
+        parser = next(node for node in pipeline["pipeline"] if node["name"] == "parse_entities")
+        parser["depends_on"] = ["generate_entities"]
+        source.write_text(json.dumps(pipeline))
         report = self.prepare(kind="text-llm-node", profile="entity_extract_mock")
         self.assertTrue(report["ok"], report)
         document = json.loads(self.target.read_text())
-        generated = next(node for node in document["pipeline"] if node["node_type"] == "RecipeContractNode")
-        self.assertEqual(generated["inputs"], {"input": "prompt_text"})
-        self.assertEqual(generated["outputs"], {"output": "llm_raw_answer"})
+        generated = next(node for node in document["pipeline"] if node["type"] == "recipe_contract")
+        self.assertEqual(generated["name"], "recipe_contract")
+        self.assertEqual(generated["inputs"], {"input": "build_prompt.text"})
+        parser = next(node for node in document["pipeline"] if node["name"] == "parse_entities")
+        self.assertEqual(parser["inputs"], {"text": "recipe_contract.output"})
+        self.assertEqual(parser["depends_on"], ["recipe_contract"])
         self.assertNotIn("depends_on", generated)
-        self.assertEqual(generated["config"], {"bind_model": "entity_llm"})
+        self.assertEqual(generated["params"], {"bind_model": "entity_llm"})
         self.assertTrue((self.root / "src/custom_nodes/recipe_contract_node.cpp").is_file())
         self.assertTrue((self.root / "tests/unit/nodes/test_recipe_contract_node.cpp").is_file())
         self.assertFalse((self.root / "src/custom_nodes/CMakeLists.txt").exists())
         self.assertEqual(list((self.root / "tests").glob("*.cmake")), [])
+
+    def test_referenced_llm_document_output_is_not_discarded(self):
+        source = self.root / "demo/fixtures/mock/pipeline_entity_extract.json"
+        pipeline = json.loads(source.read_text())
+        pipeline["io"]["output"][0]["inputs"]["entities"] = "generate_entities.document"
+        source.write_text(json.dumps(pipeline))
+        RECIPE.native(self.tool, ["validate", str(source)], self.root)
+        report = self.assert_prepare_rejected_without_writes(kind="text-llm-node", profile="entity_extract_mock")
+        self.assertIn("all other outputs unreferenced", report["message"])
 
     def test_native_invalid_profile_and_unavailable_llm_rejected_before_writing(self):
         self.assert_prepare_rejected_without_writes(kind="text-llm-node", profile="keyword_match_rules")
         self.assert_prepare_rejected_without_writes(kind="text-llm-node", profile="entity_extract_mock", name="invalid-node")
         source = self.root / "configs/pipeline_keyword_match_rules.json"
         invalid = json.loads(source.read_text())
-        invalid["pipeline"][0]["node_type"] = "MissingRegisteredNode"
+        invalid["pipeline"][0]["type"] = "missing_registered_node"
         source.write_text(json.dumps(invalid))
         self.assert_prepare_rejected_without_writes()
 
@@ -169,13 +196,16 @@ class DevRecipeTest(unittest.TestCase):
         for profile in ("keyword_match_rules", "entity_extract_custom_mock"):
             with self.subTest(profile=profile), tempfile.TemporaryDirectory(prefix="edgeflow-recipe-output-") as directory:
                 target = Path(directory) / "pipeline_external.json"
+                if profile == "entity_extract_custom_mock":
+                    shutil.copytree(self.root / "demo/fixtures/mock/artifacts", target.parent / "artifacts")
                 report = self.prepare(pipeline_target=target, profile=profile)
                 self.assertTrue(report["ok"], report)
                 pipeline = json.loads(target.read_text())
-                bundle = RECIPE.deployment_root(self.root, target, self.root)
                 for model in pipeline.get("models", []):
-                    self.assertEqual((bundle / model["model_path"]).resolve(),
-                                     self.root / "demo/fixtures/mock/artifacts/neutral-llm.fixture")
+                    self.assertEqual((target.parent / model["file"]).resolve(),
+                                     target.parent / "artifacts/neutral-llm.fixture")
+                    self.assertEqual((target.parent / model["file"]).read_bytes(),
+                                     (self.root / "demo/fixtures/mock/artifacts/neutral-llm.fixture").read_bytes())
                 verified = self.verify(pipeline_path=target,
                                        effects_path=target.with_name(target.stem + "_effects.json"))
                 self.assertTrue(verified["ok"], verified)
@@ -191,10 +221,10 @@ class DevRecipeTest(unittest.TestCase):
                 path.write_text(json.dumps(profiles))
                 self.assert_prepare_rejected_without_writes()
 
-    def test_unknown_output_slots_rejected_before_generation(self):
+    def test_unknown_output_converter_rejected_before_generation(self):
         pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
         pipe = json.loads(pipe_path.read_text())
-        pipe.setdefault("deployment", {}).setdefault("io", {})["out_mem"] = {"slot1": {}, "slot2": {}}
+        pipe["io"]["output"][0]["name"] = "unknown_output"
         pipe_path.write_text(json.dumps(pipe))
         self.assert_prepare_rejected_without_writes()
 
@@ -208,15 +238,25 @@ class DevRecipeTest(unittest.TestCase):
                 self.assertEqual(caught.exception.code, RECIPE.UNSUPPORTED_RECIPE_DEPLOYMENT)
                 native.assert_called_once_with(self.tool, ["validate-io", str(conf)], self.root)
 
-    def test_missing_outputs_deployment_uses_native_required_slot_defaults(self):
+    def test_multiple_output_deployment_is_rejected_before_generation(self):
+        path = self.root / "configs/pipeline_keyword_match_rules.json"
+        pipeline = json.loads(path.read_text())
+        pipeline["io"]["output"].append({"type": "entity_out", "name": "translate",
+                                          "inputs": {"translation": "input.sentence_text"}})
+        path.write_text(json.dumps(pipeline))
+        report = self.assert_prepare_rejected_without_writes()
+        self.assertEqual(report["error_code"], RECIPE.UNSUPPORTED_RECIPE_DEPLOYMENT)
+
+    def test_unset_output_parameters_use_native_defaults_without_materialization(self):
         pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
         pipe = json.loads(pipe_path.read_text())
-        pipe["deployment"]["io"].pop("out_mem", None)
+        pipe["io"]["output"][0].pop("params", None)
         pipe_path.write_text(json.dumps(pipe))
         report = self.prepare()
         self.assertTrue(report["ok"], report)
         generated = json.loads(self.target.read_text())
-        self.assertEqual(generated["deployment"]["io"], {"io_binding": "keyword_match"})
+        self.assertEqual(generated["io"], pipe["io"])
+        self.assertNotIn("params", generated["io"]["output"][0])
         self.assertTrue(self.verify()["ok"])
 
     def test_unlabelled_or_duplicate_effects_rejected_before_generation(self):
@@ -225,7 +265,7 @@ class DevRecipeTest(unittest.TestCase):
         for invalid in (
             dict(labelled, samples=[{"request_id": 20001, "expected": {"/status": 0}}]),
             dict(labelled, samples=[labelled["samples"][0], labelled["samples"][0]]),
-            dict(labelled, io_binding="entity_extract"),
+            dict(labelled, output={"type": "entity_out", "name": "entity_extract"}),
         ):
             with self.subTest(spec=invalid):
                 source.write_text(json.dumps(invalid))
@@ -269,13 +309,13 @@ class DevRecipeTest(unittest.TestCase):
                 self.link_binary(DEMO, self.demo)
                 return subprocess.CompletedProcess(command, 0, "", "")
             if Path(command[0]).name in ("edgeflow_test_nodes_runner", "test_common_nodes"):
-                listing = "CustomNodeCatalogTest.\n  PromptGuidedLlmNode_BusinessExample\n"
+                listing = "CustomNodeCatalogTest.\n  prompt_guided_llm_BusinessExample\n"
                 output = listing if "--gtest_list_tests" in command else "[  PASSED  ] 1 test.\n"
                 return subprocess.CompletedProcess(command, 0, output, "")
             return real_run(command, *args, **kwargs)
 
         with mock.patch.object(subprocess, "run", side_effect=execute):
-            report = self.verify(kind="text-llm-node", name="PromptGuidedLlmNode")
+            report = self.verify(kind="text-llm-node", name="prompt_guided_llm")
         self.assertTrue(report["ok"], report)
         self.assertTrue(build_commands, "A missing Demo must be built, not rejected before build")
         self.assertIn(self.tool.name, build_commands[0])
@@ -293,7 +333,7 @@ class DevRecipeTest(unittest.TestCase):
             return real_run(command, *args, **kwargs)
 
         with mock.patch.object(subprocess, "run", side_effect=execute):
-            report = self.verify(kind="text-llm-node", name="PromptGuidedLlmNode")
+            report = self.verify(kind="text-llm-node", name="prompt_guided_llm")
         self.assertFalse(report["ok"], report)
         self.assertNotIn("evaluate", report["completed_steps"])
 
@@ -306,10 +346,11 @@ class DevRecipeTest(unittest.TestCase):
     def test_manifest_matches_fixture_and_rejects_tampering(self):
         pipeline = json.loads((self.root / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         manifest = json.loads((self.root / "tests/fixtures/asset_manifest_test.json").read_text())
-        rows = RECIPE.VERIFY_SELECTION.verify_assets(pipeline, self.root, manifest)
+        pipeline_dir = self.root / "demo/fixtures/mock"
+        rows = RECIPE.VERIFY_SELECTION.verify_assets(pipeline, pipeline_dir, manifest)
         self.assertEqual(rows[0]["status"], "verified")
         (self.root / "demo/fixtures/mock/artifacts/neutral-llm.fixture").write_bytes(b"tampered")
-        rows = RECIPE.VERIFY_SELECTION.verify_assets(pipeline, self.root, manifest)
+        rows = RECIPE.VERIFY_SELECTION.verify_assets(pipeline, pipeline_dir, manifest)
         self.assertEqual(rows[0]["files"][0]["status"], "hash_mismatch")
 
 

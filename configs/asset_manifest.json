@@ -86,21 +86,20 @@
       "id": "bge_embedding-onnxruntime",
       "label": "bge_embedding / onnxruntime",
       "model": {
-        "model_type": "bge_embedding",
-        "backend": "onnxruntime",
-        "model_config": {
+        "type": "embedding",
+        "name": "embed_model",
+        "file": "bge_base_zh_v1.5.onnx",
+        "params": {
           "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
           "embedding_dim": 768
         },
-        "backend_config": {
-          "max_batch_size": 4
-        },
-        "model_id": "embed_model",
-        "model_path": "bge_base_zh_v1.5.onnx"
+        "backend": {
+          "type": "onnxruntime"
+        }
       },
       "paths": {
-        "/model_path": "bge_base_zh_v1.5.onnx",
-        "/model_config/tokenizer_file": "bge_base_zh_v1.5_vocab.txt"
+        "/file": "bge_base_zh_v1.5.onnx",
+        "/params/tokenizer_file": "bge_base_zh_v1.5_vocab.txt"
       },
       "files": [
         "bge_base_zh_v1.5.onnx",
@@ -111,26 +110,18 @@
       "id": "qwen_causal_lm-llama_cpp",
       "label": "qwen_causal_lm / llama_cpp",
       "model": {
-        "model_type": "qwen_causal_lm",
-        "backend": "llama_cpp",
-        "model_config": {
-          "system_prompt": "",
-          "add_bos": false,
-          "random_seed": -1
-        },
-        "backend_config": {
-          "context_size": 1024,
-          "decode_batch_size": 512,
-          "n_threads": 0,
-          "n_threads_batch": 0,
-          "n_gpu_layers": 0,
-          "check_tensors": false
-        },
-        "model_id": "llm_model",
-        "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        "type": "llm",
+        "name": "llm_model",
+        "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "backend": {
+          "type": "llama_cpp",
+          "params": {
+            "context_size": 1024
+          }
+        }
       },
       "paths": {
-        "/model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        "/file": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
       },
       "files": [
         "qwen2.5-0.5b-instruct-q4_k_m.gguf"
@@ -140,28 +131,19 @@
       "id": "bge_reranker-onnxruntime",
       "label": "bge_reranker / onnxruntime",
       "model": {
-        "model_id": "rerank_model",
-        "model_type": "bge_reranker",
-        "backend": "onnxruntime",
-        "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
-        "model_config": {
-          "tokenizer_file": "ms_marco_bert_vocab.txt",
-          "do_lower_case": true,
-          "max_length": 512,
-          "output_name": "logits",
-          "score_activation": "sigmoid",
-          "max_batch_size": 4
+        "type": "rerank",
+        "name": "rerank_model",
+        "file": "ms_marco_tinybert_l2_v2_quantized.onnx",
+        "params": {
+          "tokenizer_file": "ms_marco_bert_vocab.txt"
         },
-        "backend_config": {
-          "max_batch_size": 4,
-          "intra_op_num_threads": 2,
-          "inter_op_num_threads": 1,
-          "graph_optimization_level": "all"
+        "backend": {
+          "type": "onnxruntime"
         }
       },
       "paths": {
-        "/model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
-        "/model_config/tokenizer_file": "ms_marco_bert_vocab.txt"
+        "/file": "ms_marco_tinybert_l2_v2_quantized.onnx",
+        "/params/tokenizer_file": "ms_marco_bert_vocab.txt"
       },
       "files": [
         "ms_marco_tinybert_l2_v2_quantized.onnx",
@@ -172,21 +154,22 @@
       "id": "vision_document-kite_llm",
       "label": "vision_document / kite_llm",
       "model": {
-        "model_type": "vision_document",
-        "backend": "kite_llm",
-        "model_config": {
-          "patch_size": 16,
+        "type": "ocr",
+        "name": "ocr_model",
+        "file": "SmolVLM-256M-Instruct-Q8_0.gguf",
+        "params": {
           "max_tokens": 256
         },
-        "backend_config": {
-          "run_config_file": "kite_vision_run.json"
-        },
-        "model_id": "ocr_model",
-        "model_path": "SmolVLM-256M-Instruct-Q8_0.gguf"
+        "backend": {
+          "type": "kite_llm",
+          "params": {
+            "run_config_file": "kite_vision_run.json"
+          }
+        }
       },
       "paths": {
-        "/model_path": "SmolVLM-256M-Instruct-Q8_0.gguf",
-        "/backend_config/run_config_file": "kite_vision_run.json"
+        "/file": "SmolVLM-256M-Instruct-Q8_0.gguf",
+        "/backend/params/run_config_file": "kite_vision_run.json"
       },
       "files": [
         "SmolVLM-256M-Instruct-Q8_0.gguf",
@@ -198,20 +181,19 @@
       "id": "qwen_causal_lm-kite_llm",
       "label": "qwen_causal_lm / kite_llm",
       "model": {
-        "model_type": "qwen_causal_lm",
-        "backend": "kite_llm",
-        "model_config": {
-          "random_seed": -1
-        },
-        "backend_config": {
-          "run_config_file": "kite_text_run.json"
-        },
-        "model_id": "llm_model",
-        "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        "type": "llm",
+        "name": "llm_model",
+        "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "backend": {
+          "type": "kite_llm",
+          "params": {
+            "run_config_file": "kite_text_run.json"
+          }
+        }
       },
       "paths": {
-        "/model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-        "/backend_config/run_config_file": "kite_text_run.json"
+        "/file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "/backend/params/run_config_file": "kite_text_run.json"
       },
       "files": [
         "qwen2.5-0.5b-instruct-q4_k_m.gguf",
@@ -222,21 +204,15 @@
       "id": "whisper_asr-whisper_cpp",
       "label": "whisper_asr / whisper_cpp",
       "model": {
-        "model_id": "asr_model",
-        "model_type": "whisper_asr",
-        "backend": "whisper_cpp",
-        "model_path": "ggml-base.bin",
-        "model_config": {
-          "language": "zh",
-          "max_audio_seconds": 30,
-          "max_output_bytes": 65536
-        },
-        "backend_config": {
-          "n_threads": 4
+        "type": "asr",
+        "name": "asr_model",
+        "file": "ggml-base.bin",
+        "backend": {
+          "type": "whisper_cpp"
         }
       },
       "paths": {
-        "/model_path": "ggml-base.bin"
+        "/file": "ggml-base.bin"
       },
       "files": [
         "ggml-base.bin"
@@ -246,25 +222,24 @@
       "id": "generated_text_embedding-kite_llm",
       "label": "generated_text_embedding / kite_llm",
       "model": {
-        "model_type": "generated_text_embedding",
-        "backend": "kite_llm",
-        "model_config": {
+        "type": "embedding",
+        "name": "embed_model",
+        "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "params": {
           "embedding_dim": 896,
-          "max_tokens": 1,
-          "pooling": "last",
-          "prefix": "<|im_start|>user\n用一个词概括以下文本：\n",
-          "suffix": "<|im_end|>\n<|im_start|>assistant\n",
-          "add_bos": false
+          "prompt_prefix": "<|im_start|>user\n用一个词概括以下文本：\n",
+          "prompt_suffix": "<|im_end|>\n<|im_start|>assistant\n"
         },
-        "backend_config": {
-          "run_config_file": "kite_text_run.json"
-        },
-        "model_id": "embed_model",
-        "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        "backend": {
+          "type": "kite_llm",
+          "params": {
+            "run_config_file": "kite_text_run.json"
+          }
+        }
       },
       "paths": {
-        "/model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-        "/backend_config/run_config_file": "kite_text_run.json"
+        "/file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "/backend/params/run_config_file": "kite_text_run.json"
       },
       "files": [
         "qwen2.5-0.5b-instruct-q4_k_m.gguf",
@@ -275,21 +250,15 @@
       "id": "whisper_asr-whisper_cpp-tiny",
       "label": "Whisper tiny Q5 / whisper_cpp",
       "model": {
-        "model_id": "asr_model",
-        "model_type": "whisper_asr",
-        "backend": "whisper_cpp",
-        "model_path": "ggml-tiny-q5_1.bin",
-        "model_config": {
-          "language": "zh",
-          "max_audio_seconds": 30,
-          "max_output_bytes": 65536
-        },
-        "backend_config": {
-          "n_threads": 4
+        "type": "asr",
+        "name": "asr_model",
+        "file": "ggml-tiny-q5_1.bin",
+        "backend": {
+          "type": "whisper_cpp"
         }
       },
       "paths": {
-        "/model_path": "ggml-tiny-q5_1.bin"
+        "/file": "ggml-tiny-q5_1.bin"
       },
       "files": [
         "ggml-tiny-q5_1.bin"

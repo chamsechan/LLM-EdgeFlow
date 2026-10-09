@@ -36,11 +36,11 @@ using namespace llm_edgeflow;
 class EchoModel final : public ILlmModel {
  public:
   std::size_t calls = 0;
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string v = "probe_echo";
     return v;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string v = "llm";
     return v;
   }
@@ -57,7 +57,7 @@ class EchoModel final : public ILlmModel {
 };
 class ExplicitMap final : public LegacyNodeBase {
  public:
-  ExplicitMap() : LegacyNodeBase("ExplicitMap") {}
+  ExplicitMap() : LegacyNodeBase("explicit_map") {}
 
  protected:
   bool InitNode(const NodeInitContext& init, const nlohmann::json&,
@@ -125,9 +125,9 @@ auto ProbeBatchInPlaceSpec() {
       ModelsOf<Models>({Model("llm", "bind_model", &Models::llm)}),
       &RunBatchInPlace);
 }
-REGISTER_FUNCTION_NODE(ProbeBatchInPlace, ProbeBatchInPlaceSpec());
-REGISTER_FUNCTION_NODE(ProbeMap, ProbeMapSpec());
-REGISTER_FUNCTION_NODE(ProbeBatch, ProbeBatchSpec());
+REGISTER_FUNCTION_NODE(probe_batch_in_place, ProbeBatchInPlaceSpec());
+REGISTER_FUNCTION_NODE(probe_map, ProbeMapSpec());
+REGISTER_FUNCTION_NODE(probe_batch, ProbeBatchSpec());
 static double CpuNow() {
   timespec ts{};
   clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
@@ -140,7 +140,9 @@ int main(int argc, char** argv) {
   SessionContext session;
   auto mock = std::make_shared<EchoModel>();
   ModelRegistration registration;
-  registration.model_id = "echo";
+  registration.model_name = "echo";
+  registration.impl_name = mock->ImplName();
+  registration.model_type = mock->ModelType();
   registration.revision = "probe-v1";
   registration.model = mock;
   if (!session.GetModelManager().RegisterBatch({registration})) return 2;
@@ -150,31 +152,35 @@ int main(int argc, char** argv) {
     node = std::make_unique<ExplicitMap>();
   else
     node = NodeRegistry::Instance().Create(
-        mode == "new_map"             ? "ProbeMap"
-        : mode == "old_llm"           ? "BaselineStarterLlmNode"
-        : mode == "new_llm"           ? "ProbeStarterLlmNode"
-        : mode == "new_batch_inplace" ? "ProbeBatchInPlace"
-                                      : "ProbeBatch");
+        mode == "new_map"             ? "probe_map"
+        : mode == "old_llm"           ? "baseline_starter_llm"
+        : mode == "new_llm"           ? "probe_starter_llm"
+        : mode == "new_batch_inplace" ? "probe_batch_in_place"
+                                      : "probe_batch");
   nlohmann::json config = nlohmann::json::object();
   if (mode != "old_map" && mode != "new_map") config["bind_model"] = "echo";
   if (!node) return 3;
-  plan.normalized_config = config;
+  plan.node.name = "probe";
+  plan.node.node_type = node->Name();
+  plan.node.params = config;
+  plan.node.ports.inputs["input"] = "input.input";
+  plan.normalized_params = config;
   if (mode != "old_map") {
     const auto definition = PipelineCatalog::FindNode(node->Name());
     if (!definition ||
         !ValidateAndNormalizeFields(definition->config_fields, config,
-                                    &plan.normalized_config, nullptr))
+                                    &plan.normalized_params, nullptr))
       return 3;
     for (const auto& dependency : definition->model_dependencies)
       plan.model_bindings.push_back(
-          {dependency.name, dependency.capability, dependency.config_field,
-           plan.normalized_config.at(dependency.config_field)
+          {dependency.name, dependency.model_type, dependency.config_field,
+           plan.normalized_params.at(dependency.config_field)
                .get<std::string>()});
   }
-  plan.ports = {{"input", "input", "TextBatch", "1:1", "preserve", "request",
-                 PortDirection::kInput},
-                {"output", "output", "TextBatch", "1:1", "preserve", "request",
-                 PortDirection::kOutput}};
+  plan.ports = {{"input", "input.input", "TextBatch", "1:1", "preserve",
+                 "request", PortDirection::kInput},
+                {"output", "probe.output", "TextBatch", "1:1", "preserve",
+                 "request", PortDirection::kOutput}};
   NodeInitContext init;
   init.session_ctx = &session;
   init.plan = &plan;
@@ -189,7 +195,7 @@ int main(int argc, char** argv) {
   double seconds = 0;
   for (int i = -100; i < iterations; ++i) {
     AlgContext ctx;
-    ctx.Publish("input", source);
+    ctx.Publish("input.input", source);
     allocations = allocated_bytes = 0;
     const auto before_calls = mock->calls;
     count_allocations = i >= 0;
@@ -203,7 +209,7 @@ int main(int argc, char** argv) {
       seconds += elapsed;
       model_calls += mock->calls - before_calls;
     }
-    auto* output = ctx.Read<TextBatch>("output");
+    auto* output = ctx.Read<TextBatch>("probe.output");
     if (rc != 0 || !output || output->size() != source.size()) return 4;
     for (std::size_t j = 0; j < source.size(); ++j)
       if ((*output)[j].req_id != source[j].req_id ||

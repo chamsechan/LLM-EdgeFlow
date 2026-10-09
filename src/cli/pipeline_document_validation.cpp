@@ -38,11 +38,24 @@ DocumentValidationResult ValidatePipelineDocument(
       return result;
     }
   }
-  auto report = mode == DocumentValidationMode::kExplain
-                    ? ExplainPipeline(prepared.neutral_pipeline_json,
-                                      prepared.io_boundary)
-                    : ValidateWithRemediation(prepared.neutral_pipeline_json,
-                                              prepared.io_boundary);
+  auto report = ValidateWithRemediation(prepared.neutral_pipeline_json,
+                                        prepared.io_boundary);
+  if (mode == DocumentValidationMode::kExplain) {
+    report =
+        ExplainPipeline(document, std::move(report), [&](const auto& patched) {
+          auto validation = ValidatePipelineDocument(
+              patched, DocumentValidationMode::kValidate, pipeline_dir);
+          if (validation.core_report) return std::move(*validation.core_report);
+          ValidationReport failed;
+          ValidationDiagnostic diagnostic;
+          diagnostic.code = DiagnosticCode::kInvalidCombination;
+          const auto& error = validation.response.at("diagnostics").at(0);
+          diagnostic.path = error.at("path").template get<std::string>();
+          diagnostic.message = error.at("message").template get<std::string>();
+          failed.diagnostics.push_back(std::move(diagnostic));
+          return failed;
+        });
+  }
   result.ok = report.ok;
   result.response = report.ToJson();
   if (mode == DocumentValidationMode::kPlan && report.ok)

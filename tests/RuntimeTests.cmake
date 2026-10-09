@@ -137,6 +137,7 @@ file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
 list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_doc_qa_rerank.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_catalog_validator.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_authoring.cpp"
   "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
@@ -302,7 +303,7 @@ edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
 # 该测试套件覆盖 Validator、类型化 Blackboard 和 Pipeline::Execute。
 # 放在工具 runner 中并不意味着它只是工具测试。
 edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
-  "PipelineCatalogTest.*:PipelineValidatorTest.*"
+  "PipelineCatalogTest.*:PipelineValidatorTest.*:PipelineAuthoringTest.*"
   "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
   "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")
@@ -472,9 +473,12 @@ foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
 endforeach()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  catalog --io-binding keyword_match)
-add_test(NAME PipelineToolValidateTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  validate ${PROJECT_SOURCE_DIR}/configs/pipeline_keyword_match_rules.json)
+  catalog)
+add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/tooling/test_pipeline_cli.py
+  --tool $<TARGET_FILE:alg_pipeline_tool>
+  --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
+  --repo ${PROJECT_SOURCE_DIR})
 set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")

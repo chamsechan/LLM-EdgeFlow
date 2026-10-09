@@ -4,16 +4,16 @@ import { readFileSync } from "node:fs";
 const source = readFileSync(new URL("../../tools/pipeline_studio/web/editor.js", import.meta.url), "utf8");
 const { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const history = createHistory(3);
-const initial = { pipeline: { pipeline: [{ id: "root", depends_on: [] }] }, selected: "root" };
+const initial = { pipeline: { pipeline: [{ name: "root", depends_on: [] }] }, selected: "root" };
 const saved = JSON.stringify(initial.pipeline);
 history.reset(initial);
 const removed = { pipeline: { pipeline: [] }, selected: "" };
 history.record(removed);
-removed.pipeline.pipeline.push({ id: "outside_mutation" });
+removed.pipeline.pipeline.push({ name: "outside_mutation" });
 assert.equal(JSON.stringify(history.undo().pipeline), saved, "undo must restore the saved pipeline");
 const redone = history.redo();
 assert.deepEqual(redone.pipeline.pipeline, [], "caller mutations must not alter recorded history");
-redone.pipeline.pipeline.push({ id: "another_mutation" });
+redone.pipeline.pipeline.push({ name: "another_mutation" });
 history.undo();
 assert.deepEqual(history.redo().pipeline.pipeline, []);
 history.undo();
@@ -34,10 +34,10 @@ assert.equal(drafts.pending, true);
 assert.equal(drafts.get("json"), "{ incomplete JSON", "even invalid text must survive repainting");
 assert.deepEqual(drafts.pendingExcept("node"), ["json"]);
 assert.deepEqual(drafts.pendingExcept("json"), []);
-const nodeBuffer = { nodeId: "renamed", "config.temperature": "0.2" };
+const nodeBuffer = { nodeName: "renamed", "config.temperature": "0.2" };
 drafts.set("node", nodeBuffer);
-nodeBuffer.nodeId = "mutated";
-assert.equal(drafts.get("node").nodeId, "renamed");
+nodeBuffer.nodeName = "mutated";
+assert.equal(drafts.get("node").nodeName, "renamed");
 drafts.clear("json");
 assert.equal(drafts.has("node"), true, "discarding JSON must not discard another form");
 drafts.clear();
@@ -64,7 +64,7 @@ class FormElement {
     if (index === undefined) this.append(child);
     else { child.parent = this; this.children.splice(index, 0, child); }
   }
-  closest(selector) { return this.id === selector.slice(1) ? this : this.parent?.closest(selector); }
+  closest(selector) { return (selector === "[data-io-entry]" ? this.dataset.ioEntry !== undefined : this.id === selector.slice(1)) ? this : this.parent?.closest(selector); }
   querySelectorAll(selector) {
     return this.children.flatMap(child => [
       ...(selector === "[data-field]" ? child.dataset.field
@@ -82,7 +82,7 @@ const unsafeText = '<img src=x onerror="alert(1)">';
 let selectedDiagnosticNode = "";
 appendDiagnostic(diagnostics, {
   code: "PORT_TYPE_MISMATCH", path: `/pipeline/${unsafeText}`, message: unsafeText,
-  node_id: "consumer", port: "input", related_nodes: ["producer", unsafeText],
+  node_name: "consumer", port: "input", related_nodes: ["producer", unsafeText],
   suggestions: ["连接类型兼容的输出", unsafeText],
 }, id => { selectedDiagnosticNode = id; });
 const diagnostic = diagnostics.children[0];
@@ -114,7 +114,7 @@ const field = (form, name) => form.querySelectorAll("[data-field]").find(input =
 const describedForm = renderFields({}, [
   { name: "threshold", type: "number", semantic: "最低匹配分数，越高越严格。" },
   { name: "template", type: "string", semantic: unsafeText },
-  { name: "model_id", type: "string", semantic: "model_ref" },
+  { name: "model", type: "string", semantic: "model_ref" },
   { name: "undocumented", type: "string" },
 ]);
 assert.equal(describedForm.children[0].children[1].textContent, "最低匹配分数，越高越严格。");
@@ -160,6 +160,19 @@ field(backendForm, "separator").value = "";
 restoreFormBuffer(combinedForm, combinedBuffer);
 assert.deepEqual(readConfigFields(modelForm), { separator: "model separator" });
 assert.deepEqual(readConfigFields(backendForm), { separator: "backend separator" });
+const ioForm = new FormElement("form");
+const ioRows = ["output.0", "output.1"].map((scope, index) => {
+  const row = new FormElement("fieldset"); row.dataset.ioEntry = scope;
+  const params = renderFields({capacity: index + 1}, [{name: "capacity", type: "integer", default: 10}]);
+  row.append(params); ioForm.append(row); return params;
+});
+const ioBuffer = readFormBuffer(ioForm);
+assert.equal(ioBuffer["output.0.capacity"], "1");
+assert.equal(ioBuffer["output.1.capacity"], "2", "each converter registration needs its own draft parameter scope");
+field(ioRows[0], "capacity").value = "11";
+field(ioRows[1], "capacity").value = "12";
+restoreFormBuffer(ioForm, ioBuffer);
+assert.deepEqual(ioRows.map(readConfigFields), [{capacity: 1}, {capacity: 2}]);
 console.log("Studio config string and form repaint checks passed");
 
 const tuningFields = [
@@ -202,9 +215,28 @@ appendConfigField(modelReference, { name: "model", type: "string", required: tru
 assert.equal(field(modelReference, "model").dataset.unsetOption, undefined);
 assert.deepEqual(readConfigFields(modelReference), { model: "m1" });
 
+const structuredFields = [
+  {name: "endpoints", type: "map", required: true, items: {type: "object", fields: [{name: "prompt", type: "string", default: "{{input}}"}]}},
+  {name: "policies", type: "map", enum: ["keep", "drop"], default: {}},
+  {name: "payload", type: "json"},
+  {name: "records", type: "array", items: {type: "object", fields: [{name: "labels", type: "map", items: {type: "array", items: {type: "string"}}}]}},
+];
+const structuredValues = {endpoints: {answer: {prompt: "首行\r\n{{input}}"}}, policies: {answer: "keep"}, payload: [true, {message: unsafeText}], records: [{labels: {tags: ["A", "B"]}}]};
+const structuredForm = renderFields(structuredValues, structuredFields);
+assert.equal(field(structuredForm, "policies").tagName, "TEXTAREA", "element enums must not turn a whole map into a scalar select");
+assert.deepEqual(readConfigFields(structuredForm), structuredValues, "map/json/nested structure must round-trip without changing payloads");
+field(structuredForm, "payload").value = JSON.stringify("JSON scalar string");
+assert.equal(readConfigFields(structuredForm).payload, "JSON scalar string");
+assert.deepEqual(readConfigFields(renderFields({}, structuredFields.slice(1))), {}, "unset structured defaults remain omitted");
+field(structuredForm, "endpoints").value = "{";
+assert.throws(() => readConfigFields(structuredForm), /endpoints：/);
+const fileForm = renderFields({}, [{name: "tokenizer_file", type: "string", file: true}]);
+assert.match(fileForm.children[0].children[1].textContent, /相对方案所在目录/);
+console.log("Studio map/json/nested parameter and file hint checks passed");
+
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { readPipelineFile, modelAvailability, upsertModel } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
-const input = { deployment: { io: { io_binding: "unknown_binding_is_still_viewable" } }, pipeline: [], models: [] };
+const input = { io: {input: [{type: "unknown_input", name: "still_viewable"}], output: [{type: "unknown_output", name: "still_viewable"}]}, pipeline: [], models: [] };
 const file = { name: "selected.json", size: 30, text: async () => JSON.stringify(input) };
 assert.deepEqual(await readPipelineFile(file), { filename: "selected.json", revision: "", imported: true, pipeline: input });
 assert.deepEqual((await readPipelineFile({ ...file, text: async () => "\uFEFF" + JSON.stringify(input) })).pipeline, input);
@@ -213,32 +245,32 @@ await assert.rejects(readPipelineFile({ ...file, size: 4 * 1024 * 1024 + 1 }), /
 await assert.rejects(readPipelineFile({ ...file, text: async () => "{" }), SyntaxError);
 await assert.rejects(readPipelineFile({ ...file, text: async () => "[]" }), /pipeline/);
 await assert.rejects(readPipelineFile({ ...file, text: async () => '{"pipeline":{}}' }), /pipeline/);
-for (const malformed of [{ pipeline: [null] }, { pipeline: [{ depends_on: 1 }] }, { pipeline: [], models: {} }]) {
-  await assert.rejects(readPipelineFile({ ...file, text: async () => JSON.stringify(malformed) }), /pipeline|models/);
+for (const malformed of [{ pipeline: [null] }, { pipeline: [{ depends_on: 1 }] }, { pipeline: [], models: {} }, { pipeline: [], io: [] }, { pipeline: [], io: {input: {}} }, { pipeline: [], io: {output: [null]} }]) {
+  await assert.rejects(readPipelineFile({ ...file, text: async () => JSON.stringify(malformed) }), /pipeline|models|io/);
 }
 
-const modelDefinition = { model_type: "vision", capability: "ocr", required_protocol: "image_text_generation" };
-assert.match(modelAvailability([], modelDefinition).message, /当前构建无兼容 Backend.*image_text_generation/);
-assert.equal(modelAvailability([{ supported_protocols: ["text_generation"] }], modelDefinition).available, false);
-assert.deepEqual(modelAvailability([{ supported_protocols: ["image_text_generation"] }], modelDefinition), { available: true, message: "" });
+const modelDefinition = {impl_name: "vision_ocr", model_type: "ocr", backends: ["vision_backend"]};
+assert.match(modelAvailability([], modelDefinition).message, /当前构建无兼容 Backend/);
+assert.equal(modelAvailability([{backend_type: "text_backend"}], modelDefinition).available, false);
+assert.deepEqual(modelAvailability([{backend_type: "vision_backend"}], modelDefinition), { available: true, message: "" });
 assert.match(modelAvailability([], null).message, /未注册/);
 const pipeline = { models: [], pipeline: [] };
 assert.throws(() => upsertModel(pipeline, { models: [modelDefinition], backends: [], nodes: [] }, "", {
-  model_id: "vision", model_type: "vision", model_path: "model.bin", backend: "",
+  name: "vision", type: "ocr", file: "model.bin", backend: {type: "vision_backend"},
 }), /当前构建无兼容 Backend/);
 assert.deepEqual(pipeline, { models: [], pipeline: [] }, "unavailable model rejection must preserve the document");
 console.log("Studio single-file import and model availability checks passed");
 
 const workflowSource = readFileSync(new URL("../../tools/pipeline_studio/web/workflow.js", import.meta.url), "utf8");
 const { captureRun, runIsCurrent, runSummary, renderSamples } = await import(`data:text/javascript;base64,${Buffer.from(workflowSource).toString("base64")}`);
-const runInput = { documentVersion: 1, pipeline: { pipeline: [] }, filename: "a.json", profile: "rules", modelRoot: "models" };
+const runInput = { documentVersion: 1, pipeline: { pipeline: [] }, filename: "a.json", profile: "rules" };
 const run = captureRun(runInput);
 assert.equal(runIsCurrent(run, runInput), true);
-runInput.pipeline.pipeline.push({ id: "edited" });
+runInput.pipeline.pipeline.push({ name: "edited" });
 assert.equal(runIsCurrent(run, runInput), false, "edits cannot mutate the submitted snapshot");
 runInput.pipeline.pipeline.pop();
 assert.equal(runIsCurrent(run, runInput), true, "undo can restore the submitted content");
-for (const changed of [{ pending: true }, { documentVersion: 2 }, { profile: "other" }, { modelRoot: "." }]) {
+for (const changed of [{ pending: true }, { documentVersion: 2 }, { profile: "other" }]) {
   assert.equal(runIsCurrent(run, { ...runInput, ...changed }), false);
 }
 assert.match(runSummary({ status: "completed", result: { "summary.json": { total_samples: 2, success_count: 1, failed_count: 1 } } }), /失败 1 条/);

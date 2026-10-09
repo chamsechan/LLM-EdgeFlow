@@ -206,7 +206,7 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 确认 Catalog 中出现所选 `(type, name)`，平台槽、业务值、typed 端口与参数声明一致；随后对**本次新增或
 修改的 Pipeline** 执行 `validate`、`plan`，运行对应 Demo 并核对请求 ID、状态及业务字段。
 第 2 节的关键词命令是可运行参照，实际验证时替换为新业务、配置和数据集。
-有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#校验工具选择)
+有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#工具选择)
 构建并使用 `alg_pipeline_tool_test`。
 
 把断言加入相应现有套件：

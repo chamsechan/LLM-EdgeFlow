@@ -1,135 +1,177 @@
 #include "pipeline_json_schema.h"
 
+#include <set>
 #include <string>
 
-#include "adapter/deployment_structure.h"
+#include "adapter/io_converter_registry.h"
+#include "adapter/io_structure.h"
+#include "contracts/config_schema.h"
 #include "contracts/json_structure.h"
+#include "core/pipeline_catalog.h"
 #include "core/pipeline_config_structure.h"
+#include "engine/model_registry.h"
 
 namespace llm_edgeflow {
 namespace {
 using Json = nlohmann::json;
-
 using json_structure::Object;
 using json_structure::Property;
 
-Json Choices(const Json& definitions, const char* field) {
-  Json values = Json::array();
-  for (const auto& definition : definitions)
-    values.push_back(definition.at(field));
-  if (values.empty()) return false;
-  return {{"type", "string"}, {"enum", std::move(values)}};
-}
-
-Json Fields(const Json& fields) {
-  Json properties = Json::object();
-  Json required = Json::array();
+Json Fields(const std::vector<ConfigFieldDefinition>& fields) {
+  auto properties = Json::object();
+  auto required = Json::array();
   for (const auto& field : fields) {
-    Json property = {{"type", field.at("type")}};
-    for (const char* key : {"default", "minimum", "maximum", "enum"}) {
-      if (field.contains(key)) property[key] = field.at(key);
-    }
-    if (field.contains("semantic"))
-      property["description"] = field.at("semantic");
-    properties[field.at("name").get<std::string>()] = std::move(property);
-    if (field.at("required").get<bool>()) required.push_back(field.at("name"));
+    properties[field.name] = ConfigFieldJsonSchema(field);
+    if (field.required) required.push_back(field.name);
   }
   return Object(std::move(properties), std::move(required));
 }
 
-Json PortMappings(const Json& ports, const Json& mapping_shape, bool inputs) {
-  Json properties = Json::object();
-  Json required = Json::array();
+Json SourceReference() {
+  return {{"type", "string"}, {"pattern", "^[^.]+\\.[^.]+$"}};
+}
+
+template <typename Ports>
+Json Inputs(const Ports& ports) {
+  auto properties = Json::object();
+  auto required = Json::array();
   for (const auto& port : ports) {
-    auto property = mapping_shape.at("additionalProperties");
-    property["description"] =
-        port.at("type_id").get<std::string>() +
-        (inputs ? "; explicit Blackboard key."
-                : "; Blackboard key (defaults to port name).");
-    properties[port.at("key").get<std::string>()] = std::move(property);
-    if (inputs && port.at("required").get<bool>())
-      required.push_back(port.at("key"));
+    auto source = SourceReference();
+    source["description"] = port.type_id;
+    properties[port.logical_name] = std::move(source);
+    if (port.required) required.push_back(port.logical_name);
   }
   return Object(std::move(properties), std::move(required));
 }
 
-Json Node(const Json& definition) {
-  auto config = Fields(definition.at("config_fields"));
-  auto result = Property(PipelineConfigStructure(), "pipeline").at("items");
-  if (!config.at("required").empty()) result["required"].push_back("config");
-  auto& properties = result["properties"];
-  properties["node_type"] = {{"const", definition.at("node_type")}};
-  properties["config"] = std::move(config);
-  for (const char* direction : {"inputs", "outputs"}) {
-    properties[direction] =
-        PortMappings(definition.at(direction), properties.at(direction),
-                     std::string(direction) == "inputs");
-    if (!properties[direction].at("required").empty())
-      result["required"].push_back(direction);
-  }
-  result["title"] = definition.at("node_type");
-  result["description"] = definition.at("description");
-  return result;
+void RequireParameters(Json* schema, const Json& params) {
+  if (!params.at("required").empty()) (*schema)["required"].push_back("params");
 }
 
-Json ConfigBranch(const Json& definition, const char* selector,
-                  const char* definition_key, const char* config_key) {
-  auto config = Fields(definition.at("config_fields"));
-  Json body = {{"properties", {{config_key, config}}}};
-  if (!config.at("required").empty()) body["required"] = {config_key};
-  return {{"if",
-           {{"properties",
-             {{selector, {{"const", definition.at(definition_key)}}}}},
-            {"required", {selector}}}},
-          {"then", std::move(body)}};
+Json SelectedType(const std::string& type) {
+  return {{"properties", {{"type", {{"const", type}}}}},
+          {"required", {"type"}}};
 }
 
-Json Models(const Json& catalog) {
-  auto result = Property(PipelineConfigStructure(), "models");
-  auto& model = result["items"];
-  model["properties"]["model_type"] =
-      Choices(catalog.at("models"), "model_type");
-  model["properties"]["backend"] =
-      Choices(catalog.at("backends"), "backend_type");
-  Json branches = Json::array();
-  for (const auto& definition : catalog.at("models")) {
-    branches.push_back(
-        ConfigBranch(definition, "model_type", "model_type", "model_config"));
+Json Nodes() {
+  auto node = Property(PipelineConfigStructure(), "pipeline").at("items");
+  auto types = Json::array();
+  auto branches = Json::array();
+  for (const auto& definition : PipelineCatalog::Nodes()) {
+    types.push_back(definition.node_type);
+    const auto params = Fields(definition.config_fields);
+    const auto inputs = Inputs(definition.inputs);
+    auto body = Json{{"properties", {{"params", params}, {"inputs", inputs}}},
+                     {"required", Json::array()}};
+    RequireParameters(&body, params);
+    if (!inputs.at("required").empty()) body["required"].push_back("inputs");
+    branches.push_back({{"if", SelectedType(definition.node_type)},
+                        {"then", std::move(body)}});
   }
-  for (const auto& definition : catalog.at("backends")) {
+  if (types.empty()) return false;
+  node["properties"]["type"] = {{"type", "string"}, {"enum", types}};
+  node["properties"]["name"]["pattern"] = "^[^.]+$";
+  node["properties"]["name"]["not"] = {{"enum", {"input", "output"}}};
+  node["properties"]["inputs"]["additionalProperties"] = SourceReference();
+  node["allOf"] = std::move(branches);
+  return node;
+}
+
+Json Models() {
+  auto models = Property(PipelineConfigStructure(), "models");
+  auto& model = models["items"];
+  const auto backends = PipelineCatalog::Backends();
+  std::set<std::string> categories;
+  for (const auto& definition : PipelineCatalog::Models())
+    categories.insert(definition.model_type);
+  auto backend_names = Json::array();
+  for (const auto& backend : backends)
+    backend_names.push_back(backend.backend_type);
+  model["properties"]["type"] =
+      categories.empty() ? Json(false)
+                         : Json{{"type", "string"}, {"enum", categories}};
+  model["properties"]["backend"]["properties"]["type"] =
+      backend_names.empty() ? Json(false)
+                            : Json{{"type", "string"}, {"enum", backend_names}};
+  auto branches = Json::array();
+  for (const auto& category : categories) {
+    auto compatible = Json::array();
+    for (const auto& backend : backends) {
+      const auto implementations = ModelRegistry::Instance().FindImplementation(
+          category, backend.backend_type);
+      if (implementations.size() != 1) continue;
+      compatible.push_back(backend.backend_type);
+      const auto params = Fields(implementations.front().params.Fields());
+      const auto backend_params = Fields(backend.params.Fields());
+      auto backend_body = Json{{"properties", {{"params", backend_params}}},
+                               {"required", Json::array()}};
+      RequireParameters(&backend_body, backend_params);
+      auto body =
+          Json{{"properties", {{"params", params}, {"backend", backend_body}}},
+               {"required", Json::array()}};
+      RequireParameters(&body, params);
+      auto pair = SelectedType(category);
+      pair["properties"]["backend"] = SelectedType(backend.backend_type);
+      pair["required"].push_back("backend");
+      branches.push_back({{"if", std::move(pair)}, {"then", std::move(body)}});
+    }
+    auto allowed = compatible.empty() ? Json(false)
+                                      : Json{{"enum", std::move(compatible)}};
+    Json restriction = {
+        {"properties", {{"backend", {{"properties", {{"type", allowed}}}}}}}};
     branches.push_back(
-        ConfigBranch(definition, "backend", "backend_type", "backend_config"));
+        {{"if", SelectedType(category)}, {"then", std::move(restriction)}});
   }
   if (!branches.empty()) model["allOf"] = std::move(branches);
+  return models;
+}
+
+template <typename Definition>
+Json Converter(const Definition& definition,
+               const std::vector<ConfigFieldDefinition>& fields, bool output) {
+  auto result = IoEntryStructure(output);
+  result["properties"]["type"] = {{"const", definition.type}};
+  result["properties"]["name"] = {{"const", definition.name}};
+  const auto params = Fields(fields);
+  result["properties"]["params"] = params;
+  RequireParameters(&result, params);
+  if (output) {
+    const auto inputs = Inputs(definition.logical_ports);
+    result["properties"]["inputs"] = inputs;
+    if (!inputs.at("required").empty()) result["required"].push_back("inputs");
+  }
   return result;
 }
 
-Json Deployment(const Json& catalog) {
-  auto result = DeploymentStructure();
-  result["properties"]["io"]["properties"]["io_binding"] =
-      Choices(catalog.at("io_bindings"), "biz_name");
+Json Io() {
+  auto result = IoStructure();
+  auto inputs = Json::array();
+  auto outputs = Json::array();
+  const auto& registry = IoConverterRegistry::Instance();
+  for (const auto& definition : registry.AllInputConverters())
+    inputs.push_back(Converter(definition, definition.params.Fields(), false));
+  for (const auto& definition : registry.AllOutputConverters())
+    outputs.push_back(Converter(
+        definition, OutputConverterParameterFields(definition), true));
+  result["properties"]["input"]["items"] =
+      inputs.empty() ? Json(false) : Json{{"oneOf", std::move(inputs)}};
+  result["properties"]["output"]["items"] =
+      outputs.empty() ? Json(false) : Json{{"oneOf", std::move(outputs)}};
   return result;
 }
 }  // namespace
 
-nlohmann::json BuildPipelineJsonSchema(const nlohmann::json& catalog) {
-  Json nodes = Json::array();
-  for (const auto& definition : catalog.at("nodes"))
-    nodes.push_back(Node(definition));
-  Json node_schema =
-      nodes.empty() ? Json(false) : Json{{"oneOf", std::move(nodes)}};
+nlohmann::json BuildPipelineJsonSchema() {
   auto schema = PipelineDocumentStructure();
   auto& properties = schema["properties"];
-  properties["models"] = Models(catalog);
-  properties["deployment"] = Deployment(catalog);
-  properties["pipeline"]["items"] = std::move(node_schema);
+  properties["models"] = Models();
+  properties["io"] = Io();
+  properties["pipeline"]["items"] = Nodes();
   schema["$schema"] = "http://json-schema.org/draft-07/schema#";
   schema["title"] = "LLM-EdgeFlow Pipeline (selected build)";
   schema["description"] =
-      "Generated from this tool's Catalog. Use validate/plan for semantic "
-      "checks; "
-      "refresh after changing registrations or build options. Defaults are "
-      "hints only.";
+      "Generated from registered Definitions in this build. Use validate/plan "
+      "for semantic checks. Defaults are hints only.";
   return schema;
 }
 

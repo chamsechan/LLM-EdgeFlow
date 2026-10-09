@@ -42,7 +42,7 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
   appendText("strong", item.code);
   appendText("div", item.path);
   appendText("p", item.message);
-  if (item.node_id) appendText("div", `节点：${item.node_id}`);
+  if (item.node_name) appendText("div", `节点：${item.node_name}`);
   if (item.port) appendText("div", `端口：${item.port}`);
   if (item.related_nodes?.length) appendText("div", `相关节点：${item.related_nodes.join("、")}`);
   if (item.remediation) {
@@ -84,7 +84,7 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
     }
     block.append(list);
   }
-  if (item.node_id) block.addEventListener("click", () => selectNode(item.node_id));
+  if (item.node_name) block.addEventListener("click", () => selectNode(item.node_name));
   container.append(block);
 }
 
@@ -93,12 +93,12 @@ export function appendConfigField(container, field, values, modelChoices = null)
   const label = document.createElement("label"); label.textContent = field.name;
   const hasDefault = field.default !== undefined && field.default !== null;
   let input;
-  if (modelChoices !== null || (Array.isArray(field.enum) && field.enum.length)) {
+  if (modelChoices !== null || (Array.isArray(field.enum) && field.enum.length && !["object", "array", "map", "json"].includes(field.type))) {
     input = document.createElement("select");
     for (const value of modelChoices ?? field.enum) input.add(new Option(value, value));
   } else if (field.type === "boolean") {
     input = document.createElement("select"); input.add(new Option("true", "true")); input.add(new Option("false", "false"));
-  } else if (["string", "object", "array"].includes(field.type)) {
+  } else if (["string", "object", "array", "map", "json"].includes(field.type)) {
     input = document.createElement("textarea"); input.rows = 3;
   } else {
     input = document.createElement("input"); input.type = "number";
@@ -116,13 +116,13 @@ export function appendConfigField(container, field, values, modelChoices = null)
   input.required = Boolean(field.required) && field.type !== "string";
   const present = Object.hasOwn(values, field.name);
   const value = present ? values[field.name] : field.default;
-  const text = typeof value === "object" ? JSON.stringify(value) : String(value ?? "");
+  const text = ["object", "array", "map", "json"].includes(field.type) ? (value === undefined ? "" : JSON.stringify(value)) : String(value ?? "");
   input.value = text;
   if (!present) {
     if (input.dataset.unsetOption === "true") input.value = "";
-    else if (["number", "integer", "array", "object"].includes(field.type)) {
+    else if (["number", "integer", "array", "object", "map", "json"].includes(field.type)) {
       input.value = "";
-      input.placeholder = hasDefault ? (["array", "object"].includes(field.type) ? text : `默认 ${text}`) : "";
+      input.placeholder = hasDefault ? (["array", "object", "map", "json"].includes(field.type) ? text : `默认 ${text}`) : "";
     }
   }
   if (field.type === "string" && input.tagName === "TEXTAREA") {
@@ -133,9 +133,9 @@ export function appendConfigField(container, field, values, modelChoices = null)
     input.rows = Math.min(4, input.value.split("\n").length);
   }
   label.append(input);
-  if (field.semantic && field.semantic !== "model_ref") {
+  if (field.file || (field.semantic && field.semantic !== "model_ref")) {
     const help = document.createElement("small"); help.className = "field-help";
-    help.textContent = field.semantic; label.append(help);
+    help.textContent = field.file ? "相对方案所在目录的文件名" : field.semantic; label.append(help);
   }
   container.append(label);
 }
@@ -149,7 +149,7 @@ function parseField(input) {
   }
   if (input.dataset.type === "number") return Number(input.value);
   if (input.dataset.type === "boolean") return input.value === "true";
-  if (input.dataset.type === "object" || input.dataset.type === "array") return JSON.parse(input.value);
+  if (["object", "array", "map", "json"].includes(input.dataset.type)) return JSON.parse(input.value);
   return input.value === input.dataset.displayValue ? input.dataset.originalValue : input.value;
 }
 
@@ -170,7 +170,7 @@ export function readConfigFields(container) {
 }
 
 function bufferKey(input) {
-  const scope = input.closest("#backendConfigFields") ? "backend" : "config";
+  const scope = input.closest("[data-io-entry]")?.dataset.ioEntry || (input.closest("#backendConfigFields") ? "backend" : "config");
   return input.id || `${scope}.${input.dataset.field}`;
 }
 

@@ -150,7 +150,7 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
     const uint64_t request_id = i == 0 ? 99001 : 30000 + i;
     CompanyString cs{static_cast<int32_t>(sentences[i].size()),
                      const_cast<char*>(sentences[i].data())};
-    CompanyOperatorEntityInput req{request_id, &cs};
+    CompanyOperatorEntityInput req{request_id, kMockServiceEntityExtract, &cs};
 
     operator_api::NamedIoBatch inputs(1);
     inputs[0]["nlp_node.entity_in"] =
@@ -166,6 +166,7 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
     ASSERT_NE(out_sp, nullptr);
     auto* out = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
     EXPECT_EQ(out->request_id, request_id);
+    EXPECT_EQ(out->service_type, kMockServiceEntityExtract);
     EXPECT_EQ(out->status_code, 0);
     ASSERT_NE(out->entities_json, nullptr);
     std::string json_str(out->entities_json->data, out->entities_json->length);

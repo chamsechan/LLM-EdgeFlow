@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <nlohmann/json.hpp>
 
 #include "core/pipeline_validator.h"
@@ -19,5 +20,10 @@ ValidationReport ValidateWithRemediation(const nlohmann::json& root,
 // 每条诊断另外最多保留三个已验证的修复。
 ValidationReport ExplainPipeline(const nlohmann::json& root,
                                  const PipelineIoBoundary& io_boundary);
+
+// 文档入口在每次补丁后重新准备 I/O 和文件路径；中性测试入口复用同一修复流程。
+ValidationReport ExplainPipeline(
+    const nlohmann::json& document, ValidationReport report,
+    const std::function<ValidationReport(const nlohmann::json&)>& revalidate);
 
 }  // namespace llm_edgeflow

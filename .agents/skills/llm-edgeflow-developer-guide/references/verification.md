@@ -21,7 +21,7 @@ do not mix a variant Catalog with default binaries.
 
    For fixtures intentionally using test-only registrations, use `alg_pipeline_tool_test`;
    this is not a workaround for a failing production configuration. See
-   [tool selection](../../../../tools/pipeline_studio/README.md#校验工具选择).
+   [tool selection](../../../../tools/pipeline_studio/README.md#工具选择).
 4. When a business I/O contract changes, verify the complete original request and response by
    directly calling Operator `Process` in the existing Operator/Adapter suite.
    When a Demo-supported business path changes, run that edited Pipeline through the compatible

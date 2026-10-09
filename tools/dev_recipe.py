@@ -20,7 +20,6 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 SCAFFOLD_SCRIPT = ROOT / "tools/scaffold_custom_node.py"
@@ -41,13 +40,13 @@ SUPPORTED_RECIPES = {
     "prompt-config": {
         "title": "Prompt Configuration Recipe",
         "description": "Adjust prompt templates and configurations using existing nodes within the selected I/O contract.",
-        "preconditions": "Requires a verified data.outputs Profile and valid Pipeline.",
+        "preconditions": "Requires a verified single-output Profile and valid Pipeline.",
         "artifacts": "Pipeline JSON, pipeline .conf, effects sample, verification command.",
     },
     "text-llm-node": {
         "title": "Text LLM Node Recipe",
         "description": "Create a custom LLM node handling TextBatch -> TextBatch with tests and pipeline deployment.",
-        "preconditions": "Requires TextBatch 1:1 preserve ports, registered LLM model capability, and single-output data.outputs.",
+        "preconditions": "Requires TextBatch 1:1 preserve ports, a registered LLM model category, and one output converter.",
         "artifacts": "Node source, unit test, Pipeline JSON, .conf, effects sample.",
     },
 }
@@ -94,7 +93,7 @@ def require_deployment(conf_path, tool, root):
             code=UNSUPPORTED_RECIPE_DEPLOYMENT)
     # 只持久化作者显式覆盖的值；必填槽位的默认值保留在原生代码中。
     doc = read_json_file(pipeline_file)
-    return doc.get("deployment", {}).get("io", {}).get("out_mem", {})
+    return VERIFY_SELECTION.pipeline_io(doc)[1]
 
 
 def get_profile_data(profile_name, root=ROOT):
@@ -154,17 +153,9 @@ def tool_context(tool_path, build_dir, root, require_tool=True, demo_path=None):
     return tool, build, demo
 
 
-def deployment_root(root, pipeline, model_root):
-    return Path(os.path.commonpath([root, pipeline.parent, model_root])).resolve()
-
-
-def make_recipe_conf(pipeline_doc, outputs, pipeline_target, root, model_root=None):
-    root = root.resolve()
+def make_recipe_conf(pipeline_doc, outputs, pipeline_target, root):
     pipeline = absolute(pipeline_target, root)
-    models = absolute(model_root, root) if model_root is not None else root / "models"
-    bundle = deployment_root(root, pipeline, models)
-    return VERIFY_SELECTION.build_run_conf(pipeline_doc, outputs,
-                                           pipeline.name, models, bundle, pipeline_root=root)
+    return VERIFY_SELECTION.build_run_conf(pipeline_doc, outputs, pipeline.name)
 
 
 def command(description, argv):
@@ -186,23 +177,21 @@ def result(recipe, completed, pending, artifacts=(), error=None, step=None, **ex
     return report
 
 
-def effects_inputs(profile_name, pipeline, root, effects_path, model_root, manifest_path):
+def effects_inputs(profile_name, pipeline, root, effects_path, manifest_path):
     default = DEFAULT_EFFECTS.get(profile_name)
     if effects_path is None and default is None:
         raise RecipeError("Supply --effects with independently labelled business outputs for this Profile")
     source = absolute(effects_path or default, root)
     spec = read_json_file(source)
-    if spec.get("io_binding") != VERIFY_SELECTION.pipeline_binding(pipeline):
-        raise RecipeError("Effects io_binding does not match the selected Profile")
+    VERIFY_SELECTION.effect_output(pipeline, spec)
     check_effects(spec)
     dataset = absolute(spec["dataset"], source.parent)
     if not dataset.is_file():
         raise RecipeError(f"Effects dataset is missing: {dataset}")
     is_fixture = profile_name in ("entity_extract_mock", "entity_extract_custom_mock")
-    models = absolute(model_root, root) if model_root is not None else (root if is_fixture else root / "models")
     manifest = absolute(manifest_path, root) if manifest_path is not None else root / (
-        "tests/fixtures/asset_manifest_test.json" if is_fixture else "models/asset_manifest.json")
-    return spec, dataset, models, manifest
+        "tests/fixtures/asset_manifest_test.json" if is_fixture else "configs/asset_manifest.json")
+    return spec, dataset, manifest
 
 
 def check_effects(spec):
@@ -225,43 +214,50 @@ def check_effects(spec):
 
 def select_llm_node(pipeline, catalog):
     definitions = {node["node_type"]: node for node in catalog["nodes"]}
+    referenced = {source for node in pipeline["pipeline"]
+                  for source in node.get("inputs", {}).values()}
+    referenced.update(source for output in VERIFY_SELECTION.pipeline_io(pipeline)[1]
+                      for source in output.get("inputs", {}).values())
     choices = []
     for index, node in enumerate(pipeline["pipeline"]):
-        definition = definitions.get(node["node_type"], {})
+        definition = definitions.get(node["type"], {})
         model_deps = definition.get("model_dependencies", [])
-        llm_dep = next((dep for dep in model_deps if dep.get("capability") == "llm"), None)
+        llm_dep = next((dep for dep in model_deps if dep.get("model_type") == "llm"), None)
         if not llm_dep:
             continue
         inputs, outputs = definition.get("inputs", []), definition.get("outputs", [])
-        if len(inputs) != 1 or len(outputs) != 1:
+        text_outputs = [port for port in outputs if port.get("type_id") == "TextBatch"]
+        if len(inputs) != 1 or len(text_outputs) != 1:
             continue
         if any(port.get("type_id") != "TextBatch" or port.get("cardinality") != "1:1" or
                port.get("provenance_policy") != "preserve" or port.get("lifetime") != "request"
-               for port in [*inputs, *outputs]):
+               for port in [*inputs, *text_outputs]):
+            continue
+        if any(node["name"] + "." + port["key"] in referenced
+               for port in outputs if port is not text_outputs[0]):
             continue
         field = llm_dep.get("config_field")
-        model_id = node.get("config", {}).get(field)
-        if not model_id:
+        model_name = node.get("params", {}).get(field)
+        if not model_name:
             continue
         in_key = node.get("inputs", {}).get(inputs[0]["key"])
         if not in_key:
             continue
-        out_key = node.get("outputs", {}).get(outputs[0]["key"], outputs[0]["key"])
-        choices.append((index, model_id, in_key, out_key))
+        out_key = node["name"] + "." + text_outputs[0]["key"]
+        choices.append((index, model_name, in_key, out_key))
     if len(choices) != 1:
-        raise RecipeError("text-llm-node requires exactly one Catalog-registered TextBatch 1:1 preserve LLM replacement point")
+        raise RecipeError("text-llm-node requires exactly one Catalog-registered TextBatch 1:1 preserve LLM replacement point with all other outputs unreferenced")
     return choices[0]
 
 
 def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, root,
-            effects_path=None, model_root=None, manifest_path=None):
+            effects_path=None, manifest_path=None):
     root = root.resolve()
     step, completed = "preconditions", []
     try:
         if recipe == "text-llm-node":
-            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", name):
-                raise RecipeError("Node name must be a PascalCase C++ identifier")
-            name = name if name.endswith("Node") else name + "Node"
+            if not re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", name):
+                raise RecipeError("Node type must be a snake_case identifier")
         _, source_conf, _ = get_profile_data(profile_name, root)
         tool, build, demo = tool_context(tool_path, build_dir, root)
         outputs = require_deployment(source_conf, tool, root)
@@ -269,7 +265,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         profile = next((p for p in catalog["profiles"] if p["name"] == profile_name), None)
         if profile is None or absolute(profile["config"], root) != source_conf:
             raise RecipeError("Profile is not available in the selected executable Catalog")
-        pipeline = native(tool, ["init", "--io-binding", profile["io_binding"], "--profile", profile_name], root)["pipeline"]
+        pipeline = native(tool, ["init", "--profile", profile_name], root)["pipeline"]
         native(tool, ["validate", "--stdin"], root, pipeline)
         deployment_preview = copy.deepcopy(pipeline)
         target = absolute(pipeline_target, root)
@@ -277,8 +273,10 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             raise RecipeError("--pipeline must end in .json")
         conf_target = target.with_suffix(".conf")
         effects_target = target.with_name(target.stem + "_effects.json")
-        spec, dataset, models, manifest = effects_inputs(profile_name, pipeline, root, effects_path, model_root, manifest_path)
-        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, models, manifest, pipeline_root=root)
+        if not target.parent.is_dir():
+            raise RecipeError("--pipeline must be in an existing resource directory")
+        spec, dataset, manifest = effects_inputs(profile_name, pipeline, root, effects_path, manifest_path)
+        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, target.parent, manifest)
         if not selection["ok"]:
             raise RecipeError("Selected build or model assets are not verified", selection)
         plan = SCAFFOLD.ChangePlan()
@@ -286,34 +284,45 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         if recipe == "text-llm-node":
             if any(node["node_type"] == name for node in catalog["nodes"]):
                 raise RecipeError(f"Node type already registered: {name}")
-            index, model_id, in_key, out_key = select_llm_node(pipeline, catalog)
+            if any(node["name"] == name for node in pipeline["pipeline"]):
+                raise RecipeError(f"Node name already exists: {name}")
+            index, model_name, in_key, out_key = select_llm_node(pipeline, catalog)
             node = pipeline["pipeline"][index]
-            node["node_type"] = name
-            node["config"] = {"bind_model": model_id}
+            old_name = node["name"]
+            node["type"] = name
+            node["name"] = name
+            node["params"] = {"bind_model": model_name}
             node["inputs"] = {"input": in_key}
-            node["outputs"] = {"output": out_key}
-            snake = SCAFFOLD.to_snake_case(name)
-            src = root / "src/custom_nodes" / (snake + ".cpp")
-            test = root / "tests/unit/nodes" / ("test_" + snake + ".cpp")
+            for consumer in [*pipeline["pipeline"], *VERIFY_SELECTION.pipeline_io(pipeline)[1]]:
+                for port, source in consumer.get("inputs", {}).items():
+                    if source == out_key:
+                        consumer["inputs"][port] = name + ".output"
+                if "depends_on" in consumer:
+                    consumer["depends_on"] = [name if dep == old_name else dep
+                                              for dep in consumer["depends_on"]]
+            src = root / "src/custom_nodes" / (name + "_node.cpp")
+            test = root / "tests/unit/nodes" / ("test_" + name + "_node.cpp")
             in_port, out_port = ("input", "TextBatch", "1:1", "preserve"), ("output", "TextBatch", "1:1", "preserve")
             description = f"{name} custom LLM node"
             plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port))
             plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port))
             generated = [src, test]
-        conf = make_recipe_conf(pipeline, outputs, target, root, models)
+        conf = make_recipe_conf(pipeline, outputs, target, root)
         spec = copy.deepcopy(spec)
         spec["name"] = name + "_effects"
         spec["dataset"] = os.path.relpath(dataset, effects_target.parent)
         # 对照已编译的源码图检查部署字段。新生成的 Node 只有在 verify
         # 重新构建工具后，才对原生校验可见。
-        bundle = deployment_root(root, target, models)
-        with tempfile.TemporaryDirectory(prefix=".recipe-preview-", dir=root) as temporary:
-            temp = Path(temporary)
-            preview_pipeline = temp / "pipeline.json"
-            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name, models, bundle, pipeline_root=root)
-            preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
-            (temp / "pipeline.conf").write_text(json.dumps(preview_conf), encoding="utf-8")
-            native(tool, ["resolve-conf", str((temp / "pipeline.conf").relative_to(bundle)), "--root", str(bundle)], root)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".recipe-preview-",
+                                         suffix=".json", dir=target.parent) as preview_pipeline, \
+                tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".recipe-preview-",
+                                            suffix=".conf", dir=target.parent) as preview_conf:
+            preview_doc = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name)
+            json.dump(deployment_preview, preview_pipeline, ensure_ascii=False)
+            preview_pipeline.flush()
+            json.dump(preview_doc, preview_conf)
+            preview_conf.flush()
+            native(tool, ["resolve-conf", Path(preview_conf.name).name, "--root", str(target.parent)], root)
         for path, document in [(target, pipeline), (conf_target, conf), (effects_target, spec)]:
             plan.add_new_file(path, json.dumps(document, ensure_ascii=False, indent=2) + "\n")
         completed.append("preconditions")
@@ -322,7 +331,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         completed.append(step)
         argv = [sys.executable, root / "tools/dev_recipe.py", "verify", recipe,
                 "--pipeline", target, "--tool", tool, "--build-dir", build,
-                "--effects", effects_target, "--model-root", models, "--manifest", manifest, "--demo", demo]
+                "--effects", effects_target, "--manifest", manifest, "--demo", demo]
         if recipe == "text-llm-node":
             argv += ["--name", name]
         return result(recipe, completed, ["verify"], [*generated, target, conf_target, effects_target],
@@ -332,40 +341,38 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
 
 
 def prepare_prompt_config(name, profile_name, tool_path, build_dir, pipeline_target, root=ROOT,
-                          effects_path=None, model_root=None, manifest_path=None):
+                          effects_path=None, manifest_path=None):
     return prepare("prompt-config", name, profile_name, tool_path, build_dir, pipeline_target, root,
-                   effects_path, model_root, manifest_path)
+                   effects_path, manifest_path)
 
 
 def prepare_text_llm_node(name, profile_name, tool_path, build_dir, pipeline_target, root=ROOT,
-                         effects_path=None, model_root=None, manifest_path=None):
+                         effects_path=None, manifest_path=None):
     return prepare("text-llm-node", name, profile_name, tool_path, build_dir, pipeline_target, root,
-                   effects_path, model_root, manifest_path)
+                   effects_path, manifest_path)
 
 
-def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, model_root,
+def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path,
                   name=None, demo_path=None, manifest_path=None, root=ROOT):
     root = root.resolve()
     steps = ["preconditions", "build", "catalog_discovery", "config_validation", "focused_test", "evaluate"] if recipe == "text-llm-node" else ["preconditions", "config_validation", "evaluate"]
     completed, step = [], steps[0]
     try:
-        if recipe == "text-llm-node" and not (name and re.fullmatch(r"[A-Z][A-Za-z0-9]*", name)):
-            raise RecipeError("A PascalCase --name is required for text-llm-node")
+        if recipe == "text-llm-node" and not (name and re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", name)):
+            raise RecipeError("A snake_case --name is required for text-llm-node")
         pipeline_path = absolute(pipeline_path, root)
         conf_path = pipeline_path.with_suffix(".conf")
         pipeline = read_json_file(pipeline_path)
         effects = absolute(effects_path, root)
         spec = read_json_file(effects)
         check_effects(spec)
-        if spec.get("io_binding") != VERIFY_SELECTION.pipeline_binding(pipeline):
-            raise RecipeError("Effects io_binding does not match the task")
+        VERIFY_SELECTION.effect_output(pipeline, spec)
         if not absolute(spec["dataset"], effects.parent).is_file():
             raise RecipeError("Effects dataset is missing")
         if demo_path is None:
             raise RecipeError("--demo is required; use the prepared verification command")
         tool, build, demo = tool_context(tool_path, build_dir, root, require_tool=False, demo_path=demo_path)
-        models = absolute(model_root, root)
-        manifest = absolute(manifest_path, root) if manifest_path else root / "models/asset_manifest.json"
+        manifest = absolute(manifest_path, root) if manifest_path else root / "configs/asset_manifest.json"
         VERIFY_SELECTION.validate_manifest(read_json_file(manifest))
         completed.append(step)
         if recipe == "text-llm-node" or not tool.is_file() or not demo.is_file():
@@ -387,24 +394,23 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
             catalog = native(tool, ["catalog"], root)
             if name not in {node["node_type"] for node in catalog["nodes"]}:
                 raise RecipeError(f"Node {name} is absent from the selected executable Catalog")
-            if not any(node["node_type"] == name for node in pipeline["pipeline"]):
+            if not any(node["type"] == name for node in pipeline["pipeline"]):
                 raise RecipeError(f"Pipeline does not use the requested Node {name}")
             completed.append(step)
         step = "config_validation"
         require_deployment(conf_path, tool, root)
-        native(tool, ["validate", "--stdin"], root, pipeline)
-        native(tool, ["plan", "--stdin"], root, pipeline)
-        bundle = deployment_root(root, pipeline_path, models)
-        resolved = native(tool, ["resolve-conf", str(conf_path.relative_to(bundle)), "--root", str(bundle)], root)
+        native(tool, ["validate", str(pipeline_path)], root)
+        native(tool, ["plan", str(pipeline_path)], root)
+        resolved = native(tool, ["resolve-conf", conf_path.name, "--root", str(pipeline_path.parent)], root)
         configuration = resolved["configuration"]
         if Path(configuration["pipeline_path"]).resolve() != pipeline_path:
             raise RecipeError("Deployment points to a different Pipeline than --pipeline")
         # 将有效模型路径与 evaluate 使用的资源选型进行比较。
         effective = configuration["effective_pipeline"]
         for model in effective.get("models", []):
-            original = next(m for m in pipeline["models"] if m["model_id"] == model["model_id"])
-            if absolute(model["model_path"], bundle) != VERIFY_SELECTION.within(bundle, original["model_path"]):
-                raise RecipeError(f"Deployment model path differs from the Pipeline declaration for {model['model_id']}")
+            original = next(m for m in pipeline["models"] if m["name"] == model["name"])
+            if absolute(model["file"], pipeline_path.parent) != VERIFY_SELECTION.within(pipeline_path.parent, original["file"]):
+                raise RecipeError(f"Deployment model file differs from the Pipeline declaration for {model['name']}")
         completed.append(step)
         if recipe == "text-llm-node":
             step = "focused_test"
@@ -421,10 +427,10 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
                 raise RecipeError("Focused tests failed or skipped required cases:\n" + proc.stdout + proc.stderr)
             completed.append(step)
         step = "evaluate"
-        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, models, manifest, pipeline_root=bundle)
+        selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, pipeline_path.parent, manifest)
         if not selection["ok"]:
             raise RecipeError("Configuration, build or assets are not verified", selection)
-        evaluated = VERIFY_SELECTION.evaluate(pipeline, selection, tool, models, effects, conf_path, demo, pipeline_root=bundle)
+        evaluated = VERIFY_SELECTION.evaluate(pipeline, selection, tool, pipeline_path.parent, effects, conf_path, demo)
         if evaluated.get("metrics", {}).get("status") != "passed":
             raise RecipeError("Effects evaluation failed", evaluated)
         completed.append(step)
@@ -447,7 +453,6 @@ def main():
         sub.add_argument("--build-dir", type=Path, required=True)
         sub.add_argument("--pipeline", type=Path, required=True)
         sub.add_argument("--effects", type=Path, required=operation == "verify")
-        sub.add_argument("--model-root", type=Path, required=operation == "verify")
         sub.add_argument("--manifest", type=Path)
         sub.add_argument("--demo", type=Path)
         sub.add_argument("--json", action="store_true")
@@ -456,10 +461,10 @@ def main():
         return list_recipes(args.json)
     if args.command == "prepare":
         report = prepare(args.recipe, args.name, args.profile, args.tool, args.build_dir, args.pipeline, ROOT,
-                         args.effects, args.model_root, args.manifest)
+                         args.effects, args.manifest)
     else:
         report = verify_recipe(args.recipe, args.pipeline, args.tool, args.build_dir, args.effects,
-                               args.model_root, args.name, args.demo, args.manifest)
+                               args.name, args.demo, args.manifest)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

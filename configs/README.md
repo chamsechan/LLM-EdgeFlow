@@ -72,7 +72,10 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 唯一 type 继续接受任意非空前缀。有效 Process 批次上限为 `min(max_frame_depth, 64)`。
 
 `validate` / `plan` 与 Operator 共用接入准备和 Core 校验入口。
-本轮重构的工具升级在第 9 步完成；过渡阶段高级配置编辑与 schema 命令明确提示暂不支持。
+读取 `FILE` 时，模型文件以该文件的父目录解析；`--stdin` 没有相对模型文件的目录基准。
+工具还支持 `edit --stdin` 事务编辑、`export-schema`、`validate-io` 和 `resolve-conf`。
+`init --profile NAME` 克隆已有 Profile 的 Pipeline；`init --input TYPE/NAME --output TYPE/NAME`
+创建包含 `io` 及空 `models` / `pipeline` 数组的草稿，输入输出选项均可重复。
 
 ## 手写 JSON 的补全
 

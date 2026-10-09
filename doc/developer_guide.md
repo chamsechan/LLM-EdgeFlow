@@ -57,7 +57,7 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果留在该配置文件的目录内。
 Pipeline 根 `io.input` / `io.output` 以非空数组选择 `{type, name, params?}`；参数省略项使用转换器默认值。
-模型路径当前在 `models[].file` 中填写，相对路径以宿主部署根为基准，详见
+模型路径当前在 `models[].file` 中填写，主文件与声明的文件参数都以 Pipeline JSON 目录为基准，详见
 [配置路径](../configs/README.md#配置路径)。所选转换器的 typed 端口组成传给 Core 的明确边界。
 Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组合选择构造和展示；同一载体复用 Demo。
 每个输出字符串由转换器的 `MaxBytes` 参数声明默认容量，平台登记只保留硬上限。
@@ -102,14 +102,15 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
   `Nodes/Models/Backends/FindNode/FindModel/FindBackend` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
 
-Validator 为未注册的 Node、Model 和 Backend 提供原因及按编辑距离排序的相近名称。
-已声明模型因 `model_type` 未注册而无法解析时，只报告根因；未知节点的显式输出键没有任何
-已知生产者或输入边界 时，抑制该键的缺少生产者诊断。已知来源的类型不符、重复生产者、
-ingress 冲突和模型能力不符仍照常报告。输出边界的缺失生产者使用 `MISSING_OUTPUT_PRODUCER`。
+Validator 为未知节点类型、模型类别和 Backend 提供可定位诊断。模型按类别和 Backend 协议
+选择唯一实现，无法解析时优先报告根因；未知生产者节点类型不引出额外的缺失端口误报。
+已知来源的端口不存在、类型或生命周期不符，以及模型能力不符仍会报告。
+输出边界缺失生产者使用 `MISSING_OUTPUT_PRODUCER`。
 
 Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
-配置中的必需输入必须显式绑定，可选输入省略即未连接；输出省略映射时沿用逻辑端口名。
+节点只使用 `type`、`name`、`params`、`inputs` 与 `depends_on`。必需输入显式连接，
+可选输入省略即未连接；所有输出由 `节点名.端口名` 唯一确定，只有被下游或输出 Converter 引用的输出才绑定并发布。
 Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64，默认 1。
 线程池创建失败时先停止并回收已创建的线程，再将异常交给 Pipeline 的失败诊断路径。
 

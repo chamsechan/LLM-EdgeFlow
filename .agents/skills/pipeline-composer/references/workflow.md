@@ -12,8 +12,8 @@ See [the I/O boundary](../../../../doc/dev_guide/business_onboarding.md#输入�
 
 ## Discover assets
 
-Build the tool if unavailable/stale, and rebuild after registration changes. Query the target
-biz contract and its filtered assets:
+Build the tool if unavailable/stale, and rebuild after registration changes. Query registered
+input/output converters and candidate capabilities:
 
 ```bash
 ./build/alg_pipeline_tool catalog
@@ -22,13 +22,14 @@ biz contract and its filtered assets:
 Use the production tool for the target build. For fixtures deliberately using test-only
 Models/Backends, use `alg_pipeline_tool_test` throughout discovery, init, validate and plan.
 Do not switch to test registrations to bypass a production configuration failure; inspect
-the diagnostics and target build's Catalog. [Tool selection and commands](../../../../tools/pipeline_studio/README.md#校验工具选择).
+the diagnostics and target build's Catalog. [Tool selection and commands](../../../../tools/pipeline_studio/README.md#工具选择).
 
 Inspect the candidate nodes needed for this change; reuse descriptions already read from the
 same unchanged target build:
 
 ```bash
 ./build/alg_pipeline_tool describe-node <node_type>
+./build/alg_pipeline_tool describe-model <model_type> <backend_type>
 ```
 
 ## Create or clone a solution
@@ -38,20 +39,21 @@ For an existing solution, edit the requested files instead of initializing anoth
 Reuse registered nodes; cloning a Pipeline does not retarget the source Profile.
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name>
-./build/alg_pipeline_tool init --io-binding <biz_name> --empty
+./build/alg_pipeline_tool init --profile <profile_name>
+./build/alg_pipeline_tool init --input <input_type>/<input_name> --output <output_type>/<output_name>
 ```
 
-`init` normally returns a versioned response containing `pipeline`. To save a
+`init` normally returns a response containing `ok` and `pipeline`. To save a
 runtime document directly, use `--raw` and a new destination (do not overwrite
 an existing solution):
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
+./build/alg_pipeline_tool init --profile <profile_name> --raw > <new_pipeline.json>
 ```
 
 Check the command's exit status before using the file, then validate the saved
-document. An empty draft needs nodes and bindings before it can validate.
+document. Input/output options may repeat. An explicit I/O draft contains converter `type` / `name`
+entries and empty `models` / `pipeline` arrays; add the nodes and bindings before validation.
 
 ## Validate changed inputs
 
@@ -69,6 +71,9 @@ reproduce Validator rules in scripts or prompts. The final delivery gate remains
 ./build/alg_pipeline_tool plan <pipeline.json>
 ```
 
+For file input, model files resolve relative to the Pipeline JSON's parent directory.
+`--stdin` supplies no directory for resolving relative model files.
+
 ## Run the intended configuration
 
 After validation, run the edited Pipeline through a compatible Demo. Follow
@@ -76,10 +81,9 @@ After validation, run the edited Pipeline through a compatible Demo. Follow
 `.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `io.input` / `io.output` (type, name and params) and `models[].file`, and select a matching dataset; Demo derives its runner from the configuration. Use
 `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
 to inspect the native resolved paths, their sources and normalized defaults; it does not load
-weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its asset
-directory is explicit (`models` normally, `.` for project-relative fixtures). Asset manifest paths
-are relative to that directory; the Pipeline stores model paths relative to the host's deployment
-root in `models[].file`. For example:
+weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”. Asset paths in the manifest, model weights and declared file parameters share the Pipeline directory
+(`configs` normally); model `file` and declared file parameters resolve relative to the Pipeline
+JSON's directory. For example:
 
 ```bash
 ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --output-dir <run_output_dir>

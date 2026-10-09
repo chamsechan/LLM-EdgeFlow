@@ -25,13 +25,13 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool catalog
 ./build/alg_pipeline_tool describe-node <node_type>
-./build/alg_pipeline_tool describe-model <model_type>
+./build/alg_pipeline_tool describe-model <model_type> <backend_type>
 ./build/alg_pipeline_tool describe-backend <backend_type>
 ```
 
-只有选定已存在的 binding 才使用过滤查询。查不到能力时先区分未注册、工具陈旧、构建
+Catalog 列出各方向已注册的 `(type, name)` 转换器和能力；描述模型时同时指定类别与后端。
+查不到能力时先区分未注册、工具陈旧、构建
 未启用 Backend 和确实缺少实现。需要时重建目标工具；不能用测试注册掩盖生产缺口。
 
 | 需求差异 | 最小修改与后续 skill |

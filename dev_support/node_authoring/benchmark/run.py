@@ -21,6 +21,7 @@ import time
 
 BASELINE_HELPER_REVISION = "87a28b7"
 
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[3])
@@ -55,14 +56,24 @@ def main():
                                 '#include "dev_support/node_authoring/legacy_node_base.h"')
         header = header.replace("public NodeBase", "public LegacyNodeBase")
         header = header.replace(": NodeBase(", ": LegacyNodeBase(")
+        # 只适配历史辅助文件的接口；历史 ProcessNode 算法保持不变。
+        header = header.replace("engine/model_capability_traits.h", "engine/model_type_traits.h")
+        header = header.replace("ModelCapabilityTraits", "ModelTypeTraits")
+        header = header.replace("::Capability()", "::ModelType()")
+        header = header.replace("dep.capability", "dep.model_type")
+        header = header.replace("ResolveBoundModelId", "ResolveBoundModelName")
+        header = header.replace("model_id", "model_name")
         (baseline_headers / name).write_text(header)
 
     old = run(["git", "-C", str(root), "show",
                args.baseline + ":dev_support/node_authoring/starter_llm_node.cpp"],
               capture_output=True).stdout
-    (work / "baseline_starter.cpp").write_text(old.replace("StarterLlmNode", "BaselineStarterLlmNode"))
+    old = old.replace("StarterLlmNode", "BaselineStarterLlmNode")
+    old = old.replace('"BaselineStarterLlmNode"', '"baseline_starter_llm"')
+    (work / "baseline_starter.cpp").write_text(old)
     current = (root / "dev_support/node_authoring/starter_llm_node.cpp").read_text()
-    (work / "current_starter.cpp").write_text(current.replace("StarterLlmNode", "ProbeStarterLlmNode"))
+    (work / "current_starter.cpp").write_text(
+        current.replace("REGISTER_FUNCTION_NODE(starter_llm,", "REGISTER_FUNCTION_NODE(probe_starter_llm,"))
     run(["cmake", "-S", str(work), "-B", str(build), "-DEDGEFLOW_SOURCE=" + str(root),
          "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"])
     run(["cmake", "--build", str(build), "--target", "node_authoring_probe", "-j8"])
@@ -98,7 +109,7 @@ def main():
             run(command, cwd=entry["directory"], capture_output=True)
             compile_results.append(dict(repeat=repeat + 1, mode=label, wall_seconds=time.perf_counter() - start))
     hashes = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in (
-        "include/nodes/function_node.h", "include/nodes/parameter_binding.h",
+        "include/nodes/function_node.h", "include/contracts/parameters.h",
         "include/nodes/model_calls.h", "dev_support/node_authoring/starter_llm_node.cpp")}
     summary = dict(baseline_revision=args.baseline,
                    baseline_helper_revision=BASELINE_HELPER_REVISION,
