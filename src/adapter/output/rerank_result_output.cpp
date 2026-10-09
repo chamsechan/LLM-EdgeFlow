@@ -67,13 +67,17 @@ int EncodeOperatorRerankResult(AlgContext* context,
         options.Label().c_str());
   }
 
+  size_t non_null_written = 0;
   for (size_t i = 0; i < count; ++i) {
     auto* out =
         destination->GetSlot<CompanyOperatorRerankOutput>(kOutputSlot, i);
     if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing rerank_out slot item", kOutputSlot,
-          options.Label().c_str(), static_cast<int>(i));
+      if (options.required) {
+        return AdapterValidationHelper::ReturnBufferTooSmall(
+            status, "Missing rerank_out slot item", kOutputSlot,
+            options.Label().c_str(), static_cast<int>(i));
+      }
+      continue;
     }
 
     out->request_id = (*raw_req_ids)[i];
@@ -86,9 +90,10 @@ int EncodeOperatorRerankResult(AlgContext* context,
       out->scores[k] = cand_list[k].score;
       out->sorted_indices[k] = static_cast<int>(cand_list[k].original_sub_id);
     }
+    ++non_null_written;
   }
 
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = non_null_written;
   return COMPANY_ALG_SUCCESS;
 }
 

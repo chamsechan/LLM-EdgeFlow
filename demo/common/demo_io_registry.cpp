@@ -85,7 +85,7 @@ std::string DemoInputCarrierKey(
 
 std::string DemoIoKey(
     const llm_edgeflow::operator_api::OperatorIoEntry& entry) {
-  return "demo." + entry.type;
+  return entry.name + "." + entry.type;
 }
 
 }  // namespace alg_demo

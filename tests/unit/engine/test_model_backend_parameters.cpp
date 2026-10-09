@@ -74,6 +74,7 @@ TEST(ResolveFromModelTest, FallsBackThenFailsWithAHintToConfigure) {
 struct ParameterCase {
   const char* name;
   bool empty_config_is_valid;
+  nlohmann::json expected_defaults;
   std::vector<nlohmann::json> valid_overrides;
   std::vector<nlohmann::json> invalid_overrides;
 };
@@ -82,6 +83,11 @@ const std::vector<ParameterCase>& ModelCases() {
   static const std::vector<ParameterCase> cases = {
       {"bge_embedding",
        true,
+       {{"tokenizer_file", "vocab.txt"},
+        {"do_lower_case", true},
+        {"pooling_strategy", "cls"},
+        {"output_name", "last_hidden_state"},
+        {"max_batch_size", 4}},
        {{{"tokenizer_file", "vocab.txt"}},
         {{"do_lower_case", false}},
         {{"max_length", 128}},
@@ -100,6 +106,11 @@ const std::vector<ParameterCase>& ModelCases() {
         {{"unknown_field", true}}}},
       {"bge_reranker",
        true,
+       {{"tokenizer_file", "vocab.txt"},
+        {"do_lower_case", true},
+        {"output_name", "logits"},
+        {"score_activation", "sigmoid"},
+        {"max_batch_size", 4}},
        {{{"tokenizer_file", "vocab.txt"}},
         {{"max_length", 3}},
         {{"output_name", "scores"}},
@@ -112,6 +123,12 @@ const std::vector<ParameterCase>& ModelCases() {
         {{"max_batch_size", 1025}}}},
       {"generated_text_embedding",
        false,
+       {{"embedding_dim", 2},
+        {"max_tokens", 1},
+        {"pooling", "last"},
+        {"prefix", ""},
+        {"suffix", ""},
+        {"add_bos", false}},
        {{{"embedding_dim", 2}},
         {{"embedding_dim", 2}, {"max_tokens", 64}},
         {{"embedding_dim", 2}, {"pooling", "mean"}},
@@ -122,6 +139,7 @@ const std::vector<ParameterCase>& ModelCases() {
         {{"embedding_dim", 2}, {"pooling", "cls"}}}},
       {"qwen_causal_lm",
        true,
+       {{"system_prompt", ""}, {"add_bos", false}, {"random_seed", -1}},
        {{{"system_prompt", "You are concise."}},
         {{"add_bos", true}},
         {{"random_seed", 0}},
@@ -129,6 +147,12 @@ const std::vector<ParameterCase>& ModelCases() {
        {{{"random_seed", -2}}, {{"add_bos", "yes"}}}},
       {"vision_document",
        true,
+       {{"prompt",
+         "Read all text visible in this image. Return only the transcribed "
+         "text."},
+        {"patch_size", 16},
+        {"max_pixels", 4194304},
+        {"max_tokens", 512}},
        {{{"prompt", "Read the text."}},
         {{"patch_size", 14}},
         {{"max_pixels", 1048576}},
@@ -140,6 +164,9 @@ const std::vector<ParameterCase>& ModelCases() {
         {{"max_tokens", 4097}}}},
       {"whisper_asr",
        true,
+       {{"language", "zh"},
+        {"max_audio_seconds", 30},
+        {"max_output_bytes", 65536}},
        {{{"language", "en"}},
         {{"language", "auto"}},
         {{"max_audio_seconds", 60}},
@@ -156,6 +183,10 @@ const std::vector<ParameterCase>& BackendCases() {
   static const std::vector<ParameterCase> cases = {
       {"onnxruntime",
        true,
+       {{"max_batch_size", 4},
+        {"intra_op_num_threads", 2},
+        {"inter_op_num_threads", 1},
+        {"graph_optimization_level", "all"}},
        {{{"max_batch_size", 8}},
         {{"intra_op_num_threads", 4}},
         {{"inter_op_num_threads", 2}},
@@ -166,6 +197,12 @@ const std::vector<ParameterCase>& BackendCases() {
         {{"threads", 2}}}},
       {"llama_cpp",
        true,
+       {{"context_size", 2048},
+        {"decode_batch_size", 512},
+        {"n_threads", 0},
+        {"n_threads_batch", 0},
+        {"n_gpu_layers", 0},
+        {"check_tensors", false}},
        {{{"context_size", 4096}},
         {{"context_size", 1024}, {"decode_batch_size", 1024}},
         {{"n_threads", 8}},
@@ -179,10 +216,12 @@ const std::vector<ParameterCase>& BackendCases() {
         {{"check_tensors", 1}}}},
       {"kite_llm",
        true,
+       {{"run_config_file", ""}},
        {{{"run_config_file", "run.json"}}},
        {{{"run_config_file", 1}}, {{"unknown", true}}}},
       {"whisper_cpp",
        true,
+       {{"n_threads", 4}},
        {{{"n_threads", 8}}},
        {{{"n_threads", 0}}, {{"n_threads", 65}}, {{"unknown", true}}}},
   };
@@ -197,6 +236,10 @@ void ExpectParameterBehavior(const ParameterCase& test_case,
   EXPECT_EQ(params.Parse(nlohmann::json::object(), &values, &diagnostic),
             test_case.empty_config_is_valid)
       << diagnostic;
+  if (test_case.empty_config_is_valid) {
+    ASSERT_NE(values, nullptr);
+    EXPECT_EQ(values->Effective(), test_case.expected_defaults);
+  }
   // 必填参数（generated_text_embedding 的 embedding_dim）在 {} 下必须报错；
   // 其余用例在 {} 下都使用默认值。
   for (const auto& config : test_case.valid_overrides) {
@@ -204,7 +247,12 @@ void ExpectParameterBehavior(const ParameterCase& test_case,
     nlohmann::json full = nlohmann::json::object();
     if (!test_case.empty_config_is_valid) full["embedding_dim"] = 2;
     full.update(config);
-    EXPECT_TRUE(params.Parse(full, &values, &diagnostic)) << diagnostic;
+    values.reset();
+    ASSERT_TRUE(params.Parse(full, &values, &diagnostic)) << diagnostic;
+    ASSERT_NE(values, nullptr);
+    auto expected = test_case.expected_defaults;
+    expected.update(config);
+    EXPECT_EQ(values->Effective(), expected);
   }
   for (const auto& config : test_case.invalid_overrides) {
     SCOPED_TRACE(config.dump());
@@ -230,8 +278,12 @@ TEST(ModelBackendParametersTest,
      EveryRegisteredBackendParsesDefaultsAndOverrides) {
   for (const auto& test_case : BackendCases()) {
     const auto definition = BackendRegistry::Instance().Find(test_case.name);
-    if (!definition.has_value()) continue;  // 该后端未编入本构建
+    if (!definition.has_value()) {
+      RecordProperty(std::string("not_built_") + test_case.name, "true");
+      continue;  // 该后端未编入本构建
+    }
     ExpectParameterBehavior(test_case, definition->params);
+    RecordProperty(std::string("tested_") + test_case.name, "true");
   }
 }
 

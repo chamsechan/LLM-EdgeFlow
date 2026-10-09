@@ -63,6 +63,11 @@ ValueType 说明“这块平台内存是什么类型、如何检查和管理”�
 `type_suffix = type`，输出槽使用标准布局；命名布局、metadata 或可选槽直接在返回的
 `ExternalSlotDefinition` 上设置相应字段。Catalog 中的 `external_type` 是登记的宿主结构名。
 
+同侧复用同一 `type` 时，以 `<name>.<type>` 区分宿主输出 key；每项拥有独立的输出池、
+参数与布局规格，converter 仍以本项的 `type_suffix` 读取槽。
+可选槽省略的行在视图中保持 `nullptr`，不压缩批次索引。编码函数跳过这些目标，
+成功时 `written_count` 等于实际写入的非空目标数；任一项失败时所有租约归还且不发布输出。
+
 以下登记来自参与编译的
 [测试接入](../../tests/integration/operator/test_operator_api.cpp)和
 [嵌套结构实现](../../tests/support/operator_nested_output_fixture.h)。这些类型和登记只在

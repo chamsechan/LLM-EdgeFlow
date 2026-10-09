@@ -20,7 +20,7 @@ namespace alg_demo {
  * @brief 一次运行的全部请求。由请求构造填写，由公共流程分批提交。
  */
 struct DemoRequestBatch {
-  // 每条请求一个 NamedIo，key 为 DemoIoKey(输入项)，即 "demo.<type>"。
+  // 每条请求一个 NamedIo，key 为 DemoIoKey(输入项)，即 "<name>.<type>"。
   std::vector<llm_edgeflow::operator_api::NamedIo> requests;
   // 每条请求供结果显示读取的信息（如 rerank
   // 的候选文本）。可选，缺失时降级显示。
@@ -99,7 +99,7 @@ std::string DemoInputCarrierKey(
     const std::vector<llm_edgeflow::operator_api::OperatorIoEntry>& inputs);
 
 /**
- * @brief Demo 提交与读取某一项时使用的 map key，即 "demo.<type>"。
+ * @brief Demo 提交与读取某一项时使用的 map key，即 "<name>.<type>"。
  */
 std::string DemoIoKey(const llm_edgeflow::operator_api::OperatorIoEntry& entry);
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+同侧可选择同一宿主 `type` 的不同业务项：重复 type 使用 `<name>.<type>` 的宿主 key，
+每项参数、输出池与布局独立；唯一 type 仍允许任意前缀。Demo 同样以业务名区分 key，
+同 type 多输出的展示字段使用 `type/name` 前缀。可选输出保留原批次行号并只统计实际
+写入目标；结构体数组和映射的参数生效值按元素声明递归读取，不包含派生成员。
+文本规则的空 regex 保持不命中，初始化和 Control 更新行为一致。
+
 外部 I/O 的选择与配置移到 Pipeline 根层的 `io`（放在第一个字段），删除 `deployment`：`io.input`、`io.output` 是至少一项的数组，
 每项只允许 `type`（宿主结构体，即宿主 map key 的后缀，如 `doc_in`）、`name`（业务名，如 `doc_qa`；`common` 为保留的
 默认处理）和 `params`（覆盖 converter 参数，省略则全部使用默认值）。图片问答的图片与问题是两个宿主结构体，`io.input`

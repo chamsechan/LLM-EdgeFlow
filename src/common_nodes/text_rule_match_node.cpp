@@ -60,6 +60,7 @@ Parameters<RuleSpec> RuleParameters() {
   rule.Prepare([](RuleSpec* spec, std::string* diagnostic) {
     spec->compiled_regex.reset();
     if (spec->strategy != "regex") return true;
+    if (spec->pattern.empty()) return true;
     auto compiled = std::make_shared<CompiledTextRegex>();
     std::string detail;
     if (!compiled->Compile(spec->pattern, &detail)) {

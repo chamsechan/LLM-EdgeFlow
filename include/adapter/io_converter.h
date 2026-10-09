@@ -135,6 +135,8 @@ struct OutputEncodeOptions {
   // 同一张调用表的只读视图：第 i 项是第 i 个输入行的外部 ID。
   const std::vector<uint64_t>* request_ids = nullptr;
   const ParameterValues* params = nullptr;
+  // 可选槽的省略行保持 nullptr；written_count 仅计算实际写入的目标。
+  bool required = true;
 
   std::string Label() const { return type + "/" + name; }
 
@@ -174,6 +176,7 @@ using DecodeInputFn = int (*)(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               AlgContext* context, AdapterStatus* status);
 
+// 成功时 written_count 必须等于实际写入的非空目标数。
 using EncodeOutputFn = int (*)(AlgContext* context,
                                const OutputEncodeOptions& options,
                                ExternalOutputBatchView* destination,

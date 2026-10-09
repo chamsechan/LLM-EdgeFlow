@@ -669,7 +669,8 @@ TEST_F(IoConverterRegistryTest, CommonIsSelectedExplicitlyAndNeverImplied) {
   EXPECT_EQ(diagnostic.path, "/io/output/0");
 }
 
-TEST_F(IoConverterRegistryTest, DuplicateItemsAndHostStructsAreRejected) {
+TEST_F(IoConverterRegistryTest,
+       DuplicatePairsRejectedAndDistinctBusinessesAllowed) {
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
   auto document = Document();
@@ -684,7 +685,7 @@ TEST_F(IoConverterRegistryTest, DuplicateItemsAndHostStructsAreRejected) {
   EXPECT_EQ(diagnostic.code, "DUPLICATE_IO_ENTRY");
   EXPECT_EQ(diagnostic.path, "/io/output/1");
 
-  // 同一宿主结构体在一侧只能出现一次。
+  // 同一宿主结构体在一侧可以出现多次，只要业务名不同且端口不冲突。
   auto other = MakeInput("other_biz");
   other.service_type = 9002;
   other.logical_ports = {NodePortDefinition("other_port", "TextBatch", true)};
@@ -692,9 +693,8 @@ TEST_F(IoConverterRegistryTest, DuplicateItemsAndHostStructsAreRejected) {
   document = Document();
   document["io"]["input"].push_back(
       {{"type", "entity_in"}, {"name", "other_biz"}});
-  EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
-  EXPECT_EQ(diagnostic.code, "INVALID_COMBINATION");
-  EXPECT_EQ(diagnostic.path, "/io/input/1");
+  EXPECT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
+      << diagnostic.message;
 }
 
 TEST_F(IoConverterRegistryTest, MultipleInputItemsMustPublishDistinctPorts) {

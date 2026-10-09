@@ -88,6 +88,11 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 ```
 
 每项只允许 `type`、`name`、`params`；`params` 省略表示全部使用默认值。同一侧的（`type`, `name`）不能重复。
+宿主 key 的后缀始终是 `type`。同侧 `type` 唯一时，前缀由宿主选择；
+同一 `type` 上选择了多个业务时，key 必须写成 `<name>.<type>`，例如
+`entity_extract.entity_in` 与 `translate.entity_in`。`service_type` 只校验载荷，
+不用于猜测 key 属于哪一项。每个 converter 只读取本项的槽视图。
+
 一个业务由多个宿主结构体组成时（图片与问题），`io.input` 写多项，各项按批内序号配对、条数必须相同，
 请求 ID 取自带 `request_id` 的结构体。
 
@@ -249,13 +254,14 @@ Demo 不理解载荷语义：它只构造载体、持有缓冲、调用 SDK、�
 `demo/main.cpp`）：
 
 1. 请求构造：`demo/input/<载体>_input.cpp` 实现 `BuildRequestsFn`，从数据集读入样本，为每条样本构造
-   宿主输入结构，按 `DemoIoKey(输入项)`（即 `demo.<type>`）写入 `DemoRequestBatch::requests`，
+   宿主输入结构，按 `DemoIoKey(输入项)`（即 `<name>.<type>`）写入 `DemoRequestBatch::requests`，
    并让 `storage` 持有字符串及数组直到运行结束；每条请求供结果显示读取的信息放入 `request_info`，
    均为可选项。用 `REGISTER_DEMO_INPUT("结构名[,结构名...]", 函数)` 注册。
 2. 结果显示：`demo/output/<载体>_output.cpp` 实现 `ShowResultFn`，把输出结构的字段复制到本地值，
    写入 `request_id`、真实 `status_code`（不能固定填零）和 `results.jsonl` 的 `output` 字段，
    再打印。读取 `request_info` 时缺失要降级显示。用 `REGISTER_DEMO_OUTPUT("结构名", 函数)` 注册。
-   多个输出项的字段同名时，公共流程以输出项的 `type` 作前缀合并。
+   多个输出项的字段同名时，公共流程以输出项的 `type` 作前缀合并；
+   同 type 多项时使用 `type/name`，避免覆盖。
 3. 公共流程 `RunOperatorDemo`（`demo/common/operator_runner.h`）只有一份：取契约、创建句柄、执行
    Control、按 `batch_size` 分批 Process、对每条结果的每个输出项调用结果显示、写
    `results.jsonl` 与 `summary.json`。Process 返回成功表示调用完成，业务是否逐条成功还需检查

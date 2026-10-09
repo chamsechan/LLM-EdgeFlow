@@ -15,8 +15,7 @@ namespace llm_edgeflow {
 
 struct FrameOutputBinding {
   std::string key;
-  std::string logical_name;
-  std::string type_suffix;
+  std::string item_label;
 };
 
 struct AcquiredOutputBlock {
@@ -24,15 +23,15 @@ struct AcquiredOutputBlock {
   std::string key;
   std::shared_ptr<OutputPoolState> pool;
   void* raw_block = nullptr;
-  std::string logical_name;
+  std::string item_label;
 };
 
-// 按每个输入项的 type 从宿主 key 中取出结构体，校验结构，并核对
-// service_type 是否等于该项登记的取值。
+// type 唯一时按后缀寻址，复用时使用 <name>.<type>；每个 converter
+// 获得独立的槽视图。校验结构后核对 service_type。
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
     const std::vector<SelectedInput>& items, const InputLimits& limits,
-    ExternalInputBatchView* out_view, std::string* error);
+    std::vector<ExternalInputBatchView>* out_views, std::string* error);
 
 int ResolveOperatorOutputs(
     const llm_edgeflow::operator_api::NamedIoBatch& outputs,

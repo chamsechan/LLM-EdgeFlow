@@ -31,13 +31,20 @@ the `io` entries, converter parameters and capacities. It is not a Pipeline Node
 5. Each registration is one (struct, business) pair: `type` is the host struct (map key suffix such as `doc_in`), `name` the business (such as `doc_qa`), and `service_type` the value of the struct's `service_type` member for that business (omitted for the reserved `common` name and for structs without the member). The framework checks `service_type` before each request reaches the callback and sets it on output structs. The converter's logical port names are the Blackboard keys. External Pipeline JSON requires root `io` with `input` and `output` arrays whose entries select registrations by (`type`, `name`) and may override the converter's `params`; Integration builds the internal IO boundary from the selected registrations, and Core has no business concept. Demo resolves its runner through the SDK configuration query; neither CLI nor Profile accepts a business selector. The same (`type`, `name`) twice in one direction, or a duplicated `service_type` within one struct, is a registry conflict that fails SDK initialization. An unregistered (`type`, `name`) reports `UNKNOWN_CONVERTER` and never falls back to `common`. Platform `service_type` members and placeholder values are mock stand-ins to verify against the real headers inside the internal network.
 6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
 
+Host keys keep the registered type as their suffix. When that type occurs once on a side,
+the host chooses the prefix; repeated types require `<name>.<type>`. `service_type` validates
+the payload and does not infer item identity. Each converter receives only its own slot view.
+Each output item has a separate pool keyed internally by `type/name`. Optional output views
+keep omitted positions null; successful `written_count` is the number of non-null targets written.
+
 The Process batch bound is the framework constant `kMaxProcessBatchSize` (64); converters do not declare one.
 [Operator creation](../../../../src/adapter/operator/operator_adapter.cpp) further caps the effective
 Process batch limit at the output pool depth.
 
 Converter parameters are an ordinary `Parameters<Params>` declaration (`params` on the Definition), read through `options.Params<Params>()`. Every string field of an output struct needs a `MaxBytes("field", ...)` size parameter named `<field>_max_bytes`, with a default between 1 and the platform maximum; the registry audit checks this.
 
-For one required host slot, one business payload stream and one payload/result per request,
+For one host slot, one business payload stream and one payload/result per request
+(the input slot must be required; output slots may be optional),
 use `DecodeRequestRows` / `EncodeResultRows`
 from `converter_authoring.h`. Business callbacks handle one owned payload or one borrowed output row;
 helpers own looping, provenance, request IDs and diagnostic location. `OutputStringWriter`

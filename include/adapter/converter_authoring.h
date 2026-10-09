@@ -305,20 +305,27 @@ int EncodeResultRows(
   if (!IndexResults(results, ids, &ordered, "res", options.Label().c_str(),
                     status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
+  size_t non_null_written = 0;
   for (size_t i = 0; i < ordered.size(); ++i) {
     auto* output = destination->GetSlot<Host>(slot, i);
-    if (!output)
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, std::string("Missing ") + slot + " slot block in output view",
-          slot, options.Label().c_str(), static_cast<int>(i));
+    if (!output) {
+      if (options.required) {
+        return AdapterValidationHelper::ReturnBufferTooSmall(
+            status,
+            std::string("Missing ") + slot + " slot block in output view", slot,
+            options.Label().c_str(), static_cast<int>(i));
+      }
+      continue;
+    }
     output->request_id = (*ids)[i];
     const auto result =
         encode(ordered[i]->data, output,
                OutputStringWriter(*destination, slot, options, i));
     if (!result.IsOk())
       return ReturnRowStatus(result, options.Label(), i, status);
+    ++non_null_written;
   }
-  if (written_count) *written_count = ordered.size();
+  if (written_count) *written_count = non_null_written;
   return COMPANY_ALG_SUCCESS;
 }
 
