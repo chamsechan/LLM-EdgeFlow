@@ -48,7 +48,7 @@ bool ModelRegistry::Register(const ModelDefinition& definition,
     }
 
     std::string schema_error;
-    if (!ValidateConfigFieldDefinitions(definition.config_fields,
+    if (!ValidateConfigFieldDefinitions(definition.params.Fields(),
                                         &schema_error)) {
       RecordConflict("Model " + definition.model_type +
                      " schema validation failed: " + schema_error);

@@ -37,8 +37,8 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
     spec.model_type = model_plan.model_type;
     spec.backend_type = model_plan.backend;
     spec.model_path = model_plan.resolved_model_path;
-    spec.model_config = model_plan.normalized_model_config;
-    spec.backend_config = model_plan.normalized_backend_config;
+    spec.model_params = model_plan.normalized_model_config;
+    spec.backend_params = model_plan.normalized_backend_config;
     const auto& runtime_options = session->GetRuntimeOptions();
     if (runtime_options.has_device_id) {
       spec.execution_target.device_id = runtime_options.device_id;

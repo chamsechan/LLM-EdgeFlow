@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "contracts/config_schema.h"
+#include "contracts/parameter_set.h"
 
 namespace llm_edgeflow {
 
@@ -80,11 +80,8 @@ struct ModelDefinition {
   std::string capability;
   std::string description;
   ExecutionProtocol required_protocol = ExecutionProtocol::kTensorGraph;
-  std::vector<ConfigFieldDefinition> config_fields;
+  ParameterSet params;
   InferenceConcurrency concurrency = InferenceConcurrency::kSerialized;
-  // 对 schema 归一化后的配置做纯校验，由预检和运行时实例化共用。
-  // 不分配会话、不加载模型、不做外部 I/O。
-  std::function<bool(const nlohmann::json&, std::string*)> validate_config;
 };
 
 /**
@@ -94,10 +91,8 @@ struct BackendDefinition {
   std::string backend_type;
   std::string description;
   std::vector<ExecutionProtocol> supported_protocols;
-  std::vector<ConfigFieldDefinition> config_fields;
+  ParameterSet params;
   InferenceConcurrency concurrency = InferenceConcurrency::kSerialized;
-  // 对归一化后的配置做纯校验；不分配会话，不做外部 I/O。
-  std::function<bool(const nlohmann::json&, std::string*)> validate_config;
 };
 
 inline const char* ExecutionProtocolName(ExecutionProtocol protocol) noexcept {

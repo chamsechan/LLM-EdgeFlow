@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -10,8 +11,10 @@ namespace llm_edgeflow {
 
 class BertWordPieceTokenizer;
 
-bool ValidateBertModelConfig(const nlohmann::json& config,
-                             std::string* diagnostic);
+std::optional<int64_t> StaticOutputDim(const ITensorGraphSession& session,
+                                       const std::string& output_name);
+
+std::optional<int64_t> StaticSequenceLength(const ITensorGraphSession& session);
 
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
     const std::shared_ptr<IBackendSession>& backend_session,

@@ -28,6 +28,16 @@ static std::atomic<int> g_model_create_count{0};
 static BackendLoadSpec g_last_backend_load_spec{
     ExecutionProtocol::kTensorGraph};
 
+struct MockBackendParams {
+  std::string device;
+  int threads;
+};
+
+struct MockModelParams {
+  int max_length;
+  bool normalize;
+};
+
 // Mock Backend 会话
 class MockBackendSession : public IBackendSession {
  public:
@@ -102,12 +112,11 @@ class MockEmbeddingModel : public IModel {
   inline static constexpr char kCapability[] = "embedding";
 
   MockEmbeddingModel(std::string model_type, std::string capability,
-                     InferenceConcurrency concurrency,
-                     nlohmann::json model_config)
+                     InferenceConcurrency concurrency, MockModelParams params)
       : model_type_(std::move(model_type)),
         capability_(std::move(capability)),
         concurrency_(concurrency),
-        model_config_(std::move(model_config)) {}
+        params_(std::move(params)) {}
 
   const std::string& ModelType() const noexcept override { return model_type_; }
   const std::string& Capability() const noexcept override {
@@ -117,13 +126,13 @@ class MockEmbeddingModel : public IModel {
     return concurrency_;
   }
 
-  const nlohmann::json& ModelConfig() const noexcept { return model_config_; }
+  const MockModelParams& Params() const noexcept { return params_; }
 
  private:
   std::string model_type_;
   std::string capability_;
   InferenceConcurrency concurrency_;
-  nlohmann::json model_config_;
+  MockModelParams params_;
 };
 
 // 绑定 Mock Model 的 Node
@@ -183,16 +192,13 @@ class ModelBackendPipelineTest : public ::testing::Test {
       bdef.description = "Mock backend for tests";
       bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
       bdef.concurrency = InferenceConcurrency::kConcurrent;
-      bdef.config_fields = {
-          {"device",
-           ConfigValueKind::kString,
-           false,
-           "cpu",
-           std::nullopt,
-           std::nullopt,
-           {"cpu", "cuda"}},
-          {"threads", ConfigValueKind::kInteger, false, 4, 1.0, 64.0},
-      };
+      bdef.params = Parameters<MockBackendParams>{
+          Field("device", &MockBackendParams::device)
+              .Default("cpu")
+              .Enum({"cpu", "cuda"}),
+          Field("threads", &MockBackendParams::threads)
+              .Default(4)
+              .Range(1, 64)};
       BackendRegistry::Instance().Register(bdef, []() {
         g_backend_create_count.fetch_add(1);
         return std::make_unique<MockInferenceBackend>();
@@ -208,17 +214,18 @@ class ModelBackendPipelineTest : public ::testing::Test {
       mdef.description = "Mock embedding model for tests";
       mdef.required_protocol = ExecutionProtocol::kTensorGraph;
       mdef.concurrency = InferenceConcurrency::kConcurrent;
-      mdef.config_fields = {
-          {"max_length", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0},
-          {"normalize", ConfigValueKind::kBoolean, false, true},
-      };
-      ModelRegistry::Instance().Register(
-          mdef, [](const ModelCreateContext& ctx, std::string*) {
-            g_model_create_count.fetch_add(1);
-            return std::make_shared<MockEmbeddingModel>(
-                MockEmbeddingModel::kModelType, MockEmbeddingModel::kCapability,
-                InferenceConcurrency::kConcurrent, ctx.model_config);
-          });
+      mdef.params = Parameters<MockModelParams>{
+          Field("max_length", &MockModelParams::max_length)
+              .Default(512)
+              .Range(1, 4096),
+          Field("normalize", &MockModelParams::normalize).Default(true)};
+      ModelRegistry::Instance().Register(mdef, [](const ModelCreateContext& ctx,
+                                                  std::string*) {
+        g_model_create_count.fetch_add(1);
+        return std::make_shared<MockEmbeddingModel>(
+            MockEmbeddingModel::kModelType, MockEmbeddingModel::kCapability,
+            InferenceConcurrency::kConcurrent, ctx.Params<MockModelParams>());
+      });
     }
   }
 
@@ -521,8 +528,8 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
 
   auto mock_model = std::dynamic_pointer_cast<MockEmbeddingModel>(model);
   ASSERT_NE(mock_model, nullptr);
-  EXPECT_EQ(mock_model->ModelConfig()["max_length"], 128);
-  EXPECT_EQ(mock_model->ModelConfig()["normalize"], true);  // 注入的默认值
+  EXPECT_EQ(mock_model->Params().max_length, 128);
+  EXPECT_EQ(mock_model->Params().normalize, true);  // 注入的默认值
 }
 
 TEST_F(ModelBackendPipelineTest,

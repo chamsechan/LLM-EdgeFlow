@@ -29,45 +29,66 @@ TEST(WhisperCppBackendTest, RegistryAndDefinitionAreConsistentWithBuild) {
       definition->supported_protocols,
       std::vector<ExecutionProtocol>({ExecutionProtocol::kAudioTranscription}));
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kSerialized);
-  ASSERT_EQ(definition->config_fields.size(), 1U);
-  EXPECT_EQ(definition->config_fields[0].name, "n_threads");
-  EXPECT_EQ(definition->config_fields[0].kind, ConfigValueKind::kInteger);
+  ASSERT_EQ(definition->params.Fields().size(), 1U);
+  EXPECT_EQ(definition->params.Fields()[0].name, "n_threads");
+  EXPECT_EQ(definition->params.Fields()[0].kind, ConfigValueKind::kInteger);
 }
 
-TEST(WhisperCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
+TEST(WhisperCppBackendTest, MissingInvalidPathAndWrongProtocolFailClosed) {
   WhisperCppBackend backend;
+  const auto definition = BackendRegistry::Instance().Find("whisper_cpp");
 
   std::string diagnostic;
   BackendLoadSpec missing{ExecutionProtocol::kAudioTranscription};
   missing.model_path = "./models/does-not-exist.bin";
+  if (definition) {
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                         &missing.params, &diagnostic))
+        << diagnostic;
+  }
   EXPECT_EQ(backend.Load(missing, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
   BackendLoadSpec directory{ExecutionProtocol::kAudioTranscription};
   directory.model_path = ".";
+  if (definition) {
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                         &directory.params, &diagnostic))
+        << diagnostic;
+  }
   EXPECT_EQ(backend.Load(directory, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  BackendLoadSpec unknown{ExecutionProtocol::kAudioTranscription};
-  unknown.model_path = "./models/does-not-exist.bin";
-  unknown.backend_config = {{"unknown_field", 123}};
-  EXPECT_EQ(backend.Load(unknown, &diagnostic), nullptr);
+  BackendLoadSpec wrong_protocol{ExecutionProtocol::kTextGeneration};
+  wrong_protocol.model_path = "./models/does-not-exist.bin";
+  if (definition) {
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                         &wrong_protocol.params, &diagnostic))
+        << diagnostic;
+  }
+  EXPECT_EQ(backend.Load(wrong_protocol, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
+}
+
+TEST(WhisperCppBackendTest,
+     ParameterParsingRejectsUnknownFieldsAndInvalidThreads) {
+  const auto definition = BackendRegistry::Instance().Find("whisper_cpp");
+  if (!definition) GTEST_SKIP() << "whisper.cpp support is disabled";
+
+  std::string diagnostic;
+  std::shared_ptr<const ParameterValues> params;
+  EXPECT_FALSE(
+      definition->params.Parse({{"unknown_field", 123}}, &params, &diagnostic));
+  EXPECT_EQ(params, nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
 
   diagnostic.clear();
-  BackendLoadSpec invalid_threads{ExecutionProtocol::kAudioTranscription};
-  invalid_threads.model_path = "./models/does-not-exist.bin";
-  invalid_threads.backend_config = {{"n_threads", 0}};
-  EXPECT_EQ(backend.Load(invalid_threads, &diagnostic), nullptr);
+  EXPECT_FALSE(
+      definition->params.Parse({{"n_threads", 0}}, &params, &diagnostic));
+  EXPECT_EQ(params, nullptr);
   EXPECT_NE(diagnostic.find("n_threads"), std::string::npos);
-
-  diagnostic.clear();
-  BackendLoadSpec wrong_protocol{ExecutionProtocol::kTextGeneration};
-  wrong_protocol.model_path = "./models/does-not-exist.bin";
-  EXPECT_EQ(backend.Load(wrong_protocol, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
 }
 
 TEST(WhisperCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
@@ -78,6 +99,11 @@ TEST(WhisperCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   spec.execution_target.platform = "NPU";
   spec.execution_target.device_id = 0;
   std::string diagnostic;
+  if (const auto definition = BackendRegistry::Instance().Find("whisper_cpp")) {
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
+                                         &diagnostic))
+        << diagnostic;
+  }
   EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("CPU"), std::string::npos);
 
@@ -107,6 +133,12 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
 
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = "./models/does-not-exist.bin";
+  if (const auto definition = BackendRegistry::Instance().Find("whisper_cpp")) {
+    std::string diagnostic;
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
+                                         &diagnostic))
+        << diagnostic;
+  }
 
   // 1. 入口处抛 bad_alloc (复现 NormalizePlatform / 字符串拷贝期间的分配失败)
   {
@@ -180,9 +212,13 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
   WhisperCppBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = model_path;
-  spec.backend_config = {{"n_threads", 2}};
+  const auto definition = BackendRegistry::Instance().Find("whisper_cpp");
+  ASSERT_TRUE(definition.has_value());
+  const nlohmann::json config = {{"n_threads", 2}};
 
   std::string diagnostic;
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   auto session = backend.Load(spec, &diagnostic);
   ASSERT_NE(session, nullptr) << diagnostic;
 

@@ -1,6 +1,6 @@
 # Pipeline 模型配置改造设计
 
-> **状态**：设计已确认，待实施。
+> **状态**：统一参数机制已实施（实施总说明步骤 3）；配置格式切换待步骤 7。
 > **基线**：`main@cda1f5c`。
 > **实施**：按[实施总说明](PIPELINE_REFACTOR_GUIDE.md)的步骤进行；本文中关于 PR 划分和门禁的说法与总说明不一致时，以总说明为准。
 > **性质**：跨多个 PR 的工作计划，规则见 [plans/README](README.md) 与 [CONTRIBUTING](../CONTRIBUTING.md) §3。

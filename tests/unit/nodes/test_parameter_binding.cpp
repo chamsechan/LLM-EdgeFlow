@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "contracts/config_schema_validation.h"
+#include "contracts/parameter_set.h"
 #include "contracts/parameters.h"
 
 namespace llm_edgeflow {
@@ -19,6 +22,25 @@ struct SampleParams {
   std::vector<std::string> tags;
 };
 
+struct OptionalParams {
+  std::optional<int> count = 99;
+  std::optional<int64_t> big_id;
+  std::optional<std::string> mode;
+  std::optional<bool> enabled;
+  std::optional<float> score;
+  std::optional<double> ratio;
+};
+
+Parameters<OptionalParams> OptionalParamSpec() {
+  return Parameters<OptionalParams>{
+      Field("count", &OptionalParams::count).Range(1, 100),
+      Field("big_id", &OptionalParams::big_id),
+      Field("mode", &OptionalParams::mode).Enum({"fast", "slow"}),
+      Field("enabled", &OptionalParams::enabled),
+      Field("score", &OptionalParams::score).Range(0.0, 1.0),
+      Field("ratio", &OptionalParams::ratio).Range(0.0, 1.0)};
+}
+
 TEST(ParameterBindingTest, RequiresExactlyOnePresenceDeclaration) {
   EXPECT_THROW((Parameters<SampleParams>{Field("count", &SampleParams::count)}),
                std::invalid_argument);
@@ -28,6 +50,137 @@ TEST(ParameterBindingTest, RequiresExactlyOnePresenceDeclaration) {
   EXPECT_THROW((Parameters<SampleParams>{
                    Field("count", &SampleParams::count).Default(1).Required()}),
                std::invalid_argument);
+}
+
+TEST(ParameterBindingTest, OptionalScalarFieldsAreAbsentWithoutDefaults) {
+  const auto schema = OptionalParamSpec();
+  std::string diagnostic;
+  const auto absent = schema.Parse(nlohmann::json::object(), &diagnostic);
+  ASSERT_TRUE(absent.has_value()) << diagnostic;
+  EXPECT_FALSE(absent->count.has_value());
+  EXPECT_FALSE(absent->big_id.has_value());
+  EXPECT_FALSE(absent->mode.has_value());
+  EXPECT_FALSE(absent->enabled.has_value());
+  EXPECT_FALSE(absent->score.has_value());
+  EXPECT_FALSE(absent->ratio.has_value());
+  ASSERT_EQ(schema.Fields().size(), 6U);
+  for (const auto& field : schema.Fields()) {
+    EXPECT_FALSE(field.required);
+    EXPECT_TRUE(field.default_value.is_null());
+    const auto catalog_field = ConfigFieldToJson(field);
+    EXPECT_EQ(catalog_field["required"], false);
+    EXPECT_FALSE(catalog_field.contains("default"));
+  }
+
+  const auto supplied = schema.Parse({{"count", 4},
+                                      {"big_id", 99999999999LL},
+                                      {"mode", "slow"},
+                                      {"enabled", false},
+                                      {"score", 0.25},
+                                      {"ratio", 0.75}},
+                                     &diagnostic);
+  ASSERT_TRUE(supplied.has_value()) << diagnostic;
+  EXPECT_EQ(supplied->count, 4);
+  EXPECT_EQ(supplied->big_id, 99999999999LL);
+  EXPECT_EQ(supplied->mode, "slow");
+  ASSERT_TRUE(supplied->enabled.has_value());
+  EXPECT_FALSE(*supplied->enabled);
+  ASSERT_TRUE(supplied->score.has_value());
+  EXPECT_FLOAT_EQ(*supplied->score, 0.25f);
+  ASSERT_TRUE(supplied->ratio.has_value());
+  EXPECT_DOUBLE_EQ(*supplied->ratio, 0.75);
+}
+
+TEST(ParameterBindingTest, OptionalFieldsRejectPresenceDeclarations) {
+  EXPECT_THROW((Parameters<OptionalParams>{
+                   Field("count", &OptionalParams::count).Required()}),
+               std::invalid_argument);
+  EXPECT_THROW((Parameters<OptionalParams>{
+                   Field("count", &OptionalParams::count).Default(1)}),
+               std::invalid_argument);
+  EXPECT_THROW(
+      (Parameters<OptionalParams>{
+          Field("count", &OptionalParams::count).Required().Default(1)}),
+      std::invalid_argument);
+}
+
+TEST(ParameterBindingTest, OptionalFieldsEnforceScalarTypesAndConstraints) {
+  const auto schema = OptionalParamSpec();
+  for (const auto& invalid : std::vector<nlohmann::json>{
+           {{"count", 0}},
+           {{"count", 101}},
+           {{"count", "4"}},
+           {{"count", nullptr}},
+           {{"count", uint64_t{4294967298ULL}}},
+           {{"big_id", std::numeric_limits<uint64_t>::max()}},
+           {{"mode", "other"}},
+           {{"enabled", 1}},
+           {{"score", -0.01}},
+           {{"score", std::numeric_limits<double>::max()}},
+           {{"ratio", 1.01}}}) {
+    SCOPED_TRACE(invalid.dump());
+    std::string diagnostic;
+    EXPECT_FALSE(schema.Parse(invalid, &diagnostic).has_value());
+    EXPECT_FALSE(diagnostic.empty());
+  }
+}
+
+TEST(ParameterBindingTest, ParameterSetParsesRawAndNormalizedValuesEqually) {
+  auto schema = Parameters<SampleParams>{
+      Field("mode", &SampleParams::mode).Default("fast"),
+      Field("count", &SampleParams::count).Default(10).Range(1, 100)};
+  schema.Prepare([](SampleParams* params, std::string*) {
+    params->count *= 2;
+    return true;
+  });
+  ParameterSet set(std::move(schema));
+  ASSERT_EQ(set.Fields().size(), 2U);
+  const nlohmann::json raw = {{"mode", "slow"}};
+  nlohmann::json normalized;
+  std::vector<ConfigFieldValidationError> errors;
+  ASSERT_TRUE(
+      ValidateAndNormalizeFields(set.Fields(), raw, &normalized, &errors));
+  EXPECT_EQ(normalized, (nlohmann::json{{"mode", "slow"}, {"count", 10}}));
+  std::string diagnostic = "stale";
+  std::shared_ptr<const ParameterValues> raw_values, normalized_values;
+  ASSERT_TRUE(set.Parse(raw, &raw_values, &diagnostic)) << diagnostic;
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_TRUE(set.Parse(normalized, &normalized_values, &diagnostic))
+      << diagnostic;
+  EXPECT_EQ(raw_values->Get<SampleParams>().mode, "slow");
+  EXPECT_EQ(raw_values->Get<SampleParams>().count, 20);
+  EXPECT_EQ(normalized_values->Get<SampleParams>().mode,
+            raw_values->Get<SampleParams>().mode);
+  EXPECT_EQ(normalized_values->Get<SampleParams>().count,
+            raw_values->Get<SampleParams>().count);
+  EXPECT_THROW(raw_values->Get<OptionalParams>(), std::logic_error);
+
+  EXPECT_FALSE(set.Parse({{"count", 0}}, &raw_values, &diagnostic));
+  EXPECT_EQ(raw_values, nullptr);
+  EXPECT_FALSE(diagnostic.empty());
+  EXPECT_FALSE(set.Parse(raw, nullptr, &diagnostic));
+  EXPECT_FALSE(diagnostic.empty());
+}
+
+TEST(ParameterBindingTest, DefaultParameterSetAcceptsOnlyEmptyObject) {
+  const ParameterSet set;
+  EXPECT_TRUE(set.Fields().empty());
+  std::shared_ptr<const ParameterValues> values;
+  std::string diagnostic;
+  ASSERT_TRUE(set.Parse(nlohmann::json::object(), &values, &diagnostic));
+  ASSERT_NE(values, nullptr);
+  EXPECT_NO_THROW(values->Get<NoParameters>());
+  for (const auto& invalid :
+       std::vector<nlohmann::json>{{{"unknown_field", 1}},
+                                   nlohmann::json::array(),
+                                   nullptr,
+                                   "text",
+                                   4}) {
+    SCOPED_TRACE(invalid.dump());
+    EXPECT_FALSE(set.Parse(invalid, &values, &diagnostic));
+    EXPECT_EQ(values, nullptr);
+    EXPECT_FALSE(diagnostic.empty());
+  }
 }
 
 TEST(ParameterBindingTest, RejectsComplexParserFieldNameCollisions) {

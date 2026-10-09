@@ -2,20 +2,75 @@
 
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/bge_common/bert_model_support.h"
+#include "engine/models/common/from_model.h"
 
 namespace llm_edgeflow {
 
-static const ModelDefinition& BgeRerankerModelDefinition();
-
 namespace {
+
+struct Params {
+  std::string tokenizer_file;
+  bool do_lower_case = true;
+  std::optional<int64_t> max_length;
+  std::string output_name;
+  std::string score_activation;
+  int max_batch_size = 4;
+};
+
+Parameters<Params> ParamSpec() {
+  auto spec = Parameters<Params>(
+      {Field("tokenizer_file", &Params::tokenizer_file)
+           .Default("vocab.txt")
+           .Description("匹配该重排权重的 BERT WordPiece "
+                        "词表；相对路径基于模型资源目录，例如 "
+                        "vocab.txt，也可使用绝对路径。"),
+       Field("do_lower_case", &Params::do_lower_case)
+           .Default(true)
+           .Description(
+               "查询和候选分词前，将英文大写和全角英文字母归一为半角小写。"),
+       Field("max_length", &Params::max_length)
+           .Range(3, 4096)
+           .Description(
+               "查询与候选成对编码后的总 token 长度，包含 "
+               "[CLS]/[SEP]；截断和补齐后须匹配"
+               "模型张量形状；不写时从模型输入张量读取，读不到时为 512。"),
+       Field("output_name", &Params::output_name)
+           .Default("logits")
+           .Description("读取查询与候选评分的输出张量名，例如 "
+                        "logits，必须与模型导出名称一致。"),
+       Field("score_activation", &Params::score_activation)
+           .Default("sigmoid")
+           .Enum({"sigmoid", "identity"})
+           .Description("sigmoid 将模型原始分数映射至 [0,1]；identity "
+                        "直接使用原始分数。"),
+       Field("max_batch_size", &Params::max_batch_size)
+           .Default(4)
+           .Range(1, 1024)
+           .Description("一次模型执行处理的查询与候选对数量上限；必须满足 "
+                        "Backend 的批次约束。")});
+  spec.Validate([](const Params& params, std::string* diagnostic) {
+    if (params.tokenizer_file.empty()) {
+      if (diagnostic) *diagnostic = "Field 'tokenizer_file' cannot be empty";
+      return false;
+    }
+    if (params.output_name.empty()) {
+      if (diagnostic) *diagnostic = "Field 'output_name' cannot be empty";
+      return false;
+    }
+    return true;
+  });
+  return spec;
+}
 
 bool ValidateRerankOutput(const Tensor& tensor, size_t expected_batch,
                           const float** data_ptr,
@@ -59,52 +114,24 @@ BgeRerankerModel::BgeRerankerModel(std::shared_ptr<ITensorGraphSession> session,
 
 std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
                                                  std::string* diagnostic) {
-  if (!ValidateBertModelConfig(ctx.model_config, diagnostic)) return nullptr;
+  const auto& params = ctx.Params<Params>();
   auto tensor_session =
       RequireTensorGraphSession(ctx.backend_session, diagnostic);
   if (!tensor_session) return nullptr;
 
-  std::string tokenizer_file = ConfigValueOrDefault<std::string>(
-      ctx.model_config, BgeRerankerModelDefinition().config_fields,
-      "tokenizer_file");
-  bool do_lower_case = ConfigValueOrDefault<bool>(
-      ctx.model_config, BgeRerankerModelDefinition().config_fields,
-      "do_lower_case");
-  size_t max_length = ConfigValueOrDefault<int>(
-      ctx.model_config, BgeRerankerModelDefinition().config_fields,
-      "max_length");
+  int64_t max_length = 0;
+  if (!ResolveFromModel("max_length", params.max_length,
+                        StaticSequenceLength(*tensor_session), 512, &max_length,
+                        diagnostic)) {
+    return nullptr;
+  }
+  // 固定形状由资源提供，必须留出句对编码所需的三个特殊 token。
   if (max_length < 3 || max_length > 4096) {
-    if (diagnostic) {
-      *diagnostic = "Field 'max_length' must be in range [3, 4096], got: " +
-                    std::to_string(max_length);
-    }
+    SetDiagnosticNoexcept(diagnostic, "Model max_length must be in [3, 4096]");
     return nullptr;
   }
-
-  std::string output_name = ConfigValueOrDefault<std::string>(
-      ctx.model_config, BgeRerankerModelDefinition().config_fields,
-      "output_name");
-  std::string score_activation = ConfigValueOrDefault<std::string>(
-      ctx.model_config, BgeRerankerModelDefinition().config_fields,
-      "score_activation");
-  if (score_activation != "sigmoid" && score_activation != "identity") {
-    if (diagnostic) {
-      *diagnostic =
-          "Field 'score_activation' must be 'sigmoid' or 'identity', got: " +
-          score_activation;
-    }
-    return nullptr;
-  }
-
-  size_t max_batch_size = ConfigValueOrDefault<int>(
-      ctx.model_config, BgeRerankerModelDefinition().config_fields,
-      "max_batch_size");
-  if (max_batch_size == 0) {
-    if (diagnostic) {
-      *diagnostic = "Field 'max_batch_size' must be at least 1";
-    }
-    return nullptr;
-  }
+  const auto& output_name = params.output_name;
+  const size_t max_batch_size = params.max_batch_size;
 
   auto session_policy = tensor_session->GetBatchPolicy();
   if (!ValidateModelBatchLimit(session_policy, max_batch_size, diagnostic)) {
@@ -139,14 +166,14 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
   }
 
   BertWordPieceTokenizer tokenizer;
-  if (!LoadBertTokenizer(ctx.model_resource_root, tokenizer_file, do_lower_case,
-                         &tokenizer, diagnostic)) {
+  if (!LoadBertTokenizer(ctx.model_resource_root, params.tokenizer_file,
+                         params.do_lower_case, &tokenizer, diagnostic)) {
     return nullptr;
   }
 
   return std::make_shared<BgeRerankerModel>(
-      std::move(tensor_session), std::move(tokenizer), max_length,
-      std::move(output_name), std::move(score_activation), max_batch_size);
+      std::move(tensor_session), std::move(tokenizer), max_length, output_name,
+      params.score_activation, max_batch_size);
 }
 
 int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
@@ -319,61 +346,7 @@ static const ModelDefinition& BgeRerankerModelDefinition() {
     def.description =
         "BGE cross-encoder reranker model using TensorGraph protocol";
     def.required_protocol = ExecutionProtocol::kTensorGraph;
-    def.config_fields = {
-        {"tokenizer_file",
-         ConfigValueKind::kString,
-         false,
-         "vocab.txt",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "匹配该重排权重的 BERT WordPiece 词表；相对路径基于模型资源目录，例如 "
-         "vocab.txt，也可使用绝对路径。"},
-        {"do_lower_case",
-         ConfigValueKind::kBoolean,
-         false,
-         true,
-         std::nullopt,
-         std::nullopt,
-         {},
-         "查询和候选分词前，将英文大写和全角英文字母归一为半角小写。"},
-        {"max_length",
-         ConfigValueKind::kInteger,
-         false,
-         512,
-         3.0,
-         4096.0,
-         {},
-         "查询与候选成对编码后的总 token 长度，包含 "
-         "[CLS]/[SEP]；截断和补齐后须匹配模型张量形状。"},
-        {"output_name",
-         ConfigValueKind::kString,
-         false,
-         "logits",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "读取查询与候选评分的输出张量名，例如 "
-         "logits，必须与模型导出名称一致。"},
-        {"score_activation",
-         ConfigValueKind::kString,
-         false,
-         "sigmoid",
-         std::nullopt,
-         std::nullopt,
-         {"sigmoid", "identity"},
-         "sigmoid 将模型原始分数映射至 [0,1]；identity 直接使用原始分数。"},
-        {"max_batch_size",
-         ConfigValueKind::kInteger,
-         false,
-         4,
-         1.0,
-         1024.0,
-         {},
-         "一次模型执行处理的查询与候选对数量上限；必须满足 Backend "
-         "的批次约束。"},
-    };
-    def.validate_config = ValidateBertModelConfig;
+    def.params = ParamSpec();
     return def;
   }();
   return definition;

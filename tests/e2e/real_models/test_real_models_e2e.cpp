@@ -34,8 +34,8 @@ class RealModelE2ETest : public ::testing::Test {
     spec.model_type = "qwen_causal_lm";
     spec.backend_type = "llama_cpp";
     spec.model_path = model_path_.string();
-    spec.model_config = {{"add_bos", false}, {"random_seed", 17}};
-    spec.backend_config = {
+    spec.model_params = {{"add_bos", false}, {"random_seed", 17}};
+    spec.backend_params = {
         {"context_size", 512}, {"decode_batch_size", 512}, {"n_gpu_layers", 0}};
     std::string diagnostic;
     auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
@@ -192,12 +192,12 @@ TEST_F(RealModelE2ETest, RealWhisperAsrTranscribe) {
   spec.model_type = "whisper_asr";
   spec.backend_type = "whisper_cpp";
   spec.model_path = whisper_path.string();
-  spec.model_config = {
+  spec.model_params = {
       {"language", "zh"},
       {"max_audio_seconds", 30},
       {"max_output_bytes", 65536},
   };
-  spec.backend_config = {{"n_threads", 2}};
+  spec.backend_params = {{"n_threads", 2}};
 
   std::string diagnostic;
   auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
