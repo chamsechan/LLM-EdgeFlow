@@ -31,9 +31,9 @@ description: 新增或修改 LLM-EdgeFlow 的 common/custom Node。所有 Node �
 | 1:1 的 Embedding/ASR/OCR/Rerank | `--kind model -m <capability>`；检查生成端口是否符合真实算法 |
 | 多输入、参数、条件生成 | [starter_batch_node](../../../dev_support/node_authoring/starter_batch_node.cpp) |
 | 多模型能力 | [starter_multi_model_node](../../../dev_support/node_authoring/starter_multi_model_node.cpp) |
-| 拆分且分配子编号/输出 counts | [TextChunkNode](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
-| 排名与候选来源 | [TextRerankNode](../../../src/common_nodes/text_rerank_node.cpp) |
-| 生成参数加自有配置、请求上下文 | `Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`（[生成参数 helper](../../../include/nodes/generate_parameters.h)）；完整示例见 [PromptGuidedLlmNode](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
+| 拆分且分配子编号/输出 counts | [text_chunk](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
+| 排名与候选来源 | [text_rerank](../../../src/common_nodes/text_rerank_node.cpp) |
+| 生成参数加自有配置、请求上下文 | `Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`（[生成参数 helper](../../../include/nodes/generate_parameters.h)）；完整示例见 [prompt_guided_llm](../../../src/custom_nodes/prompt_guided_llm_node.cpp) |
 | 两批关联/分组/部分调用后回填 | `dev_support/node_authoring/starter_batch_{join,group,select_scatter}_node.cpp` |
 
 示例名称替换成实际操作名；已有实现直接修改，不用 `--force` 覆盖。脚手架默认生成 custom；
@@ -84,3 +84,10 @@ cmake --build build --target edgeflow_test_nodes_runner alg_pipeline_tool -j 4
 
 确认 Definition 后用 [pipeline-composer](../pipeline-composer/SKILL.md) 接回方案并执行。
 最终证据与门禁见 [Verification](../llm-edgeflow-developer-guide/references/verification.md)。
+
+节点类型登记为 snake_case；Pipeline 条目用 `type`、`name`、`params`。输入引用
+`节点名.端口名` 或 `input.端口名`，输出 converter 的 `inputs` 选择回包来源；只发布被引用的输出。
+`BindingFacts::InputLifetime` 在 `Prepare` 中提供实际输入生命周期，输出可用
+`PortFlow{"1:1", "preserve", FollowLifetime("text")}` 跟随输入。
+`llm_generate` 的 `endpoints` 必填且非空；prompt 默认 `{{input}}`，输出规则见
+[开发指南](../../../doc/developer_guide.md)。

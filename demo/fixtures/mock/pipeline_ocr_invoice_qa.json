@@ -13,7 +13,11 @@
     "output": [
       {
         "type": "od_out",
-        "name": "ocr_invoice_qa"
+        "name": "ocr_invoice_qa",
+        "inputs": {
+          "result": "parse_invoice.document",
+          "document": "read_invoice.document"
+        }
       }
     ]
   },
@@ -46,58 +50,45 @@
   ],
   "pipeline": [
     {
-      "id": "node_0_OcrDetectNode",
-      "node_type": "OcrDetectNode",
-      "config": {
+      "type": "ocr_detect",
+      "name": "read_invoice",
+      "params": {
         "bind_model": "ocr_model"
       },
       "inputs": {
-        "images": "image_paths"
-      },
-      "outputs": {
-        "document": "ocr_docs",
-        "text": "ocr_text"
+        "images": "input.image"
       }
     },
     {
-      "id": "node_1_TextTemplateNode",
-      "node_type": "TextTemplateNode",
-      "config": {
-        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】：",
-        "separator": "\n"
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
+        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】："
       },
       "inputs": {
-        "primary": "user_queries",
-        "document": "ocr_docs"
-      },
-      "outputs": {
-        "text": "prompt_text"
+        "primary": "input.question",
+        "document": "read_invoice.document"
       }
     },
     {
-      "id": "node_2_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "generate_invoice",
+      "params": {
         "bind_model": "llm_model",
-        "max_tokens": 128,
-        "temperature": 0.1
+        "temperature": 0.1,
+        "endpoints": {
+          "invoice": {}
+        }
       },
       "inputs": {
-        "prompt": "prompt_text"
-      },
-      "outputs": {
-        "text": "llm_raw_answer"
+        "input": "build_prompt.text"
       }
     },
     {
-      "id": "node_3_StructuredJsonParseNode",
-      "node_type": "StructuredJsonParseNode",
-      "config": {},
+      "type": "structured_json_parse",
+      "name": "parse_invoice",
       "inputs": {
-        "text": "llm_raw_answer"
-      },
-      "outputs": {
-        "document": "extracted_invoice_json"
+        "text": "generate_invoice.text"
       }
     }
   ]

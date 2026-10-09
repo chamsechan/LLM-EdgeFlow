@@ -13,7 +13,11 @@ namespace llm_edgeflow {
   X(kFieldRange, "FIELD_RANGE")                                  \
   X(kInvalidCombination, "INVALID_COMBINATION")                  \
   X(kDuplicateModelName, "DUPLICATE_MODEL_NAME")                 \
-  X(kDuplicateNodeId, "DUPLICATE_NODE_ID")                       \
+  X(kDuplicateNodeName, "DUPLICATE_NODE_NAME")                   \
+  X(kInvalidNodeName, "INVALID_NODE_NAME")                       \
+  X(kUnknownNodeReference, "UNKNOWN_NODE_REFERENCE")             \
+  X(kUnknownPortReference, "UNKNOWN_PORT_REFERENCE")             \
+  X(kPortTypeMismatch, "PORT_TYPE_MISMATCH")                     \
   X(kUnknownNodeType, "UNKNOWN_NODE_TYPE")                       \
   X(kUnknownModelType, "UNKNOWN_MODEL_TYPE")                     \
   X(kUnknownBackend, "UNKNOWN_BACKEND")                          \
@@ -33,7 +37,6 @@ namespace llm_edgeflow {
   X(kMissingInputProducer, "MISSING_INPUT_PRODUCER")             \
   X(kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER")           \
   X(kMissingOutputProducer, "MISSING_OUTPUT_PRODUCER")           \
-  X(kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT")           \
   X(kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH")       \
   X(kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH")         \
   X(kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH")             \

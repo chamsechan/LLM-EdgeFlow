@@ -102,13 +102,12 @@ class BoundOutput {
  public:
   explicit BoundOutput(std::string logical_name, std::string default_key = {})
       : logical_name_(std::move(logical_name)),
-        actual_key_(default_key.empty() ? logical_name_
-                                        : std::move(default_key)),
+        actual_key_(std::move(default_key)),
         type_id_(BlackboardTypeTraits<T>::TypeName()) {}
 
   explicit BoundOutput(const BlackboardKey<T>& key)
       : logical_name_(key.name),
-        actual_key_(key.name),
+        actual_key_(),
         type_id_(key.type_id ? key.type_id
                              : BlackboardTypeTraits<T>::TypeName()) {
     if (key.type_id &&
@@ -119,10 +118,8 @@ class BoundOutput {
   }
 
   void Resolve(std::string actual_key) {
-    if (!actual_key.empty()) {
-      actual_key_ = std::move(actual_key);
-      is_bound_ = true;
-    }
+    actual_key_ = std::move(actual_key);
+    is_bound_ = !actual_key_.empty();
   }
 
   const std::string& LogicalName() const { return logical_name_; }
@@ -131,6 +128,7 @@ class BoundOutput {
   bool IsBound() const { return is_bound_; }
 
   void Set(AlgContext& ctx, T value) const {
+    if (actual_key_.empty()) return;
     if (!ctx.Publish(actual_key_, std::move(value))) {
       throw std::logic_error("Duplicate output publication for key '" +
                              actual_key_ + "'");
@@ -183,7 +181,7 @@ class NodeBase : public INode {
       return init_ctx.Fail("Node initialization requires ValidatedNodePlan");
     }
     try {
-      return InitNode(init_ctx, init_ctx.plan->normalized_config,
+      return InitNode(init_ctx, init_ctx.plan->normalized_params,
                       *init_ctx.session_ctx);
     } catch (const std::exception& e) {
       ALG_LOG_ERROR("[NodeBase] Exception in InitNode for %s: %s\n",

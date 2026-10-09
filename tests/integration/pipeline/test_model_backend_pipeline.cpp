@@ -135,12 +135,12 @@ class MockEmbeddingModel : public IModel {
 // 绑定 Mock Model 的 Node
 class MockEmbeddingConsumerNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "MockEmbeddingConsumerNode";
+  inline static constexpr char kNodeType[] = "mock_embedding_consumer";
 
   bool Init(const NodeInitContext& init_ctx) override {
     if (!init_ctx.plan || !init_ctx.session_ctx) return false;
     std::string model_name =
-        init_ctx.plan->normalized_config.value("bind_model", "");
+        init_ctx.plan->normalized_params.value("bind_model", "");
     model_ =
         init_ctx.session_ctx->GetModelManager().GetModel<IModel>(model_name);
     return model_ != nullptr;
@@ -339,10 +339,10 @@ TEST_F(ModelBackendPipelineTest,
            {"params", {{"max_length", 256}}},
        }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
@@ -376,8 +376,8 @@ TEST_F(ModelBackendPipelineTest,
 
 TEST_F(ModelBackendPipelineTest,
        UnifiedQwenPlanAcceptsEveryRegisteredGenerationBackend) {
-  const auto boundary =
-      MakeTestBoundary({{"prompt", "TextBatch"}}, {{"text", "TextBatch"}});
+  const auto boundary = MakeTestBoundary({{"input.prompt", "TextBatch"}},
+                                         {{"generate.text", "TextBatch"}});
   const auto model_definition =
       ModelRegistry::Instance().Find("qwen_causal_lm");
   ASSERT_TRUE(model_definition.has_value());
@@ -402,11 +402,14 @@ TEST_F(ModelBackendPipelineTest,
                                  {"backend", {{"type", backend_name}}},
                                  {"file", "./models/qwen/model.bin"}}})},
         {"pipeline",
-         nlohmann::json::array({{{"id", "generate"},
-                                 {"node_type", "LlmGenerateNode"},
-                                 {"inputs", {{"prompt", "prompt"}}},
-                                 {"depends_on", nlohmann::json::array()},
-                                 {"config", {{"bind_model", "llm"}}}}})},
+         nlohmann::json::array(
+             {{{"name", "generate"},
+               {"type", "llm_generate"},
+               {"inputs", {{"input", "input.prompt"}}},
+               {"depends_on", nlohmann::json::array()},
+               {"params",
+                {{"bind_model", "llm"},
+                 {"endpoints", {{"answer", nlohmann::json::object()}}}}}}})},
     };
     const auto plan = PipelineValidator::ValidateAndPlan(config, boundary);
     EXPECT_TRUE(plan.report.ok)
@@ -461,10 +464,10 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
                      {"file", "./model.bin"},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
@@ -493,10 +496,10 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
                      {"params", {{"max_length", 128}}},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
@@ -557,12 +560,12 @@ TEST_F(ModelBackendPipelineTest,
                      },
                  })},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node1"},
-                               {"node_type", "MockEmbeddingConsumerNode"},
-                               {"config", {{"bind_model", "good_model"}}}},
-                              {{"id", "node2"},
-                               {"node_type", "MockEmbeddingConsumerNode"},
-                               {"config", {{"bind_model", "bad_model"}}}}})},
+       nlohmann::json::array({{{"name", "node1"},
+                               {"type", "mock_embedding_consumer"},
+                               {"params", {{"bind_model", "good_model"}}}},
+                              {{"name", "node2"},
+                               {"type", "mock_embedding_consumer"},
+                               {"params", {{"bind_model", "bad_model"}}}}})},
   };
 
   Pipeline pipeline;
@@ -599,10 +602,10 @@ TEST_F(ModelBackendPipelineTest,
                      {"params", {{"invalid_model_param", 123}}},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
@@ -638,10 +641,10 @@ TEST_F(ModelBackendPipelineTest, ValidatorPreservesModelFile) {
                      {"file", "./models/bge/model.onnx"},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
@@ -660,10 +663,10 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
                      {"file", "/deploy/edgeflow_root/weights/bge.onnx"},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 

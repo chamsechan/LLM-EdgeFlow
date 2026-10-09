@@ -36,12 +36,13 @@ JSON 字符串翻译的运行命令、输入输出与复用范围见[翻译方�
 
 ## 配置中的连接与模型
 
-节点保留 `id`、`node_type`、`config`，直接用顶层 `inputs` / `outputs` 将逻辑端口映射到数据名。
-必需输入必须明确连接，可选输入省略时表示未连接；输出省略映射时使用逻辑端口名。
-Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于额外执行顺序，可以省略。
-节点在数组中的位置不决定执行顺序；生产者缺失、多个生产者或成环会被拒绝。
+节点条目为 `type`、`name`、可选 `params` 和 `inputs` / `depends_on`。
+`inputs` 将逻辑输入端口连到 `节点名.输出端口` 或 `input.逻辑端口`；输出项同样用 `inputs` 指定回包来源。
+节点名不能为 `input` / `output` 或含 `.`。Validator 推导数据依赖，`depends_on` 仅补充执行顺序。
+数组位置不决定执行顺序；引用不存在、类型不符或成环会被拒绝。只发布被引用的输出。
+`text_embedding` 的缓存与 `vector_top_k` 的共享候选由实际输入生命周期决定，无需重复配置。
 
-模型类别由条目 `type` 指定，所选实现来自注册 Definition。节点的模型引用（如 `config.bind_model`）
+模型类别由条目 `type` 指定，所选实现来自注册 Definition。节点的模型引用（如 `params.bind_model`）
 必须显式填写 `models[].name`；普通参数仍按 Definition 补齐默认值。
 `max_parallel_workers` 范围为 1–64，默认 1，大于 1 时启用并行调度和相应安全检查。
 
@@ -55,8 +56,11 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 {
   "io": {
     "input": [{"type":"keyword_in", "name":"keyword_match"}],
-    "output": [{"type":"keyword_out", "name":"keyword_match"}]
-  }
+    "output": [{"type":"keyword_out", "name":"keyword_match",
+                "inputs":{"matches":"match_keywords.matches"}}]
+  },
+  "pipeline": [{"type":"text_rule_match", "name":"match_keywords",
+                "inputs":{"text":"input.sentence_text"}}]
 }
 ```
 
@@ -81,7 +85,7 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 ./build/alg_pipeline_tool export-schema > build/pipeline.schema.json
 ```
 
-选定 `node_type` 后可查看该节点的配置字段、端口名、说明、默认值及范围；Model/Backend 配置随类型选择。
+选定节点 `type` 后可查看该节点的配置字段、端口名、说明、默认值及范围；Model/Backend 配置随类型选择。
 注册或构建选项变化后重新刷新。Schema 只包含所选工具构建的能力；编辑 Mock 配置时用
 `alg_pipeline_tool_test export-schema` 导出到另一文件，再关联 `demo/fixtures/mock/pipeline*.json`。
 默认关联不覆盖 Mock 和故意非法的测试夹具，其他构建目录或自建方案需要调整编辑器关联。

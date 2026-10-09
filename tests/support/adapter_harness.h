@@ -28,6 +28,14 @@ std::shared_ptr<const ParameterValues> ParseConverterParametersForTest(
   return values;
 }
 
+template <typename Definition>
+IoPortBindings ConverterPortsForTest(const Definition& definition) {
+  IoPortBindings ports;
+  for (const auto& port : definition.logical_ports)
+    ports.emplace(port.logical_name, port.logical_name);
+  return ports;
+}
+
 template <typename Options>
 class ParsedConverterOptions : public Options {
  public:
@@ -35,14 +43,23 @@ class ParsedConverterOptions : public Options {
   explicit ParsedConverterOptions(
       const Definition& definition,
       const nlohmann::json& config = nlohmann::json::object())
-      : values_(ParseConverterParametersForTest(definition, config)) {
+      : ParsedConverterOptions(definition, config,
+                               ConverterPortsForTest(definition)) {}
+
+  template <typename Definition>
+  ParsedConverterOptions(const Definition& definition,
+                         const nlohmann::json& config, IoPortBindings ports)
+      : values_(ParseConverterParametersForTest(definition, config)),
+        ports_(std::make_shared<const IoPortBindings>(std::move(ports))) {
     this->type = definition.type;
     this->name = definition.name;
     this->params = values_.get();
+    this->ports = ports_.get();
   }
 
  private:
   std::shared_ptr<const ParameterValues> values_;
+  std::shared_ptr<const IoPortBindings> ports_;
 };
 
 using ParsedInputOptions = ParsedConverterOptions<InputDecodeOptions>;
@@ -64,7 +81,11 @@ class AdapterHarness {
                                  : nullptr),
         output_params_(output_conv
                            ? ParseConverterParametersForTest(*output_conv)
-                           : nullptr) {}
+                           : nullptr),
+        input_ports_(input_conv ? ConverterPortsForTest(*input_conv)
+                                : IoPortBindings{}),
+        output_ports_(output_conv ? ConverterPortsForTest(*output_conv)
+                                  : IoPortBindings{}) {}
 
   explicit AdapterHarness(const InputConverterDefinition* input_conv)
       : AdapterHarness(input_conv, nullptr) {}
@@ -101,6 +122,7 @@ class AdapterHarness {
     options.type = in_conv_->type;
     options.name = in_conv_->name;
     options.params = input_params_.get();
+    options.ports = &input_ports_;
     options.request_ids = &request_ids_;
 
     return in_conv_->decode_fn(view, options, &ctx_, &status_);
@@ -140,6 +162,7 @@ class AdapterHarness {
     options.type = out_conv_->type;
     options.name = out_conv_->name;
     options.params = output_params_.get();
+    options.ports = &output_ports_;
     options.request_ids = &request_ids_;
     return out_conv_->encode_fn(&ctx_, options, view, written_count, &status_);
   }
@@ -203,6 +226,8 @@ class AdapterHarness {
   const OutputConverterDefinition* out_conv_ = nullptr;
   std::shared_ptr<const ParameterValues> input_params_;
   std::shared_ptr<const ParameterValues> output_params_;
+  IoPortBindings input_ports_;
+  IoPortBindings output_ports_;
   AlgContext ctx_;
   AdapterStatus status_;
   std::vector<uint64_t> request_ids_;

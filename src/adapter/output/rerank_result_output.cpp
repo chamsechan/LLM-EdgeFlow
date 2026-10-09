@@ -6,7 +6,6 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -16,6 +15,8 @@
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kRanked = MakeBlackboardKey<RankedTextBatch>("ranked");
 
 constexpr const char* kOutputSlot = "rerank_out";
 
@@ -29,7 +30,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
         options.Label().c_str());
   }
 
-  const auto* res = ReadOutputValue(*context, kRankedResults, options, status);
+  const auto* res = ReadOutputValue(*context, kRanked, options, status);
   if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
@@ -98,7 +99,7 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   def.name = "cross_rerank";
   def.service_type = kMockServiceCrossRerank;
   def.slot = ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kRankedResults, "N:1")};
+  def.logical_ports = {RequiredInputPort(kRanked, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;
   return def;
 }

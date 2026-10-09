@@ -56,7 +56,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   // 填充答案上下文
   TextBatch answers;
   answers.emplace_back(0, 0, "This is the answer.");
-  ctx.Publish("llm_answers", std::move(answers));
+  ctx.Publish("answer_text", std::move(answers));
 
   RuleMatchBatch intents;
   RuleMatchItem match;
@@ -64,11 +64,11 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   match.score = 0.95f;
   match.status_code = 0;
   intents.emplace_back(0, 0, match);
-  ctx.Publish("intent_matches", std::move(intents));
+  ctx.Publish("intent", std::move(intents));
 
   Int32Batch chunk_counts;
   chunk_counts.emplace_back(0, 0, 1);
-  ctx.Publish("doc_chunk_counts", std::move(chunk_counts));
+  ctx.Publish("chunk_count", std::move(chunk_counts));
 
   char ans_buf[256] = {0};
   CompanyString cs_ans{255, ans_buf};
@@ -110,9 +110,9 @@ TEST_F(ComplexConvertersTest,
   const std::string answer("a\0b", 3);
   AlgContext ctx;
   std::vector<uint64_t> request_ids{2001};
-  ctx.Publish("llm_answers", TextBatch{{0, 0, answer}});
-  ctx.Publish("intent_matches", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
-  ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
+  ctx.Publish("answer_text", TextBatch{{0, 0, answer}});
+  ctx.Publish("intent", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
+  ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
   test::ParsedOutputOptions options(*converter);
   options.request_ids = &request_ids;
 
@@ -191,7 +191,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   cand.original_sub_id = 0;
   cand.text = "Reranking is a scoring step.";
   ranked.emplace_back(0, 0, cand);
-  ctx.Publish("ranked_results", std::move(ranked));
+  ctx.Publish("ranked", std::move(ranked));
 
   CompanyOperatorRerankOutput rerank_out{0, kMockServiceCrossRerank, {}, {}, 0,
                                          0};
@@ -251,7 +251,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
       0, 0,
       JsonDocumentItem("{\"risk\":\"high\"}", true, JsonParseStatus::kOk, "",
                        {{"risk_level", "HIGH_RISK"}, {"risk_score", 0.88f}}));
-  ctx.Publish("structured_verdicts", std::move(verdicts));
+  ctx.Publish("verdict", std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Rule 12.3", 0.88f, 1, 0));
@@ -324,7 +324,7 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
   TextBatch transcripts;
   transcripts.emplace_back(0, 0, "open the front door");
-  ctx.Publish("transcripts", std::move(transcripts));
+  ctx.Publish("transcribed_text", std::move(transcripts));
 
   RuleMatchBatch slots;
   RuleMatchItem m(1, "open_door", "open", 1.0f, "r1");
@@ -332,7 +332,7 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
       {RuleMatchSource::kRule, "open_door", "r1", "open", 0.5f});
   m.slots["target"] = "front";
   slots.emplace_back(0, 0, m);
-  ctx.Publish("intent_slots", std::move(slots));
+  ctx.Publish("intent_slot", std::move(slots));
 
   char trans_buf[512] = {0};
   CompanyString cs_trans{511, trans_buf};
@@ -416,8 +416,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   query_options.request_ids = &request_ids;
   ASSERT_EQ(query_converter->decode_fn(in_view, query_options, &ctx, &status),
             0);
-  ASSERT_NE(ctx.Read<TextBatch>("user_queries"), nullptr);
-  EXPECT_EQ(ctx.Read<TextBatch>("user_queries")->front().data, "Total amount?");
+  ASSERT_NE(ctx.Read<TextBatch>("question"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("question")->front().data, "Total amount?");
 
   StructuredDocumentBatch invoices;
   JsonDocumentItem doc_item;
@@ -425,13 +425,13 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   doc_item.parse_status = JsonParseStatus::kOk;
   doc_item.json_payload = "{\"total\":123.45}";
   invoices.emplace_back(0, 0, doc_item);
-  ctx.Publish("extracted_invoice_json", std::move(invoices));
+  ctx.Publish("result", std::move(invoices));
 
   OcrDocumentBatch ocr_docs;
   OcrDocumentItem ocr_doc;
   ocr_doc.boxes.push_back({0, 0, 10, 10, "Invoice", 0.99f});
   ocr_docs.emplace_back(0, 0, ocr_doc);
-  ctx.Publish("ocr_docs", std::move(ocr_docs));
+  ctx.Publish("document", std::move(ocr_docs));
 
   // 目标 Operator od_out
   CompanyOdOutput od_out{0, kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};

@@ -4,15 +4,18 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
+#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kUserText = MakeBlackboardKey<TextBatch>("user_text");
+constexpr auto kChannelName = MakeBlackboardKey<TextBatch>("channel_name");
 
 constexpr const char* kInputSlot = "audit_in";
 
@@ -41,7 +44,8 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
           status, "Invalid user_text CompanyString", "audit_in.user_text",
           options.Label().c_str(), static_cast<int>(i));
     }
-    if (static_cast<size_t>(in->user_text->length) > biz_input::kMaxTextBytes) {
+    if (static_cast<size_t>(in->user_text->length) >
+        input_limits::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "user_text length exceeds limit", "audit_in.user_text",
           options.Label().c_str(), static_cast<int>(i));
@@ -56,7 +60,7 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
             static_cast<int>(i));
       }
       if (static_cast<size_t>(in->channel_name->length) >
-          biz_input::kMaxChannelNameBytes) {
+          input_limits::kMaxChannelNameBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "channel_name length exceeds limit",
             "audit_in.channel_name", options.Label().c_str(),
@@ -74,10 +78,10 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kUserTexts, std::move(user_texts), options.Label().c_str(),
-          status) ||
+          *context, options.Port(kUserText.name), std::move(user_texts),
+          options.Label().c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kChannelNames, std::move(channel_names),
+          *context, options.Port(kChannelName.name), std::move(channel_names),
           options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -91,7 +95,7 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
   def.name = "dialogue_audit";
   def.service_type = kMockServiceDialogueAudit;
   def.slot = ExternalInputSlot<CompanyOperatorAuditInput>(kInputSlot);
-  def.logical_ports = {OutputPort(kUserTexts), OutputPort(kChannelNames)};
+  def.logical_ports = {OutputPort(kUserText), OutputPort(kChannelName)};
   def.decode_fn = &DecodeOperatorAuditInput;
   return def;
 }

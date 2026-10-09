@@ -39,5 +39,5 @@ auto Spec() {
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextCorpusSourceNode, Spec());
+REGISTER_FUNCTION_NODE(text_corpus_source, Spec());
 }  // namespace llm_edgeflow

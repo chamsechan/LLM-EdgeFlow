@@ -60,7 +60,7 @@ auto Spec() {
       .Description("Batch starter with optional request context and one retry");
 }
 
-REGISTER_FUNCTION_NODE(StarterBatchNode, Spec());
+REGISTER_FUNCTION_NODE(starter_batch, Spec());
 
 }  // namespace starter_batch
 }  // namespace custom_nodes

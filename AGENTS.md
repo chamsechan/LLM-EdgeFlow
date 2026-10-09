@@ -60,7 +60,7 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
   shared payload semantics; Node/Catalog ports are internal. Platform mocks live only in
   `include/platform_mock/`; framework entrypoints/helpers stay under `edgeflow/`.
 - **Orchestration:** `PipelineValidator` alone derives data dependencies from explicit
-  `inputs` / `outputs` bindings and combines optional `depends_on` ordering constraints.
+  `inputs` references (`node.port`) and combines optional `depends_on` ordering constraints.
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing/resorting. Request values use
   `AlgContext` and typed `BlackboardKey<T>` ports; session resources use `SessionContext`.
 - **Capability Nodes:** common Nodes are neutral framework operations; custom Nodes are
@@ -68,6 +68,7 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
   Both are request-stateless and use ordinary functions plus typed Specs, registered through
   `REGISTER_FUNCTION_NODE`; `AuthorNode` owns the `NodeBase` runtime and generated Definition. Custom algorithms need not be
   generalized. Common Nodes, Core, and Engine must not depend on custom implementations.
+  Output lifetime may follow a connected input, and unreferenced outputs are not published.
   Nodes use typed logical ports and `IModel` capabilities, never platform structs/conversion.
 - **Model Execution:** Models own preprocessing/semantics; Backends own vendor runtime resources
   and neutral execution protocols. Register with `REGISTER_MODEL_WITH_DEFINITION` and

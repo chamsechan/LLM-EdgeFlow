@@ -12,6 +12,7 @@
 #include "adapter/operator_value_type.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 #include "tests/support/operator_nested_output_fixture.h"
 
@@ -1111,6 +1112,9 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
     view.count = 1;
     InputDecodeOptions options;
+    const llm_edgeflow::IoPortBindings options_ports =
+        llm_edgeflow::test::ConverterPortsForTest(*in_conv);
+    options.ports = &options_ports;
     options.type = in_conv->type;
     options.name = in_conv->name;
     options.params = parameters.get();
@@ -1135,7 +1139,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   ASSERT_TRUE(in_conv->params.Parse(nlohmann::json::object(), &parameters,
                                     &parameter_error))
       << parameter_error;
-  std::vector<float> samples(biz_input::kMaxAudioPcmSamples, 0);
+  std::vector<float> samples(input_limits::kMaxAudioPcmSamples, 0);
   struct Case {
     int length;
     int rate;
@@ -1152,8 +1156,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
       {0, 192001, false, false},
       {0, 8000, false, true},
       {0, 192000, false, true},
-      {biz_input::kMaxAudioPcmSamples, 16000, true, true},
-      {biz_input::kMaxAudioPcmSamples + 1, 16000, true, false}};
+      {input_limits::kMaxAudioPcmSamples, 16000, true, true},
+      {input_limits::kMaxAudioPcmSamples + 1, 16000, true, false}};
   for (const auto& test : cases) {
     CompanyOperatorAudioInput op_input{
         7, kMockServiceAudioAsrIntent,
@@ -1164,6 +1168,9 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
     view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
     view.count = 1;
     InputDecodeOptions options;
+    const llm_edgeflow::IoPortBindings options_ports =
+        llm_edgeflow::test::ConverterPortsForTest(*in_conv);
+    options.ports = &options_ports;
     options.type = in_conv->type;
     options.name = in_conv->name;
     options.params = parameters.get();

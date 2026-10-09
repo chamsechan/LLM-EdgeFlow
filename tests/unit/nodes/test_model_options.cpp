@@ -172,14 +172,14 @@ auto ValidationSpec() {
       .WithControls({ReplaceFields(39001, "replace_count", {"count"})});
 }
 
-REGISTER_FUNCTION_NODE(ModelValidationOptionsProbeNode, ValidationSpec());
+REGISTER_FUNCTION_NODE(model_validation_options_probe, ValidationSpec());
 
 }  // namespace
 
 TEST(FunctionNodeTest, ValidateModelsReceivesPreparedParamsAndRunsOnlyAtInit) {
   validation = {};
   auto model = std::make_shared<OptionsLlm>(true);
-  NodeHarness harness("ModelValidationOptionsProbeNode");
+  NodeHarness harness("model_validation_options_probe");
   harness.Config({{"bind_model", "actual_model"}, {"count", 2}})
       .BindModel("actual_model", model)
       .TextInput("text", {"payload"});
@@ -207,7 +207,7 @@ TEST(FunctionNodeTest, ValidateModelsReceivesPreparedParamsAndRunsOnlyAtInit) {
   EXPECT_EQ(model->seed_queries, 1);
 
   auto refused_model = std::make_shared<OptionsLlm>();
-  NodeHarness refused("ModelValidationOptionsProbeNode");
+  NodeHarness refused("model_validation_options_probe");
   refused.Config({{"bind_model", "refused_model"}, {"count", 7}})
       .BindModel("refused_model", refused_model)
       .TextInput("text", {"must not run"});
@@ -227,13 +227,15 @@ TEST(FunctionNodeTest, ValidateModelsReceivesPreparedParamsAndRunsOnlyAtInit) {
 
 TEST(FunctionNodeTest,
      ActualLlmNodesValidateExplicitSeedsOnceAtInitialization) {
-  for (const char* type : {"LlmGenerateNode", "PromptGuidedLlmNode"}) {
+  for (const char* type : {"llm_generate", "prompt_guided_llm"}) {
     SCOPED_TRACE(type);
-    const char* input =
-        std::string(type) == "LlmGenerateNode" ? "prompt" : "input";
+    const char* input = "input";
+    nlohmann::json config = {{"bind_model", "llm"}};
+    if (std::string(type) == "llm_generate")
+      config["endpoints"] = {{"answer", nlohmann::json::object()}};
     auto unsupported = std::make_shared<OptionsLlm>();
     NodeHarness defaults(type);
-    defaults.Config({{"bind_model", "llm"}})
+    defaults.Config(config)
         .BindModel("llm", unsupported)
         .TextInput(input, {"payload"});
     auto default_result = defaults.Run();
@@ -243,7 +245,8 @@ TEST(FunctionNodeTest,
     EXPECT_EQ(unsupported->seed_queries, 0);
 
     NodeHarness refused(type);
-    refused.Config({{"bind_model", "llm"}, {"random_seed", 0}})
+    config["random_seed"] = 0;
+    refused.Config(config)
         .BindModel("llm", unsupported)
         .TextInput(input, {"must not generate"});
     auto refusal = refused.Run();
@@ -256,7 +259,8 @@ TEST(FunctionNodeTest,
 
     auto supported = std::make_shared<OptionsLlm>(true);
     NodeHarness seeded(type);
-    seeded.Config({{"bind_model", "llm"}, {"random_seed", 17}})
+    config["random_seed"] = 17;
+    seeded.Config(config)
         .BindModel("llm", supported)
         .TextInput(input, {"payload"});
     ASSERT_TRUE(seeded.EnsureInitialized());
@@ -274,13 +278,14 @@ TEST(FunctionNodeTest,
 
 TEST(FunctionNodeTest, ActualLlmNodesKeepCallOptionsSeparateOnOneSharedModel) {
   auto model = std::make_shared<OptionsLlm>(true);
-  NodeHarness first("LlmGenerateNode"), second("PromptGuidedLlmNode");
+  NodeHarness first("llm_generate"), second("prompt_guided_llm");
   first
       .Config({{"bind_model", "shared"},
+               {"endpoints", {{"answer", nlohmann::json::object()}}},
                {"system_prompt", "first system"},
                {"random_seed", 11}})
       .BindModel("shared", model)
-      .TextInput("prompt", {"first input"});
+      .TextInput("input", {"first input"});
   second
       .Config({{"bind_model", "shared"},
                {"system_prompt", "second system"},
@@ -313,7 +318,7 @@ TEST(FunctionNodeTest, ActualLlmNodesKeepCallOptionsSeparateOnOneSharedModel) {
 TEST(FunctionNodeTest, ActualAsrNodeValidatesLanguageAtInitAndPassesItPerCall) {
   auto model = std::make_shared<OptionsAsr>();
   const AudioPcmBatch audio{{9, 3, AudioPcmPayload{{0.1f, 0.2f}, 16000}}};
-  NodeHarness defaults("AsrTranscribeNode");
+  NodeHarness defaults("asr_transcribe");
   defaults.Config({{"bind_model", "asr"}})
       .BindModel("asr", model)
       .CustomInput("audio", audio);
@@ -325,7 +330,7 @@ TEST(FunctionNodeTest, ActualAsrNodeValidatesLanguageAtInitAndPassesItPerCall) {
   EXPECT_EQ(model->language_queries, 1);
   EXPECT_TRUE(model->languages.empty());
 
-  NodeHarness english("AsrTranscribeNode");
+  NodeHarness english("asr_transcribe");
   english.Config({{"bind_model", "asr"}, {"language", "en"}})
       .BindModel("asr", model)
       .CustomInput("audio", audio);
@@ -362,7 +367,7 @@ TEST(FunctionNodeTest, ActualEmbeddingNodesUseSharedModelNormalization) {
         << diagnostic;
     auto model = GeneratedTextEmbeddingModel::Create(context, &diagnostic);
     ASSERT_NE(model, nullptr) << diagnostic;
-    NodeHarness first("TextEmbeddingNode"), second("TextEmbeddingNode");
+    NodeHarness first("text_embedding"), second("text_embedding");
     const TextBatch input{{43, 7, "shared text"}};
     for (auto* harness : {&first, &second})
       harness->Config({{"bind_model", "shared_embedding"}})

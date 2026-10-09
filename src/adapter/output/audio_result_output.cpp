@@ -4,16 +4,20 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kTranscribedText =
+    MakeBlackboardKey<TextBatch>("transcribed_text");
+constexpr auto kIntentSlot = MakeBlackboardKey<RuleMatchBatch>("intent_slot");
 
 constexpr const char* kOutputSlot = "audio_out";
 
@@ -42,11 +46,11 @@ int EncodeOperatorAudioResult(AlgContext* context,
   }
 
   const auto* transcripts =
-      ReadOutputValue(*context, kTranscripts, options, status);
+      ReadOutputValue(*context, kTranscribedText, options, status);
   if (!transcripts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_slots =
-      ReadOutputValue(*context, kIntentSlots, options, status);
+      ReadOutputValue(*context, kIntentSlot, options, status);
   if (!intent_slots) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids = RequestIds(options, status);
@@ -107,8 +111,8 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   def.name = "audio_asr_intent";
   def.service_type = kMockServiceAudioAsrIntent;
   def.slot = ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kTranscripts),
-                       RequiredInputPort(kIntentSlots)};
+  def.logical_ports = {RequiredInputPort(kTranscribedText),
+                       RequiredInputPort(kIntentSlot)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorAudioResult;
   return def;

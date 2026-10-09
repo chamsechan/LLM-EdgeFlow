@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -31,6 +32,14 @@ namespace llm_edgeflow {
 struct BindingFacts {
   bool has_bindings = false;
   std::unordered_set<std::string> connected_inputs;
+  std::unordered_map<std::string, std::string> input_lifetimes;
+
+  const std::string& InputLifetime(
+      const std::string& port_name) const noexcept {
+    const auto it = input_lifetimes.find(port_name);
+    static const std::string empty;
+    return it == input_lifetimes.end() ? empty : it->second;
+  }
 
   bool IsConnected(const std::string& port_name) const noexcept {
     return connected_inputs.count(port_name) > 0;
@@ -892,14 +901,10 @@ class Parameters {
     return ParseNormalized(normalized, facts, error);
   }
 
-  bool ValidateWithBindings(
-      const nlohmann::json& normalized,
-      const std::unordered_set<std::string>& connected_inputs,
-      std::string* error = nullptr,
-      std::string* field_path = nullptr) const noexcept {
-    BindingFacts facts;
-    facts.has_bindings = true;
-    facts.connected_inputs = connected_inputs;
+  bool ValidateWithBindings(const nlohmann::json& normalized,
+                            const BindingFacts& facts,
+                            std::string* error = nullptr,
+                            std::string* field_path = nullptr) const noexcept {
     auto parsed = ParseNormalized(normalized, facts, error, field_path);
     return parsed.has_value();
   }
@@ -964,8 +969,7 @@ class Parameters<NoParameters> {
     return NoParameters{};
   }
 
-  bool ValidateWithBindings(const nlohmann::json&,
-                            const std::unordered_set<std::string>&,
+  bool ValidateWithBindings(const nlohmann::json&, const BindingFacts&,
                             std::string* = nullptr,
                             std::string* field_path = nullptr) const noexcept {
     if (field_path) field_path->clear();

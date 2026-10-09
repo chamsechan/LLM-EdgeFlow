@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace llm_edgeflow::biz_input {
+namespace llm_edgeflow::input_limits {
 
 // 共享语义上限；各入口自行校验指针、长度和表示形式。
 inline constexpr size_t kMaxTextBytes = 64 * 1024;
@@ -18,4 +18,4 @@ inline constexpr int32_t kMaxSampleRate = 192000;
 inline constexpr size_t kMaxBufferBytes = 10 * 1024 * 1024;
 inline constexpr size_t kMaxAnyBytes = 10 * 1024 * 1024;
 
-}  // namespace llm_edgeflow::biz_input
+}  // namespace llm_edgeflow::input_limits

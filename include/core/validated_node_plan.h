@@ -29,7 +29,7 @@ struct ResolvedNodeModelBinding {
 
 struct ValidatedNodePlan {
   ParsedNodeConfig node;
-  nlohmann::json normalized_config;
+  nlohmann::json normalized_params;
   std::vector<ResolvedPortBinding> ports;
   std::vector<ResolvedNodeModelBinding> model_bindings;
 

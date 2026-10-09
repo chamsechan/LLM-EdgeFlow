@@ -13,7 +13,6 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/model_file_resolver.h"
@@ -24,6 +23,7 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 #include "tests/support/control_test_utils.h"
 #include "tests/support/operator_nested_output_fixture.h"
@@ -353,14 +353,14 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &rules), 0);
   check(0);
   command.json_param_str =
-      R"({"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"NEW:"}})";
+      R"({"$edgeflow_control":1,"node":"prefix","payload":{"prefix":"NEW:"}})";
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
   check(1);  // 更新 prefix 会保留匹配器的新规则。
 
   // 被拒绝的请求属于非法参数；内部 Core 错误码保留在诊断信息中，
   // 不会与无效句柄错误码冲突。
   command.json_param_str =
-      R"({"$edgeflow_control":1,"node_id":"missing","payload":{"prefix":"BAD:"}})";
+      R"({"$edgeflow_control":1,"node":"missing","payload":{"prefix":"BAD:"}})";
   EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
             COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("missing"),
@@ -2098,15 +2098,15 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
           {"output",
            {{{"type", "keyword_out"},
              {"name", "keyword_match"},
+             {"inputs", {{"matches", "rule.matches"}}},
              {"params", {{"match_result_json_max_bytes", capacity}}}}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline",
-         {{{"id", "rule"},
-           {"node_type", "TextRuleMatchNode"},
+         {{{"name", "rule"},
+           {"type", "text_rule_match"},
            {"depends_on", nlohmann::json::array()},
-           {"inputs", {{"text", "input_sentences"}}},
-           {"outputs", {{"matches", "rule_matches"}}},
-           {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
+           {"inputs", {{"text", "input.sentence_text"}}},
+           {"params", {{"categories", {{"LONG", {word}}}}}}}}}};
     std::ofstream(temp.path() / "pipeline.json") << pipeline;
     std::ofstream(temp.path() / "pipeline.conf")
         << nlohmann::json({{"pipe_path", "pipeline.json"}});
@@ -2195,7 +2195,7 @@ int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
   if (written_count) *written_count = 0;
   if (!context || !destination) return -1;
   const auto* req_ids = RequestIds(options, status);
-  const auto* matches = context->Read(kRuleMatches);
+  const auto* matches = context->Read<RuleMatchBatch>(options.Port("matches"));
   if (!req_ids || !matches) return -3;
   size_t count = req_ids->size();
 
@@ -2239,7 +2239,7 @@ OutputConverterDefinition NestedConverter(const std::string& name,
   def.slot.required = required;
   def.slot.allocator = allocator;
   def.slot.allocator_params = parameters.dump();
-  def.logical_ports = {NodePortDefinition("rule_matches", "RuleMatchBatch")};
+  def.logical_ports = {NodePortDefinition("matches", "RuleMatchBatch")};
   def.encode_fn = &EncodeNestedOutput;
   return def;
 }
@@ -2277,9 +2277,11 @@ nlohmann::json NestedOutputPipelineJson(bool alternate = false) {
   source >> pipeline;
   pipeline["io"]["output"] = {
       {{"type", "test_nested_out"},
-       {"name", alternate ? "main_alternate" : "main"}},
+       {"name", alternate ? "main_alternate" : "main"},
+       {"inputs", {{"matches", "match_keywords.matches"}}}},
       {{"type", "test_nested_out"},
-       {"name", alternate ? "audit_alternate" : "audit"}}};
+       {"name", alternate ? "audit_alternate" : "audit"},
+       {"inputs", {{"matches", "match_keywords.matches"}}}}};
   return pipeline;
 }
 
@@ -2675,6 +2677,9 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
       llm_edgeflow::BorrowInputForTest({&c_in_plain});
   view_plain.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   llm_edgeflow::InputDecodeOptions decode_opts;
+  const llm_edgeflow::IoPortBindings decode_opts_ports =
+      llm_edgeflow::test::ConverterPortsForTest(*translate_in_conv);
+  decode_opts.ports = &decode_opts_ports;
   decode_opts.type = translate_in_conv->type;
   decode_opts.name = translate_in_conv->name;
   std::shared_ptr<const llm_edgeflow::ParameterValues> translation_params;
@@ -2702,7 +2707,8 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   EXPECT_EQ(
       translate_in_conv->decode_fn(view_json, decode_opts, &valid_ctx, &status),
       COMPANY_ALG_SUCCESS);
-  const auto* queries = valid_ctx.Read(llm_edgeflow::kInputSentences);
+  const auto* queries =
+      valid_ctx.Read<llm_edgeflow::TextBatch>(decode_opts.Port("query"));
   ASSERT_NE(queries, nullptr);
   EXPECT_EQ((*queries)[0].data, "有效翻译查询");
 
@@ -2836,25 +2842,25 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
         {"output",
          {{{"type", "entity_out"},
            {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}},
            {"params", {{"entities_json_max_bytes", 4095}}}},
-          {{"type", "entity_out"}, {"name", "translate"}}}}}},
+          {{"type", "entity_out"},
+           {"name", "translate"},
+           {"inputs", {{"translation", "copy.text"}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline",
-       {{{"id", "text"},
-         {"node_type", "TextTemplateNode"},
-         {"config", {{"template", payload}, {"max_length", 8191}}},
-         {"inputs", {{"primary", "input_sentences"}}},
-         {"outputs", {{"text", "generated"}}}},
-        {{"id", "parse"},
-         {"node_type", "StructuredJsonParseNode"},
-         {"config", {{"failure_policy", "fail"}}},
-         {"inputs", {{"text", "generated"}}},
-         {"outputs", {{"document", "extracted_entities"}}}},
-        {{"id", "copy"},
-         {"node_type", "TextTemplateNode"},
-         {"config", {{"max_length", 8191}}},
-         {"inputs", {{"primary", "generated"}}},
-         {"outputs", {{"text", "llm_answers"}}}}}}};
+       {{{"name", "text"},
+         {"type", "text_template"},
+         {"params", {{"template", payload}, {"max_length", 8191}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"name", "parse"},
+         {"type", "structured_json_parse"},
+         {"params", {{"failure_policy", "fail"}}},
+         {"inputs", {{"text", "text.text"}}}},
+        {{"name", "copy"},
+         {"type", "text_template"},
+         {"params", {{"max_length", 8191}}},
+         {"inputs", {{"primary", "text.text"}}}}}}};
   std::ofstream(temp.path() / "pipeline.json") << document;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2913,7 +2919,7 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
   // pool. This checks the capacities of the actual allocations as well as
   // failure atomicity after one successful encode.
   auto large_document = document;
-  large_document["pipeline"][0]["config"]["template"] =
+  large_document["pipeline"][0]["params"]["template"] =
       nlohmann::json{{"value", std::string(5000, 'x')}}.dump();
   std::swap(large_document["io"]["output"][0],
             large_document["io"]["output"][1]);

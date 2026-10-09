@@ -39,6 +39,6 @@ auto Spec() {
       .Description("OCR visual document detection and text recognition node");
 }
 
-REGISTER_FUNCTION_NODE(OcrDetectNode, Spec());
+REGISTER_FUNCTION_NODE(ocr_detect, Spec());
 }  // namespace
 }  // namespace llm_edgeflow

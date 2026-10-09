@@ -10,7 +10,7 @@
 namespace llm_edgeflow {
 namespace {
 /**
- * @brief 结构化 JSON 解析与文本提取受控算子 (StructuredJsonParseNode)
+ * @brief 结构化 JSON 解析与文本提取受控算子 (structured_json_parse)
  */
 struct Params {
   bool ValidateStructuredFields(const nlohmann::json& document,
@@ -235,5 +235,5 @@ auto Spec() {
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(StructuredJsonParseNode, Spec());
+REGISTER_FUNCTION_NODE(structured_json_parse, Spec());
 }  // namespace llm_edgeflow

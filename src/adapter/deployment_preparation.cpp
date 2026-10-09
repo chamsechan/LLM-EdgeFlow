@@ -1,5 +1,6 @@
 #include "adapter/deployment_preparation.h"
 
+#include <algorithm>
 #include <set>
 
 #include "adapter/io_converter_registry.h"
@@ -57,14 +58,6 @@ bool ParseParameters(const ParameterSet& declaration,
   return true;
 }
 
-void AddPorts(const std::vector<NodePortDefinition>& ports,
-              std::vector<IoPortDefinition>* boundary) {
-  for (const auto& port : ports)
-    boundary->emplace_back(port.logical_name, port.type_id, port.required,
-                           port.cardinality, port.provenance_policy,
-                           port.lifetime, port.lifetime_config_field);
-}
-
 std::string UnknownConverter(const IoEntryConfig& entry, bool input) {
   auto message = "Unknown converter: " + entry.type + "/" + entry.name;
   const auto append = [&](const auto& registered) {
@@ -100,9 +93,15 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   output->Clear();
   PipelineDocumentSplit split;
   std::string error, path;
-  if (!SplitPipelineDocument(document, &split, &error, &path))
-    return Fail(diagnostic, "DEPLOYMENT_ERROR", path.empty() ? "/" : path,
-                error);
+  if (!SplitPipelineDocument(document, &split, &error, &path)) {
+    const auto inputs = path.find("/inputs", 11);
+    const bool output_input_type =
+        path.rfind("/io/output/", 0) == 0 && inputs != std::string::npos &&
+        (inputs + 7 == path.size() || path[inputs + 7] == '/');
+    return Fail(diagnostic,
+                output_input_type ? "FIELD_TYPE" : "DEPLOYMENT_ERROR",
+                path.empty() ? "/" : path, error);
+  }
   auto& converters = IoConverterRegistry::Instance();
   std::vector<std::string> audit_errors;
   if (!converters.Audit(&audit_errors))
@@ -136,7 +135,13 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     has_request_id |= static_cast<bool>(OperatorValueTypeRegistry::Instance()
                                             .GetBindingBySuffix(def->type)
                                             ->read_request_id);
-    AddPorts(def->logical_ports, &prepared.io_boundary.input_published_ports);
+    for (const auto& port : def->logical_ports) {
+      const auto key = "input." + port.logical_name;
+      selected.ports[port.logical_name] = key;
+      prepared.io_boundary.input_published_ports.emplace_back(
+          key, port.type_id, port.required, port.cardinality,
+          port.provenance_policy, port.lifetime);
+    }
     prepared.inputs.push_back(std::move(selected));
   }
   if (!has_request_id)
@@ -182,7 +187,32 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     }
     if (!ResolveOutputPoolSpec(*binding, spec, &selected.pool_spec, &error))
       return Fail(diagnostic, "INVALID_OUTPUT_ALLOCATION", at, error);
-    AddPorts(def->logical_ports, &prepared.io_boundary.output_consumed_ports);
+    for (const auto& [port, source] : entry.inputs) {
+      const auto declared =
+          std::find_if(def->logical_ports.begin(), def->logical_ports.end(),
+                       [&](const auto& candidate) {
+                         return candidate.logical_name == port;
+                       });
+      if (declared == def->logical_ports.end())
+        return Fail(diagnostic, "UNKNOWN_FIELD",
+                    at + "/inputs/" + EscapeJsonPointer(port),
+                    "Unknown output converter logical input port: " + port);
+      selected.ports[port] = source;
+    }
+    for (const auto& port : def->logical_ports) {
+      const auto bound = entry.inputs.find(port.logical_name);
+      IoPortDefinition consumer{
+          bound == entry.inputs.end() ? "" : bound->second,
+          port.type_id,
+          port.required,
+          port.cardinality,
+          port.provenance_policy,
+          port.lifetime};
+      consumer.logical_name = port.logical_name;
+      consumer.path = at + "/inputs";
+      consumer.has_binding = bound != entry.inputs.end();
+      prepared.io_boundary.output_consumed_ports.push_back(std::move(consumer));
+    }
     prepared.outputs.push_back(std::move(selected));
   }
 

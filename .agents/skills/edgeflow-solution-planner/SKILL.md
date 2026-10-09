@@ -51,11 +51,11 @@ Catalog 和完整 Operator 请求/响应为依据；流程与设计边界遵循
 
 - 图的边界画出 Adapter ingress/egress，但只有真实能力节点进入 `pipeline` 数组。
   Model/Backend 是节点引用的执行资源，单列绑定关系，不当成 Pipeline 节点。
-- 同时给 Mermaid 图和连线表：节点 `id` / `node_type`、逻辑端口、Blackboard key、批类型、
+- 同时给 Mermaid 图和连线表：节点 `name` / `type`、逻辑端口、来源引用、批类型、
   数量关系与 `(req_id, sub_id)` 保留/生成策略。标注哪些类型已注册、哪些尚待实现。
-- 节点顶层 `inputs` / `outputs` 显式映射逻辑端口到数据 key；数据依赖由 Validator 推导。
+- 节点 `inputs` 显式引用 `节点名.端口名` 或 `input.端口名`；输出项 `inputs` 连接回包来源。数据依赖由 Validator 推导。
   `depends_on` 仅表达额外顺序，数组顺序不是依赖。检查分支汇合的来源关系和最终 egress 闭合。
-- `config` 的模型引用字段填写 `models[].name`；能力来自 Model Definition。
+- `params` 的模型引用字段填写 `models[].name`；能力来自 Model Definition。
   并发先沿用默认 `max_parallel_workers=1`；需要并行时检查 Node、Model、Backend 的真实
   声明，再用 plan 验证，不把拓扑分层直接等同于可并行执行。
 - 部署在根 `io.input` / `io.output` 选择 `{type, name, params?}`；`.conf` 只用 `pipe_path` 定位 JSON。

@@ -94,14 +94,14 @@ stdout 每行输出一个完整响应 JSON；日志路径写 stderr。包装层�
 flowchart LR
     A[完整请求 JSON] --> B[Operator API]
     B --> C[InputConverter：解析并读取 query]
-    C --> E[LlmGenerateNode：一次生成，只返回译文]
+    C --> E[llm_generate：一次生成，只返回译文]
     E --> G[OutputConverter：序列化 translated 响应]
     G --> H[完整响应 JSON]
 ```
 
 - [Translate InputConverter](../../src/adapter/input/translate_json_input.cpp) 与 [OutputConverter](../../src/adapter/output/translation_json_output.cpp)
   复用 `entity_in/entity_out` 宿主类型和输出池，只增加 JSON 字段映射；统一 Demo 复用现有文本/JSON 运行函数。
-- [Pipeline](../../configs/pipeline_translate_cpu.json)仅使用已有 `LlmGenerateNode`，
+- [Pipeline](../../configs/pipeline_translate_cpu.json)仅使用已有 `llm_generate`，
   直接将 `input_sentences` 原文传入模型，生成纯文本 `llm_answers`。翻译规则放在节点
   `system_prompt` 参数中，由现有 C++ Model 组装对话提示词。每条请求只调用一次文本
   生成，没有格式修复或二次推理；自回归生成内部仍逐 token 解码。无关字段不会进入模型。

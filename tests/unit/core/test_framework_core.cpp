@@ -218,8 +218,8 @@ TEST(SessionContextTest, SingleFlightSharesFactoryFailureAndAllowsRetry) {
 // 5. 测试 RuntimeOptions 与 Model/Backend 新方言构建
 TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   const auto boundary = MakeTestBoundary(
-      {{"text", "TextBatch"}},
-      {{"chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
+      {{"input.text", "TextBatch"}},
+      {{"chunk_input.chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
   Pipeline pipe;
   RuntimeOptions opts;
   opts.device_id = 2;
@@ -236,15 +236,16 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
          {"file", "./models/qwen.bin"},
          {"params", nlohmann::json::object()}}}},
       {"pipeline",
-       {{{"id", "node_0_TextChunkNode"},
-         {"node_type", "TextChunkNode"},
-         {"inputs", {{"text", "text"}}},
+       {{{"name", "chunk_input"},
+         {"type", "text_chunk"},
+         {"inputs", {{"text", "input.text"}}},
          {"depends_on", nlohmann::json::array()}},
-        {{"id", "consume_llm"},
-         {"node_type", "LlmGenerateNode"},
-         {"inputs", {{"prompt", "text"}}},
-         {"outputs", {{"text", "generated"}}},
-         {"config", {{"bind_model", "test_mock_llm"}}}}}}};
+        {{"name", "consume_llm"},
+         {"type", "llm_generate"},
+         {"inputs", {{"input", "input.text"}}},
+         {"params",
+          {{"bind_model", "test_mock_llm"},
+           {"endpoints", {{"answer", nlohmann::json::object()}}}}}}}}};
 
   PipelineDiagnostic diag;
   bool ok = BuildTestPipeline(pipe, root_cfg, boundary, &diag);

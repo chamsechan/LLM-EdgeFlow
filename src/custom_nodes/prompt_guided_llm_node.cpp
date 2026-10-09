@@ -172,7 +172,7 @@ auto Spec() {
           "and response post-processing using {{input}}/{{context}} templates");
 }
 
-REGISTER_FUNCTION_NODE(PromptGuidedLlmNode, Spec());
+REGISTER_FUNCTION_NODE(prompt_guided_llm, Spec());
 
 }  // namespace
 }  // namespace custom_nodes

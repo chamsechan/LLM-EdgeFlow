@@ -40,15 +40,15 @@ Use this reference for production Node implementation. Start first-time LLM auth
    belongs to the shared model parameters. Domain post-processing remains in the node.
 8. Keep request data local. A `Run` needing session resources explicitly accepts
    `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary
-   model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.
+   model lookup or request Blackboard access. text_embedding is the compiled cache example.
    Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
    for single-flight waiters without caching them. Resource keys and model revision remain explicit.
 9. Use `WithControls` / `ReplaceFields` for parameter updates; the framework derives the payload
    schema from the field declarations. `ReplaceFields` requires at least one controlled field in
    its payload and replaces only the supplied fields. Arrays and maps are replaced as complete values; field
    updates rerun `Prepare` and `Validate` before publication. The framework serializes updates,
-   retains the old snapshot on failure and reads one snapshot per request. TextTemplateNode and
-   TextRuleMatchNode are production examples.
+   retains the old snapshot on failure and reads one snapshot per request. text_template and
+   text_rule_match are production examples.
    Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
    Rebuild derived state in `Prepare` for both initialization and updates. All supported parameter
    types can be controlled; model-reference fields cannot be controlled.
@@ -60,11 +60,11 @@ Use this reference for production Node implementation. Start first-time LLM auth
 
 When generation options are a Node's only parameters, use `GenerateParameters()` from
 [generate_parameters.h](../../../../include/nodes/generate_parameters.h) and pass the `GenerateOptions`
-received by `Run` to `LlmCall::Generate`, as LlmGenerateNode and the LLM starter do. All callers share
+received by `Run` to `LlmCall::Generate`, as llm_generate and the LLM starter do. All callers share
 `GenerateOptions` defaults, including `max_tokens = 128`. With additional fields, put a
 `GenerateOptions` member in `Params` and use
 `Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`, as
-[PromptGuidedLlmNode](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does. Included fields
+[prompt_guided_llm](../../../../src/custom_nodes/prompt_guided_llm_node.cpp) does. Included fields
 remain flat in JSON and duplicate names fail when building the declaration. The included group's
 `Prepare` / `Validate` run before those of the outer group. Generation fields are ordinary typed
 bindings, so `WithControls` can select them alongside the Node's own fields.
@@ -78,3 +78,10 @@ manual port binding or hand-built Definitions back into ordinary business functi
 Use [batch helpers](../../../../doc/dev_guide/custom_node_concepts.md#复杂算法仍按普通-c-函数组织)
 only where their documented join/group/split contracts fit. Do not generalize a domain algorithm merely
 to fit a helper. The shared scaffold `--kind model -m asr` uses the same contract as other capabilities.
+
+节点类型登记为 snake_case；Pipeline 条目用 `type`、`name`、`params`。输入引用
+`节点名.端口名` 或 `input.端口名`，输出 converter 的 `inputs` 选择回包来源；只发布被引用的输出。
+`BindingFacts::InputLifetime` 在 `Prepare` 中提供实际输入生命周期，输出可用
+`PortFlow{"1:1", "preserve", FollowLifetime("text")}` 跟随输入。
+`llm_generate` 的 `endpoints` 必填且非空；prompt 默认 `{{input}}`，输出规则见
+[开发指南](../../../../doc/developer_guide.md)。

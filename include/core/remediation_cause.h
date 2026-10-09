@@ -14,6 +14,8 @@ namespace llm_edgeflow {
   X(kUnknownDependency, "unknown_dependency")               \
   X(kMissingOutputProducer, "missing_output_producer")      \
   X(kPortFlowMismatch, "port_flow_mismatch")                \
+  X(kUnknownNodeReference, "unknown_node_reference")        \
+  X(kUnknownPortReference, "unknown_port_reference")        \
   X(kUnknownNodeType, "unknown_node_type")                  \
   X(kUnknownModelType, "unknown_model_type")                \
   X(kBackendProtocolMismatch, "backend_protocol_mismatch")  \

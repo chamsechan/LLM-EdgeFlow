@@ -4,13 +4,19 @@
 #include "core/pipeline_config_structure.h"
 
 namespace llm_edgeflow {
-const nlohmann::json& IoEntryStructure() {
-  static const auto shape =
+const nlohmann::json& IoEntryStructure(bool output) {
+  static const auto input_shape =
       json_structure::Object({{"type", json_structure::NonemptyString()},
                               {"name", json_structure::NonemptyString()},
                               {"params", {{"type", "object"}}}},
                              {"type", "name"});
-  return shape;
+  static const auto output_shape = [] {
+    auto shape = input_shape;
+    shape["properties"]["inputs"] = {
+        {"type", "object"}, {"additionalProperties", {{"type", "string"}}}};
+    return shape;
+  }();
+  return output ? output_shape : input_shape;
 }
 
 const nlohmann::json& IoStructure() {
@@ -18,7 +24,9 @@ const nlohmann::json& IoStructure() {
       {{"input",
         {{"type", "array"}, {"minItems", 1}, {"items", IoEntryStructure()}}},
        {"output",
-        {{"type", "array"}, {"minItems", 1}, {"items", IoEntryStructure()}}}},
+        {{"type", "array"},
+         {"minItems", 1},
+         {"items", IoEntryStructure(true)}}}},
       {"input", "output"});
   return shape;
 }

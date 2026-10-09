@@ -906,11 +906,13 @@ TEST(ParameterBindingTest, SemanticValidatorAndBindingsHook) {
 
   // 绑定校验
   nlohmann::json norm = {{"mode", "custom"}, {"count", 15}};
-  bool bind_ok = schema.ValidateWithBindings(norm, {"other_input"}, &err);
+  bool bind_ok = schema.ValidateWithBindings(
+      norm, BindingFacts{true, {"other_input"}, {}}, &err);
   EXPECT_FALSE(bind_ok);
   EXPECT_EQ(err, "custom mode requires connected context input");
 
-  bind_ok = schema.ValidateWithBindings(norm, {"context"}, &err);
+  bind_ok = schema.ValidateWithBindings(
+      norm, BindingFacts{true, {"context"}, {}}, &err);
   EXPECT_TRUE(bind_ok);
 }
 
@@ -946,7 +948,8 @@ TEST(ParameterBindingTest, BindingValidatorExceptionDoesNotCrash) {
 
   std::string err;
   nlohmann::json norm = {{"mode", "custom"}};
-  bool bind_ok = schema.ValidateWithBindings(norm, {"context"}, &err);
+  bool bind_ok = schema.ValidateWithBindings(
+      norm, BindingFacts{true, {"context"}, {}}, &err);
   EXPECT_FALSE(bind_ok);
   EXPECT_NE(err.find("Unexpected failure in validator callback"),
             std::string::npos);
@@ -971,7 +974,8 @@ TEST(ParameterBindingTest,
   std::string err;
   nlohmann::json norm = {{"mode", "custom"}};
   // 已连接输入为空集 {} 时仍须执行绑定校验！
-  bool bind_ok = schema.ValidateWithBindings(norm, {}, &err);
+  bool bind_ok =
+      schema.ValidateWithBindings(norm, BindingFacts{true, {}, {}}, &err);
   EXPECT_FALSE(bind_ok);
   EXPECT_NE(err.find("custom mode requires context port"), std::string::npos);
 }

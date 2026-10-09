@@ -36,6 +36,8 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
   input.type = "keyword_in";
   input.name = "test_parameters";
   input.slot = ExternalInputSlot<CompanyOperatorKeywordInput>(input.type);
+  input.logical_ports = {
+      OutputPort(MakeBlackboardKey<TextBatch>("parameter_texts"))};
   input.params =
       Parameters<InputRowParams>{
           Field("prefix", &InputRowParams::prefix).Default("IN:")}
@@ -60,6 +62,8 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
   output.type = "entity_out";
   output.name = "test_parameters";
   output.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(output.type);
+  output.logical_ports = {
+      RequiredInputPort(MakeBlackboardKey<TextBatch>("parameter_texts"))};
   output.params =
       Parameters<OutputRowParams>{
           Field("suffix", &OutputRowParams::suffix).Default(":OUT")}
@@ -322,6 +326,41 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   EXPECT_EQ(outputs.size(), 1U);
 }
 
+TEST(IoConverterTest, InputUsesBoundKeyAndSkipsUnreferencedPublication) {
+  const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword_in", "keyword_match");
+  ASSERT_NE(converter, nullptr);
+  char bytes[] = "hello";
+  CompanyString sentence{5, bytes};
+  CompanyOperatorKeywordInput input{42, kMockServiceKeywordMatch, &sentence};
+  ExternalInputBatchView source;
+  source.count = 1;
+  source.slots["keyword_in"] = BorrowInputForTest({&input});
+  source.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
+  for (bool referenced : {true, false}) {
+    const IoPortBindings ports =
+        referenced ? IoPortBindings{{"sentence_text", "input.bound_text"}}
+                   : IoPortBindings{};
+    test::ParsedInputOptions options(*converter, nlohmann::json::object(),
+                                     ports);
+    std::vector<uint64_t> request_ids;
+    options.request_ids = &request_ids;
+    AlgContext context;
+    AdapterStatus status;
+    ASSERT_EQ(converter->decode_fn(source, options, &context, &status), 0);
+    EXPECT_EQ(request_ids, (std::vector<uint64_t>{42}));
+    EXPECT_FALSE(context.Has("sentence_text"));
+    EXPECT_EQ(context.Has("input.bound_text"), referenced);
+    if (referenced) {
+      const auto* text = context.Read<TextBatch>("input.bound_text");
+      ASSERT_NE(text, nullptr);
+      ASSERT_EQ(text->size(), 1u);
+      EXPECT_EQ(text->front().data, "hello");
+      EXPECT_EQ(text->front().req_id, 0u);
+    }
+  }
+}
+
 TEST(IoConverterTest, OutputWriterRequiresExplicitFieldCapacityWithoutWriting) {
   TestOutputBatchView view;
   OutputEncodeOptions options;
@@ -433,6 +472,8 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
   InputDecodeOptions options;
   options.type = "input";
   options.name = "test_rows";
+  const IoPortBindings ports{{"texts", "texts"}};
+  options.ports = &ports;
 
   std::vector<uint64_t> request_ids;
   options.request_ids = &request_ids;
@@ -467,6 +508,8 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   InputDecodeOptions options;
   options.type = "input";
   options.name = "test_rows";
+  const IoPortBindings ports{{"texts", "texts"}};
+  options.ports = &ports;
 
   std::vector<uint64_t> request_ids;
   options.request_ids = &request_ids;
@@ -498,6 +541,8 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   OutputEncodeOptions options;
   options.type = "output";
   options.name = "test_rows";
+  const IoPortBindings ports{{"texts", "texts"}};
+  options.ports = &ports;
   options.request_ids = &request_ids;
   char first_bytes[4] = {}, second_bytes[4] = {};
   CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};

@@ -39,7 +39,7 @@ std::string ResolveConfigPath(const std::string& relative) {
 }
 
 TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -73,7 +73,7 @@ TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
 }
 
 TEST_F(TextTemplateNodeTest, UnknownVariableFailsPreparation) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
   std::string diagnostic;
@@ -85,7 +85,7 @@ TEST_F(TextTemplateNodeTest, UnknownVariableFailsPreparation) {
 }
 
 TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
   // 单花括号和 JSON 对象必须保持为字面文本。
@@ -109,7 +109,7 @@ TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
 }
 
 TEST_F(TextTemplateNodeTest, MalformedPlaceholderFailsInit) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
   for (const std::string bad_tmpl :
@@ -120,7 +120,7 @@ TEST_F(TextTemplateNodeTest, MalformedPlaceholderFailsInit) {
 }
 
 TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node,
                               {{"template", "{{primary}}"},
@@ -143,7 +143,7 @@ TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
 }
 
 TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node,
                               {{"template", "{{primary}}"},
@@ -161,7 +161,7 @@ TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
 }
 
 TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
                               session_ctx_.get()));
@@ -211,10 +211,10 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   pipe_json.erase("io");
 
   const auto boundary = MakeTestBoundary(
-      {{"raw_docs", "TextBatch"}, {"raw_queries", "TextBatch"}},
-      {{"llm_answers", "TextBatch"},
-       {"intent_matches", "RuleMatchBatch"},
-       {"doc_chunk_counts", "Int32Batch"}});
+      {{"input.doc_text", "TextBatch"}, {"input.query_text", "TextBatch"}},
+      {{"generate_answer.text", "TextBatch"},
+       {"match_intent.matches", "RuleMatchBatch"},
+       {"chunk_docs.chunk_counts", "Int32Batch"}});
   ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, boundary, &diagnostic))
       << diagnostic.message;
 
@@ -236,30 +236,24 @@ nlohmann::json TemplatePipeline(const nlohmann::json& config) {
   "models": [],
   "pipeline": [
     {
-      "id": "template",
-      "node_type": "TextTemplateNode",
-      "config": {},
+      "type": "text_template",
+      "name": "template",
+      "params": {},
       "inputs": {
-        "primary": "input_sentences"
-      },
-      "outputs": {
-        "text": "rendered_text"
+        "primary": "input.input_sentences"
       }
     },
     {
-      "id": "rules",
-      "node_type": "TextRuleMatchNode",
-      "config": {},
+      "type": "text_rule_match",
+      "name": "rules",
+      "params": {},
       "inputs": {
-        "text": "rendered_text"
-      },
-      "outputs": {
-        "matches": "rule_matches"
+        "text": "template.text"
       }
     }
   ]
 })");
-  root["pipeline"][0]["config"] = config;
+  root["pipeline"][0]["params"] = config;
   return root;
 }
 }  // namespace
@@ -270,24 +264,24 @@ TEST_F(TextTemplateNodeTest, UnconnectedInputVariableFailsPreparation) {
     const std::string pattern = "Q={{primary}}|V={{" + variable + "}}";
     auto root = TemplatePipeline({{"template", pattern}});
     const auto invalid = PipelineValidator::ValidateAndPlan(
-        root, MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                               {{"rule_matches", "RuleMatchBatch"}}));
+        root, MakeTestBoundary({{"input.input_sentences", "TextBatch"}},
+                               {{"rules.matches", "RuleMatchBatch"}}));
     ASSERT_FALSE(invalid.report.ok);
     EXPECT_TRUE(
         std::any_of(invalid.report.diagnostics.begin(),
                     invalid.report.diagnostics.end(), [&](const auto& d) {
                       return d.code == DiagnosticCode::kInvalidCombination &&
-                             d.path == "/pipeline/0/config" &&
+                             d.path == "/pipeline/0/params" &&
                              d.message.find(variable) != std::string::npos;
                     }));
-    auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+    auto node = NodeRegistry::Instance().Create("text_template");
     ASSERT_NE(node, nullptr);
     std::string diagnostic;
     EXPECT_FALSE(InitNodeForTest(*node, {{"template", pattern}},
                                  session_ctx_.get(), &diagnostic, {variable}));
     EXPECT_NE(diagnostic.find(variable), std::string::npos) << diagnostic;
   }
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   std::string diagnostic;
   EXPECT_FALSE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
@@ -296,7 +290,7 @@ TEST_F(TextTemplateNodeTest, UnconnectedInputVariableFailsPreparation) {
 }
 
 TEST_F(TextTemplateNodeTest, ConnectedInputsWithoutRequestDataRenderEmpty) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(
       *node, {{"template", "{{primary}}|{{context}}|{{matches}}|{{document}}"}},
@@ -334,7 +328,7 @@ TEST_F(TextTemplateNodeTest, ConnectedInputsWithoutRequestDataRenderEmpty) {
 }
 
 TEST_F(TextTemplateNodeTest, AggregateOnlyInputsRenderMissingPrimaryAsEmpty) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(
       *node, {{"template", "{{primary}}|{{context}}|{{matches}}|{{document}}"}},
@@ -361,7 +355,7 @@ TEST_F(TextTemplateNodeTest, AggregateOnlyInputsRenderMissingPrimaryAsEmpty) {
 }
 
 TEST_F(TextTemplateNodeTest, OverflowDoesNotPublishPartialOutput) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node,
                               {{"template", "{{primary}}"},
@@ -388,16 +382,16 @@ TEST_F(TextTemplateNodeTest,
   Pipeline pipeline;
   ASSERT_TRUE(BuildTestPipeline(
       pipeline, TemplatePipeline({{"template", "{{primary}}"}}),
-      MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                       {{"rule_matches", "RuleMatchBatch"}})));
+      MakeTestBoundary({{"input.input_sentences", "TextBatch"}},
+                       {{"rules.matches", "RuleMatchBatch"}})));
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
                              R"({"template":"{{context}}"})"),
             0);
   AlgContext original;
-  original.Publish("input_sentences", TextBatch{{1, 3, "Q"}});
+  original.Publish("input.input_sentences", TextBatch{{1, 3, "Q"}});
   ASSERT_EQ(pipeline.Execute(&original), 0);
-  ASSERT_NE(original.Read<TextBatch>("rendered_text"), nullptr);
-  EXPECT_EQ(original.Read<TextBatch>("rendered_text")->front().data, "Q");
+  ASSERT_NE(original.Read<TextBatch>("template.text"), nullptr);
+  EXPECT_EQ(original.Read<TextBatch>("template.text")->front().data, "Q");
   EXPECT_EQ(pipeline.Control(kControlCmdUpdatePrompt,
                              R"({"template":"NEW: {{primary}}"})"),
             0);
@@ -408,9 +402,9 @@ TEST_F(TextTemplateNodeTest,
                              R"({"template":"{{context}}"})"),
             0);
   AlgContext after_failure;
-  after_failure.Publish("input_sentences", TextBatch{{2, 7, "Q"}});
+  after_failure.Publish("input.input_sentences", TextBatch{{2, 7, "Q"}});
   ASSERT_EQ(pipeline.Execute(&after_failure), 0);
-  const auto* output = after_failure.Read<TextBatch>("rendered_text");
+  const auto* output = after_failure.Read<TextBatch>("template.text");
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 1u);
   EXPECT_EQ(output->front().req_id, 2u);
@@ -421,10 +415,10 @@ TEST_F(TextTemplateNodeTest,
 TEST_F(TextTemplateNodeTest, BoundTypedInputRemainsAvailableAcrossControl) {
   std::string diagnostic;
   auto plan = PrepareNodePlanForTest(
-      "TextTemplateNode", {{"template", "{{context}}"}},
+      "text_template", {{"template", "{{context}}"}},
       {"primary", "matches", "document"}, "bound_", "", &diagnostic);
   ASSERT_NE(plan, nullptr) << diagnostic;
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(node->Init({plan.get(), session_ctx_.get(), &diagnostic}))
       << diagnostic;
@@ -449,7 +443,7 @@ TEST_F(TextTemplateNodeTest, BoundTypedInputRemainsAvailableAcrossControl) {
 }
 
 TEST_F(TextTemplateNodeTest, DirectConcurrentProcessAndControl) {
-  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "OLD: {{primary}}"}},
                               session_ctx_.get()));
@@ -510,7 +504,7 @@ TEST_F(TextTemplateNodeTest, DirectConcurrentProcessAndControl) {
 
 TEST_F(TextTemplateNodeTest,
        CatalogDefinitionStatesOnlyDoubleBracesSubstitute) {
-  auto def_opt = PipelineCatalog::FindNode("TextTemplateNode");
+  auto def_opt = PipelineCatalog::FindNode("text_template");
   ASSERT_TRUE(def_opt.has_value());
   const auto& def = *def_opt;
   EXPECT_NE(def.description.find("{{name}} substitutes variables"),

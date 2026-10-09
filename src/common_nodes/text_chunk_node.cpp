@@ -31,7 +31,7 @@ NodeResult<std::vector<std::string>> SplitText(const std::string& str,
   if (!utf8::BuildCodePointBoundaries(str, &boundaries, &invalid_offset)) {
     return NodeResult<std::vector<std::string>>::Failure(
         NodeErrorKind::kBusinessError,
-        "TextChunkNode invalid UTF-8 input at byte offset " +
+        "text_chunk invalid UTF-8 input at byte offset " +
             std::to_string(invalid_offset),
         node_error::text_chunk::kInvalidUtf8);
   }
@@ -90,5 +90,5 @@ auto Spec() {
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextChunkNode, Spec());
+REGISTER_FUNCTION_NODE(text_chunk, Spec());
 }  // namespace llm_edgeflow

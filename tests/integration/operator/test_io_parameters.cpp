@@ -11,10 +11,10 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/output/rule_match_response.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "tests/support/operator_test_fixture.h"
 
@@ -92,7 +92,8 @@ int DecodeWithParameters(const ExternalInputBatchView& source,
   const int code = production_keyword_decode(source, options, &decoded, status);
   if (code != 0) return code;
   const auto& params = options.Params<InputParams>();
-  auto sentences = *decoded.Read(kInputSentences);
+  const std::string input_key = options.Port("sentence_text");
+  auto sentences = *decoded.Read<TextBatch>(input_key);
   for (size_t i = 0; i < sentences.size(); ++i) {
     sentences[i].data =
         params.prefix + "|" + params.derived_prefix + "|" + sentences[i].data;
@@ -103,8 +104,8 @@ int DecodeWithParameters(const ExternalInputBatchView& source,
                          sentences[i].data});
   }
   return AdapterValidationHelper::PublishContextValue(
-             *context, kInputSentences, std::move(sentences),
-             options.Label().c_str(), status)
+             *context, input_key, std::move(sentences), options.Label().c_str(),
+             status)
              ? COMPANY_ALG_SUCCESS
              : COMPANY_ALG_ERR_INVALID_INPUT;
 }
@@ -124,7 +125,7 @@ int EncodeWithParameters(AlgContext* context,
   }
   return EncodeResultRows<CompanyOperatorKeywordOutput>(
       context, options, destination, written_count, status, "keyword_out",
-      kRuleMatches,
+      MakeBlackboardKey<RuleMatchBatch>("matches"),
       [&params](const RuleMatchItem& result,
                 CompanyOperatorKeywordOutput* output,
                 const OutputStringWriter& writer) {
@@ -197,16 +198,16 @@ class IoParametersTest : public test_support::OperatorTestFixture {
           {"output",
            {{{"type", "keyword_out"},
              {"name", kConverterName},
+             {"inputs", {{"matches", "rules.matches"}}},
              {"params",
               {{"marker", marker},
                {"match_result_json_max_bytes", requested_size}}}}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline",
-         {{{"id", "rules"},
-           {"node_type", "TextRuleMatchNode"},
-           {"inputs", {{"text", "input_sentences"}}},
-           {"outputs", {{"matches", "rule_matches"}}},
-           {"config",
+         {{{"name", "rules"},
+           {"type", "text_rule_match"},
+           {"inputs", {{"text", "input.sentence_text"}}},
+           {"params",
             {{"categories",
               {{"alpha", {"alpha:prepared|alpha:prepared:derived"}},
                {"beta", {"beta:prepared|beta:prepared:derived"}}}}}}}}}};

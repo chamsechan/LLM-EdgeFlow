@@ -13,10 +13,10 @@
 
 先查询目标构建的 Catalog，选择兼容 Model/Backend，修改 Pipeline 中对应实例的
 `file`、`params` / `backend.params`。需要改绑模型实例时，运行
-`describe-node <node_type>`，按返回的 `model_dependencies` 更新 Node `config` 中的对应字段。
-例如 `LlmGenerateNode` 使用 `config.bind_model` 引用 `models[].name`；保留模型实例 ID
+`describe-node <node_type>`，按返回的 `model_dependencies` 更新 Node `params` 中的对应字段。
+例如 `llm_generate` 使用 `params.bind_model` 引用 `models[].name`；保留模型实例名
 只更换权重时，无需修改节点绑定。
-Node 的检索数、生成预算、模板等业务参数放在 Node `config`，字段说明与默认值通过
+Node 的检索数、生成预算、模板等业务参数放在 Node `params`，字段说明与默认值通过
 `describe-node` 或 Studio 属性查看。未声明为 Control 的参数在重新创建 handle 后生效。
 
 Pipeline JSON 的 `models[].file` 和文件参数以 Pipeline JSON 所在目录为基准，拒绝绝对路径、任何父目录分量和符号链接越界。

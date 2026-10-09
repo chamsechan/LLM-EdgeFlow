@@ -218,6 +218,18 @@ int IoPlanResolver::ResolveFromPipelineJson(
     return -3;
   }
 
+  for (auto& selected : prepared.inputs) {
+    for (auto it = selected.ports.begin(); it != selected.ports.end();) {
+      const bool referenced = std::any_of(
+          plan->input_ports.begin(), plan->input_ports.end(),
+          [&](const auto& port) { return port.blackboard_key == it->second; });
+      if (!referenced)
+        it = selected.ports.erase(it);
+      else
+        ++it;
+    }
+  }
+
   // 组装不可变接入计划
   auto io_plan = std::make_unique<ValidatedIoPlan>();
   static_cast<IoSelection&>(*io_plan) =
@@ -248,7 +260,8 @@ int IoPlanResolver::ResolveFromPipelineJson(
     const auto& def = *selected.converter;
     io["output"].push_back({{"type", def.type},
                             {"name", def.name},
-                            {"params", selected.params->Effective()}});
+                            {"params", selected.params->Effective()},
+                            {"inputs", selected.ports}});
   }
   io_plan->resolved_pipeline_json["io"] = std::move(io);
   io_plan->pipeline_plan = std::move(plan);

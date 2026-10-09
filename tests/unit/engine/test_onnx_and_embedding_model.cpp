@@ -842,7 +842,7 @@ TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {
   RegisterTestModel(session_ctx.GetModelManager(), "test_bge", model, "v1",
                     "bge_embedding", "embedding", "fake_ort");
 
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json node_cfg = {{"bind_model", "test_bge"}};
@@ -1152,10 +1152,10 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   Pipeline pipeline;
   PipelineDiagnostic pdiag;
   const auto boundary = MakeTestBoundary(
-      {{"raw_docs", "TextBatch"}, {"raw_queries", "TextBatch"}},
-      {{"llm_answers", "TextBatch"},
-       {"intent_matches", "RuleMatchBatch"},
-       {"doc_chunk_counts", "Int32Batch"}});
+      {{"input.doc_text", "TextBatch"}, {"input.query_text", "TextBatch"}},
+      {{"generate_answer.text", "TextBatch"},
+       {"match_intent.matches", "RuleMatchBatch"},
+       {"chunk_docs.chunk_counts", "Int32Batch"}});
   bool build_ok =
       BuildTestPipeline(pipeline, pipeline_config, boundary, &pdiag);
   ASSERT_TRUE(build_ok) << pdiag.message << " at " << pdiag.path;
@@ -1164,13 +1164,14 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   AlgContext pipeline_ctx;
   TextBatch doc_texts = {{1, 0, "智能长文档问答系统设计与实现"}};
   TextBatch query_texts = {{1, 0, "系统设计"}};
-  pipeline_ctx.Publish("raw_docs", doc_texts);
-  pipeline_ctx.Publish("raw_queries", query_texts);
+  pipeline_ctx.Publish("input.doc_text", doc_texts);
+  pipeline_ctx.Publish("input.query_text", query_texts);
 
   int run_ret = pipeline.Execute(&pipeline_ctx);
   EXPECT_EQ(run_ret, 0);
 
-  const auto* query_emb = pipeline_ctx.Read<EmbeddingBatch>("query_embeddings");
+  const auto* query_emb =
+      pipeline_ctx.Read<EmbeddingBatch>("embed_query.embedding");
   ASSERT_NE(query_emb, nullptr);
   ASSERT_EQ(query_emb->size(), 1u);
   EXPECT_EQ((*query_emb)[0].data.size(), 128u);

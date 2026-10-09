@@ -4,15 +4,18 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
+#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kDocText = MakeBlackboardKey<TextBatch>("doc_text");
+constexpr auto kQueryText = MakeBlackboardKey<TextBatch>("query_text");
 
 constexpr const char* kInputSlot = "doc_in";
 
@@ -42,7 +45,7 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
           options.Label().c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(in->query_text->length) >
-        biz_input::kMaxTextBytes) {
+        input_limits::kMaxTextBytes) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "query_text length exceeds limit", "doc_in.query_text",
           options.Label().c_str(), static_cast<int>(i));
@@ -56,7 +59,7 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
             options.Label().c_str(), static_cast<int>(i));
       }
       if (static_cast<size_t>(in->doc_text->length) >
-          biz_input::kMaxDocTextBytes) {
+          input_limits::kMaxDocTextBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "doc_text length exceeds limit", "doc_in.doc_text",
             options.Label().c_str(), static_cast<int>(i));
@@ -73,10 +76,10 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 
   if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kRawDocs, std::move(raw_docs), options.Label().c_str(),
-          status) ||
+          *context, options.Port(kDocText.name), std::move(raw_docs),
+          options.Label().c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, kRawQueries, std::move(raw_queries),
+          *context, options.Port(kQueryText.name), std::move(raw_queries),
           options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -90,7 +93,7 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   def.name = "doc_qa";
   def.service_type = kMockServiceDocQa;
   def.slot = ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot);
-  def.logical_ports = {OutputPort(kRawDocs), OutputPort(kRawQueries)};
+  def.logical_ports = {OutputPort(kDocText), OutputPort(kQueryText)};
   def.decode_fn = &DecodeOperatorDocQueryInput;
   return def;
 }

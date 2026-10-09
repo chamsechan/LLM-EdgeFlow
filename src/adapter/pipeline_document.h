@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "contracts/json_pointer.h"
@@ -11,6 +12,7 @@ struct IoEntryConfig {
   std::string type;
   std::string name;
   nlohmann::json params = nlohmann::json::object();
+  std::unordered_map<std::string, std::string> inputs;
 };
 
 struct PipelineDocumentSplit {

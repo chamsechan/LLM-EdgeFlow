@@ -9,7 +9,12 @@
     "output": [
       {
         "type": "doc_out",
-        "name": "doc_qa"
+        "name": "doc_qa",
+        "inputs": {
+          "answer_text": "generate_answer.output",
+          "intent": "match_intent.matches",
+          "chunk_count": "chunk_docs.chunk_counts"
+        }
       }
     ]
   },
@@ -31,23 +36,19 @@
   ],
   "pipeline": [
     {
-      "id": "node_0_TextChunkNode",
-      "node_type": "TextChunkNode",
-      "config": {
+      "type": "text_chunk",
+      "name": "chunk_docs",
+      "params": {
         "chunk_size": 60
       },
       "inputs": {
-        "text": "raw_docs"
-      },
-      "outputs": {
-        "chunks": "doc_chunks",
-        "chunk_counts": "doc_chunk_counts"
+        "text": "input.doc_text"
       }
     },
     {
-      "id": "node_5_TextRuleMatchNode",
-      "node_type": "TextRuleMatchNode",
-      "config": {
+      "type": "text_rule_match",
+      "name": "match_intent",
+      "params": {
         "default_category": "GENERAL_QA",
         "default_score": 0.9,
         "categories": {
@@ -73,28 +74,21 @@
         }
       },
       "inputs": {
-        "text": "raw_queries"
-      },
-      "outputs": {
-        "matches": "intent_matches"
+        "text": "input.query_text"
       }
     },
     {
-      "id": "custom_prompt",
-      "node_type": "PromptGuidedLlmNode",
-      "config": {
+      "type": "prompt_guided_llm",
+      "name": "generate_answer",
+      "params": {
         "bind_model": "llm_model",
         "prompt_template": "【参考片段】: {{context}}\n【用户提问】: {{input}}\n请基于参考片段给出精确解答:",
         "strip_markdown": true,
-        "temperature": 0.3,
-        "max_tokens": 128
+        "temperature": 0.3
       },
       "inputs": {
-        "input": "raw_queries",
-        "context": "doc_chunks"
-      },
-      "outputs": {
-        "output": "llm_answers"
+        "input": "input.query_text",
+        "context": "chunk_docs.chunks"
       }
     }
   ]

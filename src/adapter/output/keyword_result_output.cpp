@@ -4,15 +4,17 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kMatches = MakeBlackboardKey<RuleMatchBatch>("matches");
 
 constexpr const char* kOutputSlot = "keyword_out";
 
@@ -42,7 +44,7 @@ int EncodeOperatorKeywordResult(AlgContext* context,
                                 size_t* written_count, AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorKeywordOutput>(
       context, options, destination, written_count, status, kOutputSlot,
-      kRuleMatches, &EncodeKeyword);
+      kMatches, &EncodeKeyword);
 }
 
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
@@ -51,7 +53,7 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   def.name = "keyword_match";
   def.service_type = kMockServiceKeywordMatch;
   def.slot = ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kRuleMatches)};
+  def.logical_ports = {RequiredInputPort(kMatches)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;

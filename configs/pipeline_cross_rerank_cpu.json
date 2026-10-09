@@ -9,7 +9,10 @@
     "output": [
       {
         "type": "rerank_out",
-        "name": "cross_rerank"
+        "name": "cross_rerank",
+        "inputs": {
+          "ranked": "rank_candidates.ranked"
+        }
       }
     ]
   },
@@ -28,18 +31,15 @@
   ],
   "pipeline": [
     {
-      "id": "node_0_TextRerankNode",
-      "node_type": "TextRerankNode",
-      "config": {
+      "type": "text_rerank",
+      "name": "rank_candidates",
+      "params": {
         "bind_model": "rerank_model",
         "top_k": 8
       },
       "inputs": {
-        "queries": "rerank_queries",
-        "candidates": "rerank_candidates"
-      },
-      "outputs": {
-        "ranked": "ranked_results"
+        "queries": "input.query_text",
+        "candidates": "input.candidates"
       }
     }
   ]

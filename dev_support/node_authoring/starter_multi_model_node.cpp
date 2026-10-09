@@ -52,7 +52,7 @@ auto Spec() {
           "Multi-model starter: embed questions then generate answers");
 }
 
-REGISTER_FUNCTION_NODE(StarterMultiModelNode, Spec());
+REGISTER_FUNCTION_NODE(starter_multi_model, Spec());
 
 }  // namespace starter_multi_model
 }  // namespace custom_nodes

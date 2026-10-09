@@ -607,20 +607,17 @@ class ModelConfigValidationTest : public ::testing::Test {
   static nlohmann::json Document(const ModelLoadSpec& spec) {
     const auto model_type =
         ModelRegistry::Instance().Find(spec.impl_name).value().model_type;
-    nlohmann::json node = {{"id", "consumer"},
-                           {"node_type", "TextEmbeddingNode"},
-                           {"inputs", {{"text", "input_sentences"}}},
-                           {"outputs", {{"embedding", "model_output"}}},
-                           {"config", {{"bind_model", "validation_model"}}}};
+    nlohmann::json node = {{"name", "consumer"},
+                           {"type", "text_embedding"},
+                           {"inputs", {{"text", "input.sentence_text"}}},
+                           {"params", {{"bind_model", "validation_model"}}}};
     if (model_type == "rerank") {
-      node["node_type"] = "TextRerankNode";
-      node["inputs"] = {{"pairs", "input_pairs"}};
-      node["outputs"] = {{"ranked", "model_output"}};
+      node["type"] = "text_rerank";
+      node["inputs"] = {{"queries", "input.query_text"},
+                        {"candidates", "input.candidates"}};
     } else if (model_type == "ocr") {
-      node["node_type"] = "OcrDetectNode";
-      node["inputs"] = {{"images", "input_images"}};
-      node["outputs"] = {{"document", "model_document"},
-                         {"text", "model_output"}};
+      node["type"] = "ocr_detect";
+      node["inputs"] = {{"images", "input.image"}};
     }
     return {{"models",
              {{{"name", "validation_model"},
@@ -636,14 +633,16 @@ class ModelConfigValidationTest : public ::testing::Test {
     const auto model_type =
         ModelRegistry::Instance().Find(spec.impl_name).value().model_type;
     if (model_type == "rerank")
-      return MakeTestBoundary({{"input_pairs", "QueryCandidatesBatch"}},
-                              {{"model_output", "RankedTextBatch", true, "1:N",
-                                "generate_sub_id"}});
+      return MakeTestBoundary({{"input.query_text", "TextBatch"},
+                               {"input.candidates", "RankedTextBatch", true,
+                                "1:N", "generate_sub_id"}},
+                              {{"consumer.ranked", "RankedTextBatch", true,
+                                "1:N", "generate_sub_id"}});
     if (model_type == "ocr")
-      return MakeTestBoundary({{"input_images", "ImageRefBatch"}},
-                              {{"model_output", "TextBatch"}});
-    return MakeTestBoundary({{"input_sentences", "TextBatch"}},
-                            {{"model_output", "EmbeddingBatch"}});
+      return MakeTestBoundary({{"input.image", "ImageRefBatch"}},
+                              {{"consumer.text", "TextBatch"}});
+    return MakeTestBoundary({{"input.sentence_text", "TextBatch"}},
+                            {{"consumer.embedding", "EmbeddingBatch"}});
   }
 };
 

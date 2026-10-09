@@ -56,23 +56,22 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 
 | 名字 | 练习中的例子 | 谁决定它 |
 | --- | --- | --- |
-| 节点类型 `node_type` | `MyBusinessLlmNode` | C++ 注册；说明“这是什么操作” |
-| 节点实例 `id` | `custom_prompt` | Pipeline；说明“这次使用这个操作的位置” |
+| 节点类型 `type` | `my_business_llm` | C++ 注册；说明“这是什么操作” |
+| 节点实例 `name` | `custom_prompt` | Pipeline；说明“这次使用这个操作的位置” |
 | 逻辑端口 | `input`、`output` | Node；说明“操作接收、返回哪些值” |
 
-同一个类型可以在一个方案出现多次，只需使用不同的 `id`。
+同一个类型可以在一个方案出现多次，只需使用不同的 `name`。
 
-Pipeline 还需要给传递的数据起名字，称为 Blackboard key。练习中的绑定关系是：
+Pipeline 的 `inputs` 直接引用来源。例如：
 
-| 数据方向 | Node 中稳定的接口名 | 此方案的数据名 |
-| --- | --- | --- |
-| 读入 | `input` | `input_sentences` |
-| 写出 | `output` | `llm_raw_answer` |
+```json
+{"type":"my_business_llm", "name":"custom_prompt", "params":{"bind_model":"llm_model"},
+ "inputs":{"input":"input.sentence_text"}}
+```
 
-节点顶层的 `inputs` / `outputs` 负责这张映射。Validator 根据输入数据的唯一生产者
-推导执行依赖；只有额外执行顺序需要填写可选的 `depends_on`。数组排列顺序不决定执行顺序。
-必需输入必须显式连接，可选输入省略时表示未连接；输出未映射时仍使用逻辑端口名作为数据名。
-换一个方案时，可以把 `input` 接到 `cleaned_texts`，不必改 C++ 中的接口名。
+输出引用为 `custom_prompt.output`；回包在所选输出 converter 的 `inputs` 中连接这个来源。
+Validator 由引用推导依赖；只有额外执行顺序需要 `depends_on`。必需输入显式连接，可选输入省略即未连接。
+内部 Blackboard 数据名就是引用本身，未被引用的输出不发布。换方案时只改引用，逻辑端口保持稳定。
 
 框架将值放在当前请求的 `AlgContext` 中，可以理解成“这次处理的数据工作区”。
 Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时记录错误；`OptionalValue` 只允许缺值，
@@ -114,7 +113,7 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 交给 `GetOrCreateResult<T>(key, factory)`，得到 `NodeResult<std::shared_ptr<T>>`；框架复用资源、
 向等待者保留完整失败信息，失败后允许重试。这是 Node 作者唯一的缓存创建入口。
 缓存 key 必须包含影响结果的输入、参数和通过 `GetModelRevision` 取得的模型版本；
-参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
+参考 [text_embedding](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。LLM 模板用
@@ -137,7 +136,7 @@ Parameters<Params>{Field("prefix", &Params::prefix).Default("")}
 被并入组的 `Prepare` / `Validate` 先于本组执行。生成字段也是普通 `Field`，可加入 `WithControls`。
 `Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。自有字段需要
 进一步转换时（例如把模板解析成片段），用 `Prepare`，参考
-[PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp)。
+[prompt_guided_llm](../../src/custom_nodes/prompt_guided_llm_node.cpp)。
 
 ## 3. Definition：让连线工具和运行器看懂你的操作
 
@@ -257,7 +256,9 @@ Validator 沿 DAG 推导每个数据名在一个请求内有几项：每请求�
   拆分，无法逐项配对。经逐项节点传递的同一拆分结果仍可配对。
 
 `N:M` 输出不参与静态推导，由运行时的数量与来源检查兜底；不要为了绕过上述检查而声明 `N:M`。
-来源规则 (provenance) 与存活期 (lifetime) 仍独立检查。
+来源规则 (provenance) 与存活期 (lifetime) 独立检查。
+输入计划记录生产者的实际生命周期。`BindingFacts::InputLifetime("text")` 可在 `Prepare` 中派生缓存行为；
+`PortFlow{"1:1", "preserve", FollowLifetime("text")}` 声明输出跟随该输入，无需配置生命周期参数。
 
 流契约诊断的 `facts` 给出生产者、消费者、实际数据名及有效端口声明；数量错误还给出
 `actual_shape` / `expected_shape`，并在多项形状中保留拆分来源。`actual` / `expected` 的
@@ -319,12 +320,12 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 | 两批数据按完整来源关联 | [Join 示例](../../dev_support/node_authoring/starter_batch_join_node.cpp) 使用 `JoinByItem`；显式选择 exact/left，右侧未知 key 均失败 |
 | 按请求收集参考内容并保留空组 | [Group 示例](../../dev_support/node_authoring/starter_batch_group_node.cpp) 使用 `GroupByRequest`；按原 anchor 位置查询组，保持 A0/B0/A1 原序 |
 | 只对部分结果再次推理 | [Select/Scatter 示例](../../dev_support/node_authoring/starter_batch_select_scatter_node.cpp) 先 `SelectBatch`、显式 `Materialize()`、调用模型，再 `ScatterReplace`；无选中项时跳过第二次调用 |
-| 拆分载荷并分配子编号 | [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp) 使用 `SplitPayloads`；每个请求连续分配子编号，counts 保留父 key，载荷回调只负责切分 |
-| 多个问题各自配多段材料 | [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
-| 候选打分、按请求分组、保留原候选来源 | [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
+| 拆分载荷并分配子编号 | [text_chunk](../../src/common_nodes/text_chunk_node.cpp) 使用 `SplitPayloads`；每个请求连续分配子编号，counts 保留父 key，载荷回调只负责切分 |
+| 多个问题各自配多段材料 | [prompt_guided_llm](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
+| 候选打分、按请求分组、保留原候选来源 | [text_rerank](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
 | 多字段配置转为普通参数结构 | [Parameters](../../include/contracts/parameters.h) / `Field` / `Items` / `Include`；派生状态使用 `Prepare` |
-| 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControls` / `ReplaceFields`，复用 `Prepare`，失败不替换旧配置 |
+| 初值与运行时更新使用同一业务校验 | [text_template](../../src/common_nodes/text_template_node.cpp) 使用 `WithControls` / `ReplaceFields`，复用 `Prepare`，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，
@@ -359,8 +360,8 @@ Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本
 | 现象 | 先检查什么 |
 | --- | --- |
 | Catalog 找不到新节点 | 文件是否位于 `src/custom_nodes/`、是否重新构建、执行的是否是刚构建的工具 |
-| 未知参数或缺失 `bind_model` | 当前 Definition、节点 config、`models[].name` |
-| 输入类型或生产者不匹配 | `inputs` / `outputs` 两端的类型、实际数据名和唯一生产者 |
+| 未知参数或缺失 `bind_model` | 当前 Definition、节点 params、`models[].name` |
+| 输入类型或生产者不匹配 | `inputs` 来源和目标两端的类型、实际数据名和唯一生产者 |
 | 模型调用返回错误 | `GetOperatorLastError()` 中的内部错误码、所绑定模型的日志和资产配置 |
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |
 | 并行计划被拆层 | 节点声明以及同层所使用模型的并发能力 |

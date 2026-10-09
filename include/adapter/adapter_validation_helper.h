@@ -96,6 +96,7 @@ class AdapterValidationHelper {
   static bool PublishContextValue(AlgContext& ctx, const BlackboardKey<T>& key,
                                   U&& value, const char* adapter_name,
                                   AdapterStatus* out_status) {
+    if (!key.name || key.name[0] == '\0') return true;
     if (ctx.Publish(key, std::forward<U>(value))) return true;
     ReturnInvalidInput(
         out_status,
@@ -108,6 +109,7 @@ class AdapterValidationHelper {
   static bool PublishContextValue(AlgContext& ctx, const std::string& key,
                                   T&& value, const char* adapter_name,
                                   AdapterStatus* out_status) {
+    if (key.empty()) return true;
     if (ctx.Publish(key, std::forward<T>(value))) return true;
     ReturnInvalidInput(out_status, "Duplicate AlgContext publication: " + key,
                        key, adapter_name);

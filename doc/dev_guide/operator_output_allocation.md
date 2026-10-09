@@ -189,7 +189,7 @@ Control 或 Destroy 并发使用。存在未归还输出时它返回错误，但
 | 异常屏障捕获异常 | `-99`（`std::exception`）或 `-100`（未知异常） |
 
 `GetOperatorLastError()` 以 `<阶段> failed with internal code <内部码>: <诊断>` 保留原始码；
-执行失败的诊断还包含节点 ID 与类型，模型调用失败时包含模型操作和模型返回码。`-100` 不区分
+执行失败的诊断还包含节点名 与类型，模型调用失败时包含模型操作和模型返回码。`-100` 不区分
 执行失败与未知异常，需结合诊断判断故障层。公开错误码见
 [`error_codes.h`](../../include/platform_mock/error_codes.h)，它是外网环境的替身，真实 SDK 的
 目标码须在授权内网核验。

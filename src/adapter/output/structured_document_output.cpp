@@ -4,14 +4,17 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kEntities =
+    MakeBlackboardKey<StructuredDocumentBatch>("entities");
 
 constexpr const char* kOutputSlot = "entity_out";
 
@@ -44,7 +47,7 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
                                      AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, options, destination, written_count, status, kOutputSlot,
-      kExtractedEntities, &EncodeDocument);
+      kEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
@@ -53,7 +56,7 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.name = "entity_extract";
   def.service_type = kMockServiceEntityExtract;
   def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot);
-  def.logical_ports = {RequiredInputPort(kExtractedEntities)};
+  def.logical_ports = {RequiredInputPort(kEntities)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorStructuredDocument;
   return def;

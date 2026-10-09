@@ -9,16 +9,19 @@
     "output": [
       {
         "type": "keyword_out",
-        "name": "keyword_match"
+        "name": "keyword_match",
+        "inputs": {
+          "matches": "match_keywords.matches"
+        }
       }
     ]
   },
   "models": [],
   "pipeline": [
     {
-      "id": "node_0_TextRuleMatchNode",
-      "node_type": "TextRuleMatchNode",
-      "config": {
+      "type": "text_rule_match",
+      "name": "match_keywords",
+      "params": {
         "categories": {
           "SYSTEM_INIT": [
             "初始化",
@@ -27,10 +30,7 @@
         }
       },
       "inputs": {
-        "text": "input_sentences"
-      },
-      "outputs": {
-        "matches": "rule_matches"
+        "text": "input.sentence_text"
       }
     }
   ]

@@ -40,8 +40,8 @@ nlohmann::json PipelineCatalog::PortToJson(const std::string& key,
                            {"cardinality", port.cardinality},
                            {"provenance_policy", port.provenance_policy},
                            {"lifetime", port.lifetime}};
-  if (!port.lifetime_config_field.empty()) {
-    result["lifetime_config_field"] = port.lifetime_config_field;
+  if (!port.lifetime_from_input.empty()) {
+    result["lifetime_from_input"] = port.lifetime_from_input;
   }
   return result;
 }

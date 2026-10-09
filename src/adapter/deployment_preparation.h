@@ -15,11 +15,13 @@ struct DeploymentPrepareOptions {
 
 struct SelectedInput {
   const InputConverterDefinition* converter = nullptr;
+  IoPortBindings ports;
   std::shared_ptr<const ParameterValues> params;
 };
 
 struct SelectedOutput {
   const OutputConverterDefinition* converter = nullptr;
+  IoPortBindings ports;
   std::shared_ptr<const ParameterValues> params;
   ResolvedOutputPoolSpec pool_spec;
 };

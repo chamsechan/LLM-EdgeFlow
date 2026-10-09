@@ -35,12 +35,12 @@ description: Build LLM-EdgeFlow solutions that transform a field from a complete
 
 当前翻译参照 `doc/solutions/translate.md`、`src/adapter/biz/translate_bindings.cpp` 和
 `configs/pipeline_translate_cpu.json`。其业务 `translate` 复用既有文本/JSON 载体、一个
-`LlmGenerateNode` 及模型实现。`sentence_text` / `entities_json` 是载体字段名称，不是业务
+`llm_generate` 及模型实现。`sentence_text` / `entities_json` 是载体字段名称，不是业务
 JSON 内的 query / translated；名称不够通用并不要求全仓改名。
 
 ## 编排与字符串保真
 
-- 克隆兼容方案，声明节点 `id` 和顶层 `inputs` / `outputs` 绑定。数据依赖由 Validator 推导，只有额外顺序约束才填写 `depends_on`。模型引用明确填写，把提示词与生成参数放配置里。
+- 克隆兼容方案，声明节点 `type`、`name`、`params` 和 `inputs` 来源引用，输出项 `inputs` 连接回包。数据依赖由 Validator 推导，只有额外顺序约束才填写 `depends_on`。模型引用明确填写，把角色和生成参数放节点 `params`，`llm_generate` 的问题模板放 `endpoints` 中。
 - 原文包含问句或指令时仍是处理对象。不要把完整请求交给模型自行选择字段；Adapter
   仅把约定原文交给提示词。翻译样例由 C++ JSON 解析器读取原始 `std::string`，经
   `TextBatch` 直接交给生成节点；模型配置中的 system prompt 说明处理规则。

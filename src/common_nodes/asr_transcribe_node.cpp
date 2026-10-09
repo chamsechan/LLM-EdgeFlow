@@ -48,6 +48,6 @@ auto Spec() {
       .Description("Audio speech recognition (ASR) transcription node");
 }
 
-REGISTER_FUNCTION_NODE(AsrTranscribeNode, Spec());
+REGISTER_FUNCTION_NODE(asr_transcribe, Spec());
 }  // namespace
 }  // namespace llm_edgeflow

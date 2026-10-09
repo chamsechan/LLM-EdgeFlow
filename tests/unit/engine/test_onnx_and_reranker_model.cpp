@@ -1007,18 +1007,18 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   pipe_json["models"][0]["file"] = onnx_path.string();
   pipe_json["models"][0]["params"]["tokenizer_file"] = vocab_path.string();
   pipe_json["models"][0]["params"]["max_tokens"] = 32;
-  pipe_json["pipeline"][0]["config"]["top_k"] = 2;
+  pipe_json["pipeline"][0]["params"]["top_k"] = 2;
 
   // 3. PipelineValidator 校验并规划
-  const auto boundary =
-      MakeTestBoundary({{"rerank_queries", "TextBatch"},
-                        {"rerank_candidates", "RankedTextBatch", true, "N:1"},
-                        {"rerank_pairs", "QueryCandidatesBatch", true, "N:1"}},
-                       {{"ranked_results", "RankedTextBatch", true, "N:1"}});
+  const auto boundary = MakeTestBoundary(
+      {{"input.query_text", "TextBatch"},
+       {"input.candidates", "RankedTextBatch", true, "1:N", "generate_sub_id"}},
+      {{"rank_candidates.ranked", "RankedTextBatch", true, "1:N",
+        "generate_sub_id"}});
   auto planned_plan = PipelineValidator::ValidateAndPlan(pipe_json, boundary);
   ASSERT_TRUE(planned_plan.report.ok) << planned_plan.report.ToJson().dump();
   ASSERT_EQ(planned_plan.report.topological_order.size(), 1u);
-  EXPECT_EQ(planned_plan.report.topological_order[0], "node_0_TextRerankNode");
+  EXPECT_EQ(planned_plan.report.topological_order[0], "rank_candidates");
 
   // 4. 构建 Pipeline
   Pipeline pipeline;
@@ -1040,15 +1040,15 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
       {1002, 0, RankedCandidate("edgeflow high performance pipeline", 0.0f)},
       {1002, 1, RankedCandidate("unrelated candidate document", 0.0f)},
   };
-  ctx.Publish("rerank_queries", queries);
-  ctx.Publish("rerank_candidates", candidates);
+  ctx.Publish("input.query_text", queries);
+  ctx.Publish("input.candidates", candidates);
 
   // 6. 执行 Pipeline
   int exec_ret = pipeline.Execute(&ctx);
   EXPECT_EQ(exec_ret, 0);
 
   // 7. 校验 RankedTextBatch 输出
-  const auto* ranked = ctx.Read<RankedTextBatch>("ranked_results");
+  const auto* ranked = ctx.Read<RankedTextBatch>("rank_candidates.ranked");
   ASSERT_NE(ranked, nullptr);
   // top_k=2，每个 request 截取 top 2，总共 4 条
   ASSERT_EQ(ranked->size(), 4u);
