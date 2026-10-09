@@ -9,14 +9,15 @@
 namespace llm_edgeflow {
 
 DocumentValidationResult ValidatePipelineDocument(
-    const nlohmann::json& document, DocumentValidationMode mode) {
+    const nlohmann::json& document, DocumentValidationMode mode,
+    const std::string& pipeline_dir) {
   DocumentValidationResult result;
 
   PreparedDeployment prepared;
   {
     DeploymentPrepareOptions options;
 
-    options.model_root_dir = "";
+    options.pipeline_dir = pipeline_dir;
 
     DeploymentDiagnostic diag;
     if (!PrepareDeploymentDocument(document, options, &prepared, &diag)) {

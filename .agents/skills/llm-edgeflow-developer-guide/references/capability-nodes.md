@@ -29,11 +29,15 @@ Use this reference for production Node implementation. Start first-time LLM auth
    builds owned derived state, such as template tokens or compiled regex, before those checks.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
    `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. `Model("generator", "bind_model",
-   &Models::generator)` takes three arguments; the framework generates its `models[].model_id`
+   &Models::generator)` takes three arguments; the framework generates its `models[].name`
    reference description from the member's capability. These facades handle empty batches,
    model diagnostics and alignment checks. Model-reference fields are required and have no default
    instance name. Propagate `NodeResult` failures without remapping shared
    errors to old node-specific codes. Keep domain failure codes where they describe actual algorithms.
+   `ValidateModels` receives parsed parameters and bound models once during Create. Use it to
+   reject unsupported explicit options, such as ASR language or a fixed LLM random seed.
+   `system_prompt`, `random_seed` and `language` are call options; embedding normalization
+   belongs to the shared model parameters. Domain post-processing remains in the node.
 8. Keep request data local. A `Run` needing session resources explicitly accepts
    `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary
    model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.

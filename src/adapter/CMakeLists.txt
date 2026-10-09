@@ -3,7 +3,7 @@ file(GLOB_RECURSE EDGEFLOW_ADAPTER_CONVERTER_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/input/*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/output/*.cpp")
 target_sources(edgeflow_integration_objects PRIVATE
-  deployment_model_resolver.cpp
+  model_file_resolver.cpp
   deployment_preparation.cpp
   io_structure.cpp
   io_converter_registry.cpp

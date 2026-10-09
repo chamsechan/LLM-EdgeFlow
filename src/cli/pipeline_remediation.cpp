@@ -8,6 +8,7 @@
 #include "contracts/json_pointer.h"
 #include "core/name_suggestions.h"
 #include "core/pipeline_catalog.h"
+#include "engine/model_registry.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -90,11 +91,14 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
 
   if (diag->code == DiagnosticCode::kUnknownNodeType ||
       diag->code == DiagnosticCode::kUnknownModelType ||
-      diag->code == DiagnosticCode::kUnknownBackend) {
+      diag->code == DiagnosticCode::kUnknownBackend ||
+      diag->code == DiagnosticCode::kBackendProtocolMismatch) {
     const nlohmann::json::json_pointer pointer(diag->path);
     if (!root.contains(pointer) || !root.at(pointer).is_string()) return;
-    const auto& item = root.at(nlohmann::json::json_pointer(
-        diag->path.substr(0, diag->path.rfind('/'))));
+    const auto item_path = diag->path.rfind("/models/", 0) == 0
+                               ? diag->path.substr(0, diag->path.find('/', 8))
+                               : diag->path.substr(0, diag->path.rfind('/'));
+    const auto& item = root.at(nlohmann::json::json_pointer(item_path));
     const std::string name = root.at(pointer).get<std::string>();
     ValidationRemediation rem;
     std::vector<std::string> names;
@@ -107,8 +111,8 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       rem.summary = "节点 '" + diag->node_id + "' 的 node_type '" + name;
       next_step = "新增的 Node 需要重新构建后才会注册。";
     } else {
-      const std::string model_id = item.value("model_id", "");
-      rem.facts["model_id"] = model_id;
+      const std::string model_name = item.value("name", "");
+      rem.facts["model_name"] = model_name;
       if (diag->code == DiagnosticCode::kUnknownModelType) {
         rem.cause = RemediationCause::kUnknownModelType;
         rem.facts["model_type"] = name;
@@ -116,17 +120,26 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
         for (const auto& def : PipelineCatalog::Models())
           names.push_back(def.model_type);
         std::sort(names.begin(), names.end());
+        names.erase(std::unique(names.begin(), names.end()), names.end());
         rem.facts["registered_model_types"] = names;
-        rem.summary = "模型 '" + model_id + "' 的 model_type '" + name;
+        rem.summary = "模型 '" + model_name + "' 的 type '" + name;
       } else {
-        rem.cause = RemediationCause::kUnknownBackend;
-        rem.facts["backend"] = name;
+        const bool mismatch =
+            diag->code == DiagnosticCode::kBackendProtocolMismatch;
+        rem.cause = mismatch ? RemediationCause::kBackendProtocolMismatch
+                             : RemediationCause::kUnknownBackend;
+        rem.facts["model_type"] = item.value("type", "");
+        rem.facts["backend_type"] = name;
         candidates_key = "candidate_backends";
-        for (const auto& def : PipelineCatalog::Backends())
-          names.push_back(def.backend_type);
-        std::sort(names.begin(), names.end());
-        rem.facts["registered_backends"] = names;
-        rem.summary = "模型 '" + model_id + "' 的 backend '" + name;
+        rem.facts["registered_backends"] = diag->suggestions;
+        rem.summary = "模型 '" + model_name + "' 的 backend.type '" + name;
+        if (mismatch) {
+          rem.summary +=
+              "' 没有类别 '" + item.value("type", "") + "' 的兼容实现。";
+          rem.facts[candidates_key] = diag->suggestions;
+          diag->remediation = std::move(rem);
+          return;
+        }
         next_step = "可选 Backend 需要在构建时启用。";
       }
     }
@@ -141,6 +154,77 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       rem.summary += "。";
     }
     rem.summary += next_step;
+    diag->remediation = std::move(rem);
+    return;
+  }
+
+  const bool config_diagnostic =
+      diag->code == DiagnosticCode::kUnknownConfigField ||
+      diag->code == DiagnosticCode::kMissingConfigField ||
+      diag->code == DiagnosticCode::kConfigFieldType ||
+      diag->code == DiagnosticCode::kConfigFieldRange ||
+      diag->code == DiagnosticCode::kConfigFieldEnum;
+  if (config_diagnostic && diag->path.rfind("/models/", 0) == 0 &&
+      root.contains("models") && root["models"].is_array()) {
+    const size_t idx_end = diag->path.find('/', 8);
+    if (idx_end == std::string::npos) return;
+    size_t model_index = 0;
+    try {
+      model_index = std::stoul(diag->path.substr(8, idx_end - 8));
+    } catch (...) {
+      return;
+    }
+    if (model_index >= root["models"].size()) return;
+    const auto& model = root["models"][model_index];
+    if (!model.is_object()) return;
+    const auto backend = model.find("backend");
+    if (backend == model.end() || !backend->is_object()) return;
+    const std::string model_prefix = "/models/" + std::to_string(model_index);
+    std::string params_path = model_prefix + "/params";
+    std::vector<ConfigFieldDefinition> fields;
+    if (diag->path.rfind(params_path + "/", 0) == 0) {
+      const auto implementations = ModelRegistry::Instance().FindImplementation(
+          model.value("type", ""), backend->value("type", ""));
+      if (implementations.size() != 1) return;
+      fields = implementations.front().params.Fields();
+    } else {
+      params_path = model_prefix + "/backend/params";
+      if (diag->path.rfind(params_path + "/", 0) != 0) return;
+      const auto definition =
+          PipelineCatalog::FindBackend(backend->value("type", ""));
+      if (!definition) return;
+      fields = definition->params.Fields();
+    }
+    const std::string field_name =
+        nlohmann::json::json_pointer(diag->path).back();
+    ValidationRemediation rem;
+    rem.facts["model_name"] = model.value("name", "");
+    rem.facts["params_path"] = params_path;
+    rem.facts["field"] = field_name;
+    rem.summary =
+        "模型 '" + model.value("name", "") + "' 的参数 '" + field_name + "' ";
+    if (diag->code == DiagnosticCode::kUnknownConfigField) {
+      rem.cause = RemediationCause::kUnknownConfigField;
+      rem.summary += "未声明。";
+      std::vector<std::string> names;
+      for (const auto& field : fields) names.push_back(field.name);
+      rem.facts["candidate_fields"] =
+          RankByEditDistance(field_name, std::move(names));
+    } else {
+      const bool missing = diag->code == DiagnosticCode::kMissingConfigField;
+      rem.cause = missing ? RemediationCause::kMissingConfigField
+                          : RemediationCause::kInvalidConfigValue;
+      rem.summary += missing ? "未提供。" : "值不合法。";
+      const auto field = std::find_if(
+          fields.begin(), fields.end(),
+          [&](const auto& item) { return item.name == field_name; });
+      if (field != fields.end()) {
+        rem.facts["expected_type"] = ConfigValueKindName(field->kind);
+        if (field->minimum) rem.facts["minimum"] = *field->minimum;
+        if (field->maximum) rem.facts["maximum"] = *field->maximum;
+        if (!field->enum_values.empty()) rem.facts["enum"] = field->enum_values;
+      }
+    }
     diag->remediation = std::move(rem);
     return;
   }
@@ -271,7 +355,7 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       }
     }
   } else if (diag->code == DiagnosticCode::kUnknownModelReference ||
-             diag->code == DiagnosticCode::kModelCapabilityMismatch) {
+             diag->code == DiagnosticCode::kModelTypeMismatch) {
     if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
         root["pipeline"].is_array()) {
       size_t idx_end = diag->path.find('/', 10);
@@ -294,40 +378,39 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
                   expected_prefix + EscapeJsonPointer(dep.config_field)) {
                 continue;
               }
-              std::string model_id =
+              std::string model_name =
                   (node_obj.contains("config") &&
                    node_obj["config"].contains(dep.config_field) &&
                    node_obj["config"][dep.config_field].is_string())
                       ? node_obj["config"][dep.config_field].get<std::string>()
                       : "";
-              std::string req_cap = dep.capability;
+              std::string required_model_type = dep.model_type;
 
               ValidationRemediation rem;
               rem.cause = (diag->code == DiagnosticCode::kUnknownModelReference)
                               ? RemediationCause::kUnknownModelReference
-                              : RemediationCause::kModelCapabilityMismatch;
-              rem.facts["model_id"] = model_id;
-              rem.facts["required_capability"] = req_cap;
+                              : RemediationCause::kModelTypeMismatch;
+              rem.facts["model_name"] = model_name;
+              rem.facts["required_model_type"] = required_model_type;
 
-              std::vector<std::string> candidate_model_ids;
+              std::vector<std::string> candidate_model_names;
               if (root.contains("models") && root["models"].is_array()) {
                 for (size_t m_idx = 0; m_idx < root["models"].size(); ++m_idx) {
                   const auto& m = root["models"][m_idx];
                   if (!m.is_object()) continue;
-                  std::string mid = m.value("model_id", "");
+                  std::string mid = m.value("name", "");
                   if (mid.empty()) continue;
-                  const auto model_def =
-                      PipelineCatalog::FindModel(m.value("model_type", ""));
-                  if (model_def && model_def->capability == req_cap) {
-                    candidate_model_ids.push_back(mid);
+                  if (m.value("type", "") == required_model_type) {
+                    candidate_model_names.push_back(mid);
                   }
                 }
               }
-              std::sort(candidate_model_ids.begin(), candidate_model_ids.end());
-              rem.facts["candidate_model_ids"] = candidate_model_ids;
+              std::sort(candidate_model_names.begin(),
+                        candidate_model_names.end());
+              rem.facts["candidate_model_names"] = candidate_model_names;
               rem.summary = "节点 '" + diag->node_id + "' 引用的模型 '" +
-                            model_id + "' 与所需能力 '" + req_cap +
-                            "' 不符或未声明。";
+                            model_name + "' 与所需能力 '" +
+                            required_model_type + "' 不符或未声明。";
               diag->remediation = std::move(rem);
               break;
             }
@@ -618,25 +701,57 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
     std::vector<ValidationFix> candidate_fixes;
 
     if (diag.remediation->cause == RemediationCause::kUnknownConfigField) {
-      size_t idx_end = diag.path.find('/', 10);
-      size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
-      const auto& node_obj = root["pipeline"][p_idx];
-      std::string node_type = node_obj.value("node_type", "");
-      const auto* def = catalog.FindNode(node_type);
-      std::string prefix = "/pipeline/" + std::to_string(p_idx) + "/config/";
+      const nlohmann::json* config = nullptr;
+      std::vector<ConfigFieldDefinition> fields;
+      std::string prefix;
+      if (diag.path.rfind("/pipeline/", 0) == 0) {
+        size_t idx_end = diag.path.find('/', 10);
+        size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
+        const auto& node_obj = root["pipeline"][p_idx];
+        const auto* def = catalog.FindNode(node_obj.value("node_type", ""));
+        if (def && node_obj.contains("config") &&
+            node_obj["config"].is_object()) {
+          config = &node_obj["config"];
+          fields = def->config_fields;
+          prefix = "/pipeline/" + std::to_string(p_idx) + "/config/";
+        }
+      } else if (diag.path.rfind("/models/", 0) == 0 &&
+                 diag.remediation->facts.contains("params_path")) {
+        size_t idx_end = diag.path.find('/', 8);
+        size_t model_index = std::stoul(diag.path.substr(8, idx_end - 8));
+        const auto& model = root["models"][model_index];
+        const auto& backend = model["backend"];
+        const auto params_path =
+            diag.remediation->facts["params_path"].get<std::string>();
+        const nlohmann::json::json_pointer pointer(params_path);
+        if (root.contains(pointer) && root.at(pointer).is_object()) {
+          config = &root.at(pointer);
+          prefix = params_path + "/";
+          if (params_path ==
+              "/models/" + std::to_string(model_index) + "/params") {
+            const auto implementations =
+                ModelRegistry::Instance().FindImplementation(
+                    model.value("type", ""), backend.value("type", ""));
+            if (implementations.size() == 1)
+              fields = implementations.front().params.Fields();
+          } else {
+            const auto definition =
+                PipelineCatalog::FindBackend(backend.value("type", ""));
+            if (definition) fields = definition->params.Fields();
+          }
+        }
+      }
       std::string field_name = diag.remediation->facts.value("field", "");
-      if (def && node_obj.contains("config") &&
-          node_obj["config"].is_object() &&
-          node_obj["config"].contains(field_name)) {
-        const auto& original_val = node_obj["config"][field_name];
+      if (config && config->contains(field_name)) {
+        const auto& original_val = config->at(field_name);
         auto candidate_fields = diag.remediation->facts.value(
             "candidate_fields", std::vector<std::string>{});
         for (const auto& cand : candidate_fields) {
-          if (node_obj["config"].contains(cand)) continue;
+          if (config->contains(cand)) continue;
           auto cf_it =
-              std::find_if(def->config_fields.begin(), def->config_fields.end(),
+              std::find_if(fields.begin(), fields.end(),
                            [&](const auto& f) { return f.name == cand; });
-          if (cf_it != def->config_fields.end() &&
+          if (cf_it != fields.end() &&
               ValueMatchesConfigKind(original_val, cf_it->kind)) {
             ValidationFix fix;
             fix.id = "rename-config-field-" + std::to_string(++fix_counter);
@@ -654,34 +769,36 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
     } else if (diag.remediation->cause ==
                    RemediationCause::kUnknownModelReference ||
                diag.remediation->cause ==
-                   RemediationCause::kModelCapabilityMismatch) {
+                   RemediationCause::kModelTypeMismatch) {
       size_t idx_end = diag.path.find('/', 10);
       size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
       const auto& node_obj = root["pipeline"][p_idx];
       std::string node_type = node_obj.value("node_type", "");
       const auto* def = catalog.FindNode(node_type);
-      std::string model_id = diag.remediation->facts.value("model_id", "");
-      auto candidate_model_ids = diag.remediation->facts.value(
-          "candidate_model_ids", std::vector<std::string>{});
+      std::string model_name = diag.remediation->facts.value("model_name", "");
+      auto candidate_model_names = diag.remediation->facts.value(
+          "candidate_model_names", std::vector<std::string>{});
       if (def) {
         std::string expected_prefix =
             "/pipeline/" + std::to_string(p_idx) + "/config/";
         for (const auto& dep : def->model_dependencies) {
-          std::string model_path =
+          std::string model_reference_path =
               expected_prefix + EscapeJsonPointer(dep.config_field);
-          if (diag.path == model_path) {
-            for (const auto& cand_id : candidate_model_ids) {
-              if (cand_id == model_id) continue;
+          if (diag.path == model_reference_path) {
+            for (const auto& cand_id : candidate_model_names) {
+              if (cand_id == model_name) continue;
               ValidationFix fix;
               fix.id = "use-model-" + std::to_string(++fix_counter);
               fix.title = "使用模型 '" + cand_id + "'";
-              fix.effect =
-                  "将模型引用从 '" + model_id + "' 更改为 '" + cand_id + "'。";
-              fix.patch = nlohmann::json::array(
-                  {{{"op", "test"}, {"path", model_path}, {"value", model_id}},
-                   {{"op", "replace"},
-                    {"path", model_path},
-                    {"value", cand_id}}});
+              fix.effect = "将模型引用从 '" + model_name + "' 更改为 '" +
+                           cand_id + "'。";
+              fix.patch =
+                  nlohmann::json::array({{{"op", "test"},
+                                          {"path", model_reference_path},
+                                          {"value", model_name}},
+                                         {{"op", "replace"},
+                                          {"path", model_reference_path},
+                                          {"value", cand_id}}});
               candidate_fixes.push_back(std::move(fix));
             }
             break;
@@ -783,7 +900,7 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
             if (diag.remediation->cause ==
                     RemediationCause::kUnknownModelReference ||
                 diag.remediation->cause ==
-                    RemediationCause::kModelCapabilityMismatch) {
+                    RemediationCause::kModelTypeMismatch) {
               std::string cand_mid;
               for (const auto& op : fix.patch) {
                 if (op.value("op", "") == "replace") {
@@ -795,7 +912,7 @@ ValidationReport ExplainPipeline(const nlohmann::json& root,
                   patched_root["models"].is_array()) {
                 for (size_t m_idx = 0; m_idx < patched_root["models"].size();
                      ++m_idx) {
-                  if (patched_root["models"][m_idx].value("model_id", "") ==
+                  if (patched_root["models"][m_idx].value("name", "") ==
                       cand_mid) {
                     std::string m_pfx = "/models/" + std::to_string(m_idx);
                     for (const auto& nd : new_report.diagnostics) {

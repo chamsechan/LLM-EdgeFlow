@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+模型条目统一为 `type`、`name`、`file`、`params` 与 `backend: {type, params?}`，按类别和后端
+协议选择唯一实现；注册审计拒绝歧义，未被节点使用的模型报错。文件与文件参数相对 Pipeline
+JSON 目录解析，拒绝绝对路径、父目录分量和符号链接越界，预检允许尚未部署的权重。
+生成的 system prompt、随机种子与转写语言归节点调用选项，不支持的明确要求在 Create 拒绝；
+向量归一化归模型，批策略归 Backend Session。模型资源说明和清单并入 `configs/`。
+
 Pipeline 用 `io.input` / `io.output` 的 `(type, name)` 选择单载体 Converter，删除 Core 业务登记和
 IoBinding。Converter 参数只读共享，输出字符串容量的默认值归 Converter、平台仅声明硬上限；
 预检与 Create 共用准备结果和容量预算。同类型的多个载体以 `name.type` 区分，Process 在转换前

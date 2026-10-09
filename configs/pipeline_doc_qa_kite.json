@@ -15,29 +15,27 @@
   },
   "models": [
     {
-      "model_type": "bge_embedding",
-      "backend": "onnxruntime",
-      "model_config": {
+      "type": "embedding",
+      "name": "embed_model",
+      "file": "bge_base_zh_v1.5.onnx",
+      "params": {
         "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
         "embedding_dim": 768
       },
-      "backend_config": {
-        "max_batch_size": 4
-      },
-      "model_id": "embed_model",
-      "model_path": "models/bge_base_zh_v1.5.onnx"
+      "backend": {
+        "type": "onnxruntime"
+      }
     },
     {
-      "model_type": "qwen_causal_lm",
-      "backend": "kite_llm",
-      "model_config": {
-        "random_seed": -1
-      },
-      "backend_config": {
-        "run_config_file": "kite_text_run.json"
-      },
-      "model_id": "llm_model",
-      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "kite_llm",
+        "params": {
+          "run_config_file": "kite_text_run.json"
+        }
+      }
     }
   ],
   "pipeline": [

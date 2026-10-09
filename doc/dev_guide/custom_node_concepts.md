@@ -88,7 +88,7 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 你需要的是“生成文本”的能力。`ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
 `AsrCall`、`OcrCall`、`RerankCall` 分别提供 `Generate`、`Embed`、`Transcribe`、`Recognize`、`Score`。
 绑定写作 `Model("generator", "bind_model", &Models::generator)`，只接收三个参数；框架按
-成员能力生成引用 `models[].model_id` 的说明。它们处理空批次、模型错误诊断及返回数量和
+成员能力生成引用 `models[].name` 的说明。它们处理空批次、模型错误诊断及返回数量和
 来源检查，结果统一为 `NodeResult`。
 模型失败直接传播，不为旧节点错误码再做一层映射；宿主收到的返回码由接入适配层按失败阶段映射，
 内部码保留在诊断中。Node 不加载模型文件或创建厂商运行时。
@@ -97,14 +97,14 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 
 | 字段 / 接口 | 练习中的值 | 说明 |
 | --- | --- | --- |
-| `model_type` | `test_biz_llm` | 哪一种模型语义实现；本例为测试模型 |
-| `backend` | `test_causal_lm_backend` | 运行资源由哪一种后端实现提供；本例为测试后端 |
-| `model_id` | `entity_llm` | Pipeline 为这个模型实例起的名字 |
+| `type` | `llm` | 模型类别；实现由类别和后端唯一选出 |
+| `backend.type` | `test_causal_lm_backend` | 运行资源由哪一种后端实现提供；本例为测试后端 |
+| `name` | `entity_llm` | Pipeline 为这个模型实例起的名字 |
 | 节点配置 `bind_model` | `entity_llm` | 引用上面的模型实例，不是填写模型路径 |
 | `ILlmModel` | C++ 接口 | 节点编译时依赖的能力约定 |
 
 模型类型和后端名称只是这个练习的已注册配置，其他环境以 Catalog 为准。
-模型能力由 `model_type` 对应的注册 Definition 提供，JSON 不再声明 `capability`。
+模型类别由条目 `type` 指定，C++ 实现名是 Definition 的 `impl_name`。
 `Model` 声明的引用字段必须显式填写，不能依靠约定模型名或候选模型数量自动选择。
 模型和后端的组合需要通过协议校验；路径是否可加载、资源是否充足，还要在构建运行时确认。
 
@@ -359,7 +359,7 @@ Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本
 | 现象 | 先检查什么 |
 | --- | --- |
 | Catalog 找不到新节点 | 文件是否位于 `src/custom_nodes/`、是否重新构建、执行的是否是刚构建的工具 |
-| 未知参数或缺失 `bind_model` | 当前 Definition、节点 config、`models[].model_id` |
+| 未知参数或缺失 `bind_model` | 当前 Definition、节点 config、`models[].name` |
 | 输入类型或生产者不匹配 | `inputs` / `outputs` 两端的类型、实际数据名和唯一生产者 |
 | 模型调用返回错误 | `GetOperatorLastError()` 中的内部错误码、所绑定模型的日志和资产配置 |
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |

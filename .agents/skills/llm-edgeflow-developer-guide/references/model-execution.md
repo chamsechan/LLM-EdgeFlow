@@ -28,10 +28,18 @@ vendor runtime integration, or batch scheduling behavior.
   dimensions and input sequence length, with 512 as the sequence fallback. A dynamic embedding
   dimension must be configured. Catalog shows the declaration; creation logs the selected value.
 - BackendLoadSpec requires an explicit execution protocol; runtime session checks still verify the actual protocol. Batch policy belongs to the session, not IModel.
+- Model entries use `{type, name, file, params?, backend: {type, params?}}`. Category and
+  Backend protocol select one `impl_name`; GlobalInit audits uniqueness and Core rejects ambiguity.
+  Fixture models require `kFixture` and match only their declared `fixture_backends`.
+  Declare file parameters with `.File()`. Integration resolves them against the Pipeline JSON
+  directory before Core validation; Models/Backends receive resolved paths and check resources
+  when opening them. Kite projector paths use the run-config directory.
+- LLM system prompts/seeds and ASR language are per-call options. Nodes check explicit unsupported
+  requirements once in `ValidateModels`. Vector normalization and pooling are model parameters.
 - QwenCausalLmModel selects ChatML through its model type; there is no configurable template selector.
 - Fixed-batch Model paths call `FixedBatchExecutor::Execute` so padding, dummy removal, and `(req_id, sub_id)` provenance remain consistent.
 - Ordinary per-item Model paths use `FixedBatchExecutor::ExecuteItems` with a single input/output callback; it owns the loop, provenance and whole-batch rollback. Keep model-specific whole-batch prevalidation before this call, and preserve existing exception codes when migrating. It rejects nonempty fixed batches; do not replace tensor batching with repeated item calls.
-- Validate model paths/configuration and translate exceptions into framework errors. Vendor types must not escape the concrete Backend.
+- Validate resource contents/configuration and translate exceptions into framework errors. Vendor types must not escape the concrete Backend.
 - Keep loaded Model/Backend sessions session-scoped and lifecycle-safe. Test failed construction/load, protocol and capability mismatch, concurrency compatibility, shape/batch boundaries, padding, and provenance.
 
 Use `src/engine/models/bge_embedding/`, `src/engine/models/qwen_causal_lm/`,

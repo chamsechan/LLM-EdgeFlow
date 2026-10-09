@@ -57,7 +57,7 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果留在该配置文件的目录内。
 Pipeline 根 `io.input` / `io.output` 以非空数组选择 `{type, name, params?}`；参数省略项使用转换器默认值。
-模型路径当前在 `models[].model_path` 中填写，相对路径以宿主部署根为基准，详见
+模型路径当前在 `models[].file` 中填写，相对路径以宿主部署根为基准，详见
 [配置路径](../configs/README.md#配置路径)。所选转换器的 typed 端口组成传给 Core 的明确边界。
 Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组合选择构造和展示；同一载体复用 Demo。
 每个输出字符串由转换器的 `MaxBytes` 参数声明默认容量，平台登记只保留硬上限。
@@ -148,7 +148,7 @@ LLM 采样参数复用 [`GenerateParameters()`](../include/nodes/generate_parame
 模板片段或编译后的正则等派生状态，再执行语义和连线校验。
 
 模型槽写作 `Model("generator", "bind_model", &Models::generator)`，只有三个参数；引用
-`models[].model_id` 的说明由成员能力自动生成。字段控制命令 `ReplaceFields` 至少提供一个受控
+`models[].name` 的说明由成员能力自动生成。字段控制命令 `ReplaceFields` 至少提供一个受控
 字段，只替换提供的字段；容器整体替换，重跑 `Prepare` / `Validate`，失败保持旧快照。
 所有参数更新用 `WithControls` 声明，payload schema 从字段生成；模型引用不能受控。
 
@@ -180,7 +180,7 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
 Model 继承 [`ModelIdentity<Model, 能力接口>`](../include/engine/model_identity.h)，只声明
-`kModelType` 与 `kConcurrency`，能力由接口推导；Definition 用 `MakeModelDefinition<Model>()`
+`kImplName` 与 `kConcurrency`，能力由接口推导；Definition 用 `MakeModelDefinition<Model>()`
 取得同一身份后再补协议和配置字段。Backend Provider 同样继承
 [`BackendIdentity<Backend>`](../include/engine/backend_identity.h)，Definition 从
 `MakeBackendDefinition<Backend>()` 开始。创建时工厂仍逐项核对实例、Session 与 Definition。
@@ -213,9 +213,16 @@ Tensor 协议的共享 buffer 必须覆盖执行和结果解码的生命周期�
 [`CreateHostTensor` 与类型化访问检查](../include/engine/tensor.h)，拒绝运行时未解析的负维度、
 字节数溢出、类型不匹配或存储字节数与形状不符。厂商内存及释放方式封装在 Backend 中。
 
-Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负责实际计算；
-TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的
-`model_config.normalize`，已有配置应将该选择移到消费节点。
+Embedding 的 `normalize` 是模型参数（默认 true）；同一模型的全部消费节点共享该向量空间。
+`Embed` 不接收选项。生成的 `system_prompt`、`random_seed` 和转写的 `language` 是节点调用参数，
+通过 `GenerateOptions` / `TranscribeOptions` 传入模型。节点可用 `ValidateModels` 在绑定后核对要求，
+只在 Create 执行一次；不支持语言或显式固定种子时节点初始化失败。
+
+文件字段使用 `.File()`，只接受字符串或可选字符串；BGE 的 `tokenizer_file` 必填，
+Kite 的 `run_config_file` 不写时为空。接入层在 Core 校验前相对 Pipeline JSON 目录解析：
+拒绝空名、绝对路径、盘符、UNC、任何 `..` 分量和符号链接越界，不检查文件存在。
+目录未知的内存文档只校验写法。Model/Backend 拿到已解析路径，实际打开时检查资源。
+Kite 的 `vision.mmproj` 相对 run config 所在目录使用相同规则。批策略只取自 Backend Session。
 
 后端跨字段约束同样用 `ParamSpec().Validate`，例如 llama.cpp 的 `decode_batch_size` 不得大于
 `context_size`。环境、设备和资产可用性仍由实际加载路径检查。
@@ -228,21 +235,23 @@ TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受�
 `IAutoregressiveDecoder` 复用 `CommonAutoregressiveGenerator`，托管生成 Backend 可直接
 实现会话。decoder 不进入 Catalog，vendor 类型不得离开 concrete Backend。
 
-Pipeline 配置只使用 Model/Backend 语法：
+Pipeline 的模型条目如下：
 
 ```json
 {
-  "model_id": "embed_model",
-  "model_type": "my_embedding_model",
-  "backend": "my_tensor_backend",
-  "model_path": "embedding/model.bin",
-  "model_config": {"embedding_dim": 768},
-  "backend_config": {"max_batch_size": 4}
+  "type": "embedding",
+  "name": "embed_model",
+  "file": "embedding/model.bin",
+  "params": {"tokenizer_file": "embedding/vocab.txt"},
+  "backend": {"type": "onnxruntime", "params": {"max_batch_size": 4}}
 }
 ```
 
-模型能力来自 `model_type` 对应的注册 Definition，不在 JSON 中重复声明。
-Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，没有默认模型实例名。
+`type` 是模型类别；`ModelDefinition.impl_name` 是 C++ 实现名。注册表按类别与后端支持的
+协议选出唯一实现，`GlobalInit` 审计每个组合最多一个实现；Core 也独立拒绝歧义。
+节点 `bind_model` 显式引用 `models[].name`，类别由所实现的接口核对。
+未被节点使用的模型报 `UNUSED_MODEL`；存在未知节点类型时抑制这条连带诊断。
+测试模型要求 `kFixture`，只匹配 `fixture_backends` 中的后端；测试后端仅声明该协议。
 
 `ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
 返回构建好的单个 `IModel`。Pipeline 暂存全部模型，全部构建成功后通过

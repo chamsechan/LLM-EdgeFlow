@@ -30,19 +30,19 @@ struct ValidatedIoPlan : IoSelection {
 class IoPlanResolver {
  public:
   static int ResolveFromConfig(
-      const DeploymentIoConfig& config, const std::string& model_root_dir,
+      const DeploymentIoConfig& config,
       std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
       DeploymentDiagnostic* out_diagnostic = nullptr,
       uint32_t output_pool_depth = kDefaultOutputPoolDepth);
 
   static int ResolveFromFile(
-      const std::string& config_path, const std::string& model_root_dir,
+      const std::string& config_path,
       std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
       DeploymentDiagnostic* out_diagnostic = nullptr,
       uint32_t output_pool_depth = kDefaultOutputPoolDepth);
 
   static int ResolveFromPipelineJson(
-      const nlohmann::json& pipeline_json, const std::string& model_root_dir,
+      const nlohmann::json& pipeline_json, const std::string& pipeline_dir,
       std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
       DeploymentDiagnostic* out_diagnostic = nullptr,
       uint32_t output_pool_depth = kDefaultOutputPoolDepth);

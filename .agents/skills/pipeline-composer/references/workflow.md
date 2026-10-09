@@ -73,13 +73,13 @@ reproduce Validator rules in scripts or prompts. The final delivery gate remains
 
 After validation, run the edited Pipeline through a compatible Demo. Follow
 [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案): confirm
-`.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `io.input` / `io.output` (type, name and params) and `models[].model_path`, and select a matching dataset; Demo derives its runner from the configuration. Use
+`.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `io.input` / `io.output` (type, name and params) and `models[].file`, and select a matching dataset; Demo derives its runner from the configuration. Use
 `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
 to inspect the native resolved paths, their sources and normalized defaults; it does not load
 weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its asset
 directory is explicit (`models` normally, `.` for project-relative fixtures). Asset manifest paths
 are relative to that directory; the Pipeline stores model paths relative to the host's deployment
-root in `models[].model_path`. For example:
+root in `models[].file`. For example:
 
 ```bash
 ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --output-dir <run_output_dir>

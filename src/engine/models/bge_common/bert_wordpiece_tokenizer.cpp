@@ -298,7 +298,7 @@ std::vector<int64_t> BertWordPieceTokenizer::WordPieceTokenize(
   return token_ids;
 }
 
-bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_length,
+bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_tokens,
                                     std::vector<int64_t>* input_ids,
                                     std::vector<int64_t>* attention_mask,
                                     std::string* diagnostic) const {
@@ -306,11 +306,11 @@ bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_length,
     if (diagnostic) *diagnostic = "Output pointers cannot be null";
     return false;
   }
-  input_ids->assign(max_length, pad_token_id_);
-  attention_mask->assign(max_length, 0);
+  input_ids->assign(max_tokens, pad_token_id_);
+  attention_mask->assign(max_tokens, 0);
 
-  if (max_length < 2) {
-    if (max_length == 1) {
+  if (max_tokens < 2) {
+    if (max_tokens == 1) {
       (*input_ids)[0] = cls_token_id_;
       (*attention_mask)[0] = 1;
     }
@@ -324,7 +324,7 @@ bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_length,
 
   std::vector<int64_t> body_ids = WordPieceTokenize(words);
 
-  size_t max_body_len = max_length - 2;
+  size_t max_body_len = max_tokens - 2;
   if (body_ids.size() > max_body_len) {
     body_ids.resize(max_body_len);
   }
@@ -344,7 +344,7 @@ bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_length,
 }
 
 bool BertWordPieceTokenizer::EncodePair(
-    const std::string& query, const std::string& candidate, size_t max_length,
+    const std::string& query, const std::string& candidate, size_t max_tokens,
     std::vector<int64_t>* input_ids, std::vector<int64_t>* attention_mask,
     std::vector<int64_t>* token_type_ids, std::string* diagnostic) const {
   if (!input_ids || !attention_mask || !token_type_ids) {
@@ -360,10 +360,10 @@ bool BertWordPieceTokenizer::EncodePair(
     return false;
   }
 
-  if (max_length < 3) {
+  if (max_tokens < 3) {
     if (diagnostic) {
       *diagnostic =
-          "max_length must be at least 3 for pair encoding ([CLS], [SEP], "
+          "max_tokens must be at least 3 for pair encoding ([CLS], [SEP], "
           "[SEP])";
     }
     return false;
@@ -387,7 +387,7 @@ bool BertWordPieceTokenizer::EncodePair(
   std::vector<int64_t> query_ids = WordPieceTokenize(query_words);
   std::vector<int64_t> cand_ids = WordPieceTokenize(cand_words);
 
-  size_t max_total_tokens = max_length - 3;
+  size_t max_total_tokens = max_tokens - 3;
   while (query_ids.size() + cand_ids.size() > max_total_tokens) {
     if (query_ids.size() > cand_ids.size()) {
       query_ids.pop_back();
@@ -396,9 +396,9 @@ bool BertWordPieceTokenizer::EncodePair(
     }
   }
 
-  input_ids->assign(max_length, pad_token_id_);
-  attention_mask->assign(max_length, 0);
-  token_type_ids->assign(max_length, 0);
+  input_ids->assign(max_tokens, pad_token_id_);
+  attention_mask->assign(max_tokens, 0);
+  token_type_ids->assign(max_tokens, 0);
 
   size_t cur = 0;
   (*input_ids)[cur] = cls_token_id_;

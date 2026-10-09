@@ -29,13 +29,13 @@ namespace {
 
 class ContractLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "contract_llm";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "llm";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "llm";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;

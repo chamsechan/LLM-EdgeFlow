@@ -160,8 +160,9 @@ class NodeHarness {
     return *this;
   }
 
-  NodeHarness& BindModel(std::string model_id, std::shared_ptr<IModel> model) {
-    models_[std::move(model_id)] = std::move(model);
+  NodeHarness& BindModel(std::string model_name,
+                         std::shared_ptr<IModel> model) {
+    models_[std::move(model_name)] = std::move(model);
     Reset();
     return *this;
   }
@@ -189,8 +190,8 @@ class NodeHarness {
     session_ctx_ = std::make_unique<SessionContext>();
     for (const auto& [mid, model] : models_) {
       RegisterTestModel(session_ctx_->GetModelManager(), mid, model,
-                        "harness_rev", model ? model->ModelType() : "mock",
-                        model ? model->Capability() : "llm", "mock");
+                        "harness_rev", model ? model->ImplName() : "mock",
+                        model ? model->ModelType() : "llm", "mock");
     }
 
     input_keys_.clear();

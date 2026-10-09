@@ -12,14 +12,14 @@
 ## 替换模型后确认实际生效配置
 
 先查询目标构建的 Catalog，选择兼容 Model/Backend，修改 Pipeline 中对应实例的
-`model_path`、`model_config` / `backend_config`。需要改绑模型实例时，运行
+`file`、`params` / `backend.params`。需要改绑模型实例时，运行
 `describe-node <node_type>`，按返回的 `model_dependencies` 更新 Node `config` 中的对应字段。
-例如 `LlmGenerateNode` 使用 `config.bind_model` 引用 `models[].model_id`；保留模型实例 ID
+例如 `LlmGenerateNode` 使用 `config.bind_model` 引用 `models[].name`；保留模型实例 ID
 只更换权重时，无需修改节点绑定。
 Node 的检索数、生成预算、模板等业务参数放在 Node `config`，字段说明与默认值通过
 `describe-node` 或 Studio 属性查看。未声明为 Control 的参数在重新创建 handle 后生效。
 
-Pipeline JSON 的 `models[].model_path` 是权重路径的唯一配置来源，相对路径以宿主传入的部署根为基准。
+Pipeline JSON 的 `models[].file` 和文件参数以 Pipeline JSON 所在目录为基准，拒绝绝对路径、任何父目录分量和符号链接越界。
 `.conf` 仅包含 `pipe_path` 定位该 JSON。更新模型条目的路径后，查看与 Operator Create 同一解析器得到的结果：
 
 ```bash
@@ -37,11 +37,11 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 
 ## 资产清单
 
-[models/asset_manifest.json](../models/asset_manifest.json) 包含 11 个权重/sidecar 条目的 SHA-256 与 8 个现有资产组合。权重、tokenizer、Kite 运行配置与视觉 projector 均纳入检查。
+[configs/asset_manifest.json](../configs/asset_manifest.json) 包含 11 个权重/sidecar 条目的 SHA-256 与 8 个现有资产组合。权重、tokenizer、Kite 运行配置与视觉 projector 均纳入检查。
 
 - 下载命令为 `./scripts/fetch_real_test_models.sh --all`、`--kite`、`--whisper`、`--gguf-only` 或仅供 Whisper 真实模型测试使用的 `--whisper-e2e`，精确 URL 和 SHA 统一从清单读取。
 - 清单中的 Model/Backend 配置是可选择的起点；兼容性仍由当前执行文件的 Catalog 校验。
-- 清单路径相对资产目录；Pipeline 的 `models[].model_path` 相对宿主部署根；tokenizer、运行配置等 sidecar 路径相对实际模型所在目录解析。
+- 清单路径相对资产目录；Pipeline 的 `file`、tokenizer、运行配置都相对 Pipeline JSON 目录；视觉 projector 相对 run config 目录。
 - 变更 tokenizer/运行配置路径后不会借用旧组合的校验结论，而会变为 `unregistered`。接入新资产时，补充清单中的 `artifacts`、`selections.paths` 与完整 `files`，再实际校验。
 - 零字节占位模型与未注册资产不会通过选择检查。
 - SHA 匹配证明文件身份；模型是否能加载、是否满足业务需求，仍需实际执行验收。
@@ -127,7 +127,7 @@ python3 tools/verify_selection.py check \
 当前 [Whisper Backend](../src/engine/backends/whisper_cpp/whisper_cpp_backend.cpp) 支持 CPU，
 设备 ID 为 0 或省略。启用 `ENABLE_WHISPERCPP` 还需启用 `ENABLE_LLAMACPP` 复用 GGML，
 并关闭 `ENABLE_KITELLM`；约束由 [CMake 模块](../cmake_ext/WhisperCpp.cmake)执行。
-权重准备见[模型资产说明](../models/README.md)。默认构建通过、测试替身通过或单条真实音频通过，
+权重准备见[模型资产说明](../configs/README.md)。默认构建通过、测试替身通过或单条真实音频通过，
 均不能代替目标语料的识别效果和目标设备性能验收。
 
 ## 业务效果验收
@@ -135,7 +135,7 @@ python3 tools/verify_selection.py check \
 复用现有 `alg_demo` 的样例读取、宿主载体构造和 SDK 执行路径；业务请求的解包与响应
 组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-operator-接口为边界)。
 验收器在 `--pipeline-root` 指定的宿主根内生成临时 Pipeline 和 `.conf`，保留所选 Pipeline 的
-`models[].model_path`，并从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io`
+`models[].file`，并从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io`
 输出池配置。`--model-root` 仅用于资产清单校验，不改写模型条目中的路径。
 继承的输出池配置只应用到执行副本，不修改所选方案。验收记录中的 `pipeline` 保存实际执行配置；
 所选方案与资产由选择指纹记录，继承的输出池、数据集和执行文件由验收输入指纹记录。

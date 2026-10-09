@@ -10,7 +10,7 @@
 
 namespace llm_edgeflow {
 struct DeploymentPrepareOptions {
-  std::string model_root_dir;
+  std::string pipeline_dir;
 };
 
 struct SelectedInput {

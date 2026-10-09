@@ -3,6 +3,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -44,11 +45,11 @@ namespace test {
 
 class ControlledMockLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_llm";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "llm";
     return cap;
   }
@@ -86,11 +87,11 @@ class ControlledMockLlmModel final : public ILlmModel {
 
 class ControlledMockEmbeddingModel final : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_embedding";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "embedding";
     return cap;
   }
@@ -98,8 +99,7 @@ class ControlledMockEmbeddingModel final : public IEmbeddingModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& inputs, const EmbeddingOptions&,
-            EmbeddingBatch* outputs,
+  int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {
@@ -128,11 +128,11 @@ class ControlledMockEmbeddingModel final : public IEmbeddingModel {
 
 class ControlledMockRerankModel final : public IRerankModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_rerank";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "rerank";
     return cap;
   }
@@ -168,11 +168,11 @@ class ControlledMockRerankModel final : public IRerankModel {
 
 class ControlledMockOcrModel final : public IOcrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_ocr";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "ocr";
     return cap;
   }
@@ -211,11 +211,11 @@ class ControlledMockOcrModel final : public IOcrModel {
 
 class ControlledMockAsrModel final : public IAsrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_asr";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "asr";
     return cap;
   }
@@ -223,7 +223,12 @@ class ControlledMockAsrModel final : public IAsrModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+  bool SupportsLanguage(std::string_view) const noexcept override {
+    return true;
+  }
+
+  int Transcribe(const AudioPcmBatch& audio, const TranscribeOptions&,
+                 TextBatch* outputs,
                  std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {

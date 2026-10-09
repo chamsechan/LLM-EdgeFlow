@@ -15,14 +15,15 @@
   },
   "models": [
     {
-      "model_type": "test_biz_asr",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "max_batch_size": 2
-      },
-      "backend_config": {},
-      "model_id": "asr_model",
-      "model_path": "./models/paraformer_asr_npu.bin"
+      "type": "asr",
+      "name": "asr_model",
+      "file": "paraformer_asr_npu.bin",
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [

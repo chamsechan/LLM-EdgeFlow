@@ -12,11 +12,11 @@
 namespace llm_edgeflow {
 namespace test {
 
-// 保留历史夹具名，避免改动已持久化的测试 Profile；
-// 其执行协议即当前的文本生成契约。
+// 测试专用 fixture 协议会话，保留文本生成接口供协议测试调用。
 class TestCausalLmSession : public ITextGenerationSession {
  public:
-  explicit TestCausalLmSession(std::string model_path);
+  bool SupportsRandomSeed() const noexcept override { return true; }
+  TestCausalLmSession(std::string model_file, BatchPolicy policy = {1, 0});
   ~TestCausalLmSession() override = default;
 
   const std::string& BackendType() const noexcept override {
@@ -24,14 +24,12 @@ class TestCausalLmSession : public ITextGenerationSession {
     return type;
   }
   ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kTextGeneration;
+    return ExecutionProtocol::kFixture;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
-  BatchPolicy GetBatchPolicy() const noexcept override {
-    return BatchPolicy{1, 0};
-  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return policy_; }
 
   int Generate(const std::string& formatted_prompt, bool add_bos,
                const GenerateOptions& options, std::optional<uint64_t> seed,
@@ -39,7 +37,8 @@ class TestCausalLmSession : public ITextGenerationSession {
                std::string* diagnostic = nullptr) noexcept override;
 
  private:
-  std::string model_path_;
+  std::string model_file_;
+  BatchPolicy policy_;
 };
 
 class TestCausalLmBackend : public IInferenceBackend {

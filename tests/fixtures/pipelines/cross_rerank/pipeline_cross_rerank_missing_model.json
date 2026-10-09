@@ -15,23 +15,24 @@
   },
   "models": [
     {
-      "model_id": "rerank_model",
-      "model_type": "bge_reranker",
-      "backend": "onnxruntime",
-      "model_path": "missing_rerank_fixture.onnx",
-      "model_config": {
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "missing_rerank_fixture.onnx",
+      "params": {
         "tokenizer_file": "vocab.txt",
         "do_lower_case": true,
-        "max_length": 16,
         "output_name": "logits",
         "score_activation": "sigmoid",
-        "max_batch_size": 4
+        "max_tokens": 16
       },
-      "backend_config": {
-        "max_batch_size": 4,
-        "intra_op_num_threads": 1,
-        "inter_op_num_threads": 1,
-        "graph_optimization_level": "all"
+      "backend": {
+        "type": "onnxruntime",
+        "params": {
+          "max_batch_size": 4,
+          "intra_op_num_threads": 1,
+          "inter_op_num_threads": 1,
+          "graph_optimization_level": "all"
+        }
       }
     }
   ],

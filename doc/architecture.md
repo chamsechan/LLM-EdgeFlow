@@ -172,7 +172,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   导出符号不带版本节点。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 只用 `pipe_path` 指向 Pipeline JSON；根 `io` 选择转换器与参数，所选端口形成明确边界。
-  模型路径当前只在 `models[].model_path` 中配置，相对宿主部署根解析。
+  模型路径当前只在 `models[].file` 中配置，相对宿主部署根解析。
   输出参数在 Create 中按共享声明解析；Prepare 后尺寸生成池规格，平台登记只保留硬上限。
   分配器、布局参数和 metadata 固定在槽声明中，布局参数由注册审计归一化并共享。
   每个逻辑输出槽位拥有独立输出池，
@@ -208,9 +208,9 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
   2. `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession`、`IGeneratedTokenEmbeddingSession` 和 `IAudioTranscriptionSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph，whisper.cpp 提供 AudioTranscription；
-  3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合并校验单个模型与 Backend；Pipeline 暂存全部模型，成功后批量原子注册到会话的 `ModelManager`；
+  3. Core 按模型类别 `type` 与 `backend.type` 的执行协议选出唯一 `impl_name`，注册审计和 Core 都拒绝歧义；`ModelRuntimeFactory` 物化并校验该实现与会话，Pipeline 暂存全部模型，成功后批量原子注册到 `ModelManager`；
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：计算批次切片与补齐数量，Model 回调构造补齐输入；执行器剔除补齐输出并恢复 `(req_id, sub_id)` 溯源；
-  5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend`、`model_path`、`backend_config` 完成；存在能力缺口时仍需扩展模型执行层。
+  5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend.type`、`file`、`backend.params` 完成；存在能力缺口时仍需扩展模型执行层。
 
 图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
 通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，

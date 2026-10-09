@@ -34,11 +34,11 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 
   for (const auto& model_plan : plan.models) {
     ModelLoadSpec spec;
-    spec.model_type = model_plan.model_type;
-    spec.backend_type = model_plan.backend;
-    spec.model_path = model_plan.resolved_model_path;
-    spec.model_params = model_plan.normalized_model_config;
-    spec.backend_params = model_plan.normalized_backend_config;
+    spec.impl_name = model_plan.impl_name;
+    spec.backend_type = model_plan.backend_type;
+    spec.model_file = model_plan.model_file;
+    spec.model_params = model_plan.model_params;
+    spec.backend_params = model_plan.backend_params;
     const auto& runtime_options = session->GetRuntimeOptions();
     if (runtime_options.has_device_id) {
       spec.execution_target.device_id = runtime_options.device_id;
@@ -54,20 +54,20 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
         diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message = "Exception creating model '" +
-                              model_plan.model_id + "': " + e.what();
+                              model_plan.model_name + "': " + e.what();
       }
       ALG_LOG_ERROR("[Pipeline] Exception creating model [%s]: %s\n",
-                    model_plan.model_id.c_str(), e.what());
+                    model_plan.model_name.c_str(), e.what());
       return false;
     } catch (...) {
       if (diagnostic) {
         diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
-            "Unknown exception creating model '" + model_plan.model_id + "'";
+            "Unknown exception creating model '" + model_plan.model_name + "'";
       }
       ALG_LOG_ERROR("[Pipeline] Unknown exception creating model [%s]\n",
-                    model_plan.model_id.c_str());
+                    model_plan.model_name.c_str());
       return false;
     }
 
@@ -76,30 +76,30 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
         diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
-            "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
+            "ModelRuntimeFactory failed to load model: " +
+            model_plan.model_name +
             (factory_diag.empty() ? "" : (" (" + factory_diag + ")"));
       }
       ALG_LOG_ERROR("[Pipeline] Failed to load model [%s]: %s\n",
-                    model_plan.model_id.c_str(), factory_diag.c_str());
+                    model_plan.model_name.c_str(), factory_diag.c_str());
       return false;
     }
 
     ModelRegistration registration;
-    registration.model_id = model_plan.model_id;
+    registration.model_name = model_plan.model_name;
+    registration.impl_name = model_plan.impl_name;
     registration.model_type = model_plan.model_type;
-    registration.capability = model_plan.capability;
-    registration.backend_type = model_plan.backend;
-    registration.resolved_model_path = model_plan.resolved_model_path;
-    registration.normalized_model_config = model_plan.normalized_model_config;
-    registration.normalized_backend_config =
-        model_plan.normalized_backend_config;
+    registration.backend_type = model_plan.backend_type;
+    registration.model_file = model_plan.model_file;
+    registration.model_params = model_plan.model_params;
+    registration.backend_params = model_plan.backend_params;
     registration.model = std::move(model);
     staged_models.push_back(std::move(registration));
   }
 
   if (!session->GetModelManager().RegisterBatch(staged_models)) {
     if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kDuplicateModelId;
+      diagnostic->code = DiagnosticCode::kDuplicateModelName;
       diagnostic->path = "/models";
       diagnostic->message =
           "Failed to atomically register batch models in ModelManager";

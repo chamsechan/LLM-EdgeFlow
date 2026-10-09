@@ -16,7 +16,6 @@ namespace llm_edgeflow {
 namespace fs = std::filesystem;
 
 int IoPlanResolver::ResolveFromFile(const std::string& config_path,
-                                    const std::string& model_root_dir,
                                     std::unique_ptr<ValidatedIoPlan>* out_plan,
                                     std::string* out_error,
                                     DeploymentDiagnostic* out_diagnostic,
@@ -30,12 +29,12 @@ int IoPlanResolver::ResolveFromFile(const std::string& config_path,
     if (out_error) *out_error = err;
     return -2;
   }
-  return ResolveFromConfig(config, model_root_dir, out_plan, out_error,
-                           out_diagnostic, output_pool_depth);
+  return ResolveFromConfig(config, out_plan, out_error, out_diagnostic,
+                           output_pool_depth);
 }
 
 int IoPlanResolver::ResolveFromConfig(
-    const DeploymentIoConfig& config, const std::string& model_root_dir,
+    const DeploymentIoConfig& config,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
     DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
   if (out_diagnostic) out_diagnostic->Clear();
@@ -79,12 +78,13 @@ int IoPlanResolver::ResolveFromConfig(
     return -2;
   }
 
-  return ResolveFromPipelineJson(raw_pipe_json, model_root_dir, out_plan,
-                                 out_error, out_diagnostic, output_pool_depth);
+  return ResolveFromPipelineJson(
+      raw_pipe_json, fs::path(config.resolved_pipe_path).parent_path().string(),
+      out_plan, out_error, out_diagnostic, output_pool_depth);
 }
 
 int IoPlanResolver::ResolveFromPipelineJson(
-    const nlohmann::json& pipeline_json, const std::string& model_root_dir,
+    const nlohmann::json& pipeline_json, const std::string& pipeline_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
     DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
   if (out_diagnostic) out_diagnostic->Clear();
@@ -102,7 +102,7 @@ int IoPlanResolver::ResolveFromPipelineJson(
 
   DeploymentPrepareOptions options;
 
-  options.model_root_dir = model_root_dir;
+  options.pipeline_dir = pipeline_dir;
 
   PreparedDeployment prepared;
   DeploymentDiagnostic prep_diag;
@@ -223,6 +223,18 @@ int IoPlanResolver::ResolveFromPipelineJson(
   static_cast<IoSelection&>(*io_plan) =
       std::move(static_cast<IoSelection&>(prepared));
   io_plan->resolved_pipeline_json = std::move(prepared.neutral_pipeline_json);
+  if (io_plan->resolved_pipeline_json.contains("models")) {
+    auto models = nlohmann::json::array();
+    for (const auto& model : plan->models)
+      models.push_back(
+          {{"type", model.model_type},
+           {"name", model.model_name},
+           {"file", model.model_file},
+           {"params", model.model_params},
+           {"backend",
+            {{"type", model.backend_type}, {"params", model.backend_params}}}});
+    io_plan->resolved_pipeline_json["models"] = std::move(models);
+  }
   auto io = nlohmann::json::object();
   io["input"] = nlohmann::json::array();
   io["output"] = nlohmann::json::array();

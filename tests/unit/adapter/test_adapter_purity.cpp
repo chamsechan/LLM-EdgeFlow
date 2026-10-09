@@ -1240,7 +1240,7 @@ TEST_F(AdapterPurityTest, UnknownConverterPairsFailBeforeExecution) {
 TEST_F(AdapterPurityTest, ReuseProof_7_ValidationBeforeInitialization) {
   operator_api::CreateParam param{};
   param.cfg_file_name = "non_existent_path.conf";
-  param.model_path = "./models";
+  param.model_path = "./configs";
   param.device_id = 0;
 
   void* handle = nullptr;

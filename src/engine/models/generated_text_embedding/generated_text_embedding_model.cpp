@@ -17,9 +17,10 @@ struct Params {
   int embedding_dim = 0;
   int max_tokens = 1;
   std::string pooling;
-  std::string prefix;
-  std::string suffix;
+  std::string prompt_prefix;
+  std::string prompt_suffix;
   bool add_bos = false;
+  bool normalize = true;
 };
 
 Parameters<Params> ParamSpec() {
@@ -40,11 +41,14 @@ Parameters<Params> ParamSpec() {
            .Enum({"last", "mean"})
            .Description("last 取最后一个生成 token 的向量；mean 对全部生成 "
                         "token 向量求均值。"),
-       Field("prefix", &Params::prefix)
+       Field("normalize", &Params::normalize)
+           .Default(true)
+           .Description("对输出向量进行 L2 归一化。"),
+       Field("prompt_prefix", &Params::prompt_prefix)
            .Default("")
            .Description(
                "直接拼接在输入文本之前的模型提示词，不自动插入分隔符。"),
-       Field("suffix", &Params::suffix)
+       Field("prompt_suffix", &Params::prompt_suffix)
            .Default("")
            .Description(
                "直接拼接在输入文本之后的模型提示词，不自动插入分隔符。"),
@@ -73,9 +77,10 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     model->embedding_dim_ = params.embedding_dim;
     model->max_tokens_ = params.max_tokens;
     model->pooling_ = params.pooling;
-    model->prefix_ = params.prefix;
-    model->suffix_ = params.suffix;
+    model->prompt_prefix_ = params.prompt_prefix;
+    model->prompt_suffix_ = params.prompt_suffix;
     model->add_bos_ = params.add_bos;
+    model->normalize_ = params.normalize;
     return model;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
@@ -88,7 +93,6 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
 }
 
 int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
-                                       const EmbeddingOptions& options,
                                        EmbeddingBatch* outputs,
                                        std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
@@ -103,8 +107,8 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
   }
   return FixedBatchExecutor::ExecuteItems<std::string, std::vector<float>>(
       inputs, session_->GetBatchPolicy(),
-      [this, &options, diagnostic](const TraceableItem<std::string>& input,
-                                   std::vector<float>* output) {
+      [this, diagnostic](const TraceableItem<std::string>& input,
+                         std::vector<float>* output) {
         const auto& text = input.data;
         if (text.empty()) {
           SetDiagnosticNoexcept(diagnostic, "Embedding text is empty");
@@ -113,7 +117,8 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         GeneratedTokenEmbeddings tokens;
         std::string reason;
         const int result = session_->GenerateEmbeddings(
-            prefix_ + text + suffix_, add_bos_, max_tokens_, &tokens, &reason);
+            prompt_prefix_ + text + prompt_suffix_, add_bos_, max_tokens_,
+            &tokens, &reason);
         if (result != 0) {
           ALG_LOG_ERROR("[GeneratedTextEmbeddingModel] %s\n", reason.c_str());
           SetDiagnosticNoexcept(diagnostic, reason);
@@ -136,7 +141,7 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
           if (values.size() != pooled.size()) {
             ALG_LOG_ERROR(
                 "[GeneratedTextEmbeddingModel] Expected dimension %d, received "
-                "%zu; check model_config.embedding_dim\n",
+                "%zu; check params.embedding_dim\n",
                 embedding_dim_, values.size());
             SetDiagnosticNoexcept(
                 diagnostic, "Generated token embedding dimension mismatch");
@@ -157,8 +162,8 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         for (double& value : pooled) {
           if (pooling_ == "mean") value /= tokens.values.size();
         }
-        if (!embedding_support::FinalizeEmbeddingVector(
-                pooled, options.normalize, output)) {
+        if (!embedding_support::FinalizeEmbeddingVector(pooled, normalize_,
+                                                        output)) {
           SetDiagnosticNoexcept(diagnostic,
                                 "Embedding pooling or normalization failed");
           return -1;

@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -244,7 +245,12 @@ int main(int argc, char* argv[]) {
                                 : DocumentValidationMode::kPlan;
 
     try {
-      auto result = llm_edgeflow::ValidatePipelineDocument(root, mode);
+      const std::string pipeline_dir =
+          file == "--stdin"
+              ? ""
+              : std::filesystem::absolute(file).parent_path().string();
+      auto result =
+          llm_edgeflow::ValidatePipelineDocument(root, mode, pipeline_dir);
       std::cout << result.response.dump(2) << std::endl;
       PrintRegistrationHint(result.response);
       return result.ok ? 0 : 1;

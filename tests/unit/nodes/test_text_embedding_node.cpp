@@ -25,20 +25,19 @@ namespace llm_edgeflow {
 class CountingEmbeddingModel final : public IEmbeddingModel {
  public:
   std::atomic<int> infer_calls{0};
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "counting_embedding";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings,
+  int Embed(const TextBatch& input_texts, EmbeddingBatch* output_embeddings,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     infer_calls++;
@@ -84,7 +83,7 @@ TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model"}, {"normalize", true}};
+  nlohmann::json cfg = {{"bind_model", "embed_model"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -104,9 +103,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
   auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model"},
-                        {"normalize", true},
-                        {"lifetime", "session"}};
+  nlohmann::json cfg = {{"bind_model", "embed_model"}, {"lifetime", "session"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   constexpr int kNumThreads = 8;
@@ -360,7 +357,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_FLOAT_EQ((*out_a2)[0].data[0], 1.0f);
   EXPECT_FLOAT_EQ((*out_a2)[1].data[0], 4.0f);
 
-  // 改变顺序、sub_id、req_id 或 normalize 选项都会产生不同的条目
+  // 改变顺序、sub_id 或 req_id 都会产生不同的条目
   TextBatch corpus_a_reordered;
   corpus_a_reordered.emplace_back(0, 0, s_b_nul_c);
   corpus_a_reordered.emplace_back(0, 1, "a");
@@ -377,23 +374,11 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_EQ(node_a->Process(&ctx_sub_id), 0);
   EXPECT_EQ(counting_model_->infer_calls.load(), 4);
 
-  // 不同的 normalize 选项产生不同的缓存条目
-  auto node_no_norm = NodeRegistry::Instance().Create("TextEmbeddingNode");
-  ASSERT_TRUE(InitNodeForTest(*node_no_norm,
-                              {{"bind_model", "embed_model"},
-                               {"lifetime", "session"},
-                               {"normalize", false}},
-                              session_ctx_.get()));
-  AlgContext ctx_no_norm;
-  ctx_no_norm.Publish("text", corpus_a);
-  EXPECT_EQ(node_no_norm->Process(&ctx_no_norm), 0);
-  EXPECT_EQ(counting_model_->infer_calls.load(), 5);
-
   corpus_a[0].req_id = 7;
   AlgContext changed_request;
   changed_request.Publish("text", corpus_a);
   ASSERT_EQ(node_a->Process(&changed_request), 0);
-  EXPECT_EQ(counting_model_->infer_calls.load(), 6);
+  EXPECT_EQ(counting_model_->infer_calls.load(), 5);
   EXPECT_EQ(changed_request.Read<EmbeddingBatch>("embedding")->front().req_id,
             7U);
 }
@@ -405,14 +390,14 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
   const auto config = nlohmann::json::parse(R"json({
   "models": [
     {
-      "model_id": "embed_model",
-      "model_type": "bge_embedding",
-      "backend": "onnxruntime",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-embedding.fixture",
-      "model_config": {
+      "name": "embed_model",
+      "type": "embedding",
+      "file": "neutral-embedding.fixture",
+      "params": {
+        "tokenizer_file": "vocab.fixture",
         "embedding_dim": 1
       },
-      "backend_config": {}
+      "backend": {"type": "onnxruntime"}
     }
   ],
   "pipeline": [

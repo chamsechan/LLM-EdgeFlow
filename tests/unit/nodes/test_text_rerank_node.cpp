@@ -24,11 +24,11 @@ namespace {
 
 class FakeRerankModel : public IRerankModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "fake_reranker";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "rerank";
     return cap;
   }
@@ -344,10 +344,10 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
   // 绑定了 candidates 却缺少 query -> 失败
   nlohmann::json bad_pipeline = {
       {"models",
-       {{{"model_type", "test_biz_rerank"},
-         {"backend", "test_tensor_backend"},
-         {"model_id", "rerank_model"},
-         {"model_path", "./models/rerank.bin"}}}},
+       {{{"type", "rerank"},
+         {"name", "rerank_model"},
+         {"file", "rerank.fixture"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
@@ -365,13 +365,13 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
  */
 class ControllableMockRerankModel : public IRerankModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "controllable_mock_rerank";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "rerank";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "rerank";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;

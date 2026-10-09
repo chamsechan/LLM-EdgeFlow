@@ -26,7 +26,7 @@ inline bool ResolveFromModel(const char* name,
   if (!resolved) {
     if (diagnostic) {
       *diagnostic = std::string("Cannot read '") + name +
-                    "' from model; specify it in model_config";
+                    "' from model; specify it in params";
     }
     return false;
   }

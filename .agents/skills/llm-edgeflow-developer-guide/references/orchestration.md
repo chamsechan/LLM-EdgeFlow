@@ -7,6 +7,11 @@ Use this reference only for Core scheduling, lifecycle, validation, typed Blackb
 - Pipeline consumes only `ValidatedPipelinePlan`; JSON parsing and field normalization belong to the Validator. There is one strict validation path, including test fixtures.
 - Runtime parsing and all composition tools are fail-closed. Require explicit `id` and required input bindings; derive data dependencies from unique producers and merge optional `depends_on` ordering constraints only in the Validator. Array order never supplies dependencies; do not add a compatibility converter.
 - Node JSON uses top-level `inputs` / `outputs`; missing optional inputs stay unconnected. Model capability comes from its Definition and model references are mandatory. `max_parallel_workers` (1–64, default 1) is the only concurrency setting. Reject removed `ports`, `execution_mode`, and model `capability` fields.
+- Model entries use category `type`, instance `name`, `file`, optional `params`, and
+  `backend: {type, params?}`. Select one implementation by category/protocol before parameter
+  validation; use generic parameter diagnostics under `/params` or `/backend/params`.
+  Reject unused models, except when unknown node types prevent reliable binding analysis.
+  Core preserves resolved file values; Integration owns their path rules.
 - Detect registry conflicts, unknown fields/types/ranges, model references/capabilities, self/ordinary cycles, duplicate dependencies, missing producers, duplicate producers, Adapter ingress/egress closure, and parallel write/safety conflicts.
 - Define reusable typed keys with `BlackboardKey<T>` and use the same Key in node code and port Definitions. Request data remains in `AlgContext`; shared immutable/model resources remain in `SessionContext`.
 - Preserve the Pipeline state machine and one-shot build semantics. A failed preflight or materialization must leave the instance failed, not partially ready.

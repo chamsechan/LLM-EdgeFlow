@@ -20,6 +20,7 @@ enum class ExecutionProtocol {
   kImageTextGeneration,
   kGeneratedTokenEmbedding,
   kAudioTranscription,
+  kFixture,
 };
 
 /**
@@ -37,6 +38,7 @@ inline bool IsValidExecutionProtocol(ExecutionProtocol protocol) noexcept {
     case ExecutionProtocol::kImageTextGeneration:
     case ExecutionProtocol::kGeneratedTokenEmbedding:
     case ExecutionProtocol::kAudioTranscription:
+    case ExecutionProtocol::kFixture:
       return true;
     default:
       return false;
@@ -76,10 +78,11 @@ struct BatchPolicy {
  * @brief 模型语义定义元数据 (ModelDefinition)
  */
 struct ModelDefinition {
+  std::string impl_name;
   std::string model_type;
-  std::string capability;
   std::string description;
   ExecutionProtocol required_protocol = ExecutionProtocol::kTensorGraph;
+  std::vector<std::string> fixture_backends;
   ParameterSet params;
   InferenceConcurrency concurrency = InferenceConcurrency::kSerialized;
 };
@@ -107,6 +110,8 @@ inline const char* ExecutionProtocolName(ExecutionProtocol protocol) noexcept {
       return "generated_token_embedding";
     case ExecutionProtocol::kAudioTranscription:
       return "audio_transcription";
+    case ExecutionProtocol::kFixture:
+      return "fixture";
     default:
       return "unknown";
   }

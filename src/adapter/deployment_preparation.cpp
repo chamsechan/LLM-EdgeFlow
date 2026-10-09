@@ -2,8 +2,8 @@
 
 #include <set>
 
-#include "adapter/deployment_model_resolver.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/model_file_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
 #include "contracts/config_schema_validation.h"
@@ -186,20 +186,16 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     prepared.outputs.push_back(std::move(selected));
   }
 
+  if (!ResolveModelFiles(split.neutral_pipeline_json, options.pipeline_dir,
+                         &prepared.neutral_pipeline_json, &error, diagnostic))
+    return false;
   ParsedPipelineConfig parsed;
   PipelineDiagnostic core_diagnostic;
-  if (!ParsePipelineConfig(split.neutral_pipeline_json, &parsed,
+  if (!ParsePipelineConfig(prepared.neutral_pipeline_json, &parsed,
                            &core_diagnostic)) {
     if (diagnostic) diagnostic->pipeline_diagnostic = core_diagnostic;
     return Fail(diagnostic, DiagnosticCodeName(core_diagnostic.code),
                 core_diagnostic.path, core_diagnostic.message);
-  }
-  if (options.model_root_dir.empty()) {
-    prepared.neutral_pipeline_json = std::move(split.neutral_pipeline_json);
-  } else if (!ResolveDeploymentModelPaths(
-                 split.neutral_pipeline_json, options.model_root_dir,
-                 &prepared.neutral_pipeline_json, &error, diagnostic)) {
-    return false;
   }
   *output = std::move(prepared);
   return true;

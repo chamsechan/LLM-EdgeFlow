@@ -96,7 +96,7 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
 
   std::string diagnostic;
   BackendLoadSpec missing{ExecutionProtocol::kTextGeneration};
-  missing.model_path = "./models/does-not-exist.gguf";
+  missing.model_file = "./models/does-not-exist.gguf";
   ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
                                        &missing.params, &diagnostic))
       << diagnostic;
@@ -105,7 +105,7 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
 
   diagnostic.clear();
   BackendLoadSpec directory{ExecutionProtocol::kTextGeneration};
-  directory.model_path = ".";
+  directory.model_file = ".";
   ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
                                        &directory.params, &diagnostic))
       << diagnostic;
@@ -121,7 +121,7 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
 
   diagnostic.clear();
   BackendLoadSpec wrong_protocol{ExecutionProtocol::kTensorGraph};
-  wrong_protocol.model_path = "./models/does-not-exist.gguf";
+  wrong_protocol.model_file = "./models/does-not-exist.gguf";
   ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
                                        &wrong_protocol.params, &diagnostic))
       << diagnostic;
@@ -136,7 +136,7 @@ TEST(LlamaCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   ASSERT_TRUE(definition.has_value());
 
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist.gguf";
+  spec.model_file = "./models/does-not-exist.gguf";
   spec.execution_target.platform = "AX650";
   spec.execution_target.device_id = 7;
   std::string diagnostic;
@@ -191,7 +191,7 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
 
   KiteLlmBackend unavailable;
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist";
+  spec.model_file = "./models/does-not-exist";
   std::string diagnostic;
   EXPECT_EQ(unavailable.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("not compiled"), std::string::npos);
@@ -200,7 +200,7 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
 TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
   KiteLlmBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist";
+  spec.model_file = "./models/does-not-exist";
   std::string diagnostic;
   if (const auto definition = BackendRegistry::Instance().Find("kite_llm")) {
     ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
@@ -225,7 +225,7 @@ TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
 TEST(LlamaCppBackendTest, KiteAcceptsCpuAndUnspecifiedExecutionTargets) {
   KiteLlmBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist";
+  spec.model_file = "./models/does-not-exist";
   std::string diagnostic;
   if (const auto definition = BackendRegistry::Instance().Find("kite_llm")) {
     ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
@@ -255,7 +255,7 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   const auto model = temporary.path / "invalid.gguf";
   std::ofstream(model) << "not a GGUF model";
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = model.string();
+  spec.model_file = model.string();
   std::string diagnostic;
   nlohmann::json config = nlohmann::json::object();
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
@@ -266,7 +266,7 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   spec.execution_target.device_id = 0;
   std::ofstream(temporary.path / "gpu.json")
       << R"({"schema_version":1,"model":{"gpu_layers":1}})";
-  config = {{"run_config_file", "gpu.json"}};
+  config = {{"run_config_file", (temporary.path / "gpu.json").string()}};
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
       << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
@@ -274,7 +274,7 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   // CPU 兼容的文件会进入原生模型加载器。
   std::ofstream(temporary.path / "cpu.json")
       << R"({"schema_version":1,"model":{"gpu_layers":0}})";
-  config = {{"run_config_file", "cpu.json"}};
+  config = {{"run_config_file", (temporary.path / "cpu.json").string()}};
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
       << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
@@ -283,28 +283,18 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   EXPECT_FALSE(definition->params.Parse(config, &spec.params, &diagnostic));
   EXPECT_EQ(spec.params, nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
-  config = {{"run_config_file", "../outside.json"}};
-  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
-      << diagnostic;
-  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("traverse"), std::string::npos);
-  config = {{"run_config_file", "/outside.json"}};
-  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
-      << diagnostic;
-  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("relative"), std::string::npos);
-  config = {{"run_config_file", "missing.json"}};
+  config = {{"run_config_file", (temporary.path / "missing.json").string()}};
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
       << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("does not exist"), std::string::npos);
   std::ofstream(temporary.path / "invalid.json") << "invalid JSON";
-  config = {{"run_config_file", "invalid.json"}};
+  config = {{"run_config_file", (temporary.path / "invalid.json").string()}};
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
       << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
-  spec.model_path = temporary.path.string();
+  spec.model_file = temporary.path.string();
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("regular file"), std::string::npos);
 }
@@ -325,8 +315,9 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = (temporary.path / "model.gguf").string();
-  nlohmann::json config = {{"run_config_file", "run.json"}};
+  spec.model_file = (temporary.path / "model.gguf").string();
+  nlohmann::json config = {
+      {"run_config_file", (temporary.path / "run.json").string()}};
   std::string diagnostic;
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
       << diagnostic;
@@ -438,7 +429,7 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
   const auto definition = BackendRegistry::Instance().Find("llama_cpp");
   ASSERT_TRUE(definition.has_value());
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = model_path;
+  spec.model_file = model_path;
   const nlohmann::json config = {
       {"context_size", 128}, {"decode_batch_size", 128}, {"n_gpu_layers", 0}};
   std::string diagnostic;
@@ -460,8 +451,9 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
       << diagnostic;
   EXPECT_FALSE(direct_output.empty());
 
-  QwenCausalLmModel model(session, "", false, 17);
+  QwenCausalLmModel model(session, false);
   GenerateOptions options;
+  options.random_seed = 17;
   options.max_tokens = 8;
   options.temperature = 0.0f;
   options.top_p = 1.0f;
@@ -481,18 +473,18 @@ TEST(LlamaCppBackendTest, KiteImageProtocolRequiresSafeProjectorConfig) {
   KiteTestDirectory temporary;
   std::ofstream(temporary.path / "model.gguf") << "invalid";
   BackendLoadSpec spec{ExecutionProtocol::kImageTextGeneration};
-  spec.model_path = (temporary.path / "model.gguf").string();
+  spec.model_file = (temporary.path / "model.gguf").string();
   std::string error;
   nlohmann::json config = nlohmann::json::object();
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &error)) << error;
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
   EXPECT_NE(error.find("vision.mmproj"), std::string::npos);
-  config = {{"run_config_file", "run.json"}};
+  config = {{"run_config_file", (temporary.path / "run.json").string()}};
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &error)) << error;
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"vision":{"mmproj":"../escape.gguf"}})";
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
-  EXPECT_NE(error.find("traverse"), std::string::npos);
+  EXPECT_NE(error.find("parent path component"), std::string::npos) << error;
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"vision":{"mmproj":"missing.gguf"}})";
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
@@ -508,8 +500,9 @@ TEST(LlamaCppBackendTest, RealKiteImageTextGeneration) {
   const auto definition = BackendRegistry::Instance().Find("kite_llm");
   ASSERT_TRUE(definition.has_value());
   BackendLoadSpec spec{ExecutionProtocol::kImageTextGeneration};
-  spec.model_path = model;
-  const nlohmann::json params = {{"run_config_file", config}};
+  spec.model_file = model;
+  const nlohmann::json params = {
+      {"run_config_file", std::filesystem::absolute(config).string()}};
   spec.execution_target = {0, "CPU"};
   std::string error;
   ASSERT_TRUE(definition->params.Parse(params, &spec.params, &error)) << error;
@@ -556,8 +549,9 @@ TEST(LlamaCppBackendTest, RealKiteGeneratedTokenEmbeddings) {
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
   BackendLoadSpec spec{ExecutionProtocol::kGeneratedTokenEmbedding};
-  spec.model_path = (temporary.path / "model.gguf").string();
-  const nlohmann::json config = {{"run_config_file", "run.json"}};
+  spec.model_file = (temporary.path / "model.gguf").string();
+  const nlohmann::json config = {
+      {"run_config_file", (temporary.path / "run.json").string()}};
   std::string error;
   ASSERT_TRUE(definition->params.Parse(config, &spec.params, &error)) << error;
   auto session = std::dynamic_pointer_cast<IGeneratedTokenEmbeddingSession>(

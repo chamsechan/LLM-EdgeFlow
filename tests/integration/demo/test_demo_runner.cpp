@@ -245,9 +245,9 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   ASSERT_TRUE(pipeline_input.good());
   auto pipeline = nlohmann::json::parse(pipeline_input);
   auto& model = pipeline["models"][0];
-  model["backend"] = "kite_llm";
-  model["model_path"] = "model.gguf";
-  model["backend_config"] = {{"run_config_file", "run.json"}};
+  model["backend"] = {{"type", "kite_llm"},
+                      {"params", {{"run_config_file", "run.json"}}}};
+  model["file"] = "model.gguf";
   for (auto& node : pipeline["pipeline"]) {
     if (node["node_type"] == "LlmGenerateNode") {
       node["config"]["temperature"] = 0.0;
@@ -819,11 +819,10 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
   ASSERT_TRUE(rerank_source.good());
   auto rerank_pipeline = nlohmann::json::parse(rerank_source);
   auto& model = rerank_pipeline["models"][0];
-  model["model_type"] = "test_biz_rerank";
-  model["backend"] = "test_tensor_backend";
-  model["model_path"] = "rerank.fixture";
-  model["model_config"] = nlohmann::json::object();
-  model["backend_config"] = nlohmann::json::object();
+  model["type"] = "rerank";
+  model["backend"] = {{"type", "test_tensor_backend"}};
+  model["file"] = "rerank.fixture";
+  model["params"] = nlohmann::json::object();
   std::ofstream(temporary.path / "rerank.json") << rerank_pipeline;
   std::ofstream(temporary.path / "rerank.conf")
       << R"({"pipe_path":"rerank.json"})";

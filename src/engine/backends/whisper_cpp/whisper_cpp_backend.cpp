@@ -267,15 +267,15 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
       return nullptr;
     }
 
-    if (spec.model_path.empty()) {
-      SetDiagnosticNoexcept(diagnostic, "whisper_cpp model_path is empty");
+    if (spec.model_file.empty()) {
+      SetDiagnosticNoexcept(diagnostic, "whisper_cpp model_file is empty");
       return nullptr;
     }
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+    if (!std::filesystem::is_regular_file(spec.model_file, ec) || ec) {
       SetDiagnosticNoexcept(
           diagnostic, "whisper_cpp model file not found or not regular file: " +
-                          spec.model_path);
+                          spec.model_file);
       return nullptr;
     }
 
@@ -290,11 +290,11 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     cparams.flash_attn = false;
 
     whisper_context* raw_ctx = whisper_init_from_file_with_params_no_state(
-        spec.model_path.c_str(), cparams);
+        spec.model_file.c_str(), cparams);
     if (!raw_ctx) {
       SetDiagnosticNoexcept(
           diagnostic,
-          "Failed to load whisper model from file: " + spec.model_path);
+          "Failed to load whisper model from file: " + spec.model_file);
       return nullptr;
     }
 

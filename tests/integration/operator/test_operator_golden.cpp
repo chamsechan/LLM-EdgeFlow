@@ -468,9 +468,9 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   ASSERT_TRUE(json_in.good());
   nlohmann::json pipe_json;
   json_in >> pipe_json;
-  pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
-  pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
-  pipe_json["models"][0]["model_config"]["max_length"] = 32;
+  pipe_json["models"][0]["file"] = "models/bge_reranker_large.onnx";
+  pipe_json["models"][0]["params"]["tokenizer_file"] = "models/vocab.txt";
+  pipe_json["models"][0]["params"]["max_tokens"] = 32;
 
   auto temp_json_path = temp_dir / "pipeline_cross_rerank.json";
   std::ofstream json_out(temp_json_path);

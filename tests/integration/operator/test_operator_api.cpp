@@ -15,8 +15,8 @@
 
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/deployment_model_resolver.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/model_file_resolver.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/common_contracts.h"
@@ -99,9 +99,9 @@ class OperatorApiTest : public ::testing::Test {
     std::ifstream json_in(root_dir + "/configs/pipeline_cross_rerank_cpu.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
-    pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
-    pipe_json["models"][0]["model_config"]["max_length"] = 32;
+    pipe_json["models"][0]["file"] = "models/bge_reranker_large.onnx";
+    pipe_json["models"][0]["params"]["tokenizer_file"] = "models/vocab.txt";
+    pipe_json["models"][0]["params"]["max_tokens"] = 32;
 
     auto temp_json_path = temp_dir->path() / "pipeline_cross_rerank.json";
     std::ofstream json_out(temp_json_path);
@@ -1902,8 +1902,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       std::ifstream pipe_in(root / "configs/pipeline_doc_qa_default.json");
       nlohmann::json pipe_json;
       pipe_in >> pipe_json;
-      pipe_json["models"][0]["model_path"] = "models/not_deployed_embed.bin";
-      pipe_json["models"][1]["model_path"] = "models/not_deployed_llm.bin";
+      pipe_json["models"][0]["file"] = "models/not_deployed_embed.bin";
+      pipe_json["models"][1]["file"] = "models/not_deployed_llm.bin";
       original_io = pipe_json["io"];
       std::ofstream pipe_out(root / "configs/pipeline_doc_qa_default.json");
       pipe_out << pipe_json.dump(2);
@@ -1933,8 +1933,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     ASSERT_EQ(resolved.io_plan->resolved_pipeline_json["models"].size(), 2u);
     for (const auto& model :
          resolved.io_plan->resolved_pipeline_json["models"]) {
-      const auto path =
-          std::filesystem::path(model["model_path"].get<std::string>());
+      const auto path = std::filesystem::path(model["file"].get<std::string>());
       EXPECT_TRUE(path.is_absolute());
       EXPECT_EQ(path.lexically_relative(canonical_root).string().rfind("..", 0),
                 std::string::npos);
@@ -1952,7 +1951,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       std::ifstream pipe_in(root / "configs/pipeline_audio_asr_intent.json");
       nlohmann::json pipe_json;
       pipe_in >> pipe_json;
-      pipe_json["models"][0]["model_path"] =
+      pipe_json["models"][0]["file"] =
           "deployment/asr_model_will_arrive_later.bin";
       std::ofstream pipe_out(root / "configs/pipeline_audio_asr_intent.json");
       pipe_out << pipe_json.dump(2);
@@ -1970,34 +1969,38 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         root_string.c_str(), "configs/single_model.conf", &resolved, &err);
     ASSERT_EQ(ret, 0) << err;
     const auto resolved_model = std::filesystem::path(
-        resolved.io_plan->resolved_pipeline_json["models"][0]["model_path"]
+        resolved.io_plan->resolved_pipeline_json["models"][0]["file"]
             .get<std::string>());
-    EXPECT_EQ(resolved_model,
-              canonical_root / "deployment/asr_model_will_arrive_later.bin");
+    EXPECT_EQ(
+        resolved_model,
+        canonical_root / "configs/deployment/asr_model_will_arrive_later.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved_model));
   }
 
-  // 当前的模型解析接受根目录内的规范绝对路径；即使文件不存在，
-  // 也拒绝相对路径遍历和符号链接逃逸。
+  // 文件名相对 Pipeline 目录；不存在的文件允许通过，绝对路径、
+  // 任何父目录分量和符号链接逃逸均拒绝。
   {
     auto resolve = [&](const std::string& reference, nlohmann::json* resolved) {
-      return llm_edgeflow::ResolveDeploymentModelPaths(
-          {{"models", {{{"model_id", "asr"}, {"model_path", reference}}}}},
+      return llm_edgeflow::ResolveModelFiles(
+          {{"models",
+            {{{"name", "asr"},
+              {"type", "asr"},
+              {"file", reference},
+              {"backend", {{"type", "test_tensor_backend"}}}}}}},
           root.string(), resolved, &err);
     };
     nlohmann::json resolved;
     for (const std::string& safe :
          {std::string("safe/missing_model.bin"),
-          std::string("..name/missing_model.bin"),
-          std::string("safe/../missing_model.bin"), std::string("."),
-          (canonical_root / "absolute_model.bin").string()}) {
+          std::string("..name/missing_model.bin"), std::string(".")}) {
       ASSERT_TRUE(resolve(safe, &resolved)) << safe << ": " << err;
       EXPECT_EQ(
-          resolved["models"][0]["model_path"].get<std::string>(),
+          resolved["models"][0]["file"].get<std::string>(),
           std::filesystem::weakly_canonical(canonical_root / safe).string());
     }
     for (const char* bad :
-         {"../../escape_model.bin", "safe/../../../escape_model.bin"}) {
+         {"../../escape_model.bin", "safe/../../../escape_model.bin",
+          "safe/../missing_model.bin"}) {
       EXPECT_FALSE(resolve(bad, &resolved)) << bad;
       EXPECT_FALSE(err.empty()) << bad;
     }

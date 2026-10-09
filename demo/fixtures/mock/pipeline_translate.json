@@ -15,15 +15,15 @@
   },
   "models": [
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
-        "max_seq_len": 512
-      },
-      "backend_config": {},
-      "model_id": "translate_llm",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+      "type": "llm",
+      "name": "translate_llm",
+      "file": "artifacts/neutral-llm.fixture",
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [

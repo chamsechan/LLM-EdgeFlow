@@ -11,12 +11,14 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/deployment_model_resolver.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
+#include "adapter/model_file_resolver.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "dev_support/inference/test_causal_lm_backend.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
+#include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 #include "platform_mock/error_codes.h"
 #include "tests/support/adapter_examples/flat_struct_adapter.h"
@@ -47,11 +49,54 @@ class AdapterContractSecurityTest : public ::testing::Test {
 
 namespace {
 
+class ProbeSession final : public test::TestCausalLmSession {
+ public:
+  explicit ProbeSession(std::string backend)
+      : TestCausalLmSession("probe.fixture"), backend_(std::move(backend)) {}
+  const std::string& BackendType() const noexcept override { return backend_; }
+
+ private:
+  std::string backend_;
+};
+
+class ProbeBackend final : public IInferenceBackend {
+ public:
+  explicit ProbeBackend(std::string type) : type_(std::move(type)) {}
+  const std::string& BackendType() const noexcept override { return type_; }
+  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
+                                        std::string* error) noexcept override {
+    try {
+      if (error) error->clear();
+      return std::make_shared<ProbeSession>(type_);
+    } catch (...) {
+      return nullptr;
+    }
+  }
+
+ private:
+  std::string type_;
+};
+
+[[maybe_unused]] const bool probe_backends_registered = [] {
+  bool registered = true;
+  for (const char* type :
+       {"translation_probe_backend", "failing_create_backend"}) {
+    BackendDefinition definition;
+    definition.backend_type = type;
+    definition.supported_protocols = {ExecutionProtocol::kFixture};
+    definition.concurrency = InferenceConcurrency::kSerialized;
+    registered &= BackendRegistry::Instance().Register(
+        definition, [type] { return std::make_unique<ProbeBackend>(type); });
+  }
+  return registered;
+}();
+
 // 测试通过 Operator API 执行随附的翻译 Pipeline，该夹具记录实际的生成调用，
 // 不做任何 JSON 处理。
 class TranslationProbeModel final : public ILlmModel {
  public:
-  inline static constexpr char kModelType[] = "test_translation_probe";
+  bool SupportsRandomSeed() const noexcept override { return true; }
+  inline static constexpr char kImplName[] = "test_translation_probe";
   inline static std::weak_ptr<TranslationProbeModel> latest;
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
@@ -61,13 +106,13 @@ class TranslationProbeModel final : public ILlmModel {
     if (error) error->clear();
     return model;
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "llm";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "llm";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
@@ -99,7 +144,7 @@ class TranslationProbeModel final : public ILlmModel {
 // 在模型创建时失败，使 Operator Create 进入加载阶段。
 class FailingCreateModel {
  public:
-  inline static constexpr char kModelType[] = "test_failing_create_model";
+  inline static constexpr char kImplName[] = "test_failing_create_model";
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string* error) {
     if (error) *error = "probe model refused to load";
@@ -109,20 +154,22 @@ class FailingCreateModel {
 
 REGISTER_MODEL_WITH_DEFINITION(FailingCreateModel, [] {
   ModelDefinition definition;
-  definition.model_type = FailingCreateModel::kModelType;
-  definition.capability = "llm";
+  definition.impl_name = FailingCreateModel::kImplName;
+  definition.model_type = "llm";
   definition.description = "Test-only model whose creation fails";
-  definition.required_protocol = ExecutionProtocol::kTextGeneration;
+  definition.required_protocol = ExecutionProtocol::kFixture;
+  definition.fixture_backends = {"failing_create_backend"};
   definition.concurrency = InferenceConcurrency::kSerialized;
   return definition;
 }());
 
 REGISTER_MODEL_WITH_DEFINITION(TranslationProbeModel, [] {
   ModelDefinition definition;
-  definition.model_type = TranslationProbeModel::kModelType;
-  definition.capability = "llm";
+  definition.impl_name = TranslationProbeModel::kImplName;
+  definition.model_type = "llm";
   definition.description = "Test-only translation generation probe";
-  definition.required_protocol = ExecutionProtocol::kTextGeneration;
+  definition.required_protocol = ExecutionProtocol::kFixture;
+  definition.fixture_backends = {"translation_probe_backend"};
   definition.concurrency = InferenceConcurrency::kSerialized;
   return definition;
 }());
@@ -154,12 +201,11 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_EQ(pipeline.at("pipeline").size(), 1U);
   EXPECT_EQ(pipeline["pipeline"][0]["node_type"], "LlmGenerateNode");
   ASSERT_EQ(pipeline.at("models").size(), 1U);
-  auto& model_config = pipeline["models"][0];
-  model_config["model_type"] = TranslationProbeModel::kModelType;
-  model_config["backend"] = "test_causal_lm_backend";
-  model_config["model_path"] = "translation-probe.fixture";
-  model_config["model_config"] = nlohmann::json::object();
-  model_config["backend_config"] = nlohmann::json::object();
+  auto& model_params = pipeline["models"][0];
+  model_params["type"] = "llm";
+  model_params["backend"] = {{"type", "translation_probe_backend"}};
+  model_params["file"] = "translation-probe.fixture";
+  model_params["params"] = nlohmann::json::object();
   pipeline["io"]["output"][0]["params"] = {{"entities_json_max_bytes", 2047}};
   std::ofstream(pipe_path) << pipeline.dump();
 
@@ -387,93 +433,45 @@ TEST_F(AdapterContractSecurityTest,
   }
 }
 
-TEST_F(AdapterContractSecurityTest, DeploymentModelRootContractIsSandboxed) {
-  const std::string root_input = GetConfigPath("models");
+TEST_F(AdapterContractSecurityTest, PipelineFileDirectoryIsSandboxed) {
+  const std::string root_input = GetConfigPath("configs");
   const auto root = std::filesystem::absolute(root_input);
   ASSERT_TRUE(std::filesystem::is_directory(root));
 
   nlohmann::json pipeline_json = {
-      {"models", nlohmann::json::array({{{"model_path", "artifact.onnx"}}})}};
+      {"models",
+       {{{"type", "embedding"},
+         {"name", "model"},
+         {"file", "artifact.onnx"},
+         {"backend", {{"type", "test_tensor_backend"}}}}}}};
   nlohmann::json resolved;
   std::string diagnostic;
-
-  ASSERT_TRUE(ResolveDeploymentModelPaths(pipeline_json, root_input, &resolved,
-                                          &diagnostic))
+  ASSERT_TRUE(
+      ResolveModelFiles(pipeline_json, root_input, &resolved, &diagnostic))
       << diagnostic;
-  EXPECT_EQ(std::filesystem::path(
-                resolved["models"][0]["model_path"].get<std::string>()),
-            std::filesystem::weakly_canonical(root / "artifact.onnx"));
-
-  for (const char* safe_path :
-       {"..name/artifact.onnx", "nested/../artifact.onnx"}) {
-    pipeline_json["models"][0]["model_path"] = safe_path;
-    ASSERT_TRUE(ResolveDeploymentModelPaths(pipeline_json, root_input,
-                                            &resolved, &diagnostic))
-        << safe_path << ": " << diagnostic;
-    EXPECT_EQ(std::filesystem::path(
-                  resolved["models"][0]["model_path"].get<std::string>()),
-              std::filesystem::weakly_canonical(root / safe_path));
+  EXPECT_EQ(
+      std::filesystem::path(resolved["models"][0]["file"].get<std::string>()),
+      std::filesystem::weakly_canonical(root / "artifact.onnx"));
+  pipeline_json["models"][0]["file"] = "..name/artifact.onnx";
+  ASSERT_TRUE(
+      ResolveModelFiles(pipeline_json, root_input, &resolved, &diagnostic))
+      << diagnostic;
+  ASSERT_TRUE(ResolveModelFiles(pipeline_json, "", &resolved, &diagnostic));
+  EXPECT_EQ(resolved["models"][0]["file"], "..name/artifact.onnx");
+  for (const std::string& invalid :
+       {std::string("../escape.onnx"), std::string("nested/../artifact.onnx"),
+        (root / "absolute.onnx").string(), std::string("C:\\model.onnx"),
+        std::string("\\\\server\\model.onnx")}) {
+    pipeline_json["models"][0]["file"] = invalid;
+    EXPECT_FALSE(
+        ResolveModelFiles(pipeline_json, root_input, &resolved, &diagnostic))
+        << invalid;
+    EXPECT_TRUE(resolved.is_null());
   }
-
-  diagnostic.clear();
-  EXPECT_FALSE(
-      ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("requires non-empty model_root_dir"),
-            std::string::npos);
-
-  pipeline_json["models"][0]["model_path"] = "../escape.onnx";
-  diagnostic.clear();
-  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, root.string(),
-                                           &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("cannot traverse"), std::string::npos);
-
-  const auto unique_suffix = std::to_string(
-      std::chrono::steady_clock::now().time_since_epoch().count());
-  const auto temp_base = std::filesystem::temp_directory_path() /
-                         ("edgeflow_resolver_" + unique_suffix);
-  const auto sandbox = temp_base / "sandbox";
-  const auto outside = temp_base / "outside";
-  std::filesystem::create_directories(sandbox);
-  std::filesystem::create_directories(outside);
-  std::filesystem::create_directory_symlink(outside, sandbox / "escape_link");
-  pipeline_json["models"][0]["model_path"] = "escape_link/artifact.onnx";
-  diagnostic.clear();
-  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
-                                           &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
-
-  pipeline_json["models"][0]["model_path"] =
-      (temp_base / "sandbox_extra/artifact.onnx").string();
-  diagnostic.clear();
-  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
-                                           &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
-
-  pipeline_json["models"][0]["model_path"] =
-      (sandbox / "absolute.onnx").string();
-  EXPECT_TRUE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
-                                          &resolved, &diagnostic))
-      << diagnostic;
-  std::filesystem::remove_all(temp_base);
-
-  pipeline_json["models"][0]["model_path"] =
-      std::filesystem::weakly_canonical(root / "absolute.onnx").string();
-  diagnostic.clear();
-  EXPECT_TRUE(
-      ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic))
-      << diagnostic;
-
-  diagnostic.clear();
-  const nlohmann::json model_less_pipeline = {
-      {"models", nlohmann::json::array()}};
-  EXPECT_TRUE(ResolveDeploymentModelPaths(model_less_pipeline,
-                                          "/path/unused/by/model-less-pipeline",
-                                          &resolved, &diagnostic))
-      << diagnostic;
 }
 
 TEST_F(AdapterContractSecurityTest,
-       InMemoryEntryResolvesArtifactRootBeforeCore) {
+       InMemoryEntryResolvesPipelineFilesBeforeCore) {
   const std::string config_path =
       GetConfigPath("demo/fixtures/mock/pipeline_doc_qa.json");
   std::ifstream config_stream(config_path);
@@ -481,11 +479,11 @@ TEST_F(AdapterContractSecurityTest,
   nlohmann::json pipeline_json;
   config_stream >> pipeline_json;
   ASSERT_EQ(pipeline_json["models"].size(), 2u);
-  pipeline_json["models"][0]["model_path"] = "embedding.fixture";
-  pipeline_json["models"][1]["model_path"] = "llm.fixture";
+  pipeline_json["models"][0]["file"] = "embedding.fixture";
+  pipeline_json["models"][1]["file"] = "llm.fixture";
 
   const std::filesystem::path model_root =
-      std::filesystem::weakly_canonical(GetConfigPath("models"));
+      std::filesystem::weakly_canonical(GetConfigPath("configs"));
   std::unique_ptr<ValidatedIoPlan> io_plan;
   std::string plan_err;
   ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(
@@ -514,11 +512,11 @@ TEST_F(AdapterContractSecurityTest,
                                     .GetModelRegistration("llm_model");
   ASSERT_TRUE(embedding_registration.has_value());
   ASSERT_TRUE(llm_registration.has_value());
-  EXPECT_EQ(embedding_registration->resolved_model_path,
+  EXPECT_EQ(embedding_registration->model_file,
             std::filesystem::weakly_canonical(model_root / "embedding.fixture")
                 .string());
   EXPECT_EQ(
-      llm_registration->resolved_model_path,
+      llm_registration->model_file,
       std::filesystem::weakly_canonical(model_root / "llm.fixture").string());
 }
 
@@ -1226,11 +1224,10 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
   source >> pipeline;
-  pipeline["models"][0]["model_type"] = "test_biz_rerank";
-  pipeline["models"][0]["backend"] = "test_tensor_backend";
-  pipeline["models"][0]["model_path"] = "boundary.fixture";
-  pipeline["models"][0]["model_config"] = nlohmann::json::object();
-  pipeline["models"][0]["backend_config"] = nlohmann::json::object();
+  pipeline["models"][0]["type"] = "rerank";
+  pipeline["models"][0]["backend"] = {{"type", "test_tensor_backend"}};
+  pipeline["models"][0]["file"] = "boundary.fixture";
+  pipeline["models"][0]["params"] = nlohmann::json::object();
   std::ofstream(directory / "pipeline.json") << pipeline.dump();
   std::ofstream(directory / "pipeline.conf")
       << "{\"pipe_path\":\"pipeline.json\"}";
@@ -1379,10 +1376,9 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
   nlohmann::json pipeline = nlohmann::json::parse(R"j({
     "io": {"input": [{"type": "entity_in", "name": "entity_extract"}],
            "output": [{"type": "entity_out", "name": "entity_extract"}]},
-    "models": [{"model_id": "llm", "model_type": "qwen_causal_lm",
-                "backend": "test_causal_lm_backend",
-                "model_path": "neutral-llm.fixture",
-                "model_config": {}, "backend_config": {}}],
+    "models": [{"name": "llm", "type": "llm",
+                "backend": {"type": "test_causal_lm_backend"},
+                "file": "neutral-llm.fixture"}],
     "pipeline": [
       {"id": "gen", "node_type": "LlmGenerateNode",
        "config": {"bind_model": "llm"},
@@ -1413,7 +1409,7 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
             std::string::npos)
       << operator_api::GetOperatorLastError();
   auto unloadable = pipeline;
-  unloadable["models"][0]["model_type"] = FailingCreateModel::kModelType;
+  unloadable["models"][0]["backend"] = {{"type", "failing_create_backend"}};
   EXPECT_EQ(create(unloadable, &handle), COMPANY_ALG_ERR_INVALID_PARAM);
   const std::string load_error = operator_api::GetOperatorLastError();
   EXPECT_NE(load_error.find("Create preparation failed with internal code -3"),

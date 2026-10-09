@@ -201,8 +201,7 @@ int OperatorConfigResolver::Resolve(
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string plan_err;
     int plan_ret = IoPlanResolver::ResolveFromConfig(
-        dep_config, canon_root.string(), &io_plan, &plan_err, out_diagnostic,
-        effective_depth);
+        dep_config, &io_plan, &plan_err, out_diagnostic, effective_depth);
     if (plan_ret != 0) {
       if (error_msg) *error_msg = plan_err;
       return plan_ret;

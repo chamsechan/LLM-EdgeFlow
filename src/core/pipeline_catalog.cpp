@@ -94,8 +94,8 @@ std::optional<NodeDefinition> PipelineCatalog::FindNode(
 }
 
 std::optional<ModelDefinition> PipelineCatalog::FindModel(
-    const std::string& model_type) {
-  return ModelRegistry::Instance().Find(model_type);
+    const std::string& impl_name) {
+  return ModelRegistry::Instance().Find(impl_name);
 }
 
 std::optional<BackendDefinition> PipelineCatalog::FindBackend(
@@ -123,7 +123,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
   for (const auto& dep : definition.model_dependencies) {
     model_deps.push_back({
         {"name", dep.name},
-        {"capability", dep.capability},
+        {"capability", dep.model_type},
         {"config_field", dep.config_field},
     });
   }
@@ -145,8 +145,8 @@ nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
     fields.push_back(ConfigFieldToJson(field));
   }
   return {
-      {"model_type", definition.model_type},
-      {"capability", definition.capability},
+      {"model_type", definition.impl_name},
+      {"capability", definition.model_type},
       {"description", definition.description},
       {"required_protocol",
        ExecutionProtocolName(definition.required_protocol)},

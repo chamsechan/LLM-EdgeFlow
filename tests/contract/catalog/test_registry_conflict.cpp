@@ -31,8 +31,8 @@ inline NodeDefinition MakeTestNodeDef(const std::string& type) {
 
 inline ModelDefinition MakeTestModelDef(const std::string& type) {
   ModelDefinition def;
-  def.model_type = type;
-  def.capability = "embedding";
+  def.impl_name = type;
+  def.model_type = "embedding";
   def.description = "test model " + type;
   def.required_protocol = ExecutionProtocol::kTensorGraph;
   def.concurrency = InferenceConcurrency::kConcurrent;
@@ -136,30 +136,30 @@ TEST(RegistryAuthoringStartupTest,
 
 class DummyModel : public IEmbeddingModel {
  public:
-  inline static constexpr char kModelType[] = "dummy_model";
+  inline static constexpr char kImplName[] = "dummy_model";
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string*) {
     return std::make_shared<DummyModel>();
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch&, const EmbeddingOptions&, EmbeddingBatch*,
+  int Embed(const TextBatch&, EmbeddingBatch*,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     return 0;
   }
 };
 REGISTER_MODEL_WITH_DEFINITION(DummyModel,
-                               MakeTestModelDef(DummyModel::kModelType));
+                               MakeTestModelDef(DummyModel::kImplName));
 
 TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
@@ -186,19 +186,20 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(ModelRegistry::Instance().Register(
-      MakeTestModelDef(DummyModel::kModelType), DummyModel::Create));
+      MakeTestModelDef(DummyModel::kImplName), DummyModel::Create));
   EXPECT_TRUE(ModelRegistry::Instance().HasConflict());
 
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
       {"models",
-       nlohmann::json::array({{{"model_id", "m1"},
-                               {"model_type", DummyModel::kModelType},
-                               {"backend", "unused_backend"},
-                               {"model_path", "unused.bin"},
-                               {"model_config", nlohmann::json::object()},
-                               {"backend_config", nlohmann::json::object()}}})},
+       nlohmann::json::array({{{"name", "m1"},
+                               {"type", "embedding"},
+                               {"backend",
+                                {{"type", "unused_backend"},
+                                 {"params", nlohmann::json::object()}}},
+                               {"file", "unused.bin"},
+                               {"params", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
                                {"node_type", DummyNode::kNodeType},

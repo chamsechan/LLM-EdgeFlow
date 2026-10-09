@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -20,26 +19,15 @@ namespace llm_edgeflow {
 namespace {
 
 struct Params {
-  std::string system_prompt;
   bool add_bos = false;
-  int64_t random_seed = -1;
 };
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>(
-      {Field("system_prompt", &Params::system_prompt)
-           .Default("")
-           .Description(
-               "Qwen ChatML 的 system 角色内容；空字符串时省略该角色。"),
-       Field("add_bos", &Params::add_bos)
+      {Field("add_bos", &Params::add_bos)
            .Default(false)
            .Description(
-               "分词时请求添加 BOS 起始 token，须与所选权重的分词约定一致。"),
-       Field("random_seed", &Params::random_seed)
-           .Default(-1)
-           .Range(-1, std::numeric_limits<int32_t>::max())
-           .Description("-1 不显式指定随机种子；非负值结合 req_id/sub_id "
-                        "派生每条输入的采样种子。")});
+               "分词时请求添加 BOS 起始 token，须与所选权重的分词约定一致。")});
 }
 
 uint64_t MixSeed(uint64_t seed, uint32_t req_id, uint32_t sub_id) noexcept {
@@ -74,9 +62,8 @@ std::shared_ptr<IModel> QwenCausalLmModel::Create(const ModelCreateContext& ctx,
       return nullptr;
     }
 
-    return std::make_shared<QwenCausalLmModel>(
-        std::move(session), params.system_prompt, params.add_bos,
-        params.random_seed);
+    return std::make_shared<QwenCausalLmModel>(std::move(session),
+                                               params.add_bos);
   } catch (const std::exception& e) {
     if (diagnostic) {
       *diagnostic = std::string("Qwen model creation exception: ") + e.what();
@@ -89,19 +76,15 @@ std::shared_ptr<IModel> QwenCausalLmModel::Create(const ModelCreateContext& ctx,
 }
 
 QwenCausalLmModel::QwenCausalLmModel(
-    std::shared_ptr<ITextGenerationSession> session, std::string system_prompt,
-    bool add_bos, int64_t random_seed)
-    : session_(std::move(session)),
-      system_prompt_(std::move(system_prompt)),
-      add_bos_(add_bos),
-      random_seed_(random_seed) {}
+    std::shared_ptr<ITextGenerationSession> session, bool add_bos)
+    : session_(std::move(session)), add_bos_(add_bos) {}
 
 std::string QwenCausalLmModel::ApplyChatTemplate(
-    const std::string& prompt) const {
+    const std::string& prompt, const std::string& system_prompt) const {
   std::string formatted;
-  if (!system_prompt_.empty()) {
+  if (!system_prompt.empty()) {
     formatted += "<|im_start|>system\n";
-    formatted += system_prompt_;
+    formatted += system_prompt;
     formatted += "<|im_end|>\n";
   }
   formatted += "<|im_start|>user\n";
@@ -155,14 +138,14 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
 
   try {
     std::optional<uint64_t> seed;
-    if (random_seed_ >= 0) {
-      seed = MixSeed(static_cast<uint64_t>(random_seed_), prompt.req_id,
+    if (options.random_seed >= 0) {
+      seed = MixSeed(static_cast<uint64_t>(options.random_seed), prompt.req_id,
                      prompt.sub_id);
     }
     std::string reason;
-    const int result =
-        session_->Generate(ApplyChatTemplate(prompt.data), add_bos_, options,
-                           seed, output, &reason);
+    const int result = session_->Generate(
+        ApplyChatTemplate(prompt.data, options.system_prompt), add_bos_,
+        options, seed, output, &reason);
     if (result != 0) {
       SetDiagnosticNoexcept(diagnostic, reason);
       output->clear();

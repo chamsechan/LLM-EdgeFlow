@@ -34,7 +34,7 @@ JSON 中只有真正完成的步骤会进入 `completed_steps`，效果结果保
 
 | Profile | 默认效果文件 | 资产目录与清单 |
 | --- | --- | --- |
-| keyword_match_rules | tests/fixtures/effects/keyword_exact.json | models；models/asset_manifest.json |
+| keyword_match_rules | tests/fixtures/effects/keyword_exact.json | models；configs/asset_manifest.json |
 | entity_extract_mock | tests/fixtures/effects/entity_mock_exact.json | 项目根；tests/fixtures/asset_manifest_test.json |
 | entity_extract_custom_mock | 同上 | 同上 |
 

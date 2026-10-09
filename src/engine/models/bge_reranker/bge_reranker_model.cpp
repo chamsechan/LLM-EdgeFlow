@@ -21,24 +21,24 @@ namespace {
 struct Params {
   std::string tokenizer_file;
   bool do_lower_case = true;
-  std::optional<int64_t> max_length;
+  std::optional<int64_t> max_tokens;
   std::string output_name;
   std::string score_activation;
-  int max_batch_size = 4;
 };
 
 Parameters<Params> ParamSpec() {
   auto spec = Parameters<Params>(
       {Field("tokenizer_file", &Params::tokenizer_file)
-           .Default("vocab.txt")
+           .Required()
+           .File()
            .Description("匹配该重排权重的 BERT WordPiece "
-                        "词表；相对路径基于模型资源目录，例如 "
-                        "vocab.txt，也可使用绝对路径。"),
+                        "词表；相对路径基于 Pipeline JSON 所在目录，例如 "
+                        "vocab.txt。"),
        Field("do_lower_case", &Params::do_lower_case)
            .Default(true)
            .Description(
                "查询和候选分词前，将英文大写和全角英文字母归一为半角小写。"),
-       Field("max_length", &Params::max_length)
+       Field("max_tokens", &Params::max_tokens)
            .Range(3, 4096)
            .Description(
                "查询与候选成对编码后的总 token 长度，包含 "
@@ -52,12 +52,7 @@ Parameters<Params> ParamSpec() {
            .Default("sigmoid")
            .Enum({"sigmoid", "identity"})
            .Description("sigmoid 将模型原始分数映射至 [0,1]；identity "
-                        "直接使用原始分数。"),
-       Field("max_batch_size", &Params::max_batch_size)
-           .Default(4)
-           .Range(1, 1024)
-           .Description("一次模型执行处理的查询与候选对数量上限；必须满足 "
-                        "Backend 的批次约束。")});
+                        "直接使用原始分数。")});
   spec.Validate([](const Params& params, std::string* diagnostic) {
     if (params.tokenizer_file.empty()) {
       if (diagnostic) *diagnostic = "Field 'tokenizer_file' cannot be empty";
@@ -102,15 +97,13 @@ bool ValidateRerankOutput(const Tensor& tensor, size_t expected_batch,
 
 BgeRerankerModel::BgeRerankerModel(std::shared_ptr<ITensorGraphSession> session,
                                    BertWordPieceTokenizer tokenizer,
-                                   size_t max_length, std::string output_name,
-                                   std::string score_activation,
-                                   size_t max_batch_size)
+                                   size_t max_tokens, std::string output_name,
+                                   std::string score_activation)
     : session_(std::move(session)),
       tokenizer_(std::move(tokenizer)),
-      max_length_(max_length),
+      max_tokens_(max_tokens),
       output_name_(std::move(output_name)),
-      score_activation_(std::move(score_activation)),
-      max_batch_size_(max_batch_size) {}
+      score_activation_(std::move(score_activation)) {}
 
 std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
                                                  std::string* diagnostic) {
@@ -119,26 +112,19 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
       RequireTensorGraphSession(ctx.backend_session, diagnostic);
   if (!tensor_session) return nullptr;
 
-  int64_t max_length = 0;
-  if (!ResolveFromModel("max_length", params.max_length,
-                        StaticSequenceLength(*tensor_session), 512, &max_length,
+  int64_t max_tokens = 0;
+  if (!ResolveFromModel("max_tokens", params.max_tokens,
+                        StaticSequenceLength(*tensor_session), 512, &max_tokens,
                         diagnostic)) {
     return nullptr;
   }
   // 固定形状由资源提供，必须留出句对编码所需的三个特殊 token。
-  if (max_length < 3 || max_length > 4096) {
-    SetDiagnosticNoexcept(diagnostic, "Model max_length must be in [3, 4096]");
+  if (max_tokens < 3 || max_tokens > 4096) {
+    SetDiagnosticNoexcept(diagnostic, "Model max_tokens must be in [3, 4096]");
     return nullptr;
   }
   const auto& output_name = params.output_name;
-  const size_t max_batch_size = params.max_batch_size;
-
-  auto session_policy = tensor_session->GetBatchPolicy();
-  if (!ValidateModelBatchLimit(session_policy, max_batch_size, diagnostic)) {
-    return nullptr;
-  }
-
-  if (!ValidateBertInputMetadata(*tensor_session, max_length,
+  if (!ValidateBertInputMetadata(*tensor_session, max_tokens,
                                  "BgeRerankerModel", diagnostic)) {
     return nullptr;
   }
@@ -166,14 +152,14 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
   }
 
   BertWordPieceTokenizer tokenizer;
-  if (!LoadBertTokenizer(ctx.model_resource_root, params.tokenizer_file,
-                         params.do_lower_case, &tokenizer, diagnostic)) {
+  if (!LoadBertTokenizer(params.tokenizer_file, params.do_lower_case,
+                         &tokenizer, diagnostic)) {
     return nullptr;
   }
 
   return std::make_shared<BgeRerankerModel>(
-      std::move(tensor_session), std::move(tokenizer), max_length, output_name,
-      params.score_activation, max_batch_size);
+      std::move(tensor_session), std::move(tokenizer), max_tokens, output_name,
+      params.score_activation);
 }
 
 int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
@@ -195,8 +181,7 @@ int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
     return -1;
   }
 
-  BatchPolicy policy =
-      ConstrainModelBatchPolicy(session_.get(), max_batch_size_);
+  const BatchPolicy policy = session_->GetBatchPolicy();
 
   return FixedBatchExecutor::Execute<QueryCandidatePair, float>(
       inputs, policy,
@@ -222,7 +207,7 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
     BertInputTensors input_tensors;
     const bool include_token_type_ids =
         HasTensorInput(session_->Inputs(), "token_type_ids");
-    if (!input_tensors.Create(exec_count, max_length_, include_token_type_ids,
+    if (!input_tensors.Create(exec_count, max_tokens_, include_token_type_ids,
                               &diag)) {
       ALG_LOG_ERROR("[BgeRerankerModel] Failed to create input tensors: %s\n",
                     diag.c_str());
@@ -240,7 +225,7 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
     for (size_t i = 0; i < exec_count; ++i) {
       if (i < slice.valid_count) {
         const auto& pair = all_inputs[slice.offset + i].data;
-        if (!tokenizer_.EncodePair(pair.query, pair.candidate, max_length_,
+        if (!tokenizer_.EncodePair(pair.query, pair.candidate, max_tokens_,
                                    &sample_ids, &sample_mask, &sample_type,
                                    &diag)) {
           ALG_LOG_ERROR("[BgeRerankerModel] Tokenizer EncodePair error: %s\n",
@@ -251,7 +236,7 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
         }
       } else {
         // 填充用的空条目
-        if (!tokenizer_.EncodePair("", "", max_length_, &sample_ids,
+        if (!tokenizer_.EncodePair("", "", max_tokens_, &sample_ids,
                                    &sample_mask, &sample_type, &diag)) {
           ALG_LOG_ERROR("[BgeRerankerModel] Dummy EncodePair error: %s\n",
                         diag.c_str());
@@ -261,13 +246,13 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
         }
       }
 
-      std::memcpy(ids_ptr + i * max_length_, sample_ids.data(),
-                  max_length_ * sizeof(int64_t));
-      std::memcpy(mask_ptr + i * max_length_, sample_mask.data(),
-                  max_length_ * sizeof(int64_t));
+      std::memcpy(ids_ptr + i * max_tokens_, sample_ids.data(),
+                  max_tokens_ * sizeof(int64_t));
+      std::memcpy(mask_ptr + i * max_tokens_, sample_mask.data(),
+                  max_tokens_ * sizeof(int64_t));
       if (type_ptr) {
-        std::memcpy(type_ptr + i * max_length_, sample_type.data(),
-                    max_length_ * sizeof(int64_t));
+        std::memcpy(type_ptr + i * max_tokens_, sample_type.data(),
+                    max_tokens_ * sizeof(int64_t));
       }
     }
 

@@ -15,36 +15,43 @@
   },
   "models": [
     {
-      "model_type": "test_biz_embedding",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "embedding_dim": 128,
-        "max_batch_size": 4
+      "type": "embedding",
+      "name": "embed_model",
+      "file": "bge_base_npu.bin",
+      "params": {
+        "embedding_dim": 128
       },
-      "backend_config": {},
-      "model_id": "embed_model",
-      "model_path": "./models/bge_base_npu.bin"
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 4
+        }
+      }
     },
     {
-      "model_type": "test_biz_rerank",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "max_batch_size": 4
-      },
-      "backend_config": {},
-      "model_id": "rerank_model",
-      "model_path": "./models/bge_reranker_large_npu.bin"
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "bge_reranker_large_npu.bin",
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 4
+        }
+      }
     },
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen_1.5b_npu.bin",
+      "params": {
         "max_seq_len": 1024
       },
-      "backend_config": {},
-      "model_id": "llm_model",
-      "model_path": "./models/qwen_1.5b_npu.bin"
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [

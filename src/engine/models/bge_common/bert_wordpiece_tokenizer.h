@@ -18,7 +18,7 @@ namespace llm_edgeflow {
  * (do_lower_case)；
  * - 非法 UTF-8 序列严格 fail-closed 返回 false，禁止静默跳过；
  * - 支持贪心最长匹配 WordPiece (## 前缀切分)；
- * - 产出 input_ids 与 attention_mask，执行截断与填充至 max_length。
+ * - 产出 input_ids 与 attention_mask，执行截断与填充至 max_tokens。
  */
 class BertWordPieceTokenizer {
  public:
@@ -42,27 +42,27 @@ class BertWordPieceTokenizer {
                       bool do_lower_case, std::string* diagnostic = nullptr);
 
   /**
-   * @brief 对输入文本进行分词、截断并填充至 max_length
+   * @brief 对输入文本进行分词、截断并填充至 max_tokens
    * @param text 输入文本
-   * @param max_length 目标序列长度
-   * @param input_ids 产出的 token ID 数组 (大小为 max_length)
-   * @param attention_mask 产出的 attention mask 数组 (大小为 max_length)
+   * @param max_tokens 目标序列长度
+   * @param input_ids 产出的 token ID 数组 (大小为 max_tokens)
+   * @param attention_mask 产出的 attention mask 数组 (大小为 max_tokens)
    * @param diagnostic 错误诊断信息 (如非法 UTF-8)
    * @return true 分词成功，false 编码异常 (如非法 UTF-8)
    */
-  bool Encode(const std::string& text, size_t max_length,
+  bool Encode(const std::string& text, size_t max_tokens,
               std::vector<int64_t>* input_ids,
               std::vector<int64_t>* attention_mask,
               std::string* diagnostic = nullptr) const;
 
   /**
-   * @brief 对 (Query, Candidate) 样本对进行分词、截断并填充至 max_length
+   * @brief 对 (Query, Candidate) 样本对进行分词、截断并填充至 max_tokens
    * 遵循 BERT Cross-Encoder 规范：[CLS] query [SEP] candidate [SEP] [PAD]...
    * token_type_ids: query 侧为 0，candidate 与尾部 [SEP] 侧为 1，padding 为 0
    * 截断策略：longest-first 优先截断较长一侧，长度相同时优先截断 candidate
    */
   bool EncodePair(const std::string& query, const std::string& candidate,
-                  size_t max_length, std::vector<int64_t>* input_ids,
+                  size_t max_tokens, std::vector<int64_t>* input_ids,
                   std::vector<int64_t>* attention_mask,
                   std::vector<int64_t>* token_type_ids,
                   std::string* diagnostic = nullptr) const;

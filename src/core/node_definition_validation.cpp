@@ -100,11 +100,11 @@ bool ValidateNodeDefinitionStructure(const NodeDefinition& definition,
   std::unordered_set<std::string> seen_dep_names;
   std::unordered_set<std::string> seen_dep_config_fields;
   for (const auto& dep : definition.model_dependencies) {
-    if (dep.name.empty() || dep.capability.empty() ||
+    if (dep.name.empty() || dep.model_type.empty() ||
         dep.config_field.empty()) {
       if (error) {
         *error =
-            "Model dependency name, capability, and config_field must be "
+            "Model dependency name, model_type, and config_field must be "
             "non-empty";
       }
       return false;

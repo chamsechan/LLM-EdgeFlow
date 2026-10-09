@@ -80,20 +80,19 @@ TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
 // 根据字符串哈希特征计算不同向量的 Mock Embedding 引擎
 class DistinctMockEmbeddingModel : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "mock_embedding";
     return t;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& inputs, const EmbeddingOptions&,
-            EmbeddingBatch* outputs,
+  int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
@@ -126,8 +125,7 @@ TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
   auto embed_node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(embed_node, nullptr);
 
-  nlohmann::json node_cfg = {{"bind_model", "embed_model"},
-                             {"normalize", true}};
+  nlohmann::json node_cfg = {{"bind_model", "embed_model"}};
   ASSERT_TRUE(InitNodeForTest(*embed_node, node_cfg, &session_ctx));
 
   AlgContext ctx;

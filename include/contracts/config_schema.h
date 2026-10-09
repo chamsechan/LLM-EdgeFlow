@@ -38,6 +38,7 @@ struct ConfigFieldDefinition {
   std::string semantic;
   std::shared_ptr<const ConfigFieldDefinition> items;
   std::optional<std::vector<ConfigFieldDefinition>> fields;
+  bool file = false;
 
   ConfigFieldDefinition() = default;
 };
@@ -74,6 +75,7 @@ inline nlohmann::json ConfigFieldToJson(const ConfigFieldDefinition& field) {
   if (field.maximum) result["maximum"] = *field.maximum;
   if (!field.enum_values.empty()) result["enum"] = field.enum_values;
   if (!field.semantic.empty()) result["semantic"] = field.semantic;
+  if (field.file) result["file"] = true;
   if (field.items) result["items"] = ConfigFieldToJson(*field.items);
   if (field.fields) {
     result["fields"] = nlohmann::json::array();
@@ -99,6 +101,7 @@ inline nlohmann::json ConfigFieldJsonSchema(
   if (!field.enum_values.empty()) schema["enum"] = field.enum_values;
   if (!field.default_value.is_null()) schema["default"] = field.default_value;
   if (!field.semantic.empty()) schema["description"] = field.semantic;
+  if (field.file) schema["file"] = true;
   if (field.items) {
     schema[field.kind == ConfigValueKind::kMap ? "additionalProperties"
                                                : "items"] =

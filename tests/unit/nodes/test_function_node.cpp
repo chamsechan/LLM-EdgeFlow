@@ -164,11 +164,11 @@ REGISTER_FUNCTION_NODE(MoveOnlyResultMapNode, MoveOnlyResultMapSpec());
 
 class CountingMockLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "counting_mock_llm";
     return t;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "llm";
     return cap;
   }
@@ -790,7 +790,7 @@ TEST(FunctionNodeTest, MapPreservesOrderingAndProvenanceAcrossRequests) {
 // 所有能力调用共享同一份仅可移动的所有权契约。
 template <typename CallT, typename ModelT>
 void ExpectModelCallContract(const char* default_slot) {
-  static_assert(std::is_same_v<typename CallT::ModelType, ModelT>);
+  static_assert(std::is_same_v<typename CallT::Interface, ModelT>);
   static_assert(!std::is_copy_constructible_v<CallT>);
   static_assert(!std::is_copy_assignable_v<CallT>);
   static_assert(std::is_nothrow_move_constructible_v<CallT>);
@@ -799,7 +799,7 @@ void ExpectModelCallContract(const char* default_slot) {
   EXPECT_FALSE(unbound.IsBound());
   CallT named(nullptr);
   EXPECT_EQ(named.SlotName(), default_slot);
-  EXPECT_TRUE(named.ModelId().empty());
+  EXPECT_TRUE(named.ModelName().empty());
 }
 
 TEST(FunctionNodeTest, MoveOnlyMapCallbackOwnsResourceAndPreservesProvenance) {
@@ -1039,7 +1039,7 @@ TEST(FunctionNodeTest, ModelReferencesRequireExplicitConfiguration) {
   for (const auto& field : definition.config_fields) {
     EXPECT_TRUE(field.required);
     EXPECT_TRUE(field.default_value.is_null());
-    EXPECT_NE(field.semantic.find("models[].model_id"), std::string::npos);
+    EXPECT_NE(field.semantic.find("models[].name"), std::string::npos);
     EXPECT_NE(field.semantic.find("llm"), std::string::npos);
   }
 

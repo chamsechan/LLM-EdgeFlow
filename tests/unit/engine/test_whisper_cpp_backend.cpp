@@ -40,7 +40,7 @@ TEST(WhisperCppBackendTest, MissingInvalidPathAndWrongProtocolFailClosed) {
 
   std::string diagnostic;
   BackendLoadSpec missing{ExecutionProtocol::kAudioTranscription};
-  missing.model_path = "./models/does-not-exist.bin";
+  missing.model_file = "./models/does-not-exist.bin";
   if (definition) {
     ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
                                          &missing.params, &diagnostic))
@@ -51,7 +51,7 @@ TEST(WhisperCppBackendTest, MissingInvalidPathAndWrongProtocolFailClosed) {
 
   diagnostic.clear();
   BackendLoadSpec directory{ExecutionProtocol::kAudioTranscription};
-  directory.model_path = ".";
+  directory.model_file = ".";
   if (definition) {
     ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
                                          &directory.params, &diagnostic))
@@ -62,7 +62,7 @@ TEST(WhisperCppBackendTest, MissingInvalidPathAndWrongProtocolFailClosed) {
 
   diagnostic.clear();
   BackendLoadSpec wrong_protocol{ExecutionProtocol::kTextGeneration};
-  wrong_protocol.model_path = "./models/does-not-exist.bin";
+  wrong_protocol.model_file = "./models/does-not-exist.bin";
   if (definition) {
     ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
                                          &wrong_protocol.params, &diagnostic))
@@ -95,7 +95,7 @@ TEST(WhisperCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   WhisperCppBackend backend;
 
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
-  spec.model_path = "./models/does-not-exist.bin";
+  spec.model_file = "./models/does-not-exist.bin";
   spec.execution_target.platform = "NPU";
   spec.execution_target.device_id = 0;
   std::string diagnostic;
@@ -132,7 +132,7 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
   } guard{old_terminate};
 
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
-  spec.model_path = "./models/does-not-exist.bin";
+  spec.model_file = "./models/does-not-exist.bin";
   if (const auto definition = BackendRegistry::Instance().Find("whisper_cpp")) {
     std::string diagnostic;
     ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
@@ -211,7 +211,7 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
 
   WhisperCppBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
-  spec.model_path = model_path;
+  spec.model_file = model_path;
   const auto definition = BackendRegistry::Instance().Find("whisper_cpp");
   ASSERT_TRUE(definition.has_value());
   const nlohmann::json config = {{"n_threads", 2}};

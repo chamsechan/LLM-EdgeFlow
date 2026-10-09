@@ -27,8 +27,7 @@ class PipelineCatalog {
   static std::vector<BackendDefinition> Backends();
 
   static std::optional<NodeDefinition> FindNode(const std::string& node_type);
-  static std::optional<ModelDefinition> FindModel(
-      const std::string& model_type);
+  static std::optional<ModelDefinition> FindModel(const std::string& impl_name);
   static std::optional<BackendDefinition> FindBackend(
       const std::string& backend_type);
   static nlohmann::json ToJson(const PipelineCatalogSnapshot& snapshot);
