@@ -70,7 +70,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 - `results/quickstart/keyword_match_rules/results.jsonl`：逐条请求的状态与匹配结果。
 - `results/quickstart/keyword_match_rules/summary.json`：样本数、成功数、失败数与耗时。
 
-`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；需要体验内置规则热更新时显式添加 `--example-control`。
+`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；体验显式规则热更新时运行 `./build/alg_demo --profile keyword_match_control`。
 
 ### 3. 查看与编辑流程
 

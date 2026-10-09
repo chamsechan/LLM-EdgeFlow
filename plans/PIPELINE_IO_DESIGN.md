@@ -1,6 +1,6 @@
 # Pipeline I/O 改造设计
 
-> **状态**：设计已确认，待实施。
+> **状态**：阶段 0、1 已实施；阶段 2 待实施。
 > **基线**：`main@cda1f5c`（PR #183 已合入 Engine 源码自动收录和 `Init` 列出注册冲突原因）。
 > **实施**：按[实施总说明](PIPELINE_REFACTOR_GUIDE.md)的步骤进行；本文中关于 PR 划分和门禁的说法与总说明不一致时，以总说明为准。
 > **性质**：跨多个 PR 的工作计划，规则见 [plans/README](README.md) 与 [CONTRIBUTING](../CONTRIBUTING.md) §3。

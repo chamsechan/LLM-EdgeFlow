@@ -229,7 +229,7 @@ binding.normalize_parameters =
 
 **销毁顺序。** 等待所有 `Process` / `Control` 返回 → 释放输出引用 → `Destroy`。
 有效 handle 即使因未归还输出而在 `Destroy` 返回错误，也已被消费，不得重试或再访问
-旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_invoice_qa_demo.cpp) 和
+旧输出。参考 [Demo 的输出复制与释放](../../demo/common/operator_runner.h) 和
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
 **`Init`、`DeInit` 与并发。** `Init` 用于注册审计，应在创建实例前调用；审计失败返回 `-6`，

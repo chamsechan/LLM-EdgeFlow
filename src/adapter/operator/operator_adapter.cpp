@@ -563,16 +563,16 @@ const char* GetOperatorLastError() noexcept {
   return g_last_operator_error.c_str();
 }
 
-int ResolveOperatorConfigBiz(const char* model_path, const char* cfg_file_name,
-                             std::string* out_biz_name, char* out_error_msg,
-                             size_t error_buf_size) noexcept {
+int ResolveOperatorConfigIo(const char* model_path, const char* cfg_file_name,
+                            OperatorIoContract* out, char* out_error_msg,
+                            size_t error_buf_size) noexcept {
   try {
-    if (!out_biz_name) {
+    if (!out) {
       if (out_error_msg && error_buf_size > 0)
-        std::snprintf(out_error_msg, error_buf_size, "Null out_biz_name");
+        std::snprintf(out_error_msg, error_buf_size, "Null out");
       return -2;
     }
-    out_biz_name->clear();
+    *out = {};
     if (!model_path || model_path[0] == '\0') {
       if (out_error_msg && error_buf_size > 0) {
         std::snprintf(out_error_msg, error_buf_size,
@@ -598,19 +598,29 @@ int ResolveOperatorConfigBiz(const char* model_path, const char* cfg_file_name,
       return ret;
     }
 
-    *out_biz_name = resolved.io_plan->binding.biz_name;
+    OperatorIoContract contract;
+    const auto& plan = *resolved.io_plan;
+    for (const auto& slot : plan.input_converter->external_slots) {
+      contract.inputs.push_back({slot.KeySuffix(), plan.binding.biz_name,
+                                 slot.type_id, std::nullopt, slot.required});
+    }
+    for (const auto& slot : plan.output_converter->external_slots) {
+      contract.outputs.push_back({slot.KeySuffix(), plan.binding.biz_name,
+                                  slot.type_id, std::nullopt, slot.required});
+    }
+    *out = std::move(contract);
     return 0;
   } catch (const std::exception& e) {
-    if (out_biz_name) out_biz_name->clear();
+    if (out) *out = {};
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size, "Exception: %s", e.what());
     }
     return -99;
   } catch (...) {
-    if (out_biz_name) out_biz_name->clear();
+    if (out) *out = {};
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size,
-                    "Unknown exception in ResolveOperatorConfigBiz");
+                    "Unknown exception in ResolveOperatorConfigIo");
     }
     return -100;
   }

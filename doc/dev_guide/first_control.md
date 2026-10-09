@@ -138,9 +138,10 @@ int ret = ops.Control(handle, ControlCommand::kJson, &param);
 解析结果为 JSON object；空对象 `{}` 是否有效由目标命令的 schema 决定。UTF-8 字节数
 小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
 
-Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
-必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
-更新；显式 `--example-control` 才启用，且显式文件优先。
+Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先。
+命令与 `control_file` 必须成对，缺少任一项返回 3；未配置时不发送 Control。
+规则更新示例使用 `./build/alg_demo --profile keyword_match_control`，或显式传入
+`--control-cmd 1 --control-file data/keyword_match_control.json`。
 
 同一 handle 的 Operator 调用串行；多个线程提交不保证顺序。内部直接调用 Pipeline 时，
 由调用者将 `Execute` 与 `Control` 串行化。Spec 的 `AuthorNode` 内部会串行构建和发布
