@@ -2,7 +2,9 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "edgeflow/export.h"
 #include "edgeflow/operator/types.h"
@@ -58,15 +60,30 @@ COMPANY_ALG_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
  */
 COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
 
+// Within a direction, repeated types use name.type as the host key.
+// A unique type accepts any nonempty key namespace.
+struct OperatorIoEntry {
+  std::string type;
+  std::string name;
+  std::string type_name;
+  std::optional<int32_t> service_type;
+  bool required = true;
+};
+
+struct OperatorIoContract {
+  std::vector<OperatorIoEntry> inputs;
+  std::vector<OperatorIoEntry> outputs;
+};
+
 /**
- * @brief 解析部署配置并返回由 I/O 绑定确定的业务契约名。
- * 只读预检，不加载模型、不执行转换；每个业务只有一个绑定。
- * @param out_biz_name 必需的结果指针；失败时为空，成功时为完整业务名。
+ * @brief 只读解析和校验部署配置，返回宿主 I/O 契约，不加载模型或执行转换。
+ * @param out 必需的结果指针；失败时清空两侧条目。
  * @return 0 成功，-2 参数/配置错误，其他负值为验证或内部异常。
  */
-COMPANY_ALG_API int ResolveOperatorConfigBiz(
-    const char* model_path, const char* cfg_file_name,
-    std::string* out_biz_name, char* out_error_msg = nullptr,
-    size_t error_buf_size = 0) noexcept;
+COMPANY_ALG_API int ResolveOperatorConfigIo(const char* model_path,
+                                            const char* cfg_file_name,
+                                            OperatorIoContract* out,
+                                            char* out_error_msg = nullptr,
+                                            size_t error_buf_size = 0) noexcept;
 
 }  // namespace llm_edgeflow::operator_api

@@ -2,13 +2,31 @@
 
 #include <utility>
 
+#include "contracts/parameters.h"
+
 namespace llm_edgeflow {
 namespace test {
+namespace {
+
+struct Params {
+  int fixed_batch_size = 0;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>(
+      {Field("fixed_batch_size", &Params::fixed_batch_size)
+           .Default(0)
+           .Range(0, 16)
+           .Description("固定批大小，0 表示动态批处理")});
+}
+
+}  // namespace
 
 std::atomic<int> TestCausalLmBackend::load_count_{0};
 
-TestCausalLmSession::TestCausalLmSession(std::string model_path)
-    : model_path_(std::move(model_path)) {}
+TestCausalLmSession::TestCausalLmSession(std::string model_file,
+                                         BatchPolicy policy)
+    : model_file_(std::move(model_file)), policy_(policy) {}
 
 int TestCausalLmSession::Generate(const std::string& formatted_prompt,
                                   bool add_bos, const GenerateOptions& options,
@@ -45,8 +63,9 @@ BackendDefinition TestCausalLmBackend::MakeDefinition() {
   BackendDefinition def;
   def.backend_type = kBackendType;
   def.description = "Test Text Generation Backend Fixture";
-  def.supported_protocols = {ExecutionProtocol::kTextGeneration};
+  def.supported_protocols = {ExecutionProtocol::kFixture};
   def.concurrency = InferenceConcurrency::kSerialized;
+  def.params = ParamSpec();
   return def;
 }
 
@@ -56,12 +75,15 @@ int TestCausalLmBackend::LoadCount() noexcept { return load_count_.load(); }
 std::shared_ptr<IBackendSession> TestCausalLmBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   load_count_.fetch_add(1);
-  if (spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
+  if (spec.requested_protocol != ExecutionProtocol::kFixture) {
     if (diagnostic) *diagnostic = "Unsupported requested protocol";
     return nullptr;
   }
   try {
-    return std::make_shared<TestCausalLmSession>(spec.model_path);
+    const auto& params = spec.Params<Params>();
+    const size_t fixed = static_cast<size_t>(params.fixed_batch_size);
+    return std::make_shared<TestCausalLmSession>(
+        spec.model_file, BatchPolicy{fixed == 0 ? 1 : fixed, fixed});
   } catch (...) {
     return nullptr;
   }

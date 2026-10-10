@@ -3,15 +3,13 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace llm_edgeflow {
 
 struct AuthoringChange {
   std::string action;
-  std::string node_id;
+  std::string node_name;
   std::string port;
   std::vector<std::string> affected_nodes;
   std::string description;
@@ -40,25 +38,6 @@ class PipelineAuthoring {
                              const nlohmann::json& operation,
                              std::vector<AuthoringChange>* changes,
                              std::string* error);
-
-  // 收集文档中所有已占用的 Blackboard 键
-  // (显式映射、默认输出、ingress、egress)。
-  static std::unordered_set<std::string> GetOccupiedKeys(
-      const nlohmann::json& pipeline);
-
-  // 基于 base 名称分配一个不与已占用键冲突的唯一键。
-  static std::string AllocateKey(
-      const std::string& base, const std::unordered_set<std::string>& occupied);
-
-  // 检查 potential_ancestor 是否为 node_id 的直接或传递依赖。
-  static bool IsAncestor(
-      const std::string& potential_ancestor, const std::string& node_id,
-      const std::unordered_map<std::string, std::vector<std::string>>&
-          dep_graph);
-
-  // 构建 depends_on 邻接图：node_id -> 其列出的依赖。
-  static std::unordered_map<std::string, std::vector<std::string>>
-  BuildDependencyGraph(const nlohmann::json& pipeline);
 };
 
 }  // namespace llm_edgeflow

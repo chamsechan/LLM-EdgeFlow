@@ -19,13 +19,13 @@ namespace llm_edgeflow {
 
 class RetainedPlanProbeNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "RetainedPlanProbeNode";
+  inline static constexpr char kNodeType[] = "retained_plan_probe";
   bool Init(const NodeInitContext& init) override {
     plan_ = init.plan;
     return plan_ != nullptr;
   }
   int Process(AlgContext*) override {
-    return plan_->normalized_config.at("value").get<int>();
+    return plan_->normalized_params.at("value").get<int>();
   }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -56,23 +56,23 @@ TEST(NodeOwnershipAndReuseTest, TestFixtureRetainsPlanForNodeLifetime) {
 
 TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
   // 通用 Node
-  const auto llm_gen = PipelineCatalog::FindNode("LlmGenerateNode");
+  const auto llm_gen = PipelineCatalog::FindNode("llm_generate");
   ASSERT_TRUE(llm_gen.has_value());
   EXPECT_EQ(llm_gen->category, "common");
 
-  const auto text_tmpl = PipelineCatalog::FindNode("TextTemplateNode");
+  const auto text_tmpl = PipelineCatalog::FindNode("text_template");
   ASSERT_TRUE(text_tmpl.has_value());
   EXPECT_EQ(text_tmpl->category, "common");
 
-  const auto text_chunk = PipelineCatalog::FindNode("TextChunkNode");
+  const auto text_chunk = PipelineCatalog::FindNode("text_chunk");
   ASSERT_TRUE(text_chunk.has_value());
   EXPECT_EQ(text_chunk->category, "common");
 
-  const auto vec_topk = PipelineCatalog::FindNode("VectorTopKNode");
+  const auto vec_topk = PipelineCatalog::FindNode("vector_top_k");
   ASSERT_TRUE(vec_topk.has_value());
   EXPECT_EQ(vec_topk->category, "common");
 
-  const auto text_rerank = PipelineCatalog::FindNode("TextRerankNode");
+  const auto text_rerank = PipelineCatalog::FindNode("text_rerank");
   ASSERT_TRUE(text_rerank.has_value());
   EXPECT_EQ(text_rerank->category, "common");
 }
@@ -80,20 +80,19 @@ TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
 // 根据字符串哈希特征计算不同向量的 Mock Embedding 引擎
 class DistinctMockEmbeddingModel : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "mock_embedding";
     return t;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& inputs, const EmbeddingOptions&,
-            EmbeddingBatch* outputs,
+  int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
@@ -123,11 +122,10 @@ TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
   RegisterTestModel(session_ctx.GetModelManager(), "embed_model",
                     std::make_shared<DistinctMockEmbeddingModel>(), "test-v1");
 
-  auto embed_node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto embed_node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(embed_node, nullptr);
 
-  nlohmann::json node_cfg = {{"bind_model", "embed_model"},
-                             {"normalize", true}};
+  nlohmann::json node_cfg = {{"bind_model", "embed_model"}};
   ASSERT_TRUE(InitNodeForTest(*embed_node, node_cfg, &session_ctx));
 
   AlgContext ctx;

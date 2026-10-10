@@ -4,16 +4,29 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
 
+constexpr auto kEntities =
+    MakeBlackboardKey<StructuredDocumentBatch>("entities");
+
 constexpr const char* kOutputSlot = "entity_out";
+
+struct Params {
+  int64_t entities_json_max_bytes = 0;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      MaxBytes("entities_json", &Params::entities_json_max_bytes).Default(2047),
+  });
+}
 
 AdapterStatus EncodeDocument(const JsonDocumentItem& result,
                              CompanyOperatorEntityOutput* output,
@@ -34,15 +47,17 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
                                      AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, options, destination, written_count, status, kOutputSlot,
-      kExtractedEntities, &EncodeDocument);
+      kEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "document.structured";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kExtractedEntities)};
+  def.type = kOutputSlot;
+  def.name = "entity_extract";
+  def.service_type = kMockServiceEntityExtract;
+  def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot);
+  def.logical_ports = {RequiredInputPort(kEntities)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorStructuredDocument;
   return def;
 }

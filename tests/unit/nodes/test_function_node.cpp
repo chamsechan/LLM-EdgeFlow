@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -13,12 +14,12 @@
 #include <type_traits>
 #include <vector>
 
+#include "contracts/parameters.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "engine/model_interface.h"
 #include "nodes/authoring.h"
-#include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_harness.h"
 #include "tests/support/node_process_pause.h"
@@ -57,67 +58,6 @@ auto TextMapSpec(Parameters<ParamsT> params, Fn fn) {
       });
 }
 
-struct ComplexParams {
-  std::string prefix;
-  int limit = 0;
-};
-
-auto ComplexConfig() {
-  NodeConfigParser<ComplexParams> parser(
-      {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
-      [](const nlohmann::json& config, ComplexParams* params,
-         std::string* error) {
-        const auto& nested = config.at("nested");
-        if (!nested.contains("prefix") || !nested["prefix"].is_string()) {
-          if (error) *error = "nested.prefix must be text";
-          return false;
-        }
-        params->prefix = nested["prefix"].get<std::string>();
-        params->limit = -1;  // 基础成员绑定必须覆盖此值。
-        return true;
-      });
-  auto config = Parameters<ComplexParams>({
-      Field("limit", &ComplexParams::limit).Default(8).Range(1, 20),
-  });
-  config.WithParser(std::move(parser));
-  config.Validate([](const ComplexParams& params, std::string* error) {
-    if (params.prefix.size() > static_cast<size_t>(params.limit)) {
-      if (error) *error = "prefix exceeds limit";
-      return false;
-    }
-    return true;
-  });
-  config.ValidateBindings([](const ComplexParams& params,
-                             const std::unordered_set<std::string>& ports,
-                             std::string* error) {
-    if (!params.prefix.empty() && !ports.count("context")) {
-      if (error) *error = "prefix requires context";
-      return false;
-    }
-    return true;
-  });
-  return config;
-}
-
-struct ComplexInputs {
-  const TextBatch* input = nullptr;
-  const TextBatch* context = nullptr;
-};
-
-auto ComplexSpec() {
-  return MakeNodeSpec(
-      InputsOf<ComplexInputs>({Required("input", &ComplexInputs::input),
-                               Optional("context", &ComplexInputs::context)}),
-      PreservedOutput<TextBatch>("output", "input"), ComplexConfig(),
-      [](const ComplexInputs& input,
-         const ComplexParams& params) -> NodeResult<TextBatch> {
-        return MapPayloads(*input.input, [&](const std::string& text) {
-          return params.prefix + text;
-        });
-      });
-}
-REGISTER_FUNCTION_NODE(ComplexParserNode, ComplexSpec());
-
 struct CleanParams {
   std::string prefix;
 };
@@ -143,7 +83,7 @@ auto CleanSpec() {
       .Description("Clean text map node");
 }
 
-REGISTER_FUNCTION_NODE(CleanTextMapNode, CleanSpec());
+REGISTER_FUNCTION_NODE(clean_text_map, CleanSpec());
 
 // 遇到特定关键字时返回失败 NodeResult 的 Node
 NodeResult<std::string> FailableCleanFn(const std::string& in) {
@@ -158,7 +98,7 @@ auto FailableSpec() {
   return TextMapSpec(&FailableCleanFn).Description("Failable map node");
 }
 
-REGISTER_FUNCTION_NODE(FailableMapNode, FailableSpec());
+REGISTER_FUNCTION_NODE(failable_map, FailableSpec());
 
 // 失败时不带自身消息，由框架给出 Map 函数名。
 auto SilentFailureSpec() {
@@ -171,7 +111,7 @@ auto SilentFailureSpec() {
   });
 }
 
-REGISTER_FUNCTION_NODE(SilentFailureMapNode, SilentFailureSpec());
+REGISTER_FUNCTION_NODE(silent_failure_map, SilentFailureSpec());
 
 // 无参数、返回普通 string 的 Node
 std::string UpperFn(const std::string& in) {
@@ -184,7 +124,7 @@ auto UpperSpec() {
   return TextMapSpec(&UpperFn).Description("Uppercase map node");
 }
 
-REGISTER_FUNCTION_NODE(UpperMapNode, UpperSpec());
+REGISTER_FUNCTION_NODE(upper_map, UpperSpec());
 
 int move_only_map_calls = 0;
 int move_only_map_instances = 0;
@@ -202,7 +142,7 @@ auto MoveOnlyMapSpec() {
   return TextMapSpec(CleanConfig(), std::move(transform))
       .WithControls({ReplaceFields(3005, "set_prefix", {"prefix"})});
 }
-REGISTER_FUNCTION_NODE(MoveOnlyMapNode, MoveOnlyMapSpec());
+REGISTER_FUNCTION_NODE(move_only_map, MoveOnlyMapSpec());
 
 auto MoveOnlyResultMapSpec() {
   auto transform = [owned = std::make_unique<std::string>("result:")](
@@ -216,7 +156,7 @@ auto MoveOnlyResultMapSpec() {
   static_assert(!std::is_copy_constructible_v<decltype(transform)>);
   return TextMapSpec(std::move(transform));
 }
-REGISTER_FUNCTION_NODE(MoveOnlyResultMapNode, MoveOnlyResultMapSpec());
+REGISTER_FUNCTION_NODE(move_only_result_map, MoveOnlyResultMapSpec());
 
 // ---------------------------------------------------------------------------
 // Batch 夹具
@@ -224,11 +164,11 @@ REGISTER_FUNCTION_NODE(MoveOnlyResultMapNode, MoveOnlyResultMapSpec());
 
 class CountingMockLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "counting_mock_llm";
     return t;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "llm";
     return cap;
   }
@@ -333,7 +273,7 @@ auto AnswerBatchSpec() {
       .Description("Batch answering node with retry");
 }
 
-REGISTER_FUNCTION_NODE(AnswerBatchNode, AnswerBatchSpec());
+REGISTER_FUNCTION_NODE(answer_batch, AnswerBatchSpec());
 
 struct OptionalValueInputs {
   const TextBatch* input = nullptr;
@@ -362,7 +302,7 @@ auto OptionalValueSpec() {
         });
       });
 }
-REGISTER_FUNCTION_NODE(OptionalValueBatchNode, OptionalValueSpec());
+REGISTER_FUNCTION_NODE(optional_value_batch, OptionalValueSpec());
 
 struct TwoStageModels {
   LlmCall draft;
@@ -385,17 +325,17 @@ auto TwoStageSpec() {
       });
 }
 
-class TwoStageHarnessNode : public AuthorNode<decltype(TwoStageSpec())> {
+class TwoStageHarness : public AuthorNode<decltype(TwoStageSpec())> {
  public:
-  static constexpr const char* kNodeType = "TwoStageHarnessNode";
-  TwoStageHarnessNode() : AuthorNode(kNodeType, TwoStageSpec()) {}
+  static constexpr const char* kNodeType = "two_stage_harness";
+  TwoStageHarness() : AuthorNode(kNodeType, TwoStageSpec()) {}
 };
 
 NodeDefinition TwoStageDefinition() {
-  return TwoStageSpec().BuildDefinition(TwoStageHarnessNode::kNodeType);
+  return TwoStageSpec().BuildDefinition(TwoStageHarness::kNodeType);
 }
 
-REGISTER_NODE_WITH_DEFINITION(TwoStageHarnessNode, TwoStageDefinition());
+REGISTER_NODE_WITH_DEFINITION(TwoStageHarness, TwoStageDefinition());
 
 struct TextToScoreInputs {
   const TextBatch* texts = nullptr;
@@ -417,7 +357,7 @@ auto TextToScoreSpec() {
         return NodeResult<ScoreBatch>::Success(std::move(scores));
       });
 }
-REGISTER_FUNCTION_NODE(TextToScoreNode, TextToScoreSpec());
+REGISTER_FUNCTION_NODE(text_to_score, TextToScoreSpec());
 
 struct ContextPollutionInputs {
   const TextBatch* input = nullptr;
@@ -434,7 +374,7 @@ auto FailingAfterPublishSpec() {
                                               "forced error");
       });
 }
-REGISTER_FUNCTION_NODE(FailingAfterPublishNode, FailingAfterPublishSpec());
+REGISTER_FUNCTION_NODE(failing_after_publish, FailingAfterPublishSpec());
 
 struct BindingTestParams {
   bool check_mask = false;
@@ -471,7 +411,7 @@ inline auto BindingTestSpec() {
         return NodeResult<TextBatch>::Success(*in.texts);
       });
 }
-REGISTER_FUNCTION_NODE(BindingTestNode, BindingTestSpec());
+REGISTER_FUNCTION_NODE(binding_test, BindingTestSpec());
 
 struct BindingMapParams {
   bool require_extra = false;
@@ -496,7 +436,7 @@ inline auto BindingMapSpec() {
           }),
       [](const std::string& in, const BindingMapParams&) { return in; });
 }
-REGISTER_FUNCTION_NODE(BindingMapNode, BindingMapSpec());
+REGISTER_FUNCTION_NODE(binding_map, BindingMapSpec());
 
 struct ControlledMapParams {
   std::string prefix;
@@ -541,7 +481,96 @@ inline auto ControlledMapSpec() {
           ReplaceFields(kCmdSuffixMap, "replace_suffix", {"suffix"}),
       });
 }
-REGISTER_FUNCTION_NODE(ControlledMapNode, ControlledMapSpec());
+REGISTER_FUNCTION_NODE(controlled_map, ControlledMapSpec());
+
+struct ControlledElement {
+  std::string text;
+  int repeats = 0;
+  std::string prepared;
+};
+
+auto ControlledElementParameters() {
+  return Parameters<ControlledElement>{
+      Field("text", &ControlledElement::text).Required(),
+      Field("repeats", &ControlledElement::repeats).Default(1).Range(1, 3)}
+      .Prepare([](ControlledElement* value, std::string* error) {
+        if (value->text == "FAIL_PREPARE") {
+          if (error) *error = "element prepare rejected";
+          return false;
+        }
+        value->prepared = "prepared:" + value->text;
+        return true;
+      })
+      .Validate([](const ControlledElement& value, std::string* error) {
+        if (value.text == "FAIL_VALIDATE") {
+          if (error) *error = "element validation rejected";
+          return false;
+        }
+        return true;
+      });
+}
+
+struct ControlledContainersParams {
+  std::map<std::string, std::vector<std::string>> groups;
+  std::vector<ControlledElement> rules;
+  nlohmann::json fallback;
+  std::string label;
+  std::string prepared;
+};
+
+constexpr int kCmdContainers = 3010;
+
+auto ControlledContainersSpec() {
+  auto params =
+      Parameters<ControlledContainersParams>{
+          Field("groups", &ControlledContainersParams::groups)
+              .Default({{"old", {"fast"}}})
+              .Enum({"fast", "slow"}),
+          Field("rules", &ControlledContainersParams::rules)
+              .Default({})
+              .Items(ControlledElementParameters()),
+          Field("fallback", &ControlledContainersParams::fallback)
+              .Default(nlohmann::json::object()),
+          Field("label", &ControlledContainersParams::label).Default("keep")}
+          .Prepare([](ControlledContainersParams* value, std::string* error) {
+            if (value->fallback.is_object() &&
+                value->fallback.value("reject_prepare", false)) {
+              if (error) *error = "container prepare rejected";
+              return false;
+            }
+            value->prepared = value->label + ":" +
+                              std::to_string(value->groups.size()) + ":" +
+                              std::to_string(value->rules.size());
+            return true;
+          })
+          .Validate(
+              [](const ControlledContainersParams& value, std::string* error) {
+                if (value.groups.count("blocked")) {
+                  if (error) *error = "blocked group rejected";
+                  return false;
+                }
+                return true;
+              });
+  return TextMapSpec(
+             std::move(params),
+             [](const std::string&, const ControlledContainersParams& value) {
+               auto rules = nlohmann::json::array();
+               for (const auto& rule : value.rules) {
+                 rules.push_back({{"text", rule.text},
+                                  {"repeats", rule.repeats},
+                                  {"prepared", rule.prepared}});
+               }
+               return nlohmann::json{{"groups", value.groups},
+                                     {"rules", rules},
+                                     {"fallback", value.fallback},
+                                     {"label", value.label},
+                                     {"prepared", value.prepared}}
+                   .dump();
+             })
+      .WithControls({ReplaceFields(kCmdContainers, "replace_containers",
+                                   {"groups", "rules", "fallback", "label"})});
+}
+REGISTER_FUNCTION_NODE(controlled_containers, ControlledContainersSpec());
 
 // ---------------------------------------------------------------------------
 // 不可拷贝的参数 (持有 unique_ptr)，不带 Control
@@ -567,7 +596,7 @@ inline auto NonCopyableMapSpec() {
                (p.extra_counter ? std::to_string(*p.extra_counter) : "null");
       });
 }
-REGISTER_FUNCTION_NODE(NonCopyableMapNode, NonCopyableMapSpec());
+REGISTER_FUNCTION_NODE(non_copyable_map, NonCopyableMapSpec());
 
 struct NonCopyableBatchInputs {
   const TextBatch* texts = nullptr;
@@ -606,7 +635,7 @@ inline auto NonCopyableBatchSpec() {
         return out;
       });
 }
-REGISTER_FUNCTION_NODE(NonCopyableBatchNode, NonCopyableBatchSpec());
+REGISTER_FUNCTION_NODE(non_copyable_batch, NonCopyableBatchSpec());
 
 // ---------------------------------------------------------------------------
 // 严格的无计划事实检查 Node
@@ -666,7 +695,7 @@ inline auto ControlledBatchSpec() {
                         {"header", "uppercase"}),
       });
 }
-REGISTER_FUNCTION_NODE(ControlledBatchNode, ControlledBatchSpec());
+REGISTER_FUNCTION_NODE(controlled_batch, ControlledBatchSpec());
 
 struct ImageSummaryInputs {
   const ImageRefBatch* images = nullptr;
@@ -704,7 +733,7 @@ auto ImageSummarySpec() {
         return output;
       });
 }
-REGISTER_FUNCTION_NODE(ImageSummaryAuthorNode, ImageSummarySpec());
+REGISTER_FUNCTION_NODE(image_summary_author, ImageSummarySpec());
 
 struct SourceInputs {};
 auto SourceSpec() {
@@ -715,48 +744,7 @@ auto SourceSpec() {
         return TextBatch{{41, 0, "first"}, {41, 1, "second"}, {41, 2, "third"}};
       });
 }
-REGISTER_FUNCTION_NODE(GeneratedSourceAuthorNode, SourceSpec());
-
-constexpr int kComplexStateCommand = 4987;
-auto ComplexStateControlSpec() {
-  const nlohmann::json schema = {
-      {"type", "object"},
-      {"required", {"nested"}},
-      {"additionalProperties", false},
-      {"properties",
-       {{"nested",
-         {{"type", "object"},
-          {"required", {"prefix"}},
-          {"additionalProperties", false},
-          {"properties", {{"prefix", {{"type", "string"}}}}}}}}}};
-  return MakeNodeSpec(
-             InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
-             PreservedOutput<TextBatch>("output", "input"),
-             Parameters<CleanParams>{
-                 Field("prefix", &CleanParams::prefix).Default("old:")},
-             [](const ComplexInputs& input,
-                const CleanParams& params) -> NodeResult<TextBatch> {
-               return MapPayloads(*input.input, [&](const std::string& value) {
-                 return params.prefix + value;
-               });
-             })
-      .WithControl(
-          ControlCommandDefinition(kComplexStateCommand, "replace_nested_state",
-                                   "Replace compiled prefix", schema, true),
-          [](const CleanParams& current, const nlohmann::json& payload,
-             const BindingFacts&) -> NodeResult<CleanParams> {
-            auto next = current;
-            next.prefix = payload.at("nested").at("prefix").get<std::string>();
-            if (next.prefix == "REJECT") {
-              return NodeResult<CleanParams>::Failure(
-                  NodeErrorKind::kBusinessError, "Rejected compiled prefix",
-                  -9877);
-            }
-            return next;
-          });
-}
-REGISTER_FUNCTION_NODE(ComplexStateControlAuthorNode,
-                       ComplexStateControlSpec());
+REGISTER_FUNCTION_NODE(generated_source_author, SourceSpec());
 
 }  // namespace
 
@@ -766,7 +754,7 @@ REGISTER_FUNCTION_NODE(ComplexStateControlAuthorNode,
 
 // A1: Map 多请求/非零 sub_id 保序、输入未修改、空批次不调用；中间项失败无输出
 TEST(FunctionNodeTest, MapPreservesOrderingAndProvenanceAcrossRequests) {
-  NodeHarness harness("CleanTextMapNode");
+  NodeHarness harness("clean_text_map");
   harness.Config({{"prefix", "PRE:"}});
 
   TextBatch input_batch;
@@ -802,7 +790,7 @@ TEST(FunctionNodeTest, MapPreservesOrderingAndProvenanceAcrossRequests) {
 // 所有能力调用共享同一份仅可移动的所有权契约。
 template <typename CallT, typename ModelT>
 void ExpectModelCallContract(const char* default_slot) {
-  static_assert(std::is_same_v<typename CallT::ModelType, ModelT>);
+  static_assert(std::is_same_v<typename CallT::Interface, ModelT>);
   static_assert(!std::is_copy_constructible_v<CallT>);
   static_assert(!std::is_copy_assignable_v<CallT>);
   static_assert(std::is_nothrow_move_constructible_v<CallT>);
@@ -811,13 +799,13 @@ void ExpectModelCallContract(const char* default_slot) {
   EXPECT_FALSE(unbound.IsBound());
   CallT named(nullptr);
   EXPECT_EQ(named.SlotName(), default_slot);
-  EXPECT_TRUE(named.ModelId().empty());
+  EXPECT_TRUE(named.ModelName().empty());
 }
 
 TEST(FunctionNodeTest, MoveOnlyMapCallbackOwnsResourceAndPreservesProvenance) {
   const TextBatch input = {
       {1001, 3, "first"}, {1001, 8, "second"}, {2002, 5, "third"}};
-  NodeHarness first("MoveOnlyMapNode");
+  NodeHarness first("move_only_map");
   first.TextInputWithBatch("input", input);
   const auto result = first.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
@@ -833,7 +821,7 @@ TEST(FunctionNodeTest, MoveOnlyMapCallbackOwnsResourceAndPreservesProvenance) {
     EXPECT_EQ((*output)[i].data, prefix + input[i].data);
   }
 
-  NodeHarness second("MoveOnlyMapNode");
+  NodeHarness second("move_only_map");
   second.TextInputWithBatch("input", input);
   const auto independent = second.Run();
   ASSERT_TRUE(independent.ok()) << independent.diagnostic();
@@ -851,7 +839,7 @@ TEST(FunctionNodeTest, MoveOnlyMapCallbackOwnsResourceAndPreservesProvenance) {
 }
 
 TEST(FunctionNodeTest, MoveOnlyMapCallbackSkipsEmptyBatchAndSurvivesControl) {
-  NodeHarness harness("MoveOnlyMapNode");
+  NodeHarness harness("move_only_map");
   harness.TextInput("input", {"hello"});
   const auto initial = harness.Run();
   ASSERT_TRUE(initial.ok()) << initial.diagnostic();
@@ -874,7 +862,7 @@ TEST(FunctionNodeTest, MoveOnlyMapCallbackSkipsEmptyBatchAndSurvivesControl) {
 }
 
 TEST(FunctionNodeTest, MoveOnlyMapCallbackSupportsNodeResultAndFailure) {
-  NodeHarness harness("MoveOnlyResultMapNode");
+  NodeHarness harness("move_only_result_map");
   const TextBatch input = {{111, 4, "a"}, {222, 9, "b"}};
   harness.TextInputWithBatch("input", input);
   const auto success = harness.Run();
@@ -904,7 +892,7 @@ TEST(FunctionNodeTest, ModelCallsShareOwnershipContract) {
 }
 
 TEST(FunctionNodeTest, EmptyBatchReturnsEmptyWithoutCallingFunction) {
-  NodeHarness harness("CleanTextMapNode");
+  NodeHarness harness("clean_text_map");
   harness.TextInput("input", {});
 
   auto result = harness.Run();
@@ -913,7 +901,7 @@ TEST(FunctionNodeTest, EmptyBatchReturnsEmptyWithoutCallingFunction) {
 }
 
 TEST(FunctionNodeTest, IntermediateFailureProducesNoOutput) {
-  NodeHarness harness("FailableMapNode");
+  NodeHarness harness("failable_map");
   harness.TextInput("input", {"ok1", "FAIL", "ok3"});
 
   auto result = harness.Run();
@@ -925,8 +913,9 @@ TEST(FunctionNodeTest, IntermediateFailureProducesNoOutput) {
 }
 
 TEST(FunctionNodeTest, MapPayloadsFailureNamesItem) {
-  NodeHarness harness("FailableMapNode");
-  harness.TextInput("input", {"ok1", "FAIL", "ok3"});
+  NodeHarness harness("failable_map");
+  harness.TextInputWithBatch(
+      "input", TextBatch{{1, 0, "ok1"}, {7, 3, "FAIL"}, {2, 0, "ok3"}});
   auto result = harness.Run();
   ASSERT_FALSE(result.ok());
   EXPECT_EQ(result.process_code(), -9999);
@@ -935,24 +924,29 @@ TEST(FunctionNodeTest, MapPayloadsFailureNamesItem) {
       << result.diagnostic();
   EXPECT_NE(result.diagnostic().find("MapPayloads"), std::string::npos)
       << result.diagnostic();
-  EXPECT_NE(result.diagnostic().find("sub_id=0"), std::string::npos)
+  EXPECT_NE(result.diagnostic().find("Process returned -9999"),
+            std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("req_id=7"), std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("sub_id=3"), std::string::npos)
       << result.diagnostic();
 
-  NodeHarness silent("SilentFailureMapNode");
+  NodeHarness silent("silent_failure_map");
   silent.TextInput("input", {"ok", "FAIL"});
   auto silent_result = silent.Run();
   ASSERT_FALSE(silent_result.ok());
   EXPECT_EQ(silent_result.process_code(),
             node_error::author_node::kBusinessError);
   EXPECT_NE(
-      silent_result.diagnostic().find("SilentFailureMapNode process failed"),
+      silent_result.diagnostic().find("silent_failure_map process failed"),
       std::string::npos)
       << silent_result.diagnostic();
   EXPECT_NE(silent_result.diagnostic().find("MapPayloads"), std::string::npos)
       << silent_result.diagnostic();
   EXPECT_EQ(silent_result.Output<TextBatch>("output"), nullptr);
 
-  NodeHarness empty("SilentFailureMapNode");
+  NodeHarness empty("silent_failure_map");
   empty.TextInput("input", {});
   auto empty_result = empty.Run();
   ASSERT_TRUE(empty_result.ok()) << empty_result.diagnostic();
@@ -962,7 +956,7 @@ TEST(FunctionNodeTest, MapPayloadsFailureNamesItem) {
 
 // A5: 重复 output key 保留旧值且失败；最终业务失败不发布新输出
 TEST(FunctionNodeTest, DuplicateOutputKeyFailsAndKeepsExistingValue) {
-  auto node = NodeRegistry::Instance().Create("UpperMapNode");
+  auto node = NodeRegistry::Instance().Create("upper_map");
   ASSERT_NE(node, nullptr);
 
   SessionContext session_ctx;
@@ -1010,7 +1004,7 @@ TEST(FunctionNodeTest,
 }
 
 TEST(FunctionNodeTest, NodeWithoutParametersOperatesCorrectly) {
-  NodeHarness harness("UpperMapNode");
+  NodeHarness harness("upper_map");
   harness.TextInput("input", {"hello", "world"});
 
   auto result = harness.Run();
@@ -1021,7 +1015,7 @@ TEST(FunctionNodeTest, NodeWithoutParametersOperatesCorrectly) {
 
 TEST(FunctionNodeTest, HarnessAllowsModelSlotsToShareOneModel) {
   auto model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("TwoStageHarnessNode");
+  NodeHarness harness("two_stage_harness");
   harness.Config({{"draft_model", "shared"}, {"revise_model", "shared"}});
   harness.BindModel("shared", model);
   harness.TextInput("questions", {"hello"});
@@ -1036,7 +1030,7 @@ TEST(FunctionNodeTest, HarnessAllowsModelSlotsToShareOneModel) {
 TEST(FunctionNodeTest, ModelReferencesRequireExplicitConfiguration) {
   auto draft = std::make_shared<CountingMockLlmModel>();
   auto revise = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("TwoStageHarnessNode");
+  NodeHarness harness("two_stage_harness");
   harness.BindModel("default_draft_model", draft);
   harness.BindModel("default_revise_model", revise);
   harness.TextInput("questions", {"hello"});
@@ -1051,6 +1045,8 @@ TEST(FunctionNodeTest, ModelReferencesRequireExplicitConfiguration) {
   for (const auto& field : definition.config_fields) {
     EXPECT_TRUE(field.required);
     EXPECT_TRUE(field.default_value.is_null());
+    EXPECT_NE(field.semantic.find("models[].name"), std::string::npos);
+    EXPECT_NE(field.semantic.find("llm"), std::string::npos);
   }
 
   harness.Config({{"draft_model", "default_draft_model"},
@@ -1066,7 +1062,7 @@ TEST(FunctionNodeTest, ModelReferencesRequireExplicitConfiguration) {
 // A2: Batch 空输入调用 Run；optional 未连/已连空/已连缺值区分；anchor 错误失败
 TEST(FunctionNodeTest, BatchEmptyInputCallsRunAndSucceeds) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {});
@@ -1080,7 +1076,7 @@ TEST(FunctionNodeTest, BatchEmptyInputCallsRunAndSucceeds) {
 
 TEST(FunctionNodeTest, BatchOptionalPortUnconnectedGivesNullptr) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.OmitPortFromPlan("context");
@@ -1096,7 +1092,7 @@ TEST(FunctionNodeTest, BatchOptionalPortUnconnectedGivesNullptr) {
 
 TEST(FunctionNodeTest, BatchOptionalPortConnectedProvidesContext) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {"What is AI?"});
@@ -1112,7 +1108,7 @@ TEST(FunctionNodeTest, BatchOptionalPortConnectedProvidesContext) {
 
 TEST(FunctionNodeTest, BatchOptionalPortConnectedButMissingFailsClosed) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {"What is AI?"});
@@ -1127,7 +1123,7 @@ TEST(FunctionNodeTest, BatchOptionalPortConnectedButMissingFailsClosed) {
 
 TEST(FunctionNodeTest, BatchOptionalPortWrongRuntimeTypeFailsBeforeModelCall) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {"What is AI?"});
@@ -1145,7 +1141,7 @@ TEST(FunctionNodeTest, BatchOptionalPortWrongRuntimeTypeFailsBeforeModelCall) {
 
 TEST(FunctionNodeTest, BatchOptionalValueUnconnectedProvidesNullptr) {
   optional_value_run_count = 0;
-  NodeHarness harness("OptionalValueBatchNode");
+  NodeHarness harness("optional_value_batch");
   harness.OmitPortFromPlan("context");
   harness.TextInput("input", {"hello"});
 
@@ -1158,7 +1154,7 @@ TEST(FunctionNodeTest, BatchOptionalValueUnconnectedProvidesNullptr) {
 
 TEST(FunctionNodeTest, BatchOptionalValueConnectedButMissingProvidesNullptr) {
   optional_value_run_count = 0;
-  NodeHarness harness("OptionalValueBatchNode");
+  NodeHarness harness("optional_value_batch");
   harness.TextInput("input", {"hello"});
 
   auto result = harness.Run();
@@ -1170,7 +1166,7 @@ TEST(FunctionNodeTest, BatchOptionalValueConnectedButMissingProvidesNullptr) {
 
 TEST(FunctionNodeTest, BatchOptionalValueConnectedEmptyProvidesBatch) {
   optional_value_run_count = 0;
-  NodeHarness harness("OptionalValueBatchNode");
+  NodeHarness harness("optional_value_batch");
   harness.TextInput("input", {"hello"});
   harness.TextInput("context", {});
 
@@ -1183,7 +1179,7 @@ TEST(FunctionNodeTest, BatchOptionalValueConnectedEmptyProvidesBatch) {
 
 TEST(FunctionNodeTest, BatchOptionalValueUsesContextAndPreservesProvenance) {
   optional_value_run_count = 0;
-  NodeHarness harness("OptionalValueBatchNode");
+  NodeHarness harness("optional_value_batch");
   harness.TextInputWithBatch("input", {{71, 5, "hello"}, {72, 9, "world"}});
   harness.TextInputWithBatch("context", {{71, 4, "knowledge"}});
 
@@ -1203,7 +1199,7 @@ TEST(FunctionNodeTest, BatchOptionalValueUsesContextAndPreservesProvenance) {
 
 TEST(FunctionNodeTest, BatchOptionalValueWrongRuntimeTypeFailsBeforeRun) {
   optional_value_run_count = 0;
-  NodeHarness harness("OptionalValueBatchNode");
+  NodeHarness harness("optional_value_batch");
   harness.TextInput("input", {"hello"});
   harness.CustomInput("context", std::string("not a TextBatch"));
 
@@ -1218,7 +1214,7 @@ TEST(FunctionNodeTest, BatchOptionalValueWrongRuntimeTypeFailsBeforeRun) {
 }
 
 TEST(FunctionNodeTest, MissingValidatedPlanFailsInitialization) {
-  auto node = NodeRegistry::Instance().Create("AnswerBatchNode");
+  auto node = NodeRegistry::Instance().Create("answer_batch");
   ASSERT_NE(node, nullptr);
   SessionContext session;
   std::string diagnostic;
@@ -1232,7 +1228,7 @@ TEST(FunctionNodeTest, MissingValidatedPlanFailsInitialization) {
 // M1: 一次非空批次一次 Model 调用；空输入零调用；options 完整传递
 TEST(FunctionNodeTest, BatchSingleModelCallAndOptionsPassing) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {"Q1", "Q2", "Q3"});
@@ -1251,7 +1247,7 @@ TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
   {
     auto mock_model = std::make_shared<CountingMockLlmModel>();
     mock_model->always_fail = true;
-    NodeHarness harness("AnswerBatchNode");
+    NodeHarness harness("answer_batch");
     harness.Config({{"bind_model", "test_llm"}, {"max_revisions", 0}});
     harness.BindModel("test_llm", mock_model);
     harness.TextInput("questions", {"Q1"});
@@ -1266,7 +1262,7 @@ TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
   {
     auto mock_model = std::make_shared<CountingMockLlmModel>();
     mock_model->return_wrong_count = true;
-    NodeHarness harness("AnswerBatchNode");
+    NodeHarness harness("answer_batch");
     harness.Config({{"bind_model", "test_llm"}, {"max_revisions", 0}});
     harness.BindModel("test_llm", mock_model);
     harness.TextInput("questions", {"Q1", "Q2"});
@@ -1281,7 +1277,7 @@ TEST(FunctionNodeTest, BatchModelFailuresFailClosedWithoutOutput) {
   {
     auto mock_model = std::make_shared<CountingMockLlmModel>();
     mock_model->corrupt_provenance = true;
-    NodeHarness harness("AnswerBatchNode");
+    NodeHarness harness("answer_batch");
     harness.Config({{"bind_model", "test_llm"}, {"max_revisions", 0}});
     harness.BindModel("test_llm", mock_model);
     harness.TextInput("questions", {"Q1"});
@@ -1298,7 +1294,7 @@ TEST(FunctionNodeTest, BatchModelCallRetrySucceedsWithoutPollutingContext) {
   auto mock_model = std::make_shared<CountingMockLlmModel>();
   mock_model->fail_first_n = 1;  // 第 1 次失败，第 2 次成功
 
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}, {"max_revisions", 2}});
   harness.BindModel("test_llm", mock_model);
   harness.TextInput("questions", {"Q1"});
@@ -1315,7 +1311,7 @@ TEST(FunctionNodeTest, BatchModelCallRetrySucceedsWithoutPollutingContext) {
 }
 
 TEST(FunctionNodeTest, BatchCrossTypeOutputAlignmentSucceeds) {
-  NodeHarness harness("TextToScoreNode");
+  NodeHarness harness("text_to_score");
   harness.TextInput("texts", {"query1", "query2"});
   auto result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
@@ -1328,7 +1324,7 @@ TEST(FunctionNodeTest, BatchCrossTypeOutputAlignmentSucceeds) {
 }
 
 TEST(FunctionNodeTest, NodeHarnessFailsInitOnInvalidConfig) {
-  NodeHarness harness("AnswerBatchNode");
+  NodeHarness harness("answer_batch");
   harness.Config({{"bind_model", "test_llm"}, {"unknown_field", 123}});
   auto result = harness.Run();
   EXPECT_FALSE(result.ok());
@@ -1337,7 +1333,7 @@ TEST(FunctionNodeTest, NodeHarnessFailsInitOnInvalidConfig) {
 }
 
 TEST(FunctionNodeTest, ProcessFailedPreservesAlgContextForOutputInspection) {
-  NodeHarness harness("FailingAfterPublishNode");
+  NodeHarness harness("failing_after_publish");
   harness.TextInput("input", {"item1"});
   auto result = harness.Run();
   EXPECT_FALSE(result.ok());
@@ -1349,19 +1345,20 @@ TEST(FunctionNodeTest, ProcessFailedPreservesAlgContextForOutputInspection) {
 
 TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   // Map Node 测试
-  const auto map_def = PipelineCatalog::FindNode("BindingMapNode");
+  const auto map_def = PipelineCatalog::FindNode("binding_map");
   ASSERT_TRUE(map_def.has_value());
   ASSERT_TRUE(map_def->validate_config);
 
   // 1. 缺少额外端口时，Map Definition 预检拒绝配置
   std::string map_diag;
-  EXPECT_FALSE(map_def->validate_config({{"require_extra", true}}, {"input"},
-                                        &map_diag));
+  EXPECT_FALSE(map_def->validate_config({{"require_extra", true}},
+                                        BindingFacts{true, {"input"}, {}},
+                                        &map_diag, nullptr));
   EXPECT_NE(map_diag.find("require_extra requires extra port"),
             std::string::npos);
 
   // 2. 缺少额外端口时，无计划的 Map Init 失败
-  auto map_unplanned = NodeRegistry::Instance().Create("BindingMapNode");
+  auto map_unplanned = NodeRegistry::Instance().Create("binding_map");
   ASSERT_NE(map_unplanned, nullptr);
   nlohmann::json invalid_map_cfg = {{"require_extra", true}};
   SessionContext session_ctx;
@@ -1375,10 +1372,10 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   EXPECT_NE(map_init_diag.find("ValidatedNodePlan"), std::string::npos);
 
   // 3. 缺少额外端口时，手动计划的 Map Init 失败
-  auto map_manual = NodeRegistry::Instance().Create("BindingMapNode");
+  auto map_manual = NodeRegistry::Instance().Create("binding_map");
   ASSERT_NE(map_manual, nullptr);
   ValidatedNodePlan manual_map_plan;
-  manual_map_plan.normalized_config = invalid_map_cfg;
+  manual_map_plan.normalized_params = invalid_map_cfg;
   manual_map_plan.ports.push_back(
       {"input", "bk_input", BlackboardTypeTraits<TextBatch>::TypeName(), "1:1",
        "preserve", "request", PortDirection::kInput});
@@ -1396,21 +1393,23 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
             std::string::npos);
 
   // 4. Batch Node 测试
-  const auto def = PipelineCatalog::FindNode("BindingTestNode");
+  const auto def = PipelineCatalog::FindNode("binding_test");
   ASSERT_TRUE(def.has_value());
   ASSERT_TRUE(def->validate_config);
 
   // 缺少 mask 时，Batch Definition 预检拒绝配置
   std::string diag;
-  EXPECT_FALSE(def->validate_config({{"check_mask", true}}, {"texts"}, &diag));
+  EXPECT_FALSE(def->validate_config({{"check_mask", true}},
+                                    BindingFacts{true, {"texts"}, {}}, &diag,
+                                    nullptr));
   EXPECT_NE(diag.find("check_mask requires mask port"), std::string::npos);
 
   // mask 未连接时，手动计划的 Batch Init 失败
-  auto node_manual = NodeRegistry::Instance().Create("BindingTestNode");
+  auto node_manual = NodeRegistry::Instance().Create("binding_test");
   ASSERT_NE(node_manual, nullptr);
   ValidatedNodePlan manual_plan;
   nlohmann::json invalid_cfg = {{"check_mask", true}};
-  manual_plan.normalized_config = invalid_cfg;
+  manual_plan.normalized_params = invalid_cfg;
   manual_plan.ports.push_back(
       {"texts", "bk_texts", BlackboardTypeTraits<TextBatch>::TypeName(), "1:1",
        "preserve", "request", PortDirection::kInput});
@@ -1428,7 +1427,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
             std::string::npos);
 
   // 5. 省略可选端口时 NodeHarness 的 Init 失败
-  NodeHarness harness_fail("BindingTestNode");
+  NodeHarness harness_fail("binding_test");
   harness_fail.Config({{"check_mask", true}});
   harness_fail.OmitPortFromPlan("mask");
   harness_fail.TextInput("texts", {"hello"});
@@ -1439,7 +1438,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
             std::string::npos);
 
   // 6. 连接 mask 后 NodeHarness 成功
-  NodeHarness harness_ok("BindingTestNode");
+  NodeHarness harness_ok("binding_test");
   harness_ok.Config({{"check_mask", true}});
   harness_ok.TextInput("texts", {"hello"});
   harness_ok.TextInput("mask", {"m1"});
@@ -1457,39 +1456,35 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
     const char* expected;
   };
   const Case cases[] = {
-      {"BindingMapNode", "input", 3, ""},
-      {"BindingTestNode", "texts", 3, ""},
-      {"BindingMapNode", "input", 0,
+      {"binding_map", "input", 3, ""},
+      {"binding_test", "texts", 3, ""},
+      {"binding_map", "input", 0,
        "Required input port 'input' has no binding in plan"},
-      {"BindingMapNode", "input", 1,
+      {"binding_map", "input", 1,
        "Required input port 'input' has no binding in plan"},
-      {"BindingMapNode", "input", 2,
+      {"binding_map", "input", 2,
        "Input port type mismatch for 'input' (expected: TextBatch, bound: "
        "integer)"},
-      {"BindingMapNode", "output", 0,
-       "Output port 'output' has no binding in plan"},
-      {"BindingMapNode", "output", 1,
-       "Output port 'output' has no binding in plan"},
-      {"BindingMapNode", "output", 2,
+      {"binding_map", "output", 0, ""},
+      {"binding_map", "output", 1, ""},
+      {"binding_map", "output", 2,
        "Output port type mismatch for 'output' (expected: TextBatch, bound: "
        "integer)"},
-      {"BindingTestNode", "texts", 0,
+      {"binding_test", "texts", 0,
        "Required input port 'texts' has no binding in plan"},
-      {"BindingTestNode", "texts", 1,
+      {"binding_test", "texts", 1,
        "Required input port 'texts' has no binding in plan"},
-      {"BindingTestNode", "texts", 2,
+      {"binding_test", "texts", 2,
        "Input port type mismatch for 'texts' (expected: TextBatch, bound: "
        "integer)"},
-      {"BindingTestNode", "mask", 0, ""},
-      {"BindingTestNode", "mask", 1, ""},
-      {"BindingTestNode", "mask", 2,
+      {"binding_test", "mask", 0, ""},
+      {"binding_test", "mask", 1, ""},
+      {"binding_test", "mask", 2,
        "Input port type mismatch for 'mask' (expected: TextBatch, bound: "
        "integer)"},
-      {"BindingTestNode", "output", 0,
-       "Output port 'output' has no binding in plan"},
-      {"BindingTestNode", "output", 1,
-       "Output port 'output' has no binding in plan"},
-      {"BindingTestNode", "output", 2,
+      {"binding_test", "output", 0, ""},
+      {"binding_test", "output", 1, ""},
+      {"binding_test", "output", 2,
        "Output port type mismatch for 'output' (expected: TextBatch, bound: "
        "integer)"},
   };
@@ -1497,9 +1492,9 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
     SCOPED_TRACE(test.node);
     SCOPED_TRACE(test.port);
     SCOPED_TRACE(test.fault);
-    const bool map = std::string(test.node) == "BindingMapNode";
+    const bool map = std::string(test.node) == "binding_map";
     ValidatedNodePlan plan;
-    plan.normalized_config = map ? nlohmann::json{{"require_extra", false}}
+    plan.normalized_params = map ? nlohmann::json{{"require_extra", false}}
                                  : nlohmann::json{{"check_mask", false}};
     for (const auto& name :
          map ? std::vector<std::string>{"input", "output"}
@@ -1531,61 +1526,15 @@ TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
       context.Publish("mask", TextBatch{{7, 2, "stale optional"}});
       ASSERT_EQ(node->Process(&context), 0);
       const auto* output = context.Read<TextBatch>("actual_output");
-      ASSERT_NE(output, nullptr);
-      ASSERT_EQ(output->size(), 1u);
-      EXPECT_EQ(output->at(0).data, "mapped");
+      if (std::string(test.port) == "output" && test.fault < 2) {
+        EXPECT_EQ(output, nullptr);
+      } else {
+        ASSERT_NE(output, nullptr);
+        ASSERT_EQ(output->size(), 1u);
+        EXPECT_EQ(output->at(0).data, "mapped");
+      }
       EXPECT_FALSE(context.Has("output"));
     }
-  }
-}
-
-TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
-  const auto definition = PipelineCatalog::FindNode("ComplexParserNode");
-  ASSERT_TRUE(definition.has_value());
-  ASSERT_TRUE(definition->validate_config);
-  const nlohmann::json good = {{"nested", {{"prefix", "tag:"}}}, {"limit", 8}};
-  for (int fault = 0; fault < 4; ++fault) {
-    SCOPED_TRACE(fault);
-    auto config = good;
-    if (fault == 1) config["nested"]["prefix"] = 123;
-    if (fault == 2) config["limit"] = 2;
-    const std::unordered_set<std::string> ports =
-        fault == 3 ? std::unordered_set<std::string>{"input"}
-                   : std::unordered_set<std::string>{"input", "context"};
-    std::string preflight_error;
-    EXPECT_EQ(definition->validate_config(config, ports, &preflight_error),
-              fault == 0);
-    ValidatedNodePlan plan;
-    plan.normalized_config = config;
-    for (const auto& port : ports) {
-      plan.ports.push_back({port, port, "TextBatch", "1:1", "preserve",
-                            "request", PortDirection::kInput});
-    }
-    plan.ports.push_back({"output", "output", "TextBatch", "1:1", "preserve",
-                          "request", PortDirection::kOutput});
-    auto node = NodeRegistry::Instance().Create("ComplexParserNode");
-    ASSERT_NE(node, nullptr);
-    SessionContext session;
-    std::string init_error;
-    NodeInitContext init{&plan, &session};
-    init.diagnostic = &init_error;
-    EXPECT_EQ(node->Init(init), fault == 0);
-    if (fault != 0) {
-      EXPECT_FALSE(preflight_error.empty());
-      EXPECT_EQ(init_error, preflight_error);
-      continue;
-    }
-    // 调用方的文档和计划都不能继续持有 Params。
-    config["nested"]["prefix"] = "changed:";
-    plan.normalized_config["nested"]["prefix"] = "changed:";
-    AlgContext context;
-    context.Publish("input", TextBatch{{7, 2, "hello"}});
-    context.Publish("context", TextBatch{});
-    ASSERT_EQ(node->Process(&context), 0);
-    const auto* output = context.Read<TextBatch>("output");
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 1u);
-    EXPECT_EQ((*output)[0].data, "tag:hello");
   }
 }
 
@@ -1814,7 +1763,7 @@ TEST(ConfigurationSnapshotTest, MoveOnlyStateHandled) {
 // ---------------------------------------------------------------------------
 
 TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
-  NodeHarness harness("ControlledMapNode");
+  NodeHarness harness("controlled_map");
   harness.Config(
       {{"prefix", "init_p:"}, {"suffix", ":init_s"}, {"multiplier", 1}});
   harness.TextInput("input", {"payload"});
@@ -1824,16 +1773,15 @@ TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
   EXPECT_EQ(res1.TextValues("output"),
             (std::vector<std::string>{"init_p:payload:init_s"}));
 
-  // 1. ReplaceFields 缺少 multiplier -> 拒绝
-  auto bad_replace = harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
-  EXPECT_EQ(bad_replace.status, NodeControlStatus::kFailed);
-  EXPECT_NE(bad_replace.message.find("multiplier"), std::string::npos);
+  // 1. 只替换给出的 prefix，保留 multiplier 和 suffix。
+  auto partial_replace =
+      harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
+  EXPECT_EQ(partial_replace.status, NodeControlStatus::kHandled);
 
-  // 状态保持不变
   auto res2 = harness.Run();
   ASSERT_TRUE(res2.ok());
   EXPECT_EQ(res2.TextValues("output"),
-            (std::vector<std::string>{"init_p:payload:init_s"}));
+            (std::vector<std::string>{"new_p:payload:init_s"}));
 
   // 2. ReplaceFields 带齐所有声明字段 -> 处理成功
   auto good_replace =
@@ -1877,7 +1825,7 @@ TEST(FunctionNodeTest, ItemwiseNodeWithFieldControls) {
 }
 
 TEST(FunctionNodeTest, BatchNodeWithControlsAndValidation) {
-  NodeHarness harness("ControlledBatchNode");
+  NodeHarness harness("controlled_batch");
   harness.Config({{"header", "H:"}, {"uppercase", false}});
   harness.TextInput("texts", {"abc", "def"});
 
@@ -1909,8 +1857,173 @@ TEST(FunctionNodeTest, BatchNodeWithControlsAndValidation) {
             (std::vector<std::string>{"G:ABC", "G:DEF"}));
 }
 
+TEST(FunctionNodeTest,
+     FieldControlRejectsInvalidPartialPayloadsWithoutChangingState) {
+  NodeHarness harness("controlled_map");
+  harness.Config({{"prefix", "p:"}, {"suffix", ":s"}, {"multiplier", 2}});
+  harness.TextInput("input", {"x"});
+  ASSERT_TRUE(harness.Run().ok());
+  for (const char* payload :
+       {R"({})", R"({"unknown":1})", R"({"suffix":":bad"})",
+        R"({"prefix":null})", R"({"prefix":42})", R"({"multiplier":"2"})",
+        R"({"multiplier":0})", R"({"multiplier":11})", R"([])", "null"}) {
+    SCOPED_TRACE(payload);
+    const auto control = harness.Control(kCmdReplaceMap, payload);
+    EXPECT_EQ(control.status, NodeControlStatus::kFailed);
+    EXPECT_FALSE(control.message.empty());
+    const auto after = harness.Run();
+    ASSERT_TRUE(after.ok()) << after.diagnostic();
+    EXPECT_EQ(after.TextValues("output"), (std::vector<std::string>{"p:xx:s"}));
+  }
+  ASSERT_EQ(harness.Control(kCmdReplaceMap, R"({"multiplier":3})").status,
+            NodeControlStatus::kHandled);
+  EXPECT_EQ(harness.Run().TextValues("output"),
+            (std::vector<std::string>{"p:xxx:s"}));
+}
+
+TEST(FunctionNodeTest, ContainerControlSchemasExposeDeclaredNestedConstraints) {
+  const auto definition =
+      ControlledContainersSpec().BuildDefinition("ContainerSchemaProbe");
+  ASSERT_EQ(definition.control_commands.size(), 1U);
+  const auto& schema = definition.control_commands[0].payload_schema;
+  EXPECT_EQ(schema["type"], "object");
+  EXPECT_EQ(schema["minProperties"], 1);
+  EXPECT_EQ(schema["additionalProperties"], false);
+  EXPECT_FALSE(schema.contains("required"));
+  EXPECT_EQ(schema["properties"]["groups"]["type"], "object");
+  EXPECT_EQ(schema["properties"]["groups"]["additionalProperties"]["type"],
+            "array");
+  EXPECT_EQ(
+      schema["properties"]["groups"]["additionalProperties"]["items"]["enum"],
+      (nlohmann::json{"fast", "slow"}));
+  const auto& element = schema["properties"]["rules"]["items"];
+  EXPECT_EQ(element["type"], "object");
+  EXPECT_EQ(element["required"], (nlohmann::json{"text"}));
+  EXPECT_EQ(element["additionalProperties"], false);
+  EXPECT_EQ(element["properties"]["repeats"]["minimum"], 1);
+  EXPECT_EQ(element["properties"]["repeats"]["maximum"], 3);
+  EXPECT_EQ(element["properties"]["repeats"]["default"], 1);
+  EXPECT_EQ(schema["properties"]["fallback"]["not"],
+            (nlohmann::json{{"type", "null"}}));
+}
+
+TEST(FunctionNodeTest,
+     ContainerControlReplacesProvidedFieldsAndRollsBackAllFailures) {
+  NodeHarness harness("controlled_containers");
+  harness.TextInput("input", {"payload"});
+  auto initial = harness.Run();
+  ASSERT_TRUE(initial.ok()) << initial.diagnostic();
+  auto state = nlohmann::json::parse(initial.TextValues("output")[0]);
+  EXPECT_EQ(state["groups"], (nlohmann::json{{"old", {"fast"}}}));
+  ASSERT_EQ(
+      harness.Control(kCmdContainers, R"({"groups":{"new":["slow"]}})").status,
+      NodeControlStatus::kHandled);
+  ASSERT_EQ(
+      harness
+          .Control(kCmdContainers,
+                   R"({"rules":[{"text":"one"},{"text":"two","repeats":2}]})")
+          .status,
+      NodeControlStatus::kHandled);
+  ASSERT_EQ(
+      harness
+          .Control(kCmdContainers, R"({"fallback":[1,null],"label":"updated"})")
+          .status,
+      NodeControlStatus::kHandled);
+  auto after = harness.Run();
+  ASSERT_TRUE(after.ok()) << after.diagnostic();
+  state = nlohmann::json::parse(after.TextValues("output")[0]);
+  EXPECT_EQ(state["groups"], (nlohmann::json{{"new", {"slow"}}}));
+  EXPECT_EQ(state["label"], "updated");
+  EXPECT_EQ(state["prepared"], "updated:1:2");
+  EXPECT_EQ(state["fallback"], (nlohmann::json{1, nullptr}));
+  ASSERT_EQ(state["rules"].size(), 2U);
+  EXPECT_EQ(state["rules"][0]["repeats"], 1);
+  EXPECT_EQ(state["rules"][0]["prepared"], "prepared:one");
+
+  for (const char* payload :
+       {R"({"groups":{"bad":["other"]}})", R"({"groups":{"new":[null]}})",
+        R"({"rules":[{"text":"bad","repeats":0}]})", R"({"rules":[{}]})",
+        R"({"rules":[{"text":"bad","extra":1}]})", R"({"fallback":null})",
+        R"({"label":"should rollback","rules":[{"text":"FAIL_PREPARE"}]})",
+        R"({"label":"should rollback","rules":[{"text":"FAIL_VALIDATE"}]})",
+        R"({"label":"should rollback","fallback":{"reject_prepare":true}})",
+        R"({"label":"should rollback","groups":{"blocked":["fast"]}})"}) {
+    SCOPED_TRACE(payload);
+    const auto control = harness.Control(kCmdContainers, payload);
+    EXPECT_EQ(control.status, NodeControlStatus::kFailed);
+    EXPECT_FALSE(control.message.empty());
+    auto unchanged = harness.Run();
+    ASSERT_TRUE(unchanged.ok()) << unchanged.diagnostic();
+    EXPECT_EQ(nlohmann::json::parse(unchanged.TextValues("output")[0]), state);
+  }
+  ASSERT_EQ(
+      harness.Control(kCmdContainers, R"({"rules":[{"text":"replacement"}]})")
+          .status,
+      NodeControlStatus::kHandled);
+  auto replaced = harness.Run();
+  ASSERT_TRUE(replaced.ok());
+  const auto final_state =
+      nlohmann::json::parse(replaced.TextValues("output")[0]);
+  ASSERT_EQ(final_state["rules"].size(), 1U);
+  EXPECT_EQ(final_state["rules"][0]["text"], "replacement");
+  EXPECT_EQ(final_state["groups"], state["groups"]);
+  EXPECT_EQ(final_state["fallback"], state["fallback"]);
+}
+
+TEST(FunctionNodeTest, IncludedParameterBindingsSurviveCopyAndFieldControl) {
+  struct Inner {
+    std::string prefix;
+    std::string prepared;
+  };
+  struct Params {
+    Inner inner;
+    int count = 0;
+    std::string prepared;
+  };
+  auto group =
+      Parameters<Inner>{Field("prefix", &Inner::prefix).Default("old:")}
+          .Prepare([](Inner* value, std::string* error) {
+            if (value->prefix == "reject") {
+              if (error) *error = "included prepare rejected";
+              return false;
+            }
+            value->prepared = "compiled:" + value->prefix;
+            return true;
+          });
+  const auto original =
+      Parameters<Params>{Field("count", &Params::count).Default(2)}
+          .Include(&Params::inner, std::move(group))
+          .Prepare([](Params* value, std::string*) {
+            value->prepared = value->inner.prepared;
+            return true;
+          });
+  auto copy = original;
+  std::string error;
+  const auto initial = copy.Parse(nlohmann::json::object(), &error);
+  ASSERT_TRUE(initial.has_value()) << error;
+  ConfigurationSnapshot<Params> snapshot(*initial);
+  const auto command =
+      ReplaceFields(3020, "set_included_prefix", {"prefix", "count"});
+  EXPECT_NO_THROW(ValidateControlCommands({command}, copy));
+  const auto result =
+      command.Execute(copy, R"({"prefix":"new:"})", BindingFacts{}, snapshot);
+  ASSERT_EQ(result.status, NodeControlStatus::kHandled) << result.message;
+  auto value = snapshot.Read();
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(value->inner.prefix, "new:");
+  EXPECT_EQ(value->count, 2);
+  EXPECT_EQ(value->prepared, "compiled:new:");
+  const auto failed = command.Execute(copy, R"({"prefix":"reject","count":9})",
+                                      BindingFacts{}, snapshot);
+  EXPECT_EQ(failed.status, NodeControlStatus::kFailed);
+  value = snapshot.Read();
+  EXPECT_EQ(value->inner.prefix, "new:");
+  EXPECT_EQ(value->count, 2);
+  EXPECT_EQ(value->prepared, "compiled:new:");
+}
+
 TEST(FunctionNodeTest, SnapshotPauseTimeoutFailsProcess) {
-  NodeHarness harness("ControlledMapNode");
+  NodeHarness harness("controlled_map");
   ASSERT_TRUE(harness.EnsureInitialized());
   AlgContext ctx;
   ctx.Publish("bk_in_input", TextBatch{{101, 3, "sample"}});
@@ -1928,7 +2041,7 @@ TEST(FunctionNodeTest, SnapshotPauseTimeoutFailsProcess) {
 }
 
 TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
-  NodeHarness harness("ControlledMapNode");
+  NodeHarness harness("controlled_map");
   harness.Config({{"prefix", "v1:"}, {"suffix", ":s1"}, {"multiplier", 1}});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto* node = harness.GetNode();
@@ -1983,7 +2096,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
 }
 
 TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchNode) {
-  NodeHarness harness("ControlledBatchNode");
+  NodeHarness harness("controlled_batch");
   harness.Config({{"header", "old:"}, {"uppercase", false}});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto* node = harness.GetNode();
@@ -2038,7 +2151,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchNode) {
 TEST(FunctionNodeTest,
      SpecWithNonCopyableParamsCompilesAndExecutesWithoutControls) {
   // 验证 ParamsT 不可拷贝 (含 unique_ptr) 的 MapSpec
-  NodeHarness map_harness("NonCopyableMapNode");
+  NodeHarness map_harness("non_copyable_map");
   map_harness.Config({{"prefix", "map_nc:"}});
   map_harness.TextInput("input", {"hello", "world"});
   auto map_res = map_harness.Run();
@@ -2050,7 +2163,7 @@ TEST(FunctionNodeTest,
   EXPECT_EQ(ctrl_map.status, NodeControlStatus::kUnsupported);
 
   // 验证 ParamsT 不可拷贝 (含 unique_ptr) 的 BatchSpec
-  NodeHarness batch_harness("NonCopyableBatchNode");
+  NodeHarness batch_harness("non_copyable_batch");
   batch_harness.Config({{"tag", "batch_nc:"}});
   batch_harness.TextInput("texts", {"foo", "bar"});
   auto batch_res = batch_harness.Run();
@@ -2063,7 +2176,7 @@ TEST(FunctionNodeTest,
 }
 
 TEST(FunctionNodeTest, SpecWithoutWithControlsReturnsUnsupported) {
-  NodeHarness harness("UpperMapNode");
+  NodeHarness harness("upper_map");
   harness.TextInput("input", {"hello"});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto ctrl = harness.Control(1001, R"({})");
@@ -2122,6 +2235,20 @@ TEST(FunctionNodeTest, DeclarationValidationRejectsInvalidControlCommands) {
       ValidateControlCommands({ReplaceFields(1001, "cmd", {"non_existent"})},
                               make_params()),
       std::invalid_argument);
+}
+
+TEST(FunctionNodeTest, FieldControlsCannotReplaceModelReferences) {
+  struct Params {
+    std::string bind_model;
+  };
+  const auto params =
+      Parameters<Params>{Field("bind_model", &Params::bind_model).Required()};
+  const auto models = ModelsOf<AnswerModels>{
+      Model("generator", "bind_model", &AnswerModels::llm)};
+  EXPECT_THROW(ValidateControlCommands(
+                   {ReplaceFields(3030, "replace_model", {"bind_model"})},
+                   params, &models),
+               std::invalid_argument);
 }
 
 TEST(FunctionNodeTest, PreservedOutputDeclarationsRequireNamedAnchors) {
@@ -2190,61 +2317,6 @@ TEST(FunctionNodeTest, OutputDeclarationsStillRejectDuplicatePortNames) {
                std::invalid_argument);
 }
 
-TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
-  auto make_spec = [] {
-    return MakeNodeSpec(
-        InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
-        PreservedOutput<TextBatch>("output", "input"), CleanConfig(),
-        [](const ComplexInputs& inputs, const CleanParams&)
-            -> NodeResult<TextBatch> { return *inputs.input; });
-  };
-  auto update = [](const CleanParams& current, const nlohmann::json&,
-                   const BindingFacts&) -> NodeResult<CleanParams> {
-    return current;
-  };
-  const ControlCommandDefinition custom(4988, "custom_prefix");
-  EXPECT_THROW(
-      make_spec()
-          .WithControl(custom, update)
-          .WithControls({ReplaceFields(4988, "set_prefix", {"prefix"})}),
-      std::invalid_argument);
-  EXPECT_THROW(
-      make_spec()
-          .WithControls({ReplaceFields(4988, "set_prefix", {"prefix"})})
-          .WithControl(custom, update),
-      std::invalid_argument);
-}
-
-TEST(FunctionNodeTest, WithParserWithControlsRequiresExplicitPrepare) {
-  struct DummyParams {
-    std::string text;
-  };
-  NodeConfigParser<DummyParams> parser(
-      {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
-      [](const nlohmann::json& c, DummyParams* p, std::string*) {
-        if (c.contains("nested") && c["nested"].contains("text")) {
-          p->text = c["nested"]["text"].get<std::string>();
-        }
-        return true;
-      });
-  auto params =
-      Parameters<DummyParams>({
-                                  Field("text", &DummyParams::text).Default(""),
-                              })
-          .WithParser(std::move(parser));
-
-  // HasParser() == true、commands 非空且 HasPrepare() == false -> 抛异常
-  EXPECT_THROW(ValidateControlCommands(
-                   {ReplaceFields(1001, "set_text", {"text"})}, params),
-               std::invalid_argument);
-
-  // 加上 Prepare 后校验通过
-  params.Prepare(
-      [](DummyParams*, const BindingFacts&, std::string*) { return true; });
-  EXPECT_NO_THROW(ValidateControlCommands(
-      {ReplaceFields(1001, "set_text", {"text"})}, params));
-}
-
 TEST(FunctionNodeTest, TypedPrepareHookExecutesAndCanReject) {
   struct PreparedParams {
     std::string raw;
@@ -2281,6 +2353,7 @@ struct BindingFactsProbeParams {
   std::string mode;
   bool plan_seen = false;
   bool input_connected = false;
+  std::string input_lifetime;
 };
 
 inline auto BindingFactsProbeSpec() {
@@ -2293,18 +2366,20 @@ inline auto BindingFactsProbeSpec() {
                       std::string*) {
             p->plan_seen = facts.has_bindings;
             p->input_connected = facts.IsConnected("input");
+            p->input_lifetime = facts.InputLifetime("input");
             return true;
           }),
       [](const std::string& in, const BindingFactsProbeParams& p) {
         return std::string(p.plan_seen ? "PLAN:" : "NO_PLAN:") +
-               (p.input_connected ? "CONN:" : "DISCONN:") + in;
+               (p.input_connected ? "CONN:" : "DISCONN:") +
+               (p.mode == "with_lifetime" ? p.input_lifetime + ":" : "") + in;
       });
 }
-REGISTER_FUNCTION_NODE(BindingFactsProbeNode, BindingFactsProbeSpec());
+REGISTER_FUNCTION_NODE(binding_facts_probe, BindingFactsProbeSpec());
 
 TEST(FunctionNodeTest, AuthorNodeInitPassesRealBindingFactsToPrepare) {
   // 测试有计划的执行：plan_seen 必须为 true，且输入必须已连接
-  NodeHarness harness_planned("BindingFactsProbeNode");
+  NodeHarness harness_planned("binding_facts_probe");
   harness_planned.TextInput("input", {"hello"});
   auto res_planned = harness_planned.Run();
   ASSERT_TRUE(res_planned.ok()) << res_planned.diagnostic();
@@ -2312,8 +2387,23 @@ TEST(FunctionNodeTest, AuthorNodeInitPassesRealBindingFactsToPrepare) {
             (std::vector<std::string>{"PLAN:CONN:hello"}));
 }
 
+TEST(FunctionNodeTest, AuthorNodePrepareReadsActualInputLifetime) {
+  for (const char* lifetime : {"request", "session"}) {
+    SCOPED_TRACE(lifetime);
+    NodeHarness harness("binding_facts_probe");
+    harness.Config({{"mode", "with_lifetime"}})
+        .InputLifetime("input", lifetime)
+        .TextInput("input", {"hello"});
+    auto result = harness.Run();
+    ASSERT_TRUE(result.ok()) << result.diagnostic();
+    EXPECT_EQ(result.TextValues("output"),
+              (std::vector<std::string>{"PLAN:CONN:" + std::string(lifetime) +
+                                        ":hello"}));
+  }
+}
+
 TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
-  NodeHarness harness("ControlledMapNode");
+  NodeHarness harness("controlled_map");
   harness.Config({{"prefix", "p0:"}, {"suffix", ":s0"}, {"multiplier", 1}});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto* node = harness.GetNode();
@@ -2501,7 +2591,7 @@ TEST(FunctionNodeTest,
 namespace llm_edgeflow {
 
 TEST(FunctionNodeTest, ImageInputPublishesMultipleTypedOutputsWithProvenance) {
-  NodeHarness harness("ImageSummaryAuthorNode");
+  NodeHarness harness("image_summary_author");
   harness.CustomInput("images",
                       ImageRefBatch{{91, 7, "a.png"}, {52, 3, "bb.jpg"}});
   auto result = harness.Run();
@@ -2530,7 +2620,7 @@ TEST(FunctionNodeTest,
      MultipleOutputsAreUnpublishedWhenSecondOutputOrBusinessFails) {
   for (const std::string fault : {"count", "provenance", "business"}) {
     SCOPED_TRACE(fault);
-    NodeHarness harness("ImageSummaryAuthorNode");
+    NodeHarness harness("image_summary_author");
     harness.Config({{"fault", fault}});
     harness.CustomInput("images", ImageRefBatch{{91, 7, "a.png"}});
     auto result = harness.Run();
@@ -2553,14 +2643,14 @@ TEST(FunctionNodeTest,
 
 TEST(FunctionNodeTest, MultipleOutputsRejectWrongTypeInSecondPlannedBinding) {
   ValidatedNodePlan plan;
-  plan.normalized_config = {{"fault", ""}};
+  plan.normalized_params = {{"fault", ""}};
   plan.ports = {{"images", "images", "ImageRefBatch", "1:1", "preserve",
                  "request", PortDirection::kInput},
                 {"names", "names", "TextBatch", "1:1", "preserve", "request",
                  PortDirection::kOutput},
                 {"lengths", "lengths", "TextBatch", "1:1", "preserve",
                  "request", PortDirection::kOutput}};
-  auto node = NodeRegistry::Instance().Create("ImageSummaryAuthorNode");
+  auto node = NodeRegistry::Instance().Create("image_summary_author");
   ASSERT_NE(node, nullptr);
   SessionContext session;
   std::string diagnostic;
@@ -2569,8 +2659,37 @@ TEST(FunctionNodeTest, MultipleOutputsRejectWrongTypeInSecondPlannedBinding) {
   EXPECT_NE(diagnostic.find("type mismatch"), std::string::npos);
 }
 
+TEST(FunctionNodeTest,
+     UnreferencedInvalidOutputPreventsPublishingReferencedOutput) {
+  for (const std::string fault : {"count", "provenance"}) {
+    SCOPED_TRACE(fault);
+    ValidatedNodePlan plan;
+    plan.normalized_params = {{"fault", fault}};
+    plan.ports = {{"images", "input.images", "ImageRefBatch", "1:1", "preserve",
+                   "request", PortDirection::kInput},
+                  {"names", "summary.names", "TextBatch", "1:1", "preserve",
+                   "request", PortDirection::kOutput}};
+    EXPECT_EQ(plan.FindPort("lengths", PortDirection::kOutput), nullptr);
+    auto node = NodeRegistry::Instance().Create("image_summary_author");
+    ASSERT_NE(node, nullptr);
+    SessionContext session;
+    std::string diagnostic;
+    ASSERT_TRUE(node->Init({&plan, &session, &diagnostic})) << diagnostic;
+    AlgContext context;
+    context.Publish("input.images", ImageRefBatch{{91, 7, "a.png"}});
+    EXPECT_EQ(node->Process(&context),
+              fault == "count"
+                  ? node_error::author_node::kOutputCountMismatch
+                  : node_error::author_node::kOutputProvenanceMismatch);
+    EXPECT_NE(context.GetErrorMessage().find("lengths"), std::string::npos);
+    EXPECT_FALSE(context.Has("summary.names"));
+    EXPECT_FALSE(context.Has("names"));
+    EXPECT_FALSE(context.Has("lengths"));
+  }
+}
+
 TEST(FunctionNodeTest, SourceWithoutInputsProducesDeclaredVariableCardinality) {
-  NodeHarness harness("GeneratedSourceAuthorNode");
+  NodeHarness harness("generated_source_author");
   auto result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
   EXPECT_EQ(result.TextValues("chunks"),
@@ -2581,40 +2700,13 @@ TEST(FunctionNodeTest, SourceWithoutInputsProducesDeclaredVariableCardinality) {
     EXPECT_EQ(output->at(i).req_id, 41u);
     EXPECT_EQ(output->at(i).sub_id, i);
   }
-  const auto definition =
-      PipelineCatalog::FindNode("GeneratedSourceAuthorNode");
+  const auto definition = PipelineCatalog::FindNode("generated_source_author");
   ASSERT_TRUE(definition.has_value());
   EXPECT_TRUE(definition->inputs.empty());
   ASSERT_EQ(definition->outputs.size(), 1u);
   EXPECT_EQ(definition->outputs[0].cardinality, "1:N");
   EXPECT_EQ(definition->outputs[0].provenance_policy, "generate_sub_id");
   EXPECT_EQ(definition->outputs[0].lifetime, "session");
-}
-
-TEST(FunctionNodeTest,
-     ComplexControlRejectsInvalidPayloadAndCandidateWithoutLosingState) {
-  NodeHarness harness("ComplexStateControlAuthorNode");
-  harness.TextInput("input", {"one", "two"});
-  ASSERT_TRUE(harness.Run().ok());
-  auto accepted =
-      harness.Control(kComplexStateCommand, R"({"nested":{"prefix":"new:"}})");
-  ASSERT_EQ(accepted.status, NodeControlStatus::kHandled) << accepted.message;
-  for (const std::string payload :
-       {"{", R"({"nested":{"prefix":3}})",
-        R"({"nested":{"prefix":"wrong:"},"extra":true})",
-        R"({"nested":{"prefix":"REJECT"}})"}) {
-    SCOPED_TRACE(payload);
-    auto rejected = harness.Control(kComplexStateCommand, payload);
-    EXPECT_EQ(rejected.status, NodeControlStatus::kFailed);
-    if (payload.find("REJECT") != std::string::npos) {
-      EXPECT_NE(rejected.message.find("Rejected compiled prefix"),
-                std::string::npos);
-    }
-    auto result = harness.Run();
-    ASSERT_TRUE(result.ok()) << result.diagnostic();
-    EXPECT_EQ(result.TextValues("output"),
-              (std::vector<std::string>{"new:one", "new:two"}));
-  }
 }
 
 }  // namespace llm_edgeflow

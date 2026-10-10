@@ -21,7 +21,7 @@ class RealModelE2ETest : public ::testing::Test {
   void SetUp() override {
     project_root_ = std::filesystem::weakly_canonical(
         std::filesystem::path(LLM_EDGEFLOW_PROJECT_SOURCE_DIR));
-    model_root_ = project_root_ / "models";
+    model_root_ = project_root_ / "configs";
     model_path_ = model_root_ / "qwen2.5-0.5b-instruct-q4_k_m.gguf";
   }
 
@@ -31,11 +31,11 @@ class RealModelE2ETest : public ::testing::Test {
 
   std::shared_ptr<ILlmModel> CreateModel() const {
     ModelLoadSpec spec;
-    spec.model_type = "qwen_causal_lm";
+    spec.impl_name = "qwen_causal_lm";
     spec.backend_type = "llama_cpp";
-    spec.model_path = model_path_.string();
-    spec.model_config = {{"add_bos", false}, {"random_seed", 17}};
-    spec.backend_config = {
+    spec.model_file = model_path_.string();
+    spec.model_params = {{"add_bos", false}};
+    spec.backend_params = {
         {"context_size", 512}, {"decode_batch_size", 512}, {"n_gpu_layers", 0}};
     std::string diagnostic;
     auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
@@ -54,6 +54,7 @@ TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
 
   std::string prompt = "你好，请用一句话告诉我什么是人工智能？";
   GenerateOptions opt;
+  opt.random_seed = 17;
   opt.max_tokens = 64;
   opt.temperature = 0.7f;
 
@@ -95,6 +96,7 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
 
   std::vector<TraceableItem<std::string>> output_batch;
   GenerateOptions opt;
+  opt.random_seed = 17;
   opt.max_tokens = 32;
   opt.temperature = 0.1f;
 
@@ -148,7 +150,7 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
     const uint64_t request_id = i == 0 ? 99001 : 30000 + i;
     CompanyString cs{static_cast<int32_t>(sentences[i].size()),
                      const_cast<char*>(sentences[i].data())};
-    CompanyOperatorEntityInput req{request_id, &cs};
+    CompanyOperatorEntityInput req{request_id, kMockServiceEntityExtract, &cs};
 
     operator_api::NamedIoBatch inputs(1);
     inputs[0]["nlp_node.entity_in"] =
@@ -164,6 +166,7 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
     ASSERT_NE(out_sp, nullptr);
     auto* out = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
     EXPECT_EQ(out->request_id, request_id);
+    EXPECT_EQ(out->service_type, kMockServiceEntityExtract);
     EXPECT_EQ(out->status_code, 0);
     ASSERT_NE(out->entities_json, nullptr);
     std::string json_str(out->entities_json->data, out->entities_json->length);
@@ -189,15 +192,14 @@ TEST_F(RealModelE2ETest, RealWhisperAsrTranscribe) {
       << "Real audio file not found at " << audio_path;
 
   ModelLoadSpec spec;
-  spec.model_type = "whisper_asr";
+  spec.impl_name = "whisper_asr";
   spec.backend_type = "whisper_cpp";
-  spec.model_path = whisper_path.string();
-  spec.model_config = {
-      {"language", "zh"},
+  spec.model_file = whisper_path.string();
+  spec.model_params = {
       {"max_audio_seconds", 30},
       {"max_output_bytes", 65536},
   };
-  spec.backend_config = {{"n_threads", 2}};
+  spec.backend_params = {{"n_threads", 2}};
 
   std::string diagnostic;
   auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
@@ -216,7 +218,8 @@ TEST_F(RealModelE2ETest, RealWhisperAsrTranscribe) {
   audio.pcm_data = std::move(pcm);
 
   std::vector<TraceableItem<std::string>> output;
-  int ret = asr_model->Transcribe({{5001, 0, std::move(audio)}}, &output);
+  int ret = asr_model->Transcribe({{5001, 0, std::move(audio)}},
+                                  TranscribeOptions{}, &output);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(output.size(), 1U);
   EXPECT_EQ(output[0].req_id, 5001);

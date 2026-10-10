@@ -22,7 +22,7 @@ sections before editing or delivering.
 
   | Component / task | Skill |
   | :--- | :--- |
-  | Operator input/output, Converter, IoBinding | [edgeflow-adapter-developer](.agents/skills/edgeflow-adapter-developer/SKILL.md) |
+  | Operator input/output, Converter, I/O parameters | [edgeflow-adapter-developer](.agents/skills/edgeflow-adapter-developer/SKILL.md) |
   | Node: item transforms, text LLM, multi-port/model algorithms, derived output | [edgeflow-node-developer](.agents/skills/edgeflow-node-developer/SKILL.md) |
   | Model semantics and preprocessing | [edgeflow-model-developer](.agents/skills/edgeflow-model-developer/SKILL.md) |
   | Backend runtime and resources | [edgeflow-backend-developer](.agents/skills/edgeflow-backend-developer/SKILL.md) |
@@ -51,14 +51,16 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
 - **Integration:** the C++ Operator API (`llm_edgeflow::operator_api`) is the sole public
   algorithm interface. Exported table functions retain `noexcept` and both
   `catch (const std::exception&)` and `catch (...)` barriers. Registered `InputConverter`,
-  `OutputConverter`, and `IoBinding` own biz conversion, not central dispatch or lower layers.
+  `OutputConverter` own biz conversion, not central dispatch or lower layers.
+  Pipeline `io.input` / `io.output` select converters by `(type, name)`; their typed ports form
+  the explicit Core boundary. One registration owns one host slot and immutable parameters.
   The complete external request/response is the SDK contract: validation/field selection and
   response assembly/capacity/serialization stay in Adapter, never Demo/Python. Demo may build
   carriers, hold buffers, invoke the SDK and display/copy results. Shared DTO types do not imply
   shared payload semantics; Node/Catalog ports are internal. Platform mocks live only in
   `include/platform_mock/`; framework entrypoints/helpers stay under `edgeflow/`.
 - **Orchestration:** `PipelineValidator` alone derives data dependencies from explicit
-  `inputs` / `outputs` bindings and combines optional `depends_on` ordering constraints.
+  `inputs` references (`node.port`) and combines optional `depends_on` ordering constraints.
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing/resorting. Request values use
   `AlgContext` and typed `BlackboardKey<T>` ports; session resources use `SessionContext`.
 - **Capability Nodes:** common Nodes are neutral framework operations; custom Nodes are
@@ -66,12 +68,16 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
   Both are request-stateless and use ordinary functions plus typed Specs, registered through
   `REGISTER_FUNCTION_NODE`; `AuthorNode` owns the `NodeBase` runtime and generated Definition. Custom algorithms need not be
   generalized. Common Nodes, Core, and Engine must not depend on custom implementations.
+  Output lifetime may follow a connected input, and unreferenced outputs are not published.
   Nodes use typed logical ports and `IModel` capabilities, never platform structs/conversion.
 - **Model Execution:** Models own preprocessing/semantics; Backends own vendor runtime resources
   and neutral execution protocols. Register with `REGISTER_MODEL_WITH_DEFINITION` and
   `REGISTER_BACKEND_WITH_DEFINITION`. Vendor headers stay in the concrete Backend.
   Fixed-batch paths use `FixedBatchExecutor::Execute` for padding removal and `(req_id, sub_id)`
   provenance.
+  Model category and Backend protocol select one implementation; registry audit and Core reject
+  ambiguity. Integration resolves model files and declared file parameters against the Pipeline JSON
+  directory. Batch policy belongs to the Backend Session; call options belong to Nodes.
 
 ## Agent responsibilities
 

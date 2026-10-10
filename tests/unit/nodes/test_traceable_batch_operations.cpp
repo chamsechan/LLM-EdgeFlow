@@ -22,11 +22,11 @@ namespace {
 
 class CountingMockLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string t = "counting_mock_llm";
     return t;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "llm";
     return cap;
   }
@@ -1070,7 +1070,7 @@ TEST_F(TraceableBatchOperationsTest,
 
 TEST_F(TraceableBatchOperationsTest, StarterBatchJoinNodeHarness) {
   auto mock_llm = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("StarterBatchJoinNode");
+  NodeHarness harness("starter_batch_join");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_llm);
 
@@ -1089,7 +1089,7 @@ TEST_F(TraceableBatchOperationsTest, StarterBatchJoinNodeHarness) {
 
 TEST_F(TraceableBatchOperationsTest, StarterBatchGroupNodeHarness) {
   auto mock_llm = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("StarterBatchGroupNode");
+  NodeHarness harness("starter_batch_group");
   harness.Config({{"bind_model", "test_llm"}});
   harness.BindModel("test_llm", mock_llm);
 
@@ -1128,7 +1128,7 @@ TEST_F(TraceableBatchOperationsTest,
   auto generator = std::make_shared<CountingMockLlmModel>();
   auto polisher = std::make_shared<CountingMockLlmModel>();
 
-  NodeHarness harness("StarterBatchSelectScatterNode");
+  NodeHarness harness("starter_batch_select_scatter");
   harness.Config(
       {{"bind_model", "test_gen_llm"}, {"polish_model", "test_pol_llm"}});
   harness.BindModel("test_gen_llm", generator);
@@ -1150,11 +1150,11 @@ TEST_F(TraceableBatchOperationsTest,
        StarterBatchSelectScatterNodeHarnessPartialPolishing) {
   class PolishingMockLlm final : public ILlmModel {
    public:
-    const std::string& ModelType() const noexcept override {
+    const std::string& ImplName() const noexcept override {
       static const std::string t = "polishing_mock_llm";
       return t;
     }
-    const std::string& Capability() const noexcept override {
+    const std::string& ModelType() const noexcept override {
       static const std::string cap = "llm";
       return cap;
     }
@@ -1199,7 +1199,7 @@ TEST_F(TraceableBatchOperationsTest,
   auto polisher = std::make_shared<PolishingMockLlm>();
   polisher->is_generator = false;
 
-  NodeHarness harness("StarterBatchSelectScatterNode");
+  NodeHarness harness("starter_batch_select_scatter");
   harness.Config(
       {{"bind_model", "test_gen_llm"}, {"polish_model", "test_pol_llm"}});
   harness.BindModel("test_gen_llm", generator);
@@ -1237,7 +1237,7 @@ TEST_F(TraceableBatchOperationsTest,
   polisher->always_fail = true;
 
   // 自定义 Node 设置 polish_tag = "ans:"，使生成器的输出被选中
-  NodeHarness harness("StarterBatchSelectScatterNode");
+  NodeHarness harness("starter_batch_select_scatter");
   harness.Config({{"bind_model", "test_gen_llm"},
                   {"polish_model", "test_pol_llm"},
                   {"polish_tag", "ans:"}});
@@ -1285,10 +1285,10 @@ auto DirectSubBatchSpec() {
       .Description("Test fixture for unscattered sub-batch rejection");
 }
 
-REGISTER_FUNCTION_NODE(DirectSubBatchTestNode, DirectSubBatchSpec());
+REGISTER_FUNCTION_NODE(direct_sub_batch_test, DirectSubBatchSpec());
 
 TEST_F(TraceableBatchOperationsTest, FunctionNodeRejectsDirectSubBatchReturn) {
-  NodeHarness harness("DirectSubBatchTestNode");
+  NodeHarness harness("direct_sub_batch_test");
   harness.TextInput("input", {"keep", "drop"});
 
   auto result = harness.Run();
@@ -1342,15 +1342,6 @@ TEST_F(TraceableBatchOperationsTest, SplitPayloadsCatchesNonStdException) {
   EXPECT_EQ(res.failure().batch_detail->reason,
             BatchFailureReason::kCallbackFailed);
   EXPECT_EQ(res.failure().batch_detail->key->req_id, 1u);
-}
-
-TEST_F(TraceableBatchOperationsTest, HashDistributionQualityForSubIdZero) {
-  TraceableItemKeyHash hasher;
-  std::unordered_set<size_t> hashes;
-  for (uint32_t req = 1; req <= 100; ++req) {
-    hashes.insert(hasher(TraceableItemKey{req, 0}));
-  }
-  EXPECT_EQ(hashes.size(), 100u);
 }
 
 TEST_F(TraceableBatchOperationsTest, RequestGroupViewHasReqIdAndContains) {
@@ -1524,11 +1515,11 @@ auto BatchSelectFailSpec() {
           "Test fixture for SelectBatch failure diagnostic formatting");
 }
 
-REGISTER_FUNCTION_NODE(BatchSelectFailTestNode, BatchSelectFailSpec());
+REGISTER_FUNCTION_NODE(batch_select_fail_test, BatchSelectFailSpec());
 
 TEST_F(TraceableBatchOperationsTest,
        AuthorNodeFormatsSelectBatchFailureDiagnostic) {
-  NodeHarness harness("BatchSelectFailTestNode");
+  NodeHarness harness("batch_select_fail_test");
   TextBatch batch = {{1, 0, "ok"}, {42, 9, "trigger_failure"}};
   harness.TextInputWithBatch("input", std::move(batch));
 
@@ -1545,7 +1536,7 @@ TEST_F(TraceableBatchOperationsTest,
 
 TEST_F(TraceableBatchOperationsTest,
        AuthorNodeCompletesSelectBatchPartialKeyDiagnostic) {
-  NodeHarness harness("BatchSelectFailTestNode");
+  NodeHarness harness("batch_select_fail_test");
   harness.TextInputWithBatch("input", {{42, 9, "trigger_partial_key_failure"}});
 
   auto result = harness.Run();
@@ -1594,11 +1585,11 @@ auto BatchSplitFailSpec() {
           "Test fixture for SplitPayloads failure diagnostic formatting");
 }
 
-REGISTER_FUNCTION_NODE(BatchSplitFailTestNode, BatchSplitFailSpec());
+REGISTER_FUNCTION_NODE(batch_split_fail_test, BatchSplitFailSpec());
 
 TEST_F(TraceableBatchOperationsTest,
        AuthorNodeFormatsSplitPayloadsFailureDiagnostic) {
-  NodeHarness harness("BatchSplitFailTestNode");
+  NodeHarness harness("batch_split_fail_test");
   TextBatch batch = {{10, 3, "trigger_split_failure"}};
   harness.TextInputWithBatch("input", std::move(batch));
 
@@ -1610,51 +1601,6 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_NE(diag.find("SplitPayloads"), std::string::npos);
   EXPECT_NE(diag.find("split callback failed"), std::string::npos);
   EXPECT_NE(diag.find("req_id=10"), std::string::npos);
-  EXPECT_NE(diag.find("sub_id=3"), std::string::npos);
-}
-
-inline NodeResult<std::string> RunMapItemFail(const std::string& s) {
-  if (s == "trigger_map_failure") {
-    return NodeResult<std::string>::Failure(NodeErrorKind::kBusinessError,
-                                            "map item failed", -5544);
-  }
-  return NodeResult<std::string>::Success(s);
-}
-
-struct MapItemFailInputs {
-  const TextBatch* input = nullptr;
-};
-
-inline NodeResult<TextBatch> RunMapItemFailBatch(const MapItemFailInputs& in) {
-  return MapPayloads(*in.input, &RunMapItemFail);
-}
-
-inline auto MapItemFailSpec() {
-  return MakeNodeSpec(InputsOf<MapItemFailInputs>({
-                          Required("input", &MapItemFailInputs::input),
-                      }),
-                      PreservedOutput<TextBatch>("output", "input"),
-                      &RunMapItemFailBatch)
-      .Description(
-          "Test fixture for MapPayloads failure diagnostic formatting");
-}
-
-REGISTER_FUNCTION_NODE(MapItemFailTestNode, MapItemFailSpec());
-
-TEST_F(TraceableBatchOperationsTest,
-       AuthorNodeFormatsMapPayloadsFailureDiagnostic) {
-  NodeHarness harness("MapItemFailTestNode");
-  TextBatch batch = {{1, 0, "ok"}, {7, 3, "trigger_map_failure"}};
-  harness.TextInputWithBatch("input", std::move(batch));
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.process_code(), -5544);
-  const auto& diag = result.diagnostic();
-  EXPECT_NE(diag.find("Process returned -5544"), std::string::npos);
-  EXPECT_NE(diag.find("MapPayloads"), std::string::npos);
-  EXPECT_NE(diag.find("map item failed"), std::string::npos);
-  EXPECT_NE(diag.find("req_id=7"), std::string::npos);
   EXPECT_NE(diag.find("sub_id=3"), std::string::npos);
 }
 

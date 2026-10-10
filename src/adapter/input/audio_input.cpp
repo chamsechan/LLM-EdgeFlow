@@ -4,29 +4,31 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
+#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
 
+constexpr auto kAudio = MakeBlackboardKey<AudioPcmBatch>("audio");
+
 constexpr const char* kInputSlot = "audio_in";
 
 AdapterStatus DecodeAudio(const CompanyOperatorAudioInput& input,
                           AudioPcmPayload* audio) {
-  if (input.sample_rate < biz_input::kMinSampleRate ||
-      input.sample_rate > biz_input::kMaxSampleRate) {
+  if (input.sample_rate < input_limits::kMinSampleRate ||
+      input.sample_rate > input_limits::kMaxSampleRate) {
     return AdapterStatus::InvalidInput("sample_rate out of range",
                                        "audio_in.sample_rate");
   }
   if (input.pcm_length < 0 ||
-      input.pcm_length > biz_input::kMaxAudioPcmSamples ||
+      input.pcm_length > input_limits::kMaxAudioPcmSamples ||
       static_cast<size_t>(input.pcm_length) >
-          biz_input::kMaxAudioPcmBytes / sizeof(float)) {
+          input_limits::kMaxAudioPcmBytes / sizeof(float)) {
     return AdapterStatus::InvalidInput("pcm_length invalid or exceeds limit",
                                        "audio_in.pcm_length");
   }
@@ -46,15 +48,16 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorAudioInput>(
-      source, options, context, status, kInputSlot, kAudioInputs, &DecodeAudio);
+      source, options, context, status, kInputSlot, kAudio, &DecodeAudio);
 }
 
 InputConverterDefinition MakeOperatorAudioInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "audio.pcm";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot)};
-  def.logical_ports = {OutputPort(kAudioInputs)};
+  def.type = kInputSlot;
+  def.name = "audio_asr_intent";
+  def.service_type = kMockServiceAudioAsrIntent;
+  def.slot = ExternalInputSlot<CompanyOperatorAudioInput>(kInputSlot);
+  def.logical_ports = {OutputPort(kAudio)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;
 }

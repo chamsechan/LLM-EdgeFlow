@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+修复命名输出布局绕过 `service_type` 审计的问题，业务成员声明与输出写入统一使用宿主类型登记。
+嵌套参数诊断按所在对象提供字段候选与约束，CLI 修复保留数组下标及转义后的映射键，
+只在对应嵌套对象中重命名字段。输出分配指南补齐输出项的 `inputs` 连线。
+
+Catalog、CLI 与 Pipeline Studio 采用统一的 I/O、模型和节点配置。模型按类别与 Backend 查询，
+Schema 从递归参数声明生成；图形编辑直接写命名端口引用，批量修改保持原子性，输出端口歧义明确报错。
+Studio、资产与效果验收工具按实际 Pipeline 目录解析文件，临时配置保留资源基准；
+Recipe 使用 snake_case 类型和单输出 Converter，拒绝丢弃已连接的结构化输出。CI、基准程序与工具回归同步更新。
+
+节点条目改为 `type`、`name`、`params` 与显式 `inputs` 引用，类型名统一为 snake_case。
+连线与回包使用 `节点名.端口名` / `input.端口名`，未引用的输出不发布；端口生命周期跟随实际输入，
+检索缓存和共享候选由计划推导。`llm_generate` 支持非空 `endpoints` 映射，提供原文/JSON 文本和
+结构化回答两种输出，任一 endpoint 失败均不发布；重排输入统一为 queries 与 ranked candidates。
+定向 Control 信封使用 `node`，脚手架和教程采用相同节点与连线格式。
+
+模型条目统一为 `type`、`name`、`file`、`params` 与 `backend: {type, params?}`，按类别和后端
+协议选择唯一实现；注册审计拒绝歧义，未被节点使用的模型报错。文件与文件参数相对 Pipeline
+JSON 目录解析，拒绝绝对路径、父目录分量和符号链接越界，预检允许尚未部署的权重。
+生成的 system prompt、随机种子与转写语言归节点调用选项，不支持的明确要求在 Create 拒绝；
+向量归一化归模型，批策略归 Backend Session。模型资源说明和清单并入 `configs/`。
+
+Pipeline 用 `io.input` / `io.output` 的 `(type, name)` 选择单载体 Converter，删除 Core 业务登记和
+IoBinding。Converter 参数只读共享，输出字符串容量的默认值归 Converter、平台仅声明硬上限；
+预检与 Create 共用准备结果和容量预算。同类型的多个载体以 `name.type` 区分，Process 在转换前
+核对模拟平台的业务值与请求 ID，并保留可选输出的行位置；多输出失败时不发布任何租约。
+
+文本节点统一使用类型化字段与字段 Control。模板变量只引用已连接的输入，更新重新编译并校验；
+规则元素声明负责默认值、约束与正则编译。结构化解析的 `fallback` 直接使用 JSON 值，
+语料源的 `corpus` 必填且可以为空数组。删除旧参数解析器和手写 Control 更新接口。
+
+参数声明支持数组、映射、结构体元素和非 null JSON 值，嵌套错误包含键名或下标。
+`Include` 平铺共享参数，`GenerateParameters()` 共用 `max_tokens=128`；模型槽的说明按能力生成。
+字段 Control 从参数声明生成 schema，允许部分替换，重建及校验失败时保留旧快照。
+
+Model 与 Backend 共用类型化参数声明，创建前各解析一次并只读共享；BGE 维度与编码长度
+可从固定张量形状读取，显式值冲突时拒绝，动态编码长度默认 512。
+
+SDK 新增有序 I/O 预检 `ResolveOperatorConfigIo`，返回宿主类型、业务、结构名及必需性；
+预检与 Create 共用配置校验且不加载模型。Demo 按输入载体组合与输出结构登记，统一分批、
+多输出展示和租约释放；Control 必须显式指定文件与命令，规则更新示例使用 `keyword_match_control` Profile。
+
+
 `src/engine/models/`、`src/engine/backends/` 下的 `.cpp` 自动编入，新增 Model/Backend 不再修改 CMakeLists。
 
 注册冲突时，`Init` 的日志和 `GetOperatorLastError()`、Pipeline 校验的 Model/Backend 诊断都列出具体原因；
@@ -9,7 +51,7 @@
 
 新增宿主结构时结构名只写一次，并补上槽位结构核对：`MakePooledOutputBinding<T>` 与 `MakeTypedInputBinding<T>`
 删除结构名参数，改从 `DECLARE_EXTERNAL_TYPE_TRAITS` 取名，未声明 trait 时编译失败（trait 模板与宏移到
-`adapter/operator_io_contracts.h`，平台类型的声明仍在 `io_converter.h`）。Init 时 IoBinding 审计新增检查：槽位声明的
+`adapter/operator_io_contracts.h`，平台类型的声明仍在 `io_converter.h`）。Init 时 Converter 审计检查：槽位声明的
 宿主结构须与其后缀登记的 ValueType 结构一致，否则报错并指明槽位；此前只检查后缀已登记，写错后缀时会按另一结构的
 布局读写内存。仓库内全部生产登记原本一致；嵌套输出测试夹具的槽位类型改为实际登记的 `NestedOutputEnvelope`。
 
@@ -57,8 +99,8 @@ LLM 入门模板与脚手架生成的 LLM 节点改为从节点配置读取 `max
 规则；固定已删除字段、命令或参数名的测试改为通用的未知字段检查或删除。元测试删除对 `ci.yml`
 文本的逐字断言和 CTest 标签检查器自身的自测。
 
-精简未使用的扩展点：批次上限只在 IoBinding 上声明，删除 Converter 的 `max_batch_size`（及
-`EffectiveMaxBatchSize`），Catalog 的 Converter 不再导出该字段；字段 Control 只保留整体替换的
+精简未使用的扩展点：批次上限由框架与池深限制，Converter 不声明 `max_batch_size`；
+字段 Control 只保留整体替换的
 `ReplaceFields`，删除 `PatchFields` 及其策略枚举；端口存活期只接受 `request` 与 `session`，删除
 未使用的 `global`；Catalog 与 `validate-io` 删除恒为 `operator` 的 `transport` 字段。
 
@@ -70,23 +112,6 @@ LLM 入门模板与脚手架生成的 LLM 节点改为从节点配置读取 `max
 remediation、`edit` 请求与响应、Pipeline Studio 接口、Demo 的 Profile 文件与结果文件、
 `dev_recipe` / `verify_selection` 报告、效果规格、资产清单和验收证据都删除该字段及对应的版本检查；
 `edit` 请求携带 `schema_version` 时按未知字段拒绝。kiteLLM 的 run config 属于第三方格式，保持不变。
-
-IoBinding 改以业务名标识：删除 `IoBindingDefinition::binding_id`，Pipeline 的 `deployment.io.io_binding`
-直接填写业务名（如 `keyword_match`），`catalog` / `init` 的 `--io-binding` 同样接受业务名。转换器 ID
-去掉 `.operator.v1` 后缀（如 `text.plain`）。Catalog 的 `io_bindings` 与 `validate-io` 不再输出
-`binding_id`。全部 Pipeline 配置与 Demo 夹具已同步更新。
-
-每个业务只注册一个 IoBinding：同一 `biz_name` 的第二个 binding 在注册时被拒绝并记为注册冲突
-（SDK 初始化返回 -6），删除同业务多 binding 的外部契约比对与部署诊断 `BIZ_IO_CONTRACT_MISMATCH`。
-发布后外部契约不兼容的变化原地修改并随新 SDK 版本发布，新旧契约须并存时新增业务，不再新增带版本的 binding。
-
-转换器回调去掉 `InputPortBindings` / `OutputPortBindings` 参数：`DecodeInputFn` / `EncodeOutputFn`、
-`DecodeRequestRows`、`EncodeResultRows` 与 `ReadOutputValue` 直接使用端口常量读写 `AlgContext`。
-写入未声明端口不再被静默发布到空键名。
-
-删除 IoBinding 的端口改名映射（`input_ports` / `output_ports`、`BindIoPort`、`EffectivePortMapping`）：
-转换器逻辑端口名即业务 Blackboard Key，注册审计直接按端口名核对业务出入口与类型；Catalog 与
-`validate-io` 不再输出 `*_port_mapping`。业务接入指南补充端口命名约定。Pipeline JSON 不变。
 
 对话合规审核的输出 Converter 直接使用业务出口键 `matched_policy`，删除只为改名存在的
 `kMatchedPolicies`（`matched_policies`）及其 Binding 端口映射；Pipeline 配置与外部契约不变。

@@ -22,7 +22,7 @@
 | `InputConverterDefinition::decode_fn` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值发布至 `AlgContext` |
 | Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
 | `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应并写入已租用输出池 |
-| `IoBinding` | 选择输入/输出转换器并关联业务契约；转换器端口名即 Pipeline Blackboard Key |
+| Pipeline 根 `io` | 按方向与 `(type, name)` 选择转换器，所选 typed 端口组成 Core 明确边界 |
 
 Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
 字段改名、响应组装或默认成功结果。宿主程序直接调用 Operator SDK 就应获得约定响应。
@@ -36,29 +36,29 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 已知类型名称时可以直接查询，输出复用当前构建的 Catalog：
 
 ```bash
-./build/alg_pipeline_tool describe-node TextRuleMatchNode
+./build/alg_pipeline_tool describe-node text_rule_match
 ./build/alg_pipeline_tool describe-model qwen_causal_lm
 ./build/alg_pipeline_tool describe-backend llama_cpp
 ```
 
 | 需求 | 修改范围与下一步 |
 | --- | --- |
-| 外部业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有转换器、绑定和 Demo |
+| 外部业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有转换器和 Demo |
 | 外部业务契约不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
-| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 为新契约登记 `BizDefinition` 与 `IoBinding`；分别复用符合输入、输出语义的转换器，只新增缺失的一侧；已有载体与 ValueType 继续复用 |
+| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 为新契约选择或登记 `(type, name)` 转换器；分别复用符合输入、输出语义的转换器，只新增缺失的一侧；已有载体与 ValueType 继续复用 |
 | 修复已有业务的转换逻辑 | 修改对应输入/输出转换器并运行相关契约测试；仅影响该路径时，无需另建 Demo |
 
 这些路径可以组合：新契约可以继续编排已有 Nodes，也可以只补充一个缺失算法。
 输入和输出分别判断是否需要新转换器；仅改变输出时，输入转换器通常可以原样复用。
 已有宿主载体、ValueType 和 Demo 运行代码能表达完整请求、响应及数据集格式时优先复用；
-需要通过统一 Demo 运行的新绑定还需匹配的 Demo 注册。Profile 只在需要保存运行预设时添加。
+需要通过统一 Demo 运行的新载体组合还需匹配的 Demo 注册。Profile 只在需要保存运行预设时添加。
 
 “结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
 
-当前共享 SDK 的 Operator 初始化会全量审计**所有已注册的绑定**：转换器、端口、
-业务契约和批次上限必须完整一致，任何一个绑定不合格，SDK 全局初始化都会失败。
-业务能否部署取决于是否注册了绑定；配置引用不存在的绑定时，部署准备报 `UNKNOWN_IO_BINDING`。
+Operator 初始化会审计**全部已注册的转换器**，包括未被当前方案选中的登记。
+槽后缀与平台类型、业务成员、回调、typed 端口和参数声明必须一致；任一登记不合格，Init 返回 -6。
+配置按 `(type, name)` 精确查找，未登记时报 `UNKNOWN_CONVERTER`，没有默认回退。
 
 ## 2. 用一个现有业务看清文件关系
 
@@ -66,8 +66,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 先确认实际注册，再运行一次完整路径：
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding keyword_match
-./build/alg_pipeline_tool describe-node TextRuleMatchNode
+./build/alg_pipeline_tool catalog
+./build/alg_pipeline_tool describe-node text_rule_match
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
 ./build/alg_demo --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
@@ -83,29 +83,27 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | 环节 | 样例文件 | 需要补齐时落实的内容 |
 | --- | --- | --- |
 | 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
-| 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[中性结果类型](../../include/core/common_contracts.h) | ingress/egress typed key 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
+| 内部数据边界 | [计划中的端口](../../include/core/validated_node_plan.h)、[中性结果类型](../../include/core/common_contracts.h) | converter 逻辑端口及 `节点名.端口名` 引用 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
-| 业务契约与绑定 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明 `BizDefinition` 与转换器组合；默认批次上限为 64，用 `REGISTER_IO_BINDING` 注册 |
 | Operator 类型注册（仅新平台宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新平台宿主类型在此登记一项，与平台结构、type traits 一一对应；已有类型的新嵌套布局用自己文件中的命名方案，见[实现与注册](operator_output_allocation.md#实现与注册) |
-| Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
+| Demo 载体与展示 | [keyword_input.cpp](../../demo/input/keyword_input.cpp)、[keyword_output.cpp](../../demo/output/keyword_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
-配置作者只在 `io_binding` 填写业务名（`keyword_match`）。它选择该业务唯一的绑定，
-从而关联业务边界和输入/输出转换器；Demo 从配置自动选择运行入口。Operator 槽位后缀
-（`keyword_in` / `keyword_out`）属于宿主调用契约，由绑定关联到已注册宿主类型。
+配置作者在根 `io.input` / `io.output` 填写所选载体 `type` 和业务 `name`。
+关键词例子分别为 `keyword_in/keyword_match` 与 `keyword_out/keyword_match`。
+Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应构造和展示代码。
 
-## 3. 实现并注册转换器与绑定
+## 3. 实现并注册转换器
 
-先选择可复用的输入、输出转换器，并在绑定中组合；只有缺少兼容转换器时才实现对应步骤。
+先选择可复用的输入、输出转换器，并在配置中组合；只有缺少兼容转换器时才实现对应步骤。
 参照关键词或实体抽取的实现，按需要完成：
 
 1. **实现输入转换器（`src/adapter/input/`）。**
    单槽且每请求生成一个载荷时，先写普通函数
    `AdapterStatus Decode(const Host& input, Payload* output)`，只校验业务字段并复制为自持有值。
    `DecodeInputFn` 内调用 `DecodeRequestRows<Host>`，传入槽、typed 端口与该函数；
-   框架负责槽检查、批次上限、循环、批内来源编号和绑定发布。绑定批次上限默认 64，
-   由 Operator 通过 `InputDecodeOptions` 传入，转换器不必另行声明。
+   框架负责槽检查、循环、批内来源编号和发布。批次上限统一由 Operator 检查，为有效池深与 64 的较小值。
    文本可用 `IsValidInputString` / `CopyInputString`，PCM 的范围检查和复制仍属于业务函数。
    多槽、候选展开等算法继续使用 `ValidateDecodeRequest` / `ReadInputSlot<T>` 显式组织。
    请求编号由框架保存和恢复，内部批次使用批内编号。自己组织多槽解码或多路结果的转换器，
@@ -123,77 +121,17 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    所有写入使用实际输出池容量，不在转换器内另填容量默认值；业务状态和 JSON 组装仍由函数负责。
    定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
-3. **声明业务契约并注册绑定（`src/adapter/biz/`）。**
-   新 `biz_name` 先定义 `BizDefinition`，声明业务名称及完整 ingress/egress typed 端口，
-   业务词根与各标识符的命名见[源码布局与命名](source_layout.md#标识符与定义)；
-   调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
-   在 `IoBindingDefinition` 中指定 `biz_name`、`input_converter_id`、`output_converter_id`，
-   使用 `REGISTER_IO_BINDING` 注册；每个业务只注册一个绑定，Pipeline 以业务名选择它。
-   转换器的逻辑端口名就是 Blackboard Key，绑定不做改名；命名遵循本节后文的端口命名约定。
-   批次上限只在 Binding 上声明，默认为框架标准值 64，只有实测确需更小值时才覆盖 `max_batch_size`；
-   转换器不声明上限。Operator 再按实际输出池深收紧；上限为 0 时，注册审计和部署准备都会报错。
+3. **声明选择、参数与逻辑端口。**
+   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主结构槽，`slot.type_suffix == type`。
+   `name` 是平台业务值的中性对应，`common` 表示该载体的默认处理。平台结构带业务成员时，
+   非 common 登记显式声明 `service_type`；common 和无该成员的结构不声明该值。
+   逻辑端口是内部 typed Blackboard key，接入准备将所选端口组合为 Core 必传边界。
+   每个输入发布不同端口；至少一个所选输入结构带请求 ID，多个都带时逐行一致。
+   声明参数用普通 `Params` 与 `Parameters<Params>`，每个字段有默认值或 Required；
+   无默认的 optional 可省略。Create 校验、赋值、Prepare、Validate 一次，Process 只读共享值。
+   输出的每个字符串字段使用 `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
+   新载体的请求 ID 和业务成员在 ValueType 中用成员指针显式登记，不根据类型名猜测布局。
 
-行函数返回的错误只需携带业务原因与字段路径，包装补充 converter 和样本位置。
-输入行全部通过后才开始发布；输出 writer、宿主指针和池内字符串均只在同步调用期间借用，不能保存。
-输出中途失败时 `written_count=0`；已写入的输出块不会发布，由 Operator 统一回收。
-转换器字符串按显式长度处理，包括内部值和输出中的内嵌 NUL，不通过 `c_str()` 丢失长度。
-Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL；JSON 文本中的
-`\u0000` 转义仍可在解包后成为内部字符串的一部分。
-
-共享端口用 `MakeBlackboardKey<T>(name)` 在 `adapter/biz_blackboard_keys.h` 定义一次；转换器
-Definition 使用 `RequiredInputPort(port)` / `OutputPort(port)`，回调直接用同一端口常量读写
-`AlgContext`。转换器端口名就是业务出入口的 Blackboard Key，绑定不做改名。端口命名约定：
-
-- 同一业务内同名即同一份数据、同一类型；复用已定义的常量，不重复手写字符串。
-- 可被多个业务复用的转换器使用中性、按角色命名的端口（如 `input_sentences`、`llm_answers`），
-  不使用业务专属名称；其他业务复用它时沿用这些名字。
-- 输入侧与输出侧的端口不重名；只有输出转换器有意回传请求数据时才读取入口键。
-- 业务专属转换器直接使用业务键名，例如审核输入的 `user_texts`、`channel_names`。
-
-外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
-`ExternalOutputSlot<T>(slot)`，类型由 traits 推导。
-输出容量字段由已注册 ValueType 的字符串容量字段决定，不在槽位上声明。
-槽名、类型后缀和外部 key 后缀不全相同、可选槽或特殊布局时，使用完整的 `ExternalSlotDefinition`，
-各字段含义和示例见[选择参数](operator_output_allocation.md#选择参数)。
-
-实现参考直接来自参与编译和测试的现有业务；公共辅助函数按适用范围使用，业务含义留在转换器中：
-
-| 数据形态 | 输入 / 输出实现 | 保留的业务职责 |
-| --- | --- | --- |
-| 纯文本、结构化结果 | [实体输入](../../src/adapter/input/text_input.cpp) / [实体输出](../../src/adapter/output/structured_document_output.cpp) | 结构化结果成功条件 |
-| 规则匹配 | [关键词输入](../../src/adapter/input/text_input.cpp) / [关键词输出](../../src/adapter/output/keyword_result_output.cpp) | 命中与业务状态 |
-| 完整 JSON 请求响应 | [翻译输入](../../src/adapter/input/translate_json_input.cpp) / [翻译输出](../../src/adapter/output/translation_json_output.cpp) | JSON 字段与响应协议 |
-| 可选字段、三路结果 | [文档输入](../../src/adapter/input/doc_query_input.cpp) / [文档输出](../../src/adapter/output/doc_answer_output.cpp) | 文档缺省、回答/意图/片段数关联 |
-| 风险判定、排名首项 | [审核输入](../../src/adapter/input/audit_input.cpp) / [审核输出](../../src/adapter/output/audit_result_output.cpp) | 风险分数/枚举与排名校验 |
-| 音频、两路结果 | [音频输入](../../src/adapter/input/audio_input.cpp) / [音频输出](../../src/adapter/output/audio_result_output.cpp) | PCM 与采样率、转写/意图组合 |
-| 多个外部槽 | [图像问题输入](../../src/adapter/input/image_query_input.cpp) / [票据输出](../../src/adapter/output/invoice_result_output.cpp) | frame 的请求 ID、票据与 OCR boxes |
-| 候选展开与排名 | [重排输入](../../src/adapter/input/rerank_input.cpp) / [重排输出](../../src/adapter/output/rerank_result_output.cpp) | sub_id、排名和原始索引恢复 |
-
-### 整批失败与单条结果
-
-致命错误使整批不发布新输出：输入转换失败、任一 Node 返回非零、输出转换器拒绝结果或容量不足时，
-本批已租用的输出全部归还，宿主按阶段收到公开返回码，见
-[宿主调用与生命周期](operator_output_allocation.md#宿主调用与生命周期)。框架不提供部分成功通道。
-
-单条结果是否"无效但仍可返回"由各业务的输出契约决定。Node 可以按自身契约产出逐项状态，例如
-`StructuredJsonParseNode` 的 `is_valid`、`parse_status`、`diagnostic`，以及
-`emit_diagnostic` / `configured_fallback` 策略下不触发节点失败的坏项；输出转换器决定接受这些项、
-用 `status_code` 表达，还是拒绝整批。`status_code` 是宿主结构中的业务状态，不恒为 0。
-新契约在转换器中写明这三项含义，并在契约测试中覆盖。现有业务的约定：
-
-| 业务（输出转换器） | `status_code` | 单条结果不满足契约时 |
-| --- | --- | --- |
-| `keyword_match`（`keyword.result`） | 复制规则结果的 `status_code`；`TextRuleMatchNode` 写 0 | 未命中是正常结果（`is_hit=0`），没有无效项 |
-| `audio_asr_intent`（`audio_result.plain`） | 复制意图结果的 `status_code` | 缺少转写或意图结果时整批失败 |
-| `doc_qa`（`doc_answer.plain`） | 复制意图结果的 `status_code` | 缺少回答、意图或片段数时整批失败 |
-| `entity_extract`（`document.structured`） | 0 | 解析失败或使用 fallback 的文档使整批失败 |
-| `ocr_invoice_qa`（`invoice_result.plain`） | 0 | 同上 |
-| `dialogue_audit`（`audit_result.plain`） | 0 | 判定解析失败或使用 fallback、首要策略排名不为 1、`risk_level` 不在 `SAFE`/`LOW_RISK`/`MEDIUM_RISK`/`HIGH_RISK`，或 `risk_score` 不在 [0, 1] 时整批失败 |
-| `cross_rerank`（`rerank_result.plain`） | 0 | 排名不连续、超过 8 项或候选编号越界时整批失败；无候选时 `count=0` |
-| `translate`（`translate.json`） | 0 | 译文无法序列化为 JSON（如非法 UTF-8）时整批失败 |
-
-需要让某个业务在单条无效时仍返回其他请求的结果，应先设计该业务的外部表达
-（例如非零 `status_code` 与诊断字段）和测试，再修改对应转换器；不要在框架中跳过失败项。
 
 ## 4. 需要新的宿主类型时
 
@@ -204,28 +142,31 @@ Definition 使用 `RequiredInputPort(port)` / `OutputPort(port)`，回调直接�
 
 ## 5. 统一 Demo 接入
 
-已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
-新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
-Pipeline 只选择 `io_binding`，Demo 调用 `ResolveOperatorConfigBiz` 解析业务身份并选择 runner。
-Profile 不填写业务名。每个业务只注册一个 binding，业务名唯一确定外部协议、载体及槽位。Demo 按该契约准备载体，
-不能仅因宿主类型相同就复用另一业务契约；外部协议不同的输入或输出属于另一个业务。
-这里的数据转换仅指载体构造和结果展示，外部协议的解包、
-字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
-新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：
+Demo 调用 SDK 的 `ResolveOperatorConfigIo` 做只读预检，取得有序的输入、输出载体条目；
+请求构造按输入结构名组合分派，结果展示按输出结构名分派。同一宿主结构承载不同业务时共用 Demo，
+例如实体抽取与翻译都使用实体输入、输出结构。业务字段校验、选择和完整响应组装仍由 SDK 的转换器负责；
+Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内部端口。
 
-1. 已有运行函数可用时复用；需要新载体构造时，新建 `demo/biz/<biz>_demo.cpp`，
-   从数据集读入样本，为每条样本构造宿主输入结构，
-   保持字符串及数组在同步处理期间有效。
-2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入声明的槽位后缀；
-   在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
-   同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
-   调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
-3. 用 `REGISTER_DEMO_BIZ(biz_name, title, run_function)` 注册，名称与
-   binding 注册的内部业务名一致；`demo/biz/` 下的 `.cpp` 自动编入。无需在 `demo/main.cpp` 增加业务分支。
-4. 准备样例数据、Pipeline 和 `.conf`。先用 `--config`、`--dataset` 运行。
-   仅需保存可重复调用的预设或加入套件时，再向 `demo/profiles.json` 添加 Profile。
+1. 复用已有输入构造；需要新载体组合时，在 `demo/input/` 新建 `.cpp`，
+   实现 `BuildRequestsFn` 并用 `REGISTER_DEMO_INPUT` 登记。组合键按预检返回的输入顺序拼接
+   结构名，例如 `CompanyFrame,CompanyString`。`DemoRequestBatch.storage` 必须持有字符串、
+   数组与宿主结构，覆盖整个运行过程；请求键取自契约的 `demo.<type>`。
+2. 复用已有输出展示；新输出结构在 `demo/output/` 实现 `ShowResultFn`，
+   用 `REGISTER_DEMO_OUTPUT` 登记结构名。复制实际 `request_id`、`status_code` 和输出字段；
+   请求信息只是可选的显示辅助，缺失时应能降级。两个目录的 `.cpp` 自动编入。
+3. 公共 `RunOperatorDemo` 统一预检、创建句柄、Control、分批 Process、显示和落盘。
+   每批先把输出复制为 JSON，再归还所有输出租约。多个输出项的同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀，避免覆盖。
+   Process 成功表示调用完成，逐条状态仍需检查 `results.jsonl` 和 `summary.json`。
+4. 准备数据、Pipeline 和 `.conf`，用 `--config`、`--dataset` 运行；可重复调用的预设可加入
+   `demo/profiles.json`。`--list` 列出 Profile 与支持的载体。只修改已有载体上的业务契约时无需新增 Demo。
 
-`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时核对 Pipeline JSON 中的 `models[].model_path` 与 `deployment.io.out_mem` 输出容量。模型路径只配置在模型条目中，相对路径以宿主部署根为基准。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
+运行中修改参数必须显式提供 `--control-file` 和正整数 `--control-cmd`，也可写进 Profile；
+缺少任一项返回 3。规则更新示例为 `--profile keyword_match_control`，payload 来自
+[`keyword_match_control.json`](../../data/keyword_match_control.json)。该 Profile 不加入 smoke，独立执行验收。
+音频输入是否要求真实数据集按 Profile 的 `suite == "real"` 判断；`--suite all` 只选择 Profile 集合。
+结果记录使用 Profile 名，无 Profile 时使用配置文件名的词根；不写入业务身份。
+
+`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时核对 Pipeline JSON 中的 `models[].file` 与所选输出项 `params` 的容量。模型 `file` 和声明为文件的参数以 Pipeline JSON 所在目录为基准，拒绝绝对路径、父目录分量和符号链接越界。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
 Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读取；对应 CLI
 选项已删除。使用 `--profiles-file <path> --profile <name>` 选择自有配置。未选 Profile
@@ -233,34 +174,25 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 
 ## 6. 输出容量
 
-`Process` 的单次批次上限为有效输出池深与绑定业务批次上限的较小值；超出上限会直接失败，
-不会在门面中自动拆批。用 `alg_pipeline_tool resolve-conf <conf> --root <root> --depth <depth>` 查询
-`effective_process_batch_limit`（单次有效批次）、`effective_frame_depth`（规范化池深）和
-`max_frame_depth_limit`（池深硬上限）。池深 0 使用默认 25；池深 100 配合标准 Binding 时，
-单次有效批次仍为 64。Demo 遇到批次或池深超限时提示同一查询命令。
+Process 有效批次上限为 `min(max_frame_depth, 64)`；超过时失败，不自动拆批。
+池深 0 使用默认 25，池深硬上限为 1024。输出池数量与业务响应字节容量是不同限制。
 
-Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
-Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.out_mem` 按逻辑
-槽位覆盖 `allocator`、`params` 和容量。类型从槽位注册定义获得，不在配置中重复声明。
-必需输出省略配置时使用注册默认值；可选输出需要显式槽配置来启用。
-每份配置都显式选择 `deployment.io.io_binding`，没有输出覆盖时可省略 `out_mem`。
-单份响应超过已配置字段容量时返回 `-4`，本批已占用的输出全部回滚，不会发布。
-全部转换成功后才向调用方发布本批输出；失败不发布新输出，也不通过输出槽回填所需容量。
-需要更大容量时修改 `out_mem` 并重新创建 handle。其他门面错误码见
-[`error_codes.h`](../../include/platform_mock/error_codes.h)。
+每个输出字符串字段对应 `params.<field>_max_bytes`，最小值为 1，默认值只在转换器声明。
+平台布局只保留硬上限；框架在 Prepare 后读取生效参数，生成全部池容量并检查总载荷预算。
+例如翻译 `entity_out/translate` 自带 `entities_json_max_bytes = 8191`，不用在配置重复填写。
 
-在运行前查看生效的池规格与配置，`depth` 应与实际宿主一致：
-
-```bash
-./build/alg_pipeline_tool resolve-conf configs/pipeline_keyword_match_rules.conf --root . --depth 1
+```json
+{"type":"doc_out", "name":"doc_qa", "params":{"answer_text_max_bytes":4095}}
 ```
 
-输出中的 `output_pools` 包含各槽的类型、allocator、参数、metadata 和 capacities。
-复用已注册载体时只覆盖必要容量；特殊结构才需要自定义分配方案。预检证明配置与预算可以准备，
-无法预测任意未来模型响应的字节数。
+分配器、布局参数和 metadata 固定在槽声明中；另选布局需要另一个登记。
+业务参数只在 Create 解析；布局参数在注册审计归一化一次，所有分配共享不可变结果。
+可选输出也始终有池，宿主可以按行省略 key，其他行保持原来的索引和请求 ID。
+同方向多项复用同一种载体时，使用 `name.type` 宿主 key；唯一 type 可以保留任意非空前缀。
 
-宿主程序调用 SDK 时的槽位准备、借用输入、输出租约、销毁顺序、`Init` / `DeInit` 和错误诊断，
-见[宿主调用与生命周期](operator_output_allocation.md#宿主调用与生命周期)。
+单份响应超过实际字段容量时返回 -4；本批租约全部归还，所有输出保持未发布状态。
+需要更大容量时覆盖所选项 params 并重新创建 handle。容量以实际字节数计算，不能直接从 token 数推断。
+宿主借用输入、输出租约和销毁顺序见[宿主调用与生命周期](operator_output_allocation.md#宿主调用与生命周期)。
 
 ## 7. 最小验证
 
@@ -271,10 +203,10 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ./build/alg_pipeline_tool catalog
 ```
 
-确认 Catalog 中出现新 `biz_name`，ingress/egress 类型与定义一致；随后对**本次新增或
+确认 Catalog 中出现所选 `(type, name)`，平台槽、业务值、typed 端口与参数声明一致；随后对**本次新增或
 修改的 Pipeline** 执行 `validate`、`plan`，运行对应 Demo 并核对请求 ID、状态及业务字段。
 第 2 节的关键词命令是可运行参照，实际验证时替换为新业务、配置和数据集。
-有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#校验工具选择)
+有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#工具选择)
 构建并使用 `alg_pipeline_tool_test`。
 
 把断言加入相应现有套件：
@@ -295,12 +227,12 @@ runner 的源码归属见 [tests/RuntimeTests.cmake](../../tests/RuntimeTests.cm
 
 | 修改内容 | 构建目标 | 常用 GoogleTest 过滤器 |
 | --- | --- | --- |
-| 转换器、协议拷贝或 Operator 绑定 | `edgeflow_test_adapter_runner` | `IoBindingRegistryTest.*` / `OperatorApiTest.*` |
+| 转换器、协议拷贝或 Operator 绑定 | `edgeflow_test_adapter_runner` | `IoConverterRegistryTest.*` / `OperatorApiTest.*` |
 | Demo 结果转换或 Pipeline 集成 | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
 
 ```bash
 cmake --build build --target edgeflow_test_adapter_runner -j 4
-./build/edgeflow_test_adapter_runner --gtest_filter='IoBindingRegistryTest.*'
+./build/edgeflow_test_adapter_runner --gtest_filter='IoConverterRegistryTest.*'
 ```
 
 交付前执行 `./scripts/run_all_tests.sh`。真实模型效果与目标平台验收按

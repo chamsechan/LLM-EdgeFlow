@@ -11,11 +11,11 @@
 | 控制命令的行为断言 | 已有节点测试套件 |
 | 新平台专有结构的转换和拷贝 | Integration；普通 JSON Control 使用已有通用入口 |
 
-所有节点通过同一 Spec 声明 Control：普通字段使用 `WithControls`，复杂模板/规则使用
-`WithControl` 声明 schema 和构建下一状态的函数。框架管理解析、writer 串行更新和不可变
+所有节点通过同一 Spec 的 `WithControls` / `ReplaceFields` 声明受控参数，payload schema
+由字段声明生成；模板和规则的派生状态在 `Prepare` 中重建。框架管理解析、writer 串行更新和不可变
 快照；业务函数每次接收一份一致的参数，不需要覆写生命周期。完整生产例子见
-[TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 与
-[TextRuleMatchNode](../../src/common_nodes/text_rule_match_node.cpp)。
+[text_template](../../src/common_nodes/text_template_node.cpp) 与
+[text_rule_match](../../src/common_nodes/text_rule_match_node.cpp)。
 
 ## 2. 生成能直接编译的例子
 
@@ -24,7 +24,7 @@
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --write-test
+./tools/scaffold_custom_node.py prefix_control --control-id 1001 --write-test
 ```
 
 `1001` 是练习选择的 ID；若已被占用，选用另一个 ID 并同步下发值。标准 ID 保留给
@@ -46,7 +46,15 @@
 | `Run(...)` | 业务处理函数，用 `MapPayloads` 逐条加前缀；接收普通数据与参数，无需接触锁或平台结构 |
 | `WithControls(...)` | 将受控命令挂载到 Spec，框架自动管理不可变快照与并发更新事务 |
 
-`WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架复用 `Parameters` 已绑定的字段类型、默认值和业务校验规则自动生成 Control payload schema。初始配置写在节点的 `config`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；Control 下发新值时通过相同校验规则验证，并通过不可变快照原子发布。非法初始配置会在预检拒绝，直接 Init 也返回具体原因。
+`WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架由 `Parameters`
+中受控字段的类型、范围、枚举及元素声明生成 payload schema。payload 必须是对象，至少提供
+一个受控字段，只允许命令列出的字段；省略的字段保持旧值。数组和映射整体替换，不逐项合并。
+通过 `Include` 并入的生成字段也可受控，例如 `max_tokens`、`stop_words`。
+
+初始配置写在节点的 `params`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；
+Control 下发新值后重跑 `Prepare` / `Validate`，校验成功才发布新快照，失败保持旧快照。
+非法初始配置会在预检拒绝，直接 Init 也返回具体原因。受控字段可以是任意支持的参数类型，
+`bind_model` 不能通过 Control 替换。
 
 框架采用 `ConfigurationSnapshot` 管理节点状态：更新在独立的 writer 锁内构建候选、校验成功后原子发布；正在执行的 Process 读取单次快照处理整批请求，互不干扰；更新失败保留旧配置。开发者只需关注普通参数绑定与业务逻辑，不需要手写互斥锁、JSON 解析或快照轮询。
 
@@ -56,10 +64,11 @@
 
 ```bash
 cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
-./build/alg_pipeline_tool describe-node PrefixControlNode
+./build/alg_pipeline_tool describe-node prefix_control
 ```
 
-输出应包含 `cmd_id: 1001`、`name: set_prefix` 和必填字符串 `prefix`。生产 Catalog
+输出应包含 `cmd_id: 1001`、`name: set_prefix`、字符串参数 `prefix` 和至少一个受控字段的
+约束；这个命令只控制 `prefix`，因此下发时必须提供它。生产 Catalog
 只在你生成源码并重新构建后才增加节点；模板本身不作为内置能力交付。
 
 ## 5. 通过已有 Demo 下发
@@ -74,27 +83,27 @@ mkdir -p build/control_tutorial
 
 ```json
 {
-  "deployment": {"io": {"io_binding": "keyword_match"}},
+  "io": {"input": [{"type":"keyword_in","name":"keyword_match"}],
+         "output": [{"type":"keyword_out","name":"keyword_match",
+                     "inputs":{"matches":"matcher.matches"}}]},
   "models": [],
   "pipeline": [
     {
-      "id": "prefix",
-      "node_type": "PrefixControlNode",
-      "inputs": {"input": "input_sentences"},
-      "outputs": {"output": "prefixed"}
+      "type": "prefix_control",
+      "name": "prefix",
+      "inputs": {"input": "input.sentence_text"}
     },
     {
-      "id": "matcher",
-      "node_type": "TextRuleMatchNode",
-      "inputs": {"text": "prefixed"},
-      "outputs": {"matches": "rule_matches"},
-      "config": {"categories": {"PREFIX_APPLIED": ["VIP:sample"]}}
+      "type": "text_rule_match",
+      "name": "matcher",
+      "params": {"categories": {"PREFIX_APPLIED": ["VIP:sample"]}},
+      "inputs": {"text": "prefix.output"}
     }
   ]
 }
 ```
 
-`matcher` 读取 `prefix` 产生的 `prefixed`，Validator 据此推导依赖，无需再写 `depends_on`。
+`matcher` 通过 `prefix.output` 读取前缀节点的输出，Validator 据此推导依赖，无需再写 `depends_on`。
 
 同目录保存 `pipeline.conf`：
 
@@ -103,7 +112,7 @@ mkdir -p build/control_tutorial
 ```
 
 `pipe_path` 相对 `pipeline.conf` 所在目录解析；输入输出绑定和容量统一声明在
-Pipeline 的 `deployment.io` 中。Demo 与直接调用 Operator 使用同一套部署解析规则。
+Pipeline 的根 `io` 中，输出项的 `inputs` 指定回包来源。Demo 与直接调用 Operator 使用同一套解析规则。
 
 `input.txt` 保存一行 `sample`；`control.json` 保存：
 
@@ -135,26 +144,27 @@ int ret = ops.Control(handle, ControlCommand::kJson, &param);
 ```
 
 `kJson` 选择唯一参数结构；节点命令 ID 位于 `param.cmd_id`。payload 必须是非空字符串，
-解析结果为 JSON object；空对象 `{}` 是否有效由目标命令的 schema 决定。UTF-8 字节数
-小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
+解析结果为 JSON object，`ReplaceFields` 拒绝空对象 `{}`，按受控字段的声明校验。
+UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
 
-Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
-必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
-更新；显式 `--example-control` 才启用，且显式文件优先。
+Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先。
+命令与 `control_file` 必须成对，缺少任一项返回 3；未配置时不发送 Control。
+规则更新示例使用 `./build/alg_demo --profile keyword_match_control`，或显式传入
+`--control-cmd 1 --control-file data/keyword_match_control.json`。
 
 同一 handle 的 Operator 调用串行；多个线程提交不保证顺序。内部直接调用 Pipeline 时，
 由调用者将 `Execute` 与 `Control` 串行化。Spec 的 `AuthorNode` 内部会串行构建和发布
 配置快照，但这不扩展底层 `INode`、模型或共享资源的并发契约。裸 payload 广播到所有
-声明支持该命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `id: prefix`：
+声明支持该命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `name: prefix`：
 
 ```json
-{"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"VIP:"}}
+{"$edgeflow_control":1,"node":"prefix","payload":{"prefix":"VIP:"}}
 ```
 
 把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json_param_str` 的 JSON
 字符串；`cmd_id` 仍放在原参数中。`$edgeflow_control` 是保留标记；信封必须且只能含上述
-三个字段，版本必须为整数 `1`，`node_id` 为非空的 Pipeline 实例 ID，`payload` 为对象。
-Node 只收到内部 `payload`，无需编写路由代码。未知 ID、该实例不支持命令或 schema
+三个字段，版本必须为整数 `1`，`node` 为非空的 Pipeline 节点名，`payload` 为对象。
+Node 只收到内部 `payload`，无需编写路由代码。未知节点名、该实例不支持命令或 schema
 校验失败会在调用 Node 前拒绝。
 
 广播仍是尽力更新：任一节点语义失败可能已让其他节点生效；多次 Control 也不组成事务。

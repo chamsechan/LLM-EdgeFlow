@@ -3,6 +3,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -25,10 +26,11 @@ struct NodeFixturePlans {
 inline bool InitNodeForTest(
     INode& node, const nlohmann::json& config, SessionContext* session_ctx,
     std::string* diagnostic = nullptr,
-    const std::unordered_set<std::string>& omitted = {}) {
+    const std::unordered_set<std::string>& omitted = {},
+    const std::unordered_map<std::string, std::string>& input_lifetimes = {}) {
   if (!session_ctx) return false;
-  auto plan =
-      PrepareNodePlanForTest(node.Name(), config, omitted, "", "", diagnostic);
+  auto plan = PrepareNodePlanForTest(node.Name(), config, omitted, "", "",
+                                     diagnostic, input_lifetimes);
   if (!plan) return false;
   auto owner = session_ctx->GetOrCreateResource(
       SessionResourceKey<NodeFixturePlans>{"node_fixture_plans"},
@@ -42,13 +44,53 @@ inline bool InitNodeForTest(
 
 namespace test {
 
+class PromptCaptureLlmModel final : public ILlmModel {
+ public:
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = "prompt_contract";
+    return type;
+  }
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "llm";
+    return model_type;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
+  }
+  int Generate(const TextBatch& input, const GenerateOptions& options,
+               TextBatch* output,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
+    ++calls;
+    prompts = input;
+    last_options = options;
+    *output = input;
+    for (auto& item : *output)
+      item.data = response_prefix + item.data + response_suffix;
+    if (wrong_count && !output->empty()) output->pop_back();
+    if (wrong_request && !output->empty()) ++output->back().req_id;
+    if (wrong_sub_id && !output->empty()) ++output->back().sub_id;
+    return calls <= fail_first_calls ? -99 : result;
+  }
+  int fail_first_calls = 0;
+  TextBatch prompts;
+  GenerateOptions last_options;
+  int calls = 0;
+  int result = 0;
+  bool wrong_count = false;
+  bool wrong_request = false;
+  bool wrong_sub_id = false;
+  std::string response_prefix = "```text\n";
+  std::string response_suffix = "\n```";
+};
+
 class ControlledMockLlmModel final : public ILlmModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_llm";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "llm";
     return cap;
   }
@@ -86,11 +128,11 @@ class ControlledMockLlmModel final : public ILlmModel {
 
 class ControlledMockEmbeddingModel final : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_embedding";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "embedding";
     return cap;
   }
@@ -98,8 +140,7 @@ class ControlledMockEmbeddingModel final : public IEmbeddingModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& inputs, const EmbeddingOptions&,
-            EmbeddingBatch* outputs,
+  int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {
@@ -128,11 +169,11 @@ class ControlledMockEmbeddingModel final : public IEmbeddingModel {
 
 class ControlledMockRerankModel final : public IRerankModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_rerank";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "rerank";
     return cap;
   }
@@ -168,11 +209,11 @@ class ControlledMockRerankModel final : public IRerankModel {
 
 class ControlledMockOcrModel final : public IOcrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_ocr";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "ocr";
     return cap;
   }
@@ -211,11 +252,11 @@ class ControlledMockOcrModel final : public IOcrModel {
 
 class ControlledMockAsrModel final : public IAsrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_asr";
     return type;
   }
-  const std::string& Capability() const noexcept override {
+  const std::string& ModelType() const noexcept override {
     static const std::string cap = "asr";
     return cap;
   }
@@ -223,7 +264,12 @@ class ControlledMockAsrModel final : public IAsrModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+  bool SupportsLanguage(std::string_view) const noexcept override {
+    return true;
+  }
+
+  int Transcribe(const AudioPcmBatch& audio, const TranscribeOptions&,
+                 TextBatch* outputs,
                  std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {

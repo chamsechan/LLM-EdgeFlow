@@ -12,23 +12,24 @@ See [the I/O boundary](../../../../doc/dev_guide/business_onboarding.md#输入�
 
 ## Discover assets
 
-Build the tool if unavailable/stale, and rebuild after registration changes. Query the target
-biz contract and its filtered assets:
+Build the tool if unavailable/stale, and rebuild after registration changes. Query registered
+input/output converters and candidate capabilities:
 
 ```bash
-./build/alg_pipeline_tool catalog --io-binding <biz_name>
+./build/alg_pipeline_tool catalog
 ```
 
 Use the production tool for the target build. For fixtures deliberately using test-only
 Models/Backends, use `alg_pipeline_tool_test` throughout discovery, init, validate and plan.
 Do not switch to test registrations to bypass a production configuration failure; inspect
-the diagnostics and target build's Catalog. [Tool selection and commands](../../../../tools/pipeline_studio/README.md#校验工具选择).
+the diagnostics and target build's Catalog. [Tool selection and commands](../../../../tools/pipeline_studio/README.md#工具选择).
 
 Inspect the candidate nodes needed for this change; reuse descriptions already read from the
 same unchanged target build:
 
 ```bash
 ./build/alg_pipeline_tool describe-node <node_type>
+./build/alg_pipeline_tool describe-model <model_type> <backend_type>
 ```
 
 ## Create or clone a solution
@@ -38,30 +39,31 @@ For an existing solution, edit the requested files instead of initializing anoth
 Reuse registered nodes; cloning a Pipeline does not retarget the source Profile.
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name>
-./build/alg_pipeline_tool init --io-binding <biz_name> --empty
+./build/alg_pipeline_tool init --profile <profile_name>
+./build/alg_pipeline_tool init --input <input_type>/<input_name> --output <output_type>/<output_name>
 ```
 
-`init` normally returns a versioned response containing `pipeline`. To save a
+`init` normally returns a response containing `ok` and `pipeline`. To save a
 runtime document directly, use `--raw` and a new destination (do not overwrite
 an existing solution):
 
 ```bash
-./build/alg_pipeline_tool init --io-binding <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
+./build/alg_pipeline_tool init --profile <profile_name> --raw > <new_pipeline.json>
 ```
 
 Check the command's exit status before using the file, then validate the saved
-document. An empty draft needs nodes and bindings before it can validate.
+document. Input/output options may repeat. An explicit I/O draft contains converter `type` / `name`
+entries and empty `models` / `pipeline` arrays; add the nodes and bindings before validation.
 
 ## Validate changed inputs
 
-Every node declares a non-empty `id` and explicitly maps required `inputs`; `outputs` names
-its produced data. The Validator derives data dependencies; optional `depends_on` adds only
+Every node declares a non-empty `name` and explicitly connects required `inputs` to
+`node.port` or `input.port`; output converter `inputs` select response sources. The Validator derives data dependencies; optional `depends_on` adds only
 extra ordering constraints. Model references are explicit, while capability comes from the
 registered model type. `max_parallel_workers` defaults to 1. Validate after a
 coherent change and before execution; an unchanged already-validated document with unchanged
 registrations need not be revalidated between unrelated commands. Use diagnostic `code`, JSON
-`path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not
+`path`, `node_name`, `port`, `related_nodes`, and `suggestions` to repair the document; do not
 reproduce Validator rules in scripts or prompts. The final delivery gate remains required.
 
 ```bash
@@ -69,18 +71,19 @@ reproduce Validator rules in scripts or prompts. The final delivery gate remains
 ./build/alg_pipeline_tool plan <pipeline.json>
 ```
 
+For file input, model files resolve relative to the Pipeline JSON's parent directory.
+`--stdin` supplies no directory for resolving relative model files.
+
 ## Run the intended configuration
 
 After validation, run the edited Pipeline through a compatible Demo. Follow
 [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案): confirm
-`.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `deployment.io` (io_binding
-and out_mem) and `models[].model_path`, and select a matching dataset; Demo derives its runner from the configuration. Use
+`.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `io.input` / `io.output` (type, name and params) and `models[].file`, and select a matching dataset; Demo derives its runner from the configuration. Use
 `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
 to inspect the native resolved paths, their sources and normalized defaults; it does not load
-weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its asset
-directory is explicit (`models` normally, `.` for project-relative fixtures). Asset manifest paths
-are relative to that directory; the Pipeline stores model paths relative to the host's deployment
-root in `models[].model_path`. For example:
+weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”. Asset paths in the manifest, model weights and declared file parameters share the Pipeline directory
+(`configs` normally); model `file` and declared file parameters resolve relative to the Pipeline
+JSON's directory. For example:
 
 ```bash
 ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --output-dir <run_output_dir>
@@ -91,9 +94,10 @@ original Profile alone only when its configuration already points to the intende
 Execution settings `chip`, `device_id`, `batch_size`, and `depth` come only from Profile JSON;
 there are no corresponding CLI options. Without a Profile, Demo uses CPU, device 0, batch 1,
 and depth 1. Use `--profiles-file <path> --profile <name>` to select different execution settings.
-Demo uses the selected Pipeline defaults (by default, no example Control is sent). Use
-`--example-control` only for the built-in update demonstration, and provide a Control file
-only when it is part of the requested scenario. Verify request IDs, status and expected
+Demo uses the selected Pipeline defaults. Provide a Control file together with a positive
+`--control-cmd` only when the scenario needs a runtime update; missing either returns 3.
+The explicit rule-update example is `--profile keyword_match_control`. SDK I/O preflight selects
+request construction and result display by host carrier types. Verify request IDs, status and expected
 output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./tools/pipeline_studio/server.py --web` or `./tools/pipeline_studio/server.py <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.

@@ -4,18 +4,30 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
 
+constexpr auto kTranslation = MakeBlackboardKey<TextBatch>("translation");
+
 constexpr const char* kOutputSlot = "entity_out";
+
+struct Params {
+  int64_t entities_json_max_bytes = 0;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      MaxBytes("entities_json", &Params::entities_json_max_bytes).Default(8191),
+  });
+}
 
 AdapterStatus EncodeTranslation(const std::string& result,
                                 CompanyOperatorEntityOutput* output,
@@ -32,15 +44,17 @@ int EncodeOperatorTranslationJson(AlgContext* context,
                                   AdapterStatus* status) {
   return EncodeResultRows<CompanyOperatorEntityOutput>(
       context, options, destination, written_count, status, kOutputSlot,
-      kLlmAnswers, &EncodeTranslation);
+      kTranslation, &EncodeTranslation);
 }
 
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   OutputConverterDefinition def;
-  def.converter_id = "translate.json";
-  def.external_slots = {
-      ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot)};
-  def.logical_ports = {RequiredInputPort(kLlmAnswers)};
+  def.type = kOutputSlot;
+  def.name = "translate";
+  def.service_type = kMockServiceTranslate;
+  def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot);
+  def.logical_ports = {RequiredInputPort(kTranslation)};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorTranslationJson;
   return def;
 }

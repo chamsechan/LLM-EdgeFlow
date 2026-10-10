@@ -65,8 +65,8 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   CompanyString cs_q1{static_cast<int32_t>(q1.size()),
                       const_cast<char*>(q1.data())};
 
-  CompanyOperatorDocInput req0{30001, &cs_doc, &cs_q0};
-  CompanyOperatorDocInput req1{30002, &cs_doc, &cs_q1};
+  CompanyOperatorDocInput req0{30001, kMockServiceDocQa, &cs_doc, &cs_q0};
+  CompanyOperatorDocInput req1{30002, kMockServiceDocQa, &cs_doc, &cs_q1};
 
   operator_api::NamedIoBatch inputs(2);
   inputs[0]["rag_channel.doc_in"] =
@@ -147,8 +147,10 @@ TEST_F(AllBizPipelinesTest, DialogueAuditPipeline) {
   CompanyString cc_safe{static_cast<int32_t>(c_safe.size()),
                         const_cast<char*>(c_safe.data())};
 
-  CompanyOperatorAuditInput req_violation{40001, &cs_viol, &cc_viol};
-  CompanyOperatorAuditInput req_safe{40002, &cs_safe, &cc_safe};
+  CompanyOperatorAuditInput req_violation{40001, kMockServiceDialogueAudit,
+                                          &cs_viol, &cc_viol};
+  CompanyOperatorAuditInput req_safe{40002, kMockServiceDialogueAudit, &cs_safe,
+                                     &cc_safe};
 
   operator_api::NamedIoBatch inputs(2);
   inputs[0]["audit_channel.audit_in"] =

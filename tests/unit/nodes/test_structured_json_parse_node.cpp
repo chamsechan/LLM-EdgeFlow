@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -8,9 +9,11 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -20,8 +23,45 @@ class StructuredJsonParseNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
+TEST_F(StructuredJsonParseNodeTest, MixedDocumentsPreservePerItemParseStatus) {
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"fallback", {{"entities", nlohmann::json::array()}}},
+                        {"extract_json_block", true},
+                        {"failure_policy", "configured_fallback"}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input;
+  // 1. 直接 JSON
+  input.emplace_back(1, 0, "{\"entities\": [\"Apple\", \"Google\"]}");
+  // 2. Markdown 代码块
+  input.emplace_back(
+      2, 0,
+      "Here is the result:\n```json\n{\"entities\": [\"DeepMind\"]}\n```");
+  // 3. 未闭合的数组按配置的失败策略处理
+  input.emplace_back(3, 0, "Found entities: [\"TensorFlow\", \"PyTorch\"");
+  // 4. 无法解析的文本
+  input.emplace_back(4, 0, "No valid json here at all");
+  ctx.Publish("text", input);
+
+  EXPECT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Read<StructuredDocumentBatch>("document");
+  ASSERT_NE(out, nullptr);
+  ASSERT_EQ(out->size(), 4u);
+
+  EXPECT_EQ((*out)[0].data.parse_status, JsonParseStatus::kOk);
+  EXPECT_EQ((*out)[1].data.parse_status,
+            JsonParseStatus::kExtractedFromMarkdown);
+  EXPECT_EQ((*out)[2].data.parse_status, JsonParseStatus::kFallbackApplied);
+  EXPECT_EQ((*out)[2].data.json_payload, "{\"entities\":[]}");
+  EXPECT_EQ((*out)[3].data.parse_status, JsonParseStatus::kFallbackApplied);
+  EXPECT_EQ((*out)[3].data.json_payload, "{\"entities\":[]}");
+}
+
 TEST_F(StructuredJsonParseNodeTest, ProcessMarkdownJsonBlockExtraction) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"extract_json_block", true},
@@ -44,7 +84,7 @@ TEST_F(StructuredJsonParseNodeTest, ProcessMarkdownJsonBlockExtraction) {
 }
 
 TEST_F(StructuredJsonParseNodeTest, PreservesCompleteOuterContainers) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_TRUE(
       InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
   for (const std::string text :
@@ -74,7 +114,7 @@ TEST_F(StructuredJsonParseNodeTest, PreservesCompleteOuterContainers) {
 }
 
 TEST_F(StructuredJsonParseNodeTest, RejectsTruncationAndQuotedProse) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_TRUE(
       InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
   for (const std::string input :
@@ -94,10 +134,9 @@ TEST_F(StructuredJsonParseNodeTest,
        InvalidDocumentHonorsFallbackAndDiagnostic) {
   for (const std::string policy : {"configured_fallback", "emit_diagnostic"}) {
     SCOPED_TRACE(policy);
-    auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+    auto node = NodeRegistry::Instance().Create("structured_json_parse");
     ASSERT_TRUE(InitNodeForTest(
-        *node,
-        {{"failure_policy", policy}, {"fallback_json", R"({"fallback":true})"}},
+        *node, {{"failure_policy", policy}, {"fallback", {{"fallback", true}}}},
         session_ctx_.get()));
     for (const std::string input :
          {R"([{"x":1},{"x":2)", R"(Result: {"x":[1,2})"}) {
@@ -122,10 +161,51 @@ TEST_F(StructuredJsonParseNodeTest,
   }
 }
 
+TEST_F(StructuredJsonParseNodeTest,
+       JsonFallbackContainersPreserveCompactTextAndProvenance) {
+  const std::vector<nlohmann::json> fallbacks = {
+      {{"status", "fallback"}, {"values", {1, 2}}},
+      nlohmann::json::array({"fallback", {{"value", 7}}, false})};
+  for (const auto& fallback : fallbacks) {
+    for (const std::string policy :
+         {"configured_fallback", "emit_diagnostic"}) {
+      SCOPED_TRACE(fallback.dump() + policy);
+      auto node = NodeRegistry::Instance().Create("structured_json_parse");
+      ASSERT_TRUE(InitNodeForTest(
+          *node, {{"fallback", fallback}, {"failure_policy", policy}},
+          session_ctx_.get()));
+      AlgContext context;
+      context.Publish("text", TextBatch{{21, 3, "not JSON"},
+                                        {42, 9, R"({ "valid": true })"}});
+      ASSERT_EQ(node->Process(&context), 0);
+      const auto* documents = context.Read<StructuredDocumentBatch>("document");
+      ASSERT_NE(documents, nullptr);
+      ASSERT_EQ(documents->size(), 2u);
+      const auto& recovered = documents->at(0);
+      EXPECT_EQ(recovered.req_id, 21u);
+      EXPECT_EQ(recovered.sub_id, 3u);
+      EXPECT_EQ(recovered.data.structured_data, fallback);
+      EXPECT_EQ(recovered.data.json_payload, fallback.dump());
+      EXPECT_EQ(recovered.data.is_valid, policy == "configured_fallback");
+      EXPECT_EQ(recovered.data.parse_status,
+                policy == "configured_fallback"
+                    ? JsonParseStatus::kFallbackApplied
+                    : JsonParseStatus::kFailed);
+      EXPECT_FALSE(recovered.data.diagnostic.empty());
+      EXPECT_EQ(documents->at(1).req_id, 42u);
+      EXPECT_EQ(documents->at(1).sub_id, 9u);
+      EXPECT_TRUE(documents->at(1).data.is_valid);
+      EXPECT_EQ(documents->at(1).data.json_payload, R"({"valid":true})");
+      EXPECT_EQ(documents->at(1).data.structured_data,
+                nlohmann::json({{"valid", true}}));
+    }
+  }
+}
+
 TEST_F(StructuredJsonParseNodeTest, ExtractionModeControlsSurroundingText) {
   for (const bool extract : {true, false}) {
     SCOPED_TRACE(extract);
-    auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+    auto node = NodeRegistry::Instance().Create("structured_json_parse");
     ASSERT_TRUE(InitNodeForTest(
         *node, {{"extract_json_block", extract}, {"failure_policy", "fail"}},
         session_ctx_.get()));
@@ -152,7 +232,7 @@ TEST_F(StructuredJsonParseNodeTest, ExtractionModeControlsSurroundingText) {
 }
 
 TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -168,6 +248,10 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":0.95}");
     ctx.Publish("text", inputs);
     EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* document = ctx.Read<StructuredDocumentBatch>("document");
+    ASSERT_NE(document, nullptr);
+    ASSERT_EQ(document->size(), 1u);
+    EXPECT_TRUE(document->front().data.is_valid);
   }
 
   // 类型不匹配：risk_score 是字符串而非数字
@@ -191,7 +275,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
 }
 
 TEST_F(StructuredJsonParseNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
@@ -201,10 +285,10 @@ TEST_F(StructuredJsonParseNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"fallback_json", "{\"status\":\"FALLBACK\"}"},
+  nlohmann::json cfg = {{"fallback", {{"status", "FALLBACK"}}},
                         {"failure_policy", "configured_fallback"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
@@ -221,35 +305,60 @@ TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
 }
 
 TEST_F(StructuredJsonParseNodeTest, RejectsInvalidFieldTypeContracts) {
-  auto unknown_type =
-      NodeRegistry::Instance().Create("StructuredJsonParseNode");
-  ASSERT_NE(unknown_type, nullptr);
-  EXPECT_FALSE(InitNodeForTest(*unknown_type,
-                               {{"field_types", {{"risk", "decimal"}}}},
-                               session_ctx_.get()));
+  for (const nlohmann::json type :
+       {nlohmann::json("decimal"), nlohmann::json(7)}) {
+    SCOPED_TRACE(type.dump());
+    const nlohmann::json config = {{"field_types", {{"risk", type}}}};
+    auto node = NodeRegistry::Instance().Create("structured_json_parse");
+    ASSERT_NE(node, nullptr);
+    std::string diagnostic;
+    EXPECT_FALSE(
+        InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic));
+    EXPECT_NE(diagnostic.find("/field_types/risk"), std::string::npos)
+        << diagnostic;
+    const nlohmann::json pipeline = {
+        {"models", nlohmann::json::array()},
+        {"pipeline", nlohmann::json::array({{{"name", "parse"},
+                                             {"type", "structured_json_parse"},
+                                             {"params", config}}})}};
+    const auto report =
+        PipelineValidator::Validate(pipeline, MakeTestBoundary());
+    EXPECT_FALSE(report.ok);
+    EXPECT_TRUE(std::any_of(
+        report.diagnostics.begin(), report.diagnostics.end(),
+        [&](const auto& error) {
+          return error.path == "/pipeline/0/params/field_types/risk" &&
+                 error.code == (type.is_string()
+                                    ? DiagnosticCode::kConfigFieldEnum
+                                    : DiagnosticCode::kConfigFieldType);
+        }))
+        << report.ToJson().dump(2);
+  }
 
-  auto non_string_type =
-      NodeRegistry::Instance().Create("StructuredJsonParseNode");
-  ASSERT_NE(non_string_type, nullptr);
-  EXPECT_FALSE(InitNodeForTest(
-      *non_string_type, {{"field_types", {{"risk", 7}}}}, session_ctx_.get()));
-
-  auto invalid_fallback =
-      NodeRegistry::Instance().Create("StructuredJsonParseNode");
-  ASSERT_NE(invalid_fallback, nullptr);
-  EXPECT_FALSE(InitNodeForTest(*invalid_fallback,
-                               {{"required_fields", {"risk"}},
-                                {"field_types", {{"risk", "number"}}},
-                                {"fallback_json", R"({"risk":"not-a-number"})"},
-                                {"failure_policy", "configured_fallback"}},
-                               session_ctx_.get()));
+  for (const nlohmann::json fallback :
+       {nlohmann::json({{"risk", "not-a-number"}}), nlohmann::json::object()}) {
+    for (const std::string policy :
+         {"configured_fallback", "emit_diagnostic"}) {
+      SCOPED_TRACE(fallback.dump() + policy);
+      auto node = NodeRegistry::Instance().Create("structured_json_parse");
+      ASSERT_NE(node, nullptr);
+      std::string diagnostic;
+      EXPECT_FALSE(InitNodeForTest(*node,
+                                   {{"required_fields", {"risk"}},
+                                    {"field_types", {{"risk", "number"}}},
+                                    {"fallback", fallback},
+                                    {"failure_policy", policy}},
+                                   session_ctx_.get(), &diagnostic));
+      EXPECT_NE(diagnostic.find("risk"), std::string::npos) << diagnostic;
+    }
+  }
 }
 
 }  // namespace llm_edgeflow
 
 namespace llm_edgeflow {
 TEST_F(StructuredJsonParseNodeTest, EmptyInputHonorsDiagnosticPolicy) {
-  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_TRUE(InitNodeForTest(*node, {{"failure_policy", "emit_diagnostic"}},
                               session_ctx_.get()));
   AlgContext ctx;

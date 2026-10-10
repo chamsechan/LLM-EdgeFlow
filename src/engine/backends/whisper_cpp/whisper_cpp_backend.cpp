@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "engine/backend_registry.h"
 
 #ifdef HAVE_WHISPERCPP
@@ -32,6 +33,19 @@ std::string NormalizePlatform(std::string_view platform) {
 }
 
 #ifdef HAVE_WHISPERCPP
+struct Params {
+  int n_threads;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      Field("n_threads", &Params::n_threads)
+          .Default(4)
+          .Range(1, 64)
+          .Description("CPU 推理线程数"),
+  });
+}
+
 class WhisperCppSession final : public IAudioTranscriptionSession {
  public:
   WhisperCppSession(whisper_context* ctx, int n_threads)
@@ -199,7 +213,7 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
  private:
   std::mutex mutex_;
   whisper_context* ctx_ = nullptr;
-  int n_threads_ = 4;
+  int n_threads_;
   bool is_multilingual_ = false;
 };
 
@@ -208,14 +222,7 @@ static const BackendDefinition kWhisperCppBackendDefinition = [] {
   def.description = "whisper.cpp ASR inference backend";
   def.supported_protocols = {ExecutionProtocol::kAudioTranscription};
   def.concurrency = InferenceConcurrency::kSerialized;
-  def.config_fields = {ConfigFieldDefinition{"n_threads",
-                                             ConfigValueKind::kInteger,
-                                             false,
-                                             4,
-                                             1.0,
-                                             64.0,
-                                             {},
-                                             "CPU inference thread count"}};
+  def.params = ParamSpec();
   return def;
 }();
 
@@ -260,42 +267,15 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
       return nullptr;
     }
 
-    if (spec.backend_config.is_object()) {
-      for (auto it = spec.backend_config.begin();
-           it != spec.backend_config.end(); ++it) {
-        if (it.key() != "n_threads") {
-          SetDiagnosticNoexcept(
-              diagnostic,
-              "Unknown whisper_cpp backend config field: " + it.key());
-          return nullptr;
-        }
-      }
-    }
-
-    int n_threads = 4;
-    if (spec.backend_config.is_object() &&
-        spec.backend_config.contains("n_threads")) {
-      const auto& val = spec.backend_config["n_threads"];
-      if (!val.is_number_integer()) {
-        SetDiagnosticNoexcept(diagnostic, "n_threads must be an integer");
-        return nullptr;
-      }
-      n_threads = val.get<int>();
-      if (n_threads < 1 || n_threads > 64) {
-        SetDiagnosticNoexcept(diagnostic, "n_threads must be between 1 and 64");
-        return nullptr;
-      }
-    }
-
-    if (spec.model_path.empty()) {
-      SetDiagnosticNoexcept(diagnostic, "whisper_cpp model_path is empty");
+    if (spec.model_file.empty()) {
+      SetDiagnosticNoexcept(diagnostic, "whisper_cpp model_file is empty");
       return nullptr;
     }
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+    if (!std::filesystem::is_regular_file(spec.model_file, ec) || ec) {
       SetDiagnosticNoexcept(
           diagnostic, "whisper_cpp model file not found or not regular file: " +
-                          spec.model_path);
+                          spec.model_file);
       return nullptr;
     }
 
@@ -304,16 +284,17 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
                           "whisper_cpp backend is not enabled in this build");
     return nullptr;
 #else
+    const auto& p = spec.Params<Params>();
     auto cparams = whisper_context_default_params();
     cparams.use_gpu = false;
     cparams.flash_attn = false;
 
     whisper_context* raw_ctx = whisper_init_from_file_with_params_no_state(
-        spec.model_path.c_str(), cparams);
+        spec.model_file.c_str(), cparams);
     if (!raw_ctx) {
       SetDiagnosticNoexcept(
           diagnostic,
-          "Failed to load whisper model from file: " + spec.model_path);
+          "Failed to load whisper model from file: " + spec.model_file);
       return nullptr;
     }
 
@@ -324,7 +305,7 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
       }
     } context_guard{raw_ctx};
 
-    auto session = std::make_shared<WhisperCppSession>(raw_ctx, n_threads);
+    auto session = std::make_shared<WhisperCppSession>(raw_ctx, p.n_threads);
     context_guard.ctx = nullptr;  // 所有权已成功转移
     return session;
 #endif

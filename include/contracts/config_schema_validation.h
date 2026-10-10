@@ -23,7 +23,7 @@ enum class ConfigFieldErrorKind {
 };
 
 struct ConfigFieldValidationError {
-  std::string field_name;
+  std::string path;
   ConfigFieldErrorKind kind;
   std::string message;
 };
@@ -36,6 +36,8 @@ inline bool IsValidConfigValueKind(ConfigValueKind kind) noexcept {
     case ConfigValueKind::kBoolean:
     case ConfigValueKind::kObject:
     case ConfigValueKind::kArray:
+    case ConfigValueKind::kMap:
+    case ConfigValueKind::kJson:
       return true;
     default:
       return false;
@@ -43,6 +45,11 @@ inline bool IsValidConfigValueKind(ConfigValueKind kind) noexcept {
 }
 
 namespace detail {
+
+inline bool NormalizeConfigValue(
+    const ConfigFieldDefinition& field, const nlohmann::json& value,
+    nlohmann::json* normalized, std::vector<ConfigFieldValidationError>* errors,
+    const std::string& path);
 
 // 不含端点的整数上界可在 double 中精确表示；
 // INT64_MAX/UINT64_MAX 转为 double 时会向上舍入到这些值。
@@ -99,6 +106,10 @@ inline bool ValidateConfigFieldDefinitions(
     }
     if (!IsValidConfigValueKind(field.kind)) {
       if (error) *error = "Invalid config value kind in: " + field.name;
+      return false;
+    }
+    if (field.file && field.kind != ConfigValueKind::kString) {
+      if (error) *error = "File parameters must be strings: " + field.name;
       return false;
     }
 
@@ -192,6 +203,7 @@ inline bool ValidateConfigFieldDefinitions(
             return false;
           }
           break;
+        case ConfigValueKind::kMap:
         case ConfigValueKind::kObject:
           if (!field.default_value.is_object()) {
             if (error) {
@@ -209,6 +221,8 @@ inline bool ValidateConfigFieldDefinitions(
             }
             return false;
           }
+          break;
+        case ConfigValueKind::kJson:
           break;
         default:
           if (error) *error = "Invalid config value kind in: " + field.name;
@@ -242,147 +256,193 @@ inline bool ValidateConfigFieldDefinitions(
         return false;
       }
     }
+    if (field.items) {
+      if (field.kind != ConfigValueKind::kArray &&
+          field.kind != ConfigValueKind::kMap) {
+        if (error)
+          *error = "Items only allowed for Array or Map: " + field.name;
+        return false;
+      }
+      auto item = *field.items;
+      item.name = field.name + " item";
+      if (!ValidateConfigFieldDefinitions({item}, error)) return false;
+    }
+    if (field.fields) {
+      if (field.kind != ConfigValueKind::kObject) {
+        if (error) *error = "Fields only allowed for Object: " + field.name;
+        return false;
+      }
+      if (!ValidateConfigFieldDefinitions(*field.fields, error)) return false;
+    }
+    if (!field.default_value.is_null() && (field.items || field.fields)) {
+      nlohmann::json normalized;
+      std::vector<ConfigFieldValidationError> errors;
+      if (!detail::NormalizeConfigValue(field, field.default_value, &normalized,
+                                        &errors, "")) {
+        if (error)
+          *error = "Invalid default for " + field.name + ": " +
+                   errors.front().message;
+        return false;
+      }
+    }
   }
   return true;
 }
+
+namespace detail {
+
+inline std::string ConfigPointerToken(const std::string& value) {
+  std::string escaped;
+  for (char c : value) {
+    if (c == '~')
+      escaped += "~0";
+    else if (c == '/')
+      escaped += "~1";
+    else
+      escaped += c;
+  }
+  return escaped;
+}
+
+inline bool ConfigError(std::vector<ConfigFieldValidationError>* errors,
+                        const std::string& path, ConfigFieldErrorKind kind,
+                        std::string message) {
+  if (errors) errors->push_back({path, kind, std::move(message)});
+  return false;
+}
+
+inline bool NormalizeConfigObject(
+    const std::vector<ConfigFieldDefinition>& fields,
+    const nlohmann::json& input, nlohmann::json* normalized,
+    std::vector<ConfigFieldValidationError>* errors, const std::string& path) {
+  if (!input.is_object())
+    return ConfigError(errors, path, ConfigFieldErrorKind::kNotAnObject,
+                       "Config must be a JSON object");
+  bool ok = true;
+  auto result = nlohmann::json::object();
+  for (auto it = input.begin(); it != input.end(); ++it) {
+    const auto found =
+        std::find_if(fields.begin(), fields.end(),
+                     [&](const auto& f) { return f.name == it.key(); });
+    if (found == fields.end()) {
+      ConfigError(errors, path + "/" + ConfigPointerToken(it.key()),
+                  ConfigFieldErrorKind::kUnknownField,
+                  "Unknown config field: " + it.key());
+      ok = false;
+    }
+  }
+  for (const auto& field : fields) {
+    const auto field_path = path + "/" + ConfigPointerToken(field.name);
+    const auto entry = input.find(field.name);
+    if (entry == input.end() && field.required) {
+      ConfigError(errors, field_path, ConfigFieldErrorKind::kMissingField,
+                  "Missing required config field: " + field.name);
+      ok = false;
+      continue;
+    }
+    if (entry == input.end() && field.default_value.is_null()) continue;
+    const auto& value = entry == input.end() ? field.default_value : *entry;
+    nlohmann::json next;
+    if (!NormalizeConfigValue(field, value, &next, errors, field_path)) {
+      ok = false;
+      continue;
+    }
+    result[field.name] = std::move(next);
+  }
+  if (ok && normalized) *normalized = std::move(result);
+  return ok;
+}
+
+inline bool NormalizeConfigValue(
+    const ConfigFieldDefinition& field, const nlohmann::json& value,
+    nlohmann::json* normalized, std::vector<ConfigFieldValidationError>* errors,
+    const std::string& path) {
+  if (value.is_number() && !std::isfinite(value.get<double>()))
+    return ConfigError(errors, path, ConfigFieldErrorKind::kNonFinite,
+                       "Numeric value must be finite for field: " + field.name);
+  bool matches = false;
+  switch (field.kind) {
+    case ConfigValueKind::kString:
+      matches = value.is_string();
+      break;
+    case ConfigValueKind::kInteger:
+      matches = value.is_number_integer() || value.is_number_unsigned();
+      break;
+    case ConfigValueKind::kNumber:
+      matches = value.is_number();
+      break;
+    case ConfigValueKind::kBoolean:
+      matches = value.is_boolean();
+      break;
+    case ConfigValueKind::kMap:
+    case ConfigValueKind::kObject:
+      matches = value.is_object();
+      break;
+    case ConfigValueKind::kArray:
+      matches = value.is_array();
+      break;
+    case ConfigValueKind::kJson:
+      matches = !value.is_null();
+      break;
+  }
+  if (!matches)
+    return ConfigError(
+        errors, path, ConfigFieldErrorKind::kTypeMismatch,
+        "Expected " + std::string(ConfigValueKindName(field.kind)));
+  if (value.is_number()) {
+    if (field.minimum && IsValueBelowMinimum(value, *field.minimum))
+      return ConfigError(
+          errors, path, ConfigFieldErrorKind::kOutOfRange,
+          "Numeric value is below minimum " + std::to_string(*field.minimum));
+    if (field.maximum && IsValueAboveMaximum(value, *field.maximum))
+      return ConfigError(
+          errors, path, ConfigFieldErrorKind::kOutOfRange,
+          "Numeric value exceeds maximum " + std::to_string(*field.maximum));
+  }
+  if (!field.enum_values.empty() && value.is_string()) {
+    const auto& text = value.get_ref<const std::string&>();
+    if (std::find(field.enum_values.begin(), field.enum_values.end(), text) ==
+        field.enum_values.end())
+      return ConfigError(
+          errors, path, ConfigFieldErrorKind::kInvalidEnum,
+          "String value '" + text + "' not in allowed enum values");
+  }
+  if (field.fields)
+    return NormalizeConfigObject(*field.fields, value, normalized, errors,
+                                 path);
+  if (field.items) {
+    auto result = field.kind == ConfigValueKind::kArray
+                      ? nlohmann::json::array()
+                      : nlohmann::json::object();
+    bool ok = true;
+    for (auto it = value.begin(); it != value.end(); ++it) {
+      const auto key = value.is_array() ? std::to_string(it - value.begin())
+                                        : ConfigPointerToken(it.key());
+      nlohmann::json next;
+      if (!NormalizeConfigValue(*field.items, *it, &next, errors,
+                                path + "/" + key)) {
+        ok = false;
+        continue;
+      }
+      if (value.is_array())
+        result.push_back(std::move(next));
+      else
+        result[it.key()] = std::move(next);
+    }
+    if (ok && normalized) *normalized = std::move(result);
+    return ok;
+  }
+  if (normalized) *normalized = value;
+  return true;
+}
+
+}  // namespace detail
 
 inline bool ValidateAndNormalizeFields(
     const std::vector<ConfigFieldDefinition>& schema,
     const nlohmann::json& input, nlohmann::json* normalized,
     std::vector<ConfigFieldValidationError>* errors) {
-  if (!input.is_object()) {
-    if (errors) {
-      errors->push_back({"", ConfigFieldErrorKind::kNotAnObject,
-                         "Config must be a JSON object"});
-    }
-    return false;
-  }
-
-  bool ok = true;
-  nlohmann::json result = nlohmann::json::object();
-
-  // 1. 未知字段校验
-  for (auto it = input.begin(); it != input.end(); ++it) {
-    const std::string& key = it.key();
-    bool found = std::any_of(schema.begin(), schema.end(),
-                             [&](const auto& f) { return f.name == key; });
-    if (!found) {
-      ok = false;
-      if (errors) {
-        errors->push_back({key, ConfigFieldErrorKind::kUnknownField,
-                           "Unknown config field: " + key});
-      }
-    }
-  }
-
-  // 2. 已声明字段约束校验与默认值注入
-  for (const auto& field : schema) {
-    if (!input.contains(field.name)) {
-      if (field.required) {
-        ok = false;
-        if (errors) {
-          errors->push_back({field.name, ConfigFieldErrorKind::kMissingField,
-                             "Missing required config field: " + field.name});
-        }
-      } else if (!field.default_value.is_null()) {
-        result[field.name] = field.default_value;
-      }
-      continue;
-    }
-
-    const auto& val = input[field.name];
-
-    // 非有限数值检查
-    if (val.is_number()) {
-      double d = val.get<double>();
-      if (!std::isfinite(d)) {
-        ok = false;
-        if (errors) {
-          errors->push_back(
-              {field.name, ConfigFieldErrorKind::kNonFinite,
-               "Numeric value must be finite for field: " + field.name});
-        }
-        continue;
-      }
-    }
-
-    // 类型匹配检查
-    bool type_ok = false;
-    switch (field.kind) {
-      case ConfigValueKind::kString:
-        type_ok = val.is_string();
-        break;
-      case ConfigValueKind::kInteger:
-        // 浮点数 (如 2.5) 不符合整型
-        type_ok = val.is_number_integer() || val.is_number_unsigned();
-        break;
-      case ConfigValueKind::kNumber:
-        type_ok = val.is_number();
-        break;
-      case ConfigValueKind::kBoolean:
-        type_ok = val.is_boolean();
-        break;
-      case ConfigValueKind::kObject:
-        type_ok = val.is_object();
-        break;
-      case ConfigValueKind::kArray:
-        type_ok = val.is_array();
-        break;
-    }
-
-    if (!type_ok) {
-      ok = false;
-      if (errors) {
-        errors->push_back(
-            {field.name, ConfigFieldErrorKind::kTypeMismatch,
-             "Expected " + std::string(ConfigValueKindName(field.kind))});
-      }
-      continue;
-    }
-
-    // 数值范围检查
-    if (val.is_number()) {
-      if (field.minimum.has_value() &&
-          detail::IsValueBelowMinimum(val, *field.minimum)) {
-        ok = false;
-        if (errors) {
-          errors->push_back({field.name, ConfigFieldErrorKind::kOutOfRange,
-                             "Numeric value is below minimum " +
-                                 std::to_string(*field.minimum)});
-        }
-      } else if (field.maximum.has_value() &&
-                 detail::IsValueAboveMaximum(val, *field.maximum)) {
-        ok = false;
-        if (errors) {
-          errors->push_back({field.name, ConfigFieldErrorKind::kOutOfRange,
-                             "Numeric value exceeds maximum " +
-                                 std::to_string(*field.maximum)});
-        }
-      }
-    }
-
-    // 字符串枚举检查
-    if (field.kind == ConfigValueKind::kString && !field.enum_values.empty() &&
-        val.is_string()) {
-      std::string str_val = val.get<std::string>();
-      if (std::find(field.enum_values.begin(), field.enum_values.end(),
-                    str_val) == field.enum_values.end()) {
-        ok = false;
-        if (errors) {
-          errors->push_back(
-              {field.name, ConfigFieldErrorKind::kInvalidEnum,
-               "String value '" + str_val + "' not in allowed enum values"});
-        }
-      }
-    }
-
-    result[field.name] = val;
-  }
-
-  if (ok && normalized) {
-    *normalized = std::move(result);
-  }
-  return ok;
+  return detail::NormalizeConfigObject(schema, input, normalized, errors, "");
 }
 
 }  // namespace llm_edgeflow

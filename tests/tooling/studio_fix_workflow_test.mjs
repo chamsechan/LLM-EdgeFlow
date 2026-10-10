@@ -40,7 +40,7 @@ const context = vm.createContext({
     location: { search: "", hash: "" } },
   Option: class extends Element { constructor(text, value) { super("option"); this.textContent = text; this.value = value; } },
   async testApi(path) {
-    if (path.startsWith("/catalog")) return { nodes: [], models: [], profiles: [], bizs: [], io_bindings: [] };
+    if (path.startsWith("/catalog")) return { nodes: [], models: [], profiles: [], input_converters: [], output_converters: [] };
     if (path === "/profiles") return { profiles: [] };
     if (path === "/pipelines") return { pipelines: [] };
     if (path === "/assets") return { selections: [], variants: [] };
@@ -66,7 +66,7 @@ async function load(name) {
     const startup = code.indexOf("\ntry {\n  await refreshLists();");
     assert.notEqual(startup, -1, "Locate and omit browser startup, without extracting the handler");
     code = code.slice(0, startup);
-    code += "\nrenderAll = () => {}; updateEditorStatus = () => {};\nexport { state, history, drafts, handleApplyFix, handleApplyReviewedFix, applyAuthoring, runPreflight, renderPreflightFreshness, markPipelineChanged, restoreHistory, refreshLists, loadCatalog, validate };";
+    code += "\nrenderAll = () => {}; updateEditorStatus = () => {};\nexport { state, history, drafts, handleApplyFix, handleApplyReviewedFix, applyAuthoring, runPreflight, renderPreflightFreshness, markPipelineChanged, restoreHistory, refreshLists, loadCatalog, validate, filterProfiles };";
   }
   const module = new vm.SourceTextModule(code, { context, identifier: name });
   modules.set(name, module);
@@ -76,14 +76,14 @@ async function load(name) {
 const app = await load("app.js");
 await app.evaluate();
 const { state, history, drafts, handleApplyFix, restoreHistory } = app.namespace;
-const initial = { deployment: { io: { io_binding: "keyword_match" } }, models: [], pipeline: [], comment: "before" };
+const initial = { io: {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "keyword_out", name: "keyword_match"}]}, models: [], pipeline: [], comment: "before" };
 const patched = { ...initial, comment: "after" };
 const fix = { id: "repair-1", title: "Repair", effect: "Replace comment", verification: "pipeline_valid",
   patch: [{ op: "replace", path: "/comment", value: "after" }] };
 function reset() {
   Object.assign(state, { pipeline: structuredClone(initial), selected: "", loading: false,
     editing: true, catalogReady: true, pipelineVersion: 1, documentVersion: 1,
-    savedPipeline: JSON.stringify(initial), dirty: false, deployment: null, modelPathActions: {}, preflight: null,
+    savedPipeline: JSON.stringify(initial), dirty: false, deployment: null, preflight: null,
     validationReport: { revision: "revision-1", tool_fingerprint: "tool-1", diagnostics: [
       { code: "TEST", remediation: { fixes: [fix] } },
     ] },
@@ -135,13 +135,13 @@ assert.equal(previewCalls, 0, "Do not preview a repair against unapplied form bu
 // 应用必须通过原生接口提交图修改，并把完整候选 (含保留的顺序)
 // 视为一次可撤销的操作。
 reset();
-const graphInitial = { ...initial, pipeline: [{ id: "a" }, { id: "b", depends_on: ["a"], inputs: { text: "shared" } }] };
+const graphInitial = { ...initial, pipeline: [{name: "a", type: "source"}, {name: "b", type: "target", depends_on: ["a"], inputs: { text: "a.text" } }] };
 state.pipeline = structuredClone(graphInitial);
 history.reset({ pipeline: state.pipeline, selected: "" });
 const graphCandidate = structuredClone(graphInitial);
-graphCandidate.pipeline[1].inputs.text = "unconnected_1";
+delete graphCandidate.pipeline[1].inputs.text;
 authoringResponse = { ok: true, pipeline: graphCandidate, validation: { ok: false, diagnostics: [] } };
-const disconnect = { kind: "disconnect", source: { node_id: "a", port: "text" }, target: { node_id: "b", port: "text" } };
+const disconnect = { kind: "disconnect", source: { node: "a", port: "text" }, target: { node: "b", port: "text" } };
 await app.namespace.applyAuthoring(disconnect);
 assert.equal(authoringCalls.length, 1);
 assert.deepEqual(authoringCalls[0].operation, disconnect);
@@ -195,7 +195,7 @@ reset();
 preflightResponse = ready;
 await app.namespace.runPreflight();
 assert.match(elementText(elements.get("#preflightSummary")), /alg_pipeline_tool=✓.*alg_demo=✓/);
-elements.get("#runModelRoot").value = "other-models";
+elements.get("#runProfile").value = "other-profile";
 app.namespace.renderPreflightFreshness();
 assert.match(elementText(elements.get("#preflightSummary")), /过期|重新预检/);
 for (const change of [
@@ -213,5 +213,22 @@ for (const change of [
   await action;
   assert.doesNotMatch(elementText(elements.get("#preflightSummary")), /STALE_RESPONSE_SENTINEL/,
     "Delayed preflight must not display a result for another draft or deployment");
+}
+// I/O pair ordering follows the native Demo carrier order. Parameter overrides
+// do not change the Profile contract.
+reset();
+const profileIo = {input: [{type: "doc_in", name: "doc_qa"}, {type: "audit_in", name: "text_audit"}], output: [{type: "doc_out", name: "doc_qa"}]};
+state.catalog = {profiles: [{name: "ordered", suite: "neutral", io: profileIo}]};
+state.catalogProfiles = [];
+elements.get("#cloneProfile").id = "cloneProfile";
+elements.get("#runProfile").id = "runProfile";
+for (const [io, expected] of [
+  [structuredClone(profileIo), ["ordered"]],
+  [{input: profileIo.input.map(entry => ({...entry, params: {limit: 2}})), output: profileIo.output.map(entry => ({...entry, params: {capacity: 3}}))}, ["ordered"]],
+  [{...profileIo, input: [...profileIo.input].reverse()}, []],
+]) {
+  state.pipeline.io = io;
+  app.namespace.filterProfiles();
+  assert.deepEqual(elements.get("#runProfile").options.map(option => option.value), expected);
 }
 console.log("Studio native authoring, page approval and preflight snapshot regressions passed");

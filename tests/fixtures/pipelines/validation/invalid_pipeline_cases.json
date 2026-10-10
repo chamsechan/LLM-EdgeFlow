@@ -1,39 +1,15 @@
 {
   "cases": [
     {
-      "name": "unknown_business",
-      "biz_type": 2,
-      "pipeline": {
-        "biz_name": "unknown_biz_xyz",
-        "models": [],
-        "pipeline": [
-          {
-            "id": "keyword",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {}
-          }
-        ]
-      },
-      "required_codes": [
-        "UNKNOWN_BIZ"
-      ],
-      "primary_code": "UNKNOWN_BIZ",
-      "primary_path": "/biz_name",
-      "runtime_error_code": -2
-    },
-    {
       "name": "unknown_node_type",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
-            "id": "unknown",
-            "node_type": "CompletelyUnknownNode",
             "depends_on": [],
-            "config": {}
+            "name": "unknown",
+            "type": "CompletelyUnknownNode",
+            "params": {}
           }
         ]
       },
@@ -41,63 +17,74 @@
         "UNKNOWN_NODE_TYPE"
       ],
       "primary_code": "UNKNOWN_NODE_TYPE",
-      "primary_path": "/pipeline/0/node_type",
-      "runtime_error_code": -2
+      "primary_path": "/pipeline/0/type",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match",
+            "inputs": {
+              "matches": "input.rule_matches"
+            }
+          }
+        ]
+      }
     },
     {
       "name": "unknown_config_field",
-      "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
         "models": [
           {
-            "model_id": "llm",
-            "model_type": "test_biz_llm",
-            "backend": "test_causal_lm_backend",
-            "model_path": "fixture.gguf"
+            "type": "llm",
+            "name": "llm",
+            "file": "fixture.gguf",
+            "backend": {
+              "type": "test_causal_lm_backend"
+            }
           }
         ],
         "pipeline": [
           {
-            "id": "pre",
-            "node_type": "TextTemplateNode",
             "depends_on": [],
             "inputs": {
-              "primary": "input_sentences"
+              "primary": "input.sentence_text"
             },
-            "outputs": {
-              "text": "prompt_text"
-            }
+            "name": "pre",
+            "type": "text_template"
           },
           {
-            "id": "generate",
-            "node_type": "LlmGenerateNode",
             "depends_on": [
               "pre"
             ],
-            "config": {
-              "bind_model": "llm",
-              "unsupported_option": true
-            },
             "inputs": {
-              "prompt": "prompt_text"
+              "input": "pre.text"
             },
-            "outputs": {
-              "text": "ans"
+            "name": "generate",
+            "type": "llm_generate",
+            "params": {
+              "bind_model": "llm",
+              "unsupported_option": true,
+              "endpoints": {
+                "answer": {}
+              }
             }
           },
           {
-            "id": "post",
-            "node_type": "StructuredJsonParseNode",
             "depends_on": [
               "generate"
             ],
             "inputs": {
-              "text": "ans"
+              "text": "generate.text"
             },
-            "outputs": {
-              "document": "extracted_entities"
-            }
+            "name": "post",
+            "type": "structured_json_parse"
           }
         ]
       },
@@ -105,63 +92,74 @@
         "UNKNOWN_CONFIG_FIELD"
       ],
       "primary_code": "UNKNOWN_CONFIG_FIELD",
-      "primary_path": "/pipeline/1/config/unsupported_option",
-      "runtime_error_code": -2
+      "primary_path": "/pipeline/1/params/unsupported_option",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "entity_in",
+            "name": "entity_extract"
+          }
+        ],
+        "output": [
+          {
+            "type": "entity_out",
+            "name": "entity_extract",
+            "inputs": {
+              "entities": "post.document"
+            }
+          }
+        ]
+      }
     },
     {
       "name": "config_field_range",
-      "biz_type": 3,
       "pipeline": {
-        "biz_name": "entity_extract",
         "models": [
           {
-            "model_id": "llm",
-            "model_type": "test_biz_llm",
-            "backend": "test_causal_lm_backend",
-            "model_path": "fixture.gguf"
+            "type": "llm",
+            "name": "llm",
+            "file": "fixture.gguf",
+            "backend": {
+              "type": "test_causal_lm_backend"
+            }
           }
         ],
         "pipeline": [
           {
-            "id": "pre",
-            "node_type": "TextTemplateNode",
             "depends_on": [],
             "inputs": {
-              "primary": "input_sentences"
+              "primary": "input.sentence_text"
             },
-            "outputs": {
-              "text": "prompt_text"
-            }
+            "name": "pre",
+            "type": "text_template"
           },
           {
-            "id": "generate",
-            "node_type": "LlmGenerateNode",
             "depends_on": [
               "pre"
             ],
-            "config": {
-              "bind_model": "llm",
-              "max_tokens": 0
-            },
             "inputs": {
-              "prompt": "prompt_text"
+              "input": "pre.text"
             },
-            "outputs": {
-              "text": "ans"
+            "name": "generate",
+            "type": "llm_generate",
+            "params": {
+              "bind_model": "llm",
+              "max_tokens": 0,
+              "endpoints": {
+                "answer": {}
+              }
             }
           },
           {
-            "id": "post",
-            "node_type": "StructuredJsonParseNode",
             "depends_on": [
               "generate"
             ],
             "inputs": {
-              "text": "ans"
+              "text": "generate.text"
             },
-            "outputs": {
-              "document": "extracted_entities"
-            }
+            "name": "post",
+            "type": "structured_json_parse"
           }
         ]
       },
@@ -169,106 +167,126 @@
         "CONFIG_FIELD_RANGE"
       ],
       "primary_code": "CONFIG_FIELD_RANGE",
-      "primary_path": "/pipeline/1/config/max_tokens",
-      "runtime_error_code": -2
+      "primary_path": "/pipeline/1/params/max_tokens",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "entity_in",
+            "name": "entity_extract"
+          }
+        ],
+        "output": [
+          {
+            "type": "entity_out",
+            "name": "entity_extract",
+            "inputs": {
+              "entities": "post.document"
+            }
+          }
+        ]
+      }
     },
     {
-      "name": "model_capability_mismatch",
-      "biz_type": 3,
+      "name": "model_type_mismatch",
       "pipeline": {
-        "biz_name": "entity_extract",
         "models": [
           {
-            "model_id": "embedding",
-            "model_type": "test_biz_embedding",
-            "backend": "test_tensor_backend",
-            "model_path": "fixture.onnx"
+            "type": "embedding",
+            "name": "embedding",
+            "file": "fixture.onnx",
+            "backend": {
+              "type": "test_tensor_backend"
+            }
           }
         ],
         "pipeline": [
           {
-            "id": "pre",
-            "node_type": "TextTemplateNode",
             "depends_on": [],
             "inputs": {
-              "primary": "input_sentences"
+              "primary": "input.sentence_text"
             },
-            "outputs": {
-              "text": "prompt_text"
-            }
+            "name": "pre",
+            "type": "text_template"
           },
           {
-            "id": "generate",
-            "node_type": "LlmGenerateNode",
             "depends_on": [
               "pre"
             ],
-            "config": {
-              "bind_model": "embedding"
-            },
             "inputs": {
-              "prompt": "prompt_text"
+              "input": "pre.text"
             },
-            "outputs": {
-              "text": "ans"
+            "name": "generate",
+            "type": "llm_generate",
+            "params": {
+              "bind_model": "embedding",
+              "endpoints": {
+                "answer": {}
+              }
             }
           },
           {
-            "id": "post",
-            "node_type": "StructuredJsonParseNode",
             "depends_on": [
               "generate"
             ],
             "inputs": {
-              "text": "ans"
+              "text": "generate.text"
             },
-            "outputs": {
-              "document": "extracted_entities"
-            }
+            "name": "post",
+            "type": "structured_json_parse"
           }
         ]
       },
       "required_codes": [
-        "MODEL_CAPABILITY_MISMATCH"
+        "MODEL_TYPE_MISMATCH"
       ],
-      "primary_code": "MODEL_CAPABILITY_MISMATCH",
-      "primary_path": "/pipeline/1/config/bind_model",
-      "runtime_error_code": -2
+      "primary_code": "MODEL_TYPE_MISMATCH",
+      "primary_path": "/pipeline/1/params/bind_model",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "entity_in",
+            "name": "entity_extract"
+          }
+        ],
+        "output": [
+          {
+            "type": "entity_out",
+            "name": "entity_extract",
+            "inputs": {
+              "entities": "post.document"
+            }
+          }
+        ]
+      }
     },
     {
       "name": "dag_cycle",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
-            "id": "a",
-            "node_type": "TextRuleMatchNode",
             "depends_on": [
               "b"
             ],
-            "config": {},
             "inputs": {
-              "text": "input_sentences"
+              "text": "input.sentence_text"
             },
-            "outputs": {
-              "matches": "a_matches"
-            }
+            "name": "a",
+            "type": "text_rule_match",
+            "params": {}
           },
           {
-            "id": "b",
-            "node_type": "TextRuleMatchNode",
             "depends_on": [
               "a"
             ],
-            "config": {},
             "inputs": {
-              "text": "input_sentences"
+              "text": "input.sentence_text"
             },
-            "outputs": {
-              "matches": "rule_matches"
-            }
+            "name": "b",
+            "type": "text_rule_match",
+            "params": {}
           }
         ]
       },
@@ -277,22 +295,55 @@
       ],
       "primary_code": "DAG_CYCLE",
       "primary_path": "/pipeline",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match",
+            "inputs": {
+              "matches": "b.matches"
+            }
+          }
+        ]
+      }
     },
     {
       "name": "missing_input_producer",
-      "biz_type": 1,
       "pipeline": {
-        "biz_name": "doc_qa",
         "models": [],
         "pipeline": [
           {
-            "id": "parse",
-            "node_type": "StructuredJsonParseNode",
             "depends_on": [],
-            "config": {},
+            "name": "parse",
+            "type": "structured_json_parse",
+            "params": {}
+          },
+          {
+            "type": "text_template",
+            "name": "answer",
             "inputs": {
-              "text": "non_existent_key"
+              "primary": "input.query_text"
+            }
+          },
+          {
+            "type": "text_rule_match",
+            "name": "intent",
+            "inputs": {
+              "text": "input.query_text"
+            }
+          },
+          {
+            "type": "text_chunk",
+            "name": "chunk",
+            "inputs": {
+              "text": "input.doc_text"
             }
           }
         ]
@@ -301,62 +352,37 @@
         "MISSING_INPUT_PRODUCER"
       ],
       "primary_code": "MISSING_INPUT_PRODUCER",
-      "primary_path": "/pipeline/0/inputs/text",
-      "runtime_error_code": -2
-    },
-    {
-      "name": "parallel_write_conflict",
-      "biz_type": 2,
-      "pipeline": {
-        "biz_name": "keyword_match",
-        "models": [],
-        "pipeline": [
+      "primary_path": "/pipeline/0/inputs",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
           {
-            "id": "left",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {},
-            "inputs": {
-              "text": "input_sentences"
-            },
-            "outputs": {
-              "matches": "conflict_matches"
-            }
-          },
-          {
-            "id": "right",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {},
-            "inputs": {
-              "text": "input_sentences"
-            },
-            "outputs": {
-              "matches": "conflict_matches"
-            }
+            "type": "doc_in",
+            "name": "doc_qa"
           }
         ],
-        "max_parallel_workers": 4
-      },
-      "required_codes": [
-        "DUPLICATE_PORT_PRODUCER",
-        "PARALLEL_WRITE_CONFLICT"
-      ],
-      "primary_code": "DUPLICATE_PORT_PRODUCER",
-      "primary_path": "/pipeline/1/outputs/matches",
-      "runtime_error_code": -2
+        "output": [
+          {
+            "type": "doc_out",
+            "name": "doc_qa",
+            "inputs": {
+              "answer_text": "answer.text",
+              "intent": "intent.matches",
+              "chunk_count": "chunk.chunk_counts"
+            }
+          }
+        ]
+      }
     },
     {
-      "name": "missing_node_id",
-      "biz_type": 2,
+      "name": "missing_node_name",
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
-            "node_type": "TextRuleMatchNode",
             "depends_on": [],
-            "config": {}
+            "type": "text_rule_match",
+            "params": {}
           }
         ]
       },
@@ -364,65 +390,51 @@
         "MISSING_FIELD"
       ],
       "primary_code": "MISSING_FIELD",
-      "primary_path": "/pipeline/0/id",
-      "runtime_error_code": -2
-    },
-    {
-      "name": "removed_execution_mode",
-      "biz_type": 2,
-      "pipeline": {
-        "biz_name": "keyword_match",
-        "models": [],
-        "pipeline": [
+      "primary_path": "/pipeline/0/name",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
           {
-            "id": "kw",
-            "node_type": "TextRuleMatchNode",
-            "depends_on": [],
-            "config": {}
+            "type": "keyword_in",
+            "name": "keyword_match"
           }
         ],
-        "execution_mode": "quantum"
-      },
-      "required_codes": [
-        "UNKNOWN_FIELD"
-      ],
-      "primary_code": "UNKNOWN_FIELD",
-      "primary_path": "/execution_mode",
-      "runtime_error_code": -2
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match",
+            "inputs": {
+              "matches": "input.rule_matches"
+            }
+          }
+        ]
+      }
     },
     {
       "name": "duplicate_dependency",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
-            "id": "node_a",
-            "node_type": "TextRuleMatchNode",
             "depends_on": [],
-            "config": {},
             "inputs": {
-              "text": "input_sentences"
+              "text": "input.sentence_text"
             },
-            "outputs": {
-              "matches": "node_a_matches"
-            }
+            "name": "node_a",
+            "type": "text_rule_match",
+            "params": {}
           },
           {
-            "id": "node_b",
-            "node_type": "TextRuleMatchNode",
             "depends_on": [
               "node_a",
               "node_a"
             ],
-            "config": {},
             "inputs": {
-              "text": "input_sentences"
+              "text": "input.sentence_text"
             },
-            "outputs": {
-              "matches": "rule_matches"
-            }
+            "name": "node_b",
+            "type": "text_rule_match",
+            "params": {}
           }
         ]
       },
@@ -431,28 +443,40 @@
       ],
       "primary_code": "DUPLICATE_DEPENDENCY",
       "primary_path": "/pipeline/1/depends_on/1",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match",
+            "inputs": {
+              "matches": "node_b.matches"
+            }
+          }
+        ]
+      }
     },
     {
       "name": "invalid_dependency",
-      "biz_type": 2,
       "pipeline": {
-        "biz_name": "keyword_match",
         "models": [],
         "pipeline": [
           {
-            "id": "node_a",
-            "node_type": "TextRuleMatchNode",
             "depends_on": [
               "non_existent_node"
             ],
-            "config": {},
             "inputs": {
-              "text": "input_sentences"
+              "text": "input.sentence_text"
             },
-            "outputs": {
-              "matches": "rule_matches"
-            }
+            "name": "node_a",
+            "type": "text_rule_match",
+            "params": {}
           }
         ]
       },
@@ -461,7 +485,63 @@
       ],
       "primary_code": "INVALID_DEPENDENCY",
       "primary_path": "/pipeline/0/depends_on/0",
-      "runtime_error_code": -2
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match",
+            "inputs": {
+              "matches": "node_a.matches"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_node_field",
+      "pipeline": {
+        "models": [],
+        "pipeline": [
+          {
+            "inputs": {
+              "text": "input.sentence_text"
+            },
+            "unexpected_option": true,
+            "name": "keyword",
+            "type": "text_rule_match"
+          }
+        ]
+      },
+      "required_codes": [
+        "UNKNOWN_FIELD"
+      ],
+      "primary_code": "UNKNOWN_FIELD",
+      "primary_path": "/pipeline/0/unexpected_option",
+      "runtime_error_code": -3,
+      "io": {
+        "input": [
+          {
+            "type": "keyword_in",
+            "name": "keyword_match"
+          }
+        ],
+        "output": [
+          {
+            "type": "keyword_out",
+            "name": "keyword_match",
+            "inputs": {
+              "matches": "keyword.matches"
+            }
+          }
+        ]
+      }
     }
   ]
 }

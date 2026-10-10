@@ -29,7 +29,7 @@
         <details class="create-panel">
           <summary>新建方案</summary>
           <div class="create-fields">
-            <label>I/O 契约<select id="bindingSelect" title="I/O 契约"></select></label>
+            <div id="createIo"><p class="field-heading">输入项</p><div id="createInputs"></div><p class="field-heading">输出项</p><div id="createOutputs"></div></div>
             <label>初始内容<select id="cloneProfile" title="从 Profile 克隆"><option value="">空图</option></select></label>
             <button id="newButton" class="full">新建方案</button>
           </div>
@@ -108,9 +108,17 @@
           <button data-tab="run" role="tab" aria-selected="false" aria-controls="runTab">运行</button>
         </div>
         <section id="propertiesTab" class="tab scroll" role="tabpanel" aria-label="节点属性">
+          <details id="ioSettings" hidden><summary>I/O 设置</summary>
+            <form id="ioForm">
+              <p class="field-heading">输入项</p><div id="ioInputs"></div>
+              <p class="field-heading">输出项</p><div id="ioOutputs"></div>
+              <p id="ioDraftHint" class="draft-hint" role="status" hidden>I/O 设置已修改，应用后更新方案。</p>
+              <div class="row form-actions"><button id="applyIo" type="submit" class="primary">应用 I/O</button><button id="discardIo" type="button" disabled>放弃修改</button></div>
+            </form>
+          </details>
           <div id="emptyInspector" class="empty"><span class="empty-symbol" aria-hidden="true">◇</span>选择一个节点<span class="empty-description">在这里查看和编辑它的配置</span></div>
           <form id="nodeForm" hidden>
-            <label>节点 ID<input id="nodeId" autocomplete="off"></label>
+            <label>节点名<input id="nodeName" autocomplete="off"></label>
             <div id="nodeType" class="node-type"></div>
             <div id="configFields"></div>
             <details><summary>额外执行顺序</summary><div id="nodeBindings"></div></details>
@@ -122,12 +130,13 @@
           <label>模型实例<select id="modelSelect"></select></label>
           <button id="newModel" type="button" class="full">新增模型实例</button>
           <form id="modelForm">
-            <label>模型 ID<input id="modelId" required autocomplete="off"></label>
+            <label>模型名<input id="modelName" required autocomplete="off"></label>
             <label>资产组合<select id="assetSelect"><option value="">手动配置</option></select></label>
-            <label>Model 类型<select id="modelType" required></select></label>
+            <label>模型类别<select id="modelType" required></select></label>
             <label>Backend<select id="modelBackend" required></select></label>
+            <p id="modelImplementation" class="field-help"></p>
             <p id="modelAvailability" class="draft-hint" role="status" hidden></p>
-            <label>模型资产路径<input id="modelPath" required placeholder="相对项目根，例如 models/model.onnx"></label>
+            <label>模型文件<input id="modelFile" required placeholder="相对方案所在目录，例如 model.onnx"></label>
             <p class="field-heading">Model 参数</p><div id="modelConfigFields"></div>
             <details id="backendAdvanced"><summary>部署高级设置（Backend 参数）</summary><div id="backendConfigFields"></div></details>
             <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改，应用后更新方案。</p>
@@ -154,10 +163,7 @@
             <div id="bizContractFields"></div>
           </details>
           <label>运行 Profile<select id="runProfile"></select></label>
-          <details class="run-settings"><summary>新选资产目录：<span id="modelRootLabel">models</span></summary>
-            <label>新选资产目录（不改写现有路径）<input id="runModelRoot" value="models" placeholder="models"></label>
-            <p class="tab-description">该目录仅用于选择新资产。已有模型路径始终相对项目根解析，运行和保存保留原值。</p>
-          </details>
+          <p class="tab-description">模型与文件参数相对方案所在目录解析。</p>
           <button id="preflightButton" type="button" class="full">检查运行条件（无执行预检）</button>
           <div id="preflightSummary" class="preflight-summary" hidden></div>
           <details class="associate-deployment-panel"><summary>关联部署配置（.conf）</summary>

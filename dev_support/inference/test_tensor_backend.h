@@ -15,7 +15,7 @@ namespace test {
 
 class TestTensorSession : public ITensorGraphSession {
  public:
-  explicit TestTensorSession(std::string model_path);
+  TestTensorSession(std::string model_file, BatchPolicy policy = {16, 0});
   ~TestTensorSession() override = default;
 
   const std::string& BackendType() const noexcept override {
@@ -24,16 +24,14 @@ class TestTensorSession : public ITensorGraphSession {
   }
 
   ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kTensorGraph;
+    return ExecutionProtocol::kFixture;
   }
 
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 
-  BatchPolicy GetBatchPolicy() const noexcept override {
-    return BatchPolicy{16, 0};
-  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return policy_; }
 
   const std::vector<TensorSpec>& Inputs() const noexcept override {
     return input_specs_;
@@ -47,7 +45,8 @@ class TestTensorSession : public ITensorGraphSession {
           std::string* diagnostic = nullptr) noexcept override;
 
  private:
-  std::string model_path_;
+  std::string model_file_;
+  BatchPolicy policy_;
   std::vector<TensorSpec> input_specs_;
   std::vector<TensorSpec> output_specs_;
 };

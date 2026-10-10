@@ -1,70 +1,68 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "entity_extract"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "entity_extract"
+      }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "entity_extract",
+        "inputs": {
+          "entities": "parse_entities.document"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_id": "entity_llm",
-      "model_type": "qwen_causal_lm",
-      "backend": "llama_cpp",
-      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      "model_config": {
-        "system_prompt": "",
-        "add_bos": false,
-        "random_seed": -1
-      },
-      "backend_config": {
-        "context_size": 512,
-        "decode_batch_size": 512,
-        "n_threads": 0,
-        "n_threads_batch": 0,
-        "n_gpu_layers": 0,
-        "check_tensors": false
+      "type": "llm",
+      "name": "entity_llm",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "llama_cpp",
+        "params": {
+          "context_size": 512
+        }
       }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_TextTemplateNode",
-      "node_type": "TextTemplateNode",
-      "config": {
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
         "template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{{primary}}\n提取结果："
       },
       "inputs": {
-        "primary": "input_sentences"
-      },
-      "outputs": {
-        "text": "prompt_text"
+        "primary": "input.sentence_text"
       }
     },
     {
-      "id": "node_1_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "generate_entities",
+      "params": {
         "bind_model": "entity_llm",
         "max_tokens": 256,
-        "temperature": 0.0
+        "temperature": 0.0,
+        "endpoints": {
+          "entities": {}
+        }
       },
       "inputs": {
-        "prompt": "prompt_text"
-      },
-      "outputs": {
-        "text": "llm_raw_answer"
+        "input": "build_prompt.text"
       }
     },
     {
-      "id": "node_2_StructuredJsonParseNode",
-      "node_type": "StructuredJsonParseNode",
-      "config": {
+      "type": "structured_json_parse",
+      "name": "parse_entities",
+      "params": {
         "failure_policy": "fail"
       },
       "inputs": {
-        "text": "llm_raw_answer"
-      },
-      "outputs": {
-        "document": "extracted_entities"
+        "text": "generate_entities.text"
       }
     }
   ]

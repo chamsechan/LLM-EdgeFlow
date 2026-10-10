@@ -1,17 +1,15 @@
-add_executable(alg_show alg_show.cpp)
-target_link_libraries(alg_show PRIVATE
-  edgeflow_internal_headers nlohmann_json::nlohmann_json)
-
 # 基于 Validator 诊断的开发工具指引；不属于 SDK。
-add_library(edgeflow_pipeline_tooling STATIC pipeline_remediation.cpp)
+add_library(edgeflow_pipeline_tooling STATIC
+  pipeline_remediation.cpp pipeline_authoring.cpp pipeline_json_schema.cpp
+  pipeline_document_validation.cpp)
 target_link_libraries(edgeflow_pipeline_tooling PUBLIC
   edgeflow_internal_headers llm_edgeflow::internal_runtime)
 
-add_executable(alg_pipeline_tool
-  alg_pipeline_tool.cpp
-  pipeline_authoring.cpp
-  pipeline_json_schema.cpp
-  pipeline_document_validation.cpp)
+add_executable(alg_show alg_show.cpp)
+target_link_libraries(alg_show PRIVATE
+  edgeflow_internal_headers llm_edgeflow::internal_runtime)
+
+add_executable(alg_pipeline_tool alg_pipeline_tool.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime
   edgeflow_pipeline_tooling)

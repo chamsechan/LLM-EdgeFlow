@@ -17,13 +17,19 @@
 
 namespace llm_edgeflow {
 
+class BackendRegistry;
+
 /**
  * @brief 模型创建上下文参数
  */
 struct ModelCreateContext {
   std::shared_ptr<IBackendSession> backend_session;
-  std::string model_resource_root;
-  nlohmann::json model_config = nlohmann::json::object();
+  std::shared_ptr<const ParameterValues> params;
+  template <typename P>
+  const P& Params() const {
+    if (!params) throw std::logic_error("Missing parsed parameters");
+    return params->Get<P>();
+  }
 };
 
 /**
@@ -39,17 +45,21 @@ class ModelRegistry {
   bool Register(const ModelDefinition& definition, Creator creator) noexcept;
 
   std::optional<ModelDefinition> Find(
-      const std::string& model_type) const noexcept;
+      const std::string& impl_name) const noexcept;
 
   std::shared_ptr<IModel> Create(
-      const std::string& model_type, const ModelCreateContext& context,
+      const std::string& impl_name, const ModelCreateContext& context,
       std::string* diagnostic = nullptr) const noexcept;
 
-  bool Has(const std::string& model_type) const noexcept;
+  bool Has(const std::string& impl_name) const noexcept;
 
-  std::vector<std::string> ListTypes() const;
+  std::vector<std::string> ListImplNames() const;
 
   std::vector<ModelDefinition> ListDefinitions() const;
+  std::vector<ModelDefinition> FindImplementation(
+      const std::string& model_type, const std::string& backend_type) const;
+  bool Audit(const BackendRegistry& backends,
+             std::vector<std::string>* errors = nullptr) const;
 
   bool HasConflict() const noexcept;
 

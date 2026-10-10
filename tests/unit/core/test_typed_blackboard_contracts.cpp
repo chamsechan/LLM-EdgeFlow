@@ -11,6 +11,7 @@
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/common_contracts.h"
+#include "nodes/node_base.h"
 
 namespace llm_edgeflow {
 
@@ -186,6 +187,19 @@ TEST_F(TypedBlackboardContractsTest,
   EXPECT_EQ(*initial, 0);
   ASSERT_NE(ctx.Read<int>("counter_2000"), nullptr);
   EXPECT_EQ(*ctx.Read<int>("counter_2000"), 2000);
+}
+
+TEST_F(TypedBlackboardContractsTest, BlackboardKeyAndBoundInputContracts) {
+  constexpr auto key = MakeBlackboardKey<TextBatch>("custom_key");
+  EXPECT_STREQ(key.name, "custom_key");
+  EXPECT_STREQ(key.type_id, "TextBatch");
+
+  const BlackboardKey<TextBatch> mismatched_key{"key", "WrongType"};
+  EXPECT_THROW((BoundInput<TextBatch>(mismatched_key)), std::invalid_argument);
+  EXPECT_THROW((BoundOutput<TextBatch>(mismatched_key)), std::invalid_argument);
+
+  EXPECT_NO_THROW((BoundInput<TextBatch>(key)));
+  EXPECT_NO_THROW((BoundOutput<TextBatch>(key)));
 }
 
 }  // namespace llm_edgeflow

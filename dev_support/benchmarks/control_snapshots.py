@@ -98,7 +98,7 @@ def main():
         ]))
         flags = ["c++", "-O3", "-DNDEBUG", "-std=c++17", "-fPIC", "-fopenmp"]
         flags.extend(f"-I{path}" for path in (
-            build / "layer_includes/capability_nodes", ROOT / "include", ROOT,
+            build / "layer_includes/capability_nodes", ROOT / "include", ROOT, ROOT / "src",
             build / "generated/include", ROOT / "3rdparty/nlohmann_json/include",
         ))
         benchmark_object = output / "bench.o"

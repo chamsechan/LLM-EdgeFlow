@@ -11,14 +11,15 @@
 ```bash
 cmake --build build --target alg_pipeline_tool_test alg_demo
 python3 tools/dev_recipe.py prepare prompt-config \
-  --name EntityPromptTask --profile entity_extract_custom_mock \
+  --name entity_prompt_task --profile entity_extract_custom_mock \
   --tool build/alg_pipeline_tool_test --build-dir build \
-  --pipeline configs/pipeline_entity_prompt_task.json --json
+  --pipeline demo/fixtures/mock/pipeline_entity_prompt_task.json --json
 ```
 
 生成三份文件：`pipeline_entity_prompt_task.json`、同名 `.conf` 和 `_effects.json`。
-现有文件不会被覆盖。Pipeline 保留源 Profile 的整个 `deployment.io.out_mem`，包括 allocator、params、
-容量与元数据字段，并由原生 Resolver 检查；多输出在写入或构建前被拒绝。
+现有文件不会被覆盖。Pipeline 保留源 Profile 的 `io` 选择、输出项 `params` 和显式端口引用，
+并由原生 Resolver 检查；Recipe 只支持一个输出 Converter，多输出在写入或构建前被拒绝。
+目标 Pipeline 必须放在已有资源目录中：模型文件和文件参数都相对该目录，不能通过复制 JSON 改变路径基准。
 
 ## 修改与验收
 
@@ -34,14 +35,13 @@ JSON 中只有真正完成的步骤会进入 `completed_steps`，效果结果保
 
 | Profile | 默认效果文件 | 资产目录与清单 |
 | --- | --- | --- |
-| keyword_match_rules | tests/fixtures/effects/keyword_exact.json | models；models/asset_manifest.json |
-| entity_extract_mock | tests/fixtures/effects/entity_mock_exact.json | 项目根；tests/fixtures/asset_manifest_test.json |
+| keyword_match_rules | tests/fixtures/effects/keyword_exact.json | configs；configs/asset_manifest.json |
+| entity_extract_mock | tests/fixtures/effects/entity_mock_exact.json | demo/fixtures/mock；tests/fixtures/asset_manifest_test.json |
 | entity_extract_custom_mock | 同上 | 同上 |
 
-其他 Profile 必须在 prepare 提供 `--effects`；模型位于其他资产包时同时提供 `--model-root`
-和 `--manifest`。`--model-root` 是清单资产目录，Pipeline 模型路径仍相对宿主根，sidecar 路径相对实际模型目录。
-这些路径会被完整带入生成的 verify 命令。效果样例使用其自身 dataset，
-不会被 Profile 的 dataset 静默替换。
+其他 Profile 必须在 prepare 提供 `--effects`，自有资产清单通过 `--manifest` 指定。
+清单资产、主模型和声明的文件参数都相对目标 Pipeline 目录；视觉 projector 相对运行配置目录。
+这些路径会被带入生成的 verify 命令。效果样例使用其自身 dataset，不会被 Profile 的 dataset 替换。
 
 mock 使用仓库自有的中性文本 fixture，结果仅证明任务与验收工具正确工作。真实模型质量与设备
 性能按[模型、构建与效果验收指南](../VERIFIABLE_SELECTION.md)另行验证。

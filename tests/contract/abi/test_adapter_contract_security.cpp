@@ -4,27 +4,38 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/deployment_model_resolver.h"
-#include "adapter/io_binding_registry.h"
-#include "adapter/io_binding_resolver.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/io_plan_resolver.h"
+#include "adapter/model_file_resolver.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "core/common_contracts.h"
+#include "dev_support/inference/test_causal_lm_backend.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
+#include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 #include "platform_mock/error_codes.h"
 #include "tests/support/adapter_examples/flat_struct_adapter.h"
 #include "tests/support/adapter_examples/nested_array_adapter.h"
 #include "tests/support/adapter_examples/nested_pointer_tree_adapter.h"
 #include "tests/support/adapter_examples/tagged_union_adapter.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
+
+namespace llm_edgeflow {
+namespace {
+constexpr auto kSentenceText = MakeBlackboardKey<TextBatch>("sentence_text");
+constexpr auto kMatches = MakeBlackboardKey<RuleMatchBatch>("matches");
+constexpr auto kTranslation = MakeBlackboardKey<TextBatch>("translation");
+}  // namespace
+}  // namespace llm_edgeflow
 
 namespace llm_edgeflow {
 
@@ -37,24 +48,65 @@ static std::string GetConfigPath(const std::string& rel_path) {
 class AdapterContractSecurityTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IoBindingRegistry::Instance().ResetConflictForTesting();
     IoConverterRegistry::Instance().ResetConflictForTesting();
     operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
   }
   void TearDown() override {
     operator_api::Get_LLM_EDGEFLOW_OperatorTable().DeInit();
-    IoBindingRegistry::Instance().ResetConflictForTesting();
     IoConverterRegistry::Instance().ResetConflictForTesting();
   }
 };
 
 namespace {
 
+class ProbeSession final : public test::TestCausalLmSession {
+ public:
+  explicit ProbeSession(std::string backend)
+      : TestCausalLmSession("probe.fixture"), backend_(std::move(backend)) {}
+  const std::string& BackendType() const noexcept override { return backend_; }
+
+ private:
+  std::string backend_;
+};
+
+class ProbeBackend final : public IInferenceBackend {
+ public:
+  explicit ProbeBackend(std::string type) : type_(std::move(type)) {}
+  const std::string& BackendType() const noexcept override { return type_; }
+  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
+                                        std::string* error) noexcept override {
+    try {
+      if (error) error->clear();
+      return std::make_shared<ProbeSession>(type_);
+    } catch (...) {
+      return nullptr;
+    }
+  }
+
+ private:
+  std::string type_;
+};
+
+[[maybe_unused]] const bool probe_backends_registered = [] {
+  bool registered = true;
+  for (const char* type :
+       {"translation_probe_backend", "failing_create_backend"}) {
+    BackendDefinition definition;
+    definition.backend_type = type;
+    definition.supported_protocols = {ExecutionProtocol::kFixture};
+    definition.concurrency = InferenceConcurrency::kSerialized;
+    registered &= BackendRegistry::Instance().Register(
+        definition, [type] { return std::make_unique<ProbeBackend>(type); });
+  }
+  return registered;
+}();
+
 // 测试通过 Operator API 执行随附的翻译 Pipeline，该夹具记录实际的生成调用，
 // 不做任何 JSON 处理。
 class TranslationProbeModel final : public ILlmModel {
  public:
-  inline static constexpr char kModelType[] = "test_translation_probe";
+  bool SupportsRandomSeed() const noexcept override { return true; }
+  inline static constexpr char kImplName[] = "test_translation_probe";
   inline static std::weak_ptr<TranslationProbeModel> latest;
 
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
@@ -64,13 +116,13 @@ class TranslationProbeModel final : public ILlmModel {
     if (error) error->clear();
     return model;
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "llm";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "llm";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
@@ -86,7 +138,10 @@ class TranslationProbeModel final : public ILlmModel {
       if (!outputs) return -1;
       outputs->clear();
       for (const auto& prompt : prompts) {
-        outputs->emplace_back(prompt.req_id, prompt.sub_id, response);
+        const auto found = responses.find(prompt.data);
+        outputs->emplace_back(
+            prompt.req_id, prompt.sub_id,
+            found == responses.end() ? response : found->second);
       }
       return 0;
     } catch (...) {
@@ -95,6 +150,7 @@ class TranslationProbeModel final : public ILlmModel {
   }
 
   std::vector<TextBatch> calls;
+  std::map<std::string, std::string> responses;
   std::string response;
   int failure = 0;
 };
@@ -102,7 +158,7 @@ class TranslationProbeModel final : public ILlmModel {
 // 在模型创建时失败，使 Operator Create 进入加载阶段。
 class FailingCreateModel {
  public:
-  inline static constexpr char kModelType[] = "test_failing_create_model";
+  inline static constexpr char kImplName[] = "test_failing_create_model";
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string* error) {
     if (error) *error = "probe model refused to load";
@@ -112,20 +168,22 @@ class FailingCreateModel {
 
 REGISTER_MODEL_WITH_DEFINITION(FailingCreateModel, [] {
   ModelDefinition definition;
-  definition.model_type = FailingCreateModel::kModelType;
-  definition.capability = "llm";
+  definition.impl_name = FailingCreateModel::kImplName;
+  definition.model_type = "llm";
   definition.description = "Test-only model whose creation fails";
-  definition.required_protocol = ExecutionProtocol::kTextGeneration;
+  definition.required_protocol = ExecutionProtocol::kFixture;
+  definition.fixture_backends = {"failing_create_backend"};
   definition.concurrency = InferenceConcurrency::kSerialized;
   return definition;
 }());
 
 REGISTER_MODEL_WITH_DEFINITION(TranslationProbeModel, [] {
   ModelDefinition definition;
-  definition.model_type = TranslationProbeModel::kModelType;
-  definition.capability = "llm";
+  definition.impl_name = TranslationProbeModel::kImplName;
+  definition.model_type = "llm";
   definition.description = "Test-only translation generation probe";
-  definition.required_protocol = ExecutionProtocol::kTextGeneration;
+  definition.required_protocol = ExecutionProtocol::kFixture;
+  definition.fixture_backends = {"translation_probe_backend"};
   definition.concurrency = InferenceConcurrency::kSerialized;
   return definition;
 }());
@@ -155,22 +213,14 @@ TEST_F(AdapterContractSecurityTest,
   // 保留生产计算图和端口绑定，只替换模型执行，
   // 使这些断言既不需要模型资源也不需要 Demo。
   ASSERT_EQ(pipeline.at("pipeline").size(), 1U);
-  EXPECT_EQ(pipeline["pipeline"][0]["node_type"], "LlmGenerateNode");
+  EXPECT_EQ(pipeline["pipeline"][0]["type"], "llm_generate");
   ASSERT_EQ(pipeline.at("models").size(), 1U);
-  auto& model_config = pipeline["models"][0];
-  model_config["model_type"] = TranslationProbeModel::kModelType;
-  model_config["backend"] = "test_causal_lm_backend";
-  model_config["model_path"] = "translation-probe.fixture";
-  model_config["model_config"] = nlohmann::json::object();
-  model_config["backend_config"] = nlohmann::json::object();
-  pipeline["deployment"] = {
-      {"io",
-       {{"io_binding", "translate"},
-        {"out_mem",
-         {{"entity_out",
-           {{"meta_num", 0},
-            {"metadata_type_id", 0},
-            {"capacities", {{"entities_json", 2047}}}}}}}}}};
+  auto& model_params = pipeline["models"][0];
+  model_params["type"] = "llm";
+  model_params["backend"] = {{"type", "translation_probe_backend"}};
+  model_params["file"] = "translation-probe.fixture";
+  model_params["params"] = nlohmann::json::object();
+  pipeline["io"]["output"][0]["params"] = {{"entities_json_max_bytes", 2047}};
   std::ofstream(pipe_path) << pipeline.dump();
 
   nlohmann::json op_cfg = {{"pipe_path", "pipeline.json"}};
@@ -201,6 +251,7 @@ TEST_F(AdapterContractSecurityTest,
                      const_cast<char*>(s.data())};
     CompanyOperatorEntityInput input{};
     input.request_id = 987654321;
+    input.service_type = kMockServiceTranslate;
     input.sentence_text = &cs;
     operator_api::NamedIoBatch inputs(1);
     inputs[0]["trans.entity_in"] =
@@ -303,16 +354,124 @@ TEST_F(AdapterContractSecurityTest,
 }
 
 TEST_F(AdapterContractSecurityTest,
+       MultipleEndpointsReachEntityResponseAsRawDocumentFields) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-endpoints-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  ASSERT_TRUE(std::filesystem::create_directory(directory));
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(directory, error);
+    }
+  } cleanup{directory};
+  const nlohmann::json pipeline = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "entity_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "generate.document"}}}}}}}},
+      {"models",
+       {{{"type", "llm"},
+         {"name", "probe"},
+         {"file", "probe.fixture"},
+         {"backend", {{"type", "translation_probe_backend"}}}}}},
+      {"pipeline",
+       {{{"type", "llm_generate"},
+         {"name", "generate"},
+         {"params",
+          {{"bind_model", "probe"},
+           {"endpoints",
+            {{"entities", {{"prompt", "entities={{input}}"}}},
+             {"summary", {{"prompt", "summary={{input}}"}}}}}}},
+         {"inputs", {{"input", "input.sentence_text"}}}}}}};
+  std::ofstream(directory / "pipeline.json") << pipeline;
+  std::ofstream(directory / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto root = directory.string();
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  operator_api::CreateParam create{};
+  create.model_path = root.c_str();
+  create.cfg_file_name = "pipeline.conf";
+  create.max_frame_depth = 2;
+  create.compute_platform = operator_api::ComputePlatform::kCpu;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(op.Create(&raw_handle, &create), 0)
+      << operator_api::GetOperatorLastError();
+  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
+  const auto model = TranslationProbeModel::latest.lock();
+  ASSERT_NE(model, nullptr);
+  std::vector<std::string> requests{"张三在北京", "hello\n\"world\""};
+  const std::vector<uint64_t> request_ids{987654321, 17};
+  const std::vector<std::string> entities{"[\"PERSON:张三\"]",
+                                          std::string("left\0right", 10)};
+  const std::vector<std::string> summaries{"```json\n{\"raw\":true}\n```",
+                                           "plain summary"};
+  std::vector<CompanyString> sentences;
+  std::vector<CompanyOperatorEntityInput> carriers;
+  sentences.reserve(requests.size());
+  carriers.reserve(requests.size());
+  operator_api::NamedIoBatch inputs(requests.size()), outputs(requests.size());
+  for (size_t i = 0; i < requests.size(); ++i) {
+    model->responses["entities=" + requests[i]] = entities[i];
+    model->responses["summary=" + requests[i]] = summaries[i];
+    sentences.push_back(
+        {static_cast<int32_t>(requests[i].size()), requests[i].data()});
+    carriers.push_back(
+        {request_ids[i], kMockServiceEntityExtract, &sentences.back()});
+    inputs[i]["test.entity_in"] =
+        operator_api::MakeBorrowedOperatorInput(&carriers.back());
+    outputs[i]["test.entity_out"] = nullptr;
+  }
+  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), 0)
+      << operator_api::GetOperatorLastError();
+  ASSERT_EQ(model->calls.size(), 2u);
+  for (size_t endpoint = 0; endpoint < model->calls.size(); ++endpoint) {
+    ASSERT_EQ(model->calls[endpoint].size(), requests.size());
+    const std::string prefix = endpoint == 0 ? "entities=" : "summary=";
+    for (size_t i = 0; i < requests.size(); ++i) {
+      EXPECT_EQ(model->calls[endpoint][i].data, prefix + requests[i]);
+      EXPECT_EQ(model->calls[endpoint][i].req_id, i);
+      EXPECT_EQ(model->calls[endpoint][i].sub_id, 0u);
+    }
+  }
+  ASSERT_EQ(outputs.size(), requests.size());
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    const auto* result = static_cast<CompanyOperatorEntityOutput*>(
+        outputs[i].at("test.entity_out").get());
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->request_id, request_ids[i]);
+    EXPECT_EQ(result->service_type, kMockServiceEntityExtract);
+    EXPECT_EQ(result->status_code, 0);
+    ASSERT_NE(result->entities_json, nullptr);
+    const auto response = nlohmann::json::parse(std::string(
+        result->entities_json->data, result->entities_json->length));
+    EXPECT_EQ(response, nlohmann::json({{"entities", entities[i]},
+                                        {"summary", summaries[i]}}));
+    EXPECT_TRUE(response["entities"].is_string());
+    EXPECT_TRUE(response["summary"].is_string());
+  }
+}
+
+TEST_F(AdapterContractSecurityTest,
        TranslationLiteralResultPackingAndCarrierSafety) {
-  const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "entity_out", "translate");
   ASSERT_NE(converter, nullptr);
   const std::string translation(2200, 'x');
   AlgContext large;
   std::vector<uint64_t> request_ids{123};
-  large.Publish(kLlmAnswers, TextBatch{{0, 0, translation}});
+  large.Publish(kTranslation, TextBatch{{0, 0, translation}});
   OutputEncodeOptions options;
-  options.converter_id = "translate.json";
+  const llm_edgeflow::IoPortBindings options_ports = {
+      {"translation", "translation"}};
+  options.ports = &options_ports;
+  options.type = "entity_out";
+  options.name = "translate";
   options.request_ids = &request_ids;
 
   AdapterStatus status;
@@ -336,7 +495,8 @@ TEST_F(AdapterContractSecurityTest,
   // 重排后的内部结果必须映射回外部请求 ID。
   AlgContext reordered;
   request_ids = {999, 123};
-  reordered.Publish(kLlmAnswers, TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
+  reordered.Publish(kTranslation,
+                    TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
   char buf_first[512] = {0};
   char buf_second[512] = {0};
   CompanyString cs_first{0, buf_first};
@@ -374,7 +534,7 @@ TEST_F(AdapterContractSecurityTest,
                               {{0, 0, "duplicate"}, {0, 0, "duplicate"}},
                               {{0, 0, "missing-second"}}}) {
     AlgContext ctx;
-    ctx.Publish(kLlmAnswers, invalid);
+    ctx.Publish(kTranslation, invalid);
     reordered_view.count = 2;
     EXPECT_EQ(
         converter->encode_fn(&ctx, options, &reordered_view, &written, &status),
@@ -386,7 +546,7 @@ TEST_F(AdapterContractSecurityTest,
       options.request_ids = &request_ids;
     } else {
       options.request_ids = nullptr;
-      missing.Publish(kLlmAnswers, TextBatch{{0, 0, "你好"}});
+      missing.Publish(kTranslation, TextBatch{{0, 0, "你好"}});
     }
     reordered_view.count = 1;
     EXPECT_EQ(converter->encode_fn(&missing, options, &reordered_view, &written,
@@ -395,93 +555,8 @@ TEST_F(AdapterContractSecurityTest,
   }
 }
 
-TEST_F(AdapterContractSecurityTest, DeploymentModelRootContractIsSandboxed) {
-  const std::string root_input = GetConfigPath("models");
-  const auto root = std::filesystem::absolute(root_input);
-  ASSERT_TRUE(std::filesystem::is_directory(root));
-
-  nlohmann::json pipeline_json = {
-      {"models", nlohmann::json::array({{{"model_path", "artifact.onnx"}}})}};
-  nlohmann::json resolved;
-  std::string diagnostic;
-
-  ASSERT_TRUE(ResolveDeploymentModelPaths(pipeline_json, root_input, &resolved,
-                                          &diagnostic))
-      << diagnostic;
-  EXPECT_EQ(std::filesystem::path(
-                resolved["models"][0]["model_path"].get<std::string>()),
-            std::filesystem::weakly_canonical(root / "artifact.onnx"));
-
-  for (const char* safe_path :
-       {"..name/artifact.onnx", "nested/../artifact.onnx"}) {
-    pipeline_json["models"][0]["model_path"] = safe_path;
-    ASSERT_TRUE(ResolveDeploymentModelPaths(pipeline_json, root_input,
-                                            &resolved, &diagnostic))
-        << safe_path << ": " << diagnostic;
-    EXPECT_EQ(std::filesystem::path(
-                  resolved["models"][0]["model_path"].get<std::string>()),
-              std::filesystem::weakly_canonical(root / safe_path));
-  }
-
-  diagnostic.clear();
-  EXPECT_FALSE(
-      ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("requires non-empty model_root_dir"),
-            std::string::npos);
-
-  pipeline_json["models"][0]["model_path"] = "../escape.onnx";
-  diagnostic.clear();
-  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, root.string(),
-                                           &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("cannot traverse"), std::string::npos);
-
-  const auto unique_suffix = std::to_string(
-      std::chrono::steady_clock::now().time_since_epoch().count());
-  const auto temp_base = std::filesystem::temp_directory_path() /
-                         ("edgeflow_resolver_" + unique_suffix);
-  const auto sandbox = temp_base / "sandbox";
-  const auto outside = temp_base / "outside";
-  std::filesystem::create_directories(sandbox);
-  std::filesystem::create_directories(outside);
-  std::filesystem::create_directory_symlink(outside, sandbox / "escape_link");
-  pipeline_json["models"][0]["model_path"] = "escape_link/artifact.onnx";
-  diagnostic.clear();
-  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
-                                           &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
-
-  pipeline_json["models"][0]["model_path"] =
-      (temp_base / "sandbox_extra/artifact.onnx").string();
-  diagnostic.clear();
-  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
-                                           &resolved, &diagnostic));
-  EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
-
-  pipeline_json["models"][0]["model_path"] =
-      (sandbox / "absolute.onnx").string();
-  EXPECT_TRUE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
-                                          &resolved, &diagnostic))
-      << diagnostic;
-  std::filesystem::remove_all(temp_base);
-
-  pipeline_json["models"][0]["model_path"] =
-      std::filesystem::weakly_canonical(root / "absolute.onnx").string();
-  diagnostic.clear();
-  EXPECT_TRUE(
-      ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic))
-      << diagnostic;
-
-  diagnostic.clear();
-  const nlohmann::json model_less_pipeline = {
-      {"biz_name", "model_less"}, {"models", nlohmann::json::array()}};
-  EXPECT_TRUE(ResolveDeploymentModelPaths(model_less_pipeline,
-                                          "/path/unused/by/model-less-pipeline",
-                                          &resolved, &diagnostic))
-      << diagnostic;
-}
-
 TEST_F(AdapterContractSecurityTest,
-       InMemoryEntryResolvesArtifactRootBeforeCore) {
+       InMemoryEntryResolvesPipelineFilesBeforeCore) {
   const std::string config_path =
       GetConfigPath("demo/fixtures/mock/pipeline_doc_qa.json");
   std::ifstream config_stream(config_path);
@@ -489,14 +564,14 @@ TEST_F(AdapterContractSecurityTest,
   nlohmann::json pipeline_json;
   config_stream >> pipeline_json;
   ASSERT_EQ(pipeline_json["models"].size(), 2u);
-  pipeline_json["models"][0]["model_path"] = "embedding.fixture";
-  pipeline_json["models"][1]["model_path"] = "llm.fixture";
+  pipeline_json["models"][0]["file"] = "embedding.fixture";
+  pipeline_json["models"][1]["file"] = "llm.fixture";
 
   const std::filesystem::path model_root =
-      std::filesystem::weakly_canonical(GetConfigPath("models"));
+      std::filesystem::weakly_canonical(GetConfigPath("configs"));
   std::unique_ptr<ValidatedIoPlan> io_plan;
   std::string plan_err;
-  ASSERT_EQ(IoBindingResolver::ResolveFromPipelineJson(
+  ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(
                 pipeline_json, model_root.string(), &io_plan, &plan_err),
             0)
       << plan_err;
@@ -522,11 +597,11 @@ TEST_F(AdapterContractSecurityTest,
                                     .GetModelRegistration("llm_model");
   ASSERT_TRUE(embedding_registration.has_value());
   ASSERT_TRUE(llm_registration.has_value());
-  EXPECT_EQ(embedding_registration->resolved_model_path,
+  EXPECT_EQ(embedding_registration->model_file,
             std::filesystem::weakly_canonical(model_root / "embedding.fixture")
                 .string());
   EXPECT_EQ(
-      llm_registration->resolved_model_path,
+      llm_registration->model_file,
       std::filesystem::weakly_canonical(model_root / "llm.fixture").string());
 }
 
@@ -654,7 +729,11 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
   AdapterStatus status;
   std::vector<uint64_t> request_ids;
   InputDecodeOptions options;
-  options.converter_id = adapter.AdapterName();
+  const llm_edgeflow::IoPortBindings options_ports = {
+      {"tree_root_dtos", "tree_root_dtos"}};
+  options.ports = &options_ports;
+  options.type = adapter.AdapterName();
+  options.name = "common";
   options.request_ids = &request_ids;
   int ret = adapter.Unpack(inputs, 1, &ctx, options, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
@@ -679,8 +758,8 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
 // 4. COPY_IN 内存所有权深度隔离测试 (ADP-002, RECHECK-006)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
-  const auto* input_conv =
-      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
+  const auto* input_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword_in", "keyword_match");
   ASSERT_NE(input_conv, nullptr);
 
   // 创建动态可修改的原始缓冲区
@@ -690,6 +769,7 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   CompanyString cs{static_cast<int32_t>(std::strlen(caller_buf)), caller_buf};
   CompanyOperatorKeywordInput in_struct;
   in_struct.request_id = 9999;
+  in_struct.service_type = kMockServiceKeywordMatch;
   in_struct.sentence_text = &cs;
 
   ExternalInputBatchView in_view;
@@ -697,7 +777,11 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   in_view.slots["keyword_in"] = llm_edgeflow::BorrowInputForTest({&in_struct});
   in_view.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
   InputDecodeOptions in_options;
-  in_options.converter_id = "keyword.plain";
+  const llm_edgeflow::IoPortBindings in_options_ports = {
+      {"sentence_text", "sentence_text"}};
+  in_options.ports = &in_options_ports;
+  in_options.type = "keyword_in";
+  in_options.name = "keyword_match";
   std::vector<uint64_t> request_ids;
   in_options.request_ids = &request_ids;
 
@@ -711,7 +795,7 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   caller_buf[sizeof(caller_buf) - 1] = '\0';
 
   // 验证 AlgContext 中的 DTO 保持原有数据完全不受外界内存修改影响 (物理深拷贝)
-  auto* sentences = ctx.Read(kInputSentences);
+  auto* sentences = ctx.Read(kSentenceText);
   ASSERT_NE(sentences, nullptr);
   ASSERT_EQ(sentences->size(), 1U);
   EXPECT_EQ((*sentences)[0].data, "设备系统初始化自检正常");
@@ -742,42 +826,6 @@ TEST_F(AdapterContractSecurityTest, OutputStringTruncationRejection) {
   EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_FALSE(status.IsOk());
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-}
-
-// ---------------------------------------------------------------------------
-// 6. Pipeline 绑定精确白名单与 Fail-Closed 校验 (RECHECK-002)
-// ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
-  const auto* binding =
-      IoBindingRegistry::Instance().FindBinding("keyword_match");
-  ASSERT_NE(binding, nullptr);
-
-  // 6.1 精确匹配成功
-  EXPECT_EQ(binding->biz_name, "keyword_match");
-
-  // 6.2 包含子串的伪造名称 / 大小写不匹配 / 空白名称均严格拒绝 (Fail-Closed)
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("keyword_match_fake"),
-            nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("my_keyword_match"),
-            nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("KEYWORD_MATCH"),
-            nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(" keyword_match"),
-            nullptr);
-  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(""), nullptr);
-
-  // 6.3 Operator Create 阶段使用非法配置创建句柄立即失败 (-2)
-  operator_api::CreateParam param{};
-  param.model_path = "./models";
-  param.cfg_file_name = "pipeline_dialogue_audit.json";
-  param.device_id = 0;
-  param.compute_platform = operator_api::ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-  int create_ret = op.Create(&handle, &param);
-  EXPECT_NE(create_ret, 0);
-  EXPECT_EQ(handle, nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -835,7 +883,7 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
         CompanyString cs{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
         CompanyOperatorKeywordInput in_req{static_cast<uint64_t>(t * 1000 + it),
-                                           &cs};
+                                           kMockServiceKeywordMatch, &cs};
 
         operator_api::NamedIoBatch inputs(1);
         inputs[0]["client_channel.keyword_in"] =
@@ -870,15 +918,16 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
 // 跨样本的载体错误与 biz 解码错误的优先级
 TEST_F(AdapterContractSecurityTest,
        TranslationCrossSampleCarrierVsBizErrorPriority) {
-  const auto* converter =
-      IoConverterRegistry::Instance().FindInputConverter("translate.json");
+  const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+      "entity_in", "translate");
   ASSERT_NE(converter, nullptr);
 
   // 样本 0 有载体错误 (字符串超长)
   std::string oversized(64 * 1024 + 1, 'z');
   CompanyString cs_oversized{static_cast<int32_t>(oversized.size()),
                              const_cast<char*>(oversized.data())};
-  CompanyOperatorEntityInput in_carrier{101, &cs_oversized};
+  CompanyOperatorEntityInput in_carrier{101, kMockServiceTranslate,
+                                        &cs_oversized};
 
   ExternalInputBatchView carrier_view;
   carrier_view.count = 1;
@@ -887,7 +936,10 @@ TEST_F(AdapterContractSecurityTest,
   carrier_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   InputDecodeOptions options;
-  options.converter_id = "translate.json";
+  const llm_edgeflow::IoPortBindings options_ports = {{"query", "query"}};
+  options.ports = &options_ports;
+  options.type = "entity_in";
+  options.name = "translate";
 
   AlgContext carrier_ctx;
   AdapterStatus carrier_status;
@@ -897,11 +949,11 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(carrier_status.SampleIndex(), 0);
   EXPECT_EQ(carrier_status.FieldPath(), "sentence_text");
 
-  // 纯 biz 解码错误保留 translate.json Converter 名称
+  // 业务解码错误使用所选 Converter 的 type/name 标签
   std::string bad_json = "{\"wrong_field\":123}";
   CompanyString cs_biz{static_cast<int32_t>(bad_json.size()),
                        const_cast<char*>(bad_json.data())};
-  CompanyOperatorEntityInput in_biz{103, &cs_biz};
+  CompanyOperatorEntityInput in_biz{103, kMockServiceTranslate, &cs_biz};
   ExternalInputBatchView biz_view;
   biz_view.count = 1;
   biz_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&in_biz});
@@ -911,15 +963,15 @@ TEST_F(AdapterContractSecurityTest,
   AdapterStatus biz_status;
   EXPECT_EQ(converter->decode_fn(biz_view, options, &biz_ctx, &biz_status),
             COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(biz_status.AdapterName(), "translate.json");
+  EXPECT_EQ(biz_status.AdapterName(), "entity_in/translate");
   EXPECT_EQ(biz_status.FieldPath(), "json");
 }
 
 // 返回码与 AdapterStatus 相互独立
 TEST_F(AdapterContractSecurityTest,
        TranslationReturnCodeAndAdapterStatusIndependence) {
-  const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "entity_out", "translate");
   ASSERT_NE(converter, nullptr);
 
   // 存在请求 ID 表，但缺少答案
@@ -933,7 +985,11 @@ TEST_F(AdapterContractSecurityTest,
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
   OutputEncodeOptions options;
-  options.converter_id = "translate.json";
+  const llm_edgeflow::IoPortBindings options_ports = {
+      {"translation", "translation"}};
+  options.ports = &options_ports;
+  options.type = "entity_out";
+  options.name = "translate";
   options.request_ids = &request_ids;
 
   size_t written = 0;
@@ -948,15 +1004,15 @@ TEST_F(AdapterContractSecurityTest,
 // 翻译序列化失败 (非法 UTF-8) 优先于容量检查
 TEST_F(AdapterContractSecurityTest,
        TranslationSerializationFailurePriorityOverCapacity) {
-  const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "entity_out", "translate");
   ASSERT_NE(converter, nullptr);
 
   // 存在请求 ID 表，但答案含非法 UTF-8 字节序列
   AlgContext ctx;
   const std::vector<uint64_t> request_ids{1001};
   std::string invalid_utf8 = "prefix\xFF\xFFsuffix";
-  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, invalid_utf8}});
+  ctx.Publish(kTranslation, TextBatch{{0, 0, invalid_utf8}});
 
   CompanyOperatorEntityOutput out{};
   ExternalOutputBatchView view;
@@ -965,7 +1021,11 @@ TEST_F(AdapterContractSecurityTest,
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
   OutputEncodeOptions options;
-  options.converter_id = "translate.json";
+  const llm_edgeflow::IoPortBindings options_ports = {
+      {"translation", "translation"}};
+  options.ports = &options_ports;
+  options.type = "entity_out";
+  options.name = "translate";
   options.request_ids = &request_ids;
 
   size_t written = 0;
@@ -979,25 +1039,28 @@ TEST_F(AdapterContractSecurityTest,
 
 // 翻译在 AlgContext 为空时的诊断
 TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("translate.json");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "entity_in", "translate");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "entity_out", "translate");
   ASSERT_NE(out_conv, nullptr);
 
   // 1. context 为空时 Decode 必须返回 INVALID_INPUT (-3)，字段为 "context"
   std::string query_json = "{\"query\":\"test\"}";
   CompanyString cs{static_cast<int32_t>(query_json.size()),
                    const_cast<char*>(query_json.data())};
-  CompanyOperatorEntityInput input{100, &cs};
+  CompanyOperatorEntityInput input{100, kMockServiceTranslate, &cs};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&input});
   in_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   InputDecodeOptions in_options;
-  in_options.converter_id = "translate.json";
+  const llm_edgeflow::IoPortBindings in_options_ports = {{"query", "query"}};
+  in_options.ports = &in_options_ports;
+  in_options.type = "entity_in";
+  in_options.name = "translate";
 
   AdapterStatus unpack_status;
   int unpack_ret =
@@ -1005,7 +1068,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   EXPECT_EQ(unpack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.FieldPath(), "context");
-  EXPECT_EQ(unpack_status.AdapterName(), "translate.json");
+  EXPECT_EQ(unpack_status.AdapterName(), "entity_in/translate");
 
   EXPECT_EQ(in_conv->decode_fn(in_view, in_options, nullptr, nullptr),
             COMPANY_ALG_ERR_INVALID_INPUT);
@@ -1018,7 +1081,11 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   out_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
   OutputEncodeOptions out_options;
-  out_options.converter_id = "translate.json";
+  const llm_edgeflow::IoPortBindings out_options_ports = {
+      {"translation", "translation"}};
+  out_options.ports = &out_options_ports;
+  out_options.type = "entity_out";
+  out_options.name = "translate";
 
   size_t written = 0;
   AdapterStatus pack_status;
@@ -1027,7 +1094,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.FieldPath(), "context");
-  EXPECT_EQ(pack_status.AdapterName(), "translate.json");
+  EXPECT_EQ(pack_status.AdapterName(), "entity_out/translate");
 
   EXPECT_EQ(
       out_conv->encode_fn(nullptr, out_options, &out_view, &written, nullptr),
@@ -1036,33 +1103,41 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
 
 TEST_F(AdapterContractSecurityTest,
        DecodeAndEncodeRejectMissingRequestIdTable) {
-  const auto* input =
-      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
-  const auto* output =
-      IoConverterRegistry::Instance().FindOutputConverter("keyword.result");
+  const auto* input = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword_in", "keyword_match");
+  const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
+      "keyword_out", "keyword_match");
   ASSERT_NE(input, nullptr);
   ASSERT_NE(output, nullptr);
   char bytes[] = "query";
   CompanyString text{5, bytes};
-  CompanyOperatorKeywordInput row{900001, &text};
+  CompanyOperatorKeywordInput row{900001, kMockServiceKeywordMatch, &text};
   ExternalInputBatchView source;
   source.count = 1;
   source.slots["keyword_in"] = BorrowInputForTest({&row});
   source.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
   InputDecodeOptions in_options;
-  in_options.converter_id = input->converter_id;
+  const llm_edgeflow::IoPortBindings in_options_ports =
+      llm_edgeflow::test::ConverterPortsForTest(*input);
+  in_options.ports = &in_options_ports;
+  in_options.type = input->type;
+  in_options.name = input->name;
   AlgContext context;
   AdapterStatus status;
   EXPECT_EQ(input->decode_fn(source, in_options, &context, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");
-  EXPECT_EQ(status.AdapterName(), input->converter_id);
+  EXPECT_EQ(status.AdapterName(), input->Label());
   EXPECT_EQ(status.Message(), "Missing request id table in decode options");
-  EXPECT_FALSE(context.Has("input_sentences"));
+  EXPECT_FALSE(context.Has("sentence_text"));
 
-  ASSERT_TRUE(context.Publish(kRuleMatches, RuleMatchBatch{{0, 0, {}}}));
+  ASSERT_TRUE(context.Publish(kMatches, RuleMatchBatch{{0, 0, {}}}));
   OutputEncodeOptions out_options;
-  out_options.converter_id = output->converter_id;
+  const llm_edgeflow::IoPortBindings out_options_ports =
+      llm_edgeflow::test::ConverterPortsForTest(*output);
+  out_options.ports = &out_options_ports;
+  out_options.type = output->type;
+  out_options.name = output->name;
   CompanyOperatorKeywordOutput result{};
   result.request_id = 123;
   ExternalOutputBatchView destination;
@@ -1074,7 +1149,7 @@ TEST_F(AdapterContractSecurityTest,
       output->encode_fn(&context, out_options, &destination, &written, &status),
       COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");
-  EXPECT_EQ(status.AdapterName(), output->converter_id);
+  EXPECT_EQ(status.AdapterName(), output->Label());
   EXPECT_EQ(status.Message(), "Missing request id table in encode options");
   EXPECT_EQ(written, 0U);
   EXPECT_EQ(result.request_id, 123U);
@@ -1082,63 +1157,68 @@ TEST_F(AdapterContractSecurityTest,
 
 TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
   struct Boundary {
-    const char* converter;
+    const char* type;
+    const char* name;
+    int32_t service_type;
     const char* field;
     size_t limit;
     const char* message;
   };
   // 数值期望与实现中的常量保持独立。
   const Boundary boundaries[] = {
-      {"keyword.plain", "sentence_text", 65536,
+      {"keyword_in", "keyword_match", kMockServiceKeywordMatch, "sentence_text",
+       65536, "sentence_text length exceeds 64 KiB limit"},
+      {"entity_in", "entity_extract", kMockServiceEntityExtract,
+       "sentence_text", 65536, "sentence_text length exceeds 64 KiB limit"},
+      {"entity_in", "translate", kMockServiceTranslate, "sentence_text", 65536,
        "sentence_text length exceeds 64 KiB limit"},
-      {"text.plain", "sentence_text", 65536,
-       "sentence_text length exceeds 64 KiB limit"},
-      {"translate.json", "sentence_text", 65536,
-       "sentence_text length exceeds 64 KiB limit"},
-      {"audit.plain", "audit_in.user_text", 65536,
-       "user_text length exceeds limit"},
-      {"doc_query.plain", "doc_in.query_text", 65536,
+      {"audit_in", "dialogue_audit", kMockServiceDialogueAudit,
+       "audit_in.user_text", 65536, "user_text length exceeds limit"},
+      {"doc_in", "doc_qa", kMockServiceDocQa, "doc_in.query_text", 65536,
        "query_text length exceeds limit"},
-      {"doc_query.plain", "doc_in.doc_text", 10485760,
+      {"doc_in", "doc_qa", kMockServiceDocQa, "doc_in.doc_text", 10485760,
        "doc_text length exceeds limit"},
-      {"image_query.plain", "frame.image_uri", 4096,
-       "image_uri length exceeds limit"},
-      {"image_query.plain", "string", 65536, "query length exceeds limit"},
-      {"rerank.plain", "rerank_in.query_text", 65536,
-       "query_text length exceeds limit"},
-      {"rerank.plain", "rerank_in.candidate_passages", 65536,
+      {"frame", "ocr_invoice_qa", kMockServiceOcrInvoiceQa, "frame.image_uri",
+       4096, "image_uri length exceeds limit"},
+      {"string", "ocr_invoice_qa", 0, "string", 65536,
+       "query length exceeds limit"},
+      {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
+       "rerank_in.query_text", 65536, "query_text length exceeds limit"},
+      {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
+       "rerank_in.candidate_passages", 65536,
        "candidate passage length exceeds limit"},
-      {"rerank.plain", "rerank_in.candidate_count", 8,
+      {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
+       "rerank_in.candidate_count", 8,
        "candidate_count out of valid range [1, 8]"},
   };
   for (const auto& boundary : boundaries) {
-    const std::string id = boundary.converter;
+    const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+        boundary.type, boundary.name);
+    ASSERT_NE(converter, nullptr) << boundary.type << "/" << boundary.name;
+    const std::string label = converter->Label();
+    const std::string type = boundary.type;
     const std::string field = boundary.field;
-    const auto* converter =
-        IoConverterRegistry::Instance().FindInputConverter(id);
-    ASSERT_NE(converter, nullptr) << id;
-    std::unordered_map<std::string, std::string> mapping;
-    for (const auto& port : converter->logical_ports)
-      mapping.emplace(port.logical_name, port.logical_name);
     for (size_t extra : {0U, 1U}) {
-      SCOPED_TRACE(id + " " + field + " +" + std::to_string(extra));
+      SCOPED_TRACE(label + " " + field + " +" + std::to_string(extra));
       std::string text(boundary.limit + extra, 'x');
-      if (id == "translate.json") {
+      if (converter->name == "translate") {
         text = "{\"query\":\"" + std::string(text.size() - 12, 'x') + "\"}";
       }
       CompanyString large{static_cast<int32_t>(text.size()), text.data()};
       char short_text[] = "query";
       CompanyString small{5, short_text};
-      CompanyOperatorKeywordInput keyword{101, &large};
-      CompanyOperatorEntityInput entity{101, &large};
-      CompanyOperatorAuditInput audit{101, &large, nullptr};
+      const int32_t service_type = boundary.service_type;
+      CompanyOperatorKeywordInput keyword{101, service_type, &large};
+      CompanyOperatorEntityInput entity{101, service_type, &large};
+      CompanyOperatorAuditInput audit{101, service_type, &large, nullptr};
       CompanyOperatorDocInput doc{
-          101, field == "doc_in.doc_text" ? &large : &small,
+          101, service_type, field == "doc_in.doc_text" ? &large : &small,
           field == "doc_in.query_text" ? &large : &small};
-      CompanyFrame frame{101, field == "frame.image_uri" ? &large : &small,
-                         nullptr};
+      CompanyFrame frame{101, service_type,
+                         field == "frame.image_uri" ? &large : &small, nullptr};
       CompanyOperatorRerankInput rerank{};
       rerank.request_id = 101;
+      rerank.service_type = service_type;
       rerank.query_text = field == "rerank_in.query_text" ? &large : &small;
       rerank.candidate_count =
           field == "rerank_in.candidate_count"
@@ -1149,33 +1229,36 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
 
       ExternalInputBatchView view;
       view.count = 1;
-      for (const auto& slot : converter->external_slots)
-        view.slot_types[slot.slot_name] = slot.type_id;
-      if (id == "keyword.plain")
-        view.slots["keyword_in"] = BorrowInputForTest({&keyword});
-      else if (id == "text.plain" || id == "translate.json")
-        view.slots["entity_in"] = BorrowInputForTest({&entity});
-      else if (id == "audit.plain")
-        view.slots["audit_in"] = BorrowInputForTest({&audit});
-      else if (id == "doc_query.plain")
-        view.slots["doc_in"] = BorrowInputForTest({&doc});
-      else if (id == "image_query.plain") {
-        view.slots["frame"] = BorrowInputForTest({&frame});
-        view.slots["string"] =
-            BorrowInputForTest({field == "string" ? &large : &small});
-      } else
-        view.slots["rerank_in"] = BorrowInputForTest({&rerank});
+      view.slot_types[converter->type] = converter->slot.type_id;
+      if (type == "keyword_in")
+        view.slots[type] = BorrowInputForTest({&keyword});
+      else if (type == "entity_in")
+        view.slots[type] = BorrowInputForTest({&entity});
+      else if (type == "audit_in")
+        view.slots[type] = BorrowInputForTest({&audit});
+      else if (type == "doc_in")
+        view.slots[type] = BorrowInputForTest({&doc});
+      else if (type == "frame")
+        view.slots[type] = BorrowInputForTest({&frame});
+      else if (type == "string")
+        view.slots[type] = BorrowInputForTest({&large});
+      else
+        view.slots[type] = BorrowInputForTest({&rerank});
       AlgContext context;
       AdapterStatus status;
       InputDecodeOptions options;
-      options.converter_id = id;
+      const llm_edgeflow::IoPortBindings options_ports =
+          llm_edgeflow::test::ConverterPortsForTest(*converter);
+      options.ports = &options_ports;
+      options.type = converter->type;
+      options.name = converter->name;
       std::vector<uint64_t> request_ids;
       options.request_ids = &request_ids;
       const int result = converter->decode_fn(view, options, &context, &status);
       EXPECT_EQ(result, extra == 0 ? 0 : COMPANY_ALG_ERR_INVALID_INPUT);
       EXPECT_EQ(status.ToString(),
                 extra == 0 ? "OK"
-                           : "[AdapterStatus] Error -3 in Adapter [" + id +
+                           : "[AdapterStatus] Error -3 in Adapter [" + label +
                                  "] at sample [0] field `" + field +
                                  "`: " + boundary.message);
     }
@@ -1236,7 +1319,7 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
   for (size_t length : {65536U, 65537U}) {
     std::string text(length, 'x');
     CompanyString cs{static_cast<int32_t>(length), text.data()};
-    CompanyOperatorKeywordInput keyword{101, &cs};
+    CompanyOperatorKeywordInput keyword{101, kMockServiceKeywordMatch, &cs};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["test.keyword_in"] = MakeBorrowedOperatorInput(&keyword);
     outputs[0]["test.keyword_out"] = nullptr;
@@ -1254,11 +1337,10 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
   source >> pipeline;
-  pipeline["models"][0]["model_type"] = "test_biz_rerank";
-  pipeline["models"][0]["backend"] = "test_tensor_backend";
-  pipeline["models"][0]["model_path"] = "boundary.fixture";
-  pipeline["models"][0]["model_config"] = nlohmann::json::object();
-  pipeline["models"][0]["backend_config"] = nlohmann::json::object();
+  pipeline["models"][0]["type"] = "rerank";
+  pipeline["models"][0]["backend"] = {{"type", "test_tensor_backend"}};
+  pipeline["models"][0]["file"] = "boundary.fixture";
+  pipeline["models"][0]["params"] = nlohmann::json::object();
   std::ofstream(directory / "pipeline.json") << pipeline.dump();
   std::ofstream(directory / "pipeline.conf")
       << "{\"pipe_path\":\"pipeline.json\"}";
@@ -1270,6 +1352,7 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
     CompanyString query{5, query_text};
     CompanyOperatorRerankInput rerank{};
     rerank.request_id = 101;
+    rerank.service_type = kMockServiceCrossRerank;
     rerank.query_text = &query;
     rerank.candidate_count = 1;
     rerank.candidate_passages[0] = &passage;
@@ -1278,8 +1361,8 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
     outputs[0]["test.rerank_out"] = nullptr;
     check(conf.c_str(), inputs, outputs, -3,
           length == 65537
-              ? "DecodeInput failed for rerank.plain: "
-                "[AdapterStatus] Error -3 in Adapter [rerank.plain] "
+              ? "DecodeInput failed for rerank_in/cross_rerank: "
+                "[AdapterStatus] Error -3 in Adapter [rerank_in/cross_rerank] "
                 "at sample [0] field `rerank_in.candidate_passages`: candidate "
                 "passage length exceeds limit"
               : "Validation failed for input key test.rerank_in: "
@@ -1292,7 +1375,7 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
     CompanyString uri{static_cast<int32_t>(length), path.data()};
     char query_text[] = "query";
     CompanyString query{5, query_text};
-    CompanyFrame frame{101, &uri, nullptr};
+    CompanyFrame frame{101, kMockServiceOcrInvoiceQa, &uri, nullptr};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["test.frame"] = MakeBorrowedOperatorInput(&frame);
     inputs[0]["test.string"] = MakeBorrowedOperatorInput(&query);
@@ -1324,21 +1407,64 @@ TEST_F(AdapterContractSecurityTest,
   // 关键词和规则命中、类型化规则常量、正则捕获以及默认命中
   // 都会进入外部 JSON 响应。
   const nlohmann::json pipeline = nlohmann::json::parse(R"j({
-    "deployment": {"io": {"io_binding": "keyword_match"}},
-    "models": [],
-    "pipeline": [{
-      "id": "rules", "node_type": "TextRuleMatchNode",
-      "inputs": {"text": "input_sentences"},
-      "outputs": {"matches": "rule_matches"},
-      "config": {
-        "categories": {"A": ["x"]},
+  "io": {
+    "input": [
+      {
+        "type": "keyword_in",
+        "name": "keyword_match"
+      }
+    ],
+    "output": [
+      {
+        "type": "keyword_out",
+        "name": "keyword_match",
+        "inputs": {
+          "matches": "rules.matches"
+        }
+      }
+    ]
+  },
+  "models": [],
+  "pipeline": [
+    {
+      "inputs": {
+        "text": "input.sentence_text"
+      },
+      "name": "rules",
+      "type": "text_rule_match",
+      "params": {
+        "categories": {
+          "A": [
+            "x"
+          ]
+        },
         "rules": [
-          {"id": "r_nav", "strategy": "regex", "pattern": "导航到(?<city>北京)",
-           "category": "NAV", "score": 0.75,
-           "constants": {"flag": true, "n": 3, "s": "v"}},
-          {"id": "r_y", "strategy": "contains", "pattern": "y",
-           "category": "B", "score": 0.5}],
-        "default_category": "FALLBACK", "default_score": 0.25}}]})j");
+          {
+            "id": "r_nav",
+            "strategy": "regex",
+            "pattern": "导航到(?<city>北京)",
+            "category": "NAV",
+            "score": 0.75,
+            "constants": {
+              "flag": true,
+              "n": 3,
+              "s": "v"
+            }
+          },
+          {
+            "id": "r_y",
+            "strategy": "contains",
+            "pattern": "y",
+            "category": "B",
+            "score": 0.5
+          }
+        ],
+        "default_category": "FALLBACK",
+        "default_score": 0.25
+      }
+    }
+  ]
+})j");
   std::ofstream(directory / "pipeline.json") << pipeline.dump();
   std::ofstream(directory / "pipeline.conf")
       << "{\"pipe_path\":\"pipeline.json\"}";
@@ -1357,8 +1483,8 @@ TEST_F(AdapterContractSecurityTest,
   CompanyString hit{static_cast<int32_t>(hit_text.size()), hit_text.data()};
   CompanyString fallback{static_cast<int32_t>(fallback_text.size()),
                          fallback_text.data()};
-  CompanyOperatorKeywordInput first{301, &hit};
-  CompanyOperatorKeywordInput second{302, &fallback};
+  CompanyOperatorKeywordInput first{301, kMockServiceKeywordMatch, &hit};
+  CompanyOperatorKeywordInput second{302, kMockServiceKeywordMatch, &fallback};
   operator_api::NamedIoBatch inputs(2), outputs(2);
   inputs[0]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&first);
   inputs[1]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&second);
@@ -1403,19 +1529,59 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
     }
   } cleanup{directory};
   nlohmann::json pipeline = nlohmann::json::parse(R"j({
-    "deployment": {"io": {"io_binding": "entity_extract"}},
-    "models": [{"model_id": "llm", "model_type": "qwen_causal_lm",
-                "backend": "test_causal_lm_backend",
-                "model_path": "neutral-llm.fixture",
-                "model_config": {}, "backend_config": {}}],
-    "pipeline": [
-      {"id": "gen", "node_type": "LlmGenerateNode",
-       "config": {"bind_model": "llm"},
-       "inputs": {"prompt": "input_sentences"}, "outputs": {"text": "raw"}},
-      {"id": "parse", "node_type": "StructuredJsonParseNode",
-       "config": {"failure_policy": "fail"},
-       "inputs": {"text": "raw"},
-       "outputs": {"document": "extracted_entities"}}]})j");
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "entity_extract"
+      }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "entity_extract",
+        "inputs": {
+          "entities": "parse.document"
+        }
+      }
+    ]
+  },
+  "models": [
+    {
+      "name": "llm",
+      "type": "llm",
+      "backend": {
+        "type": "test_causal_lm_backend"
+      },
+      "file": "neutral-llm.fixture"
+    }
+  ],
+  "pipeline": [
+    {
+      "inputs": {
+        "input": "input.sentence_text"
+      },
+      "name": "gen",
+      "type": "llm_generate",
+      "params": {
+        "bind_model": "llm",
+        "endpoints": {
+          "answer": {}
+        }
+      }
+    },
+    {
+      "inputs": {
+        "text": "gen.text"
+      },
+      "name": "parse",
+      "type": "structured_json_parse",
+      "params": {
+        "failure_policy": "fail"
+      }
+    }
+  ]
+})j");
   std::ofstream(directory / "pipeline.conf")
       << "{\"pipe_path\":\"pipeline.json\"}";
   auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
@@ -1431,14 +1597,14 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
   // 校验失败和模型加载失败都属于创建参数错误。
   void* handle = nullptr;
   auto invalid = pipeline;
-  invalid["pipeline"][1]["node_type"] = "MissingNodeType";
+  invalid["pipeline"][1]["type"] = "missing_node_type";
   EXPECT_EQ(create(invalid, &handle), COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(operator_api::GetOperatorLastError())
                 .find("Create preparation failed with internal code -3: "),
             std::string::npos)
       << operator_api::GetOperatorLastError();
   auto unloadable = pipeline;
-  unloadable["models"][0]["model_type"] = FailingCreateModel::kModelType;
+  unloadable["models"][0]["backend"] = {{"type", "failing_create_backend"}};
   EXPECT_EQ(create(unloadable, &handle), COMPANY_ALG_ERR_INVALID_PARAM);
   const std::string load_error = operator_api::GetOperatorLastError();
   EXPECT_NE(load_error.find("Create preparation failed with internal code -3"),
@@ -1455,14 +1621,14 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
   // 测试 Backend 返回纯文本，因此 fail 策略会拒绝它。
   std::string text = "张三在北京";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorEntityInput input{11, &sentence};
+  CompanyOperatorEntityInput input{11, kMockServiceEntityExtract, &sentence};
   operator_api::NamedIoBatch inputs(1), outputs(1);
   inputs[0]["e.entity_in"] = operator_api::MakeBorrowedOperatorInput(&input);
   outputs[0]["e.entity_out"] = nullptr;
   EXPECT_EQ(op.Process(handle, inputs, outputs), COMPANY_ALG_ERR_UNKNOWN);
   const std::string error = operator_api::GetOperatorLastError();
   EXPECT_NE(error.find("Pipeline execution failed with internal code -6102: "
-                       "Node 'parse' (StructuredJsonParseNode)"),
+                       "Node 'parse' (structured_json_parse)"),
             std::string::npos)
       << error;
   EXPECT_EQ(outputs[0]["e.entity_out"], nullptr);

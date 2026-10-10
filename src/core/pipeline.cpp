@@ -34,11 +34,11 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 
   for (const auto& model_plan : plan.models) {
     ModelLoadSpec spec;
-    spec.model_type = model_plan.model_type;
-    spec.backend_type = model_plan.backend;
-    spec.model_path = model_plan.resolved_model_path;
-    spec.model_config = model_plan.normalized_model_config;
-    spec.backend_config = model_plan.normalized_backend_config;
+    spec.impl_name = model_plan.impl_name;
+    spec.backend_type = model_plan.backend_type;
+    spec.model_file = model_plan.model_file;
+    spec.model_params = model_plan.model_params;
+    spec.backend_params = model_plan.backend_params;
     const auto& runtime_options = session->GetRuntimeOptions();
     if (runtime_options.has_device_id) {
       spec.execution_target.device_id = runtime_options.device_id;
@@ -54,20 +54,20 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
         diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message = "Exception creating model '" +
-                              model_plan.model_id + "': " + e.what();
+                              model_plan.model_name + "': " + e.what();
       }
       ALG_LOG_ERROR("[Pipeline] Exception creating model [%s]: %s\n",
-                    model_plan.model_id.c_str(), e.what());
+                    model_plan.model_name.c_str(), e.what());
       return false;
     } catch (...) {
       if (diagnostic) {
         diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
-            "Unknown exception creating model '" + model_plan.model_id + "'";
+            "Unknown exception creating model '" + model_plan.model_name + "'";
       }
       ALG_LOG_ERROR("[Pipeline] Unknown exception creating model [%s]\n",
-                    model_plan.model_id.c_str());
+                    model_plan.model_name.c_str());
       return false;
     }
 
@@ -76,30 +76,30 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
         diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
-            "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
+            "ModelRuntimeFactory failed to load model: " +
+            model_plan.model_name +
             (factory_diag.empty() ? "" : (" (" + factory_diag + ")"));
       }
       ALG_LOG_ERROR("[Pipeline] Failed to load model [%s]: %s\n",
-                    model_plan.model_id.c_str(), factory_diag.c_str());
+                    model_plan.model_name.c_str(), factory_diag.c_str());
       return false;
     }
 
     ModelRegistration registration;
-    registration.model_id = model_plan.model_id;
+    registration.model_name = model_plan.model_name;
+    registration.impl_name = model_plan.impl_name;
     registration.model_type = model_plan.model_type;
-    registration.capability = model_plan.capability;
-    registration.backend_type = model_plan.backend;
-    registration.resolved_model_path = model_plan.resolved_model_path;
-    registration.normalized_model_config = model_plan.normalized_model_config;
-    registration.normalized_backend_config =
-        model_plan.normalized_backend_config;
+    registration.backend_type = model_plan.backend_type;
+    registration.model_file = model_plan.model_file;
+    registration.model_params = model_plan.model_params;
+    registration.backend_params = model_plan.backend_params;
     registration.model = std::move(model);
     staged_models.push_back(std::move(registration));
   }
 
   if (!session->GetModelManager().RegisterBatch(staged_models)) {
     if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kDuplicateModelId;
+      diagnostic->code = DiagnosticCode::kDuplicateModelName;
       diagnostic->path = "/models";
       diagnostic->message =
           "Failed to atomically register batch models in ModelManager";
@@ -132,14 +132,15 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
   for (size_t layer_index = 0;
        layer_index < plan.report.topological_layers.size(); ++layer_index) {
     std::vector<INode*> layer_nodes;
-    for (const auto& node_id : plan.report.topological_layers[layer_index]) {
-      auto plan_it = plan.node_plans.find(node_id);
+    for (const auto& node_name : plan.report.topological_layers[layer_index]) {
+      auto plan_it = plan.node_plans.find(node_name);
       if (plan_it == plan.node_plans.end()) {
         if (diagnostic) {
           diagnostic->code = DiagnosticCode::kInternalException;
           diagnostic->path = "/pipeline";
           diagnostic->message =
-              "Validated plan is missing node materialization data: " + node_id;
+              "Validated plan is missing node materialization data: " +
+              node_name;
         }
         return false;
       }
@@ -152,9 +153,8 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       } catch (const std::exception& e) {
         if (diagnostic) {
           diagnostic->code = DiagnosticCode::kNodeCreateFailed;
-          diagnostic->path = "/pipeline/" +
-                             std::to_string(node_config.source_index) +
-                             "/node_type";
+          diagnostic->path =
+              "/pipeline/" + std::to_string(node_config.source_index) + "/type";
           diagnostic->message = "Exception creating node '" +
                                 node_config.node_type + "': " + e.what();
         }
@@ -162,9 +162,8 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       } catch (...) {
         if (diagnostic) {
           diagnostic->code = DiagnosticCode::kNodeCreateFailed;
-          diagnostic->path = "/pipeline/" +
-                             std::to_string(node_config.source_index) +
-                             "/node_type";
+          diagnostic->path =
+              "/pipeline/" + std::to_string(node_config.source_index) + "/type";
           diagnostic->message =
               "Unknown exception creating node '" + node_config.node_type + "'";
         }
@@ -174,9 +173,8 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       if (!node) {
         if (diagnostic) {
           diagnostic->code = DiagnosticCode::kNodeCreateFailed;
-          diagnostic->path = "/pipeline/" +
-                             std::to_string(node_config.source_index) +
-                             "/node_type";
+          diagnostic->path =
+              "/pipeline/" + std::to_string(node_config.source_index) + "/type";
           diagnostic->message = "NodeRegistry returned null for node_type: " +
                                 node_config.node_type;
         }
@@ -198,7 +196,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
           diagnostic->code = DiagnosticCode::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
-                             "/config";
+                             "/params";
           diagnostic->message = "Exception initializing node '" +
                                 node_config.node_type + "': " + e.what();
         }
@@ -208,7 +206,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
           diagnostic->code = DiagnosticCode::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
-                             "/config";
+                             "/params";
           diagnostic->message = "Unknown exception initializing node '" +
                                 node_config.node_type + "'";
         }
@@ -220,21 +218,21 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
           diagnostic->code = DiagnosticCode::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
-                             "/config";
+                             "/params";
           diagnostic->message = "Failed to initialize node '" +
                                 node_config.node_type +
-                                "' (id: " + node_config.id + ")";
+                                "' (name: " + node_config.name + ")";
           if (!init_error.empty()) diagnostic->message += ": " + init_error;
         }
-        ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (id: %s)\n",
-                      node_config.node_type.c_str(), node_config.id.c_str());
+        ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (name: %s)\n",
+                      node_config.node_type.c_str(), node_config.name.c_str());
         return false;
       }
 
       layer_nodes.push_back(node.get());
       assembly->nodes.push_back(std::move(node));
-      ALG_LOG_DEBUG("[Pipeline] Initialized node [%s] (id: %s, layer: %zu)\n",
-                    node_config.node_type.c_str(), node_config.id.c_str(),
+      ALG_LOG_DEBUG("[Pipeline] Initialized node [%s] (name: %s, layer: %zu)\n",
+                    node_config.node_type.c_str(), node_config.name.c_str(),
                     layer_index);
     }
     assembly->node_layers.push_back(std::move(layer_nodes));
@@ -244,15 +242,15 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       "[Pipeline] DAG Wavefront Topology created with %zu execution layers:\n",
       assembly->node_layers.size());
   for (size_t i = 0; i < plan.report.topological_layers.size(); ++i) {
-    std::string node_ids;
+    std::string node_names;
     for (size_t j = 0; j < plan.report.topological_layers[i].size(); ++j) {
-      node_ids += plan.report.topological_layers[i][j];
-      if (j + 1 < plan.report.topological_layers[i].size()) node_ids += ", ";
+      node_names += plan.report.topological_layers[i][j];
+      if (j + 1 < plan.report.topological_layers[i].size()) node_names += ", ";
     }
     ALG_LOG_DEBUG(
         "  Layer %zu [%s]: %s\n", i,
         assembly->node_layers[i].size() > 1 ? "Parallel" : "Sequential",
-        node_ids.c_str());
+        node_names.c_str());
   }
   return true;
 }
@@ -260,11 +258,11 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 }  // namespace
 
 Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(
-    INode* node, AlgContext* req_ctx, std::string_view node_id) {
+    INode* node, AlgContext* req_ctx, std::string_view node_name) {
   if (!node) return {-1, "Null node pointer in pipeline execution"};
   if (!req_ctx) return {-1, "Null context in pipeline execution"};
   const auto failure = [&](int code, const std::string& message) {
-    return NodeExecutionResult{code, "Node '" + std::string(node_id) + "' (" +
+    return NodeExecutionResult{code, "Node '" + std::string(node_name) + "' (" +
                                          node->Name() + "): " + message};
   };
   (void)req_ctx->TakeCurrentThreadError();
@@ -455,10 +453,10 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       for (size_t i = 0; i < layer.size(); ++i) {
         auto* node = layer[i];
         try {
-          const std::string_view node_id =
+          const std::string_view node_name =
               plan_->report.topological_layers[layer_idx][i];
-          futures.push_back(thread_pool_->Submit([node, req_ctx, node_id]() {
-            return ExecuteNodeSafely(node, req_ctx, node_id);
+          futures.push_back(thread_pool_->Submit([node, req_ctx, node_name]() {
+            return ExecuteNodeSafely(node, req_ctx, node_name);
           }));
         } catch (const std::exception& e) {
           submission_error = "Failed to submit parallel node '" + node->Name() +
@@ -548,18 +546,18 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   if (parsed && payload.is_object() && payload.contains("$edgeflow_control")) {
     static const nlohmann::json envelope_schema = {
         {"type", "object"},
-        {"required", {"$edgeflow_control", "node_id", "payload"}},
+        {"required", {"$edgeflow_control", "node", "payload"}},
         {"additionalProperties", false},
         {"properties",
          {{"$edgeflow_control", {{"type", "integer"}, {"enum", {1}}}},
-          {"node_id", {{"type", "string"}}},
+          {"node", {{"type", "string"}}},
           {"payload", {{"type", "object"}}}}}};
     std::string detail;
     if (!ValidateControlPayload(payload, envelope_schema, &detail))
       return fail(-1, "Invalid targeted Control envelope: " + detail);
-    target_id = payload["node_id"].get<std::string>();
+    target_id = payload["node"].get<std::string>();
     if (target_id.empty())
-      return fail(-1, "Targeted Control node_id must not be empty");
+      return fail(-1, "Targeted Control node must not be empty");
     auto business_payload = payload["payload"];
     payload = std::move(business_payload);
     node_param = payload.dump();
@@ -597,7 +595,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
     }
   }
   if (!target_id.empty() && !target_found) {
-    return fail(-1, "Unknown Control target node_id: '" + target_id + "'");
+    return fail(-1, "Unknown Control target node: '" + target_id + "'");
   }
   if (targets.empty()) {
     return fail_at(

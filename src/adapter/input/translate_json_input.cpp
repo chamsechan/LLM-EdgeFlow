@@ -4,16 +4,18 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
+#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kQuery = MakeBlackboardKey<TextBatch>("query");
 
 constexpr const char* kInputSlot = "entity_in";
 
@@ -36,7 +38,7 @@ AdapterStatus DecodeTranslateQuery(const CompanyOperatorEntityInput& input,
         "sentence_text string pointer is null or invalid", "sentence_text");
   }
   if (static_cast<size_t>(input.sentence_text->length) >
-      biz_input::kMaxTextBytes) {
+      input_limits::kMaxTextBytes) {
     return AdapterStatus::InvalidInput(
         "sentence_text length exceeds 64 KiB limit", "sentence_text");
   }
@@ -51,16 +53,17 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, context, status, kInputSlot, kInputSentences,
+      source, options, context, status, kInputSlot, kQuery,
       &DecodeTranslateQuery);
 }
 
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "translate.json";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot)};
-  def.logical_ports = {OutputPort(kInputSentences)};
+  def.type = kInputSlot;
+  def.name = "translate";
+  def.service_type = kMockServiceTranslate;
+  def.slot = ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot);
+  def.logical_ports = {OutputPort(kQuery)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;
 }

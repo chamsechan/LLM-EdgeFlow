@@ -12,8 +12,7 @@ struct Inputs {
   const TextBatch* text = nullptr;
 };
 struct Params {
-  bool normalize{};
-  std::string lifetime;
+  bool cache = false;
 };
 struct Models {
   EmbeddingCall encoder;
@@ -25,16 +24,15 @@ void AppendUint64Le(std::string& buf, uint64_t value) {
   }
 }
 
-std::string ConstructSessionCacheKey(const std::string& model_id,
+std::string ConstructSessionCacheKey(const std::string& model_name,
                                      const std::string& revision,
-                                     bool normalize, const TextBatch& items) {
+                                     const TextBatch& items) {
   std::string key;
   key.append("SEM1", 4);
-  AppendUint64Le(key, model_id.size());
-  key.append(model_id.data(), model_id.size());
+  AppendUint64Le(key, model_name.size());
+  key.append(model_name.data(), model_name.size());
   AppendUint64Le(key, revision.size());
   key.append(revision.data(), revision.size());
-  key.push_back(normalize ? '\x01' : '\x00');
   AppendUint64Le(key, items.size());
   for (const auto& item : items) {
     AppendUint64Le(key, item.req_id);
@@ -50,22 +48,19 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
                                const SessionResources& resources) {
   const auto& text = *inputs.text;
   if (text.empty()) return NodeResult<EmbeddingBatch>::Success({});
-  EmbeddingOptions options;
-  options.normalize = params.normalize;
-  if (params.lifetime == "request") return models.encoder.Embed(text, options);
+  if (!params.cache) return models.encoder.Embed(text);
 
   SessionResourceKey<EmbeddingBatch> key(ConstructSessionCacheKey(
-      models.encoder.ModelId(),
-      resources.GetModelRevision(models.encoder.ModelId()), params.normalize,
-      text));
+      models.encoder.ModelName(),
+      resources.GetModelRevision(models.encoder.ModelName()), text));
   auto cached = resources.GetOrCreateResult<EmbeddingBatch>(
-      key, [&]() { return models.encoder.Embed(text, options); });
+      key, [&]() { return models.encoder.Embed(text); });
   if (!cached.ok())
     return NodeResult<EmbeddingBatch>::Failure(cached.failure());
   if (!cached.value()) {
     return NodeResult<EmbeddingBatch>::Failure(
         NodeErrorKind::kModelCallError,
-        "TextEmbeddingNode: single-flight inference failed",
+        "text_embedding: single-flight inference failed",
         node_error::text_embedding::kSessionInferenceFailed);
   }
   // 模型 facade 已校验缓存结果；PreservedOutput 在为本请求发布前
@@ -74,29 +69,22 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
 }
 
 auto Spec() {
-  const PortFlow flow{"1:1", "preserve", "request", "lifetime"};
+  const PortFlow flow{"1:1", "preserve", FollowLifetime("text")};
   return MakeNodeSpec(
-             InputsOf<Inputs>({Required("text", &Inputs::text, flow)}),
+             InputsOf<Inputs>({Required("text", &Inputs::text)}),
              PreservedOutput<EmbeddingBatch>("embedding", "text", flow),
-             Parameters<Params>(
-                 {Field("normalize", &Params::normalize)
-                      .Default(true)
-                      .Description("要求模型对输出向量做 L2 归一化。"),
-                  Field("lifetime", &Params::lifetime)
-                      .Default("request")
-                      .Enum({"request", "session"})
-                      .Description("request 每次请求计算；session "
-                                   "按模型版本、归一化选项和输入缓存向量，输入"
-                                   "须满足 session 生命周期契约。")}),
+             Parameters<Params>{}.Prepare(
+                 [](Params* params, const BindingFacts& facts, std::string*) {
+                   params->cache = facts.InputLifetime("text") == "session";
+                   return true;
+                 }),
              ModelsOf<Models>(
-                 {Model("encoder", "bind_model", &Models::encoder,
-                        "引用 models[].model_id；所选模型必须提供 embedding "
-                        "文本向量能力。")}),
+                 {Model("encoder", "bind_model", &Models::encoder)}),
              &Run)
       .Category("common")
       .Description("Text embedding extraction node")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextEmbeddingNode, Spec());
+REGISTER_FUNCTION_NODE(text_embedding, Spec());
 }  // namespace llm_edgeflow

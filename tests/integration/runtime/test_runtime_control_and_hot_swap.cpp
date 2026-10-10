@@ -34,35 +34,65 @@ namespace {
 
 nlohmann::json ControlInstancesPipeline() {
   return nlohmann::json::parse(R"({
-    "biz_name":"keyword_match", "models":[], "pipeline":[
-      {"id":"rules_a", "node_type":"TextRuleMatchNode", "depends_on":[],
-       "inputs":{"text":"input_sentences"},
-                "outputs":{"matches":"first_matches"},
-       "config":{"categories":{"INITIAL_A":["sample"]}}},
-      {"id":"rules_b", "node_type":"TextRuleMatchNode", "depends_on":[],
-       "inputs":{"text":"input_sentences"},
-                "outputs":{"matches":"rule_matches"},
-       "config":{"categories":{"INITIAL_B":["sample"]}}},
-      {"id":"template", "node_type":"TextTemplateNode", "depends_on":[],
-       "inputs":{"primary":"input_sentences"},
-                "outputs":{"text":"rendered"}}
-    ]})");
+  "models": [],
+  "pipeline": [
+    {
+      "depends_on": [],
+      "inputs": {
+        "text": "input.sentence_text"
+      },
+      "name": "rules_a",
+      "type": "text_rule_match",
+      "params": {
+        "categories": {
+          "INITIAL_A": [
+            "sample"
+          ]
+        }
+      }
+    },
+    {
+      "depends_on": [],
+      "inputs": {
+        "text": "input.sentence_text"
+      },
+      "name": "rules_b",
+      "type": "text_rule_match",
+      "params": {
+        "categories": {
+          "INITIAL_B": [
+            "sample"
+          ]
+        }
+      }
+    },
+    {
+      "depends_on": [],
+      "inputs": {
+        "primary": "input.sentence_text"
+      },
+      "name": "template",
+      "type": "text_template"
+    }
+  ]
+})");
 }
 
 nlohmann::json TargetedRules(const std::string& id,
                              const std::string& category) {
   const nlohmann::json payload = {{"categories", {{category, {"sample"}}}}};
-  return {{"$edgeflow_control", 1}, {"node_id", id}, {"payload", payload}};
+  return {{"$edgeflow_control", 1}, {"node", id}, {"payload", payload}};
 }
 
 void ExpectRuleCategories(llm_edgeflow::Pipeline* pipeline,
                           const std::string& first, const std::string& second) {
   using namespace llm_edgeflow;
   AlgContext context;
-  ASSERT_TRUE(context.Publish("input_sentences", TextBatch{{17, 0, "sample"}}));
+  ASSERT_TRUE(
+      context.Publish("input.sentence_text", TextBatch{{17, 0, "sample"}}));
   ASSERT_EQ(pipeline->Execute(&context), 0);
-  const auto* first_matches = context.Read<RuleMatchBatch>("first_matches");
-  const auto* second_matches = context.Read<RuleMatchBatch>("rule_matches");
+  const auto* first_matches = context.Read<RuleMatchBatch>("rules_a.matches");
+  const auto* second_matches = context.Read<RuleMatchBatch>("rules_b.matches");
   ASSERT_NE(first_matches, nullptr);
   ASSERT_NE(second_matches, nullptr);
   ASSERT_EQ(first_matches->size(), 1u);
@@ -80,8 +110,12 @@ TEST_F(RuntimeControlAndHotSwapTest,
   using namespace llm_edgeflow;
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(
-      BuildTestPipeline(pipeline, ControlInstancesPipeline(), &diagnostic))
+  ASSERT_TRUE(BuildTestPipeline(
+      pipeline, ControlInstancesPipeline(),
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}},
+                       {{"rules_a.matches", "RuleMatchBatch"},
+                        {"rules_b.matches", "RuleMatchBatch"}}),
+      &diagnostic))
       << diagnostic.message;
   ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
   std::string error;
@@ -112,8 +146,12 @@ TEST_F(RuntimeControlAndHotSwapTest,
   using namespace llm_edgeflow;
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(
-      BuildTestPipeline(pipeline, ControlInstancesPipeline(), &diagnostic))
+  ASSERT_TRUE(BuildTestPipeline(
+      pipeline, ControlInstancesPipeline(),
+      MakeTestBoundary({{"input.sentence_text", "TextBatch"}},
+                       {{"rules_a.matches", "RuleMatchBatch"},
+                        {"rules_b.matches", "RuleMatchBatch"}}),
+      &diagnostic))
       << diagnostic.message;
   const auto valid = TargetedRules("rules_a", "UPDATED");
   std::vector<std::pair<nlohmann::json, std::string>> invalid;
@@ -124,7 +162,7 @@ TEST_F(RuntimeControlAndHotSwapTest,
     envelope["$edgeflow_control"] = version;
     invalid.emplace_back(std::move(envelope), "$edgeflow_control");
   }
-  for (const char* missing : {"node_id", "payload"}) {
+  for (const char* missing : {"node", "payload"}) {
     auto envelope = valid;
     envelope.erase(missing);
     invalid.emplace_back(std::move(envelope), missing);
@@ -132,8 +170,8 @@ TEST_F(RuntimeControlAndHotSwapTest,
   for (const nlohmann::json& id :
        {nlohmann::json(""), nlohmann::json(42), nlohmann::json("missing")}) {
     auto envelope = valid;
-    envelope["node_id"] = id;
-    invalid.emplace_back(std::move(envelope), "node_id");
+    envelope["node"] = id;
+    invalid.emplace_back(std::move(envelope), "node");
   }
   for (const nlohmann::json& payload :
        {nlohmann::json::array(), nlohmann::json(nullptr),
@@ -200,7 +238,7 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   std::string input_text_1 = "这是一个普通的测试，包含 VIP 专席客户服务。";
   CompanyString cs1{static_cast<int32_t>(input_text_1.size()),
                     const_cast<char*>(input_text_1.data())};
-  CompanyOperatorKeywordInput in_req_1{10001, &cs1};
+  CompanyOperatorKeywordInput in_req_1{10001, kMockServiceKeywordMatch, &cs1};
 
   operator_api::NamedIoBatch inputs_1(1);
   inputs_1[0]["client_channel.keyword_in"] =
@@ -221,7 +259,7 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
                                    {{"VIP_URGENT", {"VIP", "专席"}},
                                     {"DISCOUNT_PROMO", {"返现", "优惠券"}}}}};
   const nlohmann::json envelope = {{"$edgeflow_control", 1},
-                                   {"node_id", "node_0_TextRuleMatchNode"},
+                                   {"node", "match_keywords"},
                                    {"payload", control_param}};
   std::string param_str = envelope.dump();
 
@@ -249,7 +287,7 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   std::string input_text_2 = "扫码立即返现50元优惠券！";
   CompanyString cs2{static_cast<int32_t>(input_text_2.size()),
                     const_cast<char*>(input_text_2.data())};
-  CompanyOperatorKeywordInput in_req_2{10002, &cs2};
+  CompanyOperatorKeywordInput in_req_2{10002, kMockServiceKeywordMatch, &cs2};
 
   operator_api::NamedIoBatch inputs_2(1);
   inputs_2[0]["client_channel.keyword_in"] =
@@ -305,7 +343,7 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
     for (int iteration = 0; iteration < kProcessIterations; ++iteration) {
-      CompanyOperatorKeywordInput in_req{10003, &cs};
+      CompanyOperatorKeywordInput in_req{10003, kMockServiceKeywordMatch, &cs};
       operator_api::NamedIoBatch inputs(1);
       inputs[0]["client_channel.keyword_in"] =
           operator_api::MakeBorrowedOperatorInput(&in_req);

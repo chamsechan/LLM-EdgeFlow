@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "contracts/parameters.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
@@ -14,7 +15,6 @@
 #include "edgeflow/operator/interface.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
-#include "nodes/parameter_binding.h"
 #include "platform_mock/error_codes.h"
 #include "tests/support/pipeline_test_utils.h"
 
@@ -31,8 +31,8 @@ inline NodeDefinition MakeTestNodeDef(const std::string& type) {
 
 inline ModelDefinition MakeTestModelDef(const std::string& type) {
   ModelDefinition def;
-  def.model_type = type;
-  def.capability = "embedding";
+  def.impl_name = type;
+  def.model_type = "embedding";
   def.description = "test model " + type;
   def.required_protocol = ExecutionProtocol::kTensorGraph;
   def.concurrency = InferenceConcurrency::kConcurrent;
@@ -41,7 +41,7 @@ inline ModelDefinition MakeTestModelDef(const std::string& type) {
 
 class DummyNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DummyNode";
+  inline static constexpr char kNodeType[] = "dummy";
   bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   NodeControlResult Control(int, const std::string&) override {
@@ -65,7 +65,7 @@ const bool kAuthoringStartupAttempted = [] {
   const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
   if (!selected) return false;
   NodeRegistry::Instance().RegisterWithDefinitionFactory(
-      "BadAuthoringNode", [] { return std::make_unique<DummyNode>(); },
+      "bad_authoring", [] { return std::make_unique<DummyNode>(); },
       [selected] {
         const std::string scenario(selected);
         if (scenario == "invalid_default") {
@@ -84,7 +84,7 @@ const bool kAuthoringStartupAttempted = [] {
         } else if (scenario == "factory_exception") {
           throw std::runtime_error("authoring factory deliberately failed");
         }
-        return MakeTestNodeDef("BadAuthoringNode");
+        return MakeTestNodeDef("bad_authoring");
       });
   return true;
 }();
@@ -92,14 +92,13 @@ const bool kAuthoringStartupAttempted = [] {
 
 TEST(RegistryAuthoringStartupTest,
      DeclarationFailureReachesMainAndFailsClosed) {
-  RegisterTestBizs({"authoring_startup_test"});
   const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
   if (!selected) GTEST_SKIP() << "Requires a process-isolated authoring case";
   ASSERT_TRUE(kAuthoringStartupAttempted);
   const std::string scenario(selected);
   std::string reason;
   if (scenario == "invalid_default") {
-    reason = "Default value for field 'count' is below minimum";
+    reason = "Default value outside bounds for field: count";
   } else if (scenario == "duplicate_member") {
     reason =
         "Same struct member bound to multiple config fields (count, other)";
@@ -107,62 +106,61 @@ TEST(RegistryAuthoringStartupTest,
     ASSERT_EQ(scenario, "factory_exception");
     reason = "authoring factory deliberately failed";
   }
-  EXPECT_FALSE(NodeRegistry::Instance().Has("BadAuthoringNode"));
-  EXPECT_EQ(NodeRegistry::Instance().Create("BadAuthoringNode"), nullptr);
+  EXPECT_FALSE(NodeRegistry::Instance().Has("bad_authoring"));
+  EXPECT_EQ(NodeRegistry::Instance().Create("bad_authoring"), nullptr);
   ASSERT_TRUE(NodeRegistry::Instance().HasConflict());
 
   const nlohmann::json config = {
-      {"biz_name", "authoring_startup_test"},
       {"pipeline",
-       nlohmann::json::array({{{"id", "dummy"},
-                               {"node_type", DummyNode::kNodeType},
+       nlohmann::json::array({{{"name", "dummy"},
+                               {"type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  const auto validation = PipelineValidator::ValidateAndPlan(config);
+  const auto validation =
+      PipelineValidator::ValidateAndPlan(config, MakeTestBoundary());
   EXPECT_FALSE(validation.report.ok);
   ASSERT_FALSE(validation.report.diagnostics.empty());
   const auto& diagnostic = validation.report.diagnostics.front();
   EXPECT_EQ(diagnostic.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_NE(diagnostic.message.find("BadAuthoringNode"), std::string::npos);
+  EXPECT_NE(diagnostic.message.find("bad_authoring"), std::string::npos);
   EXPECT_NE(diagnostic.message.find(reason), std::string::npos);
 
   Pipeline pipeline;
   PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, config, &build_diagnostic));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, config, MakeTestBoundary(),
+                                 &build_diagnostic));
   EXPECT_EQ(build_diagnostic.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_NE(build_diagnostic.message.find("BadAuthoringNode"),
-            std::string::npos);
+  EXPECT_NE(build_diagnostic.message.find("bad_authoring"), std::string::npos);
   EXPECT_NE(build_diagnostic.message.find(reason), std::string::npos);
 }
 
 class DummyModel : public IEmbeddingModel {
  public:
-  inline static constexpr char kModelType[] = "dummy_model";
+  inline static constexpr char kImplName[] = "dummy_model";
   static std::shared_ptr<IModel> Create(const ModelCreateContext&,
                                         std::string*) {
     return std::make_shared<DummyModel>();
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string type = kModelType;
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = kImplName;
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch&, const EmbeddingOptions&, EmbeddingBatch*,
+  int Embed(const TextBatch&, EmbeddingBatch*,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     return 0;
   }
 };
 REGISTER_MODEL_WITH_DEFINITION(DummyModel,
-                               MakeTestModelDef(DummyModel::kModelType));
+                               MakeTestModelDef(DummyModel::kImplName));
 
 TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
-  RegisterTestBizs({"conflict_node_test"});
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(NodeRegistry::Instance().Register(
@@ -174,40 +172,38 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
-      {"biz_name", "conflict_node_test"},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0_DummyNode"},
-                               {"node_type", DummyNode::kNodeType},
+       nlohmann::json::array({{{"name", "dummy"},
+                               {"type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
+  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, MakeTestBoundary(), &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/pipeline");
 }
 
 TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
-  RegisterTestBizs({"conflict_model_test"});
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(ModelRegistry::Instance().Register(
-      MakeTestModelDef(DummyModel::kModelType), DummyModel::Create));
+      MakeTestModelDef(DummyModel::kImplName), DummyModel::Create));
   EXPECT_TRUE(ModelRegistry::Instance().HasConflict());
 
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
-      {"biz_name", "conflict_model_test"},
       {"models",
-       nlohmann::json::array({{{"model_id", "m1"},
-                               {"model_type", DummyModel::kModelType},
-                               {"backend", "unused_backend"},
-                               {"model_path", "unused.bin"},
-                               {"model_config", nlohmann::json::object()},
-                               {"backend_config", nlohmann::json::object()}}})},
+       nlohmann::json::array({{{"name", "m1"},
+                               {"type", "embedding"},
+                               {"backend",
+                                {{"type", "unused_backend"},
+                                 {"params", nlohmann::json::object()}}},
+                               {"file", "unused.bin"},
+                               {"params", nlohmann::json::object()}}})},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0_DummyNode"},
-                               {"node_type", DummyNode::kNodeType},
+       nlohmann::json::array({{{"name", "dummy"},
+                               {"type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
+  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, MakeTestBoundary(), &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/models");
   const std::string reason =

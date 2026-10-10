@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -17,13 +18,13 @@ namespace test {
  */
 class TestOcrModel final : public IOcrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "test_ocr_model";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "ocr";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "ocr";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
@@ -73,18 +74,22 @@ class TestOcrModel final : public IOcrModel {
  */
 class TestAsrModel final : public IAsrModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "test_asr_model";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "asr";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "asr";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+  bool SupportsLanguage(std::string_view) const noexcept override {
+    return true;
+  }
+  int Transcribe(const AudioPcmBatch& audio, const TranscribeOptions&,
+                 TextBatch* outputs,
                  std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {

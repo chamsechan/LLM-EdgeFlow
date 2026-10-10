@@ -22,16 +22,16 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 | 架构层 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
-| **接入适配层（Integration）** | 新增输入/输出结构、转换器与业务绑定 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp`<br>`src/adapter/biz/<biz>_bindings.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`IoBindingDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER`<br>`REGISTER_IO_BINDING` |
+| **接入适配层（Integration）** | 新增输入/输出结构、转换器与 I/O 参数 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER` |
 | **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
 | **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `MakeNodeSpec`<br>`REGISTER_FUNCTION_NODE(NodeName, spec)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
 
-## 1. 接入适配层：如何新增一个业务的 Operator 转换器与绑定
+## 1. 接入适配层：如何新增一个业务的 Operator 转换器
 
-> ⚠️ **平台治理红线**：业务接入采用独立的 InputConverter、OutputConverter 与 IoBinding 注册，严禁在 central dispatch 开关中侵入硬编码。
+> ⚠️ **平台治理红线**：业务接入采用独立的 InputConverter、OutputConverter 注册，严禁在 central dispatch 开关中侵入硬编码。
 
 业务需求的输入输出以完整 Operator 请求/响应为准，由输入/输出转换器解包、转换和组装。
 即使复用同一个 DTO 结构，字符串内部协议变化仍可能需要转换器实现；不能用 Demo
@@ -42,8 +42,8 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistry` 注册
 外部类型、规范后缀及校验/分配生命周期；`InputConverter` 负责读取和深拷贝完整请求，
-`OutputConverter` 使用 Create 期输出池组装完整响应。`IoBindingDefinition` 声明业务与
-转换器，注册审计检查端口、类型和契约一致性。
+`OutputConverter` 使用 Create 期输出池组装完整响应。每个方向按 `(type, name)` 登记，
+一份登记拥有一个宿主槽；注册审计检查全部转换器的端口、平台结构和参数声明。
 
 `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
 转义的 NUL 可在解包后保留。输出按显式长度复制，二进制内容使用 `CompanyBuffer`。
@@ -55,22 +55,23 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
-`cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果必须留在该配置文件的目录内；Pipeline 必须填写 `deployment.io.io_binding`，
-可按需配置 `deployment.io.out_mem`。模型路径只在 `models[].model_path` 中填写，
-相对路径以宿主传入的部署根为基准。各路径的相对基准、存在性和目录边界见
-[配置路径](../configs/README.md#配置路径)。业务身份由 binding 推导。
-Demo 从 SDK 查询配置的业务身份后选择 runner；必需输出槽自动采用注册默认值。
-输出类型来自已注册的逻辑槽位，普通配置只覆盖分配方案、参数和容量；Resolver 按实际队列
-深度审计预算；转换器消费已解析的方案，不重复解析部署 JSON 或补默认值。
+`cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果留在该配置文件的目录内。
+Pipeline 根 `io.input` / `io.output` 以非空数组选择 `{type, name, params?}`；参数省略项使用转换器默认值。
+模型路径当前在 `models[].file` 中填写，主文件与声明的文件参数都以 Pipeline JSON 目录为基准，详见
+[配置路径](../configs/README.md#配置路径)。所选转换器的 typed 端口组成传给 Core 的明确边界。
+Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组合选择构造和展示；同一载体复用 Demo。
+每个输出字符串由转换器的 `MaxBytes` 参数声明默认容量，平台登记只保留硬上限。
+分配器、布局参数和 metadata 固定在槽声明中；审计归一化布局参数，Create 按 `Prepare` 后尺寸生成池规格。
+可选输出也始终分配池；多项输出全部成功后发布，失败归还全部租约。
 完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
 
 ### Adapter 实施检查表
 
 `InputConverter` 负责业务字段校验及深拷贝；批次预检不能替代字段校验。
-共享 [`biz_input_constraints.h`](../include/adapter/biz_input_constraints.h) 的渠道和音频限制，
+共享 [`input_limits.h`](../include/adapter/input_limits.h) 的渠道和音频限制，
 显式部署限制可更严格。
 
-Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求 `1:1 / preserve`；
+输出转换器的逻辑端口描述 Adapter 消费的内部值。普通一对一出口仍要求 `1:1 / preserve`；
 CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
@@ -80,12 +81,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
    `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
-4. 在 `src/adapter/biz/` 声明 `BizDefinition` 并实现 `IoBinding` 绑定：选择转换器、
-   批次上限默认为框架标准值 64，只有实测确需更小值时才覆盖；转换器逻辑端口名即 Blackboard Key，绑定不做改名。
-5. 解码与编码使用 `core/common_contracts.h` 中的中性值类型，并在
-   `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
-   Core、Node 和 Engine 不得包含该业务 key 头。
-6. 扩展对应的 Operator 契约测试与安全测试。
+4. 用 `(type, name)` 登记一个宿主槽与 typed 逻辑端口；配置选择输入/输出登记，接入准备组合
+   明确边界交给 Core。批次上限为 `min(max_frame_depth, 64)`；带业务成员的非 common 登记须声明期望值。
 
 ---
 
@@ -93,7 +90,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
 
-- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点 `inputs` 的 `节点名.端口名` 引用推导依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
@@ -103,16 +100,17 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
   Core 的 `SessionContext::GetOrCreateResource` 对同名同型资源提供 single-flight 创建。同一次创建中的等待者
   共享结果或异常；失败不进入缓存，后续调用可重试。
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
-  `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
+  `Nodes/Models/Backends/FindNode/FindModel/FindBackend` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
 
-Validator 为未注册的 Node、Model 和 Backend 提供原因及按编辑距离排序的相近名称。
-已声明模型因 `model_type` 未注册而无法解析时，只报告根因；未知节点的显式输出键没有任何
-已知生产者或业务 ingress 时，抑制该键的缺少生产者诊断。已知来源的类型不符、重复生产者、
-ingress 冲突和模型能力不符仍照常报告。业务出口与 IO 边界的同一缺失键保留 `/pipeline` 的一条诊断。
+Validator 为未知节点类型、模型类别和 Backend 提供可定位诊断。模型按类别和 Backend 协议
+选择唯一实现，无法解析时优先报告根因；未知生产者节点类型不引出额外的缺失端口误报。
+已知来源的端口不存在、类型或生命周期不符，以及模型能力不符仍会报告。
+输出边界缺失生产者使用 `MISSING_OUTPUT_PRODUCER`。
 
 Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
-配置中的必需输入必须显式绑定，可选输入省略即未连接；输出省略映射时沿用逻辑端口名。
+节点只使用 `type`、`name`、`params`、`inputs` 与 `depends_on`。必需输入显式连接，
+可选输入省略即未连接；所有输出由 `节点名.端口名` 唯一确定，只有被下游或输出 Converter 引用的输出才绑定并发布。
 Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64，默认 1。
 线程池创建失败时先停止并回收已创建的线程，再将异常交给 Pipeline 的失败诊断路径。
 
@@ -120,7 +118,7 @@ Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64�
 
 ## 3. 能力节点层：如何新增通用或自定义 Node
 
-先运行 `alg_pipeline_tool catalog --io-binding <biz_name>` 和 `describe-node`。只有现有操作无法闭合
+先运行 `alg_pipeline_tool catalog` 和 `describe-node`。只有现有操作无法闭合
 typed port 契约时才新增 Node。Node 必须：
 
 - 通用操作放在 `src/common_nodes/`；领域算法与特定前后处理放在 `src/custom_nodes/`，
@@ -139,10 +137,30 @@ typed port 契约时才新增 Node。Node 必须：
 
 熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
-LLM 采样参数复用 [`GenerateParameters`](../include/nodes/generate_options_config.h)：只有生成参数时用
-`GenerateParameters(默认 max_tokens)`，还有自有字段时用
-`GenerateParameters(默认 max_tokens, &Params::generation, {Field(...)})`。各节点显式指定 `max_tokens`
-默认值，其余字段约束与解析共用同一实现。
+LLM 采样参数复用 [`GenerateParameters()`](../include/nodes/generate_parameters.h)，默认值来自
+`GenerateOptions`，所有节点默认 `max_tokens = 128`。只有生成参数时直接用该声明；有自有字段时用
+`Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`。被并入字段
+在 JSON 中平铺，重名报错，其 `Prepare` / `Validate` 先于外层执行。生成字段是普通 `Field`，
+也可加入 `WithControls`。
+
+`llm_generate` 接收 `input`，要求非空 `endpoints` 映射；每个 endpoint 的 `prompt` 默认
+`{{input}}`，只允许这个变量。节点级生成选项由所有 endpoint 共用。`document` 始终为
+`{endpoint: 原文回答}`；单 endpoint 的 `text` 保留原文，多 endpoint 时为该对象的 JSON 文本。
+单 endpoint 的回答无法编码成 JSON（如非法 UTF-8）时，`text` 仍保留原始字节，`document`
+标记解析失败；多 endpoint 的 JSON 序列化失败时不发布输出。任何 endpoint 生成失败也不发布输出。
+输入生命周期来自计划；`FollowLifetime("text")` 声明
+输出跟随输入，`BindingFacts::InputLifetime` 用于派生缓存或共享候选行为。
+
+
+数组和映射参数使用 `std::vector<T>` / `std::map<std::string, T>`；结构体元素通过
+`.Items(Parameters<Element>{...})` 声明。`Range` / `Enum` 约束标量叶子，诊断路径包含元素
+下标或映射键；`nlohmann::json` 参数接受任意非 null JSON 值。字段赋值后，`Prepare` 构建
+模板片段或编译后的正则等派生状态，再执行语义和连线校验。
+
+模型槽写作 `Model("generator", "bind_model", &Models::generator)`，只有三个参数；引用
+`models[].name` 的说明由成员能力自动生成。字段控制命令 `ReplaceFields` 至少提供一个受控
+字段，只替换提供的字段；容器整体替换，重跑 `Prepare` / `Validate`，失败保持旧快照。
+所有参数更新用 `WithControls` 声明，payload schema 从字段生成；模型引用不能受控。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，与所有 Node 一样
 使用 `MakeNodeSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；Node 不绑定特定业务。
@@ -172,17 +190,23 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
 Model 继承 [`ModelIdentity<Model, 能力接口>`](../include/engine/model_identity.h)，只声明
-`kModelType` 与 `kConcurrency`，能力由接口推导；Definition 用 `MakeModelDefinition<Model>()`
+`kImplName` 与 `kConcurrency`，能力由接口推导；Definition 用 `MakeModelDefinition<Model>()`
 取得同一身份后再补协议和配置字段。Backend Provider 同样继承
 [`BackendIdentity<Backend>`](../include/engine/backend_identity.h)，Definition 从
 `MakeBackendDefinition<Backend>()` 开始。创建时工厂仍逐项核对实例、Session 与 Definition。
 
-Model 的字段类型、默认值和范围由 `config_fields` 声明，创建时用 `ConfigValueOrDefault` 读取，
-默认值只写在声明中；字段之间或文本内容的额外规则
-放在可选的 `ModelDefinition::validate_config` 中。Validator 与 ModelRuntimeFactory
-均先完成字段校验和默认值补齐，再调用此纯函数；失败时不创建 Backend 或加载模型。
-该函数只检查配置，不读文件或创建会话。直接 Model 创建入口应复用相同语义检查；
-依赖真实会话、模型资源或 Tensor 形状的检查继续留在创建阶段。
+Model 和 Backend 参数采用四段写法：`Params` 结构、返回 `Parameters<Params>` 的
+`ParamSpec()`、`def.params = ParamSpec()`、消费时 `ctx.Params<Params>()` 或
+`spec.Params<Params>()`。`Field` 声明类型、默认值、范围与说明，默认值只写一次；
+额外纯参数规则放在 `ParamSpec().Validate`，不读文件或创建会话。
+Validator 规划时检查字段与语义；ModelRuntimeFactory 在创建 Provider 前分别解析两组
+参数一次。Model `Create` 和 Backend `Load` 读取只读值，只检查真实会话、资源和形状。
+直接调用创建入口的测试先用注册 Definition 的 `params.Parse` 产生对应参数。
+
+可选标量成员使用 `std::optional<T>`：不写时为空，不能声明 `Required()` 或 `Default()`，
+Catalog 中非必填且无默认值。BGE 的维度和编码长度通过
+[`ResolveFromModel`](../src/engine/models/common/from_model.h) 从固定形状读取；配置与模型值
+冲突时报错，动态编码长度回退到 512，动态向量维度必须填写。创建日志记录最终值。
 
 逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
 `TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，
@@ -199,13 +223,18 @@ Tensor 协议的共享 buffer 必须覆盖执行和结果解码的生命周期�
 [`CreateHostTensor` 与类型化访问检查](../include/engine/tensor.h)，拒绝运行时未解析的负维度、
 字节数溢出、类型不匹配或存储字节数与形状不符。厂商内存及释放方式封装在 Backend 中。
 
-Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负责实际计算；
-TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的
-`model_config.normalize`，已有配置应将该选择移到消费节点。
+Embedding 的 `normalize` 是模型参数（默认 true）；同一模型的全部消费节点共享该向量空间。
+`Embed` 不接收选项。生成的 `system_prompt`、`random_seed` 和转写的 `language` 是节点调用参数，
+通过 `GenerateOptions` / `TranscribeOptions` 传入模型。节点可用 `ValidateModels` 在绑定后核对要求，
+只在 Create 执行一次；不支持语言或显式固定种子时节点初始化失败。
 
-后端有跨字段约束时，通过 `BackendDefinition.validate_config` 注册纯配置校验函数。
-PipelineValidator 在字段检查和默认值展开后调用；Backend 初始化复用同一解析规则。
-回调不得加载模型或访问外部资源，例如 llama.cpp 的 `decode_batch_size` 不得大于
+文件字段使用 `.File()`，只接受字符串或可选字符串；BGE 的 `tokenizer_file` 必填，
+Kite 的 `run_config_file` 不写时为空。接入层在 Core 校验前相对 Pipeline JSON 目录解析：
+拒绝空名、绝对路径、盘符、UNC、任何 `..` 分量和符号链接越界，不检查文件存在。
+目录未知的内存文档只校验写法。Model/Backend 拿到已解析路径，实际打开时检查资源。
+Kite 的 `vision.mmproj` 相对 run config 所在目录使用相同规则。批策略只取自 Backend Session。
+
+后端跨字段约束同样用 `ParamSpec().Validate`，例如 llama.cpp 的 `decode_batch_size` 不得大于
 `context_size`。环境、设备和资产可用性仍由实际加载路径检查。
 
 其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的
@@ -216,21 +245,23 @@ PipelineValidator 在字段检查和默认值展开后调用；Backend 初始化
 `IAutoregressiveDecoder` 复用 `CommonAutoregressiveGenerator`，托管生成 Backend 可直接
 实现会话。decoder 不进入 Catalog，vendor 类型不得离开 concrete Backend。
 
-Pipeline 配置只使用 Model/Backend 语法：
+Pipeline 的模型条目如下：
 
 ```json
 {
-  "model_id": "embed_model",
-  "model_type": "my_embedding_model",
-  "backend": "my_tensor_backend",
-  "model_path": "embedding/model.bin",
-  "model_config": {"embedding_dim": 768},
-  "backend_config": {"max_batch_size": 4}
+  "type": "embedding",
+  "name": "embed_model",
+  "file": "embedding/model.bin",
+  "params": {"tokenizer_file": "embedding/vocab.txt"},
+  "backend": {"type": "onnxruntime", "params": {"max_batch_size": 4}}
 }
 ```
 
-模型能力来自 `model_type` 对应的注册 Definition，不在 JSON 中重复声明。
-Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，没有默认模型实例名。
+`type` 是模型类别；`ModelDefinition.impl_name` 是 C++ 实现名。注册表按类别与后端支持的
+协议选出唯一实现，`GlobalInit` 审计每个组合最多一个实现；Core 也独立拒绝歧义。
+节点 `bind_model` 显式引用 `models[].name`，类别由所实现的接口核对。
+未被节点使用的模型报 `UNUSED_MODEL`；存在未知节点类型时抑制这条连带诊断。
+测试模型要求 `kFixture`，只匹配 `fixture_backends` 中的后端；测试后端仅声明该协议。
 
 `ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
 返回构建好的单个 `IModel`。Pipeline 暂存全部模型，全部构建成功后通过

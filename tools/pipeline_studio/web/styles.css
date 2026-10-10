@@ -49,7 +49,7 @@ main { flex: 1; min-height: 0; display: flex; position: relative; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .panel-title { color: #dce7f7; font-size: 12px; font-weight: 650; }
 .panel-caption { color: var(--muted); font-size: 11px; }
-.create-panel { border: 1px solid var(--border); border-radius: 8px; background: #101a2b; }
+.create-panel { flex-shrink: 0; max-height: 55%; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #101a2b; }
 .create-panel summary { padding: 9px 10px; cursor: pointer; color: #c7daef; }
 .create-panel summary:hover { color: var(--blue); }
 .create-fields { padding: 0 10px 10px; }
@@ -221,3 +221,7 @@ body:not(.editing) #modelForm input, body:not(.editing) #modelForm textarea { op
 .edge.ambiguous path { stroke: #b45309; stroke-dasharray: 5 4; }
 .preflight-summary.stale { border-color: #b45309; color: #92400e; }
 #nodeBindings .row { justify-content: space-between; margin: 6px 0; }
+
+[data-io-entry] { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 10px 0; min-width: 0; }
+[data-io-entry] legend { padding: 0 5px; font-size: 13px; color: var(--muted); }
+#ioSettings { margin-bottom: 14px; }

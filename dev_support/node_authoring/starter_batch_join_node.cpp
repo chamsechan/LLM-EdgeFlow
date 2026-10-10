@@ -53,7 +53,7 @@ auto Spec() {
       .Description("Batch starter with traceable Left Join across inputs");
 }
 
-REGISTER_FUNCTION_NODE(StarterBatchJoinNode, Spec());
+REGISTER_FUNCTION_NODE(starter_batch_join, Spec());
 
 }  // namespace starter_batch_join
 }  // namespace custom_nodes

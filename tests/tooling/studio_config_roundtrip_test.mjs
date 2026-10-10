@@ -50,7 +50,7 @@ const roundTrip = (formId, fields, values, choicesFor = () => null) => {
 let failures = 0;
 for (const path of pipelinePaths) {
   const pipeline = JSON.parse(readFileSync(path, "utf8"));
-  const modelIds = (pipeline.models ?? []).map(model => model.model_id);
+  const modelNames = (pipeline.models ?? []).map(model => model.name);
   const check = (label, actual, expected) => {
     try { assert.deepStrictEqual(actual, expected); } catch {
       failures += 1;
@@ -58,27 +58,35 @@ for (const path of pipelinePaths) {
     }
   };
   for (const node of pipeline.pipeline ?? []) {
-    const definition = find("nodes", "node_type", node.node_type);
+    const definition = find("nodes", "node_type", node.type);
     if (!definition) continue;
     const dependencies = definition.model_dependencies ?? [];
     const choicesFor = field =>
-      dependencies.some(dep => dep.config_field === field.name) || field.semantic === "model_ref" ? modelIds : null;
-    check(`node ${node.id}`, roundTrip("configFields", definition.config_fields ?? [], node.config ?? {}, choicesFor), node.config ?? {});
+      dependencies.some(dep => dep.config_field === field.name) || field.semantic === "model_ref" ? modelNames : null;
+    check(`node ${node.name}`, roundTrip("configFields", definition.config_fields ?? [], node.params ?? {}, choicesFor), node.params ?? {});
   }
   for (const model of pipeline.models ?? []) {
-    const modelDefinition = find("models", "model_type", model.model_type);
-    const backendDefinition = find("backends", "backend_type", model.backend);
+    const modelDefinition = list(catalog.models).find(item => item.model_type === model.type && item.backends?.includes(model.backend?.type));
+    const backendDefinition = find("backends", "backend_type", model.backend?.type);
     if (modelDefinition) {
-      check(`model ${model.model_id}.model_config`,
-            roundTrip("modelConfigFields", modelDefinition.config_fields ?? [], model.model_config ?? {}),
-            model.model_config ?? {});
+      check(`model ${model.name}.params`,
+            roundTrip("modelConfigFields", modelDefinition.config_fields ?? [], model.params ?? {}),
+            model.params ?? {});
     }
     if (backendDefinition) {
-      check(`model ${model.model_id}.backend_config`,
-            roundTrip("backendConfigFields", backendDefinition.config_fields ?? [], model.backend_config ?? {}),
-            model.backend_config ?? {});
+      check(`model ${model.name}.backend.params`,
+            roundTrip("backendConfigFields", backendDefinition.config_fields ?? [], model.backend?.params ?? {}),
+            model.backend?.params ?? {});
     }
   }
+  for (const direction of ["input", "output"]) {
+    for (const entry of pipeline.io?.[direction] || []) {
+      const definition = list(catalog[`${direction}_converters`]).find(item => item.type === entry.type && item.name === entry.name);
+      if (!definition) continue;
+      check(`${direction} ${entry.type}/${entry.name}.params`, roundTrip(`${direction}Params`, definition.config_fields || [], entry.params || {}), entry.params || {});
+    }
+  }
+
 }
 console.log(failures ? `${failures} form(s) changed on untouched apply` : "All forms round-trip unchanged");
 process.exit(failures ? 1 : 0);

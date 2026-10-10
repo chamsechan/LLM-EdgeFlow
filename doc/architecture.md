@@ -34,7 +34,7 @@ graph TD
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
         PlatformFacade["C++ Operator 门面 (operator_adapter.cpp)<br>• 命名 I/O 槽位校验与 ValueType 转换<br>• 有界输出池租约生命周期管理<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)"]
-        IoBinding["I/O 绑定与转换注册 (io_binding_registry.cpp)<br>• IoBindingRegistry / IoConverterRegistry<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
+        Converters["I/O 转换注册 (io_converter_registry.cpp)<br>• 按 (type, name) 选择单槽 Converter<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
     end
 
     %% Orchestration
@@ -57,17 +57,17 @@ graph TD
         CustomNodes["自定义节点扩展目录 (src/custom_nodes/)<br>复用现有接口，按操作组织文件"]
         
         subgraph CommonNodes["通用能力算子池 (src/common_nodes/)"]
-            LlmNode["LlmGenerateNode (大语言模型生成)"]
-            ChunkNode["TextChunkNode (文本切片)"]
-            RuleNode["TextRuleMatchNode (规则与关键词匹配)"]
-            EmbedNode["TextEmbeddingNode (向量提取)"]
-            TopKNode["VectorTopKNode (Top-K 检索)"]
-            RerankNode["TextRerankNode (精排评分)"]
-            TemplateNode["TextTemplateNode (提示词模板渲染)"]
-            JsonNode["StructuredJsonParseNode (JSON 结构化解析)"]
-            AsrNode["AsrTranscribeNode (语音转写)"]
-            OcrNode["OcrDetectNode (OCR 识别)"]
-            CorpusNode["TextCorpusSourceNode (语料源)"]
+            LlmNode["llm_generate (大语言模型生成)"]
+            ChunkNode["text_chunk (文本切片)"]
+            RuleNode["text_rule_match (规则与关键词匹配)"]
+            EmbedNode["text_embedding (向量提取)"]
+            TopKNode["vector_top_k (Top-K 检索)"]
+            RerankNode["text_rerank (精排评分)"]
+            TemplateNode["text_template (提示词模板渲染)"]
+            JsonNode["structured_json_parse (JSON 结构化解析)"]
+            AsrNode["asr_transcribe (语音转写)"]
+            OcrNode["ocr_detect (OCR 识别)"]
+            CorpusNode["text_corpus_source (语料源)"]
         end
     end
 
@@ -98,9 +98,9 @@ graph TD
 
     %% 连接关系
     Caller <==|命名 I/O 批次 NamedIoBatch| PlatformFacade
-    PlatformFacade --> IoBinding
+    PlatformFacade --> Converters
     PlatformFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
-    IoBinding -->|解包/打包| R_Ctx
+    Converters -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
     NodeApi --> NodeBase
@@ -116,7 +116,7 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class PlatformFacade,IoBinding integration;
+    class PlatformFacade,Converters integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,VisionModel,WhisperModel,OnnxBackend,LlamaCpp,KiteLlm,WhisperCpp model_execution;
@@ -129,10 +129,10 @@ graph TD
 ### 接入适配层（Integration）
 - **代码位置**：`include/edgeflow/operator/`，`include/adapter/`，`src/adapter/`
 - **核心职责**：
-  1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ResolveOperatorConfigBiz()`；
+  1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ResolveOperatorConfigIo()`；
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
   3. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
-  4. 由注册的 Input/Output Converter 与 IoBinding 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
+  4. 由注册的 Input/Output Converter 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
   5. 管理有界输出池与租约生命周期，执行同句柄 Process/Control 串行化。
 
 业务需求中的输入输出以 Operator 接口边界为准，包含载体中的业务字段和序列化格式。
@@ -155,7 +155,10 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 
 - 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
-- C++ Operator API 根据 Key 的最后一个点号解析外部槽位的 `key_suffix`；槽位的 `type_suffix` 再选择 `OperatorValueTypeRegistry` 中的外部 C++ 类型。不同槽位后缀可以复用同一类型。`IoBindingRegistry` 负责关联转换器与业务契约，转换器逻辑端口名即内部 Pipeline 的 Blackboard Key，具体区别见[输出分配方案](dev_guide/operator_output_allocation.md)。
+- Pipeline 根 `io.input` / `io.output` 按 `(type, name)` 选择单槽转换器。`type` 是宿主 key 后缀，
+  `name` 对应结构体业务值；唯一 type 接受任意前缀，重复 type 使用 `name.type`。
+  平台登记显式声明请求 ID 与业务成员，Process 逐行检查服务值和多项 ID 一致性。
+  转换器 typed 端口组合成 Core 的必传 I/O 边界，见[输出分配方案](dev_guide/operator_output_allocation.md)。
 - 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
@@ -164,16 +167,14 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
-- 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
+- 值类型表、转换器注册表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0；共享库不带 SOVERSION，
   导出符号不带版本节点。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
-  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；配置必须在 `deployment.io.io_binding` 填写业务名，
-  接入适配层据此找到该业务的绑定与边界，外部文档不另设根级 `biz_name`。模型路径只在
-  `models[].model_path` 中配置，相对路径以宿主传入的部署根为基准；
-  Pipeline 的 `deployment.io.out_mem` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
-  最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
-  将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
+  `.conf` 只用 `pipe_path` 指向 Pipeline JSON；根 `io` 选择转换器与参数，所选端口形成明确边界。
+  模型文件在 `models[].file` 与声明为文件的参数中配置，相对 Pipeline JSON 目录解析。
+  输出参数在 Create 中按共享声明解析；Prepare 后尺寸生成池规格，平台登记只保留硬上限。
+  分配器、布局参数和 metadata 固定在槽声明中，布局参数由注册审计归一化并共享。
   每个逻辑输出槽位拥有独立输出池，
   池深只由框架应用；分配实现只处理一份完整输出。见
   [输出分配方案](dev_guide/operator_output_allocation.md)。
@@ -181,7 +182,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
-  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 根据节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，校验端口及 DAG 并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序。必需输入显式连接，可选输入省略即未连接；`max_parallel_workers` 默认 1，大于 1 时启用现有并行调度及安全检查；
+  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 根据节点 `inputs` 的 `节点名.端口名` 引用推导依赖，合并可选 `depends_on` 的额外顺序约束，校验端口及 DAG 并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序。必需输入显式连接，可选输入省略即未连接；`max_parallel_workers` 默认 1，大于 1 时启用现有并行调度及安全检查；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例
        （`ModelManager`）与 `SessionResourceKey<T>` 类型安全资源；同名异型访问在 cast 前
@@ -196,7 +197,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - **核心职责**：
   1. **算法工程师核心开发区**：算法使用普通函数，Spec 声明输入、输出、配置与模型，统一 `REGISTER_FUNCTION_NODE`；
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，`AuthorNode` 负责生命周期、端口读写、结果检查及快照，业务作者无需覆写；
-  3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
+  3. **模块化与配置组合**：11 类核心通用算子（`llm_generate`, `text_chunk`, `text_rule_match`, `text_embedding`, `vector_top_k`, `text_rerank`, `text_template`, `structured_json_parse`, `asr_transcribe`, `ocr_detect`, `text_corpus_source`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
   4. **领域扩展与复用**：用户算法集中在 `src/custom_nodes/`，按操作命名文件，可跨方案复用。
      所有生产 Node 共用函数式作者契约、能力节点层构建目标和注册机制；领域 Node 可完成前处理、声明绑定的
      模型调用与后处理，平台结构转换仍属于 Adapter。Core、Engine 和通用 Node 不依赖
@@ -207,11 +208,11 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
   2. `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession`、`IGeneratedTokenEmbeddingSession` 和 `IAudioTranscriptionSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph，whisper.cpp 提供 AudioTranscription；
-  3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合并校验单个模型与 Backend；Pipeline 暂存全部模型，成功后批量原子注册到会话的 `ModelManager`；
+  3. Core 按模型类别 `type` 与 `backend.type` 的执行协议选出唯一 `impl_name`，注册审计和 Core 都拒绝歧义；`ModelRuntimeFactory` 物化并校验该实现与会话，Pipeline 暂存全部模型，成功后批量原子注册到 `ModelManager`；
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：计算批次切片与补齐数量，Model 回调构造补齐输入；执行器剔除补齐输出并恢复 `(req_id, sub_id)` 溯源；
-  5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend`、`model_path`、`backend_config` 完成；存在能力缺口时仍需扩展模型执行层。
+  5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend.type`、`file`、`backend.params` 完成；存在能力缺口时仍需扩展模型执行层。
 
-图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
+图像文档识别沿用 `ocr_detect → IOcrModel`：`VisionDocumentModel` 在模型执行层
 通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
 Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
 `boxes` 或置信度；Operator、DAG 端口和请求溯源遵守各层契约。
@@ -250,10 +251,10 @@ include 搜索范围不是编译器访问权限。`scripts/check_layer_dependenc
 LayerGuard 既注入反向依赖验证静态规则，也使用实际目标的 include 和编译宏执行正反编译
 探针，确认正常下层 API 可用、普通反向 include、越层私有头和 Backend 外的 vendor 头无法编译。
 
-业务 ingress/egress 的 Blackboard key 名称由接入适配层的
-`adapter/biz_blackboard_keys.h` 持有；流程编排层只提供 Blackboard 机制和中性值类型，
-能力节点层通过 `ValidatedNodePlan` 中已经解析的逻辑端口工作。这样业务槽位命名不会成为
-Core、Node 或 Engine 的隐含依赖。
+converter 在自己的登记中声明逻辑端口，并通过计划给出的实际数据名读写。
+输入发布为 `input.端口名`，节点输出为 `节点名.端口名`；输出 converter 的 `inputs` 显式选择来源。
+流程编排层推导依赖与实际生命周期，节点通过 `ValidatedNodePlan` 工作，只发布被引用的输出。
+Core、Nodes、Engine 不包含接入适配层头文件。
 
 ---
 

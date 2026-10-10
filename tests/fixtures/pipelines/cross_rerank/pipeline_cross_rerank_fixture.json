@@ -1,46 +1,56 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "cross_rerank"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "rerank_in",
+        "name": "cross_rerank"
+      }
+    ],
+    "output": [
+      {
+        "type": "rerank_out",
+        "name": "cross_rerank",
+        "inputs": {
+          "ranked": "rank_candidates.ranked"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_id": "rerank_model",
-      "model_type": "bge_reranker",
-      "backend": "onnxruntime",
-      "model_path": "rerank_fixture.onnx",
-      "model_config": {
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "rerank_fixture.onnx",
+      "params": {
         "tokenizer_file": "vocab.txt",
         "do_lower_case": true,
-        "max_length": 16,
         "output_name": "logits",
         "score_activation": "sigmoid",
-        "max_batch_size": 4
+        "max_tokens": 16
       },
-      "backend_config": {
-        "max_batch_size": 4,
-        "intra_op_num_threads": 1,
-        "inter_op_num_threads": 1,
-        "graph_optimization_level": "all"
+      "backend": {
+        "type": "onnxruntime",
+        "params": {
+          "max_batch_size": 4,
+          "intra_op_num_threads": 1,
+          "inter_op_num_threads": 1,
+          "graph_optimization_level": "all"
+        }
       }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_TextRerankNode",
-      "node_type": "TextRerankNode",
       "depends_on": [],
-      "config": {
+      "inputs": {
+        "queries": "input.query_text",
+        "candidates": "input.candidates"
+      },
+      "name": "rank_candidates",
+      "type": "text_rerank",
+      "params": {
         "bind_model": "rerank_model",
         "top_k": 8
-      },
-      "inputs": {
-        "queries": "rerank_queries",
-        "candidates": "rerank_candidates"
-      },
-      "outputs": {
-        "ranked": "ranked_results"
       }
     }
   ]

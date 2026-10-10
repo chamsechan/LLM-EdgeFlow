@@ -1,10 +1,8 @@
 #include "engine/model_runtime_factory.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <utility>
 
-#include "contracts/config_schema_validation.h"
 #include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
@@ -22,9 +20,9 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    auto model_def_opt = ModelRegistry::Instance().Find(spec.model_type);
+    auto model_def_opt = ModelRegistry::Instance().Find(spec.impl_name);
     if (!model_def_opt) {
-      if (diagnostic) *diagnostic = "Unknown model type: " + spec.model_type;
+      if (diagnostic) *diagnostic = "Unknown model type: " + spec.impl_name;
       return nullptr;
     }
 
@@ -36,31 +34,36 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       if (diagnostic) {
         *diagnostic =
             "Backend " + spec.backend_type + " does not support model " +
-            spec.model_type + " required protocol (" +
+            spec.impl_name + " required protocol (" +
             ExecutionProtocolName(model_def_opt->required_protocol) + ")";
       }
       return nullptr;
     }
-
-    nlohmann::json model_config;
-    std::vector<ConfigFieldValidationError> config_errors;
-    if (!ValidateAndNormalizeFields(model_def_opt->config_fields,
-                                    spec.model_config, &model_config,
-                                    &config_errors)) {
-      if (diagnostic) {
-        *diagnostic = "Invalid model configuration: " + spec.model_type;
-        if (!config_errors.empty())
-          *diagnostic += ": " + config_errors.front().message;
-      }
+    if (model_def_opt->required_protocol == ExecutionProtocol::kFixture &&
+        std::find(model_def_opt->fixture_backends.begin(),
+                  model_def_opt->fixture_backends.end(),
+                  spec.backend_type) == model_def_opt->fixture_backends.end()) {
+      SetDiagnosticNoexcept(diagnostic,
+                            "Backend is not declared in fixture_backends: " +
+                                spec.backend_type + " for " + spec.impl_name);
       return nullptr;
     }
+
+    std::shared_ptr<const ParameterValues> model_params;
+    std::shared_ptr<const ParameterValues> backend_params;
     std::string config_diagnostic;
-    if (model_def_opt->validate_config &&
-        !model_def_opt->validate_config(model_config, &config_diagnostic)) {
+    if (!model_def_opt->params.Parse(spec.model_params, &model_params,
+                                     &config_diagnostic)) {
       SetDiagnosticNoexcept(
-          diagnostic, config_diagnostic.empty()
-                          ? "Invalid model configuration: " + spec.model_type
-                          : config_diagnostic);
+          diagnostic, "Invalid model configuration: " + spec.impl_name + ": " +
+                          config_diagnostic);
+      return nullptr;
+    }
+    if (!backend_def_opt->params.Parse(spec.backend_params, &backend_params,
+                                       &config_diagnostic)) {
+      SetDiagnosticNoexcept(
+          diagnostic, "Invalid backend configuration: " + spec.backend_type +
+                          ": " + config_diagnostic);
       return nullptr;
     }
 
@@ -83,8 +86,8 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
 
     // 3. 加载后端会话
     BackendLoadSpec load_spec{model_def_opt->required_protocol};
-    load_spec.model_path = spec.model_path;
-    load_spec.backend_config = spec.backend_config;
+    load_spec.model_file = spec.model_file;
+    load_spec.params = std::move(backend_params);
     load_spec.execution_target = spec.execution_target;
 
     std::string backend_diag;
@@ -92,7 +95,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     if (!session) {
       if (diagnostic) {
         *diagnostic = "Backend (" + spec.backend_type +
-                      ") failed to load model: " + spec.model_path;
+                      ") failed to load model: " + spec.model_file;
         if (!backend_diag.empty()) {
           *diagnostic += " (diagnostic: " + backend_diag + ")";
         }
@@ -151,29 +154,17 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    // 7. 推导 model_resource_root
-    std::string model_resource_root;
-    try {
-      if (!spec.model_path.empty()) {
-        std::filesystem::path p(spec.model_path);
-        model_resource_root = p.parent_path().string();
-      }
-    } catch (...) {
-      model_resource_root.clear();
-    }
-
     // 8. 创建模型语义实例
     ModelCreateContext create_ctx;
     create_ctx.backend_session = session;
-    create_ctx.model_resource_root = model_resource_root;
-    create_ctx.model_config = std::move(model_config);
+    create_ctx.params = std::move(model_params);
 
     std::string model_diag;
-    auto model = ModelRegistry::Instance().Create(spec.model_type, create_ctx,
+    auto model = ModelRegistry::Instance().Create(spec.impl_name, create_ctx,
                                                   &model_diag);
     if (!model) {
       if (diagnostic) {
-        *diagnostic = "Failed to instantiate model: " + spec.model_type;
+        *diagnostic = "Failed to instantiate model: " + spec.impl_name;
         if (!model_diag.empty()) {
           *diagnostic += " (diagnostic: " + model_diag + ")";
         }
@@ -182,18 +173,17 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     }
 
     // 9. 校验模型身份、能力与并发模型一致性
-    if (model->ModelType() != spec.model_type) {
+    if (model->ImplName() != spec.impl_name) {
       if (diagnostic) {
-        *diagnostic = "Model identity mismatch: expected " + spec.model_type +
-                      ", got " + model->ModelType();
+        *diagnostic = "Model identity mismatch: expected " + spec.impl_name +
+                      ", got " + model->ImplName();
       }
       return nullptr;
     }
-    if (model->Capability() != model_def_opt->capability) {
+    if (model->ModelType() != model_def_opt->model_type) {
       if (diagnostic) {
-        *diagnostic = "Model capability mismatch: expected " +
-                      model_def_opt->capability + ", got " +
-                      model->Capability();
+        *diagnostic = "Model model_type mismatch: expected " +
+                      model_def_opt->model_type + ", got " + model->ModelType();
       }
       return nullptr;
     }

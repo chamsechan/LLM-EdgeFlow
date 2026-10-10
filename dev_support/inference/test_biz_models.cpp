@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/parameters.h"
 #include "engine/backend_interface.h"
 #include "engine/fixed_batch_executor.h"
 
@@ -13,23 +14,38 @@ namespace llm_edgeflow {
 namespace test {
 namespace {
 
-bool RequireProtocol(const ModelCreateContext& context,
-                     ExecutionProtocol protocol,
-                     std::string* diagnostic) noexcept {
+struct EmbeddingParams {
+  int embedding_dim = 384;
+};
+
+Parameters<EmbeddingParams> EmbeddingParamSpec() {
+  return Parameters<EmbeddingParams>(
+      {Field("embedding_dim", &EmbeddingParams::embedding_dim)
+           .Default(384)
+           .Range(1, 65536)});
+}
+
+struct LlmParams {
+  int max_seq_len = 512;
+};
+
+Parameters<LlmParams> LlmParamSpec() {
+  return Parameters<LlmParams>({Field("max_seq_len", &LlmParams::max_seq_len)
+                                    .Default(512)
+                                    .Range(1, 1048576)});
+}
+
+bool RequireSession(const ModelCreateContext& context,
+                    std::string* diagnostic) noexcept {
   if (!context.backend_session) {
     if (diagnostic) *diagnostic = "Test fixture backend session is null";
     return false;
   }
-  if (context.backend_session->Protocol() != protocol) {
-    if (diagnostic) *diagnostic = "Test fixture backend protocol mismatch";
+  if (context.backend_session->Protocol() != ExecutionProtocol::kFixture) {
+    if (diagnostic) *diagnostic = "Test model requires fixture protocol";
     return false;
   }
   return true;
-}
-
-size_t ConfigSize(const nlohmann::json& config, const char* key,
-                  size_t fallback) {
-  return config.contains(key) ? config.at(key).get<size_t>() : fallback;
 }
 
 std::string GenerateBizResponse(const std::string& prompt) {
@@ -65,56 +81,53 @@ std::string GenerateBizResponse(const std::string& prompt) {
   return "【LLM标准答复】已根据输入文档上下文完成智能检索与摘要生成。";
 }
 
-ModelDefinition Definition(const char* model_type, const char* capability,
-                           ExecutionProtocol protocol, size_t default_batch) {
+ModelDefinition Definition(const char* impl_name, const char* model_type,
+                           const char* backend, ParameterSet params) {
   ModelDefinition definition;
+  definition.impl_name = impl_name;
   definition.model_type = model_type;
-  definition.capability = capability;
   definition.description = "Test-only business response fixture model";
-  definition.required_protocol = protocol;
+  definition.required_protocol = ExecutionProtocol::kFixture;
+  definition.fixture_backends = {backend};
   definition.concurrency = InferenceConcurrency::kSerialized;
-  definition.config_fields = {{"max_batch_size", ConfigValueKind::kInteger,
-                               false, default_batch, 1.0, 1024.0}};
+  definition.params = std::move(params);
   return definition;
 }
 
 }  // namespace
 
-TestBizEmbeddingModel::TestBizEmbeddingModel(size_t embedding_dim,
-                                             size_t max_batch_size)
-    : embedding_dim_(embedding_dim), max_batch_size_(max_batch_size) {}
+TestBizEmbeddingModel::TestBizEmbeddingModel(
+    std::shared_ptr<IBackendSession> session, size_t embedding_dim)
+    : embedding_dim_(embedding_dim), session_(std::move(session)) {}
 
 std::shared_ptr<IModel> TestBizEmbeddingModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
-  if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
-    return nullptr;
-  return std::make_shared<TestBizEmbeddingModel>(
-      ConfigSize(context.model_config, "embedding_dim", 384),
-      ConfigSize(context.model_config, "max_batch_size", 4));
+  if (!RequireSession(context, diagnostic)) return nullptr;
+  const auto& params = context.Params<EmbeddingParams>();
+  return std::make_shared<TestBizEmbeddingModel>(context.backend_session,
+                                                 params.embedding_dim);
 }
 
-const std::string& TestBizEmbeddingModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
+const std::string& TestBizEmbeddingModel::ImplName() const noexcept {
+  static const std::string type = kImplName;
   return type;
 }
-const std::string& TestBizEmbeddingModel::Capability() const noexcept {
-  static const std::string capability = "embedding";
-  return capability;
+const std::string& TestBizEmbeddingModel::ModelType() const noexcept {
+  static const std::string model_type = "embedding";
+  return model_type;
 }
 InferenceConcurrency TestBizEmbeddingModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
 int TestBizEmbeddingModel::Embed(const TextBatch& inputs,
-                                 const EmbeddingOptions& options,
                                  EmbeddingBatch* outputs,
                                  std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
-  const BatchPolicy policy{max_batch_size_, max_batch_size_};
+  const BatchPolicy policy = session_->GetBatchPolicy();
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, policy,
-      [this, &inputs, &options](
-          const BatchSlice& slice,
-          std::vector<std::vector<float>>* batch_outputs) {
+      [this, &inputs](const BatchSlice& slice,
+                      std::vector<std::vector<float>>* batch_outputs) {
         batch_outputs->assign(slice.execution_count,
                               std::vector<float>(embedding_dim_, 0.0f));
         for (size_t i = 0; i < slice.valid_count; ++i) {
@@ -128,13 +141,11 @@ int TestBizEmbeddingModel::Embed(const TextBatch& inputs,
                 1.0f +
                 static_cast<float>(static_cast<unsigned char>(text[c]) % 7);
           }
-          if (options.normalize) {
-            float norm = 0.0f;
-            for (float value : vector) norm += value * value;
-            norm = std::sqrt(norm);
-            if (norm > 1.0e-6f) {
-              for (float& value : vector) value /= norm;
-            }
+          float norm = 0.0f;
+          for (float value : vector) norm += value * value;
+          norm = std::sqrt(norm);
+          if (norm > 1.0e-6f) {
+            for (float& value : vector) value /= norm;
           }
         }
         return 0;
@@ -142,23 +153,22 @@ int TestBizEmbeddingModel::Embed(const TextBatch& inputs,
       outputs);
 }
 
-TestBizRerankModel::TestBizRerankModel(size_t max_batch_size)
-    : max_batch_size_(max_batch_size) {}
+TestBizRerankModel::TestBizRerankModel(std::shared_ptr<IBackendSession> session)
+    : session_(std::move(session)) {}
 
 std::shared_ptr<IModel> TestBizRerankModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
-  if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
-    return nullptr;
-  return std::make_shared<TestBizRerankModel>(
-      ConfigSize(context.model_config, "max_batch_size", 4));
+  if (!RequireSession(context, diagnostic)) return nullptr;
+  (void)context.Params<NoParameters>();
+  return std::make_shared<TestBizRerankModel>(context.backend_session);
 }
-const std::string& TestBizRerankModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
+const std::string& TestBizRerankModel::ImplName() const noexcept {
+  static const std::string type = kImplName;
   return type;
 }
-const std::string& TestBizRerankModel::Capability() const noexcept {
-  static const std::string capability = "rerank";
-  return capability;
+const std::string& TestBizRerankModel::ModelType() const noexcept {
+  static const std::string model_type = "rerank";
+  return model_type;
 }
 InferenceConcurrency TestBizRerankModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
@@ -167,7 +177,7 @@ int TestBizRerankModel::Score(const QueryCandidatesBatch& inputs,
                               ScoreBatch* outputs,
                               std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
-  const BatchPolicy policy{max_batch_size_, max_batch_size_};
+  const BatchPolicy policy = session_->GetBatchPolicy();
   return FixedBatchExecutor::Execute<QueryCandidatePair, float>(
       inputs, policy,
       [&inputs](const BatchSlice& slice, std::vector<float>* batch_outputs) {
@@ -191,22 +201,21 @@ int TestBizRerankModel::Score(const QueryCandidatesBatch& inputs,
       outputs);
 }
 
-TestBizLlmModel::TestBizLlmModel(size_t max_batch_size)
-    : max_batch_size_(max_batch_size) {}
+TestBizLlmModel::TestBizLlmModel(std::shared_ptr<IBackendSession> session)
+    : session_(std::move(session)) {}
 std::shared_ptr<IModel> TestBizLlmModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
-  if (!RequireProtocol(context, ExecutionProtocol::kTextGeneration, diagnostic))
-    return nullptr;
-  return std::make_shared<TestBizLlmModel>(
-      ConfigSize(context.model_config, "max_batch_size", 2));
+  if (!RequireSession(context, diagnostic)) return nullptr;
+  (void)context.Params<LlmParams>();
+  return std::make_shared<TestBizLlmModel>(context.backend_session);
 }
-const std::string& TestBizLlmModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
+const std::string& TestBizLlmModel::ImplName() const noexcept {
+  static const std::string type = kImplName;
   return type;
 }
-const std::string& TestBizLlmModel::Capability() const noexcept {
-  static const std::string capability = "llm";
-  return capability;
+const std::string& TestBizLlmModel::ModelType() const noexcept {
+  static const std::string model_type = "llm";
+  return model_type;
 }
 InferenceConcurrency TestBizLlmModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
@@ -215,7 +224,7 @@ int TestBizLlmModel::Generate(const TextBatch& prompts, const GenerateOptions&,
                               TextBatch* outputs,
                               std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
-  const BatchPolicy policy{max_batch_size_, max_batch_size_};
+  const BatchPolicy policy = session_->GetBatchPolicy();
   return FixedBatchExecutor::Execute<std::string, std::string>(
       prompts, policy,
       [&prompts](const BatchSlice& slice,
@@ -230,22 +239,21 @@ int TestBizLlmModel::Generate(const TextBatch& prompts, const GenerateOptions&,
       outputs);
 }
 
-TestBizOcrModel::TestBizOcrModel(size_t max_batch_size)
-    : max_batch_size_(max_batch_size) {}
+TestBizOcrModel::TestBizOcrModel(std::shared_ptr<IBackendSession> session)
+    : session_(std::move(session)) {}
 std::shared_ptr<IModel> TestBizOcrModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
-  if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
-    return nullptr;
-  return std::make_shared<TestBizOcrModel>(
-      ConfigSize(context.model_config, "max_batch_size", 2));
+  if (!RequireSession(context, diagnostic)) return nullptr;
+  (void)context.Params<NoParameters>();
+  return std::make_shared<TestBizOcrModel>(context.backend_session);
 }
-const std::string& TestBizOcrModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
+const std::string& TestBizOcrModel::ImplName() const noexcept {
+  static const std::string type = kImplName;
   return type;
 }
-const std::string& TestBizOcrModel::Capability() const noexcept {
-  static const std::string capability = "ocr";
-  return capability;
+const std::string& TestBizOcrModel::ModelType() const noexcept {
+  static const std::string model_type = "ocr";
+  return model_type;
 }
 InferenceConcurrency TestBizOcrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
@@ -254,7 +262,7 @@ int TestBizOcrModel::Recognize(const ImageRefBatch& images,
                                OcrDocumentBatch* outputs,
                                std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
-  const BatchPolicy policy{max_batch_size_, max_batch_size_};
+  const BatchPolicy policy = session_->GetBatchPolicy();
   return FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
       images, policy,
       [](const BatchSlice& slice, std::vector<OcrDocumentItem>* batch_outputs) {
@@ -280,30 +288,30 @@ int TestBizOcrModel::Recognize(const ImageRefBatch& images,
       outputs);
 }
 
-TestBizAsrModel::TestBizAsrModel(size_t max_batch_size)
-    : max_batch_size_(max_batch_size) {}
+TestBizAsrModel::TestBizAsrModel(std::shared_ptr<IBackendSession> session)
+    : session_(std::move(session)) {}
 std::shared_ptr<IModel> TestBizAsrModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
-  if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
-    return nullptr;
-  return std::make_shared<TestBizAsrModel>(
-      ConfigSize(context.model_config, "max_batch_size", 2));
+  if (!RequireSession(context, diagnostic)) return nullptr;
+  (void)context.Params<NoParameters>();
+  return std::make_shared<TestBizAsrModel>(context.backend_session);
 }
-const std::string& TestBizAsrModel::ModelType() const noexcept {
-  static const std::string type = kModelType;
+const std::string& TestBizAsrModel::ImplName() const noexcept {
+  static const std::string type = kImplName;
   return type;
 }
-const std::string& TestBizAsrModel::Capability() const noexcept {
-  static const std::string capability = "asr";
-  return capability;
+const std::string& TestBizAsrModel::ModelType() const noexcept {
+  static const std::string model_type = "asr";
+  return model_type;
 }
 InferenceConcurrency TestBizAsrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio,
+                                const TranscribeOptions&, TextBatch* outputs,
                                 std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
-  const BatchPolicy policy{max_batch_size_, max_batch_size_};
+  const BatchPolicy policy = session_->GetBatchPolicy();
   return FixedBatchExecutor::Execute<AudioPcmPayload, std::string>(
       audio, policy,
       [&audio](const BatchSlice& slice,
@@ -324,27 +332,18 @@ int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
       outputs);
 }
 
-static const ModelDefinition kEmbeddingDefinition = [] {
-  auto definition = Definition(TestBizEmbeddingModel::kModelType, "embedding",
-                               ExecutionProtocol::kTensorGraph, 4);
-  definition.config_fields.push_back(
-      {"embedding_dim", ConfigValueKind::kInteger, false, 384, 1.0, 65536.0});
-  return definition;
-}();
-static const ModelDefinition kRerankDefinition =
-    Definition(TestBizRerankModel::kModelType, "rerank",
-               ExecutionProtocol::kTensorGraph, 4);
-static const ModelDefinition kLlmDefinition = [] {
-  auto definition = Definition(TestBizLlmModel::kModelType, "llm",
-                               ExecutionProtocol::kTextGeneration, 2);
-  definition.config_fields.push_back(
-      {"max_seq_len", ConfigValueKind::kInteger, false, 512, 1.0, 1048576.0});
-  return definition;
-}();
-static const ModelDefinition kOcrDefinition = Definition(
-    TestBizOcrModel::kModelType, "ocr", ExecutionProtocol::kTensorGraph, 2);
-static const ModelDefinition kAsrDefinition = Definition(
-    TestBizAsrModel::kModelType, "asr", ExecutionProtocol::kTensorGraph, 2);
+static const ModelDefinition kEmbeddingDefinition =
+    Definition(TestBizEmbeddingModel::kImplName, "embedding",
+               "test_tensor_backend", EmbeddingParamSpec());
+static const ModelDefinition kRerankDefinition = Definition(
+    TestBizRerankModel::kImplName, "rerank", "test_tensor_backend", {});
+static const ModelDefinition kLlmDefinition =
+    Definition(TestBizLlmModel::kImplName, "llm", "test_causal_lm_backend",
+               LlmParamSpec());
+static const ModelDefinition kOcrDefinition =
+    Definition(TestBizOcrModel::kImplName, "ocr", "test_tensor_backend", {});
+static const ModelDefinition kAsrDefinition =
+    Definition(TestBizAsrModel::kImplName, "asr", "test_tensor_backend", {});
 
 REGISTER_MODEL_WITH_DEFINITION(TestBizEmbeddingModel, kEmbeddingDefinition);
 REGISTER_MODEL_WITH_DEFINITION(TestBizRerankModel, kRerankDefinition);

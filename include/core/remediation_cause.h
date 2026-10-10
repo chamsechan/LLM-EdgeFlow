@@ -7,15 +7,18 @@ namespace llm_edgeflow {
   X(kMissingConfigField, "missing_config_field")            \
   X(kInvalidConfigValue, "invalid_config_value")            \
   X(kUnknownModelReference, "unknown_model_reference")      \
-  X(kModelCapabilityMismatch, "model_capability_mismatch")  \
+  X(kModelTypeMismatch, "model_type_mismatch")              \
   X(kPortTypeMismatch, "port_type_mismatch")                \
   X(kNoCompatibleInputSource, "no_compatible_input_source") \
   X(kDuplicateDependency, "duplicate_dependency")           \
   X(kUnknownDependency, "unknown_dependency")               \
-  X(kMissingBizOutput, "missing_biz_output")                \
+  X(kMissingOutputProducer, "missing_output_producer")      \
   X(kPortFlowMismatch, "port_flow_mismatch")                \
+  X(kUnknownNodeReference, "unknown_node_reference")        \
+  X(kUnknownPortReference, "unknown_port_reference")        \
   X(kUnknownNodeType, "unknown_node_type")                  \
   X(kUnknownModelType, "unknown_model_type")                \
+  X(kBackendProtocolMismatch, "backend_protocol_mismatch")  \
   X(kUnknownBackend, "unknown_backend")
 
 enum class RemediationCause {

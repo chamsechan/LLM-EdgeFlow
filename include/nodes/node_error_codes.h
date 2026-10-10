@@ -26,13 +26,10 @@ inline constexpr int kParseFailed = -6102;
 
 namespace text_template {
 inline constexpr int kRenderedOutputTooLong = -6201;
-inline constexpr int kMissingVariable = -6202;
 inline constexpr int kInvalidUtf8 = -6203;
 }  // namespace text_template
 
-namespace text_rerank {
-inline constexpr int kMissingInput = -7001;
-}  // namespace text_rerank
+namespace text_rerank {}  // namespace text_rerank
 
 namespace author_node {
 inline constexpr int kMissingInput = -8001;

@@ -17,8 +17,8 @@ class SessionResources {
   SessionResources() = default;
   explicit SessionResources(SessionContext& session) : session_(&session) {}
 
-  std::string GetModelRevision(const std::string& model_id) const {
-    return Session().GetModelManager().GetModelRevision(model_id);
+  std::string GetModelRevision(const std::string& model_name) const {
+    return Session().GetModelManager().GetModelRevision(model_name);
   }
 
   // 普通工厂返回值或 NodeFailure。现有的会话 single-flight 机制会把失败共享给

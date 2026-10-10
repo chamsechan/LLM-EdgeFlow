@@ -58,13 +58,13 @@ TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
 
   CompanyString img1_cs{static_cast<int32_t>(img1.size()),
                         const_cast<char*>(img1.data())};
-  CompanyFrame frame1{60001, &img1_cs, nullptr};
+  CompanyFrame frame1{60001, kMockServiceOcrInvoiceQa, &img1_cs, nullptr};
   CompanyString p1_cs{static_cast<int32_t>(p1.size()),
                       const_cast<char*>(p1.data())};
 
   CompanyString img2_cs{static_cast<int32_t>(img2.size()),
                         const_cast<char*>(img2.data())};
-  CompanyFrame frame2{60002, &img2_cs, nullptr};
+  CompanyFrame frame2{60002, kMockServiceOcrInvoiceQa, &img2_cs, nullptr};
   CompanyString p2_cs{static_cast<int32_t>(p2.size()),
                       const_cast<char*>(p2.data())};
 
@@ -131,9 +131,11 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   std::vector<float> pcm1(16000, 0.01f);   // 导航语音 (累计值较大)
   std::vector<float> pcm2(16000, 0.001f);  // 空调车控语音
 
-  CompanyOperatorAudioInput in_audio1{70001, pcm1.data(),
+  CompanyOperatorAudioInput in_audio1{70001, kMockServiceAudioAsrIntent,
+                                      pcm1.data(),
                                       static_cast<int32_t>(pcm1.size()), 16000};
-  CompanyOperatorAudioInput in_audio2{70002, pcm2.data(),
+  CompanyOperatorAudioInput in_audio2{70002, kMockServiceAudioAsrIntent,
+                                      pcm2.data(),
                                       static_cast<int32_t>(pcm2.size()), 16000};
 
   operator_api::NamedIoBatch inputs(2);
@@ -172,8 +174,10 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
 
-  CompanyOperatorAudioInput empty1{70001, nullptr, 0, 16000};
-  CompanyOperatorAudioInput empty2{70002, nullptr, 0, 16000};
+  CompanyOperatorAudioInput empty1{70001, kMockServiceAudioAsrIntent, nullptr,
+                                   0, 16000};
+  CompanyOperatorAudioInput empty2{70002, kMockServiceAudioAsrIntent, nullptr,
+                                   0, 16000};
   inputs[0]["mic_0.audio_in"] =
       operator_api::MakeBorrowedOperatorInput(&empty1);
   inputs[1]["mic_0.audio_in"] =
@@ -230,9 +234,9 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
                              std::filesystem::copy_options::overwrite_existing,
                              copy_ec);
 
-  pipe_json["models"][0]["model_path"] = "models/rerank.onnx";
-  pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
-  pipe_json["models"][0]["model_config"]["max_length"] = 32;
+  pipe_json["models"][0]["file"] = "models/rerank.onnx";
+  pipe_json["models"][0]["params"]["tokenizer_file"] = "models/vocab.txt";
+  pipe_json["models"][0]["params"]["max_tokens"] = 32;
 
   auto temp_pipe_path = temp_dir / "pipeline_cross_rerank.json";
   std::ofstream json_out(temp_pipe_path);
@@ -282,6 +286,7 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
 
   CompanyOperatorRerankInput in_rerank{};
   in_rerank.request_id = 80001;
+  in_rerank.service_type = kMockServiceCrossRerank;
   in_rerank.query_text = &q_cs;
   in_rerank.candidate_count = 5;
   for (int i = 0; i < 5; ++i) {

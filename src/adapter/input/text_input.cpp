@@ -4,15 +4,17 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
+#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
+
+constexpr auto kSentenceText = MakeBlackboardKey<TextBatch>("sentence_text");
 
 constexpr const char* kEntitySlot = "entity_in";
 constexpr const char* kKeywordSlot = "keyword_in";
@@ -24,7 +26,7 @@ AdapterStatus DecodeSentence(const Host& input, std::string* text) {
         "sentence_text string pointer is null or invalid", "sentence_text");
   }
   if (static_cast<size_t>(input.sentence_text->length) >
-      biz_input::kMaxTextBytes) {
+      input_limits::kMaxTextBytes) {
     return AdapterStatus::InvalidInput(
         "sentence_text length exceeds 64 KiB limit", "sentence_text");
   }
@@ -36,7 +38,7 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, context, status, kEntitySlot, kInputSentences,
+      source, options, context, status, kEntitySlot, kSentenceText,
       &DecodeSentence<CompanyOperatorEntityInput>);
 }
 
@@ -44,26 +46,28 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputDecodeOptions& options,
                                AlgContext* context, AdapterStatus* status) {
   return DecodeRequestRows<CompanyOperatorKeywordInput>(
-      source, options, context, status, kKeywordSlot, kInputSentences,
+      source, options, context, status, kKeywordSlot, kSentenceText,
       &DecodeSentence<CompanyOperatorKeywordInput>);
 }
 
 InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "text.plain";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot)};
-  def.logical_ports = {OutputPort(kInputSentences)};
+  def.type = kEntitySlot;
+  def.name = "entity_extract";
+  def.service_type = kMockServiceEntityExtract;
+  def.slot = ExternalInputSlot<CompanyOperatorEntityInput>(kEntitySlot);
+  def.logical_ports = {OutputPort(kSentenceText)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
 }
 
 InputConverterDefinition MakeOperatorKeywordInputConverter() {
   InputConverterDefinition def;
-  def.converter_id = "keyword.plain";
-  def.external_slots = {
-      ExternalInputSlot<CompanyOperatorKeywordInput>(kKeywordSlot)};
-  def.logical_ports = {OutputPort(kInputSentences)};
+  def.type = kKeywordSlot;
+  def.name = "keyword_match";
+  def.service_type = kMockServiceKeywordMatch;
+  def.slot = ExternalInputSlot<CompanyOperatorKeywordInput>(kKeywordSlot);
+  def.logical_ports = {OutputPort(kSentenceText)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;
 }

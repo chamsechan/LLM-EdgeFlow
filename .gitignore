@@ -57,12 +57,9 @@ lib/
 *.engine
 *.om
 
-# 保留 models 目录结构
-!models/
-!models/.gitkeep
-!models/README.md
-models/vocab.txt
-models/*_vocab.txt
+# 方案目录中的分词词表不提交
+configs/vocab.txt
+configs/*_vocab.txt
 
 # ------------------------------------------------------------------------------
 # 4. 测试报告与运行日志 (Test Reports, GTest Outputs & Logs)

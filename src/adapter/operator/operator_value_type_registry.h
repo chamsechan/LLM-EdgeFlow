@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "adapter/biz_input_constraints.h"
+#include "adapter/input_limits.h"
 #include "adapter/operator_value_type.h"
 #include "edgeflow/operator/types.h"
 

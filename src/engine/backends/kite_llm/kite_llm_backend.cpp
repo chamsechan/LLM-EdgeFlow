@@ -16,6 +16,8 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
+#include "contracts/path_utils.h"
 #include "engine/backend_registry.h"
 #include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
@@ -25,10 +27,6 @@
 #endif
 
 namespace llm_edgeflow {
-
-#ifdef HAVE_KITELLM
-static const BackendDefinition& KiteLlmBackendDefinition();
-#endif
 
 namespace {
 
@@ -66,6 +64,21 @@ bool ValidateExecutionTarget(const ExecutionTarget& target,
 
 #ifdef HAVE_KITELLM
 
+struct Params {
+  std::optional<std::string> run_config_file;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      Field("run_config_file", &Params::run_config_file)
+          .File()
+          .Description("可选的 kiteLLM 运行配置文件，相对 Pipeline "
+                       "文件目录解析；不写表示"
+                       "不用运行配置；设备 ID "
+                       "通过原生参数接口传入"),
+  });
+}
+
 bool ValidateCpuRunConfig(const std::string& platform,
                           const nlohmann::json& config,
                           std::string* diagnostic) {
@@ -85,51 +98,6 @@ bool ValidateCpuRunConfig(const std::string& platform,
       return false;
     }
   }
-  return true;
-}
-
-bool ResolveRunConfig(const std::string& model_path,
-                      const std::string& relative, std::string* resolved,
-                      std::string* diagnostic) {
-  if (!resolved) return false;
-  resolved->clear();
-  if (relative.empty()) return true;
-  const std::filesystem::path requested(relative);
-  if (requested.is_absolute()) {
-    SetDiagnosticNoexcept(
-        diagnostic, "kiteLLM run_config_file must be relative to model_path");
-    return false;
-  }
-  for (const auto& component : requested) {
-    if (component == "..") {
-      SetDiagnosticNoexcept(
-          diagnostic, "kiteLLM run_config_file cannot traverse model_path");
-      return false;
-    }
-  }
-  std::error_code ec;
-  const std::filesystem::path artifact(model_path);
-  const auto root = std::filesystem::weakly_canonical(
-      std::filesystem::is_directory(artifact, ec) ? artifact
-                                                  : artifact.parent_path(),
-      ec);
-  const auto candidate =
-      std::filesystem::weakly_canonical(root / requested, ec);
-  if (ec || !std::filesystem::is_regular_file(candidate, ec) || ec) {
-    SetDiagnosticNoexcept(
-        diagnostic, "kiteLLM run-config file does not exist: " + relative);
-    return false;
-  }
-  auto root_it = root.begin();
-  auto candidate_it = candidate.begin();
-  for (; root_it != root.end(); ++root_it, ++candidate_it) {
-    if (candidate_it == candidate.end() || *root_it != *candidate_it) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "kiteLLM run_config_file escapes model_path");
-      return false;
-    }
-  }
-  *resolved = candidate.string();
   return true;
 }
 
@@ -488,44 +456,29 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
                           "kiteLLM SDK was not compiled into this build");
     return nullptr;
 #else
-    if (spec.model_path.empty()) {
+    const auto& p = spec.Params<Params>();
+    if (spec.model_file.empty()) {
       SetDiagnosticNoexcept(diagnostic, "kiteLLM model path is empty");
       return nullptr;
     }
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+    if (!std::filesystem::is_regular_file(spec.model_file, ec) || ec) {
       SetDiagnosticNoexcept(
           diagnostic,
-          "kiteLLM model path is not a regular file: " + spec.model_path);
+          "kiteLLM model path is not a regular file: " + spec.model_file);
       return nullptr;
     }
-    if (!spec.backend_config.is_object()) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "kiteLLM backend_config must be an object");
-      return nullptr;
-    }
-    for (const auto& [key, value] : spec.backend_config.items()) {
-      (void)value;
-      if (key != "run_config_file") {
-        SetDiagnosticNoexcept(diagnostic,
-                              "Unknown kiteLLM backend_config field: " + key);
-        return nullptr;
-      }
-    }
-    const std::string run_config_file = ConfigValueOrDefault<std::string>(
-        spec.backend_config, KiteLlmBackendDefinition().config_fields,
-        "run_config_file");
-    std::string resolved_run_config;
-    if (!ResolveRunConfig(spec.model_path, run_config_file,
-                          &resolved_run_config, diagnostic)) {
-      return nullptr;
-    }
-
     const bool image_protocol =
         spec.requested_protocol == ExecutionProtocol::kImageTextGeneration;
     nlohmann::json run_config;
-    if (!resolved_run_config.empty()) {
-      std::ifstream input(resolved_run_config);
+    if (p.run_config_file) {
+      if (!std::filesystem::is_regular_file(*p.run_config_file, ec) || ec) {
+        SetDiagnosticNoexcept(
+            diagnostic,
+            "kiteLLM run-config file does not exist: " + *p.run_config_file);
+        return nullptr;
+      }
+      std::ifstream input(*p.run_config_file);
       if (!input)
         throw std::runtime_error("Cannot read kiteLLM run-config file");
       run_config = nlohmann::json::parse(input, nullptr, false);
@@ -549,11 +502,21 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
         SetDiagnosticNoexcept(diagnostic, "Invalid run-config vision.mmproj");
         return nullptr;
       }
-      std::string projector;
-      if (!ResolveRunConfig(resolved_run_config,
-                            vision["mmproj"].get<std::string>(), &projector,
-                            diagnostic))
+      std::filesystem::path projector;
+      std::string error;
+      if (!ResolveFileUnderDirectory(
+              std::filesystem::path(*p.run_config_file).parent_path(),
+              vision["mmproj"].get<std::string>(), &projector, &error)) {
+        SetDiagnosticNoexcept(diagnostic,
+                              "Invalid run-config vision.mmproj: " + error);
         return nullptr;
+      }
+      if (!std::filesystem::is_regular_file(projector, ec) || ec) {
+        SetDiagnosticNoexcept(
+            diagnostic,
+            "kiteLLM projector file does not exist: " + projector.string());
+        return nullptr;
+      }
     }
 
     auto runtime = std::make_shared<KiteRuntime>();
@@ -567,15 +530,15 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
       kiteLLM_Parameter_SetDeviceId(parameters.get(),
                                     *spec.execution_target.device_id);
     }
-    if (!resolved_run_config.empty()) {
+    if (p.run_config_file) {
       kiteLLM_Parameter_SetRunConfigFile(parameters.get(),
-                                         resolved_run_config.c_str());
+                                         p.run_config_file->c_str());
     }
     KiteHandlePtr handle(
-        kiteLLM_LoadFromFile(spec.model_path.c_str(), parameters.get()));
+        kiteLLM_LoadFromFile(spec.model_file.c_str(), parameters.get()));
     if (!handle) {
       SetDiagnosticNoexcept(diagnostic,
-                            "kiteLLM model load failed: " + spec.model_path);
+                            "kiteLLM model load failed: " + spec.model_file);
       return nullptr;
     }
     if (spec.requested_protocol ==
@@ -612,16 +575,7 @@ static const BackendDefinition& KiteLlmBackendDefinition() {
         ExecutionProtocol::kImageTextGeneration,
         ExecutionProtocol::kGeneratedTokenEmbedding};
     definition.concurrency = InferenceConcurrency::kSerialized;
-    definition.config_fields = {
-        {"run_config_file",
-         ConfigValueKind::kString,
-         false,
-         "",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "Optional model-relative kiteLLM run-config file; device ID is passed "
-         "through the native parameter API"}};
+    definition.params = ParamSpec();
     return definition;
   }();
   return definition;

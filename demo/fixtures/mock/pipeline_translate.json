@@ -1,37 +1,49 @@
 {
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "translate"
+      }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "translate",
+        "inputs": {
+          "translation": "translate_text.text"
+        }
+      }
+    ]
+  },
   "models": [
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
-        "max_seq_len": 512
-      },
-      "backend_config": {},
-      "model_id": "translate_llm",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+      "type": "llm",
+      "name": "translate_llm",
+      "file": "artifacts/neutral-llm.fixture",
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "translate_text",
+      "params": {
         "bind_model": "translate_llm",
         "max_tokens": 64,
-        "temperature": 0.0
+        "temperature": 0.0,
+        "endpoints": {
+          "translation": {}
+        }
       },
       "inputs": {
-        "prompt": "input_sentences"
-      },
-      "outputs": {
-        "text": "llm_answers"
+        "input": "input.query"
       }
     }
-  ],
-  "deployment": {
-    "io": {
-      "io_binding": "translate"
-    }
-  }
+  ]
 }

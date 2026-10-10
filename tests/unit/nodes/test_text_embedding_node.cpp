@@ -18,26 +18,26 @@
 #include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
 class CountingEmbeddingModel final : public IEmbeddingModel {
  public:
   std::atomic<int> infer_calls{0};
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "counting_embedding";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings,
+  int Embed(const TextBatch& input_texts, EmbeddingBatch* output_embeddings,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     infer_calls++;
@@ -80,10 +80,10 @@ class TextEmbeddingNodeTest : public ::testing::Test {
 };
 
 TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model"}, {"normalize", true}};
+  nlohmann::json cfg = {{"bind_model", "embed_model"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -100,13 +100,12 @@ TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
 }
 
 TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "embed_model"},
-                        {"normalize", true},
-                        {"lifetime", "session"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  nlohmann::json cfg = {{"bind_model", "embed_model"}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr, {},
+                              {{"text", "session"}}));
 
   constexpr int kNumThreads = 8;
   std::vector<std::thread> threads;
@@ -164,7 +163,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
 }
 
 TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
                               session_ctx_.get()));
@@ -174,7 +173,7 @@ TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
                               session_ctx_.get()));
@@ -189,7 +188,7 @@ TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
 }
 
 TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
                               session_ctx_.get()));
@@ -213,11 +212,11 @@ TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
 }
 
 TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
-  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(
-      *node, {{"bind_model", "embed_model"}, {"lifetime", "session"}},
-      session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
+                              session_ctx_.get(), nullptr, {},
+                              {{"text", "session"}}));
 
   TextBatch inputs = {{9, 0, "static first"}, {9, 1, "static second"}};
   counting_model_->return_wrong_count = true;
@@ -240,11 +239,11 @@ TEST_F(TextEmbeddingNodeTest,
        ConcurrentModelFailuresReachEveryRequestAndRetry) {
   for (const char* lifetime : {"request", "session"}) {
     SCOPED_TRACE(lifetime);
-    auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+    auto node = NodeRegistry::Instance().Create("text_embedding");
     ASSERT_NE(node, nullptr);
-    ASSERT_TRUE(InitNodeForTest(
-        *node, {{"bind_model", "embed_model"}, {"lifetime", lifetime}},
-        session_ctx_.get()));
+    ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
+                                session_ctx_.get(), nullptr, {},
+                                {{"text", lifetime}}));
     counting_model_->fail_inference = true;
     const int calls_before = counting_model_->infer_calls.load();
     std::promise<void> start;
@@ -301,16 +300,16 @@ TEST_F(TextEmbeddingNodeTest,
 }
 
 TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
-  auto node_a = NodeRegistry::Instance().Create("TextEmbeddingNode");
-  auto node_b = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node_a = NodeRegistry::Instance().Create("text_embedding");
+  auto node_b = NodeRegistry::Instance().Create("text_embedding");
   ASSERT_NE(node_a, nullptr);
   ASSERT_NE(node_b, nullptr);
-  ASSERT_TRUE(InitNodeForTest(
-      *node_a, {{"bind_model", "embed_model"}, {"lifetime", "session"}},
-      session_ctx_.get()));
-  ASSERT_TRUE(InitNodeForTest(
-      *node_b, {{"bind_model", "embed_model"}, {"lifetime", "session"}},
-      session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node_a, {{"bind_model", "embed_model"}},
+                              session_ctx_.get(), nullptr, {},
+                              {{"text", "session"}}));
+  ASSERT_TRUE(InitNodeForTest(*node_b, {{"bind_model", "embed_model"}},
+                              session_ctx_.get(), nullptr, {},
+                              {{"text", "session"}}));
 
   // 语料 A：["a", "b\0\1c"]
   // 语料 B：["a\0\1b", "c"]
@@ -359,7 +358,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_FLOAT_EQ((*out_a2)[0].data[0], 1.0f);
   EXPECT_FLOAT_EQ((*out_a2)[1].data[0], 4.0f);
 
-  // 改变顺序、sub_id、req_id 或 normalize 选项都会产生不同的条目
+  // 改变顺序、sub_id 或 req_id 都会产生不同的条目
   TextBatch corpus_a_reordered;
   corpus_a_reordered.emplace_back(0, 0, s_b_nul_c);
   corpus_a_reordered.emplace_back(0, 1, "a");
@@ -376,23 +375,11 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_EQ(node_a->Process(&ctx_sub_id), 0);
   EXPECT_EQ(counting_model_->infer_calls.load(), 4);
 
-  // 不同的 normalize 选项产生不同的缓存条目
-  auto node_no_norm = NodeRegistry::Instance().Create("TextEmbeddingNode");
-  ASSERT_TRUE(InitNodeForTest(*node_no_norm,
-                              {{"bind_model", "embed_model"},
-                               {"lifetime", "session"},
-                               {"normalize", false}},
-                              session_ctx_.get()));
-  AlgContext ctx_no_norm;
-  ctx_no_norm.Publish("text", corpus_a);
-  EXPECT_EQ(node_no_norm->Process(&ctx_no_norm), 0);
-  EXPECT_EQ(counting_model_->infer_calls.load(), 5);
-
   corpus_a[0].req_id = 7;
   AlgContext changed_request;
   changed_request.Publish("text", corpus_a);
   ASSERT_EQ(node_a->Process(&changed_request), 0);
-  EXPECT_EQ(counting_model_->infer_calls.load(), 6);
+  EXPECT_EQ(counting_model_->infer_calls.load(), 5);
   EXPECT_EQ(changed_request.Read<EmbeddingBatch>("embedding")->front().req_id,
             7U);
 }
@@ -402,96 +389,95 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
   GTEST_SKIP() << "ONNX Runtime disabled in this build";
 #endif
   const auto config = nlohmann::json::parse(R"json({
-  "biz_name": "keyword_match",
   "models": [
     {
-      "model_id": "embed_model",
-      "model_type": "bge_embedding",
-      "backend": "onnxruntime",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-embedding.fixture",
-      "model_config": {
+      "name": "embed_model",
+      "type": "embedding",
+      "file": "neutral-embedding.fixture",
+      "params": {
+        "tokenizer_file": "vocab.fixture",
         "embedding_dim": 1
       },
-      "backend_config": {}
+      "backend": {
+        "type": "onnxruntime"
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "source_a",
-      "node_type": "TextCorpusSourceNode",
-      "config": {
+      "type": "text_corpus_source",
+      "name": "source_a",
+      "params": {
         "corpus": [
           "a",
           "b\u0000\u0001c",
           "",
           "中文"
         ]
-      },
-      "outputs": {
-        "corpus": "corpus_a"
       }
     },
     {
-      "id": "embed_a",
-      "node_type": "TextEmbeddingNode",
-      "config": {
-        "bind_model": "embed_model",
-        "lifetime": "session"
+      "type": "text_embedding",
+      "name": "embed_a",
+      "params": {
+        "bind_model": "embed_model"
       },
       "inputs": {
-        "text": "corpus_a"
-      },
-      "outputs": {
-        "embedding": "vectors_a"
+        "text": "source_a.corpus"
       }
     },
     {
-      "id": "source_b",
-      "node_type": "TextCorpusSourceNode",
-      "config": {
+      "type": "text_corpus_source",
+      "name": "source_b",
+      "params": {
         "corpus": [
           "a\u0000\u0001b",
           "c",
           "",
           "中文"
         ]
-      },
-      "outputs": {
-        "corpus": "corpus_b"
       }
     },
     {
-      "id": "embed_b",
-      "node_type": "TextEmbeddingNode",
-      "config": {
-        "bind_model": "embed_model",
-        "lifetime": "session"
+      "type": "text_embedding",
+      "name": "embed_b",
+      "params": {
+        "bind_model": "embed_model"
       },
       "inputs": {
-        "text": "corpus_b"
-      },
-      "outputs": {
-        "embedding": "vectors_b"
+        "text": "source_b.corpus"
       }
     },
     {
-      "id": "rules",
-      "node_type": "TextRuleMatchNode",
-      "config": {},
+      "type": "text_rule_match",
+      "name": "rules",
+      "params": {},
       "inputs": {
-        "text": "input_sentences"
-      },
-      "outputs": {
-        "matches": "rule_matches"
+        "text": "input.input_sentences"
       }
     }
   ]
 })json");
-  auto plan = PipelineValidator::ValidateAndPlan(config);
+  auto plan = PipelineValidator::ValidateAndPlan(
+      config,
+      MakeTestBoundary({{"input.input_sentences", "TextBatch"}},
+                       {{"rules.matches", "RuleMatchBatch"},
+                        {"embed_a.embedding", "EmbeddingBatch", true, "N:M"},
+                        {"embed_b.embedding", "EmbeddingBatch", true, "N:M"}}));
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
+  for (const char* name : {"embed_a", "embed_b"}) {
+    const auto& node_plan = plan.node_plans.at(name);
+    const auto* input = node_plan.FindPort("text", PortDirection::kInput);
+    const auto* output =
+        node_plan.FindPort("embedding", PortDirection::kOutput);
+    ASSERT_NE(input, nullptr);
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(input->lifetime, "session");
+    EXPECT_EQ(output->lifetime, "session");
+  }
   for (int request = 0; request < 2; ++request) {
     AlgContext ctx;
-    ctx.Publish("input_sentences", TextBatch{{1, 0, "probe"}});
+    ctx.Publish("input.input_sentences", TextBatch{{1, 0, "probe"}});
     for (const auto& id : plan.report.topological_order) {
       const auto& node_plan = plan.node_plans.at(id);
       auto node = NodeRegistry::Instance().Create(node_plan.node.node_type);
@@ -500,9 +486,10 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
       ASSERT_EQ(node->Process(&ctx), 0);
     }
     for (const char* key : {"a", "b"}) {
-      const auto* corpus = ctx.Read<TextBatch>(std::string("corpus_") + key);
+      const auto* corpus =
+          ctx.Read<TextBatch>(std::string("source_") + key + ".corpus");
       const auto* vectors =
-          ctx.Read<EmbeddingBatch>(std::string("vectors_") + key);
+          ctx.Read<EmbeddingBatch>(std::string("embed_") + key + ".embedding");
       ASSERT_NE(corpus, nullptr);
       ASSERT_NE(vectors, nullptr);
       ASSERT_EQ(vectors->size(), corpus->size());
@@ -513,6 +500,26 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
     }
     EXPECT_EQ(counting_model_->infer_calls.load(), 2);
   }
+}
+
+TEST_F(TextEmbeddingNodeTest,
+       RequestInputRecomputesEvenWhenPayloadIsUnchanged) {
+  auto node = NodeRegistry::Instance().Create("text_embedding");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
+                              session_ctx_.get(), nullptr, {},
+                              {{"text", "request"}}));
+  for (int request = 0; request < 2; ++request) {
+    AlgContext context;
+    context.Publish("text", TextBatch{{43, 7, "same payload"}});
+    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
+    const auto* output = context.Read<EmbeddingBatch>("embedding");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), 1U);
+    EXPECT_EQ(output->front().req_id, 43U);
+    EXPECT_EQ(output->front().sub_id, 7U);
+  }
+  EXPECT_EQ(counting_model_->infer_calls.load(), 2);
 }
 
 }  // namespace llm_edgeflow

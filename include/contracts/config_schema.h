@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
@@ -19,6 +20,8 @@ enum class ConfigValueKind {
   kBoolean,
   kObject,
   kArray,
+  kMap,
+  kJson,
 };
 
 /**
@@ -33,24 +36,53 @@ struct ConfigFieldDefinition {
   std::optional<double> maximum;
   std::vector<std::string> enum_values;
   std::string semantic;
+  std::shared_ptr<const ConfigFieldDefinition> items;
+  std::optional<std::vector<ConfigFieldDefinition>> fields;
+  bool file = false;
 
   ConfigFieldDefinition() = default;
-  ConfigFieldDefinition(std::string field_name, ConfigValueKind value_kind,
-                        bool is_required = false,
-                        nlohmann::json field_default = nlohmann::json(),
-                        std::optional<double> field_minimum = std::nullopt,
-                        std::optional<double> field_maximum = std::nullopt,
-                        std::vector<std::string> allowed_values = {},
-                        std::string field_semantic = {})
-      : name(std::move(field_name)),
-        kind(value_kind),
-        required(is_required),
-        default_value(std::move(field_default)),
-        minimum(field_minimum),
-        maximum(field_maximum),
-        enum_values(std::move(allowed_values)),
-        semantic(std::move(field_semantic)) {}
 };
+
+// Resolve a validation path through declared object fields and container items.
+// JSON Pointer decodes map keys containing '/' or '~' before lookup.
+inline const ConfigFieldDefinition* FindConfigField(
+    const std::vector<ConfigFieldDefinition>& fields,
+    nlohmann::json::json_pointer path) {
+  std::vector<std::string> parts;
+  while (!path.empty()) {
+    parts.push_back(path.back());
+    path.pop_back();
+  }
+  const ConfigFieldDefinition* current = nullptr;
+  for (auto part = parts.rbegin(); part != parts.rend(); ++part) {
+    if (current && (current->kind == ConfigValueKind::kArray ||
+                    current->kind == ConfigValueKind::kMap)) {
+      current = current->items.get();
+    } else {
+      const auto* members = !current          ? &fields
+                            : current->fields ? &*current->fields
+                                              : nullptr;
+      if (!members) return nullptr;
+      current = nullptr;
+      for (const auto& field : *members) {
+        if (field.name == *part) {
+          current = &field;
+          break;
+        }
+      }
+    }
+    if (!current) return nullptr;
+  }
+  return current;
+}
+
+inline const std::vector<ConfigFieldDefinition>* FindConfigObjectFields(
+    const std::vector<ConfigFieldDefinition>& fields,
+    const nlohmann::json::json_pointer& path) {
+  if (path.empty()) return &fields;
+  const auto* field = FindConfigField(fields, path);
+  return field && field->fields ? &*field->fields : nullptr;
+}
 
 inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
   switch (kind) {
@@ -66,31 +98,66 @@ inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
       return "object";
     case ConfigValueKind::kArray:
       return "array";
+    case ConfigValueKind::kMap:
+      return "map";
+    case ConfigValueKind::kJson:
+      return "json";
     default:
       return "unknown";
   }
 }
 
-// 读取已声明的配置字段：有配置值时取配置值，否则取声明中的默认值，
-// 因此每个默认值只在 Definition 中写一次。字段未声明或配置值类型错误时
-// 抛出异常，与 nlohmann::json::value 一致。null 表示未配置，
-// 其他非对象值会被拒绝。
-template <typename T>
-T ConfigValueOrDefault(const nlohmann::json& config,
-                       const std::vector<ConfigFieldDefinition>& fields,
-                       const std::string& name) {
-  if (!config.is_object() && !config.is_null()) {
-    throw std::invalid_argument("Configuration must be an object or null");
-  }
-  for (const auto& field : fields) {
-    if (field.name != name) continue;
-    if (config.is_object()) {
-      const auto it = config.find(name);
-      if (it != config.end()) return it->template get<T>();
+inline nlohmann::json ConfigFieldToJson(const ConfigFieldDefinition& field) {
+  nlohmann::json result = {{"type", ConfigValueKindName(field.kind)},
+                           {"required", field.required}};
+  if (!field.name.empty()) result["name"] = field.name;
+  if (!field.default_value.is_null()) result["default"] = field.default_value;
+  if (field.minimum) result["minimum"] = *field.minimum;
+  if (field.maximum) result["maximum"] = *field.maximum;
+  if (!field.enum_values.empty()) result["enum"] = field.enum_values;
+  if (!field.semantic.empty()) result["semantic"] = field.semantic;
+  if (field.file) result["file"] = true;
+  if (field.items) result["items"] = ConfigFieldToJson(*field.items);
+  if (field.fields) {
+    result["fields"] = nlohmann::json::array();
+    for (const auto& nested : *field.fields) {
+      result["fields"].push_back(ConfigFieldToJson(nested));
     }
-    return field.default_value.template get<T>();
   }
-  throw std::invalid_argument("Undeclared configuration field: " + name);
+  return result;
+}
+
+inline nlohmann::json ConfigFieldJsonSchema(
+    const ConfigFieldDefinition& field) {
+  auto schema = nlohmann::json::object();
+  if (field.kind == ConfigValueKind::kJson) {
+    schema["not"] = {{"type", "null"}};
+  } else {
+    schema["type"] = field.kind == ConfigValueKind::kMap
+                         ? "object"
+                         : ConfigValueKindName(field.kind);
+  }
+  if (field.minimum) schema["minimum"] = *field.minimum;
+  if (field.maximum) schema["maximum"] = *field.maximum;
+  if (!field.enum_values.empty()) schema["enum"] = field.enum_values;
+  if (!field.default_value.is_null()) schema["default"] = field.default_value;
+  if (!field.semantic.empty()) schema["description"] = field.semantic;
+  if (field.file) schema["file"] = true;
+  if (field.items) {
+    schema[field.kind == ConfigValueKind::kMap ? "additionalProperties"
+                                               : "items"] =
+        ConfigFieldJsonSchema(*field.items);
+  }
+  if (field.fields) {
+    schema["properties"] = nlohmann::json::object();
+    schema["required"] = nlohmann::json::array();
+    schema["additionalProperties"] = false;
+    for (const auto& nested : *field.fields) {
+      schema["properties"][nested.name] = ConfigFieldJsonSchema(nested);
+      if (nested.required) schema["required"].push_back(nested.name);
+    }
+  }
+  return schema;
 }
 
 }  // namespace llm_edgeflow

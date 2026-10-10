@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "contracts/inference_payloads.h"
@@ -17,19 +18,18 @@ namespace detail {
 
 template <typename OutputBatchT, typename InputBatchT>
 inline NodeResult<OutputBatchT> ConvertAlignedOutputs(
-    const InputBatchT& inputs, OutputBatchT&& outputs,
-    const std::string& model_type_name, const std::string& slot_name) {
+    const InputBatchT& inputs, OutputBatchT&& outputs, const std::string& label,
+    const std::string& slot_name) {
   auto alignment = ValidatePreservedTraceableAlignment(inputs, outputs);
   if (alignment.error == TraceableAlignmentError::kCountMismatch) {
     return NodeResult<OutputBatchT>::Failure(
-        NodeErrorKind::kOutputCountMismatch,
-        model_type_name + " output count mismatch",
+        NodeErrorKind::kOutputCountMismatch, label + " output count mismatch",
         node_error::author_node::kOutputCountMismatch, "align", slot_name);
   }
   if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
     return NodeResult<OutputBatchT>::Failure(
         NodeErrorKind::kOutputProvenanceMismatch,
-        model_type_name + " output provenance mismatch",
+        label + " output provenance mismatch",
         node_error::author_node::kOutputProvenanceMismatch, "align", slot_name);
   }
   return NodeResult<OutputBatchT>::Success(std::forward<OutputBatchT>(outputs));
@@ -39,12 +39,12 @@ template <typename OutputBatchT, typename InputBatchT, typename ModelT,
           typename InvokeT>
 NodeResult<OutputBatchT> InvokeAlignedModel(
     const InputBatchT& inputs, const std::shared_ptr<ModelT>& model,
-    const std::string& model_name, const std::string& operation,
+    const std::string& label, const std::string& operation,
     const std::string& slot_name, InvokeT invoke) {
   if (inputs.empty()) return NodeResult<OutputBatchT>::Success({});
   if (!model) {
     return NodeResult<OutputBatchT>::Failure(
-        NodeErrorKind::kModelCallError, model_name + " model is null",
+        NodeErrorKind::kModelCallError, label + " model is null",
         node_error::author_node::kModelCallFailed, operation, slot_name);
   }
   OutputBatchT outputs;
@@ -53,13 +53,11 @@ NodeResult<OutputBatchT> InvokeAlignedModel(
   if (code != 0) {
     return NodeResult<OutputBatchT>::Failure(
         NodeErrorKind::kModelCallError,
-        model_name + " " + operation + " failed with code " +
-            std::to_string(code) +
+        label + " " + operation + " failed with code " + std::to_string(code) +
             (diagnostic.empty() ? "" : ": " + diagnostic),
         code, operation, slot_name);
   }
-  return ConvertAlignedOutputs(inputs, std::move(outputs), model_name,
-                               slot_name);
+  return ConvertAlignedOutputs(inputs, std::move(outputs), label, slot_name);
 }
 
 }  // namespace detail
@@ -71,37 +69,37 @@ namespace detail {
 template <typename ModelT>
 class ModelCallBase {
  public:
-  using ModelType = ModelT;
+  using Interface = ModelT;
 
   const std::string& SlotName() const noexcept { return slot_name_; }
-  const std::string& ModelId() const noexcept { return model_id_; }
+  const std::string& ModelName() const noexcept { return model_name_; }
   bool IsBound() const noexcept { return model_ != nullptr; }
 
  protected:
   ModelCallBase() = default;
   ModelCallBase(std::shared_ptr<ModelT> model, std::string slot_name,
-                std::string model_id)
+                std::string model_name)
       : model_(std::move(model)),
         slot_name_(std::move(slot_name)),
-        model_id_(std::move(model_id)) {}
+        model_name_(std::move(model_name)) {}
   ModelCallBase(const ModelCallBase&) = delete;
   ModelCallBase& operator=(const ModelCallBase&) = delete;
   ModelCallBase(ModelCallBase&&) noexcept = default;
   ModelCallBase& operator=(ModelCallBase&&) noexcept = default;
   ~ModelCallBase() = default;
+  const ModelT* BoundModel() const noexcept { return model_.get(); }
 
   template <typename OutputBatchT, typename InputBatchT, typename InvokeT>
-  NodeResult<OutputBatchT> Invoke(const InputBatchT& inputs,
-                                  const char* model_name, const char* operation,
-                                  InvokeT invoke) const {
-    return InvokeAlignedModel<OutputBatchT>(
-        inputs, model_, model_name, operation, slot_name_, std::move(invoke));
+  NodeResult<OutputBatchT> Invoke(const InputBatchT& inputs, const char* label,
+                                  const char* operation, InvokeT invoke) const {
+    return InvokeAlignedModel<OutputBatchT>(inputs, model_, label, operation,
+                                            slot_name_, std::move(invoke));
   }
 
  private:
   std::shared_ptr<ModelT> model_;
   std::string slot_name_;
-  std::string model_id_;
+  std::string model_name_;
 };
 
 }  // namespace detail
@@ -109,18 +107,22 @@ class ModelCallBase {
 class LlmCall : public detail::ModelCallBase<ILlmModel> {
  public:
   LlmCall() = default;
-  explicit LlmCall(std::shared_ptr<ModelType> model,
+  explicit LlmCall(std::shared_ptr<Interface> model,
                    std::string slot_name = "generator",
-                   std::string model_id = {})
+                   std::string model_name = {})
       : ModelCallBase(std::move(model), std::move(slot_name),
-                      std::move(model_id)) {}
+                      std::move(model_name)) {}
+
+  bool SupportsRandomSeed() const noexcept {
+    return BoundModel() && BoundModel()->SupportsRandomSeed();
+  }
 
   NodeResult<TextBatch> Generate(
       const TextBatch& inputs,
       const GenerateOptions& options = GenerateOptions{}) const {
     return Invoke<TextBatch>(
         inputs, "LLM", "generate",
-        [&](ModelType& model, TextBatch* outputs, std::string* diagnostic) {
+        [&](Interface& model, TextBatch* outputs, std::string* diagnostic) {
           return model.Generate(inputs, options, outputs, diagnostic);
         });
   }
@@ -129,19 +131,17 @@ class LlmCall : public detail::ModelCallBase<ILlmModel> {
 class EmbeddingCall : public detail::ModelCallBase<IEmbeddingModel> {
  public:
   EmbeddingCall() = default;
-  explicit EmbeddingCall(std::shared_ptr<ModelType> model,
+  explicit EmbeddingCall(std::shared_ptr<Interface> model,
                          std::string slot_name = "encoder",
-                         std::string model_id = {})
+                         std::string model_name = {})
       : ModelCallBase(std::move(model), std::move(slot_name),
-                      std::move(model_id)) {}
+                      std::move(model_name)) {}
 
-  NodeResult<EmbeddingBatch> Embed(
-      const TextBatch& inputs,
-      const EmbeddingOptions& options = EmbeddingOptions{}) const {
+  NodeResult<EmbeddingBatch> Embed(const TextBatch& inputs) const {
     return Invoke<EmbeddingBatch>(inputs, "Embedding", "embed",
-                                  [&](ModelType& model, EmbeddingBatch* outputs,
+                                  [&](Interface& model, EmbeddingBatch* outputs,
                                       std::string* diagnostic) {
-                                    return model.Embed(inputs, options, outputs,
+                                    return model.Embed(inputs, outputs,
                                                        diagnostic);
                                   });
   }
@@ -150,17 +150,22 @@ class EmbeddingCall : public detail::ModelCallBase<IEmbeddingModel> {
 class AsrCall : public detail::ModelCallBase<IAsrModel> {
  public:
   AsrCall() = default;
-  explicit AsrCall(std::shared_ptr<ModelType> model,
+  explicit AsrCall(std::shared_ptr<Interface> model,
                    std::string slot_name = "transcriber",
-                   std::string model_id = {})
+                   std::string model_name = {})
       : ModelCallBase(std::move(model), std::move(slot_name),
-                      std::move(model_id)) {}
+                      std::move(model_name)) {}
 
-  NodeResult<TextBatch> Transcribe(const AudioPcmBatch& inputs) const {
+  bool SupportsLanguage(std::string_view language) const noexcept {
+    return BoundModel() && BoundModel()->SupportsLanguage(language);
+  }
+
+  NodeResult<TextBatch> Transcribe(const AudioPcmBatch& inputs,
+                                   const TranscribeOptions& options) const {
     return Invoke<TextBatch>(
         inputs, "ASR", "transcribe",
-        [&](ModelType& model, TextBatch* outputs, std::string* diagnostic) {
-          return model.Transcribe(inputs, outputs, diagnostic);
+        [&](Interface& model, TextBatch* outputs, std::string* diagnostic) {
+          return model.Transcribe(inputs, options, outputs, diagnostic);
         });
   }
 };
@@ -168,16 +173,16 @@ class AsrCall : public detail::ModelCallBase<IAsrModel> {
 class OcrCall : public detail::ModelCallBase<IOcrModel> {
  public:
   OcrCall() = default;
-  explicit OcrCall(std::shared_ptr<ModelType> model,
+  explicit OcrCall(std::shared_ptr<Interface> model,
                    std::string slot_name = "detector",
-                   std::string model_id = {})
+                   std::string model_name = {})
       : ModelCallBase(std::move(model), std::move(slot_name),
-                      std::move(model_id)) {}
+                      std::move(model_name)) {}
 
   NodeResult<OcrDocumentBatch> Recognize(const ImageRefBatch& inputs) const {
     return Invoke<OcrDocumentBatch>(
         inputs, "OCR", "recognize",
-        [&](ModelType& model, OcrDocumentBatch* outputs,
+        [&](Interface& model, OcrDocumentBatch* outputs,
             std::string* diagnostic) {
           return model.Recognize(inputs, outputs, diagnostic);
         });
@@ -187,16 +192,16 @@ class OcrCall : public detail::ModelCallBase<IOcrModel> {
 class RerankCall : public detail::ModelCallBase<IRerankModel> {
  public:
   RerankCall() = default;
-  explicit RerankCall(std::shared_ptr<ModelType> model,
+  explicit RerankCall(std::shared_ptr<Interface> model,
                       std::string slot_name = "reranker",
-                      std::string model_id = {})
+                      std::string model_name = {})
       : ModelCallBase(std::move(model), std::move(slot_name),
-                      std::move(model_id)) {}
+                      std::move(model_name)) {}
 
   NodeResult<ScoreBatch> Score(const QueryCandidatesBatch& inputs) const {
     return Invoke<ScoreBatch>(
         inputs, "Rerank", "score",
-        [&](ModelType& model, ScoreBatch* outputs, std::string* diagnostic) {
+        [&](Interface& model, ScoreBatch* outputs, std::string* diagnostic) {
           return model.Score(inputs, outputs, diagnostic);
         });
   }

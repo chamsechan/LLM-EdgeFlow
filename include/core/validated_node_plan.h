@@ -22,14 +22,14 @@ struct ResolvedPortBinding {
 
 struct ResolvedNodeModelBinding {
   std::string name;
-  std::string capability;
+  std::string model_type;
   std::string config_field;
-  std::string model_id;
+  std::string model_name;
 };
 
 struct ValidatedNodePlan {
   ParsedNodeConfig node;
-  nlohmann::json normalized_config;
+  nlohmann::json normalized_params;
   std::vector<ResolvedPortBinding> ports;
   std::vector<ResolvedNodeModelBinding> model_bindings;
 

@@ -133,20 +133,27 @@ console.log("Studio graph geometry, routing and interaction checks passed");
 // 都不得静默绑定到同名键。
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { graphDocument } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
-const catalog = { io_bindings: [{ biz_name: "example" }], bizs: [{ biz_name: "example", ingress: [{ key: "request" }], egress: [] }], nodes: [
-  { node_type: "Producer", inputs: [], outputs: [{ key: "text" }, { key: "optional" }] },
-  { node_type: "Consumer", inputs: [{ key: "text", required: true }, { key: "optional", required: false }], outputs: [] },
-] };
-const pipelineDocument = { deployment: { io: { io_binding: "example" } }, pipeline: [
-  { id: "consumer", node_type: "Consumer", inputs: { text: "text" } },
-  { id: "producer", node_type: "Producer" },
-  { id: "missing", node_type: "Consumer", depends_on: ["producer"] },
-] };
+const catalog = {input_converters: [{type: "doc_in", name: "example", logical_ports: [{key: "request"}, {key: "extra"}]}], output_converters: [{type: "doc_out", name: "example", logical_ports: [{key: "answer"}]}], nodes: [
+  {node_type: "producer", inputs: [], outputs: [{key: "text"}, {key: "optional"}]},
+  {node_type: "consumer", inputs: [{key: "text", required: true}, {key: "optional", required: false}], outputs: []},
+]};
+const pipelineDocument = {io: {input: [{type: "doc_in", name: "example"}], output: [{type: "doc_out", name: "example", inputs: {answer: "producer.text"}}]}, pipeline: [
+  {name: "consumer", type: "consumer", inputs: {text: "producer.text"}},
+  {name: "producer", type: "producer"},
+  {name: "missing", type: "consumer", depends_on: ["producer"]},
+]};
 const documentBeforeGraph = structuredClone(pipelineDocument);
 const graphDocumentResult = graphDocument(pipelineDocument, catalog);
-assert.equal(graphDocumentResult.edges.filter(edge => !edge.dependency).length, 1);
+assert.equal(graphDocumentResult.edges.filter(edge => !edge.dependency).length, 2);
 assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.target === "consumer" && edge.targetPort === "text"));
 assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.target === "missing" && edge.dependency));
 assert.ok(!graphDocumentResult.edges.some(edge => edge.targetPort === "optional"));
+assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.sourcePort === "text" && edge.target === "output" && edge.targetPort === "answer"));
+assert.deepEqual(graphDocumentResult.definitions.input.outputs.map(port => port.key), ["request", "extra"]);
+assert.deepEqual(graphDocumentResult.definitions.output.inputs.map(port => port.key), ["answer"]);
+assert.equal(graphDocumentResult.nodes.find(node => node.id === "producer").node_type, "producer", "view identity projects native node names and types");
 assert.deepEqual(pipelineDocument, documentBeforeGraph, "rendering must never persist inferred dependencies");
-console.log("Studio explicit input mappings, default outputs and independent ordering checks passed");
+const directIngress = structuredClone(pipelineDocument);
+directIngress.pipeline[0].inputs.text = "input.request";
+assert.ok(graphDocument(directIngress, catalog).edges.some(edge => edge.source === "input" && edge.sourcePort === "request" && edge.target === "consumer"));
+console.log("Studio explicit input/output references and independent ordering checks passed");

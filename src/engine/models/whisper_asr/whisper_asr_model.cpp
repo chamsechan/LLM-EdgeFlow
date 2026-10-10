@@ -6,15 +6,31 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
 
 namespace llm_edgeflow {
 
-static const ModelDefinition& WhisperAsrModelDefinition();
-
 namespace {
+
+struct Params {
+  int max_audio_seconds = 30;
+  int max_output_bytes = 65536;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>(
+      {Field("max_audio_seconds", &Params::max_audio_seconds)
+           .Default(30)
+           .Range(1, 60)
+           .Description("每段音频的时长上限，单位为秒。"),
+       Field("max_output_bytes", &Params::max_output_bytes)
+           .Default(65536)
+           .Range(1, 65536)
+           .Description("每段转写文本的 UTF-8 字节数上限。")});
+}
 
 inline std::string TrimAscii(std::string_view text) {
   const auto start = text.find_first_not_of(" \t\r\n");
@@ -28,45 +44,19 @@ inline std::string TrimAscii(std::string_view text) {
 std::shared_ptr<IModel> WhisperAsrModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   try {
+    const auto& params = context.Params<Params>();
     auto session = std::dynamic_pointer_cast<IAudioTranscriptionSession>(
         context.backend_session);
-    if (!session ||
-        session->Protocol() != ExecutionProtocol::kAudioTranscription ||
-        session->GetBatchPolicy().max_batch_size != 1 ||
+    if (!session || session->GetBatchPolicy().max_batch_size != 1 ||
         session->GetBatchPolicy().fixed_batch_size != 0) {
       throw std::runtime_error(
           "whisper_asr requires an IAudioTranscriptionSession with batch "
           "policy {1, 0}");
     }
-    const std::string language = ConfigValueOrDefault<std::string>(
-        context.model_config, WhisperAsrModelDefinition().config_fields,
-        "language");
-    const int max_audio_seconds = ConfigValueOrDefault<int>(
-        context.model_config, WhisperAsrModelDefinition().config_fields,
-        "max_audio_seconds");
-    const int max_output_bytes = ConfigValueOrDefault<int>(
-        context.model_config, WhisperAsrModelDefinition().config_fields,
-        "max_output_bytes");
-
-    if (language != "zh" && language != "en" && language != "auto") {
-      throw std::runtime_error("Invalid language for whisper_asr: " + language);
-    }
-    if (max_audio_seconds < 1 || max_audio_seconds > 60) {
-      throw std::runtime_error("max_audio_seconds must be between 1 and 60");
-    }
-    if (max_output_bytes < 1 || max_output_bytes > 65536) {
-      throw std::runtime_error("max_output_bytes must be between 1 and 65536");
-    }
-    if (!session->SupportsLanguage(language)) {
-      throw std::runtime_error("Backend session does not support language: " +
-                               language);
-    }
-
     auto model = std::make_shared<WhisperAsrModel>();
     model->session_ = std::move(session);
-    model->max_audio_seconds_ = max_audio_seconds;
-    model->options_.language = language;
-    model->options_.max_output_bytes = static_cast<size_t>(max_output_bytes);
+    model->max_audio_seconds_ = params.max_audio_seconds;
+    model->max_output_bytes_ = static_cast<size_t>(params.max_output_bytes);
     return model;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
@@ -77,7 +67,14 @@ std::shared_ptr<IModel> WhisperAsrModel::Create(
   }
 }
 
-int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+bool WhisperAsrModel::SupportsLanguage(
+    std::string_view language) const noexcept {
+  return session_ && session_->SupportsLanguage(language);
+}
+
+int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
+                                const TranscribeOptions& options,
+                                TextBatch* outputs,
                                 std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
@@ -92,6 +89,9 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
   if (audio.empty()) return 0;
 
   try {
+    AudioTranscriptionOptions session_options;
+    session_options.language = options.language;
+    session_options.max_output_bytes = max_output_bytes_;
     const size_t max_samples = static_cast<size_t>(max_audio_seconds_) * 16000;
     for (const auto& item : audio) {
       if (item.data.sample_rate != 16000) {
@@ -133,8 +133,8 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
 
     return FixedBatchExecutor::ExecuteItems<AudioPcmPayload, std::string>(
         audio, session_->GetBatchPolicy(),
-        [this, diagnostic](const TraceableItem<AudioPcmPayload>& input,
-                           std::string* output) {
+        [this, &session_options, diagnostic](
+            const TraceableItem<AudioPcmPayload>& input, std::string* output) {
           const auto& item = input.data;
           if (item.pcm_data.empty()) {
             output->clear();
@@ -143,7 +143,7 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
           std::string raw_output;
           std::string reason;
           const int ret =
-              session_->Transcribe(item, options_, &raw_output, &reason);
+              session_->Transcribe(item, session_options, &raw_output, &reason);
           if (ret != 0) {
             ALG_LOG_ERROR("[WhisperAsrModel] Transcription failed: %s\n",
                           reason.c_str());
@@ -165,10 +165,10 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
             return -1;
           }
           std::string trimmed = TrimAscii(raw_output);
-          if (trimmed.size() > options_.max_output_bytes) {
+          if (trimmed.size() > max_output_bytes_) {
             ALG_LOG_ERROR(
                 "[WhisperAsrModel] Output size %zu > max_output_bytes %zu\n",
-                trimmed.size(), options_.max_output_bytes);
+                trimmed.size(), max_output_bytes_);
             SetDiagnosticNoexcept(diagnostic,
                                   "Transcription exceeds max_output_bytes");
             return -1;
@@ -196,31 +196,7 @@ static const ModelDefinition& WhisperAsrModelDefinition() {
     definition.description =
         "Whisper automatic speech recognition model for float32 PCM";
     definition.required_protocol = ExecutionProtocol::kAudioTranscription;
-    definition.config_fields = {
-        ConfigFieldDefinition{"language",
-                              ConfigValueKind::kString,
-                              false,
-                              "zh",
-                              std::nullopt,
-                              std::nullopt,
-                              {"zh", "en", "auto"},
-                              "Target transcription language"},
-        ConfigFieldDefinition{"max_audio_seconds",
-                              ConfigValueKind::kInteger,
-                              false,
-                              30,
-                              1.0,
-                              60.0,
-                              {},
-                              "Maximum audio length in seconds"},
-        ConfigFieldDefinition{"max_output_bytes",
-                              ConfigValueKind::kInteger,
-                              false,
-                              65536,
-                              1.0,
-                              65536.0,
-                              {},
-                              "Maximum transcription output bytes"}};
+    definition.params = ParamSpec();
     return definition;
   }();
   return definition;

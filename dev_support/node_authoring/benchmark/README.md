@@ -8,9 +8,11 @@ python3 dev_support/node_authoring/benchmark/run.py \
 使用仓库固定版本的本地依赖缓存，不下载模型。所有生成源码、缓存链接与原始结果写入
 所选 build 旁的 `*-source` 目录；不会把历史源码复制进当前生产注册。
 
-- 旧 LLM starter 从 Git `87f490b` 提取，只改类型/注册名避免重名；新旧包装链接同一当前 runtime。
+- 旧 LLM starter 从 Git `87f490b` 提取；仅在临时基线源码中调整类型/注册名、
+  模型类别接口与命名端口绑定，使新旧包装链接同一当前 runtime。
 - 旧 starter 所需的两个已退役辅助头文件固定从 Git `87a28b7` 提取到工作目录的
-  `baseline_include/nodes`，仅作为探针私有比较基线；当前 SDK 不恢复旧作者接口。
+  `baseline_include/nodes`，仅作为探针私有比较基线；当前 SDK 不恢复旧作者接口。提取后对历史 capability、模型实例名与快照指针
+  作局部适配；这些替换只服务于固定基线，不是生产配置迁移入口。
   `summary.json` 的 `baseline_helper_revision` 记录该版本。
 - 旧基类依赖的类写法端口辅助函数已移出 `NodeBase`，由
   [legacy_node_base.h](../legacy_node_base.h) 的 `LegacyNodeBase` 提供；脚本提取旧头文件时改为继承它。

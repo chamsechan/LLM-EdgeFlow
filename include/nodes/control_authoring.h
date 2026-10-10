@@ -11,16 +11,16 @@
 #include <vector>
 
 #include "contracts/control_payload.h"
+#include "contracts/parameters.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "nodes/configuration_snapshot.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
-#include "nodes/parameter_binding.h"
 
 namespace llm_edgeflow {
 
-// 字段 Control 命令：payload 必须给出全部受控字段，整体替换后再校验。
+// 字段 Control 命令：至少给出一个受控字段，整体替换给出的项后再校验。
 class FieldControlCommand {
  public:
   FieldControlCommand(int cmd_id, std::string name,
@@ -45,55 +45,16 @@ class FieldControlCommand {
 
   template <typename ParamsT>
   nlohmann::json GenerateSchema(const Parameters<ParamsT>& params) const {
-    nlohmann::json schema = {
-        {"type", "object"},
-        {"additionalProperties", false},
-    };
-    nlohmann::json props = nlohmann::json::object();
-    nlohmann::json req = nlohmann::json::array();
-    for (const auto& fname : field_names_) {
-      const auto* binding = params.FindBinding(fname);
-      if (!binding) continue;
-      ConfigFieldDefinition def = binding->ToFieldDefinition();
-      nlohmann::json prop = nlohmann::json::object();
-      switch (def.kind) {
-        case ConfigValueKind::kString:
-          prop["type"] = "string";
-          if (!def.enum_values.empty()) {
-            prop["enum"] = def.enum_values;
-          }
-          break;
-        case ConfigValueKind::kBoolean:
-          prop["type"] = "boolean";
-          break;
-        case ConfigValueKind::kInteger:
-          prop["type"] = "integer";
-          if (def.minimum.has_value()) prop["minimum"] = *def.minimum;
-          if (def.maximum.has_value()) prop["maximum"] = *def.maximum;
-          break;
-        case ConfigValueKind::kNumber:
-          prop["type"] = "number";
-          if (def.minimum.has_value()) prop["minimum"] = *def.minimum;
-          if (def.maximum.has_value()) prop["maximum"] = *def.maximum;
-          break;
-        case ConfigValueKind::kArray:
-          prop["type"] = "array";
-          prop["items"] = {{"type", "string"}};
-          break;
-        default:
-          break;
-      }
-      if (!def.semantic.empty()) {
-        prop["description"] = def.semantic;
-      }
-      if (!def.default_value.is_null()) {
-        prop["default"] = def.default_value;
-      }
-      props[fname] = std::move(prop);
-      req.push_back(fname);
+    nlohmann::json schema = {{"type", "object"},
+                             {"minProperties", 1},
+                             {"additionalProperties", false},
+                             {"properties", nlohmann::json::object()}};
+    for (const auto& name : field_names_) {
+      const auto* binding = params.FindBinding(name);
+      if (binding)
+        schema["properties"][name] =
+            ConfigFieldJsonSchema(binding->ToFieldDefinition());
     }
-    schema["properties"] = std::move(props);
-    schema["required"] = std::move(req);
     return schema;
   }
 
@@ -126,12 +87,7 @@ class FieldControlCommand {
           [&](const ParamsT& current) -> NodeResult<ParamsT> {
             ParamsT next = current;
             for (const auto& field_name : field_names_) {
-              if (!payload.contains(field_name)) {
-                return NodeResult<ParamsT>::Failure(
-                    NodeErrorKind::kBusinessError,
-                    "Missing required field in control payload: " + field_name,
-                    node_error::control::kInvalidRequest);
-              }
+              if (!payload.contains(field_name)) continue;
               std::string assign_err;
               if (!params.AssignField(field_name, payload[field_name], &next,
                                       &assign_err)) {
@@ -207,15 +163,6 @@ inline void ValidateControlCommands(
                                     cmd.Name() +
                                     "' is not bound in Parameters");
       }
-      ConfigFieldDefinition def = binding->ToFieldDefinition();
-      if (def.kind != ConfigValueKind::kString &&
-          def.kind != ConfigValueKind::kBoolean &&
-          def.kind != ConfigValueKind::kInteger &&
-          def.kind != ConfigValueKind::kNumber &&
-          def.kind != ConfigValueKind::kArray) {
-        throw std::invalid_argument(
-            "Field '" + f + "' has unsupported kind for control command");
-      }
       if constexpr (!std::is_void_v<ModelsT>) {
         if (models) {
           for (const auto& b : models->Bindings()) {
@@ -228,11 +175,6 @@ inline void ValidateControlCommands(
         }
       }
     }
-  }
-  if (params.HasParser() && !commands.empty() && !params.HasPrepare()) {
-    throw std::invalid_argument(
-        "Spec with WithParser and WithControls requires an explicit Prepare "
-        "function");
   }
 }
 

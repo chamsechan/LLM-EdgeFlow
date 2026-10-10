@@ -93,7 +93,6 @@ int OperatorControlRegistry::ResolveControlParam(
           }
           return -2;
         }
-        std::string prompt_id = "";
         if (param->prompt_id) {
           size_t id_len = strnlen(param->prompt_id, 256);
           if (id_len >= 256) {
@@ -103,13 +102,9 @@ int OperatorControlRegistry::ResolveControlParam(
             }
             return -2;
           }
-          prompt_id = param->prompt_id;
         }
         nlohmann::json j;
         j["template"] = param->prompt_template_str;
-        if (!prompt_id.empty()) {
-          j["prompt_id"] = prompt_id;
-        }
         *out_cmd_id = kControlCmdUpdatePrompt;
         *out_json_str = j.dump();
         return 0;
