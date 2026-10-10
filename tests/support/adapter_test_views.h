@@ -4,8 +4,30 @@
 #include <map>
 
 #include "adapter/io_converter.h"
+#include "adapter/operator/operator_value_type_registry.h"
 
 namespace llm_edgeflow {
+
+namespace test {
+inline int DecodeForTest(const InputConverterDefinition& converter,
+                         ExternalInputBatchView view,
+                         const InputDecodeOptions& options, AlgContext* context,
+                         AdapterStatus* status) {
+  view.binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(converter.type);
+  return converter.decode_fn(view, options, context, status);
+}
+inline int EncodeForTest(const OutputConverterDefinition& converter,
+                         AlgContext* context,
+                         const OutputEncodeOptions& options,
+                         ExternalOutputBatchView* view, size_t* written,
+                         AdapterStatus* status) {
+  if (view)
+    view->binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
+        converter.type, converter.slot.allocator);
+  return converter.encode_fn(context, options, view, written, status);
+}
+}  // namespace test
 
 inline std::vector<std::shared_ptr<void>> BorrowInputForTest(
     std::initializer_list<const void*> values) {

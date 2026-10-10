@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "adapter/io_converter_registry.h"
+#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -54,7 +55,9 @@ TEST_F(OperatorSafetyTest, NullPointerSafety) {
   NamedIoBatch inputs;
   NamedIoBatch outputs;
   EXPECT_NE(op.Process(nullptr, inputs, outputs), 0);
-  EXPECT_NE(op.Control(nullptr, ControlCommand::kUpdateRules, nullptr), 0);
+  EXPECT_NE(op.Control(nullptr, static_cast<int>(ControlCommand::kUpdateRules),
+                       nullptr),
+            0);
   EXPECT_NE(op.Destroy(nullptr), 0);
 }
 
@@ -96,7 +99,8 @@ TEST_F(OperatorSafetyTest, EndToEndDynamicControlAndVerification) {
 
   // 下发动态规则
   ControlUpdateRulesParam ctrl{"{\"categories\": {\"TEST_VIP\": [\"VIP\"]}}"};
-  ret = op.Control(handle, ControlCommand::kUpdateRules, &ctrl);
+  ret =
+      op.Control(handle, static_cast<int>(ControlCommand::kUpdateRules), &ctrl);
   EXPECT_EQ(ret, 0);
 
   // 执行推理
@@ -278,8 +282,10 @@ TEST_F(OperatorSafetyTest,
   const std::string rules =
       "{\"categories\":{\"" + std::string(2100, 'x') + "\":[\"overflow\"]}}";
   ControlUpdateRulesParam control{rules.c_str()};
-  ASSERT_EQ(op.Control(handle.get(), ControlCommand::kUpdateRules, &control),
-            0);
+  ASSERT_EQ(
+      op.Control(handle.get(), static_cast<int>(ControlCommand::kUpdateRules),
+                 &control),
+      0);
   char ordinary[] = "ordinary";
   char overflow[] = "overflow";
   CompanyString first_text{8, ordinary};
@@ -491,16 +497,16 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
 
   size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
-  int ret =
-      out_conv->encode_fn(&ctx, options, &out_view, &written_count, &status);
+  int ret = ::llm_edgeflow::test::EncodeForTest(
+      *out_conv, &ctx, options, &out_view, &written_count, &status);
 
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(out0.request_id, 1001u);
   EXPECT_EQ(out0.status_code, 0);
   EXPECT_STREQ(out0.entities_json->data, "[\"valid_entity\"]");
 
-  // 样本 1：request_id 已写入，但 status_code 和 entities_json 仍保留哨兵值
-  EXPECT_EQ(out1.request_id, 2002u);
+  // 样本 1：业务校验失败，binding 未写入，所有平台字段保持哨兵值。
+  EXPECT_EQ(out1.request_id, 99999u);
   EXPECT_EQ(out1.status_code, -777);
   EXPECT_STREQ(out1.entities_json->data, "SENTINEL_PAYLOAD");
 }

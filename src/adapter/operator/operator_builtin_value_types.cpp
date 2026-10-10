@@ -1,7 +1,26 @@
-#include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/platform_value_binding.h"
 
 namespace llm_edgeflow {
+namespace {
+std::string ReadString(const CompanyString* value) {
+  return !value || value->length == 0 ? std::string{}
+                                      : std::string(value->data, value->length);
+}
+AdapterStatus WriteString(CompanyString* output, const std::string& text,
+                          const char* field,
+                          const ResolvedOutputPoolSpec& spec) {
+  const auto it = spec.capacities.find(field);
+  if (it == spec.capacities.end())
+    return AdapterStatus::BufferTooSmall(
+        "Missing output capacity specification", field);
+  std::string error;
+  const int code =
+      CopyToOperatorString(text, output, it->second, field, &error);
+  return AdapterStatus(code, std::move(error), code == 0 ? "" : field);
+}
+}  // namespace
 
 void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 1. string -> CompanyString
@@ -13,6 +32,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return ValidateCompanyString(&in, limits.max_text_bytes, "string",
                                        err);
         });
+    SetInputValue<CompanyString, std::string>(
+        &binding, [](const CompanyString& in) { return ReadString(&in); });
     RegisterBinding(std::move(binding));
   }
 
@@ -63,6 +84,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyFrame::request_id);
     SetServiceTypeMember(&binding, &CompanyFrame::service_type);
+    SetInputValue<CompanyFrame, ImageInputValue>(
+        &binding, [](const CompanyFrame& in) {
+          return ImageInputValue{ReadString(in.image_uri)};
+        });
+    binding.services = {{"ocr_invoice_qa", kMockServiceOcrInvoiceQa}};
     RegisterBinding(std::move(binding));
   }
 
@@ -79,6 +105,19 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         &CompanyOdOutput::metadata, 65536);
     SetRequestIdMember(&binding, &CompanyOdOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOdOutput::service_type);
+    SetOutputValue<CompanyOdOutput, DetectionOutputValue>(
+        &binding, [](CompanyOdOutput& out, const DetectionOutputValue& value,
+                     const ResolvedOutputPoolSpec& spec) {
+          {
+            auto status = WriteString(out.result_json, value.result_json,
+                                      "result_json", spec);
+            if (!status.IsOk()) return status;
+          }
+          out.detected_box_count = value.detected_box_count;
+          out.status_code = value.status_code;
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"ocr_invoice_qa", kMockServiceOcrInvoiceQa}};
     RegisterBinding(std::move(binding));
   }
 
@@ -93,6 +132,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorKeywordInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorKeywordInput::service_type);
+    SetInputValue<CompanyOperatorKeywordInput, TextInputValue>(
+        &binding, [](const CompanyOperatorKeywordInput& in) {
+          return TextInputValue{ReadString(in.sentence_text)};
+        });
+    binding.services = {{"keyword_match", kMockServiceKeywordMatch}};
     RegisterBinding(std::move(binding));
   }
 
@@ -111,6 +155,21 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorKeywordOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorKeywordOutput::service_type);
+    SetOutputValue<CompanyOperatorKeywordOutput, KeywordOutputValue>(
+        &binding,
+        [](CompanyOperatorKeywordOutput& out, const KeywordOutputValue& value,
+           const ResolvedOutputPoolSpec& spec) {
+          {
+            auto status =
+                WriteString(out.match_result_json, value.match_result_json,
+                            "match_result_json", spec);
+            if (!status.IsOk()) return status;
+          }
+          out.is_hit = value.is_hit;
+          out.status_code = value.status_code;
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"keyword_match", kMockServiceKeywordMatch}};
     RegisterBinding(std::move(binding));
   }
 
@@ -125,6 +184,12 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorEntityInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorEntityInput::service_type);
+    SetInputValue<CompanyOperatorEntityInput, TextInputValue>(
+        &binding, [](const CompanyOperatorEntityInput& in) {
+          return TextInputValue{ReadString(in.sentence_text)};
+        });
+    binding.services = {{"entity_extract", kMockServiceEntityExtract},
+                        {"translate", kMockServiceTranslate}};
     RegisterBinding(std::move(binding));
   }
 
@@ -142,6 +207,20 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorEntityOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorEntityOutput::service_type);
+    SetOutputValue<CompanyOperatorEntityOutput, EntityOutputValue>(
+        &binding,
+        [](CompanyOperatorEntityOutput& out, const EntityOutputValue& value,
+           const ResolvedOutputPoolSpec& spec) {
+          {
+            auto status = WriteString(out.entities_json, value.entities_json,
+                                      "entities_json", spec);
+            if (!status.IsOk()) return status;
+          }
+          out.status_code = value.status_code;
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"entity_extract", kMockServiceEntityExtract},
+                        {"translate", kMockServiceTranslate}};
     RegisterBinding(std::move(binding));
   }
 
@@ -163,6 +242,12 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorDocInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorDocInput::service_type);
+    SetInputValue<CompanyOperatorDocInput, DocumentInputValue>(
+        &binding, [](const CompanyOperatorDocInput& in) {
+          return DocumentInputValue{ReadString(in.doc_text),
+                                    ReadString(in.query_text)};
+        });
+    binding.services = {{"doc_qa", kMockServiceDocQa}};
     RegisterBinding(std::move(binding));
   }
 
@@ -181,6 +266,26 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorDocOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorDocOutput::service_type);
+    SetOutputValue<CompanyOperatorDocOutput, DocumentOutputValue>(
+        &binding,
+        [](CompanyOperatorDocOutput& out, const DocumentOutputValue& value,
+           const ResolvedOutputPoolSpec& spec) {
+          {
+            auto status = WriteString(out.intent_name, value.intent_name,
+                                      "intent_name", spec);
+            if (!status.IsOk()) return status;
+          }
+          {
+            auto status = WriteString(out.answer_text, value.answer_text,
+                                      "answer_text", spec);
+            if (!status.IsOk()) return status;
+          }
+          out.confidence = value.confidence;
+          out.chunk_count = value.chunk_count;
+          out.status_code = value.status_code;
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"doc_qa", kMockServiceDocQa}};
     RegisterBinding(std::move(binding));
   }
 
@@ -203,6 +308,12 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorAuditInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAuditInput::service_type);
+    SetInputValue<CompanyOperatorAuditInput, AuditInputValue>(
+        &binding, [](const CompanyOperatorAuditInput& in) {
+          return AuditInputValue{ReadString(in.user_text),
+                                 ReadString(in.channel_name)};
+        });
+    binding.services = {{"dialogue_audit", kMockServiceDialogueAudit}};
     RegisterBinding(std::move(binding));
   }
 
@@ -225,6 +336,32 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorAuditOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAuditOutput::service_type);
+    SetOutputValue<CompanyOperatorAuditOutput, AuditOutputValue>(
+        &binding,
+        [](CompanyOperatorAuditOutput& out, const AuditOutputValue& value,
+           const ResolvedOutputPoolSpec& spec) {
+          {
+            auto status = WriteString(out.risk_level, value.risk_level,
+                                      "risk_level", spec);
+            if (!status.IsOk()) return status;
+          }
+          {
+            auto status = WriteString(out.matched_policy_clause,
+                                      value.matched_policy_clause,
+                                      "matched_policy_clause", spec);
+            if (!status.IsOk()) return status;
+          }
+          {
+            auto status =
+                WriteString(out.audit_verdict_json, value.audit_verdict_json,
+                            "audit_verdict_json", spec);
+            if (!status.IsOk()) return status;
+          }
+          out.risk_score = value.risk_score;
+          out.status_code = value.status_code;
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"dialogue_audit", kMockServiceDialogueAudit}};
     RegisterBinding(std::move(binding));
   }
 
@@ -262,6 +399,15 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorAudioInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAudioInput::service_type);
+    SetInputValue<CompanyOperatorAudioInput, AudioInputValue>(
+        &binding, [](const CompanyOperatorAudioInput& in) {
+          AudioInputValue value;
+          value.sample_rate = in.sample_rate;
+          if (in.pcm_length)
+            value.pcm.assign(in.pcm_buffer, in.pcm_buffer + in.pcm_length);
+          return value;
+        });
+    binding.services = {{"audio_asr_intent", kMockServiceAudioAsrIntent}};
     RegisterBinding(std::move(binding));
   }
 
@@ -282,6 +428,26 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorAudioOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAudioOutput::service_type);
+    SetOutputValue<CompanyOperatorAudioOutput, AudioOutputValue>(
+        &binding,
+        [](CompanyOperatorAudioOutput& out, const AudioOutputValue& value,
+           const ResolvedOutputPoolSpec& spec) {
+          {
+            auto status =
+                WriteString(out.transcribed_text, value.transcribed_text,
+                            "transcribed_text", spec);
+            if (!status.IsOk()) return status;
+          }
+          {
+            auto status =
+                WriteString(out.intent_slot_json, value.intent_slot_json,
+                            "intent_slot_json", spec);
+            if (!status.IsOk()) return status;
+          }
+          out.status_code = value.status_code;
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"audio_asr_intent", kMockServiceAudioAsrIntent}};
     RegisterBinding(std::move(binding));
   }
 
@@ -319,6 +485,16 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorRerankInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorRerankInput::service_type);
+    SetInputValue<CompanyOperatorRerankInput, RerankInputValue>(
+        &binding, [](const CompanyOperatorRerankInput& in) {
+          RerankInputValue value;
+          value.query_text = ReadString(in.query_text);
+          for (int i = 0; i < in.candidate_count; ++i)
+            value.candidate_passages.push_back(
+                ReadString(in.candidate_passages[i]));
+          return value;
+        });
+    binding.services = {{"cross_rerank", kMockServiceCrossRerank}};
     RegisterBinding(std::move(binding));
   }
 
@@ -337,6 +513,27 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetRequestIdMember(&binding, &CompanyOperatorRerankOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorRerankOutput::service_type);
+    SetOutputValue<CompanyOperatorRerankOutput, RerankOutputValue>(
+        &binding,
+        [](CompanyOperatorRerankOutput& out, const RerankOutputValue& value,
+           const ResolvedOutputPoolSpec&) {
+          out.status_code = value.status_code;
+          if (value.items.size() > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES)
+            return AdapterStatus::BufferTooSmall(
+                "Ranked result exceeds platform capacity", "items");
+          out.count = static_cast<int32_t>(value.items.size());
+          for (size_t i = 0; i < value.items.size(); ++i) {
+            if (value.items[i].original_index < 0 ||
+                value.items[i].original_index >=
+                    COMPANY_OPERATOR_MAX_RERANK_CANDIDATES)
+              return AdapterStatus::InvalidInput("Invalid ranked result index",
+                                                 "items");
+            out.scores[i] = value.items[i].score;
+            out.sorted_indices[i] = value.items[i].original_index;
+          }
+          return AdapterStatus::Ok();
+        });
+    binding.services = {{"cross_rerank", kMockServiceCrossRerank}};
     RegisterBinding(std::move(binding));
   }
 }

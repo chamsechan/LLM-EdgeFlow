@@ -6,10 +6,10 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
@@ -30,11 +30,11 @@ Parameters<Params> ParamSpec() {
 }
 
 AdapterStatus EncodeTranslation(const std::string& result,
-                                CompanyOperatorEntityOutput* output,
-                                const OutputStringWriter& writer) {
+                                EntityOutputValue* output) {
   output->status_code = 0;
   const nlohmann::json response = {{"translated", result}};
-  return writer.Write(output->entities_json, "entities_json", response.dump());
+  output->entities_json = response.dump();
+  return AdapterStatus::Ok();
 }
 
 int EncodeOperatorTranslationJson(AlgContext* context,
@@ -42,17 +42,16 @@ int EncodeOperatorTranslationJson(AlgContext* context,
                                   ExternalOutputBatchView* destination,
                                   size_t* written_count,
                                   AdapterStatus* status) {
-  return EncodeResultRows<CompanyOperatorEntityOutput>(
-      context, options, destination, written_count, status, kOutputSlot,
-      kTranslation, &EncodeTranslation);
+  return EncodeResultRows<EntityOutputValue>(context, options, destination,
+                                             written_count, status, kOutputSlot,
+                                             kTranslation, &EncodeTranslation);
 }
 
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "translate";
-  def.service_type = kMockServiceTranslate;
-  def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<EntityOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kTranslation)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorTranslationJson;

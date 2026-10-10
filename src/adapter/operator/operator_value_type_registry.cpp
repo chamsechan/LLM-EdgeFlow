@@ -3,22 +3,8 @@
 #include <stdexcept>
 
 #include "contracts/diagnostic.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
-
-namespace {
-
-const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
-    {0, 0, 1, "none"},
-    {1, sizeof(float), alignof(float), "float32"},
-    {2, sizeof(int32_t), alignof(int32_t), "int32"},
-    {3, sizeof(uint8_t), alignof(uint8_t), "uint8"},
-    {4, sizeof(int64_t), alignof(int64_t), "int64"},
-    {5, sizeof(double), alignof(double), "float64"},
-};
-
-}  // namespace
 
 bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
                            const ResolvedOutputPoolSpec& requested,
@@ -86,10 +72,6 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
       }
     }
 
-    if ((candidate.meta_num == 0) != (candidate.metadata_type_id == 0)) {
-      if (err) *err = "Metadata count and type must both be zero or non-zero";
-      return false;
-    }
     if (candidate.meta_num > binding.output_layout.max_metadata_elements) {
       if (err) {
         *err = "Metadata count " + std::to_string(candidate.meta_num) +
@@ -99,12 +81,11 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
       }
       return false;
     }
-    if (candidate.meta_num > 0 &&
-        !FindCompanyAnyType(candidate.metadata_type_id)) {
-      if (err) {
-        *err = "Metadata type " + std::to_string(candidate.metadata_type_id) +
-               " is invalid or not whitelisted";
-      }
+    const auto& validate_metadata = binding.output_layout.validate_metadata;
+    if (validate_metadata
+            ? !validate_metadata(candidate.meta_num, candidate.metadata_type_id)
+            : candidate.meta_num != 0 || candidate.metadata_type_id != 0) {
+      if (err) *err = "Invalid metadata count or type for platform binding";
       return false;
     }
 
@@ -228,15 +209,6 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
   }
 }
 
-const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
-  for (const auto& item : kBuiltinAnyTypes) {
-    if (item.type_id == type_id) {
-      return &item;
-    }
-  }
-  return nullptr;
-}
-
 OperatorValueTypeRegistry& OperatorValueTypeRegistry::Instance() {
   static OperatorValueTypeRegistry instance;
   return instance;
@@ -261,168 +233,6 @@ bool OperatorValueTypeRegistry::ParseKey(const std::string& key,
     return true;
   } catch (...) {
     return false;
-  }
-}
-
-int OperatorValueTypeRegistry::ValidateCompanyString(
-    const CompanyString* str, size_t max_bytes, const char* field_name,
-    std::string* err) noexcept {
-  try {
-    const char* name = field_name ? field_name : "string";
-    if (!str) {
-      if (err) *err = std::string(name) + " pointer is null";
-      return -3;
-    }
-    if (str->length < 0) {
-      if (err)
-        *err = std::string(name) + " has negative length " +
-               std::to_string(str->length);
-      return -3;
-    }
-    if (static_cast<size_t>(str->length) > max_bytes) {
-      if (err)
-        *err = std::string(name) + " length " + std::to_string(str->length) +
-               " exceeds max limit " + std::to_string(max_bytes);
-      return -3;
-    }
-    if (str->length > 0) {
-      if (!str->data) {
-        if (err)
-          *err = std::string(name) + " length is " +
-                 std::to_string(str->length) + " but data pointer is null";
-        return -3;
-      }
-      for (int32_t i = 0; i < str->length; ++i) {
-        if (str->data[i] == '\0') {
-          if (err)
-            *err = std::string(name) +
-                   " contains forbidden embedded NUL at byte offset " +
-                   std::to_string(i);
-          return -3;
-        }
-      }
-    }
-    return 0;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return -3;
-  } catch (...) {
-    SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyString");
-    return -3;
-  }
-}
-
-int OperatorValueTypeRegistry::ValidateCompanyBuffer(
-    const CompanyBuffer* buf, size_t max_bytes, const char* field_name,
-    std::string* err) noexcept {
-  try {
-    const char* name = field_name ? field_name : "buffer";
-    if (!buf) {
-      if (err) *err = std::string(name) + " pointer is null";
-      return -3;
-    }
-    if (buf->length < 0) {
-      if (err)
-        *err = std::string(name) + " has negative length " +
-               std::to_string(buf->length);
-      return -3;
-    }
-    if (static_cast<size_t>(buf->length) > max_bytes) {
-      if (err)
-        *err = std::string(name) + " length exceeds max limit " +
-               std::to_string(max_bytes);
-      return -3;
-    }
-    if (buf->length > 0 && !buf->data) {
-      if (err) *err = std::string(name) + " data pointer is null";
-      return -3;
-    }
-    return 0;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return -3;
-  } catch (...) {
-    SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyBuffer");
-    return -3;
-  }
-}
-
-int OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-    const CompanyAny* any, size_t max_any_bytes, const char* field_name,
-    std::string* err) noexcept {
-  try {
-    const char* name = field_name ? field_name : "any";
-    if (!any) {
-      if (err) *err = std::string(name) + " pointer is null";
-      return -3;
-    }
-    if (any->element_count < 0 || any->byte_length < 0) {
-      if (err) {
-        *err = std::string(name) + " has negative count or length: count=" +
-               std::to_string(any->element_count) +
-               ", length=" + std::to_string(any->byte_length);
-      }
-      return -3;
-    }
-    if (static_cast<size_t>(any->byte_length) > max_any_bytes) {
-      if (err) {
-        *err = std::string(name) + " byte_length " +
-               std::to_string(any->byte_length) + " exceeds max limit " +
-               std::to_string(max_any_bytes);
-      }
-      return -3;
-    }
-    if (any->type_id == 0) {
-      if (any->element_count != 0 || any->byte_length != 0) {
-        if (err) {
-          *err = std::string(name) + " has type_id=0 but non-zero count/length";
-        }
-        return -3;
-      }
-      return 0;
-    }
-
-    const auto* desc = FindCompanyAnyType(any->type_id);
-    if (!desc) {
-      if (err) {
-        *err = std::string(name) + " has unknown or unwhitelisted type_id " +
-               std::to_string(any->type_id);
-      }
-      return -3;
-    }
-
-    size_t expected_bytes = 0;
-    if (!CheckedMultiply(static_cast<size_t>(any->element_count),
-                         desc->element_size, &expected_bytes)) {
-      if (err) {
-        *err = std::string(name) + " element_count multiplication overflowed";
-      }
-      return -3;
-    }
-    if (expected_bytes != static_cast<size_t>(any->byte_length)) {
-      if (err) {
-        *err = std::string(name) + " size equation mismatch: expected " +
-               std::to_string(expected_bytes) + " bytes for " +
-               std::to_string(any->element_count) + " elements of type " +
-               desc->debug_name + ", but byte_length is " +
-               std::to_string(any->byte_length);
-      }
-      return -3;
-    }
-    if (any->byte_length > 0 && !any->data) {
-      if (err) {
-        *err = std::string(name) + " non-empty payload has null data";
-      }
-      return -3;
-    }
-    return 0;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return -3;
-  } catch (...) {
-    SetDiagnosticNoexcept(err,
-                          "Unknown exception in ValidateCompanyAnyPayload");
-    return -3;
   }
 }
 

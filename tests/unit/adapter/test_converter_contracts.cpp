@@ -8,6 +8,7 @@
 
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/platform_value_binding.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -30,8 +31,11 @@ void ExpectDefinition(const Definition& definition,
                       const ExpectedConverter& expected) {
   EXPECT_EQ(definition.type, expected.type);
   EXPECT_EQ(definition.name, expected.name);
-  EXPECT_EQ(definition.service_type, expected.service);
-  EXPECT_EQ(definition.slot.type_id, expected.host);
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(definition.type);
+  ASSERT_NE(binding, nullptr);
+  EXPECT_EQ(binding->ServiceType(definition.name), expected.service);
+  EXPECT_EQ(binding->external_c_type_name, expected.host);
   EXPECT_EQ(definition.slot.type_suffix, expected.type);
   EXPECT_TRUE(definition.slot.required);
   EXPECT_TRUE(definition.slot.allocator.empty());

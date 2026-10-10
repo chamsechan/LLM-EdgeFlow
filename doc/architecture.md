@@ -131,7 +131,7 @@ graph TD
 - **核心职责**：
   1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ResolveOperatorConfigIo()`；
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
-  3. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
+  3. 函数表指针不带 `noexcept`，实现保留 `noexcept` 和异常捕获屏障，防止 C++ 异常跨越动态库边界；
   4. 由注册的 Input/Output Converter 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
   5. 管理有界输出池与租约生命周期，执行同句柄 Process/Control 串行化。
 
@@ -170,6 +170,9 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 值类型表、转换器注册表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0；共享库不带 SOVERSION，
   导出符号不带版本节点。
+- Operator 函数表顺序固定为 `Init, Create, Control, Process, Destroy, DeInit`。
+  `Create(void**, const void*)` 的参数指向 `CreateParam`，入口按 `const CreateParam*` 读取；
+  `Control(void*, int, void*)` 的整数值对应现有 `ControlCommand`，入口转换后分发。
 - `OperatorFunc::Create` 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 只用 `pipe_path` 指向 Pipeline JSON；根 `io` 选择转换器与参数，所选端口形成明确边界。
   模型文件在 `models[].file` 与声明为文件的参数中配置，相对 Pipeline JSON 目录解析。

@@ -14,9 +14,11 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/output/rule_match_response.h"
+#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "tests/support/operator_test_fixture.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -123,20 +125,18 @@ int EncodeWithParameters(AlgContext* context,
         id, OutputObservation{options.params, &params,
                               options.params->Effective(), capacity});
   }
-  return EncodeResultRows<CompanyOperatorKeywordOutput>(
+  return EncodeResultRows<KeywordOutputValue>(
       context, options, destination, written_count, status, "keyword_out",
       MakeBlackboardKey<RuleMatchBatch>("matches"),
-      [&params](const RuleMatchItem& result,
-                CompanyOperatorKeywordOutput* output,
-                const OutputStringWriter& writer) {
+      [&params](const RuleMatchItem& result, KeywordOutputValue* output) {
         auto response =
             nlohmann::json::parse(SerializeRuleMatchResponse(result));
         response["marker"] = params.marker;
         response["derived_marker"] = params.derived_marker;
         output->is_hit = result.is_hit;
         output->status_code = result.status_code;
-        return writer.Write(output->match_result_json, "match_result_json",
-                            response.dump());
+        output->match_result_json = response.dump();
+        return AdapterStatus::Ok();
       });
 }
 
@@ -156,7 +156,8 @@ class IoParametersTest : public test_support::OperatorTestFixture {
     if (!registry.FindInputConverter("keyword_in", kConverterName)) {
       auto definition = *input;
       definition.name = kConverterName;
-      definition.service_type = kInputService;
+      test_support::RegistryTestAccess::SetService(
+          definition.type, definition.name, kInputService);
       definition.params = InputParamSpec();
       definition.decode_fn = &DecodeWithParameters;
       ASSERT_TRUE(registry.RegisterInputConverter(definition));
@@ -164,7 +165,8 @@ class IoParametersTest : public test_support::OperatorTestFixture {
     if (!registry.FindOutputConverter("keyword_out", kConverterName)) {
       auto definition = *output;
       definition.name = kConverterName;
-      definition.service_type = kOutputService;
+      test_support::RegistryTestAccess::SetService(
+          definition.type, definition.name, kOutputService);
       definition.params = OutputParamSpec();
       definition.encode_fn = &EncodeWithParameters;
       ASSERT_TRUE(registry.RegisterOutputConverter(definition));

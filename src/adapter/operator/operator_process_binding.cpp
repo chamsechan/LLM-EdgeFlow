@@ -60,7 +60,9 @@ int ValidateAndExtractOperatorInputs(
     const auto* binding = &selected[index].host_binding;
     auto& view = (*out_views)[index];
     view.count = inputs.size();
-    view.slot_types[def.type] = def.slot.type_id;
+    view.binding = binding;
+    view.slot_types[def.type] = binding->external_c_type_name;
+    const auto service = binding->ServiceType(def.name);
     auto& payloads = view.slots[def.type];
     payloads.resize(inputs.size());
     for (size_t frame = 0; frame < inputs.size(); ++frame) {
@@ -91,20 +93,19 @@ int ValidateAndExtractOperatorInputs(
                    validation_error;
         return result;
       }
-      if (def.service_type &&
-          binding->read_service_type(payload.get()) != *def.service_type) {
+      if (service && binding->read_service_type(payload.get()) != *service) {
         if (error)
-          *error = "Struct " + def.slot.type_id + " frame " +
+          *error = "Struct " + binding->external_c_type_name + " frame " +
                    std::to_string(frame) + " has service_type " +
                    std::to_string(binding->read_service_type(payload.get())) +
-                   "; expected " + std::to_string(*def.service_type);
+                   "; expected " + std::to_string(*service);
         return -3;
       }
       if (binding->read_request_id) {
         const auto id = binding->read_request_id(payload.get());
         if (has_id[frame] && (*request_ids)[frame] != id) {
           if (error)
-            *error = "Struct " + def.slot.type_id + " frame " +
+            *error = "Struct " + binding->external_c_type_name + " frame " +
                      std::to_string(frame) + " has request_id " +
                      std::to_string(id) + "; expected " +
                      std::to_string((*request_ids)[frame]);

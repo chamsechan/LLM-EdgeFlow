@@ -101,21 +101,22 @@ using NamedIo = std::unordered_map<std::string, OpaqueData>;
 using NamedIoBatch = std::vector<NamedIo>;
 
 /**
- * @brief Operator 统一函数表契约 (ABI 隔离屏障，全函数 noexcept)
+ * @brief Operator 统一函数表契约；函数指针不带 noexcept，实现负责异常隔离。
  */
 struct OperatorFunc {
-  int (*Init)() noexcept;
-  int (*Create)(void** handle, const CreateParam* param) noexcept;
+  int (*Init)();
+  // param 指向只读 CreateParam，在 Create 返回前保持有效。
+  int (*Create)(void** handle, const void* param);
+  // command 对应 ControlCommand 的整数值。
+  int (*Control)(void* handle, int command, void* control_param);
   // 输出占用池容量，释放最后一份输出引用才归还租约。池满时 Process 等待；
   // 不要在同一线程持有全部旧租约时继续同步 Process，否则无法返回释放租约。
   int (*Process)(void* handle, const NamedIoBatch& inputs,
-                 NamedIoBatch& outputs) noexcept;
-  int (*Control)(void* handle, ControlCommand command,
-                 void* control_param) noexcept;
+                 NamedIoBatch& outputs);
   // 调用前等待所有 Process/Control 返回并释放输出。有效 handle 一经 Destroy
   // 即被消费，即使因未归还输出返回错误也不可重试 Destroy 或继续使用 handle。
-  int (*Destroy)(void* handle) noexcept;
-  int (*DeInit)() noexcept;
+  int (*Destroy)(void* handle);
+  int (*DeInit)();
 };
 
 }  // namespace llm_edgeflow::operator_api

@@ -1,19 +1,22 @@
 #pragma once
 
+#include <any>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <typeindex>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "adapter/adapter_status.h"
 #include "adapter/input_limits.h"
 #include "adapter/operator_io_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 
@@ -48,10 +51,11 @@ using ComputeOutputBlockPayloadBytesFn = std::function<bool(
  * @brief Operator 输出类型的容量与内存布局契约
  */
 struct OperatorOutputLayoutDescriptor {
-  // 每个字段对应输出镜像结构中的一个 CompanyString 指针。
+  // Logical string capacities; the binding owns their physical representation.
   std::unordered_map<std::string, OutputCapacityFieldConfig>
       string_capacity_fields;
   uint32_t max_metadata_elements = 0;
+  std::function<bool(uint32_t, int32_t)> validate_metadata;
   ComputeOutputBlockPayloadBytesFn compute_block_payload_bytes;
 };
 
@@ -167,12 +171,24 @@ NormalizeOutputParametersFn MakeOutputParameterParser(Parser parse) {
 }
 
 struct OperatorValueTypeBinding {
+  std::type_index value_type{typeid(void)};
+  std::function<std::any(const void*)> read_value;
+  std::function<AdapterStatus(void*, const std::any&,
+                              const ResolvedOutputPoolSpec&)>
+      write_value;
+  std::unordered_map<std::string, int32_t> services;
+  std::optional<int32_t> ServiceType(const std::string& name) const {
+    const auto it = services.find(name);
+    return it == services.end() ? std::nullopt
+                                : std::optional<int32_t>(it->second);
+  }
   std::string canonical_suffix;
   std::string external_c_type_name;
   IoDirection direction = IoDirection::kUnknown;
   OperatorOutputLayoutDescriptor output_layout;
   ValidateExternalFn validate_external;
   std::function<uint64_t(const void*)> read_request_id;
+  std::function<void(void*, uint64_t)> write_request_id;
   std::function<int32_t(const void*)> read_service_type;
   std::function<void(void*, int32_t)> write_service_type;
   AllocateExternalFn allocate_external;
@@ -185,19 +201,6 @@ struct OperatorValueTypeBinding {
   // 此处也不得访问文件或队列。
   NormalizeOutputParametersFn normalize_parameters;
 };
-
-namespace operator_value_detail {
-CompanyString* AllocateNestedCompanyString(uint32_t capacity,
-                                           OwnedExternalBlock* block);
-CompanyAny* AllocateNestedCompanyAny(uint32_t count, int32_t type_id,
-                                     OwnedExternalBlock* block);
-void ResetNestedCompanyString(CompanyString* value) noexcept;
-void ResetNestedCompanyAny(CompanyAny* value) noexcept;
-bool ComputeStandardOutputBlockPayloadBytes(size_t root_bytes,
-                                            const ResolvedOutputPoolSpec& spec,
-                                            size_t* bytes,
-                                            std::string* error) noexcept;
-}  // namespace operator_value_detail
 
 // 宿主结构名取自 DECLARE_EXTERNAL_TYPE_TRAITS，登记处不再重复书写。
 template <typename T>
@@ -213,6 +216,11 @@ void SetRequestIdMember(OperatorValueTypeBinding* binding,
                         uint64_t T::*member) {
   if (!binding || !member)
     throw std::invalid_argument("Invalid request ID member");
+  if (binding->direction == IoDirection::kOutput) {
+    binding->write_request_id = [member](void* value, uint64_t id) {
+      static_cast<T*>(value)->*member = id;
+    };
+  }
   binding->read_request_id = [member](const void* value) {
     return static_cast<const T*>(value)->*member;
   };
@@ -233,6 +241,26 @@ void SetServiceTypeMember(OperatorValueTypeBinding* binding,
   }
 }
 
+// Bind a concrete platform carrier to one neutral Converter value type.
+template <typename Host, typename Value, typename Read>
+void SetInputValue(OperatorValueTypeBinding* binding, Read read) {
+  static_assert(std::is_same_v<std::invoke_result_t<Read, const Host&>, Value>);
+  binding->value_type = typeid(Value);
+  binding->read_value = [read](const void* raw) -> std::any {
+    return read(*static_cast<const Host*>(raw));
+  };
+}
+
+template <typename Host, typename Value, typename Write>
+void SetOutputValue(OperatorValueTypeBinding* binding, Write write) {
+  binding->value_type = typeid(Value);
+  binding->write_value = [write](void* raw, const std::any& value,
+                                 const ResolvedOutputPoolSpec& spec) {
+    return write(*static_cast<Host*>(raw), std::any_cast<const Value&>(value),
+                 spec);
+  };
+}
+
 // 外部空值诊断和类型擦除保留在绑定边界。
 template <typename T, typename Validate>
 OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
@@ -249,91 +277,6 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
       return -3;
     }
     return validate(*static_cast<const T*>(ptr), limits, err);
-  };
-  return binding;
-}
-
-// 每个池化字符串只声明一次，用于容量校验、分配和重置。
-// 成员指针使描述符与具体的 C 结构绑定。
-template <typename T>
-struct OutputStringField {
-  std::string name;
-  CompanyString* T::*member;
-  OutputCapacityFieldConfig capacity;
-};
-
-template <typename T, typename ResetScalars>
-OperatorValueTypeBinding MakePooledOutputBinding(
-    const char* suffix, std::vector<OutputStringField<T>> string_fields,
-    ResetScalars reset_scalars, CompanyAny* T::*metadata_field = nullptr,
-    uint32_t max_metadata_elements = 0) {
-  static_assert(std::is_nothrow_invocable_v<ResetScalars, T&>);
-  OperatorValueTypeBinding binding;
-  binding.canonical_suffix = suffix;
-  binding.external_c_type_name = HostTypeName<T>();
-  binding.direction = IoDirection::kOutput;
-  for (size_t i = 0; i < string_fields.size(); ++i) {
-    const auto& field = string_fields[i];
-    if (field.name.empty() || field.member == nullptr ||
-        !binding.output_layout.string_capacity_fields
-             .emplace(field.name, field.capacity)
-             .second) {
-      throw std::invalid_argument(
-          "Pooled output requires unique named string fields");
-    }
-    for (size_t j = 0; j < i; ++j) {
-      if (string_fields[j].member == field.member) {
-        throw std::invalid_argument(
-            "Pooled output string member is declared twice");
-      }
-    }
-  }
-  if (!metadata_field && max_metadata_elements != 0) {
-    throw std::invalid_argument("Metadata capacity requires a metadata member");
-  }
-  binding.output_layout.max_metadata_elements = max_metadata_elements;
-  binding.output_layout.compute_block_payload_bytes =
-      [](const ResolvedOutputPoolSpec& spec, size_t* out_bytes,
-         std::string* err) noexcept {
-        return operator_value_detail::ComputeStandardOutputBlockPayloadBytes(
-            sizeof(T), spec, out_bytes, err);
-      };
-  binding.allocate_external = [string_fields, metadata_field, reset_scalars](
-                                  const ResolvedOutputPoolSpec& spec,
-                                  OwnedExternalBlock* block,
-                                  std::string*) -> int {
-    // 分配前先预留：一个根块，每个嵌套字段再加一个包装和一个数据缓冲区。
-    // OwnedExternalBlock 负责回滚部分失败。
-    block->cleanups.reserve(1 + 2 * string_fields.size() +
-                            (metadata_field ? 2 : 0));
-    auto* raw = block->Own(std::make_unique<T>());
-    reset_scalars(*raw);
-    for (const auto& field : string_fields) {
-      raw->*field.member = operator_value_detail::AllocateNestedCompanyString(
-          spec.GetCapacity(field.name), block);
-    }
-    if (metadata_field) {
-      raw->*metadata_field = operator_value_detail::AllocateNestedCompanyAny(
-          spec.meta_num, spec.metadata_type_id, block);
-    }
-    block->raw_struct = raw;
-    return 0;
-  };
-  binding.reset_external = [string_fields, metadata_field, reset_scalars](
-                               void* ptr,
-                               const ResolvedOutputPoolSpec&) noexcept {
-    if (!ptr) return;
-    auto* raw = static_cast<T*>(ptr);
-    // 只重置值；嵌套存储和元数据类型在复用时保留。
-    reset_scalars(*raw);
-    for (const auto& field : string_fields) {
-      operator_value_detail::ResetNestedCompanyString(raw->*field.member);
-    }
-    if (metadata_field)
-      operator_value_detail::ResetNestedCompanyAny(raw->*metadata_field);
-  };
-  binding.destroy_external = [](OwnedExternalBlock* block) noexcept {
-    if (block) block->Destroy();
   };
   return binding;
 }

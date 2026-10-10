@@ -6,11 +6,11 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -39,6 +39,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
+  if (written_count) *written_count = 0;
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
@@ -57,7 +58,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = transcripts->size();
-  if (destination->count < count) {
+  if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
         "destination", options.Label().c_str());
@@ -74,34 +75,27 @@ int EncodeOperatorAudioResult(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
+  size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
-    auto* out =
-        destination->GetSlot<CompanyOperatorAudioOutput>(kOutputSlot, i);
-    if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing audio_out slot item", kOutputSlot,
-          options.Label().c_str(), static_cast<int>(i));
+    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
+      continue;
     }
+    AudioOutputValue out;
 
-    out->request_id = (*raw_req_ids)[i];
-    out->status_code = intent_slots_by_request[i]->data.status_code;
+    out.status_code = intent_slots_by_request[i]->data.status_code;
 
     const std::string slot_json =
         SerializeRuleMatchResponse(intent_slots_by_request[i]->data);
 
-    if (!WriteOutputString(*destination, kOutputSlot, out->transcribed_text,
-                           "transcribed_text", transcripts_by_request[i]->data,
-                           options, status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    out.transcribed_text = transcripts_by_request[i]->data;
+    out.intent_slot_json = slot_json;
+    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
+      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
-
-    if (!WriteOutputString(*destination, kOutputSlot, out->intent_slot_json,
-                           "intent_slot_json", slot_json, options, status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    }
+    ++written;
   }
 
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = written;
   return COMPANY_ALG_SUCCESS;
 }
 
@@ -109,8 +103,7 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "audio_asr_intent";
-  def.service_type = kMockServiceAudioAsrIntent;
-  def.slot = ExternalOutputSlot<CompanyOperatorAudioOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<AudioOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kTranscribedText),
                        RequiredInputPort(kIntentSlot)};
   def.params = ParamSpec();

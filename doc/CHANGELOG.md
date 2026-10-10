@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Operator 函数表按 `Init, Create, Control, Process, Destroy, DeInit` 排列，函数指针不带
+`noexcept`。`Create(void**, const void*)` 在实现入口读取 `const CreateParam*`；
+`Control(void*, int, void*)` 将整数还原为现有 `ControlCommand`，保留命令数值和异常隔离。
+
+平台布局集中到 `OperatorValueTypeBinding`：Converter 改用请求自有的中立 I/O 值，
+binding 负责字符串、metadata、请求编号、业务枚举映射及输出布局。删除 Converter 的平台类型、
+业务枚举字段和直接读写 helper，不保留兼容别名或旧路径。完整请求解析、业务校验和响应组装仍由
+Converter 完成；输出按真实池容量写入，批次失败不发布租约。
+
 Adapter 复用部署准备的 Pipeline 解析结果及宿主/分配器绑定，移除预算和请求处理中的重复查表；
 输出池拥有自身回调副本，保持原有配置诊断、容量预算和宿主业务值检查。
 
