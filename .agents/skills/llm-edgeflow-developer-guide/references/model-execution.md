@@ -8,8 +8,8 @@ vendor runtime integration, or batch scheduling behavior.
 - Implement Backends through `IInferenceBackend`, keep vendor headers/resources under `src/engine/backends/<backend>/`, and register a complete `BackendDefinition` through `REGISTER_BACKEND_WITH_DEFINITION`.
 - [The engine source list](../../../../src/engine/CMakeLists.txt) collects `.cpp` files under
   `src/engine/backends/` into `edgeflow_model_execution_backends_objects` and under
-  `src/engine/models/` into `edgeflow_model_execution_objects`; runtime sources stay listed
-  explicitly. Keep vendor include paths, `HAVE_*` definitions and imported-target compile requirements `PRIVATE`
+  the remaining `src/engine/` implementations into `edgeflow_model_execution_objects`, including
+  Models, runtime and shared helpers. Keep vendor include paths, `HAVE_*` definitions and imported-target compile requirements `PRIVATE`
   to the Backend object target. Pass final runtime dependencies through `$<LINK_ONLY:...>` as in
   [the root CMake configuration](../../../../CMakeLists.txt), so their compile requirements do not
   propagate to Models or upper layers.
