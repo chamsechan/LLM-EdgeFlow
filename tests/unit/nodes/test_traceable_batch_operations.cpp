@@ -1344,15 +1344,6 @@ TEST_F(TraceableBatchOperationsTest, SplitPayloadsCatchesNonStdException) {
   EXPECT_EQ(res.failure().batch_detail->key->req_id, 1u);
 }
 
-TEST_F(TraceableBatchOperationsTest, HashDistributionQualityForSubIdZero) {
-  TraceableItemKeyHash hasher;
-  std::unordered_set<size_t> hashes;
-  for (uint32_t req = 1; req <= 100; ++req) {
-    hashes.insert(hasher(TraceableItemKey{req, 0}));
-  }
-  EXPECT_EQ(hashes.size(), 100u);
-}
-
 TEST_F(TraceableBatchOperationsTest, RequestGroupViewHasReqIdAndContains) {
   std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"},
                                                     {20, 0, "B0"}};

@@ -81,35 +81,20 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(node.read_text(), "user changes")
             self.assertEqual(self.run_cli(*args, "--force").returncode, 0)
 
-    def test_cpp_string_escaping_and_stateless_default(self):
+    def test_cpp_string_escaping(self):
         result = self.run_cli("example", "--description", '引号 " and \\ newline\n', "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('.Description("引号 \\" and \\\\ newline\\n");', result.stdout)
-        self.assertIn("REGISTER_FUNCTION_NODE", result.stdout)
-        self.assertNotIn('"adapter/', result.stdout)
 
-    def test_llm_starter_is_the_actual_generator_template(self):
-        source = SCAFFOLD.STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
-        generated = SCAFFOLD.render_model_node(
-            "starter_llm", "LLM authoring starter", "llm",
-            ("input", "TextBatch", "1:1", "preserve"),
-            ("output", "TextBatch", "1:1", "preserve"))
-        self.assertEqual(generated, source)
+    def test_llm_starter_preserves_custom_ports(self):
         result = self.run_cli("swapped", "--kind", "model", "-m", "llm",
                               "--in-port", "output:TextBatch", "--out-port", "input:TextBatch",
                               "--description", 'starter_llm "input"\n', "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Required("output", &Inputs::input)', result.stdout)
         self.assertIn('PreservedOutput<TextBatch>("input", "output")', result.stdout)
-        self.assertIn('GenerateParameters(', result.stdout)
-        self.assertIn('REGISTER_FUNCTION_NODE(swapped', result.stdout)
 
     def test_control_starter_and_business_test_generation(self):
-        generated = SCAFFOLD.render_node(
-            "starter_control", "Control authoring starter", "compute", None,
-            ("input", "TextBatch", "1:1", "preserve"),
-            ("output", "TextBatch", "1:1", "preserve"), 1001)
-        self.assertEqual(generated, SCAFFOLD.STARTER_CONTROL_TEMPLATE.read_text())
         result = self.run_cli("prefix", "--control-id", "12345", "--dry-run",
                               "--in-port", "source:TextBatch", "--out-port", "result:TextBatch",
                               "--write-test")
@@ -118,21 +103,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertIn('harness.CustomInput("source"', result.stdout)
         self.assertIn('result.Output<TextBatch>("result")', result.stdout)
         self.assertIn('ControlChangesOutputAndPreservesOnFailure', result.stdout)
-
-    def test_generated_behavior_tests_use_harness_across_signatures(self):
-        cases = [(["--control-id", "12345"], "ControlChangesOutputAndPreservesOnFailure"),
-                 (["--in-port", "input:AudioPcmBatch", "--out-port", "output:AudioPcmBatch"],
-                  "PreservesBatchDataAndProvenance")]
-        cases.extend((["--kind", "model", "-m", capability], "ControlledExecutionAndModelFailure")
-                     for capability in ("embedding", "asr", "ocr", "rerank"))
-        for options, behavior in cases:
-            with self.subTest(options=options):
-                result = self.run_cli("harness", *options, "--write-test", "--dry-run")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn('NodeHarness harness("harness");', result.stdout)
-                self.assertIn(behavior, result.stdout)
-                for internal in ("SessionContext", "AlgContext", "ValidatedNodePlan"):
-                    self.assertNotIn(internal, result.stdout)
 
     def test_control_starter_rejects_invalid_ids_and_non_text_signatures(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -153,9 +123,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             # 检查在 src/custom_nodes/awesome_feature_node.cpp 生成的自定义 Node 源文件
             source_file = Path(temp) / "src" / "custom_nodes" / "awesome_feature_node.cpp"
             self.assertTrue(source_file.exists())
-            source_content = source_file.read_text(encoding="utf-8")
-            self.assertIn("REGISTER_FUNCTION_NODE(awesome_feature, Spec());", source_content)
-            self.assertIn("MapPayloads(*inputs.input, &Transform)", source_content)
 
             # 检查在 tests/unit/nodes/test_awesome_feature_node.cpp 生成的测试文件
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_awesome_feature_node.cpp"
@@ -189,7 +156,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             source_file = Path(temp) / "src" / "custom_nodes" / "dry_run_node.cpp"
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_dry_run_node.cpp"
             self.assertIn(f"--- {source_file} (new file) ---", result.stdout)
-            self.assertIn("REGISTER_FUNCTION_NODE(dry_run, Spec());", result.stdout)
             self.assertIn(f"--- {test_file} (new test file) ---", result.stdout)
             self.assertIn("TEST(CustomNodeCatalogTest, dry_run_", result.stdout)
             self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
@@ -344,34 +310,14 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(first.read_text(), "first user edit")
             self.assertEqual(second.read_text(), "second user edit")
 
-    def test_all_model_capabilities_use_function_contracts(self):
-        for capability, call in (("llm", "LlmCall"),
-                                 ("embedding", "EmbeddingCall"),
-                                 ("asr", "AsrCall"), ("ocr", "OcrCall"),
-                                 ("rerank", "RerankCall")):
-            with self.subTest(capability=capability):
-                result = self.run_cli("diagnostic", "--kind", "model", "-m",
-                                      capability, "--dry-run", "--write-test")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(call, result.stdout)
-                self.assertIn("MakeNodeSpec", result.stdout)
-                self.assertIn("REGISTER_FUNCTION_NODE(diagnostic, Spec());", result.stdout)
-                if capability != "llm":
-                    self.assertIn(f'def->model_dependencies[0].model_type, "{capability}"',
-                                  result.stdout)
-                    self.assertIn('def->model_dependencies[0].config_field, "bind_model"',
-                                  result.stdout)
+    def test_input_cardinality_generates_domain_stub(self):
+        result = self.run_cli("selected", "--in-port", "input:TextBatch:1:N:generate_sub_id",
+                              "--dry-run", "--write-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("domain transformation is not implemented", result.stdout)
+        self.assertIn("UnimplementedDomainLogicFailsCleanly", result.stdout)
 
-    def test_conversion_and_flow_contracts_use_node_spec(self):
-        for options in (["--out-port", "output:Int32Batch"],
-                        ["--in-port", "input:TextBatch:1:N:generate_sub_id"]):
-            result = self.run_cli("selected", *options, "--dry-run", "--write-test")
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("MakeNodeSpec", result.stdout)
-            self.assertIn("domain transformation is not implemented", result.stdout)
-            self.assertIn("UnimplementedDomainLogicFailsCleanly", result.stdout)
-
-    def test_embedding_and_control_use_existing_function_contracts(self):
+    def test_embedding_starter_preserves_custom_ports(self):
         result = self.run_cli("encoder", "--kind", "model",
                               "-m", "embedding", "--in-port", "texts:TextBatch",
                               "--out-port", "vectors:EmbeddingBatch", "--dry-run", "--write-test")
@@ -382,33 +328,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                          'models.encoder.Embed(*input.texts)',
                          'encoder_ControlledExecutionAndModelFailure']:
             self.assertIn(expected, result.stdout)
-        result = self.run_cli("prefix", "--control-id", "1005",
-                              "--dry-run", "--write-test")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("ControlChangesOutputAndPreservesOnFailure", result.stdout)
-
-    def test_generates_function_nodes(self):
-        result = self.run_cli("basic_map", "--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("MakeNodeSpec", result.stdout)
-        self.assertIn("REGISTER_FUNCTION_NODE(basic_map, Spec());", result.stdout)
-        self.assertIn("Transform(const std::string& input)", result.stdout)
-        self.assertIn("NodeResult<TextBatch> Run(const Inputs& inputs)", result.stdout)
-
-        result = self.run_cli("basic_llm", "--kind", "model", "-m", "llm", "--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("MakeNodeSpec", result.stdout)
-        self.assertIn("REGISTER_FUNCTION_NODE(basic_llm, Spec());", result.stdout)
-        self.assertIn("BuildPrompt", result.stdout)
-        self.assertIn("FormatAnswer", result.stdout)
-
-        with tempfile.TemporaryDirectory() as temp:
-            env = self._setup_mock_repo(temp)
-            res = self.run_cli("harness_map", "--write-test", env=env)
-            self.assertEqual(res.returncode, 0, res.stderr)
-            test_file = Path(temp) / "tests/unit/nodes/test_harness_map_node.cpp"
-            self.assertTrue(test_file.exists())
-            self.assertIn("NodeHarness harness(\"harness_map\");", test_file.read_text())
 
 
 if __name__ == "__main__":

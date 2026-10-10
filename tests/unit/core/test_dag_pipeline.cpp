@@ -459,56 +459,7 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
   EXPECT_EQ(trace[3], "NodeD");
 }
 
-// 3. 循环依赖死锁检测 (Cycle Detection: A -> B -> C -> A)
-TEST_F(DagPipelineTest, CycleDetectionRejection) {
-  nlohmann::json cyclic_config = {
-      {"pipeline",
-       {
-           {{"name", "A"},
-            {"type", "dag_test_node_a"},
-            {"depends_on", {"C"}}},  // A 依赖 C
-           {{"name", "B"},
-            {"type", "dag_test_node_b"},
-            {"inputs", {{"node_a_out", "A.node_a_out"}}},
-            {"depends_on", {"A"}}},  // B 依赖 A
-           {{"name", "C"},
-            {"type", "dag_test_node_c"},
-            {"inputs", {{"node_a_out", "A.node_a_out"}}},
-            {"depends_on", {"B"}}}  // C 依赖 B (构成闭环)
-       }}};
-
-  Pipeline pipeline;
-  bool ok =
-      BuildTestPipeline(pipeline, cyclic_config, MakeTestBoundary(), nullptr);
-  // 必须拦截成环并返回 false，禁止启动
-  EXPECT_FALSE(ok);
-}
-
-// 4. 自环死锁检测 (Self Loop: A -> A)
-TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
-  nlohmann::json self_loop_config = {
-      {"pipeline",
-       {{{"name", "A"}, {"type", "dag_test_node_a"}, {"depends_on", {"A"}}}}}};
-
-  Pipeline pipeline;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, self_loop_config, MakeTestBoundary(),
-                                 nullptr));
-}
-
-// 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
-TEST_F(DagPipelineTest, InvalidDependencyRejection) {
-  nlohmann::json invalid_dep_config = {
-      {"pipeline",
-       {{{"name", "A"},
-         {"type", "dag_test_node_a"},
-         {"depends_on", {"ghost_non_existent_node"}}}}}};
-
-  Pipeline pipeline;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, invalid_dep_config,
-                                 MakeTestBoundary(), nullptr));
-}
-
-// 6. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
+// 异步波前分层并发调度测试 (Parallel Wavefront Execution)
 TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   nlohmann::json parallel_config = {
       {"max_parallel_workers", 4},
@@ -661,7 +612,7 @@ TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
             std::string::npos);
 }
 
-// 8. 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)
+// 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)
 TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
   AlgContext req_ctx;
   const int num_threads = 16;

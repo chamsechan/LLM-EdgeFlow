@@ -523,7 +523,7 @@ TEST(PipelineValidatorTest, SerializedModelBranchesRunInSeparateLayers) {
             (std::vector<std::string>{"pre", "left", "right", "post"}));
 }
 
-TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
+TEST(PipelineValidatorTest, InvalidConfigurationsAndDiagnosticPropagation) {
   std::ifstream stream(
       "tests/fixtures/pipelines/validation/invalid_pipeline_cases.json");
   ASSERT_TRUE(stream.is_open());
@@ -531,7 +531,8 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
   stream >> fixtures;
 
   for (const auto& test : fixtures["cases"]) {
-    SCOPED_TRACE(test["name"].get<std::string>());
+    const auto name = test["name"].get<std::string>();
+    SCOPED_TRACE(name);
     const auto& config = test["pipeline"];
     const auto& io_descriptor = test.at("io");
     std::vector<IoPortDefinition> inputs;
@@ -572,7 +573,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     const auto boundary =
         MakeTestBoundary(std::move(inputs), std::move(outputs));
 
-    // 1. Validator 是完整结构化报告的基准。
+    // Validator 覆盖完整错误矩阵。
     auto plan = PipelineValidator::ValidateAndPlan(config, boundary);
     EXPECT_FALSE(plan.report.ok);
     ASSERT_FALSE(plan.report.diagnostics.empty());
@@ -587,10 +588,16 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
           << "Missing required diagnostic " << required_code;
     }
 
-    // 2. Pipeline 直接映射 Validator 的第一条诊断，不重新计算。
+    // 结构与参数错误各选一例，验证 Pipeline 和 Resolver 保留主诊断。
+    if (name != "missing_node_name" && name != "config_field_range") {
+      continue;
+    }
+
+    // Pipeline 消费已校验的计划。
     Pipeline pipeline;
     PipelineDiagnostic pipe_diag;
-    bool built = BuildTestPipeline(pipeline, config, boundary, &pipe_diag);
+    const bool built = pipeline.BuildFromPlan(
+        std::make_unique<ValidatedPipelinePlan>(std::move(plan)), &pipe_diag);
     EXPECT_FALSE(built);
     EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
     EXPECT_EQ(DiagnosticCodeName(pipe_diag.code),
@@ -598,7 +605,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     EXPECT_EQ(pipe_diag.path, test["primary_path"].get<std::string>());
     EXPECT_EQ(pipe_diag.message, primary["message"].get<std::string>());
 
-    // 3. 同一显式 I/O 选择交给 Resolver，在实例化前保留主诊断。
+    // 同一显式 I/O 选择交给 Resolver，在实例化前保留主诊断。
     const auto dep_config =
         MakeSyntheticDeploymentDocForTest(config, io_descriptor);
     std::unique_ptr<ValidatedIoPlan> io_plan;

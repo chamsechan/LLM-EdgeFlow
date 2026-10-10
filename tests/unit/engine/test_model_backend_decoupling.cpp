@@ -1123,6 +1123,7 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
     nlohmann::json config;
     bool calls_validator;
     const char* semantic_diagnostic;
+    bool throws = false;
   };
   const InvalidConfig cases[] = {
       {{{"dimension", "invalid"}}, false, ""},
@@ -1132,8 +1133,9 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
       {{{"validation", "reject_silent"}}, true, "Semantic validation failed"},
       {{{"validation", "throw_standard"}},
        true,
-       "model validator probe exception"},
-      {{{"validation", "throw_unknown"}}, true, "Unknown exception"},
+       "model validator probe exception",
+       true},
+      {{{"validation", "throw_unknown"}}, true, "Unknown exception", true},
   };
   for (const auto& test_case : cases) {
     SCOPED_TRACE(test_case.config.dump());
@@ -1179,30 +1181,18 @@ TEST_F(ModelConfigValidationTest, FieldErrorsAndSemanticFailuresFailClosed) {
     EXPECT_EQ(FixtureParameterValidationBackend::validation_calls, 0);
     EXPECT_EQ(FixtureParameterValidationBackend::provider_calls, 0);
     EXPECT_EQ(FixtureParameterValidationBackend::load_calls, 0);
-  }
-}
-
-TEST_F(ModelConfigValidationTest, FactoryPreservesExceptionReasons) {
-  const std::pair<const char*, const char*> cases[] = {
-      {"throw_standard", "model validator probe exception"},
-      {"throw_unknown", "Unknown exception"},
-  };
-  for (const auto& [behavior, expected_reason] : cases) {
-    SCOPED_TRACE(behavior);
-    ResetObservations();
-    ModelLoadSpec spec;
-    spec.impl_name = ConfigValidatedEmbeddingModel::kImplName;
-    spec.backend_type = FixtureParameterValidationBackend::kBackendType;
-    spec.model_file = "validation.fixture";
-    spec.model_params = {{"validation", behavior}};
-    std::string diagnostic;
-    EXPECT_EQ(ModelRuntimeFactory::Create(spec, &diagnostic), nullptr);
-    EXPECT_NE(diagnostic.find(expected_reason), std::string::npos)
-        << diagnostic;
-    EXPECT_EQ(ModelRuntimeFactory::Create(spec, nullptr), nullptr);
-    EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 0);
-    EXPECT_EQ(FixtureParameterValidationBackend::provider_calls, 0);
-    EXPECT_EQ(FixtureParameterValidationBackend::load_calls, 0);
+    if (test_case.throws) {
+      EXPECT_NE(diagnostic.find(test_case.semantic_diagnostic),
+                std::string::npos)
+          << diagnostic;
+      ResetObservations();
+      EXPECT_EQ(ModelRuntimeFactory::Create(spec, nullptr), nullptr);
+      EXPECT_EQ(ConfigValidatedEmbeddingModel::validation_calls, 1);
+      EXPECT_EQ(ConfigValidatedEmbeddingModel::create_calls, 0);
+      EXPECT_EQ(FixtureParameterValidationBackend::validation_calls, 0);
+      EXPECT_EQ(FixtureParameterValidationBackend::provider_calls, 0);
+      EXPECT_EQ(FixtureParameterValidationBackend::load_calls, 0);
+    }
   }
 }
 
