@@ -8,25 +8,21 @@
   "minimum_pass_rate": 1.0,
   "samples": [
     {
-      "request_id": 20001,
       "expected": {
         "/output/is_hit": true
       }
     },
     {
-      "request_id": 20002,
       "expected": {
         "/output/is_hit": true
       }
     },
     {
-      "request_id": 20003,
       "expected": {
         "/output/is_hit": false
       }
     },
     {
-      "request_id": 20004,
       "expected": {
         "/output/is_hit": false
       }

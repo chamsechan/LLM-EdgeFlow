@@ -281,7 +281,7 @@ try {
     await route.fulfill({ json: { ok: true, job_id: 'delayed', status: 'queued' } });
   });
   await page.route('**/api/runs/delayed', route => route.fulfill({ json: { ok: true, job: {
-    status: 'completed', logs: 'ONLY_A', result: { 'results.jsonl': [{ request_id: 999, status: 0, output: { answer: 'ONLY_A' } }] },
+    status: 'completed', logs: 'ONLY_A', result: { 'results.jsonl': [{ status: 0, output: { answer: 'ONLY_A' } }] },
   } } }));
   await page.click('#openRunButton'); await page.click('#runButton'); await sawStart;
   await open('pipeline_browser_other.json'); releaseStart();

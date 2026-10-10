@@ -54,9 +54,6 @@ int EncodeOperatorAudioResult(AlgContext* context,
       ReadOutputValue(*context, kIntentSlot, options, status);
   if (!intent_slots) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids = RequestIds(options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
-
   size_t count = transcripts->size();
   if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
@@ -65,12 +62,12 @@ int EncodeOperatorAudioResult(AlgContext* context,
   }
 
   std::vector<const TextBatch::value_type*> transcripts_by_request;
-  if (!IndexResults(transcripts, raw_req_ids, &transcripts_by_request,
+  if (!IndexResults(transcripts, destination->count, &transcripts_by_request,
                     "transcripts", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
   std::vector<const RuleMatchBatch::value_type*> intent_slots_by_request;
-  if (!IndexResults(intent_slots, raw_req_ids, &intent_slots_by_request,
+  if (!IndexResults(intent_slots, destination->count, &intent_slots_by_request,
                     "intent_slots", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }

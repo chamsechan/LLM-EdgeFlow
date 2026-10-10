@@ -4,7 +4,7 @@
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
-#include "engine/models/vision_document/image_decode.h"
+#include "engine/models/vision_document/image_preprocess.h"
 
 namespace llm_edgeflow {
 
@@ -28,7 +28,7 @@ Parameters<Params> ParamSpec() {
        Field("patch_size", &Params::patch_size)
            .Default(16)
            .Range(1, 256)
-           .Description("图像块边长，单位为像素；解码后宽高补齐到其整数倍，须符"
+           .Description("图像块边长，单位为像素；输入帧宽高补齐到其整数倍，须符"
                         "合图像模型约定。"),
        Field("max_pixels", &Params::max_pixels)
            .Default(4194304)
@@ -82,7 +82,7 @@ std::shared_ptr<IModel> VisionDocumentModel::Create(
   }
 }
 
-int VisionDocumentModel::Recognize(const ImageRefBatch& images,
+int VisionDocumentModel::Recognize(const ImageFrameBatch& images,
                                    OcrDocumentBatch* outputs,
                                    std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
@@ -95,14 +95,14 @@ int VisionDocumentModel::Recognize(const ImageRefBatch& images,
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
     return -1;
   }
-  return FixedBatchExecutor::ExecuteItems<std::string, OcrDocumentItem>(
+  return FixedBatchExecutor::ExecuteItems<ImageFrame, OcrDocumentItem>(
       images, session_->GetBatchPolicy(),
-      [this, diagnostic](const TraceableItem<std::string>& image,
+      [this, diagnostic](const TraceableItem<ImageFrame>& image,
                          OcrDocumentItem* output) {
         ImageTextInput request;
         std::string reason;
-        if (!DecodeDocumentImage(image.data, patch_size_, max_pixels_, &request,
-                                 &reason)) {
+        if (!PrepareDocumentImage(image.data, patch_size_, max_pixels_,
+                                  &request, &reason)) {
           ALG_LOG_ERROR("[VisionDocumentModel] %s\n", reason.c_str());
           SetDiagnosticNoexcept(diagnostic, reason);
           return -1;

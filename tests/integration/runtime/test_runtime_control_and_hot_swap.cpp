@@ -238,7 +238,7 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   std::string input_text_1 = "这是一个普通的测试，包含 VIP 专席客户服务。";
   CompanyString cs1{static_cast<int32_t>(input_text_1.size()),
                     const_cast<char*>(input_text_1.data())};
-  CompanyOperatorKeywordInput in_req_1{10001, kMockServiceKeywordMatch, &cs1};
+  CompanyOperatorKeywordInput in_req_1{kMockServiceKeywordMatch, &cs1};
 
   operator_api::NamedIoBatch inputs_1(1);
   inputs_1[0]["client_channel.keyword_in"] =
@@ -289,7 +289,7 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   std::string input_text_2 = "扫码立即返现50元优惠券！";
   CompanyString cs2{static_cast<int32_t>(input_text_2.size()),
                     const_cast<char*>(input_text_2.data())};
-  CompanyOperatorKeywordInput in_req_2{10002, kMockServiceKeywordMatch, &cs2};
+  CompanyOperatorKeywordInput in_req_2{kMockServiceKeywordMatch, &cs2};
 
   operator_api::NamedIoBatch inputs_2(1);
   inputs_2[0]["client_channel.keyword_in"] =
@@ -345,7 +345,7 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
     for (int iteration = 0; iteration < kProcessIterations; ++iteration) {
-      CompanyOperatorKeywordInput in_req{10003, kMockServiceKeywordMatch, &cs};
+      CompanyOperatorKeywordInput in_req{kMockServiceKeywordMatch, &cs};
       operator_api::NamedIoBatch inputs(1);
       inputs[0]["client_channel.keyword_in"] =
           operator_api::MakeBorrowedOperatorInput(&in_req);

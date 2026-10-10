@@ -7,8 +7,8 @@
 #include <vector>
 
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "adapter/platform_value_binding.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -86,7 +86,7 @@ TEST(ConverterContractsTest, NineProductionInputContracts) {
        "ocr_invoice_qa",
        "CompanyFrame",
        kMockServiceOcrInvoiceQa,
-       {{"image", "ImageRefBatch"}},
+       {{"image", "ImageFrameBatch"}},
        {}},
       {"keyword_in",
        "keyword_match",

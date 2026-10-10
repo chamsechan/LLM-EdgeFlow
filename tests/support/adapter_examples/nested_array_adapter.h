@@ -17,13 +17,11 @@ typedef struct {
 } TemplateTagItem;
 
 typedef struct {
-  uint64_t request_id;
   int tag_count;
   const TemplateTagItem* tag_array;  // 嵌套动态数组指针
 } TemplateNestedArrayInput;
 
 typedef struct {
-  uint64_t request_id;
   int status_code;
   int total_tags_processed;
   char summary[256];
@@ -35,12 +33,10 @@ struct TemplateTagDto {
 };
 
 struct TemplateNestedArrayItemDto {
-  uint64_t request_id;
   std::vector<TemplateTagDto> tags;
 };
 
 struct TemplateNestedArrayResultDto {
-  uint64_t request_id;
   int status_code;
   int total_tags_processed;
   std::string summary;
@@ -94,7 +90,6 @@ class TemplateNestedArrayAdapter {
       }
 
       TemplateNestedArrayItemDto item;
-      item.request_id = in->request_id;
       item.tags.reserve(in->tag_count);
 
       for (int k = 0; k < in->tag_count; ++k) {
@@ -135,7 +130,6 @@ class TemplateNestedArrayAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<TemplateNestedArrayOutput*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
       out_ptr->status_code = (*res)[i].status_code;
       out_ptr->total_tags_processed = (*res)[i].total_tags_processed;
 

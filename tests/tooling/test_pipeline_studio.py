@@ -115,7 +115,6 @@ class WorkbenchServiceTest(unittest.TestCase):
         results = job["result"]["results.jsonl"]
         self.assertEqual(len(results), 2)
         self.assertEqual([result["status"] for result in results], [0, 0])
-        self.assertEqual(len({result["request_id"] for result in results}), 2)
         self.assertTrue(results[0]["output"]["is_hit"])
         self.assertEqual(results[0]["output"]["match_result"]["intent"], "STUDIO_DRAFT")
         self.assertEqual(results[0]["output"]["match_result"]["matches"], [
@@ -1081,6 +1080,24 @@ process.stdout.write(JSON.stringify(pipeline));
 
 
 class SelectionVerificationTest(unittest.TestCase):
+    def test_effect_samples_match_result_rows_in_order(self):
+        selection = SHOW.SELECTION
+        records = [
+            {"status": 0, "output": {"answer": "first"}},
+            {"status": 0, "output": {"answer": "second"}},
+        ]
+        spec = {"samples": [
+            {"expected": {"/output/answer": "first"}},
+            {"expected": {"/output/answer": "second"}},
+        ]}
+        self.assertEqual(selection.compare_samples(records, spec)["status"], "passed")
+        reversed_result = selection.compare_samples(list(reversed(records)), spec)
+        self.assertEqual(reversed_result["status"], "failed")
+        self.assertEqual(reversed_result["failed_rows"], [0, 1])
+        for wrong_count in (records[:1], records + records[:1]):
+            with self.subTest(count=len(wrong_count)):
+                self.assertEqual(selection.compare_samples(wrong_count, spec)["status"], "failed")
+
     def test_asset_catalog_exposes_only_public_selection_variants(self):
         selection = SHOW.SELECTION
         catalog = selection.asset_catalog()
@@ -1251,7 +1268,11 @@ class SelectionVerificationTest(unittest.TestCase):
         self.assertEqual(selection.compare_samples(broken_records, selection.read_json(spec))["status"], "failed")
         records = json.loads(json.dumps(receipt["records"]))
         records[0]["output"]["is_hit"] = False
-        self.assertEqual(selection.compare_samples(records, selection.read_json(spec))["status"], "failed")
+        metrics = selection.compare_samples(records, selection.read_json(spec))
+        self.assertEqual(metrics["status"], "failed")
+        self.assertEqual(metrics["failed_rows"], [0])
+        reordered = list(reversed(receipt["records"]))
+        self.assertEqual(selection.compare_samples(reordered, selection.read_json(spec))["status"], "failed")
 
     def test_evaluate_inherits_output_configuration_without_changing_selection(self):
         selection = SHOW.SELECTION

@@ -37,14 +37,14 @@ Converter 只处理 `adapter/io_values.h` 中的请求自有值，不包含平�
 通过 `SetInputValue<Host, Value>` / `SetOutputValue<Host, Value>` 提供读取和写入。
 输入行函数接收 `const Value&`；输出行函数接收 `Value*`，直接赋值 `std::string`。
 多流输出组装中立值后调用 `WriteOutputValue`，由 binding 按真实池容量写入。
-平台布局、字符串表示、metadata、请求编号和业务枚举映射只在 binding 中处理；
-当前模拟平台的 traits、字符串和分配 helper 位于 `adapter/platform_value_binding.h`。
+平台布局、字符串表示、metadata 和业务枚举映射只在 binding 中处理；
+当前模拟平台的 traits、字符串和分配 helper 位于 `adapter/operator/mock/platform_value_binding.h`。
 
 请求字段解析和最终协议组装留在 Converter；不向 Operator 中央分发添加业务分支，
 也不把这些操作放进 Demo、Node 或 Core。`type` 是宿主后缀，`name` 对应业务值；
 `common` 表示该载体的默认处理。binding 的 `services` 维护业务名到平台枚举的映射，
-Converter 不声明平台枚举。Operator 读取并核对请求编号，选项中的 `request_ids` 只读；
-Converter 不发布或改写编号表。参数通过 `Parameters<P>` 声明；字符串尺寸使用
+Converter 不声明平台枚举。Operator 输入输出 vector 按同一行关联，载体无需请求 ID；
+内部 `req_id` 为批内行号，输出视图 `count` 为原始批大小，包含可选输出缺省行。参数通过 `Parameters<P>` 声明；字符串尺寸使用
 `MaxBytes`，默认值在转换器中声明，平台登记只保留硬上限。`Prepare` / `Validate` 在创建时执行，
 运行时通过 `options.Params<P>()` 只读访问。端口以 `options.Port(逻辑名)` 读写；
 未引用的输入端口返回空名，由发布 helper 跳过。限额共享头为 `adapter/input_limits.h`。有效批次上限为 `min(max_frame_depth, 64)`。
@@ -54,7 +54,7 @@ Converter 不发布或改写编号表。参数通过 `Parameters<P>` 声明；�
 
 复用 `tests/unit/adapter/` 与 `tests/contract/abi/` 的相关套件，使用
 `tests/support/adapter_harness.h`、`operator_test_fixture.h`。至少覆盖正常完整对象、
-契约要求的无效输入、输出容量不足、批次限额、逐条 ID/状态及失败无残留输出。
+契约要求的无效输入、输出容量不足、批次限额、逐行对应关系/状态及失败无残留输出。
 借用内存和多槽修改再补生命周期/释放断言。
 
 ```bash

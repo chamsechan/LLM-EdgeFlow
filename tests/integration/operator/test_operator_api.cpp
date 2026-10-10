@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -16,9 +17,9 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/model_file_resolver.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "core/pipeline_catalog.h"
 #include "edgeflow/operator/interface.h"
@@ -341,7 +342,7 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   const auto check = [&](int expected_hit) {
     std::string text = "sample";
     CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
-    CompanyOperatorKeywordInput input{123, kMockServiceKeywordMatch, &cs};
+    CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &cs};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["control.keyword_in"] = MakeBorrowedOperatorInput(&input);
     outputs[0]["control.keyword_out"] = nullptr;
@@ -350,7 +351,6 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
     const auto* output = static_cast<CompanyOperatorKeywordOutput*>(
         outputs[0]["control.keyword_out"].get());
     ASSERT_NE(output, nullptr);
-    EXPECT_EQ(output->request_id, 123u);
     EXPECT_EQ(output->is_hit, expected_hit);
   };
   check(0);
@@ -465,7 +465,7 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{101, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -493,7 +493,7 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
   std::string text = "请帮我联系VIP专员，加急处理";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -504,7 +504,6 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
   auto out_sp = out_b[0]["chan.keyword_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 1001u);
   EXPECT_EQ(out_ptr->is_hit, 1);
   EXPECT_NE(out_ptr->match_result_json, nullptr);
   EXPECT_GT(out_ptr->match_result_json->length, 0);
@@ -530,11 +529,9 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
   ASSERT_NE(handle, nullptr);
 
-  std::string uri = "./data/invoice_01.jpg";
+  const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
   std::string prompt = "提取发票代码、号码与总金额";
-  CompanyString uri_cs{static_cast<int32_t>(uri.size()),
-                       const_cast<char*>(uri.data())};
-  CompanyFrame frame{60001, kMockServiceOcrInvoiceQa, &uri_cs, nullptr};
+  CompanyFrame frame{kMockServiceOcrInvoiceQa, 1, 2, 6, pixels.data(), nullptr};
   CompanyString prompt_cs{static_cast<int32_t>(prompt.size()),
                           const_cast<char*>(prompt.data())};
 
@@ -548,7 +545,6 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   auto out_sp = out_b[0]["camera_0.od_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOdOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 60001u);
   EXPECT_GT(out_ptr->detected_box_count, 0);
   EXPECT_NE(out_ptr->result_json, nullptr);
   EXPECT_GT(out_ptr->result_json->length, 0);
@@ -556,6 +552,38 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   out_b.clear();
   out_sp.reset();
 
+  EXPECT_EQ(ops_.Destroy(handle), 0);
+}
+
+TEST_F(OperatorApiTest, OcrPixelFramesRejectInvalidInputWithoutOutput) {
+  auto param =
+      DefaultCreateParam("demo/fixtures/mock/pipeline_ocr_invoice_qa.conf");
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
+  std::string prompt = "提取金额";
+  CompanyString question{static_cast<int32_t>(prompt.size()), prompt.data()};
+  const CompanyFrame invalid[] = {
+      {kMockServiceOcrInvoiceQa, 0, 2, 6, pixels.data(), nullptr},
+      {kMockServiceOcrInvoiceQa, 1, 0, 6, pixels.data(), nullptr},
+      {kMockServiceOcrInvoiceQa, -1, 2, 6, pixels.data(), nullptr},
+      {kMockServiceOcrInvoiceQa, 1, -1, 6, pixels.data(), nullptr},
+      {kMockServiceOcrInvoiceQa, 1, 2, 5, pixels.data(), nullptr},
+      {kMockServiceOcrInvoiceQa, 1, 2, -1, pixels.data(), nullptr},
+      {kMockServiceOcrInvoiceQa, 1, 2, 6, nullptr, nullptr},
+      {kMockServiceOcrInvoiceQa, 16777217, 1, 3, pixels.data(), nullptr},
+  };
+  for (size_t i = 0; i < std::size(invalid); ++i) {
+    SCOPED_TRACE(i);
+    CompanyFrame frame = invalid[i];
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["camera_0.frame"] = MakeBorrowedOperatorInput(&frame);
+    inputs[0]["camera_0.string"] = MakeBorrowedOperatorInput(&question);
+    outputs[0]["camera_0.od_out"] = nullptr;
+    EXPECT_EQ(ops_.Process(handle, inputs, outputs),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(outputs[0]["camera_0.od_out"], nullptr);
+  }
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
@@ -573,7 +601,7 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
                        const_cast<char*>(doc.data())};
   CompanyString query_cs{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
-  CompanyOperatorDocInput in{10001, kMockServiceDocQa, &doc_cs, &query_cs};
+  CompanyOperatorDocInput in{kMockServiceDocQa, &doc_cs, &query_cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in);
@@ -584,7 +612,6 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
   auto out_sp = out_b[0]["rag_channel.doc_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOperatorDocOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 10001u);
   EXPECT_NE(out_ptr->answer_text, nullptr);
   EXPECT_GT(out_ptr->answer_text->length, 0);
 
@@ -613,8 +640,7 @@ TEST_F(OperatorApiTest, EndToEndDialogueAudit) {
                         const_cast<char*>(chan.data())};
   CompanyString dia_cs{static_cast<int32_t>(dialogue.size()),
                        const_cast<char*>(dialogue.data())};
-  CompanyOperatorAuditInput in{40001, kMockServiceDialogueAudit, &dia_cs,
-                               &chan_cs};
+  CompanyOperatorAuditInput in{kMockServiceDialogueAudit, &dia_cs, &chan_cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["audit_channel.audit_in"] = MakeBorrowedOperatorInput(&in);
@@ -625,7 +651,6 @@ TEST_F(OperatorApiTest, EndToEndDialogueAudit) {
   auto out_sp = out_b[0]["audit_channel.audit_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOperatorAuditOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 40001u);
   EXPECT_NE(out_ptr->risk_level, nullptr);
   EXPECT_GT(out_ptr->risk_level->length, 0);
 
@@ -649,7 +674,7 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   ASSERT_NE(handle, nullptr);
 
   std::vector<float> pcm(16000, 0.01f);
-  CompanyOperatorAudioInput in{70001, kMockServiceAudioAsrIntent, pcm.data(),
+  CompanyOperatorAudioInput in{kMockServiceAudioAsrIntent, pcm.data(),
                                static_cast<int32_t>(pcm.size()), 16000};
 
   NamedIoBatch in_b(1), out_b(1);
@@ -661,7 +686,6 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   auto out_sp = out_b[0]["mic_0.audio_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOperatorAudioOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 70001u);
   EXPECT_NE(out_ptr->transcribed_text, nullptr);
   EXPECT_GT(out_ptr->transcribed_text->length, 0);
 
@@ -673,7 +697,6 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   auto* empty_output = static_cast<CompanyOperatorAudioOutput*>(
       out_b[0]["mic_0.audio_out"].get());
   ASSERT_NE(empty_output, nullptr);
-  EXPECT_EQ(empty_output->request_id, 70001U);
   EXPECT_EQ(empty_output->status_code, 0);
   out_b.clear();
   EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -710,7 +733,6 @@ TEST_F(OperatorApiTest, EndToEndCrossRerank) {
                       const_cast<char*>(passage2.data())};
 
   CompanyOperatorRerankInput in{};
-  in.request_id = 80001;
   in.service_type = kMockServiceCrossRerank;
   in.query_text = &query_cs;
   in.candidate_passages[0] = &p1_cs;
@@ -726,7 +748,6 @@ TEST_F(OperatorApiTest, EndToEndCrossRerank) {
   auto out_sp = out_b[0]["ranker.rerank_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 80001u);
   EXPECT_EQ(out_ptr->count, 2);
 
   out_b.clear();
@@ -750,7 +771,7 @@ TEST_F(OperatorApiTest, OutputSlotValidation) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -786,7 +807,7 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
   for (size_t count : {64U, 65U}) {
     NamedIoBatch inputs(count), outputs(count);
     for (size_t i = 0; i < count; ++i) {
-      rows[i] = {1000 + i, kMockServiceKeywordMatch, &sentence};
+      rows[i] = {kMockServiceKeywordMatch, &sentence};
       inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
       outputs[i]["test.keyword_out"] = nullptr;
     }
@@ -797,7 +818,6 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
         const auto* result = static_cast<CompanyOperatorKeywordOutput*>(
             outputs[i]["test.keyword_out"].get());
         ASSERT_NE(result, nullptr);
-        EXPECT_EQ(result->request_id, rows[i].request_id);
         EXPECT_EQ(result->status_code, 0);
       }
     } else {
@@ -805,38 +825,102 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
                    "Input batch size 65 exceeds effective batch limit 64");
       for (const auto& frame : outputs)
         EXPECT_EQ(frame.at("test.keyword_out"), nullptr);
+      // 保留原有校验顺序：先检查批次上限，再读取载体和解析输出 key。
+      outputs.front().clear();
+      EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
+      EXPECT_STREQ(GetOperatorLastError(),
+                   "Input batch size 65 exceeds effective batch limit 64");
+      inputs.front().begin()->second.reset();
+      EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
+      EXPECT_STREQ(GetOperatorLastError(),
+                   "Input batch size 65 exceeds effective batch limit 64");
     }
   }
 }
 
-TEST_F(OperatorApiTest, ProcessRestoresRequestIdsWithoutBizPort) {
+TEST_F(OperatorApiTest, ProcessUsesRowOrderForDistinctInputs) {
   auto param = DefaultCreateParam("configs/pipeline_keyword_match_rules.conf");
   void* raw_handle = nullptr;
   ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
   const auto destroy = [this](void* handle) { ops_.Destroy(handle); };
   std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
-  char text[] = "query";
-  CompanyString sentence{5, text};
-  for (const std::vector<uint64_t>& ids :
-       {std::vector<uint64_t>{900001, 42, 7},
-        std::vector<uint64_t>{900001, 42, 42}}) {
-    std::vector<CompanyOperatorKeywordInput> rows(ids.size());
-    NamedIoBatch inputs(ids.size()), outputs(ids.size());
-    for (size_t i = 0; i < ids.size(); ++i) {
-      rows[i] = {ids[i], kMockServiceKeywordMatch, &sentence};
+  ControlUpdateRulesParam rules{
+      "{\"categories\":{\"ROW\":[\"first\",\"third\"]}}"};
+  ASSERT_EQ(
+      ops_.Control(handle.get(), static_cast<int>(ControlCommand::kUpdateRules),
+                   &rules),
+      0);
+  std::vector<std::string> texts{"first", "unmatched", "third"};
+  std::vector<CompanyString> sentences;
+  for (auto& text : texts)
+    sentences.push_back({static_cast<int32_t>(text.size()), text.data()});
+  for (int round = 0; round < 2; ++round) {
+    std::vector<CompanyOperatorKeywordInput> rows(texts.size());
+    NamedIoBatch inputs(texts.size()), outputs(texts.size());
+    for (size_t i = 0; i < texts.size(); ++i) {
+      rows[i] = {kMockServiceKeywordMatch, &sentences[i]};
       inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
       outputs[i]["test.keyword_out"] = nullptr;
     }
     ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
         << GetOperatorLastError();
-    for (size_t i = 0; i < ids.size(); ++i) {
+    for (size_t i = 0; i < texts.size(); ++i) {
       const auto* result = static_cast<const CompanyOperatorKeywordOutput*>(
           outputs[i].at("test.keyword_out").get());
       ASSERT_NE(result, nullptr);
-      EXPECT_EQ(result->request_id, ids[i]);
       EXPECT_EQ(result->status_code, 0);
+      EXPECT_EQ(result->is_hit, i == 1 ? 0 : 1);
     }
   }
+}
+
+TEST_F(OperatorApiTest, CompanyStringProcessNeedsOnlyBatchRowPositions) {
+  ScopedTempDirectory temporary;
+  const nlohmann::json pipeline = {
+      {"io",
+       {{"input", {{{"type", "string"}, {"name", "ocr_invoice_qa"}}}},
+        {"output",
+         {{{"type", "entity_out"},
+           {"name", "translate"},
+           {"inputs", {{"translation", "copy.text"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"name", "copy"},
+         {"type", "text_template"},
+         {"inputs", {{"primary", "input.question"}}}}}}};
+  std::ofstream(temporary.path() / "pipeline.json") << pipeline;
+  std::ofstream(temporary.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto root = temporary.path().string();
+  auto param = DefaultCreateParam("pipeline.conf");
+  param.model_path = root.c_str();
+  void* raw_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+  const auto destroy = [this](void* handle) { ops_.Destroy(handle); };
+  std::unique_ptr<void, decltype(destroy)> handle(raw_handle, destroy);
+  std::vector<std::string> texts{"first row", "second row"};
+  std::vector<CompanyString> rows;
+  for (auto& text : texts)
+    rows.push_back({static_cast<int32_t>(text.size()), text.data()});
+  NamedIoBatch inputs(rows.size()), outputs(rows.size());
+  for (size_t i = 0; i < rows.size(); ++i) {
+    inputs[i]["test.string"] = MakeBorrowedOperatorInput(&rows[i]);
+    outputs[i]["test.entity_out"] = nullptr;
+  }
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  for (size_t i = 0; i < rows.size(); ++i) {
+    const auto* output = static_cast<const CompanyOperatorEntityOutput*>(
+        outputs[i]["test.entity_out"].get());
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(output->status_code, 0);
+    EXPECT_EQ(nlohmann::json::parse(output->entities_json->data)["translated"],
+              texts[i]);
+  }
+  outputs.assign(1, {{"test.entity_out", nullptr}});
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(outputs[0]["test.entity_out"], nullptr);
 }
 
 // 13. 输出池耗尽、阻塞与唤醒复用测试
@@ -855,7 +939,7 @@ TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   // 1. 单次 Batch > max_frame_depth -> 立即拒绝 (-3)，不陷入死锁
   NamedIoBatch in_b3(3), out_b3(3);
@@ -928,7 +1012,7 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -1019,7 +1103,7 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   std::string text = "张三在清华大学研发深度学习大模型。";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorEntityInput in{30001, kMockServiceEntityExtract, &cs};
+  CompanyOperatorEntityInput in{kMockServiceEntityExtract, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in);
@@ -1030,7 +1114,6 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   auto out_sp = out_b[0]["nlp.entity_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_ptr = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->request_id, 30001u);
   EXPECT_NE(out_ptr->entities_json, nullptr);
   EXPECT_GT(out_ptr->entities_json->length, 0);
 
@@ -1056,7 +1139,6 @@ TEST_F(OperatorApiTest, InputSharedPtrUseCountNotRetained) {
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
   auto in_ptr = std::make_shared<CompanyOperatorKeywordInput>();
-  in_ptr->request_id = 1001;
   in_ptr->service_type = kMockServiceKeywordMatch;
   in_ptr->sentence_text = &cs;
 
@@ -1099,7 +1181,7 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
     std::string text = "VIP专员";
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
-    CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+    CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
     NamedIoBatch in_b(1), out_b(1);
     in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -1126,7 +1208,7 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
     std::string text = "VIP专员";
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
-    CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+    CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
     NamedIoBatch in_b1(1), out_b1(1);
     in_b1[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -1176,7 +1258,7 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   std::atomic<bool> success1{false};
   std::atomic<bool> success2{false};
@@ -1273,7 +1355,6 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
     company_strings[i].length =
         static_cast<int32_t>(std::strlen(short_words[i]));
     company_strings[i].data = const_cast<char*>(short_words[i]);
-    inputs[i].request_id = 70000 + i;
     inputs[i].service_type = kMockServiceKeywordMatch;
     inputs[i].sentence_text = &company_strings[i];
 
@@ -1294,7 +1375,8 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
     ASSERT_NE(out_sp, nullptr);
     const auto* out =
         static_cast<const CompanyOperatorKeywordOutput*>(out_sp.get());
-    EXPECT_EQ(out->request_id, 70000 + i);
+    EXPECT_EQ(out->status_code, 0);
+    EXPECT_EQ(out->is_hit, 0);
   }
 
   batch_outputs.clear();
@@ -1403,7 +1485,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
                               q_strs[i].data()};
       d_cs[i] = CompanyString{static_cast<int32_t>(d_strs[i].size()),
                               d_strs[i].data()};
-      inputs[i].request_id = static_cast<uint64_t>(100 + i);
       inputs[i].service_type = kMockServiceDocQa;
       inputs[i].query_text = &q_cs[i];
       inputs[i].doc_text = &d_cs[i];
@@ -1420,8 +1501,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
         batch_out[kBatch - 1]["qa.doc_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->request_id, 100u);
-    EXPECT_EQ(last_out->request_id, 100u + kBatch - 1);
     EXPECT_NE(first_out->intent_name, nullptr);
     EXPECT_NE(first_out->answer_text, nullptr);
     EXPECT_NE(last_out->intent_name, nullptr);
@@ -1456,7 +1535,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
                               u_strs[i].data()};
       c_cs[i] = CompanyString{static_cast<int32_t>(c_strs[i].size()),
                               c_strs[i].data()};
-      inputs[i].request_id = static_cast<uint64_t>(200 + i);
       inputs[i].service_type = kMockServiceDialogueAudit;
       inputs[i].user_text = &u_cs[i];
       inputs[i].channel_name = &c_cs[i];
@@ -1473,8 +1551,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
         batch_out[kBatch - 1]["audit.audit_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->request_id, 200u);
-    EXPECT_EQ(last_out->request_id, 200u + kBatch - 1);
     EXPECT_NE(first_out->risk_level, nullptr);
     EXPECT_NE(first_out->audit_verdict_json, nullptr);
 
@@ -1506,7 +1582,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     std::vector<CompanyOperatorAudioInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
     for (size_t i = 0; i < kBatch; ++i) {
-      inputs[i].request_id = static_cast<uint64_t>(300 + i);
       inputs[i].service_type = kMockServiceAudioAsrIntent;
       inputs[i].sample_rate = 16000;
       inputs[i].pcm_length = 16000;
@@ -1524,8 +1599,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
         batch_out[kBatch - 1]["audio.audio_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->request_id, 300u);
-    EXPECT_EQ(last_out->request_id, 300u + kBatch - 1);
     EXPECT_NE(first_out->transcribed_text, nullptr);
     EXPECT_NE(first_out->intent_slot_json, nullptr);
 
@@ -1563,7 +1636,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       q_strs[i] = "Cross Rerank Query #" + std::to_string(i);
       q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
                               q_strs[i].data()};
-      inputs[i].request_id = static_cast<uint64_t>(400 + i);
       inputs[i].service_type = kMockServiceCrossRerank;
       inputs[i].query_text = &q_cs[i];
       inputs[i].candidate_count = 8;
@@ -1590,9 +1662,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(middle_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->request_id, 400u);
-    EXPECT_EQ(middle_out->request_id, 401u);
-    EXPECT_EQ(last_out->request_id, 400u + kBatch - 1);
     EXPECT_EQ(first_out->count, 8);
     EXPECT_EQ(middle_out->count, 8);
     EXPECT_EQ(last_out->count, 8);
@@ -1614,21 +1683,21 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 2;
-    std::vector<std::string> uris(kBatch), q_strs(kBatch);
-    std::vector<CompanyString> uri_cs(kBatch), q_cs(kBatch);
+    std::vector<std::string> q_strs(kBatch);
+    const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
+    std::vector<CompanyString> q_cs(kBatch);
     std::vector<CompanyFrame> frames(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
-      uris[i] = "data/invoice_0" + std::to_string(i + 1) + ".jpg";
       q_strs[i] = "What is invoice item #" + std::to_string(i) + "?";
-      uri_cs[i] =
-          CompanyString{static_cast<int32_t>(uris[i].size()), uris[i].data()};
       q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
                               q_strs[i].data()};
-      frames[i].request_id = static_cast<uint64_t>(600 + i);
       frames[i].service_type = kMockServiceOcrInvoiceQa;
-      frames[i].image_uri = &uri_cs[i];
+      frames[i].height = 1;
+      frames[i].width = 2;
+      frames[i].stride = 6;
+      frames[i].data = pixels.data();
       frames[i].metadata = nullptr;
       batch_in[i]["camera_0.frame"] = MakeBorrowedOperatorInput(&frames[i]);
       batch_in[i]["query_channel.string"] = MakeBorrowedOperatorInput(&q_cs[i]);
@@ -1644,8 +1713,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
         batch_out[kBatch - 1]["ocr_result.od_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->request_id, 600u);
-    EXPECT_EQ(last_out->request_id, 600u + kBatch - 1);
     EXPECT_NE(first_out->result_json, nullptr);
     EXPECT_NE(last_out->result_json, nullptr);
 
@@ -1675,7 +1742,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       s_strs[i] = "User #" + std::to_string(i) + " works at Acme in Beijing.";
       s_cs[i] = CompanyString{static_cast<int32_t>(s_strs[i].size()),
                               s_strs[i].data()};
-      inputs[i].request_id = static_cast<uint64_t>(500 + i);
       inputs[i].service_type = kMockServiceEntityExtract;
       inputs[i].sentence_text = &s_cs[i];
       batch_in[i]["ner.entity_in"] = MakeBorrowedOperatorInput(&inputs[i]);
@@ -1691,8 +1757,6 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
         batch_out[kBatch - 1]["ner.entity_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->request_id, 500u);
-    EXPECT_EQ(last_out->request_id, 500u + kBatch - 1);
     EXPECT_NE(first_out->entities_json, nullptr);
     EXPECT_NE(last_out->entities_json, nullptr);
 
@@ -1727,7 +1791,6 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
                    (i % 2 == 0 ? " 系统初始化完成" : " 普通用户消息");
     comp_strs[i] = CompanyString{static_cast<int32_t>(sent_strs[i].size()),
                                  sent_strs[i].data()};
-    inputs[i].request_id = static_cast<uint64_t>(1000 + i);
     inputs[i].service_type = kMockServiceKeywordMatch;
     inputs[i].sentence_text = &comp_strs[i];
     batch_in[i]["client_channel.keyword_in"] =
@@ -1742,7 +1805,6 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
     auto out_sp = batch_out[i]["client_channel.keyword_out"];
     ASSERT_NE(out_sp, nullptr);
     auto* out_ptr = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-    EXPECT_EQ(out_ptr->request_id, 1000u + i);
     EXPECT_NE(out_ptr->match_result_json, nullptr);
     if (i % 2 == 0) {
       EXPECT_EQ(out_ptr->is_hit, 1);
@@ -1762,7 +1824,6 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
   for (size_t i = 0; i < kOverBatch; ++i) {
     over_cs[i] = CompanyString{static_cast<int32_t>(over_strs[i].size()),
                                over_strs[i].data()};
-    over_inputs[i].request_id = static_cast<uint64_t>(2000 + i);
     over_inputs[i].service_type = kMockServiceKeywordMatch;
     over_inputs[i].sentence_text = &over_cs[i];
     over_batch_in[i]["client_channel.keyword_in"] =
@@ -1793,7 +1854,7 @@ TEST_F(OperatorApiTest, UnreleasedOutputLifecycleBreach) {
 
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput in{99001, kMockServiceKeywordMatch, &cs};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -2051,7 +2112,7 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
     CompanyString text{static_cast<int32_t>(word.size()),
                        const_cast<char*>(word.data())};
-    CompanyOperatorKeywordInput input{987, kMockServiceKeywordMatch, &text};
+    CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &text};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
     outputs[0]["chan.keyword_out"] = {};
@@ -2062,7 +2123,6 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
         auto* result = static_cast<CompanyOperatorKeywordOutput*>(
             outputs[0]["chan.keyword_out"].get());
         ASSERT_NE(result, nullptr);
-        EXPECT_EQ(result->request_id, 987u);
         EXPECT_GT(result->match_result_json->length, 2048);
         const std::string json(result->match_result_json->data,
                                result->match_result_json->length);
@@ -2124,10 +2184,13 @@ int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
                        size_t* written_count, AdapterStatus* status) {
   if (written_count) *written_count = 0;
   if (!context || !destination) return -1;
-  const auto* req_ids = RequestIds(options, status);
   const auto* matches = context->Read<RuleMatchBatch>(options.Port("matches"));
-  if (!req_ids || !matches) return -3;
-  size_t count = req_ids->size();
+  if (!matches) return -3;
+  std::vector<const RuleMatchBatch::value_type*> ordered;
+  if (!IndexResults(matches, destination->count, &ordered, "matches",
+                    options.Label().c_str(), status))
+    return -3;
+  size_t count = destination->count;
 
   size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
@@ -2213,12 +2276,10 @@ void WriteNestedOutputPipeline(const std::filesystem::path& root,
   std::ofstream(root / name) << NestedOutputPipelineJson(alternate);
 }
 
-void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
-                        int32_t tag, int32_t kind, uint32_t capacity,
-                        bool is_hit) {
+void ExpectNestedResult(const std::shared_ptr<void>& value, int32_t tag,
+                        int32_t kind, uint32_t capacity, bool is_hit) {
   ASSERT_NE(value, nullptr);
   const auto* root = static_cast<const NestedOutputEnvelope*>(value.get());
-  EXPECT_EQ(root->request_id, request_id);
   EXPECT_EQ(root->allocator_tag, tag);
   ASSERT_EQ(root->kind, kind);
   ASSERT_NE(root->payload, nullptr);
@@ -2240,14 +2301,14 @@ void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
 }  // namespace
 }  // namespace llm_edgeflow::test_support
 
-TEST_F(OperatorApiTest, ProcessSuppliesImmutableBindingRequestIds) {
+TEST_F(OperatorApiTest, ProcessSuppliesBatchRowProvenance) {
   using namespace llm_edgeflow;
   using namespace llm_edgeflow::test_support;
   const auto* production = IoConverterRegistry::Instance().FindInputConverter(
       "keyword_in", "keyword_match");
   ASSERT_NE(production, nullptr);
   auto input = *production;
-  input.name = "test_partial_request_ids";
+  input.name = "test_batch_rows";
   RegistryTestAccess::SetService(input.type, input.name, 10001);
   input.decode_fn = [](const ExternalInputBatchView& source,
                        const InputDecodeOptions& options, AlgContext* context,
@@ -2255,10 +2316,16 @@ TEST_F(OperatorApiTest, ProcessSuppliesImmutableBindingRequestIds) {
     const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
         "keyword_in", "keyword_match");
     const int ret = converter->decode_fn(source, options, context, status);
-    static_assert(std::is_const_v<
-                  std::remove_reference_t<decltype(*options.request_ids)>>);
     if (ret == 0) {
-      EXPECT_EQ(*options.request_ids, (std::vector<uint64_t>{900001, 42}));
+      const auto* decoded =
+          context->Read<TextBatch>(options.Port("sentence_text"));
+      EXPECT_NE(decoded, nullptr);
+      if (!decoded) return -3;
+      EXPECT_EQ(decoded->size(), source.count);
+      for (size_t i = 0; i < decoded->size(); ++i) {
+        EXPECT_EQ(decoded->at(i).req_id, i);
+        EXPECT_EQ(decoded->at(i).sub_id, 0U);
+      }
     }
     return ret;
   };
@@ -2283,8 +2350,7 @@ TEST_F(OperatorApiTest, ProcessSuppliesImmutableBindingRequestIds) {
   const int resets_before = nested_resets;
   char text[] = "query";
   CompanyString sentence{5, text};
-  CompanyOperatorKeywordInput rows[] = {{900001, 10001, &sentence},
-                                        {42, 10001, &sentence}};
+  CompanyOperatorKeywordInput rows[] = {{10001, &sentence}, {10001, &sentence}};
   NamedIoBatch inputs(2), outputs(2);
   for (size_t i = 0; i < 2; ++i) {
     inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
@@ -2297,7 +2363,6 @@ TEST_F(OperatorApiTest, ProcessSuppliesImmutableBindingRequestIds) {
     const auto* out = static_cast<const NestedOutputEnvelope*>(
         outputs[i].at("main.test_nested_out").get());
     ASSERT_NE(out, nullptr);
-    EXPECT_EQ(out->request_id, rows[i].request_id);
   }
   EXPECT_EQ(nested_resets, resets_before);
 }
@@ -2352,9 +2417,8 @@ TEST_F(OperatorApiTest,
   ASSERT_EQ(nested_allocations - allocations_before, 8);
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput input[] = {
-      {901, kMockServiceKeywordMatch, &sentence},
-      {902, kMockServiceKeywordMatch, &sentence}};
+  CompanyOperatorKeywordInput input[] = {{kMockServiceKeywordMatch, &sentence},
+                                         {kMockServiceKeywordMatch, &sentence}};
   NamedIoBatch inputs(2);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input[i]);
@@ -2375,12 +2439,10 @@ TEST_F(OperatorApiTest,
       ASSERT_EQ(ops_.Process(handles[variant].get(), inputs, outputs), 0)
           << GetOperatorLastError();
       for (size_t i = 0; i < outputs.size(); ++i) {
-        ExpectNestedResult(outputs[i].at(main_key), input[i].request_id,
-                           variant ? 2 : 1, variant ? 2 : 1, variant ? 3 : 2,
-                           true);
-        ExpectNestedResult(outputs[i].at(audit_key), input[i].request_id,
-                           variant ? 1 : 2, variant ? 1 : 2, variant ? 4 : 5,
-                           true);
+        ExpectNestedResult(outputs[i].at(main_key), variant ? 2 : 1,
+                           variant ? 2 : 1, variant ? 3 : 2, true);
+        ExpectNestedResult(outputs[i].at(audit_key), variant ? 1 : 2,
+                           variant ? 1 : 2, variant ? 4 : 5, true);
         const void* first = outputs[i].at(main_key).get();
         const void* second = outputs[i].at(audit_key).get();
         EXPECT_NE(first, second);
@@ -2445,17 +2507,17 @@ TEST_F(OperatorApiTest, FixedConverterLayoutUsesAllocatorDefaults) {
       raw_handle, [this](void* ptr) { EXPECT_EQ(ops_.Destroy(ptr), 0); });
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput input{907, kMockServiceKeywordMatch, &sentence};
+  CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
   outputs[0]["main_default.test_nested_out"] = {};
   outputs[0]["audit_default.test_nested_out"] = {};
   ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
       << GetOperatorLastError();
-  ExpectNestedResult(outputs[0].at("main_default.test_nested_out"), 907, 1, 1,
-                     3, true);
-  ExpectNestedResult(outputs[0].at("audit_default.test_nested_out"), 907, 1, 1,
-                     3, true);
+  ExpectNestedResult(outputs[0].at("main_default.test_nested_out"), 1, 1, 3,
+                     true);
+  ExpectNestedResult(outputs[0].at("audit_default.test_nested_out"), 1, 1, 3,
+                     true);
   EXPECT_NE(outputs[0].at("main_default.test_nested_out"),
             outputs[0].at("audit_default.test_nested_out"));
   outputs.clear();
@@ -2482,7 +2544,7 @@ TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
   const int allocations_before = nested_allocations;
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput input{903, kMockServiceKeywordMatch, &sentence};
+  CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
   outputs[0]["main.test_nested_out"] = {};
@@ -2498,10 +2560,9 @@ TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
   sentence = {static_cast<int32_t>(text.size()), text.data()};
   ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
       << GetOperatorLastError();
-  ExpectNestedResult(outputs[0].at("main.test_nested_out"), 903, 1, 1, 2,
+  ExpectNestedResult(outputs[0].at("main.test_nested_out"), 1, 1, 2, false);
+  ExpectNestedResult(outputs[0].at("audit_reject.test_nested_out"), 2, 2, 5,
                      false);
-  ExpectNestedResult(outputs[0].at("audit_reject.test_nested_out"), 903, 2, 2,
-                     5, false);
   EXPECT_EQ(nested_allocations, allocations_before);
   outputs.clear();
 }
@@ -2575,8 +2636,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   std::string plain_text = "普通中文句子非JSON格式";
   CompanyString cs_plain{static_cast<int32_t>(plain_text.size()),
                          const_cast<char*>(plain_text.data())};
-  CompanyOperatorEntityInput in_plain{50001, kMockServiceEntityExtract,
-                                      &cs_plain};
+  CompanyOperatorEntityInput in_plain{kMockServiceEntityExtract, &cs_plain};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in_plain);
@@ -2591,8 +2651,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
       llm_edgeflow::IoConverterRegistry::Instance().FindInputConverter(
           "entity_in", "translate");
   ASSERT_NE(translate_in_conv, nullptr);
-  CompanyOperatorEntityInput c_in_plain{50001, kMockServiceEntityExtract,
-                                        &cs_plain};
+  CompanyOperatorEntityInput c_in_plain{kMockServiceEntityExtract, &cs_plain};
   llm_edgeflow::AlgContext ctx;
   llm_edgeflow::AdapterStatus status;
   llm_edgeflow::ExternalInputBatchView view_plain;
@@ -2610,8 +2669,6 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   ASSERT_TRUE(translate_in_conv->params.Parse(nlohmann::json::object(),
                                               &translation_params));
   decode_opts.params = translation_params.get();
-  std::vector<uint64_t> request_ids;
-  decode_opts.request_ids = &request_ids;
 
   EXPECT_EQ(llm_edgeflow::test::DecodeForTest(*translate_in_conv, view_plain,
                                               decode_opts, &ctx, &status),
@@ -2621,8 +2678,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
   CompanyString cs_json{static_cast<int32_t>(json_text.size()),
                         const_cast<char*>(json_text.data())};
-  CompanyOperatorEntityInput c_in_json{50002, kMockServiceEntityExtract,
-                                       &cs_json};
+  CompanyOperatorEntityInput c_in_json{kMockServiceEntityExtract, &cs_json};
   llm_edgeflow::AlgContext valid_ctx;
   llm_edgeflow::ExternalInputBatchView view_json;
   view_json.count = 1;
@@ -2639,7 +2695,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   EXPECT_EQ(ops_.Destroy(entity_handle), 0);
 }
 
-TEST_F(OperatorApiTest, NamedServicesAndRequestIdsAreCheckedBeforeDecode) {
+TEST_F(OperatorApiTest, NamedServicesAreCheckedAndMultipleSlotsPairByRow) {
   using llm_edgeflow::test_support::ScopedTestOperator;
   ScopedTempDirectory temp;
   nlohmann::json document;
@@ -2661,13 +2717,13 @@ TEST_F(OperatorApiTest, NamedServicesAndRequestIdsAreCheckedBeforeDecode) {
   CompanyString channel_text{static_cast<int32_t>(channel.size()),
                              channel.data()};
   CompanyOperatorKeywordInput keyword[] = {
-      {17, kMockServiceKeywordMatch, &sentence},
-      {99, kMockServiceKeywordMatch, &sentence},
-      {0, kMockServiceKeywordMatch, &sentence}};
+      {kMockServiceKeywordMatch, &sentence},
+      {kMockServiceKeywordMatch, &sentence},
+      {kMockServiceKeywordMatch, &sentence}};
   CompanyOperatorAuditInput audit[] = {
-      {17, kMockServiceDialogueAudit, &sentence, &channel_text},
-      {99, kMockServiceDialogueAudit, &sentence, &channel_text},
-      {0, kMockServiceDialogueAudit, &sentence, &channel_text}};
+      {kMockServiceDialogueAudit, &sentence, &channel_text},
+      {kMockServiceDialogueAudit, &sentence, &channel_text},
+      {kMockServiceDialogueAudit, &sentence, &channel_text}};
   NamedIoBatch inputs(3), outputs(3);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i]["first.keyword_in"] = MakeBorrowedOperatorInput(&keyword[i]);
@@ -2684,13 +2740,7 @@ TEST_F(OperatorApiTest, NamedServicesAndRequestIdsAreCheckedBeforeDecode) {
   for (const auto& row : outputs)
     EXPECT_EQ(row.at("result.keyword_out"), nullptr);
   audit[1].service_type = kMockServiceDialogueAudit;
-  audit[1].request_id = 42;
-  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("expected 99"),
-            std::string::npos);
-  for (const auto& row : outputs)
-    EXPECT_EQ(row.at("result.keyword_out"), nullptr);
-  audit[1].request_id = 99;
+  // 不同宿主槽的业务字段不参与关联；输入按相同行号配对。
   for (int round = 0; round < 2; ++round) {
     ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
         << GetOperatorLastError();
@@ -2698,7 +2748,6 @@ TEST_F(OperatorApiTest, NamedServicesAndRequestIdsAreCheckedBeforeDecode) {
       const auto* value = static_cast<const CompanyOperatorKeywordOutput*>(
           outputs[i].at("result.keyword_out").get());
       ASSERT_NE(value, nullptr);
-      EXPECT_EQ(value->request_id, keyword[i].request_id);
       EXPECT_EQ(value->service_type, kMockServiceKeywordMatch);
       outputs[i]["result.keyword_out"].reset();
     }
@@ -2720,15 +2769,14 @@ TEST_F(OperatorApiTest, OptionalOutputsPreserveEveryRowPosition) {
             0)
       << handle.create_diagnostic();
   EXPECT_EQ(nested_allocations - before,
-            10);  // Optional pool exists before any requested output.
+            10);  // 请求可选输出之前，对应的池已经存在。
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput rows[] = {
-      {91, kMockServiceKeywordMatch, &sentence},
-      {18, kMockServiceKeywordMatch, &sentence},
-      {0, kMockServiceKeywordMatch, &sentence},
-      {18, kMockServiceKeywordMatch, &sentence},
-      {502, kMockServiceKeywordMatch, &sentence}};
+  CompanyOperatorKeywordInput rows[] = {{kMockServiceKeywordMatch, &sentence},
+                                        {kMockServiceKeywordMatch, &sentence},
+                                        {kMockServiceKeywordMatch, &sentence},
+                                        {kMockServiceKeywordMatch, &sentence},
+                                        {kMockServiceKeywordMatch, &sentence}};
   NamedIoBatch inputs(5);
   for (size_t i = 0; i < inputs.size(); ++i)
     inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
@@ -2742,11 +2790,10 @@ TEST_F(OperatorApiTest, OptionalOutputsPreserveEveryRowPosition) {
     ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
         << GetOperatorLastError();
     for (size_t i = 0; i < outputs.size(); ++i) {
-      ExpectNestedResult(outputs[i].at("main.test_nested_out"),
-                         rows[i].request_id, 1, 1, 2, true);
+      ExpectNestedResult(outputs[i].at("main.test_nested_out"), 1, 1, 2, true);
       if (omitted != 5 && static_cast<int>(i) != omitted)
-        ExpectNestedResult(outputs[i].at("audit_optional.test_nested_out"),
-                           rows[i].request_id, 2, 2, 5, true);
+        ExpectNestedResult(outputs[i].at("audit_optional.test_nested_out"), 2,
+                           2, 5, true);
       else
         EXPECT_EQ(outputs[i].count("audit_optional.test_nested_out"), 0u);
     }
@@ -2807,7 +2854,7 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
       << handle.create_diagnostic();
   std::string text = "unused";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorEntityInput row{777, kMockServiceEntityExtract, &sentence};
+  CompanyOperatorEntityInput row{kMockServiceEntityExtract, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["any.entity_in"] = MakeBorrowedOperatorInput(&row);
   outputs[0]["any.entity_out"] = {};
@@ -2825,7 +2872,6 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
     const auto* value = static_cast<const CompanyOperatorEntityOutput*>(
         outputs[0].at(name + ".entity_out").get());
     ASSERT_NE(value, nullptr);
-    EXPECT_EQ(value->request_id, 777u);
     EXPECT_EQ(value->service_type, service);
     ASSERT_NE(value->entities_json, nullptr);
     EXPECT_GT(value->entities_json->length, 2048);
@@ -2839,9 +2885,8 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
   }
   outputs.clear();
 
-  // A large response reaches the first pool, then fails the smaller second
-  // pool. This checks the capacities of the actual allocations as well as
-  // failure atomicity after one successful encode.
+  // 较大的响应可写入第一个池，但超过第二个池的容量。
+  // 此用例校验实际分配容量，并验证首个输出编码成功后仍能整体回滚。
   auto large_document = document;
   large_document["pipeline"][0]["params"]["template"] =
       nlohmann::json{{"value", std::string(5000, 'x')}}.dump();
@@ -2862,4 +2907,98 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
       std::string::npos);
   EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
   EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
+}
+
+TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
+  using namespace llm_edgeflow;
+  using test_support::ScopedTestOperator;
+  test_support::RegistryTestAccess::ScopedValueTypeState restore_bindings;
+  auto binding =
+      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("entity_out");
+  ASSERT_TRUE(binding);
+  const auto write_service = binding->write_service_type;
+  bool inject_failure = true;
+  int service_writes = 0;
+  std::vector<std::string> encoded_values;
+  binding->write_service_type = [&](void* raw, int32_t service) {
+    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(raw);
+    if (!value->entities_json)
+      throw std::runtime_error("Service callback received unencoded output");
+    EXPECT_GT(value->entities_json->length, 0);
+    encoded_values.emplace_back(value->entities_json->data,
+                                value->entities_json->length);
+    write_service(raw, service);
+    if (++service_writes == 2 && inject_failure)
+      throw std::runtime_error("Injected platform service translation failure");
+  };
+  test_support::RegistryTestAccess::SetValueBinding(std::move(*binding));
+
+  ScopedTempDirectory temp;
+  const std::string payload = R"({"value":"ok"})";
+  const nlohmann::json document = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "entity_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}}},
+          {{"type", "entity_out"},
+           {"name", "translate"},
+           {"inputs", {{"translation", "text.text"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"name", "text"},
+         {"type", "text_template"},
+         {"params", {{"template", payload}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"name", "parse"},
+         {"type", "structured_json_parse"},
+         {"params", {{"failure_policy", "fail"}}},
+         {"inputs", {{"text", "text.text"}}}}}}};
+  std::ofstream(temp.path() / "pipeline.json") << document;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  ScopedTestOperator handle(ops_);
+  ASSERT_EQ(handle.Create("pipeline.conf", temp.path().string(),
+                          ComputePlatform::kCpu, 1),
+            0)
+      << handle.create_diagnostic();
+  std::string text = "request";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorEntityInput row{kMockServiceEntityExtract, &sentence};
+  NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["request.entity_in"] = MakeBorrowedOperatorInput(&row);
+  outputs[0]["entity_extract.entity_out"] = {};
+  outputs[0]["translate.entity_out"] = {};
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_EXCEPTION);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("Injected platform service translation failure"),
+            std::string::npos);
+  ASSERT_EQ(service_writes, 2);
+  ASSERT_EQ(encoded_values.size(), 2u);
+  EXPECT_EQ(nlohmann::json::parse(encoded_values[0]),
+            nlohmann::json::parse(payload));
+  EXPECT_EQ(nlohmann::json::parse(encoded_values[1]),
+            nlohmann::json({{"translated", payload}}));
+  EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
+
+  inject_failure = false;
+  // 两个池的深度均为一；协议回调抛异常后，只有归还全部未发布租约，
+  // 后续重试才能成功。
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  EXPECT_EQ(service_writes, 4);
+  for (const auto& [name, service] :
+       std::vector<std::pair<std::string, int32_t>>{
+           {"entity_extract", kMockServiceEntityExtract},
+           {"translate", kMockServiceTranslate}}) {
+    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(
+        outputs[0].at(name + ".entity_out").get());
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->service_type, service);
+  }
+  outputs.clear();
+  EXPECT_EQ(handle.Close(), 0) << handle.close_diagnostic();
 }

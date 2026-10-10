@@ -1,4 +1,4 @@
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 
 #include <cstring>
 #include <limits>

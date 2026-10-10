@@ -9,7 +9,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -39,15 +39,13 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   CompanyString cs_query{static_cast<int32_t>(query_text.size()),
                          const_cast<char*>(query_text.data())};
 
-  CompanyOperatorDocInput doc_in{2001, kMockServiceDocQa, &cs_doc, &cs_query};
+  CompanyOperatorDocInput doc_in{kMockServiceDocQa, &cs_doc, &cs_query};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
   in_view.slot_types["doc_in"] = "CompanyOperatorDocInput";
 
-  const std::vector<uint64_t> request_ids{doc_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -76,8 +74,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   CompanyString cs_ans{255, ans_buf};
   char int_buf[64] = {0};
   CompanyString cs_int{63, int_buf};
-  CompanyOperatorDocOutput doc_out{
-      0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
+  CompanyOperatorDocOutput doc_out{kMockServiceDocQa, nullptr, 0.0f,
+                                   nullptr,           0,       0};
   doc_out.answer_text = &cs_ans;
   doc_out.intent_name = &cs_int;
 
@@ -89,14 +87,12 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   out_view.SetCapacity("doc_out", "intent_name", 63);
 
   test::ParsedOutputOptions out_options(*out_conv);
-  out_options.request_ids = &request_ids;
 
   size_t written = 0;
   ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(doc_out.request_id, 2001U);
   EXPECT_EQ(doc_out.chunk_count, 1);
   ASSERT_NE(doc_out.intent_name, nullptr);
   EXPECT_STREQ(doc_out.intent_name->data, "general_faq");
@@ -112,19 +108,18 @@ TEST_F(ComplexConvertersTest,
   ASSERT_NE(converter, nullptr);
   const std::string answer("a\0b", 3);
   AlgContext ctx;
-  std::vector<uint64_t> request_ids{2001};
+
   ctx.Publish("answer_text", TextBatch{{0, 0, answer}});
   ctx.Publish("intent", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
   ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
   test::ParsedOutputOptions options(*converter);
-  options.request_ids = &request_ids;
 
   char bytes[4] = {};
   char intent_bytes[1] = {};
   CompanyString answer_out{0, bytes};
   CompanyString intent_out{0, intent_bytes};
-  CompanyOperatorDocOutput output{
-      0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
+  CompanyOperatorDocOutput output{kMockServiceDocQa, nullptr, 0.0f,
+                                  nullptr,           0,       0};
   output.answer_text = &answer_out;
   output.intent_name = &intent_out;
   TestOutputBatchView view;
@@ -167,9 +162,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   CompanyString cs_p{static_cast<int32_t>(passage_text.size()),
                      const_cast<char*>(passage_text.data())};
 
-  CompanyOperatorRerankInput rerank_in{
-      0, kMockServiceCrossRerank, nullptr, {}, 0};
-  rerank_in.request_id = 3001;
+  CompanyOperatorRerankInput rerank_in{kMockServiceCrossRerank, nullptr, {}, 0};
   rerank_in.query_text = &cs_q;
   rerank_in.candidate_passages[0] = &cs_p;
   rerank_in.candidate_count = 1;
@@ -179,9 +172,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   in_view.slots["rerank_in"] = llm_edgeflow::BorrowInputForTest({&rerank_in});
   in_view.slot_types["rerank_in"] = "CompanyOperatorRerankInput";
 
-  const std::vector<uint64_t> request_ids{rerank_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -199,8 +190,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   ranked.emplace_back(0, 0, cand);
   ctx.Publish("ranked", std::move(ranked));
 
-  CompanyOperatorRerankOutput rerank_out{0, kMockServiceCrossRerank, {}, {}, 0,
-                                         0};
+  CompanyOperatorRerankOutput rerank_out{kMockServiceCrossRerank, {}, {}, 0, 0};
   TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["rerank_out"] = {&rerank_out};
@@ -209,14 +199,12 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   out_view.pool_specs["rerank_out"] = &output_spec;
 
   test::ParsedOutputOptions out_options(*out_conv);
-  out_options.request_ids = &request_ids;
 
   size_t written = 0;
   ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(rerank_out.request_id, 3001U);
   EXPECT_EQ(rerank_out.count, 1);
   EXPECT_FLOAT_EQ(rerank_out.scores[0], 0.98f);
   EXPECT_EQ(rerank_out.sorted_indices[0], 0);
@@ -238,16 +226,14 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   CompanyString cs_chan{static_cast<int32_t>(channel.size()),
                         const_cast<char*>(channel.data())};
 
-  CompanyOperatorAuditInput audit_in{4001, kMockServiceDialogueAudit, &cs_dia,
+  CompanyOperatorAuditInput audit_in{kMockServiceDialogueAudit, &cs_dia,
                                      &cs_chan};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
   in_view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
 
-  const std::vector<uint64_t> request_ids{audit_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -275,7 +261,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   CompanyString cs_verdict{1023, verdict_buf};
 
   CompanyOperatorAuditOutput audit_out{
-      0, kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
+      kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
   audit_out.risk_level = &cs_risk;
   audit_out.matched_policy_clause = &cs_clause;
   audit_out.audit_verdict_json = &cs_verdict;
@@ -289,14 +275,12 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   out_view.SetCapacity("audit_out", "audit_verdict_json", 1023);
 
   test::ParsedOutputOptions out_options(*out_conv);
-  out_options.request_ids = &request_ids;
 
   size_t written = 0;
   ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(audit_out.request_id, 4001U);
   ASSERT_NE(audit_out.risk_level, nullptr);
   EXPECT_STREQ(audit_out.risk_level->data, "HIGH_RISK");
   EXPECT_FLOAT_EQ(audit_out.risk_score, 0.88f);
@@ -316,17 +300,14 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<float> pcm = {0.1f, 0.2f, -0.1f};
-  CompanyOperatorAudioInput audio_in{5001, kMockServiceAudioAsrIntent,
-                                     pcm.data(),
+  CompanyOperatorAudioInput audio_in{kMockServiceAudioAsrIntent, pcm.data(),
                                      static_cast<int32_t>(pcm.size()), 16000};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["audio_in"] = llm_edgeflow::BorrowInputForTest({&audio_in});
   in_view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
 
-  const std::vector<uint64_t> request_ids{audio_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -351,7 +332,7 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   char slot_buf[1024] = {0};
   CompanyString cs_slot{1023, slot_buf};
 
-  CompanyOperatorAudioOutput audio_out{0, kMockServiceAudioAsrIntent, nullptr,
+  CompanyOperatorAudioOutput audio_out{kMockServiceAudioAsrIntent, nullptr,
                                        nullptr, 0};
   audio_out.transcribed_text = &cs_trans;
   audio_out.intent_slot_json = &cs_slot;
@@ -364,14 +345,12 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   out_view.SetCapacity("audio_out", "intent_slot_json", 1023);
 
   test::ParsedOutputOptions out_options(*out_conv);
-  out_options.request_ids = &request_ids;
 
   size_t written = 0;
   ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(audio_out.request_id, 5001U);
   ASSERT_NE(audio_out.transcribed_text, nullptr);
   EXPECT_STREQ(audio_out.transcribed_text->data, "open the front door");
   ASSERT_NE(audio_out.intent_slot_json, nullptr);
@@ -392,12 +371,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   ASSERT_NE(out_conv, nullptr);
 
   // 准备 Operator 输入：frame 和 string
-  std::string uri_str = "/path/to/invoice.jpg";
-  CompanyString uri{static_cast<int32_t>(uri_str.size()),
-                    const_cast<char*>(uri_str.data())};
-  CompanyFrame frame{0, kMockServiceOcrInvoiceQa, nullptr, nullptr};
-  frame.request_id = 6001;
-  frame.image_uri = &uri;
+  std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
+  CompanyFrame frame{kMockServiceOcrInvoiceQa, 1, 2, 6, pixels.data(), nullptr};
 
   std::string q_str = "Total amount?";
   CompanyString query{static_cast<int32_t>(q_str.size()),
@@ -410,9 +385,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  const std::vector<uint64_t> request_ids{frame.request_id};
   test::ParsedInputOptions in_options(*in_conv);
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -427,7 +400,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
                                                          "ocr_invoice_qa");
   ASSERT_NE(query_converter, nullptr);
   test::ParsedInputOptions query_options(*query_converter);
-  query_options.request_ids = &request_ids;
+
   ASSERT_EQ(::llm_edgeflow::test::DecodeForTest(*query_converter, in_view,
                                                 query_options, &ctx, &status),
             0);
@@ -449,7 +422,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   ctx.Publish("document", std::move(ocr_docs));
 
   // 目标 Operator od_out
-  CompanyOdOutput od_out{0, kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
+  CompanyOdOutput od_out{kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
   std::vector<char> buf(256);
   CompanyString res_str{255, buf.data()};
   od_out.result_json = &res_str;
@@ -461,14 +434,12 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   out_view.count = 1;
 
   test::ParsedOutputOptions out_options(*out_conv);
-  out_options.request_ids = &request_ids;
 
   size_t written = 0;
   ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(od_out.request_id, 6001U);
   EXPECT_EQ(od_out.detected_box_count, 1);
   ASSERT_NE(od_out.result_json, nullptr);
   EXPECT_STREQ(od_out.result_json->data, "{\"total\":123.45}");

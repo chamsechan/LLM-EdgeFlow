@@ -33,7 +33,8 @@ graph TD
 
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
-        PlatformFacade["C++ Operator 门面 (operator_adapter.cpp)<br>• 命名 I/O 槽位校验与 ValueType 转换<br>• 有界输出池租约生命周期管理<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)"]
+        PlatformFacade["Operator 协议壳 (operator_adapter.cpp)<br>• ABI 参数与命名槽位翻译<br>• 平台 binding 与外部错误码映射<br>• 异常拦截屏障 (noexcept 安全防护)"]
+        RuntimeFacade["中立 Runtime (SharedAlgorithmRuntime)<br>• 部署校验、Pipeline 构建与执行<br>• Converter 调度与 Control<br>• 输出池、租约、两阶段发布与执行串行化"]
         Converters["I/O 转换注册 (io_converter_registry.cpp)<br>• 按 (type, name) 选择单槽 Converter<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
     end
 
@@ -84,7 +85,7 @@ graph TD
             BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
             GeneratedEmbedModel["GeneratedTextEmbeddingModel<br>(generated token pooling / normalization)"]
             QwenModel["QwenCausalLmModel<br>(ChatML / provenance / protocol delegation)"]
-            VisionModel["VisionDocumentModel<br>(图像解码与识别指令)"]
+            VisionModel["VisionDocumentModel<br>(像素帧预处理与识别指令)"]
             WhisperModel["WhisperAsrModel<br>(音频校验与语言语义)"]
         end
 
@@ -98,8 +99,9 @@ graph TD
 
     %% 连接关系
     Caller <==|命名 I/O 批次 NamedIoBatch| PlatformFacade
-    PlatformFacade --> Converters
-    PlatformFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
+    PlatformFacade --> RuntimeFacade
+    RuntimeFacade --> Converters
+    RuntimeFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
     Converters -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
@@ -116,7 +118,7 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class PlatformFacade,Converters integration;
+    class PlatformFacade,RuntimeFacade,Converters integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,VisionModel,WhisperModel,OnnxBackend,LlamaCpp,KiteLlm,WhisperCpp model_execution;
@@ -144,22 +146,35 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 接入适配层通过标准 C++ Operator 门面与共享算法运行时调度算法执行：
 
 ```text
-外部调用方 (NamedIoBatch) ──> OperatorFunc::Process ──> InputConverter ──> SharedAlgorithmRuntime
-                                                                             │
-                                                                             ▼
-                                                                        Pipeline (DAG)
-                                                                             │
-                                                                             ▼
-外部调用方 (获取已租用输出) <── 发布输出 <── OutputConverter <── 执行完成后
+外部调用方 → Operator 协议壳 → SharedAlgorithmRuntime → Pipeline (DAG)
+                 │                    │
+         ABI、载体与错误码翻译     Converter 调度、输出池、租约与整体发布
+                 │                    │
+外部调用方 ← 平台输出交付 ← RuntimeOutputBatch
 ```
+
+`SharedAlgorithmRuntime` 是 Integration 内部的中立 facade，不增加公开动态 ABI。
+`RuntimeCreateOptions` 提供自有路径、设备和平台名称；`RuntimeInputBatch` 使用类型擦除输入视图，
+`RuntimeOutputBatch` 按原始行和输出选择索引申请、接收租约；`ControlRequest` 提供内部命令和 JSON。
+部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipeline 执行和池生命周期归 facade。
+本次保留既有 `int` 返回值与诊断字符串，错误码中立化后置；协议壳沿用原有错误映射。
+
+协议壳解析具体 Create/Control 结构及输入输出 key，binding 负责载体校验、像素/字符串复制、
+布局分配、容量、重置与释放。facade 只调用类型擦除接口，不解释平台字段或所有权细节。
+全部输出编码成功后 facade 一次发布中立租约；外壳完成全部平台字段写入，再一次移交宿主输出。
+任何失败都不会向调用方发布部分结果。输入输出继续按行对应，不引入外部请求 ID 表。
+
+通用值类型注册表默认不含平台登记。当前 mock binding 翻译单元自行注册，只有链接该协议实现的
+开发构建才提供 mock 载体；更换协议壳和 binding 不需要修改 Core、Node、Model 或 Backend。
 
 - 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 - Pipeline 根 `io.input` / `io.output` 按 `(type, name)` 选择单槽转换器。`type` 是宿主 key 后缀，
   `name` 对应结构体业务值；唯一 type 接受任意前缀，重复 type 使用 `name.type`。
-  平台登记显式声明请求 ID 与业务成员，Process 逐行检查服务值和多项 ID 一致性。
+  平台登记显式声明业务成员；Process 逐行检查服务值，按输入输出 vector 的同一行关联请求，
+  不要求载体提供请求 ID。
   转换器 typed 端口组合成 Core 的必传 I/O 边界，见[输出分配方案](dev_guide/operator_output_allocation.md)。
-- 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
+- 组件调用关系：`外部调用方 → Operator 协议壳 → SharedAlgorithmRuntime → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
 - `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。任意二进制数据使用 `CompanyBuffer`。
@@ -181,6 +196,41 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   每个逻辑输出槽位拥有独立输出池，
   池深只由框架应用；分配实现只处理一份完整输出。见
   [输出分配方案](dev_guide/operator_output_allocation.md)。
+
+#### 接入契约原则及原因
+
+以下原则用于约束后续接入和重构。其依据是宿主提供的像素内存、批次行位置和公共 ABI，
+不能将开发环境中 mock 的便利字段、布局或目录结构当作真实框架必须遵守的契约。
+
+1. **图像以像素帧进入框架。** 宿主提供宽、高、步长和数据指针，未必存在可供 SDK 读取的文件。
+   协议 binding 须先校验尺寸、步长、指针及容量，再将像素复制为拥有数据所有权的中立
+   `ImageFrame` / `ImageFrameBatch`，避免内部执行依赖宿主内存的后续变化或平台结构体布局。
+   Model 负责将中立帧预处理为现有 `ImageTextInput`。不得为适配 mock 恢复路径输入或文件解码依赖；
+   Demo 从文件构造像素帧属于调用方准备输入的行为。
+2. **批次行位置就是请求对应关系。** `input.size() == output.size()`，`input[i]` 与 `output[i]`
+   表示同一请求；缺省可选输出不能压缩行。通用 Operator 不得要求载体含有 `request_id`，
+   也不恢复外部请求编号表。图像的 `index` 是帧序号，不能替代当前 Process 批次的请求行号。
+   内部 `req_id/sub_id` 仅用于拆分、聚合和输出回填，不构成外部业务 ID 契约。
+3. **外部 ABI 的解释止于协议壳。** `Create` 的 `void*` 参数须由外壳依据真实公共头解释，
+   不能作为不透明字节块交给 facade。外壳将其转换为 `RuntimeCreateOptions`，将外部 Control
+   命令和参数转换为 `ControlRequest`；函数表、导出入口、异常屏障及具体载体布局也归外壳。
+   facade 不接收外部 Create 参数指针，不包含具体平台载体头，不读取平台字段。
+4. **Runtime 拆分必须迁移职责。** 仅增加一层转发包装仍会使更换 ABI 时重写运行逻辑。
+   部署校验、已验证计划、Converter 调度、Pipeline 构建与执行、输出池和租约统一归
+   `SharedAlgorithmRuntime`；具体 binding 通过中立接口提供布局与内存操作。
+   Core、Node、Model、Backend 不感知外部框架。输出继续两阶段发布，失败不得暴露部分结果；
+   拆分不改变既有输出释放及关闭顺序。
+5. **mock 是开发替身，不是第二份生产契约。** `include/platform_mock/` 保存模拟类型声明，
+   `src/adapter/operator/mock/` 保存针对这些声明的协议适配实现，通用注册表不隐式登记 mock。
+   真实公共头可以位于 `include/api/` 或目标 SDK 的其他目录，不要求同路径或同名替换。
+   移植时由真实协议壳包含这些公共头，并按真实类型、容量和所有权实现自己的 binding；
+   不能把包含 `.cpp` 的适配实现目录当作公共头目录整体替换，也不能直接将 mock binding 当作生产路径。
+6. **错误码中立化另行处理。** 当前保留既有 `int` 返回值、诊断字符串及外壳错误映射，
+   允许既有错误码定义依赖继续存在。不得借此次边界拆分新增错误体系或改变对外返回语义；
+   后续中立化须独立明确映射和兼容范围。
+
+改变上述原则属于契约或架构变更，应按 [CONTRIBUTING](../CONTRIBUTING.md#3-design-and-current-contracts)
+说明原因、影响和替代契约，并同步相关文档及行为测试。不得仅为复用某个平台载体而撤销这些边界。
 
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
@@ -216,7 +266,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend.type`、`file`、`backend.params` 完成；存在能力缺口时仍需扩展模型执行层。
 
 图像文档识别沿用 `ocr_detect → IOcrModel`：`VisionDocumentModel` 在模型执行层
-通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
+通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责像素帧预处理与识别指令，
 Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
 `boxes` 或置信度；Operator、DAG 端口和请求溯源遵守各层契约。
 

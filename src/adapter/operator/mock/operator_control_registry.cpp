@@ -1,4 +1,4 @@
-#include "adapter/operator/operator_control_registry.h"
+#include "adapter/operator/mock/operator_control_registry.h"
 
 #include <cmath>
 #include <cstring>

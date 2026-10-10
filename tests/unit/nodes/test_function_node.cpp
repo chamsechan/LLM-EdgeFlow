@@ -698,7 +698,7 @@ inline auto ControlledBatchSpec() {
 REGISTER_FUNCTION_NODE(controlled_batch, ControlledBatchSpec());
 
 struct ImageSummaryInputs {
-  const ImageRefBatch* images = nullptr;
+  const ImageFrameBatch* images = nullptr;
 };
 struct ImageSummaryOutputs {
   TextBatch names;
@@ -720,9 +720,11 @@ auto ImageSummarySpec() {
          const ImageSummaryParams& params) -> NodeResult<ImageSummaryOutputs> {
         ImageSummaryOutputs output;
         for (const auto& image : *inputs.images) {
-          output.names.emplace_back(image.req_id, image.sub_id, image.data);
-          output.lengths.emplace_back(image.req_id, image.sub_id,
-                                      static_cast<int32_t>(image.data.size()));
+          output.names.emplace_back(image.req_id, image.sub_id,
+                                    std::to_string(image.data.width));
+          output.lengths.emplace_back(
+              image.req_id, image.sub_id,
+              static_cast<int32_t>(image.data.data.size()));
         }
         if (params.fault == "business") {
           return NodeResult<ImageSummaryOutputs>::Failure(
@@ -2592,8 +2594,10 @@ namespace llm_edgeflow {
 
 TEST(FunctionNodeTest, ImageInputPublishesMultipleTypedOutputsWithProvenance) {
   NodeHarness harness("image_summary_author");
-  harness.CustomInput("images",
-                      ImageRefBatch{{91, 7, "a.png"}, {52, 3, "bb.jpg"}});
+  harness.CustomInput(
+      "images",
+      ImageFrameBatch{{91, 7, ImageFrame{1, 1, 3, {255, 0, 0}}},
+                      {52, 3, ImageFrame{2, 1, 6, {255, 0, 0, 0, 255, 0}}}});
   auto result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
   const auto* names = result.Output<TextBatch>("names");
@@ -2602,9 +2606,9 @@ TEST(FunctionNodeTest, ImageInputPublishesMultipleTypedOutputsWithProvenance) {
   ASSERT_NE(lengths, nullptr);
   ASSERT_EQ(names->size(), 2u);
   ASSERT_EQ(lengths->size(), 2u);
-  EXPECT_EQ(names->at(0).data, "a.png");
-  EXPECT_EQ(names->at(1).data, "bb.jpg");
-  EXPECT_EQ(lengths->at(0).data, 5);
+  EXPECT_EQ(names->at(0).data, "1");
+  EXPECT_EQ(names->at(1).data, "2");
+  EXPECT_EQ(lengths->at(0).data, 3);
   EXPECT_EQ(lengths->at(1).data, 6);
   EXPECT_EQ(names->at(0).req_id, 91u);
   EXPECT_EQ(names->at(0).sub_id, 7u);
@@ -2622,7 +2626,8 @@ TEST(FunctionNodeTest,
     SCOPED_TRACE(fault);
     NodeHarness harness("image_summary_author");
     harness.Config({{"fault", fault}});
-    harness.CustomInput("images", ImageRefBatch{{91, 7, "a.png"}});
+    harness.CustomInput(
+        "images", ImageFrameBatch{{91, 7, ImageFrame{1, 1, 3, {255, 0, 0}}}});
     auto result = harness.Run();
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.Output<TextBatch>("names"), nullptr);
@@ -2644,7 +2649,7 @@ TEST(FunctionNodeTest,
 TEST(FunctionNodeTest, MultipleOutputsRejectWrongTypeInSecondPlannedBinding) {
   ValidatedNodePlan plan;
   plan.normalized_params = {{"fault", ""}};
-  plan.ports = {{"images", "images", "ImageRefBatch", "1:1", "preserve",
+  plan.ports = {{"images", "images", "ImageFrameBatch", "1:1", "preserve",
                  "request", PortDirection::kInput},
                 {"names", "names", "TextBatch", "1:1", "preserve", "request",
                  PortDirection::kOutput},
@@ -2665,8 +2670,8 @@ TEST(FunctionNodeTest,
     SCOPED_TRACE(fault);
     ValidatedNodePlan plan;
     plan.normalized_params = {{"fault", fault}};
-    plan.ports = {{"images", "input.images", "ImageRefBatch", "1:1", "preserve",
-                   "request", PortDirection::kInput},
+    plan.ports = {{"images", "input.images", "ImageFrameBatch", "1:1",
+                   "preserve", "request", PortDirection::kInput},
                   {"names", "summary.names", "TextBatch", "1:1", "preserve",
                    "request", PortDirection::kOutput}};
     EXPECT_EQ(plan.FindPort("lengths", PortDirection::kOutput), nullptr);
@@ -2676,7 +2681,8 @@ TEST(FunctionNodeTest,
     std::string diagnostic;
     ASSERT_TRUE(node->Init({&plan, &session, &diagnostic})) << diagnostic;
     AlgContext context;
-    context.Publish("input.images", ImageRefBatch{{91, 7, "a.png"}});
+    context.Publish("input.images",
+                    ImageFrameBatch{{91, 7, ImageFrame{1, 1, 3, {255, 0, 0}}}});
     EXPECT_EQ(node->Process(&context),
               fault == "count"
                   ? node_error::author_node::kOutputCountMismatch

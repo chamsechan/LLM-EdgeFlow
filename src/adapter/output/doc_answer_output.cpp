@@ -47,9 +47,6 @@ int EncodeOperatorDocAnswer(AlgContext* context,
       ReadOutputValue(*context, kAnswerText, options, status, "answers");
   if (!answers) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids = RequestIds(options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
-
   const auto* intent_matches =
       ReadOutputValue(*context, kIntent, options, status);
   if (!intent_matches) return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -69,11 +66,11 @@ int EncodeOperatorDocAnswer(AlgContext* context,
   std::vector<const RuleMatchBatch::value_type*> intents_by_req;
   std::vector<const Int32Batch::value_type*> chunks_by_req;
 
-  if (!IndexResults(answers, raw_req_ids, &answers_by_req, "answers",
+  if (!IndexResults(answers, destination->count, &answers_by_req, "answers",
                     options.Label().c_str(), status) ||
-      !IndexResults(intent_matches, raw_req_ids, &intents_by_req,
+      !IndexResults(intent_matches, destination->count, &intents_by_req,
                     "intent_matches", options.Label().c_str(), status) ||
-      !IndexResults(chunk_counts, raw_req_ids, &chunks_by_req,
+      !IndexResults(chunk_counts, destination->count, &chunks_by_req,
                     "doc_chunk_counts", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }

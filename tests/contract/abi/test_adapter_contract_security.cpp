@@ -14,9 +14,10 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
 #include "adapter/model_file_resolver.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
+#include "core/pipeline.h"
 #include "dev_support/inference/test_causal_lm_backend.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -239,7 +240,6 @@ TEST_F(AdapterContractSecurityTest,
   const auto model = TranslationProbeModel::latest.lock();
   ASSERT_NE(model, nullptr);
 
-  uint64_t out_req_id = 0;
   int out_status_code = 0;
   std::string out_entities_json;
 
@@ -251,7 +251,6 @@ TEST_F(AdapterContractSecurityTest,
     CompanyString cs{static_cast<int32_t>(s.size()),
                      const_cast<char*>(s.data())};
     CompanyOperatorEntityInput input{};
-    input.request_id = 987654321;
     input.service_type = kMockServiceTranslate;
     input.sentence_text = &cs;
     operator_api::NamedIoBatch inputs(1);
@@ -265,7 +264,6 @@ TEST_F(AdapterContractSecurityTest,
       auto out_sp = outputs[0]["trans.entity_out"];
       if (out_sp) {
         auto* out_dto = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
-        out_req_id = out_dto->request_id;
         out_status_code = out_dto->status_code;
         if (out_dto->entities_json && out_dto->entities_json->data) {
           out_entities_json = std::string(out_dto->entities_json->data,
@@ -300,7 +298,6 @@ TEST_F(AdapterContractSecurityTest,
       EXPECT_EQ(model->calls.back()[0].data, queries[i]);
       EXPECT_EQ(model->calls.back()[0].req_id, 0U);
       EXPECT_EQ(model->calls.back()[0].sub_id, 0U);
-      EXPECT_EQ(out_req_id, 987654321U);
       EXPECT_EQ(out_status_code, 0);
       EXPECT_EQ(nlohmann::json::parse(out_entities_json),
                 nlohmann::json({{"translated", translations[i]}}));
@@ -407,7 +404,7 @@ TEST_F(AdapterContractSecurityTest,
   const auto model = TranslationProbeModel::latest.lock();
   ASSERT_NE(model, nullptr);
   std::vector<std::string> requests{"张三在北京", "hello\n\"world\""};
-  const std::vector<uint64_t> request_ids{987654321, 17};
+
   const std::vector<std::string> entities{"[\"PERSON:张三\"]",
                                           std::string("left\0right", 10)};
   const std::vector<std::string> summaries{"```json\n{\"raw\":true}\n```",
@@ -422,8 +419,7 @@ TEST_F(AdapterContractSecurityTest,
     model->responses["summary=" + requests[i]] = summaries[i];
     sentences.push_back(
         {static_cast<int32_t>(requests[i].size()), requests[i].data()});
-    carriers.push_back(
-        {request_ids[i], kMockServiceEntityExtract, &sentences.back()});
+    carriers.push_back({kMockServiceEntityExtract, &sentences.back()});
     inputs[i]["test.entity_in"] =
         operator_api::MakeBorrowedOperatorInput(&carriers.back());
     outputs[i]["test.entity_out"] = nullptr;
@@ -445,7 +441,6 @@ TEST_F(AdapterContractSecurityTest,
     const auto* result = static_cast<CompanyOperatorEntityOutput*>(
         outputs[i].at("test.entity_out").get());
     ASSERT_NE(result, nullptr);
-    EXPECT_EQ(result->request_id, request_ids[i]);
     EXPECT_EQ(result->service_type, kMockServiceEntityExtract);
     EXPECT_EQ(result->status_code, 0);
     ASSERT_NE(result->entities_json, nullptr);
@@ -465,7 +460,7 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_NE(converter, nullptr);
   const std::string translation(2200, 'x');
   AlgContext large;
-  std::vector<uint64_t> request_ids{123};
+
   large.Publish(kTranslation, TextBatch{{0, 0, translation}});
   OutputEncodeOptions options;
   const llm_edgeflow::IoPortBindings options_ports = {
@@ -473,7 +468,6 @@ TEST_F(AdapterContractSecurityTest,
   options.ports = &options_ports;
   options.type = "entity_out";
   options.name = "translate";
-  options.request_ids = &request_ids;
 
   AdapterStatus status;
 
@@ -493,9 +487,8 @@ TEST_F(AdapterContractSecurityTest,
                                                 &fixed_view, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
-  // 重排后的内部结果必须映射回外部请求 ID。
+  // 重排后的内部结果必须还原到原始批次行。
   AlgContext reordered;
-  request_ids = {999, 123};
   reordered.Publish(kTranslation,
                     TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
   char buf_first[512] = {0};
@@ -517,8 +510,6 @@ TEST_F(AdapterContractSecurityTest,
                                           &reordered_view, &written, &status),
       0);
   EXPECT_EQ(written, 2U);
-  EXPECT_EQ(first.request_id, 999U);
-  EXPECT_EQ(second.request_id, 123U);
   EXPECT_EQ(nlohmann::json::parse(first.entities_json->data),
             nlohmann::json({{"translated", "第一句"}}));
   EXPECT_EQ(nlohmann::json::parse(second.entities_json->data),
@@ -544,20 +535,12 @@ TEST_F(AdapterContractSecurityTest,
                                             &reordered_view, &written, &status),
         COMPANY_ALG_ERR_INVALID_INPUT);
   }
-  for (bool publish_ids : {false, true}) {
-    AlgContext missing;
-    if (publish_ids) {
-      options.request_ids = &request_ids;
-    } else {
-      options.request_ids = nullptr;
-      missing.Publish(kTranslation, TextBatch{{0, 0, "你好"}});
-    }
-    reordered_view.count = 1;
-    EXPECT_EQ(
-        ::llm_edgeflow::test::EncodeForTest(*converter, &missing, options,
-                                            &reordered_view, &written, &status),
-        COMPANY_ALG_ERR_INVALID_INPUT);
-  }
+  AlgContext missing;
+  reordered_view.count = 1;
+  EXPECT_EQ(
+      ::llm_edgeflow::test::EncodeForTest(*converter, &missing, options,
+                                          &reordered_view, &written, &status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 TEST_F(AdapterContractSecurityTest,
@@ -583,13 +566,12 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_NE(io_plan, nullptr);
 
   std::unique_ptr<SharedAlgorithmRuntime> runtime;
-  std::string runtime_err;
-  RuntimeOptions runtime_opts{};
+  RuntimeCreateOptions runtime_opts;
   runtime_opts.device_id = 0;
-  ASSERT_EQ(SharedAlgorithmRuntime::CreateFromIoPlan(
-                std::move(io_plan), 0, &runtime_opts, &runtime, &runtime_err),
-            0)
-      << runtime_err;
+  std::string runtime_err;
+  const auto status = SharedAlgorithmRuntime::CreateFromIoPlan(
+      std::move(io_plan), runtime_opts, &runtime, &runtime_err);
+  ASSERT_EQ(status, 0) << runtime_err;
   ASSERT_NE(runtime, nullptr);
 
   const auto embedding_registration = runtime->GetPipeline()
@@ -633,7 +615,6 @@ TEST_F(AdapterContractSecurityTest, TaggedUnionAndEnumValidation) {
 
   // 1.2 Tagged Union 适配器真实 Unpack 路径测试 (文本分支)
   TemplateTaggedUnionInput text_in;
-  text_in.request_id = 1001;
   text_in.payload_type = TEMPLATE_PAYLOAD_TEXT;
   text_in.data.text.text_content = "Hello Tagged Union";
 
@@ -650,7 +631,6 @@ TEST_F(AdapterContractSecurityTest, TaggedUnionAndEnumValidation) {
 
   // 1.3 非法枚举分支直接在真实 Unpack 中被拦截
   TemplateTaggedUnionInput invalid_in;
-  invalid_in.request_id = 1002;
   invalid_in.payload_type = 999;  // 非法枚举
   const void* bad_inputs[1] = {&invalid_in};
   AlgContext bad_ctx;
@@ -687,7 +667,6 @@ TEST_F(AdapterContractSecurityTest, NestedArrayAndIntegerOverflowProtection) {
   // 2.2 嵌套数组适配器真实 Unpack 路径
   TemplateTagItem tags[2] = {{"tag_a", 0.9f}, {"tag_b", 0.5f}};
   TemplateNestedArrayInput array_in;
-  array_in.request_id = 2001;
   array_in.tag_count = 2;
   array_in.tag_array = tags;
 
@@ -705,7 +684,6 @@ TEST_F(AdapterContractSecurityTest, NestedArrayAndIntegerOverflowProtection) {
 
   // 2.3 异常 count (<0 或 count > max) 拦截
   TemplateNestedArrayInput bad_array_in;
-  bad_array_in.request_id = 2002;
   bad_array_in.tag_count = -5;  // 负数
   bad_array_in.tag_array = nullptr;
   const void* bad_inputs[1] = {&bad_array_in};
@@ -728,18 +706,18 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
   const TemplateTreeNode* root_children[2] = {&child1, &child2};
   TemplateTreeNode root{100, "root_node", 2, root_children};
 
-  TemplateNestedTreeInput tree_in{3001, &root};
+  TemplateNestedTreeInput tree_in{&root};
   const void* inputs[1] = {&tree_in};
   AlgContext ctx;
   AdapterStatus status;
-  std::vector<uint64_t> request_ids;
+
   InputDecodeOptions options;
   const llm_edgeflow::IoPortBindings options_ports = {
       {"tree_root_dtos", "tree_root_dtos"}};
   options.ports = &options_ports;
   options.type = adapter.AdapterName();
   options.name = "common";
-  options.request_ids = &request_ids;
+
   int ret = adapter.Unpack(inputs, 1, &ctx, options, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   auto* tree_dtos =
@@ -751,7 +729,7 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
   // 3.2 空子节点指针拦截
   const TemplateTreeNode* bad_children[2] = {&child1, nullptr};
   TemplateTreeNode bad_root{100, "root_node", 2, bad_children};
-  TemplateNestedTreeInput bad_tree_in{3002, &bad_root};
+  TemplateNestedTreeInput bad_tree_in{&bad_root};
   const void* bad_inputs[1] = {&bad_tree_in};
   AlgContext bad_ctx;
   AdapterStatus bad_status;
@@ -773,7 +751,6 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
 
   CompanyString cs{static_cast<int32_t>(std::strlen(caller_buf)), caller_buf};
   CompanyOperatorKeywordInput in_struct;
-  in_struct.request_id = 9999;
   in_struct.service_type = kMockServiceKeywordMatch;
   in_struct.sentence_text = &cs;
 
@@ -787,8 +764,6 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   in_options.ports = &in_options_ports;
   in_options.type = "keyword_in";
   in_options.name = "keyword_match";
-  std::vector<uint64_t> request_ids;
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -819,7 +794,7 @@ TEST_F(AdapterContractSecurityTest, OutputStringTruncationRejection) {
   std::vector<TemplateFlatResultDto> results;
   // 构造长度超过 512 字节的超长 JSON 结果
   std::string huge_json(1024, 'A');
-  results.push_back({5001, 0, huge_json});
+  results.push_back({0, huge_json});
   ctx.Publish("flat_final_outputs", results);
 
   TemplateFlatOutput out_slot;
@@ -888,8 +863,7 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
         std::string query = "系统初始化与设备自检请求 #" + std::to_string(t);
         CompanyString cs{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
-        CompanyOperatorKeywordInput in_req{static_cast<uint64_t>(t * 1000 + it),
-                                           kMockServiceKeywordMatch, &cs};
+        CompanyOperatorKeywordInput in_req{kMockServiceKeywordMatch, &cs};
 
         operator_api::NamedIoBatch inputs(1);
         inputs[0]["client_channel.keyword_in"] =
@@ -906,7 +880,6 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
         auto* out_res =
             static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
         ASSERT_NE(out_res, nullptr);
-        EXPECT_EQ(out_res->request_id, in_req.request_id);
         EXPECT_EQ(out_res->is_hit, 1);
         out_sp.reset();
         outputs.clear();
@@ -932,8 +905,7 @@ TEST_F(AdapterContractSecurityTest,
   std::string oversized(64 * 1024 + 1, 'z');
   CompanyString cs_oversized{static_cast<int32_t>(oversized.size()),
                              const_cast<char*>(oversized.data())};
-  CompanyOperatorEntityInput in_carrier{101, kMockServiceTranslate,
-                                        &cs_oversized};
+  CompanyOperatorEntityInput in_carrier{kMockServiceTranslate, &cs_oversized};
 
   ExternalInputBatchView carrier_view;
   carrier_view.count = 1;
@@ -959,7 +931,7 @@ TEST_F(AdapterContractSecurityTest,
   std::string bad_json = "{\"wrong_field\":123}";
   CompanyString cs_biz{static_cast<int32_t>(bad_json.size()),
                        const_cast<char*>(bad_json.data())};
-  CompanyOperatorEntityInput in_biz{103, kMockServiceTranslate, &cs_biz};
+  CompanyOperatorEntityInput in_biz{kMockServiceTranslate, &cs_biz};
   ExternalInputBatchView biz_view;
   biz_view.count = 1;
   biz_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&in_biz});
@@ -981,9 +953,8 @@ TEST_F(AdapterContractSecurityTest,
       "entity_out", "translate");
   ASSERT_NE(converter, nullptr);
 
-  // 存在请求 ID 表，但缺少答案
+  // 输出行已指定，但缺少答案
   AlgContext ctx;
-  const std::vector<uint64_t> request_ids{1001};
 
   CompanyOperatorEntityOutput out{};
   ExternalOutputBatchView view;
@@ -997,7 +968,6 @@ TEST_F(AdapterContractSecurityTest,
   options.ports = &options_ports;
   options.type = "entity_out";
   options.name = "translate";
-  options.request_ids = &request_ids;
 
   size_t written = 0;
   AdapterStatus status;
@@ -1016,9 +986,9 @@ TEST_F(AdapterContractSecurityTest,
       "entity_out", "translate");
   ASSERT_NE(converter, nullptr);
 
-  // 存在请求 ID 表，但答案含非法 UTF-8 字节序列
+  // 输出行已指定，但答案含非法 UTF-8 字节序列
   AlgContext ctx;
-  const std::vector<uint64_t> request_ids{1001};
+
   std::string invalid_utf8 = "prefix\xFF\xFFsuffix";
   ctx.Publish(kTranslation, TextBatch{{0, 0, invalid_utf8}});
 
@@ -1034,7 +1004,6 @@ TEST_F(AdapterContractSecurityTest,
   options.ports = &options_ports;
   options.type = "entity_out";
   options.name = "translate";
-  options.request_ids = &request_ids;
 
   size_t written = 0;
   AdapterStatus status;
@@ -1059,7 +1028,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   std::string query_json = "{\"query\":\"test\"}";
   CompanyString cs{static_cast<int32_t>(query_json.size()),
                    const_cast<char*>(query_json.data())};
-  CompanyOperatorEntityInput input{100, kMockServiceTranslate, &cs};
+  CompanyOperatorEntityInput input{kMockServiceTranslate, &cs};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&input});
@@ -1111,8 +1080,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
             COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
-TEST_F(AdapterContractSecurityTest,
-       DecodeDoesNotOwnRequestIdsAndEncodeRejectsMissingTable) {
+TEST_F(AdapterContractSecurityTest, InputAndOutputUseBatchRowProvenance) {
   const auto* input = IoConverterRegistry::Instance().FindInputConverter(
       "keyword_in", "keyword_match");
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
@@ -1121,7 +1089,7 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_NE(output, nullptr);
   char bytes[] = "query";
   CompanyString text{5, bytes};
-  CompanyOperatorKeywordInput row{900001, kMockServiceKeywordMatch, &text};
+  CompanyOperatorKeywordInput row{kMockServiceKeywordMatch, &text};
   ExternalInputBatchView source;
   source.count = 1;
   source.slots["keyword_in"] = BorrowInputForTest({&row});
@@ -1149,22 +1117,25 @@ TEST_F(AdapterContractSecurityTest,
   out_options.ports = &out_options_ports;
   out_options.type = output->type;
   out_options.name = output->name;
+  EXPECT_EQ(sentences->front().req_id, 0U);
+  EXPECT_EQ(sentences->front().sub_id, 0U);
+  char output_bytes[1024] = {};
+  CompanyString output_text{0, output_bytes};
   CompanyOperatorKeywordOutput result{};
-  result.request_id = 123;
-  ExternalOutputBatchView destination;
+  result.match_result_json = &output_text;
+  TestOutputBatchView destination;
   destination.count = 1;
   destination.leased_slots["keyword_out"] = {&result};
   destination.slot_types["keyword_out"] = "CompanyOperatorKeywordOutput";
+  destination.SetCapacity("keyword_out", "match_result_json", 1023);
   size_t written = 99;
   EXPECT_EQ(
       ::llm_edgeflow::test::EncodeForTest(*output, &context, out_options,
                                           &destination, &written, &status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "request_ids");
-  EXPECT_EQ(status.AdapterName(), output->Label());
-  EXPECT_EQ(status.Message(), "Missing request id table in encode options");
-  EXPECT_EQ(written, 0U);
-  EXPECT_EQ(result.request_id, 123U);
+      COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 1U);
+  EXPECT_EQ(result.status_code, 0);
+  EXPECT_TRUE(nlohmann::json::accept(output_bytes));
 }
 
 TEST_F(AdapterContractSecurityTest,
@@ -1193,8 +1164,6 @@ TEST_F(AdapterContractSecurityTest,
        "query_text length 65537 exceeds max limit 65536"},
       {"doc_in", "doc_qa", kMockServiceDocQa, "doc_in.doc_text", 10485760,
        "doc_text length 10485761 exceeds max limit 10485760"},
-      {"frame", "ocr_invoice_qa", kMockServiceOcrInvoiceQa, "frame.image_uri",
-       4096, "CompanyFrame.image_uri length 4097 exceeds max limit 4096"},
       {"string", "ocr_invoice_qa", 0, "string", 65536,
        "string length 65537 exceeds max limit 65536"},
       {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
@@ -1224,16 +1193,13 @@ TEST_F(AdapterContractSecurityTest,
       char short_text[] = "query";
       CompanyString small{5, short_text};
       const int32_t service_type = boundary.service_type;
-      CompanyOperatorKeywordInput keyword{101, service_type, &large};
-      CompanyOperatorEntityInput entity{101, service_type, &large};
-      CompanyOperatorAuditInput audit{101, service_type, &large, nullptr};
+      CompanyOperatorKeywordInput keyword{service_type, &large};
+      CompanyOperatorEntityInput entity{service_type, &large};
+      CompanyOperatorAuditInput audit{service_type, &large, nullptr};
       CompanyOperatorDocInput doc{
-          101, service_type, field == "doc_in.doc_text" ? &large : &small,
+          service_type, field == "doc_in.doc_text" ? &large : &small,
           field == "doc_in.query_text" ? &large : &small};
-      CompanyFrame frame{101, service_type,
-                         field == "frame.image_uri" ? &large : &small, nullptr};
       CompanyOperatorRerankInput rerank{};
-      rerank.request_id = 101;
       rerank.service_type = service_type;
       rerank.query_text = field == "rerank_in.query_text" ? &large : &small;
       rerank.candidate_count =
@@ -1257,8 +1223,6 @@ TEST_F(AdapterContractSecurityTest,
         view.slots[type] = BorrowInputForTest({&audit});
       else if (type == "doc_in")
         view.slots[type] = BorrowInputForTest({&doc});
-      else if (type == "frame")
-        view.slots[type] = BorrowInputForTest({&frame});
       else if (type == "string")
         view.slots[type] = BorrowInputForTest({&large});
       else
@@ -1271,8 +1235,7 @@ TEST_F(AdapterContractSecurityTest,
       options.ports = &options_ports;
       options.type = converter->type;
       options.name = converter->name;
-      std::vector<uint64_t> request_ids;
-      options.request_ids = &request_ids;
+
       const int result = ::llm_edgeflow::test::DecodeForTest(
           *converter, view, options, &context, &status);
       EXPECT_EQ(result, extra == 0 ? 0 : COMPANY_ALG_ERR_INVALID_INPUT);
@@ -1342,7 +1305,7 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
   for (size_t length : {65536U, 65537U}) {
     std::string text(length, 'x');
     CompanyString cs{static_cast<int32_t>(length), text.data()};
-    CompanyOperatorKeywordInput keyword{101, kMockServiceKeywordMatch, &cs};
+    CompanyOperatorKeywordInput keyword{kMockServiceKeywordMatch, &cs};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["test.keyword_in"] = MakeBorrowedOperatorInput(&keyword);
     outputs[0]["test.keyword_out"] = nullptr;
@@ -1374,7 +1337,6 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
     char query_text[] = "query";
     CompanyString query{5, query_text};
     CompanyOperatorRerankInput rerank{};
-    rerank.request_id = 101;
     rerank.service_type = kMockServiceCrossRerank;
     rerank.query_text = &query;
     rerank.candidate_count = 1;
@@ -1391,24 +1353,6 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
               : "Validation failed for input key test.rerank_in: "
                 "candidate_passages[0] length 10485761 exceeds max limit "
                 "10485760");
-  }
-
-  for (size_t length : {4096U, 4097U}) {
-    std::string path(length, 'x');
-    CompanyString uri{static_cast<int32_t>(length), path.data()};
-    char query_text[] = "query";
-    CompanyString query{5, query_text};
-    CompanyFrame frame{101, kMockServiceOcrInvoiceQa, &uri, nullptr};
-    NamedIoBatch inputs(1), outputs(1);
-    inputs[0]["test.frame"] = MakeBorrowedOperatorInput(&frame);
-    inputs[0]["test.string"] = MakeBorrowedOperatorInput(&query);
-    outputs[0]["test.od_out"] = nullptr;
-    check("demo/fixtures/mock/pipeline_ocr_invoice_qa.conf", inputs, outputs,
-          length == 4096 ? 0 : -3,
-          length == 4096
-              ? ""
-              : "Validation failed for input key test.frame: "
-                "CompanyFrame.image_uri length 4097 exceeds max limit 4096");
   }
 }
 
@@ -1506,8 +1450,8 @@ TEST_F(AdapterContractSecurityTest,
   CompanyString hit{static_cast<int32_t>(hit_text.size()), hit_text.data()};
   CompanyString fallback{static_cast<int32_t>(fallback_text.size()),
                          fallback_text.data()};
-  CompanyOperatorKeywordInput first{301, kMockServiceKeywordMatch, &hit};
-  CompanyOperatorKeywordInput second{302, kMockServiceKeywordMatch, &fallback};
+  CompanyOperatorKeywordInput first{kMockServiceKeywordMatch, &hit};
+  CompanyOperatorKeywordInput second{kMockServiceKeywordMatch, &fallback};
   operator_api::NamedIoBatch inputs(2), outputs(2);
   inputs[0]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&first);
   inputs[1]["kw.keyword_in"] = operator_api::MakeBorrowedOperatorInput(&second);
@@ -1644,7 +1588,7 @@ TEST_F(AdapterContractSecurityTest, CreateAndExecutionFailuresUseStageCodes) {
   // 测试 Backend 返回纯文本，因此 fail 策略会拒绝它。
   std::string text = "张三在北京";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorEntityInput input{11, kMockServiceEntityExtract, &sentence};
+  CompanyOperatorEntityInput input{kMockServiceEntityExtract, &sentence};
   operator_api::NamedIoBatch inputs(1), outputs(1);
   inputs[0]["e.entity_in"] = operator_api::MakeBorrowedOperatorInput(&input);
   outputs[0]["e.entity_out"] = nullptr;

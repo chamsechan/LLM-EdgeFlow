@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/runtime_types.h"
 
 namespace llm_edgeflow {
 
@@ -152,5 +153,23 @@ class ScopedOutputLeaseGuard {
   std::vector<LeaseItem> leases_;
   bool committed_ = false;
 };
+
+struct AcquiredOutputBlock {
+  size_t frame_idx = 0;
+  size_t slot_idx = 0;
+  std::shared_ptr<OutputPoolState> pool;
+  void* raw_block = nullptr;
+  size_t output_index = 0;
+};
+
+int AcquireRuntimeOutputBlocks(
+    const RuntimeOutputBatch& outputs,
+    const std::vector<std::shared_ptr<OutputPoolState>>& output_pools,
+    ScopedOutputLeaseGuard* lease_guard,
+    std::vector<AcquiredOutputBlock>* acquired_blocks, std::string* error);
+
+void PublishRuntimeOutputs(
+    const std::vector<AcquiredOutputBlock>& acquired_blocks,
+    RuntimeOutputBatch* outputs, ScopedOutputLeaseGuard* lease_guard);
 
 }  // namespace llm_edgeflow

@@ -301,10 +301,8 @@ inline int RunOperatorDemo(const DemoOptions& options) {
                     << std::endl;
           return 5;
         }
-        uint64_t request_id = 0;
         int32_t status = 0;
-        displays[j](found->second.get(), info, &request_id, &status, &parts[j]);
-        if (j == 0) sample.request_id = request_id;
+        displays[j](found->second.get(), info, &status, &parts[j]);
         if (status != 0 && sample.status == 0) sample.status = status;
         for (const auto& field : parts[j].items()) ++field_counts[field.key()];
       }
@@ -320,7 +318,7 @@ inline int RunOperatorDemo(const DemoOptions& options) {
           sample.output[key] = field.value();
         }
       }
-      std::cout << "[OperatorRunner] Request " << sample.request_id << ": "
+      std::cout << "[OperatorRunner] Row " << offset + i << ": "
                 << sample.output.dump() << std::endl;
     }
     // 先把结果复制为 JSON，再归还本批次的所有输出租约。

@@ -113,7 +113,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   PreparedDeployment prepared;
   std::set<std::pair<std::string, std::string>> seen;
   std::set<std::string> input_ports;
-  bool has_request_id = false;
   for (size_t i = 0; i < split.inputs.size(); ++i) {
     const auto& entry = split.inputs[i];
     const auto at = "/io/input/" + std::to_string(i);
@@ -136,7 +135,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
         return Fail(diagnostic, "DUPLICATE_PORT_PRODUCER", at,
                     "Duplicate input port: " + port.logical_name);
     }
-    has_request_id |= static_cast<bool>(selected.host_binding.read_request_id);
     for (const auto& port : def->logical_ports) {
       const auto key = "input." + port.logical_name;
       selected.ports[port.logical_name] = key;
@@ -146,9 +144,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     }
     prepared.inputs.push_back(std::move(selected));
   }
-  if (!has_request_id)
-    return Fail(diagnostic, "INVALID_COMBINATION", "/io/input",
-                "At least one input struct must declare request_id");
 
   seen.clear();
   for (size_t i = 0; i < split.outputs.size(); ++i) {
@@ -167,8 +162,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     selected.host_binding = value_types.CopyBindingBySuffix(def->type).value();
     selected.allocator_binding =
         value_types.CopyOutputBinding(def->type, def->slot.allocator).value();
-    selected.allocator_binding.write_request_id =
-        selected.host_binding.write_request_id;
     const auto& binding = selected.allocator_binding;
     if (!ParseParameters(def->params,
                          OutputConverterParameterFields(*def, &binding), entry,

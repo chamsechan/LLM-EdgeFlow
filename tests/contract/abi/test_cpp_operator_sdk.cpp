@@ -168,7 +168,6 @@ int main() {
   CompanyString cs1{static_cast<int32_t>(text1.size()),
                     const_cast<char*>(text1.data())};
   CompanyOperatorKeywordInput in_req1{};
-  in_req1.request_id = 1001;
   in_req1.service_type = kMockServiceKeywordMatch;
   in_req1.sentence_text = &cs1;
 
@@ -193,12 +192,10 @@ int main() {
     return 10;
   }
   auto* out_dto = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-  if (out_dto->request_id != 1001 || out_dto->status_code != 0 ||
+  if (out_dto->status_code != 0 ||
       out_dto->service_type != kMockServiceKeywordMatch) {
-    std::fprintf(
-        stderr,
-        "[SDK Consumer Test] Unexpected output values: req_id=%lu status=%d\n",
-        static_cast<unsigned long>(out_dto->request_id), out_dto->status_code);
+    std::fprintf(stderr, "[SDK Consumer Test] Unexpected output status=%d\n",
+                 out_dto->status_code);
     return 11;
   }
 

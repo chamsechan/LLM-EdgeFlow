@@ -65,8 +65,8 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   CompanyString cs_q1{static_cast<int32_t>(q1.size()),
                       const_cast<char*>(q1.data())};
 
-  CompanyOperatorDocInput req0{30001, kMockServiceDocQa, &cs_doc, &cs_q0};
-  CompanyOperatorDocInput req1{30002, kMockServiceDocQa, &cs_doc, &cs_q1};
+  CompanyOperatorDocInput req0{kMockServiceDocQa, &cs_doc, &cs_q0};
+  CompanyOperatorDocInput req1{kMockServiceDocQa, &cs_doc, &cs_q1};
 
   operator_api::NamedIoBatch inputs(2);
   inputs[0]["rag_channel.doc_in"] =
@@ -91,7 +91,6 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   auto* out1 = static_cast<CompanyOperatorDocOutput*>(out1_sp.get());
 
   // 验证切片数与意图分类
-  EXPECT_EQ(out0->request_id, 30001ULL);
   EXPECT_GT(out0->chunk_count, 0);
   ASSERT_NE(out0->intent_name, nullptr);
   EXPECT_EQ(std::string(out0->intent_name->data, out0->intent_name->length),
@@ -99,7 +98,6 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   ASSERT_NE(out0->answer_text, nullptr);
   EXPECT_GT(out0->answer_text->length, 0);
 
-  EXPECT_EQ(out1->request_id, 30002ULL);
   EXPECT_GT(out1->chunk_count, 0);
   ASSERT_NE(out1->answer_text, nullptr);
   out0_sp.reset();
@@ -147,9 +145,9 @@ TEST_F(AllBizPipelinesTest, DialogueAuditPipeline) {
   CompanyString cc_safe{static_cast<int32_t>(c_safe.size()),
                         const_cast<char*>(c_safe.data())};
 
-  CompanyOperatorAuditInput req_violation{40001, kMockServiceDialogueAudit,
-                                          &cs_viol, &cc_viol};
-  CompanyOperatorAuditInput req_safe{40002, kMockServiceDialogueAudit, &cs_safe,
+  CompanyOperatorAuditInput req_violation{kMockServiceDialogueAudit, &cs_viol,
+                                          &cc_viol};
+  CompanyOperatorAuditInput req_safe{kMockServiceDialogueAudit, &cs_safe,
                                      &cc_safe};
 
   operator_api::NamedIoBatch inputs(2);
@@ -176,7 +174,6 @@ TEST_F(AllBizPipelinesTest, DialogueAuditPipeline) {
   auto* out_safe = static_cast<CompanyOperatorAuditOutput*>(out_safe_sp.get());
 
   // 验证样本 A 判定为 HIGH_RISK，且命中对应合规条款
-  EXPECT_EQ(out_violation->request_id, 40001ULL);
   ASSERT_NE(out_violation->risk_level, nullptr);
   EXPECT_EQ(std::string(out_violation->risk_level->data,
                         out_violation->risk_level->length),
@@ -195,7 +192,6 @@ TEST_F(AllBizPipelinesTest, DialogueAuditPipeline) {
   EXPECT_EQ(j_violation["risk_level"], "HIGH_RISK");
 
   // 验证样本 B 判定为 SAFE
-  EXPECT_EQ(out_safe->request_id, 40002ULL);
   ASSERT_NE(out_safe->risk_level, nullptr);
   EXPECT_EQ(
       std::string(out_safe->risk_level->data, out_safe->risk_level->length),

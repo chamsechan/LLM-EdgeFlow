@@ -39,9 +39,6 @@ void AuditDefinition(const Definition& def,
     if (direction == IoDirection::kInput &&
         (!value->validate_external || !value->read_value))
       fail("Input platform binding has no validation or value reader");
-    if (direction == IoDirection::kOutput && value->read_request_id &&
-        !value->write_request_id)
-      fail("Output platform binding has no request_id writer");
     if (direction == IoDirection::kOutput && !value->write_value)
       fail("Output platform binding has no value writer");
     if (direction == IoDirection::kOutput && value->ServiceType(def.name) &&

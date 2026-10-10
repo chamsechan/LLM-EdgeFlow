@@ -41,7 +41,7 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
                         const_cast<char*>(doc1.data())};
   CompanyString query1_cs{static_cast<int32_t>(query1.size()),
                           const_cast<char*>(query1.data())};
-  CompanyOperatorDocInput in1{90001, kMockServiceDocQa, &doc1_cs, &query1_cs};
+  CompanyOperatorDocInput in1{kMockServiceDocQa, &doc1_cs, &query1_cs};
 
   std::string doc2 =
       "客户服务售后政策：支持7天无理由退货与全额退款。若商品存在质量问题，由平"
@@ -51,7 +51,7 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
                         const_cast<char*>(doc2.data())};
   CompanyString query2_cs{static_cast<int32_t>(query2.size()),
                           const_cast<char*>(query2.data())};
-  CompanyOperatorDocInput in2{90002, kMockServiceDocQa, &doc2_cs, &query2_cs};
+  CompanyOperatorDocInput in2{kMockServiceDocQa, &doc2_cs, &query2_cs};
 
   NamedIoBatch in_batch(2);
   NamedIoBatch out_batch(2);
@@ -75,14 +75,12 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   const auto* out2 =
       static_cast<const CompanyOperatorDocOutput*>(out2_sp.get());
 
-  EXPECT_EQ(out1->request_id, 90001u);
   EXPECT_GT(out1->chunk_count, 0);
   ASSERT_NE(out1->intent_name, nullptr);
   EXPECT_STREQ(out1->intent_name->data, "TECH_ARCHITECTURE");
   ASSERT_NE(out1->answer_text, nullptr);
   EXPECT_GT(out1->answer_text->length, 0);
 
-  EXPECT_EQ(out2->request_id, 90002u);
   EXPECT_GT(out2->chunk_count, 0);
   ASSERT_NE(out2->intent_name, nullptr);
   EXPECT_STREQ(out2->intent_name->data, "AFTER_SALES_REFUND");

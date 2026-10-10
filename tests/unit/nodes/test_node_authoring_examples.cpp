@@ -513,7 +513,7 @@ TEST_F(NodeAuthoringExamplesTest,
       "scaffold_model_asr", "asr_model", session_ctx_.get());
   CheckScaffoldExecution<QueryCandidatesBatch, ScoreBatch>(
       "scaffold_model_rerank", "rerank_model", session_ctx_.get());
-  CheckScaffoldExecution<ImageRefBatch, OcrDocumentBatch>(
+  CheckScaffoldExecution<ImageFrameBatch, OcrDocumentBatch>(
       "scaffold_model_ocr", "ocr_model", session_ctx_.get());
   auto node = NodeRegistry::Instance().Create("scaffold_conversion");
   ASSERT_TRUE(

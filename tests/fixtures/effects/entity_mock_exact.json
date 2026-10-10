@@ -8,7 +8,6 @@
   "minimum_pass_rate": 1.0,
   "samples": [
     {
-      "request_id": 30001,
       "expected": {
         "/output/entities/nouns": [
           "张三",

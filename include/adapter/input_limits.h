@@ -8,7 +8,7 @@ namespace llm_edgeflow::input_limits {
 // 共享语义上限；各入口自行校验指针、长度和表示形式。
 inline constexpr size_t kMaxTextBytes = 64 * 1024;
 inline constexpr size_t kMaxDocTextBytes = 10 * 1024 * 1024;
-inline constexpr size_t kMaxImageUriBytes = 4096;
+inline constexpr size_t kMaxImageBytes = 48 * 1024 * 1024;
 inline constexpr size_t kMaxChannelNameBytes = 256;
 inline constexpr int32_t kMaxAudioPcmSamples = 16000 * 60;
 inline constexpr size_t kMaxAudioPcmBytes = 10 * 1024 * 1024;

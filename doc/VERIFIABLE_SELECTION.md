@@ -157,7 +157,7 @@ python3 tools/verify_selection.py check \
   --evidence results/keyword-effects.json --require-effects
 ```
 
-效果规范以 `output: {type, name}` 选择输出 Converter，并包括相对规范文件的 dataset 路径、请求 ID、需要比较的输出 JSON Pointer 和最低通过率。参考 [关键词规范](../tests/fixtures/effects/keyword_exact.json)。其他业务可以使用已有 Demo 支持的输入数据集格式，并为相关结构化字段编写标注。
+效果规范以 `output: {type, name}` 选择输出 Converter，并包括相对规范文件的 dataset 路径、按输入顺序排列的 `samples`、需要比较的输出 JSON Pointer 和最低通过率；结果与标注逐行对应，不使用请求 ID。参考 [关键词规范](../tests/fixtures/effects/keyword_exact.json)。其他业务可以使用已有 Demo 支持的输入数据集格式，并为相关结构化字段编写标注。
 
 结果按 request ID 比较；重复、缺失、额外请求或非零状态都会失败。指标是 **selected_fields_exact_match**，仅表示指定数据集上所选字段的精确匹配率，不代表通用模型准确率，也不包含语义等价、召回率或复杂生成质量评测。
 

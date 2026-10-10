@@ -1,57 +1,60 @@
 #pragma once
 
 #include <memory>
-#include <string>
+#include <mutex>
+#include <vector>
 
-#include "adapter/io_converter.h"
-#include "adapter/io_plan_resolver.h"
-#include "core/pipeline.h"
-#include "core/session_context.h"
-#include "platform_mock/error_codes.h"
+#include "adapter/runtime_types.h"
 
 namespace llm_edgeflow {
 
-/**
- * @brief 平台 Operator 门面使用的内部算法运行时句柄 (接入适配层内部)
- */
+class Pipeline;
+class OutputPoolState;
+struct ValidatedIoPlan;
+enum class ControlFailureStage;
+
+// 接入层运行时，不包含协议 ABI 或具体载体类型。
 class SharedAlgorithmRuntime {
  public:
-  SharedAlgorithmRuntime() = default;
-  ~SharedAlgorithmRuntime() = default;
-
-  // 禁止拷贝与移动赋值
+  SharedAlgorithmRuntime();
+  ~SharedAlgorithmRuntime();
   SharedAlgorithmRuntime(const SharedAlgorithmRuntime&) = delete;
   SharedAlgorithmRuntime& operator=(const SharedAlgorithmRuntime&) = delete;
 
-  /**
-   * @brief 全局资源初始化与全量注册表防腐冲突检查 (Fail-Closed)
-   * @param diagnostic 可选；失败时写入全部冲突原因
-   */
   static int GlobalInit(std::string* diagnostic = nullptr) noexcept;
-
-  /**
-   * @brief 通过已验证的 ValidatedIoPlan 与 RuntimeOptions 构建运行时
-   */
+  static int ResolveIoPlan(const RuntimeCreateOptions& options,
+                           std::unique_ptr<ValidatedIoPlan>* out_plan,
+                           std::string* out_error = nullptr) noexcept;
+  static int Create(const RuntimeCreateOptions& options,
+                    std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
+                    std::string* out_error = nullptr,
+                    RuntimeFailureStage* failure_stage = nullptr) noexcept;
   static int CreateFromIoPlan(
-      std::unique_ptr<ValidatedIoPlan> io_plan, int device_id,
-      const RuntimeOptions* extra_runtime_options,
+      std::unique_ptr<ValidatedIoPlan> io_plan,
+      const RuntimeCreateOptions& options,
       std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
-      std::string* out_error = nullptr) noexcept;
+      std::string* out_error = nullptr,
+      RuntimeFailureStage* failure_stage = nullptr) noexcept;
 
-  /**
-   * @brief 运行时动态控制指令下发
-   */
-  int ExecuteControl(int cmd, const std::string& json_param_str,
+  int Process(const RuntimeInputBatch& inputs, RuntimeOutputBatch* outputs,
+              std::string* out_error = nullptr,
+              RuntimeFailureStage* failure_stage = nullptr) noexcept;
+  int ExecuteControl(const ControlRequest& request,
                      std::string* out_error = nullptr,
                      ControlFailureStage* failure_stage = nullptr) noexcept;
+  // 即使报告仍有未归还的输出租约，也会关闭运行时并释放资源。
+  int Close(std::string* out_error = nullptr) noexcept;
 
-  Pipeline* GetPipeline() { return pipeline_.get(); }
-  const Pipeline* GetPipeline() const { return pipeline_.get(); }
   const ValidatedIoPlan* GetIoPlan() const { return io_plan_.get(); }
+  const Pipeline* GetPipeline() const { return pipeline_.get(); }
+  size_t ProcessBatchLimit() const { return process_batch_limit_; }
 
  private:
   std::unique_ptr<ValidatedIoPlan> io_plan_;
   std::unique_ptr<Pipeline> pipeline_;
+  std::vector<std::shared_ptr<OutputPoolState>> output_pools_;
+  size_t process_batch_limit_ = 0;
+  std::mutex mutex_;
 };
 
 }  // namespace llm_edgeflow

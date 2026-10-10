@@ -40,19 +40,16 @@ def collect_responses(result_file, count):
     records = [json.loads(line) for line in result_file.read_text(encoding="utf-8").splitlines()]
     if len(records) != count:
         raise ValueError("Demo returned an unexpected number of results")
-    responses = {}
+    responses = []
     for record in records:
-        request_id = record.get("request_id")
-        if type(request_id) is not int or not 30001 <= request_id < 30001 + count:
-            raise ValueError("Demo returned an unexpected request ID")
-        if request_id in responses or record.get("status") != 0:
-            raise ValueError("Demo returned a duplicate request ID or a failed sample")
+        if record.get("status") != 0:
+            raise ValueError("Demo returned a failed sample")
         document = record.get("output", {}).get("entities")
         if not isinstance(document, dict):
             raise ValueError("Demo result must contain a JSON response object")
         # 原样转发完整的 SDK 响应，此处不做业务字段投影。
-        responses[request_id] = dump_compact_json(document)
-    return [responses[30001 + i] for i in range(count)]
+        responses.append(dump_compact_json(document))
+    return responses
 
 
 def _run_demo_impl(requests, config, work_dir, executable):

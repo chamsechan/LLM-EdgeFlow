@@ -1,3 +1,4 @@
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -8,6 +9,13 @@
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_io_registry.h"
 #include "platform_mock/operator_data_types.h"
+
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_PNM
+#include <stb_image.h>
 
 namespace alg_demo {
 namespace {
@@ -30,7 +38,7 @@ int BuildImageQueryRequests(
   struct Storage {
     std::string image;
     std::string prompt;
-    CompanyString image_str{};
+    std::vector<uint8_t> pixels;
     CompanyFrame frame{};
     CompanyString prompt_str{};
   };
@@ -42,7 +50,8 @@ int BuildImageQueryRequests(
       std::cout << "[OcrInvoiceQaDemo WARN] Dataset sections missing, using "
                    "fallback sample."
                 << std::endl;
-      if (storage->image.empty()) storage->image = "./data/invoice_01.jpg";
+      if (storage->image.empty())
+        storage->image = "data/kite_invoice_sample.png";
       if (storage->prompt.empty()) {
         storage->prompt = "提取发票代码、号码与总金额";
       }
@@ -55,10 +64,43 @@ int BuildImageQueryRequests(
     }
   }
 
-  storage->image_str = {static_cast<int32_t>(storage->image.size()),
-                        const_cast<char*>(storage->image.data())};
-  storage->frame = {60001, inputs[0].service_type.value_or(0),
-                    &storage->image_str, nullptr};
+  // Dataset files are only a Demo carrier source. The SDK receives RGB8 pixels.
+  std::ifstream file(storage->image, std::ios::binary | std::ios::ate);
+  const auto length = file ? file.tellg() : std::streampos(-1);
+  if (length <= 0 || length > 32 * 1024 * 1024) {
+    std::cerr << "[OcrInvoiceQaDemo ERROR] Cannot read image or image exceeds "
+                 "32 MiB: "
+              << storage->image << std::endl;
+    return 4;
+  }
+  std::vector<uint8_t> encoded(static_cast<size_t>(length));
+  file.seekg(0);
+  if (!file.read(reinterpret_cast<char*>(encoded.data()), length)) return 4;
+  int width = 0, height = 0, channels = 0;
+  if (!stbi_info_from_memory(encoded.data(), static_cast<int>(encoded.size()),
+                             &width, &height, &channels) ||
+      width <= 0 || height <= 0 ||
+      static_cast<uint64_t>(width) * height > 16U * 1024U * 1024U) {
+    std::cerr << "[OcrInvoiceQaDemo ERROR] Invalid or oversized image"
+              << std::endl;
+    return 4;
+  }
+  std::unique_ptr<uint8_t, decltype(&stbi_image_free)> rgb(
+      stbi_load_from_memory(encoded.data(), static_cast<int>(encoded.size()),
+                            &width, &height, &channels, 3),
+      stbi_image_free);
+  if (!rgb) {
+    std::cerr << "[OcrInvoiceQaDemo ERROR] Image decode failed" << std::endl;
+    return 4;
+  }
+  storage->pixels.assign(rgb.get(),
+                         rgb.get() + static_cast<size_t>(width) * height * 3);
+  storage->frame = {inputs[0].service_type.value_or(0),
+                    height,
+                    width,
+                    width * 3,
+                    storage->pixels.data(),
+                    nullptr};
   storage->prompt_str = {static_cast<int32_t>(storage->prompt.size()),
                          const_cast<char*>(storage->prompt.data())};
 

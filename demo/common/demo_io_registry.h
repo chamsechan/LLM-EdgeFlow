@@ -22,8 +22,8 @@ using BuildRequestsFn =
     int (*)(const DemoOptions&,
             const std::vector<llm_edgeflow::operator_api::OperatorIoEntry>&,
             DemoRequestBatch*);
-using ShowResultFn = void (*)(const void*, const nlohmann::json&, uint64_t*,
-                              int32_t*, nlohmann::json*);
+using ShowResultFn = void (*)(const void*, const nlohmann::json&, int32_t*,
+                              nlohmann::json*);
 
 class DemoIoRegistry {
  public:

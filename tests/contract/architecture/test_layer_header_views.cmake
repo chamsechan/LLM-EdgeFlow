@@ -33,6 +33,44 @@ function(check_header layer header allowed)
   endif()
 endfunction()
 
+# 即使接入层头文件视图可见协议壳，facade 头文件也必须保持独立。
+# 检查编译器给出的完整依赖（含间接包含），而非仅检查直接 include。
+# 错误码中立化后置，本次仍允许依赖既有错误码定义。
+function(check_neutral_runtime_header header)
+  string(MAKE_C_IDENTIFIER "neutral_${header}" case_name)
+  set(source "${layer_test_root}/${case_name}.cpp")
+  file(WRITE "${source}" "#include <${header}>\n")
+  set(include_flags)
+  foreach(directory IN LISTS integration_includes)
+    list(APPEND include_flags "-I${directory}")
+  endforeach()
+  foreach(definition IN LISTS integration_definitions)
+    list(APPEND include_flags "-D${definition}")
+  endforeach()
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C
+      "${layer_cxx}" -std=c++17 -M
+      ${layer_cxx_flags} ${include_flags} "${source}"
+      RESULT_VARIABLE status OUTPUT_VARIABLE dependencies ERROR_VARIABLE error)
+  if(NOT status EQUAL 0)
+    message(FATAL_ERROR "Cannot inspect facade header ${header}:\n${error}")
+  endif()
+  string(REPLACE "platform_mock/error_codes.h" "" carrier_dependencies "${dependencies}")
+  if(carrier_dependencies MATCHES "platform_mock/|edgeflow/operator/")
+    message(FATAL_ERROR "Facade header ${header} imports platform protocol headers:\n${dependencies}")
+  endif()
+endfunction()
+
+check_neutral_runtime_header(adapter/runtime_types.h)
+check_neutral_runtime_header(adapter/shared_algorithm_runtime.h)
+check_neutral_runtime_header(adapter/operator/operator_output_pool.h)
+
+# 注册表保持中立；具体协议的 binding 注册由相应协议壳负责。
+file(READ "${layer_source_dir}/src/adapter/operator/operator_value_type_registry.cpp" registry_source)
+string(REPLACE "platform_mock/error_codes.h" "" registry_carrier_source "${registry_source}")
+if(registry_carrier_source MATCHES "RegisterBuiltinBindings|operator_builtin_value_types|platform_mock/")
+  message(FATAL_ERROR "Neutral value registry implicitly depends on mock bindings")
+endif()
+
 # 导入的运行时目标不得在最终链接时把编译使用要求带回来，
 # 包括带入 Model 和组合根。
 foreach(layer model_execution capability_nodes orchestration integration composition alg_sdk alg_pipeline_tool)
