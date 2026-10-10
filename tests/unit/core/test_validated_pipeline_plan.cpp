@@ -476,7 +476,7 @@ TEST_F(PortShapeTest, SplitItemsCannotReachOnePerRequestEgress) {
   EXPECT_EQ(errors[0].port, "paired");
   EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"output"}));
   EXPECT_NE(errors[0].message.find("'split.flow'"), std::string::npos);
-  EXPECT_FALSE(errors[0].remediation.has_value());
+  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
   const nlohmann::json declaration = {{"type_id", "TextBatch"},
                                       {"cardinality", "1:1"},
                                       {"provenance_policy", "preserve"},
@@ -523,7 +523,7 @@ TEST_F(PortShapeTest, MisalignedItemWiseInputsAreRejected) {
   EXPECT_EQ(errors[0].node_name, "pair");
   EXPECT_EQ(errors[0].port, "right");
   EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"split"}));
-  EXPECT_FALSE(errors[0].remediation.has_value());
+  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
   EXPECT_EQ(errors[0].facts.at("producer_name"), "split");
   EXPECT_EQ(errors[0].facts.at("consumer_name"), "pair");
   EXPECT_EQ(errors[0].facts.at("bound_key"), "split.flow");
@@ -553,7 +553,7 @@ TEST_F(PortShapeTest, ItemWiseInputsPairOnlyWithinOneFanOut) {
   const auto errors = CardinalityErrors(different_origins);
   ASSERT_EQ(errors.size(), 1u) << different_origins.ToJson().dump();
   EXPECT_EQ(errors[0].port, "right");
-  EXPECT_FALSE(errors[0].remediation.has_value());
+  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
   EXPECT_EQ(errors[0].facts.at("producer_name"), "split_b");
   EXPECT_EQ(errors[0].facts.at("consumer_name"), "join");
   EXPECT_EQ(errors[0].facts.at("bound_key"), "split_b.flow");
@@ -583,7 +583,7 @@ TEST_F(PortShapeTest, UnreservedConsumerNamesKeepNodeInputDiagnosticLocation) {
     EXPECT_EQ(shape.facts.at("producer_name"), "split");
     EXPECT_EQ(shape.facts.at("consumer_name"), id);
     EXPECT_EQ(shape.facts.at("bound_key"), "split.flow");
-    EXPECT_FALSE(shape.remediation.has_value());
+    EXPECT_FALSE(shape.ToJson().contains("remediation"));
 
     const auto flow_report =
         Validate({Split("split"), Node(id, FlowContractConsumerNode::kNodeType,
@@ -600,7 +600,7 @@ TEST_F(PortShapeTest, UnreservedConsumerNamesKeepNodeInputDiagnosticLocation) {
       EXPECT_EQ(flow.facts.at("producer_name"), "split");
       EXPECT_EQ(flow.facts.at("consumer_name"), id);
       EXPECT_EQ(flow.facts.at("bound_key"), "split.flow");
-      EXPECT_FALSE(flow.remediation.has_value());
+      EXPECT_FALSE(flow.ToJson().contains("remediation"));
     }
   }
 }
@@ -634,7 +634,7 @@ TEST_F(PortShapeTest, IngressPassthroughReportsNeutralIoOutputFacts) {
             (nlohmann::json{{"kind", "multi"}, {"origin", "input.request"}}));
   EXPECT_EQ(output->facts.at("expected_shape"),
             (nlohmann::json{{"kind", "per_request"}}));
-  EXPECT_FALSE(output->remediation.has_value());
+  EXPECT_FALSE(output->ToJson().contains("remediation"));
 }
 
 TEST_F(PortShapeTest, UnknownShapeIsLeftToRuntimeChecks) {
@@ -1071,6 +1071,16 @@ TEST_F(ValidatedPipelinePlanTest, InfersDependenciesAndMergesExtraOrder) {
       (std::unordered_set<std::string>{"producer", "barrier"}));
   EXPECT_EQ(dependencies.size(), 2U);
   EXPECT_FALSE(config["pipeline"][2].contains("depends_on"));
+
+  ParsedPipelineConfig parsed;
+  ASSERT_TRUE(ParsePipelineConfig(config, &parsed));
+  const auto parsed_plan =
+      PipelineValidator::ValidateParsedAndPlan(std::move(parsed), boundary);
+  EXPECT_EQ(parsed_plan.report.ToJson(), plan.report.ToJson());
+  EXPECT_EQ(parsed_plan.node_plans.at("consumer").node.depends_on,
+            dependencies);
+  EXPECT_EQ(parsed_plan.node_plans.at("barrier").normalized_params,
+            plan.node_plans.at("barrier").normalized_params);
 }
 
 TEST_F(ValidatedPipelinePlanTest, RejectsDataAndMixedDependencyCycles) {
@@ -1089,6 +1099,12 @@ TEST_F(ValidatedPipelinePlanTest, RejectsDataAndMixedDependencyCycles) {
     const auto boundary = MakeTestBoundary({{"input.request", "TextBatch"}});
     const auto plan = PipelineValidator::ValidateAndPlan(
         {{"pipeline", {first, second}}}, boundary);
+    ParsedPipelineConfig parsed;
+    ASSERT_TRUE(ParsePipelineConfig({{"pipeline", {first, second}}}, &parsed));
+    EXPECT_EQ(
+        PipelineValidator::ValidateParsedAndPlan(std::move(parsed), boundary)
+            .report.ToJson(),
+        plan.report.ToJson());
     EXPECT_FALSE(plan.report.ok);
     EXPECT_TRUE(std::any_of(
         plan.report.diagnostics.begin(), plan.report.diagnostics.end(),

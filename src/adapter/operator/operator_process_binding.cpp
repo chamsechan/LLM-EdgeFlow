@@ -57,12 +57,7 @@ int ValidateAndExtractOperatorInputs(
   std::vector<std::unordered_set<std::string>> recognized(inputs.size());
   for (size_t index = 0; index < selected.size(); ++index) {
     const auto& def = *selected[index].converter;
-    const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(def.type);
-    if (!binding || !binding->validate_external) {
-      if (error) *error = "Missing input platform binding for " + def.Label();
-      return -3;
-    }
+    const auto* binding = &selected[index].host_binding;
     auto& view = (*out_views)[index];
     view.count = inputs.size();
     view.slot_types[def.type] = def.slot.type_id;

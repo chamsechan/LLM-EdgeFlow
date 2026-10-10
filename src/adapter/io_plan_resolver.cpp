@@ -131,23 +131,10 @@ int IoPlanResolver::ResolveFromPipelineJson(
   size_t total_handle_pool_bytes = 0;
   for (size_t index = 0; index < prepared.outputs.size(); ++index) {
     const auto& pool_spec = prepared.outputs[index].pool_spec;
-    const auto* output_binding =
-        OperatorValueTypeRegistry::Instance().GetOutputBinding(
-            pool_spec.type, pool_spec.allocator);
-    if (!output_binding || output_binding->direction != IoDirection::kOutput) {
-      std::string msg =
-          "Missing output value binding for suffix '" + pool_spec.type + "'";
-      if (out_error) *out_error = msg;
-      if (out_diagnostic) {
-        out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path = "/io/output/" + std::to_string(index);
-        out_diagnostic->message = msg;
-      }
-      return -2;
-    }
+    const auto& output_binding = prepared.outputs[index].allocator_binding;
     size_t slot_pool_bytes = 0;
     std::string budget_err;
-    if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
+    if (!ComputeOutputPoolPayloadBytes(output_binding, pool_spec,
                                        output_pool_depth, &slot_pool_bytes,
                                        &budget_err)) {
       std::string msg = "Output pool budget calculation failed: " + budget_err;
@@ -185,11 +172,10 @@ int IoPlanResolver::ResolveFromPipelineJson(
     return -2;
   }
 
-  // 调用 PipelineValidator 进行统一中性计划验证 (Core 校验
-  // neutral_pipeline_json)
+  // Core validates the parsed configuration produced during preparation.
   auto plan = std::make_unique<ValidatedPipelinePlan>(
-      PipelineValidator::ValidateAndPlan(prepared.neutral_pipeline_json,
-                                         prepared.io_boundary));
+      PipelineValidator::ValidateParsedAndPlan(
+          std::move(prepared.parsed_pipeline), prepared.io_boundary));
 
   if (!plan->report.ok) {
     if (!plan->report.diagnostics.empty()) {

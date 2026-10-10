@@ -62,6 +62,8 @@ Pipeline 根 `io.input` / `io.output` 以非空数组选择 `{type, name, params
 Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组合选择构造和展示；同一载体复用 Demo。
 每个输出字符串由转换器的 `MaxBytes` 参数声明默认容量，平台登记只保留硬上限。
 分配器、布局参数和 metadata 固定在槽声明中；审计归一化布局参数，Create 按 `Prepare` 后尺寸生成池规格。
+部署准备保留解析后的 Pipeline 与所选宿主/分配器绑定快照；计划解析复用这些结果，负责句柄预算、
+Core 静态计划和有效配置快照。SDK 与 CLI 共用这条准备路径，Process 直接使用已选绑定。
 可选输出也始终分配池；多项输出全部成功后发布，失败归还全部租约。
 完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
 
@@ -101,6 +103,10 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
   共享结果或异常；失败不进入缓存，后续调用可重试。
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
   `Nodes/Models/Backends/FindNode/FindModel/FindBackend` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
+
+Core 的 `ValidationReport` 只携带中性诊断、校验事实和执行顺序。CLI 在自己的
+`ToolValidationReport` 中附加原因说明和已验证的 JSON Patch；修复数据类型与序列化
+均属于 `src/cli/`，不编译进 SDK。默认值审计与输入参数校验共用值校验逻辑。
 
 Validator 为未知节点类型、模型类别和 Backend 提供可定位诊断。模型按类别和 Backend 协议
 选择唯一实现，无法解析时优先报告根因；未知生产者节点类型不引出额外的缺失端口误报。

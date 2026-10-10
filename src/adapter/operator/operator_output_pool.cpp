@@ -52,7 +52,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
     pool->depth_ = effective_depth;
     pool->spec_ = resolved_spec;
-    pool->type_binding_ = binding;
+    pool->type_binding_ = *binding;
 
     pool->all_blocks_.reserve(effective_depth);
     pool->free_ring_.resize(effective_depth, nullptr);
@@ -61,7 +61,8 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
 
     for (uint32_t i = 0; i < effective_depth; ++i) {
       OwnedExternalBlock block;
-      int ret = binding->allocate_external(resolved_spec, &block, err);
+      int ret =
+          pool->type_binding_.allocate_external(resolved_spec, &block, err);
       if (ret != 0 || !block.raw_struct) {
         pool->DestroyBlocks();
         if (out_pool) *out_pool = nullptr;
@@ -156,9 +157,7 @@ void OutputPoolState::ReturnBlock(void* block) noexcept {
   }
 
   try {
-    if (type_binding_ && type_binding_->reset_external) {
-      type_binding_->reset_external(block, spec_);
-    }
+    type_binding_.reset_external(block, spec_);
   } catch (...) {
   }
 
@@ -188,11 +187,7 @@ void OutputPoolState::DestroyBlocks() noexcept {
 
   for (auto& block : all_blocks_) {
     try {
-      if (type_binding_ && type_binding_->destroy_external) {
-        type_binding_->destroy_external(&block);
-      } else {
-        block.Destroy();
-      }
+      type_binding_.destroy_external(&block);
     } catch (...) {
     }
   }

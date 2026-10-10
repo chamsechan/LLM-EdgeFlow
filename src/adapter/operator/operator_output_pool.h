@@ -82,7 +82,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
 
   uint32_t depth_ = 0;
   ResolvedOutputPoolSpec spec_;
-  const OperatorValueTypeBinding* type_binding_ = nullptr;
+  OperatorValueTypeBinding type_binding_;
 
   std::vector<OwnedExternalBlock> all_blocks_;
   std::vector<void*> free_ring_;

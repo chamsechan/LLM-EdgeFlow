@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -147,6 +148,13 @@ class OperatorValueTypeRegistry {
    */
   const OperatorValueTypeBinding* GetBindingBySuffix(
       const std::string& suffix) const;
+
+  // Prepared plans own snapshots, including before GlobalInit freezes the
+  // table.
+  std::optional<OperatorValueTypeBinding> CopyBindingBySuffix(
+      const std::string& suffix) const;
+  std::optional<OperatorValueTypeBinding> CopyOutputBinding(
+      const std::string& suffix, const std::string& allocator) const;
 
  private:
   mutable std::mutex mutex_;
