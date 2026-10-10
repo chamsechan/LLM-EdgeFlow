@@ -137,99 +137,6 @@ inline bool ValidateConfigFieldDefinitions(
       }
     }
 
-    if (!field.default_value.is_null()) {
-      switch (field.kind) {
-        case ConfigValueKind::kInteger: {
-          if (!field.default_value.is_number_integer() &&
-              !field.default_value.is_number_unsigned()) {
-            if (error) {
-              *error = "Default value for Integer field must be integer: " +
-                       field.name;
-            }
-            return false;
-          }
-          if ((field.minimum.has_value() &&
-               detail::IsValueBelowMinimum(field.default_value,
-                                           *field.minimum)) ||
-              (field.maximum.has_value() &&
-               detail::IsValueAboveMaximum(field.default_value,
-                                           *field.maximum))) {
-            if (error) {
-              *error = "Default value outside bounds for field: " + field.name;
-            }
-            return false;
-          }
-          break;
-        }
-        case ConfigValueKind::kNumber: {
-          if (!field.default_value.is_number()) {
-            if (error) {
-              *error = "Default value for Number field must be numeric: " +
-                       field.name;
-            }
-            return false;
-          }
-          const double value = field.default_value.get<double>();
-          if (!std::isfinite(value)) {
-            if (error) {
-              *error = "Default numeric value must be finite in: " + field.name;
-            }
-            return false;
-          }
-          if ((field.minimum.has_value() && value < *field.minimum) ||
-              (field.maximum.has_value() && value > *field.maximum)) {
-            if (error) {
-              *error = "Default value outside bounds for field: " + field.name;
-            }
-            return false;
-          }
-          break;
-        }
-        case ConfigValueKind::kBoolean:
-          if (!field.default_value.is_boolean()) {
-            if (error) {
-              *error = "Default value for Boolean field must be boolean: " +
-                       field.name;
-            }
-            return false;
-          }
-          break;
-        case ConfigValueKind::kString:
-          if (!field.default_value.is_string()) {
-            if (error) {
-              *error = "Default value for String field must be string: " +
-                       field.name;
-            }
-            return false;
-          }
-          break;
-        case ConfigValueKind::kMap:
-        case ConfigValueKind::kObject:
-          if (!field.default_value.is_object()) {
-            if (error) {
-              *error = "Default value for Object field must be object: " +
-                       field.name;
-            }
-            return false;
-          }
-          break;
-        case ConfigValueKind::kArray:
-          if (!field.default_value.is_array()) {
-            if (error) {
-              *error =
-                  "Default value for Array field must be array: " + field.name;
-            }
-            return false;
-          }
-          break;
-        case ConfigValueKind::kJson:
-          break;
-        default:
-          if (error) *error = "Invalid config value kind in: " + field.name;
-          return false;
-      }
-    }
-
     if (!field.enum_values.empty()) {
       if (field.kind != ConfigValueKind::kString) {
         if (error) {
@@ -245,15 +152,6 @@ inline bool ValidateConfigFieldDefinitions(
           }
           return false;
         }
-      }
-      if (field.default_value.is_string() &&
-          seen_values.find(field.default_value.get<std::string>()) ==
-              seen_values.end()) {
-        if (error) {
-          *error =
-              "Default value is not in enum_values for field: " + field.name;
-        }
-        return false;
       }
     }
     if (field.items) {
@@ -274,7 +172,7 @@ inline bool ValidateConfigFieldDefinitions(
       }
       if (!ValidateConfigFieldDefinitions(*field.fields, error)) return false;
     }
-    if (!field.default_value.is_null() && (field.items || field.fields)) {
+    if (!field.default_value.is_null()) {
       nlohmann::json normalized;
       std::vector<ConfigFieldValidationError> errors;
       if (!detail::NormalizeConfigValue(field, field.default_value, &normalized,

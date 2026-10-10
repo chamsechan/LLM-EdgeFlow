@@ -38,8 +38,12 @@ DocumentValidationResult ValidatePipelineDocument(
       return result;
     }
   }
-  auto report = ValidateWithRemediation(prepared.neutral_pipeline_json,
-                                        prepared.io_boundary);
+  result.core_report =
+      PipelineValidator::ValidateParsedAndPlan(
+          std::move(prepared.parsed_pipeline), prepared.io_boundary)
+          .report;
+  auto report = AttachRemediation(prepared.neutral_pipeline_json,
+                                  *result.core_report, prepared.io_boundary);
   if (mode == DocumentValidationMode::kExplain) {
     report =
         ExplainPipeline(document, std::move(report), [&](const auto& patched) {
@@ -60,7 +64,6 @@ DocumentValidationResult ValidatePipelineDocument(
   result.response = report.ToJson();
   if (mode == DocumentValidationMode::kPlan && report.ok)
     result.response.erase("diagnostics");
-  result.core_report = std::move(report);
   return result;
 }
 

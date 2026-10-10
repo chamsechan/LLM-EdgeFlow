@@ -521,6 +521,42 @@ TEST(OperatorValueRegistryTest, CompanyBufferValidation) {
 }
 
 // 6. ValueTypeRegistry 原子预检与只读冻结测试 (R9-008)
+TEST(OperatorValueRegistryTest,
+     BindingSnapshotsSurviveRegistrationAndRegistry) {
+  std::optional<OperatorValueTypeBinding> host;
+  std::optional<OperatorValueTypeBinding> allocator;
+  {
+    OperatorValueTypeRegistry registry;
+    host = registry.CopyBindingBySuffix("entity_in");
+    auto output = registry.CopyOutputBinding("entity_out", "");
+    ASSERT_TRUE(host);
+    ASSERT_TRUE(output);
+    ASSERT_TRUE(registry.RegisterOutputAllocator("first", *output));
+    allocator = registry.CopyOutputBinding("entity_out", "first");
+    ASSERT_TRUE(allocator);
+    auto another = *host;
+    another.canonical_suffix = "another_input";
+    ASSERT_TRUE(registry.RegisterBinding(another));
+    ASSERT_TRUE(registry.RegisterOutputAllocator("second", *output));
+    EXPECT_FALSE(registry.CopyBindingBySuffix("missing"));
+    EXPECT_FALSE(registry.CopyOutputBinding("entity_in", "first"));
+  }
+  CompanyOperatorEntityInput input{};
+  input.request_id = 123;
+  EXPECT_EQ(host->read_request_id(&input), 123u);
+  EXPECT_EQ(allocator->allocation_name, "first");
+  ResolvedOutputPoolSpec spec;
+  spec.type = "entity_out";
+  spec.capacities = {{"entities_json", 31}};
+  OwnedExternalBlock block;
+  std::string error;
+  ASSERT_EQ(allocator->allocate_external(spec, &block, &error), 0) << error;
+  ASSERT_NE(block.raw_struct, nullptr);
+  allocator->reset_external(block.raw_struct, spec);
+  allocator->destroy_external(&block);
+  EXPECT_EQ(block.raw_struct, nullptr);
+}
+
 TEST(OperatorValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
   auto& reg = OperatorValueTypeRegistry::Instance();
   EXPECT_EQ(reg.GlobalInit(), 0);

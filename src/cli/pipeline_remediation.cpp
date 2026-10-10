@@ -34,6 +34,69 @@ bool ValueMatchesConfigKind(const nlohmann::json& value, ConfigValueKind kind) {
   return false;
 }
 
+// Locate an owning entry without reparsing array indices at each call site.
+struct DocumentEntry {
+  std::string path;
+  const nlohmann::json* value;
+};
+
+std::optional<DocumentEntry> FindDocumentEntry(const nlohmann::json& root,
+                                               const std::string& path,
+                                               const std::string& collection) {
+  if (path.rfind(collection, 0) != 0) return std::nullopt;
+  const auto entry_path = path.substr(0, path.find('/', collection.size()));
+  const nlohmann::json::json_pointer pointer(entry_path);
+  if (!root.contains(pointer) || !root.at(pointer).is_object())
+    return std::nullopt;
+  return DocumentEntry{entry_path, &root.at(pointer)};
+}
+
+struct ParameterContext {
+  const nlohmann::json* owner;
+  bool node_parameter;
+  std::string params_path;
+  nlohmann::json::json_pointer relative;
+  std::vector<ConfigFieldDefinition> fields;
+};
+
+// Both explanations and rename patches resolve the same nested declaration.
+std::optional<ParameterContext> FindParameterContext(
+    const nlohmann::json& root, const std::string& path,
+    const PipelineCatalogSnapshot& catalog) {
+  const bool node_parameter = path.rfind("/pipeline/", 0) == 0;
+  const auto entry =
+      FindDocumentEntry(root, path, node_parameter ? "/pipeline/" : "/models/");
+  if (!entry) return std::nullopt;
+  const auto& owner = *entry->value;
+  auto params_path = entry->path + "/params";
+  std::vector<ConfigFieldDefinition> fields;
+  if (node_parameter) {
+    const auto* definition = catalog.FindNode(owner.value("type", ""));
+    if (!definition) return std::nullopt;
+    fields = definition->config_fields;
+  } else {
+    const auto backend = owner.find("backend");
+    if (backend == owner.end() || !backend->is_object()) return std::nullopt;
+    if (path.rfind(params_path + "/", 0) == 0) {
+      const auto implementations = ModelRegistry::Instance().FindImplementation(
+          owner.value("type", ""), backend->value("type", ""));
+      if (implementations.size() != 1) return std::nullopt;
+      fields = implementations.front().params.Fields();
+    } else {
+      params_path = entry->path + "/backend/params";
+      const auto definition =
+          PipelineCatalog::FindBackend(backend->value("type", ""));
+      if (!definition) return std::nullopt;
+      fields = definition->params.Fields();
+    }
+  }
+  if (path.rfind(params_path + "/", 0) != 0) return std::nullopt;
+  return ParameterContext{
+      &owner, node_parameter, params_path,
+      nlohmann::json::json_pointer(path.substr(params_path.size())),
+      std::move(fields)};
+}
+
 struct DiagnosticIdentity {
   DiagnosticCode code;
   std::string node_name;
@@ -54,10 +117,6 @@ DiagnosticIdentity GetDiagnosticIdentity(const ValidationDiagnostic& d) {
   if (d.code == DiagnosticCode::kDuplicateDependency) {
     if (!d.related_nodes.empty()) {
       id.subpath = "/depends_on/" + d.related_nodes.front();
-    } else if (d.remediation.has_value() &&
-               d.remediation->facts.contains("dependency_name")) {
-      id.subpath = "/depends_on/" +
-                   d.remediation->facts["dependency_name"].get<std::string>();
     } else {
       id.subpath = "/depends_on";
     }
@@ -83,7 +142,7 @@ std::string DescribeItemShape(const nlohmann::json& shape) {
   return "每请求项数未知";
 }
 
-void PopulateBasicRemediation(ValidationDiagnostic* diag,
+void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
                               const nlohmann::json& root,
                               const PipelineCatalogSnapshot& catalog,
                               const PipelineIoBoundary* io_boundary = nullptr) {
@@ -166,43 +225,14 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       diag->code == DiagnosticCode::kConfigFieldRange ||
       diag->code == DiagnosticCode::kConfigFieldEnum;
   if (config_diagnostic) {
-    const bool node_parameter = diag->path.rfind("/pipeline/", 0) == 0;
-    const bool model_parameter = diag->path.rfind("/models/", 0) == 0;
-    if (!node_parameter && !model_parameter) return;
-    const auto owner_path =
-        diag->path.substr(0, diag->path.find('/', node_parameter ? 10 : 8));
-    const nlohmann::json::json_pointer owner_pointer(owner_path);
-    if (!root.contains(owner_pointer)) return;
-    const auto& owner = root.at(owner_pointer);
-    std::string params_path = owner_path + "/params";
-    std::vector<ConfigFieldDefinition> fields;
-    if (node_parameter) {
-      const auto* definition = catalog.FindNode(owner.value("type", ""));
-      if (!definition) return;
-      fields = definition->config_fields;
-    } else {
-      const auto backend = owner.find("backend");
-      if (backend == owner.end() || !backend->is_object()) return;
-      if (diag->path.rfind(params_path + "/", 0) == 0) {
-        const auto implementations =
-            ModelRegistry::Instance().FindImplementation(
-                owner.value("type", ""), backend->value("type", ""));
-        if (implementations.size() != 1) return;
-        fields = implementations.front().params.Fields();
-      } else {
-        params_path = owner_path + "/backend/params";
-        const auto definition =
-            PipelineCatalog::FindBackend(backend->value("type", ""));
-        if (!definition) return;
-        fields = definition->params.Fields();
-      }
-    }
-    if (diag->path.rfind(params_path + "/", 0) != 0) return;
-    const nlohmann::json::json_pointer relative(
-        diag->path.substr(params_path.size()));
+    const auto context = FindParameterContext(root, diag->path, catalog);
+    if (!context) return;
+    const auto& [owner_ptr, node_parameter, params_path, relative, fields] =
+        *context;
+    const auto& owner = *owner_ptr;
     const std::string field_name = relative.back();
     ValidationRemediation rem;
-    if (model_parameter) rem.facts["model_name"] = owner.value("name", "");
+    if (!node_parameter) rem.facts["model_name"] = owner.value("name", "");
     rem.facts["params_path"] = params_path;
     rem.facts["field"] = field_name;
     rem.summary = std::string(node_parameter ? "节点 '" : "模型 '") +
@@ -234,67 +264,40 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
     return;
   } else if (diag->code == DiagnosticCode::kUnknownModelReference ||
              diag->code == DiagnosticCode::kModelTypeMismatch) {
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      if (idx_end != std::string::npos) {
-        size_t p_idx = 0;
-        try {
-          p_idx = std::stoul(diag->path.substr(10, idx_end - 10));
-        } catch (...) {
-          p_idx = static_cast<size_t>(-1);
-        }
-        if (p_idx < root["pipeline"].size()) {
-          const auto& node_obj = root["pipeline"][p_idx];
-          std::string node_type = node_obj.value("type", "");
-          const auto* def = catalog.FindNode(node_type);
-          if (def) {
-            std::string expected_prefix =
-                "/pipeline/" + std::to_string(p_idx) + "/params/";
-            for (const auto& dep : def->model_dependencies) {
-              if (diag->path !=
-                  expected_prefix + EscapeJsonPointer(dep.config_field)) {
-                continue;
-              }
-              std::string model_name =
-                  (node_obj.contains("params") &&
-                   node_obj["params"].contains(dep.config_field) &&
-                   node_obj["params"][dep.config_field].is_string())
-                      ? node_obj["params"][dep.config_field].get<std::string>()
-                      : "";
-              std::string required_model_type = dep.model_type;
-
-              ValidationRemediation rem;
-              rem.cause = (diag->code == DiagnosticCode::kUnknownModelReference)
-                              ? RemediationCause::kUnknownModelReference
-                              : RemediationCause::kModelTypeMismatch;
-              rem.facts["model_name"] = model_name;
-              rem.facts["required_model_type"] = required_model_type;
-
-              std::vector<std::string> candidate_model_names;
-              if (root.contains("models") && root["models"].is_array()) {
-                for (size_t m_idx = 0; m_idx < root["models"].size(); ++m_idx) {
-                  const auto& m = root["models"][m_idx];
-                  if (!m.is_object()) continue;
-                  std::string mid = m.value("name", "");
-                  if (mid.empty()) continue;
-                  if (m.value("type", "") == required_model_type) {
-                    candidate_model_names.push_back(mid);
-                  }
-                }
-              }
-              std::sort(candidate_model_names.begin(),
-                        candidate_model_names.end());
-              rem.facts["candidate_model_names"] = candidate_model_names;
-              rem.summary = "节点 '" + diag->node_name + "' 引用的模型 '" +
-                            model_name + "' 与所需能力 '" +
-                            required_model_type + "' 不符或未声明。";
-              diag->remediation = std::move(rem);
-              break;
-            }
-          }
+    const auto entry = FindDocumentEntry(root, diag->path, "/pipeline/");
+    if (!entry) return;
+    const auto* definition = catalog.FindNode(entry->value->value("type", ""));
+    if (!definition) return;
+    for (const auto& dep : definition->model_dependencies) {
+      if (diag->path !=
+          entry->path + "/params/" + EscapeJsonPointer(dep.config_field))
+        continue;
+      const nlohmann::json::json_pointer pointer(diag->path);
+      const auto model_name =
+          root.contains(pointer) && root.at(pointer).is_string()
+              ? root.at(pointer).get<std::string>()
+              : "";
+      ValidationRemediation rem;
+      rem.cause = diag->code == DiagnosticCode::kUnknownModelReference
+                      ? RemediationCause::kUnknownModelReference
+                      : RemediationCause::kModelTypeMismatch;
+      rem.facts["model_name"] = model_name;
+      rem.facts["required_model_type"] = dep.model_type;
+      std::vector<std::string> candidates;
+      if (root.contains("models") && root["models"].is_array()) {
+        for (const auto& model : root["models"]) {
+          if (!model.is_object()) continue;
+          const auto name = model.value("name", "");
+          if (!name.empty() && model.value("type", "") == dep.model_type)
+            candidates.push_back(name);
         }
       }
+      std::sort(candidates.begin(), candidates.end());
+      rem.facts["candidate_model_names"] = std::move(candidates);
+      rem.summary = "节点 '" + diag->node_name + "' 引用的模型 '" + model_name +
+                    "' 与所需能力 '" + dep.model_type + "' 不符或未声明。";
+      diag->remediation = std::move(rem);
+      break;
     }
   } else if (diag->code == DiagnosticCode::kMissingInputProducer ||
              diag->code == DiagnosticCode::kMissingOutputProducer ||
@@ -306,24 +309,15 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
     const nlohmann::json::json_pointer pointer(diag->path);
     if (root.contains(pointer) && root.at(pointer).is_string())
       bound_key = root.at(pointer).get<std::string>();
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      const auto idx_end = diag->path.find('/', 10);
-      try {
-        const auto index = std::stoul(diag->path.substr(10, idx_end - 10));
-        if (index < root["pipeline"].size()) {
-          const auto& node = root["pipeline"][index];
-          const auto* definition = catalog.FindNode(node.value("type", ""));
-          if (definition) {
-            for (const auto& port : definition->inputs)
-              if (port.logical_name == diag->port) {
-                expected_type = port.type_id;
-                break;
-              }
+    if (const auto entry = FindDocumentEntry(root, diag->path, "/pipeline/")) {
+      const auto* definition =
+          catalog.FindNode(entry->value->value("type", ""));
+      if (definition) {
+        for (const auto& port : definition->inputs)
+          if (port.logical_name == diag->port) {
+            expected_type = port.type_id;
+            break;
           }
-        }
-      } catch (...) {
-        return;
       }
     } else if (io_boundary) {
       for (const auto& port : io_boundary->output_consumed_ports) {
@@ -390,98 +384,28 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       rem.facts["candidate_sources"] = std::move(candidates);
     }
     diag->remediation = std::move(rem);
-  } else if (diag->code == DiagnosticCode::kDuplicateDependency) {
-    size_t consumer_idx = static_cast<size_t>(-1);
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      std::string idx_str = (idx_end == std::string::npos)
-                                ? diag->path.substr(10)
-                                : diag->path.substr(10, idx_end - 10);
-      try {
-        consumer_idx = std::stoul(idx_str);
-      } catch (...) {
-        consumer_idx = static_cast<size_t>(-1);
+  } else if (diag->code == DiagnosticCode::kDuplicateDependency ||
+             diag->code == DiagnosticCode::kInvalidDependency) {
+    if (diag->related_nodes.empty()) return;
+    const auto& dependency = diag->related_nodes.front();
+    const bool duplicate = diag->code == DiagnosticCode::kDuplicateDependency;
+    ValidationRemediation rem;
+    rem.cause = duplicate ? RemediationCause::kDuplicateDependency
+                          : RemediationCause::kUnknownDependency;
+    rem.facts["dependency_name"] = dependency;
+    rem.summary = "节点 '" + diag->node_name +
+                  (duplicate ? "' 包含重复依赖 '" : "' 依赖了未知的节点名 '") +
+                  dependency + "'。";
+    if (!duplicate) {
+      std::vector<std::string> names;
+      for (const auto& node : root["pipeline"]) {
+        const auto name = node.value("name", "");
+        if (!name.empty() && name != diag->node_name) names.push_back(name);
       }
+      rem.facts["candidate_node_names"] =
+          RankByEditDistance(dependency, std::move(names));
     }
-    if (consumer_idx < root.value("pipeline", nlohmann::json::array()).size()) {
-      const auto& c_node = root["pipeline"][consumer_idx];
-      std::string prefix =
-          "/pipeline/" + std::to_string(consumer_idx) + "/depends_on/";
-      std::string dup_dep;
-      if (diag->path.rfind(prefix, 0) == 0 && c_node.contains("depends_on") &&
-          c_node["depends_on"].is_array()) {
-        try {
-          size_t dep_arr_idx = std::stoul(diag->path.substr(prefix.size()));
-          if (dep_arr_idx < c_node["depends_on"].size()) {
-            dup_dep = c_node["depends_on"][dep_arr_idx].get<std::string>();
-          }
-        } catch (...) {
-        }
-      }
-      if (!dup_dep.empty()) {
-        ValidationRemediation rem;
-        rem.cause = RemediationCause::kDuplicateDependency;
-        rem.summary =
-            "节点 '" + diag->node_name + "' 包含重复依赖 '" + dup_dep + "'。";
-        rem.facts["dependency_name"] = dup_dep;
-        diag->remediation = std::move(rem);
-      }
-    }
-  } else if (diag->code == DiagnosticCode::kInvalidDependency) {
-    size_t consumer_idx = static_cast<size_t>(-1);
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      std::string idx_str = (idx_end == std::string::npos)
-                                ? diag->path.substr(10)
-                                : diag->path.substr(10, idx_end - 10);
-      try {
-        consumer_idx = std::stoul(idx_str);
-      } catch (...) {
-        consumer_idx = static_cast<size_t>(-1);
-      }
-    }
-    if (consumer_idx < root.value("pipeline", nlohmann::json::array()).size()) {
-      const auto& c_node = root["pipeline"][consumer_idx];
-      std::string prefix =
-          "/pipeline/" + std::to_string(consumer_idx) + "/depends_on/";
-      std::string dep_id;
-      if (diag->path.rfind(prefix, 0) == 0 && c_node.contains("depends_on") &&
-          c_node["depends_on"].is_array()) {
-        try {
-          size_t dep_arr_idx = std::stoul(diag->path.substr(prefix.size()));
-          if (dep_arr_idx < c_node["depends_on"].size()) {
-            dep_id = c_node["depends_on"][dep_arr_idx].get<std::string>();
-          }
-        } catch (...) {
-        }
-      }
-
-      std::vector<std::pair<size_t, std::string>> ranked;
-      for (const auto& item : root["pipeline"]) {
-        std::string valid_id = item.value("name", "");
-        if (!valid_id.empty() && valid_id != diag->node_name) {
-          ranked.emplace_back(LevenshteinDistance(dep_id, valid_id), valid_id);
-        }
-      }
-      std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) {
-        if (a.first != b.first) return a.first < b.first;
-        return a.second < b.second;
-      });
-      std::vector<std::string> candidate_node_names;
-      for (const auto& r : ranked) {
-        candidate_node_names.push_back(r.second);
-      }
-
-      ValidationRemediation rem;
-      rem.cause = RemediationCause::kUnknownDependency;
-      rem.summary = "节点 '" + diag->node_name + "' 依赖了未知的节点名 '" +
-                    dep_id + "'。";
-      rem.facts["dependency_name"] = dep_id;
-      rem.facts["candidate_node_names"] = candidate_node_names;
-      diag->remediation = std::move(rem);
-    }
+    diag->remediation = std::move(rem);
   } else if (diag->code == DiagnosticCode::kPortCardinalityMismatch ||
              diag->code == DiagnosticCode::kPortProvenanceMismatch ||
              diag->code == DiagnosticCode::kPortLifetimeMismatch) {
@@ -516,33 +440,89 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
 
 }  // namespace
 
-void AttachRemediation(const nlohmann::json& root, ValidationReport* report) {
-  if (!report) return;
-  const auto catalog = PipelineCatalog::Snapshot();
-  for (auto& diag : report->diagnostics) {
-    PopulateBasicRemediation(&diag, root, catalog);
+const char* RemediationCauseName(RemediationCause cause) noexcept {
+  switch (cause) {
+#define LLM_EDGEFLOW_CAUSE_CASE(name, str) \
+  case RemediationCause::name:             \
+    return str;
+    LLM_EDGEFLOW_REMEDIATION_CAUSES(LLM_EDGEFLOW_CAUSE_CASE)
+#undef LLM_EDGEFLOW_CAUSE_CASE
   }
+  return "UNKNOWN";
 }
 
-ValidationReport ValidateWithRemediation(
-    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
-  ValidationReport report = PipelineValidator::Validate(root, io_boundary);
+nlohmann::json ValidationFix::ToJson() const {
+  return {{"id", id},
+          {"title", title},
+          {"effect", effect},
+          {"patch", patch},
+          {"verification", verification}};
+}
+
+nlohmann::json ValidationRemediation::ToJson() const {
+  nlohmann::json fixes_json = nlohmann::json::array();
+  for (const auto& fix : fixes) {
+    fixes_json.push_back(fix.ToJson());
+  }
+  return {{"cause", RemediationCauseName(cause)},
+          {"summary", summary},
+          {"facts", facts},
+          {"fixes", std::move(fixes_json)}};
+}
+
+nlohmann::json ToolValidationDiagnostic::ToJson() const {
+  auto result = ValidationDiagnostic::ToJson();
+  if (remediation) result["remediation"] = remediation->ToJson();
+  return result;
+}
+
+ToolValidationReport::ToolValidationReport(ValidationReport report)
+    : ok(report.ok),
+      topological_order(std::move(report.topological_order)),
+      topological_layers(std::move(report.topological_layers)) {
+  diagnostics.reserve(report.diagnostics.size());
+  for (auto& diagnostic : report.diagnostics)
+    diagnostics.push_back({std::move(diagnostic), std::nullopt});
+}
+
+nlohmann::json ToolValidationReport::ToJson() const {
+  auto items = nlohmann::json::array();
+  for (const auto& diagnostic : diagnostics)
+    items.push_back(diagnostic.ToJson());
+  return {{"ok", ok},
+          {"diagnostics", std::move(items)},
+          {"plan",
+           {{"topological_order", topological_order},
+            {"layers", topological_layers}}}};
+}
+
+ToolValidationReport AttachRemediation(const nlohmann::json& root,
+                                       ValidationReport validation,
+                                       const PipelineIoBoundary& io_boundary) {
+  ToolValidationReport report(std::move(validation));
   const auto catalog = PipelineCatalog::Snapshot();
   for (auto& diag : report.diagnostics)
     PopulateBasicRemediation(&diag, root, catalog, &io_boundary);
   return report;
 }
 
-ValidationReport ExplainPipeline(const nlohmann::json& root,
-                                 const PipelineIoBoundary& io_boundary) {
+ToolValidationReport ValidateWithRemediation(
+    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
+  return AttachRemediation(root, PipelineValidator::Validate(root, io_boundary),
+                           io_boundary);
+}
+
+ToolValidationReport ExplainPipeline(const nlohmann::json& root,
+                                     const PipelineIoBoundary& io_boundary) {
   return ExplainPipeline(root, ValidateWithRemediation(root, io_boundary),
                          [&](const auto& patched) {
-                           return ValidateWithRemediation(patched, io_boundary);
+                           return PipelineValidator::Validate(patched,
+                                                              io_boundary);
                          });
 }
 
-ValidationReport ExplainPipeline(
-    const nlohmann::json& root, ValidationReport report,
+ToolValidationReport ExplainPipeline(
+    const nlohmann::json& root, ToolValidationReport report,
     const std::function<ValidationReport(const nlohmann::json&)>& revalidate) {
   const auto catalog = PipelineCatalog::Snapshot();
   if (report.ok) {
@@ -577,75 +557,26 @@ ValidationReport ExplainPipeline(
     std::vector<ValidationFix> candidate_fixes;
 
     if (diag.remediation->cause == RemediationCause::kUnknownConfigField) {
-      const nlohmann::json* config = nullptr;
-      std::vector<ConfigFieldDefinition> fields;
-      std::string prefix;
-      if (diag.path.rfind("/pipeline/", 0) == 0) {
-        size_t idx_end = diag.path.find('/', 10);
-        size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
-        const auto& node_obj = root["pipeline"][p_idx];
-        const auto* def = catalog.FindNode(node_obj.value("type", ""));
-        if (def && node_obj.contains("params") &&
-            node_obj["params"].is_object()) {
-          config = &node_obj["params"];
-          fields = def->config_fields;
-          prefix = "/pipeline/" + std::to_string(p_idx) + "/params/";
-        }
-      } else if (diag.path.rfind("/models/", 0) == 0 &&
-                 diag.remediation->facts.contains("params_path")) {
-        size_t idx_end = diag.path.find('/', 8);
-        size_t model_index = std::stoul(diag.path.substr(8, idx_end - 8));
-        const auto& model = root["models"][model_index];
-        const auto& backend = model["backend"];
-        const auto params_path =
-            diag.remediation->facts["params_path"].get<std::string>();
-        const nlohmann::json::json_pointer pointer(params_path);
-        if (root.contains(pointer) && root.at(pointer).is_object()) {
-          config = &root.at(pointer);
-          prefix = params_path + "/";
-          if (params_path ==
-              "/models/" + std::to_string(model_index) + "/params") {
-            const auto implementations =
-                ModelRegistry::Instance().FindImplementation(
-                    model.value("type", ""), backend.value("type", ""));
-            if (implementations.size() == 1)
-              fields = implementations.front().params.Fields();
-          } else {
-            const auto definition =
-                PipelineCatalog::FindBackend(backend.value("type", ""));
-            if (definition) fields = definition->params.Fields();
-          }
-        }
-      }
-      if (config) {
-        const nlohmann::json::json_pointer relative(
-            diag.path.substr(prefix.size() - 1));
-        const auto* members =
-            FindConfigObjectFields(fields, relative.parent_pointer());
-        const auto parent =
-            nlohmann::json::json_pointer(diag.path).parent_pointer();
-        if (members && root.contains(parent) && root.at(parent).is_object()) {
-          // Copy before replacing fields: members may point into its elements.
-          auto siblings = *members;
-          fields = std::move(siblings);
-          config = &root.at(parent);
-          prefix = parent.to_string() + "/";
-        } else {
-          config = nullptr;
-        }
-      }
-      const std::string field_name =
-          nlohmann::json::json_pointer(diag.path).back();
-      if (config && config->contains(field_name)) {
-        const auto& original_val = config->at(field_name);
+      const auto context = FindParameterContext(root, diag.path, catalog);
+      if (!context) continue;
+      const auto* fields = FindConfigObjectFields(
+          context->fields, context->relative.parent_pointer());
+      const auto parent =
+          nlohmann::json::json_pointer(diag.path).parent_pointer();
+      const auto field_name = context->relative.back();
+      if (fields && root.contains(parent) && root.at(parent).is_object() &&
+          root.at(parent).contains(field_name)) {
+        const auto& config = root.at(parent);
+        const auto& original_val = config.at(field_name);
+        const auto prefix = parent.to_string() + "/";
         auto candidate_fields = diag.remediation->facts.value(
             "candidate_fields", std::vector<std::string>{});
         for (const auto& cand : candidate_fields) {
-          if (config->contains(cand)) continue;
+          if (config.contains(cand)) continue;
           auto cf_it =
-              std::find_if(fields.begin(), fields.end(),
+              std::find_if(fields->begin(), fields->end(),
                            [&](const auto& f) { return f.name == cand; });
-          if (cf_it != fields.end() &&
+          if (cf_it != fields->end() &&
               ValueMatchesConfigKind(original_val, cf_it->kind)) {
             ValidationFix fix;
             fix.id = "rename-config-field-" + std::to_string(++fix_counter);
@@ -664,40 +595,19 @@ ValidationReport ExplainPipeline(
                    RemediationCause::kUnknownModelReference ||
                diag.remediation->cause ==
                    RemediationCause::kModelTypeMismatch) {
-      size_t idx_end = diag.path.find('/', 10);
-      size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
-      const auto& node_obj = root["pipeline"][p_idx];
-      std::string node_type = node_obj.value("type", "");
-      const auto* def = catalog.FindNode(node_type);
-      std::string model_name = diag.remediation->facts.value("model_name", "");
-      auto candidate_model_names = diag.remediation->facts.value(
-          "candidate_model_names", std::vector<std::string>{});
-      if (def) {
-        std::string expected_prefix =
-            "/pipeline/" + std::to_string(p_idx) + "/params/";
-        for (const auto& dep : def->model_dependencies) {
-          std::string model_reference_path =
-              expected_prefix + EscapeJsonPointer(dep.config_field);
-          if (diag.path == model_reference_path) {
-            for (const auto& cand_id : candidate_model_names) {
-              if (cand_id == model_name) continue;
-              ValidationFix fix;
-              fix.id = "use-model-" + std::to_string(++fix_counter);
-              fix.title = "使用模型 '" + cand_id + "'";
-              fix.effect = "将模型引用从 '" + model_name + "' 更改为 '" +
-                           cand_id + "'。";
-              fix.patch =
-                  nlohmann::json::array({{{"op", "test"},
-                                          {"path", model_reference_path},
-                                          {"value", model_name}},
-                                         {{"op", "replace"},
-                                          {"path", model_reference_path},
-                                          {"value", cand_id}}});
-              candidate_fixes.push_back(std::move(fix));
-            }
-            break;
-          }
-        }
+      const auto model_name = diag.remediation->facts.value("model_name", "");
+      for (const auto& candidate : diag.remediation->facts.value(
+               "candidate_model_names", std::vector<std::string>{})) {
+        if (candidate == model_name) continue;
+        ValidationFix fix;
+        fix.id = "use-model-" + std::to_string(++fix_counter);
+        fix.title = "使用模型 '" + candidate + "'";
+        fix.effect =
+            "将模型引用从 '" + model_name + "' 更改为 '" + candidate + "'。";
+        fix.patch = nlohmann::json::array(
+            {{{"op", "test"}, {"path", diag.path}, {"value", model_name}},
+             {{"op", "replace"}, {"path", diag.path}, {"value", candidate}}});
+        candidate_fixes.push_back(std::move(fix));
       }
     } else if (diag.remediation->cause ==
                    RemediationCause::kUnknownNodeReference ||
@@ -708,15 +618,11 @@ ValidationReport ExplainPipeline(
                    RemediationCause::kNoCompatibleInputSource ||
                diag.remediation->cause ==
                    RemediationCause::kMissingOutputProducer) {
-      const auto start = diag.path.rfind("/pipeline/", 0) == 0    ? 10U
-                         : diag.path.rfind("/io/output/", 0) == 0 ? 11U
-                                                                  : 0U;
-      if (!start) continue;
-      const auto container_path =
-          diag.path.substr(0, diag.path.find('/', start));
-      const nlohmann::json::json_pointer pointer(container_path);
-      if (!root.contains(pointer)) continue;
-      const auto& consumer = root.at(pointer);
+      auto entry = FindDocumentEntry(root, diag.path, "/pipeline/");
+      if (!entry) entry = FindDocumentEntry(root, diag.path, "/io/output/");
+      if (!entry) continue;
+      const auto& container_path = entry->path;
+      const auto& consumer = *entry->value;
       const auto source = diag.remediation->facts.value("bound_key", "");
       std::vector<std::string> candidates;
       const auto dot = source.find('.');
@@ -752,15 +658,8 @@ ValidationReport ExplainPipeline(
       }
     } else if (diag.remediation->cause ==
                RemediationCause::kDuplicateDependency) {
-      size_t idx_end = diag.path.find('/', 10);
-      size_t consumer_idx = std::stoul(diag.path.substr(10, idx_end - 10));
-      const auto& c_node = root["pipeline"][consumer_idx];
-      std::string dup_dep =
-          diag.remediation->facts.value("dependency_name", "");
-      std::string prefix =
-          "/pipeline/" + std::to_string(consumer_idx) + "/depends_on/";
-      if (diag.path.rfind(prefix, 0) == 0 && c_node.contains("depends_on") &&
-          c_node["depends_on"].is_array() && !dup_dep.empty()) {
+      const auto dup_dep = diag.remediation->facts.value("dependency_name", "");
+      if (!dup_dep.empty()) {
         ValidationFix fix;
         fix.id = "remove-duplicate-dep-" + std::to_string(++fix_counter);
         fix.title = "删除重复依赖 '" + dup_dep + "'";
@@ -772,16 +671,10 @@ ValidationReport ExplainPipeline(
       }
     } else if (diag.remediation->cause ==
                RemediationCause::kUnknownDependency) {
-      size_t idx_end = diag.path.find('/', 10);
-      size_t consumer_idx = std::stoul(diag.path.substr(10, idx_end - 10));
-      const auto& c_node = root["pipeline"][consumer_idx];
-      std::string prefix =
-          "/pipeline/" + std::to_string(consumer_idx) + "/depends_on/";
-      std::string dep_id = diag.remediation->facts.value("dependency_name", "");
-      auto candidate_node_names = diag.remediation->facts.value(
+      const auto dep_id = diag.remediation->facts.value("dependency_name", "");
+      const auto candidate_node_names = diag.remediation->facts.value(
           "candidate_node_names", std::vector<std::string>{});
-      if (diag.path.rfind(prefix, 0) == 0 && c_node.contains("depends_on") &&
-          c_node["depends_on"].is_array() && !candidate_node_names.empty()) {
+      if (!candidate_node_names.empty()) {
         for (const auto& cand_id : candidate_node_names) {
           ValidationFix fix;
           fix.id = "replace-dependency-" + std::to_string(++fix_counter);

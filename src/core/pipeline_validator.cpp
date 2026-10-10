@@ -27,7 +27,7 @@ void Add(ValidationReport* report, DiagnosticCode code, std::string path,
   report->diagnostics.push_back({code, std::move(path), std::move(message),
                                  "error", std::move(node_name), std::move(port),
                                  std::move(related), std::move(suggestions),
-                                 std::nullopt, nlohmann::json::object()});
+                                 nlohmann::json::object()});
 }
 
 nlohmann::json PortContractFacts(const PortContract& port) {
@@ -335,21 +335,16 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
 }
 
 ValidatedPipelinePlan ValidateAndPlanInternal(
-    const nlohmann::json& root, const PipelineCatalogSnapshot& catalog,
+    ParsedPipelineConfig config, const PipelineCatalogSnapshot& catalog,
     const PipelineIoBoundary& io_boundary) {
   ValidatedPipelinePlan plan;
+  plan.config = std::move(config);
   ValidationReport& report = plan.report;
 
   auto finish_plan = [&](ValidatedPipelinePlan& p) {
     p.report.ok = p.report.diagnostics.empty();
   };
 
-  PipelineDiagnostic parse_diag;
-  if (!ParsePipelineConfig(root, &plan.config, &parse_diag)) {
-    Add(&report, parse_diag.code, parse_diag.path, parse_diag.message);
-    finish_plan(plan);
-    return plan;
-  }
   const auto& parsed = plan.config;
   if (catalog.node_registry_has_conflict) {
     std::string message = "Node registry contains registration conflicts";
@@ -953,25 +948,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
 }  // namespace
 
-nlohmann::json ValidationFix::ToJson() const {
-  return {{"id", id},
-          {"title", title},
-          {"effect", effect},
-          {"patch", patch},
-          {"verification", verification}};
-}
-
-nlohmann::json ValidationRemediation::ToJson() const {
-  nlohmann::json fixes_json = nlohmann::json::array();
-  for (const auto& fix : fixes) {
-    fixes_json.push_back(fix.ToJson());
-  }
-  return {{"cause", RemediationCauseName(cause)},
-          {"summary", summary},
-          {"facts", facts},
-          {"fixes", std::move(fixes_json)}};
-}
-
 nlohmann::json ValidationDiagnostic::ToJson() const {
   nlohmann::json item = {{"code", DiagnosticCodeName(code)},
                          {"path", path},
@@ -982,9 +958,6 @@ nlohmann::json ValidationDiagnostic::ToJson() const {
   if (!related_nodes.empty()) item["related_nodes"] = related_nodes;
   if (!suggestions.empty()) item["suggestions"] = suggestions;
   if (!facts.empty()) item["facts"] = facts;
-  if (remediation.has_value()) {
-    item["remediation"] = remediation->ToJson();
-  }
   return item;
 }
 
@@ -1002,8 +975,20 @@ nlohmann::json ValidationReport::ToJson() const {
 
 ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
+  ParsedPipelineConfig config;
+  PipelineDiagnostic diagnostic;
+  if (!ParsePipelineConfig(root, &config, &diagnostic)) {
+    ValidatedPipelinePlan plan;
+    Add(&plan.report, diagnostic.code, diagnostic.path, diagnostic.message);
+    return plan;
+  }
+  return ValidateParsedAndPlan(std::move(config), io_boundary);
+}
+
+ValidatedPipelinePlan PipelineValidator::ValidateParsedAndPlan(
+    ParsedPipelineConfig config, const PipelineIoBoundary& io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
-  return ValidateAndPlanInternal(root, catalog, io_boundary);
+  return ValidateAndPlanInternal(std::move(config), catalog, io_boundary);
 }
 
 ValidationReport PipelineValidator::Validate(

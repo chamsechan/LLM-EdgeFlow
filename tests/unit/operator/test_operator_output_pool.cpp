@@ -49,6 +49,41 @@ class OperatorOutputPoolTest : public ::testing::Test {
   void SetUp() override { OperatorValueTypeRegistry::Instance().GlobalInit(); }
 };
 
+TEST_F(OperatorOutputPoolTest, OwnsCallbacksAfterSourceBindingIsDestroyed) {
+  int resets = 0;
+  int destroys = 0;
+  std::shared_ptr<OutputPoolState> pool;
+  std::string error;
+  {
+    auto binding = MakeBusinessSummaryBinding();
+    const auto reset = binding.reset_external;
+    binding.destroy_external = [&](OwnedExternalBlock* block) {
+      ++destroys;
+      block->Destroy();
+    };
+    ResolvedOutputPoolSpec spec;
+    spec.type = binding.canonical_suffix;
+    spec.capacities = {{"title", 7}, {"summary", 23}};
+    binding.reset_external = [&, reset](void* block,
+                                        const ResolvedOutputPoolSpec& spec) {
+      ++resets;
+      reset(block, spec);
+    };
+    ASSERT_EQ(
+        OutputPoolState::Create(spec.type, 1, spec, &binding, &pool, &error), 0)
+        << error;
+  }
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  auto* output = static_cast<BusinessSummaryOutput*>(block);
+  output->request_id = 42;
+  pool->ReturnBlock(block);
+  EXPECT_EQ(resets, 1);
+  EXPECT_EQ(output->request_id, 0u);
+  pool.reset();
+  EXPECT_EQ(destroys, 1);
+}
+
 TEST_F(OperatorOutputPoolTest,
        AuthoredOutputFieldsDriveBudgetAllocationAndReuse) {
   const auto binding = MakeBusinessSummaryBinding();

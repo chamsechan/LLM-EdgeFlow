@@ -98,7 +98,8 @@ TEST(RegistryAuthoringStartupTest,
   const std::string scenario(selected);
   std::string reason;
   if (scenario == "invalid_default") {
-    reason = "Default value outside bounds for field: count";
+    reason =
+        "Invalid default for count: Numeric value is below minimum 0.000000";
   } else if (scenario == "duplicate_member") {
     reason =
         "Same struct member bound to multiple config fields (count, other)";
