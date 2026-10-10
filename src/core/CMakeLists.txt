@@ -1,10 +1,3 @@
-target_sources(edgeflow_orchestration_objects PRIVATE
-  diagnostic_code.cpp
-  name_suggestions.cpp
-  node_definition_validation.cpp
-  node_registry.cpp
-  pipeline.cpp
-  pipeline_catalog.cpp
-  pipeline_config.cpp
-  pipeline_config_structure.cpp
-  pipeline_validator.cpp)
+file(GLOB_RECURSE EDGEFLOW_CORE_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+target_sources(edgeflow_orchestration_objects PRIVATE ${EDGEFLOW_CORE_SOURCES})

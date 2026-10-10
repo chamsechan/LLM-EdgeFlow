@@ -34,6 +34,14 @@
 内部构建系统使用；本仓库不在该位置保留转发目录或符号链接。
 `cmake` 命令、`CMakeLists.txt` 文件名，以及第三方安装包的 `lib/cmake/` 路径保持原约定。
 
+`src/` 各层实现目录、`src/cli/` 与 `demo/` 使用 `GLOB_RECURSE CONFIGURE_DEPENDS`
+递归收集 `.cpp`，普通实现文件增删无需修改 CMake，下次构建自动更新。
+Engine 的 `backends/` 单独归 Backend 目标；Adapter 的 `shared_algorithm_runtime.cpp`
+与 `src/log.cpp` 显式归组合根。CLI 的两个可执行入口及 Demo 的 `main.cpp` 从公共实现中排除，
+分别归自己的可执行目标。新增独立目标时仍须声明其入口和归属，不能混入已有目标。
+测试按 `tests/RuntimeTests.cmake` 的目录和命名规则收集；跨 runner、进程隔离、生成源码及
+可选 E2E 目标保留显式登记，新测试 suite 仍须被 CTest filter 覆盖。
+
 ## 头文件的三种使用范围
 
 | 使用者 | 位置与构建目标 | 约定 |
