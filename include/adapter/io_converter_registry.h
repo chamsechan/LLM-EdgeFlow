@@ -11,9 +11,12 @@
 
 namespace llm_edgeflow {
 
+struct OperatorValueTypeBinding;
+
 // Size fields inherit the platform hard maximum for validation and tools.
 std::vector<ConfigFieldDefinition> OutputConverterParameterFields(
-    const OutputConverterDefinition& definition);
+    const OutputConverterDefinition& definition,
+    const OperatorValueTypeBinding* allocator = nullptr);
 
 class IoConverterRegistry {
  public:

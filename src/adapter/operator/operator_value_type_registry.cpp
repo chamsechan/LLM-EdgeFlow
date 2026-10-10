@@ -613,4 +613,26 @@ OperatorValueTypeRegistry::OperatorValueTypeRegistry() {
   RegisterBuiltinBindings();
 }
 
+std::optional<OperatorValueTypeBinding>
+OperatorValueTypeRegistry::CopyBindingBySuffix(
+    const std::string& suffix) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = bindings_by_canonical_.find(suffix);
+  if (it == bindings_by_canonical_.end()) return std::nullopt;
+  return it->second;
+}
+
+std::optional<OperatorValueTypeBinding>
+OperatorValueTypeRegistry::CopyOutputBinding(
+    const std::string& suffix, const std::string& allocator) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto& entries =
+      allocator.empty() ? bindings_by_canonical_ : output_allocators_;
+  const auto it = entries.find(allocator.empty() ? suffix : allocator);
+  if (it == entries.end() || it->second.canonical_suffix != suffix ||
+      it->second.direction != IoDirection::kOutput)
+    return std::nullopt;
+  return it->second;
+}
+
 }  // namespace llm_edgeflow

@@ -832,6 +832,7 @@ TEST_F(IoConverterRegistryTest,
   ASSERT_TRUE(PrepareDeploymentDocument(valid, {}, &prepared, &diagnostic));
   ASSERT_FALSE(prepared.inputs.empty());
   ASSERT_FALSE(prepared.outputs.empty());
+  ASSERT_FALSE(prepared.parsed_pipeline.nodes.empty());
   auto invalid = valid;
   invalid["io"]["output"][0]["name"] = "unknown_service";
   const auto original = invalid;
@@ -839,6 +840,8 @@ TEST_F(IoConverterRegistryTest,
   EXPECT_TRUE(prepared.inputs.empty());
   EXPECT_TRUE(prepared.outputs.empty());
   EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
+  EXPECT_TRUE(prepared.parsed_pipeline.nodes.empty());
+  EXPECT_TRUE(prepared.parsed_pipeline.models.empty());
   EXPECT_TRUE(prepared.io_boundary.input_published_ports.empty());
   EXPECT_TRUE(prepared.io_boundary.output_consumed_ports.empty());
   EXPECT_EQ(invalid, original);

@@ -79,10 +79,12 @@ bool RegisterDefinition(Map* entries, const Definition& def, bool has_callback,
 }  // namespace
 
 std::vector<ConfigFieldDefinition> OutputConverterParameterFields(
-    const OutputConverterDefinition& def) {
+    const OutputConverterDefinition& def,
+    const OperatorValueTypeBinding* binding) {
   auto fields = def.params.Fields();
-  const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
-      def.type, def.slot.allocator);
+  if (!binding)
+    binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
+        def.type, def.slot.allocator);
   if (!binding) return fields;
   for (auto& parameter : fields) {
     for (const auto& [field, limit] :

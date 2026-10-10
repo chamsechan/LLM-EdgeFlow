@@ -1098,6 +1098,76 @@ TEST_F(DefinitionSchemaValidationTest,
   EXPECT_NE(it3->message.find("unknown exception"), std::string::npos);
 }
 
+TEST_F(DefinitionSchemaValidationTest,
+       DefaultsAndSuppliedValuesShareConstraints) {
+  const auto check = [](ConfigFieldDefinition field,
+                        const nlohmann::json& value, bool valid) {
+    SCOPED_TRACE(ConfigValueKindName(field.kind));
+    SCOPED_TRACE(value.dump());
+    field.default_value = value;
+    std::string error;
+    EXPECT_EQ(ValidateConfigFieldDefinitions({field}, &error), valid) << error;
+    nlohmann::json normalized;
+    EXPECT_EQ(ValidateAndNormalizeFields({field}, nlohmann::json::object(),
+                                         &normalized, nullptr),
+              valid);
+    field.default_value = nullptr;
+    EXPECT_EQ(ValidateAndNormalizeFields({field}, {{field.name, value}},
+                                         &normalized, nullptr),
+              valid);
+  };
+  for (const auto& item :
+       std::vector<std::pair<ConfigValueKind, nlohmann::json>>{
+           {ConfigValueKind::kString, "text"},
+           {ConfigValueKind::kInteger, 4},
+           {ConfigValueKind::kNumber, 0.5},
+           {ConfigValueKind::kBoolean, true},
+           {ConfigValueKind::kObject, nlohmann::json::object()},
+           {ConfigValueKind::kMap, nlohmann::json::object()},
+           {ConfigValueKind::kArray, nlohmann::json::array()}}) {
+    ConfigFieldDefinition field;
+    field.name = "value";
+    field.kind = item.first;
+    check(field, item.second, true);
+    check(field,
+          item.first == ConfigValueKind::kString ? nlohmann::json(1)
+                                                 : nlohmann::json("bad"),
+          false);
+  }
+  ConfigFieldDefinition field;
+  field.name = "value";
+  field.kind = ConfigValueKind::kString;
+  field.enum_values = {"fast", "slow"};
+  check(field, "fast", true);
+  check(field, "other", false);
+  field.enum_values.clear();
+  for (auto kind : {ConfigValueKind::kInteger, ConfigValueKind::kNumber}) {
+    field.kind = kind;
+    field.minimum = -9007199254740992.0;
+    field.maximum = 9007199254740992.0;
+    check(field, int64_t{9007199254740992}, true);
+    check(field, uint64_t{9007199254740993}, false);
+    check(field, int64_t{-9007199254740993}, false);
+    check(field, std::numeric_limits<uint64_t>::max(), false);
+  }
+  field.minimum.reset();
+  field.maximum.reset();
+  for (auto kind : {ConfigValueKind::kNumber, ConfigValueKind::kJson}) {
+    field.kind = kind;
+    check(field, std::numeric_limits<double>::infinity(), false);
+    check(field, std::numeric_limits<double>::quiet_NaN(), false);
+  }
+  field.kind = ConfigValueKind::kInteger;
+  field.minimum = 0;
+  field.maximum = 2;
+  ConfigFieldDefinition array;
+  array.name = "values";
+  array.kind = ConfigValueKind::kArray;
+  array.items = std::make_shared<const ConfigFieldDefinition>(field);
+  check(array, nlohmann::json::array({0, 2}), true);
+  check(array, nlohmann::json::array({0, 3}), false);
+}
+
 TEST_F(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
   const std::vector<ConfigFieldDefinition> fields = {
       {"value", ConfigValueKind::kInteger, true, nullptr, -9007199254740992.0,
