@@ -5,6 +5,7 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "adapter/deployment_preparation.h"
@@ -239,6 +240,167 @@ TEST(PipelineValidatorTest, UnknownConfigFieldSuggestionsAreRanked) {
   ASSERT_FALSE(d->suggestions.empty());
   EXPECT_EQ(d->suggestions.front(), "categories");
   EXPECT_EQ(d->remediation->facts["candidate_fields"], d->suggestions);
+}
+
+TEST(PipelineValidatorTest, ExplainRepairsUnknownFieldInsideRuleArray) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  auto& root = fixture.neutral_pipeline_json;
+  auto& rules = root["pipeline"][0]["params"]["rules"];
+  rules = {{{"id", "vip"},
+            {"pattern", "VIP"},
+            {"category", "PRIORITY"},
+            {"score", 0.75}},
+           {{"id", "ordinary"},
+            {"pattern", "check"},
+            {"category", "ORDINARY"},
+            {"score", 0.5}}};
+  const auto expected = root;
+  ASSERT_TRUE(PipelineValidator::Validate(root, fixture.io_boundary).ok);
+  rules[0]["patern"] = rules[0]["pattern"];
+  rules[0].erase("pattern");
+  const auto basic = PipelineValidator::Validate(root, fixture.io_boundary);
+  const std::string path = "/pipeline/0/params/rules/0/patern";
+  const auto* basic_diagnostic =
+      FindDiagnostic(basic, DiagnosticCode::kUnknownConfigField, path);
+  ASSERT_NE(basic_diagnostic, nullptr) << basic.ToJson().dump(2);
+  ASSERT_FALSE(basic_diagnostic->suggestions.empty());
+  EXPECT_EQ(basic_diagnostic->suggestions.front(), "pattern");
+  EXPECT_EQ(std::find(basic_diagnostic->suggestions.begin(),
+                      basic_diagnostic->suggestions.end(), "rules"),
+            basic_diagnostic->suggestions.end());
+
+  const auto report = ExplainPipeline(root, fixture.io_boundary);
+  const auto* diagnostic =
+      FindDiagnostic(report, DiagnosticCode::kUnknownConfigField, path);
+  ASSERT_NE(diagnostic, nullptr) << report.ToJson().dump(2);
+  ASSERT_TRUE(diagnostic->remediation.has_value());
+  const auto& remediation = *diagnostic->remediation;
+  EXPECT_EQ(remediation.facts.at("field"), "patern");
+  EXPECT_EQ(remediation.facts.at("candidate_fields"),
+            basic_diagnostic->suggestions);
+  ASSERT_FALSE(remediation.fixes.empty());
+  const auto& fix = remediation.fixes.front();
+  EXPECT_EQ(fix.verification, "pipeline_valid");
+  EXPECT_TRUE(std::any_of(fix.patch.begin(), fix.patch.end(),
+                          [&](const auto& operation) {
+                            return operation.value("op", "") == "move" &&
+                                   operation.value("from", "") == path &&
+                                   operation.value("path", "") ==
+                                       "/pipeline/0/params/rules/0/pattern";
+                          }));
+  const auto patched = root.patch(fix.patch);
+  EXPECT_EQ(patched, expected);
+  const auto verified =
+      PipelineValidator::Validate(patched, fixture.io_boundary);
+  EXPECT_TRUE(verified.ok) << verified.ToJson().dump(2);
+}
+
+TEST(PipelineValidatorTest, ExplainRepairsFieldInsideMapWithEscapedKey) {
+  auto fixture = LoadRegistrationFixture(
+      "demo/fixtures/mock/pipeline_entity_extract_custom.json");
+  auto& root = fixture.neutral_pipeline_json;
+  auto& generator = root["pipeline"][0];
+  generator["type"] = "llm_generate";
+  generator["params"] = {{"bind_model", "entity_llm"},
+                         {"endpoints",
+                          {{"answer/~draft", {{"prompt", "Answer: {{input}}"}}},
+                           {"untouched", {{"prompt", "Keep: {{input}}"}}}}}};
+  root["pipeline"][1]["inputs"]["text"] = "generate_entities.text";
+  const auto expected = root;
+  ASSERT_TRUE(PipelineValidator::Validate(root, fixture.io_boundary).ok);
+  auto& endpoint = generator["params"]["endpoints"]["answer/~draft"];
+  endpoint["promt"] = endpoint["prompt"];
+  endpoint.erase("prompt");
+  const std::string parent = "/pipeline/0/params/endpoints/answer~1~0draft/";
+  const auto basic = PipelineValidator::Validate(root, fixture.io_boundary);
+  const auto* basic_diagnostic = FindDiagnostic(
+      basic, DiagnosticCode::kUnknownConfigField, parent + "promt");
+  ASSERT_NE(basic_diagnostic, nullptr) << basic.ToJson().dump(2);
+  EXPECT_EQ(basic_diagnostic->suggestions, std::vector<std::string>{"prompt"});
+
+  const auto report = ExplainPipeline(root, fixture.io_boundary);
+  const auto* diagnostic = FindDiagnostic(
+      report, DiagnosticCode::kUnknownConfigField, parent + "promt");
+  ASSERT_NE(diagnostic, nullptr) << report.ToJson().dump(2);
+  ASSERT_TRUE(diagnostic->remediation.has_value());
+  const auto& remediation = *diagnostic->remediation;
+  EXPECT_EQ(remediation.facts.at("field"), "promt");
+  EXPECT_EQ(remediation.facts.at("candidate_fields"),
+            std::vector<std::string>{"prompt"});
+  ASSERT_EQ(remediation.fixes.size(), 1u);
+  const auto& fix = remediation.fixes.front();
+  EXPECT_EQ(fix.verification, "pipeline_valid");
+  EXPECT_TRUE(std::any_of(
+      fix.patch.begin(), fix.patch.end(), [&](const auto& operation) {
+        return operation.value("op", "") == "move" &&
+               operation.value("from", "") == parent + "promt" &&
+               operation.value("path", "") == parent + "prompt";
+      }));
+  const auto patched = root.patch(fix.patch);
+  EXPECT_EQ(patched, expected);
+  const auto verified =
+      PipelineValidator::Validate(patched, fixture.io_boundary);
+  EXPECT_TRUE(verified.ok) << verified.ToJson().dump(2);
+}
+
+TEST(PipelineValidatorTest, ExplainDoesNotOverwriteExistingNestedField) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  auto& root = fixture.neutral_pipeline_json;
+  root["pipeline"][0]["params"]["rules"] = {
+      {{"pattern", "keep"}, {"patern", "discard"}, {"category", "PRIORITY"}},
+      {{"pattern", "untouched"}, {"category", "ORDINARY"}}};
+  const auto original = root;
+  const auto report = ExplainPipeline(root, fixture.io_boundary);
+  const auto* diagnostic =
+      FindDiagnostic(report, DiagnosticCode::kUnknownConfigField,
+                     "/pipeline/0/params/rules/0/patern");
+  ASSERT_NE(diagnostic, nullptr) << report.ToJson().dump(2);
+  ASSERT_TRUE(diagnostic->remediation.has_value());
+  EXPECT_EQ(diagnostic->remediation->facts.at("field"), "patern");
+  ASSERT_FALSE(diagnostic->suggestions.empty());
+  EXPECT_EQ(diagnostic->suggestions.front(), "pattern");
+  for (const auto& fix : diagnostic->remediation->fixes) {
+    SCOPED_TRACE(fix.id);
+    auto patched = root.patch(fix.patch);
+    const auto& rule = patched["pipeline"][0]["params"]["rules"][0];
+    EXPECT_EQ(rule.at("pattern"), "keep");
+    EXPECT_EQ(rule.at("category"), "PRIORITY");
+    const auto verified =
+        PipelineValidator::Validate(patched, fixture.io_boundary);
+    EXPECT_TRUE(verified.ok) << verified.ToJson().dump(2);
+    patched["pipeline"][0]["params"]["rules"][0] =
+        original["pipeline"][0]["params"]["rules"][0];
+    EXPECT_EQ(patched, original);
+  }
+  EXPECT_EQ(root, original);
+}
+
+TEST(PipelineValidatorTest, NestedRangeAndTypeRemediationUseLeafDefinition) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  auto& root = fixture.neutral_pipeline_json;
+  root["pipeline"][0]["params"]["rules"] = {
+      {{"pattern", "VIP"}, {"score", 0.75}}};
+  for (const auto& invalid :
+       std::vector<std::pair<nlohmann::json, DiagnosticCode>>{
+           {-0.25, DiagnosticCode::kConfigFieldRange},
+           {"invalid", DiagnosticCode::kConfigFieldType}}) {
+    SCOPED_TRACE(invalid.first.dump());
+    root["pipeline"][0]["params"]["rules"][0]["score"] = invalid.first;
+    const auto report = ValidateWithRemediation(root, fixture.io_boundary);
+    const auto* diagnostic = FindDiagnostic(report, invalid.second,
+                                            "/pipeline/0/params/rules/0/score");
+    ASSERT_NE(diagnostic, nullptr) << report.ToJson().dump(2);
+    ASSERT_TRUE(diagnostic->remediation.has_value());
+    const auto& remediation = *diagnostic->remediation;
+    EXPECT_EQ(remediation.cause, RemediationCause::kInvalidConfigValue);
+    EXPECT_EQ(remediation.facts.at("field"), "score");
+    EXPECT_EQ(remediation.facts.at("expected_type"), "number");
+    EXPECT_EQ(remediation.facts.at("minimum"), 0);
+    EXPECT_EQ(remediation.facts.at("maximum"), 1);
+  }
 }
 
 TEST(PipelineValidatorTest, UnknownNodeSoleProducerSuppressesConsumerCascade) {

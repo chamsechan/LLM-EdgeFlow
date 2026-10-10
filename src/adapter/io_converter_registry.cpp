@@ -166,12 +166,18 @@ bool IoConverterRegistry::Audit(std::vector<std::string>* out_errors) const {
                     IoDirection::kInput, &errors);
   }
   for (const auto& def : outputs) {
+    AuditDefinition(def, values.GetBindingBySuffix(def.type),
+                    IoDirection::kOutput, &errors);
     const auto* value = values.GetOutputBinding(def.type, def.slot.allocator);
-    AuditDefinition(def, value, IoDirection::kOutput, &errors);
-    if (!value) continue;
     const auto fail = [&](const std::string& message) {
       errors.push_back(def.Label() + ": " + message);
     };
+    if (!value) {
+      fail("No registered platform binding for the output allocator");
+      continue;
+    }
+    if (value->external_c_type_name != def.slot.type_id)
+      fail("Allocator type_id does not match the platform struct");
     if (def.slot.metadata_count > value->output_layout.max_metadata_elements ||
         (def.slot.metadata_count == 0) != (def.slot.metadata_type_id == 0) ||
         (def.slot.metadata_count &&

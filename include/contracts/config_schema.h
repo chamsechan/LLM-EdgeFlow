@@ -43,6 +43,47 @@ struct ConfigFieldDefinition {
   ConfigFieldDefinition() = default;
 };
 
+// Resolve a validation path through declared object fields and container items.
+// JSON Pointer decodes map keys containing '/' or '~' before lookup.
+inline const ConfigFieldDefinition* FindConfigField(
+    const std::vector<ConfigFieldDefinition>& fields,
+    nlohmann::json::json_pointer path) {
+  std::vector<std::string> parts;
+  while (!path.empty()) {
+    parts.push_back(path.back());
+    path.pop_back();
+  }
+  const ConfigFieldDefinition* current = nullptr;
+  for (auto part = parts.rbegin(); part != parts.rend(); ++part) {
+    if (current && (current->kind == ConfigValueKind::kArray ||
+                    current->kind == ConfigValueKind::kMap)) {
+      current = current->items.get();
+    } else {
+      const auto* members = !current          ? &fields
+                            : current->fields ? &*current->fields
+                                              : nullptr;
+      if (!members) return nullptr;
+      current = nullptr;
+      for (const auto& field : *members) {
+        if (field.name == *part) {
+          current = &field;
+          break;
+        }
+      }
+    }
+    if (!current) return nullptr;
+  }
+  return current;
+}
+
+inline const std::vector<ConfigFieldDefinition>* FindConfigObjectFields(
+    const std::vector<ConfigFieldDefinition>& fields,
+    const nlohmann::json::json_pointer& path) {
+  if (path.empty()) return &fields;
+  const auto* field = FindConfigField(fields, path);
+  return field && field->fields ? &*field->fields : nullptr;
+}
+
 inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
   switch (kind) {
     case ConfigValueKind::kString:

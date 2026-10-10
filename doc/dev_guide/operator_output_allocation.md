@@ -5,7 +5,8 @@
 
 ## 选择转换器与参数
 
-Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。每项只允许 `type`、`name`、可选 `params`。
+Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。输入项只允许 `type`、`name`、可选 `params`；
+输出项还通过 `inputs` 为转换器的每个必填逻辑端口指定 `节点名.端口名` 或 `input.端口名` 来源。
 `type` 是宿主 map key 的后缀；`name` 对应平台 `service_type` 的业务取值。每个方向的 `(type, name)`
 唯一，每份登记只有一个外部槽。`common` 是默认处理的保留名，查找时仍须显式选择，不自动回退。
 
@@ -14,7 +15,10 @@ Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。每项只允
   "io": {
     "input": [{"type": "doc_in", "name": "doc_qa"}],
     "output": [{"type": "doc_out", "name": "doc_qa",
-                "params": {"answer_text_max_bytes": 4095}}]
+                "params": {"answer_text_max_bytes": 4095},
+                "inputs": {"answer_text": "generate_answer.text",
+                           "intent": "match_intent.matches",
+                           "chunk_count": "chunk_docs.chunk_counts"}}]
   }
 }
 ```
@@ -115,7 +119,9 @@ RegisterBinding(MakePooledOutputBinding<SummaryOutput>(
    登记的逆序执行。分配器不同的内存必须登记匹配的 deleter，避免同时递归释放和
    逐项释放同一个指针。
 
-默认实现和命名方案必须声明相同的外层类型名称；命名方案拥有自己的参数校验、布局、
+默认实现和命名方案必须声明相同的外层类型名称。`service_type` 的成员声明及读写回调
+统一来自宿主 ValueType 登记，命名方案无需重复声明；更换布局不改变转换器的业务值要求。
+命名方案拥有自己的参数校验、布局、
 预算和生命周期回调。注册必须在 Operator Init 前完成，重复标识、类型不兼容和缺失
 必要回调会被拒绝。默认的 `CompanyAny` 数值类型表不会因此自动获得任意指针树能力。
 

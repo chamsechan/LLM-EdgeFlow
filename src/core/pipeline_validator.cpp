@@ -199,15 +199,18 @@ bool ValidateAndNormalizeConfig(
         case ConfigFieldErrorKind::kNotAnObject:
           diag.code = DiagnosticCode::kConfigFieldType;
           break;
-        case ConfigFieldErrorKind::kUnknownField:
+        case ConfigFieldErrorKind::kUnknownField: {
           diag.code = DiagnosticCode::kUnknownConfigField;
-          for (const auto& field : schema) {
-            diag.suggestions.push_back(field.name);
+          const nlohmann::json::json_pointer pointer(err.path);
+          if (const auto* fields =
+                  FindConfigObjectFields(schema, pointer.parent_pointer())) {
+            for (const auto& field : *fields)
+              diag.suggestions.push_back(field.name);
           }
-          diag.suggestions = RankByEditDistance(
-              err.path.substr(err.path.find_last_of('/') + 1),
-              std::move(diag.suggestions));
+          diag.suggestions =
+              RankByEditDistance(pointer.back(), std::move(diag.suggestions));
           break;
+        }
         case ConfigFieldErrorKind::kMissingField:
           diag.code = DiagnosticCode::kMissingConfigField;
           break;

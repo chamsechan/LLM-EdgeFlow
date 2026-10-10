@@ -24,6 +24,7 @@
 #include "contracts/registry_conflicts.h"
 #include "core/pipeline_config.h"
 #include "edgeflow/operator/interface.h"
+#include "tests/support/operator_test_fixture.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
@@ -45,8 +46,6 @@ const bool registered_counting_allocator = [] {
         out.service_type = 0;
         out.status_code = 0;
       });
-  SetRequestIdMember(&binding, &CompanyOperatorEntityOutput::request_id);
-  SetServiceTypeMember(&binding, &CompanyOperatorEntityOutput::service_type);
   binding.normalize_parameters = MakeOutputParameterParser<LayoutParams>(
       [](const std::string& text, LayoutParams* params, std::string* error) {
         ++allocator_parse_calls;
@@ -272,6 +271,107 @@ TEST_F(IoConverterRegistryTest, ServiceDeclarationMatchesHostMembersAndCommon) {
   common.service_type.reset();
   ASSERT_TRUE(registry.RegisterOutputConverter(common));
   EXPECT_TRUE(registry.Audit());
+}
+
+TEST_F(IoConverterRegistryTest,
+       NamedAllocatorUsesHostServiceDeclarationForAudit) {
+  ASSERT_TRUE(registered_counting_allocator);
+  auto& registry = IoConverterRegistry::Instance();
+  for (const bool common : {false, true}) {
+    for (const bool declared_service : {false, true}) {
+      SCOPED_TRACE(common);
+      SCOPED_TRACE(declared_service);
+      registry.ClearForTesting();
+      ASSERT_TRUE(registry.RegisterInputConverter(TestInput()));
+      auto output = TestOutput();
+      output.name = common ? kCommonIoName : "named_layout_service";
+      output.slot.allocator = "unit_counting_allocator";
+      output.slot.allocator_params = R"({"marker":7})";
+      if (!declared_service) output.service_type.reset();
+      ASSERT_TRUE(registry.RegisterOutputConverter(output));
+      if (common != declared_service) {
+        std::vector<std::string> errors;
+        EXPECT_TRUE(registry.Audit(&errors))
+            << ::testing::PrintToString(errors);
+      } else {
+        ExpectAuditFailure(output.Label(), "service_type");
+      }
+    }
+  }
+}
+
+TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
+  ASSERT_TRUE(registered_counting_allocator);
+  const auto input = std::find_if(
+      saved_inputs_.begin(), saved_inputs_.end(), [](const auto& def) {
+        return def.type == "entity_in" && def.name == "entity_extract";
+      });
+  const auto output = std::find_if(
+      saved_outputs_.begin(), saved_outputs_.end(), [](const auto& def) {
+        return def.type == "entity_out" && def.name == "entity_extract";
+      });
+  ASSERT_NE(input, saved_inputs_.end());
+  ASSERT_NE(output, saved_outputs_.end());
+  auto selected_output = *output;
+  selected_output.slot.allocator = "unit_counting_allocator";
+  selected_output.slot.allocator_params = R"({"marker":7})";
+  auto& registry = IoConverterRegistry::Instance();
+  registry.ClearForTesting();
+  ASSERT_TRUE(registry.RegisterInputConverter(*input));
+  ASSERT_TRUE(registry.RegisterOutputConverter(selected_output));
+  const nlohmann::json document = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "entity_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"name", "parse"},
+         {"type", "structured_json_parse"},
+         {"inputs", {{"text", "input.sentence_text"}}},
+         {"params", {{"failure_policy", "fail"}}}}}}};
+  const auto directory =
+      fs::temp_directory_path() /
+      ("edgeflow_named_allocator_process_" + std::to_string(getpid()));
+  fs::create_directories(directory);
+  std::ofstream(directory / "pipeline.json") << document;
+  std::ofstream(directory / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0) << operator_api::GetOperatorLastError();
+  test_support::ScopedTestOperator instance(ops);
+  ASSERT_EQ(instance.Create("pipeline.conf", directory.string()), 0)
+      << instance.create_diagnostic();
+  const std::string text = R"([{"name":"Alice","type":"PERSON"}])";
+  CompanyString string{static_cast<int32_t>(text.size()),
+                       const_cast<char*>(text.data())};
+  CompanyOperatorEntityInput request{};
+  request.request_id = 7001;
+  request.service_type = kMockServiceEntityExtract;
+  request.sentence_text = &string;
+  operator_api::NamedIoBatch inputs(1);
+  inputs[0]["channel.entity_in"] =
+      operator_api::MakeBorrowedOperatorInput(&request);
+  operator_api::NamedIoBatch outputs(1);
+  outputs[0]["channel.entity_out"] = nullptr;
+  ASSERT_EQ(ops.Process(instance.get(), inputs, outputs), 0)
+      << operator_api::GetOperatorLastError();
+  const auto* result = static_cast<const CompanyOperatorEntityOutput*>(
+      outputs[0].at("channel.entity_out").get());
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ(result->request_id, request.request_id);
+  EXPECT_EQ(result->service_type, kMockServiceEntityExtract);
+  EXPECT_EQ(result->status_code, 0);
+  ASSERT_NE(result->entities_json, nullptr);
+  EXPECT_EQ(nlohmann::json::parse(std::string(result->entities_json->data,
+                                              result->entities_json->length)),
+            nlohmann::json::parse(text));
+  outputs.clear();
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
+  EXPECT_EQ(ops.DeInit(), 0) << operator_api::GetOperatorLastError();
+  fs::remove_all(directory);
 }
 
 TEST_F(IoConverterRegistryTest, LogicalPortsMustBeNonemptyTypedAndUnique) {
