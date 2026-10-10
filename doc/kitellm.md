@@ -147,7 +147,7 @@ vision.mmproj，路径相对运行 JSON 所在目录，只允许其目录内的�
 ```bash
 LLM_EDGEFLOW_TEST_KITELLM_MODEL="$PWD/configs/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
 LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL="$PWD/configs/SmolVLM-256M-Instruct-Q8_0.gguf" \
-LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG=kite_vision_run.json \
+LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG="$PWD/configs/kite_vision_run.json" \
 LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 \
   sh -c 'cd build/variants/kite-cpu && ctest --output-on-failure -j4'
 ```
