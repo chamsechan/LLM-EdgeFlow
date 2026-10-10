@@ -65,8 +65,8 @@ Process 在解码前核对 `service_type`，不一致整批失败，诊断包含
 
 当前模拟平台的结构在
 [`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)，traits、字符串和
-metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/platform_value_binding.h)，
-binding 在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/operator_builtin_value_types.cpp)。
+metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/operator/mock/platform_value_binding.h)，
+binding 在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/mock/operator_builtin_value_types.cpp)。
 其他平台使用自己的 binding 文件：核对真实类型、成员、长度单位、枚举与所有权，并连接
 [`io_values.h`](../../include/adapter/io_values.h) 中内容语义相同的自有值。平台类型和成员访问只存在于
 binding 实现；Converter 不包含平台头文件，不把宿主指针转成结构体。
@@ -194,6 +194,21 @@ Converter 不直接访问外层结构或嵌套指针。binding 保持指针与�
 
 框架在全部输出转换成功后发布 map；任何失败都会归还已获取的输出租约。调用方依照外部协议的
 枚举解释 `void*`，实际释放依据登记的所有权记录。输出引用不延长 handle 的有效期。
+
+## 中立 Runtime 与协议壳
+
+`SharedAlgorithmRuntime` 管理池实例、同步执行、租约回滚和两阶段发布；平台 binding 保留具体载体的
+容量计算、分配、写入、重置与释放回调。`RuntimeOutputBatch.rows` 保留原始批内行位置，每个槽只声明
+已验证输出选择的 `output_index` 和租约值。调用前值必须为空，必填槽不得缺失，同一行不可重复选择槽。
+facade 自行验证这些条件，失败不修改输出批次；成功后全部租约一起发布。
+
+协议壳将平台槽位翻译成中立选择，接收成功批次后完成所有平台业务枚举写入，再移交外部指针。
+facade 不解析平台 key，不读取具体成员。本次沿用原有 `int` 返回值、诊断字符串和错误定义；
+协议壳保留既有错误映射，错误码中立化另行处理。
+
+中立 Runtime 的生命周期与现有 Operator 规则相同：调用者须先停止并等待 Process/Control，释放输出，
+再调用 `Close`。存在未归还输出时 Close 报错但仍销毁块；重复 Close 安全，关闭后拒绝执行。
+不支持 Close 与执行并发，不额外引入异步关闭语义。
 
 ## 宿主调用与生命周期
 

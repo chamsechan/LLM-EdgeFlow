@@ -1,4 +1,4 @@
-#include "adapter/operator/operator_error_mapping.h"
+#include "adapter/operator/mock/operator_error_mapping.h"
 
 #include "platform_mock/error_codes.h"
 

@@ -33,6 +33,19 @@ and displays or copies the result. Reusing a host struct does not imply compatib
    during creation; `options.Params<P>()` supplies the same typed values to all Process calls.
    `Effective()` reads declared members after Prepare, and omits unset optional members.
 
+The Operator entrypoints are protocol shells. `SharedAlgorithmRuntime` owns deployment
+resolution, validated plans, Converter scheduling, Pipeline execution, pool leases and atomic
+publication. Its `RuntimeCreateOptions`, `RuntimeInputBatch`, `RuntimeOutputBatch`,
+and `ControlRequest` contain no platform ABI types. Existing integer return codes and
+diagnostics are retained; error-code normalization is deferred.
+Platform bindings own concrete layout/ownership callbacks; the runtime uses only type-erased
+interfaces. The shell translates carrier keys and platform service values, retaining the
+existing error mapping. Mock Create/Control parsing and concrete binding implementations
+live under `src/adapter/operator/mock/`.
+The common value registry starts empty; a linked platform binding unit registers its own types.
+Mock bindings are development substitutes, not a second production contract. Keep row pairing
+and internal provenance; do not add an external request ID table.
+
 Integration resolves model `file` and `.File()` parameters relative to the Pipeline JSON
 directory before Core validation. Reject empty names, absolute/drive/UNC paths, every `..`
 component and symlink escape; allow missing files. Without a directory, check only the relative
@@ -63,7 +76,7 @@ always own pools and may omit host keys per row; their views retain batch row po
 are published together after successful encoding; failure returns all leases.
 
 The current mock platform has declarations in `include/platform_mock/`, traits and layout helpers
-in `adapter/platform_value_binding.h`, and bindings in `operator_builtin_value_types.cpp`.
+in `adapter/operator/mock/platform_value_binding.h`, and bindings in `operator_builtin_value_types.cpp`.
 A different platform supplies its own binding files, reusing neutral Converter values when content
 semantics match. Register matching `value_type` through `SetInputValue` / `SetOutputValue`.
 Declare actual service members with

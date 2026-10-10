@@ -38,7 +38,7 @@ Converter 只处理 `adapter/io_values.h` 中的请求自有值，不包含平�
 输入行函数接收 `const Value&`；输出行函数接收 `Value*`，直接赋值 `std::string`。
 多流输出组装中立值后调用 `WriteOutputValue`，由 binding 按真实池容量写入。
 平台布局、字符串表示、metadata 和业务枚举映射只在 binding 中处理；
-当前模拟平台的 traits、字符串和分配 helper 位于 `adapter/platform_value_binding.h`。
+当前模拟平台的 traits、字符串和分配 helper 位于 `adapter/operator/mock/platform_value_binding.h`。
 
 请求字段解析和最终协议组装留在 Converter；不向 Operator 中央分发添加业务分支，
 也不把这些操作放进 Demo、Node 或 Core。`type` 是宿主后缀，`name` 对应业务值；

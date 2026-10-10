@@ -17,9 +17,9 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/model_file_resolver.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "core/pipeline_catalog.h"
 #include "edgeflow/operator/interface.h"
@@ -825,6 +825,15 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
                    "Input batch size 65 exceeds effective batch limit 64");
       for (const auto& frame : outputs)
         EXPECT_EQ(frame.at("test.keyword_out"), nullptr);
+      // 保留原有校验顺序：先检查批次上限，再读取载体和解析输出 key。
+      outputs.front().clear();
+      EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
+      EXPECT_STREQ(GetOperatorLastError(),
+                   "Input batch size 65 exceeds effective batch limit 64");
+      inputs.front().begin()->second.reset();
+      EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
+      EXPECT_STREQ(GetOperatorLastError(),
+                   "Input batch size 65 exceeds effective batch limit 64");
     }
   }
 }
@@ -2760,7 +2769,7 @@ TEST_F(OperatorApiTest, OptionalOutputsPreserveEveryRowPosition) {
             0)
       << handle.create_diagnostic();
   EXPECT_EQ(nested_allocations - before,
-            10);  // Optional pool exists before any requested output.
+            10);  // 请求可选输出之前，对应的池已经存在。
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
   CompanyOperatorKeywordInput rows[] = {{kMockServiceKeywordMatch, &sentence},
@@ -2876,9 +2885,8 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
   }
   outputs.clear();
 
-  // A large response reaches the first pool, then fails the smaller second
-  // pool. This checks the capacities of the actual allocations as well as
-  // failure atomicity after one successful encode.
+  // 较大的响应可写入第一个池，但超过第二个池的容量。
+  // 此用例校验实际分配容量，并验证首个输出编码成功后仍能整体回滚。
   auto large_document = document;
   large_document["pipeline"][0]["params"]["template"] =
       nlohmann::json{{"value", std::string(5000, 'x')}}.dump();
@@ -2899,4 +2907,98 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
       std::string::npos);
   EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
   EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
+}
+
+TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
+  using namespace llm_edgeflow;
+  using test_support::ScopedTestOperator;
+  test_support::RegistryTestAccess::ScopedValueTypeState restore_bindings;
+  auto binding =
+      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("entity_out");
+  ASSERT_TRUE(binding);
+  const auto write_service = binding->write_service_type;
+  bool inject_failure = true;
+  int service_writes = 0;
+  std::vector<std::string> encoded_values;
+  binding->write_service_type = [&](void* raw, int32_t service) {
+    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(raw);
+    if (!value->entities_json)
+      throw std::runtime_error("Service callback received unencoded output");
+    EXPECT_GT(value->entities_json->length, 0);
+    encoded_values.emplace_back(value->entities_json->data,
+                                value->entities_json->length);
+    write_service(raw, service);
+    if (++service_writes == 2 && inject_failure)
+      throw std::runtime_error("Injected platform service translation failure");
+  };
+  test_support::RegistryTestAccess::SetValueBinding(std::move(*binding));
+
+  ScopedTempDirectory temp;
+  const std::string payload = R"({"value":"ok"})";
+  const nlohmann::json document = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "entity_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}}},
+          {{"type", "entity_out"},
+           {"name", "translate"},
+           {"inputs", {{"translation", "text.text"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"name", "text"},
+         {"type", "text_template"},
+         {"params", {{"template", payload}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"name", "parse"},
+         {"type", "structured_json_parse"},
+         {"params", {{"failure_policy", "fail"}}},
+         {"inputs", {{"text", "text.text"}}}}}}};
+  std::ofstream(temp.path() / "pipeline.json") << document;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  ScopedTestOperator handle(ops_);
+  ASSERT_EQ(handle.Create("pipeline.conf", temp.path().string(),
+                          ComputePlatform::kCpu, 1),
+            0)
+      << handle.create_diagnostic();
+  std::string text = "request";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorEntityInput row{kMockServiceEntityExtract, &sentence};
+  NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["request.entity_in"] = MakeBorrowedOperatorInput(&row);
+  outputs[0]["entity_extract.entity_out"] = {};
+  outputs[0]["translate.entity_out"] = {};
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_EXCEPTION);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("Injected platform service translation failure"),
+            std::string::npos);
+  ASSERT_EQ(service_writes, 2);
+  ASSERT_EQ(encoded_values.size(), 2u);
+  EXPECT_EQ(nlohmann::json::parse(encoded_values[0]),
+            nlohmann::json::parse(payload));
+  EXPECT_EQ(nlohmann::json::parse(encoded_values[1]),
+            nlohmann::json({{"translated", payload}}));
+  EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
+
+  inject_failure = false;
+  // 两个池的深度均为一；协议回调抛异常后，只有归还全部未发布租约，
+  // 后续重试才能成功。
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  EXPECT_EQ(service_writes, 4);
+  for (const auto& [name, service] :
+       std::vector<std::pair<std::string, int32_t>>{
+           {"entity_extract", kMockServiceEntityExtract},
+           {"translate", kMockServiceTranslate}}) {
+    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(
+        outputs[0].at(name + ".entity_out").get());
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->service_type, service);
+  }
+  outputs.clear();
+  EXPECT_EQ(handle.Close(), 0) << handle.close_diagnostic();
 }

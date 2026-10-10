@@ -8,9 +8,10 @@
 
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/mock/operator_builtin_value_types.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_value_type.h"
-#include "adapter/platform_value_binding.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/adapter_harness.h"
@@ -486,6 +487,7 @@ TEST(OperatorValueRegistryTest,
   std::optional<OperatorValueTypeBinding> allocator;
   {
     OperatorValueTypeRegistry registry;
+    RegisterMockOperatorBindings(registry);
     host = registry.CopyBindingBySuffix("entity_in");
     auto output = registry.CopyOutputBinding("entity_out", "");
     ASSERT_TRUE(host);
@@ -632,6 +634,7 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
 // 9. 独立 ValueTypeRegistry 实例与原子回滚测试
 TEST(OperatorValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
   OperatorValueTypeRegistry local_reg;
+  RegisterMockOperatorBindings(local_reg);
 
   // 1. 重复 canonical 必须 fail-closed
   OperatorValueTypeBinding bad_b1;
@@ -757,6 +760,7 @@ TEST(OperatorValueRegistryTest,
   bool completed = false;
   for (int step = 0; step < 4096; ++step) {
     OperatorValueTypeRegistry reg;
+    RegisterMockOperatorBindings(reg);
     const auto* original = reg.GetBindingBySuffix("keyword_out");
     ASSERT_NE(original, nullptr);
     OperatorValueTypeBinding binding = *original;
@@ -1022,6 +1026,7 @@ TEST(OperatorValueRegistryTest, OutputBudgetCallbackFailsClosed) {
 // 14. TSan 并发查询与冻结交错测试
 TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   OperatorValueTypeRegistry reg;
+  RegisterMockOperatorBindings(reg);
   std::atomic<bool> stop_flag{false};
 
   std::vector<std::thread> readers;

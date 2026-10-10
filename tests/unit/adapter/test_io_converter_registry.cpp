@@ -19,9 +19,9 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
 #include "adapter/io_values.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
-#include "adapter/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/registry_conflicts.h"
 #include "core/pipeline_config.h"
@@ -574,10 +574,9 @@ TEST_F(IoConverterRegistryTest,
   EXPECT_EQ(plan->outputs.front().pool_spec.Parameters<LayoutParams>().marker,
             7);
   std::unique_ptr<SharedAlgorithmRuntime> runtime;
-  ASSERT_EQ(SharedAlgorithmRuntime::CreateFromIoPlan(std::move(plan), 0,
-                                                     nullptr, &runtime, &error),
-            0)
-      << error;
+  const auto status = SharedAlgorithmRuntime::CreateFromIoPlan(
+      std::move(plan), RuntimeCreateOptions{}, &runtime, &error);
+  ASSERT_EQ(status, 0) << error;
   ASSERT_NE(runtime, nullptr);
   EXPECT_EQ(allocator_parse_calls.load(), before + 1);
 }

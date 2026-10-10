@@ -51,7 +51,7 @@ using ComputeOutputBlockPayloadBytesFn = std::function<bool(
  * @brief Operator 输出类型的容量与内存布局契约
  */
 struct OperatorOutputLayoutDescriptor {
-  // Logical string capacities; the binding owns their physical representation.
+  // 字符串的逻辑容量；具体存储形式由 binding 决定。
   std::unordered_map<std::string, OutputCapacityFieldConfig>
       string_capacity_fields;
   uint32_t max_metadata_elements = 0;
@@ -130,6 +130,7 @@ struct OwnedExternalBlock {
   }
 };
 
+// 载体字段及分配内存的所有权仅由具体 binding 回调解释。
 using ValidateExternalFn = std::function<int(
     const void* ptr, const InputLimits& limits, std::string* err)>;
 
@@ -224,7 +225,7 @@ void SetServiceTypeMember(OperatorValueTypeBinding* binding,
   }
 }
 
-// Bind a concrete platform carrier to one neutral Converter value type.
+// 将具体平台载体绑定到一种中立 Converter 值类型。
 template <typename Host, typename Value, typename Read>
 void SetInputValue(OperatorValueTypeBinding* binding, Read read) {
   static_assert(std::is_same_v<std::invoke_result_t<Read, const Host&>, Value>);

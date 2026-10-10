@@ -7,7 +7,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/pipeline_catalog.h"

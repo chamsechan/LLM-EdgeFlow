@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "adapter/io_converter_registry.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"

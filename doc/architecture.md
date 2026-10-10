@@ -33,7 +33,8 @@ graph TD
 
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
-        PlatformFacade["C++ Operator 门面 (operator_adapter.cpp)<br>• 命名 I/O 槽位校验与 ValueType 转换<br>• 有界输出池租约生命周期管理<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)"]
+        PlatformFacade["Operator 协议壳 (operator_adapter.cpp)<br>• ABI 参数与命名槽位翻译<br>• 平台 binding 与外部错误码映射<br>• 异常拦截屏障 (noexcept 安全防护)"]
+        RuntimeFacade["中立 Runtime (SharedAlgorithmRuntime)<br>• 部署校验、Pipeline 构建与执行<br>• Converter 调度与 Control<br>• 输出池、租约、两阶段发布与执行串行化"]
         Converters["I/O 转换注册 (io_converter_registry.cpp)<br>• 按 (type, name) 选择单槽 Converter<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
     end
 
@@ -98,8 +99,9 @@ graph TD
 
     %% 连接关系
     Caller <==|命名 I/O 批次 NamedIoBatch| PlatformFacade
-    PlatformFacade --> Converters
-    PlatformFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
+    PlatformFacade --> RuntimeFacade
+    RuntimeFacade --> Converters
+    RuntimeFacade -->|移交 Pipeline 计划 / 执行与控制| PipeCore
     Converters -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
@@ -116,7 +118,7 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class PlatformFacade,Converters integration;
+    class PlatformFacade,RuntimeFacade,Converters integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,VisionModel,WhisperModel,OnnxBackend,LlamaCpp,KiteLlm,WhisperCpp model_execution;
@@ -144,14 +146,26 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 接入适配层通过标准 C++ Operator 门面与共享算法运行时调度算法执行：
 
 ```text
-外部调用方 (NamedIoBatch) ──> OperatorFunc::Process ──> InputConverter ──> SharedAlgorithmRuntime
-                                                                             │
-                                                                             ▼
-                                                                        Pipeline (DAG)
-                                                                             │
-                                                                             ▼
-外部调用方 (获取已租用输出) <── 发布输出 <── OutputConverter <── 执行完成后
+外部调用方 → Operator 协议壳 → SharedAlgorithmRuntime → Pipeline (DAG)
+                 │                    │
+         ABI、载体与错误码翻译     Converter 调度、输出池、租约与整体发布
+                 │                    │
+外部调用方 ← 平台输出交付 ← RuntimeOutputBatch
 ```
+
+`SharedAlgorithmRuntime` 是 Integration 内部的中立 facade，不增加公开动态 ABI。
+`RuntimeCreateOptions` 提供自有路径、设备和平台名称；`RuntimeInputBatch` 使用类型擦除输入视图，
+`RuntimeOutputBatch` 按原始行和输出选择索引申请、接收租约；`ControlRequest` 提供内部命令和 JSON。
+部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipeline 执行和池生命周期归 facade。
+本次保留既有 `int` 返回值与诊断字符串，错误码中立化后置；协议壳沿用原有错误映射。
+
+协议壳解析具体 Create/Control 结构及输入输出 key，binding 负责载体校验、像素/字符串复制、
+布局分配、容量、重置与释放。facade 只调用类型擦除接口，不解释平台字段或所有权细节。
+全部输出编码成功后 facade 一次发布中立租约；外壳完成全部平台字段写入，再一次移交宿主输出。
+任何失败都不会向调用方发布部分结果。输入输出继续按行对应，不引入外部请求 ID 表。
+
+通用值类型注册表默认不含平台登记。当前 mock binding 翻译单元自行注册，只有链接该协议实现的
+开发构建才提供 mock 载体；更换协议壳和 binding 不需要修改 Core、Node、Model 或 Backend。
 
 - 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
@@ -160,7 +174,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   平台登记显式声明业务成员；Process 逐行检查服务值，按输入输出 vector 的同一行关联请求，
   不要求载体提供请求 ID。
   转换器 typed 端口组合成 Core 的必传 I/O 边界，见[输出分配方案](dev_guide/operator_output_allocation.md)。
-- 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
+- 组件调用关系：`外部调用方 → Operator 协议壳 → SharedAlgorithmRuntime → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
 - `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。任意二进制数据使用 `CompanyBuffer`。
