@@ -86,7 +86,7 @@ TEST(ConverterContractsTest, NineProductionInputContracts) {
        "ocr_invoice_qa",
        "CompanyFrame",
        kMockServiceOcrInvoiceQa,
-       {{"image", "ImageRefBatch"}},
+       {{"image", "ImageFrameBatch"}},
        {}},
       {"keyword_in",
        "keyword_match",

@@ -140,6 +140,17 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
 文件，核对真实头文件与内存所有权。Converter、Node、Model 和 Backend 不识别宿主结构。
 新增具有相同内容语义的布局应复用中立值及 Converter；业务协议变化仍由 Converter 处理。
 
+图像输入使用 RGB8 像素帧：平台 mock `CompanyFrame` 提供 `height`、`width`、字节步长
+`stride` 和 `data` 指针；调用方保证 `height * stride` 字节可读且在 `Process` 返回前不修改。
+binding 检查正尺寸、`stride >= width * 3`、非空指针及总字节数不超过 48 MiB（含行填充），
+随后复制到请求自有 `ImageInputValue.frame`。中立 `ImageFrame` 持有宽高、字节步长和
+`std::vector<uint8_t>`，`ImageFrameBatch` 逐项保留来源；Converter 与 Node 不解码图像。
+`vision_document` 接收中立帧，检查数据长度和 `max_pixels`（包括补齐后的像素数），
+按步长读取 RGB8，白色补齐到 `patch_size` 整数倍，再转为现有 `ImageTextInput.rgb_chw`。
+SDK / Model 不接收文件路径；Demo 的 `[IMAGE]` 文件仅用来构造宿主像素帧。
+当前布局是外网 mock，真实 DHPIPE SDK 的字段与像素格式映射仍须在内网 binding 中核对。
+
+
 ## 5. 统一 Demo 接入
 
 Demo 调用 SDK 的 `ResolveOperatorConfigIo` 做只读预检，取得有序的输入、输出载体条目；

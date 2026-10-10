@@ -1,9 +1,10 @@
+include(${PROJECT_SOURCE_DIR}/cmake_ext/StbImage.cmake)
 file(GLOB_RECURSE EDGEFLOW_DEMO_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 list(REMOVE_ITEM EDGEFLOW_DEMO_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
 add_library(edgeflow_demo_objects OBJECT ${EDGEFLOW_DEMO_SOURCES})
 target_link_libraries(edgeflow_demo_objects PRIVATE
-  edgeflow_internal_headers llm_edgeflow::internal_runtime)
+  edgeflow_internal_headers llm_edgeflow::internal_runtime edgeflow_stb_image)
 target_include_directories(edgeflow_demo_objects PRIVATE
   "${PROJECT_BINARY_DIR}/generated/internal")
 

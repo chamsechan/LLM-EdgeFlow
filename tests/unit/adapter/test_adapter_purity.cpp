@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -313,12 +314,25 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
       "od_out", "ocr_invoice_qa");
   ASSERT_NE(out_conv, nullptr);
 
-  std::string path_str = "/path/invoice.jpg";
+  std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0, 99, 88};
   std::string query_str = "Total amount?";
-  CompanyString cs_path{static_cast<int32_t>(path_str.size()), path_str.data()};
   CompanyString cs_query{static_cast<int32_t>(query_str.size()),
                          query_str.data()};
-  CompanyFrame frame{1005, kMockServiceOcrInvoiceQa, &cs_path, nullptr};
+  CompanyFrame frame{1005,   kMockServiceOcrInvoiceQa, 1, 2, 8, pixels.data(),
+                     nullptr};
+
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("frame");
+  ASSERT_NE(binding, nullptr);
+  InputLimits limits;
+  EXPECT_EQ(limits.max_image_bytes, 48U * 1024U * 1024U);
+  limits.max_image_bytes = pixels.size();
+  std::string error;
+  EXPECT_EQ(binding->validate_external(&frame, limits, &error), 0);
+  --limits.max_image_bytes;
+  EXPECT_EQ(binding->validate_external(&frame, limits, &error),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(error, "CompanyFrame pixels exceed max_image_bytes");
 
   ExternalInputBatchView in_view;
   in_view.count = 1;
@@ -336,6 +350,19 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   ASSERT_EQ(::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
                                                 &ctx, &status),
             0);
+
+  std::fill(pixels.begin(), pixels.end(), 0);
+  std::vector<uint8_t>().swap(pixels);
+  frame.data = nullptr;
+  const auto* images = ctx.Read<ImageFrameBatch>("image");
+  ASSERT_NE(images, nullptr);
+  ASSERT_EQ(images->size(), 1U);
+  EXPECT_EQ(images->front().req_id, 0U);
+  EXPECT_EQ(images->front().data.width, 2);
+  EXPECT_EQ(images->front().data.height, 1);
+  EXPECT_EQ(images->front().data.stride, 8U);
+  EXPECT_EQ(images->front().data.data,
+            (std::vector<uint8_t>{255, 0, 0, 0, 255, 0, 99, 88}));
 
   const auto* query_converter =
       IoConverterRegistry::Instance().FindInputConverter("string",

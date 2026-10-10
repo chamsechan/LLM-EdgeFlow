@@ -1,5 +1,5 @@
 # OCR 票据问答测试语料 ([IMAGE] 与 [PROMPT])
 [IMAGE]
-./data/invoice_01.jpg
+data/kite_invoice_sample.png
 [PROMPT]
 提取发票代码、号码与总金额

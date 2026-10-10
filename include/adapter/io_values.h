@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "contracts/inference_payloads.h"
+
 namespace llm_edgeflow {
 // Request-owned values at the platform binding / Converter boundary.
 // These describe content, never platform pointers, lengths or allocation.
@@ -11,7 +13,7 @@ struct TextInputValue {
   std::string sentence_text;
 };
 struct ImageInputValue {
-  std::string image_uri;
+  ImageFrame frame;
 };
 struct DocumentInputValue {
   std::string doc_text;

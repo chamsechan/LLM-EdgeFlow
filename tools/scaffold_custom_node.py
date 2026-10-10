@@ -33,7 +33,7 @@ CAPABILITY_MAP = {
     "llm": ("LlmCall", "TextBatch", "TextBatch", "Generate"),
     "embedding": ("EmbeddingCall", "TextBatch", "EmbeddingBatch", "Embed"),
     "asr": ("AsrCall", "AudioPcmBatch", "TextBatch", "Transcribe"),
-    "ocr": ("OcrCall", "ImageRefBatch", "OcrDocumentBatch", "Recognize"),
+    "ocr": ("OcrCall", "ImageFrameBatch", "OcrDocumentBatch", "Recognize"),
     "rerank": ("RerankCall", "QueryCandidatesBatch", "ScoreBatch", "Score"),
 }
 
@@ -324,8 +324,8 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
     def sample_value_for_type(t, index=1):
         if t == "TextBatch":
             return f'"sample_text_{index}"'
-        if t == "ImageRefBatch":
-            return f'"sample_image_{index}.jpg"'
+        if t == "ImageFrameBatch":
+            return f'ImageFrame{{{index}, 1, {index * 3}, std::vector<uint8_t>({index * 3}, 255)}}'
         if t == "AudioPcmBatch":
             return f'AudioPcmPayload{{std::vector<float>{{0.1f, 0.2f}}, 16000}}'
         if t == "QueryCandidatesBatch":
@@ -341,6 +341,7 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
     def payload_check(actual, batch_type, expected, label):
         # 用具名值避免聚合初始化的逗号进入 GoogleTest 宏参数。
         fields = {
+            "ImageFrameBatch": ("width", "height", "stride", "data"),
             "AudioPcmBatch": ("pcm_data", "sample_rate"),
             "QueryCandidatesBatch": ("query", "candidate"),
         }.get(batch_type, ())
@@ -622,11 +623,11 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
   EXPECT_EQ(output->at(0).sub_id, 0u);
   EXPECT_FLOAT_EQ(output->at(0).data, 0.95f);"""
     elif capability == "ocr":
-        expected_output_check = f"""  EXPECT_EQ(output->at(0).req_id, 1u);
+        expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
   EXPECT_EQ(output->at(0).sub_id, 0u);
-  EXPECT_EQ(output->at(0).data.combined_text, "ocr:" + std::string({sample_in_1}));
+  EXPECT_EQ(output->at(0).data.combined_text, "ocr:1");
   ASSERT_EQ(output->at(0).data.boxes.size(), 1u);
-  EXPECT_EQ(output->at(0).data.boxes[0].text, "ocr:" + std::string({sample_in_1}));"""
+  EXPECT_EQ(output->at(0).data.boxes[0].text, "ocr:1");"""
     elif capability == "asr":
         expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
   EXPECT_EQ(output->at(0).sub_id, 0u);

@@ -38,8 +38,8 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
-  ImageRefBatch images;
-  images.emplace_back(1, 0, "mock_invoice.jpg");
+  ImageFrameBatch images;
+  images.emplace_back(1, 0, ImageFrame{2, 1, 6, {255, 0, 0, 0, 255, 0}});
   ctx.Publish("images", images);
 
   EXPECT_EQ(node->Process(&ctx), 0);
@@ -49,8 +49,8 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
   ASSERT_NE(out_text, nullptr);
   ASSERT_EQ(out_doc->size(), 1u);
   ASSERT_EQ((*out_doc)[0].data.boxes.size(), 1u);
-  EXPECT_EQ((*out_doc)[0].data.combined_text, "recognized:mock_invoice.jpg");
-  EXPECT_EQ((*out_text)[0].data, "recognized:mock_invoice.jpg");
+  EXPECT_EQ((*out_doc)[0].data.combined_text, "recognized:2");
+  EXPECT_EQ((*out_text)[0].data, "recognized:2");
 }
 
 TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
@@ -69,8 +69,8 @@ TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
                               session_ctx_.get()));
 
-  ImageRefBatch images;
-  images.emplace_back(7, 2, "neutral-image-ref");
+  ImageFrameBatch images;
+  images.emplace_back(7, 2, ImageFrame{1, 1, 3, {255, 0, 0}});
 
   AlgContext count_ctx;
   count_ctx.Publish("images", images);

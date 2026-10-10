@@ -84,7 +84,7 @@ graph TD
             BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
             GeneratedEmbedModel["GeneratedTextEmbeddingModel<br>(generated token pooling / normalization)"]
             QwenModel["QwenCausalLmModel<br>(ChatML / provenance / protocol delegation)"]
-            VisionModel["VisionDocumentModel<br>(图像解码与识别指令)"]
+            VisionModel["VisionDocumentModel<br>(像素帧预处理与识别指令)"]
             WhisperModel["WhisperAsrModel<br>(音频校验与语言语义)"]
         end
 
@@ -216,7 +216,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
   5. 在目标构建已注册且协议、模型格式和设备均兼容的 Backend 之间切换，通过 JSON 模型条目的 `backend.type`、`file`、`backend.params` 完成；存在能力缺口时仍需扩展模型执行层。
 
 图像文档识别沿用 `ocr_detect → IOcrModel`：`VisionDocumentModel` 在模型执行层
-通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
+通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责像素帧预处理与识别指令，
 Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
 `boxes` 或置信度；Operator、DAG 端口和请求溯源遵守各层契约。
 

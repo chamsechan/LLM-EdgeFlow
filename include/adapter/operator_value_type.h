@@ -30,7 +30,7 @@ namespace llm_edgeflow {
 struct InputLimits {
   size_t max_text_bytes = input_limits::kMaxTextBytes;
   size_t max_doc_text_bytes = input_limits::kMaxDocTextBytes;
-  size_t max_image_uri_bytes = input_limits::kMaxImageUriBytes;
+  size_t max_image_bytes = input_limits::kMaxImageBytes;
   int32_t max_audio_pcm_samples =
       input_limits::kMaxAudioPcmSamples;  // 96 万个采样点
   size_t max_audio_pcm_bytes = input_limits::kMaxAudioPcmBytes;  // 10 MiB

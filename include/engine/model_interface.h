@@ -63,7 +63,8 @@ class ILlmModel : public IModel {
  */
 class IOcrModel : public IModel {
  public:
-  virtual int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+  virtual int Recognize(const ImageFrameBatch& images,
+                        OcrDocumentBatch* outputs,
                         std::string* diagnostic = nullptr) noexcept = 0;
 };
 

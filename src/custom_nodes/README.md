@@ -68,7 +68,7 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 - `ModelsOf` 中的 `Model` 根据成员类型绑定五种模型能力：`LlmCall`、`EmbeddingCall`、
   `AsrCall`、`OcrCall`、`RerankCall`。调用门面处理空批次、模型错误及保序校验。
   绑定写作 `Model("generator", "bind_model", &Models::generator)`，只传三个参数；框架按成员
-  能力生成引用 `models[].name` 的说明。模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageRefBatch`。
+  能力生成引用 `models[].name` 的说明。模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageFrameBatch`。
 - 同类型、保序的 compute 骨架可透传；异类型或派生输出保留明确失败的待实现入口。
   新内部批类型提供 `BlackboardTypeTraits`；平台 DTO 不进入 Node。
 
