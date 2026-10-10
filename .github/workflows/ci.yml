@@ -405,7 +405,7 @@ jobs:
         env:
           LLM_EDGEFLOW_TEST_KITELLM_DEMOS: "1"
           LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL: ${{ github.workspace }}/configs/SmolVLM-256M-Instruct-Q8_0.gguf
-          LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG: kite_vision_run.json
+          LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG: ${{ github.workspace }}/configs/kite_vision_run.json
           LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
         run: |
           test -s "${LLM_EDGEFLOW_TEST_KITELLM_MODEL}"
