@@ -394,8 +394,8 @@ class PipelineConfigTest : public ::testing::Test {
   }
 };
 
-// 1. 正例：生产与 Stage 7 fixture 配置全部 Parse/Build 通过
-TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
+// 正例：生产与 Demo fixture 配置全部 Parse/Build 通过
+TEST_F(PipelineConfigTest, ProductionAndDemoFixtureConfigsParseAndBuild) {
   const auto document_boundary = MakeTestBoundary(
       {{"input.doc_text", "TextBatch"}, {"input.query_text", "TextBatch"}},
       {{"generate_answer.text", "TextBatch"},
@@ -488,20 +488,6 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
   }
 }
 
-// 2. 每个节点仍然必须声明实例 id。
-TEST_F(PipelineConfigTest, RejectsPipelineWithoutId) {
-  nlohmann::json root = {
-      {"pipeline", nlohmann::json::array(
-                       {{{"type", "counting"}, {"params", {{"k", 1}}}},
-                        {{"type", "counting"}, {"params", {{"k", 2}}}}})}};
-
-  ParsedPipelineConfig parsed_cfg;
-  PipelineDiagnostic diag;
-  EXPECT_FALSE(ParsePipelineConfig(root, &parsed_cfg, &diag));
-  EXPECT_EQ(diag.code, DiagnosticCode::kMissingField);
-  EXPECT_EQ(diag.path, "/pipeline/0/name");
-}
-
 TEST_F(PipelineConfigTest,
        MissingDependenciesAndWorkerBudgetUseSimpleDefaults) {
   const nlohmann::json root = {
@@ -587,7 +573,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       DiagnosticCode::kUnknownField, "/models/0/unknown_model_key"});
   cases.push_back(NegativeTestCase{
-      "ModelMissingId",
+      "ModelMissingName",
       nlohmann::json{
           {"models",
            nlohmann::json::array({{{"type", "test"},
@@ -596,7 +582,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       DiagnosticCode::kMissingField, "/models/0/name"});
   cases.push_back(NegativeTestCase{
-      "ModelEmptyId",
+      "ModelEmptyName",
       nlohmann::json{
           {"models",
            nlohmann::json::array({{{"name", ""},
@@ -606,7 +592,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       DiagnosticCode::kFieldRange, "/models/0/name"});
   cases.push_back(NegativeTestCase{
-      "ModelDuplicateId",
+      "ModelDuplicateName",
       nlohmann::json{
           {"models",
            nlohmann::json::array({{{"name", "dup_m"},
@@ -620,12 +606,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       DiagnosticCode::kDuplicateModelName, "/models/1/name"});
   cases.push_back(NegativeTestCase{
-      "ModelMissingType",
-      nlohmann::json{{"models", nlohmann::json::array({{{"name", "m1"}}})},
-                     {"pipeline", valid_pipe}},
-      DiagnosticCode::kMissingField, "/models/0/type"});
-  cases.push_back(NegativeTestCase{
-      "ModelConfigNotObject",
+      "ModelParamsNotObject",
       nlohmann::json{
           {"models",
            nlohmann::json::array({{{"name", "m1"},
@@ -636,9 +617,9 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       DiagnosticCode::kFieldType, "/models/0/params"});
 
-  // --- Model/Backend 方言及混用校验 ---
+  // --- Model/Backend 结构校验 ---
   cases.push_back(NegativeTestCase{
-      "ModelBackendMissingModelType",
+      "ModelMissingType",
       nlohmann::json{{"models", nlohmann::json::array(
                                     {{{"name", "m1"},
                                       {"backend", {{"type", "onnxruntime"}}},
@@ -805,14 +786,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
 
   // --- DAG 校验 ---
   cases.push_back(NegativeTestCase{
-      "DagMissingId",
-      nlohmann::json{
-          {"pipeline",
-           nlohmann::json::array({{{"type", "counting"},
-                                   {"depends_on", nlohmann::json::array()}}})}},
-      DiagnosticCode::kMissingField, "/pipeline/0/name"});
-  cases.push_back(NegativeTestCase{
-      "DagMissingIdAndDependsOn",
+      "NodeMissingName",
       nlohmann::json{
           {"pipeline", nlohmann::json::array({{{"type", "counting"}}})}},
       DiagnosticCode::kMissingField, "/pipeline/0/name"});
@@ -1214,8 +1188,8 @@ TEST_F(PipelineConfigTest, WorkerBudgetSelectsExecutionMode) {
   }
 }
 
-// 8. Model/Backend 单一方言解析正例测试
-TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
+// Model/Backend 必填字段、可选参数与默认值解析
+TEST_F(PipelineConfigTest, ModelBackendFieldsAndParameterDefaults) {
   nlohmann::json root = {
       {"models",
        nlohmann::json::array({
