@@ -302,7 +302,7 @@ class DevRecipeTest(unittest.TestCase):
                 build_commands.append(command)
                 self.link_binary(DEMO, self.demo)
                 return subprocess.CompletedProcess(command, 0, "", "")
-            if Path(command[0]).name in ("edgeflow_test_nodes_runner", "test_common_nodes"):
+            if Path(command[0]).name == "edgeflow_test_nodes_runner":
                 listing = "CustomNodeCatalogTest.\n  prompt_guided_llm_BusinessExample\n"
                 output = listing if "--gtest_list_tests" in command else "[  PASSED  ] 1 test.\n"
                 return subprocess.CompletedProcess(command, 0, output, "")
@@ -322,7 +322,7 @@ class DevRecipeTest(unittest.TestCase):
         def execute(command, *args, **kwargs):
             if command[:2] == ["cmake", "--build"]:
                 return subprocess.CompletedProcess(command, 0, "", "")
-            if Path(command[0]).name in ("edgeflow_test_nodes_runner", "test_common_nodes"):
+            if Path(command[0]).name == "edgeflow_test_nodes_runner":
                 return subprocess.CompletedProcess(command, 0, "[  PASSED  ] 0 tests.\n", "")
             return real_run(command, *args, **kwargs)
 

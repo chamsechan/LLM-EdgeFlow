@@ -1325,16 +1325,4 @@ TEST(PipelineValidatorTest,
   EXPECT_TRUE(found_remove_b);
 }
 
-TEST(PipelineValidatorTest, BlackboardKeyAndBoundInputContracts) {
-  constexpr auto key = MakeBlackboardKey<TextBatch>("custom_key");
-  EXPECT_STREQ(key.name, "custom_key");
-  EXPECT_STREQ(key.type_id, "TextBatch");
-
-  const BlackboardKey<TextBatch> mismatched_key{"key", "WrongType"};
-  EXPECT_THROW((BoundInput<TextBatch>(mismatched_key)), std::invalid_argument);
-  EXPECT_THROW((BoundOutput<TextBatch>(mismatched_key)), std::invalid_argument);
-
-  EXPECT_NO_THROW((BoundInput<TextBatch>(key)));
-  EXPECT_NO_THROW((BoundOutput<TextBatch>(key)));
-}
 }  // namespace llm_edgeflow

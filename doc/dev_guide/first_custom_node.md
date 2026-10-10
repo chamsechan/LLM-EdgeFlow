@@ -164,7 +164,7 @@ flowchart LR
 ## 7. 从练习进入真实开发
 
 首次运行只需要两个业务函数。准备交付时，把业务断言加入现有节点测试；可参考
-[`test_common_nodes.cpp`](../../tests/unit/nodes/test_common_nodes.cpp) 中的
+[`test_node_authoring_examples.cpp`](../../tests/unit/nodes/test_node_authoring_examples.cpp) 中的
 `StarterTextFunctionsFollowTheDocumentedExercise`。该测试编译本文的两个函数体，检查模型
 实际收到的提示词、后处理结果、多条输入的来源，以及输入快照未被修改。
 
