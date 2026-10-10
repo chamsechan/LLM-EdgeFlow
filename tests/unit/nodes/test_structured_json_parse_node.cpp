@@ -23,6 +23,43 @@ class StructuredJsonParseNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
+TEST_F(StructuredJsonParseNodeTest, MixedDocumentsPreservePerItemParseStatus) {
+  auto node = NodeRegistry::Instance().Create("structured_json_parse");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"fallback", {{"entities", nlohmann::json::array()}}},
+                        {"extract_json_block", true},
+                        {"failure_policy", "configured_fallback"}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input;
+  // 1. 直接 JSON
+  input.emplace_back(1, 0, "{\"entities\": [\"Apple\", \"Google\"]}");
+  // 2. Markdown 代码块
+  input.emplace_back(
+      2, 0,
+      "Here is the result:\n```json\n{\"entities\": [\"DeepMind\"]}\n```");
+  // 3. 未闭合的数组按配置的失败策略处理
+  input.emplace_back(3, 0, "Found entities: [\"TensorFlow\", \"PyTorch\"");
+  // 4. 无法解析的文本
+  input.emplace_back(4, 0, "No valid json here at all");
+  ctx.Publish("text", input);
+
+  EXPECT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Read<StructuredDocumentBatch>("document");
+  ASSERT_NE(out, nullptr);
+  ASSERT_EQ(out->size(), 4u);
+
+  EXPECT_EQ((*out)[0].data.parse_status, JsonParseStatus::kOk);
+  EXPECT_EQ((*out)[1].data.parse_status,
+            JsonParseStatus::kExtractedFromMarkdown);
+  EXPECT_EQ((*out)[2].data.parse_status, JsonParseStatus::kFallbackApplied);
+  EXPECT_EQ((*out)[2].data.json_payload, "{\"entities\":[]}");
+  EXPECT_EQ((*out)[3].data.parse_status, JsonParseStatus::kFallbackApplied);
+  EXPECT_EQ((*out)[3].data.json_payload, "{\"entities\":[]}");
+}
+
 TEST_F(StructuredJsonParseNodeTest, ProcessMarkdownJsonBlockExtraction) {
   auto node = NodeRegistry::Instance().Create("structured_json_parse");
   ASSERT_NE(node, nullptr);
@@ -211,6 +248,10 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":0.95}");
     ctx.Publish("text", inputs);
     EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* document = ctx.Read<StructuredDocumentBatch>("document");
+    ASSERT_NE(document, nullptr);
+    ASSERT_EQ(document->size(), 1u);
+    EXPECT_TRUE(document->front().data.is_valid);
   }
 
   // 类型不匹配：risk_score 是字符串而非数字

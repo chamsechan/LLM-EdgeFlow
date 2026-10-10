@@ -58,7 +58,7 @@ TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   queries.emplace_back(1, 0, std::vector<float>{1.0f, 0.0f, 0.0f});
 
   EmbeddingBatch candidates;
-  candidates.emplace_back(0, 0, std::vector<float>{0.9f, 0.1f, 0.0f});
+  candidates.emplace_back(0, 0, std::vector<float>{1.0f, 0.0f, 0.0f});
   candidates.emplace_back(0, 1, std::vector<float>{0.0f, 1.0f, 0.0f});
   candidates.emplace_back(0, 2, std::vector<float>{0.5f, 0.5f, 0.0f});
 
@@ -77,6 +77,7 @@ TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 2u);
   EXPECT_EQ((*ranked)[0].data.text, "Doc A (High Sim)");
+  EXPECT_FLOAT_EQ((*ranked)[0].data.score, 1.0f);
   EXPECT_EQ((*ranked)[1].data.text, "Doc C (Mid Sim)");
 }
 

@@ -73,10 +73,13 @@ class ContractLlmModel final : public ILlmModel {
         !outputs->empty()) {
       outputs->pop_back();
     }
-    if (corrupt_provenance &&
+    if ((corrupt_provenance || corrupt_request) &&
         (fault_on_call == 0 || fault_on_call == infer_calls) &&
         outputs->size() > 1) {
-      ++(*outputs)[1].sub_id;
+      if (corrupt_request)
+        ++(*outputs)[1].req_id;
+      else
+        ++(*outputs)[1].sub_id;
     }
     return 0;
   }
@@ -89,6 +92,7 @@ class ContractLlmModel final : public ILlmModel {
   int fault_on_call = 0;
   bool return_wrong_count = false;
   bool corrupt_provenance = false;
+  bool corrupt_request = false;
   bool fail_with_input_reason = false;
 };
 
@@ -214,6 +218,12 @@ TEST_F(LlmGenerateNodeTest, DefaultAndExplicitGenerationOptionsReachModel) {
     context.Publish("input", prompts);
     ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
     EXPECT_EQ(model_->infer_calls, before + 1);
+    ASSERT_EQ(model_->prompt_batches.back().size(), prompts.size());
+    for (size_t i = 0; i < prompts.size(); ++i) {
+      EXPECT_EQ(model_->prompt_batches.back()[i].data, prompts[i].data);
+      EXPECT_EQ(model_->prompt_batches.back()[i].req_id, prompts[i].req_id);
+      EXPECT_EQ(model_->prompt_batches.back()[i].sub_id, prompts[i].sub_id);
+    }
     EXPECT_FLOAT_EQ(model_->last_options.temperature, expected->temperature);
     EXPECT_EQ(model_->last_options.max_tokens, expected->max_tokens);
     EXPECT_EQ(model_->last_options.top_k, expected->top_k);
@@ -346,8 +356,16 @@ TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
                        {"endpoints", {{"answer", nlohmann::json::object()}}}},
                       session_ctx_.get()));
 
-  AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
+  for (bool wrong_type : {false, true}) {
+    SCOPED_TRACE(wrong_type);
+    AlgContext context;
+    if (wrong_type) context.Publish("input", Int32Batch{{1, 0, 123}});
+    EXPECT_EQ(node->Process(&context), node_error::author_node::kMissingInput);
+    EXPECT_FALSE(context.IsOk());
+    EXPECT_FALSE(context.Has("text"));
+    EXPECT_FALSE(context.Has("document"));
+    EXPECT_EQ(model_->infer_calls, 0);
+  }
 }
 
 TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
@@ -382,22 +400,22 @@ TEST_F(LlmGenerateNodeTest, InvalidModelOutputFailsClosed) {
 
   TextBatch prompts = {{3, 0, "first"}, {3, 1, "second"}};
 
-  model_->return_wrong_count = true;
-  AlgContext count_ctx;
-  count_ctx.Publish("input", prompts);
-  EXPECT_EQ(node->Process(&count_ctx),
-            node_error::author_node::kOutputCountMismatch);
-  EXPECT_EQ(count_ctx.Read<TextBatch>("text"), nullptr);
-  EXPECT_EQ(count_ctx.Read<StructuredDocumentBatch>("document"), nullptr);
-
-  model_->return_wrong_count = false;
-  model_->corrupt_provenance = true;
-  AlgContext provenance_ctx;
-  provenance_ctx.Publish("input", prompts);
-  EXPECT_EQ(node->Process(&provenance_ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
-  EXPECT_EQ(provenance_ctx.Read<TextBatch>("text"), nullptr);
-  EXPECT_EQ(provenance_ctx.Read<StructuredDocumentBatch>("document"), nullptr);
+  for (int fault = 0; fault < 3; ++fault) {
+    SCOPED_TRACE(fault);
+    model_->return_wrong_count = fault == 0;
+    model_->corrupt_request = fault == 1;
+    model_->corrupt_provenance = fault == 2;
+    AlgContext context;
+    context.Publish("input", prompts);
+    const int before = model_->infer_calls;
+    EXPECT_EQ(node->Process(&context),
+              fault == 0 ? node_error::author_node::kOutputCountMismatch
+                         : node_error::author_node::kOutputProvenanceMismatch);
+    EXPECT_FALSE(context.IsOk());
+    EXPECT_EQ(context.Read<TextBatch>("text"), nullptr);
+    EXPECT_EQ(context.Read<StructuredDocumentBatch>("document"), nullptr);
+    EXPECT_EQ(model_->infer_calls, before + 1);
+  }
 }
 
 TEST_F(LlmGenerateNodeTest, SingleEndpointPublishesRawAnswerAndNamedDocument) {

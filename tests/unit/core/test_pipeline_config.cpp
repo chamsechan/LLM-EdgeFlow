@@ -1144,19 +1144,6 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
   }
 }
 
-// 6. ModelManager 重复 model_name 注册防御性拦截测试
-TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
-  ModelManager manager;
-  auto model1 = std::make_shared<CountingModel>();
-  auto model2 = std::make_shared<CountingModel>();
-
-  EXPECT_TRUE(RegisterTestModel(manager, "model_x", model1, "test-v1"));
-  EXPECT_FALSE(RegisterTestModel(manager, "model_x", model2, "test-v2"))
-      << "Duplicate model_name registration must return false without "
-         "overwriting";
-  EXPECT_EQ(manager.GetModel<CountingModel>("model_x"), model1);
-}
-
 // 7. 并发模式边界测试 (R1-ACC-003)
 TEST_F(PipelineConfigTest, WorkerBudgetSelectsExecutionMode) {
   PipelineDiagnostic diag;

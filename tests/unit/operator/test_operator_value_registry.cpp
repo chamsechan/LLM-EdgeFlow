@@ -387,8 +387,71 @@ TEST(OperatorValueRegistryTest, CompanyAnyValidationSuite) {
 }
 
 // 4. CompanyString 嵌入 NUL、负长度与超限拦截
+TEST(OperatorValueRegistryTest, BuiltinBufferAndAnyBindingsForwardValidation) {
+  using namespace llm_edgeflow;
+  const auto* buf_binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("buffer");
+  ASSERT_NE(buf_binding, nullptr);
+  ASSERT_TRUE(buf_binding->validate_external);
+
+  InputLimits limits;
+  std::string err;
+
+  // CompanyBuffer：空指针
+  EXPECT_EQ(buf_binding->validate_external(nullptr, limits, &err), -3);
+
+  // CompanyBuffer：负长度
+  uint8_t dummy_data[] = {0x01, 0x02, 0x03};
+  CompanyBuffer buf_neg{-1, dummy_data};
+  EXPECT_EQ(buf_binding->validate_external(&buf_neg, limits, &err), -3);
+
+  // CompanyBuffer：length > max
+  CompanyBuffer buf_toolarge{static_cast<int32_t>(limits.max_buffer_bytes + 1),
+                             dummy_data};
+  EXPECT_EQ(buf_binding->validate_external(&buf_toolarge, limits, &err), -3);
+
+  // CompanyBuffer：length > 0 但 data 为空
+  CompanyBuffer buf_nulldata{10, nullptr};
+  EXPECT_EQ(buf_binding->validate_external(&buf_nulldata, limits, &err), -3);
+
+  // CompanyBuffer：合法二进制数据
+  CompanyBuffer buf_valid{3, dummy_data};
+  EXPECT_EQ(buf_binding->validate_external(&buf_valid, limits, &err), 0);
+
+  // CompanyAny
+  const auto* any_binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("any");
+  ASSERT_NE(any_binding, nullptr);
+  ASSERT_TRUE(any_binding->validate_external);
+
+  // CompanyAny：空指针
+  EXPECT_EQ(any_binding->validate_external(nullptr, limits, &err), -3);
+
+  // CompanyAny：负的 count / length
+  CompanyAny any_neg{1, -1, 10, dummy_data};
+  EXPECT_EQ(any_binding->validate_external(&any_neg, limits, &err), -3);
+
+  // CompanyAny：byte_length > max
+  CompanyAny any_toolarge{1, 10, static_cast<int32_t>(limits.max_any_bytes + 1),
+                          dummy_data};
+  EXPECT_EQ(any_binding->validate_external(&any_toolarge, limits, &err), -3);
+
+  // 7. 正确尺寸方程: float32 (type_id=1), count=3, byte_length=12 -> 0
+  CompanyAny any_valid{1, 3, 12, dummy_data};
+  EXPECT_EQ(any_binding->validate_external(&any_valid, limits, &err), 0);
+}
+
 TEST(OperatorValueRegistryTest, CompanyStringValidation) {
   std::string err;
+
+  CompanyString empty{0, nullptr};
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&empty, 100,
+                                                             "test", &err),
+            0);
+  CompanyString missing_data{1, nullptr};
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&missing_data, 100,
+                                                             "test", &err),
+            -3);
 
   // 1. 空指针
   EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(nullptr, 100,

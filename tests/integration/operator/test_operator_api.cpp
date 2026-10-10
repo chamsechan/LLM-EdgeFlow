@@ -444,53 +444,6 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
 }
 
 // 5. CompanyString 校验规则测试 (包含嵌入 NUL 拦截、负长度与超限拦截)
-TEST_F(OperatorApiTest, CompanyStringValidation) {
-  using namespace llm_edgeflow;
-  std::string err;
-
-  // 1. null 指针
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(nullptr, 100,
-                                                             "str", &err),
-            -3);
-
-  // 2. 负长度
-  char buf[] = "hello";
-  CompanyString cs_neg{-1, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
-                                                             "str", &err),
-            -3);
-
-  // 3. 长度为 0 (正常空字符串)
-  CompanyString cs_zero{0, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_zero, 100,
-                                                             "str", &err),
-            0);
-
-  // 4. 长度超限
-  CompanyString cs_toolarge{150, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 100,
-                                                             "str", &err),
-            -3);
-
-  // 5. 长度 > 0 但 data == nullptr
-  CompanyString cs_nulldata{10, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_nulldata, 100,
-                                                             "str", &err),
-            -3);
-
-  // 6. 嵌入 NUL 字符 (禁止)
-  char embedded_nul[] = "hello\0world";
-  CompanyString cs_embed{11, embedded_nul};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_embed, 100,
-                                                             "str", &err),
-            -3);
-
-  // 7. 正常字符串
-  CompanyString cs_valid{5, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
-                                                             "str", &err),
-            0);
-}
 
 // 6. 关注词匹配端到端 (Keyword Match)
 TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
@@ -1052,61 +1005,6 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   out_b.clear();
   out_sp.reset();
   EXPECT_EQ(ops_.Destroy(handle), 0);
-}
-
-// 17. CompanyBuffer 与 CompanyAny 平台值类型校验测试
-TEST_F(OperatorApiTest, CompanyBufferAndAnyValidation) {
-  using namespace llm_edgeflow;
-  const auto* buf_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("buffer");
-  ASSERT_NE(buf_binding, nullptr);
-  ASSERT_TRUE(buf_binding->validate_external);
-
-  InputLimits limits;
-  std::string err;
-
-  // CompanyBuffer：空指针
-  EXPECT_EQ(buf_binding->validate_external(nullptr, limits, &err), -3);
-
-  // CompanyBuffer：负长度
-  uint8_t dummy_data[] = {0x01, 0x02, 0x03};
-  CompanyBuffer buf_neg{-1, dummy_data};
-  EXPECT_EQ(buf_binding->validate_external(&buf_neg, limits, &err), -3);
-
-  // CompanyBuffer：length > max
-  CompanyBuffer buf_toolarge{static_cast<int32_t>(limits.max_buffer_bytes + 1),
-                             dummy_data};
-  EXPECT_EQ(buf_binding->validate_external(&buf_toolarge, limits, &err), -3);
-
-  // CompanyBuffer：length > 0 但 data 为空
-  CompanyBuffer buf_nulldata{10, nullptr};
-  EXPECT_EQ(buf_binding->validate_external(&buf_nulldata, limits, &err), -3);
-
-  // CompanyBuffer：合法二进制数据
-  CompanyBuffer buf_valid{3, dummy_data};
-  EXPECT_EQ(buf_binding->validate_external(&buf_valid, limits, &err), 0);
-
-  // CompanyAny
-  const auto* any_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("any");
-  ASSERT_NE(any_binding, nullptr);
-  ASSERT_TRUE(any_binding->validate_external);
-
-  // CompanyAny：空指针
-  EXPECT_EQ(any_binding->validate_external(nullptr, limits, &err), -3);
-
-  // CompanyAny：负的 count / length
-  CompanyAny any_neg{1, -1, 10, dummy_data};
-  EXPECT_EQ(any_binding->validate_external(&any_neg, limits, &err), -3);
-
-  // CompanyAny：byte_length > max
-  CompanyAny any_toolarge{1, 10, static_cast<int32_t>(limits.max_any_bytes + 1),
-                          dummy_data};
-  EXPECT_EQ(any_binding->validate_external(&any_toolarge, limits, &err), -3);
-
-  // 7. 正确尺寸方程: float32 (type_id=1), count=3, byte_length=12 -> 0
-  CompanyAny any_valid{1, 3, 12, dummy_data};
-  EXPECT_EQ(any_binding->validate_external(&any_valid, limits, &err), 0);
 }
 
 // 18. 输入 shared_ptr 所有权不持有与 use_count 校验测试
