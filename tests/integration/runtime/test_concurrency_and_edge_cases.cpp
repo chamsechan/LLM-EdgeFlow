@@ -59,7 +59,9 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
                                 std::to_string(t) + "\": [\"VIP" +
                                 std::to_string(t) + "\"]}}";
         operator_api::ControlUpdateRulesParam ctrl{rule_json.c_str()};
-        op.Control(handle, operator_api::ControlCommand::kUpdateRules, &ctrl);
+        op.Control(handle,
+                   static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+                   &ctrl);
 
         // 执行推理
         std::string query = "客户请求VIP" + std::to_string(t) + "专席服务";
@@ -129,21 +131,24 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
 
     operator_api::ControlUpdateRulesParam ctrl_invalid;
     ctrl_invalid.rules_json_str = "{invalid_malformed_json...";  // 畸形 JSON
-    ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules,
-                     &ctrl_invalid);
+    ret = op.Control(
+        handle, static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+        &ctrl_invalid);
     // 框架应安全拦截并返回错误码，决不能崩溃
     EXPECT_NE(ret, 0);
 
     // 传入空字符串
     ctrl_invalid.rules_json_str = "";
-    ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules,
-                     &ctrl_invalid);
+    ret = op.Control(
+        handle, static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+        &ctrl_invalid);
     EXPECT_NE(ret, 0);
 
     // 传入空指针
     ctrl_invalid.rules_json_str = nullptr;
-    ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules,
-                     &ctrl_invalid);
+    ret = op.Control(
+        handle, static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+        &ctrl_invalid);
     EXPECT_NE(ret, 0);
 
     op.Destroy(handle);

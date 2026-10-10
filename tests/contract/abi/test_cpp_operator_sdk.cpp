@@ -6,11 +6,13 @@
  * 不依赖任何内部头文件、运行时对象或测试 mock。
  */
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "edgeflow/export.h"
@@ -23,6 +25,37 @@
 #include "platform_mock/operator_types.h"
 
 // 公开布局与契约断言
+namespace api = llm_edgeflow::operator_api;
+
+// 精确匹配外部函数指针类型，包括不带 noexcept 的约定。
+static_assert(std::is_same_v<decltype(api::OperatorFunc::Init), int (*)()>);
+static_assert(std::is_same_v<decltype(api::OperatorFunc::Create),
+                             int (*)(void**, const void*)>);
+static_assert(std::is_same_v<decltype(api::OperatorFunc::Control),
+                             int (*)(void*, int, void*)>);
+static_assert(std::is_same_v<decltype(api::OperatorFunc::Process),
+                             int (*)(void*, const api::NamedIoBatch&,
+                                     api::NamedIoBatch&)>);
+static_assert(
+    std::is_same_v<decltype(api::OperatorFunc::Destroy), int (*)(void*)>);
+static_assert(std::is_same_v<decltype(api::OperatorFunc::DeInit), int (*)()>);
+static_assert(std::is_standard_layout_v<api::OperatorFunc>);
+static_assert(offsetof(api::OperatorFunc, Init) == 0);
+static_assert(offsetof(api::OperatorFunc, Init) <
+              offsetof(api::OperatorFunc, Create));
+static_assert(offsetof(api::OperatorFunc, Create) <
+              offsetof(api::OperatorFunc, Control));
+static_assert(offsetof(api::OperatorFunc, Control) <
+              offsetof(api::OperatorFunc, Process));
+static_assert(offsetof(api::OperatorFunc, Process) <
+              offsetof(api::OperatorFunc, Destroy));
+static_assert(offsetof(api::OperatorFunc, Destroy) <
+              offsetof(api::OperatorFunc, DeInit));
+static_assert(static_cast<int>(api::ControlCommand::kUpdateRules) == 1);
+static_assert(static_cast<int>(api::ControlCommand::kSwitchPrompt) == 2);
+static_assert(static_cast<int>(api::ControlCommand::kUpdateThreshold) == 3);
+static_assert(static_cast<int>(api::ControlCommand::kJson) == 4);
+
 static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
                                            (sizeof(char*) == 8 ? 4 : 0),
               "CompanyString memory layout check");
@@ -123,7 +156,8 @@ int main() {
   create_param.max_frame_depth = 25;
 
   void* handle = nullptr;
-  if (op.Create(&handle, &create_param) != 0 || !handle) {
+  const void* opaque_create_param = &create_param;
+  if (op.Create(&handle, opaque_create_param) != 0 || !handle) {
     std::fprintf(stderr, "[SDK Consumer Test] op.Create failed: %s\n",
                  llm_edgeflow::operator_api::GetOperatorLastError());
     return 8;
@@ -172,7 +206,8 @@ int main() {
   llm_edgeflow::operator_api::ControlUpdateRulesParam rules_param{
       "{\"categories\":{\"URGENT\":[\"加急\"]}}"};
   if (op.Control(handle,
-                 llm_edgeflow::operator_api::ControlCommand::kUpdateRules,
+                 static_cast<int>(
+                     llm_edgeflow::operator_api::ControlCommand::kUpdateRules),
                  &rules_param) != 0) {
     std::fprintf(stderr, "[SDK Consumer Test] op.Control failed: %s\n",
                  llm_edgeflow::operator_api::GetOperatorLastError());

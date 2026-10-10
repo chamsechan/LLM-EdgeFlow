@@ -55,7 +55,9 @@ TEST_F(OperatorSafetyTest, NullPointerSafety) {
   NamedIoBatch inputs;
   NamedIoBatch outputs;
   EXPECT_NE(op.Process(nullptr, inputs, outputs), 0);
-  EXPECT_NE(op.Control(nullptr, ControlCommand::kUpdateRules, nullptr), 0);
+  EXPECT_NE(op.Control(nullptr, static_cast<int>(ControlCommand::kUpdateRules),
+                       nullptr),
+            0);
   EXPECT_NE(op.Destroy(nullptr), 0);
 }
 
@@ -97,7 +99,8 @@ TEST_F(OperatorSafetyTest, EndToEndDynamicControlAndVerification) {
 
   // 下发动态规则
   ControlUpdateRulesParam ctrl{"{\"categories\": {\"TEST_VIP\": [\"VIP\"]}}"};
-  ret = op.Control(handle, ControlCommand::kUpdateRules, &ctrl);
+  ret =
+      op.Control(handle, static_cast<int>(ControlCommand::kUpdateRules), &ctrl);
   EXPECT_EQ(ret, 0);
 
   // 执行推理
@@ -279,8 +282,10 @@ TEST_F(OperatorSafetyTest,
   const std::string rules =
       "{\"categories\":{\"" + std::string(2100, 'x') + "\":[\"overflow\"]}}";
   ControlUpdateRulesParam control{rules.c_str()};
-  ASSERT_EQ(op.Control(handle.get(), ControlCommand::kUpdateRules, &control),
-            0);
+  ASSERT_EQ(
+      op.Control(handle.get(), static_cast<int>(ControlCommand::kUpdateRules),
+                 &control),
+      0);
   char ordinary[] = "ordinary";
   char overflow[] = "overflow";
   CompanyString first_text{8, ordinary};
