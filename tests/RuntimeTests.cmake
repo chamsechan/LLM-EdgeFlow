@@ -291,7 +291,7 @@ edgeflow_add_runner_test(OperatorGoldenTest edgeflow_test_adapter_runner
 edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
   "AdapterPurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
-  "IoConverterTest.*" "${_edgeflow_tier1}")
+  "IoConverterTest.*:IoConverterProcessTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
   "IoConverterRegistryTest.*:ConverterContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner

@@ -1,24 +1,20 @@
 #pragma once
 
-#include <cstring>
-#include <limits>
 #include <string>
-#include <string_view>
 #include <utility>
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/io_values.h"
 #include "adapter/result_validation.h"
-#include "contracts/diagnostic.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 
 template <typename T>
 inline ExternalSlotDefinition ExternalInputSlot(std::string type) {
   ExternalSlotDefinition slot;
-  slot.type_id = ExternalTypeTraits<T>::TypeName();
+  slot.value_type = typeid(T);
   slot.type_suffix = std::move(type);
   return slot;
 }
@@ -53,44 +49,17 @@ inline bool ValidateDecodeRequest(const ExternalInputBatchView& source,
 }
 
 template <typename T>
-inline const T* ReadInputSlot(const ExternalInputBatchView& source,
-                              const char* slot, size_t index,
-                              const InputDecodeOptions& options,
-                              AdapterStatus* status) {
-  const auto* value = source.GetSlot<T>(slot, index);
-  if (!value) {
-    AdapterValidationHelper::ReturnInvalidInput(
-        status,
-        std::string("Missing ") + slot + " input slot or slot item is null",
-        slot, options.Label().c_str(), static_cast<int>(index));
+inline std::optional<T> ReadInputSlot(const ExternalInputBatchView& source,
+                                      const char* slot, size_t index,
+                                      const InputDecodeOptions& options,
+                                      AdapterStatus* status) {
+  auto value = source.Read<T>(slot, index, status);
+  if (!value && status) {
+    *status =
+        AdapterStatus(status->Code(), status->Message(), status->FieldPath(),
+                      static_cast<int>(index), options.Label());
   }
   return value;
-}
-
-// 仅做结构安全检查；大小上限和可选字段语义留在调用处，
-// 以保持现有诊断信息和校验顺序不变。
-inline bool IsValidInputString(const CompanyString* value) {
-  return value && value->length >= 0 && (value->length == 0 || value->data);
-}
-
-// 须在校验后调用。空字符串的 data 指针可以为空。
-inline std::string CopyInputString(const CompanyString& value) {
-  return value.length == 0 ? std::string{}
-                           : std::string(value.data, value.length);
-}
-
-// 所有行校验通过后、发布业务值前调用。
-inline bool PublishRequestIds(const InputDecodeOptions& options,
-                              std::vector<uint64_t> ids,
-                              AdapterStatus* status) {
-  if (!options.request_ids) {
-    AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing request id table in decode options", "request_ids",
-        options.Label().c_str());
-    return false;
-  }
-  *options.request_ids = std::move(ids);
-  return true;
 }
 
 inline const std::vector<uint64_t>* RequestIds(
@@ -118,70 +87,6 @@ inline const T* ReadOutputValue(AlgContext& context,
   return value;
 }
 
-inline int CopyToOperatorString(std::string_view src, CompanyString* dest,
-                                uint32_t capacity, const char* field_name,
-                                std::string* err) noexcept {
-  try {
-    if (!dest || !dest->data) {
-      if (err)
-        *err = std::string(field_name ? field_name : "string") +
-               " in destination pool block is null";
-      return -4;
-    }
-    const size_t len = src.size();
-    if (len > capacity ||
-        len > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-      if (err)
-        *err = std::string(field_name ? field_name : "string") +
-               " output length (" + std::to_string(len) +
-               ") exceeds pool capacity (" + std::to_string(capacity) + ")";
-      return -4;
-    }
-    if (len != 0) std::memcpy(dest->data, src.data(), len);
-    dest->data[len] = '\0';
-    dest->length = static_cast<int32_t>(len);
-    return 0;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return -4;
-  } catch (...) {
-    SetDiagnosticNoexcept(err, "Unknown exception in CopyToOperatorString");
-    return -4;
-  }
-}
-
-// view 必须描述实际租用的存储。不得从 CompanyString.length (内容长度)
-// 或 Converter 本地的回退值推断容量。
-inline bool WriteOutputString(const ExternalOutputBatchView& view,
-                              const char* slot, CompanyString* destination,
-                              const char* field, std::string_view value,
-                              const OutputEncodeOptions& options,
-                              AdapterStatus* status, size_t index) {
-  const auto* spec = view.GetPoolSpec(slot);
-  if (!spec) {
-    AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing output capacity specification", field,
-        options.Label().c_str(), static_cast<int>(index));
-    return false;
-  }
-  const auto capacity = spec->capacities.find(field);
-  if (capacity == spec->capacities.end()) {
-    AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing output capacity specification", field,
-        options.Label().c_str(), static_cast<int>(index));
-    return false;
-  }
-  std::string error;
-  if (CopyToOperatorString(value, destination, capacity->second, field,
-                           &error) == COMPANY_ALG_SUCCESS) {
-    return true;
-  }
-  AdapterValidationHelper::ReturnBufferTooSmall(status, std::move(error), field,
-                                                options.Label().c_str(),
-                                                static_cast<int>(index));
-  return false;
-}
-
 // 为业务错误补充运行时位置，使业务函数无需依赖 Converter ID、批内索引或
 // 端口绑定。
 inline int ReturnRowStatus(const AdapterStatus& result, const std::string& id,
@@ -193,31 +98,30 @@ inline int ReturnRowStatus(const AdapterStatus& result, const std::string& id,
   return result.Code();
 }
 
-// 同步借用的写入器，不得保留它或任何目标指针。
-class OutputStringWriter {
- public:
-  OutputStringWriter(const ExternalOutputBatchView& view, const char* slot,
-                     const OutputEncodeOptions& options, size_t index)
-      : view_(view), slot_(slot), options_(options), index_(index) {}
-
-  AdapterStatus Write(CompanyString* destination, const char* field,
-                      std::string_view value) const {
-    AdapterStatus status;
-    WriteOutputString(view_, slot_, destination, field, value, options_,
-                      &status, index_);
-    return status;
+template <typename Value>
+bool WriteOutputValue(const ExternalOutputBatchView& destination,
+                      const char* slot, size_t index, const Value& value,
+                      const OutputEncodeOptions& options,
+                      AdapterStatus* status) {
+  const auto* ids = RequestIds(options, status);
+  if (!ids) return false;
+  if (index >= ids->size()) {
+    AdapterValidationHelper::ReturnInvalidInput(
+        status, "Output row exceeds request id table", "request_ids",
+        options.Label().c_str(), static_cast<int>(index));
+    return false;
   }
+  const auto result = destination.Write(slot, index, (*ids)[index], value);
+  if (!result.IsOk()) {
+    ReturnRowStatus(result, options.Label(), index, status);
+    return false;
+  }
+  return true;
+}
 
- private:
-  const ExternalOutputBatchView& view_;
-  const char* slot_;
-  const OutputEncodeOptions& options_;
-  size_t index_;
-};
-
-// 每个请求：一个必填宿主槽位 -> 一个自有 payload。回调负责校验并复制借用的
-// 宿主字段；所有行校验通过后才开始发布。
-template <typename Host, typename Payload, typename Decode>
+// 每个请求：binding 读取一个中性值，回调完成业务校验与 payload 转换。
+// 所有行通过后才发布请求自有数据。
+template <typename Value, typename Payload, typename Decode>
 int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
     AlgContext* context, AdapterStatus* status, const char* slot,
@@ -225,22 +129,18 @@ int DecodeRequestRows(
     Decode&& decode) {
   if (!ValidateDecodeRequest(source, options, context, status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
-  std::vector<uint64_t> ids;
   std::vector<TraceableItem<Payload>> payloads;
-  ids.reserve(source.count);
   payloads.reserve(source.count);
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* input = ReadInputSlot<Host>(source, slot, i, options, status);
+    auto input = ReadInputSlot<Value>(source, slot, i, options, status);
     if (!input) return COMPANY_ALG_ERR_INVALID_INPUT;
     Payload payload{};
     const auto result = decode(*input, &payload);
     if (!result.IsOk())
       return ReturnRowStatus(result, options.Label(), i, status);
-    ids.push_back(input->request_id);
     payloads.emplace_back(static_cast<uint32_t>(i), 0, std::move(payload));
   }
-  if (!PublishRequestIds(options, std::move(ids), status) ||
-      !AdapterValidationHelper::PublishContextValue(
+  if (!AdapterValidationHelper::PublishContextValue(
           *context, options.Port(payload_port.name), std::move(payloads),
           options.Label().c_str(), status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -249,7 +149,7 @@ int DecodeRequestRows(
 
 // 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架负责恢复外部 ID，
 // 回调负责业务字段与序列化。
-template <typename Host, typename Payload, typename Encode>
+template <typename Value, typename Payload, typename Encode>
 int EncodeResultRows(
     AlgContext* context, const OutputEncodeOptions& options,
     ExternalOutputBatchView* destination, size_t* written_count,
@@ -276,18 +176,13 @@ int EncodeResultRows(
     return COMPANY_ALG_ERR_INVALID_INPUT;
   size_t written = 0;
   for (size_t i = 0; i < ordered.size(); ++i) {
-    auto* output = destination->GetSlot<Host>(slot, i);
-    if (!output && !destination->required) continue;
-    if (!output)
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, std::string("Missing ") + slot + " slot block in output view",
-          slot, options.Label().c_str(), static_cast<int>(i));
-    output->request_id = (*ids)[i];
-    const auto result =
-        encode(ordered[i]->data, output,
-               OutputStringWriter(*destination, slot, options, i));
+    if (!destination->HasSlot(slot, i) && !destination->required) continue;
+    Value output{};
+    const auto result = encode(ordered[i]->data, &output);
     if (!result.IsOk())
       return ReturnRowStatus(result, options.Label(), i, status);
+    if (!WriteOutputValue(*destination, slot, i, output, options, status))
+      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     ++written;
   }
   if (written_count) *written_count = written;

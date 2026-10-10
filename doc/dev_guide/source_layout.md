@@ -72,7 +72,9 @@ include/platform_mock/            本地平台公共定义模拟
 include/adapter/                  源码扩展契约与辅助接口
   io_converter.h
   io_converter_registry.h
-  operator_value_type.h
+  operator_value_type.h             中性值与平台 binding 接口
+  io_values.h                      Converter 内容值
+  platform_value_binding.h         当前模拟平台的布局 helper
 src/adapter/
   shared_algorithm_runtime.cpp/.h
   deployment_io_config.cpp/.h
@@ -83,7 +85,7 @@ src/adapter/
     operator_config_resolver.cpp/.h
     operator_process_binding.cpp/.h
     operator_adapter.cpp
-    operator_value_type.cpp       通用值类型分配、预算与重置
+    platform_value_binding.cpp   当前模拟平台的校验、分配、预算与重置
 ```
 
 转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与

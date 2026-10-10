@@ -167,6 +167,8 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     selected.host_binding = value_types.CopyBindingBySuffix(def->type).value();
     selected.allocator_binding =
         value_types.CopyOutputBinding(def->type, def->slot.allocator).value();
+    selected.allocator_binding.write_request_id =
+        selected.host_binding.write_request_id;
     const auto& binding = selected.allocator_binding;
     if (!ParseParameters(def->params,
                          OutputConverterParameterFields(*def, &binding), entry,

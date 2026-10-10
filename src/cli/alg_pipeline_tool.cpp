@@ -165,15 +165,16 @@ Json ProfilesJson(std::string* error) {
 Json IoJson(const llm_edgeflow::ValidatedIoPlan& plan) {
   Json result = {{"input", Json::array()}, {"output", Json::array()}};
   for (const auto& entry : plan.inputs)
-    result["input"].push_back({{"type", entry.converter->type},
-                               {"name", entry.converter->name},
-                               {"external_type", entry.converter->slot.type_id},
-                               {"params", entry.params->Effective()}});
+    result["input"].push_back(
+        {{"type", entry.converter->type},
+         {"name", entry.converter->name},
+         {"external_type", entry.host_binding.external_c_type_name},
+         {"params", entry.params->Effective()}});
   for (const auto& entry : plan.outputs)
     result["output"].push_back(
         {{"type", entry.converter->type},
          {"name", entry.converter->name},
-         {"external_type", entry.converter->slot.type_id},
+         {"external_type", entry.host_binding.external_c_type_name},
          {"params", entry.params->Effective()}});
   return result;
 }

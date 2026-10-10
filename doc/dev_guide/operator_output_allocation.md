@@ -1,7 +1,8 @@
 # Operator 宿主类型、输出池与生命周期
 
 本文面向新增宿主类型、嵌套布局以及直接调用 SDK 的开发者。完整业务请求/响应由
-[转换器](business_onboarding.md)负责；ValueType 声明平台结构及其内存管理，输出池管理有界租约。
+[转换器](business_onboarding.md)负责；`OperatorValueTypeBinding` 是平台布局的唯一适配边界，
+负责载体读写及内存管理，输出池管理有界租约。Converter 接收和生成请求自有的中立值。
 
 ## 选择转换器与参数
 
@@ -51,7 +52,7 @@ Pipeline 配置。另一种布局或固定参数需要另一份转换器登记�
 `translate.entity_out`。初始为空的输出指针因此也有明确对应关系。
 
 各输入项按批内行号配对。平台登记用成员指针显式声明请求 ID 与业务成员；至少一个所选输入
-必须带请求 ID，多个都带时逐行核对一致。非 common 的登记在结构带业务成员时声明期望值，
+必须带请求 ID，多个都带时逐行核对一致。binding 的 `services` 将非 common 业务名映射到该结构的实际枚举，
 Process 在解码前核对 `service_type`，不一致整批失败，诊断包含结构名、行号与期望值。
 `CompanyFrame` 带请求 ID，`CompanyString` 不带；图片和问题可以分别由两份登记发布不同逻辑端口。
 
@@ -60,44 +61,81 @@ Process 在解码前核对 `service_type`，不一致整批失败，诊断包含
 新业务继续使用已注册宿主类型时，复用其 ValueType 与内存管理，载荷协议变化由转换器处理；
 已有 DTO 的 trait 也直接复用。只有需要新宿主类型或分配布局时，才执行本节步骤。
 
-平台宿主类型集中维护，三处一一对应：结构声明在
-[`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)（当前环境的模拟定义，
-真实公司定义在授权内网接入），type traits 声明在 [`io_converter.h`](../../include/adapter/io_converter.h)，
-ValueType 登记在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/operator_builtin_value_types.cpp)。
-新增类型时三处各加一项，不改已有条目。内网接入时，宿主类型的 traits 与 ValueType 登记在这两处
-逐项对照真实头文件即可；接口、枚举、所有权、线程与错误语义等其余核对见
-[验收范围](../VERIFIABLE_SELECTION.md#验收范围与发布准备)。
+当前模拟平台的结构在
+[`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)，traits、字符串和
+metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/platform_value_binding.h)，
+binding 在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/operator_builtin_value_types.cpp)。
+其他平台使用自己的 binding 文件：核对真实类型、成员、长度单位、枚举与所有权，并连接
+[`io_values.h`](../../include/adapter/io_values.h) 中内容语义相同的自有值。平台类型和成员访问只存在于
+binding 实现；Converter 不包含平台头文件，不把宿主指针转成结构体。
+其余接口与目标平台核对见[验收范围](../VERIFIABLE_SELECTION.md#验收范围与发布准备)。
 
-为已有类型新增命名方案时，包含 `adapter/operator_value_type.h`，在接入层自己的 `.cpp` 中构造
-`OperatorValueTypeBinding`，在注册函数中调用 `RegisterOperatorOutputAllocator(name, binding)`，
-再用 `REGISTER_OPERATOR_OUTPUT_ALLOCATOR` 登记该函数。源码放在 `src/adapter/output/` 下会自动编入；
-不需要包含私有 registry 或 pool 头，也不改该类型的默认登记。测试专用类型在测试源码中用
-`RegisterOperatorValueType` 和 `REGISTER_OPERATOR_VALUE_TYPE` 登记。
+通用 binding 定义与注册接口在 `adapter/operator_value_type.h`。登记通过
+`RegisterOperatorValueType(binding)` / `REGISTER_OPERATOR_VALUE_TYPE`；已有宿主类型的命名布局
+通过 `RegisterOperatorOutputAllocator(name, binding)` / `REGISTER_OPERATOR_OUTPUT_ALLOCATOR`。
+新平台 binding 放在接入层自己的 `.cpp`，不向 Converter 添加平台分支。
 
-常见输出不需要手写以下生命周期回调。例如，假设平台新增结构 `SummaryOutput`，包含
-`CompanyString* summary` 和标量 `status`。先在 `io_converter.h` 中与其他平台类型一起声明 trait：
+宿主类型用 `DECLARE_EXTERNAL_TYPE_TRAITS` 声明真实结构名，binding 从 trait 获取名称。
+Converter 用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中立 `value_type`，
+Init 审计要求与 binding 一致；结构名不再出现在 Converter 槽声明中。
+
+以下以当前模拟平台的池化字符串 helper 为例。假设宿主 `SummaryOutput` 有
+`uint64_t request_id`、`CompanyString* summary` 和标量 `status`，在平台 binding 的声明处写：
 
 ```cpp
 DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
 ```
 
-新输入 DTO 也需要相同的 trait 声明。结构名只在这里写一次：ValueType 登记和转换器槽位
-（`ExternalInputSlot<T>` / `ExternalOutputSlot<T>`）都从 trait 取名，未声明 trait 时登记处直接编译失败。
-槽位声明的结构与其后缀登记的结构不一致时，Init 审计报错并指明槽位，不会按错误的布局读写内存。
-
-然后在 `operator_builtin_value_types.cpp` 的 `RegisterBuiltinBindings` 中登记一项：
+中立值只描述响应内容，可在 `io_values.h` 中定义：
 
 ```cpp
-RegisterBinding(MakePooledOutputBinding<SummaryOutput>(
-    "summary", {{"summary", &SummaryOutput::summary, {65536}}},
-    [](SummaryOutput& value) noexcept { value.status = 0; }));
+struct SummaryOutputValue {
+  std::string summary;
+  int32_t status = 0;
+};
 ```
 
-容量结构只声明最大值。默认值在输出转换器中使用
-`MaxBytes("summary", &Params::summary_max_bytes).Default(4096)` 声明。成员声明用于容量校验、预算、分配和
-重置；标量回调必须 `noexcept`，只重置标量，不能覆盖嵌套指针。输入对应使用
-`MakeTypedInputBinding<T>`，回调直接接收 `const T&` 和 `InputLimits`。
-完整可执行示例见[输出池测试](../../tests/unit/operator/test_operator_output_pool.cpp)。
+binding 的分配、重置与写入共同使用真实成员：
+
+```cpp
+auto binding = MakePooledOutputBinding<SummaryOutput>(
+    "summary", {{"summary", &SummaryOutput::summary, {65536}}},
+    [](SummaryOutput& output) noexcept {
+      output.request_id = 0;
+      output.status = 0;
+    });
+SetRequestIdMember(&binding, &SummaryOutput::request_id);
+SetOutputValue<SummaryOutput, SummaryOutputValue>(
+    &binding, [](SummaryOutput& output, const SummaryOutputValue& value,
+                 const ResolvedOutputPoolSpec& spec) {
+      std::string error;
+      const int code = CopyToOperatorString(
+          value.summary, output.summary, spec.capacities.at("summary"),
+          "summary", &error);
+      if (code != 0) return AdapterStatus(code, std::move(error), "summary");
+      output.status = value.status;
+      return AdapterStatus::Ok();
+    });
+RegisterOperatorValueType(binding);
+```
+
+`CopyToOperatorString` 和 `MakePooledOutputBinding` 是当前模拟平台的 helper，真实平台按自己的
+字符串表示及分配接口实现相同 binding 回调。Converter 只为 `SummaryOutputValue::summary`
+赋值，调用 `EncodeResultRows<SummaryOutputValue>` 或 `WriteOutputValue`。
+容量结构只声明硬最大值；默认尺寸在 Converter 中用
+`MaxBytes("summary", &Params::summary_max_bytes).Default(4096)` 声明。
+标量重置回调必须 `noexcept`，不能覆盖嵌套指针。
+
+输入使用 `MakeTypedInputBinding<Host>` 校验真实载体，再用 `SetInputValue<Host, Value>`
+复制字符串、数组及标量至请求自有值。`SetRequestIdMember` / `SetServiceTypeMember` 显式声明真实成员，
+`binding.services` 映射业务名到平台枚举；Converter Definition 不声明平台枚举。
+仅布局不同而内容语义相同时复用同一 `Value` 和 Converter，无兼容别名或旧 API 路径。
+完整可执行示例见[值类型测试](../../tests/unit/operator/test_operator_value_registry.cpp)和
+[输出池测试](../../tests/unit/operator/test_operator_output_pool.cpp)。
+
+`output_layout.validate_metadata(count, type_id)` 解释所选 binding 的 metadata 分配约定，
+中央 registry 不解释平台类型值。未设置回调时只接受 count/type 均为 0；使用非零 metadata
+时须提供此校验及 `max_metadata_elements` 上限，实际分配、内容写入与重置仍由 binding 负责。
 
 特殊嵌套布局的输出方案提供以下行为：
 
@@ -119,8 +157,8 @@ RegisterBinding(MakePooledOutputBinding<SummaryOutput>(
    登记的逆序执行。分配器不同的内存必须登记匹配的 deleter，避免同时递归释放和
    逐项释放同一个指针。
 
-默认实现和命名方案必须声明相同的外层类型名称。`service_type` 的成员声明及读写回调
-统一来自宿主 ValueType 登记，命名方案无需重复声明；更换布局不改变转换器的业务值要求。
+默认实现和命名方案必须声明相同的外层类型名称。请求编号、`service_type` 成员和 `services` 映射
+统一来自宿主 ValueType 登记，命名方案使用自己的中立值写入回调；更换布局不改变业务语义。
 命名方案拥有自己的参数校验、布局、
 预算和生命周期回调。注册必须在 Operator Init 前完成，重复标识、类型不兼容和缺失
 必要回调会被拒绝。默认的 `CompanyAny` 数值类型表不会因此自动获得任意指针树能力。
@@ -148,9 +186,11 @@ binding.normalize_parameters =
 ## 转换与有效期
 
 通过 `REGISTER_OUTPUT_CONVERTER` 注册 `OutputConverterDefinition`，槽声明固定该实现写入的布局。
-回调从 `ExternalOutputBatchView` 按登记 type 获取已分配外层结构与 `ResolvedOutputPoolSpec`，
-按相应类型化参数填充载荷。保持指针与已分配布局一致，不重新读取部署文件、不另设默认容量，
-也不把请求局部指针塞进输出结构。`OutputStringWriter` 按实际容量与显式长度写字符串。
+Converter 回调组装中立响应值，`EncodeResultRows<Value>` / `WriteOutputValue` 根据
+`ExternalOutputBatchView` 的 binding 写入。binding 的 `write_value` 接收真实外层结构和
+`ResolvedOutputPoolSpec`，按实际容量、显式字节长度及自己的类型化参数填充载荷，再写入请求编号。
+Converter 不直接访问外层结构或嵌套指针。binding 保持指针与已分配布局一致，不重新读取部署文件、
+不另设默认容量、不保存请求局部指针；字符串或数组超容量时返回错误，不静默截断。
 
 框架在全部输出转换成功后发布 map；任何失败都会归还已获取的输出租约。调用方依照外部协议的
 枚举解释 `void*`，实际释放依据登记的所有权记录。输出引用不延长 handle 的有效期。

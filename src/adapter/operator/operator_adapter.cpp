@@ -323,14 +323,12 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     for (size_t index = 0; index < plan->inputs.size(); ++index) {
       const auto& selected = plan->inputs[index];
       const auto& def = *selected.converter;
-      std::vector<uint64_t> decoded_ids;
       llm_edgeflow::InputDecodeOptions options;
       options.type = def.type;
       options.name = def.name;
       options.params = selected.params.get();
       options.ports = &selected.ports;
-      options.request_ids =
-          selected.host_binding.read_request_id ? &decoded_ids : nullptr;
+      options.request_ids = &request_ids;
       llm_edgeflow::AdapterStatus status;
       const int result =
           def.decode_fn(input_views[index], options, &req_ctx, &status);
@@ -338,12 +336,6 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
         SetLastError("DecodeInput failed for " + def.Label() + ": " +
                      status.ToString());
         return result;
-      }
-      if (selected.host_binding.read_request_id && decoded_ids != request_ids) {
-        SetLastError(
-            "DecodeInput for " + def.Label() +
-            " recorded request ids inconsistent with its input structs");
-        return COMPANY_ALG_ERR_INVALID_INPUT;
       }
     }
 
@@ -377,7 +369,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       llm_edgeflow::ExternalOutputBatchView view;
       view.count = inputs.size();
       view.required = def.slot.required;
-      view.slot_types[def.type] = def.slot.type_id;
+      view.binding = &selected.allocator_binding;
+      view.slot_types[def.type] = selected.host_binding.external_c_type_name;
       view.pool_specs[def.type] = &h->output_pools[index]->Spec();
       auto& blocks = view.leased_slots[def.type];
       blocks.resize(inputs.size(), nullptr);
@@ -410,10 +403,9 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
                      std::to_string(requested_count));
         return -4;
       }
-      if (def.service_type) {
+      if (const auto service = selected.host_binding.ServiceType(def.name)) {
         for (auto* block : blocks) {
-          if (block)
-            selected.host_binding.write_service_type(block, *def.service_type);
+          if (block) selected.host_binding.write_service_type(block, *service);
         }
       }
     }
@@ -590,13 +582,15 @@ int ResolveOperatorConfigIo(const char* model_path, const char* cfg_file_name,
     const auto& plan = *resolved.io_plan;
     for (const auto& selected : plan.inputs) {
       const auto& def = *selected.converter;
-      contract.inputs.push_back({def.type, def.name, def.slot.type_id,
-                                 def.service_type, def.slot.required});
+      contract.inputs.push_back(
+          {def.type, def.name, selected.host_binding.external_c_type_name,
+           selected.host_binding.ServiceType(def.name), def.slot.required});
     }
     for (const auto& selected : plan.outputs) {
       const auto& def = *selected.converter;
-      contract.outputs.push_back({def.type, def.name, def.slot.type_id,
-                                  def.service_type, def.slot.required});
+      contract.outputs.push_back(
+          {def.type, def.name, selected.host_binding.external_c_type_name,
+           selected.host_binding.ServiceType(def.name), def.slot.required});
     }
     *out = std::move(contract);
     return 0;

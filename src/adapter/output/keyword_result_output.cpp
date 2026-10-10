@@ -6,10 +6,10 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -30,19 +30,18 @@ Parameters<Params> ParamSpec() {
 }
 
 AdapterStatus EncodeKeyword(const RuleMatchItem& result,
-                            CompanyOperatorKeywordOutput* output,
-                            const OutputStringWriter& writer) {
+                            KeywordOutputValue* output) {
   output->is_hit = result.is_hit;
   output->status_code = result.status_code;
-  return writer.Write(output->match_result_json, "match_result_json",
-                      SerializeRuleMatchResponse(result));
+  output->match_result_json = SerializeRuleMatchResponse(result);
+  return AdapterStatus::Ok();
 }
 
 int EncodeOperatorKeywordResult(AlgContext* context,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
                                 size_t* written_count, AdapterStatus* status) {
-  return EncodeResultRows<CompanyOperatorKeywordOutput>(
+  return EncodeResultRows<KeywordOutputValue>(
       context, options, destination, written_count, status, kOutputSlot,
       kMatches, &EncodeKeyword);
 }
@@ -51,8 +50,7 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "keyword_match";
-  def.service_type = kMockServiceKeywordMatch;
-  def.slot = ExternalOutputSlot<CompanyOperatorKeywordOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<KeywordOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kMatches)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorKeywordResult;

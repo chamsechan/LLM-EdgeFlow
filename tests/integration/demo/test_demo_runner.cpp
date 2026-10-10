@@ -12,7 +12,9 @@
 #include <utility>
 #include <vector>
 
+#include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/output/rule_match_response.h"
 #include "core/node_registry.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_io_registry.h"
@@ -25,6 +27,7 @@
 #include "nlohmann/json.hpp"
 #include "nodes/authoring.h"
 #include "tests/support/control_test_utils.h"
+#include "tests/support/registry_test_access.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
@@ -62,20 +65,15 @@ int EncodeDemoSecondaryOutput(AlgContext* context,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
-  if (!destination) return -1;
-  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
-      "keyword_out", "keyword_match");
-  if (!converter) return -1;
-  const int ret = converter->encode_fn(context, options, destination,
-                                       written_count, status);
-  if (ret != 0) return ret;
-  for (size_t i = 0; i < *written_count; ++i) {
-    auto* output =
-        destination->GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
-    output->status_code = output->is_hit ? 0 : -17;
-    output->is_hit = !output->is_hit;
-  }
-  return 0;
+  return EncodeResultRows<KeywordOutputValue>(
+      context, options, destination, written_count, status, "keyword_out",
+      MakeBlackboardKey<RuleMatchBatch>("matches"),
+      [](const RuleMatchItem& match, KeywordOutputValue* output) {
+        output->match_result_json = SerializeRuleMatchResponse(match);
+        output->status_code = match.is_hit ? 0 : -17;
+        output->is_hit = !match.is_hit;
+        return AdapterStatus::Ok();
+      });
 }
 
 int demo_input_decode_count = 0;
@@ -100,7 +98,8 @@ bool RegisterDemoIoFixtures() {
   for (int index = 0; index < 2; ++index) {
     auto output = *production_output;
     output.name = index == 0 ? "test_demo_primary" : "test_demo_secondary";
-    output.service_type = 10031 + index;
+    test_support::RegistryTestAccess::SetService(output.type, output.name,
+                                                 10031 + index);
     if (index == 1) output.encode_fn = &EncodeDemoSecondaryOutput;
     if (!registry.RegisterOutputConverter(output)) return false;
   }
@@ -109,7 +108,8 @@ bool RegisterDemoIoFixtures() {
     auto input = *production_input;
     input.name =
         index == 0 ? "test_demo_input_primary" : "test_demo_input_secondary";
-    input.service_type = 10041 + index;
+    test_support::RegistryTestAccess::SetService(input.type, input.name,
+                                                 10041 + index);
     if (index == 1) input.logical_ports[0].logical_name = "unused_sentences";
     input.decode_fn = &DecodeDemoUnsupportedInput;
     if (!registry.RegisterInputConverter(input)) return false;
@@ -133,6 +133,7 @@ class ScopedDemoIoFixtures {
   }
 
  private:
+  test_support::RegistryTestAccess::ScopedValueTypeState value_state_;
   std::vector<InputConverterDefinition> inputs_;
   std::vector<OutputConverterDefinition> outputs_;
 };

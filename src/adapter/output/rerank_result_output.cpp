@@ -8,10 +8,10 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -24,6 +24,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
                                const OutputEncodeOptions& options,
                                ExternalOutputBatchView* destination,
                                size_t* written_count, AdapterStatus* status) {
+  if (written_count) *written_count = 0;
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
@@ -52,8 +53,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
     std::sort(list.begin(), list.end(),
               [](const auto& a, const auto& b) { return a.rank < b.rank; });
     for (size_t k = 0; k < list.size(); ++k) {
-      if (list.size() > 8 || list[k].rank != static_cast<int>(k + 1) ||
-          list[k].original_sub_id >= 8) {
+      if (list[k].rank != static_cast<int>(k + 1)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid ranked result", "ranked_results",
             options.Label().c_str());
@@ -62,34 +62,33 @@ int EncodeOperatorRerankResult(AlgContext* context,
   }
 
   size_t count = raw_req_ids->size();
-  if (destination->count < count) {
+  if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination count is less than output count", "destination",
         options.Label().c_str());
   }
 
+  size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
-    auto* out =
-        destination->GetSlot<CompanyOperatorRerankOutput>(kOutputSlot, i);
-    if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing rerank_out slot item", kOutputSlot,
-          options.Label().c_str(), static_cast<int>(i));
+    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
+      continue;
     }
+    RerankOutputValue out;
 
-    out->request_id = (*raw_req_ids)[i];
     const auto& cand_list = req_map[static_cast<uint32_t>(i)];
-    int item_cnt = std::min(static_cast<int>(cand_list.size()), 8);
-    out->count = item_cnt;
-    out->status_code = 0;
-
-    for (int k = 0; k < item_cnt; ++k) {
-      out->scores[k] = cand_list[k].score;
-      out->sorted_indices[k] = static_cast<int>(cand_list[k].original_sub_id);
+    out.status_code = 0;
+    out.items.reserve(cand_list.size());
+    for (const auto& candidate : cand_list) {
+      out.items.push_back(
+          {candidate.score, static_cast<int32_t>(candidate.original_sub_id)});
     }
+    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
+      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
+    ++written;
   }
 
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = written;
   return COMPANY_ALG_SUCCESS;
 }
 
@@ -97,8 +96,7 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "cross_rerank";
-  def.service_type = kMockServiceCrossRerank;
-  def.slot = ExternalOutputSlot<CompanyOperatorRerankOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<RerankOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kRanked, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;
   return def;

@@ -14,6 +14,7 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
 #include "adapter/model_file_resolver.h"
+#include "adapter/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
 #include "dev_support/inference/test_causal_lm_backend.h"
@@ -488,9 +489,9 @@ TEST_F(AdapterContractSecurityTest,
   fixed_view.SetCapacity("entity_out", "entities_json", 2047);
   size_t written = 0;
 
-  EXPECT_EQ(
-      converter->encode_fn(&large, options, &fixed_view, &written, &status),
-      COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(*converter, &large, options,
+                                                &fixed_view, &written, &status),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
   // 重排后的内部结果必须映射回外部请求 ID。
   AlgContext reordered;
@@ -511,9 +512,10 @@ TEST_F(AdapterContractSecurityTest,
   reordered_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
   reordered_view.SetCapacity("entity_out", "entities_json", 511);
 
-  ASSERT_EQ(converter->encode_fn(&reordered, options, &reordered_view, &written,
-                                 &status),
-            0);
+  ASSERT_EQ(
+      ::llm_edgeflow::test::EncodeForTest(*converter, &reordered, options,
+                                          &reordered_view, &written, &status),
+      0);
   EXPECT_EQ(written, 2U);
   EXPECT_EQ(first.request_id, 999U);
   EXPECT_EQ(second.request_id, 123U);
@@ -523,9 +525,10 @@ TEST_F(AdapterContractSecurityTest,
             nlohmann::json({{"translated", "第二句"}}));
 
   reordered_view.count = 1;
-  EXPECT_EQ(converter->encode_fn(&reordered, options, &reordered_view, &written,
-                                 &status),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(
+      ::llm_edgeflow::test::EncodeForTest(*converter, &reordered, options,
+                                          &reordered_view, &written, &status),
+      COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
   for (const TextBatch& invalid :
        std::vector<TextBatch>{{},
@@ -537,7 +540,8 @@ TEST_F(AdapterContractSecurityTest,
     ctx.Publish(kTranslation, invalid);
     reordered_view.count = 2;
     EXPECT_EQ(
-        converter->encode_fn(&ctx, options, &reordered_view, &written, &status),
+        ::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                            &reordered_view, &written, &status),
         COMPANY_ALG_ERR_INVALID_INPUT);
   }
   for (bool publish_ids : {false, true}) {
@@ -549,9 +553,10 @@ TEST_F(AdapterContractSecurityTest,
       missing.Publish(kTranslation, TextBatch{{0, 0, "你好"}});
     }
     reordered_view.count = 1;
-    EXPECT_EQ(converter->encode_fn(&missing, options, &reordered_view, &written,
-                                   &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(
+        ::llm_edgeflow::test::EncodeForTest(*converter, &missing, options,
+                                            &reordered_view, &written, &status),
+        COMPANY_ALG_ERR_INVALID_INPUT);
   }
 }
 
@@ -787,7 +792,8 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
 
   AlgContext ctx;
   AdapterStatus status;
-  int unpack_ret = input_conv->decode_fn(in_view, in_options, &ctx, &status);
+  int unpack_ret = ::llm_edgeflow::test::DecodeForTest(
+      *input_conv, in_view, in_options, &ctx, &status);
   ASSERT_EQ(unpack_ret, COMPANY_ALG_SUCCESS);
 
   // 立即篡改调用方内存 Buffer (例如 memset 覆盖为 'X')
@@ -943,11 +949,11 @@ TEST_F(AdapterContractSecurityTest,
 
   AlgContext carrier_ctx;
   AdapterStatus carrier_status;
-  int ret = converter->decode_fn(carrier_view, options, &carrier_ctx,
-                                 &carrier_status);
+  int ret = ::llm_edgeflow::test::DecodeForTest(
+      *converter, carrier_view, options, &carrier_ctx, &carrier_status);
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(carrier_status.SampleIndex(), 0);
-  EXPECT_EQ(carrier_status.FieldPath(), "sentence_text");
+  EXPECT_EQ(carrier_status.FieldPath(), "entity_in");
 
   // 业务解码错误使用所选 Converter 的 type/name 标签
   std::string bad_json = "{\"wrong_field\":123}";
@@ -961,7 +967,8 @@ TEST_F(AdapterContractSecurityTest,
 
   AlgContext biz_ctx;
   AdapterStatus biz_status;
-  EXPECT_EQ(converter->decode_fn(biz_view, options, &biz_ctx, &biz_status),
+  EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*converter, biz_view, options,
+                                                &biz_ctx, &biz_status),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(biz_status.AdapterName(), "entity_in/translate");
   EXPECT_EQ(biz_status.FieldPath(), "json");
@@ -994,7 +1001,8 @@ TEST_F(AdapterContractSecurityTest,
 
   size_t written = 0;
   AdapterStatus status;
-  int ret = converter->encode_fn(&ctx, options, &view, &written, &status);
+  int ret = ::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                                &view, &written, &status);
 
   // 缺少内部数据属于非法输入，与输出容量无关。
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
@@ -1033,7 +1041,8 @@ TEST_F(AdapterContractSecurityTest,
 
   // Encode 中先序列化再校验容量；
   // 未处理的 dump 异常会从 encode_fn 抛出
-  EXPECT_THROW(converter->encode_fn(&ctx, options, &view, &written, &status),
+  EXPECT_THROW(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                                   &view, &written, &status),
                std::exception);
 }
 
@@ -1063,14 +1072,15 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   in_options.name = "translate";
 
   AdapterStatus unpack_status;
-  int unpack_ret =
-      in_conv->decode_fn(in_view, in_options, nullptr, &unpack_status);
+  int unpack_ret = ::llm_edgeflow::test::DecodeForTest(
+      *in_conv, in_view, in_options, nullptr, &unpack_status);
   EXPECT_EQ(unpack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.FieldPath(), "context");
   EXPECT_EQ(unpack_status.AdapterName(), "entity_in/translate");
 
-  EXPECT_EQ(in_conv->decode_fn(in_view, in_options, nullptr, nullptr),
+  EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                nullptr, nullptr),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
   // 2. context 为空时 Encode 必须返回 INVALID_INPUT (-3)，字段为 "context"
@@ -1089,20 +1099,20 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
 
   size_t written = 0;
   AdapterStatus pack_status;
-  int pack_ret = out_conv->encode_fn(nullptr, out_options, &out_view, &written,
-                                     &pack_status);
+  int pack_ret = ::llm_edgeflow::test::EncodeForTest(
+      *out_conv, nullptr, out_options, &out_view, &written, &pack_status);
   EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.FieldPath(), "context");
   EXPECT_EQ(pack_status.AdapterName(), "entity_out/translate");
 
-  EXPECT_EQ(
-      out_conv->encode_fn(nullptr, out_options, &out_view, &written, nullptr),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(*out_conv, nullptr, out_options,
+                                                &out_view, &written, nullptr),
+            COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 TEST_F(AdapterContractSecurityTest,
-       DecodeAndEncodeRejectMissingRequestIdTable) {
+       DecodeDoesNotOwnRequestIdsAndEncodeRejectsMissingTable) {
   const auto* input = IoConverterRegistry::Instance().FindInputConverter(
       "keyword_in", "keyword_match");
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
@@ -1124,12 +1134,13 @@ TEST_F(AdapterContractSecurityTest,
   in_options.name = input->name;
   AlgContext context;
   AdapterStatus status;
-  EXPECT_EQ(input->decode_fn(source, in_options, &context, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "request_ids");
-  EXPECT_EQ(status.AdapterName(), input->Label());
-  EXPECT_EQ(status.Message(), "Missing request id table in decode options");
-  EXPECT_FALSE(context.Has("sentence_text"));
+  EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*input, source, in_options,
+                                                &context, &status),
+            COMPANY_ALG_SUCCESS);
+  const auto* sentences = context.Read<TextBatch>("sentence_text");
+  ASSERT_NE(sentences, nullptr);
+  ASSERT_EQ(sentences->size(), 1U);
+  EXPECT_EQ(sentences->front().data, "query");
 
   ASSERT_TRUE(context.Publish(kMatches, RuleMatchBatch{{0, 0, {}}}));
   OutputEncodeOptions out_options;
@@ -1146,7 +1157,8 @@ TEST_F(AdapterContractSecurityTest,
   destination.slot_types["keyword_out"] = "CompanyOperatorKeywordOutput";
   size_t written = 99;
   EXPECT_EQ(
-      output->encode_fn(&context, out_options, &destination, &written, &status),
+      ::llm_edgeflow::test::EncodeForTest(*output, &context, out_options,
+                                          &destination, &written, &status),
       COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.FieldPath(), "request_ids");
   EXPECT_EQ(status.AdapterName(), output->Label());
@@ -1155,7 +1167,8 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(result.request_id, 123U);
 }
 
-TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
+TEST_F(AdapterContractSecurityTest,
+       BindingCarrierLimitsAndConverterPassageLimit) {
   struct Boundary {
     const char* type;
     const char* name;
@@ -1167,29 +1180,32 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
   // 数值期望与实现中的常量保持独立。
   const Boundary boundaries[] = {
       {"keyword_in", "keyword_match", kMockServiceKeywordMatch, "sentence_text",
-       65536, "sentence_text length exceeds 64 KiB limit"},
+       65536, "sentence_text length 65537 exceeds max limit 65536"},
       {"entity_in", "entity_extract", kMockServiceEntityExtract,
-       "sentence_text", 65536, "sentence_text length exceeds 64 KiB limit"},
+       "sentence_text", 65536,
+       "sentence_text length 65537 exceeds max limit 65536"},
       {"entity_in", "translate", kMockServiceTranslate, "sentence_text", 65536,
-       "sentence_text length exceeds 64 KiB limit"},
+       "sentence_text length 65537 exceeds max limit 65536"},
       {"audit_in", "dialogue_audit", kMockServiceDialogueAudit,
-       "audit_in.user_text", 65536, "user_text length exceeds limit"},
+       "audit_in.user_text", 65536,
+       "user_text length 65537 exceeds max limit 65536"},
       {"doc_in", "doc_qa", kMockServiceDocQa, "doc_in.query_text", 65536,
-       "query_text length exceeds limit"},
+       "query_text length 65537 exceeds max limit 65536"},
       {"doc_in", "doc_qa", kMockServiceDocQa, "doc_in.doc_text", 10485760,
-       "doc_text length exceeds limit"},
+       "doc_text length 10485761 exceeds max limit 10485760"},
       {"frame", "ocr_invoice_qa", kMockServiceOcrInvoiceQa, "frame.image_uri",
-       4096, "image_uri length exceeds limit"},
+       4096, "CompanyFrame.image_uri length 4097 exceeds max limit 4096"},
       {"string", "ocr_invoice_qa", 0, "string", 65536,
-       "query length exceeds limit"},
+       "string length 65537 exceeds max limit 65536"},
       {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
-       "rerank_in.query_text", 65536, "query_text length exceeds limit"},
+       "rerank_in.query_text", 65536,
+       "query_text length 65537 exceeds max limit 65536"},
       {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
        "rerank_in.candidate_passages", 65536,
        "candidate passage length exceeds limit"},
       {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
        "rerank_in.candidate_count", 8,
-       "candidate_count out of valid range [1, 8]"},
+       "candidate_count 9 out of valid range [1, 8]"},
   };
   for (const auto& boundary : boundaries) {
     const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
@@ -1229,7 +1245,10 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
 
       ExternalInputBatchView view;
       view.count = 1;
-      view.slot_types[converter->type] = converter->slot.type_id;
+      view.slot_types[converter->type] =
+          OperatorValueTypeRegistry::Instance()
+              .GetBindingBySuffix(converter->type)
+              ->external_c_type_name;
       if (type == "keyword_in")
         view.slots[type] = BorrowInputForTest({&keyword});
       else if (type == "entity_in")
@@ -1254,13 +1273,17 @@ TEST_F(AdapterContractSecurityTest, InputLengthLimitsStayUnchanged) {
       options.name = converter->name;
       std::vector<uint64_t> request_ids;
       options.request_ids = &request_ids;
-      const int result = converter->decode_fn(view, options, &context, &status);
+      const int result = ::llm_edgeflow::test::DecodeForTest(
+          *converter, view, options, &context, &status);
       EXPECT_EQ(result, extra == 0 ? 0 : COMPANY_ALG_ERR_INVALID_INPUT);
-      EXPECT_EQ(status.ToString(),
-                extra == 0 ? "OK"
-                           : "[AdapterStatus] Error -3 in Adapter [" + label +
-                                 "] at sample [0] field `" + field +
-                                 "`: " + boundary.message);
+      EXPECT_EQ(
+          status.ToString(),
+          extra == 0
+              ? "OK"
+              : "[AdapterStatus] Error -3 in Adapter [" + label +
+                    "] at sample [0] field `" +
+                    (field == "rerank_in.candidate_passages" ? field : type) +
+                    "`: " + boundary.message);
     }
   }
 }
