@@ -13,6 +13,7 @@
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
+#include "adapter/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
@@ -326,13 +327,15 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  std::vector<uint64_t> request_ids;
+  const std::vector<uint64_t> request_ids{frame.request_id};
   test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
-  ASSERT_EQ(in_conv->decode_fn(in_view, in_options, &ctx, &status), 0);
+  ASSERT_EQ(::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                &ctx, &status),
+            0);
 
   const auto* query_converter =
       IoConverterRegistry::Instance().FindInputConverter("string",
@@ -340,7 +343,8 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   ASSERT_NE(query_converter, nullptr);
   test::ParsedInputOptions query_options(*query_converter);
   query_options.request_ids = &request_ids;
-  ASSERT_EQ(query_converter->decode_fn(in_view, query_options, &ctx, &status),
+  ASSERT_EQ(::llm_edgeflow::test::DecodeForTest(*query_converter, in_view,
+                                                query_options, &ctx, &status),
             0);
   ASSERT_NE(ctx.Read<TextBatch>("question"), nullptr);
   EXPECT_EQ(ctx.Read<TextBatch>("question")->front().data, "Total amount?");
@@ -367,8 +371,9 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   out_options.request_ids = &request_ids;
 
   size_t written = 0;
-  ASSERT_EQ(
-      out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status), 0);
+  ASSERT_EQ(::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
+                                                &out_view, &written, &status),
+            0);
 
   EXPECT_EQ(od_fix.out.request_id, 1005u);
   EXPECT_EQ(od_fix.out.detected_box_count, 1);
@@ -559,8 +564,9 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 
     AdapterStatus status;
     size_t written = 0;
-    EXPECT_EQ(out_conv->encode_fn(&harness.Context(), options, &destination,
-                                  &written, &status),
+    EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(*out_conv, &harness.Context(),
+                                                  options, &destination,
+                                                  &written, &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
     EXPECT_EQ(status.FieldPath(), "request_ids");
   }
@@ -721,7 +727,8 @@ TEST_F(AdapterPurityTest,
 
     size_t written = 0;
     AdapterStatus status;
-    int ret = op_conv->encode_fn(&ctx, options, &small_dest, &written, &status);
+    int ret = ::llm_edgeflow::test::EncodeForTest(
+        *op_conv, &ctx, options, &small_dest, &written, &status);
     EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   }
 
@@ -745,7 +752,8 @@ TEST_F(AdapterPurityTest,
 
     size_t written = 0;
     AdapterStatus status;
-    int ret = op_conv->encode_fn(&ctx, options, &op_dest, &written, &status);
+    int ret = ::llm_edgeflow::test::EncodeForTest(*op_conv, &ctx, options,
+                                                  &op_dest, &written, &status);
     EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, 1U);
     EXPECT_EQ(op_out.request_id, 10U);
@@ -788,7 +796,8 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
     size_t written = 0;
     AdapterStatus status;
     EXPECT_EQ(
-        converter->encode_fn(&context, options, &view, &written, &status),
+        ::llm_edgeflow::test::EncodeForTest(*converter, &context, options,
+                                            &view, &written, &status),
         overflow ? COMPANY_ALG_ERR_BUFFER_TOO_SMALL : COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, overflow ? 0U : 1U);
     EXPECT_STREQ(intent, "QA");
@@ -887,8 +896,8 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
   EXPECT_EQ(harness.DecodeOperator({&in0, &in1}),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // 请求 ID 表和业务值都不得发布。
-  EXPECT_TRUE(harness.RequestIds().empty());
+  // ID 表由 binding 预先提供；失败的业务批次不得发布。
+  EXPECT_EQ(harness.RequestIds(), (std::vector<uint64_t>{1, 2}));
   EXPECT_EQ(harness.Context().Read<TextBatch>("query"), nullptr);
 }
 
@@ -939,12 +948,18 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
   const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
       "entity_in", "entity_extract");
   ASSERT_NE(entity_conv, nullptr);
-  EXPECT_EQ(entity_conv->slot.type_id, "CompanyOperatorEntityInput");
+  EXPECT_EQ(OperatorValueTypeRegistry::Instance()
+                .GetBindingBySuffix(entity_conv->type)
+                ->external_c_type_name,
+            "CompanyOperatorEntityInput");
 
   const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
       "keyword_in", "keyword_match");
   ASSERT_NE(keyword_conv, nullptr);
-  EXPECT_EQ(keyword_conv->slot.type_id, "CompanyOperatorKeywordInput");
+  EXPECT_EQ(OperatorValueTypeRegistry::Instance()
+                .GetBindingBySuffix(keyword_conv->type)
+                ->external_c_type_name,
+            "CompanyOperatorKeywordInput");
 
   // 用 entity converter 解码输入
   {
@@ -1022,28 +1037,28 @@ TEST_F(AdapterPurityTest,
   InputConverterDefinition custom_in_def;
   custom_in_def.type = "custom_input";
   custom_in_def.name = "test_multi_field";
-  custom_in_def.slot =
-      ExternalInputSlot<CustomMultiFieldInput>(custom_in_def.type);
+  custom_in_def.slot = ExternalInputSlot<TextInputValue>(custom_in_def.type);
   custom_in_def.logical_ports = {OutputPort(kSentenceText)};
   custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
                                const InputDecodeOptions& options,
                                AlgContext* ctx, AdapterStatus* status) -> int {
-    std::vector<uint64_t> ids;
     TextBatch texts;
     for (size_t i = 0; i < src.count; ++i) {
-      const auto* item = src.GetSlot<CustomMultiFieldInput>("custom_input", i);
+      auto item = src.Read<TextInputValue>("custom_input", i, status);
       if (!item) return -3;
-      ids.push_back(item->req_id);
-      std::string combined =
-          std::string(item->topic) + ": " + std::string(item->content);
-      texts.emplace_back(static_cast<uint32_t>(i), 0, combined);
-    }
-    if (!PublishRequestIds(options, std::move(ids), status)) {
-      return status->Code();
+      texts.emplace_back(static_cast<uint32_t>(i), 0, item->sentence_text);
     }
     ctx->Publish(options.Port(kSentenceText.name), std::move(texts));
     return 0;
   };
+
+  auto custom_binding = MakeTypedInputBinding<CustomMultiFieldInput>(
+      "custom_input", [](const CustomMultiFieldInput&, const InputLimits&,
+                         std::string*) { return 0; });
+  SetInputValue<CustomMultiFieldInput, TextInputValue>(
+      &custom_binding, [](const CustomMultiFieldInput& input) {
+        return TextInputValue{std::string(input.topic) + ": " + input.content};
+      });
 
   // 格式 A：经 entity_in/entity_extract 的 CompanyOperatorEntityInput
   AlgContext ctx_a;
@@ -1065,7 +1080,8 @@ TEST_F(AdapterPurityTest,
     opts.request_ids = &request_ids;
 
     AdapterStatus st;
-    ASSERT_EQ(in_a->decode_fn(view, opts, &ctx_a, &st), 0);
+    ASSERT_EQ(
+        ::llm_edgeflow::test::DecodeForTest(*in_a, view, opts, &ctx_a, &st), 0);
   }
 
   // 格式 B：经 test.multi_field 的 CustomMultiFieldInput
@@ -1084,6 +1100,7 @@ TEST_F(AdapterPurityTest,
     opts.request_ids = &request_ids;
 
     AdapterStatus st;
+    view.binding = &custom_binding;
     ASSERT_EQ(in_b->decode_fn(view, opts, &ctx_b, &st), 0);
   }
 
@@ -1173,7 +1190,9 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
     AlgContext ctx;
     AdapterStatus st;
 
-    EXPECT_EQ(plain_conv->decode_fn(plain_view, opts, &ctx, &st), 0);
+    EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*plain_conv, plain_view, opts,
+                                                  &ctx, &st),
+              0);
     const auto* s = ctx.Read<TextBatch>("sentence_text");
     ASSERT_NE(s, nullptr);
     EXPECT_EQ((*s)[0].data, "Hello plain text");
@@ -1183,7 +1202,8 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   {
     AlgContext ctx;
     AdapterStatus st;
-    EXPECT_EQ(json_conv->decode_fn(plain_view, json_options, &ctx, &st),
+    EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*json_conv, plain_view,
+                                                  json_options, &ctx, &st),
               COMPANY_ALG_ERR_INVALID_INPUT);
     EXPECT_EQ(st.FieldPath(), "json");
   }
@@ -1201,7 +1221,9 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   {
     AlgContext ctx;
     AdapterStatus st;
-    EXPECT_EQ(json_conv->decode_fn(json_view, json_options, &ctx, &st), 0);
+    EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*json_conv, json_view,
+                                                  json_options, &ctx, &st),
+              0);
     const auto* s = ctx.Read<TextBatch>("query");
     ASSERT_NE(s, nullptr);
     EXPECT_EQ((*s)[0].data, "Hello JSON");

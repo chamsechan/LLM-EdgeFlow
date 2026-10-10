@@ -35,8 +35,9 @@ thread_local FakeOperatorState fake_state;
 
 operator_api::OperatorFunc FakeOperatorTable() {
   operator_api::OperatorFunc ops{};
-  ops.Create = [](void** handle,
-                  const operator_api::CreateParam* param) noexcept {
+  ops.Create = [](void** handle, const void* create_param) noexcept {
+    const auto* param =
+        static_cast<const operator_api::CreateParam*>(create_param);
     fake_state.depth = param->max_frame_depth;
     *handle = fake_state.create_code == 0 ? &fake_state : nullptr;
     return fake_state.create_code;
@@ -110,9 +111,11 @@ TEST_F(OperatorGoldenTest, HandlesCloseIndependently) {
   EXPECT_EQ(first.Close(), 0) << first.close_diagnostic();
   operator_api::ControlUpdateRulesParam rules{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\"]}}"};
-  EXPECT_EQ(ops_.Control(second.get(),
-                         operator_api::ControlCommand::kUpdateRules, &rules),
-            0)
+  EXPECT_EQ(
+      ops_.Control(second.get(),
+                   static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+                   &rules),
+      0)
       << operator_api::GetOperatorLastError();
   EXPECT_EQ(second.Close(), 0) << second.close_diagnostic();
 }
@@ -182,9 +185,10 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
 
   ControlUpdateRulesParam rules_param{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  ASSERT_EQ(
-      ops_.Control(instance.get(), ControlCommand::kUpdateRules, &rules_param),
-      0);
+  ASSERT_EQ(ops_.Control(instance.get(),
+                         static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param),
+            0);
 
   NamedIoBatch inputs(1);
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);

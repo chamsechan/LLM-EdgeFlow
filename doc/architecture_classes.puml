@@ -24,8 +24,8 @@ package "接入适配层 / Integration" {
     Get_LLM_EDGEFLOW_OperatorTable()
     GetOperatorLastError()
     ResolveOperatorConfigIo()
-    OperatorFunc: Init / Create / Process
-    Control / Destroy / DeInit
+    OperatorFunc: Init / Create / Control
+    Process / Destroy / DeInit
   }
   class OperatorHandle {
     runtime: owns SharedAlgorithmRuntime

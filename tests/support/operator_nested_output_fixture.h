@@ -70,11 +70,23 @@ inline bool ParseNestedOutput(const std::string& text,
   return true;
 }
 
+inline int ConvertNestedOutput(const void* internal, void* external,
+                               const ResolvedOutputPoolSpec& spec,
+                               std::string* error);
+
 inline OperatorValueTypeBinding MakeNestedOutputBinding(int32_t tag = 1) {
   OperatorValueTypeBinding binding;
   binding.canonical_suffix = "test_nested_out";
   binding.external_c_type_name = "NestedOutputEnvelope";
   binding.direction = IoDirection::kOutput;
+  SetRequestIdMember(&binding, &NestedOutputEnvelope::request_id);
+  SetOutputValue<NestedOutputEnvelope, NestedOutputSource>(
+      &binding, [](NestedOutputEnvelope& out, const NestedOutputSource& value,
+                   const ResolvedOutputPoolSpec& spec) {
+        std::string error;
+        const int code = ConvertNestedOutput(&value, &out, spec, &error);
+        return AdapterStatus(code, std::move(error));
+      });
   binding.normalize_parameters =
       MakeOutputParameterParser<NestedOutputParameters>(ParseNestedOutput);
   binding.output_layout.compute_block_payload_bytes =

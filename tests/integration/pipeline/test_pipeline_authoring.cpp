@@ -10,6 +10,7 @@
 #include "cli/pipeline_authoring.h"
 #include "cli/pipeline_document_validation.h"
 #include "edgeflow/operator/types.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -81,7 +82,8 @@ void RegisterDocOutputs() {
            {"entity_extract", kMockServiceEntityExtract}}) {
     auto definition = prototype;
     definition.name = name;
-    definition.service_type = service;
+    test_support::RegistryTestAccess::SetService(definition.type,
+                                                 definition.name, service);
     ASSERT_TRUE(registry.RegisterOutputConverter(definition));
   }
 }

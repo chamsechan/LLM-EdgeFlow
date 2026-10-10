@@ -38,7 +38,7 @@ class TemplateFlatStructAdapter {
   size_t MaxBatchSize() const { return 64; }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
-             const InputDecodeOptions& options,
+             const InputDecodeOptions&,
              AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
@@ -48,9 +48,7 @@ class TemplateFlatStructAdapter {
           AdapterName());
     }
 
-    std::vector<uint64_t> req_ids;
     std::vector<std::string> sentences;
-    req_ids.reserve(num_inputs);
     sentences.reserve(num_inputs);
 
     constexpr size_t kMaxTextLen = 64 * 1024;
@@ -68,12 +66,10 @@ class TemplateFlatStructAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      req_ids.push_back(in->request_id);
       sentences.push_back(in->sentence_text);  // COPY_IN 深拷贝
     }
 
-    if (!PublishRequestIds(options, std::move(req_ids), out_status) ||
-        !AdapterValidationHelper::PublishContextValue(
+    if (!AdapterValidationHelper::PublishContextValue(
             *ctx, "raw_sentences", std::move(sentences), AdapterName(),
             out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;

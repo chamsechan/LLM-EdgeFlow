@@ -14,6 +14,7 @@
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_value_type.h"
+#include "adapter/platform_value_binding.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/operator_nested_output_fixture.h"
 
@@ -111,16 +112,9 @@ TEST_F(OperatorOutputPoolTest,
       << error;
   void* block = nullptr;
   ASSERT_EQ(pool->Acquire(&block), 0);
-  ExternalOutputBatchView view;
-  view.count = 1;
-  view.leased_slots["summary"] = {block};
-  view.slot_types["summary"] = binding.external_c_type_name;
-  auto* output = view.GetSlot<BusinessSummaryOutput>("summary", 0);
+  auto* output = static_cast<BusinessSummaryOutput*>(block);
   ASSERT_NE(output, nullptr);
   EXPECT_EQ(static_cast<void*>(output), block);
-  view.slot_types["summary"] = "DifferentOutput";
-  EXPECT_EQ(view.GetSlot<BusinessSummaryOutput>("summary", 0), nullptr);
-  view.slot_types["summary"] = binding.external_c_type_name;
   ASSERT_NE(output->title, nullptr);
   ASSERT_NE(output->summary, nullptr);
   CompanyString* title = output->title;

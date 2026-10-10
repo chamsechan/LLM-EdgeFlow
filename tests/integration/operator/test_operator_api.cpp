@@ -18,6 +18,7 @@
 #include "adapter/model_file_resolver.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "core/pipeline_catalog.h"
 #include "edgeflow/operator/interface.h"
@@ -28,6 +29,7 @@
 #include "tests/support/control_test_utils.h"
 #include "tests/support/operator_nested_output_fixture.h"
 #include "tests/support/operator_test_fixture.h"
+#include "tests/support/registry_test_access.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -231,25 +233,26 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
 
   // 3.1 ControlUpdateRulesParam 测试
   ControlUpdateRulesParam rules_param_null{nullptr};
-  EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_null),
-      -2);
+  EXPECT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param_null),
+            -2);
 
   ControlUpdateRulesParam rules_param_invalid{"not_a_json_object"};
-  EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_invalid),
-      -2);
+  EXPECT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param_invalid),
+            -2);
 
   ControlUpdateRulesParam rules_param_valid{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_valid),
-      0);
+  EXPECT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param_valid),
+            0);
 
   // 3.2 ControlSwitchPromptParam 测试
   ControlSwitchPromptParam prompt_param_null{"test_prompt", nullptr};
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_null),
+      ops_.Control(handle, static_cast<int>(ControlCommand::kSwitchPrompt),
+                   &prompt_param_null),
       -2);
 
   ControlSwitchPromptParam prompt_param_valid{"test_prompt",
@@ -257,37 +260,47 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   // KeywordMatch 不含 TextTemplateNode，返回 -7
   // (COMPANY_ALG_ERR_UNSUPPORTED_CONTROL)
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_valid),
+      ops_.Control(handle, static_cast<int>(ControlCommand::kSwitchPrompt),
+                   &prompt_param_valid),
       -7);
 
   // 3.3 ControlUpdateThresholdParam 测试 (含 NaN / Infinity 特殊浮点数拦截)
   ControlUpdateThresholdParam thresh_low{"VIP_SERVICE", -0.1f};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_low),
-            -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_low),
+      -2);
   ControlUpdateThresholdParam thresh_high{"VIP_SERVICE", 1.5f};
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_high), -2);
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_high),
+      -2);
 
   float nan_val = std::numeric_limits<float>::quiet_NaN();
   ControlUpdateThresholdParam thresh_nan{"VIP_SERVICE", nan_val};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_nan),
-            -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_nan),
+      -2);
 
   float inf_val = std::numeric_limits<float>::infinity();
   ControlUpdateThresholdParam thresh_inf{"VIP_SERVICE", inf_val};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_inf),
-            -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_inf),
+      -2);
 
   ControlUpdateThresholdParam thresh_valid{"VIP_SERVICE", 0.85f};
   // KeywordMatch 不支持动态阈值调节，返回 -7
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_valid),
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_valid),
       -7);
 
-  // 3.4 未知命令枚举
-  EXPECT_EQ(
-      ops_.Control(handle, static_cast<ControlCommand>(999), &thresh_valid),
-      -2);
+  // 3.4 未知整数命令在接入边界返回参数错误
+  for (int command : {-1, 0, 999}) {
+    EXPECT_EQ(ops_.Control(handle, command, &thresh_valid), -2);
+  }
 
   ops_.Destroy(handle);
 
@@ -304,7 +317,8 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   ASSERT_NE(entity_handle, nullptr);
 
   ControlSwitchPromptParam entity_prompt{"test_prompt", "{{primary}}"};
-  EXPECT_EQ(ops_.Control(entity_handle, ControlCommand::kSwitchPrompt,
+  EXPECT_EQ(ops_.Control(entity_handle,
+                         static_cast<int>(ControlCommand::kSwitchPrompt),
                          &entity_prompt),
             0);
 
@@ -342,7 +356,9 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   check(0);
   std::string payload = R"({"prefix":"VIP:"})";
   ControlJsonParam command{2000000041, payload.c_str()};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  ASSERT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      0);
   payload.assign(payload.size(), 'x');  // 调用方内存已不再需要。
   check(1);
 
@@ -350,19 +366,23 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ControlJsonParam rules{
       llm_edgeflow::kControlCmdUpdateRules,
       R"({"categories":{"AFTER_RULE_UPDATE":["NEW:sample"]}})"};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &rules), 0);
+  ASSERT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &rules), 0);
   check(0);
   command.json_param_str =
       R"({"$edgeflow_control":1,"node":"prefix","payload":{"prefix":"NEW:"}})";
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  ASSERT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      0);
   check(1);  // 更新 prefix 会保留匹配器的新规则。
 
   // 被拒绝的请求属于非法参数；内部 Core 错误码保留在诊断信息中，
   // 不会与无效句柄错误码冲突。
   command.json_param_str =
       R"({"$edgeflow_control":1,"node":"missing","payload":{"prefix":"BAD:"}})";
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
-            COMPANY_ALG_ERR_INVALID_PARAM);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("missing"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError())
@@ -371,16 +391,18 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   check(1);
 
   command.json_param_str = R"({"prefix":1})";
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
-            COMPANY_ALG_ERR_INVALID_PARAM);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("node 'prefix'"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError()).find("prefix"),
             std::string::npos);
   payload = nlohmann::json{{"prefix", std::string(65, 'x')}}.dump();
   command.json_param_str = payload.c_str();
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
-            COMPANY_ALG_ERR_UNKNOWN);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      COMPANY_ALG_ERR_UNKNOWN);
   EXPECT_NE(std::string(GetOperatorLastError()).find("64 UTF-8 bytes"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError())
@@ -392,8 +414,9 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ControlJsonParam bad_regex{
       llm_edgeflow::kControlCmdUpdateRules,
       R"({"rules":[{"pattern":"(","strategy":"regex"}]})"};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &bad_regex),
-            COMPANY_ALG_ERR_UNKNOWN);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &bad_regex),
+      COMPANY_ALG_ERR_UNKNOWN);
   EXPECT_NE(std::string(GetOperatorLastError()).find("node 'matcher'"),
             std::string::npos);
   check(1);
@@ -401,15 +424,23 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   for (const char* invalid :
        {static_cast<const char*>(nullptr), "", "[]", "{"}) {
     command.json_param_str = invalid;
-    EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+    EXPECT_EQ(
+        ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+        -2);
   }
   payload.assign(65536, 'x');
   command.json_param_str = payload.c_str();
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      -2);
   command = {0, "{}"};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      -2);
   command = {19999, "{}"};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -7);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      -7);
   EXPECT_NE(std::string(GetOperatorLastError()).find("19999"),
             std::string::npos);
 }
@@ -455,7 +486,8 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
 
   ControlUpdateRulesParam rules_param{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param),
+  ASSERT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param),
             0);
 
   std::string text = "请帮我联系VIP专员，加急处理";
@@ -2099,26 +2131,18 @@ int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
 
   size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
-    auto* external = destination->GetSlot<void>(options.type, i);
-    if (!external && !destination->required) continue;
-    const auto* spec = destination->GetPoolSpec(options.type);
-    if (!external || !spec) return -4;
+    if (!destination->HasSlot(options.type, i) && !destination->required)
+      continue;
     NestedOutputSource result;
-    result.request_id = (*req_ids)[i];
     for (const auto& match : *matches) {
       if (match.req_id == i) {
         result.is_hit = match.data.is_hit;
         break;
       }
     }
-    std::string error;
-    const int ret = ConvertNestedOutput(&result, external, *spec, &error);
-    if (ret != 0) {
-      if (status)
-        *status = AdapterStatus(ret, error, options.type, static_cast<int>(i),
-                                options.Label());
-      return ret;
-    }
+    if (!WriteOutputValue(*destination, options.type.c_str(), i, result,
+                          options, status))
+      return -4;
     ++written;
   }
   if (written_count) *written_count = written;
@@ -2132,7 +2156,7 @@ OutputConverterDefinition NestedConverter(const std::string& name,
   OutputConverterDefinition def;
   def.type = "test_nested_out";
   def.name = name;
-  def.slot.type_id = "NestedOutputEnvelope";
+  def.slot.value_type = typeid(NestedOutputSource);
   def.slot.type_suffix = def.type;
   def.slot.required = required;
   def.slot.allocator = allocator;
@@ -2216,7 +2240,7 @@ void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
 }  // namespace
 }  // namespace llm_edgeflow::test_support
 
-TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
+TEST_F(OperatorApiTest, ProcessSuppliesImmutableBindingRequestIds) {
   using namespace llm_edgeflow;
   using namespace llm_edgeflow::test_support;
   const auto* production = IoConverterRegistry::Instance().FindInputConverter(
@@ -2224,14 +2248,18 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   ASSERT_NE(production, nullptr);
   auto input = *production;
   input.name = "test_partial_request_ids";
-  input.service_type = 10001;
+  RegistryTestAccess::SetService(input.type, input.name, 10001);
   input.decode_fn = [](const ExternalInputBatchView& source,
                        const InputDecodeOptions& options, AlgContext* context,
                        AdapterStatus* status) {
     const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
         "keyword_in", "keyword_match");
     const int ret = converter->decode_fn(source, options, context, status);
-    if (ret == 0) options.request_ids->resize(1);
+    static_assert(std::is_const_v<
+                  std::remove_reference_t<decltype(*options.request_ids)>>);
+    if (ret == 0) {
+      EXPECT_EQ(*options.request_ids, (std::vector<uint64_t>{900001, 42}));
+    }
     return ret;
   };
   if (!IoConverterRegistry::Instance().FindInputConverter(input.type,
@@ -2263,16 +2291,14 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
     outputs[i]["main.test_nested_out"] = nullptr;
     outputs[i]["audit.test_nested_out"] = nullptr;
   }
-  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_STREQ(GetOperatorLastError(),
-               "DecodeInput for keyword_in/test_partial_request_ids recorded "
-               "request ids inconsistent with its input structs");
-  for (const auto& frame : outputs) {
-    EXPECT_EQ(frame.at("main.test_nested_out"), nullptr);
-    EXPECT_EQ(frame.at("audit.test_nested_out"), nullptr);
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    const auto* out = static_cast<const NestedOutputEnvelope*>(
+        outputs[i].at("main.test_nested_out").get());
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ(out->request_id, rows[i].request_id);
   }
-  // 归还已取出的块会将其重置，即使没有发布任何输出。
   EXPECT_EQ(nested_resets, resets_before);
 }
 
@@ -2587,9 +2613,9 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   std::vector<uint64_t> request_ids;
   decode_opts.request_ids = &request_ids;
 
-  EXPECT_EQ(
-      translate_in_conv->decode_fn(view_plain, decode_opts, &ctx, &status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(llm_edgeflow::test::DecodeForTest(*translate_in_conv, view_plain,
+                                              decode_opts, &ctx, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
 
   // 2. JSON 文本：翻译接受并提取 "query"
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
@@ -2602,9 +2628,9 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   view_json.count = 1;
   view_json.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&c_in_json});
   view_json.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-  EXPECT_EQ(
-      translate_in_conv->decode_fn(view_json, decode_opts, &valid_ctx, &status),
-      COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(llm_edgeflow::test::DecodeForTest(*translate_in_conv, view_json,
+                                              decode_opts, &valid_ctx, &status),
+            COMPANY_ALG_SUCCESS);
   const auto* queries =
       valid_ctx.Read<llm_edgeflow::TextBatch>(decode_opts.Port("query"));
   ASSERT_NE(queries, nullptr);

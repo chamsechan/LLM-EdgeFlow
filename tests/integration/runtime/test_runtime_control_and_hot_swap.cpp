@@ -264,7 +264,9 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   std::string param_str = envelope.dump();
 
   operator_api::ControlUpdateRulesParam ctrl{param_str.c_str()};
-  ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules, &ctrl);
+  ret = op.Control(handle,
+                   static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+                   &ctrl);
   EXPECT_EQ(ret, 0);
 
   // 1.3 再次执行匹配，验证新词库已即时生效并命中
@@ -365,8 +367,9 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
                                      {"VIP", "测试", "动态"}}}}};
       std::string s = ctrl_json.dump();
       operator_api::ControlUpdateRulesParam ctrl{s.c_str()};
-      int ret =
-          op.Control(handle, operator_api::ControlCommand::kUpdateRules, &ctrl);
+      int ret = op.Control(
+          handle, static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+          &ctrl);
       if (ret == 0) {
         control_count.fetch_add(1);
       }
@@ -401,25 +404,32 @@ TEST_F(RuntimeControlAndHotSwapTest, InvalidControlCommands) {
   // 3.1 非法指令码 cmd = 99999 (未声明命令返回
   // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL = -7)
   operator_api::ControlJsonParam ctrl1{99999, "{}"};
-  int ret = op.Control(handle, operator_api::ControlCommand::kJson, &ctrl1);
+  int ret = op.Control(
+      handle, static_cast<int>(operator_api::ControlCommand::kJson), &ctrl1);
   EXPECT_EQ(ret, COMPANY_ALG_ERR_UNSUPPORTED_CONTROL);
 
   // 3.2 空指针参数
-  ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules, nullptr);
+  ret = op.Control(handle,
+                   static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+                   nullptr);
   EXPECT_EQ(ret, -2);  // adapter 层拦截空结构体指针
 
   operator_api::ControlUpdateRulesParam ctrl_null_str{nullptr};
-  ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules,
+  ret = op.Control(handle,
+                   static_cast<int>(operator_api::ControlCommand::kUpdateRules),
                    &ctrl_null_str);
   EXPECT_EQ(ret, -2);  // adapter 层拦截空 JSON 字符串指针
 
   // 3.3 畸形 JSON 字符串
   operator_api::ControlUpdateRulesParam ctrl2{"{invalid_json_missing_brace"};
-  ret = op.Control(handle, operator_api::ControlCommand::kUpdateRules, &ctrl2);
+  ret = op.Control(handle,
+                   static_cast<int>(operator_api::ControlCommand::kUpdateRules),
+                   &ctrl2);
   EXPECT_EQ(ret, -2);  // adapter 层拦截畸形 JSON 并返回 -2
 
   // 3.4 空句柄控制
-  ret = op.Control(nullptr, operator_api::ControlCommand::kJson, &ctrl1);
+  ret = op.Control(
+      nullptr, static_cast<int>(operator_api::ControlCommand::kJson), &ctrl1);
   EXPECT_EQ(ret, -1);
 
   op.Destroy(handle);

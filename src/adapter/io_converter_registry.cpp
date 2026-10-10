@@ -21,17 +21,30 @@ void AuditDefinition(const Definition& def,
   if (!value || value->direction != direction) {
     fail("No registered platform binding for the slot");
   } else {
-    if (value->external_c_type_name != def.slot.type_id)
-      fail("Slot type_id does not match the platform struct");
+    if (value->value_type != def.slot.value_type)
+      fail("Slot value type does not match the platform binding");
+    std::set<int32_t> services;
+    for (const auto& [name, service] : value->services) {
+      if (name.empty() || name == kCommonIoName || !value->read_service_type)
+        fail("Invalid service_type declaration on platform binding");
+      if (!services.insert(service).second)
+        fail("Duplicate service_type for platform binding");
+    }
     const bool needs_service =
         value->read_service_type && def.name != kCommonIoName;
-    if (needs_service != def.service_type.has_value())
+    if (needs_service != value->ServiceType(def.name).has_value())
       fail(
           "service_type must be set only for a named service on a struct that "
           "declares it");
-    if (direction == IoDirection::kInput && !value->validate_external)
-      fail("Input platform binding has no validation callback");
-    if (direction == IoDirection::kOutput && def.service_type &&
+    if (direction == IoDirection::kInput &&
+        (!value->validate_external || !value->read_value))
+      fail("Input platform binding has no validation or value reader");
+    if (direction == IoDirection::kOutput && value->read_request_id &&
+        !value->write_request_id)
+      fail("Output platform binding has no request_id writer");
+    if (direction == IoDirection::kOutput && !value->write_value)
+      fail("Output platform binding has no value writer");
+    if (direction == IoDirection::kOutput && value->ServiceType(def.name) &&
         !value->write_service_type)
       fail("Output platform binding has no service_type writer");
   }
@@ -61,16 +74,6 @@ bool RegisterDefinition(Map* entries, const Definition& def, bool has_callback,
   if (entries->count(key)) {
     conflicts->Record("Duplicate converter registration: " + def.Label());
     return false;
-  }
-  if (def.service_type) {
-    for (const auto& [registered_key, registered] : *entries) {
-      if (registered.type == def.type &&
-          registered.service_type == def.service_type) {
-        conflicts->Record("Duplicate service_type for converter type: " +
-                          def.type);
-        return false;
-      }
-    }
   }
   entries->emplace(key, def);
   return true;
@@ -178,12 +181,14 @@ bool IoConverterRegistry::Audit(std::vector<std::string>* out_errors) const {
       fail("No registered platform binding for the output allocator");
       continue;
     }
-    if (value->external_c_type_name != def.slot.type_id)
-      fail("Allocator type_id does not match the platform struct");
+    if (value->value_type != def.slot.value_type || !value->write_value)
+      fail("Allocator value type or writer does not match the converter");
+    const auto& validate_metadata = value->output_layout.validate_metadata;
     if (def.slot.metadata_count > value->output_layout.max_metadata_elements ||
-        (def.slot.metadata_count == 0) != (def.slot.metadata_type_id == 0) ||
-        (def.slot.metadata_count &&
-         !FindCompanyAnyType(def.slot.metadata_type_id)))
+        (validate_metadata
+             ? !validate_metadata(def.slot.metadata_count,
+                                  def.slot.metadata_type_id)
+             : def.slot.metadata_count != 0 || def.slot.metadata_type_id != 0))
       fail("Invalid fixed metadata count or type");
     for (const auto& [field, capacity] :
          value->output_layout.string_capacity_fields) {

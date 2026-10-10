@@ -102,7 +102,7 @@ class TemplateNestedPointerTreeAdapter {
   }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
-             const InputDecodeOptions& options,
+             const InputDecodeOptions&,
              AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
@@ -112,9 +112,7 @@ class TemplateNestedPointerTreeAdapter {
           AdapterName());
     }
 
-    std::vector<uint64_t> req_ids;
     std::vector<TemplateTreeNodeDto> root_dtos;
-    req_ids.reserve(num_inputs);
     root_dtos.reserve(num_inputs);
 
     constexpr int kMaxTreeDepth = 32;
@@ -137,12 +135,10 @@ class TemplateNestedPointerTreeAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      req_ids.push_back(in->request_id);
       root_dtos.push_back(std::move(root_dto));
     }
 
-    if (!PublishRequestIds(options, std::move(req_ids), out_status) ||
-        !AdapterValidationHelper::PublishContextValue(
+    if (!AdapterValidationHelper::PublishContextValue(
             *ctx, "tree_root_dtos", std::move(root_dtos), AdapterName(),
             out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;

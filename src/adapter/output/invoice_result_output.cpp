@@ -6,10 +6,10 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -33,6 +33,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
                                 size_t* written_count, AdapterStatus* status) {
+  if (written_count) *written_count = 0;
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
@@ -50,7 +51,7 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = invoice_jsons->size();
-  if (destination->count < count) {
+  if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
         "destination", options.Label().c_str());
@@ -68,33 +69,30 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
+  size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOdOutput>(kOutputSlot, i);
-    if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing od_out slot item", kOutputSlot,
-          options.Label().c_str(), static_cast<int>(i));
+    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
+      continue;
     }
+    DetectionOutputValue out;
 
-    out->request_id = (*raw_req_ids)[i];
-    out->detected_box_count =
+    out.detected_box_count =
         static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
     if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Structured result failed or used fallback", "invoice_jsons",
           options.Label().c_str(), static_cast<int>(i));
     }
-    out->status_code = 0;
+    out.status_code = 0;
 
-    if (!WriteOutputString(*destination, kOutputSlot, out->result_json,
-                           "result_json",
-                           invoice_jsons_by_request[i]->data.json_payload,
-                           options, status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    out.result_json = invoice_jsons_by_request[i]->data.json_payload;
+    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
+      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
+    ++written;
   }
 
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = written;
   return COMPANY_ALG_SUCCESS;
 }
 
@@ -102,8 +100,7 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "ocr_invoice_qa";
-  def.service_type = kMockServiceOcrInvoiceQa;
-  def.slot = ExternalOutputSlot<CompanyOdOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<DetectionOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kResult),
                        RequiredInputPort(kDocument)};
   def.params = ParamSpec();

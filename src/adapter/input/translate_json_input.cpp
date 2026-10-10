@@ -5,11 +5,10 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
@@ -31,18 +30,9 @@ int ParseTranslateQuery(const std::string& raw_text, std::string* out_query) {
   return 0;
 }
 
-AdapterStatus DecodeTranslateQuery(const CompanyOperatorEntityInput& input,
+AdapterStatus DecodeTranslateQuery(const TextInputValue& input,
                                    std::string* query) {
-  if (!IsValidInputString(input.sentence_text)) {
-    return AdapterStatus::InvalidInput(
-        "sentence_text string pointer is null or invalid", "sentence_text");
-  }
-  if (static_cast<size_t>(input.sentence_text->length) >
-      input_limits::kMaxTextBytes) {
-    return AdapterStatus::InvalidInput(
-        "sentence_text length exceeds 64 KiB limit", "sentence_text");
-  }
-  if (ParseTranslateQuery(CopyInputString(*input.sentence_text), query) != 0) {
+  if (ParseTranslateQuery(input.sentence_text, query) != 0) {
     return AdapterStatus::InvalidInput(
         "Expected a JSON object with string field query", "json");
   }
@@ -52,17 +42,16 @@ AdapterStatus DecodeTranslateQuery(const CompanyOperatorEntityInput& input,
 int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 AlgContext* context, AdapterStatus* status) {
-  return DecodeRequestRows<CompanyOperatorEntityInput>(
-      source, options, context, status, kInputSlot, kQuery,
-      &DecodeTranslateQuery);
+  return DecodeRequestRows<TextInputValue>(source, options, context, status,
+                                           kInputSlot, kQuery,
+                                           &DecodeTranslateQuery);
 }
 
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   InputConverterDefinition def;
   def.type = kInputSlot;
   def.name = "translate";
-  def.service_type = kMockServiceTranslate;
-  def.slot = ExternalInputSlot<CompanyOperatorEntityInput>(kInputSlot);
+  def.slot = ExternalInputSlot<TextInputValue>(kInputSlot);
   def.logical_ports = {OutputPort(kQuery)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;

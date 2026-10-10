@@ -1,5 +1,6 @@
 #pragma once
 
+#include <any>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -7,50 +8,20 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <typeindex>
 #include <unordered_map>
 #include <vector>
 
 #include "adapter/adapter_status.h"
 #include "adapter/operator_io_contracts.h"
+#include "adapter/operator_value_type.h"
 #include "contracts/parameter_set.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/port_definition.h"
 #include "core/validated_node_plan.h"
-#include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
-
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyString, "CompanyString");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyBuffer, "CompanyBuffer");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAny, "CompanyAny");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyFrame, "CompanyFrame");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOdOutput, "CompanyOdOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAuditInput,
-                             "CompanyOperatorAuditInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAuditOutput,
-                             "CompanyOperatorAuditOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorKeywordInput,
-                             "CompanyOperatorKeywordInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorKeywordOutput,
-                             "CompanyOperatorKeywordOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorEntityInput,
-                             "CompanyOperatorEntityInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorEntityOutput,
-                             "CompanyOperatorEntityOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorDocInput,
-                             "CompanyOperatorDocInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorDocOutput,
-                             "CompanyOperatorDocOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAudioInput,
-                             "CompanyOperatorAudioInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAudioOutput,
-                             "CompanyOperatorAudioOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorRerankInput,
-                             "CompanyOperatorRerankInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorRerankOutput,
-                             "CompanyOperatorRerankOutput");
-DECLARE_EXTERNAL_TYPE_TRAITS(int, "int");
 
 /**
  * @brief 外部宿主输入批次同步只读视图
@@ -61,17 +32,29 @@ class ExternalInputBatchView {
   std::unordered_map<std::string, std::vector<std::shared_ptr<void>>> slots;
   std::unordered_map<std::string, std::string> slot_types;
 
+  const OperatorValueTypeBinding* binding = nullptr;
+
   template <typename T>
-  const T* GetSlot(const std::string& slot_name, size_t index) const {
-    auto it = slots.find(slot_name);
-    if (it == slots.end() || index >= it->second.size()) return nullptr;
-    if constexpr (!std::is_void_v<T>) {
-      auto type = slot_types.find(slot_name);
-      if (type == slot_types.end() ||
-          type->second != ExternalTypeTraits<T>::TypeName())
-        return nullptr;
+  std::optional<T> Read(const std::string& slot, size_t index,
+                        AdapterStatus* status) const {
+    auto it = slots.find(slot);
+    auto type = slot_types.find(slot);
+    if (!binding || binding->value_type != typeid(T) ||
+        type == slot_types.end() ||
+        type->second != binding->external_c_type_name || it == slots.end() ||
+        index >= it->second.size() || !it->second[index]) {
+      if (status)
+        *status = AdapterStatus::InvalidInput(
+            "Missing or mismatched input binding", slot);
+      return std::nullopt;
     }
-    return static_cast<const T*>(it->second[index].get());
+    std::string error;
+    const void* raw = it->second[index].get();
+    if (binding->validate_external(raw, InputLimits{}, &error) != 0) {
+      if (status) *status = AdapterStatus::InvalidInput(std::move(error), slot);
+      return std::nullopt;
+    }
+    return std::any_cast<T>(binding->read_value(raw));
   }
 };
 
@@ -90,17 +73,32 @@ class ExternalOutputBatchView {
     return it == pool_specs.end() ? nullptr : it->second;
   }
 
+  const OperatorValueTypeBinding* binding = nullptr;
+
+  bool HasSlot(const std::string& slot, size_t index) const {
+    auto it = leased_slots.find(slot);
+    return it != leased_slots.end() && index < it->second.size() &&
+           it->second[index];
+  }
+
   template <typename T>
-  T* GetSlot(const std::string& slot_name, size_t index) const {
-    auto it = leased_slots.find(slot_name);
-    if (it == leased_slots.end() || index >= it->second.size()) return nullptr;
-    if constexpr (!std::is_void_v<T>) {
-      auto type = slot_types.find(slot_name);
-      if (type == slot_types.end() ||
-          type->second != ExternalTypeTraits<T>::TypeName())
-        return nullptr;
-    }
-    return static_cast<T*>(it->second[index]);
+  AdapterStatus Write(const std::string& slot, size_t index,
+                      uint64_t request_id, const T& value) const {
+    auto type = slot_types.find(slot);
+    if (!binding || binding->value_type != typeid(T) ||
+        type == slot_types.end() ||
+        type->second != binding->external_c_type_name || !HasSlot(slot, index))
+      return AdapterStatus::BufferTooSmall(
+          "Missing or mismatched output binding", slot);
+    const auto* spec = GetPoolSpec(slot);
+    if (!spec)
+      return AdapterStatus::BufferTooSmall(
+          "Missing output capacity specification", slot);
+    auto* raw = leased_slots.at(slot)[index];
+    auto result = binding->write_value(raw, std::any(value), *spec);
+    if (result.IsOk() && binding->write_request_id)
+      binding->write_request_id(raw, request_id);
+    return result;
   }
 };
 
@@ -115,7 +113,7 @@ using IoPortBindings = std::unordered_map<std::string, std::string>;
 struct InputDecodeOptions {
   std::string type;
   std::string name;
-  std::vector<uint64_t>* request_ids = nullptr;
+  const std::vector<uint64_t>* request_ids = nullptr;
   const ParameterValues* params = nullptr;
   const IoPortBindings* ports = nullptr;
 
@@ -153,7 +151,7 @@ struct OutputEncodeOptions {
 };
 
 struct ExternalSlotDefinition {
-  std::string type_id;
+  std::type_index value_type{typeid(void)};
   std::string type_suffix;
   bool required = true;
   std::string allocator;
@@ -173,7 +171,6 @@ using EncodeOutputFn = int (*)(AlgContext* context,
 struct InputConverterDefinition {
   std::string type;
   std::string name;
-  std::optional<int32_t> service_type;
   ExternalSlotDefinition slot;
   std::vector<NodePortDefinition> logical_ports;
   ParameterSet params;
@@ -184,7 +181,6 @@ struct InputConverterDefinition {
 struct OutputConverterDefinition {
   std::string type;
   std::string name;
-  std::optional<int32_t> service_type;
   ExternalSlotDefinition slot;
   std::vector<NodePortDefinition> logical_ports;
   ParameterSet params;

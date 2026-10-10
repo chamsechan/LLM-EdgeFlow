@@ -18,13 +18,16 @@
 #include "adapter/io_catalog.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
+#include "adapter/io_values.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
+#include "adapter/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/registry_conflicts.h"
 #include "core/pipeline_config.h"
 #include "edgeflow/operator/interface.h"
 #include "tests/support/operator_test_fixture.h"
+#include "tests/support/registry_test_access.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
@@ -37,15 +40,11 @@ std::atomic<int> allocator_parse_calls{0};
 struct LayoutParams {
   int marker = 0;
 };
-const bool registered_counting_allocator = [] {
-  auto binding = MakePooledOutputBinding<CompanyOperatorEntityOutput>(
-      "entity_out",
-      {{"entities_json", &CompanyOperatorEntityOutput::entities_json, {65536}}},
-      [](CompanyOperatorEntityOutput& out) noexcept {
-        out.request_id = 0;
-        out.service_type = 0;
-        out.status_code = 0;
-      });
+bool RegisterCountingAllocator() {
+  const auto* builtin =
+      OperatorValueTypeRegistry::Instance().GetOutputBinding("entity_out", "");
+  if (!builtin) return false;
+  auto binding = *builtin;
   binding.normalize_parameters = MakeOutputParameterParser<LayoutParams>(
       [](const std::string& text, LayoutParams* params, std::string* error) {
         ++allocator_parse_calls;
@@ -59,7 +58,7 @@ const bool registered_counting_allocator = [] {
         return true;
       });
   return RegisterOperatorOutputAllocator("unit_counting_allocator", binding);
-}();
+}
 int DummyDecode(const ExternalInputBatchView&, const InputDecodeOptions&,
                 AlgContext*, AdapterStatus*) {
   ++dummy_decode_calls;
@@ -83,8 +82,7 @@ InputConverterDefinition TestInput() {
   InputConverterDefinition def;
   def.type = "entity_in";
   def.name = "test_service";
-  def.service_type = 1001;
-  def.slot = ExternalInputSlot<CompanyOperatorEntityInput>(def.type);
+  def.slot = ExternalInputSlot<TextInputValue>(def.type);
   def.logical_ports = {
       NodePortDefinition("sentence_text", "TextBatch", true, "1:1")};
   def.decode_fn = DummyDecode;
@@ -94,8 +92,7 @@ OutputConverterDefinition TestOutput() {
   OutputConverterDefinition def;
   def.type = "entity_out";
   def.name = "test_service";
-  def.service_type = 1001;
-  def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(def.type);
+  def.slot = ExternalOutputSlot<EntityOutputValue>(def.type);
   def.logical_ports = {
       NodePortDefinition("answer_text", "TextBatch", true, "1:1")};
   def.params = SizeParameters();
@@ -125,6 +122,11 @@ nlohmann::json TestDocument() {
 class IoConverterRegistryTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    ASSERT_TRUE(RegisterCountingAllocator());
+    test_support::RegistryTestAccess::SetService("entity_in", "test_service",
+                                                 1001);
+    test_support::RegistryTestAccess::SetService("entity_out", "test_service",
+                                                 1001);
     auto& registry = IoConverterRegistry::Instance();
     saved_inputs_ = registry.AllInputConverters();
     saved_outputs_ = registry.AllOutputConverters();
@@ -150,6 +152,7 @@ class IoConverterRegistryTest : public ::testing::Test {
                             }))
         << ::testing::PrintToString(errors);
   }
+  test_support::RegistryTestAccess::ScopedValueTypeState value_types_;
   std::vector<InputConverterDefinition> saved_inputs_;
   std::vector<OutputConverterDefinition> saved_outputs_;
 };
@@ -180,16 +183,19 @@ TEST_F(IoConverterRegistryTest, DuplicatePairsAndServicesRemainConflicts) {
   registry.ResetConflictForTesting();
   auto input = TestInput();
   input.name = "another_service";
-  EXPECT_FALSE(registry.RegisterInputConverter(input));
+  test_support::RegistryTestAccess::SetService(input.type, input.name, 1001);
+  EXPECT_TRUE(registry.RegisterInputConverter(input));
   ExpectAuditFailure("entity_in", "Duplicate service_type");
-  registry.ResetConflictForTesting();
+  test_support::RegistryTestAccess::SetService(input.type, input.name, 1002);
   auto output = TestOutput();
   output.name = "another_service";
-  EXPECT_FALSE(registry.RegisterOutputConverter(output));
+  test_support::RegistryTestAccess::SetService(output.type, output.name, 1001);
+  EXPECT_TRUE(registry.RegisterOutputConverter(output));
   ExpectAuditFailure("entity_out", "Duplicate service_type");
-  registry.ResetConflictForTesting();
+  test_support::RegistryTestAccess::SetService(output.type, output.name, 1002);
   input.type = "keyword_in";
-  input.slot = ExternalInputSlot<CompanyOperatorKeywordInput>(input.type);
+  input.slot = ExternalInputSlot<TextInputValue>(input.type);
+  test_support::RegistryTestAccess::SetService(input.type, input.name, 1001);
   EXPECT_TRUE(registry.RegisterInputConverter(input));
   EXPECT_TRUE(registry.Audit());
 }
@@ -224,9 +230,10 @@ TEST_F(IoConverterRegistryTest, SlotMustMatchRegisteredPlatformTypeAndSuffix) {
   for (int variant = 0; variant < 3; ++variant) {
     auto input = TestInput();
     input.name = "bad_input_" + std::to_string(variant);
-    input.service_type = 1100 + variant;
+    test_support::RegistryTestAccess::SetService(input.type, input.name,
+                                                 1100 + variant);
     if (variant == 0) input.slot.type_suffix = "different";
-    if (variant == 1) input.slot.type_id = "CompanyString";
+    if (variant == 1) input.slot.value_type = typeid(std::string);
     if (variant == 2) {
       input.type = "unknown_platform_type";
       input.slot.type_suffix = input.type;
@@ -234,48 +241,115 @@ TEST_F(IoConverterRegistryTest, SlotMustMatchRegisteredPlatformTypeAndSuffix) {
     ASSERT_TRUE(registry.RegisterInputConverter(input));
     ExpectAuditFailure(input.Label(), variant == 0 ? "type_suffix"
                                       : variant == 1
-                                          ? "type_id"
+                                          ? "value type"
                                           : "No registered platform");
   }
   auto output = TestOutput();
   output.name = "bad_output_struct";
-  output.service_type = 1200;
-  output.slot.type_id = "CompanyOperatorKeywordOutput";
+  test_support::RegistryTestAccess::SetService(output.type, output.name, 1200);
+  output.slot.value_type = typeid(KeywordOutputValue);
   ASSERT_TRUE(registry.RegisterOutputConverter(output));
-  ExpectAuditFailure(output.Label(), "type_id");
+  ExpectAuditFailure(output.Label(), "value type");
+}
+
+TEST_F(IoConverterRegistryTest, AuditRequiresBindingValueReadersAndWriters) {
+  auto& values = OperatorValueTypeRegistry::Instance();
+  const auto input = *values.GetBindingBySuffix("entity_in");
+  for (const bool missing_reader : {false, true}) {
+    SCOPED_TRACE(missing_reader);
+    auto invalid = input;
+    if (missing_reader)
+      invalid.read_value = nullptr;
+    else
+      invalid.validate_external = nullptr;
+    test_support::RegistryTestAccess::SetValueBinding(std::move(invalid));
+    ExpectAuditFailure("entity_in/test_service", "value reader");
+  }
+  test_support::RegistryTestAccess::SetValueBinding(input);
+  auto output = *values.GetBindingBySuffix("entity_out");
+  output.write_value = nullptr;
+  test_support::RegistryTestAccess::SetValueBinding(std::move(output));
+  ExpectAuditFailure("entity_out/test_service", "value writer");
+}
+
+TEST_F(IoConverterRegistryTest, OutputRequestIdMemberRequiresAWriter) {
+  auto output =
+      *OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+  ASSERT_TRUE(output.read_request_id);
+  output.write_request_id = nullptr;
+  test_support::RegistryTestAccess::SetValueBinding(output);
+  ExpectAuditFailure("entity_out/test_service", "request_id writer");
+
+  output.read_request_id = nullptr;
+  test_support::RegistryTestAccess::SetValueBinding(std::move(output));
+  std::vector<std::string> errors;
+  EXPECT_TRUE(IoConverterRegistry::Instance().Audit(&errors))
+      << ::testing::PrintToString(errors);
+}
+
+TEST_F(IoConverterRegistryTest, NamedAllocatorMustMatchNeutralValueAndWriter) {
+  const auto* builtin =
+      OperatorValueTypeRegistry::Instance().GetOutputBinding("entity_out", "");
+  ASSERT_NE(builtin, nullptr);
+  for (const bool wrong_type : {false, true}) {
+    SCOPED_TRACE(wrong_type);
+    auto binding = *builtin;
+    if (wrong_type)
+      binding.value_type = typeid(KeywordOutputValue);
+    else
+      binding.write_value = nullptr;
+    const std::string allocator = wrong_type ? "unit_wrong_value_allocator"
+                                             : "unit_missing_writer_allocator";
+    ASSERT_TRUE(RegisterOperatorOutputAllocator(allocator, binding));
+    auto output = TestOutput();
+    output.name = allocator;
+    output.slot.allocator = allocator;
+    test_support::RegistryTestAccess::SetService(output.type, output.name,
+                                                 wrong_type ? 1251 : 1250);
+    ASSERT_TRUE(
+        IoConverterRegistry::Instance().RegisterOutputConverter(output));
+    ExpectAuditFailure(output.Label(), "Allocator value type or writer");
+  }
 }
 
 TEST_F(IoConverterRegistryTest, ServiceDeclarationMatchesHostMembersAndCommon) {
   auto& registry = IoConverterRegistry::Instance();
   auto missing = TestInput();
   missing.name = "missing_service";
-  missing.service_type.reset();
   ASSERT_TRUE(registry.RegisterInputConverter(missing));
   ExpectAuditFailure(missing.Label(), "service_type");
   auto common = TestOutput();
   common.name = kCommonIoName;
-  common.service_type = 1200;
+  test_support::RegistryTestAccess::SetService(common.type, common.name, 1200);
   ASSERT_TRUE(registry.RegisterOutputConverter(common));
   ExpectAuditFailure(common.Label(), "service_type");
   auto string = TestInput();
   string.type = "string";
   string.name = "string_with_service";
-  string.service_type = 1200;
-  string.slot = ExternalInputSlot<CompanyString>(string.type);
+  test_support::RegistryTestAccess::SetService(string.type, string.name, 1200);
+  string.slot = ExternalInputSlot<std::string>(string.type);
   ASSERT_TRUE(registry.RegisterInputConverter(string));
   ExpectAuditFailure(string.Label(), "service_type");
   registry.ClearForTesting();
   string.name = "string_service";
-  string.service_type.reset();
+  auto string_binding =
+      *OperatorValueTypeRegistry::Instance().GetBindingBySuffix("string");
+  string_binding.services.clear();
+  test_support::RegistryTestAccess::SetValueBinding(std::move(string_binding));
   ASSERT_TRUE(registry.RegisterInputConverter(string));
-  common.service_type.reset();
+  auto output_binding =
+      *OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+  output_binding.services.erase(kCommonIoName);
+  test_support::RegistryTestAccess::SetValueBinding(std::move(output_binding));
   ASSERT_TRUE(registry.RegisterOutputConverter(common));
   EXPECT_TRUE(registry.Audit());
 }
 
 TEST_F(IoConverterRegistryTest,
        NamedAllocatorUsesHostServiceDeclarationForAudit) {
-  ASSERT_TRUE(registered_counting_allocator);
+  ASSERT_NE(OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                "entity_out", "unit_counting_allocator"),
+            nullptr);
   auto& registry = IoConverterRegistry::Instance();
   for (const bool common : {false, true}) {
     for (const bool declared_service : {false, true}) {
@@ -287,7 +361,12 @@ TEST_F(IoConverterRegistryTest,
       output.name = common ? kCommonIoName : "named_layout_service";
       output.slot.allocator = "unit_counting_allocator";
       output.slot.allocator_params = R"({"marker":7})";
-      if (!declared_service) output.service_type.reset();
+      auto binding = *OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
+          output.type);
+      binding.services.erase(kCommonIoName);
+      binding.services.erase("named_layout_service");
+      if (declared_service) binding.services[output.name] = 1200;
+      test_support::RegistryTestAccess::SetValueBinding(std::move(binding));
       ASSERT_TRUE(registry.RegisterOutputConverter(output));
       if (common != declared_service) {
         std::vector<std::string> errors;
@@ -301,7 +380,9 @@ TEST_F(IoConverterRegistryTest,
 }
 
 TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
-  ASSERT_TRUE(registered_counting_allocator);
+  ASSERT_NE(OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                "entity_out", "unit_counting_allocator"),
+            nullptr);
   const auto input = std::find_if(
       saved_inputs_.begin(), saved_inputs_.end(), [](const auto& def) {
         return def.type == "entity_in" && def.name == "entity_extract";
@@ -378,7 +459,8 @@ TEST_F(IoConverterRegistryTest, LogicalPortsMustBeNonemptyTypedAndUnique) {
   for (int variant = 0; variant < 4; ++variant) {
     auto input = TestInput();
     input.name = "bad_ports_" + std::to_string(variant);
-    input.service_type = 1300 + variant;
+    test_support::RegistryTestAccess::SetService(input.type, input.name,
+                                                 1300 + variant);
     if (variant == 0) input.logical_ports.clear();
     if (variant == 1)
       input.logical_ports.push_back(input.logical_ports.front());
@@ -395,7 +477,8 @@ TEST_F(IoConverterRegistryTest, AuditRejectsMissingOrInvalidSizeDeclarations) {
   for (int variant = 0; variant < 3; ++variant) {
     auto output = TestOutput();
     output.name = "bad_size_" + std::to_string(variant);
-    output.service_type = 1400 + variant;
+    test_support::RegistryTestAccess::SetService(output.type, output.name,
+                                                 1400 + variant);
     if (variant == 0) output.params = ParameterSet{};
     if (variant == 1) {
       output.params = Parameters<SizeParams>{
@@ -414,19 +497,22 @@ TEST_F(IoConverterRegistryTest,
   auto& registry = IoConverterRegistry::Instance();
   auto unknown = TestOutput();
   unknown.name = "unknown_layout";
-  unknown.service_type = 1500;
+  test_support::RegistryTestAccess::SetService(unknown.type, unknown.name,
+                                               1500);
   unknown.slot.allocator = "unknown_allocator";
   ASSERT_TRUE(registry.RegisterOutputConverter(unknown));
   ExpectAuditFailure(unknown.Label(), "No registered platform");
   auto invalid = TestOutput();
   invalid.name = "invalid_layout_params";
-  invalid.service_type = 1501;
+  test_support::RegistryTestAccess::SetService(invalid.type, invalid.name,
+                                               1501);
   invalid.slot.allocator_params = R"({"unexpected":1})";
   ASSERT_TRUE(registry.RegisterOutputConverter(invalid));
   ExpectAuditFailure(invalid.Label(), "does not accept params");
   auto metadata = TestOutput();
   metadata.name = "no_metadata_member";
-  metadata.service_type = 1502;
+  test_support::RegistryTestAccess::SetService(metadata.type, metadata.name,
+                                               1502);
   metadata.slot.metadata_count = 1;
   metadata.slot.metadata_type_id = 1;
   ASSERT_TRUE(registry.RegisterOutputConverter(metadata));
@@ -438,15 +524,15 @@ TEST_F(IoConverterRegistryTest,
   ASSERT_TRUE(IoConverterRegistry::Instance().Audit());
   auto bad = TestInput();
   bad.name = "unselected_struct_mismatch";
-  bad.service_type = 1600;
-  bad.slot.type_id = "CompanyOperatorKeywordInput";
+  test_support::RegistryTestAccess::SetService(bad.type, bad.name, 1600);
+  bad.slot.value_type = typeid(DocumentInputValue);
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(bad));
   std::string diagnostic;
   EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(&diagnostic),
             COMPANY_ALG_ERR_REGISTRY_CONFLICT);
   EXPECT_NE(diagnostic.find("Converter audit"), std::string::npos);
   EXPECT_NE(diagnostic.find(bad.Label()), std::string::npos);
-  EXPECT_NE(diagnostic.find("type_id"), std::string::npos);
+  EXPECT_NE(diagnostic.find("value type"), std::string::npos);
 }
 
 TEST_F(IoConverterRegistryTest, StandardLayoutRequiresExplicitStringSizes) {
@@ -467,10 +553,12 @@ TEST_F(IoConverterRegistryTest, StandardLayoutRequiresExplicitStringSizes) {
 
 TEST_F(IoConverterRegistryTest,
        AllocatorNormalizationIsCachedAcrossAuditAndCreate) {
-  ASSERT_TRUE(registered_counting_allocator);
+  ASSERT_NE(OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                "entity_out", "unit_counting_allocator"),
+            nullptr);
   auto output = TestOutput();
   output.name = "counted_layout";
-  output.service_type = 1700;
+  test_support::RegistryTestAccess::SetService(output.type, output.name, 1700);
   output.slot.allocator = "unit_counting_allocator";
   output.slot.allocator_params = R"({"marker":7})";
   auto& registry = IoConverterRegistry::Instance();
@@ -682,7 +770,7 @@ TEST_F(IoConverterRegistryTest,
 TEST_F(IoConverterRegistryTest, SelectedInputsRejectDuplicateLogicalProducers) {
   auto second = TestInput();
   second.name = "second_service";
-  second.service_type = 1900;
+  test_support::RegistryTestAccess::SetService(second.type, second.name, 1900);
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(second));
   auto document = TestDocument();
   PreparedDeployment prepared;
@@ -714,8 +802,7 @@ TEST_F(IoConverterRegistryTest, SelectedInputsRequireARequestIdSource) {
   auto first = TestInput();
   first.type = "string";
   first.name = "first_string";
-  first.service_type.reset();
-  first.slot = ExternalInputSlot<CompanyString>(first.type);
+  first.slot = ExternalInputSlot<std::string>(first.type);
   first.logical_ports = {
       NodePortDefinition("first_text", "TextBatch", true, "1:1")};
   auto second = first;
@@ -786,7 +873,7 @@ TEST_F(IoConverterRegistryTest,
   int prepare_calls = 0;
   auto output = TestOutput();
   output.name = "derived_size";
-  output.service_type = 1800;
+  test_support::RegistryTestAccess::SetService(output.type, output.name, 1800);
   output.params = SizeParameters(17).Prepare(
       [&](SizeParams* params, std::string* diagnostic) {
         ++prepare_calls;

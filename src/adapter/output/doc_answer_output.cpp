@@ -6,10 +6,10 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -36,6 +36,7 @@ int EncodeOperatorDocAnswer(AlgContext* context,
                             const OutputEncodeOptions& options,
                             ExternalOutputBatchView* destination,
                             size_t* written_count, AdapterStatus* status) {
+  if (written_count) *written_count = 0;
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
@@ -58,7 +59,7 @@ int EncodeOperatorDocAnswer(AlgContext* context,
   if (!chunk_counts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = answers->size();
-  if (destination->count < count) {
+  if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
         "destination", options.Label().c_str());
@@ -77,33 +78,27 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
+  size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOperatorDocOutput>(kOutputSlot, i);
-    if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing doc_out slot item", kOutputSlot,
-          options.Label().c_str(), static_cast<int>(i));
+    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
+      continue;
     }
+    DocumentOutputValue out;
 
-    out->request_id = (*raw_req_ids)[i];
     const auto& match = intents_by_req[i]->data;
-    out->confidence = match.score;
-    out->chunk_count = chunks_by_req[i]->data;
-    out->status_code = match.status_code;
+    out.confidence = match.score;
+    out.chunk_count = chunks_by_req[i]->data;
+    out.status_code = match.status_code;
 
-    if (!WriteOutputString(*destination, kOutputSlot, out->intent_name,
-                           "intent_name", match.category, options, status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    out.intent_name = match.category;
+    out.answer_text = answers_by_req[i]->data;
+    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
+      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
-
-    if (!WriteOutputString(*destination, kOutputSlot, out->answer_text,
-                           "answer_text", answers_by_req[i]->data, options,
-                           status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    }
+    ++written;
   }
 
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = written;
   return COMPANY_ALG_SUCCESS;
 }
 
@@ -111,8 +106,7 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "doc_qa";
-  def.service_type = kMockServiceDocQa;
-  def.slot = ExternalOutputSlot<CompanyOperatorDocOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<DocumentOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kAnswerText),
                        RequiredInputPort(kIntent),
                        RequiredInputPort(kChunkCount)};

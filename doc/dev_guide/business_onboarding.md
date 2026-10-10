@@ -19,9 +19,10 @@
 | 位置 | 负责的工作 |
 | --- | --- |
 | Demo / 调用方 | 读取样例、构造 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
-| `InputConverterDefinition::decode_fn` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值发布至 `AlgContext` |
+| `OperatorValueTypeBinding` | 校验平台指针、长度和 metadata，读取与写入中立 I/O 值、请求编号及业务枚举，管理输出布局与内存 |
+| `InputConverterDefinition::decode_fn` | 接收自有中立值，解析完整请求、校验并选择业务字段，发布至 `AlgContext` |
 | Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
-| `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应并写入已租用输出池 |
+| `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应为中立值，经 binding 写入已租用输出池 |
 | Pipeline 根 `io` | 按方向与 `(type, name)` 选择转换器，所选 typed 端口组成 Core 明确边界 |
 
 Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
@@ -57,7 +58,7 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
 
 Operator 初始化会审计**全部已注册的转换器**，包括未被当前方案选中的登记。
-槽后缀与平台类型、业务成员、回调、typed 端口和参数声明必须一致；任一登记不合格，Init 返回 -6。
+槽后缀、中立值类型、binding 业务映射、回调、typed 端口和参数声明必须一致；任一登记不合格，Init 返回 -6。
 配置按 `(type, name)` 精确查找，未登记时报 `UNKNOWN_CONVERTER`，没有默认回退。
 
 ## 2. 用一个现有业务看清文件关系
@@ -83,10 +84,11 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 | 环节 | 样例文件 | 需要补齐时落实的内容 |
 | --- | --- | --- |
 | 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 已有载体不足时才新增结构，明确字段、长度和所有权；本目录只保存模拟约定，真实公司定义在授权内网接入 |
+| 中立 I/O 值 | [io_values.h](../../include/adapter/io_values.h) | binding 与 Converter 之间的请求自有内容，无平台指针、长度或分配字段 |
 | 内部数据边界 | [计划中的端口](../../include/core/validated_node_plan.h)、[中性结果类型](../../include/core/common_contracts.h) | converter 逻辑端口及 `节点名.端口名` 引用 与 Pipeline 产出的中性结果；已有类型可复用，外部响应由输出转换器组装 |
-| 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
-| 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、写入已分配的输出结构及 `REGISTER_OUTPUT_CONVERTER` |
-| Operator 类型注册（仅新平台宿主类型） | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 复用已注册类型时无需改动；新平台宿主类型在此登记一项，与平台结构、type traits 一一对应；已有类型的新嵌套布局用自己文件中的命名方案，见[实现与注册](operator_output_allocation.md#实现与注册) |
+| 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 完整请求业务校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
+| 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、完整响应组装及 `REGISTER_OUTPUT_CONVERTER` |
+| 平台 binding | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp)、[platform_value_binding.h](../../include/adapter/platform_value_binding.h) | 模拟平台的类型、traits、布局读写及内存管理；其他平台使用自己的 binding 文件，复用 Converter 的中立值，见[实现与注册](operator_output_allocation.md#实现与注册) |
 | Demo 载体与展示 | [keyword_input.cpp](../../demo/input/keyword_input.cpp)、[keyword_output.cpp](../../demo/output/keyword_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
@@ -100,45 +102,43 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
 参照关键词或实体抽取的实现，按需要完成：
 
 1. **实现输入转换器（`src/adapter/input/`）。**
-   单槽且每请求生成一个载荷时，先写普通函数
-   `AdapterStatus Decode(const Host& input, Payload* output)`，只校验业务字段并复制为自持有值。
-   `DecodeInputFn` 内调用 `DecodeRequestRows<Host>`，传入槽、typed 端口与该函数；
-   框架负责槽检查、循环、批内来源编号和发布。批次上限统一由 Operator 检查，为有效池深与 64 的较小值。
-   文本可用 `IsValidInputString` / `CopyInputString`，PCM 的范围检查和复制仍属于业务函数。
-   多槽、候选展开等算法继续使用 `ValidateDecodeRequest` / `ReadInputSlot<T>` 显式组织。
-   请求编号由框架保存和恢复，内部批次使用批内编号。自己组织多槽解码或多路结果的转换器，
-   在所有行校验通过后调用 `PublishRequestIds` 记录编号，编码时通过 `RequestIds` 读取；
-   编号表通过解码/编码选项传递，不声明为业务端口。
-   定义 `InputConverterDefinition`并使用
-   `REGISTER_INPUT_CONVERTER` 注册。
+   单槽且每请求生成一个载荷时，写普通函数
+   `AdapterStatus Decode(const Value& input, Payload* output)`，接收 `adapter/io_values.h`
+   中的自有值，解析完整请求并校验业务要求。`DecodeInputFn` 调用 `DecodeRequestRows<Value>`，
+   传入槽、typed 端口与函数；框架负责 binding 读取、循环、批内来源编号和发布。
+   候选展开等算法使用 `ValidateDecodeRequest` / `ReadInputSlot<Value>` 显式组织，后者返回
+   `std::optional<Value>`。平台指针、长度和表示形式由 binding 校验；业务确需更严格的限额
+   则留在 Converter，例如 rerank 段落的 64 KiB 限制。
+   Operator 通过 binding 读取并逐行核对请求编号，选项中的编号表只读，Converter 不发布编号。
+   内部批次仍使用批内编号。定义 `InputConverterDefinition` 并用 `REGISTER_INPUT_CONVERTER` 注册。
 2. **实现输出转换器（`src/adapter/output/`）。**
-   每请求一个结果时，先写普通函数
-   `AdapterStatus Encode(const Payload& result, Host* output, const OutputStringWriter& writer)`。
-   函数设置业务字段，字符串用 `writer.Write(output->field, "field", value)` 写入。
-   `EncodeOutputFn` 调用 `EncodeResultRows<Host>`，由框架读取绑定、检查每请求恰好一个
-   `sub_id=0` 的结果、恢复顺序与外部 `request_id`、维护 `written_count`。
-   多路结果组合和排名仍显式使用 `ReadOutputValue` / `IndexResults` / `WriteOutputString`。
-   所有写入使用实际输出池容量，不在转换器内另填容量默认值；业务状态和 JSON 组装仍由函数负责。
-   定义 `OutputConverterDefinition`并使用
-   `REGISTER_OUTPUT_CONVERTER` 注册。
+   每请求一个结果时，写普通函数
+   `AdapterStatus Encode(const Payload& result, Value* output)`，设置业务标量并直接赋值
+   `std::string` 或自有数组。`EncodeOutputFn` 调用 `EncodeResultRows<Value>`，框架检查
+   每请求恰好一个 `sub_id=0` 的结果、恢复顺序，再通过 binding 写入内容与外部编号。
+   多路结果组合和排名显式使用 `ReadOutputValue` / `IndexResults`，组装中立值后调用
+   `WriteOutputValue`；读取编号表使用 `RequestIds`。binding 按真实输出池容量复制字符串和数组，
+   Converter 保留业务状态检查和完整 JSON 响应组装。定义 `OutputConverterDefinition`
+   并用 `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **声明选择、参数与逻辑端口。**
-   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主结构槽，`slot.type_suffix == type`。
-   `name` 是平台业务值的中性对应，`common` 表示该载体的默认处理。平台结构带业务成员时，
-   非 common 登记显式声明 `service_type`；common 和无该成员的结构不声明该值。
-   逻辑端口是内部 typed Blackboard key，接入准备将所选端口组合为 Core 必传边界。
+   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主槽，`slot.type_suffix == type`。
+   用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中立类型，审计要求与 binding
+   的 `value_type` 一致。`name` 是中性业务名；结构带业务成员时，binding 的 `services` 显式
+   映射非 common 名称到平台枚举，Converter 不包含枚举。`common` 和无该成员的结构没有期望业务值。
+   逻辑端口是 typed Blackboard key，接入准备将所选端口组合为 Core 必传边界。
    每个输入发布不同端口；至少一个所选输入结构带请求 ID，多个都带时逐行一致。
-   声明参数用普通 `Params` 与 `Parameters<Params>`，每个字段有默认值或 Required；
+   声明参数使用普通 `Params` 与 `Parameters<Params>`，每个字段有默认值或 Required；
    无默认的 optional 可省略。Create 校验、赋值、Prepare、Validate 一次，Process 只读共享值。
    输出的每个字符串字段使用 `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
-   新载体的请求 ID 和业务成员在 ValueType 中用成员指针显式登记，不根据类型名猜测布局。
-
 
 ## 4. 需要新的宿主类型时
 
-多数业务复用已注册的宿主类型和 ValueType，载荷协议变化只需修改转换器。确需新的平台结构时，
-按[实现与注册](operator_output_allocation.md#实现与注册)在平台头文件、`io_converter.h` 和
-`operator_builtin_value_types.cpp` 中各新增一项；已有结构需要另一种嵌套布局时，在自己的文件中新增
-命名方案，不改已有实现。宿主类型的转换都留在接入适配层，Node、Model 和 Backend 无需识别宿主结构。
+多数业务复用已注册的宿主 binding 与中立 I/O 值，载荷协议变化只需修改 Converter。
+确需新的平台结构时，按[实现与注册](operator_output_allocation.md#实现与注册)登记 binding，
+用 `SetInputValue<Host, Value>` / `SetOutputValue<Host, Value>` 连接所需中立值。
+当前模拟平台的 traits 与布局 helper 在 `platform_value_binding.h`；真实平台使用自己的 binding
+文件，核对真实头文件与内存所有权。Converter、Node、Model 和 Backend 不识别宿主结构。
+新增具有相同内容语义的布局应复用中立值及 Converter；业务协议变化仍由 Converter 处理。
 
 ## 5. 统一 Demo 接入
 
@@ -217,8 +217,9 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 | Operator SDK | 初始化接受完整注册；在池容量内时输出完整，超池容量时无部分发布且后续请求可继续使用输出池 | [Operator 基础测试](../../tests/integration/operator/test_operator_api.cpp)、[公开 SDK 消费者测试](../../tests/contract/abi/test_cpp_operator_sdk.cpp) |
 | Pipeline / Demo | 新业务通过校验和计划，样例结果及错误路径符合预期 | [Catalog/Validator 测试](../../tests/integration/pipeline/test_pipeline_catalog_validator.cpp)、[Demo 测试](../../tests/integration/demo/test_demo_runner.cpp) |
 
-多槽测试可直接把 `ExternalInputBatchView` / `ExternalOutputBatchView` 交给 `AdapterHarness`，
-包含各槽类型和池规格。测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量
+载体测试通过 `AdapterHarness` 绑定实际平台 reader/writer，并核对 Operator 提取的编号。
+直接调用 Converter 的测试用 `DecodeForTest` / `EncodeForTest` 挂接 binding；需要编码时提供已知的
+只读请求编号表。自定义视图必须具备匹配 binding、槽类型及池规格。测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量
 （数组大小减去结尾 NUL 的一字节），或用 `TestOutputBatchView::SetCapacity` 描述实际存储；
 `CompanyString.length` 是内容长度，不能作为容量。
 

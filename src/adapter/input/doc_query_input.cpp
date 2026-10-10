@@ -5,11 +5,10 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -26,56 +25,24 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  std::vector<uint64_t> raw_req_ids;
   TextBatch raw_docs;
   TextBatch raw_queries;
 
-  raw_req_ids.reserve(source.count);
   raw_docs.reserve(source.count);
   raw_queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = ReadInputSlot<CompanyOperatorDocInput>(source, kInputSlot,
-                                                            i, options, status);
+    auto in = ReadInputSlot<DocumentInputValue>(source, kInputSlot, i, options,
+                                                status);
     if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    if (!IsValidInputString(in->query_text)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Invalid query_text CompanyString", "doc_in.query_text",
-          options.Label().c_str(), static_cast<int>(i));
-    }
-    if (static_cast<size_t>(in->query_text->length) >
-        input_limits::kMaxTextBytes) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "query_text length exceeds limit", "doc_in.query_text",
-          options.Label().c_str(), static_cast<int>(i));
-    }
-
-    std::string doc_str;
-    if (in->doc_text) {
-      if (!IsValidInputString(in->doc_text)) {
-        return AdapterValidationHelper::ReturnInvalidInput(
-            status, "Invalid doc_text CompanyString", "doc_in.doc_text",
-            options.Label().c_str(), static_cast<int>(i));
-      }
-      if (static_cast<size_t>(in->doc_text->length) >
-          input_limits::kMaxDocTextBytes) {
-        return AdapterValidationHelper::ReturnInvalidInput(
-            status, "doc_text length exceeds limit", "doc_in.doc_text",
-            options.Label().c_str(), static_cast<int>(i));
-      }
-      doc_str = CopyInputString(*in->doc_text);
-    }
-
-    std::string query_str = CopyInputString(*in->query_text);
-
-    raw_req_ids.push_back(in->request_id);
+    std::string doc_str = in->doc_text;
+    std::string query_str = in->query_text;
     raw_docs.emplace_back(static_cast<uint32_t>(i), 0, std::move(doc_str));
     raw_queries.emplace_back(static_cast<uint32_t>(i), 0, std::move(query_str));
   }
 
-  if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
-      !AdapterValidationHelper::PublishContextValue(
+  if (!AdapterValidationHelper::PublishContextValue(
           *context, options.Port(kDocText.name), std::move(raw_docs),
           options.Label().c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
@@ -91,8 +58,7 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   InputConverterDefinition def;
   def.type = kInputSlot;
   def.name = "doc_qa";
-  def.service_type = kMockServiceDocQa;
-  def.slot = ExternalInputSlot<CompanyOperatorDocInput>(kInputSlot);
+  def.slot = ExternalInputSlot<DocumentInputValue>(kInputSlot);
   def.logical_ports = {OutputPort(kDocText), OutputPort(kQueryText)};
   def.decode_fn = &DecodeOperatorDocQueryInput;
   return def;

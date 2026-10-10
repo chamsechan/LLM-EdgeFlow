@@ -132,7 +132,8 @@ inline int ApplyOperatorControl(
     return 3;
   }
   ControlJsonParam parameter{*options.control_cmd, payload.c_str()};
-  if (ops.Control(handle, ControlCommand::kJson, &parameter) != 0) {
+  if (ops.Control(handle, static_cast<int>(ControlCommand::kJson),
+                  &parameter) != 0) {
     std::cerr << "[OperatorRunner ERROR] ops.Control failed: "
               << GetOperatorLastError() << std::endl;
     return 5;
