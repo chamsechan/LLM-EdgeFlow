@@ -7,9 +7,9 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -30,68 +30,43 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  std::vector<uint64_t> raw_req_ids;
   TextBatch queries;
   RankedTextBatch candidates;
 
-  raw_req_ids.reserve(source.count);
   queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = ReadInputSlot<CompanyOperatorRerankInput>(
-        source, kInputSlot, i, options, status);
+    auto in =
+        ReadInputSlot<RerankInputValue>(source, kInputSlot, i, options, status);
     if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    if (!IsValidInputString(in->query_text)) {
+    if (in->candidate_passages.empty()) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Invalid query_text CompanyString", "rerank_in.query_text",
-          options.Label().c_str(), static_cast<int>(i));
-    }
-    if (static_cast<size_t>(in->query_text->length) >
-        input_limits::kMaxTextBytes) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "query_text length exceeds limit", "rerank_in.query_text",
-          options.Label().c_str(), static_cast<int>(i));
-    }
-
-    if (in->candidate_count < 1 ||
-        in->candidate_count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status,
-          "candidate_count out of valid range [1, " +
-              std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) + "]",
-          "rerank_in.candidate_count", options.Label().c_str(),
+          status, "At least one candidate passage is required",
+          "rerank_in.candidate_passages", options.Label().c_str(),
           static_cast<int>(i));
     }
 
-    std::string query_str = CopyInputString(*in->query_text);
-    raw_req_ids.push_back(in->request_id);
+    const std::string& query_str = in->query_text;
     queries.emplace_back(static_cast<uint32_t>(i), 0, query_str);
 
-    for (int c = 0; c < in->candidate_count; ++c) {
-      const auto* pass = in->candidate_passages[c];
-      if (!IsValidInputString(pass)) {
-        return AdapterValidationHelper::ReturnInvalidInput(
-            status, "Invalid candidate passage CompanyString",
-            "rerank_in.candidate_passages", options.Label().c_str(),
-            static_cast<int>(i));
-      }
-      if (static_cast<size_t>(pass->length) > kMaxCandidatePassageBytes) {
+    for (size_t c = 0; c < in->candidate_passages.size(); ++c) {
+      const auto& passage = in->candidate_passages[c];
+      if (passage.size() > kMaxCandidatePassageBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "candidate passage length exceeds limit",
             "rerank_in.candidate_passages", options.Label().c_str(),
             static_cast<int>(i));
       }
 
-      std::string passage = CopyInputString(*pass);
       candidates.emplace_back(
           static_cast<uint32_t>(i), static_cast<uint32_t>(c),
-          RankedCandidate(passage, 0.0f, c + 1, static_cast<uint32_t>(c)));
+          RankedCandidate(passage, 0.0f, static_cast<int>(c + 1),
+                          static_cast<uint32_t>(c)));
     }
   }
 
-  if (!PublishRequestIds(options, std::move(raw_req_ids), status) ||
-      !AdapterValidationHelper::PublishContextValue(
+  if (!AdapterValidationHelper::PublishContextValue(
           *context, options.Port(kQueryText.name), std::move(queries),
           options.Label().c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
@@ -107,8 +82,7 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
   InputConverterDefinition def;
   def.type = kInputSlot;
   def.name = "cross_rerank";
-  def.service_type = kMockServiceCrossRerank;
-  def.slot = ExternalInputSlot<CompanyOperatorRerankInput>(kInputSlot);
+  def.slot = ExternalInputSlot<RerankInputValue>(kInputSlot);
   def.logical_ports = {OutputPort(kQueryText), OutputPort(kCandidates, "N:1")};
   def.decode_fn = &DecodeOperatorRerankInput;
   return def;

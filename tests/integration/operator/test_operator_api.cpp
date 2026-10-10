@@ -18,6 +18,7 @@
 #include "adapter/model_file_resolver.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "core/pipeline_catalog.h"
 #include "edgeflow/operator/interface.h"
@@ -28,6 +29,7 @@
 #include "tests/support/control_test_utils.h"
 #include "tests/support/operator_nested_output_fixture.h"
 #include "tests/support/operator_test_fixture.h"
+#include "tests/support/registry_test_access.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -2099,26 +2101,18 @@ int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
 
   size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
-    auto* external = destination->GetSlot<void>(options.type, i);
-    if (!external && !destination->required) continue;
-    const auto* spec = destination->GetPoolSpec(options.type);
-    if (!external || !spec) return -4;
+    if (!destination->HasSlot(options.type, i) && !destination->required)
+      continue;
     NestedOutputSource result;
-    result.request_id = (*req_ids)[i];
     for (const auto& match : *matches) {
       if (match.req_id == i) {
         result.is_hit = match.data.is_hit;
         break;
       }
     }
-    std::string error;
-    const int ret = ConvertNestedOutput(&result, external, *spec, &error);
-    if (ret != 0) {
-      if (status)
-        *status = AdapterStatus(ret, error, options.type, static_cast<int>(i),
-                                options.Label());
-      return ret;
-    }
+    if (!WriteOutputValue(*destination, options.type.c_str(), i, result,
+                          options, status))
+      return -4;
     ++written;
   }
   if (written_count) *written_count = written;
@@ -2132,7 +2126,7 @@ OutputConverterDefinition NestedConverter(const std::string& name,
   OutputConverterDefinition def;
   def.type = "test_nested_out";
   def.name = name;
-  def.slot.type_id = "NestedOutputEnvelope";
+  def.slot.value_type = typeid(NestedOutputSource);
   def.slot.type_suffix = def.type;
   def.slot.required = required;
   def.slot.allocator = allocator;
@@ -2216,7 +2210,7 @@ void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
 }  // namespace
 }  // namespace llm_edgeflow::test_support
 
-TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
+TEST_F(OperatorApiTest, ProcessSuppliesImmutableBindingRequestIds) {
   using namespace llm_edgeflow;
   using namespace llm_edgeflow::test_support;
   const auto* production = IoConverterRegistry::Instance().FindInputConverter(
@@ -2224,14 +2218,18 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   ASSERT_NE(production, nullptr);
   auto input = *production;
   input.name = "test_partial_request_ids";
-  input.service_type = 10001;
+  RegistryTestAccess::SetService(input.type, input.name, 10001);
   input.decode_fn = [](const ExternalInputBatchView& source,
                        const InputDecodeOptions& options, AlgContext* context,
                        AdapterStatus* status) {
     const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
         "keyword_in", "keyword_match");
     const int ret = converter->decode_fn(source, options, context, status);
-    if (ret == 0) options.request_ids->resize(1);
+    static_assert(std::is_const_v<
+                  std::remove_reference_t<decltype(*options.request_ids)>>);
+    if (ret == 0) {
+      EXPECT_EQ(*options.request_ids, (std::vector<uint64_t>{900001, 42}));
+    }
     return ret;
   };
   if (!IoConverterRegistry::Instance().FindInputConverter(input.type,
@@ -2263,16 +2261,14 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
     outputs[i]["main.test_nested_out"] = nullptr;
     outputs[i]["audit.test_nested_out"] = nullptr;
   }
-  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_STREQ(GetOperatorLastError(),
-               "DecodeInput for keyword_in/test_partial_request_ids recorded "
-               "request ids inconsistent with its input structs");
-  for (const auto& frame : outputs) {
-    EXPECT_EQ(frame.at("main.test_nested_out"), nullptr);
-    EXPECT_EQ(frame.at("audit.test_nested_out"), nullptr);
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    const auto* out = static_cast<const NestedOutputEnvelope*>(
+        outputs[i].at("main.test_nested_out").get());
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ(out->request_id, rows[i].request_id);
   }
-  // 归还已取出的块会将其重置，即使没有发布任何输出。
   EXPECT_EQ(nested_resets, resets_before);
 }
 
@@ -2587,9 +2583,9 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   std::vector<uint64_t> request_ids;
   decode_opts.request_ids = &request_ids;
 
-  EXPECT_EQ(
-      translate_in_conv->decode_fn(view_plain, decode_opts, &ctx, &status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(llm_edgeflow::test::DecodeForTest(*translate_in_conv, view_plain,
+                                              decode_opts, &ctx, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
 
   // 2. JSON 文本：翻译接受并提取 "query"
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
@@ -2602,9 +2598,9 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   view_json.count = 1;
   view_json.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&c_in_json});
   view_json.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-  EXPECT_EQ(
-      translate_in_conv->decode_fn(view_json, decode_opts, &valid_ctx, &status),
-      COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(llm_edgeflow::test::DecodeForTest(*translate_in_conv, view_json,
+                                              decode_opts, &valid_ctx, &status),
+            COMPANY_ALG_SUCCESS);
   const auto* queries =
       valid_ctx.Read<llm_edgeflow::TextBatch>(decode_opts.Port("query"));
   ASSERT_NE(queries, nullptr);

@@ -6,9 +6,9 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_values.h"
 #include "adapter/result_validation.h"
 #include "core/common_contracts.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -29,15 +29,14 @@ Parameters<Params> ParamSpec() {
 }
 
 AdapterStatus EncodeDocument(const JsonDocumentItem& result,
-                             CompanyOperatorEntityOutput* output,
-                             const OutputStringWriter& writer) {
+                             EntityOutputValue* output) {
   if (!IsSuccessfulDocument(result)) {
     return AdapterStatus::InvalidInput(
         "Structured result failed or used fallback", "res");
   }
   output->status_code = 0;
-  return writer.Write(output->entities_json, "entities_json",
-                      result.json_payload);
+  output->entities_json = result.json_payload;
+  return AdapterStatus::Ok();
 }
 
 int EncodeOperatorStructuredDocument(AlgContext* context,
@@ -45,17 +44,16 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
                                      ExternalOutputBatchView* destination,
                                      size_t* written_count,
                                      AdapterStatus* status) {
-  return EncodeResultRows<CompanyOperatorEntityOutput>(
-      context, options, destination, written_count, status, kOutputSlot,
-      kEntities, &EncodeDocument);
+  return EncodeResultRows<EntityOutputValue>(context, options, destination,
+                                             written_count, status, kOutputSlot,
+                                             kEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "entity_extract";
-  def.service_type = kMockServiceEntityExtract;
-  def.slot = ExternalOutputSlot<CompanyOperatorEntityOutput>(kOutputSlot);
+  def.slot = ExternalOutputSlot<EntityOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kEntities)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorStructuredDocument;

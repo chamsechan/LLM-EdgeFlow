@@ -9,6 +9,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/platform_value_binding.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -44,13 +45,14 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
   in_view.slot_types["doc_in"] = "CompanyOperatorDocInput";
 
-  std::vector<uint64_t> request_ids;
+  const std::vector<uint64_t> request_ids{doc_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
+  int ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 填充答案上下文
@@ -90,7 +92,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   out_options.request_ids = &request_ids;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
+  ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
+                                            &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(doc_out.request_id, 2001U);
@@ -132,7 +135,8 @@ TEST_F(ComplexConvertersTest,
   view.SetCapacity("doc_out", "intent_name", 0);
   size_t written = 0;
   AdapterStatus status;
-  ASSERT_EQ(converter->encode_fn(&ctx, options, &view, &written, &status),
+  ASSERT_EQ(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                                &view, &written, &status),
             COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   ASSERT_EQ(answer_out.length, 3);
@@ -141,7 +145,8 @@ TEST_F(ComplexConvertersTest,
 
   view.SetCapacity("doc_out", "answer_text", 1);
   written = 0;
-  EXPECT_NE(converter->encode_fn(&ctx, options, &view, &written, &status),
+  EXPECT_NE(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                                &view, &written, &status),
             COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 0U);
 }
@@ -174,13 +179,14 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   in_view.slots["rerank_in"] = llm_edgeflow::BorrowInputForTest({&rerank_in});
   in_view.slot_types["rerank_in"] = "CompanyOperatorRerankInput";
 
-  std::vector<uint64_t> request_ids;
+  const std::vector<uint64_t> request_ids{rerank_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
+  int ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在上下文中准备 ranked_results
@@ -199,12 +205,15 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   out_view.count = 1;
   out_view.leased_slots["rerank_out"] = {&rerank_out};
   out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
+  ResolvedOutputPoolSpec output_spec;
+  out_view.pool_specs["rerank_out"] = &output_spec;
 
   test::ParsedOutputOptions out_options(*out_conv);
   out_options.request_ids = &request_ids;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
+  ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
+                                            &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(rerank_out.request_id, 3001U);
@@ -236,13 +245,14 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
   in_view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
 
-  std::vector<uint64_t> request_ids;
+  const std::vector<uint64_t> request_ids{audit_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
+  int ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在上下文中准备审核结果
@@ -282,7 +292,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   out_options.request_ids = &request_ids;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
+  ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
+                                            &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(audit_out.request_id, 4001U);
@@ -313,13 +324,14 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   in_view.slots["audio_in"] = llm_edgeflow::BorrowInputForTest({&audio_in});
   in_view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
 
-  std::vector<uint64_t> request_ids;
+  const std::vector<uint64_t> request_ids{audio_in.request_id};
   test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
+  int ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   TextBatch transcripts;
@@ -355,7 +367,8 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   out_options.request_ids = &request_ids;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
+  ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
+                                            &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(audio_out.request_id, 5001U);
@@ -397,13 +410,14 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  std::vector<uint64_t> request_ids;
+  const std::vector<uint64_t> request_ids{frame.request_id};
   test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
-  int ret = in_conv->decode_fn(in_view, in_options, &ctx, &status);
+  int ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, in_view, in_options,
+                                                &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在 AlgContext 中准备发票输出
@@ -414,7 +428,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   ASSERT_NE(query_converter, nullptr);
   test::ParsedInputOptions query_options(*query_converter);
   query_options.request_ids = &request_ids;
-  ASSERT_EQ(query_converter->decode_fn(in_view, query_options, &ctx, &status),
+  ASSERT_EQ(::llm_edgeflow::test::DecodeForTest(*query_converter, in_view,
+                                                query_options, &ctx, &status),
             0);
   ASSERT_NE(ctx.Read<TextBatch>("question"), nullptr);
   EXPECT_EQ(ctx.Read<TextBatch>("question")->front().data, "Total amount?");
@@ -449,7 +464,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   out_options.request_ids = &request_ids;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
+  ret = ::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
+                                            &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(od_out.request_id, 6001U);

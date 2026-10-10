@@ -14,9 +14,11 @@
 
 #include "adapter/input_limits.h"
 #include "adapter/operator_value_type.h"
-#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
+namespace test_support {
+class RegistryTestAccess;
+}
 
 inline constexpr uint32_t kDefaultOutputPoolDepth = 25;
 inline constexpr uint32_t kMaxOutputPoolDepth = 1024;
@@ -48,21 +50,6 @@ inline bool CheckedAdd(size_t lhs, size_t rhs, size_t* out) noexcept {
 }
 
 /**
- * @brief CompanyAny 白名单类型描述符
- */
-struct CompanyAnyTypeDescriptor {
-  int32_t type_id = 0;
-  size_t element_size = 0;
-  size_t alignment = 0;
-  const char* debug_name = nullptr;
-};
-
-/**
- * @brief 根据 type_id 查找 CompanyAny 元素类型描述 (白名单)
- */
-const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept;
-
-/**
  * @brief 按值类型 Schema 校验并补齐输出池规范
  */
 bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
@@ -73,7 +60,7 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
 /**
  * @brief 计算输出池预分配业务载荷的确定性字节数
  *
- * 计入外层 Operator 镜像结构、嵌套 CompanyString/CompanyAny 结构及其数据区；
+ * 由 binding 计入外层结构、嵌套布局及其数据区；
  * 不把 STL 容器、allocator、控制块等实现相关管理开销伪装成可精确计算的载荷。
  */
 bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
@@ -101,28 +88,6 @@ class OperatorValueTypeRegistry {
    */
   static bool ParseKey(const std::string& key, std::string* out_namespace,
                        std::string* out_suffix) noexcept;
-
-  /**
-   * @brief 校验 CompanyString 合法性 (带显式长度、上限与嵌入 NUL 检查)
-   */
-  static int ValidateCompanyString(const CompanyString* str, size_t max_bytes,
-                                   const char* field_name,
-                                   std::string* err) noexcept;
-
-  /**
-   * @brief 校验 CompanyBuffer 合法性
-   */
-  static int ValidateCompanyBuffer(const CompanyBuffer* buf, size_t max_bytes,
-                                   const char* field_name,
-                                   std::string* err) noexcept;
-
-  /**
-   * @brief 校验 CompanyAny 合法性 (受类型白名单与尺寸乘法方程校验)
-   */
-  static int ValidateCompanyAnyPayload(const CompanyAny* any,
-                                       size_t max_any_bytes,
-                                       const char* field_name,
-                                       std::string* err) noexcept;
 
   /**
    * @brief 检查是否存在冲突
@@ -157,6 +122,7 @@ class OperatorValueTypeRegistry {
       const std::string& suffix, const std::string& allocator) const;
 
  private:
+  friend class test_support::RegistryTestAccess;
   mutable std::mutex mutex_;
   std::unordered_map<std::string, OperatorValueTypeBinding>
       bindings_by_canonical_;

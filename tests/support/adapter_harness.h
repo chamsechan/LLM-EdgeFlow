@@ -13,6 +13,7 @@
 #include "contracts/traceable_item.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
+#include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
 namespace test {
@@ -108,7 +109,9 @@ class AdapterHarness {
     view.count = inputs.size();
     const std::string& slot_name = in_conv_->type;
     if (!slot_name.empty()) {
-      view.slot_types[slot_name] = in_conv_->slot.type_id;
+      view.slot_types[slot_name] = OperatorValueTypeRegistry::Instance()
+                                       .GetBindingBySuffix(in_conv_->type)
+                                       ->external_c_type_name;
       for (const void* input : inputs)
         view.slots[slot_name].emplace_back(const_cast<void*>(input),
                                            [](void*) {});
@@ -125,7 +128,19 @@ class AdapterHarness {
     options.ports = &input_ports_;
     options.request_ids = &request_ids_;
 
-    return in_conv_->decode_fn(view, options, &ctx_, &status_);
+    const auto* binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
+            in_conv_->type);
+    request_ids_.clear();
+    if (binding && binding->read_request_id) {
+      const auto it = view.slots.find(in_conv_->type);
+      if (it != view.slots.end())
+        for (const auto& item : it->second) {
+          if (item)
+            request_ids_.push_back(binding->read_request_id(item.get()));
+        }
+    }
+    return DecodeForTest(*in_conv_, view, options, &ctx_, &status_);
   }
 
   template <typename COutput>
@@ -144,7 +159,9 @@ class AdapterHarness {
     view.count = outputs->size();
     const std::string& slot_name = out_conv_->type;
     if (!slot_name.empty()) {
-      view.slot_types[slot_name] = out_conv_->slot.type_id;
+      view.slot_types[slot_name] = OperatorValueTypeRegistry::Instance()
+                                       .GetBindingBySuffix(out_conv_->type)
+                                       ->external_c_type_name;
       view.leased_slots[slot_name] = output_ptrs;
       view.pool_specs[slot_name] = &pool_spec;
     }
@@ -164,7 +181,8 @@ class AdapterHarness {
     options.params = output_params_.get();
     options.ports = &output_ports_;
     options.request_ids = &request_ids_;
-    return out_conv_->encode_fn(&ctx_, options, view, written_count, &status_);
+    return EncodeForTest(*out_conv_, &ctx_, options, view, written_count,
+                         &status_);
   }
 
   template <typename T>

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "adapter/io_converter_registry.h"
+#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -491,16 +492,16 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
 
   size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
-  int ret =
-      out_conv->encode_fn(&ctx, options, &out_view, &written_count, &status);
+  int ret = ::llm_edgeflow::test::EncodeForTest(
+      *out_conv, &ctx, options, &out_view, &written_count, &status);
 
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(out0.request_id, 1001u);
   EXPECT_EQ(out0.status_code, 0);
   EXPECT_STREQ(out0.entities_json->data, "[\"valid_entity\"]");
 
-  // 样本 1：request_id 已写入，但 status_code 和 entities_json 仍保留哨兵值
-  EXPECT_EQ(out1.request_id, 2002u);
+  // 样本 1：业务校验失败，binding 未写入，所有平台字段保持哨兵值。
+  EXPECT_EQ(out1.request_id, 99999u);
   EXPECT_EQ(out1.status_code, -777);
   EXPECT_STREQ(out1.entities_json->data, "SENTINEL_PAYLOAD");
 }

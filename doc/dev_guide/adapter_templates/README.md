@@ -4,6 +4,8 @@
 [Adapter 契约测试](../../../tests/contract/abi/test_adapter_contract_security.cpp)
 直接编译和执行。它们使用独立的示例结构体、DTO 和 Blackboard key，用于验证边界检查
 与 COPY_IN 行为，不注册生产业务，也不是可直接连接现有 Node 的业务脚手架。
+这些示例中的载体解引用和内存检查属于生产 binding 的职责；生产 Converter 使用中立值，
+不复用示例的原始指针接口。
 
 | 示例 | 验证重点 | 实现 |
 | :--- | :--- | :--- |

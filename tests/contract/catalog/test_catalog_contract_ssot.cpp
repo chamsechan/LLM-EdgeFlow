@@ -12,9 +12,11 @@
 
 #include "adapter/io_catalog.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
+#include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 #include "tests/support/registry_test_access.h"
@@ -301,6 +303,10 @@ TEST_F(CatalogContractSsotTest, IoCatalogSerialization) {
       ASSERT_TRUE(converter.at("config_fields").is_array());
       const auto type = converter.at("type").get<std::string>();
       const auto name = converter.at("name").get<std::string>();
+      const auto* binding =
+          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(type);
+      ASSERT_NE(binding, nullptr);
+      const auto service = binding->ServiceType(name);
       const std::vector<NodePortDefinition>* ports = nullptr;
       std::vector<ConfigFieldDefinition> fields;
       if (std::string(kind) == "input_converters") {
@@ -308,8 +314,8 @@ TEST_F(CatalogContractSsotTest, IoCatalogSerialization) {
         ASSERT_NE(definition, nullptr);
         ports = &definition->logical_ports;
         fields = definition->params.Fields();
-        if (definition->service_type) {
-          EXPECT_EQ(converter.at("service_type"), *definition->service_type);
+        if (service) {
+          EXPECT_EQ(converter.at("service_type"), *service);
         } else {
           EXPECT_FALSE(converter.contains("service_type"));
         }
@@ -318,8 +324,8 @@ TEST_F(CatalogContractSsotTest, IoCatalogSerialization) {
         ASSERT_NE(definition, nullptr);
         ports = &definition->logical_ports;
         fields = OutputConverterParameterFields(*definition);
-        ASSERT_TRUE(definition->service_type.has_value());
-        EXPECT_EQ(converter.at("service_type"), *definition->service_type);
+        ASSERT_TRUE(service.has_value());
+        EXPECT_EQ(converter.at("service_type"), *service);
       }
       ASSERT_EQ(converter.at("logical_ports").size(), ports->size());
       for (size_t i = 0; i < ports->size(); ++i) {
@@ -413,12 +419,24 @@ TEST_F(CatalogContractSsotTest,
   ASSERT_NE(translate_output, nullptr);
   EXPECT_NE(extract_input, translate_input);
   EXPECT_NE(extract_output, translate_output);
-  EXPECT_EQ(extract_input->slot.type_id, translate_input->slot.type_id);
-  EXPECT_EQ(extract_output->slot.type_id, translate_output->slot.type_id);
-  EXPECT_EQ(extract_input->service_type, kMockServiceEntityExtract);
-  EXPECT_EQ(translate_input->service_type, kMockServiceTranslate);
-  EXPECT_EQ(extract_output->service_type, kMockServiceEntityExtract);
-  EXPECT_EQ(translate_output->service_type, kMockServiceTranslate);
+  EXPECT_EQ(extract_input->slot.value_type, translate_input->slot.value_type);
+  EXPECT_EQ(extract_output->slot.value_type, translate_output->slot.value_type);
+  EXPECT_EQ(OperatorValueTypeRegistry::Instance()
+                .GetBindingBySuffix(extract_input->type)
+                ->ServiceType(extract_input->name),
+            kMockServiceEntityExtract);
+  EXPECT_EQ(OperatorValueTypeRegistry::Instance()
+                .GetBindingBySuffix(translate_input->type)
+                ->ServiceType(translate_input->name),
+            kMockServiceTranslate);
+  EXPECT_EQ(OperatorValueTypeRegistry::Instance()
+                .GetBindingBySuffix(extract_output->type)
+                ->ServiceType(extract_output->name),
+            kMockServiceEntityExtract);
+  EXPECT_EQ(OperatorValueTypeRegistry::Instance()
+                .GetBindingBySuffix(translate_output->type)
+                ->ServiceType(translate_output->name),
+            kMockServiceTranslate);
 
   std::shared_ptr<const ParameterValues> extract_values;
   std::shared_ptr<const ParameterValues> translate_values;

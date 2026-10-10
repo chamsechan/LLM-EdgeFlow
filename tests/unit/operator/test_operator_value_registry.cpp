@@ -10,6 +10,7 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_value_type.h"
+#include "adapter/platform_value_binding.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/adapter_harness.h"
@@ -328,62 +329,44 @@ TEST(OperatorValueRegistryTest, CompanyAnyValidationSuite) {
   uint8_t dummy[64] = {0};
 
   // 1. 空指针 -> -3
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(nullptr, 1024,
-                                                                 "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyAnyPayload(nullptr, 1024, "test", &err), -3);
 
   // 2. 负数字段 -> -3
   CompanyAny any_neg_cnt{1, -1, 4, dummy};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_neg_cnt, 1024, "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_neg_cnt, 1024, "test", &err), -3);
 
   CompanyAny any_neg_len{1, 1, -4, dummy};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_neg_len, 1024, "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_neg_len, 1024, "test", &err), -3);
 
   // 3. 未白名单 type_id -> -3
   CompanyAny any_unknown_type{999, 1, 4, dummy};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_unknown_type, 1024, "test", &err),
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_unknown_type, 1024, "test", &err),
             -3);
 
   // 4. type_id 为 0 但 count/len 非零 -> -3
   CompanyAny any_zero_nonzero{0, 1, 4, dummy};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_zero_nonzero, 1024, "test", &err),
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_zero_nonzero, 1024, "test", &err),
             -3);
 
   // 5. type_id 为 0 且 count/len 为零 -> 0 (合法无 metadata)
   CompanyAny any_zero_valid{0, 0, 0, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_zero_valid, 1024, "test", &err),
-            0);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_zero_valid, 1024, "test", &err), 0);
 
   // 6. 尺寸方程不匹配: float32 (type_id=1), count=2, 期望 8 bytes, 但给出 6
   // bytes -> -3
   CompanyAny any_mismatch{1, 2, 6, dummy};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_mismatch, 1024, "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_mismatch, 1024, "test", &err), -3);
 
   // 7. 正确尺寸方程: float32 (type_id=1), count=2, byte_length=8 -> 0
   CompanyAny any_valid{1, 2, 8, dummy};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_valid, 1024, "test", &err),
-            0);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_valid, 1024, "test", &err), 0);
 
   // 8. 正字节数但空 data 指针 -> -3
   CompanyAny any_nulldata{1, 2, 8, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any_nulldata, 1024, "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_nulldata, 1024, "test", &err), -3);
 
   // 9. 超过最大字节上限 -> -3
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(&any_valid, 4,
-                                                                 "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyAnyPayload(&any_valid, 4, "test", &err), -3);
 }
 
 // 4. CompanyString 嵌入 NUL、负长度与超限拦截
@@ -445,44 +428,30 @@ TEST(OperatorValueRegistryTest, CompanyStringValidation) {
   std::string err;
 
   CompanyString empty{0, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&empty, 100,
-                                                             "test", &err),
-            0);
+  EXPECT_EQ(ValidateCompanyString(&empty, 100, "test", &err), 0);
   CompanyString missing_data{1, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&missing_data, 100,
-                                                             "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyString(&missing_data, 100, "test", &err), -3);
 
   // 1. 空指针
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(nullptr, 100,
-                                                             "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyString(nullptr, 100, "test", &err), -3);
 
   // 2. 负长度
   char buf[] = "hello";
   CompanyString cs_neg{-1, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
-                                                             "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyString(&cs_neg, 100, "test", &err), -3);
 
   // 3. 超限
   CompanyString cs_toolarge{10, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 5,
-                                                             "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyString(&cs_toolarge, 5, "test", &err), -3);
 
   // 4. 嵌入 NUL 字节拦截
   char embedded_nul[] = {'a', 'b', '\0', 'c'};
   CompanyString cs_nul{4, embedded_nul};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_nul, 100,
-                                                             "test", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyString(&cs_nul, 100, "test", &err), -3);
 
   // 5. 正常字符串
   CompanyString cs_valid{5, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
-                                                             "test", &err),
-            0);
+  EXPECT_EQ(ValidateCompanyString(&cs_valid, 100, "test", &err), 0);
 }
 
 // 5. CompanyBuffer 二进制透明性与校验测试 (允许嵌入 NUL 字节)
@@ -490,34 +459,24 @@ TEST(OperatorValueRegistryTest, CompanyBufferValidation) {
   std::string err;
 
   // 1. 空指针 -> -3
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(nullptr, 100,
-                                                             "buf", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyBuffer(nullptr, 100, "buf", &err), -3);
 
   // 2. 负长度 -> -3
   uint8_t raw[] = {0x01, 0x00, 0x02, 0xFF};
   CompanyBuffer cb_neg{-1, raw};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_neg, 100,
-                                                             "buf", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyBuffer(&cb_neg, 100, "buf", &err), -3);
 
   // 3. 超限 -> -3
   CompanyBuffer cb_toolarge{10, raw};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_toolarge, 3,
-                                                             "buf", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyBuffer(&cb_toolarge, 3, "buf", &err), -3);
 
   // 4. 包含嵌入 0x00 字节的二进制数据 (对于 Buffer 必须合法通过)
   CompanyBuffer cb_valid{4, raw};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_valid, 100,
-                                                             "buf", &err),
-            0);
+  EXPECT_EQ(ValidateCompanyBuffer(&cb_valid, 100, "buf", &err), 0);
 
   // 5. 正长度但空数据指针 -> -3
   CompanyBuffer cb_nulldata{4, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_nulldata, 100,
-                                                             "buf", &err),
-            -3);
+  EXPECT_EQ(ValidateCompanyBuffer(&cb_nulldata, 100, "buf", &err), -3);
 }
 
 // 6. ValueTypeRegistry 原子预检与只读冻结测试 (R9-008)
@@ -1111,16 +1070,13 @@ TEST(OperatorValueRegistryTest, NoexceptOOMFaultTolerance) {
         test_support::ScopedAllocationFailure fail(step);
         switch (operation) {
           case 0:
-            result = OperatorValueTypeRegistry::ValidateCompanyString(
-                &str, 10, "test", &err);
+            result = ValidateCompanyString(&str, 10, "test", &err);
             break;
           case 1:
-            result = OperatorValueTypeRegistry::ValidateCompanyBuffer(
-                &buf, 10, "test", &err);
+            result = ValidateCompanyBuffer(&buf, 10, "test", &err);
             break;
           case 2:
-            result = OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
-                &any, 10, "test", &err);
+            result = ValidateCompanyAnyPayload(&any, 10, "test", &err);
             break;
           case 3:
             result = CopyToOperatorString("source", nullptr, 1, "field", &err);
@@ -1219,7 +1175,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     options.params = parameters.get();
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
-    int dec_ret = in_conv->decode_fn(view, options, &ctx, nullptr);
+    int dec_ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, view, options,
+                                                      &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, expected);
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               expected);
@@ -1275,7 +1232,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
     options.params = parameters.get();
     std::vector<uint64_t> request_ids;
     options.request_ids = &request_ids;
-    int dec_ret = in_conv->decode_fn(view, options, &ctx, nullptr);
+    int dec_ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, view, options,
+                                                      &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, test.valid);
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               test.valid);
@@ -1289,7 +1247,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
 
 TEST(OperatorValueRegistryTest,
      AuthoredInputForwardsTypedValueLimitsAndDiagnostics) {
-  const auto binding = MakeTypedInputBinding<BusinessInput>(
+  auto binding = MakeTypedInputBinding<BusinessInput>(
       "test_business_input",
       [](const BusinessInput& input, const InputLimits& limits,
          std::string* error) -> int {
@@ -1304,15 +1262,21 @@ TEST(OperatorValueRegistryTest,
   view.count = 1;
   view.slots["input"] = BorrowInputForTest({&input});
   view.slot_types["input"] = binding.external_c_type_name;
-  const auto* decoded = view.GetSlot<BusinessInput>("input", 0);
-  ASSERT_EQ(decoded, &input);
+  SetInputValue<BusinessInput, size_t>(
+      &binding, [](const BusinessInput& value) { return value.text_bytes; });
+  view.binding = &binding;
+  AdapterStatus status;
+  auto decoded = view.Read<size_t>("input", 0, &status);
+  ASSERT_TRUE(decoded.has_value());
+  EXPECT_EQ(*decoded, input.text_bytes);
+  EXPECT_FALSE(view.Read<std::string>("input", 0, &status));
   view.slot_types["input"] = "DifferentInput";
-  EXPECT_EQ(view.GetSlot<BusinessInput>("input", 0), nullptr);
+  EXPECT_FALSE(view.Read<size_t>("input", 0, &status));
   view.slot_types["input"] = binding.external_c_type_name;
   InputLimits limits;
   limits.max_text_bytes = 8;
   std::string error;
-  EXPECT_EQ(binding.validate_external(decoded, limits, &error), -3);
+  EXPECT_EQ(binding.validate_external(&input, limits, &error), -3);
   EXPECT_EQ(error, "business text exceeds configured limit");
   input.text_bytes = 8;
   EXPECT_EQ(binding.validate_external(&input, limits, nullptr), 0);
@@ -1320,4 +1284,32 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(error, "BusinessInput pointer is null");
 }
 
+}  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST(OperatorValueRegistryTest, MetadataTypeValidationBelongsToBinding) {
+  OperatorValueTypeBinding binding;
+  binding.canonical_suffix = "custom_metadata";
+  binding.external_c_type_name = "CustomMetadataCarrier";
+  binding.direction = IoDirection::kOutput;
+  binding.output_layout.max_metadata_elements = 4;
+  ResolvedOutputPoolSpec requested, resolved;
+  requested.type = binding.canonical_suffix;
+  std::string error;
+  EXPECT_TRUE(ResolveOutputPoolSpec(binding, requested, &resolved, &error));
+  requested.meta_num = 2;
+  requested.metadata_type_id = 77;
+  EXPECT_FALSE(ResolveOutputPoolSpec(binding, requested, &resolved, &error));
+  binding.output_layout.validate_metadata = [](uint32_t count, int32_t type) {
+    return count == 2 && type == 77;
+  };
+  EXPECT_TRUE(ResolveOutputPoolSpec(binding, requested, &resolved, &error))
+      << error;
+  EXPECT_EQ(resolved.metadata_type_id, 77);
+  requested.metadata_type_id = 1;
+  EXPECT_FALSE(ResolveOutputPoolSpec(binding, requested, &resolved, &error));
+  requested.metadata_type_id = 77;
+  requested.meta_num = 5;
+  EXPECT_FALSE(ResolveOutputPoolSpec(binding, requested, &resolved, &error));
+}
 }  // namespace llm_edgeflow
