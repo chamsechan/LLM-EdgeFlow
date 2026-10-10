@@ -4,22 +4,69 @@
 #include <stdexcept>
 
 #include "contracts/diagnostic.h"
+#include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/common/embedding_numeric_support.h"
 
 namespace llm_edgeflow {
 
-static const ModelDefinition& GeneratedTextEmbeddingDefinition();
+namespace {
+
+struct Params {
+  int embedding_dim = 0;
+  int max_tokens = 1;
+  std::string pooling;
+  std::string prompt_prefix;
+  std::string prompt_suffix;
+  bool add_bos = false;
+  bool normalize = true;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>(
+      {Field("embedding_dim", &Params::embedding_dim)
+           .Required()
+           .Range(1, 65536)
+           .Description("生成 token 的隐藏向量维数，必须与 Backend 返回的每个 "
+                        "token 向量维度一致。"),
+       Field("max_tokens", &Params::max_tokens)
+           .Default(1)
+           .Range(1, 64)
+           .Description("用于生成嵌入的 token 数上限；控制参与 last/mean "
+                        "池化的生成 token，"
+                        "不是输入文本长度。"),
+       Field("pooling", &Params::pooling)
+           .Default("last")
+           .Enum({"last", "mean"})
+           .Description("last 取最后一个生成 token 的向量；mean 对全部生成 "
+                        "token 向量求均值。"),
+       Field("normalize", &Params::normalize)
+           .Default(true)
+           .Description("对输出向量进行 L2 归一化。"),
+       Field("prompt_prefix", &Params::prompt_prefix)
+           .Default("")
+           .Description(
+               "直接拼接在输入文本之前的模型提示词，不自动插入分隔符。"),
+       Field("prompt_suffix", &Params::prompt_suffix)
+           .Default("")
+           .Description(
+               "直接拼接在输入文本之后的模型提示词，不自动插入分隔符。"),
+       Field("add_bos", &Params::add_bos)
+           .Default(false)
+           .Description("编码输入时请求添加模型的 BOS 起始 "
+                        "token，须与所选模型的分词约定一致。")});
+}
+
+}  // namespace
 
 std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   try {
+    const auto& params = context.Params<Params>();
     auto session = std::dynamic_pointer_cast<IGeneratedTokenEmbeddingSession>(
         context.backend_session);
-    if (!session ||
-        session->Protocol() != ExecutionProtocol::kGeneratedTokenEmbedding ||
-        session->GetBatchPolicy().max_batch_size != 1 ||
+    if (!session || session->GetBatchPolicy().max_batch_size != 1 ||
         session->GetBatchPolicy().fixed_batch_size != 0) {
       throw std::runtime_error(
           "generated_text_embedding requires a single-input generated-token "
@@ -27,33 +74,13 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     }
     auto model = std::make_shared<GeneratedTextEmbeddingModel>();
     model->session_ = std::move(session);
-    const auto& dimension = context.model_config.at("embedding_dim");
-    const auto limit = ConfigValueOrDefault<nlohmann::json>(
-        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
-        "max_tokens");
-    if (!dimension.is_number_integer() || dimension < 1 || dimension > 65536 ||
-        !limit.is_number_integer() || limit < 1 || limit > 64) {
-      throw std::runtime_error(
-          "Invalid generated embedding dimension or token limit");
-    }
-    model->embedding_dim_ = dimension.get<int>();
-    model->max_tokens_ = limit.get<int>();
-    model->pooling_ = ConfigValueOrDefault<std::string>(
-        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
-        "pooling");
-    model->prefix_ = ConfigValueOrDefault<std::string>(
-        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
-        "prefix");
-    model->suffix_ = ConfigValueOrDefault<std::string>(
-        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
-        "suffix");
-    model->add_bos_ = ConfigValueOrDefault<bool>(
-        context.model_config, GeneratedTextEmbeddingDefinition().config_fields,
-        "add_bos");
-    if (model->pooling_ != "last" && model->pooling_ != "mean") {
-      throw std::runtime_error(
-          "Invalid generated_text_embedding configuration");
-    }
+    model->embedding_dim_ = params.embedding_dim;
+    model->max_tokens_ = params.max_tokens;
+    model->pooling_ = params.pooling;
+    model->prompt_prefix_ = params.prompt_prefix;
+    model->prompt_suffix_ = params.prompt_suffix;
+    model->add_bos_ = params.add_bos;
+    model->normalize_ = params.normalize;
     return model;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
@@ -66,7 +93,6 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
 }
 
 int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
-                                       const EmbeddingOptions& options,
                                        EmbeddingBatch* outputs,
                                        std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
@@ -81,8 +107,8 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
   }
   return FixedBatchExecutor::ExecuteItems<std::string, std::vector<float>>(
       inputs, session_->GetBatchPolicy(),
-      [this, &options, diagnostic](const TraceableItem<std::string>& input,
-                                   std::vector<float>* output) {
+      [this, diagnostic](const TraceableItem<std::string>& input,
+                         std::vector<float>* output) {
         const auto& text = input.data;
         if (text.empty()) {
           SetDiagnosticNoexcept(diagnostic, "Embedding text is empty");
@@ -91,7 +117,8 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         GeneratedTokenEmbeddings tokens;
         std::string reason;
         const int result = session_->GenerateEmbeddings(
-            prefix_ + text + suffix_, add_bos_, max_tokens_, &tokens, &reason);
+            prompt_prefix_ + text + prompt_suffix_, add_bos_, max_tokens_,
+            &tokens, &reason);
         if (result != 0) {
           ALG_LOG_ERROR("[GeneratedTextEmbeddingModel] %s\n", reason.c_str());
           SetDiagnosticNoexcept(diagnostic, reason);
@@ -114,7 +141,7 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
           if (values.size() != pooled.size()) {
             ALG_LOG_ERROR(
                 "[GeneratedTextEmbeddingModel] Expected dimension %d, received "
-                "%zu; check model_config.embedding_dim\n",
+                "%zu; check params.embedding_dim\n",
                 embedding_dim_, values.size());
             SetDiagnosticNoexcept(
                 diagnostic, "Generated token embedding dimension mismatch");
@@ -135,8 +162,8 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         for (double& value : pooled) {
           if (pooling_ == "mean") value /= tokens.values.size();
         }
-        if (!embedding_support::FinalizeEmbeddingVector(
-                pooled, options.normalize, output)) {
+        if (!embedding_support::FinalizeEmbeddingVector(pooled, normalize_,
+                                                        output)) {
           SetDiagnosticNoexcept(diagnostic,
                                 "Embedding pooling or normalization failed");
           return -1;
@@ -153,59 +180,7 @@ static const ModelDefinition& GeneratedTextEmbeddingDefinition() {
         "Experimental text vectors from greedy generated-token hidden states; "
         "last/mean pooling, not encoder embeddings";
     definition.required_protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
-    definition.config_fields = {
-        {"embedding_dim",
-         ConfigValueKind::kInteger,
-         true,
-         nullptr,
-         1.0,
-         65536.0,
-         {},
-         "生成 token 的隐藏向量维数，必须与 Backend 返回的每个 token "
-         "向量维度一致。"},
-        {"max_tokens",
-         ConfigValueKind::kInteger,
-         false,
-         1,
-         1.0,
-         64.0,
-         {},
-         "用于生成嵌入的 token 数上限；控制参与 last/mean 池化的生成 "
-         "token，不是输入文本长度。"},
-        {"pooling",
-         ConfigValueKind::kString,
-         false,
-         "last",
-         std::nullopt,
-         std::nullopt,
-         {"last", "mean"},
-         "last 取最后一个生成 token 的向量；mean 对全部生成 token "
-         "向量求均值。"},
-        {"prefix",
-         ConfigValueKind::kString,
-         false,
-         "",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "直接拼接在输入文本之前的模型提示词，不自动插入分隔符。"},
-        {"suffix",
-         ConfigValueKind::kString,
-         false,
-         "",
-         std::nullopt,
-         std::nullopt,
-         {},
-         "直接拼接在输入文本之后的模型提示词，不自动插入分隔符。"},
-        {"add_bos",
-         ConfigValueKind::kBoolean,
-         false,
-         false,
-         std::nullopt,
-         std::nullopt,
-         {},
-         "编码输入时请求添加模型的 BOS 起始 "
-         "token，须与所选模型的分词约定一致。"}};
+    definition.params = ParamSpec();
     return definition;
   }();
   return definition;

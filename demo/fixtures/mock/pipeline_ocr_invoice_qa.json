@@ -1,88 +1,94 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "ocr_invoice_qa"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "frame",
+        "name": "ocr_invoice_qa"
+      },
+      {
+        "type": "string",
+        "name": "ocr_invoice_qa"
+      }
+    ],
+    "output": [
+      {
+        "type": "od_out",
+        "name": "ocr_invoice_qa",
+        "inputs": {
+          "result": "parse_invoice.document",
+          "document": "read_invoice.document"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_type": "test_biz_ocr",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "max_batch_size": 2
-      },
-      "backend_config": {},
-      "model_id": "ocr_model",
-      "model_path": "./models/ch_ppocr_v4_det_rec_npu.bin"
+      "type": "ocr",
+      "name": "ocr_model",
+      "file": "ch_ppocr_v4_det_rec_npu.bin",
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     },
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen_1.5b_npu.bin",
+      "params": {
         "max_seq_len": 1024
       },
-      "backend_config": {},
-      "model_id": "llm_model",
-      "model_path": "./models/qwen_1.5b_npu.bin"
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_OcrDetectNode",
-      "node_type": "OcrDetectNode",
-      "config": {
+      "type": "ocr_detect",
+      "name": "read_invoice",
+      "params": {
         "bind_model": "ocr_model"
       },
       "inputs": {
-        "images": "image_paths"
-      },
-      "outputs": {
-        "document": "ocr_docs",
-        "text": "ocr_text"
+        "images": "input.image"
       }
     },
     {
-      "id": "node_1_TextTemplateNode",
-      "node_type": "TextTemplateNode",
-      "config": {
-        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】：",
-        "separator": "\n"
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
+        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】："
       },
       "inputs": {
-        "primary": "user_queries",
-        "document": "ocr_docs"
-      },
-      "outputs": {
-        "text": "prompt_text"
+        "primary": "input.question",
+        "document": "read_invoice.document"
       }
     },
     {
-      "id": "node_2_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "generate_invoice",
+      "params": {
         "bind_model": "llm_model",
-        "max_tokens": 128,
-        "temperature": 0.1
+        "temperature": 0.1,
+        "endpoints": {
+          "invoice": {}
+        }
       },
       "inputs": {
-        "prompt": "prompt_text"
-      },
-      "outputs": {
-        "text": "llm_raw_answer"
+        "input": "build_prompt.text"
       }
     },
     {
-      "id": "node_3_StructuredJsonParseNode",
-      "node_type": "StructuredJsonParseNode",
-      "config": {
-        "fallback_json": "{}"
-      },
+      "type": "structured_json_parse",
+      "name": "parse_invoice",
       "inputs": {
-        "text": "llm_raw_answer"
-      },
-      "outputs": {
-        "document": "extracted_invoice_json"
+        "text": "generate_invoice.text"
       }
     }
   ]

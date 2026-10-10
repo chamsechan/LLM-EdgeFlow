@@ -3,8 +3,8 @@
 #include <memory>
 #include <string>
 
-#include "adapter/io_binding_resolver.h"
 #include "adapter/io_converter.h"
+#include "adapter/io_plan_resolver.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
 #include "platform_mock/error_codes.h"

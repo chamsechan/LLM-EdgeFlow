@@ -31,7 +31,7 @@ class OcrDetectNodeTest : public ::testing::Test {
 };
 
 TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
-  auto node = NodeRegistry::Instance().Create("OcrDetectNode");
+  auto node = NodeRegistry::Instance().Create("ocr_detect");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "ocr_model"}};
@@ -54,7 +54,7 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
 }
 
 TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("OcrDetectNode");
+  auto node = NodeRegistry::Instance().Create("ocr_detect");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
                               session_ctx_.get()));
@@ -64,7 +64,7 @@ TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("OcrDetectNode");
+  auto node = NodeRegistry::Instance().Create("ocr_detect");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
                               session_ctx_.get()));

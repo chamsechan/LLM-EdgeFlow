@@ -46,8 +46,8 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆�
   可同时启用。默认完整门禁仍验证默认后端组合，kiteLLM 使用独立构建目录专项验证。
 - Catalog 的后端名为 `kite_llm`，支持 `text_generation`、`image_text_generation` 和 `generated_token_embedding` 协议；模型名、端口及
   参数应查询对应构建的 Catalog。关闭时不注册该后端。
-- `model_path` 指向真实模型文件；可选 `backend_config.run_config_file` 是模型所在
-  目录内的相对路径，由上游解析运行选项。设备 ID 通过原生
+- 模型条目 `file` 指向权重；可选 `backend.params.run_config_file` 与权重一样相对 Pipeline
+  JSON 所在目录解析，必须是非空相对文件名。由上游读取运行选项。设备 ID 通过原生
   `kiteLLM_Parameter_SetDeviceId` 传入，并非只能通过 run-config 选择。
 - 当前固定 Linux 发布包按 CPU 接入。Operator 使用 `ComputePlatform::kCpu`，
   alg_demo Profile 使用 `"chip": "cpu"`，并设置 `device_id=0`，即可运行正确配置的 Kite 文本生成业务。
@@ -58,7 +58,7 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆�
   格式仍由 Kite 校验。本项目不添加平台 setter 或静默忽略平台要求。
 - Backend 接收 Model 已格式化的 prompt，通过 tokenizer 与 token 输入保留 BOS 和
   特殊 token 语义。任务输入、输出、参数、模型和全局初始化均配对释放。
-- 每请求固定 seed 仍不支持，会明确报错；需要时可在上游 run-config 中配置其 seed。
+- 固定随机种子不受支持，节点显式配置时在 Create 报错；需要时可在上游 run-config 中配置其 seed。
 - `stop_words` 在返回结果中截断；上游 C API 没有对应 setter，因此不提前停止同步推理。
 
 ## 验证
@@ -76,11 +76,11 @@ LLM_EDGEFLOW_TEST_KITELLM_MODEL=/absolute/path/model.gguf \
 直接报错，不使用 JSON fallback。默认完整交付门禁仍为 `./scripts/run_all_tests.sh`。
 
 已有实体抽取、文档问答等配置中的 `llama_cpp` 不会自动变成 Kite。切换时应使用
-`qwen_causal_lm` + `kite_llm`，将原来的 llama.cpp `backend_config` 替换为 `{}` 或
-`{"run_config_file":"run.json"}`，并保持真实模型路径正确。`random_seed` 使用 -1。
+模型类别 `llm` + `backend.type: kite_llm`，只在 `backend.params` 写必要运行参数，
+例如 `{"run_config_file":"run.json"}`。权重和运行配置相对 Pipeline 目录；节点 `random_seed` 默认 -1。
 文档问答配置的 Embedding/Rerank 使用 ONNX；生成向量配置可将 Embedding 交给 Kite；
 图像文档识别通过下述视觉协议接入。`kite_llm` 不提供音频转写协议；真实 ASR 使用独立构建中的
-`whisper_asr` + `whisper_cpp`，见[模型准备](../models/README.md)。
+`whisper_asr` + `whisper_cpp`，见[模型准备](../configs/README.md)。
 
 ## Kite 部署示例套件
 
@@ -106,7 +106,7 @@ encoder 向量，也不是输入最后一个 token 的 prefill 向量。
 
 `generated_text_embedding` 实现现有 `IEmbeddingModel`，由 Model 负责 prompt
 prefix/suffix、last/mean 池化和请求级 L2 归一化。Backend 负责 greedy 生成、复制原生
-输出及会话串行化，不承担池化或检索语义。模型配置必须指定真实 `embedding_dim`；
+输出及会话串行化，不承担池化或检索语义。模型参数须指定真实 `embedding_dim`；`normalize` 默认 true，影响该模型的全部节点；
 `max_tokens` 为 1..64（默认 1），`pooling` 可选 last（默认）/mean，`add_bos` 默认 false。
 只池化实际生成的 token；首步 EOS 没有向量时明确失败，不伪造或补齐向量。
 
@@ -145,9 +145,9 @@ vision.mmproj，路径相对运行 JSON 所在目录，只允许其目录内的�
 ### 真实能力门禁
 
 ```bash
-LLM_EDGEFLOW_TEST_KITELLM_MODEL="$PWD/models/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
-LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL="$PWD/models/SmolVLM-256M-Instruct-Q8_0.gguf" \
-LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG=kite_vision_run.json \
+LLM_EDGEFLOW_TEST_KITELLM_MODEL="$PWD/configs/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
+LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL="$PWD/configs/SmolVLM-256M-Instruct-Q8_0.gguf" \
+LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG="$PWD/configs/kite_vision_run.json" \
 LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 \
   sh -c 'cd build/variants/kite-cpu && ctest --output-on-failure -j4'
 ```

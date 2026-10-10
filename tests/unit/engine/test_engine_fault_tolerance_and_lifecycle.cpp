@@ -25,19 +25,18 @@ namespace llm_edgeflow {
 // 1. 模拟硬件故障的推理引擎 (可动态注入硬件故障)
 class MockFaultyHardwareModel : public IEmbeddingModel {
  public:
-  const std::string& ModelType() const noexcept override {
+  const std::string& ImplName() const noexcept override {
     static const std::string type = "mock_faulty_model";
     return type;
   }
-  const std::string& Capability() const noexcept override {
-    static const std::string capability = "embedding";
-    return capability;
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "embedding";
+    return model_type;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings,
+  int Embed(const TextBatch& input_texts, EmbeddingBatch* output_embeddings,
             std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (should_fail_) {
@@ -107,10 +106,10 @@ static std::vector<std::string> SnapshotDeepDagTrace() {
 
 class DeepDagNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "DeepDagNode";
+  inline static constexpr char kNodeType[] = "deep_dag";
   bool Init(const NodeInitContext& init_ctx) override {
     if (!init_ctx.plan || !init_ctx.session_ctx) return false;
-    name_ = init_ctx.plan->normalized_config.value("node_name", "DeepDagNode");
+    name_ = init_ctx.plan->normalized_params.value("node_name", "deep_dag");
     return true;
   }
 
@@ -138,7 +137,7 @@ inline NodeDefinition MakeDeepDagNodeDef() {
   def.category = "test";
   def.description = "test deep dag node";
   def.config_fields = {ConfigFieldDefinition{
-      "node_name", ConfigValueKind::kString, false, "DeepDagNode"}};
+      "node_name", ConfigValueKind::kString, false, "deep_dag"}};
   def.parallel_safe = true;
   return def;
 }
@@ -172,13 +171,13 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
   std::vector<TraceableItem<std::vector<float>>> output_embeddings;
 
   // 执行批推理，底层硬件故障应被拦截并返回 -505
-  int ret = model->Embed(input_items, EmbeddingOptions{}, &output_embeddings);
+  int ret = model->Embed(input_items, &output_embeddings);
   EXPECT_EQ(ret, -505);
 
   // 恢复硬件正常状态后重试
   model->SetFault(false);
   output_embeddings.clear();
-  ret = model->Embed(input_items, EmbeddingOptions{}, &output_embeddings);
+  ret = model->Embed(input_items, &output_embeddings);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(output_embeddings.size(), 5U);
   EXPECT_EQ(output_embeddings[0].data.size(), 128U);
@@ -187,7 +186,6 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
 
 // 2. 5 层深度复杂波前 DAG 拓扑执行测试 (Layer 0 ~ Layer 4)
 TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
-  llm_edgeflow::RegisterTestBizs({"deep_5_layer_dag"});
   using namespace llm_edgeflow;
 
   // 构建 5 层 11 节点复杂 DAG 图:
@@ -196,60 +194,60 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   // Layer 2: M1, M2 (依赖 A1, A2, A3)
   // Layer 3: B1, B2, B3 (依赖 M1, M2)
   // Layer 4: Final (依赖 B1, B2, B3)
-  nlohmann::json deep_dag_config = {{"biz_name", "deep_5_layer_dag"},
-                                    {"max_parallel_workers", 4},
+  nlohmann::json deep_dag_config = {{"max_parallel_workers", 4},
                                     {"pipeline",
-                                     {{{"id", "R1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "R1"}}},
+                                     {{{"name", "R1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "R1"}}},
                                        {"depends_on", nlohmann::json::array()}},
-                                      {{"id", "R2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "R2"}}},
+                                      {{"name", "R2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "R2"}}},
                                        {"depends_on", nlohmann::json::array()}},
 
-                                      {{"id", "A1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "A1"}}},
+                                      {{"name", "A1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A1"}}},
                                        {"depends_on", {"R1"}}},
-                                      {{"id", "A2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "A2"}}},
+                                      {{"name", "A2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A2"}}},
                                        {"depends_on", {"R1", "R2"}}},
-                                      {{"id", "A3"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "A3"}}},
+                                      {{"name", "A3"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A3"}}},
                                        {"depends_on", {"R2"}}},
 
-                                      {{"id", "M1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "M1"}}},
+                                      {{"name", "M1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "M1"}}},
                                        {"depends_on", {"A1", "A2"}}},
-                                      {{"id", "M2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "M2"}}},
+                                      {{"name", "M2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "M2"}}},
                                        {"depends_on", {"A2", "A3"}}},
 
-                                      {{"id", "B1"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "B1"}}},
+                                      {{"name", "B1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B1"}}},
                                        {"depends_on", {"M1"}}},
-                                      {{"id", "B2"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "B2"}}},
+                                      {{"name", "B2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B2"}}},
                                        {"depends_on", {"M1", "M2"}}},
-                                      {{"id", "B3"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "B3"}}},
+                                      {{"name", "B3"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B3"}}},
                                        {"depends_on", {"M2"}}},
 
-                                      {{"id", "Final"},
-                                       {"node_type", "DeepDagNode"},
-                                       {"config", {{"node_name", "Final"}}},
+                                      {{"name", "Final"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "Final"}}},
                                        {"depends_on", {"B1", "B2", "B3"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, deep_dag_config, nullptr));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, deep_dag_config, MakeTestBoundary(),
+                                nullptr));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
@@ -330,6 +328,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
                               const_cast<char*>(sentence.data())};
     CompanyOperatorKeywordInput in_req{};
     in_req.request_id = static_cast<uint64_t>(10000 + cycle);
+    in_req.service_type = kMockServiceKeywordMatch;
     in_req.sentence_text = &cs_sentence;
 
     operator_api::NamedIoBatch inputs(1);

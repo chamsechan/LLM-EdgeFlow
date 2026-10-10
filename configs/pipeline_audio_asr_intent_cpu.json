@@ -1,43 +1,47 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "audio_asr_intent"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "audio_in",
+        "name": "audio_asr_intent"
+      }
+    ],
+    "output": [
+      {
+        "type": "audio_out",
+        "name": "audio_asr_intent",
+        "inputs": {
+          "transcribed_text": "transcribe_audio.text",
+          "intent_slot": "match_intent.matches"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_id": "asr_model",
-      "model_type": "whisper_asr",
-      "backend": "whisper_cpp",
-      "model_path": "models/ggml-base.bin",
-      "model_config": {
-        "language": "zh",
-        "max_audio_seconds": 30,
-        "max_output_bytes": 65536
-      },
-      "backend_config": {
-        "n_threads": 4
+      "type": "asr",
+      "name": "asr_model",
+      "file": "ggml-base.bin",
+      "backend": {
+        "type": "whisper_cpp"
       }
     }
   ],
   "pipeline": [
     {
-      "id": "transcribe",
-      "node_type": "AsrTranscribeNode",
-      "config": {
+      "type": "asr_transcribe",
+      "name": "transcribe_audio",
+      "params": {
         "bind_model": "asr_model"
       },
       "inputs": {
-        "audio": "audio_inputs"
-      },
-      "outputs": {
-        "text": "transcripts"
+        "audio": "input.audio"
       }
     },
     {
-      "id": "intent",
-      "node_type": "TextRuleMatchNode",
-      "config": {
+      "type": "text_rule_match",
+      "name": "match_intent",
+      "params": {
         "default_category": "UNCLASSIFIED",
         "categories": {
           "NAVIGATION": [
@@ -50,10 +54,7 @@
         }
       },
       "inputs": {
-        "text": "transcripts"
-      },
-      "outputs": {
-        "matches": "intent_slots"
+        "text": "transcribe_audio.text"
       }
     }
   ]

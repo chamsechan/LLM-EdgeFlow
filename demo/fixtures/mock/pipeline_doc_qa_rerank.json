@@ -1,133 +1,133 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "doc_qa"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "doc_in",
+        "name": "doc_qa"
+      }
+    ],
+    "output": [
+      {
+        "type": "doc_out",
+        "name": "doc_qa",
+        "inputs": {
+          "answer_text": "generate_answer.text",
+          "intent": "match_intent.matches",
+          "chunk_count": "chunk_docs.chunk_counts"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_type": "test_biz_embedding",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "embedding_dim": 128,
-        "max_batch_size": 4
+      "type": "embedding",
+      "name": "embed_model",
+      "file": "bge_base_npu.bin",
+      "params": {
+        "embedding_dim": 128
       },
-      "backend_config": {},
-      "model_id": "embed_model",
-      "model_path": "./models/bge_base_npu.bin"
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 4
+        }
+      }
     },
     {
-      "model_type": "test_biz_rerank",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "max_batch_size": 4
-      },
-      "backend_config": {},
-      "model_id": "rerank_model",
-      "model_path": "./models/bge_reranker_large_npu.bin"
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "bge_reranker_large_npu.bin",
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 4
+        }
+      }
     },
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen_1.5b_npu.bin",
+      "params": {
         "max_seq_len": 1024
       },
-      "backend_config": {},
-      "model_id": "llm_model",
-      "model_path": "./models/qwen_1.5b_npu.bin"
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_TextChunkNode",
-      "node_type": "TextChunkNode",
-      "config": {
+      "type": "text_chunk",
+      "name": "chunk_docs",
+      "params": {
         "chunk_size": 60
       },
       "inputs": {
-        "text": "raw_docs"
-      },
-      "outputs": {
-        "chunks": "doc_chunks",
-        "chunk_counts": "doc_chunk_counts"
+        "text": "input.doc_text"
       }
     },
     {
-      "id": "node_1_QueryEmbeddingNode",
-      "node_type": "TextEmbeddingNode",
-      "config": {
+      "type": "text_embedding",
+      "name": "embed_query",
+      "params": {
         "bind_model": "embed_model"
       },
       "inputs": {
-        "text": "raw_queries"
-      },
-      "outputs": {
-        "embedding": "query_embeddings"
+        "text": "input.query_text"
       }
     },
     {
-      "id": "node_2_ChunkEmbeddingNode",
-      "node_type": "TextEmbeddingNode",
-      "config": {
+      "type": "text_embedding",
+      "name": "embed_chunks",
+      "params": {
         "bind_model": "embed_model"
       },
       "inputs": {
-        "text": "doc_chunks"
-      },
-      "outputs": {
-        "embedding": "chunk_embeddings"
+        "text": "chunk_docs.chunks"
       }
     },
     {
-      "id": "node_3_VectorTopKNode",
-      "node_type": "VectorTopKNode",
-      "config": {
-        "min_score": 0.0,
+      "type": "vector_top_k",
+      "name": "retrieve",
+      "params": {
         "top_k": 4
       },
       "inputs": {
-        "queries": "query_embeddings",
-        "candidates": "chunk_embeddings",
-        "candidate_texts": "doc_chunks"
-      },
-      "outputs": {
-        "ranked": "coarse_contexts"
+        "queries": "embed_query.embedding",
+        "candidates": "embed_chunks.embedding",
+        "candidate_texts": "chunk_docs.chunks"
       }
     },
     {
-      "id": "node_4_TextRerankNode",
-      "node_type": "TextRerankNode",
-      "config": {
-        "bind_model": "rerank_model",
-        "top_k": 1
+      "type": "text_rerank",
+      "name": "rerank_contexts",
+      "params": {
+        "bind_model": "rerank_model"
       },
       "inputs": {
-        "queries": "raw_queries",
-        "candidates": "coarse_contexts"
-      },
-      "outputs": {
-        "ranked": "fine_contexts"
+        "queries": "input.query_text",
+        "candidates": "retrieve.ranked"
       }
     },
     {
-      "id": "node_5_TextTemplateNode",
-      "node_type": "TextTemplateNode",
-      "config": {
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
         "template": "【经过精排选取的精准参考上下文】: {{context}}\n【用户提问】: {{primary}}\n请根据上述上下文给出专业、严谨且精炼的解答:"
       },
       "inputs": {
-        "primary": "raw_queries",
-        "context": "fine_contexts"
-      },
-      "outputs": {
-        "text": "prompt_text"
+        "primary": "input.query_text",
+        "context": "rerank_contexts.ranked"
       }
     },
     {
-      "id": "node_6_TextRuleMatchNode",
-      "node_type": "TextRuleMatchNode",
-      "config": {
+      "type": "text_rule_match",
+      "name": "match_intent",
+      "params": {
         "default_category": "GENERAL_QA",
         "default_score": 0.9,
         "categories": {
@@ -148,25 +148,21 @@
         }
       },
       "inputs": {
-        "text": "raw_queries"
-      },
-      "outputs": {
-        "matches": "intent_matches"
+        "text": "input.query_text"
       }
     },
     {
-      "id": "node_7_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "generate_answer",
+      "params": {
         "bind_model": "llm_model",
-        "max_tokens": 128,
-        "temperature": 0.3
+        "temperature": 0.3,
+        "endpoints": {
+          "answer": {}
+        }
       },
       "inputs": {
-        "prompt": "prompt_text"
-      },
-      "outputs": {
-        "text": "llm_answers"
+        "input": "build_prompt.text"
       }
     }
   ]

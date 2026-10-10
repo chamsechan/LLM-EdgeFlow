@@ -21,14 +21,14 @@ namespace llm_edgeflow {
  * - 纯 Model 层实现，继承 IEmbeddingModel；
  * - 只依赖 ITensorGraphSession 中性张量图协议，完全不引用 ONNX Runtime
  * 或第三方头文件；
- * - 加载并验证 vocab.txt sidecar，执行真实 WordPiece 分词与 padding；
+ * - 加载并验证声明的 WordPiece 词表，执行真实 WordPiece 分词与 padding；
  * - 负责池化 (Pooling: CLS / Mean) 与 L2 归一化；
  * - 使用 FixedBatchExecutor 驱动批次并保持 (req_id, sub_id) 溯源。
  */
 class BgeEmbeddingModel final
     : public ModelIdentity<BgeEmbeddingModel, IEmbeddingModel> {
  public:
-  inline static constexpr char kModelType[] = "bge_embedding";
+  inline static constexpr char kImplName[] = "bge_embedding";
   static constexpr InferenceConcurrency kConcurrency =
       InferenceConcurrency::kConcurrent;
 
@@ -36,24 +36,21 @@ class BgeEmbeddingModel final
                                         std::string* diagnostic);
 
   BgeEmbeddingModel(std::shared_ptr<ITensorGraphSession> session,
-                    BertWordPieceTokenizer tokenizer, size_t max_length,
-                    std::string pooling_strategy, std::string output_name,
-                    size_t embedding_dim, size_t max_batch_size);
+                    BertWordPieceTokenizer tokenizer, size_t max_tokens,
+                    std::string pooling, std::string output_name,
+                    size_t embedding_dim, bool normalize);
 
   ~BgeEmbeddingModel() override = default;
 
-  int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-            EmbeddingBatch* outputs,
+  int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override;
 
   const BertWordPieceTokenizer& Tokenizer() const noexcept {
     return tokenizer_;
   }
   size_t EmbeddingDim() const noexcept { return embedding_dim_; }
-  size_t MaxLength() const noexcept { return max_length_; }
-  const std::string& PoolingStrategy() const noexcept {
-    return pooling_strategy_;
-  }
+  size_t MaxTokens() const noexcept { return max_tokens_; }
+  const std::string& Pooling() const noexcept { return pooling_; }
 
  private:
   int RawEmbedSlice(const TextBatch& all_inputs, const BatchSlice& slice,
@@ -62,11 +59,11 @@ class BgeEmbeddingModel final
 
   std::shared_ptr<ITensorGraphSession> session_;
   BertWordPieceTokenizer tokenizer_;
-  size_t max_length_ = 512;
-  std::string pooling_strategy_ = "cls";
+  size_t max_tokens_ = 512;
+  std::string pooling_ = "cls";
   std::string output_name_ = "last_hidden_state";
   size_t embedding_dim_ = 384;
-  size_t max_batch_size_ = 4;
+  bool normalize_ = true;
 };
 
 }  // namespace llm_edgeflow

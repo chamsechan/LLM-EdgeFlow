@@ -4,112 +4,143 @@
 #include <utility>
 
 namespace llm_edgeflow {
+namespace {
+using NamedIo = llm_edgeflow::operator_api::NamedIo;
+
+// A repeated carrier uses name.type; a unique carrier accepts any namespace.
+bool FindSlotKey(const NamedIo& row, const std::string& type,
+                 const std::string& name, bool repeated_type, size_t frame,
+                 std::string* found, std::string* error) {
+  found->clear();
+  for (const auto& [key, value] : row) {
+    std::string prefix, suffix;
+    if (!OperatorValueTypeRegistry::ParseKey(key, &prefix, &suffix)) {
+      if (error)
+        *error =
+            "Invalid key format in frame " + std::to_string(frame) + ": " + key;
+      return false;
+    }
+    if (suffix != type || (repeated_type && prefix != name)) continue;
+    if (!found->empty()) {
+      if (error)
+        *error = "Duplicate slot mapping for " + type + "/" + name +
+                 " in frame " + std::to_string(frame);
+      return false;
+    }
+    *found = key;
+  }
+  return true;
+}
+
+template <typename Selected>
+bool RepeatedType(const std::vector<Selected>& selected,
+                  const std::string& type) {
+  size_t count = 0;
+  for (const auto& entry : selected) count += entry.converter->type == type;
+  return count > 1;
+}
+}  // namespace
 
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
-    const InputConverterDefinition& in_conv, const InputLimits& limits,
-    ExternalInputBatchView* out_view, std::string* error) {
-  if (!out_view) {
-    if (error) *error = "Null out_view pointer";
+    const std::vector<SelectedInput>& selected, const InputLimits& limits,
+    std::vector<ExternalInputBatchView>* out_views,
+    std::vector<uint64_t>* request_ids, std::string* error) {
+  if (!out_views || !request_ids) {
+    if (error) *error = "Null input extraction destination";
     return -3;
   }
-  out_view->count = inputs.size();
-  out_view->slots.clear();
-  out_view->slot_types.clear();
-  for (const auto& slot : in_conv.external_slots) {
-    if (slot.direction == PortDirection::kInput) {
-      out_view->slot_types[slot.slot_name] = slot.type_id;
-      out_view->slots[slot.slot_name].resize(inputs.size());
+  out_views->clear();
+  out_views->resize(selected.size());
+  request_ids->assign(inputs.size(), 0);
+  std::vector<bool> has_id(inputs.size(), false);
+  std::vector<std::unordered_set<std::string>> recognized(inputs.size());
+  for (size_t index = 0; index < selected.size(); ++index) {
+    const auto& def = *selected[index].converter;
+    const auto* binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(def.type);
+    if (!binding || !binding->validate_external) {
+      if (error) *error = "Missing input platform binding for " + def.Label();
+      return -3;
     }
-  }
-
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    const auto& in_map = inputs[i];
-    std::unordered_set<std::string> recognized_keys;
-
-    for (const auto& slot : in_conv.external_slots) {
-      if (slot.direction != PortDirection::kInput) continue;
-      std::string found_key;
-      std::shared_ptr<void> payload = nullptr;
-
-      for (const auto& [key, value] : in_map) {
-        std::string suffix;
-        if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
-          if (error) {
-            *error = "Invalid input key format in frame " + std::to_string(i) +
-                     ": " + key;
-          }
+    auto& view = (*out_views)[index];
+    view.count = inputs.size();
+    view.slot_types[def.type] = def.slot.type_id;
+    auto& payloads = view.slots[def.type];
+    payloads.resize(inputs.size());
+    for (size_t frame = 0; frame < inputs.size(); ++frame) {
+      std::string key;
+      if (!FindSlotKey(inputs[frame], def.type, def.name,
+                       RepeatedType(selected, def.type), frame, &key, error))
+        return -3;
+      if (key.empty()) {
+        if (def.slot.required) {
+          if (error)
+            *error = "Missing required input " + def.Label() + " in frame " +
+                     std::to_string(frame);
           return -3;
         }
-        if (suffix != slot.KeySuffix()) {
-          continue;
-        }
-        if (!found_key.empty()) {
-          if (error) {
-            *error = "Duplicate input slot mapping for suffix '" +
-                     slot.KeySuffix() + "' in frame " + std::to_string(i);
-          }
-          return -3;
-        }
-        found_key = key;
-        if (!value || !value.get()) {
-          if (error) *error = "Null input shared_ptr for key: " + key;
-          return -3;
-        }
-        payload = value;
-        recognized_keys.insert(key);
+        continue;
       }
-
-      if (!payload && slot.required) {
-        if (error) {
-          *error = "Missing required input slot for suffix '" +
-                   slot.KeySuffix() + "' in frame " + std::to_string(i);
-        }
+      const auto& payload = inputs[frame].at(key);
+      if (!payload) {
+        if (error) *error = "Null input shared_ptr for key: " + key;
         return -3;
       }
-
-      if (payload) {
-        const auto* binding =
-            OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
-                slot.type_suffix);
-        if (!binding || !binding->validate_external) {
-          if (error) {
-            *error =
-                "Missing Operator input ValueType binding or validate_external "
-                "for suffix '" +
-                slot.type_suffix + "'";
-          }
+      std::string validation_error;
+      const int result =
+          binding->validate_external(payload.get(), limits, &validation_error);
+      if (result != 0) {
+        if (error)
+          *error = "Validation failed for input key " + key + ": " +
+                   validation_error;
+        return result;
+      }
+      if (def.service_type &&
+          binding->read_service_type(payload.get()) != *def.service_type) {
+        if (error)
+          *error = "Struct " + def.slot.type_id + " frame " +
+                   std::to_string(frame) + " has service_type " +
+                   std::to_string(binding->read_service_type(payload.get())) +
+                   "; expected " + std::to_string(*def.service_type);
+        return -3;
+      }
+      if (binding->read_request_id) {
+        const auto id = binding->read_request_id(payload.get());
+        if (has_id[frame] && (*request_ids)[frame] != id) {
+          if (error)
+            *error = "Struct " + def.slot.type_id + " frame " +
+                     std::to_string(frame) + " has request_id " +
+                     std::to_string(id) + "; expected " +
+                     std::to_string((*request_ids)[frame]);
           return -3;
         }
-        std::string validation_error;
-        int validation_result = binding->validate_external(
-            payload.get(), limits, &validation_error);
-        if (validation_result != 0) {
-          if (error) {
-            *error = "Validation failed for input key " + found_key + ": " +
-                     validation_error;
-          }
-          return validation_result;
-        }
-        out_view->slots[slot.slot_name][i] = std::move(payload);
+        (*request_ids)[frame] = id;
+        has_id[frame] = true;
       }
+      recognized[frame].insert(key);
+      payloads[frame] = payload;
     }
-
-    if (recognized_keys.size() != in_map.size()) {
-      if (error) {
-        *error =
-            "Unknown extra input keys present in frame " + std::to_string(i);
-      }
+  }
+  for (size_t frame = 0; frame < inputs.size(); ++frame) {
+    if (recognized[frame].size() != inputs[frame].size()) {
+      if (error)
+        *error = "Unknown extra input keys present in frame " +
+                 std::to_string(frame);
+      return -3;
+    }
+    if (!has_id[frame]) {
+      if (error)
+        *error = "No request_id source in frame " + std::to_string(frame);
       return -3;
     }
   }
-
   return 0;
 }
 
 int ResolveOperatorOutputs(
     const llm_edgeflow::operator_api::NamedIoBatch& outputs,
-    const OutputConverterDefinition& out_conv,
+    const std::vector<SelectedOutput>& selected,
     std::vector<std::vector<FrameOutputBinding>>* frame_bindings,
     std::string* error) {
   if (!frame_bindings) {
@@ -118,75 +149,45 @@ int ResolveOperatorOutputs(
   }
   frame_bindings->clear();
   frame_bindings->resize(outputs.size());
-
-  for (size_t i = 0; i < outputs.size(); ++i) {
-    const auto& out_map = outputs[i];
-    std::unordered_set<std::string> recognized_keys;
-
-    for (const auto& slot : out_conv.external_slots) {
-      if (slot.direction != PortDirection::kOutput) continue;
-      std::string found_key;
-
-      for (const auto& [key, value] : out_map) {
-        std::string suffix;
-        if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
-          if (error) {
-            *error = "Invalid output key format in frame " + std::to_string(i) +
-                     ": " + key;
-          }
+  for (size_t frame = 0; frame < outputs.size(); ++frame) {
+    std::unordered_set<std::string> recognized;
+    for (size_t index = 0; index < selected.size(); ++index) {
+      const auto& def = *selected[index].converter;
+      std::string key;
+      if (!FindSlotKey(outputs[frame], def.type, def.name,
+                       RepeatedType(selected, def.type), frame, &key, error))
+        return -4;
+      if (key.empty()) {
+        if (def.slot.required) {
+          if (error)
+            *error = "Missing required output " + def.Label() + " in frame " +
+                     std::to_string(frame);
           return -4;
         }
-        if (suffix != slot.KeySuffix()) {
-          continue;
-        }
-        if (!found_key.empty()) {
-          if (error) {
-            *error = "Duplicate output slot mapping for suffix '" +
-                     slot.KeySuffix() + "' in frame " + std::to_string(i);
-          }
-          return -4;
-        }
-        found_key = key;
-        if (value != nullptr) {
-          if (error) {
-            *error = "Output shared_ptr must be null for key " + key +
-                     " in frame " + std::to_string(i);
-          }
-          return -4;
-        }
-        recognized_keys.insert(key);
+        continue;
       }
-
-      if (found_key.empty() && slot.required) {
-        if (error) {
-          *error = "Missing required output slot for suffix '" +
-                   slot.KeySuffix() + "' in frame " + std::to_string(i);
-        }
+      if (outputs[frame].at(key)) {
+        if (error)
+          *error = "Output shared_ptr must be null for key " + key +
+                   " in frame " + std::to_string(frame);
         return -4;
       }
-
-      if (!found_key.empty()) {
-        (*frame_bindings)[i].push_back(
-            {found_key, slot.slot_name, slot.type_suffix});
-      }
+      recognized.insert(key);
+      (*frame_bindings)[frame].push_back({key, index});
     }
-
-    if (recognized_keys.size() != out_map.size()) {
-      if (error) {
-        *error =
-            "Unknown extra output keys present in frame " + std::to_string(i);
-      }
+    if (recognized.size() != outputs[frame].size()) {
+      if (error)
+        *error = "Unknown extra output keys present in frame " +
+                 std::to_string(frame);
       return -4;
     }
   }
-
   return 0;
 }
 
 int AcquireOperatorOutputBlocks(
     const std::vector<std::vector<FrameOutputBinding>>& frame_bindings,
-    const std::unordered_map<std::string, std::shared_ptr<OutputPoolState>>&
-        output_pools,
+    const std::vector<std::shared_ptr<OutputPoolState>>& output_pools,
     ScopedOutputLeaseGuard* lease_guard,
     std::vector<AcquiredOutputBlock>* acquired_blocks, std::string* error) {
   if (!lease_guard || !acquired_blocks) {
@@ -204,25 +205,27 @@ int AcquireOperatorOutputBlocks(
 
   for (size_t f = 0; f < frame_bindings.size(); ++f) {
     for (const auto& binding : frame_bindings[f]) {
-      auto pit = output_pools.find(binding.logical_name);
-      if (pit == output_pools.end() || !pit->second) {
+      if (binding.output_index >= output_pools.size() ||
+          !output_pools[binding.output_index]) {
         if (error) {
-          *error = "Missing output pool for slot " + binding.logical_name;
+          *error = "Missing output pool for slot " +
+                   std::to_string(binding.output_index);
         }
         return -5;
       }
-      auto pool = pit->second;
+      auto pool = output_pools[binding.output_index];
       void* block = nullptr;
       int acq_ret = pool->Acquire(&block);
       if (acq_ret != 0 || !block) {
         if (error) {
-          *error = "Output pool exhausted for slot " + binding.logical_name;
+          *error = "Output pool exhausted for slot " +
+                   std::to_string(binding.output_index);
         }
         return -4;
       }
       lease_guard->Track(pool, block);
       acquired_blocks->push_back(
-          {f, binding.key, pool, block, binding.logical_name});
+          {f, binding.key, pool, block, binding.output_index});
     }
   }
 

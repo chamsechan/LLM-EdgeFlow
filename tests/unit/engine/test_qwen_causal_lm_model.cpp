@@ -82,25 +82,30 @@ GenerateOptions GreedyOptions() {
 
 TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireTextGeneration) {
   const auto definition =
-      ModelRegistry::Instance().Find(QwenCausalLmModel::kModelType);
+      ModelRegistry::Instance().Find(QwenCausalLmModel::kImplName);
   ASSERT_TRUE(definition.has_value());
-  EXPECT_EQ(definition->capability, "llm");
+  EXPECT_EQ(definition->model_type, "llm");
   EXPECT_EQ(definition->required_protocol, ExecutionProtocol::kTextGeneration);
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kConcurrent);
 
   ModelCreateContext invalid;
   std::string diagnostic;
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                       &invalid.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(QwenCausalLmModel::Create(invalid, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   auto session = std::make_shared<ScriptedGenerationSession>();
   ModelCreateContext valid;
   valid.backend_session = session;
-  valid.model_config = {{"system_prompt", "You are concise."},
-                        {"random_seed", 7}};
+  const nlohmann::json model_params = nlohmann::json::object();
+  ASSERT_TRUE(
+      definition->params.Parse(model_params, &valid.params, &diagnostic))
+      << diagnostic;
   auto model = QwenCausalLmModel::Create(valid, &diagnostic);
   ASSERT_NE(model, nullptr) << diagnostic;
-  EXPECT_EQ(model->ModelType(), "qwen_causal_lm");
+  EXPECT_EQ(model->ImplName(), "qwen_causal_lm");
   EXPECT_EQ(model->Concurrency(), InferenceConcurrency::kConcurrent);
 
   session->policy = {1, 1};
@@ -111,9 +116,11 @@ TEST(QwenCausalLmModelTest,
      DelegatesFormattedPromptOptionsSeedAndPreservesProvenance) {
   auto session = std::make_shared<ScriptedGenerationSession>();
   session->scripted_outputs = {"first-answer", "second-answer"};
-  QwenCausalLmModel model(session, "System", true, 11);
+  QwenCausalLmModel model(session, true);
 
   GenerateOptions options = GreedyOptions();
+  options.system_prompt = "System";
+  options.random_seed = 11;
   options.top_k = 17;
   options.top_p = 0.75f;
   options.repetition_penalty = 1.25f;
@@ -150,7 +157,7 @@ TEST(QwenCausalLmModelTest,
 TEST(QwenCausalLmModelTest, RandomSeedAndLaterFailureRollbackBatch) {
   auto session = std::make_shared<ScriptedGenerationSession>();
   session->fail_call = 1;
-  QwenCausalLmModel model(session, "", false, -1);
+  QwenCausalLmModel model(session, false);
 
   TextBatch outputs{{9, 9, "stale"}};
   EXPECT_NE(model.Generate({{1, 0, "first"}, {2, 0, "second"}}, GreedyOptions(),
@@ -168,7 +175,7 @@ TEST(QwenCausalLmModelTest, RandomSeedAndLaterFailureRollbackBatch) {
 TEST(QwenCausalLmModelTest, BackendDiagnosticSurvivesRollbackAndClearsOnReuse) {
   auto session = std::make_shared<ScriptedGenerationSession>();
   session->fail_call = 1;
-  QwenCausalLmModel model(session, "", false, -1);
+  QwenCausalLmModel model(session, false);
   TextBatch outputs{{9, 9, "stale output"}};
   std::string diagnostic = "stale error";
 
@@ -418,9 +425,11 @@ TEST(QwenCausalLmModelTest, Utf8SuffixTrimmingMatchesSharedHelper) {
 
   auto session = std::make_shared<ScriptedGenerationSession>();
   session->scripted_outputs = {std::string("managed") + "\xE4\xB8"};
-  QwenCausalLmModel model(session, "", false, 0);
+  QwenCausalLmModel model(session, false);
+  auto options = GreedyOptions();
+  options.random_seed = 0;
   TextBatch outputs;
-  ASSERT_EQ(model.Generate({{1, 0, "prompt"}}, GreedyOptions(), &outputs), 0);
+  ASSERT_EQ(model.Generate({{1, 0, "prompt"}}, options, &outputs), 0);
   ASSERT_EQ(outputs.size(), 1U);
   EXPECT_EQ(outputs.front().data, "managed");
 }

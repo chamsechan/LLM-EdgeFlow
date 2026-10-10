@@ -1,11 +1,11 @@
 // 运行快照描述提交时的草稿，不受之后的编辑或保存影响。
-export function captureRun({ documentVersion, pipeline, filename, profile, modelRoot }) {
-  return { documentVersion, pipeline: JSON.stringify(pipeline), filename, profile, modelRoot, startedAt: new Date().toISOString(), job: { status: "starting" }, id: "" };
+export function captureRun({ documentVersion, pipeline, filename, profile }) {
+  return { documentVersion, pipeline: JSON.stringify(pipeline), filename, profile, startedAt: new Date().toISOString(), job: { status: "starting" }, id: "" };
 }
 
-export function runIsCurrent(run, { documentVersion, pipeline, profile, modelRoot, pending }) {
+export function runIsCurrent(run, { documentVersion, pipeline, profile, pending }) {
   return Boolean(run && run.documentVersion === documentVersion && !pending &&
-    run.pipeline === JSON.stringify(pipeline) && run.profile === profile && run.modelRoot === modelRoot);
+    run.pipeline === JSON.stringify(pipeline) && run.profile === profile);
 }
 
 export function runSummary(job) {

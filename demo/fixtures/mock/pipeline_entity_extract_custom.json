@@ -1,27 +1,39 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "entity_extract"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "entity_extract"
+      }
+    ],
+    "output": [
+      {
+        "type": "entity_out",
+        "name": "entity_extract",
+        "inputs": {
+          "entities": "parse_entities.document"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
-        "max_seq_len": 512
-      },
-      "backend_config": {},
-      "model_id": "entity_llm",
-      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+      "type": "llm",
+      "name": "entity_llm",
+      "file": "artifacts/neutral-llm.fixture",
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "custom_prompt",
-      "node_type": "PromptGuidedLlmNode",
-      "config": {
+      "type": "prompt_guided_llm",
+      "name": "generate_entities",
+      "params": {
         "bind_model": "entity_llm",
         "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{{input}}\n提取结果：",
         "strip_markdown": true,
@@ -29,23 +41,17 @@
         "max_tokens": 64
       },
       "inputs": {
-        "input": "input_sentences"
-      },
-      "outputs": {
-        "output": "llm_raw_answer"
+        "input": "input.sentence_text"
       }
     },
     {
-      "id": "node_2_StructuredJsonParseNode",
-      "node_type": "StructuredJsonParseNode",
-      "config": {
+      "type": "structured_json_parse",
+      "name": "parse_entities",
+      "params": {
         "failure_policy": "fail"
       },
       "inputs": {
-        "text": "llm_raw_answer"
-      },
-      "outputs": {
-        "document": "extracted_entities"
+        "text": "generate_entities.output"
       }
     }
   ]

@@ -52,12 +52,12 @@ class TemplateNestedPointerTreeAdapter {
   static bool UnpackNodeRecursive(const TemplateTreeNode* node,
                                   TemplateTreeNodeDto* out_dto,
                                   int current_depth, int max_depth,
-                                  int sample_idx, const char* biz_name,
+                                  int sample_idx, const char* label,
                                   AdapterStatus* out_status) {
     if (!node) {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput("Null tree node pointer",
-                                                  "node", sample_idx, biz_name);
+                                                  "node", sample_idx, label);
       }
       return false;
     }
@@ -66,18 +66,18 @@ class TemplateNestedPointerTreeAdapter {
         *out_status =
             AdapterStatus::InvalidInput("Tree depth exceeds maximum limit (" +
                                             std::to_string(max_depth) + ")",
-                                        "node.depth", sample_idx, biz_name);
+                                        "node.depth", sample_idx, label);
       }
       return false;
     }
     if (!AdapterValidationHelper::RequireBoundedString(
-            "node.node_name", node->node_name, 4096, sample_idx, biz_name,
+            "node.node_name", node->node_name, 4096, sample_idx, label,
             out_status)) {
       return false;
     }
-    if (!AdapterValidationHelper::RequireRange(
-            "node.child_count", node->child_count, 0, 100, sample_idx, biz_name,
-            out_status)) {
+    if (!AdapterValidationHelper::RequireRange("node.child_count",
+                                               node->child_count, 0, 100,
+                                               sample_idx, label, out_status)) {
       return false;
     }
 
@@ -85,16 +85,15 @@ class TemplateNestedPointerTreeAdapter {
     out_dto->node_name = node->node_name;
 
     if (node->child_count > 0) {
-      if (!AdapterValidationHelper::RequireNotNull("node.children",
-                                                   node->children, sample_idx,
-                                                   biz_name, out_status)) {
+      if (!AdapterValidationHelper::RequireNotNull(
+              "node.children", node->children, sample_idx, label, out_status)) {
         return false;
       }
       out_dto->children.resize(node->child_count);
       for (int i = 0; i < node->child_count; ++i) {
         if (!UnpackNodeRecursive(node->children[i], &out_dto->children[i],
                                  current_depth + 1, max_depth, sample_idx,
-                                 biz_name, out_status)) {
+                                 label, out_status)) {
           return false;
         }
       }

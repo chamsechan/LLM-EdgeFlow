@@ -20,7 +20,7 @@ namespace llm_edgeflow {
 class QwenCausalLmModel final
     : public ModelIdentity<QwenCausalLmModel, ILlmModel> {
  public:
-  inline static constexpr char kModelType[] = "qwen_causal_lm";
+  inline static constexpr char kImplName[] = "qwen_causal_lm";
   static constexpr InferenceConcurrency kConcurrency =
       InferenceConcurrency::kConcurrent;
 
@@ -28,9 +28,12 @@ class QwenCausalLmModel final
                                         std::string* diagnostic);
 
   QwenCausalLmModel(std::shared_ptr<ITextGenerationSession> session,
-                    std::string system_prompt, bool add_bos,
-                    int64_t random_seed);
+                    bool add_bos);
   ~QwenCausalLmModel() override = default;
+
+  bool SupportsRandomSeed() const noexcept override {
+    return session_ && session_->SupportsRandomSeed();
+  }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs,
@@ -40,12 +43,11 @@ class QwenCausalLmModel final
   int GenerateOne(const TraceableItem<std::string>& prompt,
                   const GenerateOptions& options, std::string* output,
                   std::string* diagnostic) noexcept;
-  std::string ApplyChatTemplate(const std::string& prompt) const;
+  std::string ApplyChatTemplate(const std::string& prompt,
+                                const std::string& system_prompt) const;
 
   std::shared_ptr<ITextGenerationSession> session_;
-  std::string system_prompt_;
   bool add_bos_ = false;
-  int64_t random_seed_ = -1;
 };
 
 }  // namespace llm_edgeflow

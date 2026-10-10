@@ -23,7 +23,7 @@ package "接入适配层 / Integration" {
   class "C++ Operator SDK" as Operator {
     Get_LLM_EDGEFLOW_OperatorTable()
     GetOperatorLastError()
-    ResolveOperatorConfigBiz()
+    ResolveOperatorConfigIo()
     OperatorFunc: Init / Create / Process
     Control / Destroy / DeInit
   }
@@ -39,33 +39,31 @@ package "接入适配层 / Integration" {
     ExecuteControl(): int
   }
   class ValidatedIoPlan {
-    binding: IoBindingDefinition
-    input_converter: Definition pointer
-    output_converter: Definition pointer
+    inputs: vector<SelectedInput>
+    outputs: vector<SelectedOutput>
+    converter / ports / immutable params
+    resolved_pipeline_json: snapshot
     pipeline_plan: owns ValidatedPipelinePlan
     构建时移交 Pipeline，运行时为空
   }
-  class IoBindingResolver {
+  class IoPlanResolver {
     ResolveFromFile()
     ResolveFromPipelineJson()
   }
   class "PrepareDeploymentDocument()" as PrepareDeployment
-  class IoBindingRegistry {
-    RegisterBinding()
-    Audit()
-  }
   class IoConverterRegistry {
     RegisterInputConverter(definition)
     RegisterOutputConverter(definition)
-    FindInputConverter(id)
-    FindOutputConverter(id)
+    FindInputConverter(type, name)
+    FindOutputConverter(type, name)
+    Audit()
   }
   class InputConverterDefinition {
-    external_slots / logical_ports
+    slot / logical_ports / params
     decode_fn: DecodeInputFn
   }
   class OutputConverterDefinition {
-    logical_ports / external_slots
+    logical_ports / slot / params
     encode_fn: EncodeOutputFn
   }
   class "NamedIoBatch / Company* DTO" as ExternalIo
@@ -74,12 +72,14 @@ package "接入适配层 / Integration" {
 package "流程编排层 / Orchestration" {
   class PipelineValidator {
     ValidateAndPlan(): ValidatedPipelinePlan
+    refs + depends_on: derive DAG
+    bind ports / derive lifetime
     Validate(): ValidationReport
   }
   class ValidatedPipelinePlan {
     config: ParsedPipelineConfig
     models: vector<ValidatedModelPlan>
-    node_plans: ValidatedNodePlan by node id
+    node_plans: ValidatedNodePlan by node name
     report: ValidationReport
   }
   class Pipeline {
@@ -100,10 +100,10 @@ package "流程编排层 / Orchestration" {
   }
   class ModelManager {
     RegisterBatch(registrations): bool
-    GetModel<T>(id): shared_ptr<T>
+    GetModel<T>(name): shared_ptr<T>
   }
   class PipelineCatalog {
-    Node / Model / Backend / Biz Definition snapshots
+    Node / Model / Backend Definition snapshots
   }
 }
 
@@ -135,7 +135,10 @@ package "模型执行层 / Model Execution" {
   interface IModel
   class "模型能力接口\nIEmbeddingModel / IRerankModel\nILlmModel / IOcrModel / IAsrModel" as Capabilities
   class "模型语义\nBgeEmbeddingModel / BgeRerankerModel\nQwenCausalLmModel\nGeneratedTextEmbeddingModel\nVisionDocumentModel / WhisperAsrModel" as Models
-  class ModelRegistry
+  class ModelRegistry {
+    FindImplementation(model_type, backend_type)
+    Audit(): reject ambiguous selection
+  }
   class ModelRuntimeFactory {
     Create(): shared_ptr<IModel>
   }
@@ -161,12 +164,11 @@ Operator ..> OperatorHandle : 生命周期
 OperatorHandle *-- SharedAlgorithmRuntime
 SharedAlgorithmRuntime *-- ValidatedIoPlan
 SharedAlgorithmRuntime *-- Pipeline
-Operator ..> IoBindingResolver : Create / 配置预检
-IoBindingResolver ..> PrepareDeployment
-PrepareDeployment ..> IoBindingRegistry
+Operator ..> IoPlanResolver : Create / 配置预检
+IoPlanResolver ..> PrepareDeployment
 PrepareDeployment ..> IoConverterRegistry
-IoBindingResolver ..> PipelineValidator : 中性文档与 I/O 边界
-IoBindingResolver ..> ValidatedIoPlan : 组装
+IoPlanResolver ..> PipelineValidator : 中性文档与 I/O 边界
+IoPlanResolver ..> ValidatedIoPlan : 组装
 IoConverterRegistry o-- InputConverterDefinition
 IoConverterRegistry o-- OutputConverterDefinition
 Operator ..> InputConverterDefinition : decode_fn

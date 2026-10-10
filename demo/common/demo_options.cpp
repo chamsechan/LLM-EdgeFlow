@@ -163,8 +163,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->control_file = argv[++i];
       out_options->has_control_file = true;
-    } else if (arg == "--example-control") {
-      out_options->example_control = true;
+
     } else if (arg == "--append") {
       out_options->append = true;
     } else if (arg == "--allow-fallback-sample") {
@@ -368,7 +367,6 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   *out_options = cli_options;
-  out_options->biz.clear();
 
   if (cli_options.profile.empty()) {
     // 未指定 Profile，无需从配置文件合并
@@ -392,7 +390,6 @@ int MergeProfileOptions(const nlohmann::json& root,
     return 3;
   }
   *out_options = cli_options;
-  out_options->biz.clear();
   const auto& profiles = root["profiles"];
   if (!profiles.contains(cli_options.profile)) {
     if (error_msg) {
@@ -454,7 +451,7 @@ void PrintHelp(const char* program_name) {
          "demo/profiles.json)\n"
       << "  -p, --profile <name>       Run with a pre-configured profile\n"
       << "  --suite <smoke|real|all>   Run an entire suite of profiles\n"
-      << "  -l, --list                 List all available biz cases and "
+      << "  -l, --list                 List all available I/O carriers and "
          "profiles\n\n"
       << "Direct Execution Options:\n"
       << "  -c, --config <path>         Operator deployment .conf path\n"
@@ -462,8 +459,6 @@ void PrintHelp(const char* program_name) {
       << "  -o, --output-dir <path>    Results output directory (default: "
          "./results)\n\n"
       << "Runtime Control & Output Options:\n"
-      << "  --example-control          Apply the built-in Demo example update "
-         "(keyword_match)\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
       << "  --control-cmd <id>         Node command ID for --control-file\n"
       << "  --append                   Append output to existing results file "

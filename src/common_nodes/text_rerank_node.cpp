@@ -6,15 +6,12 @@
 #include <vector>
 
 #include "nodes/authoring.h"
-#include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
 struct Inputs {
   const TextBatch* queries = nullptr;
   const RankedTextBatch* candidates = nullptr;
-  const TextBatch* candidate_texts = nullptr;
-  const QueryCandidatesBatch* pairs = nullptr;
 };
 struct Params {
   int top_k{};
@@ -27,14 +24,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
                                 const Models& models) {
   const auto* queries = inputs.queries;
   const auto* candidates = inputs.candidates;
-  const auto* candidate_texts = inputs.candidate_texts;
-  const auto* pairs = inputs.pairs;
-  if (!pairs && !queries) {
-    return NodeResult<RankedTextBatch>::Failure(
-        NodeErrorKind::kBusinessError,
-        "TextRerankNode requires pairs or queries input",
-        node_error::text_rerank::kMissingInput);
-  }
 
   QueryCandidatesBatch pair_items;
   struct CandidatePayload {
@@ -44,57 +33,29 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
   };
   std::vector<CandidatePayload> cand_payloads;
 
-  if (pairs && !pairs->empty()) {
-    pair_items.reserve(pairs->size());
-    cand_payloads.reserve(pairs->size());
-    for (const auto& item : *pairs) {
-      pair_items.emplace_back(
-          item.req_id, item.sub_id,
-          QueryCandidatePair{item.data.query, item.data.candidate});
-      cand_payloads.push_back({item.req_id, item.sub_id, item.data.candidate});
+  std::unordered_map<uint32_t, std::string> query_map;
+  for (const auto& q : *queries) {
+    if (!query_map.emplace(q.req_id, q.data).second) {
+      return NodeResult<RankedTextBatch>::Failure(
+          NodeErrorKind::kBusinessError,
+          "text_rerank requires one query per request; duplicate req_id=" +
+              std::to_string(q.req_id));
     }
-  } else if (queries) {
-    std::unordered_map<uint32_t, std::string> query_map;
-    for (const auto& q : *queries) {
-      if (!query_map.emplace(q.req_id, q.data).second) {
-        return NodeResult<RankedTextBatch>::Failure(
-            NodeErrorKind::kBusinessError,
-            "TextRerankNode requires one query per request; duplicate req_id=" +
-                std::to_string(q.req_id));
-      }
-    }
+  }
 
-    if (candidates && !candidates->empty()) {
-      pair_items.reserve(candidates->size());
-      cand_payloads.reserve(candidates->size());
-      for (const auto& c : *candidates) {
-        const auto query = query_map.find(c.req_id);
-        if (query == query_map.end()) {
-          return NodeResult<RankedTextBatch>::Failure(
-              NodeErrorKind::kBusinessError,
-              "Candidate has no query for req_id=" + std::to_string(c.req_id));
-        }
-        std::string q = query->second;
-        pair_items.emplace_back(c.req_id, c.sub_id,
-                                QueryCandidatePair{std::move(q), c.data.text});
-        cand_payloads.push_back({c.req_id, c.sub_id, c.data.text});
-      }
-    } else if (candidate_texts && !candidate_texts->empty()) {
-      pair_items.reserve(candidate_texts->size());
-      cand_payloads.reserve(candidate_texts->size());
-      for (const auto& c : *candidate_texts) {
-        const auto query = query_map.find(c.req_id);
-        if (query == query_map.end()) {
-          return NodeResult<RankedTextBatch>::Failure(
-              NodeErrorKind::kBusinessError,
-              "Candidate has no query for req_id=" + std::to_string(c.req_id));
-        }
-        std::string q = query->second;
-        pair_items.emplace_back(c.req_id, c.sub_id,
-                                QueryCandidatePair{std::move(q), c.data});
-        cand_payloads.push_back({c.req_id, c.sub_id, c.data});
-      }
+  pair_items.reserve(candidates->size());
+  cand_payloads.reserve(candidates->size());
+  for (const auto& c : *candidates) {
+    const auto query = query_map.find(c.req_id);
+    if (query == query_map.end()) {
+      return NodeResult<RankedTextBatch>::Failure(
+          NodeErrorKind::kBusinessError,
+          "Candidate has no query for req_id=" + std::to_string(c.req_id));
     }
+    std::string q = query->second;
+    pair_items.emplace_back(c.req_id, c.sub_id,
+                            QueryCandidatePair{std::move(q), c.data.text});
+    cand_payloads.push_back({c.req_id, c.sub_id, c.data.text});
   }
 
   auto scores = models.reranker.Score(pair_items);
@@ -135,12 +96,9 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
 auto Spec() {
   return MakeNodeSpec(
              InputsOf<Inputs>(
-                 {OptionalValue("queries", &Inputs::queries),
-                  OptionalValue("candidates", &Inputs::candidates,
-                                PortFlow{"N:1", "preserve", "request"}),
-                  OptionalValue("candidate_texts", &Inputs::candidate_texts,
-                                PortFlow{"N:1", "preserve", "request"}),
-                  OptionalValue("pairs", &Inputs::pairs)}),
+                 {Required("queries", &Inputs::queries),
+                  Required("candidates", &Inputs::candidates,
+                           PortFlow{"N:1", "preserve", "request"})}),
              ProducedBatch<RankedTextBatch>(
                  "ranked", PortFlow{"1:N", "generate_sub_id", "request"}),
              Parameters<Params>(
@@ -151,21 +109,12 @@ auto Spec() {
                           "按 req_id "
                           "分组，用重排模型分数降序保留的候选条数上限。")}),
              ModelsOf<Models>(
-                 {Model("reranker", "bind_model", &Models::reranker,
-                        "引用 models[].model_id；所选模型必须提供 rerank "
-                        "查询与候选评分能力。")}),
+                 {Model("reranker", "bind_model", &Models::reranker)}),
              &Run)
-      .PortConstraints({PortGroupConstraint::Groups(
-          PortConstraintKind::kExactOneGroupOf,
-          {{"pairs"},
-           {"queries", "candidates"},
-           {"queries", "candidate_texts"}},
-          "TextRerankNode requires exactly one input group: [pairs], [queries, "
-          "candidates], or [queries, candidate_texts]")})
       .Category("common")
       .Description("Cross-encoder semantic reranking and top-k node")
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(TextRerankNode, Spec());
+REGISTER_FUNCTION_NODE(text_rerank, Spec());
 }  // namespace llm_edgeflow

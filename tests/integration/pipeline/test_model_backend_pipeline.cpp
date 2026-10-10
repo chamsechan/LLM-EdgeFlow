@@ -25,8 +25,17 @@ namespace test_mb {
 static std::atomic<int> g_backend_create_count{0};
 static std::atomic<int> g_backend_load_count{0};
 static std::atomic<int> g_model_create_count{0};
-static BackendLoadSpec g_last_backend_load_spec{
-    ExecutionProtocol::kTensorGraph};
+static BackendLoadSpec g_last_backend_load_spec{ExecutionProtocol::kFixture};
+
+struct MockBackendParams {
+  std::string device;
+  int threads;
+};
+
+struct MockModelParams {
+  int max_length;
+  bool normalize;
+};
 
 // Mock Backend 会话
 class MockBackendSession : public IBackendSession {
@@ -61,7 +70,7 @@ class MockInferenceBackend : public IInferenceBackend {
 
   explicit MockInferenceBackend(
       std::string backend_type = "mock_test_backend",
-      ExecutionProtocol protocol = ExecutionProtocol::kTensorGraph,
+      ExecutionProtocol protocol = ExecutionProtocol::kFixture,
       InferenceConcurrency concurrency = InferenceConcurrency::kConcurrent,
       bool should_fail_load = false)
       : backend_type_(std::move(backend_type)),
@@ -86,7 +95,7 @@ class MockInferenceBackend : public IInferenceBackend {
                                                 concurrency_);
   }
 
-  BackendLoadSpec last_loaded_spec{ExecutionProtocol::kTensorGraph};
+  BackendLoadSpec last_loaded_spec{ExecutionProtocol::kFixture};
 
  private:
   std::string backend_type_;
@@ -98,44 +107,42 @@ class MockInferenceBackend : public IInferenceBackend {
 // Mock Model
 class MockEmbeddingModel : public IModel {
  public:
-  inline static constexpr char kModelType[] = "mock_bge_embedding";
-  inline static constexpr char kCapability[] = "embedding";
+  inline static constexpr char kImplName[] = "mock_bge_embedding";
+  inline static constexpr char kCategory[] = "embedding";
 
-  MockEmbeddingModel(std::string model_type, std::string capability,
-                     InferenceConcurrency concurrency,
-                     nlohmann::json model_config)
-      : model_type_(std::move(model_type)),
-        capability_(std::move(capability)),
+  MockEmbeddingModel(std::string impl_name, std::string model_type,
+                     InferenceConcurrency concurrency, MockModelParams params)
+      : model_type_(std::move(impl_name)),
+        capability_(std::move(model_type)),
         concurrency_(concurrency),
-        model_config_(std::move(model_config)) {}
+        params_(std::move(params)) {}
 
-  const std::string& ModelType() const noexcept override { return model_type_; }
-  const std::string& Capability() const noexcept override {
-    return capability_;
-  }
+  const std::string& ImplName() const noexcept override { return model_type_; }
+  const std::string& ModelType() const noexcept override { return capability_; }
   InferenceConcurrency Concurrency() const noexcept override {
     return concurrency_;
   }
 
-  const nlohmann::json& ModelConfig() const noexcept { return model_config_; }
+  const MockModelParams& Params() const noexcept { return params_; }
 
  private:
   std::string model_type_;
   std::string capability_;
   InferenceConcurrency concurrency_;
-  nlohmann::json model_config_;
+  MockModelParams params_;
 };
 
 // 绑定 Mock Model 的 Node
 class MockEmbeddingConsumerNode : public INode {
  public:
-  inline static constexpr char kNodeType[] = "MockEmbeddingConsumerNode";
+  inline static constexpr char kNodeType[] = "mock_embedding_consumer";
 
   bool Init(const NodeInitContext& init_ctx) override {
     if (!init_ctx.plan || !init_ctx.session_ctx) return false;
-    std::string model_id =
-        init_ctx.plan->normalized_config.value("bind_model", "");
-    model_ = init_ctx.session_ctx->GetModelManager().GetModel<IModel>(model_id);
+    std::string model_name =
+        init_ctx.plan->normalized_params.value("bind_model", "");
+    model_ =
+        init_ctx.session_ctx->GetModelManager().GetModel<IModel>(model_name);
     return model_ != nullptr;
   }
 
@@ -166,14 +173,10 @@ REGISTER_NODE_WITH_DEFINITION(MockEmbeddingConsumerNode,
 class ModelBackendPipelineTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    RegisterTestBizs({"cap_mismatch_test", "diag_test", "model_plan_test",
-                      "model_root_dir_test", "path_escape_test",
-                      "pipeline_atomic_rollback", "pipeline_build_success",
-                      "proto_mismatch_test", "runtime_root_propagate_test"});
     g_backend_create_count = 0;
     g_backend_load_count = 0;
     g_model_create_count = 0;
-    g_last_backend_load_spec = BackendLoadSpec{ExecutionProtocol::kTensorGraph};
+    g_last_backend_load_spec = BackendLoadSpec{ExecutionProtocol::kFixture};
 
     if (!BackendRegistry::Instance()
              .Find(MockInferenceBackend::kBackendType)
@@ -181,18 +184,15 @@ class ModelBackendPipelineTest : public ::testing::Test {
       BackendDefinition bdef;
       bdef.backend_type = MockInferenceBackend::kBackendType;
       bdef.description = "Mock backend for tests";
-      bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
+      bdef.supported_protocols = {ExecutionProtocol::kFixture};
       bdef.concurrency = InferenceConcurrency::kConcurrent;
-      bdef.config_fields = {
-          {"device",
-           ConfigValueKind::kString,
-           false,
-           "cpu",
-           std::nullopt,
-           std::nullopt,
-           {"cpu", "cuda"}},
-          {"threads", ConfigValueKind::kInteger, false, 4, 1.0, 64.0},
-      };
+      bdef.params = Parameters<MockBackendParams>{
+          Field("device", &MockBackendParams::device)
+              .Default("cpu")
+              .Enum({"cpu", "cuda"}),
+          Field("threads", &MockBackendParams::threads)
+              .Default(4)
+              .Range(1, 64)};
       BackendRegistry::Instance().Register(bdef, []() {
         g_backend_create_count.fetch_add(1);
         return std::make_unique<MockInferenceBackend>();
@@ -200,25 +200,27 @@ class ModelBackendPipelineTest : public ::testing::Test {
     }
 
     if (!ModelRegistry::Instance()
-             .Find(MockEmbeddingModel::kModelType)
+             .Find(MockEmbeddingModel::kImplName)
              .has_value()) {
       ModelDefinition mdef;
-      mdef.model_type = MockEmbeddingModel::kModelType;
-      mdef.capability = MockEmbeddingModel::kCapability;
+      mdef.impl_name = MockEmbeddingModel::kImplName;
+      mdef.model_type = MockEmbeddingModel::kCategory;
       mdef.description = "Mock embedding model for tests";
-      mdef.required_protocol = ExecutionProtocol::kTensorGraph;
+      mdef.required_protocol = ExecutionProtocol::kFixture;
+      mdef.fixture_backends = {"mock_test_backend", "failing_backend"};
       mdef.concurrency = InferenceConcurrency::kConcurrent;
-      mdef.config_fields = {
-          {"max_length", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0},
-          {"normalize", ConfigValueKind::kBoolean, false, true},
-      };
-      ModelRegistry::Instance().Register(
-          mdef, [](const ModelCreateContext& ctx, std::string*) {
-            g_model_create_count.fetch_add(1);
-            return std::make_shared<MockEmbeddingModel>(
-                MockEmbeddingModel::kModelType, MockEmbeddingModel::kCapability,
-                InferenceConcurrency::kConcurrent, ctx.model_config);
-          });
+      mdef.params = Parameters<MockModelParams>{
+          Field("max_length", &MockModelParams::max_length)
+              .Default(512)
+              .Range(1, 4096),
+          Field("normalize", &MockModelParams::normalize).Default(true)};
+      ModelRegistry::Instance().Register(mdef, [](const ModelCreateContext& ctx,
+                                                  std::string*) {
+        g_model_create_count.fetch_add(1);
+        return std::make_shared<MockEmbeddingModel>(
+            MockEmbeddingModel::kImplName, MockEmbeddingModel::kCategory,
+            InferenceConcurrency::kConcurrent, ctx.Params<MockModelParams>());
+      });
     }
   }
 
@@ -327,24 +329,24 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
 TEST_F(ModelBackendPipelineTest,
        ValidatorInfersModelCapabilityWithZeroSideEffects) {
   nlohmann::json cfg = {
-      {"biz_name", "model_plan_test"},
-      {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},
-                     {"backend", "mock_test_backend"},
-                     {"model_path", "./models/bge/model.onnx"},
-                     {"model_config", {{"max_length", 256}}},
-                     {"backend_config", {{"device", "cpu"}}},
-                 }})},
+      {"models",
+       nlohmann::json::array({{
+           {"name", "emb_model"},
+           {"type", "embedding"},
+           {"backend",
+            {{"type", "mock_test_backend"}, {"params", {{"device", "cpu"}}}}},
+           {"file", "./models/bge/model.onnx"},
+           {"params", {{"max_length", 256}}},
+       }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
-  auto plan = PipelineValidator::ValidateAndPlan(cfg);
+  auto plan = PipelineValidator::ValidateAndPlan(cfg, MakeTestBoundary());
 
   EXPECT_TRUE(plan.report.ok)
       << (plan.report.diagnostics.empty() ? ""
@@ -352,19 +354,19 @@ TEST_F(ModelBackendPipelineTest,
   ASSERT_EQ(plan.models.size(), 1u);
 
   const auto& mp = plan.models[0];
-  EXPECT_EQ(mp.model_id, "emb_model");
-  EXPECT_EQ(mp.capability, "embedding");
-  EXPECT_EQ(mp.model_type, "mock_bge_embedding");
-  EXPECT_EQ(mp.backend, "mock_test_backend");
-  EXPECT_EQ(mp.resolved_model_path, "models/bge/model.onnx");
-  EXPECT_EQ(mp.protocol, ExecutionProtocol::kTensorGraph);
+  EXPECT_EQ(mp.model_name, "emb_model");
+  EXPECT_EQ(mp.model_type, "embedding");
+  EXPECT_EQ(mp.impl_name, "mock_bge_embedding");
+  EXPECT_EQ(mp.backend_type, "mock_test_backend");
+  EXPECT_EQ(mp.model_file, "./models/bge/model.onnx");
+  EXPECT_EQ(mp.protocol, ExecutionProtocol::kFixture);
   EXPECT_EQ(mp.effective_concurrency, InferenceConcurrency::kConcurrent);
 
   // 检查注入默认值后的归一化配置
-  EXPECT_EQ(mp.normalized_model_config["max_length"], 256);
-  EXPECT_EQ(mp.normalized_model_config["normalize"], true);  // 注入的默认值
-  EXPECT_EQ(mp.normalized_backend_config["device"], "cpu");
-  EXPECT_EQ(mp.normalized_backend_config["threads"], 4);  // 注入的默认值
+  EXPECT_EQ(mp.model_params["max_length"], 256);
+  EXPECT_EQ(mp.model_params["normalize"], true);  // 注入的默认值
+  EXPECT_EQ(mp.backend_params["device"], "cpu");
+  EXPECT_EQ(mp.backend_params["threads"], 4);  // 注入的默认值
 
   // 关键不变量：Validator 不得创建或加载 Backend，也不得创建 Model！
   EXPECT_EQ(g_backend_create_count.load(), 0);
@@ -374,8 +376,8 @@ TEST_F(ModelBackendPipelineTest,
 
 TEST_F(ModelBackendPipelineTest,
        UnifiedQwenPlanAcceptsEveryRegisteredGenerationBackend) {
-  RegisterTestBizs({"unified_qwen_backend_swap_test"},
-                   {{"prompt", "TextBatch"}}, {{"text", "TextBatch"}});
+  const auto boundary = MakeTestBoundary({{"input.prompt", "TextBatch"}},
+                                         {{"generate.text", "TextBatch"}});
   const auto model_definition =
       ModelRegistry::Instance().Find("qwen_causal_lm");
   ASSERT_TRUE(model_definition.has_value());
@@ -394,20 +396,22 @@ TEST_F(ModelBackendPipelineTest,
     const std::string& backend_name = backend_definition.backend_type;
 
     nlohmann::json config = {
-        {"biz_name", "unified_qwen_backend_swap_test"},
         {"models",
-         nlohmann::json::array({{{"model_id", "llm"},
-                                 {"model_type", "qwen_causal_lm"},
-                                 {"backend", backend_name},
-                                 {"model_path", "./models/qwen/model.bin"}}})},
+         nlohmann::json::array({{{"name", "llm"},
+                                 {"type", "llm"},
+                                 {"backend", {{"type", backend_name}}},
+                                 {"file", "./models/qwen/model.bin"}}})},
         {"pipeline",
-         nlohmann::json::array({{{"id", "generate"},
-                                 {"node_type", "LlmGenerateNode"},
-                                 {"inputs", {{"prompt", "prompt"}}},
-                                 {"depends_on", nlohmann::json::array()},
-                                 {"config", {{"bind_model", "llm"}}}}})},
+         nlohmann::json::array(
+             {{{"name", "generate"},
+               {"type", "llm_generate"},
+               {"inputs", {{"input", "input.prompt"}}},
+               {"depends_on", nlohmann::json::array()},
+               {"params",
+                {{"bind_model", "llm"},
+                 {"endpoints", {{"answer", nlohmann::json::object()}}}}}}})},
     };
-    const auto plan = PipelineValidator::ValidateAndPlan(config);
+    const auto plan = PipelineValidator::ValidateAndPlan(config, boundary);
     EXPECT_TRUE(plan.report.ok)
         << backend_name << ": "
         << (plan.report.diagnostics.empty()
@@ -419,17 +423,18 @@ TEST_F(ModelBackendPipelineTest,
                 ExecutionProtocol::kTextGeneration);
     }
 
-    config["models"][0]["backend_config"] = {{"misspelled_backend_setting", 1}};
-    const auto invalid_plan = PipelineValidator::ValidateAndPlan(config);
+    config["models"][0]["backend"]["params"] = {
+        {"misspelled_backend_setting", 1}};
+    const auto invalid_plan =
+        PipelineValidator::ValidateAndPlan(config, boundary);
     EXPECT_FALSE(invalid_plan.report.ok) << backend_name;
     EXPECT_TRUE(std::any_of(
         invalid_plan.report.diagnostics.begin(),
         invalid_plan.report.diagnostics.end(),
         [](const auto& diagnostic) {
-          return diagnostic.code ==
-                     DiagnosticCode::kUnknownBackendConfigField &&
+          return diagnostic.code == DiagnosticCode::kUnknownConfigField &&
                  diagnostic.path ==
-                     "/models/0/backend_config/misspelled_backend_setting";
+                     "/models/0/backend/params/misspelled_backend_setting";
         }))
         << backend_name;
     ++validated_backends;
@@ -452,22 +457,21 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
       });
 
   nlohmann::json cfg = {
-      {"biz_name", "proto_mismatch_test"},
       {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},  // 需要 kTensorGraph
-                     {"backend", "text_generation_only_backend"},
-                     {"model_path", "./model.bin"},
+                     {"name", "emb_model"},
+                     {"type", "embedding"},  // 需要 kFixture
+                     {"backend", {{"type", "text_generation_only_backend"}}},
+                     {"file", "./model.bin"},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(cfg);
+  auto report = PipelineValidator::Validate(cfg, MakeTestBoundary());
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -484,25 +488,24 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
 // 3. Pipeline 构建与原子化实例化测试
 TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   nlohmann::json cfg = {
-      {"biz_name", "pipeline_build_success"},
       {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},
-                     {"backend", "mock_test_backend"},
-                     {"model_path", "./models/bge/model.onnx"},
-                     {"model_config", {{"max_length", 128}}},
+                     {"name", "emb_model"},
+                     {"type", "embedding"},
+                     {"backend", {{"type", "mock_test_backend"}}},
+                     {"file", "./models/bge/model.onnx"},
+                     {"params", {{"max_length", 128}}},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
+  bool ok = BuildTestPipeline(pipeline, cfg, MakeTestBoundary(), &diag);
 
   EXPECT_TRUE(ok) << diag.message;
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
@@ -516,13 +519,13 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
   auto model = pipeline.GetSessionContext().GetModelManager().GetModel<IModel>(
       "emb_model");
   ASSERT_NE(model, nullptr);
-  EXPECT_EQ(model->ModelType(), "mock_bge_embedding");
-  EXPECT_EQ(model->Capability(), "embedding");
+  EXPECT_EQ(model->ImplName(), "mock_bge_embedding");
+  EXPECT_EQ(model->ModelType(), "embedding");
 
   auto mock_model = std::dynamic_pointer_cast<MockEmbeddingModel>(model);
   ASSERT_NE(mock_model, nullptr);
-  EXPECT_EQ(mock_model->ModelConfig()["max_length"], 128);
-  EXPECT_EQ(mock_model->ModelConfig()["normalize"], true);  // 注入的默认值
+  EXPECT_EQ(mock_model->Params().max_length, 128);
+  EXPECT_EQ(mock_model->Params().normalize, true);  // 注入的默认值
 }
 
 TEST_F(ModelBackendPipelineTest,
@@ -530,44 +533,44 @@ TEST_F(ModelBackendPipelineTest,
   // 注册第二个加载会失败的 Backend
   BackendDefinition bdef_fail;
   bdef_fail.backend_type = "failing_backend";
-  bdef_fail.supported_protocols = {ExecutionProtocol::kTensorGraph};
+  bdef_fail.supported_protocols = {ExecutionProtocol::kFixture};
   bdef_fail.concurrency = InferenceConcurrency::kConcurrent;
   BackendRegistry::Instance().Register(
       bdef_fail, []() -> std::unique_ptr<IInferenceBackend> {
         g_backend_create_count.fetch_add(1);
         return std::make_unique<MockInferenceBackend>(
-            "failing_backend", ExecutionProtocol::kTensorGraph,
+            "failing_backend", ExecutionProtocol::kFixture,
             InferenceConcurrency::kConcurrent,
             /*should_fail_load=*/true);
       });
 
   nlohmann::json cfg = {
-      {"biz_name", "pipeline_atomic_rollback"},
       {"models", nlohmann::json::array({
                      {
-                         {"model_id", "good_model"},
-                         {"model_type", "mock_bge_embedding"},
-                         {"backend", "mock_test_backend"},
-                         {"model_path", "./models/good.onnx"},
+                         {"name", "good_model"},
+                         {"type", "embedding"},
+                         {"backend", {{"type", "mock_test_backend"}}},
+                         {"file", "./models/good.onnx"},
                      },
                      {
-                         {"model_id", "bad_model"},
-                         {"model_type", "mock_bge_embedding"},
-                         {"backend", "failing_backend"},
-                         {"model_path", "./models/bad.onnx"},
+                         {"name", "bad_model"},
+                         {"type", "embedding"},
+                         {"backend", {{"type", "failing_backend"}}},
+                         {"file", "./models/bad.onnx"},
                      },
                  })},
-      {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
-                       {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "good_model"}}},
-                   }})},
+      {"pipeline",
+       nlohmann::json::array({{{"name", "node1"},
+                               {"type", "mock_embedding_consumer"},
+                               {"params", {{"bind_model", "good_model"}}}},
+                              {{"name", "node2"},
+                               {"type", "mock_embedding_consumer"},
+                               {"params", {{"bind_model", "bad_model"}}}}})},
   };
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
+  bool ok = BuildTestPipeline(pipeline, cfg, MakeTestBoundary(), &diag);
 
   EXPECT_FALSE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
@@ -586,72 +589,42 @@ TEST_F(ModelBackendPipelineTest,
             nullptr);
 }
 
-TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {
-  nlohmann::json cfg_escape = {
-      {"biz_name", "path_escape_test"},
-      {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},
-                     {"backend", "mock_test_backend"},
-                     {"model_path", "../outside/secret.onnx"},
-                 }})},
-      {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
-                       {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
-                   }})},
-  };
-
-  auto report = PipelineValidator::Validate(cfg_escape);
-  EXPECT_FALSE(report.ok);
-  ASSERT_FALSE(report.diagnostics.empty());
-
-  bool found_escape_diag = false;
-  for (const auto& d : report.diagnostics) {
-    if (d.code == DiagnosticCode::kFieldRange &&
-        d.path == "/models/0/model_path") {
-      found_escape_diag = true;
-      EXPECT_NE(d.message.find("cannot traverse outside"), std::string::npos);
-    }
-  }
-  EXPECT_TRUE(found_escape_diag);
-}
-
 TEST_F(ModelBackendPipelineTest,
        ValidatorUnknownModelAndBackendConfigFieldDiagnostics) {
   nlohmann::json cfg = {
-      {"biz_name", "diag_test"},
       {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},
-                     {"backend", "mock_test_backend"},
-                     {"model_path", "./models/good.onnx"},
-                     {"model_config", {{"invalid_model_param", 123}}},
-                     {"backend_config", {{"invalid_backend_param", "foo"}}},
+                     {"name", "emb_model"},
+                     {"type", "embedding"},
+                     {"backend",
+                      {{"type", "mock_test_backend"},
+                       {"params", {{"invalid_backend_param", "foo"}}}}},
+                     {"file", "./models/good.onnx"},
+                     {"params", {{"invalid_model_param", 123}}},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(cfg);
+  auto report = PipelineValidator::Validate(cfg, MakeTestBoundary());
   EXPECT_FALSE(report.ok);
 
   bool found_model_cfg_diag = false;
   bool found_backend_cfg_diag = false;
   for (const auto& d : report.diagnostics) {
-    if (d.code == DiagnosticCode::kUnknownModelConfigField) {
+    if (d.code == DiagnosticCode::kUnknownConfigField &&
+        d.path == "/models/0/params/invalid_model_param") {
       found_model_cfg_diag = true;
-      EXPECT_EQ(d.path, "/models/0/model_config/invalid_model_param");
+      EXPECT_EQ(d.path, "/models/0/params/invalid_model_param");
       EXPECT_FALSE(d.suggestions.empty());
     }
-    if (d.code == DiagnosticCode::kUnknownBackendConfigField) {
+    if (d.code == DiagnosticCode::kUnknownConfigField &&
+        d.path == "/models/0/backend/params/invalid_backend_param") {
       found_backend_cfg_diag = true;
-      EXPECT_EQ(d.path, "/models/0/backend_config/invalid_backend_param");
+      EXPECT_EQ(d.path, "/models/0/backend/params/invalid_backend_param");
       EXPECT_FALSE(d.suggestions.empty());
     }
   }
@@ -659,43 +632,41 @@ TEST_F(ModelBackendPipelineTest,
   EXPECT_TRUE(found_backend_cfg_diag);
 }
 
-TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
+TEST_F(ModelBackendPipelineTest, ValidatorPreservesModelFile) {
   nlohmann::json cfg = {
-      {"biz_name", "model_root_dir_test"},
       {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},
-                     {"backend", "mock_test_backend"},
-                     {"model_path", "./models/bge/model.onnx"},
+                     {"name", "emb_model"},
+                     {"type", "embedding"},
+                     {"backend", {{"type", "mock_test_backend"}}},
+                     {"file", "./models/bge/model.onnx"},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
-  auto plan = PipelineValidator::ValidateAndPlan(cfg);
+  auto plan = PipelineValidator::ValidateAndPlan(cfg, MakeTestBoundary());
   EXPECT_TRUE(plan.report.ok);
   ASSERT_EQ(plan.models.size(), 1u);
-  EXPECT_EQ(plan.models[0].resolved_model_path, "models/bge/model.onnx");
+  EXPECT_EQ(plan.models[0].model_file, "./models/bge/model.onnx");
 }
 
 TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   nlohmann::json cfg = {
-      {"biz_name", "runtime_root_propagate_test"},
       {"models", nlohmann::json::array({{
-                     {"model_id", "emb_model"},
-                     {"model_type", "mock_bge_embedding"},
-                     {"backend", "mock_test_backend"},
-                     {"model_path", "/deploy/edgeflow_root/weights/bge.onnx"},
+                     {"name", "emb_model"},
+                     {"type", "embedding"},
+                     {"backend", {{"type", "mock_test_backend"}}},
+                     {"file", "/deploy/edgeflow_root/weights/bge.onnx"},
                  }})},
       {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
+                       {"name", "node1"},
+                       {"type", "mock_embedding_consumer"},
                        {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "emb_model"}}},
+                       {"params", {{"bind_model", "emb_model"}}},
                    }})},
   };
 
@@ -707,7 +678,7 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   pipeline.GetSessionContext().SetRuntimeOptions(opts);
 
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
+  bool ok = BuildTestPipeline(pipeline, cfg, MakeTestBoundary(), &diag);
   EXPECT_TRUE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 
@@ -717,7 +688,7 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
       pipeline.GetSessionContext().GetModelManager().GetModelRegistration(
           "emb_model");
   ASSERT_TRUE(reg.has_value());
-  EXPECT_EQ(reg->resolved_model_path, "/deploy/edgeflow_root/weights/bge.onnx");
+  EXPECT_EQ(reg->model_file, "/deploy/edgeflow_root/weights/bge.onnx");
   ASSERT_TRUE(g_last_backend_load_spec.execution_target.device_id.has_value());
   EXPECT_EQ(*g_last_backend_load_spec.execution_target.device_id, 3);
   EXPECT_EQ(g_last_backend_load_spec.execution_target.platform,

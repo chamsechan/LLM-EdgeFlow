@@ -1,6 +1,6 @@
 #pragma once
 
-#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -10,45 +10,39 @@ namespace llm_edgeflow {
 
 class BertWordPieceTokenizer;
 
-bool ValidateBertModelConfig(const nlohmann::json& config,
-                             std::string* diagnostic);
+std::optional<int64_t> StaticOutputDim(const ITensorGraphSession& session,
+                                       const std::string& output_name);
+
+std::optional<int64_t> StaticSequenceLength(const ITensorGraphSession& session);
 
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
     const std::shared_ptr<IBackendSession>& backend_session,
     std::string* diagnostic);
 
-bool LoadBertTokenizer(const std::string& model_resource_root,
-                       const std::string& tokenizer_file, bool do_lower_case,
+bool LoadBertTokenizer(const std::string& tokenizer_file, bool do_lower_case,
                        BertWordPieceTokenizer* tokenizer,
                        std::string* diagnostic);
 
-bool ValidateModelBatchLimit(const BatchPolicy& session_policy,
-                             size_t model_max_batch_size,
-                             std::string* diagnostic);
-
 bool ValidateTensorBatchDimension(int64_t dimension,
                                   const BatchPolicy& session_policy,
-                                  const std::string& model_name,
+                                  const std::string& label,
                                   const std::string& tensor_kind,
                                   const std::string& tensor_name,
                                   std::string* diagnostic);
 
 bool ValidateBertInputMetadata(const ITensorGraphSession& session,
-                               size_t max_length, const std::string& model_name,
+                               size_t max_tokens, const std::string& label,
                                std::string* diagnostic);
 
 const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
                                              const std::string& output_name,
-                                             const std::string& model_name,
+                                             const std::string& label,
                                              size_t min_rank, size_t max_rank,
                                              std::string* diagnostic);
 
 bool ValidateRuntimeBatchTensor(const Tensor& tensor, size_t expected_batch,
                                 size_t min_rank, size_t max_rank,
                                 std::string* diagnostic) noexcept;
-
-BatchPolicy ConstrainModelBatchPolicy(const ITensorGraphSession* session,
-                                      size_t model_max_batch_size) noexcept;
 
 bool HasTensorInput(const std::vector<TensorSpec>& inputs,
                     const std::string& name) noexcept;

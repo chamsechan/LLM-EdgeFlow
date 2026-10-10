@@ -44,7 +44,7 @@
 | [第一个 Control](dev_guide/first_control.md) | 给节点增加运行时控制 |
 | [Adapter 参考实现](dev_guide/adapter_templates/README.md) | 按输入输出形态查阅已有转换实现 |
 | [Operator 宿主类型、输出池与生命周期](dev_guide/operator_output_allocation.md) | 新宿主类型、特殊输出布局与宿主调用规则 |
-| [模型、构建与效果验收](VERIFIABLE_SELECTION.md) · [模型资产说明](../models/README.md) | 准备模型、选择构建并验证效果 |
+| [模型、构建与效果验收](VERIFIABLE_SELECTION.md) · [模型资产说明](../configs/README.md) | 准备模型、选择构建并验证效果 |
 | [架构设计](architecture.md) | 四层职责、编译依赖与运行时数据流 |
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
 | [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |

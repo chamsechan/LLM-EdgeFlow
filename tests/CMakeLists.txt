@@ -1,7 +1,7 @@
 link_libraries(edgeflow_internal_headers)
 if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   # 与 std::any 类型的 Blackboard payload 保持一致的运行时类型可见性。使用默认
-  # 可见性时，TextTemplateNodeTest/CommonNodesTest 无法读取属性。
+  # 可见性时，TextTemplateNodeTest/PromptGuidedLlmNodeTest 无法读取属性。
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 endif()
 
@@ -25,9 +25,6 @@ endif()
 # 校验一致性测试使用确定性注册，不污染生产 CLI 或共享 SDK。
 add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/cli/alg_pipeline_tool.cpp
-  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_authoring.cpp
-  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_json_schema.cpp
-  ${PROJECT_SOURCE_DIR}/src/cli/pipeline_document_validation.cpp
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime

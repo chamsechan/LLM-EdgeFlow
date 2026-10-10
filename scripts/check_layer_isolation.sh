@@ -25,7 +25,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # 用例 2：注入非法 include 时脚本必须失败
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/common_nodes"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/custom_nodes"
-  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/biz"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/input"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/output"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/demo"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator"
   touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator/interface.h"
@@ -40,19 +41,19 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
 
-  # 用例 3：下层不得重新引入业务专属的 Blackboard 键。
+  # 用例 3：下层不得依赖接入适配层的头文件。
   : > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/core"
-  echo '#include "adapter/biz_blackboard_keys.h"' > \
+  echo '#include "adapter/input_limits.h"' > \
     "${TMP_TEST_DIR}/violation_repo/src/core/bad_core.cpp"
   set +e
-  BUSINESS_KEY_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+  ADAPTER_HEADER_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
     bash "${SCRIPT_PATH}" 2>&1)
-  STATUS_BUSINESS_KEY=$?
+  STATUS_ADAPTER_HEADER=$?
   set -e
-  if [ $STATUS_BUSINESS_KEY -eq 0 ] || \
-     ! grep -q "business Blackboard key" <<<"${BUSINESS_KEY_OUTPUT}"; then
-    echo "❌ [LayerGuard Self-Test FAIL] Business-key ownership violation was not detected!"
+  if [ $STATUS_ADAPTER_HEADER -eq 0 ] || \
+     ! grep -q "Integration header" <<<"${ADAPTER_HEADER_OUTPUT}"; then
+    echo "❌ [LayerGuard Self-Test FAIL] Integration-header dependency violation was not detected!"
     exit 1
   fi
 
@@ -65,7 +66,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
     "src/custom_nodes/bad_node.cpp" \
-    "src/adapter/biz/bad_adapter.cpp" \
+    "src/adapter/input/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     KITE_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${KITE_INJECTION_PATH}"
     mkdir -p "$(dirname "${KITE_INJECTION_FILE}")"
@@ -93,7 +94,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
     "src/custom_nodes/bad_node.cpp" \
-    "src/adapter/biz/bad_adapter.cpp" \
+    "src/adapter/input/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     WHISPER_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${WHISPER_INJECTION_PATH}"
     mkdir -p "$(dirname "${WHISPER_INJECTION_FILE}")"
@@ -116,7 +117,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # 用例 6：自定义 Node 与通用 Node 遵守相同的平台边界。
   for CUSTOM_INCLUDE in \
     '#include "edgeflow/operator/interface.h"' \
-    '# include "../adapter/biz_blackboard_keys.h"' \
+    '# include "../adapter/input_limits.h"' \
     '#include "adapter/io_converter.h"' \
     '#include "edgeflow/operator/types.h"' \
     '#include "platform_mock/operator_types.h"'; do
@@ -213,8 +214,15 @@ if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Capability Nodes -> Integration reverse include violations."
 
-# 规则 2：接入适配层 (src/adapter/biz/) 绝不能直接 include 模型执行层头文件
-VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/biz" || true)
+# 规则 2：输入/输出转换器只能经流程与能力节点取得模型结果。
+CONVERTER_SOURCE_PATHS=("$REPO_ROOT/src/adapter/input" "$REPO_ROOT/src/adapter/output")
+for CONVERTER_SOURCE_PATH in "${CONVERTER_SOURCE_PATHS[@]}"; do
+  if [ ! -d "$CONVERTER_SOURCE_PATH" ]; then
+    echo "❌ [LayerGuard ERROR] ${CONVERTER_SOURCE_PATH#"$REPO_ROOT/"} directory not found!"
+    exit 1
+  fi
+done
+VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "${CONVERTER_SOURCE_PATHS[@]}" || true)
 
 if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
   echo "❌ [LayerGuard ERROR] Found Integration -> Model Execution illegal bypass dependency violations:"
@@ -247,22 +255,21 @@ if [ -n "$VIOLATIONS_CUSTOM_DEPENDENCY" ]; then
 fi
 echo "✅ [LayerGuard PASS] Framework code does not depend on custom Node implementations."
 
-# 规则 4：业务 Blackboard 键名归接入适配层所有。流程编排层、能力节点层和
-# 模型执行层只能依赖中性值契约和已解析的逻辑端口绑定。
+# 规则 4：下层只能依赖中性契约和已解析的逻辑端口，不能包含接入适配层头文件。
 LOWER_LAYER_PATHS=(
   "$REPO_ROOT/include/core" "$REPO_ROOT/src/core"
   "$REPO_ROOT/include/nodes" "${NODE_SOURCE_PATHS[@]}"
   "$REPO_ROOT/include/engine" "$REPO_ROOT/src/engine"
 )
-VIOLATIONS_BIZ_KEYS=$(grep -rnE \
-  '#include\s*["<]adapter/biz_blackboard_keys\.h[">]' \
+VIOLATIONS_ADAPTER_HEADERS=$(grep -rnE \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?adapter/[^">]+[">]' \
   "${LOWER_LAYER_PATHS[@]}" 2>/dev/null || true)
-if [ -n "$VIOLATIONS_BIZ_KEYS" ]; then
-  echo "❌ [LayerGuard ERROR] Found lower-layer dependency on Integration business Blackboard key ownership:"
-  echo "$VIOLATIONS_BIZ_KEYS"
+if [ -n "$VIOLATIONS_ADAPTER_HEADERS" ]; then
+  echo "❌ [LayerGuard ERROR] Found lower-layer dependency on Integration headers:"
+  echo "$VIOLATIONS_ADAPTER_HEADERS"
   exit 1
 fi
-echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Integration."
+echo "✅ [LayerGuard PASS] Lower layers do not depend on Integration headers."
 
 # 规则 4b：Kite SDK 只能直接出现在其具体 Backend 中。在构建相关的守卫之前
 # 检查，使隔离自测无需 SDK 或构建。

@@ -1,130 +1,18 @@
+#include <map>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "core/common_contracts.h"
-#include "edgeflow/log.h"
 #include "nodes/authoring.h"
 #include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
-constexpr char kDefaultFallbackJson[] = "{}";
-constexpr bool kDefaultExtractJsonBlock = true;
-constexpr char kDefaultFailurePolicy[] = "configured_fallback";
-
-const std::vector<ConfigFieldDefinition>& StructuredJsonParseConfigFields() {
-  static const std::vector<ConfigFieldDefinition> fields = {
-      ConfigFieldDefinition{"fallback_json",
-                            ConfigValueKind::kString,
-                            false,
-                            kDefaultFallbackJson,
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "失败时使用的 JSON 文本字符串，例如 "
-                            "\"{\\\"name\\\":\\\"unknown\\\"}\"；非 fail "
-                            "模式须满足配置的字段检查。"},
-      ConfigFieldDefinition{"extract_json_block",
-                            ConfigValueKind::kBoolean,
-                            false,
-                            kDefaultExtractJsonBlock,
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "允许从代码围栏或周围文本中提取完整 JSON "
-                            "对象/数组；false 时要求整段输入为 JSON。"},
-      ConfigFieldDefinition{"required_fields",
-                            ConfigValueKind::kArray,
-                            false,
-                            nlohmann::json(),
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "必须存在的顶层字段名数组，例如 [\"name\", "
-                            "\"score\"]；不使用 JSON Pointer 或点号路径。"},
-      ConfigFieldDefinition{
-          "field_types",
-          ConfigValueKind::kObject,
-          false,
-          nlohmann::json(),
-          std::nullopt,
-          std::nullopt,
-          {},
-          "顶层字段名到类型的映射，例如 "
-          "{\"name\":\"string\",\"score\":\"number\"}；还支持 "
-          "boolean/object/array，列出的字段须存在。"},
-      ConfigFieldDefinition{"failure_policy",
-                            ConfigValueKind::kString,
-                            false,
-                            kDefaultFailurePolicy,
-                            std::nullopt,
-                            std::nullopt,
-                            {"fail", "emit_diagnostic", "configured_fallback"},
-                            "fail 中止处理；emit_diagnostic "
-                            "输出失败状态和备用值；configured_fallback "
-                            "输出备用值并标记已使用回退。"}};
-  return fields;
-}
-
 /**
- * @brief 结构化 JSON 解析与文本提取受控算子 (StructuredJsonParseNode)
+ * @brief 结构化 JSON 解析与文本提取受控算子 (structured_json_parse)
  */
 struct Params {
-  bool Load(const nlohmann::json& config) {
-    const auto& normalized = config;
-    fallback_json_ =
-        normalized.value<std::string>("fallback_json", kDefaultFallbackJson);
-    extract_json_block_ =
-        normalized.value<bool>("extract_json_block", kDefaultExtractJsonBlock);
-    failure_policy_ =
-        normalized.value<std::string>("failure_policy", kDefaultFailurePolicy);
-    if (failure_policy_ != "fail" && failure_policy_ != "emit_diagnostic" &&
-        failure_policy_ != "configured_fallback") {
-      return false;
-    }
-
-    required_fields_.clear();
-    if (normalized.contains("required_fields")) {
-      if (!normalized["required_fields"].is_array()) return false;
-      for (const auto& f : normalized["required_fields"]) {
-        if (!f.is_string() || f.get<std::string>().empty()) return false;
-        required_fields_.push_back(f.get<std::string>());
-      }
-    }
-
-    field_types_.clear();
-    if (normalized.contains("field_types")) {
-      if (!normalized["field_types"].is_object()) return false;
-      for (auto it = normalized["field_types"].begin();
-           it != normalized["field_types"].end(); ++it) {
-        static const std::unordered_set<std::string> kSupportedTypes = {
-            "string", "number", "boolean", "object", "array"};
-        if (!it.value().is_string()) return false;
-        const auto type_name = it.value().get<std::string>();
-        if (!kSupportedTypes.count(type_name)) return false;
-        field_types_[it.key()] = type_name;
-      }
-    }
-
-    // 验证 fallback_json 是否为合法 JSON 并预解析
-    try {
-      fallback_structured_ = nlohmann::json::parse(fallback_json_);
-    } catch (const std::exception& e) {
-      ALG_LOG_ERROR("[StructuredJsonParseNode] Invalid fallback_json: %s\n",
-                    e.what());
-      return false;
-    }
-    if (failure_policy_ != "fail" &&
-        !ValidateStructuredFields(fallback_structured_, nullptr)) {
-      ALG_LOG_ERROR(
-          "[StructuredJsonParseNode] fallback_json does not satisfy "
-          "required_fields/field_types\n");
-      return false;
-    }
-    return true;
-  }
   bool ValidateStructuredFields(const nlohmann::json& document,
                                 std::string* diagnostic) const {
     for (const auto& field : required_fields_) {
@@ -156,12 +44,12 @@ struct Params {
     return true;
   }
 
-  std::string fallback_json_ = kDefaultFallbackJson;
+  std::string fallback_text_;
   nlohmann::json fallback_structured_ = nlohmann::json::object();
-  bool extract_json_block_ = kDefaultExtractJsonBlock;
-  std::string failure_policy_ = kDefaultFailurePolicy;
+  bool extract_json_block_ = true;
+  std::string failure_policy_;
   std::vector<std::string> required_fields_;
-  std::unordered_map<std::string, std::string> field_types_;
+  std::map<std::string, std::string> field_types_;
 };
 
 struct Inputs {
@@ -273,14 +161,14 @@ NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
       } else if (options.failure_policy_ == "emit_diagnostic") {
         output_docs.emplace_back(
             item.req_id, item.sub_id,
-            JsonDocumentItem(options.fallback_json_, false,
+            JsonDocumentItem(options.fallback_text_, false,
                              JsonParseStatus::kFailed, diag,
                              options.fallback_structured_));
         continue;
       } else {  // configured_fallback
         output_docs.emplace_back(
             item.req_id, item.sub_id,
-            JsonDocumentItem(options.fallback_json_, true,
+            JsonDocumentItem(options.fallback_text_, true,
                              JsonParseStatus::kFallbackApplied, diag,
                              options.fallback_structured_));
         continue;
@@ -297,15 +185,47 @@ NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
 }
 
 auto Spec() {
-  auto params = Parameters<Params>{}.WithParser(NodeConfigParser<Params>(
-      StructuredJsonParseConfigFields(),
-      [](const nlohmann::json& config, Params* options,
-         std::string* diagnostic) {
-        const bool ok = options->Load(config);
-        if (!ok && diagnostic)
-          *diagnostic = "Invalid structured JSON fields, types or fallback";
-        return ok;
-      }));
+  auto params = Parameters<Params>{
+      Field("fallback", &Params::fallback_structured_)
+          .Default(nlohmann::json::object())
+          .Description("失败时使用的 JSON 值，例如 {\"name\":\"unknown\"}；非 "
+                       "fail 模式须满足配置的字段检查。"),
+      Field("extract_json_block", &Params::extract_json_block_)
+          .Default(true)
+          .Description("允许从代码围栏或周围文本中提取完整 JSON "
+                       "对象/数组；false 时要求整段输入为 JSON。"),
+      Field("required_fields", &Params::required_fields_)
+          .Default(std::vector<std::string>{})
+          .Description("必须存在的顶层字段名数组，例如 [\"name\", "
+                       "\"score\"]；不使用 JSON Pointer 或点号路径。"),
+      Field("field_types", &Params::field_types_)
+          .Default(std::map<std::string, std::string>{})
+          .Enum({"string", "number", "boolean", "object", "array"})
+          .Description("顶层字段名到类型的映射，例如 "
+                       "{\"name\":\"string\",\"score\":\"number\"}；还支持 "
+                       "boolean/object/array，列出的字段须存在。"),
+      Field("failure_policy", &Params::failure_policy_)
+          .Default("configured_fallback")
+          .Enum({"fail", "emit_diagnostic", "configured_fallback"})
+          .Description("fail 中止处理；emit_diagnostic "
+                       "输出失败状态和备用值；configured_fallback "
+                       "输出备用值并标记已使用回退。")};
+  params.Prepare([](Params* params, std::string*) {
+    params->fallback_text_ = params->fallback_structured_.dump();
+    return true;
+  });
+  params.Validate([](const Params& params, std::string* diagnostic) {
+    for (const auto& field : params.required_fields_) {
+      if (field.empty()) {
+        if (diagnostic)
+          *diagnostic = "required_fields must contain non-empty strings";
+        return false;
+      }
+    }
+    return params.failure_policy_ == "fail" ||
+           params.ValidateStructuredFields(params.fallback_structured_,
+                                           diagnostic);
+  });
   return MakeNodeSpec(
              InputsOf<Inputs>({Required("text", &Inputs::text)}),
              PreservedOutput<StructuredDocumentBatch>("document", "text"),
@@ -315,5 +235,5 @@ auto Spec() {
       .ParallelSafe(true);
 }
 }  // namespace
-REGISTER_FUNCTION_NODE(StructuredJsonParseNode, Spec());
+REGISTER_FUNCTION_NODE(structured_json_parse, Spec());
 }  // namespace llm_edgeflow

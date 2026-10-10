@@ -12,7 +12,7 @@ Choose the smallest path that covers the change:
 | Change | Path |
 | :--- | :--- |
 | Read-only review or diagnosis | Inspect and report; no branch or write is required. |
-| Solution configuration using registered capabilities and biz contracts (Pipeline JSON, necessary `.conf`, optional Demo Profiles) | Use `pipeline-composer`, Catalog, and Validator; no C++ or separate design review normally needed. |
+| Solution configuration using registered capabilities and I/O contracts (Pipeline JSON, necessary `.conf`, optional Demo Profiles) | Use `pipeline-composer`, Catalog, and Validator; no C++ or separate design review normally needed. |
 | Local bug, test, documentation, behavior-preserving refactor, or routine custom Node using existing contracts | Create a branch, implement, and add proportional tests. |
 | Public contract, cross-layer architecture, compatibility/migration policy, new shared Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and settle the design before implementation. |
 
@@ -69,15 +69,15 @@ its last stage merges; delete the plan then. A plan describes intended changes, 
 
 Until the first production release there are no compatibility consumers. Rename or remove
 identifiers, fields, parameters and diagnostic codes in place and update every reference in the
-same change; do not keep aliases, retired values or migration shims. Each biz has exactly one
-IoBinding and therefore one external contract. After release, an incompatible external contract
-change is made in place and shipped in a new SDK release; add a new biz only when the old and new
-contracts must be served side by side.
+same change; do not keep aliases, retired values or migration shims. Each converter is identified by `(type, name)` within its direction and owns one
+external contract. After release, an incompatible external contract change is made in place
+and shipped in a new SDK release; add a new registration only when both contracts must be served
+side by side.
 
 Use framework defaults for platform limits and scheduling values when a conservative value
 is correct for every supported scenario, even if slower, or an independent runtime hard
 limit bounds it. Keep semantic contracts such as ports, types, quantity relationships,
-execution protocols and the biz that names each external contract explicit, with actionable
+execution protocols and the `(type, name)` that names each external contract explicit, with actionable
 validation errors.
 Declare defaults in Definitions or registries so Catalog and tools expose them; tools must
 not turn untouched defaults into explicit configuration. Component capability limits belong
@@ -130,7 +130,7 @@ precise blocked or unverified report, not a success claim or a fictitious test r
 ### Source and identifier names
 
 Follow [source layout and naming](doc/dev_guide/source_layout.md) for SDK headers,
-source-extension contracts, private headers, and the distinct Adapter/biz/port names.
+source-extension contracts, private headers, and the distinct Adapter/converter/port names.
 Keep private declarations beside their implementation; templates and inline extension
 helpers may remain in authoring headers. SDK targets expose only the public header view.
 
@@ -140,7 +140,7 @@ ordinary functions use `PascalCase`, variables use `snake_case`, private data me
 Keep public ABI and vendor-defined names unchanged. Use `biz` for new internal business
 identifiers. Share model helpers under a common owner, not inside a consuming model's directory.
 
-A `biz_name` identifies an I/O contract; model size and Backend selection belong in deployment
+The converter `(type, name)` identifies an I/O contract; model size and Backend selection belong in deployment
 configuration and Profiles. Update current documentation and examples when renaming code.
 
 ## 5. Update durable documentation proportionally

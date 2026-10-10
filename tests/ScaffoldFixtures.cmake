@@ -5,7 +5,7 @@ get_filename_component(_control_fixture_dir "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}"
 add_custom_command(
   OUTPUT "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}"
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"
-          TestControlNode --control-id 2000000041 --force
+          test_control --control-id 2000000041 --force
           --output-dir "${_control_fixture_dir}"
   DEPENDS
     "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"

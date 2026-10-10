@@ -1,48 +1,68 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "dialogue_audit"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "audit_in",
+        "name": "dialogue_audit"
+      }
+    ],
+    "output": [
+      {
+        "type": "audit_out",
+        "name": "dialogue_audit",
+        "inputs": {
+          "verdict": "parse_verdict.document",
+          "matched_policy": "rerank_policies.ranked"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_type": "test_biz_embedding",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "embedding_dim": 128,
-        "max_batch_size": 4
+      "type": "embedding",
+      "name": "embed_model",
+      "file": "bge_m3_npu.bin",
+      "params": {
+        "embedding_dim": 128
       },
-      "backend_config": {},
-      "model_id": "embed_model",
-      "model_path": "./models/bge_m3_npu.bin"
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 4
+        }
+      }
     },
     {
-      "model_type": "test_biz_rerank",
-      "backend": "test_tensor_backend",
-      "model_config": {
-        "max_batch_size": 4
-      },
-      "backend_config": {},
-      "model_id": "rerank_model",
-      "model_path": "./models/bge_reranker_large_npu.bin"
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "bge_reranker_large_npu.bin",
+      "backend": {
+        "type": "test_tensor_backend",
+        "params": {
+          "fixed_batch_size": 4
+        }
+      }
     },
     {
-      "model_type": "test_biz_llm",
-      "backend": "test_causal_lm_backend",
-      "model_config": {
-        "max_batch_size": 2,
+      "type": "llm",
+      "name": "audit_llm",
+      "file": "qwen_1_8b_npu.bin",
+      "params": {
         "max_seq_len": 1024
       },
-      "backend_config": {},
-      "model_id": "audit_llm",
-      "model_path": "./models/qwen_1_8b_npu.bin"
+      "backend": {
+        "type": "test_causal_lm_backend",
+        "params": {
+          "fixed_batch_size": 2
+        }
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_TextRuleMatchNode",
-      "node_type": "TextRuleMatchNode",
-      "config": {
+      "type": "text_rule_match",
+      "name": "match_rules",
+      "params": {
         "categories": {
           "BLACKLIST": [
             "私下转账",
@@ -54,120 +74,101 @@
         }
       },
       "inputs": {
-        "text": "user_texts"
-      },
-      "outputs": {
-        "matches": "rule_matches"
+        "text": "input.user_text"
       }
     },
     {
-      "id": "node_1_TextCorpusSourceNode",
-      "node_type": "TextCorpusSourceNode",
-      "config": {
+      "type": "text_corpus_source",
+      "name": "policy_corpus",
+      "params": {
         "corpus": [
           "制度条款101: 严禁引导客户进行私下转账、绕过平台交易或索取银行卡密码",
           "制度条款102: 客服人员不得向客户索取手机动态短信验证码及支付密码",
           "制度条款103: 严禁以任何理由向客户推介非官方指定的返利或刷单活动",
           "制度条款104: 规范客服日常服务用语，严禁出现侮辱、辱骂或威胁客户的行为"
         ]
-      },
-      "outputs": {
-        "corpus": "policy_corpus"
       }
     },
     {
-      "id": "node_2_QueryEmbeddingNode",
-      "node_type": "TextEmbeddingNode",
-      "config": {
+      "type": "text_embedding",
+      "name": "embed_dialogue",
+      "params": {
         "bind_model": "embed_model"
       },
       "inputs": {
-        "text": "user_texts"
-      },
-      "outputs": {
-        "embedding": "query_embeddings"
+        "text": "input.user_text"
       }
     },
     {
-      "id": "node_3_PolicyEmbeddingNode",
-      "node_type": "TextEmbeddingNode",
-      "config": {
-        "bind_model": "embed_model",
-        "lifetime": "session"
+      "type": "text_embedding",
+      "name": "embed_policies",
+      "params": {
+        "bind_model": "embed_model"
       },
       "inputs": {
-        "text": "policy_corpus"
-      },
-      "outputs": {
-        "embedding": "policy_embeddings"
+        "text": "policy_corpus.corpus"
       }
     },
     {
-      "id": "node_4_VectorTopKNode",
-      "node_type": "VectorTopKNode",
-      "config": {
-        "top_k": 3,
-        "candidate_scope": "shared"
+      "type": "vector_top_k",
+      "name": "retrieve_policies",
+      "params": {
+        "top_k": 3
       },
       "inputs": {
-        "queries": "query_embeddings",
-        "candidates": "policy_embeddings",
-        "candidate_texts": "policy_corpus"
-      },
-      "outputs": {
-        "ranked": "coarse_policy"
+        "queries": "embed_dialogue.embedding",
+        "candidates": "embed_policies.embedding",
+        "candidate_texts": "policy_corpus.corpus"
       }
     },
     {
-      "id": "node_5_TextRerankNode",
-      "node_type": "TextRerankNode",
-      "config": {
-        "bind_model": "rerank_model",
-        "top_k": 1
+      "type": "text_rerank",
+      "name": "rerank_policies",
+      "params": {
+        "bind_model": "rerank_model"
       },
       "inputs": {
-        "queries": "user_texts",
-        "candidates": "coarse_policy"
-      },
-      "outputs": {
-        "ranked": "matched_policy"
+        "queries": "input.user_text",
+        "candidates": "retrieve_policies.ranked"
       }
     },
     {
-      "id": "node_6_TextTemplateNode",
-      "node_type": "TextTemplateNode",
-      "config": {
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
         "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {{primary}}\n【相关制度】: {{context}}\n【规则初筛】: {{matches}}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:"
       },
       "inputs": {
-        "primary": "user_texts",
-        "context": "matched_policy",
-        "matches": "rule_matches"
-      },
-      "outputs": {
-        "text": "prompt_text"
+        "primary": "input.user_text",
+        "context": "rerank_policies.ranked",
+        "matches": "match_rules.matches"
       }
     },
     {
-      "id": "node_7_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "generate_verdict",
+      "params": {
         "bind_model": "audit_llm",
         "max_tokens": 256,
-        "temperature": 0.1
+        "temperature": 0.1,
+        "endpoints": {
+          "verdict": {}
+        }
       },
       "inputs": {
-        "prompt": "prompt_text"
-      },
-      "outputs": {
-        "text": "llm_raw_verdict"
+        "input": "build_prompt.text"
       }
     },
     {
-      "id": "node_8_StructuredJsonParseNode",
-      "node_type": "StructuredJsonParseNode",
-      "config": {
-        "fallback_json": "{\"verdict\": \"合规\", \"risk_level\": \"SAFE\", \"risk_score\": 0.10, \"suggestion\": \"无违规内容\"}",
+      "type": "structured_json_parse",
+      "name": "parse_verdict",
+      "params": {
+        "fallback": {
+          "verdict": "合规",
+          "risk_level": "SAFE",
+          "risk_score": 0.1,
+          "suggestion": "无违规内容"
+        },
         "field_types": {
           "risk_level": "string",
           "risk_score": "number"
@@ -178,10 +179,7 @@
         ]
       },
       "inputs": {
-        "text": "llm_raw_verdict"
-      },
-      "outputs": {
-        "document": "structured_verdicts"
+        "text": "generate_verdict.text"
       }
     }
   ]

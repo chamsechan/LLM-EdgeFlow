@@ -16,6 +16,7 @@
 #include "core/session_context.h"
 #include "core/thread_pool.h"
 #include "dev_support/inference/test_biz_models.h"
+#include "dev_support/inference/test_tensor_backend.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "tests/support/model_registration.h"
@@ -103,12 +104,14 @@ TEST(TraceableItemTest, ProvenanceTracking) {
 // 3. 测试 ModelManager 的强类型多模型管理机制
 TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
+  auto session = std::make_shared<test::TestTensorSession>("fixture.bin",
+                                                           BatchPolicy{4, 4});
   ASSERT_TRUE(RegisterTestModel(
       manager, "my_embed",
-      std::make_shared<test::TestBizEmbeddingModel>(128, 4), "test-v1"));
-  ASSERT_TRUE(RegisterTestModel(manager, "my_rerank",
-                                std::make_shared<test::TestBizRerankModel>(4),
-                                "test-v1"));
+      std::make_shared<test::TestBizEmbeddingModel>(session, 128), "test-v1"));
+  ASSERT_TRUE(RegisterTestModel(
+      manager, "my_rerank", std::make_shared<test::TestBizRerankModel>(session),
+      "test-v1"));
 
   EXPECT_TRUE(manager.HasModel("my_embed"));
   EXPECT_TRUE(manager.HasModel("my_rerank"));
@@ -116,7 +119,7 @@ TEST(ModelManagerTest, TypedModels) {
 
   auto retrieved = manager.GetModel<IRerankModel>("my_rerank");
   ASSERT_NE(retrieved, nullptr);
-  EXPECT_EQ(retrieved->Capability(), "rerank");
+  EXPECT_EQ(retrieved->ModelType(), "rerank");
   EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank"), nullptr);
 }
 
@@ -214,30 +217,38 @@ TEST(SessionContextTest, SingleFlightSharesFactoryFailureAndAllowsRetry) {
 
 // 5. 测试 RuntimeOptions 与 Model/Backend 新方言构建
 TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
-  RegisterTestBizs({"test_runtime_opts"}, {{"text", "TextBatch"}},
-                   {{"chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
+  const auto boundary = MakeTestBoundary(
+      {{"input.text", "TextBatch"}},
+      {{"chunk_input.chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
   Pipeline pipe;
   RuntimeOptions opts;
   opts.device_id = 2;
   opts.has_device_id = true;
   pipe.GetSessionContext().SetRuntimeOptions(opts);
 
-  nlohmann::json root_cfg = {{"biz_name", "test_runtime_opts"},
-                             {"models",
-                              {{{"model_id", "test_mock_llm"},
-                                {"model_type", "test_biz_llm"},
-                                {"backend", "test_causal_lm_backend"},
-                                {"model_path", "./models/qwen.bin"},
-                                {"model_config", {{"max_batch_size", 2}}},
-                                {"backend_config", nlohmann::json::object()}}}},
-                             {"pipeline",
-                              {{{"id", "node_0_TextChunkNode"},
-                                {"node_type", "TextChunkNode"},
-                                {"inputs", {{"text", "text"}}},
-                                {"depends_on", nlohmann::json::array()}}}}};
+  nlohmann::json root_cfg = {
+      {"models",
+       {{{"name", "test_mock_llm"},
+         {"type", "llm"},
+         {"backend",
+          {{"type", "test_causal_lm_backend"},
+           {"params", nlohmann::json::object()}}},
+         {"file", "./models/qwen.bin"},
+         {"params", nlohmann::json::object()}}}},
+      {"pipeline",
+       {{{"name", "chunk_input"},
+         {"type", "text_chunk"},
+         {"inputs", {{"text", "input.text"}}},
+         {"depends_on", nlohmann::json::array()}},
+        {{"name", "consume_llm"},
+         {"type", "llm_generate"},
+         {"inputs", {{"input", "input.text"}}},
+         {"params",
+          {{"bind_model", "test_mock_llm"},
+           {"endpoints", {{"answer", nlohmann::json::object()}}}}}}}}};
 
   PipelineDiagnostic diag;
-  bool ok = BuildTestPipeline(pipe, root_cfg, &diag);
+  bool ok = BuildTestPipeline(pipe, root_cfg, boundary, &diag);
   EXPECT_TRUE(ok) << "Build failed: " << diag.message
                   << " (code: " << static_cast<int>(diag.code)
                   << ", path: " << diag.path << ")";
@@ -245,7 +256,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   auto model = pipe.GetSessionContext().GetModelManager().GetModel<ILlmModel>(
       "test_mock_llm");
   ASSERT_NE(model, nullptr);
-  EXPECT_EQ(model->ModelType(), "test_biz_llm");
+  EXPECT_EQ(model->ImplName(), "test_biz_llm");
   const auto metadata =
       pipe.GetSessionContext().GetModelManager().GetModelRegistration(
           "test_mock_llm");

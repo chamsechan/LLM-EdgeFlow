@@ -21,10 +21,10 @@ BackendRegistry::Creator NullBackendCreator() {
   return []() { return std::unique_ptr<IInferenceBackend>{}; };
 }
 
-ModelDefinition ValidModelDefinition(std::string model_type) {
+ModelDefinition ValidModelDefinition(std::string impl_name) {
   ModelDefinition definition;
-  definition.model_type = std::move(model_type);
-  definition.capability = "embedding";
+  definition.impl_name = std::move(impl_name);
+  definition.model_type = "embedding";
   definition.description = "original";
   definition.required_protocol = ExecutionProtocol::kTensorGraph;
   definition.concurrency = InferenceConcurrency::kConcurrent;
@@ -48,7 +48,7 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   model = ValidModelDefinition("empty_capability_model");
-  model.capability.clear();
+  model.model_type.clear();
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   model = ValidModelDefinition("null_model_creator");
@@ -63,14 +63,13 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
 
   model = ValidModelDefinition("invalid_model_schema");
-  model.config_fields = {ConfigFieldDefinition(
-      "threads", ConfigValueKind::kInteger, false, 4, 10, 2)};
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
-
-  model = ValidModelDefinition("invalid_model_kind");
-  model.config_fields = {
-      ConfigFieldDefinition("value", static_cast<ConfigValueKind>(999), false)};
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
+  struct InvalidRangeParams {
+    std::optional<int> threads;
+  };
+  EXPECT_THROW(
+      (Parameters<InvalidRangeParams>{
+          Field("threads", &InvalidRangeParams::threads).Range(10, 2)}),
+      std::invalid_argument);
 
   auto backend = ValidBackendDefinition("");
   EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
@@ -100,7 +99,7 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   auto duplicate_model = original_model;
   duplicate_model.description = "duplicate";
   EXPECT_FALSE(model_registry.Register(duplicate_model, NullModelCreator()));
-  const auto stored_model = model_registry.Find(original_model.model_type);
+  const auto stored_model = model_registry.Find(original_model.impl_name);
   ASSERT_TRUE(stored_model.has_value());
   EXPECT_EQ(stored_model->description, "original");
 
@@ -117,7 +116,7 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   EXPECT_EQ(stored_backend->description, "original");
 
   test_support::RegistryTestAccess::ResetNodes();
-  EXPECT_TRUE(model_registry.Has(original_model.model_type));
+  EXPECT_TRUE(model_registry.Has(original_model.impl_name));
   EXPECT_TRUE(backend_registry.Has(original_backend.backend_type));
 
   EXPECT_TRUE(model_registry.HasConflict());

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "contracts/config_schema.h"
+#include "contracts/parameters.h"
 #include "core/port_definition.h"
 
 namespace llm_edgeflow {
@@ -59,14 +60,14 @@ struct ControlCommandDefinition {
         supports_hot_swap(hot_swap) {}
 };
 
-using NodeConfigValidator =
-    std::function<bool(const nlohmann::json&,
-                       const std::unordered_set<std::string>&, std::string*)>;
+// 后两个输出分别是原因与相对参数路径；跨字段语义错误的路径为空。
+using NodeConfigValidator = std::function<bool(
+    const nlohmann::json&, const BindingFacts&, std::string*, std::string*)>;
 
 struct NodeModelDependency {
   std::string name;          // Node 内稳定槽位名，例如 generator
-  std::string capability;    // 由 typed capability traits 推导
-  std::string config_field;  // config 中引用 model_id 的字符串字段
+  std::string model_type;    // 由 typed model_type traits 推导
+  std::string config_field;  // config 中引用 model_name 的字符串字段
 };
 
 struct NodeDefinition {

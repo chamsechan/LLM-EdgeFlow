@@ -60,7 +60,7 @@ bool BackendRegistry::Register(const BackendDefinition& definition,
     }
 
     std::string schema_error;
-    if (!ValidateConfigFieldDefinitions(definition.config_fields,
+    if (!ValidateConfigFieldDefinitions(definition.params.Fields(),
                                         &schema_error)) {
       RecordConflict("Backend " + definition.backend_type +
                      " schema validation failed: " + schema_error);

@@ -137,6 +137,7 @@ file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
 list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_doc_qa_rerank.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_catalog_validator.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_authoring.cpp"
   "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
@@ -147,6 +148,9 @@ target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   llm_edgeflow::internal_runtime edgeflow_pipeline_tooling GTest::gtest
   GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
+target_compile_definitions(edgeflow_test_tooling_runner PRIVATE
+  EDGEFLOW_DEMO_BINARY="$<TARGET_FILE:alg_demo>")
+add_dependencies(edgeflow_test_tooling_runner alg_demo)
 
 if(LLM_EDGEFLOW_HAS_WHISPERCPP)
   target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_WHISPERCPP=1)
@@ -254,7 +258,8 @@ edgeflow_add_runner_test(StructuredJsonParseNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
   "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
-  "CommonNodesTest.*:CustomNodeCatalogTest.*" "${_edgeflow_tier1}")
+  "NodeAuthoringExamplesTest.*:PromptGuidedLlmNodeTest.*:CustomNodeCatalogTest.*"
+  "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "FunctionNodeTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
@@ -276,7 +281,7 @@ edgeflow_add_runner_test(RuntimeControlAndHotSwapTest edgeflow_test_adapter_runn
 edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runner
   "AdapterContractSecurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
-  "OperatorApiTest.*" "${_edgeflow_tier2}")
+  "OperatorApiTest.*:IoParametersTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
@@ -287,8 +292,8 @@ edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
   "AdapterPurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
   "IoConverterTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(IoBindingRegistryTest edgeflow_test_adapter_runner
-  "IoBindingRegistryTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
+  "IoConverterRegistryTest.*:ConverterContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConvertersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
@@ -296,10 +301,9 @@ edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
-# 该测试套件覆盖 Validator、类型化 Blackboard 和 Pipeline::Execute。
-# 放在工具 runner 中并不意味着它只是工具测试。
-edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
-  "PipelineCatalogTest.*:PipelineValidatorTest.*"
+# Catalog、Validator 与 Authoring 的原生契约使用带工具依赖的 runner。
+edgeflow_add_runner_test(PipelineContractsTest edgeflow_test_tooling_runner
+  "PipelineCatalogTest.*:PipelineValidatorTest.*:PipelineAuthoringTest.*"
   "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
   "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")
@@ -469,12 +473,17 @@ foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
 endforeach()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  catalog --io-binding keyword_match)
-add_test(NAME PipelineToolValidateTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  validate ${PROJECT_SOURCE_DIR}/configs/pipeline_keyword_match_rules.json)
+  catalog)
+add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/tooling/test_pipeline_cli.py
+  --tool $<TARGET_FILE:alg_pipeline_tool>
+  --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
+  --repo ${PROJECT_SOURCE_DIR})
 set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
+set_tests_properties(PipelineToolValidateTest PROPERTIES
+  ENVIRONMENT "LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show
@@ -543,11 +552,11 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorGoldenTest
   AdapterPurityTest
   IoConverterTest
-  IoBindingRegistryTest
+  IoConverterRegistryTest
   TextConvertersTest
   ComplexConvertersTest
   DocQaRerankTest
-  PipelineStudioTest
+  PipelineContractsTest
   DemoRunnerTest
   RegistryConflictNodeTest
   RegistryConflictModelTest

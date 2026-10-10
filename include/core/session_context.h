@@ -46,15 +46,15 @@ struct RuntimeOptions {
  * @brief 模型会话级注册元数据
  */
 struct ModelRegistration {
-  std::string model_id;
+  std::string model_name;
+  std::string impl_name;
   std::string model_type;
-  std::string capability;
   std::string backend_type;
   std::string revision;
   std::shared_ptr<IModel> model;
-  std::string resolved_model_path;
-  nlohmann::json normalized_model_config = nlohmann::json::object();
-  nlohmann::json normalized_backend_config = nlohmann::json::object();
+  std::string model_file;
+  nlohmann::json model_params = nlohmann::json::object();
+  nlohmann::json backend_params = nlohmann::json::object();
 };
 
 /**
@@ -69,33 +69,30 @@ class ModelManager {
     std::vector<ModelRegistration> staged_registrations;
     staged_registrations.reserve(models.size());
     for (const auto& item : models) {
-      if (item.model_id.empty() || !item.model) {
+      if (item.model_name.empty() || !item.model) {
         return false;
       }
-      if (!staged_ids.insert(item.model_id).second) {
+      if (!staged_ids.insert(item.model_name).second) {
         return false;  // staging 内重复
       }
       // 核对注册元数据与模型自身身份一致性
+      if (!item.impl_name.empty() && item.model->ImplName() != item.impl_name) {
+        return false;
+      }
       if (!item.model_type.empty() &&
           item.model->ModelType() != item.model_type) {
         return false;
       }
-      if (!item.capability.empty() &&
-          item.model->Capability() != item.capability) {
-        return false;
-      }
       std::string rev = item.revision;
       if (rev.empty()) {
-        if (item.model_type.empty() || item.backend_type.empty() ||
-            item.resolved_model_path.empty() ||
-            !item.normalized_model_config.is_object() ||
-            !item.normalized_backend_config.is_object()) {
+        if (item.impl_name.empty() || item.backend_type.empty() ||
+            item.model_file.empty() || !item.model_params.is_object() ||
+            !item.backend_params.is_object()) {
           return false;
         }
-        rev = item.model_type + "\n" + item.backend_type + "\n" +
-              item.resolved_model_path + "\n" +
-              item.normalized_model_config.dump() + "\n" +
-              item.normalized_backend_config.dump();
+        rev = item.impl_name + "\n" + item.backend_type + "\n" +
+              item.model_file + "\n" + item.model_params.dump() + "\n" +
+              item.backend_params.dump();
       }
       ModelRegistration reg = item;
       reg.revision = std::move(rev);
@@ -104,7 +101,7 @@ class ModelManager {
 
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& item : staged_registrations) {
-      if (registrations_.find(item.model_id) != registrations_.end()) {
+      if (registrations_.find(item.model_name) != registrations_.end()) {
         return false;
       }
     }
@@ -113,17 +110,17 @@ class ModelManager {
     auto new_registrations = registrations_;
 
     for (auto& item : staged_registrations) {
-      const std::string model_id = item.model_id;
-      new_registrations[model_id] = std::move(item);
+      const std::string model_name = item.model_name;
+      new_registrations[model_name] = std::move(item);
     }
     registrations_.swap(new_registrations);
     return true;
   }
 
   template <typename T>
-  std::shared_ptr<T> GetModel(const std::string& model_id) const {
+  std::shared_ptr<T> GetModel(const std::string& model_name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registrations_.find(model_id);
+    auto it = registrations_.find(model_name);
     if (it != registrations_.end()) {
       auto res = std::dynamic_pointer_cast<T>(it->second.model);
       if (res) return res;
@@ -131,28 +128,29 @@ class ModelManager {
     return nullptr;
   }
 
-  bool HasModel(const std::string& model_id) const {
+  bool HasModel(const std::string& model_name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return registrations_.find(model_id) != registrations_.end();
+    return registrations_.find(model_name) != registrations_.end();
   }
 
-  std::string GetModelRevision(const std::string& model_id) const {
+  std::string GetModelRevision(const std::string& model_name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registrations_.find(model_id);
+    auto it = registrations_.find(model_name);
     return it == registrations_.end() ? std::string() : it->second.revision;
   }
 
   std::optional<ModelRegistration> GetModelRegistration(
-      const std::string& model_id) const {
+      const std::string& model_name) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registrations_.find(model_id);
+    auto it = registrations_.find(model_name);
     if (it == registrations_.end()) return std::nullopt;
     return it->second;
   }
 
-  bool UpdateModelRevision(const std::string& model_id, std::string revision) {
+  bool UpdateModelRevision(const std::string& model_name,
+                           std::string revision) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registrations_.find(model_id);
+    auto it = registrations_.find(model_name);
     if (revision.empty() || it == registrations_.end()) {
       return false;
     }

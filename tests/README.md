@@ -34,6 +34,16 @@ required CTest inventory is also checked. Precompiled headers are optional throu
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
 when process isolation or an independent runtime lifecycle is part of the contract.
 
+Keep a complete rule matrix in its owning component. CLI and HTTP wrappers use representative
+cases to check status and diagnostic forwarding. `InitNodeForTest` prepares a validated plan
+before calling `Init`, so its rejection of invalid configuration is preparation coverage.
+
+Node behavior lives in its dedicated `unit/nodes/test_*_node.cpp` suite; authoring examples and
+generated scaffold integration live in `unit/nodes/test_node_authoring_examples.cpp`.
+`tooling/test_pipeline_cli.py` owns native command contracts and viewer output;
+`tooling/test_pipeline_studio.py` owns HTTP, browser and filesystem transactions.
+`PipelineContractsTest` schedules native Catalog, Validator and Authoring contracts.
+
 ## Fast feedback
 
 Solution authors use the per-runner commands in

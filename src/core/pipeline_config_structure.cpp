@@ -13,29 +13,27 @@ const nlohmann::json& PipelineConfigStructure() {
   static const Json shape = [] {
     const Json mapping = {{"type", "object"},
                           {"additionalProperties", NonemptyString()}};
-    auto node = Object({{"id", NonemptyString()},
-                        {"node_type", NonemptyString()},
+    auto node = Object({{"name", NonemptyString()},
+                        {"type", NonemptyString()},
                         {"depends_on",
                          {{"type", "array"},
                           {"items", NonemptyString()},
                           {"maxItems", 256},
                           {"uniqueItems", true}}},
-                        {"comment", {{"type", "string"}}},
-                        {"config", {{"type", "object"}}},
-                        {"inputs", mapping},
-                        {"outputs", mapping}},
-                       {"id", "node_type"});
-    auto model = Object({{"model_id", NonemptyString()},
-                         {"model_path", NonemptyString()},
-                         {"model_type", NonemptyString()},
-                         {"backend", NonemptyString()},
-                         {"model_config", {{"type", "object"}}},
-                         {"backend_config", {{"type", "object"}}},
-                         {"comment", {{"type", "string"}}}},
-                        {"model_id", "model_type", "backend", "model_path"});
+                        {"params", {{"type", "object"}}},
+                        {"inputs", mapping}},
+                       {"type", "name"});
+    auto backend =
+        Object({{"type", NonemptyString()}, {"params", {{"type", "object"}}}},
+               {"type"});
+    auto model = Object({{"type", NonemptyString()},
+                         {"name", NonemptyString()},
+                         {"file", NonemptyString()},
+                         {"params", {{"type", "object"}}},
+                         {"backend", std::move(backend)}},
+                        {"type", "name", "file", "backend"});
     auto result = Object(
-        {{"biz_name", NonemptyString()},
-         {"comment", {{"type", "string"}}},
+        {{"comment", {{"type", "string"}}},
          {"max_parallel_workers",
           {{"type", "integer"},
            {"minimum", 1},
@@ -48,7 +46,7 @@ const nlohmann::json& PipelineConfigStructure() {
            {"minItems", 1},
            {"maxItems", 256},
            {"items", std::move(node)}}}},
-        {"biz_name", "pipeline"});
+        {"pipeline"});
     return result;
   }();
   return shape;

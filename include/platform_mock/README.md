@@ -32,8 +32,10 @@ SDK 调用方包含 `edgeflow/operator/interface.h`，获得函数入口以及 `
 ## 进入内网后
 
 完整项目进入授权内网后，才能核对真实公共头、替换接入边界的模拟依赖，并验证枚举、
-布局、所有权、控制和 I/O 转换。其中输出结构的 `CompanyAny` 元数据（`out_mem` 的 `meta_num`、
-`metadata_type_id`）和外部 map key 后缀（槽位的 `key_suffix`）按真实头文件与宿主约定核对，
-不需要的配置项随之删除。外部工作区不得请求、推断、复制或提交内部 SDK 的头文件、
+布局、所有权、控制和 I/O 转换。当前 `CompanyOperator*`、`CompanyFrame`、`CompanyOdOutput`
+均带 `service_type`；`kMockService*` 是外网模拟的占位枚举，不表示公司内部实际取值。
+这些成员与枚举、输出 `CompanyAny` 元数据、槽声明的固定 `metadata_count` /
+`metadata_type_id` 和外部 map key 后缀（`type`）都须按真实头文件与宿主约定核对。
+`CompanyString` 不带请求 ID 或业务值；请求 ID 和业务成员由平台登记显式声明。外部工作区不得请求、推断、复制或提交内部 SDK 的头文件、
 库、模型、配置和凭据；这里只准备中立接入边界。
 验收范围见[模型、构建与效果验收](../../doc/VERIFIABLE_SELECTION.md#验收范围与发布准备)。

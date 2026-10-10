@@ -1,92 +1,98 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "ocr_invoice_qa"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "frame",
+        "name": "ocr_invoice_qa"
+      },
+      {
+        "type": "string",
+        "name": "ocr_invoice_qa"
+      }
+    ],
+    "output": [
+      {
+        "type": "od_out",
+        "name": "ocr_invoice_qa",
+        "inputs": {
+          "result": "parse_invoice.document",
+          "document": "read_invoice.document"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_type": "vision_document",
-      "backend": "kite_llm",
-      "model_config": {
-        "patch_size": 16,
+      "type": "ocr",
+      "name": "ocr_model",
+      "file": "SmolVLM-256M-Instruct-Q8_0.gguf",
+      "params": {
         "max_tokens": 256
       },
-      "backend_config": {
-        "run_config_file": "kite_vision_run.json"
-      },
-      "model_id": "ocr_model",
-      "model_path": "models/SmolVLM-256M-Instruct-Q8_0.gguf"
+      "backend": {
+        "type": "kite_llm",
+        "params": {
+          "run_config_file": "kite_vision_run.json"
+        }
+      }
     },
     {
-      "model_type": "qwen_causal_lm",
-      "backend": "kite_llm",
-      "model_config": {
-        "random_seed": -1
-      },
-      "backend_config": {
-        "run_config_file": "kite_text_run.json"
-      },
-      "model_id": "llm_model",
-      "model_path": "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "type": "llm",
+      "name": "llm_model",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "kite_llm",
+        "params": {
+          "run_config_file": "kite_text_run.json"
+        }
+      }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_OcrDetectNode",
-      "node_type": "OcrDetectNode",
-      "config": {
+      "type": "ocr_detect",
+      "name": "read_invoice",
+      "params": {
         "bind_model": "ocr_model"
       },
       "inputs": {
-        "images": "image_paths"
-      },
-      "outputs": {
-        "document": "ocr_docs",
-        "text": "ocr_text"
+        "images": "input.image"
       }
     },
     {
-      "id": "node_1_TextTemplateNode",
-      "node_type": "TextTemplateNode",
-      "config": {
-        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】：",
-        "separator": "\n"
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
+        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】："
       },
       "inputs": {
-        "primary": "user_queries",
-        "document": "ocr_docs"
-      },
-      "outputs": {
-        "text": "prompt_text"
+        "primary": "input.question",
+        "document": "read_invoice.document"
       }
     },
     {
-      "id": "node_2_LlmGenerateNode",
-      "node_type": "LlmGenerateNode",
-      "config": {
+      "type": "llm_generate",
+      "name": "generate_invoice",
+      "params": {
         "bind_model": "llm_model",
         "max_tokens": 256,
-        "temperature": 0.0
+        "temperature": 0.0,
+        "endpoints": {
+          "invoice": {}
+        }
       },
       "inputs": {
-        "prompt": "prompt_text"
-      },
-      "outputs": {
-        "text": "llm_raw_answer"
+        "input": "build_prompt.text"
       }
     },
     {
-      "id": "node_3_StructuredJsonParseNode",
-      "node_type": "StructuredJsonParseNode",
-      "config": {
+      "type": "structured_json_parse",
+      "name": "parse_invoice",
+      "params": {
         "failure_policy": "fail"
       },
       "inputs": {
-        "text": "llm_raw_answer"
-      },
-      "outputs": {
-        "document": "extracted_invoice_json"
+        "text": "generate_invoice.text"
       }
     }
   ]

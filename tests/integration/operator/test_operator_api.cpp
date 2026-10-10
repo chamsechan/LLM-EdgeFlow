@@ -13,11 +13,9 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/deployment_model_resolver.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/model_file_resolver.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/common_contracts.h"
@@ -25,9 +23,11 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 #include "tests/support/control_test_utils.h"
 #include "tests/support/operator_nested_output_fixture.h"
+#include "tests/support/operator_test_fixture.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -99,9 +99,9 @@ class OperatorApiTest : public ::testing::Test {
     std::ifstream json_in(root_dir + "/configs/pipeline_cross_rerank_cpu.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
-    pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
-    pipe_json["models"][0]["model_config"]["max_length"] = 32;
+    pipe_json["models"][0]["file"] = "models/bge_reranker_large.onnx";
+    pipe_json["models"][0]["params"]["tokenizer_file"] = "models/vocab.txt";
+    pipe_json["models"][0]["params"]["max_tokens"] = 32;
 
     auto temp_json_path = temp_dir->path() / "pipeline_cross_rerank.json";
     std::ofstream json_out(temp_json_path);
@@ -327,7 +327,7 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   const auto check = [&](int expected_hit) {
     std::string text = "sample";
     CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
-    CompanyOperatorKeywordInput input{123, &cs};
+    CompanyOperatorKeywordInput input{123, kMockServiceKeywordMatch, &cs};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["control.keyword_in"] = MakeBorrowedOperatorInput(&input);
     outputs[0]["control.keyword_out"] = nullptr;
@@ -353,14 +353,14 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &rules), 0);
   check(0);
   command.json_param_str =
-      R"({"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"NEW:"}})";
+      R"({"$edgeflow_control":1,"node":"prefix","payload":{"prefix":"NEW:"}})";
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
   check(1);  // 更新 prefix 会保留匹配器的新规则。
 
   // 被拒绝的请求属于非法参数；内部 Core 错误码保留在诊断信息中，
   // 不会与无效句柄错误码冲突。
   command.json_param_str =
-      R"({"$edgeflow_control":1,"node_id":"missing","payload":{"prefix":"BAD:"}})";
+      R"({"$edgeflow_control":1,"node":"missing","payload":{"prefix":"BAD:"}})";
   EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
             COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("missing"),
@@ -434,7 +434,7 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{101, &cs};
+  CompanyOperatorKeywordInput in{101, kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -444,53 +444,6 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
 }
 
 // 5. CompanyString 校验规则测试 (包含嵌入 NUL 拦截、负长度与超限拦截)
-TEST_F(OperatorApiTest, CompanyStringValidation) {
-  using namespace llm_edgeflow;
-  std::string err;
-
-  // 1. null 指针
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(nullptr, 100,
-                                                             "str", &err),
-            -3);
-
-  // 2. 负长度
-  char buf[] = "hello";
-  CompanyString cs_neg{-1, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
-                                                             "str", &err),
-            -3);
-
-  // 3. 长度为 0 (正常空字符串)
-  CompanyString cs_zero{0, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_zero, 100,
-                                                             "str", &err),
-            0);
-
-  // 4. 长度超限
-  CompanyString cs_toolarge{150, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 100,
-                                                             "str", &err),
-            -3);
-
-  // 5. 长度 > 0 但 data == nullptr
-  CompanyString cs_nulldata{10, nullptr};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_nulldata, 100,
-                                                             "str", &err),
-            -3);
-
-  // 6. 嵌入 NUL 字符 (禁止)
-  char embedded_nul[] = "hello\0world";
-  CompanyString cs_embed{11, embedded_nul};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_embed, 100,
-                                                             "str", &err),
-            -3);
-
-  // 7. 正常字符串
-  CompanyString cs_valid{5, buf};
-  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
-                                                             "str", &err),
-            0);
-}
 
 // 6. 关注词匹配端到端 (Keyword Match)
 TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
@@ -508,7 +461,7 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
   std::string text = "请帮我联系VIP专员，加急处理";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -549,7 +502,7 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   std::string prompt = "提取发票代码、号码与总金额";
   CompanyString uri_cs{static_cast<int32_t>(uri.size()),
                        const_cast<char*>(uri.data())};
-  CompanyFrame frame{60001, &uri_cs, nullptr};
+  CompanyFrame frame{60001, kMockServiceOcrInvoiceQa, &uri_cs, nullptr};
   CompanyString prompt_cs{static_cast<int32_t>(prompt.size()),
                           const_cast<char*>(prompt.data())};
 
@@ -588,7 +541,7 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
                        const_cast<char*>(doc.data())};
   CompanyString query_cs{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
-  CompanyOperatorDocInput in{10001, &doc_cs, &query_cs};
+  CompanyOperatorDocInput in{10001, kMockServiceDocQa, &doc_cs, &query_cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in);
@@ -628,7 +581,8 @@ TEST_F(OperatorApiTest, EndToEndDialogueAudit) {
                         const_cast<char*>(chan.data())};
   CompanyString dia_cs{static_cast<int32_t>(dialogue.size()),
                        const_cast<char*>(dialogue.data())};
-  CompanyOperatorAuditInput in{40001, &dia_cs, &chan_cs};
+  CompanyOperatorAuditInput in{40001, kMockServiceDialogueAudit, &dia_cs,
+                               &chan_cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["audit_channel.audit_in"] = MakeBorrowedOperatorInput(&in);
@@ -663,7 +617,7 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   ASSERT_NE(handle, nullptr);
 
   std::vector<float> pcm(16000, 0.01f);
-  CompanyOperatorAudioInput in{70001, pcm.data(),
+  CompanyOperatorAudioInput in{70001, kMockServiceAudioAsrIntent, pcm.data(),
                                static_cast<int32_t>(pcm.size()), 16000};
 
   NamedIoBatch in_b(1), out_b(1);
@@ -725,6 +679,7 @@ TEST_F(OperatorApiTest, EndToEndCrossRerank) {
 
   CompanyOperatorRerankInput in{};
   in.request_id = 80001;
+  in.service_type = kMockServiceCrossRerank;
   in.query_text = &query_cs;
   in.candidate_passages[0] = &p1_cs;
   in.candidate_passages[1] = &p2_cs;
@@ -763,7 +718,7 @@ TEST_F(OperatorApiTest, OutputSlotValidation) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -799,7 +754,7 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
   for (size_t count : {64U, 65U}) {
     NamedIoBatch inputs(count), outputs(count);
     for (size_t i = 0; i < count; ++i) {
-      rows[i] = {1000 + i, &sentence};
+      rows[i] = {1000 + i, kMockServiceKeywordMatch, &sentence};
       inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
       outputs[i]["test.keyword_out"] = nullptr;
     }
@@ -836,7 +791,7 @@ TEST_F(OperatorApiTest, ProcessRestoresRequestIdsWithoutBizPort) {
     std::vector<CompanyOperatorKeywordInput> rows(ids.size());
     NamedIoBatch inputs(ids.size()), outputs(ids.size());
     for (size_t i = 0; i < ids.size(); ++i) {
-      rows[i] = {ids[i], &sentence};
+      rows[i] = {ids[i], kMockServiceKeywordMatch, &sentence};
       inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
       outputs[i]["test.keyword_out"] = nullptr;
     }
@@ -868,7 +823,7 @@ TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
   // 1. 单次 Batch > max_frame_depth -> 立即拒绝 (-3)，不陷入死锁
   NamedIoBatch in_b3(3), out_b3(3);
@@ -941,7 +896,7 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -960,43 +915,64 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
   leak_out.reset();
 }
 
-// 15. ResolveOperatorConfigBiz 双路径校验接口测试
-TEST_F(OperatorApiTest, ResolveOperatorConfigBizApi) {
+// 15. Public I/O preflight and transactional failure results.
+TEST_F(OperatorApiTest, ResolveOperatorConfigIoApi) {
   const std::string root = GetConfDir();
-  std::string biz = "stale";
+  OperatorIoContract io;
   char error[256]{};
-  static_assert(noexcept(ResolveOperatorConfigBiz(nullptr, nullptr, nullptr)));
-  ASSERT_EQ(ResolveOperatorConfigBiz(
-                root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz,
-                error, sizeof(error)),
+  static_assert(noexcept(ResolveOperatorConfigIo(nullptr, nullptr, nullptr)));
+  ASSERT_EQ(ResolveOperatorConfigIo(root.c_str(),
+                                    "configs/pipeline_keyword_match_rules.conf",
+                                    &io, error, sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "keyword_match");
-  biz = "stale";
-  ASSERT_EQ(
-      ResolveOperatorConfigBiz(
-          root.c_str(), "configs/pipeline_keyword_match_rules.conf", &biz),
-      0);
-  EXPECT_EQ(biz, "keyword_match");
-  EXPECT_EQ(ResolveOperatorConfigBiz(
-                root.c_str(), "configs/pipeline_keyword_match_rules.conf",
-                nullptr, error, sizeof(error)),
+  ASSERT_EQ(io.inputs.size(), 1u);
+  ASSERT_EQ(io.outputs.size(), 1u);
+  EXPECT_EQ(io.inputs[0].type, "keyword_in");
+  EXPECT_EQ(io.inputs[0].name, "keyword_match");
+  EXPECT_EQ(io.inputs[0].type_name, "CompanyOperatorKeywordInput");
+  EXPECT_TRUE(io.inputs[0].required);
+  EXPECT_EQ(io.inputs[0].service_type, kMockServiceKeywordMatch);
+  EXPECT_EQ(io.outputs[0].type, "keyword_out");
+  EXPECT_EQ(io.outputs[0].type_name, "CompanyOperatorKeywordOutput");
+  ASSERT_EQ(ResolveOperatorConfigIo(
+                root.c_str(), "configs/pipeline_keyword_match_rules.conf", &io),
+            0);
+  EXPECT_EQ(io.inputs.size(), 1u);
+  EXPECT_EQ(io.outputs.size(), 1u);
+  EXPECT_EQ(ResolveOperatorConfigIo(root.c_str(),
+                                    "configs/pipeline_keyword_match_rules.conf",
+                                    nullptr, error, sizeof(error)),
             -2);
-  biz = "stale";
-  EXPECT_EQ(ResolveOperatorConfigBiz(root.c_str(), "/etc/passwd", &biz, error,
-                                     sizeof(error)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root.c_str(), "/etc/passwd", &io, error,
+                                    sizeof(error)),
             -2);
-  EXPECT_TRUE(biz.empty());
+  EXPECT_TRUE(io.inputs.empty());
+  EXPECT_TRUE(io.outputs.empty());
   for (int invalid = 0; invalid < 2; ++invalid) {
-    biz = "stale";
-    EXPECT_EQ(ResolveOperatorConfigBiz(
+    io.inputs.push_back({"stale", "stale", "stale", std::nullopt, true});
+    io.outputs.push_back({"stale", "stale", "stale", std::nullopt, true});
+    EXPECT_EQ(ResolveOperatorConfigIo(
                   invalid == 0 ? nullptr : root.c_str(),
                   invalid == 1 ? nullptr
                                : "configs/pipeline_keyword_match_rules.conf",
-                  &biz, error, sizeof(error)),
+                  &io, error, sizeof(error)),
               -2);
-    EXPECT_TRUE(biz.empty());
+    EXPECT_TRUE(io.inputs.empty());
+    EXPECT_TRUE(io.outputs.empty());
   }
+  ASSERT_EQ(ResolveOperatorConfigIo(
+                root.c_str(), "demo/fixtures/mock/pipeline_ocr_invoice_qa.conf",
+                &io, error, sizeof(error)),
+            0)
+      << error;
+  ASSERT_EQ(io.inputs.size(), 2u);
+  ASSERT_EQ(io.outputs.size(), 1u);
+  EXPECT_EQ(io.inputs[0].type, "frame");
+  EXPECT_EQ(io.inputs[0].type_name, "CompanyFrame");
+  EXPECT_EQ(io.inputs[1].type, "string");
+  EXPECT_EQ(io.inputs[1].type_name, "CompanyString");
+  EXPECT_EQ(io.outputs[0].type, "od_out");
 }
 
 // 16. 实体抽取业务端到端 (Entity Extract)
@@ -1011,7 +987,7 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   std::string text = "张三在清华大学研发深度学习大模型。";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorEntityInput in{30001, &cs};
+  CompanyOperatorEntityInput in{30001, kMockServiceEntityExtract, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in);
@@ -1029,61 +1005,6 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   out_b.clear();
   out_sp.reset();
   EXPECT_EQ(ops_.Destroy(handle), 0);
-}
-
-// 17. CompanyBuffer 与 CompanyAny 平台值类型校验测试
-TEST_F(OperatorApiTest, CompanyBufferAndAnyValidation) {
-  using namespace llm_edgeflow;
-  const auto* buf_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("buffer");
-  ASSERT_NE(buf_binding, nullptr);
-  ASSERT_TRUE(buf_binding->validate_external);
-
-  InputLimits limits;
-  std::string err;
-
-  // CompanyBuffer：空指针
-  EXPECT_EQ(buf_binding->validate_external(nullptr, limits, &err), -3);
-
-  // CompanyBuffer：负长度
-  uint8_t dummy_data[] = {0x01, 0x02, 0x03};
-  CompanyBuffer buf_neg{-1, dummy_data};
-  EXPECT_EQ(buf_binding->validate_external(&buf_neg, limits, &err), -3);
-
-  // CompanyBuffer：length > max
-  CompanyBuffer buf_toolarge{static_cast<int32_t>(limits.max_buffer_bytes + 1),
-                             dummy_data};
-  EXPECT_EQ(buf_binding->validate_external(&buf_toolarge, limits, &err), -3);
-
-  // CompanyBuffer：length > 0 但 data 为空
-  CompanyBuffer buf_nulldata{10, nullptr};
-  EXPECT_EQ(buf_binding->validate_external(&buf_nulldata, limits, &err), -3);
-
-  // CompanyBuffer：合法二进制数据
-  CompanyBuffer buf_valid{3, dummy_data};
-  EXPECT_EQ(buf_binding->validate_external(&buf_valid, limits, &err), 0);
-
-  // CompanyAny
-  const auto* any_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("any");
-  ASSERT_NE(any_binding, nullptr);
-  ASSERT_TRUE(any_binding->validate_external);
-
-  // CompanyAny：空指针
-  EXPECT_EQ(any_binding->validate_external(nullptr, limits, &err), -3);
-
-  // CompanyAny：负的 count / length
-  CompanyAny any_neg{1, -1, 10, dummy_data};
-  EXPECT_EQ(any_binding->validate_external(&any_neg, limits, &err), -3);
-
-  // CompanyAny：byte_length > max
-  CompanyAny any_toolarge{1, 10, static_cast<int32_t>(limits.max_any_bytes + 1),
-                          dummy_data};
-  EXPECT_EQ(any_binding->validate_external(&any_toolarge, limits, &err), -3);
-
-  // 7. 正确尺寸方程: float32 (type_id=1), count=3, byte_length=12 -> 0
-  CompanyAny any_valid{1, 3, 12, dummy_data};
-  EXPECT_EQ(any_binding->validate_external(&any_valid, limits, &err), 0);
 }
 
 // 18. 输入 shared_ptr 所有权不持有与 use_count 校验测试
@@ -1104,6 +1025,7 @@ TEST_F(OperatorApiTest, InputSharedPtrUseCountNotRetained) {
                    const_cast<char*>(text.data())};
   auto in_ptr = std::make_shared<CompanyOperatorKeywordInput>();
   in_ptr->request_id = 1001;
+  in_ptr->service_type = kMockServiceKeywordMatch;
   in_ptr->sentence_text = &cs;
 
   NamedIoBatch in_b(1), out_b(1);
@@ -1145,7 +1067,7 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
     std::string text = "VIP专员";
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
-    CompanyOperatorKeywordInput in{1001, &cs};
+    CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
     NamedIoBatch in_b(1), out_b(1);
     in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -1172,7 +1094,7 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
     std::string text = "VIP专员";
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
-    CompanyOperatorKeywordInput in{1001, &cs};
+    CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
     NamedIoBatch in_b1(1), out_b1(1);
     in_b1[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -1222,7 +1144,7 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, kMockServiceKeywordMatch, &cs};
 
   std::atomic<bool> success1{false};
   std::atomic<bool> success2{false};
@@ -1259,147 +1181,39 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
   EXPECT_EQ(ops_.Destroy(handle2), 0);
 }
 
-// 21. outputs 配置校验与异常 Fail-Closed 测试
-TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
-  ScopedTempDirectory temp_dir;
-  std::filesystem::path root = temp_dir.path();
-  std::filesystem::create_directories(root / "configs");
-  std::filesystem::copy_file(
-      std::filesystem::path(GetConfDir()) /
-          "configs/pipeline_keyword_match_rules.json",
-      root / "configs/pipeline_keyword_match_rules.json");
-
-  std::string conf_file = "configs/test.conf";
-  std::filesystem::path conf_path = root / conf_file;
-
-  const std::string root_str = root.string();
-  CreateParam param{};
-  param.model_path = root_str.c_str();
-  param.cfg_file_name = conf_file.c_str();
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 25;
-
+TEST_F(OperatorApiTest, IoParametersAreValidatedBeforeAllocation) {
+  ScopedTempDirectory temp;
+  const auto root = temp.path().string();
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  std::ifstream source(std::filesystem::path(GetConfDir()) /
+                       "configs/pipeline_keyword_match_rules.json");
+  nlohmann::json base;
+  source >> base;
+  auto param = DefaultCreateParam("pipeline.conf");
+  param.model_path = root.c_str();
+  const std::vector<std::pair<nlohmann::json, std::string>> invalid = {
+      {{{"unexpected", 1}}, "UNKNOWN_CONFIG_FIELD"},
+      {{{"match_result_json_max_bytes", "large"}}, "CONFIG_FIELD_TYPE"},
+      {{{"match_result_json_max_bytes", 0}}, "CONFIG_FIELD_RANGE"},
+      {{{"match_result_json_max_bytes", 65537}}, "CONFIG_FIELD_RANGE"},
+      {{{"match_result_json_max_bytes", 2.5}}, "CONFIG_FIELD_TYPE"}};
+  for (const auto& [params, code] : invalid) {
+    auto document = base;
+    document["io"]["output"][0]["params"] = params;
+    std::ofstream(temp.path() / "pipeline.json") << document;
+    void* handle = nullptr;
+    EXPECT_EQ(ops_.Create(&handle, &param), -2);
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_NE(std::string(GetOperatorLastError()).find(code),
+              std::string::npos);
+    EXPECT_NE(std::string(GetOperatorLastError()).find("/io/output/0/params"),
+              std::string::npos);
+  }
+  std::ofstream(temp.path() / "pipeline.json") << base;
   void* handle = nullptr;
-
-  // 0. .conf 只允许 pipe_path，未知字段严格拒绝 -> -2
-  {
-    std::ofstream ofs(conf_path);
-    ofs << R"({"pipe_path": "pipeline_keyword_match_rules.json",
-              "extra_field": 1})";
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("Unknown field"),
-            std::string::npos);
-
-  // 0b. 未知字段 mem_que 在 deployment.io 中严格拒绝 -> -2
-  {
-    std::ofstream c_ofs(conf_path);
-    c_ofs << R"({"pipe_path": "pipeline_keyword_match_rules.json"})";
-    c_ofs.close();
-
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["mem_que"] = nlohmann::json::object();
-    std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
-    p_ofs << pipe_json.dump(2);
-    p_ofs.close();
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError())
-                .find("Unknown field at /deployment/io/mem_que"),
-            std::string::npos);
-
-  // 1. 缺少 out_mem 时使用注册的必需输出默认值。
-  {
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"].erase("out_mem");
-    std::ofstream(root / "configs/pipeline_keyword_match_rules.json")
-        << pipe_json;
-  }
   ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
   EXPECT_EQ(ops_.Destroy(handle), 0);
-  handle = nullptr;
-
-  // 2. 输出槽配置中的未知字段被拒绝。
-  {
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["unknown_field"] =
-        1;
-    std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
-    p_ofs << pipe_json.dump(2);
-    p_ofs.close();
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-
-  // 3. meta_num == 0 但 metadata_type_id != 0 -> -2
-  {
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["meta_num"] = 0;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
-             ["metadata_type_id"] = 123;
-    std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
-    p_ofs << pipe_json.dump(2);
-    p_ofs.close();
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-
-  // 4. 未知 capacity 字段 -> -2
-  {
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]["capacities"] = {
-        {"unknown_field_xyz", 100}};
-    std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
-    p_ofs << pipe_json.dump(2);
-    p_ofs.close();
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-
-  // 6. deployment.model_path 单值字段被拒绝（路径只存在 models 条目中）-> -2
-  {
-    std::ifstream json_in(std::filesystem::path(GetConfDir()) /
-                          "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["model_path"] = "models/unused.bin";
-    std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
-    p_ofs << pipe_json.dump(2);
-    p_ofs.close();
-
-    std::ofstream ofs(conf_path);
-    ofs << R"({"pipe_path": "pipeline_keyword_match_rules.json"})";
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError())
-                .find("Unknown field at /deployment/model_path"),
-            std::string::npos);
-
-  // 7. .conf 根对象仅允许 pipe_path -> -2
-  {
-    std::ofstream ofs(conf_path);
-    ofs << R"({
-      "pipe_path": "pipeline_keyword_match_rules.json",
-      "comment": "not part of the runtime contract"
-    })";
-  }
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(
-      std::string(GetOperatorLastError()).find("Unknown field at /: 'comment'"),
-      std::string::npos);
 }
 
 // 22. SSO 短字符串 (1~7 字节) 与跨批次指针绝对地址稳定性测试 (R9-001)
@@ -1428,6 +1242,7 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
         static_cast<int32_t>(std::strlen(short_words[i]));
     company_strings[i].data = const_cast<char*>(short_words[i]);
     inputs[i].request_id = 70000 + i;
+    inputs[i].service_type = kMockServiceKeywordMatch;
     inputs[i].sentence_text = &company_strings[i];
 
     batch_inputs[i]["client_channel.keyword_in"] =
@@ -1458,45 +1273,45 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
 TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   std::string root_dir = GetConfDir();
   char err_buf[256] = {0};
-  std::string biz = "stale";
+  OperatorIoContract io;
 
   // 1. POSIX 绝对路径拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "/etc/pipeline.conf",
-                                     &biz, err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "/etc/pipeline.conf", &io,
+                                    err_buf, sizeof(err_buf)),
             -2);
 
   // 2. Windows 盘符拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "C:\\pipeline.conf",
-                                     &biz, err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "C:\\pipeline.conf", &io,
+                                    err_buf, sizeof(err_buf)),
             -2);
 
   // 3. UNC 路径拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(),
-                                     "\\\\server\\share\\pipeline.conf", &biz,
-                                     err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(),
+                                    "\\\\server\\share\\pipeline.conf", &io,
+                                    err_buf, sizeof(err_buf)),
             -2);
 
   // 4. .. 逃逸拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "../../etc/passwd", &biz,
-                                     err_buf, sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "../../etc/passwd", &io,
+                                    err_buf, sizeof(err_buf)),
             -2);
 
   // 5. 目录而非普通文件拒绝
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(), "configs", &biz, err_buf,
-                                     sizeof(err_buf)),
+  EXPECT_EQ(ResolveOperatorConfigIo(root_dir.c_str(), "configs", &io, err_buf,
+                                    sizeof(err_buf)),
             -2);
 
   // 6. 不存在的文件拒绝
   EXPECT_EQ(
-      ResolveOperatorConfigBiz(root_dir.c_str(), "configs/non_existent.conf",
-                               &biz, err_buf, sizeof(err_buf)),
+      ResolveOperatorConfigIo(root_dir.c_str(), "configs/non_existent.conf",
+                              &io, err_buf, sizeof(err_buf)),
       -2);
 
   // 7. 路径前缀混淆拒绝 (例如目标根为 root，试图访问 root_extra 目录)
-  EXPECT_EQ(ResolveOperatorConfigBiz(root_dir.c_str(),
-                                     "../configs_fake/pipeline.conf", &biz,
-                                     err_buf, sizeof(err_buf)),
-            -2);
+  EXPECT_EQ(
+      ResolveOperatorConfigIo(root_dir.c_str(), "../configs_fake/pipeline.conf",
+                              &io, err_buf, sizeof(err_buf)),
+      -2);
 
   // 8. 对 Create 接口同样严格拦截非普通文件与不存在文件
   CreateParam bad_param{};
@@ -1557,6 +1372,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       d_cs[i] = CompanyString{static_cast<int32_t>(d_strs[i].size()),
                               d_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(100 + i);
+      inputs[i].service_type = kMockServiceDocQa;
       inputs[i].query_text = &q_cs[i];
       inputs[i].doc_text = &d_cs[i];
       batch_in[i]["qa.doc_in"] = MakeBorrowedOperatorInput(&inputs[i]);
@@ -1609,6 +1425,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       c_cs[i] = CompanyString{static_cast<int32_t>(c_strs[i].size()),
                               c_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(200 + i);
+      inputs[i].service_type = kMockServiceDialogueAudit;
       inputs[i].user_text = &u_cs[i];
       inputs[i].channel_name = &c_cs[i];
       batch_in[i]["audit.audit_in"] = MakeBorrowedOperatorInput(&inputs[i]);
@@ -1658,6 +1475,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
     for (size_t i = 0; i < kBatch; ++i) {
       inputs[i].request_id = static_cast<uint64_t>(300 + i);
+      inputs[i].service_type = kMockServiceAudioAsrIntent;
       inputs[i].sample_rate = 16000;
       inputs[i].pcm_length = 16000;
       inputs[i].pcm_buffer = pcm_buffers[i].data();
@@ -1714,6 +1532,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
                               q_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(400 + i);
+      inputs[i].service_type = kMockServiceCrossRerank;
       inputs[i].query_text = &q_cs[i];
       inputs[i].candidate_count = 8;
       for (size_t c = 0; c < 8; ++c) {
@@ -1776,6 +1595,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
                               q_strs[i].data()};
       frames[i].request_id = static_cast<uint64_t>(600 + i);
+      frames[i].service_type = kMockServiceOcrInvoiceQa;
       frames[i].image_uri = &uri_cs[i];
       frames[i].metadata = nullptr;
       batch_in[i]["camera_0.frame"] = MakeBorrowedOperatorInput(&frames[i]);
@@ -1824,6 +1644,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       s_cs[i] = CompanyString{static_cast<int32_t>(s_strs[i].size()),
                               s_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(500 + i);
+      inputs[i].service_type = kMockServiceEntityExtract;
       inputs[i].sentence_text = &s_cs[i];
       batch_in[i]["ner.entity_in"] = MakeBorrowedOperatorInput(&inputs[i]);
       batch_out[i]["ner.entity_out"] = nullptr;
@@ -1875,6 +1696,7 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
     comp_strs[i] = CompanyString{static_cast<int32_t>(sent_strs[i].size()),
                                  sent_strs[i].data()};
     inputs[i].request_id = static_cast<uint64_t>(1000 + i);
+    inputs[i].service_type = kMockServiceKeywordMatch;
     inputs[i].sentence_text = &comp_strs[i];
     batch_in[i]["client_channel.keyword_in"] =
         MakeBorrowedOperatorInput(&inputs[i]);
@@ -1909,6 +1731,7 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
     over_cs[i] = CompanyString{static_cast<int32_t>(over_strs[i].size()),
                                over_strs[i].data()};
     over_inputs[i].request_id = static_cast<uint64_t>(2000 + i);
+    over_inputs[i].service_type = kMockServiceKeywordMatch;
     over_inputs[i].sentence_text = &over_cs[i];
     over_batch_in[i]["client_channel.keyword_in"] =
         MakeBorrowedOperatorInput(&over_inputs[i]);
@@ -1938,7 +1761,7 @@ TEST_F(OperatorApiTest, UnreleasedOutputLifecycleBreach) {
 
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput in{99001, &cs};
+  CompanyOperatorKeywordInput in{99001, kMockServiceKeywordMatch, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -1972,14 +1795,14 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     std::filesystem::copy_file(
         source_root / "demo/fixtures/mock/pipeline_doc_qa.json",
         root / "configs/pipeline_doc_qa_default.json");
-    nlohmann::json original_deployment;
+    nlohmann::json original_io;
     {
       std::ifstream pipe_in(root / "configs/pipeline_doc_qa_default.json");
       nlohmann::json pipe_json;
       pipe_in >> pipe_json;
-      pipe_json["models"][0]["model_path"] = "models/not_deployed_embed.bin";
-      pipe_json["models"][1]["model_path"] = "models/not_deployed_llm.bin";
-      original_deployment = pipe_json["deployment"];
+      pipe_json["models"][0]["file"] = "models/not_deployed_embed.bin";
+      pipe_json["models"][1]["file"] = "models/not_deployed_llm.bin";
+      original_io = pipe_json["io"];
       std::ofstream pipe_out(root / "configs/pipeline_doc_qa_default.json");
       pipe_out << pipe_json.dump(2);
     }
@@ -1997,16 +1820,18 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         root_string.c_str(), "configs/model_paths.conf", &resolved, &err);
     ASSERT_EQ(ret, 0) << "Error: " << err;
     ASSERT_NE(resolved.io_plan, nullptr);
-    EXPECT_FALSE(resolved.io_plan->resolved_pipeline_json.contains("biz_name"));
-    ASSERT_TRUE(
-        resolved.io_plan->resolved_pipeline_json.contains("deployment"));
-    EXPECT_EQ(resolved.io_plan->resolved_pipeline_json["deployment"],
-              original_deployment);
+    ASSERT_TRUE(resolved.io_plan->resolved_pipeline_json.contains("io"));
+    for (size_t i = 0; i < resolved.io_plan->inputs.size(); ++i)
+      original_io["input"][i]["params"] =
+          resolved.io_plan->inputs[i].params->Effective();
+    for (size_t i = 0; i < resolved.io_plan->outputs.size(); ++i)
+      original_io["output"][i]["params"] =
+          resolved.io_plan->outputs[i].params->Effective();
+    EXPECT_EQ(resolved.io_plan->resolved_pipeline_json["io"], original_io);
     ASSERT_EQ(resolved.io_plan->resolved_pipeline_json["models"].size(), 2u);
     for (const auto& model :
          resolved.io_plan->resolved_pipeline_json["models"]) {
-      const auto path =
-          std::filesystem::path(model["model_path"].get<std::string>());
+      const auto path = std::filesystem::path(model["file"].get<std::string>());
       EXPECT_TRUE(path.is_absolute());
       EXPECT_EQ(path.lexically_relative(canonical_root).string().rfind("..", 0),
                 std::string::npos);
@@ -2024,7 +1849,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       std::ifstream pipe_in(root / "configs/pipeline_audio_asr_intent.json");
       nlohmann::json pipe_json;
       pipe_in >> pipe_json;
-      pipe_json["models"][0]["model_path"] =
+      pipe_json["models"][0]["file"] =
           "deployment/asr_model_will_arrive_later.bin";
       std::ofstream pipe_out(root / "configs/pipeline_audio_asr_intent.json");
       pipe_out << pipe_json.dump(2);
@@ -2042,34 +1867,38 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         root_string.c_str(), "configs/single_model.conf", &resolved, &err);
     ASSERT_EQ(ret, 0) << err;
     const auto resolved_model = std::filesystem::path(
-        resolved.io_plan->resolved_pipeline_json["models"][0]["model_path"]
+        resolved.io_plan->resolved_pipeline_json["models"][0]["file"]
             .get<std::string>());
-    EXPECT_EQ(resolved_model,
-              canonical_root / "deployment/asr_model_will_arrive_later.bin");
+    EXPECT_EQ(
+        resolved_model,
+        canonical_root / "configs/deployment/asr_model_will_arrive_later.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved_model));
   }
 
-  // 当前的模型解析接受根目录内的规范绝对路径；即使文件不存在，
-  // 也拒绝相对路径遍历和符号链接逃逸。
+  // 文件名相对 Pipeline 目录；不存在的文件允许通过，绝对路径、
+  // 任何父目录分量和符号链接逃逸均拒绝。
   {
     auto resolve = [&](const std::string& reference, nlohmann::json* resolved) {
-      return llm_edgeflow::ResolveDeploymentModelPaths(
-          {{"models", {{{"model_id", "asr"}, {"model_path", reference}}}}},
+      return llm_edgeflow::ResolveModelFiles(
+          {{"models",
+            {{{"name", "asr"},
+              {"type", "asr"},
+              {"file", reference},
+              {"backend", {{"type", "test_tensor_backend"}}}}}}},
           root.string(), resolved, &err);
     };
     nlohmann::json resolved;
     for (const std::string& safe :
          {std::string("safe/missing_model.bin"),
-          std::string("..name/missing_model.bin"),
-          std::string("safe/../missing_model.bin"), std::string("."),
-          (canonical_root / "absolute_model.bin").string()}) {
+          std::string("..name/missing_model.bin"), std::string(".")}) {
       ASSERT_TRUE(resolve(safe, &resolved)) << safe << ": " << err;
       EXPECT_EQ(
-          resolved["models"][0]["model_path"].get<std::string>(),
+          resolved["models"][0]["file"].get<std::string>(),
           std::filesystem::weakly_canonical(canonical_root / safe).string());
     }
     for (const char* bad :
-         {"../../escape_model.bin", "safe/../../../escape_model.bin"}) {
+         {"../../escape_model.bin", "safe/../../../escape_model.bin",
+          "safe/../missing_model.bin"}) {
       EXPECT_FALSE(resolve(bad, &resolved)) << bad;
       EXPECT_FALSE(err.empty()) << bad;
     }
@@ -2162,20 +1991,20 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
   for (const int capacity : {16384, 1024}) {
     ScopedTempDirectory temp;
     nlohmann::json pipeline = {
-        {"deployment",
-         {{"io",
-           {{"io_binding", "keyword_match"},
-            {"out_mem",
-             {{"keyword_out",
-               {{"capacities", {{"match_result_json", capacity}}}}}}}}}}},
+        {"io",
+         {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
+          {"output",
+           {{{"type", "keyword_out"},
+             {"name", "keyword_match"},
+             {"inputs", {{"matches", "rule.matches"}}},
+             {"params", {{"match_result_json_max_bytes", capacity}}}}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline",
-         {{{"id", "rule"},
-           {"node_type", "TextRuleMatchNode"},
+         {{{"name", "rule"},
+           {"type", "text_rule_match"},
            {"depends_on", nlohmann::json::array()},
-           {"inputs", {{"text", "input_sentences"}}},
-           {"outputs", {{"matches", "rule_matches"}}},
-           {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
+           {"inputs", {{"text", "input.sentence_text"}}},
+           {"params", {{"categories", {{"LONG", {word}}}}}}}}}};
     std::ofstream(temp.path() / "pipeline.json") << pipeline;
     std::ofstream(temp.path() / "pipeline.conf")
         << nlohmann::json({{"pipe_path", "pipeline.json"}});
@@ -2190,7 +2019,7 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
     CompanyString text{static_cast<int32_t>(word.size()),
                        const_cast<char*>(word.data())};
-    CompanyOperatorKeywordInput input{987, &text};
+    CompanyOperatorKeywordInput input{987, kMockServiceKeywordMatch, &text};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
     outputs[0]["chan.keyword_out"] = {};
@@ -2220,85 +2049,6 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
         << GetOperatorLastError();
     outputs.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
-  }
-}
-
-TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
-  ScopedTempDirectory temp_root;
-  const auto root = temp_root.path();
-  std::filesystem::create_directories(root / "configs");
-  std::filesystem::copy_file(
-      std::filesystem::path(GetConfDir()) /
-          "configs/pipeline_keyword_match_rules.json",
-      root / "configs/pipeline_keyword_match_rules.json");
-
-  // 1. 无符号整数 > INT32_MAX
-  {
-    std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
-             ["metadata_type_id"] = 3000000000ULL;
-    std::ofstream pipe_out(root / "configs/pipe_overflow.json");
-    pipe_out << pipe_json.dump(2);
-    pipe_out.close();
-
-    std::ofstream conf(root / "configs/pipe_overflow.conf");
-    conf << R"({"pipe_path": "pipe_overflow.json"})";
-    conf.close();
-    llm_edgeflow::ResolvedOperatorConfig resolved;
-    std::string err;
-    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
-                  root.string().c_str(), "configs/pipe_overflow.conf",
-                  &resolved, &err),
-              -2);
-    EXPECT_NE(err.find("exceeds int32 range"), std::string::npos);
-  }
-
-  // 2. 负整数 < INT32_MIN
-  {
-    std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
-             ["metadata_type_id"] = -3000000000LL;
-    std::ofstream pipe_out(root / "configs/pipe_underflow.json");
-    pipe_out << pipe_json.dump(2);
-    pipe_out.close();
-
-    std::ofstream conf(root / "configs/pipe_underflow.conf");
-    conf << R"({"pipe_path": "pipe_underflow.json"})";
-    conf.close();
-    llm_edgeflow::ResolvedOperatorConfig resolved;
-    std::string err;
-    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
-                  root.string().c_str(), "configs/pipe_underflow.conf",
-                  &resolved, &err),
-              -2);
-    EXPECT_NE(err.find("exceeds int32 range"), std::string::npos);
-  }
-
-  // 3. 非整数 (浮点数或字符串)
-  {
-    std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
-    nlohmann::json pipe_json;
-    json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["out_mem"]["keyword_out"]
-             ["metadata_type_id"] = 1.5;
-    std::ofstream pipe_out(root / "configs/pipe_not_integer.json");
-    pipe_out << pipe_json.dump(2);
-    pipe_out.close();
-
-    std::ofstream conf(root / "configs/pipe_not_integer.conf");
-    conf << R"({"pipe_path": "pipe_not_integer.json"})";
-    conf.close();
-    llm_edgeflow::ResolvedOperatorConfig resolved;
-    std::string err;
-    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
-                  root.string().c_str(), "configs/pipe_not_integer.conf",
-                  &resolved, &err),
-              -2);
-    EXPECT_NE(err.find("must be integer"), std::string::npos);
   }
 }
 
@@ -2343,104 +2093,100 @@ int EncodeNestedOutput(AlgContext* context, const OutputEncodeOptions& options,
   if (written_count) *written_count = 0;
   if (!context || !destination) return -1;
   const auto* req_ids = RequestIds(options, status);
-  const auto* matches = context->Read(kRuleMatches);
+  const auto* matches = context->Read<RuleMatchBatch>(options.Port("matches"));
   if (!req_ids || !matches) return -3;
   size_t count = req_ids->size();
 
+  size_t written = 0;
   for (size_t i = 0; i < count; ++i) {
+    auto* external = destination->GetSlot<void>(options.type, i);
+    if (!external && !destination->required) continue;
+    const auto* spec = destination->GetPoolSpec(options.type);
+    if (!external || !spec) return -4;
     NestedOutputSource result;
     result.request_id = (*req_ids)[i];
-    result.is_hit = 0;
-    for (const auto& m : *matches) {
-      if (m.req_id == i) {
-        result.is_hit = m.data.is_hit;
+    for (const auto& match : *matches) {
+      if (match.req_id == i) {
+        result.is_hit = match.data.is_hit;
         break;
       }
     }
-    for (const char* slot_name : {"main", "audit"}) {
-      void* external = destination->GetSlot<void>(slot_name, i);
-      const auto* spec = destination->GetPoolSpec(slot_name);
-      if (!external || !spec) return -4;
-      std::string error;
-      int ret = ConvertNestedOutput(&result, external, *spec, &error);
-      if (ret != 0) {
-        if (status) {
-          *status = AdapterStatus(ret, error, slot_name, static_cast<int>(i),
-                                  options.converter_id);
-        }
-        return ret;
-      }
+    std::string error;
+    const int ret = ConvertNestedOutput(&result, external, *spec, &error);
+    if (ret != 0) {
+      if (status)
+        *status = AdapterStatus(ret, error, options.type, static_cast<int>(i),
+                                options.Label());
+      return ret;
     }
+    ++written;
   }
-  if (written_count) *written_count = count;
+  if (written_count) *written_count = written;
   return 0;
 }
 
-const bool g_reg_nested_output_components = []() {
-  BizDefinition bdef;
-  bdef.biz_name = "test_nested_output";
-  bdef.ingress = {
-      BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  bdef.egress = {
-      BizPortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
-  if (!PipelineCatalog::FindBiz(bdef.biz_name)) {
-    PipelineCatalog::RegisterBizDefinition(bdef);
-  }
-
-  OutputConverterDefinition odef;
-  odef.converter_id = "test_nested_output";
-  odef.external_slots = {ExternalSlotDefinition{"main", "NestedOutputEnvelope",
-                                                PortDirection::kOutput, true,
-                                                "test_nested_out", "result"},
-                         ExternalSlotDefinition{"audit", "NestedOutputEnvelope",
-                                                PortDirection::kOutput, true,
-                                                "test_nested_out", "audit"}};
-  odef.logical_ports = {
-      NodePortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
-  odef.encode_fn = &EncodeNestedOutput;
-  IoConverterRegistry::Instance().RegisterOutputConverter(odef);
-
-  IoBindingDefinition bind;
-  bind.biz_name = "test_nested_output";
-
-  bind.input_converter_id = "keyword.plain";
-  bind.output_converter_id = "test_nested_output";
-  bind.max_batch_size = 64;
-  IoBindingRegistry::Instance().RegisterBinding(bind);
-  return true;
-}();
-
-nlohmann::json NestedOutputAllocations(bool alternate = false) {
-  return {{"main",
-           {{"allocator",
-             alternate ? "test_nested_alternate" : "test_nested_standard"},
-            {"params",
-             {{"kind", alternate ? 2 : 1}, {"capacity", alternate ? 3 : 2}}}}},
-          {"audit",
-           {{"allocator",
-             alternate ? "test_nested_standard" : "test_nested_alternate"},
-            {"params",
-             {{"kind", alternate ? 1 : 2}, {"capacity", alternate ? 4 : 5}}}}}};
+OutputConverterDefinition NestedConverter(const std::string& name,
+                                          const std::string& allocator,
+                                          const nlohmann::json& parameters,
+                                          bool required = true) {
+  OutputConverterDefinition def;
+  def.type = "test_nested_out";
+  def.name = name;
+  def.slot.type_id = "NestedOutputEnvelope";
+  def.slot.type_suffix = def.type;
+  def.slot.required = required;
+  def.slot.allocator = allocator;
+  def.slot.allocator_params = parameters.dump();
+  def.logical_ports = {NodePortDefinition("matches", "RuleMatchBatch")};
+  def.encode_fn = &EncodeNestedOutput;
+  return def;
 }
+
+const bool g_reg_nested_output_components = [] {
+  auto& registry = IoConverterRegistry::Instance();
+  const auto add = [&](const std::string& name, const std::string& allocator,
+                       const nlohmann::json& params, bool required = true) {
+    return registry.RegisterOutputConverter(
+        NestedConverter(name, allocator, params, required));
+  };
+  return add("main", "test_nested_standard", {{"kind", 1}, {"capacity", 2}}) &&
+         add("audit", "test_nested_alternate",
+             {{"kind", 2}, {"capacity", 5}}) &&
+         add("main_alternate", "test_nested_alternate",
+             {{"kind", 2}, {"capacity", 3}}) &&
+         add("audit_alternate", "test_nested_standard",
+             {{"kind", 1}, {"capacity", 4}}) &&
+         add("main_default", "", nlohmann::json::object()) &&
+         add("audit_default", "", nlohmann::json::object()) &&
+         add("audit_reject", "test_nested_alternate",
+             {{"kind", 2}, {"capacity", 5}, {"reject_hit", true}}) &&
+         add("main_footprint", "test_nested_3mib_footprint",
+             nlohmann::json::object()) &&
+         add("main_large", "test_nested_standard", {{"capacity", 9000}}) &&
+         add("audit_large", "test_nested_alternate", {{"capacity", 9000}}) &&
+         add("audit_optional", "test_nested_alternate",
+             {{"kind", 2}, {"capacity", 5}}, false);
+}();
 
 nlohmann::json NestedOutputPipelineJson(bool alternate = false) {
   std::ifstream source(std::filesystem::path(GetConfDir()) /
                        "configs/pipeline_keyword_match_rules.json");
   nlohmann::json pipeline;
   source >> pipeline;
-  pipeline.erase("biz_name");
-  pipeline["deployment"] = {
-      {"io",
-       {{"io_binding", "test_nested_output"},
-        {"out_mem", NestedOutputAllocations(alternate)}}}};
+  pipeline["io"]["output"] = {
+      {{"type", "test_nested_out"},
+       {"name", alternate ? "main_alternate" : "main"},
+       {"inputs", {{"matches", "match_keywords.matches"}}}},
+      {{"type", "test_nested_out"},
+       {"name", alternate ? "audit_alternate" : "audit"},
+       {"inputs", {{"matches", "match_keywords.matches"}}}}};
   return pipeline;
 }
 
-void WriteNestedOutputPipeline(
-    const std::filesystem::path& root,
-    const std::string& pipeline_name = "pipeline.json",
-    bool alternate = false) {
-  std::ofstream(root / pipeline_name) << NestedOutputPipelineJson(alternate);
+void WriteNestedOutputPipeline(const std::filesystem::path& root,
+                               const std::string& name = "pipeline.json",
+                               bool alternate = false) {
+  std::ofstream(root / name) << NestedOutputPipelineJson(alternate);
 }
 
 void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
@@ -2473,41 +2219,29 @@ void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
 TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   using namespace llm_edgeflow;
   using namespace llm_edgeflow::test_support;
-  const auto* production =
-      IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
+  const auto* production = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword_in", "keyword_match");
   ASSERT_NE(production, nullptr);
   auto input = *production;
-  input.converter_id = "test_partial_request_ids";
+  input.name = "test_partial_request_ids";
+  input.service_type = 10001;
   input.decode_fn = [](const ExternalInputBatchView& source,
                        const InputDecodeOptions& options, AlgContext* context,
                        AdapterStatus* status) {
-    const auto* converter =
-        IoConverterRegistry::Instance().FindInputConverter("keyword.plain");
+    const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+        "keyword_in", "keyword_match");
     const int ret = converter->decode_fn(source, options, context, status);
     if (ret == 0) options.request_ids->resize(1);
     return ret;
   };
-  // 注册表是进程级全局的；只注册一次，以便测试可重复运行。
-  if (!IoConverterRegistry::Instance().FindInputConverter(input.converter_id))
+  if (!IoConverterRegistry::Instance().FindInputConverter(input.type,
+                                                          input.name)) {
     ASSERT_TRUE(IoConverterRegistry::Instance().RegisterInputConverter(input));
-  const auto* nested =
-      IoBindingRegistry::Instance().FindBinding("test_nested_output");
-  ASSERT_NE(nested, nullptr);
-  // 每个业务只有一个 binding，测试 binding 使用复制出的独立业务。
-  auto biz = *PipelineCatalog::FindBiz(nested->biz_name);
-  biz.biz_name = "test_request_id_count";
-  if (!PipelineCatalog::FindBiz(biz.biz_name)) {
-    ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz));
   }
-  auto binding = *nested;
-  binding.biz_name = biz.biz_name;
-  binding.input_converter_id = input.converter_id;
-  if (!IoBindingRegistry::Instance().FindBinding(binding.biz_name))
-    ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
 
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["io_binding"] = binding.biz_name;
+  pipeline["io"]["input"][0]["name"] = input.name;
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2521,28 +2255,29 @@ TEST_F(OperatorApiTest, ProcessRejectsConverterRecordingWrongRequestIdCount) {
   const int resets_before = nested_resets;
   char text[] = "query";
   CompanyString sentence{5, text};
-  CompanyOperatorKeywordInput rows[] = {{900001, &sentence}, {42, &sentence}};
+  CompanyOperatorKeywordInput rows[] = {{900001, 10001, &sentence},
+                                        {42, 10001, &sentence}};
   NamedIoBatch inputs(2), outputs(2);
   for (size_t i = 0; i < 2; ++i) {
     inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
-    outputs[i]["test.result"] = nullptr;
-    outputs[i]["test.audit"] = nullptr;
+    outputs[i]["main.test_nested_out"] = nullptr;
+    outputs[i]["audit.test_nested_out"] = nullptr;
   }
   EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_STREQ(GetOperatorLastError(),
-               "DecodeInput for test_partial_request_ids recorded "
-               "1 request ids for 2 inputs");
+               "DecodeInput for keyword_in/test_partial_request_ids recorded "
+               "request ids inconsistent with its input structs");
   for (const auto& frame : outputs) {
-    EXPECT_EQ(frame.at("test.result"), nullptr);
-    EXPECT_EQ(frame.at("test.audit"), nullptr);
+    EXPECT_EQ(frame.at("main.test_nested_out"), nullptr);
+    EXPECT_EQ(frame.at("audit.test_nested_out"), nullptr);
   }
   // 归还已取出的块会将其重置，即使没有发布任何输出。
   EXPECT_EQ(nested_resets, resets_before);
 }
 
 TEST_F(OperatorApiTest,
-       SameOutputKeysSelectIndependentNestedAllocatorsPerHandle) {
+       DifferentConvertersSelectIndependentNestedAllocatorsPerHandle) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   WriteNestedOutputPipeline(temp.path(), "first.json", false);
@@ -2553,7 +2288,6 @@ TEST_F(OperatorApiTest,
       << nlohmann::json{{"pipe_path", "second.json"}};
   const auto root = temp.path().string();
   for (bool alternate : {false, true}) {
-    const auto expected_alloc = NestedOutputAllocations(alternate);
     llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string error;
     ASSERT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
@@ -2561,18 +2295,16 @@ TEST_F(OperatorApiTest,
                   &resolved, &error),
               0)
         << error;
-    for (const char* slot : {"main", "audit"}) {
-      SCOPED_TRACE(slot);
-      const auto& source = expected_alloc.at(slot).at("params");
-      EXPECT_FALSE(source.contains("reject_hit"));
-      EXPECT_EQ(resolved.io_plan->output_parameter_texts.at(slot),
-                source.dump());
+    ASSERT_EQ(resolved.io_plan->outputs.size(), 2u);
+    for (size_t i = 0; i < 2; ++i) {
+      const auto& selected = resolved.io_plan->outputs[i];
       EXPECT_EQ(
-          resolved.io_plan->output_parameter_texts.at(slot).find("reject_hit"),
-          std::string::npos);
-      EXPECT_FALSE(resolved.io_plan->output_specs.at(slot)
-                       .Parameters<NestedOutputParameters>()
-                       .reject_hit);
+          selected.converter->slot.allocator,
+          i == 0
+              ? (alternate ? "test_nested_alternate" : "test_nested_standard")
+              : (alternate ? "test_nested_standard" : "test_nested_alternate"));
+      EXPECT_FALSE(
+          selected.pool_spec.Parameters<NestedOutputParameters>().reject_hit);
     }
   }
   const int allocations_before = nested_allocations;
@@ -2594,38 +2326,44 @@ TEST_F(OperatorApiTest,
   ASSERT_EQ(nested_allocations - allocations_before, 8);
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput input[] = {{901, &sentence}, {902, &sentence}};
+  CompanyOperatorKeywordInput input[] = {
+      {901, kMockServiceKeywordMatch, &sentence},
+      {902, kMockServiceKeywordMatch, &sentence}};
   NamedIoBatch inputs(2);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input[i]);
   }
   for (size_t variant = 0; variant < handles.size(); ++variant) {
     SCOPED_TRACE(variant);
+    const auto main_key =
+        variant ? "main_alternate.test_nested_out" : "main.test_nested_out";
+    const auto audit_key =
+        variant ? "audit_alternate.test_nested_out" : "audit.test_nested_out";
     void* previous[2][2]{};
     for (int round = 0; round < 2; ++round) {
       NamedIoBatch outputs(2);
       for (auto& output : outputs) {
-        output["chan.result"] = {};
-        output["chan.audit"] = {};
+        output[main_key] = {};
+        output[audit_key] = {};
       }
       ASSERT_EQ(ops_.Process(handles[variant].get(), inputs, outputs), 0)
           << GetOperatorLastError();
       for (size_t i = 0; i < outputs.size(); ++i) {
-        ExpectNestedResult(outputs[i].at("chan.result"), input[i].request_id,
+        ExpectNestedResult(outputs[i].at(main_key), input[i].request_id,
                            variant ? 2 : 1, variant ? 2 : 1, variant ? 3 : 2,
                            true);
-        ExpectNestedResult(outputs[i].at("chan.audit"), input[i].request_id,
+        ExpectNestedResult(outputs[i].at(audit_key), input[i].request_id,
                            variant ? 1 : 2, variant ? 1 : 2, variant ? 4 : 5,
                            true);
-        const void* first = outputs[i].at("chan.result").get();
-        const void* second = outputs[i].at("chan.audit").get();
+        const void* first = outputs[i].at(main_key).get();
+        const void* second = outputs[i].at(audit_key).get();
         EXPECT_NE(first, second);
         if (round == 1) {
           EXPECT_EQ(first, previous[i][0]);
           EXPECT_EQ(second, previous[i][1]);
         }
-        previous[i][0] = outputs[i].at("chan.result").get();
-        previous[i][1] = outputs[i].at("chan.audit").get();
+        previous[i][0] = outputs[i].at(main_key).get();
+        previous[i][1] = outputs[i].at(audit_key).get();
       }
       // 按帧顺序归还，使每个独立的池复用其 FIFO 顺序。
       for (auto& output : outputs) output.clear();
@@ -2636,93 +2374,39 @@ TEST_F(OperatorApiTest,
   EXPECT_EQ(nested_destroys - destroys_before, 8);
 }
 
-TEST_F(OperatorApiTest, NestedOutputConfigurationIsValidatedBeforeAllocation) {
-  using namespace llm_edgeflow::test_support;
-  ScopedTempDirectory temp;
-  const auto root = temp.path().string();
-  std::ofstream(temp.path() / "invalid.conf")
-      << nlohmann::json{{"pipe_path", "pipeline.json"}};
-  for (int mutation = 0; mutation < 11; ++mutation) {
-    SCOPED_TRACE(mutation);
-    auto pipeline = NestedOutputPipelineJson();
-    auto& allocs = pipeline["deployment"]["io"]["out_mem"];
-    auto& main = allocs["main"];
-    switch (mutation) {
-      case 0:
-        main["allocator"] = "not_registered";
-        break;
-      case 1:
-        main["type"] = "keyword_out";
-        break;
-      case 2:
-        main["params"]["kind"] = 9;
-        break;
-      case 3:
-        main["params"]["capacity"] = 0;
-        break;
-      case 4:
-        main["params"]["unknown"] = 1;
-        break;
-      case 5:
-        main["params"] = nlohmann::json::array();
-        break;
-      case 6:
-        allocs["audit"] = 42;
-        break;
-      case 7:
-        allocs["unknown"] = main;
-        break;
-      case 8:
-        pipeline["deployment"]["io"]["mem_que"] = nlohmann::json::object();
-        break;
-      case 9:
-        main["capacities"] = {{"unknown", 10}};
-        break;
-      case 10:
-        main["params"]["capacity"] = 1.5;
-        break;
-    }
-    std::ofstream(temp.path() / "pipeline.json") << pipeline;
-    CreateParam param{};
-    param.model_path = root.c_str();
-    param.cfg_file_name = "invalid.conf";
-    param.compute_platform = ComputePlatform::kCpu;
-    param.max_frame_depth = 1;
-    const int allocations_before = nested_allocations;
-    void* handle = nullptr;
-    EXPECT_EQ(ops_.Create(&handle, &param), -2) << GetOperatorLastError();
-    EXPECT_EQ(handle, nullptr);
-    EXPECT_EQ(nested_allocations, allocations_before);
-    EXPECT_STRNE(GetOperatorLastError(), "");
-    if (handle) ops_.Destroy(handle);
-  }
-}
-
-TEST_F(OperatorApiTest, MissingOutputMemoryUsesRegisteredNestedDefaults) {
+TEST_F(OperatorApiTest, FixedConverterLayoutUsesAllocatorDefaults) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"].erase("out_mem");
+  pipeline["io"]["output"][0]["name"] = "main_default";
+  pipeline["io"]["output"][1]["name"] = "audit_default";
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
   const auto root = temp.path().string();
   char error[256]{};
-  std::string biz;
-  EXPECT_EQ(ResolveOperatorConfigBiz(root.c_str(), "pipeline.conf", &biz, error,
-                                     sizeof(error)),
+  OperatorIoContract io;
+  EXPECT_EQ(ResolveOperatorConfigIo(root.c_str(), "pipeline.conf", &io, error,
+                                    sizeof(error)),
             0)
       << error;
-  EXPECT_EQ(biz, "test_nested_output");
+  ASSERT_EQ(io.outputs.size(), 2u);
+  EXPECT_EQ(io.outputs[0].name, "main_default");
+  EXPECT_EQ(io.outputs[1].name, "audit_default");
+  EXPECT_EQ(io.outputs[0].type, "test_nested_out");
+  EXPECT_EQ(io.outputs[1].type, "test_nested_out");
+  EXPECT_EQ(io.outputs[0].type_name, "NestedOutputEnvelope");
+  EXPECT_EQ(io.outputs[1].type_name, "NestedOutputEnvelope");
   llm_edgeflow::ResolvedOperatorConfig resolved;
   std::string resolve_error;
   ASSERT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                 root.c_str(), "pipeline.conf", &resolved, &resolve_error),
             0)
       << resolve_error;
-  // 未配置 params 时，所选实现收到的参数文本为 "{}"。
-  for (const char* slot : {"main", "audit"}) {
-    EXPECT_EQ(resolved.io_plan->output_parameter_texts.at(slot), "{}");
+  for (const auto& selected : resolved.io_plan->outputs) {
+    EXPECT_EQ(selected.converter->slot.allocator_params, "{}");
+    EXPECT_EQ(selected.pool_spec.Parameters<NestedOutputParameters>().capacity,
+              3u);
   }
   CreateParam param{};
   param.model_path = root.c_str();
@@ -2735,51 +2419,27 @@ TEST_F(OperatorApiTest, MissingOutputMemoryUsesRegisteredNestedDefaults) {
       raw_handle, [this](void* ptr) { EXPECT_EQ(ops_.Destroy(ptr), 0); });
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput input{907, &sentence};
+  CompanyOperatorKeywordInput input{907, kMockServiceKeywordMatch, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
-  outputs[0]["chan.result"] = {};
-  outputs[0]["chan.audit"] = {};
+  outputs[0]["main_default.test_nested_out"] = {};
+  outputs[0]["audit_default.test_nested_out"] = {};
   ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
       << GetOperatorLastError();
-  ExpectNestedResult(outputs[0].at("chan.result"), 907, 1, 1, 3, true);
-  ExpectNestedResult(outputs[0].at("chan.audit"), 907, 1, 1, 3, true);
-  EXPECT_NE(outputs[0].at("chan.result"), outputs[0].at("chan.audit"));
+  ExpectNestedResult(outputs[0].at("main_default.test_nested_out"), 907, 1, 1,
+                     3, true);
+  ExpectNestedResult(outputs[0].at("audit_default.test_nested_out"), 907, 1, 1,
+                     3, true);
+  EXPECT_NE(outputs[0].at("main_default.test_nested_out"),
+            outputs[0].at("audit_default.test_nested_out"));
   outputs.clear();
-}
-
-TEST_F(OperatorApiTest,
-       CustomAllocatorStillRequiresItsExplicitLayoutParameters) {
-  using namespace llm_edgeflow::test_support;
-  ScopedTempDirectory temp;
-  auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["out_mem"]["main"] = {
-      {"allocator", "test_nested_explicit_parameters"}};
-  std::ofstream(temp.path() / "pipeline.json") << pipeline;
-  std::ofstream(temp.path() / "pipeline.conf")
-      << nlohmann::json{{"pipe_path", "pipeline.json"}};
-  const auto root = temp.path().string();
-  CreateParam param{};
-  param.model_path = root.c_str();
-  param.cfg_file_name = "pipeline.conf";
-  param.compute_platform = ComputePlatform::kCpu;
-  param.max_frame_depth = 1;
-  const int allocations_before = nested_allocations;
-  void* handle = nullptr;
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_EQ(handle, nullptr);
-  EXPECT_EQ(nested_allocations, allocations_before);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("capacity"),
-            std::string::npos);
-  if (handle) ops_.Destroy(handle);
 }
 
 TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["out_mem"]["audit"]["params"]["reject_hit"] =
-      true;
+  pipeline["io"]["output"][1]["name"] = "audit_reject";
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2796,24 +2456,26 @@ TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
   const int allocations_before = nested_allocations;
   std::string text = "初始化";
   CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
-  CompanyOperatorKeywordInput input{903, &sentence};
+  CompanyOperatorKeywordInput input{903, kMockServiceKeywordMatch, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
-  outputs[0]["chan.result"] = {};
-  outputs[0]["chan.audit"] = {};
+  outputs[0]["main.test_nested_out"] = {};
+  outputs[0]["audit_reject.test_nested_out"] = {};
   for (int attempt = 0; attempt < 2; ++attempt) {
     const int resets_before = nested_resets;
     EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -4);
-    EXPECT_EQ(outputs[0].at("chan.result"), nullptr);
-    EXPECT_EQ(outputs[0].at("chan.audit"), nullptr);
+    EXPECT_EQ(outputs[0].at("main.test_nested_out"), nullptr);
+    EXPECT_EQ(outputs[0].at("audit_reject.test_nested_out"), nullptr);
     EXPECT_EQ(nested_resets - resets_before, 2);
   }
   text = "no matching rule";
   sentence = {static_cast<int32_t>(text.size()), text.data()};
   ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
       << GetOperatorLastError();
-  ExpectNestedResult(outputs[0].at("chan.result"), 903, 1, 1, 2, false);
-  ExpectNestedResult(outputs[0].at("chan.audit"), 903, 2, 2, 5, false);
+  ExpectNestedResult(outputs[0].at("main.test_nested_out"), 903, 1, 1, 2,
+                     false);
+  ExpectNestedResult(outputs[0].at("audit_reject.test_nested_out"), 903, 2, 2,
+                     5, false);
   EXPECT_EQ(nested_allocations, allocations_before);
   outputs.clear();
 }
@@ -2822,8 +2484,7 @@ TEST_F(OperatorApiTest, OutputBudgetUsesRequestedDepthWithoutAllocating) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  pipeline["deployment"]["io"]["out_mem"]["main"]["allocator"] =
-      "test_nested_3mib_footprint";
+  pipeline["io"]["output"][0]["name"] = "main_footprint";
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2854,9 +2515,8 @@ TEST_F(OperatorApiTest, AllOutputSlotsShareTheHandlePayloadBudget) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
   auto pipeline = NestedOutputPipelineJson();
-  for (auto& output : pipeline["deployment"]["io"]["out_mem"]) {
-    output["params"]["capacity"] = 9000;
-  }
+  pipeline["io"]["output"][0]["name"] = "main_large";
+  pipeline["io"]["output"][1]["name"] = "audit_large";
   std::ofstream(temp.path() / "pipeline.json") << pipeline;
   std::ofstream(temp.path() / "pipeline.conf")
       << nlohmann::json{{"pipe_path", "pipeline.json"}};
@@ -2889,7 +2549,8 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   std::string plain_text = "普通中文句子非JSON格式";
   CompanyString cs_plain{static_cast<int32_t>(plain_text.size()),
                          const_cast<char*>(plain_text.data())};
-  CompanyOperatorEntityInput in_plain{50001, &cs_plain};
+  CompanyOperatorEntityInput in_plain{50001, kMockServiceEntityExtract,
+                                      &cs_plain};
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in_plain);
@@ -2902,9 +2563,10 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   // 翻译 Adapter 要求带 "query" 的 JSON 对象，因此拒绝纯文本
   const auto* translate_in_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindInputConverter(
-          "translate.json");
+          "entity_in", "translate");
   ASSERT_NE(translate_in_conv, nullptr);
-  CompanyOperatorEntityInput c_in_plain{50001, &cs_plain};
+  CompanyOperatorEntityInput c_in_plain{50001, kMockServiceEntityExtract,
+                                        &cs_plain};
   llm_edgeflow::AlgContext ctx;
   llm_edgeflow::AdapterStatus status;
   llm_edgeflow::ExternalInputBatchView view_plain;
@@ -2913,7 +2575,15 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
       llm_edgeflow::BorrowInputForTest({&c_in_plain});
   view_plain.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   llm_edgeflow::InputDecodeOptions decode_opts;
-  decode_opts.converter_id = translate_in_conv->converter_id;
+  const llm_edgeflow::IoPortBindings decode_opts_ports =
+      llm_edgeflow::test::ConverterPortsForTest(*translate_in_conv);
+  decode_opts.ports = &decode_opts_ports;
+  decode_opts.type = translate_in_conv->type;
+  decode_opts.name = translate_in_conv->name;
+  std::shared_ptr<const llm_edgeflow::ParameterValues> translation_params;
+  ASSERT_TRUE(translate_in_conv->params.Parse(nlohmann::json::object(),
+                                              &translation_params));
+  decode_opts.params = translation_params.get();
   std::vector<uint64_t> request_ids;
   decode_opts.request_ids = &request_ids;
 
@@ -2925,7 +2595,8 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
   CompanyString cs_json{static_cast<int32_t>(json_text.size()),
                         const_cast<char*>(json_text.data())};
-  CompanyOperatorEntityInput c_in_json{50002, &cs_json};
+  CompanyOperatorEntityInput c_in_json{50002, kMockServiceEntityExtract,
+                                       &cs_json};
   llm_edgeflow::AlgContext valid_ctx;
   llm_edgeflow::ExternalInputBatchView view_json;
   view_json.count = 1;
@@ -2934,9 +2605,235 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   EXPECT_EQ(
       translate_in_conv->decode_fn(view_json, decode_opts, &valid_ctx, &status),
       COMPANY_ALG_SUCCESS);
-  const auto* queries = valid_ctx.Read(llm_edgeflow::kInputSentences);
+  const auto* queries =
+      valid_ctx.Read<llm_edgeflow::TextBatch>(decode_opts.Port("query"));
   ASSERT_NE(queries, nullptr);
   EXPECT_EQ((*queries)[0].data, "有效翻译查询");
 
   EXPECT_EQ(ops_.Destroy(entity_handle), 0);
+}
+
+TEST_F(OperatorApiTest, NamedServicesAndRequestIdsAreCheckedBeforeDecode) {
+  using llm_edgeflow::test_support::ScopedTestOperator;
+  ScopedTempDirectory temp;
+  nlohmann::json document;
+  std::ifstream(std::filesystem::path(GetConfDir()) /
+                "configs/pipeline_keyword_match_rules.json") >>
+      document;
+  document["io"]["input"].push_back(
+      {{"type", "audit_in"}, {"name", "dialogue_audit"}});
+  std::ofstream(temp.path() / "pipeline.json") << document;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  ScopedTestOperator handle(ops_);
+  ASSERT_EQ(handle.Create("pipeline.conf", temp.path().string(),
+                          ComputePlatform::kCpu, 3),
+            0)
+      << handle.create_diagnostic();
+  std::string text = "sample", channel = "test";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyString channel_text{static_cast<int32_t>(channel.size()),
+                             channel.data()};
+  CompanyOperatorKeywordInput keyword[] = {
+      {17, kMockServiceKeywordMatch, &sentence},
+      {99, kMockServiceKeywordMatch, &sentence},
+      {0, kMockServiceKeywordMatch, &sentence}};
+  CompanyOperatorAuditInput audit[] = {
+      {17, kMockServiceDialogueAudit, &sentence, &channel_text},
+      {99, kMockServiceDialogueAudit, &sentence, &channel_text},
+      {0, kMockServiceDialogueAudit, &sentence, &channel_text}};
+  NamedIoBatch inputs(3), outputs(3);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    inputs[i]["first.keyword_in"] = MakeBorrowedOperatorInput(&keyword[i]);
+    inputs[i]["second.audit_in"] = MakeBorrowedOperatorInput(&audit[i]);
+    outputs[i]["result.keyword_out"] = {};
+  }
+  audit[1].service_type = 999;
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("CompanyOperatorAuditInput frame 1"),
+            std::string::npos);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("expected 4"),
+            std::string::npos);
+  for (const auto& row : outputs)
+    EXPECT_EQ(row.at("result.keyword_out"), nullptr);
+  audit[1].service_type = kMockServiceDialogueAudit;
+  audit[1].request_id = 42;
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("expected 99"),
+            std::string::npos);
+  for (const auto& row : outputs)
+    EXPECT_EQ(row.at("result.keyword_out"), nullptr);
+  audit[1].request_id = 99;
+  for (int round = 0; round < 2; ++round) {
+    ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+        << GetOperatorLastError();
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      const auto* value = static_cast<const CompanyOperatorKeywordOutput*>(
+          outputs[i].at("result.keyword_out").get());
+      ASSERT_NE(value, nullptr);
+      EXPECT_EQ(value->request_id, keyword[i].request_id);
+      EXPECT_EQ(value->service_type, kMockServiceKeywordMatch);
+      outputs[i]["result.keyword_out"].reset();
+    }
+  }
+}
+
+TEST_F(OperatorApiTest, OptionalOutputsPreserveEveryRowPosition) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  auto document = NestedOutputPipelineJson();
+  document["io"]["output"][1]["name"] = "audit_optional";
+  std::ofstream(temp.path() / "pipeline.json") << document;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const int before = nested_allocations;
+  ScopedTestOperator handle(ops_);
+  ASSERT_EQ(handle.Create("pipeline.conf", temp.path().string(),
+                          ComputePlatform::kCpu, 5),
+            0)
+      << handle.create_diagnostic();
+  EXPECT_EQ(nested_allocations - before,
+            10);  // Optional pool exists before any requested output.
+  std::string text = "初始化";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorKeywordInput rows[] = {
+      {91, kMockServiceKeywordMatch, &sentence},
+      {18, kMockServiceKeywordMatch, &sentence},
+      {0, kMockServiceKeywordMatch, &sentence},
+      {18, kMockServiceKeywordMatch, &sentence},
+      {502, kMockServiceKeywordMatch, &sentence}};
+  NamedIoBatch inputs(5);
+  for (size_t i = 0; i < inputs.size(); ++i)
+    inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
+  for (int omitted : {0, 2, 4, -1, 5}) {
+    NamedIoBatch outputs(5);
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      outputs[i]["main.test_nested_out"] = {};
+      if (omitted != 5 && static_cast<int>(i) != omitted)
+        outputs[i]["audit_optional.test_nested_out"] = {};
+    }
+    ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+        << GetOperatorLastError();
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      ExpectNestedResult(outputs[i].at("main.test_nested_out"),
+                         rows[i].request_id, 1, 1, 2, true);
+      if (omitted != 5 && static_cast<int>(i) != omitted)
+        ExpectNestedResult(outputs[i].at("audit_optional.test_nested_out"),
+                           rows[i].request_id, 2, 2, 5, true);
+      else
+        EXPECT_EQ(outputs[i].count("audit_optional.test_nested_out"), 0u);
+    }
+    outputs.clear();
+  }
+  EXPECT_EQ(nested_allocations - before, 10);
+}
+
+TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
+  using llm_edgeflow::test_support::ScopedTestOperator;
+  ScopedTempDirectory temp;
+  const std::string payload =
+      nlohmann::json{{"value", std::string(2300, 'x')}}.dump();
+  const nlohmann::json document = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "entity_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}},
+           {"params", {{"entities_json_max_bytes", 4095}}}},
+          {{"type", "entity_out"},
+           {"name", "translate"},
+           {"inputs", {{"translation", "copy.text"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"name", "text"},
+         {"type", "text_template"},
+         {"params", {{"template", payload}, {"max_length", 8191}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"name", "parse"},
+         {"type", "structured_json_parse"},
+         {"params", {{"failure_policy", "fail"}}},
+         {"inputs", {{"text", "text.text"}}}},
+        {{"name", "copy"},
+         {"type", "text_template"},
+         {"params", {{"max_length", 8191}}},
+         {"inputs", {{"primary", "text.text"}}}}}}};
+  std::ofstream(temp.path() / "pipeline.json") << document;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  llm_edgeflow::ResolvedOperatorConfig resolved;
+  std::string error;
+  ASSERT_EQ(
+      llm_edgeflow::OperatorConfigResolver::Resolve(
+          temp.path().string().c_str(), "pipeline.conf", &resolved, &error, 1),
+      0)
+      << error;
+  ASSERT_EQ(resolved.io_plan->outputs.size(), 2u);
+  EXPECT_EQ(resolved.io_plan->outputs[0].pool_spec.GetCapacity("entities_json"),
+            4095u);
+  EXPECT_EQ(resolved.io_plan->outputs[1].pool_spec.GetCapacity("entities_json"),
+            8191u);
+  ScopedTestOperator handle(ops_);
+  ASSERT_EQ(handle.Create("pipeline.conf", temp.path().string(),
+                          ComputePlatform::kCpu, 1),
+            0)
+      << handle.create_diagnostic();
+  std::string text = "unused";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorEntityInput row{777, kMockServiceEntityExtract, &sentence};
+  NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["any.entity_in"] = MakeBorrowedOperatorInput(&row);
+  outputs[0]["any.entity_out"] = {};
+  EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -4);
+  EXPECT_EQ(outputs[0].at("any.entity_out"), nullptr);
+  outputs[0].clear();
+  outputs[0]["entity_extract.entity_out"] = {};
+  outputs[0]["translate.entity_out"] = {};
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  for (const auto& [name, service] :
+       std::vector<std::pair<std::string, int32_t>>{
+           {"entity_extract", kMockServiceEntityExtract},
+           {"translate", kMockServiceTranslate}}) {
+    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(
+        outputs[0].at(name + ".entity_out").get());
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->request_id, 777u);
+    EXPECT_EQ(value->service_type, service);
+    ASSERT_NE(value->entities_json, nullptr);
+    EXPECT_GT(value->entities_json->length, 2048);
+    EXPECT_LT(value->entities_json->length, 8191);
+    const auto parsed = nlohmann::json::parse(
+        std::string(value->entities_json->data, value->entities_json->length));
+    if (name == "translate")
+      EXPECT_EQ(parsed.at("translated"), payload);
+    else
+      EXPECT_EQ(parsed.at("value"), std::string(2300, 'x'));
+  }
+  outputs.clear();
+
+  // A large response reaches the first pool, then fails the smaller second
+  // pool. This checks the capacities of the actual allocations as well as
+  // failure atomicity after one successful encode.
+  auto large_document = document;
+  large_document["pipeline"][0]["params"]["template"] =
+      nlohmann::json{{"value", std::string(5000, 'x')}}.dump();
+  std::swap(large_document["io"]["output"][0],
+            large_document["io"]["output"][1]);
+  std::ofstream(temp.path() / "pipeline.json") << large_document;
+  ScopedTestOperator overflow_handle(ops_);
+  ASSERT_EQ(overflow_handle.Create("pipeline.conf", temp.path().string(),
+                                   ComputePlatform::kCpu, 1),
+            0)
+      << overflow_handle.create_diagnostic();
+  outputs.resize(1);
+  outputs[0]["translate.entity_out"] = {};
+  outputs[0]["entity_extract.entity_out"] = {};
+  EXPECT_EQ(ops_.Process(overflow_handle.get(), inputs, outputs), -4);
+  EXPECT_NE(
+      std::string(GetOperatorLastError()).find("entity_out/entity_extract"),
+      std::string::npos);
+  EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
 }

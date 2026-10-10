@@ -6,23 +6,23 @@
 
 namespace llm_edgeflow {
 
-inline bool ResolveBoundModelId(const ValidatedNodePlan& plan,
-                                const std::string& slot_name,
-                                const std::string& capability,
-                                std::string* model_id, std::string* error) {
+inline bool ResolveBoundModelName(const ValidatedNodePlan& plan,
+                                  const std::string& slot_name,
+                                  const std::string& model_type,
+                                  std::string* model_name, std::string* error) {
   const auto* binding = plan.FindModelBinding(slot_name);
-  if (!binding || binding->model_id.empty()) {
+  if (!binding || binding->model_name.empty()) {
     if (error)
       *error =
           "Model binding for '" + slot_name + "' is missing or empty in plan";
     return false;
   }
-  if (binding->capability != capability) {
+  if (binding->model_type != model_type) {
     if (error)
-      *error = "Model binding capability mismatch for '" + slot_name + "'";
+      *error = "Model binding model_type mismatch for '" + slot_name + "'";
     return false;
   }
-  *model_id = binding->model_id;
+  *model_name = binding->model_name;
   return true;
 }
 

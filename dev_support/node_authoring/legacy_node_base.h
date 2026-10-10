@@ -38,8 +38,8 @@ class LegacyNodeBase : public NodeBase {
     const auto result = detail::ResolvePortBinding(
         *init_ctx.plan, PortDirection::kOutput, out_port);
     if (result.status == detail::PortBindingStatus::kUnbound) {
-      throw std::invalid_argument("Output port is unbound in plan: " +
-                                  out_port.LogicalName());
+      out_port.Resolve({});
+      return;
     }
     if (result.status == detail::PortBindingStatus::kTypeMismatch) {
       throw std::invalid_argument("Output port TypeId mismatch for " +

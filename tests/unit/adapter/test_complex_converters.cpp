@@ -7,7 +7,6 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/io_binding_registry.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "contracts/inference_payloads.h"
@@ -16,6 +15,7 @@
 #include "core/pipeline_catalog.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
@@ -25,10 +25,10 @@ class ComplexConvertersTest : public ::testing::Test {};
 // ==================== DocQA ====================
 TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("doc_query.plain");
+      IoConverterRegistry::Instance().FindInputConverter("doc_in", "doc_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
+      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
   std::string doc_text = "Sample document text";
@@ -38,16 +38,15 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   CompanyString cs_query{static_cast<int32_t>(query_text.size()),
                          const_cast<char*>(query_text.data())};
 
-  CompanyOperatorDocInput doc_in{2001, &cs_doc, &cs_query};
+  CompanyOperatorDocInput doc_in{2001, kMockServiceDocQa, &cs_doc, &cs_query};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
   in_view.slot_types["doc_in"] = "CompanyOperatorDocInput";
 
   std::vector<uint64_t> request_ids;
-  InputDecodeOptions in_options;
+  test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -57,7 +56,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   // 填充答案上下文
   TextBatch answers;
   answers.emplace_back(0, 0, "This is the answer.");
-  ctx.Publish("llm_answers", std::move(answers));
+  ctx.Publish("answer_text", std::move(answers));
 
   RuleMatchBatch intents;
   RuleMatchItem match;
@@ -65,17 +64,18 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   match.score = 0.95f;
   match.status_code = 0;
   intents.emplace_back(0, 0, match);
-  ctx.Publish("intent_matches", std::move(intents));
+  ctx.Publish("intent", std::move(intents));
 
   Int32Batch chunk_counts;
   chunk_counts.emplace_back(0, 0, 1);
-  ctx.Publish("doc_chunk_counts", std::move(chunk_counts));
+  ctx.Publish("chunk_count", std::move(chunk_counts));
 
   char ans_buf[256] = {0};
   CompanyString cs_ans{255, ans_buf};
   char int_buf[64] = {0};
   CompanyString cs_int{63, int_buf};
-  CompanyOperatorDocOutput doc_out{};
+  CompanyOperatorDocOutput doc_out{
+      0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
   doc_out.answer_text = &cs_ans;
   doc_out.intent_name = &cs_int;
 
@@ -86,9 +86,8 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   out_view.SetCapacity("doc_out", "answer_text", 255);
   out_view.SetCapacity("doc_out", "intent_name", 63);
 
-  OutputEncodeOptions out_options;
+  test::ParsedOutputOptions out_options(*out_conv);
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -106,22 +105,23 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 TEST_F(ComplexConvertersTest,
        DocQaOutputPreservesEmbeddedNullAndRejectsSmallPool) {
   const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain");
+      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
   ASSERT_NE(converter, nullptr);
   const std::string answer("a\0b", 3);
   AlgContext ctx;
   std::vector<uint64_t> request_ids{2001};
-  ctx.Publish("llm_answers", TextBatch{{0, 0, answer}});
-  ctx.Publish("intent_matches", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
-  ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
-  OutputEncodeOptions options;
+  ctx.Publish("answer_text", TextBatch{{0, 0, answer}});
+  ctx.Publish("intent", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
+  ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
+  test::ParsedOutputOptions options(*converter);
   options.request_ids = &request_ids;
-  options.converter_id = converter->converter_id;
+
   char bytes[4] = {};
   char intent_bytes[1] = {};
   CompanyString answer_out{0, bytes};
   CompanyString intent_out{0, intent_bytes};
-  CompanyOperatorDocOutput output{};
+  CompanyOperatorDocOutput output{
+      0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
   output.answer_text = &answer_out;
   output.intent_name = &intent_out;
   TestOutputBatchView view;
@@ -148,11 +148,11 @@ TEST_F(ComplexConvertersTest,
 
 // ==================== CrossRerank ====================
 TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("rerank.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "rerank_in", "cross_rerank");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "rerank_result.plain");
+      "rerank_out", "cross_rerank");
   ASSERT_NE(out_conv, nullptr);
 
   std::string query_text = "how to rerank?";
@@ -162,7 +162,8 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   CompanyString cs_p{static_cast<int32_t>(passage_text.size()),
                      const_cast<char*>(passage_text.data())};
 
-  CompanyOperatorRerankInput rerank_in{};
+  CompanyOperatorRerankInput rerank_in{
+      0, kMockServiceCrossRerank, nullptr, {}, 0};
   rerank_in.request_id = 3001;
   rerank_in.query_text = &cs_q;
   rerank_in.candidate_passages[0] = &cs_p;
@@ -174,9 +175,8 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   in_view.slot_types["rerank_in"] = "CompanyOperatorRerankInput";
 
   std::vector<uint64_t> request_ids;
-  InputDecodeOptions in_options;
+  test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -191,17 +191,17 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   cand.original_sub_id = 0;
   cand.text = "Reranking is a scoring step.";
   ranked.emplace_back(0, 0, cand);
-  ctx.Publish("ranked_results", std::move(ranked));
+  ctx.Publish("ranked", std::move(ranked));
 
-  CompanyOperatorRerankOutput rerank_out{};
+  CompanyOperatorRerankOutput rerank_out{0, kMockServiceCrossRerank, {}, {}, 0,
+                                         0};
   TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["rerank_out"] = {&rerank_out};
   out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
 
-  OutputEncodeOptions out_options;
+  test::ParsedOutputOptions out_options(*out_conv);
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -215,11 +215,11 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
 
 // ==================== DialogueAudit ====================
 TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audit.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audit_in", "dialogue_audit");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audit_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
 
   std::string dialogue = "User text violating rules";
@@ -229,16 +229,16 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   CompanyString cs_chan{static_cast<int32_t>(channel.size()),
                         const_cast<char*>(channel.data())};
 
-  CompanyOperatorAuditInput audit_in{4001, &cs_dia, &cs_chan};
+  CompanyOperatorAuditInput audit_in{4001, kMockServiceDialogueAudit, &cs_dia,
+                                     &cs_chan};
   ExternalInputBatchView in_view;
   in_view.count = 1;
   in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
   in_view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
 
   std::vector<uint64_t> request_ids;
-  InputDecodeOptions in_options;
+  test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -251,7 +251,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
       0, 0,
       JsonDocumentItem("{\"risk\":\"high\"}", true, JsonParseStatus::kOk, "",
                        {{"risk_level", "HIGH_RISK"}, {"risk_score", 0.88f}}));
-  ctx.Publish("structured_verdicts", std::move(verdicts));
+  ctx.Publish("verdict", std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Rule 12.3", 0.88f, 1, 0));
@@ -264,7 +264,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   char verdict_buf[1024] = {0};
   CompanyString cs_verdict{1023, verdict_buf};
 
-  CompanyOperatorAuditOutput audit_out{};
+  CompanyOperatorAuditOutput audit_out{
+      0, kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
   audit_out.risk_level = &cs_risk;
   audit_out.matched_policy_clause = &cs_clause;
   audit_out.audit_verdict_json = &cs_verdict;
@@ -277,9 +278,8 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   out_view.SetCapacity("audit_out", "matched_policy_clause", 255);
   out_view.SetCapacity("audit_out", "audit_verdict_json", 1023);
 
-  OutputEncodeOptions out_options;
+  test::ParsedOutputOptions out_options(*out_conv);
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -297,15 +297,16 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
 // ==================== AudioAsrIntent ====================
 TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audio.pcm");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audio_in", "audio_asr_intent");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("audio_result.plain");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audio_out", "audio_asr_intent");
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<float> pcm = {0.1f, 0.2f, -0.1f};
-  CompanyOperatorAudioInput audio_in{5001, pcm.data(),
+  CompanyOperatorAudioInput audio_in{5001, kMockServiceAudioAsrIntent,
+                                     pcm.data(),
                                      static_cast<int32_t>(pcm.size()), 16000};
   ExternalInputBatchView in_view;
   in_view.count = 1;
@@ -313,9 +314,8 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   in_view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
 
   std::vector<uint64_t> request_ids;
-  InputDecodeOptions in_options;
+  test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -324,7 +324,7 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
   TextBatch transcripts;
   transcripts.emplace_back(0, 0, "open the front door");
-  ctx.Publish("transcripts", std::move(transcripts));
+  ctx.Publish("transcribed_text", std::move(transcripts));
 
   RuleMatchBatch slots;
   RuleMatchItem m(1, "open_door", "open", 1.0f, "r1");
@@ -332,14 +332,15 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
       {RuleMatchSource::kRule, "open_door", "r1", "open", 0.5f});
   m.slots["target"] = "front";
   slots.emplace_back(0, 0, m);
-  ctx.Publish("intent_slots", std::move(slots));
+  ctx.Publish("intent_slot", std::move(slots));
 
   char trans_buf[512] = {0};
   CompanyString cs_trans{511, trans_buf};
   char slot_buf[1024] = {0};
   CompanyString cs_slot{1023, slot_buf};
 
-  CompanyOperatorAudioOutput audio_out{};
+  CompanyOperatorAudioOutput audio_out{0, kMockServiceAudioAsrIntent, nullptr,
+                                       nullptr, 0};
   audio_out.transcribed_text = &cs_trans;
   audio_out.intent_slot_json = &cs_slot;
 
@@ -350,9 +351,8 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   out_view.SetCapacity("audio_out", "transcribed_text", 511);
   out_view.SetCapacity("audio_out", "intent_slot_json", 1023);
 
-  OutputEncodeOptions out_options;
+  test::ParsedOutputOptions out_options(*out_conv);
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -371,18 +371,18 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
 
 // ==================== OcrInvoiceQa ====================
 TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("image_query.plain");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "frame", "ocr_invoice_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "invoice_result.plain");
+      "od_out", "ocr_invoice_qa");
   ASSERT_NE(out_conv, nullptr);
 
   // 准备 Operator 输入：frame 和 string
   std::string uri_str = "/path/to/invoice.jpg";
   CompanyString uri{static_cast<int32_t>(uri_str.size()),
                     const_cast<char*>(uri_str.data())};
-  CompanyFrame frame{};
+  CompanyFrame frame{0, kMockServiceOcrInvoiceQa, nullptr, nullptr};
   frame.request_id = 6001;
   frame.image_uri = &uri;
 
@@ -398,9 +398,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   in_view.slot_types["string"] = "CompanyString";
 
   std::vector<uint64_t> request_ids;
-  InputDecodeOptions in_options;
+  test::ParsedInputOptions in_options(*in_conv);
   in_options.request_ids = &request_ids;
-  in_options.converter_id = in_conv->converter_id;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -408,22 +407,34 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
   // 在 AlgContext 中准备发票输出
+
+  const auto* query_converter =
+      IoConverterRegistry::Instance().FindInputConverter("string",
+                                                         "ocr_invoice_qa");
+  ASSERT_NE(query_converter, nullptr);
+  test::ParsedInputOptions query_options(*query_converter);
+  query_options.request_ids = &request_ids;
+  ASSERT_EQ(query_converter->decode_fn(in_view, query_options, &ctx, &status),
+            0);
+  ASSERT_NE(ctx.Read<TextBatch>("question"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("question")->front().data, "Total amount?");
+
   StructuredDocumentBatch invoices;
   JsonDocumentItem doc_item;
   doc_item.is_valid = true;
   doc_item.parse_status = JsonParseStatus::kOk;
   doc_item.json_payload = "{\"total\":123.45}";
   invoices.emplace_back(0, 0, doc_item);
-  ctx.Publish("extracted_invoice_json", std::move(invoices));
+  ctx.Publish("result", std::move(invoices));
 
   OcrDocumentBatch ocr_docs;
   OcrDocumentItem ocr_doc;
   ocr_doc.boxes.push_back({0, 0, 10, 10, "Invoice", 0.99f});
   ocr_docs.emplace_back(0, 0, ocr_doc);
-  ctx.Publish("ocr_docs", std::move(ocr_docs));
+  ctx.Publish("document", std::move(ocr_docs));
 
   // 目标 Operator od_out
-  CompanyOdOutput od_out{};
+  CompanyOdOutput od_out{0, kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
   std::vector<char> buf(256);
   CompanyString res_str{255, buf.data()};
   od_out.result_json = &res_str;
@@ -434,9 +445,8 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   out_view.SetCapacity("od_out", "result_json", 255);
   out_view.count = 1;
 
-  OutputEncodeOptions out_options;
+  test::ParsedOutputOptions out_options(*out_conv);
   out_options.request_ids = &request_ids;
-  out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_options, &out_view, &written, &status);
@@ -446,53 +456,6 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   EXPECT_EQ(od_out.detected_box_count, 1);
   ASSERT_NE(od_out.result_json, nullptr);
   EXPECT_STREQ(od_out.result_json->data, "{\"total\":123.45}");
-}
-
-// ==================== 8 个业务全部绑定 ====================
-TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
-  const std::vector<std::string> expected_biz = {
-      "translate",    "entity_extract", "keyword_match",    "doc_qa",
-      "cross_rerank", "dialogue_audit", "audio_asr_intent", "ocr_invoice_qa",
-  };
-
-  const auto bindings = IoBindingRegistry::Instance().AllBindings();
-  const auto& converters = IoConverterRegistry::Instance();
-  for (const auto& biz : expected_biz) {
-    auto biz_def = PipelineCatalog::FindBiz(biz);
-    ASSERT_TRUE(biz_def.has_value()) << "Missing biz in catalog: " << biz;
-    const auto binding =
-        std::find_if(bindings.begin(), bindings.end(),
-                     [&](const auto& item) { return item.biz_name == biz; });
-    ASSERT_NE(binding, bindings.end()) << "Missing Operator binding: " << biz;
-    const auto* input =
-        converters.FindInputConverter(binding->input_converter_id);
-    const auto* output =
-        converters.FindOutputConverter(binding->output_converter_id);
-    ASSERT_NE(input, nullptr) << biz;
-    ASSERT_NE(output, nullptr) << biz;
-    // 生产 binding 使用框架标准批次上限。
-    EXPECT_EQ(binding->max_batch_size, 64U) << biz;
-  }
-}
-
-// 审核输出 Converter 的逻辑端口与业务出口同名。
-TEST_F(ComplexConvertersTest, ComplianceBindingUsesBizPortNames) {
-  const auto* binding =
-      IoBindingRegistry::Instance().FindBinding("dialogue_audit");
-  ASSERT_NE(binding, nullptr);
-  const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
-      binding->output_converter_id);
-  ASSERT_NE(output, nullptr);
-  const auto biz = PipelineCatalog::FindBiz(binding->biz_name);
-  ASSERT_TRUE(biz.has_value());
-
-  for (const auto& port : output->logical_ports) {
-    EXPECT_TRUE(std::any_of(biz->egress.begin(), biz->egress.end(),
-                            [&](const auto& egress) {
-                              return egress.blackboard_key == port.logical_name;
-                            }))
-        << port.logical_name;
-  }
 }
 
 }  // namespace llm_edgeflow

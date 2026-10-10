@@ -15,7 +15,7 @@ skinparam componentBorderColor #60A5FA
 title LLM-EdgeFlow 当前配置与运行流程
 legend bottom
   箭头表示准备、创建或调用关系，不表示编译依赖。
-  可用 Node、Model、Backend 与 Biz 以目标构建 Catalog 为准。
+  可用 Node、Model、Backend 与 Converter 以目标构建 Catalog 为准。
 endlegend
 
 actor "宿主程序 / 统一 Demo" as Caller
@@ -23,15 +23,15 @@ component "CLI / Pipeline Studio" as Tools
 
 package "方案与注册信息" {
   artifact ".conf\n仅 pipe_path" as Conf
-  artifact "Pipeline JSON\n节点 / depends_on / typed ports / models\ndeployment.io / models[].model_path" as Document
+  artifact "Pipeline JSON\ntype / name / params / inputs / depends_on\nio.input / io.output / models[].file" as Document
   component "PipelineCatalog\n注册 Definition 的查询视图" as Catalog
   component "Node Spec + 普通算法函数\nREGISTER_FUNCTION_NODE\nModel / Backend / I/O 注册" as Definitions
 }
 
 package "创建期：接入准备与统一校验" {
-  component "PrepareDeploymentDocument\n接入绑定 / 路径解析 / 输出分配参数" as Prepare
+  component "PrepareDeploymentDocument\nConverter选择 / Pipeline目录内文件解析\n不可变参数 / 输出池规格" as Prepare
   artifact "PreparedDeployment\n中性 Pipeline JSON + PipelineIoBoundary" as Prepared
-  component "PipelineValidator\n显式 DAG / 类型端口 / 并发写冲突" as Validator
+  component "PipelineValidator\n由端口引用与depends_on推导DAG\n类型 / 生命周期 / 并行安全" as Validator
   artifact "ValidatedPipelinePlan" as PipelinePlan
   artifact "ValidatedIoPlan\nConverter 选择与 I/O 边界\n输出池规格 + Pipeline 计划" as IoPlan
 }
@@ -44,11 +44,11 @@ package "运行期：C++ Operator SDK" {
   component "Pipeline\nBuildFromPlan / Execute / Control\n消费已验证计划" as Pipeline
   component "AlgContext\nBlackboardKey<T> / Read / Publish\n请求内不可变快照" as Context
   component "SessionContext\nModelManager / SessionResourceKey<T>" as Session
-  component "NodeBase → AuthorNode<Spec>\n通用 Node 与自定义 Node\ntyped I/O / 参数 / 模型 / Control" as Nodes
+  component "NodeBase → AuthorNode<Spec>\n通用 Node 与自定义 Node\n绑定被引用的输出 / 参数 / 模型 / Control" as Nodes
 }
 
 package "模型执行（按需）" {
-  component "ModelRuntimeFactory\nModelRegistry + BackendRegistry" as Factory
+  component "ModelRuntimeFactory\n按模型类别与Backend选唯一实现\nModelRegistry + BackendRegistry" as Factory
   component "IModel 能力\nEmbed / Score / Generate / Recognize / Transcribe" as Model
   component "中性 Backend 会话\nTensorGraph / TextGeneration / ImageTextGeneration\nGeneratedTokenEmbedding / AudioTranscription" as Backend
   component "FixedBatchExecutor\nchunk / execution_count / strip\nModel callback prepares padding\nreq_id / sub_id" as Batch

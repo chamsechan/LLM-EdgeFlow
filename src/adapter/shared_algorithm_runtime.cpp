@@ -8,8 +8,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/deployment_model_resolver.h"
-#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
 #include "core/alg_context.h"
@@ -45,14 +44,19 @@ int SharedAlgorithmRuntime::GlobalInit(std::string* diagnostic) noexcept {
     CollectConflicts("NodeRegistry", NodeRegistry::Instance(), &errors);
     CollectConflicts("ModelRegistry", ModelRegistry::Instance(), &errors);
     CollectConflicts("BackendRegistry", BackendRegistry::Instance(), &errors);
+    std::vector<std::string> model_audit_errors;
+    if (!ModelRegistry::Instance().Audit(BackendRegistry::Instance(),
+                                         &model_audit_errors))
+      for (auto& error : model_audit_errors)
+        errors.push_back("Model audit: " + std::move(error));
     if (OperatorValueTypeRegistry::Instance().HasConflict()) {
       errors.push_back("OperatorValueTypeRegistry: registration conflict");
     }
-    // 绑定审计同时报告 Converter 与 IoBinding 的注册冲突。
+    // 审计全部 Converter 的平台结构、参数与端口契约。
     std::vector<std::string> audit_errors;
-    if (!IoBindingRegistry::Instance().Audit(&audit_errors)) {
+    if (!IoConverterRegistry::Instance().Audit(&audit_errors)) {
       for (auto& error : audit_errors) {
-        errors.push_back("IoBinding audit: " + std::move(error));
+        errors.push_back("Converter audit: " + std::move(error));
       }
     }
     if (errors.empty()) return 0;
@@ -89,7 +93,7 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     }
     *out_runtime = nullptr;
 
-    if (!io_plan || !io_plan->input_converter || !io_plan->output_converter ||
+    if (!io_plan || io_plan->inputs.empty() || io_plan->outputs.empty() ||
         !io_plan->pipeline_plan) {
       if (out_error) *out_error = "Invalid or incomplete ValidatedIoPlan";
       return COMPANY_ALG_ERR_INVALID_PARAM;  // -2

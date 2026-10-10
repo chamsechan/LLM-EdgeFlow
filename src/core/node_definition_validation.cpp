@@ -78,33 +78,25 @@ bool ValidateNodeDefinitionStructure(const NodeDefinition& definition,
     if (error) *error = field_err;
     return false;
   }
-  const auto validates_lifetime_override = [&](const NodePortDefinition& port) {
-    if (port.lifetime_config_field.empty()) return true;
-    auto it = std::find_if(
-        definition.config_fields.begin(), definition.config_fields.end(),
-        [&](const auto& f) { return f.name == port.lifetime_config_field; });
-    if (it == definition.config_fields.end() ||
-        it->kind != ConfigValueKind::kString || it->enum_values.empty()) {
+  for (const auto& port : definition.inputs) {
+    if (!port.lifetime_from_input.empty() ||
+        port.logical_name.find('.') != std::string::npos)
       return false;
-    }
-    return std::all_of(
-        it->enum_values.begin(), it->enum_values.end(),
-        [&](const auto& value) { return ValidLifetimes().count(value) != 0; });
-  };
-  if (!std::all_of(definition.inputs.begin(), definition.inputs.end(),
-                   validates_lifetime_override) ||
-      !std::all_of(definition.outputs.begin(), definition.outputs.end(),
-                   validates_lifetime_override)) {
-    return false;
+  }
+  for (const auto& port : definition.outputs) {
+    if (port.logical_name.find('.') != std::string::npos) return false;
+    if (!port.lifetime_from_input.empty() &&
+        !seen_in_ports.count(port.lifetime_from_input))
+      return false;
   }
   std::unordered_set<std::string> seen_dep_names;
   std::unordered_set<std::string> seen_dep_config_fields;
   for (const auto& dep : definition.model_dependencies) {
-    if (dep.name.empty() || dep.capability.empty() ||
+    if (dep.name.empty() || dep.model_type.empty() ||
         dep.config_field.empty()) {
       if (error) {
         *error =
-            "Model dependency name, capability, and config_field must be "
+            "Model dependency name, model_type, and config_field must be "
             "non-empty";
       }
       return false;

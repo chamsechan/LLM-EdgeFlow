@@ -29,7 +29,7 @@ const open = async filename => {
   await page.click("#openButton");
   await page.waitForFunction(name => document.querySelector("#documentTitle").textContent === name && !document.querySelector("#openButton").disabled, filename);
 };
-const rule = () => page.locator('.node').filter({ hasText: 'TextRuleMatchNode' });
+const rule = () => page.locator('.node').filter({ hasText: 'text_rule_match' });
 const categories = () => page.locator('#configFields [data-field="categories"]');
 const json = async () => JSON.parse(await page.locator("#rawJson").inputValue());
 const contractValues = label => page.locator("#bizContractFields dt").evaluateAll(
@@ -41,15 +41,20 @@ try {
   assert.equal(await page.locator("#newEntryButton").isVisible(), true);
   await page.click("#newEntryButton");
   assert.equal(await page.locator("#newButton").isVisible(), true, "one click exposes creation");
-  await page.selectOption("#bindingSelect", "keyword_match");
+  await page.locator("#createInputs button").filter({hasText: "添加输入"}).click();
+  await page.selectOption("#create_input_0_type", "keyword_in");
+  await page.locator("#createOutputs button").filter({hasText: "添加输出"}).click();
+  await page.selectOption("#create_output_0_type", "keyword_out");
+  await page.click("#newButton");
+  await page.waitForFunction(() => document.querySelectorAll(".node").length === 2 && !document.querySelector("#newButton").disabled);
+  assert.deepEqual(initializationRequests.at(-1), {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "keyword_out", name: "keyword_match"}]});
+  assert.deepEqual((await json()).pipeline, [], "explicit I/O selections create an empty native draft");
+  page.once("dialog", dialog => dialog.accept());
   await page.selectOption("#cloneProfile", "keyword_match_rules");
   await page.click("#newButton");
   await page.waitForFunction(() => document.querySelectorAll('.node').length === 3 && !document.querySelector('#newButton').disabled);
-  assert.equal((await json()).deployment.io.io_binding, "keyword_match");
-  assert.equal(Object.hasOwn(await json(), "biz_name"), false);
-  assert.deepEqual(initializationRequests.at(-1), {
-    io_binding: "keyword_match", profile: "keyword_match_rules", empty: false,
-  });
+  assert.deepEqual((await json()).io.input, [{type: "keyword_in", name: "keyword_match"}]);
+  assert.deepEqual(initializationRequests.at(-1), {profile: "keyword_match_rules"});
   page.once("dialog", dialog => dialog.accept());
   await open("pipeline_browser.json");
   await page.click("#editModeButton"); // 浏览模式
@@ -70,6 +75,11 @@ try {
         const editBox = await page.locator(`#${id}`).boundingBox();
         assert.ok(editBox && editBox.x >= 0 && editBox.x + editBox.width <= width, `${id} reachable when editing at ${width}`);
       }
+      if (!(await page.locator("#operatorSearch").isVisible())) await page.click("#operatorsToggle");
+      const operatorBox = await page.locator("#operatorList .operator").first().boundingBox();
+      const viewportHeight = width === 1920 ? 1080 : 768;
+      assert.ok(operatorBox && operatorBox.y >= 0 && operatorBox.y + operatorBox.height <= viewportHeight,
+        `capability buttons remain reachable with expanded I/O creation at ${width}`);
       await screenshot(`${width}-edit-${filename.replace('.json', '')}`);
       await page.click('#editModeButton');
     }
@@ -79,18 +89,15 @@ try {
   await page.click("#openRunButton");
   await page.locator("#bizContract > summary").click();
   for (const [label, expected] of [
-    ["I/O 契约 · io_binding", ["keyword_match"]],
-    ["输入 Converter", ["keyword.plain"]],
-    ["输出 Converter", ["keyword.result"]],
-    ["输入逻辑槽 · slot_name", ["keyword_in"]],
-    ["输出逻辑槽 · slot_name", ["keyword_out"]],
-    ["宿主类型 · type_id", ["CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"]],
-    ["类型注册后缀 · type_suffix", ["keyword_in", "keyword_out"]],
-    ["外部键后缀 · key_suffix", ["keyword_in", "keyword_out"]],
+    ["输入 → 输出", ["keyword_in/keyword_match → keyword_out/keyword_match"]],
+    ["输入 Converter", ["keyword_in/keyword_match"]],
+    ["输出 Converter", ["keyword_out/keyword_match"]],
+    ["宿主类型", ["CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"]],
+    ["类型注册后缀", ["keyword_in", "keyword_out"]],
   ]) assert.deepEqual(await contractValues(label), expected, label);
   await open("pipeline_browser_multi.json");
   await page.click("#openRunButton");
-  assert.deepEqual(await contractValues("I/O 契约 · io_binding"), ["doc_qa"]);
+  assert.deepEqual(await contractValues("输入 → 输出"), ["doc_in/doc_qa → doc_out/doc_qa"]);
   assert.doesNotMatch(await page.locator("#bizContractFields").textContent(), /keyword/,
     "Changing documents must replace every previous contract field");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -105,33 +112,52 @@ try {
   "Contract labels and identifiers must wrap within their fields");
   await screenshot("390-contract-details");
   await page.setViewportSize({ width: 1366, height: 768 });
-  await page.route("**/api/catalog?io_binding=keyword_match", async route => {
+  await page.route("**/api/catalog", async route => {
     const response = await route.fetch();
     const catalog = await response.json();
     for (const converter of [...catalog.input_converters, ...catalog.output_converters]) {
-      for (const slot of converter.external_slots) {
-        delete slot.type_id; delete slot.type_suffix; delete slot.key_suffix;
-      }
+      delete converter.slot.type_id; delete converter.slot.type_suffix;
     }
     await route.fulfill({ response, json: catalog });
   }, { times: 1 });
   await open("pipeline_browser.json");
   await page.click("#openRunButton");
-  for (const label of ["宿主类型 · type_id", "类型注册后缀 · type_suffix", "外部键后缀 · key_suffix"]) {
+  for (const label of ["宿主类型", "类型注册后缀"]) {
     assert.deepEqual(await contractValues(label), ["未提供", "未提供"],
-      "Missing Catalog fields must not be inferred from slot_name");
+      "Missing Catalog slot fields must not be inferred from converter selection");
   }
-  assert.deepEqual(await contractValues("输入逻辑槽 · slot_name"), ["keyword_in"]);
+  assert.deepEqual(await contractValues("输入 Converter"), ["keyword_in/keyword_match"]);
   await open("pipeline_browser_multi.json");
   await open("pipeline_browser.json");
   await rule().click();
   assert.equal(await page.locator("#nodeForm").isVisible(), true);
   assert.equal(await categories().isDisabled(), true, "browsing never edits parameters");
   assert.equal(await page.locator('body').evaluate(el => el.classList.contains('editing')), false);
+  const beforeIoEdit = await json();
+  await page.locator("#ioSettings > summary").click();
+  const outputCapacity = page.locator('#ioOutputs [data-field="match_result_json_max_bytes"]');
+  assert.equal(await outputCapacity.isDisabled(), true, "browsing never edits converter parameters");
+  assert.equal(await outputCapacity.inputValue(), "", "converter defaults remain unset in the draft");
+  await page.click("#editModeButton");
+  await outputCapacity.fill("4096");
+  await page.click("#quickValidateButton");
+  await page.waitForFunction(() => document.querySelector("#validationOutput").textContent.includes("校验通过"));
+  const afterIoEdit = await json();
+  assert.deepEqual(afterIoEdit.io.input, beforeIoEdit.io.input);
+  assert.deepEqual(afterIoEdit.io.output[0].inputs, beforeIoEdit.io.output[0].inputs);
+  assert.equal(afterIoEdit.io.output[0].params.match_result_json_max_bytes, 4096);
+  assert.ok(await page.locator("#runProfile option[value=keyword_match_rules]").count(), "parameter overrides preserve the Profile contract");
+  await page.click("#undoButton");
+  assert.deepEqual(await json(), beforeIoEdit, "I/O Apply records one complete undo transaction");
+  await page.click("#editModeButton");
+  await rule().click(); // 返回浏览会收起详情；选中节点恢复原隐藏断言的前置状态。
+  assert.equal(await page.locator(".inspector").isVisible(), true);
+  assert.equal(await categories().isDisabled(), true);
+  assert.deepEqual(await json(), beforeIoEdit, "opening node details in browse mode preserves the document");
   await page.click("#inspectorToggle"); assert.equal(await page.locator(".inspector").isVisible(), false);
   await page.click("#quickValidateButton");
   await page.waitForFunction(() => document.querySelector("#validationOutput").textContent.includes("校验通过"));
-  await page.click("#openRunButton"); await page.click("#runButton");
+  await page.click("#openRunButton"); await page.selectOption("#runProfile", "keyword_match_rules"); await page.click("#runButton");
   await page.waitForFunction(() => document.querySelector("#runSummary").textContent.includes("运行已完成"));
   assert.match(await page.locator("#runSummary").textContent(), /成功 2 条/);
   assert.equal(await page.locator(".run-sample").count(), 2);
@@ -140,11 +166,10 @@ try {
   await page.waitForFunction(() => !document.querySelector("#preflightSummary").classList.contains("loading"));
   assert.match(await page.locator("#preflightSummary").textContent(), /alg_pipeline_tool=✓.*alg_demo=✓/,
     "Real server field names must render both tools as present");
-  await page.locator(".run-settings > summary").click();
-  const modelRootBefore = await page.locator("#runModelRoot").inputValue();
-  await page.locator("#runModelRoot").fill("changed-model-root");
+  const profileBefore = await page.locator("#runProfile").inputValue();
+  await page.selectOption("#runProfile", "keyword_match_control");
   assert.match(await page.locator("#preflightSummary").textContent(), /过期|重新预检/);
-  await page.locator("#runModelRoot").fill(modelRootBefore);
+  await page.selectOption("#runProfile", profileBefore);
   let releasePreflight, sawPreflight;
   const heldPreflight = new Promise(resolve => { releasePreflight = resolve; });
   const preflightStarted = new Promise(resolve => { sawPreflight = resolve; });
@@ -153,12 +178,12 @@ try {
     await route.fulfill({ json: { ok: true, summary: { status: "ready", next_step: "STALE_PREFLIGHT_SENTINEL" } } });
   });
   await page.click("#preflightButton"); await preflightStarted;
-  await page.locator("#runModelRoot").fill("changed-during-preflight");
+  await page.selectOption("#runProfile", "keyword_match_control");
   releasePreflight();
   await page.waitForFunction(() => !document.querySelector("#preflightSummary").classList.contains("loading"));
   assert.doesNotMatch(await page.locator("#preflightSummary").textContent(), /STALE_PREFLIGHT_SENTINEL/);
   await page.unroute("**/api/preflight");
-  await page.locator("#runModelRoot").fill(modelRootBefore);
+  await page.selectOption("#runProfile", profileBefore);
 
   await screenshot("run-results");
   await page.click("#editModeButton"); await rule().click();
@@ -179,13 +204,12 @@ try {
   await page.click("#saveButton");
   await page.waitForFunction(() => document.querySelector("#operationFeedback").textContent.includes("已保存"));
   const savedPipeline = JSON.parse(readFileSync(join(configRoot, "pipeline_browser.json")));
-  assert.deepEqual(savedPipeline.pipeline[0].config.categories, { SAVED_BROWSER: ["VIP"] });
-  assert.equal(savedPipeline.deployment.io.io_binding, "keyword_match");
-  assert.equal(Object.hasOwn(savedPipeline, "biz_name"), false);
-  assert.equal(Object.hasOwn(savedPipeline.deployment.io, "output_allocations"), false);
+  assert.deepEqual(savedPipeline.pipeline[0].params.categories, { SAVED_BROWSER: ["VIP"] });
+  assert.equal(savedPipeline.io.output[0].name, "keyword_match");
+  assert.equal(savedPipeline.io.output[0].inputs.matches, `${savedPipeline.pipeline[0].name}.matches`);
   assert.match(await page.locator("#saveScope").textContent(), /pipeline_browser.json/);
   assert.doesNotMatch(await page.locator("#saveScope").textContent(), /\.conf/);
-  await page.click("#openRunButton"); await page.click("#runButton");
+  await page.click("#openRunButton"); await page.selectOption("#runProfile", "keyword_match_rules"); await page.click("#runButton");
   await page.waitForFunction(() => document.querySelector("#runSummary").textContent.includes("运行已完成"));
   const editedRecords = JSON.parse(await page.locator('#runResult').textContent())['results.jsonl'];
   assert.equal(editedRecords[0].output.match_result.intent, 'SAVED_BROWSER');
@@ -201,7 +225,7 @@ try {
   await rule().click(); await categories().fill('{"PAIR_UPDATE":["VIP"]}');
   await page.click("#saveButton");
   await page.waitForFunction(() => document.querySelector("#operationFeedback").textContent.includes("已保存"));
-  assert.deepEqual(JSON.parse(readFileSync(join(configRoot, "pipeline_browser_pair.json"))).pipeline[0].config.categories, { PAIR_UPDATE: ["VIP"] });
+  assert.deepEqual(JSON.parse(readFileSync(join(configRoot, "pipeline_browser_pair.json"))).pipeline[0].params.categories, { PAIR_UPDATE: ["VIP"] });
   const savedPair = readFileSync(join(configRoot, "pipeline_browser_pair.json"), "utf8");
   writeFileSync(confPath, readFileSync(confPath, "utf8") + "\n");
   await categories().fill('{"CONFLICT":["VIP"]}'); await page.click("#saveButton");
@@ -209,34 +233,33 @@ try {
   assert.equal(readFileSync(join(configRoot, "pipeline_browser_pair.json"), "utf8"), savedPair);
   page.once("dialog", dialog => dialog.accept());
   await open("pipeline_browser_multi.json");
-  const ids = await page.locator('.node').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId).filter(id => !id.startsWith('$')));
+  const ids = await page.locator('.node').evaluateAll(nodes => nodes.map(n => n.dataset.nodeId).filter(id => !["input", "output"].includes(id)));
   await page.locator(`.node[data-node-id="${ids[0]}"]`).click();
-  await page.locator('#nodeId').fill('browser_renamed');
+  await page.locator('#nodeName').fill('browser_renamed');
   await page.locator(`.node[data-node-id="${ids[1]}"]`).click();
   await page.click('#applyContinue');
-  await page.waitForFunction(id => document.querySelector('#nodeId').value === id, ids[1]);
-  assert.equal(await page.locator('#nodeId').inputValue(), ids[1]);
-  assert.ok((await json()).pipeline.some(n => n.id === 'browser_renamed'));
+  await page.waitForFunction(id => document.querySelector('#nodeName').value === id, ids[1]);
+  assert.equal(await page.locator('#nodeName').inputValue(), ids[1]);
+  assert.ok((await json()).pipeline.some(n => n.name === 'browser_renamed'));
   assert.ok(authoringRequests.some(request => request.operation?.kind === 'rename_node' ||
     request.operations?.some(operation => operation.kind === 'rename_node')),
     'Actual node form renames must pass through the shared authoring endpoint');
-  await page.locator('#nodeId').fill('discarded_name');
+  await page.locator('#nodeName').fill('discarded_name');
   await page.locator('.node[data-node-id="browser_renamed"]').click();
   await page.click('#discardContinue');
-  assert.equal(await page.locator('#nodeId').inputValue(), 'browser_renamed');
-  assert.ok(!(await json()).pipeline.some(n => n.id === 'discarded_name'));
-  await page.click('#undoButton'); assert.ok(!(await json()).pipeline.some(n => n.id === 'browser_renamed'));
+  assert.equal(await page.locator('#nodeName').inputValue(), 'browser_renamed');
+  assert.ok(!(await json()).pipeline.some(n => n.name === 'discarded_name'));
+  await page.click('#undoButton'); assert.ok(!(await json()).pipeline.some(n => n.name === 'browser_renamed'));
   // 校验在同一个动作中应用模型缓冲和原始 JSON 缓冲。
   const originalMulti = await json();
   await page.click('[data-tab="models"]');
-  await page.selectOption('#modelSelect', originalMulti.models[0].model_id);
-  await page.locator('#modelId').fill('browser_model');
+  await page.selectOption('#modelSelect', originalMulti.models[0].name);
+  await page.locator('#modelName').fill('browser_model');
   await page.click('#quickValidateButton');
   await page.waitForFunction(() => document.querySelector('#validationOutput').textContent.includes('校验通过'));
-  assert.ok((await json()).models.some(model => model.model_id === 'browser_model'));
-  const renamedModel = (await json()).models.find(model => model.model_id === 'browser_model');
-  assert.equal(renamedModel.model_path, originalMulti.models[0].model_path);
-  assert.equal(Object.hasOwn((await json()).deployment, 'model_paths'), false);
+  assert.ok((await json()).models.some(model => model.name === 'browser_model'));
+  const renamedModel = (await json()).models.find(model => model.name === 'browser_model');
+  assert.equal(renamedModel.file, originalMulti.models[0].file);
   await page.click('#undoButton');
   assert.deepEqual(await json(), originalMulti);
   await page.click('[data-tab="json"]'); await page.locator('#rawJson').fill('{ broken');
@@ -273,30 +296,29 @@ try {
   assert.equal(await page.locator('.run-sample').count(), 2);
   await rule().click();
   await page.locator("#nodeForm details > summary").click();
-  assert.equal(await page.locator("#nodeBindings button").filter({ hasText: "恢复默认绑定" }).count(), 0);
 
   // 依赖控件属于图操作，而非 Node 属性草稿缓冲。
   // 添加一个独立 Node，使新的顺序可观察且无环。
   const beforeAdd = await json();
   if (!(await page.locator("#operatorSearch").isVisible())) await page.click("#operatorsToggle");
-  await page.locator("#operatorSearch").fill("TextTemplateNode");
-  await page.locator("#operatorList button").filter({ hasText: "TextTemplateNode" }).click();
+  await page.locator("#operatorSearch").fill("text_template");
+  await page.locator("#operatorList button").filter({ hasText: "text_template" }).click();
   await page.waitForFunction(count => JSON.parse(document.querySelector("#rawJson").value).pipeline.length === count + 1,
     beforeAdd.pipeline.length);
   const afterAdd = await json();
-  const addedNode = afterAdd.pipeline.find(node => !beforeAdd.pipeline.some(previous => previous.id === node.id));
+  const addedNode = afterAdd.pipeline.find(node => !beforeAdd.pipeline.some(previous => previous.name === node.name));
   assert.ok(authoringRequests.some(request => request.operation?.kind === "add_node"));
-  await page.locator(`.node[data-node-id="${addedNode.id}"]`).click();
+  await page.locator(`.node[data-node-id="${addedNode.name}"]`).click();
   if (!(await page.locator("#dependencySource").isVisible())) await page.locator("#nodeForm details > summary").click();
-  await page.selectOption("#dependencySource", beforeAdd.pipeline[0].id);
+  await page.selectOption("#dependencySource", beforeAdd.pipeline[0].name);
   assert.equal(await page.locator("#nodeDraftHint").isVisible(), false,
     "Selecting an execution dependency must not create a pending parameter draft");
   await page.click("#addDependencyButton");
   await page.waitForFunction(({ id, dependency }) => JSON.parse(document.querySelector("#rawJson").value)
-    .pipeline.find(node => node.id === id).depends_on?.includes(dependency),
-    { id: addedNode.id, dependency: beforeAdd.pipeline[0].id });
+    .pipeline.find(node => node.name === id).depends_on?.includes(dependency),
+    { id: addedNode.name, dependency: beforeAdd.pipeline[0].name });
   assert.ok(authoringRequests.some(request => request.operation?.kind === "add_dependency" &&
-    request.operation.node_id === addedNode.id));
+    request.operation.node === addedNode.name));
   await page.click("#undoButton");
   assert.deepEqual(await json(), afterAdd, "One undo removes only the added ordering");
   await page.click("#undoButton");
@@ -315,7 +337,7 @@ try {
   await open("pipeline_browser_other.json");
   // 原生 Validator 报告中的 error.message 是对象值。
   await page.click('[data-tab="json"]');
-  const invalidPipeline = await json(); invalidPipeline.pipeline[0].node_type = 'MissingNode';
+  const invalidPipeline = await json(); invalidPipeline.pipeline[0].type = 'missing_node';
   await page.locator('#rawJson').fill(JSON.stringify(invalidPipeline, null, 2));
   await page.click('#applyJson'); await page.click('#saveButton');
   await page.waitForFunction(() => document.querySelector('#validationOutput .diagnostic'));
@@ -345,7 +367,7 @@ try {
 } catch (error) {
   console.error("Browser failure state:", JSON.stringify(await page.evaluate(() => ({
     document: document.querySelector("#documentTitle")?.textContent,
-    model: document.querySelector("#modelId")?.value,
+    model: document.querySelector("#modelName")?.value,
     validation: document.querySelector("#validationOutput")?.textContent,
     feedback: document.querySelector("#operationFeedback")?.textContent,
   })), null, 2));

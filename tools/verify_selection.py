@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "models/asset_manifest.json"
+MANIFEST = ROOT / "configs/asset_manifest.json"
 PRESETS = ROOT / "CMakePresets.json"
 
 
@@ -64,28 +64,27 @@ def within(root, relative):
     root = Path(root).resolve()
     path = (root / relative).resolve()
     if path != root and root not in path.parents:
-        raise ValueError("Asset path leaves model root: " + str(relative))
+        raise ValueError("Asset path leaves pipeline directory: " + str(relative))
     return path
 
 
-def pipeline_binding(pipeline):
+def pipeline_io(pipeline):
     if not isinstance(pipeline, dict):
-        return ""
-    deployment = pipeline.get("deployment", {})
-    io = deployment.get("io", {}) if isinstance(deployment, dict) else {}
-    return io.get("io_binding", "") if isinstance(io, dict) else ""
+        return [], []
+    io = pipeline.get("io", {})
+    return (io.get("input", []), io.get("output", [])) if isinstance(io, dict) else ([], [])
 
 
-def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, pipeline_root=None):
-    """保留模型路径，仅在显式指定的宿主根目录变化时重定位。"""
-    bundle_root = Path(bundle_root).resolve()
-    within(bundle_root, model_root)
-    source_root = Path(pipeline_root).resolve() if pipeline_root is not None else bundle_root
-    if source_root != bundle_root:
-        for model in pipeline.get("models", []):
-            model["model_path"] = str(within(source_root, model["model_path"]).relative_to(bundle_root))
-    if outputs:
-        pipeline.setdefault("deployment", {}).setdefault("io", {})["out_mem"] = outputs
+def build_run_conf(pipeline, outputs, pipe_path):
+    """Apply explicit output parameters without changing resource paths."""
+    selected = pipeline_io(pipeline)[1]
+    for output in outputs:
+        matches = [entry for entry in selected
+                   if (entry["type"], entry["name"]) == (output["type"], output["name"])]
+        if len(matches) != 1:
+            raise ValueError("Output parameter override must match one selected converter")
+        if output.get("params"):
+            matches[0].setdefault("params", {}).update(copy.deepcopy(output["params"]))
     return {"pipe_path": Path(pipe_path).name}
 
 
@@ -99,7 +98,7 @@ def validate_manifest(manifest):
     ids = set()
     for choice in manifest["selections"]:
         files, paths = set(choice["files"]), choice["paths"]
-        if (choice["id"] in ids or not files or "/model_path" not in paths or
+        if (choice["id"] in ids or not files or "/file" not in paths or
                 not set(paths.values()).issubset(files) or not files.issubset(artifacts)):
             raise ValueError("Incomplete or duplicate asset selection: " + choice["id"])
         for path, name in paths.items():
@@ -116,39 +115,38 @@ def build_variants():
             and "llm-edgeflow/selection" in item.get("vendor", {})]
 
 
-def asset_catalog(manifest=MANIFEST, model_root=ROOT / "models"):
+def asset_catalog(manifest=MANIFEST, pipeline_dir=ROOT / "configs"):
     catalog = validate_manifest(read_json(manifest))
     for selection in catalog["selections"]:
-        selection["availability"] = "present_unverified" if all(
-            within(model_root, name).is_file() for name in selection["files"]) else "missing"
+        selection["availability"] = "unverified" if pipeline_dir is None else (
+            "present_unverified" if all(within(pipeline_dir, name).is_file()
+                                        for name in selection["files"]) else "missing")
     catalog["variants"] = [{"name": item["name"], **item["vendor"]["llm-edgeflow/selection"]}
                            for item in build_variants()]
     return catalog
 
 
-def model_asset_path(model, field, pipeline_root, model_root):
-    if field == "/model_path":
-        return within(pipeline_root, model["model_path"])
-    resource = Path(pointer(model, field))
-    if resource.is_absolute():
-        return within(model_root, resource)
-    return within(within(pipeline_root, model["model_path"]).parent, resource)
+def model_asset_path(model, field, pipeline_dir):
+    return within(pipeline_dir, pointer(model, field))
 
 
-def verify_assets(pipeline, model_root, manifest, pipeline_root=None):
+def verify_assets(pipeline, pipeline_dir, manifest):
     validate_manifest(manifest)
-    pipeline_root = Path(pipeline_root).resolve() if pipeline_root is not None else Path(model_root).resolve()
     checked = []
     hash_cache = {}
     for model in pipeline.get("models", []):
-        row = {"model_id": model["model_id"], "status": "unregistered", "files": []}
+        row = {"name": model["name"], "status": "unregistered", "files": []}
+        if pipeline_dir is None:
+            row["status"] = "unverified"
+            checked.append(row)
+            continue
         choices = [item for item in manifest["selections"]
-                   if item["model"]["model_type"] == model["model_type"]
-                   and item["model"]["backend"] == model["backend"]]
+                   if item["model"]["type"] == model["type"]
+                   and item["model"]["backend"]["type"] == model["backend"]["type"]]
         choice = None
         for item in choices:
             try:
-                if all(model_asset_path(model, key, pipeline_root, model_root) == within(model_root, value)
+                if all(model_asset_path(model, key, pipeline_dir) == within(pipeline_dir, value)
                        for key, value in item["paths"].items()):
                     choice = item
                     break
@@ -158,11 +156,11 @@ def verify_assets(pipeline, model_root, manifest, pipeline_root=None):
             row["asset_id"] = choice["id"]
             for name in choice["files"]:
                 expected = manifest["artifacts"][name]["sha256"]
-                path = within(model_root, name)
+                path = within(pipeline_dir, name)
                 if path not in hash_cache:
                     hash_cache[path] = file_digest(path) if path.is_file() else None
                 actual = hash_cache[path]
-                row["files"].append({"path": name, "expected_sha256": expected,
+                row["files"].append({"path": str(path), "expected_sha256": expected,
                                      "actual_sha256": actual,
                                      "status": "verified" if actual == expected else
                                                "missing" if actual is None else "hash_mismatch"})
@@ -171,10 +169,18 @@ def verify_assets(pipeline, model_root, manifest, pipeline_root=None):
     return checked
 
 
-def inspect_selection(pipeline, tool, model_root, manifest=MANIFEST, variant=None, pipeline_root=ROOT):
+def inspect_selection(pipeline, tool, pipeline_dir, manifest=MANIFEST, variant=None):
     catalog = native(tool, "catalog")
-    validation = native(tool, "validate", pipeline)
-    assets = verify_assets(pipeline, model_root, read_json(manifest), pipeline_root) if validation.get("ok") else []
+    if pipeline_dir is None:
+        validation = native(tool, "validate", pipeline)
+    else:
+        pipeline_dir = Path(pipeline_dir).resolve()
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".selection-",
+                                         suffix=".json", dir=pipeline_dir) as temporary:
+            json.dump(pipeline, temporary, ensure_ascii=False)
+            temporary.flush()
+            validation = native(tool, ["validate", temporary.name])
+    assets = verify_assets(pipeline, pipeline_dir, read_json(manifest)) if validation.get("ok") else []
     enabled = sorted(item["backend_type"] for item in catalog["backends"])
     build = {"enabled_backends": enabled, "tool_sha256": file_digest(tool),
              "platform": platform.platform(), "variant": variant, "status": "catalog_verified"}
@@ -185,7 +191,8 @@ def inspect_selection(pipeline, tool, model_root, manifest=MANIFEST, variant=Non
         expected = sorted(preset["vendor"]["llm-edgeflow/selection"]["backends"])
         build.update(expected_backends=expected, status="verified" if enabled == expected else "variant_mismatch")
     ok = validation.get("ok", False) and all(item["status"] == "verified" for item in assets) and build["status"] != "variant_mismatch"
-    fingerprint = digest({"pipeline": pipeline, "assets": assets, "build": build})
+    fingerprint = digest({"pipeline": pipeline, "pipeline_dir": str(pipeline_dir) if pipeline_dir else None,
+                          "assets": assets, "build": build})
     return {"ok": bool(ok), "selection_fingerprint": fingerprint,
             "configuration": validation, "build": build, "models": assets,
             "effects": {"status": "unverified"}, "ready_for_biz": False}
@@ -222,7 +229,18 @@ def compare_samples(records, spec):
             "failed_request_ids": failures}
 
 
-def effect_inputs(spec_path, conf_path, demo, pipeline_root=ROOT):
+def effect_output(pipeline, spec):
+    output = spec.get("output")
+    if not isinstance(output, dict) or set(output) != {"type", "name"}:
+        raise ValueError("Effect specification needs an output converter type/name pair")
+    matches = [entry for entry in pipeline_io(pipeline)[1]
+               if (entry["type"], entry["name"]) == (output["type"], output["name"])]
+    if len(matches) != 1:
+        raise ValueError("Effect specification must match exactly one selected output converter")
+    return matches[0]
+
+
+def effect_inputs(spec_path, conf_path, demo, pipeline_dir):
     spec_path = Path(spec_path).resolve()
     spec = read_json(spec_path)
     dataset = (spec_path.parent / spec["dataset"]).resolve()
@@ -232,50 +250,52 @@ def effect_inputs(spec_path, conf_path, demo, pipeline_root=ROOT):
         raise ValueError(f"Conf must contain only non-empty 'pipe_path': {conf_path}")
     pipe_path = conf["pipe_path"]
     pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
+    pipeline_dir = Path(pipeline_dir).resolve()
+    if pipeline_file.parent != pipeline_dir:
+        raise ValueError("Conf pipeline is outside the selected pipeline directory")
     pipe_doc = read_json(pipeline_file)
-    deployment = pipe_doc.get("deployment", {})
-    io_doc = deployment.get("io", {})
-    outputs = io_doc.get("out_mem", {})
-    model_paths = {model["model_id"]: model["model_path"] for model in pipe_doc.get("models", [])}
-    binding = io_doc.get("io_binding", "")
+    effect_output(pipe_doc, spec)
+    inputs, outputs = pipeline_io(pipe_doc)
     demo = Path(demo).resolve()
     sdk = demo.parent / "libcompany_alg_sdk.so"
     identity = {"spec": spec, "dataset_sha256": file_digest(dataset), "outputs": outputs,
-                "model_paths": model_paths, "pipeline_root": str(Path(pipeline_root).resolve()), "io_binding": binding,
+                "pipeline": pipe_doc, "pipeline_dir": str(pipeline_dir), "inputs": inputs,
                 "demo_sha256": file_digest(demo), "sdk": {sdk.name: file_digest(sdk)} if sdk.is_file() else {},
                 "chip": "cpu", "device_id": 0}
     return spec, dataset, outputs, identity
 
 
-def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo, pipeline_root=ROOT):
+def evaluate(pipeline, selection, tool, pipeline_dir, spec_path, conf_path, demo):
     if not selection["ok"]:
         raise ValueError("Configuration, build or assets are not verified")
-    spec, dataset, outputs, test_inputs = effect_inputs(spec_path, conf_path, demo, pipeline_root)
+    spec, dataset, outputs, test_inputs = effect_inputs(spec_path, conf_path, demo, pipeline_dir)
     test_fingerprint = digest(test_inputs)
-    if spec["io_binding"] != pipeline_binding(pipeline):
-        raise ValueError("Effect specification I/O binding mismatch")
-    model_root = Path(model_root).resolve()
-    bundle_root = Path(pipeline_root).resolve()
+    effect_output(pipeline, spec)
+    pipeline_dir = Path(pipeline_dir).resolve()
     execution_pipeline = copy.deepcopy(pipeline)
-    # 在现有资源包内使用临时配置；不复制模型权重，
-    # 也没有路径越出 Operator 部署根目录。
-    with tempfile.TemporaryDirectory(prefix=".selection-", dir=bundle_root) as directory:
-        temporary = Path(directory)
-        relative = temporary.relative_to(bundle_root)
-        generated_conf = build_run_conf(execution_pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
-        (temporary / "pipeline.json").write_text(json.dumps(execution_pipeline))
-        (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
-        resolved = native(tool, ["resolve-conf", str(relative / "pipeline.conf"), "--root", str(bundle_root)])
+    # The temporary documents share the original directory so relative resources stay valid.
+    with tempfile.TemporaryDirectory(prefix="edgeflow-selection-results-") as directory, \
+            tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".selection-",
+                                        suffix=".json", dir=pipeline_dir) as temporary_pipeline, \
+            tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".selection-",
+                                        suffix=".conf", dir=pipeline_dir) as temporary_conf:
+        conf_file = Path(temporary_conf.name)
+        generated_conf = build_run_conf(execution_pipeline, outputs, temporary_pipeline.name)
+        json.dump(execution_pipeline, temporary_pipeline, ensure_ascii=False)
+        temporary_pipeline.flush()
+        json.dump(generated_conf, temporary_conf)
+        temporary_conf.flush()
+        resolved = native(tool, ["resolve-conf", conf_file.name, "--root", str(pipeline_dir)])
         if not resolved.get("ok"):
             raise ValueError("Effect deployment is invalid: " + json.dumps(resolved))
-        biz = resolved["configuration"]["biz_name"]
-        command = [str(Path(demo).resolve()), "--config", str(relative / "pipeline.conf"),
-                   "--dataset", str(dataset), "--output-dir", str(temporary / "results")]
-        process = subprocess.run(command, cwd=bundle_root, text=True, capture_output=True, timeout=1800, check=False)
+        results = Path(directory)
+        command = [str(Path(demo).resolve()), "--config", conf_file.name,
+                   "--dataset", str(dataset), "--output-dir", str(results)]
+        process = subprocess.run(command, cwd=pipeline_dir, text=True, capture_output=True, timeout=1800, check=False)
         if process.returncode:
             raise ValueError("Effect run failed: " + (process.stdout + process.stderr)[-3000:])
-        records = [json.loads(line) for line in (temporary / "results" / biz / "results.jsonl").read_text().splitlines() if line.strip()]
-    if digest(effect_inputs(spec_path, conf_path, demo, pipeline_root)[3]) != test_fingerprint:
+        records = [json.loads(line) for line in (results / conf_file.stem / "results.jsonl").read_text().splitlines() if line.strip()]
+    if digest(effect_inputs(spec_path, conf_path, demo, pipeline_dir)[3]) != test_fingerprint:
         raise ValueError("Effect inputs or binaries changed during execution")
     metrics = compare_samples(records, spec)
     return {"generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -284,9 +304,9 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo, 
             "metrics": metrics, "records": records}
 
 
-def attach_evidence(selection, evidence_path, spec_path, conf_path, demo, pipeline_root=ROOT):
+def attach_evidence(selection, evidence_path, spec_path, conf_path, demo, pipeline_dir):
     evidence = read_json(evidence_path)
-    spec, _, _, identity = effect_inputs(spec_path, conf_path, demo, pipeline_root)
+    spec, _, _, identity = effect_inputs(spec_path, conf_path, demo, pipeline_dir)
     if (evidence.get("selection_fingerprint") != selection["selection_fingerprint"] or
             evidence.get("test_fingerprint") != digest(identity)):
         selection["effects"] = {"status": "stale", "reason": "Selection, dataset, criteria, deployment or executable changed"}
@@ -304,8 +324,6 @@ def main():
     parser.add_argument("--tool", type=Path, default=ROOT / "build/alg_pipeline_tool")
     parser.add_argument("--demo", type=Path, default=ROOT / "build/alg_demo")
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
-    parser.add_argument("--model-root", type=Path, default=ROOT / "models")
-    parser.add_argument("--pipeline-root", type=Path, default=ROOT, help="Host root for models[].model_path")
     parser.add_argument("--variant")
     parser.add_argument("--effects", type=Path)
     parser.add_argument("--conf", type=Path)
@@ -315,21 +333,22 @@ def main():
     args = parser.parse_args()
     try:
         pipeline = read_json(args.pipeline)
-        report = inspect_selection(pipeline, args.tool, args.model_root, args.manifest, args.variant, args.pipeline_root)
+        pipeline_dir = args.pipeline.resolve().parent
+        report = inspect_selection(pipeline, args.tool, pipeline_dir, args.manifest, args.variant)
         conf = args.conf or args.pipeline.with_suffix(".conf")
         if args.command == "evaluate":
             if not args.effects or not args.output:
                 parser.error("evaluate requires --effects and --output")
-            report = evaluate(pipeline, report, args.tool, args.model_root, args.effects, conf, args.demo, args.pipeline_root)
+            report = evaluate(pipeline, report, args.tool, pipeline_dir, args.effects, conf, args.demo)
             # 推理后重新计算资源哈希，以检测运行期间的变更。
-            if inspect_selection(pipeline, args.tool, args.model_root, args.manifest, args.variant, args.pipeline_root)["selection_fingerprint"] != report["selection_fingerprint"]:
+            if inspect_selection(pipeline, args.tool, pipeline_dir, args.manifest, args.variant)["selection_fingerprint"] != report["selection_fingerprint"]:
                 raise ValueError("Selection assets changed during execution")
             ok = report["metrics"]["status"] == "passed"
         else:
             if args.evidence:
                 if not args.effects:
                     parser.error("--evidence requires --effects")
-                attach_evidence(report, args.evidence, args.effects, conf, args.demo, args.pipeline_root)
+                attach_evidence(report, args.evidence, args.effects, conf, args.demo, pipeline_dir)
             ok = report["ready_for_biz"] if args.require_effects else report["ok"]
         encoded = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         if args.output:

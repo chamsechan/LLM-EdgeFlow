@@ -9,6 +9,7 @@
 #include <fstream>
 #include <future>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -50,70 +51,80 @@ TEST(LlamaCppBackendTest, RegistryAndDefinitionAreConsistentWithBuild) {
       definition->supported_protocols,
       std::vector<ExecutionProtocol>({ExecutionProtocol::kTextGeneration}));
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kSerialized);
-  ASSERT_EQ(definition->config_fields.size(), 6U);
-  EXPECT_EQ(definition->config_fields[0].name, "context_size");
-  EXPECT_EQ(definition->config_fields[1].name, "decode_batch_size");
-  EXPECT_EQ(definition->config_fields[2].name, "n_threads");
-  EXPECT_EQ(definition->config_fields[3].name, "n_threads_batch");
-  EXPECT_EQ(definition->config_fields[4].name, "n_gpu_layers");
-  EXPECT_EQ(definition->config_fields[5].name, "check_tensors");
+  ASSERT_EQ(definition->params.Fields().size(), 6U);
+  EXPECT_EQ(definition->params.Fields()[0].name, "context_size");
+  EXPECT_EQ(definition->params.Fields()[1].name, "decode_batch_size");
+  EXPECT_EQ(definition->params.Fields()[2].name, "n_threads");
+  EXPECT_EQ(definition->params.Fields()[3].name, "n_threads_batch");
+  EXPECT_EQ(definition->params.Fields()[4].name, "n_gpu_layers");
+  EXPECT_EQ(definition->params.Fields()[5].name, "check_tensors");
 }
 
-TEST(LlamaCppBackendTest, ConfigPreflightAndLoadShareCombinationValidation) {
+TEST(LlamaCppBackendTest, ParameterParsingValidatesCombinations) {
   const auto definition = BackendRegistry::Instance().Find("llama_cpp");
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
   ASSERT_TRUE(definition.has_value());
-  ASSERT_TRUE(definition->validate_config);
 
   for (const auto& config :
        {nlohmann::json{{"context_size", 128}},
         nlohmann::json{{"context_size", 128}, {"decode_batch_size", 512}}}) {
     std::string preflight_diagnostic;
-    EXPECT_FALSE(definition->validate_config(config, &preflight_diagnostic));
+    std::shared_ptr<const ParameterValues> params;
+    EXPECT_FALSE(
+        definition->params.Parse(config, &params, &preflight_diagnostic));
+    EXPECT_EQ(params, nullptr);
     EXPECT_EQ(preflight_diagnostic,
               "decode_batch_size must not exceed context_size");
-    BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-    spec.backend_config = config;
-    // 即使没有路径，也会在访问模型前返回配置错误。
-    std::string load_diagnostic;
-    EXPECT_EQ(backend->Load(spec, &load_diagnostic), nullptr);
-    EXPECT_EQ(load_diagnostic, preflight_diagnostic);
   }
   for (const auto& config :
        {nlohmann::json::object(),
         nlohmann::json{{"context_size", 128}, {"decode_batch_size", 128}}}) {
     std::string diagnostic;
-    EXPECT_TRUE(definition->validate_config(config, &diagnostic)) << diagnostic;
+    std::shared_ptr<const ParameterValues> params;
+    EXPECT_TRUE(definition->params.Parse(config, &params, &diagnostic))
+        << diagnostic;
+    EXPECT_NE(params, nullptr);
   }
 }
 
 TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
+  const auto definition = BackendRegistry::Instance().Find("llama_cpp");
+  ASSERT_TRUE(definition.has_value());
 
   std::string diagnostic;
   BackendLoadSpec missing{ExecutionProtocol::kTextGeneration};
-  missing.model_path = "./models/does-not-exist.gguf";
+  missing.model_file = "./models/does-not-exist.gguf";
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                       &missing.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(missing, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
   BackendLoadSpec directory{ExecutionProtocol::kTextGeneration};
-  directory.model_path = ".";
+  directory.model_file = ".";
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                       &directory.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(directory, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  BackendLoadSpec unknown{ExecutionProtocol::kTextGeneration};
-  unknown.model_path = "./models/does-not-exist.gguf";
-  unknown.backend_config = {{"business_answer", true}};
-  EXPECT_EQ(backend->Load(unknown, &diagnostic), nullptr);
+  std::shared_ptr<const ParameterValues> unknown_params;
+  EXPECT_FALSE(definition->params.Parse({{"business_answer", true}},
+                                        &unknown_params, &diagnostic));
+  EXPECT_EQ(unknown_params, nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
 
   diagnostic.clear();
   BackendLoadSpec wrong_protocol{ExecutionProtocol::kTensorGraph};
-  wrong_protocol.model_path = "./models/does-not-exist.gguf";
+  wrong_protocol.model_file = "./models/does-not-exist.gguf";
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(),
+                                       &wrong_protocol.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(wrong_protocol, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
 }
@@ -121,12 +132,17 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
 TEST(LlamaCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
+  const auto definition = BackendRegistry::Instance().Find("llama_cpp");
+  ASSERT_TRUE(definition.has_value());
 
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist.gguf";
+  spec.model_file = "./models/does-not-exist.gguf";
   spec.execution_target.platform = "AX650";
   spec.execution_target.device_id = 7;
   std::string diagnostic;
+  ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
+                                       &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("does not support requested platform"),
             std::string::npos);
@@ -168,14 +184,14 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
                    ExecutionProtocol::kImageTextGeneration,
                    ExecutionProtocol::kGeneratedTokenEmbedding}));
     EXPECT_EQ(definition->concurrency, InferenceConcurrency::kSerialized);
-    ASSERT_EQ(definition->config_fields.size(), 1U);
-    EXPECT_EQ(definition->config_fields[0].name, "run_config_file");
+    ASSERT_EQ(definition->params.Fields().size(), 1U);
+    EXPECT_EQ(definition->params.Fields()[0].name, "run_config_file");
     return;
   }
 
   KiteLlmBackend unavailable;
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist";
+  spec.model_file = "./models/does-not-exist";
   std::string diagnostic;
   EXPECT_EQ(unavailable.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("not compiled"), std::string::npos);
@@ -184,8 +200,13 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
 TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
   KiteLlmBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist";
+  spec.model_file = "./models/does-not-exist";
   std::string diagnostic;
+  if (const auto definition = BackendRegistry::Instance().Find("kite_llm")) {
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
+                                         &diagnostic))
+        << diagnostic;
+  }
   for (const char* platform : {"CUDA", "ASCEND_310P", "AX650", "invalid"}) {
     spec.execution_target.platform = platform;
     EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
@@ -204,8 +225,13 @@ TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
 TEST(LlamaCppBackendTest, KiteAcceptsCpuAndUnspecifiedExecutionTargets) {
   KiteLlmBackend backend;
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = "./models/does-not-exist";
+  spec.model_file = "./models/does-not-exist";
   std::string diagnostic;
+  if (const auto definition = BackendRegistry::Instance().Find("kite_llm")) {
+    ASSERT_TRUE(definition->params.Parse(nlohmann::json::object(), &spec.params,
+                                         &diagnostic))
+        << diagnostic;
+  }
   for (const char* platform : {"", "UNKNOWN", "CPU", "cpu_generic"}) {
     spec.execution_target.platform = platform;
     for (const auto device : {std::optional<int>{}, std::optional<int>{-1},
@@ -223,44 +249,52 @@ TEST(LlamaCppBackendTest, KiteAcceptsCpuAndUnspecifiedExecutionTargets) {
 TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   auto backend = BackendRegistry::Instance().Create("kite_llm");
   if (!backend) GTEST_SKIP() << "kiteLLM SDK support is disabled";
+  const auto definition = BackendRegistry::Instance().Find("kite_llm");
+  ASSERT_TRUE(definition.has_value());
   KiteTestDirectory temporary;
   const auto model = temporary.path / "invalid.gguf";
   std::ofstream(model) << "not a GGUF model";
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = model.string();
+  spec.model_file = model.string();
   std::string diagnostic;
+  nlohmann::json config = nlohmann::json::object();
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
   spec.execution_target.platform = "cpu_generic";
   spec.execution_target.device_id = 0;
   std::ofstream(temporary.path / "gpu.json")
       << R"({"schema_version":1,"model":{"gpu_layers":1}})";
-  spec.backend_config = {{"run_config_file", "gpu.json"}};
+  config = {{"run_config_file", (temporary.path / "gpu.json").string()}};
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("conflicts"), std::string::npos);
   // CPU 兼容的文件会进入原生模型加载器。
   std::ofstream(temporary.path / "cpu.json")
       << R"({"schema_version":1,"model":{"gpu_layers":0}})";
-  spec.backend_config = {{"run_config_file", "cpu.json"}};
+  config = {{"run_config_file", (temporary.path / "cpu.json").string()}};
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
-  spec.backend_config = {{"unknown", true}};
-  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
+  config = {{"unknown", true}};
+  EXPECT_FALSE(definition->params.Parse(config, &spec.params, &diagnostic));
+  EXPECT_EQ(spec.params, nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
-  spec.backend_config = {{"run_config_file", "../outside.json"}};
-  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("traverse"), std::string::npos);
-  spec.backend_config = {{"run_config_file", "/outside.json"}};
-  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("relative"), std::string::npos);
-  spec.backend_config = {{"run_config_file", "missing.json"}};
+  config = {{"run_config_file", (temporary.path / "missing.json").string()}};
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("does not exist"), std::string::npos);
   std::ofstream(temporary.path / "invalid.json") << "invalid JSON";
-  spec.backend_config = {{"run_config_file", "invalid.json"}};
+  config = {{"run_config_file", (temporary.path / "invalid.json").string()}};
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
-  spec.model_path = temporary.path.string();
+  spec.model_file = temporary.path.string();
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("regular file"), std::string::npos);
 }
@@ -268,6 +302,8 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
 TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   auto backend = BackendRegistry::Instance().Create("kite_llm");
   if (!backend) GTEST_SKIP() << "kiteLLM SDK support is disabled";
+  const auto definition = BackendRegistry::Instance().Find("kite_llm");
+  ASSERT_TRUE(definition.has_value());
   const char* model_path = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_MODEL");
   if (!model_path || !*model_path) {
     GTEST_SKIP() << "Set LLM_EDGEFLOW_TEST_KITELLM_MODEL for the real SDK gate";
@@ -279,9 +315,12 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = (temporary.path / "model.gguf").string();
-  spec.backend_config = {{"run_config_file", "run.json"}};
+  spec.model_file = (temporary.path / "model.gguf").string();
+  nlohmann::json config = {
+      {"run_config_file", (temporary.path / "run.json").string()}};
   std::string diagnostic;
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   auto base = backend->Load(spec, &diagnostic);
   ASSERT_NE(base, nullptr) << diagnostic;
   auto session = std::dynamic_pointer_cast<ITextGenerationSession>(base);
@@ -355,7 +394,9 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   // 分别在带和不带可选 run-config 的情况下调用原生 setter。
   // 修改该模型的原生加载参数前，先释放每个会话。
   for (const bool with_config : {true, false}) {
-    if (!with_config) spec.backend_config = nlohmann::json::object();
+    if (!with_config) config = nlohmann::json::object();
+    ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+        << diagnostic;
     spec.execution_target.platform = "CPU";
     spec.execution_target.device_id = 0;
     auto explicit_cpu = std::dynamic_pointer_cast<ITextGenerationSession>(
@@ -385,11 +426,15 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
 
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   ASSERT_NE(backend, nullptr);
+  const auto definition = BackendRegistry::Instance().Find("llama_cpp");
+  ASSERT_TRUE(definition.has_value());
   BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
-  spec.model_path = model_path;
-  spec.backend_config = {
+  spec.model_file = model_path;
+  const nlohmann::json config = {
       {"context_size", 128}, {"decode_batch_size", 128}, {"n_gpu_layers", 0}};
   std::string diagnostic;
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &diagnostic))
+      << diagnostic;
   auto base_session = backend->Load(spec, &diagnostic);
   ASSERT_NE(base_session, nullptr) << diagnostic;
   auto session =
@@ -406,8 +451,9 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
       << diagnostic;
   EXPECT_FALSE(direct_output.empty());
 
-  QwenCausalLmModel model(session, "", false, 17);
+  QwenCausalLmModel model(session, false);
   GenerateOptions options;
+  options.random_seed = 17;
   options.max_tokens = 8;
   options.temperature = 0.0f;
   options.top_p = 1.0f;
@@ -422,18 +468,23 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
 TEST(LlamaCppBackendTest, KiteImageProtocolRequiresSafeProjectorConfig) {
   auto backend = BackendRegistry::Instance().Create("kite_llm");
   if (!backend) GTEST_SKIP();
+  const auto definition = BackendRegistry::Instance().Find("kite_llm");
+  ASSERT_TRUE(definition.has_value());
   KiteTestDirectory temporary;
   std::ofstream(temporary.path / "model.gguf") << "invalid";
   BackendLoadSpec spec{ExecutionProtocol::kImageTextGeneration};
-  spec.model_path = (temporary.path / "model.gguf").string();
+  spec.model_file = (temporary.path / "model.gguf").string();
   std::string error;
+  nlohmann::json config = nlohmann::json::object();
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &error)) << error;
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
   EXPECT_NE(error.find("vision.mmproj"), std::string::npos);
-  spec.backend_config = {{"run_config_file", "run.json"}};
+  config = {{"run_config_file", (temporary.path / "run.json").string()}};
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &error)) << error;
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"vision":{"mmproj":"../escape.gguf"}})";
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
-  EXPECT_NE(error.find("traverse"), std::string::npos);
+  EXPECT_NE(error.find("parent path component"), std::string::npos) << error;
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"vision":{"mmproj":"missing.gguf"}})";
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
@@ -446,11 +497,15 @@ TEST(LlamaCppBackendTest, RealKiteImageTextGeneration) {
   const char* config = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG");
   if (!backend || !model || !config)
     GTEST_SKIP() << "Set Kite vision model/config for real image gate";
+  const auto definition = BackendRegistry::Instance().Find("kite_llm");
+  ASSERT_TRUE(definition.has_value());
   BackendLoadSpec spec{ExecutionProtocol::kImageTextGeneration};
-  spec.model_path = model;
-  spec.backend_config = {{"run_config_file", config}};
+  spec.model_file = model;
+  const nlohmann::json params = {
+      {"run_config_file", std::filesystem::absolute(config).string()}};
   spec.execution_target = {0, "CPU"};
   std::string error;
+  ASSERT_TRUE(definition->params.Parse(params, &spec.params, &error)) << error;
   auto session = std::dynamic_pointer_cast<IImageTextGenerationSession>(
       backend->Load(spec, &error));
   ASSERT_NE(session, nullptr) << error;
@@ -483,6 +538,8 @@ namespace llm_edgeflow {
 TEST(LlamaCppBackendTest, RealKiteGeneratedTokenEmbeddings) {
   auto backend = BackendRegistry::Instance().Create("kite_llm");
   if (!backend) GTEST_SKIP() << "kiteLLM SDK support is disabled";
+  const auto definition = BackendRegistry::Instance().Find("kite_llm");
+  ASSERT_TRUE(definition.has_value());
   const char* model_path = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_MODEL");
   if (!model_path || !*model_path)
     GTEST_SKIP() << "Set LLM_EDGEFLOW_TEST_KITELLM_MODEL";
@@ -492,9 +549,11 @@ TEST(LlamaCppBackendTest, RealKiteGeneratedTokenEmbeddings) {
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
   BackendLoadSpec spec{ExecutionProtocol::kGeneratedTokenEmbedding};
-  spec.model_path = (temporary.path / "model.gguf").string();
-  spec.backend_config = {{"run_config_file", "run.json"}};
+  spec.model_file = (temporary.path / "model.gguf").string();
+  const nlohmann::json config = {
+      {"run_config_file", (temporary.path / "run.json").string()}};
   std::string error;
+  ASSERT_TRUE(definition->params.Parse(config, &spec.params, &error)) << error;
   auto session = std::dynamic_pointer_cast<IGeneratedTokenEmbeddingSession>(
       backend->Load(spec, &error));
   ASSERT_NE(session, nullptr) << error;

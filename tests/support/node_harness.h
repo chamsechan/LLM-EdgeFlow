@@ -160,14 +160,21 @@ class NodeHarness {
     return *this;
   }
 
-  NodeHarness& BindModel(std::string model_id, std::shared_ptr<IModel> model) {
-    models_[std::move(model_id)] = std::move(model);
+  NodeHarness& BindModel(std::string model_name,
+                         std::shared_ptr<IModel> model) {
+    models_[std::move(model_name)] = std::move(model);
     Reset();
     return *this;
   }
 
   NodeHarness& OmitPortFromPlan(std::string logical_port_name) {
     omitted_ports_.insert(std::move(logical_port_name));
+    Reset();
+    return *this;
+  }
+
+  NodeHarness& InputLifetime(std::string port, std::string lifetime) {
+    input_lifetimes_[std::move(port)] = std::move(lifetime);
     Reset();
     return *this;
   }
@@ -189,14 +196,15 @@ class NodeHarness {
     session_ctx_ = std::make_unique<SessionContext>();
     for (const auto& [mid, model] : models_) {
       RegisterTestModel(session_ctx_->GetModelManager(), mid, model,
-                        "harness_rev", model ? model->ModelType() : "mock",
-                        model ? model->Capability() : "llm", "mock");
+                        "harness_rev", model ? model->ImplName() : "mock",
+                        model ? model->ModelType() : "llm", "mock");
     }
 
     input_keys_.clear();
     output_keys_.clear();
-    plan_ = PrepareNodePlanForTest(node_type_, config_, omitted_ports_,
-                                   "bk_in_", "bk_out_", &init_diagnostic_);
+    plan_ =
+        PrepareNodePlanForTest(node_type_, config_, omitted_ports_, "bk_in_",
+                               "bk_out_", &init_diagnostic_, input_lifetimes_);
     if (!plan_) return false;
     for (const auto& port : plan_->ports) {
       auto& keys =
@@ -269,6 +277,7 @@ class NodeHarness {
       custom_inputs_;
   std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
   std::unordered_set<std::string> omitted_ports_;
+  std::unordered_map<std::string, std::string> input_lifetimes_;
 
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<ValidatedNodePlan> plan_;

@@ -1,45 +1,45 @@
 {
-  "deployment": {
-    "io": {
-      "io_binding": "cross_rerank"
-    }
+  "io": {
+    "input": [
+      {
+        "type": "rerank_in",
+        "name": "cross_rerank"
+      }
+    ],
+    "output": [
+      {
+        "type": "rerank_out",
+        "name": "cross_rerank",
+        "inputs": {
+          "ranked": "rank_candidates.ranked"
+        }
+      }
+    ]
   },
   "models": [
     {
-      "model_id": "rerank_model",
-      "model_type": "bge_reranker",
-      "backend": "onnxruntime",
-      "model_path": "./models/ms_marco_tinybert_l2_v2_quantized.onnx",
-      "model_config": {
-        "tokenizer_file": "ms_marco_bert_vocab.txt",
-        "do_lower_case": true,
-        "max_length": 512,
-        "output_name": "logits",
-        "score_activation": "sigmoid",
-        "max_batch_size": 4
+      "type": "rerank",
+      "name": "rerank_model",
+      "file": "ms_marco_tinybert_l2_v2_quantized.onnx",
+      "params": {
+        "tokenizer_file": "ms_marco_bert_vocab.txt"
       },
-      "backend_config": {
-        "max_batch_size": 4,
-        "intra_op_num_threads": 2,
-        "inter_op_num_threads": 1,
-        "graph_optimization_level": "all"
+      "backend": {
+        "type": "onnxruntime"
       }
     }
   ],
   "pipeline": [
     {
-      "id": "node_0_TextRerankNode",
-      "node_type": "TextRerankNode",
-      "config": {
+      "type": "text_rerank",
+      "name": "rank_candidates",
+      "params": {
         "bind_model": "rerank_model",
         "top_k": 8
       },
       "inputs": {
-        "queries": "rerank_queries",
-        "candidates": "rerank_candidates"
-      },
-      "outputs": {
-        "ranked": "ranked_results"
+        "queries": "input.query_text",
+        "candidates": "input.candidates"
       }
     }
   ]
