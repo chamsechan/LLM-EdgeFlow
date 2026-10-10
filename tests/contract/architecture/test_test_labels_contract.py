@@ -338,7 +338,7 @@ def main():
 
     # 规则 4：编排层运行时覆盖必须经得起 CI 标签过滤。
     # 显式检查名称：仅检查运行时集合非空无法发现单个遗漏。
-    required_sanitizer_runtime = {"PipelineStudioTest"}
+    required_sanitizer_runtime = {"PipelineContractsTest"}
     for target in sorted(required_sanitizer_runtime):
         if target not in inventory:
             errors.append(f"Required runtime test '{target}' is missing.")

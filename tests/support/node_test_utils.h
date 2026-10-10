@@ -44,6 +44,46 @@ inline bool InitNodeForTest(
 
 namespace test {
 
+class PromptCaptureLlmModel final : public ILlmModel {
+ public:
+  const std::string& ImplName() const noexcept override {
+    static const std::string type = "prompt_contract";
+    return type;
+  }
+  const std::string& ModelType() const noexcept override {
+    static const std::string model_type = "llm";
+    return model_type;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
+  }
+  int Generate(const TextBatch& input, const GenerateOptions& options,
+               TextBatch* output,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
+    ++calls;
+    prompts = input;
+    last_options = options;
+    *output = input;
+    for (auto& item : *output)
+      item.data = response_prefix + item.data + response_suffix;
+    if (wrong_count && !output->empty()) output->pop_back();
+    if (wrong_request && !output->empty()) ++output->back().req_id;
+    if (wrong_sub_id && !output->empty()) ++output->back().sub_id;
+    return calls <= fail_first_calls ? -99 : result;
+  }
+  int fail_first_calls = 0;
+  TextBatch prompts;
+  GenerateOptions last_options;
+  int calls = 0;
+  int result = 0;
+  bool wrong_count = false;
+  bool wrong_request = false;
+  bool wrong_sub_id = false;
+  std::string response_prefix = "```text\n";
+  std::string response_suffix = "\n```";
+};
+
 class ControlledMockLlmModel final : public ILlmModel {
  public:
   const std::string& ImplName() const noexcept override {

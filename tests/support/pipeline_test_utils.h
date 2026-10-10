@@ -1,8 +1,19 @@
 #pragma once
 
+#include <fstream>
+#include <string>
+
 #include "core/pipeline.h"
 
 namespace llm_edgeflow {
+// Core fixtures receive their I/O boundary explicitly from the test.
+inline nlohmann::json LoadCorePipelineFixture(const std::string& path) {
+  std::ifstream file(path);
+  auto document = nlohmann::json::parse(file);
+  document.erase("io");
+  return document;
+}
+
 inline PipelineIoBoundary MakeTestBoundary(
     std::vector<IoPortDefinition> inputs = {},
     std::vector<IoPortDefinition> outputs = {}) {

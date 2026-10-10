@@ -44,7 +44,7 @@
 ```bash
 cmake --build build --target edgeflow_test_nodes_runner -j 4
 ./build/edgeflow_test_nodes_runner --gtest_list_tests
-./build/edgeflow_test_nodes_runner --gtest_filter='CommonNodesTest.*'
+./build/edgeflow_test_nodes_runner --gtest_filter='NodeAuthoringExamplesTest.*'
 ```
 
 [Node 测试辅助](../../tests/support/node_test_utils.h)用已校验的 Plan 和 Session 初始化注册的 Node。

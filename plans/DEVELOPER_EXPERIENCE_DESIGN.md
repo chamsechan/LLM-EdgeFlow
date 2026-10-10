@@ -578,7 +578,7 @@ mock 配置经生产工具校验，stdout 中只剩 2 条诊断：
       在 PR 中贴出前后对比。
 - [ ] 组合错误不被隐藏：`combo_type` 改动前后都报告下游的 `MISSING_INPUT_PRODUCER`；
       只有 `combo_cascade` 的下游诊断被抑制。在 PR 中贴出两个场景改动前后的输出。
-- [ ] 2.7 的测试通过；`PipelineStudioServerTest`、`PipelineStudioTest`、`OperatorApiTest`、
+- [ ] 2.7 的测试通过；`PipelineStudioServerTest`、`PipelineContractsTest`、`OperatorApiTest`、
       `IoBindingRegistryTest` 全部通过，且未修改原有断言。
 - [ ] 0.1 的比较通过（标准见 0.1 末尾）。
 - [ ] 统一门禁通过。

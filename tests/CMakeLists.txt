@@ -1,7 +1,7 @@
 link_libraries(edgeflow_internal_headers)
 if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   # 与 std::any 类型的 Blackboard payload 保持一致的运行时类型可见性。使用默认
-  # 可见性时，TextTemplateNodeTest/CommonNodesTest 无法读取属性。
+  # 可见性时，TextTemplateNodeTest/PromptGuidedLlmNodeTest 无法读取属性。
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 endif()
 

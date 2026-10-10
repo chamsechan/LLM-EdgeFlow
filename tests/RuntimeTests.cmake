@@ -258,7 +258,8 @@ edgeflow_add_runner_test(StructuredJsonParseNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
   "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
-  "CommonNodesTest.*:CustomNodeCatalogTest.*" "${_edgeflow_tier1}")
+  "NodeAuthoringExamplesTest.*:PromptGuidedLlmNodeTest.*:CustomNodeCatalogTest.*"
+  "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "FunctionNodeTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
@@ -300,9 +301,8 @@ edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
-# 该测试套件覆盖 Validator、类型化 Blackboard 和 Pipeline::Execute。
-# 放在工具 runner 中并不意味着它只是工具测试。
-edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
+# Catalog、Validator 与 Authoring 的原生契约使用带工具依赖的 runner。
+edgeflow_add_runner_test(PipelineContractsTest edgeflow_test_tooling_runner
   "PipelineCatalogTest.*:PipelineValidatorTest.*:PipelineAuthoringTest.*"
   "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
@@ -482,6 +482,8 @@ add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
 set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
+set_tests_properties(PipelineToolValidateTest PROPERTIES
+  ENVIRONMENT "LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show
@@ -554,7 +556,7 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   TextConvertersTest
   ComplexConvertersTest
   DocQaRerankTest
-  PipelineStudioTest
+  PipelineContractsTest
   DemoRunnerTest
   RegistryConflictNodeTest
   RegistryConflictModelTest
