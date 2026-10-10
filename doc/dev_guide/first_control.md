@@ -139,7 +139,7 @@ Operator 调用方式为：
 
 ```cpp
 ControlJsonParam param{1001, R"({"prefix":"VIP:"})"};
-int ret = ops.Control(handle, ControlCommand::kJson, &param);
+int ret = ops.Control(handle, static_cast<int>(ControlCommand::kJson), &param);
 // ret != 0 时，立即读取同线程 GetOperatorLastError()。
 ```
 

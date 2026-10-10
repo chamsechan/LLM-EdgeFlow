@@ -49,8 +49,8 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
 → 模型执行层 / Model Execution. Dependencies flow downward only.
 
 - **Integration:** the C++ Operator API (`llm_edgeflow::operator_api`) is the sole public
-  algorithm interface. Exported table functions retain `noexcept` and both
-  `catch (const std::exception&)` and `catch (...)` barriers. Registered `InputConverter`,
+  algorithm interface. Function table pointer types omit `noexcept`; implementations retain
+  `noexcept` and both `catch (const std::exception&)` and `catch (...)` barriers. Registered `InputConverter`,
   `OutputConverter` own biz conversion, not central dispatch or lower layers.
   Pipeline `io.input` / `io.output` select converters by `(type, name)`; their typed ports form
   the explicit Core boundary. One registration owns one host slot and immutable parameters.

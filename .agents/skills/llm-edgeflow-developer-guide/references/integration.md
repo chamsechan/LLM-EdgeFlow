@@ -11,8 +11,11 @@ and displays or copies the result. Reusing a host struct does not imply compatib
 1. Settle external fields, ownership, cardinality, limits and failure behavior under CONTRIBUTING.
 2. The public API is `edgeflow/operator/interface.h`. Platform substitutes live only in
    `include/platform_mock/`; they require actual-header verification in the authorized internal network.
-3. Keep the exported table functions `noexcept`, with both `catch (const std::exception&)` and
-   `catch (...)` barriers in `operator_adapter.cpp`.
+3. The function table order is `Init, Create, Control, Process, Destroy, DeInit`. Function pointer
+   types omit `noexcept`; implementations retain `noexcept`, with both `catch (const std::exception&)`
+   and `catch (...)` barriers in `operator_adapter.cpp`. `Create(void**, const void*)` reads its
+   argument as `const CreateParam*`; `Control(void*, int, void*)` converts the integer to
+   `ControlCommand` at entry. Callers pass the existing enum values as integers.
 4. Register ordinary input callbacks under `src/adapter/input/` and output callbacks under
    `src/adapter/output/`, using `REGISTER_INPUT_CONVERTER` / `REGISTER_OUTPUT_CONVERTER`.
    Each direction identifies a registration by `(type, name)`. Its single slot has matching

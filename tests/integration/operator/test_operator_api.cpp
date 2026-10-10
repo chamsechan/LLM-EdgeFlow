@@ -233,25 +233,26 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
 
   // 3.1 ControlUpdateRulesParam 测试
   ControlUpdateRulesParam rules_param_null{nullptr};
-  EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_null),
-      -2);
+  EXPECT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param_null),
+            -2);
 
   ControlUpdateRulesParam rules_param_invalid{"not_a_json_object"};
-  EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_invalid),
-      -2);
+  EXPECT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param_invalid),
+            -2);
 
   ControlUpdateRulesParam rules_param_valid{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_valid),
-      0);
+  EXPECT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param_valid),
+            0);
 
   // 3.2 ControlSwitchPromptParam 测试
   ControlSwitchPromptParam prompt_param_null{"test_prompt", nullptr};
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_null),
+      ops_.Control(handle, static_cast<int>(ControlCommand::kSwitchPrompt),
+                   &prompt_param_null),
       -2);
 
   ControlSwitchPromptParam prompt_param_valid{"test_prompt",
@@ -259,37 +260,47 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   // KeywordMatch 不含 TextTemplateNode，返回 -7
   // (COMPANY_ALG_ERR_UNSUPPORTED_CONTROL)
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_valid),
+      ops_.Control(handle, static_cast<int>(ControlCommand::kSwitchPrompt),
+                   &prompt_param_valid),
       -7);
 
   // 3.3 ControlUpdateThresholdParam 测试 (含 NaN / Infinity 特殊浮点数拦截)
   ControlUpdateThresholdParam thresh_low{"VIP_SERVICE", -0.1f};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_low),
-            -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_low),
+      -2);
   ControlUpdateThresholdParam thresh_high{"VIP_SERVICE", 1.5f};
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_high), -2);
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_high),
+      -2);
 
   float nan_val = std::numeric_limits<float>::quiet_NaN();
   ControlUpdateThresholdParam thresh_nan{"VIP_SERVICE", nan_val};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_nan),
-            -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_nan),
+      -2);
 
   float inf_val = std::numeric_limits<float>::infinity();
   ControlUpdateThresholdParam thresh_inf{"VIP_SERVICE", inf_val};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_inf),
-            -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_inf),
+      -2);
 
   ControlUpdateThresholdParam thresh_valid{"VIP_SERVICE", 0.85f};
   // KeywordMatch 不支持动态阈值调节，返回 -7
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_valid),
+      ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateThreshold),
+                   &thresh_valid),
       -7);
 
-  // 3.4 未知命令枚举
-  EXPECT_EQ(
-      ops_.Control(handle, static_cast<ControlCommand>(999), &thresh_valid),
-      -2);
+  // 3.4 未知整数命令在接入边界返回参数错误
+  for (int command : {-1, 0, 999}) {
+    EXPECT_EQ(ops_.Control(handle, command, &thresh_valid), -2);
+  }
 
   ops_.Destroy(handle);
 
@@ -306,7 +317,8 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   ASSERT_NE(entity_handle, nullptr);
 
   ControlSwitchPromptParam entity_prompt{"test_prompt", "{{primary}}"};
-  EXPECT_EQ(ops_.Control(entity_handle, ControlCommand::kSwitchPrompt,
+  EXPECT_EQ(ops_.Control(entity_handle,
+                         static_cast<int>(ControlCommand::kSwitchPrompt),
                          &entity_prompt),
             0);
 
@@ -344,7 +356,9 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   check(0);
   std::string payload = R"({"prefix":"VIP:"})";
   ControlJsonParam command{2000000041, payload.c_str()};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  ASSERT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      0);
   payload.assign(payload.size(), 'x');  // 调用方内存已不再需要。
   check(1);
 
@@ -352,19 +366,23 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ControlJsonParam rules{
       llm_edgeflow::kControlCmdUpdateRules,
       R"({"categories":{"AFTER_RULE_UPDATE":["NEW:sample"]}})"};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &rules), 0);
+  ASSERT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &rules), 0);
   check(0);
   command.json_param_str =
       R"({"$edgeflow_control":1,"node":"prefix","payload":{"prefix":"NEW:"}})";
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  ASSERT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      0);
   check(1);  // 更新 prefix 会保留匹配器的新规则。
 
   // 被拒绝的请求属于非法参数；内部 Core 错误码保留在诊断信息中，
   // 不会与无效句柄错误码冲突。
   command.json_param_str =
       R"({"$edgeflow_control":1,"node":"missing","payload":{"prefix":"BAD:"}})";
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
-            COMPANY_ALG_ERR_INVALID_PARAM);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("missing"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError())
@@ -373,16 +391,18 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   check(1);
 
   command.json_param_str = R"({"prefix":1})";
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
-            COMPANY_ALG_ERR_INVALID_PARAM);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      COMPANY_ALG_ERR_INVALID_PARAM);
   EXPECT_NE(std::string(GetOperatorLastError()).find("node 'prefix'"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError()).find("prefix"),
             std::string::npos);
   payload = nlohmann::json{{"prefix", std::string(65, 'x')}}.dump();
   command.json_param_str = payload.c_str();
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command),
-            COMPANY_ALG_ERR_UNKNOWN);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      COMPANY_ALG_ERR_UNKNOWN);
   EXPECT_NE(std::string(GetOperatorLastError()).find("64 UTF-8 bytes"),
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError())
@@ -394,8 +414,9 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   ControlJsonParam bad_regex{
       llm_edgeflow::kControlCmdUpdateRules,
       R"({"rules":[{"pattern":"(","strategy":"regex"}]})"};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &bad_regex),
-            COMPANY_ALG_ERR_UNKNOWN);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &bad_regex),
+      COMPANY_ALG_ERR_UNKNOWN);
   EXPECT_NE(std::string(GetOperatorLastError()).find("node 'matcher'"),
             std::string::npos);
   check(1);
@@ -403,15 +424,23 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
   for (const char* invalid :
        {static_cast<const char*>(nullptr), "", "[]", "{"}) {
     command.json_param_str = invalid;
-    EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+    EXPECT_EQ(
+        ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+        -2);
   }
   payload.assign(65536, 'x');
   command.json_param_str = payload.c_str();
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      -2);
   command = {0, "{}"};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      -2);
   command = {19999, "{}"};
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -7);
+  EXPECT_EQ(
+      ops_.Control(handle, static_cast<int>(ControlCommand::kJson), &command),
+      -7);
   EXPECT_NE(std::string(GetOperatorLastError()).find("19999"),
             std::string::npos);
 }
@@ -457,7 +486,8 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
 
   ControlUpdateRulesParam rules_param{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param),
+  ASSERT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
+                         &rules_param),
             0);
 
   std::string text = "请帮我联系VIP专员，加急处理";

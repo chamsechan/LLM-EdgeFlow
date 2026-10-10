@@ -37,7 +37,7 @@ package "创建期：接入准备与统一校验" {
 }
 
 package "运行期：C++ Operator SDK" {
-  component "OperatorFunc\nCreate / Process / Control / Destroy\n命名槽位校验 / 输出租约 / 异常屏障" as Operator
+  component "OperatorFunc\nInit / Create / Control / Process / Destroy / DeInit\n命名槽位校验 / 输出租约 / 异常屏障" as Operator
   component "SharedAlgorithmRuntime" as Runtime
   component "InputConverterDefinition::decode_fn\n完整请求 → 中性输入与元信息" as Decode
   component "OutputConverterDefinition::encode_fn\n内部结果 → 完整响应与容量检查" as Encode

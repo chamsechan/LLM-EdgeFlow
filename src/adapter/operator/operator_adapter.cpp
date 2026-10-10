@@ -126,8 +126,9 @@ int Operator_Init() noexcept {
   }
 }
 
-int Operator_Create(void** handle, const CreateParam* param) noexcept {
+int Operator_Create(void** handle, const void* create_param) noexcept {
   try {
+    const auto* param = static_cast<const CreateParam*>(create_param);
     if (!handle || *handle != nullptr) {
       SetLastError(
           "Invalid handle argument: handle must be non-null and *handle must "
@@ -423,9 +424,10 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
   }
 }
 
-int Operator_Control(void* handle, ControlCommand command,
+int Operator_Control(void* handle, int command_value,
                      void* control_param) noexcept {
   try {
+    const auto command = static_cast<ControlCommand>(command_value);
     if (!handle) {
       SetLastError("Null handle in Control");
       return -1;
@@ -533,8 +535,8 @@ int Operator_DeInit() noexcept {
 
 OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept {
   static const OperatorFunc table{
-      Operator_Init,    Operator_Create,  Operator_Process,
-      Operator_Control, Operator_Destroy, Operator_DeInit,
+      Operator_Init,    Operator_Create,  Operator_Control,
+      Operator_Process, Operator_Destroy, Operator_DeInit,
   };
   return table;
 }

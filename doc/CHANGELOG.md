@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Operator 函数表按 `Init, Create, Control, Process, Destroy, DeInit` 排列，函数指针不带
+`noexcept`。`Create(void**, const void*)` 在实现入口读取 `const CreateParam*`；
+`Control(void*, int, void*)` 将整数还原为现有 `ControlCommand`，保留命令数值和异常隔离。
+
 平台布局集中到 `OperatorValueTypeBinding`：Converter 改用请求自有的中立 I/O 值，
 binding 负责字符串、metadata、请求编号、业务枚举映射及输出布局。删除 Converter 的平台类型、
 业务枚举字段和直接读写 helper，不保留兼容别名或旧路径。完整请求解析、业务校验和响应组装仍由
