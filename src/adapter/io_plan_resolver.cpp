@@ -172,7 +172,7 @@ int IoPlanResolver::ResolveFromPipelineJson(
     return -2;
   }
 
-  // Core validates the parsed configuration produced during preparation.
+  // Core 校验准备阶段解析得到的配置。
   auto plan = std::make_unique<ValidatedPipelinePlan>(
       PipelineValidator::ValidateParsedAndPlan(
           std::move(prepared.parsed_pipeline), prepared.io_boundary));
@@ -218,6 +218,7 @@ int IoPlanResolver::ResolveFromPipelineJson(
 
   // 组装不可变接入计划
   auto io_plan = std::make_unique<ValidatedIoPlan>();
+  io_plan->output_pool_depth = output_pool_depth;
   static_cast<IoSelection&>(*io_plan) =
       std::move(static_cast<IoSelection&>(prepared));
   io_plan->resolved_pipeline_json = std::move(prepared.neutral_pipeline_json);

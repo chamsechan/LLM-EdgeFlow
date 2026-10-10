@@ -14,7 +14,7 @@
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"

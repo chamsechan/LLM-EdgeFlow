@@ -80,8 +80,7 @@ class OperatorValueTypeRegistry {
  public:
   static OperatorValueTypeRegistry& Instance();
 
-  OperatorValueTypeRegistry();
-  void RegisterBuiltinBindings();
+  OperatorValueTypeRegistry() = default;
 
   /**
    * @brief 解析 Key (例如 "camera_0.frame") 提取命名空间和后缀
@@ -114,8 +113,7 @@ class OperatorValueTypeRegistry {
   const OperatorValueTypeBinding* GetBindingBySuffix(
       const std::string& suffix) const;
 
-  // Prepared plans own snapshots, including before GlobalInit freezes the
-  // table.
+  // 准备好的计划持有独立快照，即使 GlobalInit 尚未冻结注册表也不受影响。
   std::optional<OperatorValueTypeBinding> CopyBindingBySuffix(
       const std::string& suffix) const;
   std::optional<OperatorValueTypeBinding> CopyOutputBinding(

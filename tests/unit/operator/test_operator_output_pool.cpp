@@ -10,11 +10,11 @@
 #include <vector>
 
 #include "adapter/io_converter.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_output_pool.h"
-#include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_value_type.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/runtime_types.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/operator_nested_output_fixture.h"
 
@@ -944,17 +944,18 @@ TEST_F(OperatorOutputPoolTest,
   bool completed = false;
   for (int step = 0; step < 4096; ++step) {
     SCOPED_TRACE(step);
-    operator_api::NamedIoBatch outputs(kDepth);
+    RuntimeOutputBatch outputs;
+    outputs.rows.resize(kDepth);
     std::vector<AcquiredOutputBlock> acquired;
     ScopedOutputLeaseGuard lease;
     lease.Reserve(kDepth);
     ASSERT_EQ(pool->FreeBlockCount(), kDepth);
     for (uint32_t i = 0; i < kDepth; ++i) {
-      outputs[i]["client.keyword_out"] = nullptr;
+      outputs.rows[i].push_back({0, nullptr});
       void* block = nullptr;
       ASSERT_EQ(pool->Acquire(&block), 0);
       lease.Track(pool, block);
-      acquired.push_back({i, "client.keyword_out", pool, block, 0});
+      acquired.push_back({i, 0, pool, block, 0});
     }
     bool threw = false;
     bool injected = false;
@@ -965,20 +966,20 @@ TEST_F(OperatorOutputPoolTest,
     {
       test_support::ScopedAllocationFailure failure(step);
       try {
-        PublishOperatorOutputs(acquired, &outputs, &lease);
+        PublishRuntimeOutputs(acquired, &outputs, &lease);
       } catch (const std::bad_alloc&) {
         threw = true;
       }
       failure.DisableFailure();
       all_null = true;
       all_present = true;
-      for (const auto& frame : outputs) {
-        all_null &= !frame.begin()->second;
-        all_present &= static_cast<bool>(frame.begin()->second);
+      for (const auto& row : outputs.rows) {
+        all_null &= !row.front().value;
+        all_present &= static_cast<bool>(row.front().value);
       }
       // Process 使用的同一守卫会回滚所有未发布的租约。
       lease.Rollback();
-      outputs.clear();
+      outputs.rows.clear();
       injected = failure.Triggered();
       outstanding = failure.Outstanding();
       overflowed = failure.Overflowed();
@@ -1093,7 +1094,7 @@ TEST_F(OperatorOutputPoolTest,
 }
 
 // --------------------------------------------------------------------------
-// AcquireOperatorOutputBlocks 异常安全与回滚测试
+// AcquireRuntimeOutputBlocks 异常安全与回滚测试
 // --------------------------------------------------------------------------
 
 TEST_F(OperatorOutputPoolTest,
@@ -1168,9 +1169,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
   pool_b->CloseAndDrain();
 
   // 构造单帧多槽位: slot_a 和 slot_b
-  std::vector<std::vector<FrameOutputBinding>> frame_bindings(1);
-  frame_bindings[0].push_back({"slot_a_key", 0});
-  frame_bindings[0].push_back({"slot_b_key", 1});
+  RuntimeOutputBatch frame_bindings;
+  frame_bindings.rows = {{{0, nullptr}, {1, nullptr}}};
 
   std::vector<std::shared_ptr<OutputPoolState>> pools = {pool_a, pool_b};
 
@@ -1179,8 +1179,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
     ScopedOutputLeaseGuard guard;
     std::vector<AcquiredOutputBlock> acquired;
     std::string acq_err;
-    int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
-                                          &acquired, &acq_err);
+    int ret = AcquireRuntimeOutputBlocks(frame_bindings, pools, &guard,
+                                         &acquired, &acq_err);
     EXPECT_EQ(ret, -4);
     EXPECT_NE(acq_err.find("Output pool exhausted for slot 1"),
               std::string::npos);
@@ -1203,8 +1203,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
     ScopedOutputLeaseGuard guard;
     std::vector<AcquiredOutputBlock> acquired;
     std::string acq_err;
-    int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
-                                          &acquired, &acq_err);
+    int ret = AcquireRuntimeOutputBlocks(frame_bindings, pools, &guard,
+                                         &acquired, &acq_err);
     EXPECT_EQ(ret, 0);
     EXPECT_EQ(acquired.size(), 2u);
     EXPECT_EQ(pool_a->CheckedOutCount(), 1u);
@@ -1230,9 +1230,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
   ASSERT_EQ(pool->FreeBlockCount(), 2u);
 
   // 第 0 帧使用有效输出索引 0，第 1 帧使用缺失输出索引 1
-  std::vector<std::vector<FrameOutputBinding>> frame_bindings(2);
-  frame_bindings[0].push_back({"k0", 0});
-  frame_bindings[1].push_back({"k1", 1});
+  RuntimeOutputBatch frame_bindings;
+  frame_bindings.rows = {{{0, nullptr}}, {{1, nullptr}}};
 
   std::vector<std::shared_ptr<OutputPoolState>> pools = {pool};
 
@@ -1240,8 +1239,8 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
     ScopedOutputLeaseGuard guard;
     std::vector<AcquiredOutputBlock> acquired;
     std::string acq_err;
-    int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
-                                          &acquired, &acq_err);
+    int ret = AcquireRuntimeOutputBlocks(frame_bindings, pools, &guard,
+                                         &acquired, &acq_err);
     EXPECT_EQ(ret, -5);
     EXPECT_NE(acq_err.find("Missing output pool for slot 1"),
               std::string::npos);
@@ -1253,13 +1252,13 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
 
   // 下一次单帧合法调用必须成功
   {
-    std::vector<std::vector<FrameOutputBinding>> single_frame(1);
-    single_frame[0].push_back({"k0", 0});
+    RuntimeOutputBatch single_frame;
+    single_frame.rows = {{{0, nullptr}}};
     ScopedOutputLeaseGuard guard;
     std::vector<AcquiredOutputBlock> acquired;
     std::string acq_err;
-    int ret = AcquireOperatorOutputBlocks(single_frame, pools, &guard,
-                                          &acquired, &acq_err);
+    int ret = AcquireRuntimeOutputBlocks(single_frame, pools, &guard, &acquired,
+                                         &acq_err);
     EXPECT_EQ(ret, 0);
     EXPECT_EQ(acquired.size(), 1u);
     EXPECT_EQ(pool->CheckedOutCount(), 1u);

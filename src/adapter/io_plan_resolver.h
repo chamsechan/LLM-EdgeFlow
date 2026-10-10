@@ -17,6 +17,8 @@ namespace llm_edgeflow {
  * @brief 已验证的不可变接入计划 (同时包含 I/O 转换器绑定与内部 Pipeline 计划)
  */
 struct ValidatedIoPlan : IoSelection {
+  // 输出池内存预算已按此深度校验，创建运行时时不得更改。
+  uint32_t output_pool_depth = kDefaultOutputPoolDepth;
   // 外部文档快照，模型路径已解析。
   nlohmann::json resolved_pipeline_json;
 

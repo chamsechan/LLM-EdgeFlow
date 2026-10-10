@@ -13,8 +13,8 @@
 
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/output/rule_match_response.h"
-#include "adapter/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "tests/support/operator_test_fixture.h"

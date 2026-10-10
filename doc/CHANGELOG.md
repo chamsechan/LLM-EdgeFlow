@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+拆分 Operator 协议壳与中立 Runtime：`SharedAlgorithmRuntime` 接管部署准备、Converter 调度、
+Pipeline 执行、输出池、租约和两阶段发布，使用中立创建/批次/控制对象。
+mock 协议壳集中于 `src/adapter/operator/mock/`，保留 ABI 解析、具体 binding、平台字段
+与既有错误码映射。通用注册表不再隐式注册 mock；保留按行对应及既有输出生命周期。
+错误码处理维持原状，本次不引入新状态类型或错误分类。
+
 Operator 输入输出改为严格按 vector 行位置关联，移除通用 request_id 读取/匹配/回写钩子、
 强制 ID 来源和选项编号表。内部 `req_id/sub_id` 溯源与输出重排保留；无 ID 载体可直接接入，
 图像帧序号不用于请求关联。删除 mock 载体及 Demo 数据/结果中的 `request_id` 字段；

@@ -1,6 +1,8 @@
+#include "adapter/operator/mock/operator_builtin_value_types.h"
+
 #include "adapter/io_values.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "adapter/platform_value_binding.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -22,7 +24,7 @@ AdapterStatus WriteString(CompanyString* output, const std::string& text,
 }
 }  // namespace
 
-void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
+void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
   // 1. string -> CompanyString
   {
     auto binding = MakeTypedInputBinding<CompanyString>(
@@ -34,7 +36,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     SetInputValue<CompanyString, std::string>(
         &binding, [](const CompanyString& in) { return ReadString(&in); });
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 2. buffer -> CompanyBuffer
@@ -46,7 +48,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return ValidateCompanyBuffer(&in, limits.max_buffer_bytes, "buffer",
                                        err);
         });
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 3. any -> CompanyAny
@@ -58,7 +60,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return ValidateCompanyAnyPayload(&in, limits.max_any_bytes, "any",
                                            err);
         });
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 4. frame -> CompanyFrame
@@ -74,16 +76,16 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
               *err =
                   "CompanyFrame requires positive dimensions and RGB8 stride "
                   ">= width * 3";
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           if (!in.data) {
             if (err) *err = "CompanyFrame.data is null";
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           if (static_cast<uint64_t>(in.stride) * in.height >
               limits.max_image_bytes) {
             if (err) *err = "CompanyFrame pixels exceed max_image_bytes";
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           int ret = 0;
           if (in.metadata) {
@@ -105,7 +107,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return ImageInputValue{std::move(frame)};
         });
     binding.services = {{"ocr_invoice_qa", kMockServiceOcrInvoiceQa}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 5. od_out -> CompanyOdOutput
@@ -132,7 +134,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return AdapterStatus::Ok();
         });
     binding.services = {{"ocr_invoice_qa", kMockServiceOcrInvoiceQa}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 6. keyword_in -> CompanyOperatorKeywordInput
@@ -150,7 +152,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return TextInputValue{ReadString(in.sentence_text)};
         });
     binding.services = {{"keyword_match", kMockServiceKeywordMatch}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 7. keyword_out -> CompanyOperatorKeywordOutput
@@ -181,7 +183,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return AdapterStatus::Ok();
         });
     binding.services = {{"keyword_match", kMockServiceKeywordMatch}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 8. entity_in -> CompanyOperatorEntityInput
@@ -200,7 +202,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     binding.services = {{"entity_extract", kMockServiceEntityExtract},
                         {"translate", kMockServiceTranslate}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 9. entity_out -> CompanyOperatorEntityOutput
@@ -229,7 +231,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         });
     binding.services = {{"entity_extract", kMockServiceEntityExtract},
                         {"translate", kMockServiceTranslate}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 10. doc_in -> CompanyOperatorDocInput
@@ -255,7 +257,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                     ReadString(in.query_text)};
         });
     binding.services = {{"doc_qa", kMockServiceDocQa}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 11. doc_out -> CompanyOperatorDocOutput
@@ -291,7 +293,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return AdapterStatus::Ok();
         });
     binding.services = {{"doc_qa", kMockServiceDocQa}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 12. audit_in -> CompanyOperatorAuditInput
@@ -318,7 +320,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                  ReadString(in.channel_name)};
         });
     binding.services = {{"dialogue_audit", kMockServiceDialogueAudit}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 13. audit_out -> CompanyOperatorAuditOutput
@@ -364,7 +366,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return AdapterStatus::Ok();
         });
     binding.services = {{"dialogue_audit", kMockServiceDialogueAudit}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 14. audio_in -> CompanyOperatorAudioInput
@@ -381,7 +383,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                      std::to_string(limits.min_sample_rate) + ", " +
                      std::to_string(limits.max_sample_rate) + "]";
             }
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           if (in.pcm_length < 0 ||
               in.pcm_length > limits.max_audio_pcm_samples ||
@@ -391,11 +393,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
               *err = "pcm_length " + std::to_string(in.pcm_length) +
                      " invalid or exceeds limit " +
                      std::to_string(limits.max_audio_pcm_samples);
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           if (in.pcm_length > 0 && !in.pcm_buffer) {
             if (err) *err = "pcm_buffer pointer is null";
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           return 0;
         });
@@ -409,7 +411,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return value;
         });
     binding.services = {{"audio_asr_intent", kMockServiceAudioAsrIntent}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 15. audio_out -> CompanyOperatorAudioOutput
@@ -447,7 +449,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return AdapterStatus::Ok();
         });
     binding.services = {{"audio_asr_intent", kMockServiceAudioAsrIntent}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 16. rerank_in -> CompanyOperatorRerankInput
@@ -467,13 +469,13 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                      std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) +
                      "]";
             }
-            return -3;
+            return COMPANY_ALG_ERR_INVALID_INPUT;
           }
           for (int i = 0; i < in.candidate_count; ++i) {
             if (!in.candidate_passages[i]) {
               if (err)
                 *err = "candidate_passages[" + std::to_string(i) + "] is null";
-              return -3;
+              return COMPANY_ALG_ERR_INVALID_INPUT;
             }
             ret = ValidateCompanyString(
                 in.candidate_passages[i], limits.max_doc_text_bytes,
@@ -493,7 +495,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return value;
         });
     binding.services = {{"cross_rerank", kMockServiceCrossRerank}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 
   // 17. rerank_out -> CompanyOperatorRerankOutput
@@ -530,8 +532,15 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return AdapterStatus::Ok();
         });
     binding.services = {{"cross_rerank", kMockServiceCrossRerank}};
-    RegisterBinding(std::move(binding));
+    registry.RegisterBinding(std::move(binding));
   }
 }
+
+namespace {
+const bool kMockBindingsRegistered = [] {
+  RegisterMockOperatorBindings(OperatorValueTypeRegistry::Instance());
+  return true;
+}();
+}  // namespace
 
 }  // namespace llm_edgeflow

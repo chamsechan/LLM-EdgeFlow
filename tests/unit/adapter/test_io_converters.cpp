@@ -10,8 +10,8 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
-#include "adapter/operator/operator_process_binding.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/operator_process_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "tests/support/adapter_harness.h"
@@ -533,8 +533,7 @@ TEST(IoConverterTest, OutputBindingHonorsEmbeddedNullLengthAndTerminator) {
 }
 
 namespace {
-// These carriers deliberately have different member order, names and string
-// storage.
+// 这些测试载体刻意采用不同的成员顺序、名称和字符串存储方式。
 struct AlternateInputCarrier {
   std::string document;
   int32_t operation = 0;
@@ -753,8 +752,7 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
     EXPECT_EQ(status.SampleIndex(), 0);
     EXPECT_EQ(status.AdapterName(), "entity_in/translate");
     EXPECT_FALSE(invalid_context.Has("query"));
-    // Input extraction also enforces the service mapping from the selected
-    // binding.
+    // 输入提取还须校验所选 binding 声明的业务类型映射。
     if (alternate_layout)
       alternate.operation = -1;
     else
@@ -828,7 +826,7 @@ TEST_F(IoConverterProcessTest,
   inputs[1]["request.entity_in"] =
       operator_api::MakeBorrowedOperatorInput(&second);
   for (auto& row : outputs) row["response.entity_out"] = nullptr;
-  // Row zero encodes successfully before row one's larger response fails.
+  // 第零行编码成功后，第一行因响应较大而失败。
   EXPECT_EQ(ops_.Process(instance.get(), inputs, outputs),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL)
       << operator_api::GetOperatorLastError();
@@ -850,8 +848,7 @@ TEST_F(IoConverterProcessTest,
         nlohmann::json({{"translated", i == 0 ? "copy:one" : "copy:two"}}));
   }
   for (auto& row : outputs) row["response.entity_out"].reset();
-  // Returning both leases permits another full batch on the same depth-two
-  // pool.
+  // 归还两个租约后，同一个深度为二的池应能再次处理完整批次。
   ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
       << operator_api::GetOperatorLastError();
   outputs.clear();

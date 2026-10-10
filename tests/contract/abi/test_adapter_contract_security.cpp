@@ -14,9 +14,10 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
 #include "adapter/model_file_resolver.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
+#include "core/pipeline.h"
 #include "dev_support/inference/test_causal_lm_backend.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -565,13 +566,12 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_NE(io_plan, nullptr);
 
   std::unique_ptr<SharedAlgorithmRuntime> runtime;
-  std::string runtime_err;
-  RuntimeOptions runtime_opts{};
+  RuntimeCreateOptions runtime_opts;
   runtime_opts.device_id = 0;
-  ASSERT_EQ(SharedAlgorithmRuntime::CreateFromIoPlan(
-                std::move(io_plan), 0, &runtime_opts, &runtime, &runtime_err),
-            0)
-      << runtime_err;
+  std::string runtime_err;
+  const auto status = SharedAlgorithmRuntime::CreateFromIoPlan(
+      std::move(io_plan), runtime_opts, &runtime, &runtime_err);
+  ASSERT_EQ(status, 0) << runtime_err;
   ASSERT_NE(runtime, nullptr);
 
   const auto embedding_registration = runtime->GetPipeline()
