@@ -261,7 +261,6 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   std::string line;
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
   const auto sample = nlohmann::json::parse(line);
-  EXPECT_EQ(sample["request_id"], 30001);
   EXPECT_EQ(sample["status"], 0);
   ASSERT_TRUE(sample["output"].contains("entities"));
   EXPECT_FALSE(sample["output"]["entities"].empty());
@@ -642,8 +641,8 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
   const BuildRequestsFn build = [](const DemoOptions&,
                                    const std::vector<OperatorIoEntry>&,
                                    DemoRequestBatch*) { return 0; };
-  const ShowResultFn show = [](const void*, const nlohmann::json&, uint64_t*,
-                               int32_t*, nlohmann::json*) {};
+  const ShowResultFn show = [](const void*, const nlohmann::json&, int32_t*,
+                               nlohmann::json*) {};
   DemoIoRegistry registry;
   EXPECT_TRUE(registry.RegisterInput("Z", build));
   EXPECT_TRUE(registry.RegisterInput("A,B", build));
@@ -760,7 +759,6 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
   for (int index = 0; index < 3; ++index) {
     ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
     const auto sample = nlohmann::json::parse(line);
-    EXPECT_EQ(sample["request_id"], 20001 + index);
     EXPECT_EQ(sample["status"], index == 1 ? -17 : 0);
     const auto& output = sample["output"];
     EXPECT_EQ(output.size(), 4U);
@@ -809,29 +807,28 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
   struct Case {
     std::string config;
     const char* dataset;
-    uint64_t request_id;
     size_t count;
     const char* output_field;
     const char* suite = "smoke";
   };
   const std::vector<Case> cases = {
       {"configs/pipeline_keyword_match_rules.conf",
-       "data/corpus_keyword_match.txt", 20001, 2, "is_hit"},
+       "data/corpus_keyword_match.txt", 2, "is_hit"},
       {"demo/fixtures/mock/pipeline_entity_extract.conf",
-       "data/corpus_entity_extract.txt", 30001, 1, "entities"},
-      {"demo/fixtures/mock/pipeline_doc_qa.conf", "data/corpus_doc_qa.txt",
-       10001, 2, "answer_text"},
+       "data/corpus_entity_extract.txt", 1, "entities"},
+      {"demo/fixtures/mock/pipeline_doc_qa.conf", "data/corpus_doc_qa.txt", 2,
+       "answer_text"},
       {"demo/fixtures/mock/pipeline_dialogue_audit.conf",
-       "data/corpus_dialogue_audit.txt", 40001, 2, "audit_verdict"},
+       "data/corpus_dialogue_audit.txt", 2, "audit_verdict"},
       {"demo/fixtures/mock/pipeline_ocr_invoice_qa.conf",
-       "data/corpus_ocr_invoice_qa.txt", 60001, 1, "extracted_invoice"},
+       "data/corpus_ocr_invoice_qa.txt", 1, "extracted_invoice"},
       {"demo/fixtures/mock/pipeline_audio_asr_intent.conf",
-       "data/corpus_audio_asr_intent.txt", 70001, 1, "transcribed_text"},
+       "data/corpus_audio_asr_intent.txt", 1, "transcribed_text"},
       {"demo/fixtures/mock/pipeline_audio_asr_intent.conf",
-       "data/corpus_audio_asr_intent_whisper.jsonl", 70001, 1,
-       "transcribed_text", "real"},
+       "data/corpus_audio_asr_intent_whisper.jsonl", 1, "transcribed_text",
+       "real"},
       {(temporary.path / "rerank.conf").string(),
-       "data/corpus_cross_rerank.txt", 80001, 1, "ranked_results"}};
+       "data/corpus_cross_rerank.txt", 1, "ranked_results"}};
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   for (const auto& test_case : cases) {
@@ -888,7 +885,6 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
         const auto show =
             DemoIoRegistry::Instance().FindOutput(entry.type_name);
         ASSERT_NE(show, nullptr);
-        uint64_t request_id = 0;
         int32_t status = 0;
         nlohmann::json displayed = nlohmann::json::object();
         const auto info = i < batch.request_info.size()
@@ -896,8 +892,7 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
                               : nlohmann::json::object();
         const auto& output = outputs[0].at("demo." + entry.type);
         ASSERT_NE(output, nullptr);
-        show(output.get(), info, &request_id, &status, &displayed);
-        EXPECT_EQ(request_id, test_case.request_id + i);
+        show(output.get(), info, &status, &displayed);
         EXPECT_EQ(status, 0);
         EXPECT_TRUE(displayed.contains(test_case.output_field));
         if (entry.type_name == "CompanyOperatorRerankOutput") {
@@ -907,9 +902,7 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
           EXPECT_EQ(displayed["ranked_results"][0]["passage_text"],
                     "条款B: 售后退款支持7天无理由，原路退回付款账户。");
           nlohmann::json without_info = nlohmann::json::object();
-          show(output.get(), nlohmann::json::object(), &request_id, &status,
-               &without_info);
-          EXPECT_EQ(request_id, 80001U);
+          show(output.get(), nlohmann::json::object(), &status, &without_info);
           EXPECT_EQ(status, 0);
           EXPECT_FALSE(without_info.contains("query"));
           ASSERT_EQ(without_info["ranked_results"].size(), 3U);
@@ -919,8 +912,7 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
         } else if (entry.type_name == "CompanyOperatorAuditOutput") {
           EXPECT_EQ(displayed["channel"], info["channel"]);
           nlohmann::json without_info = nlohmann::json::object();
-          show(output.get(), nlohmann::json::object(), &request_id, &status,
-               &without_info);
+          show(output.get(), nlohmann::json::object(), &status, &without_info);
           EXPECT_FALSE(without_info.contains("channel"));
           EXPECT_EQ(without_info["audit_verdict"], displayed["audit_verdict"]);
         }
@@ -983,7 +975,6 @@ TEST(DemoRunnerTest, EntityAndTranslateShareCarrierBuildersAndDisplays) {
   std::string line;
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
   const auto sample = nlohmann::json::parse(line);
-  EXPECT_EQ(sample["request_id"], 30001);
   EXPECT_EQ(sample["status"], 0);
   EXPECT_TRUE(sample["output"]["entities"]["translated"].is_string());
 }
@@ -1020,7 +1011,6 @@ TEST(DemoRunnerTest, AudioDatasetRequirementsUseSuiteClassification) {
   const auto* carrier = static_cast<const CompanyOperatorAudioInput*>(
       batch.requests[0].at("demo.audio_in").get());
   ASSERT_NE(carrier, nullptr);
-  EXPECT_EQ(carrier->request_id, 70001U);
   EXPECT_EQ(carrier->sample_rate, 16000);
   EXPECT_EQ(
       carrier->pcm_length,
@@ -1087,14 +1077,12 @@ TEST(DemoRunnerTest,
       EXPECT_EQ(sample["status"], 0);
       const auto& output = sample["output"];
       if (std::string(profile) == "entity_extract_custom_mock") {
-        EXPECT_EQ(sample["request_id"], 30001 + index);
         ASSERT_TRUE(output.contains("entities"));
         EXPECT_EQ(output["entities"]["nouns"],
                   nlohmann::json({"张三", "清华大学", "北京", "人工智能",
                                   "算法工程师", "NPU", "芯片", "深度学习",
                                   "大模型", "项目", "公司"}));
       } else {
-        EXPECT_EQ(sample["request_id"], 10001 + index);
         EXPECT_EQ(output["intent_name"],
                   index == 0 ? "TECH_ARCHITECTURE" : "AFTER_SALES_REFUND");
         EXPECT_EQ(output["answer_text"],
@@ -1150,7 +1138,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
 
   std::vector<DemoSampleResult> samples;
   DemoSampleResult s1;
-  s1.request_id = 9001;
   s1.status = 0;
   s1.latency_ms = 2.5;
   s1.output["data"] = "test_value_1";
@@ -1158,7 +1145,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
 
   // 错误样本测试
   DemoSampleResult s2;
-  s2.request_id = 9002;
   s2.status = 5;
   s2.latency_ms = 3.5;
   s2.error = "Mock inference error for sample";
@@ -1185,9 +1171,12 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
       count++;
       auto obj = nlohmann::json::parse(line);
       EXPECT_EQ(obj["profile"], "test_profile_unit");
-      if (obj["request_id"] == 9002) {
+      if (count == 2) {
         EXPECT_EQ(obj["status"], 5);
         EXPECT_EQ(obj["error"], "Mock inference error for sample");
+      } else {
+        EXPECT_EQ(obj["status"], 0);
+        EXPECT_EQ(obj["output"], samples[0].output);
       }
     }
   }
@@ -1209,7 +1198,6 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
 
   std::vector<DemoSampleResult> append_samples;
   DemoSampleResult s3;
-  s3.request_id = 9003;
   s3.status = 0;
   s3.latency_ms = 4.0;
   s3.output["data"] = "test_value_3";
@@ -1246,7 +1234,6 @@ TEST(DemoRunnerTest,
   EXPECT_EQ(writer.GetTargetOutputDir(),
             (temporary.path / "selected_pipeline").string());
   DemoSampleResult sample;
-  sample.request_id = 19;
   sample.output = {{"answer", "retained"}};
   std::string error;
   ASSERT_EQ(writer.WriteResults({sample}, 0.0, &error), 0) << error;
@@ -1423,7 +1410,6 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   for (int index = 0; index < 2; ++index) {
     ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
     const auto sample = nlohmann::json::parse(line);
-    EXPECT_EQ(sample["request_id"], 20001 + index);
     EXPECT_EQ(sample["status"], index == 0 ? 0 : -42);
   }
   EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
@@ -1519,7 +1505,6 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   };
   ASSERT_EQ(RunOperatorDemo(options), 0);
   const auto original = read_sample();
-  EXPECT_EQ(original["request_id"], 60001);
   EXPECT_EQ(original["output"]["extracted_invoice"]["invoice_code"],
             "011002200111");
 
@@ -1531,7 +1516,6 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   ASSERT_EQ(RunOperatorDemo(options), 0);
   const auto updated = read_sample();
   EXPECT_EQ(updated["status"], 0);
-  EXPECT_EQ(updated["request_id"], 60001);
   EXPECT_TRUE(updated["output"]["extracted_invoice"]["nouns"].is_array());
   EXPECT_FALSE(updated["output"]["extracted_invoice"].contains("invoice_code"));
 

@@ -7,13 +7,12 @@
 
 #include "adapter/io_plan_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 
 /**
- * @brief 解析后的公司部署配置与合成 Pipeline JSON
+ * @brief 解析后的中立部署配置与合成 Pipeline JSON
  */
 struct ResolvedOperatorConfig {
   std::filesystem::path conf_path;
@@ -26,7 +25,7 @@ struct ResolvedOperatorConfig {
 };
 
 /**
- * @brief 公司部署配置解析器
+ * @brief 中立部署配置解析器
  */
 class OperatorConfigResolver {
  public:

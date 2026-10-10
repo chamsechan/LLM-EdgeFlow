@@ -6,11 +6,9 @@
 namespace alg_demo {
 namespace {
 
-void ShowAudioResult(const void* output, const nlohmann::json&,
-                     uint64_t* request_id, int32_t* status,
+void ShowAudioResult(const void* output, const nlohmann::json&, int32_t* status,
                      nlohmann::json* sample_output) {
   const auto& out = *static_cast<const CompanyOperatorAudioOutput*>(output);
-  *request_id = out.request_id;
   *status = out.status_code;
   std::string transcribed_text;
   std::string intent_slot_json;

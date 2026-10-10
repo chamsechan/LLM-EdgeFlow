@@ -29,7 +29,7 @@ class TestOcrModel final : public IOcrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+  int Recognize(const ImageFrameBatch& images, OcrDocumentBatch* outputs,
                 std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {
@@ -37,27 +37,26 @@ class TestOcrModel final : public IOcrModel {
       return -1;
     }
     const BatchPolicy policy{2, 2};
-    const int result =
-        FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
-            images, policy,
-            [&images](const BatchSlice& slice,
-                      std::vector<OcrDocumentItem>* batch_outputs) {
-              batch_outputs->clear();
-              batch_outputs->reserve(slice.execution_count);
-              for (size_t i = 0; i < slice.execution_count; ++i) {
-                OcrDocumentItem document;
-                if (i < slice.valid_count) {
-                  const std::string& image_ref = images[slice.offset + i].data;
-                  const std::string text = "recognized:" + image_ref;
-                  document.boxes.push_back(
-                      {1.0f, 2.0f, 3.0f, 4.0f, text, 0.95f});
-                  document.combined_text = text;
-                }
-                batch_outputs->push_back(std::move(document));
-              }
-              return 0;
-            },
-            outputs);
+    const int result = FixedBatchExecutor::Execute<ImageFrame, OcrDocumentItem>(
+        images, policy,
+        [&images](const BatchSlice& slice,
+                  std::vector<OcrDocumentItem>* batch_outputs) {
+          batch_outputs->clear();
+          batch_outputs->reserve(slice.execution_count);
+          for (size_t i = 0; i < slice.execution_count; ++i) {
+            OcrDocumentItem document;
+            if (i < slice.valid_count) {
+              const ImageFrame& frame = images[slice.offset + i].data;
+              const std::string text =
+                  "recognized:" + std::to_string(frame.width);
+              document.boxes.push_back({1.0f, 2.0f, 3.0f, 4.0f, text, 0.95f});
+              document.combined_text = text;
+            }
+            batch_outputs->push_back(std::move(document));
+          }
+          return 0;
+        },
+        outputs);
     if (result != 0 || !outputs) return result;
     if (return_wrong_count_ && !outputs->empty()) outputs->pop_back();
     if (corrupt_provenance_ && !outputs->empty()) ++(*outputs)[0].sub_id;

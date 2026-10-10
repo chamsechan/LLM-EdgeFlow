@@ -258,12 +258,12 @@ const std::string& TestBizOcrModel::ModelType() const noexcept {
 InferenceConcurrency TestBizOcrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-int TestBizOcrModel::Recognize(const ImageRefBatch& images,
+int TestBizOcrModel::Recognize(const ImageFrameBatch& images,
                                OcrDocumentBatch* outputs,
                                std::string* diagnostic) noexcept {
   if (diagnostic) diagnostic->clear();
   const BatchPolicy policy = session_->GetBatchPolicy();
-  return FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
+  return FixedBatchExecutor::Execute<ImageFrame, OcrDocumentItem>(
       images, policy,
       [](const BatchSlice& slice, std::vector<OcrDocumentItem>* batch_outputs) {
         batch_outputs->assign(slice.execution_count, OcrDocumentItem());

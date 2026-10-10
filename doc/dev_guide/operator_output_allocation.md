@@ -51,10 +51,12 @@ Pipeline 配置。另一种布局或固定参数需要另一份转换器登记�
 多项复用同一种载体时，key 必须为 `name.type`，例如 `entity_extract.entity_out` 和
 `translate.entity_out`。初始为空的输出指针因此也有明确对应关系。
 
-各输入项按批内行号配对。平台登记用成员指针显式声明请求 ID 与业务成员；至少一个所选输入
-必须带请求 ID，多个都带时逐行核对一致。binding 的 `services` 将非 common 业务名映射到该结构的实际枚举，
+`Process` 要求 `inputs.size() == outputs.size()`；各输入槽按批内行号配对，结果写回
+同一 `outputs[i]`。载体不需要请求 ID 字段；图像 `index` 是帧序号，不用于请求关联。
+内部 `TraceableItem.req_id` 仍为批内行号，`sub_id` 标记拆分结果；输出按此来源还原行序，
+重复、缺失和越界来源仍会被拒绝。binding 的 `services` 将非 common 业务名映射到该结构的实际枚举，
 Process 在解码前核对 `service_type`，不一致整批失败，诊断包含结构名、行号与期望值。
-`CompanyFrame` 带请求 ID，`CompanyString` 不带；图片和问题可以分别由两份登记发布不同逻辑端口。
+图片和问题可以分别由两份登记发布不同逻辑端口，无需共同的 ID 字段。
 
 ## 实现与注册
 
@@ -63,8 +65,8 @@ Process 在解码前核对 `service_type`，不一致整批失败，诊断包含
 
 当前模拟平台的结构在
 [`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)，traits、字符串和
-metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/platform_value_binding.h)，
-binding 在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/operator_builtin_value_types.cpp)。
+metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/operator/mock/platform_value_binding.h)，
+binding 在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/mock/operator_builtin_value_types.cpp)。
 其他平台使用自己的 binding 文件：核对真实类型、成员、长度单位、枚举与所有权，并连接
 [`io_values.h`](../../include/adapter/io_values.h) 中内容语义相同的自有值。平台类型和成员访问只存在于
 binding 实现；Converter 不包含平台头文件，不把宿主指针转成结构体。
@@ -80,7 +82,7 @@ Converter 用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中
 Init 审计要求与 binding 一致；结构名不再出现在 Converter 槽声明中。
 
 以下以当前模拟平台的池化字符串 helper 为例。假设宿主 `SummaryOutput` 有
-`uint64_t request_id`、`CompanyString* summary` 和标量 `status`，在平台 binding 的声明处写：
+`CompanyString* summary` 和标量 `status`，在平台 binding 的声明处写：
 
 ```cpp
 DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
@@ -101,10 +103,8 @@ binding 的分配、重置与写入共同使用真实成员：
 auto binding = MakePooledOutputBinding<SummaryOutput>(
     "summary", {{"summary", &SummaryOutput::summary, {65536}}},
     [](SummaryOutput& output) noexcept {
-      output.request_id = 0;
       output.status = 0;
     });
-SetRequestIdMember(&binding, &SummaryOutput::request_id);
 SetOutputValue<SummaryOutput, SummaryOutputValue>(
     &binding, [](SummaryOutput& output, const SummaryOutputValue& value,
                  const ResolvedOutputPoolSpec& spec) {
@@ -127,7 +127,7 @@ RegisterOperatorValueType(binding);
 标量重置回调必须 `noexcept`，不能覆盖嵌套指针。
 
 输入使用 `MakeTypedInputBinding<Host>` 校验真实载体，再用 `SetInputValue<Host, Value>`
-复制字符串、数组及标量至请求自有值。`SetRequestIdMember` / `SetServiceTypeMember` 显式声明真实成员，
+复制字符串、数组及标量至请求自有值。`SetServiceTypeMember` 显式声明真实业务成员，
 `binding.services` 映射业务名到平台枚举；Converter Definition 不声明平台枚举。
 仅布局不同而内容语义相同时复用同一 `Value` 和 Converter，无兼容别名或旧 API 路径。
 完整可执行示例见[值类型测试](../../tests/unit/operator/test_operator_value_registry.cpp)和
@@ -157,7 +157,7 @@ RegisterOperatorValueType(binding);
    登记的逆序执行。分配器不同的内存必须登记匹配的 deleter，避免同时递归释放和
    逐项释放同一个指针。
 
-默认实现和命名方案必须声明相同的外层类型名称。请求编号、`service_type` 成员和 `services` 映射
+默认实现和命名方案必须声明相同的外层类型名称。`service_type` 成员和 `services` 映射
 统一来自宿主 ValueType 登记，命名方案使用自己的中立值写入回调；更换布局不改变业务语义。
 命名方案拥有自己的参数校验、布局、
 预算和生命周期回调。注册必须在 Operator Init 前完成，重复标识、类型不兼容和缺失
@@ -188,12 +188,27 @@ binding.normalize_parameters =
 通过 `REGISTER_OUTPUT_CONVERTER` 注册 `OutputConverterDefinition`，槽声明固定该实现写入的布局。
 Converter 回调组装中立响应值，`EncodeResultRows<Value>` / `WriteOutputValue` 根据
 `ExternalOutputBatchView` 的 binding 写入。binding 的 `write_value` 接收真实外层结构和
-`ResolvedOutputPoolSpec`，按实际容量、显式字节长度及自己的类型化参数填充载荷，再写入请求编号。
+`ResolvedOutputPoolSpec`，按实际容量、显式字节长度及自己的类型化参数填充载荷。
 Converter 不直接访问外层结构或嵌套指针。binding 保持指针与已分配布局一致，不重新读取部署文件、
 不另设默认容量、不保存请求局部指针；字符串或数组超容量时返回错误，不静默截断。
 
 框架在全部输出转换成功后发布 map；任何失败都会归还已获取的输出租约。调用方依照外部协议的
 枚举解释 `void*`，实际释放依据登记的所有权记录。输出引用不延长 handle 的有效期。
+
+## 中立 Runtime 与协议壳
+
+`SharedAlgorithmRuntime` 管理池实例、同步执行、租约回滚和两阶段发布；平台 binding 保留具体载体的
+容量计算、分配、写入、重置与释放回调。`RuntimeOutputBatch.rows` 保留原始批内行位置，每个槽只声明
+已验证输出选择的 `output_index` 和租约值。调用前值必须为空，必填槽不得缺失，同一行不可重复选择槽。
+facade 自行验证这些条件，失败不修改输出批次；成功后全部租约一起发布。
+
+协议壳将平台槽位翻译成中立选择，接收成功批次后完成所有平台业务枚举写入，再移交外部指针。
+facade 不解析平台 key，不读取具体成员。本次沿用原有 `int` 返回值、诊断字符串和错误定义；
+协议壳保留既有错误映射，错误码中立化另行处理。
+
+中立 Runtime 的生命周期与现有 Operator 规则相同：调用者须先停止并等待 Process/Control，释放输出，
+再调用 `Close`。存在未归还输出时 Close 报错但仍销毁块；重复 Close 安全，关闭后拒绝执行。
+不支持 Close 与执行并发，不额外引入异步关闭语义。
 
 ## 宿主调用与生命周期
 

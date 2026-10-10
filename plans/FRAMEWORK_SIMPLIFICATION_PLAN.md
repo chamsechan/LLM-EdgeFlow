@@ -54,12 +54,12 @@
 | 发现 | 证据 | 阶段 |
 | --- | --- | --- |
 | 没有跨请求状态。会话缓存 `GetOrCreateResult` 只能创建一次，没有更新和淘汰；端口 `lifetime=session` 只是元数据 | `include/nodes/session_resources.h`；`pipeline_validator.cpp:68-84` | 4 |
-| 同一句柄上的 `Process` 已经被句柄互斥锁串行化 | `src/adapter/operator/operator_adapter.cpp:321` | 4 |
+| 同一 runtime 的 `Process` 与 `Control` 由互斥锁串行化 | `src/adapter/shared_algorithm_runtime.cpp` | 4 |
 | `AlgContext` 按值存储（`std::any`），直接发布历史状态会每个批次复制一次 | `include/core/alg_context.h:43-47` | 4 |
 | 读取入口不止一个：`BoundInput::Get`、`BoundInput::Require`、`NodeBase::Require` 都直接调用 `AlgContext::Read` | `include/nodes/node_base.h:65`、`:73`、`:301` | 4 |
 | `TextTemplateNode`、`PromptGuidedLlmNode` 的上下文输入按请求聚合；共享条目（`req_id=0`）直接接进去只会挂到批内第一条请求上 | `src/common_nodes/text_template_node.cpp:525-534`；`src/custom_nodes/prompt_guided_llm_node.cpp:198` | 4 |
 | 现有的共享数据约定只有 `req_id=0`，由消费方用配置开启（`VectorTopKNode` 的 `candidate_scope=shared`）；端口定义里没有"共享输入"的声明 | `src/common_nodes/vector_top_k_node.cpp:77-83`、`:164-173`；来源规则的允许值见 `src/core/node_definition_validation.cpp:17-21` | 4 |
-| 输出发布在一个函数里边构造共享指针边写入输出，没有"准备"与"提交"之分。内存池会拒绝重复归还，所以中途失败不会损坏账本 | `src/adapter/operator/operator_process_binding.cpp:232-252`；`src/adapter/operator/operator_output_pool.cpp:134-151` | 4 |
+| 输出采用准备与提交两阶段发布；中立租约及协议壳交付失败均不发布部分结果 | `src/adapter/operator/operator_output_pool.cpp`；`src/adapter/operator/mock/operator_process_binding.cpp` | 4 |
 | 测试夹具里有维度可配置的测试向量模型；Demo 在同一个句柄上按 `batch_size` 分批处理数据集 | `dev_support/inference/test_biz_models.cpp:83-92`；`demo/common/operator_runner.h:215-271` | 4 |
 | Studio 会就地修改 Pipeline 对象，但按数据名自动推导连线 | `tools/pipeline_studio/web/workbench.js:65-120` | 4 |
 

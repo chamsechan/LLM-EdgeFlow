@@ -76,7 +76,7 @@ class TestBizOcrModel final : public IOcrModel {
   const std::string& ImplName() const noexcept override;
   const std::string& ModelType() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+  int Recognize(const ImageFrameBatch& images, OcrDocumentBatch* outputs,
                 std::string* diagnostic = nullptr) noexcept override;
 
  private:

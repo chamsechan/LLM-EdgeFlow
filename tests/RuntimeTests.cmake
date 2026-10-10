@@ -282,6 +282,8 @@ edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runne
   "AdapterContractSecurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
   "OperatorApiTest.*:IoParametersTest.*" "${_edgeflow_tier2}")
+edgeflow_add_runner_test(RuntimeFacadeTest edgeflow_test_adapter_runner
+  "RuntimeFacadeTest.*:RuntimeFacadeOptionsTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
@@ -548,6 +550,7 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   AdapterContractSecurityTest
   OperatorApiTest
   OperatorOutputPoolTest
+  RuntimeFacadeTest
   OperatorValueRegistryTest
   OperatorGoldenTest
   AdapterPurityTest

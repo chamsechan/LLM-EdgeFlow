@@ -111,7 +111,7 @@ class DevRecipeTest(unittest.TestCase):
         report = self.prepare()
         self.assertTrue(report["ok"], report)
         effects = json.loads(self.target.with_name(self.target.stem + "_effects.json").read_text())
-        self.assertEqual([sample["request_id"] for sample in effects["samples"]], [20001, 20002, 20003, 20004])
+        self.assertEqual(len(effects["samples"]), 4)
         self.assertEqual(effects["samples"][0]["expected"], {"/output/is_hit": True})
         self.assertTrue((self.target.parent / effects["dataset"]).is_file())
         result = self.verify()
@@ -253,12 +253,12 @@ class DevRecipeTest(unittest.TestCase):
         self.assertNotIn("params", generated["io"]["output"][0])
         self.assertTrue(self.verify()["ok"])
 
-    def test_unlabelled_or_duplicate_effects_rejected_before_generation(self):
+    def test_unlabelled_or_mismatched_effects_rejected_before_generation(self):
         source = self.root / "tests/fixtures/effects/keyword_exact.json"
         labelled = json.loads(source.read_text())
         for invalid in (
-            dict(labelled, samples=[{"request_id": 20001, "expected": {"/status": 0}}]),
-            dict(labelled, samples=[labelled["samples"][0], labelled["samples"][0]]),
+            dict(labelled, samples=[{"expected": {"/status": 0}}]),
+            dict(labelled, samples=[labelled["samples"][0], {"expected": {}}]),
             dict(labelled, output={"type": "entity_out", "name": "entity_extract"}),
         ):
             with self.subTest(spec=invalid):

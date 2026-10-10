@@ -51,20 +51,18 @@ TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 
-  std::string img1 = "./data/invoice_sample_01.jpg";
+  const std::vector<uint8_t> pixels1{255, 0, 0, 0, 255, 0};
   std::string p1 = "提取发票代码、号码与总金额";
-  std::string img2 = "./data/vat_receipt_02.png";
+  const std::vector<uint8_t> pixels2{0, 0, 255};
   std::string p2 = "提取购买方公司名称与税额";
 
-  CompanyString img1_cs{static_cast<int32_t>(img1.size()),
-                        const_cast<char*>(img1.data())};
-  CompanyFrame frame1{60001, kMockServiceOcrInvoiceQa, &img1_cs, nullptr};
+  CompanyFrame frame1{kMockServiceOcrInvoiceQa, 1,      2, 6,
+                      pixels1.data(),           nullptr};
   CompanyString p1_cs{static_cast<int32_t>(p1.size()),
                       const_cast<char*>(p1.data())};
 
-  CompanyString img2_cs{static_cast<int32_t>(img2.size()),
-                        const_cast<char*>(img2.data())};
-  CompanyFrame frame2{60002, kMockServiceOcrInvoiceQa, &img2_cs, nullptr};
+  CompanyFrame frame2{kMockServiceOcrInvoiceQa, 1,      1, 3,
+                      pixels2.data(),           nullptr};
   CompanyString p2_cs{static_cast<int32_t>(p2.size()),
                       const_cast<char*>(p2.data())};
 
@@ -94,9 +92,7 @@ TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
   auto* out1 = static_cast<CompanyOdOutput*>(out1_sp.get());
   auto* out2 = static_cast<CompanyOdOutput*>(out2_sp.get());
 
-  EXPECT_EQ(out1->request_id, 60001ULL);
   EXPECT_EQ(out1->detected_box_count, 6);
-  EXPECT_EQ(out2->request_id, 60002ULL);
   EXPECT_EQ(out2->detected_box_count, 6);
 
   ASSERT_NE(out1->result_json, nullptr);
@@ -131,11 +127,9 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   std::vector<float> pcm1(16000, 0.01f);   // 导航语音 (累计值较大)
   std::vector<float> pcm2(16000, 0.001f);  // 空调车控语音
 
-  CompanyOperatorAudioInput in_audio1{70001, kMockServiceAudioAsrIntent,
-                                      pcm1.data(),
+  CompanyOperatorAudioInput in_audio1{kMockServiceAudioAsrIntent, pcm1.data(),
                                       static_cast<int32_t>(pcm1.size()), 16000};
-  CompanyOperatorAudioInput in_audio2{70002, kMockServiceAudioAsrIntent,
-                                      pcm2.data(),
+  CompanyOperatorAudioInput in_audio2{kMockServiceAudioAsrIntent, pcm2.data(),
                                       static_cast<int32_t>(pcm2.size()), 16000};
 
   operator_api::NamedIoBatch inputs(2);
@@ -160,9 +154,6 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   auto* out1 = static_cast<CompanyOperatorAudioOutput*>(out1_sp.get());
   auto* out2 = static_cast<CompanyOperatorAudioOutput*>(out2_sp.get());
 
-  EXPECT_EQ(out1->request_id, 70001ULL);
-  EXPECT_EQ(out2->request_id, 70002ULL);
-
   ASSERT_NE(out1->intent_slot_json, nullptr);
   std::string s1(out1->intent_slot_json->data, out1->intent_slot_json->length);
   auto j1 = nlohmann::json::parse(s1);
@@ -174,10 +165,10 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
 
-  CompanyOperatorAudioInput empty1{70001, kMockServiceAudioAsrIntent, nullptr,
-                                   0, 16000};
-  CompanyOperatorAudioInput empty2{70002, kMockServiceAudioAsrIntent, nullptr,
-                                   0, 16000};
+  CompanyOperatorAudioInput empty1{kMockServiceAudioAsrIntent, nullptr, 0,
+                                   16000};
+  CompanyOperatorAudioInput empty2{kMockServiceAudioAsrIntent, nullptr, 0,
+                                   16000};
   inputs[0]["mic_0.audio_in"] =
       operator_api::MakeBorrowedOperatorInput(&empty1);
   inputs[1]["mic_0.audio_in"] =
@@ -192,8 +183,6 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   ASSERT_NE(out2_sp, nullptr);
   out1 = static_cast<CompanyOperatorAudioOutput*>(out1_sp.get());
   out2 = static_cast<CompanyOperatorAudioOutput*>(out2_sp.get());
-  EXPECT_EQ(out1->request_id, 70001ULL);
-  EXPECT_EQ(out2->request_id, 70002ULL);
   EXPECT_EQ(out1->status_code, 0);
   EXPECT_EQ(out2->status_code, 0);
 
@@ -285,7 +274,6 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   }
 
   CompanyOperatorRerankInput in_rerank{};
-  in_rerank.request_id = 80001;
   in_rerank.service_type = kMockServiceCrossRerank;
   in_rerank.query_text = &q_cs;
   in_rerank.candidate_count = 5;
@@ -307,7 +295,6 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   ASSERT_NE(out_sp, nullptr);
   auto* out_rerank = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
 
-  EXPECT_EQ(out_rerank->request_id, 80001ULL);
   EXPECT_EQ(out_rerank->count, 5);
 
   for (int i = 0; i < out_rerank->count; ++i) {

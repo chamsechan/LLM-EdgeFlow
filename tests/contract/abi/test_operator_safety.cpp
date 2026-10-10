@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "adapter/io_converter_registry.h"
-#include "adapter/platform_value_binding.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -111,8 +111,8 @@ TEST_F(OperatorSafetyTest, EndToEndDynamicControlAndVerification) {
   CompanyString cs1{static_cast<int32_t>(s1.size()),
                     const_cast<char*>(s1.data())};
 
-  CompanyOperatorKeywordInput req0{101, kMockServiceKeywordMatch, &cs0};
-  CompanyOperatorKeywordInput req1{102, kMockServiceKeywordMatch, &cs1};
+  CompanyOperatorKeywordInput req0{kMockServiceKeywordMatch, &cs0};
+  CompanyOperatorKeywordInput req1{kMockServiceKeywordMatch, &cs1};
 
   NamedIoBatch inputs(2);
   inputs[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req0);
@@ -167,8 +167,8 @@ TEST_F(OperatorSafetyTest, OutputBatchSizeMismatchProtection) {
   CompanyString cs1{static_cast<int32_t>(s1.size()),
                     const_cast<char*>(s1.data())};
 
-  CompanyOperatorKeywordInput req0{101, kMockServiceKeywordMatch, &cs0};
-  CompanyOperatorKeywordInput req1{102, kMockServiceKeywordMatch, &cs1};
+  CompanyOperatorKeywordInput req0{kMockServiceKeywordMatch, &cs0};
+  CompanyOperatorKeywordInput req1{kMockServiceKeywordMatch, &cs1};
 
   NamedIoBatch inputs(2);
   inputs[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req0);
@@ -204,7 +204,7 @@ TEST_F(OperatorSafetyTest, NullOrMissingSlotInBatchInputs) {
   std::string s0 = "请联系VIP专员";
   CompanyString cs0{static_cast<int32_t>(s0.size()),
                     const_cast<char*>(s0.data())};
-  CompanyOperatorKeywordInput req0{101, kMockServiceKeywordMatch, &cs0};
+  CompanyOperatorKeywordInput req0{kMockServiceKeywordMatch, &cs0};
 
   NamedIoBatch inputs_with_missing_slot(2);
   inputs_with_missing_slot[0]["client_channel.keyword_in"] =
@@ -233,7 +233,7 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
 
   CompanyString text{1, nullptr};
-  CompanyOperatorKeywordInput request{42, kMockServiceKeywordMatch, &text};
+  CompanyOperatorKeywordInput request{kMockServiceKeywordMatch, &text};
   NamedIoBatch inputs(1);
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&request);
   NamedIoBatch outputs(1);
@@ -262,7 +262,7 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   auto* result = static_cast<CompanyOperatorKeywordOutput*>(
       outputs[0].at("client.keyword_out").get());
   ASSERT_NE(result, nullptr);
-  EXPECT_EQ(result->request_id, 42U);
+  EXPECT_EQ(result->status_code, 0);
 }
 
 TEST_F(OperatorSafetyTest,
@@ -290,9 +290,8 @@ TEST_F(OperatorSafetyTest,
   char overflow[] = "overflow";
   CompanyString first_text{8, ordinary};
   CompanyString second_text{8, overflow};
-  CompanyOperatorKeywordInput first{41, kMockServiceKeywordMatch, &first_text};
-  CompanyOperatorKeywordInput second{42, kMockServiceKeywordMatch,
-                                     &second_text};
+  CompanyOperatorKeywordInput first{kMockServiceKeywordMatch, &first_text};
+  CompanyOperatorKeywordInput second{kMockServiceKeywordMatch, &second_text};
   NamedIoBatch inputs(2);
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&first);
   inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&second);
@@ -316,7 +315,6 @@ TEST_F(OperatorSafetyTest,
     auto* result = static_cast<CompanyOperatorKeywordOutput*>(
         outputs[i].at("client.keyword_out").get());
     ASSERT_NE(result, nullptr);
-    EXPECT_EQ(result->request_id, 41U + i);
     EXPECT_EQ(result->is_hit, 0);
   }
 }
@@ -360,7 +358,6 @@ TEST_F(OperatorSafetyTest, FrameworkProcessBatchLimitEnforcement) {
   NamedIoBatch inputs(65);
   NamedIoBatch outputs(65);
   for (int i = 0; i < 65; ++i) {
-    reqs[i].request_id = i + 1;
     reqs[i].service_type = kMockServiceKeywordMatch;
     reqs[i].sentence_text = &cs;
     inputs[i]["client_channel.keyword_in"] =
@@ -402,13 +399,10 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
         std::this_thread::yield();
       }
       for (int call_index = 0; call_index < kCallsPerThread; ++call_index) {
-        const uint64_t request_id =
-            static_cast<uint64_t>(thread_index * kCallsPerThread + call_index);
         std::string s = "same handle request";
         CompanyString cs{static_cast<int32_t>(s.size()),
                          const_cast<char*>(s.data())};
-        CompanyOperatorKeywordInput input{request_id, kMockServiceKeywordMatch,
-                                          &cs};
+        CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &cs};
 
         NamedIoBatch inputs(1);
         inputs[0]["client_channel.keyword_in"] =
@@ -428,7 +422,7 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
         }
         auto* out_dto =
             static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-        if (out_dto->request_id != request_id) {
+        if (out_dto->status_code != 0 || !out_dto->match_result_json) {
           failures.fetch_add(1, std::memory_order_relaxed);
         }
         outputs.clear();
@@ -445,7 +439,7 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
   EXPECT_EQ(op.Destroy(handle), 0);
 }
 
-// 12. Entity 失败样本在结构化校验失败时，先写 request_id，但 status
+// 12. Entity 失败样本在结构化校验失败时，业务字段和 status
 // 与 entities_json 保留原调用者哨兵值
 TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   const auto* out_conv =
@@ -454,7 +448,6 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;
-  const std::vector<uint64_t> request_ids{1001, 2002};
 
   llm_edgeflow::StructuredDocumentBatch entities;
   entities.emplace_back(
@@ -477,7 +470,6 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   CompanyOperatorEntityOutput out0{}, out1{};
   out0.entities_json = &cs0;
   out1.entities_json = &cs1;
-  out1.request_id = 99999;
   out1.status_code = -777;
 
   llm_edgeflow::TestOutputBatchView out_view;
@@ -493,7 +485,6 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
 
   options.type = out_conv->type;
   options.name = out_conv->name;
-  options.request_ids = &request_ids;
 
   size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
@@ -501,12 +492,10 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
       *out_conv, &ctx, options, &out_view, &written_count, &status);
 
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(out0.request_id, 1001u);
   EXPECT_EQ(out0.status_code, 0);
   EXPECT_STREQ(out0.entities_json->data, "[\"valid_entity\"]");
 
   // 样本 1：业务校验失败，binding 未写入，所有平台字段保持哨兵值。
-  EXPECT_EQ(out1.request_id, 99999u);
   EXPECT_EQ(out1.status_code, -777);
   EXPECT_STREQ(out1.entities_json->data, "SENTINEL_PAYLOAD");
 }

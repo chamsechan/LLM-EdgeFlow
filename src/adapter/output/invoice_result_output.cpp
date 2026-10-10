@@ -47,9 +47,6 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   const auto* ocr_docs = ReadOutputValue(*context, kDocument, options, status);
   if (!ocr_docs) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids = RequestIds(options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
-
   size_t count = invoice_jsons->size();
   if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
@@ -59,13 +56,14 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
 
   std::vector<const StructuredDocumentBatch::value_type*>
       invoice_jsons_by_request;
-  if (!IndexResults(invoice_jsons, raw_req_ids, &invoice_jsons_by_request,
-                    "invoice_jsons", options.Label().c_str(), status)) {
+  if (!IndexResults(invoice_jsons, destination->count,
+                    &invoice_jsons_by_request, "invoice_jsons",
+                    options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
   std::vector<const OcrDocumentBatch::value_type*> ocr_docs_by_request;
-  if (!IndexResults(ocr_docs, raw_req_ids, &ocr_docs_by_request, "ocr_docs",
-                    options.Label().c_str(), status)) {
+  if (!IndexResults(ocr_docs, destination->count, &ocr_docs_by_request,
+                    "ocr_docs", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 

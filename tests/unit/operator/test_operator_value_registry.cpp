@@ -8,9 +8,10 @@
 
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/mock/operator_builtin_value_types.h"
+#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_value_type.h"
-#include "adapter/platform_value_binding.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/adapter_harness.h"
@@ -486,6 +487,7 @@ TEST(OperatorValueRegistryTest,
   std::optional<OperatorValueTypeBinding> allocator;
   {
     OperatorValueTypeRegistry registry;
+    RegisterMockOperatorBindings(registry);
     host = registry.CopyBindingBySuffix("entity_in");
     auto output = registry.CopyOutputBinding("entity_out", "");
     ASSERT_TRUE(host);
@@ -500,9 +502,6 @@ TEST(OperatorValueRegistryTest,
     EXPECT_FALSE(registry.CopyBindingBySuffix("missing"));
     EXPECT_FALSE(registry.CopyOutputBinding("entity_in", "first"));
   }
-  CompanyOperatorEntityInput input{};
-  input.request_id = 123;
-  EXPECT_EQ(host->read_request_id(&input), 123u);
   EXPECT_EQ(allocator->allocation_name, "first");
   ResolvedOutputPoolSpec spec;
   spec.type = "entity_out";
@@ -635,6 +634,7 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
 // 9. 独立 ValueTypeRegistry 实例与原子回滚测试
 TEST(OperatorValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
   OperatorValueTypeRegistry local_reg;
+  RegisterMockOperatorBindings(local_reg);
 
   // 1. 重复 canonical 必须 fail-closed
   OperatorValueTypeBinding bad_b1;
@@ -760,6 +760,7 @@ TEST(OperatorValueRegistryTest,
   bool completed = false;
   for (int step = 0; step < 4096; ++step) {
     OperatorValueTypeRegistry reg;
+    RegisterMockOperatorBindings(reg);
     const auto* original = reg.GetBindingBySuffix("keyword_out");
     ASSERT_NE(original, nullptr);
     OperatorValueTypeBinding binding = *original;
@@ -1025,6 +1026,7 @@ TEST(OperatorValueRegistryTest, OutputBudgetCallbackFailsClosed) {
 // 14. TSan 并发查询与冻结交错测试
 TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   OperatorValueTypeRegistry reg;
+  RegisterMockOperatorBindings(reg);
   std::atomic<bool> stop_flag{false};
 
   std::vector<std::thread> readers;
@@ -1158,7 +1160,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     std::string channel(length < 0 ? 0 : length, 'c');
     CompanyString named_channel{static_cast<int32_t>(channel.size()),
                                 channel.data()};
-    CompanyOperatorAuditInput op_input{7, kMockServiceDialogueAudit, &text,
+    CompanyOperatorAuditInput op_input{kMockServiceDialogueAudit, &text,
                                        length < 0 ? nullptr : &named_channel};
     AlgContext ctx;
     const bool expected = length <= 256;
@@ -1173,8 +1175,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     options.type = in_conv->type;
     options.name = in_conv->name;
     options.params = parameters.get();
-    std::vector<uint64_t> request_ids;
-    options.request_ids = &request_ids;
+
     int dec_ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, view, options,
                                                       &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, expected);
@@ -1216,8 +1217,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
       {input_limits::kMaxAudioPcmSamples + 1, 16000, true, false}};
   for (const auto& test : cases) {
     CompanyOperatorAudioInput op_input{
-        7, kMockServiceAudioAsrIntent,
-        test.has_buffer ? samples.data() : nullptr, test.length, test.rate};
+        kMockServiceAudioAsrIntent, test.has_buffer ? samples.data() : nullptr,
+        test.length, test.rate};
     AlgContext ctx;
     ExternalInputBatchView view;
     view.slots["audio_in"] = BorrowInputForTest({&op_input});
@@ -1230,8 +1231,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
     options.type = in_conv->type;
     options.name = in_conv->name;
     options.params = parameters.get();
-    std::vector<uint64_t> request_ids;
-    options.request_ids = &request_ids;
+
     int dec_ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, view, options,
                                                       &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, test.valid);
@@ -1240,8 +1240,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   }
   InputLimits limits;
   limits.max_audio_pcm_bytes = sizeof(float);
-  CompanyOperatorAudioInput input{7, kMockServiceAudioAsrIntent, samples.data(),
-                                  2, 16000};
+  CompanyOperatorAudioInput input{kMockServiceAudioAsrIntent, samples.data(), 2,
+                                  16000};
   EXPECT_NE(binding->validate_external(&input, limits, nullptr), 0);
 }
 

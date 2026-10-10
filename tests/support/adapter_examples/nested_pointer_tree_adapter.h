@@ -20,12 +20,10 @@ struct TemplateTreeNode {
 };
 
 typedef struct {
-  uint64_t request_id;
   const struct TemplateTreeNode* root_node;  // 根节点
 } TemplateNestedTreeInput;
 
 typedef struct {
-  uint64_t request_id;
   int status_code;
   int total_nodes_traversed;
   char traversal_path[512];
@@ -38,7 +36,6 @@ struct TemplateTreeNodeDto {
 };
 
 struct TemplateTreeResultDto {
-  uint64_t request_id;
   int status_code;
   int total_nodes_traversed;
   std::string traversal_path;
@@ -161,7 +158,6 @@ class TemplateNestedPointerTreeAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<TemplateNestedTreeOutput*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
       out_ptr->status_code = (*res)[i].status_code;
       out_ptr->total_nodes_traversed = (*res)[i].total_nodes_traversed;
 

@@ -103,7 +103,6 @@ endif()
 include(cmake_ext/NlohmannJson.cmake)
 target_link_libraries(edgeflow_extension_headers INTERFACE
     nlohmann_json::nlohmann_json)
-include(cmake_ext/StbImage.cmake)
 
 # 引入 Unicode 正则库（TextRuleMatchNode lookbehind / 命名捕获）
 include(cmake_ext/Pcre2.cmake)

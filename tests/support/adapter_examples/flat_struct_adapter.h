@@ -14,19 +14,16 @@ namespace template_examples {
 
 // 1. 纯 C 结构体声明
 typedef struct {
-  uint64_t request_id;
   const char* sentence_text;  // 必填 UTF-8 字符串
 } TemplateFlatInput;
 
 typedef struct {
-  uint64_t request_id;
   int status_code;
   char result_json[512];  // 固定容量输出
 } TemplateFlatOutput;
 
 // 2. 内部 DTO
 struct TemplateFlatResultDto {
-  uint64_t request_id;
   int status_code;
   std::string result_json;
 };
@@ -92,7 +89,6 @@ class TemplateFlatStructAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<TemplateFlatOutput*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
       out_ptr->status_code = (*res)[i].status_code;
 
       // RECHECK-001: 必须检查 CheckedStringCopy 返回值

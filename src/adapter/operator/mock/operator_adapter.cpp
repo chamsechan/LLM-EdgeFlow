@@ -5,12 +5,10 @@
 #include <unordered_set>
 #include <vector>
 
-#include "adapter/operator/operator_config_resolver.h"
-#include "adapter/operator/operator_control_registry.h"
-#include "adapter/operator/operator_error_mapping.h"
-#include "adapter/operator/operator_output_pool.h"
-#include "adapter/operator/operator_process_binding.h"
-#include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/io_plan_resolver.h"
+#include "adapter/operator/mock/operator_control_registry.h"
+#include "adapter/operator/mock/operator_error_mapping.h"
+#include "adapter/operator/mock/operator_process_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/diagnostic.h"
 #include "edgeflow/operator/interface.h"
@@ -27,9 +25,6 @@ void SetLastError(std::string_view err) noexcept {
 
 struct OperatorHandle {
   std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
-  uint32_t effective_process_batch_limit = 25;
-  std::vector<std::shared_ptr<llm_edgeflow::OutputPoolState>> output_pools;
-  std::mutex mutex;
 };
 
 /**
@@ -79,16 +74,8 @@ class OperatorHandleManager {
       for (auto* h : to_destroy) {
         if (!h) continue;
         std::unique_ptr<OperatorHandle> owner(h);
-        uint32_t outstanding = 0;
-        for (auto& pool : owner->output_pools) {
-          if (pool) {
-            outstanding += pool->CloseAndDrain();
-            pool->DestroyBlocks();
-          }
-        }
-        if (outstanding > 0 && first_error == 0) {
-          first_error = -1;
-        }
+        const int result = owner->runtime->Close();
+        if (result != 0 && first_error == 0) first_error = result;
       }
       return first_error;
     } catch (...) {
@@ -104,19 +91,10 @@ class OperatorHandleManager {
 int Operator_Init() noexcept {
   try {
     std::string diagnostic;
-    int ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalInit(&diagnostic);
-    if (ret != 0) {
-      SetLastError("GlobalInit failed: " + diagnostic);
-      return ret;
-    }
-    ret = llm_edgeflow::OperatorValueTypeRegistry::Instance().GlobalInit();
-    if (ret != 0) {
-      SetLastError(
-          "GlobalInit failed: registration conflict in "
-          "OperatorValueTypeRegistry");
-      return ret;
-    }
-    return 0;
+    const int result =
+        llm_edgeflow::SharedAlgorithmRuntime::GlobalInit(&diagnostic);
+    if (result != 0) SetLastError("GlobalInit failed: " + diagnostic);
+    return result;
   } catch (const std::exception& e) {
     SetLastError(e.what());
     return -99;
@@ -164,75 +142,28 @@ int Operator_Create(void** handle, const void* create_param) noexcept {
       return -2;
     }
 
-    uint32_t effective_depth = param->max_frame_depth > 0
-                                   ? param->max_frame_depth
-                                   : llm_edgeflow::kDefaultOutputPoolDepth;
-    if (effective_depth > llm_edgeflow::kMaxOutputPoolDepth) {
-      SetLastError("max_frame_depth (" + std::to_string(effective_depth) +
-                   ") exceeds hard limit " +
-                   std::to_string(llm_edgeflow::kMaxOutputPoolDepth));
-      return -2;
-    }
-
-    // 1. 安全解析部署配置 (.conf) 与接入绑定
-    llm_edgeflow::ResolvedOperatorConfig resolved_conf;
-    std::string resolve_err;
-    int res_code = llm_edgeflow::OperatorConfigResolver::Resolve(
-        param->model_path, param->cfg_file_name, &resolved_conf, &resolve_err,
-        effective_depth);
-    if (res_code != 0) {
-      SetLastError(llm_edgeflow::DescribeOperatorFailure(
-          llm_edgeflow::OperatorFailureStage::kCreatePreparation, res_code,
-          "OperatorConfigResolver failed: " + resolve_err));
-      return llm_edgeflow::PublicFailureCode(
-          llm_edgeflow::OperatorFailureStage::kCreatePreparation, res_code);
-    }
-
-    // 2. 组装运行时参数
-    uint32_t effective_batch_limit =
-        resolved_conf.effective_process_batch_limit;
-
-    llm_edgeflow::RuntimeOptions runtime_options;
-    runtime_options.chip_type =
-        ComputePlatformToString(param->compute_platform);
-    runtime_options.device_id = param->device_id;
-    runtime_options.has_device_id = (param->device_id >= 0);
-
-    // 3. 构建内部共享运行时 (通过已验证的 IoPlan)
-    std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
-    std::string create_err;
-    int create_ret = llm_edgeflow::SharedAlgorithmRuntime::CreateFromIoPlan(
-        std::move(resolved_conf.io_plan), param->device_id, &runtime_options,
-        &runtime, &create_err);
-    if (create_ret != 0) {
-      SetLastError(llm_edgeflow::DescribeOperatorFailure(
-          llm_edgeflow::OperatorFailureStage::kCreatePreparation, create_ret,
-          "SharedAlgorithmRuntime::CreateFromIoPlan failed: " + create_err));
-      return llm_edgeflow::PublicFailureCode(
-          llm_edgeflow::OperatorFailureStage::kCreatePreparation, create_ret);
-    }
-
-    // 4. Each output declaration owns one pool, including optional outputs.
-    std::vector<std::shared_ptr<llm_edgeflow::OutputPoolState>> pools;
-    for (const auto& selected : runtime->GetIoPlan()->outputs) {
-      const auto& def = *selected.converter;
-      std::shared_ptr<llm_edgeflow::OutputPoolState> pool;
-      std::string pool_error;
-      const int result = llm_edgeflow::OutputPoolState::Create(
-          def.type, effective_depth, selected.pool_spec,
-          &selected.allocator_binding, &pool, &pool_error);
-      if (result != 0 || !pool) {
-        SetLastError("Failed to create output pool for " + def.Label() + ": " +
-                     pool_error);
-        return result != 0 ? result : -4;
-      }
-      pools.push_back(std::move(pool));
-    }
-
+    llm_edgeflow::RuntimeCreateOptions options;
+    options.model_root = param->model_path;
+    options.config_file = param->cfg_file_name;
+    options.device_id = param->device_id;
+    options.compute_platform = ComputePlatformToString(param->compute_platform);
+    options.output_pool_depth = param->max_frame_depth;
     auto handle_instance = std::make_unique<OperatorHandle>();
-    handle_instance->effective_process_batch_limit = effective_batch_limit;
-    handle_instance->output_pools = std::move(pools);
-    handle_instance->runtime = std::move(runtime);
+    std::string error;
+    llm_edgeflow::RuntimeFailureStage failure_stage;
+    const int result = llm_edgeflow::SharedAlgorithmRuntime::Create(
+        options, &handle_instance->runtime, &error, &failure_stage);
+    if (result != 0) {
+      if (failure_stage == llm_edgeflow::RuntimeFailureStage::kPreparation) {
+        SetLastError(llm_edgeflow::DescribeOperatorFailure(
+            llm_edgeflow::OperatorFailureStage::kCreatePreparation, result,
+            error));
+        return llm_edgeflow::PublicFailureCode(
+            llm_edgeflow::OperatorFailureStage::kCreatePreparation, result);
+      }
+      SetLastError(error);
+      return result;
+    }
 
     OperatorHandle* raw_h = handle_instance.get();
     OperatorHandleManager::Instance().Register(raw_h);
@@ -282,14 +213,12 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       return -3;
     }
 
-    if (inputs.size() > h->effective_process_batch_limit) {
+    if (h->runtime && inputs.size() > h->runtime->ProcessBatchLimit()) {
       SetLastError("Input batch size " + std::to_string(inputs.size()) +
                    " exceeds effective batch limit " +
-                   std::to_string(h->effective_process_batch_limit));
+                   std::to_string(h->runtime->ProcessBatchLimit()));
       return -3;
     }
-
-    std::lock_guard<std::mutex> lock(h->mutex);
 
     const auto* plan = h->runtime ? h->runtime->GetIoPlan() : nullptr;
     if (!plan || plan->inputs.empty() || plan->outputs.empty()) {
@@ -299,11 +228,10 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     }
 
     std::vector<llm_edgeflow::ExternalInputBatchView> input_views;
-    std::vector<uint64_t> request_ids;
     std::string input_error;
     const int input_result = llm_edgeflow::ValidateAndExtractOperatorInputs(
         inputs, plan->inputs, llm_edgeflow::InputLimits{}, &input_views,
-        &request_ids, &input_error);
+        &input_error);
     if (input_result != 0) {
       SetLastError(input_error);
       return input_result;
@@ -319,101 +247,31 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       return output_result;
     }
 
-    // Decode all requests before leasing any output block.
-    llm_edgeflow::AlgContext req_ctx;
-    for (size_t index = 0; index < plan->inputs.size(); ++index) {
-      const auto& selected = plan->inputs[index];
-      const auto& def = *selected.converter;
-      llm_edgeflow::InputDecodeOptions options;
-      options.type = def.type;
-      options.name = def.name;
-      options.params = selected.params.get();
-      options.ports = &selected.ports;
-      options.request_ids = &request_ids;
-      llm_edgeflow::AdapterStatus status;
-      const int result =
-          def.decode_fn(input_views[index], options, &req_ctx, &status);
-      if (result != 0) {
-        SetLastError("DecodeInput failed for " + def.Label() + ": " +
-                     status.ToString());
-        return result;
+    llm_edgeflow::RuntimeInputBatch runtime_inputs;
+    runtime_inputs.count = inputs.size();
+    runtime_inputs.views = std::move(input_views);
+    llm_edgeflow::RuntimeOutputBatch runtime_outputs;
+    runtime_outputs.rows.resize(outputs.size());
+    for (size_t row = 0; row < frame_out_bindings.size(); ++row)
+      for (const auto& slot : frame_out_bindings[row])
+        runtime_outputs.rows[row].push_back({slot.output_index, {}});
+    std::string error;
+    llm_edgeflow::RuntimeFailureStage failure_stage;
+    const int result = h->runtime->Process(runtime_inputs, &runtime_outputs,
+                                           &error, &failure_stage);
+    if (result != 0) {
+      if (failure_stage == llm_edgeflow::RuntimeFailureStage::kExecution) {
+        SetLastError(llm_edgeflow::DescribeOperatorFailure(
+            llm_edgeflow::OperatorFailureStage::kProcessExecution, result,
+            error));
+        return llm_edgeflow::PublicFailureCode(
+            llm_edgeflow::OperatorFailureStage::kProcessExecution, result);
       }
+      SetLastError(error);
+      return result;
     }
-
-    // 4. 租用输出池内存块 (受 ScopedOutputLeaseGuard 保护，失败自动归还)
-    llm_edgeflow::ScopedOutputLeaseGuard lease_guard;
-    std::vector<llm_edgeflow::AcquiredOutputBlock> acquired_blocks;
-    std::string acq_err;
-    int acq_ret = llm_edgeflow::AcquireOperatorOutputBlocks(
-        frame_out_bindings, h->output_pools, &lease_guard, &acquired_blocks,
-        &acq_err);
-    if (acq_ret != 0) {
-      SetLastError("AcquireOperatorOutputBlocks failed: " + acq_err);
-      return acq_ret;
-    }
-
-    // 5. 执行 Pipeline 计算
-    int exec_ret = h->runtime->GetPipeline()->Execute(&req_ctx);
-    if (exec_ret != 0) {
-      SetLastError(llm_edgeflow::DescribeOperatorFailure(
-          llm_edgeflow::OperatorFailureStage::kProcessExecution, exec_ret,
-          req_ctx.GetErrorMessage()));
-      return llm_edgeflow::PublicFailureCode(
-          llm_edgeflow::OperatorFailureStage::kProcessExecution, exec_ret);
-    }
-
-    // Every output view retains batch row positions, even when optional keys
-    // are absent.
-    for (size_t index = 0; index < plan->outputs.size(); ++index) {
-      const auto& selected = plan->outputs[index];
-      const auto& def = *selected.converter;
-      llm_edgeflow::ExternalOutputBatchView view;
-      view.count = inputs.size();
-      view.required = def.slot.required;
-      view.binding = &selected.allocator_binding;
-      view.slot_types[def.type] = selected.host_binding.external_c_type_name;
-      view.pool_specs[def.type] = &h->output_pools[index]->Spec();
-      auto& blocks = view.leased_slots[def.type];
-      blocks.resize(inputs.size(), nullptr);
-      size_t requested_count = 0;
-      for (const auto& acquired : acquired_blocks) {
-        if (acquired.output_index == index) {
-          blocks[acquired.frame_idx] = acquired.raw_block;
-          ++requested_count;
-        }
-      }
-      if (requested_count == 0) continue;
-      llm_edgeflow::OutputEncodeOptions options;
-      options.type = def.type;
-      options.name = def.name;
-      options.params = selected.params.get();
-      options.ports = &selected.ports;
-      options.request_ids = &request_ids;
-      size_t written_count = 0;
-      llm_edgeflow::AdapterStatus status;
-      const int result =
-          def.encode_fn(&req_ctx, options, &view, &written_count, &status);
-      if (result != 0) {
-        SetLastError("EncodeOutput failed for " + def.Label() + ": " +
-                     status.ToString());
-        return result;
-      }
-      if (written_count != requested_count) {
-        SetLastError("EncodeOutput for " + def.Label() + " wrote " +
-                     std::to_string(written_count) + " rows; expected " +
-                     std::to_string(requested_count));
-        return -4;
-      }
-      if (const auto service = selected.host_binding.ServiceType(def.name)) {
-        for (auto* block : blocks) {
-          if (block) selected.host_binding.write_service_type(block, *service);
-        }
-      }
-    }
-
-    // 7. 发布输出 (两阶段发布并解除 guard)
-    llm_edgeflow::PublishOperatorOutputs(acquired_blocks, &outputs,
-                                         &lease_guard);
+    llm_edgeflow::PublishOperatorOutputs(&runtime_outputs, frame_out_bindings,
+                                         plan->outputs, &outputs);
     return 0;
   } catch (const std::exception& e) {
     SetLastError(e.what());
@@ -439,7 +297,6 @@ int Operator_Control(void* handle, int command_value,
     }
 
     auto* h = static_cast<OperatorHandle*>(handle);
-    std::lock_guard<std::mutex> lock(h->mutex);
 
     if (!h->runtime) {
       SetLastError("Handle runtime is null in Control");
@@ -459,16 +316,15 @@ int Operator_Control(void* handle, int command_value,
     std::string exec_err;
     llm_edgeflow::ControlFailureStage control_stage =
         llm_edgeflow::ControlFailureStage::kNone;
-    int exec_ret =
-        h->runtime->ExecuteControl(cmd_id, json_str, &exec_err, &control_stage);
-    if (exec_ret != 0) {
+    const int result = h->runtime->ExecuteControl({cmd_id, std::move(json_str)},
+                                                  &exec_err, &control_stage);
+    if (result != 0) {
       const auto stage =
           llm_edgeflow::ControlFailureToOperatorStage(control_stage);
       SetLastError(
-          llm_edgeflow::DescribeOperatorFailure(stage, exec_ret, exec_err));
-      return llm_edgeflow::PublicFailureCode(stage, exec_ret);
+          llm_edgeflow::DescribeOperatorFailure(stage, result, exec_err));
+      return llm_edgeflow::PublicFailureCode(stage, result);
     }
-
     return 0;
   } catch (const std::exception& e) {
     SetLastError(e.what());
@@ -494,21 +350,10 @@ int Operator_Destroy(void* handle) noexcept {
     }
 
     std::unique_ptr<OperatorHandle> owner(h);
-    uint32_t unreturned_count = 0;
-    for (auto& pool : owner->output_pools) {
-      if (pool) {
-        unreturned_count += pool->CloseAndDrain();
-        pool->DestroyBlocks();
-      }
-    }
-
-    if (unreturned_count > 0) {
-      SetLastError("Destroy called with " + std::to_string(unreturned_count) +
-                   " unreturned output blocks still checked out");
-      return -1;
-    }
-
-    return 0;
+    std::string error;
+    const int result = owner->runtime->Close(&error);
+    if (result != 0) SetLastError(error);
+    return result;
   } catch (const std::exception& e) {
     SetLastError(e.what());
     return -99;
@@ -569,19 +414,21 @@ int ResolveOperatorConfigIo(const char* model_path, const char* cfg_file_name,
       }
       return -2;
     }
-    llm_edgeflow::ResolvedOperatorConfig resolved;
-    std::string err;
-    int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
-        model_path, cfg_file_name, &resolved, &err);
-    if (ret != 0) {
-      if (out_error_msg && error_buf_size > 0) {
-        std::snprintf(out_error_msg, error_buf_size, "%s", err.c_str());
-      }
-      return ret;
+    llm_edgeflow::RuntimeCreateOptions options;
+    options.model_root = model_path;
+    options.config_file = cfg_file_name;
+    std::unique_ptr<llm_edgeflow::ValidatedIoPlan> resolved;
+    std::string error;
+    const int result = llm_edgeflow::SharedAlgorithmRuntime::ResolveIoPlan(
+        options, &resolved, &error);
+    if (result != 0) {
+      if (out_error_msg && error_buf_size > 0)
+        std::snprintf(out_error_msg, error_buf_size, "%s", error.c_str());
+      return result;
     }
 
     OperatorIoContract contract;
-    const auto& plan = *resolved.io_plan;
+    const auto& plan = *resolved;
     for (const auto& selected : plan.inputs) {
       const auto& def = *selected.converter;
       contract.inputs.push_back(

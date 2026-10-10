@@ -30,7 +30,7 @@ namespace llm_edgeflow {
 struct InputLimits {
   size_t max_text_bytes = input_limits::kMaxTextBytes;
   size_t max_doc_text_bytes = input_limits::kMaxDocTextBytes;
-  size_t max_image_uri_bytes = input_limits::kMaxImageUriBytes;
+  size_t max_image_bytes = input_limits::kMaxImageBytes;
   int32_t max_audio_pcm_samples =
       input_limits::kMaxAudioPcmSamples;  // 96 万个采样点
   size_t max_audio_pcm_bytes = input_limits::kMaxAudioPcmBytes;  // 10 MiB
@@ -51,7 +51,7 @@ using ComputeOutputBlockPayloadBytesFn = std::function<bool(
  * @brief Operator 输出类型的容量与内存布局契约
  */
 struct OperatorOutputLayoutDescriptor {
-  // Logical string capacities; the binding owns their physical representation.
+  // 字符串的逻辑容量；具体存储形式由 binding 决定。
   std::unordered_map<std::string, OutputCapacityFieldConfig>
       string_capacity_fields;
   uint32_t max_metadata_elements = 0;
@@ -130,6 +130,7 @@ struct OwnedExternalBlock {
   }
 };
 
+// 载体字段及分配内存的所有权仅由具体 binding 回调解释。
 using ValidateExternalFn = std::function<int(
     const void* ptr, const InputLimits& limits, std::string* err)>;
 
@@ -187,8 +188,6 @@ struct OperatorValueTypeBinding {
   IoDirection direction = IoDirection::kUnknown;
   OperatorOutputLayoutDescriptor output_layout;
   ValidateExternalFn validate_external;
-  std::function<uint64_t(const void*)> read_request_id;
-  std::function<void(void*, uint64_t)> write_request_id;
   std::function<int32_t(const void*)> read_service_type;
   std::function<void(void*, int32_t)> write_service_type;
   AllocateExternalFn allocate_external;
@@ -212,21 +211,6 @@ constexpr const char* HostTypeName() {
 }
 
 template <typename T>
-void SetRequestIdMember(OperatorValueTypeBinding* binding,
-                        uint64_t T::*member) {
-  if (!binding || !member)
-    throw std::invalid_argument("Invalid request ID member");
-  if (binding->direction == IoDirection::kOutput) {
-    binding->write_request_id = [member](void* value, uint64_t id) {
-      static_cast<T*>(value)->*member = id;
-    };
-  }
-  binding->read_request_id = [member](const void* value) {
-    return static_cast<const T*>(value)->*member;
-  };
-}
-
-template <typename T>
 void SetServiceTypeMember(OperatorValueTypeBinding* binding,
                           int32_t T::*member) {
   if (!binding || !member)
@@ -241,7 +225,7 @@ void SetServiceTypeMember(OperatorValueTypeBinding* binding,
   }
 }
 
-// Bind a concrete platform carrier to one neutral Converter value type.
+// 将具体平台载体绑定到一种中立 Converter 值类型。
 template <typename Host, typename Value, typename Read>
 void SetInputValue(OperatorValueTypeBinding* binding, Read read) {
   static_assert(std::is_same_v<std::invoke_result_t<Read, const Host&>, Value>);

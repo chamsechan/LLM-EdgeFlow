@@ -184,7 +184,7 @@ Node 不依赖自定义实现。编写、构建和复用步骤见
   `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession` 或
   `IGeneratedTokenEmbeddingSession` 等中性协议。
   `generated_text_embedding` 负责生成 token 向量的池化与归一化；Backend 只返回原始向量。
-  `vision_document` 将图像解码、补边和识别语义封装在 Model，Kite 类型仍只在 Backend 内出现。
+  `vision_document` 将 RGB8 像素帧预处理、补边和识别语义封装在 Model，Kite 类型仍只在 Backend 内出现。
 - **Backend** 封装 ONNX Runtime、llama.cpp、TensorRT 或 NPU SDK，加载后返回
   `IBackendSession`，不实现业务模型语义。
 

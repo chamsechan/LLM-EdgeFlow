@@ -13,7 +13,6 @@ namespace llm_edgeflow::test_support {
 
 // 嵌套输出夹具要转换的内部结果。
 struct NestedOutputSource {
-  uint64_t request_id = 0;
   int is_hit = 0;
 };
 
@@ -31,7 +30,6 @@ struct NestedOutputPayload {
 };
 
 struct NestedOutputEnvelope {
-  uint64_t request_id = 0;
   int32_t allocator_tag = 0;
   int32_t kind = 0;
   void* payload = nullptr;
@@ -79,7 +77,7 @@ inline OperatorValueTypeBinding MakeNestedOutputBinding(int32_t tag = 1) {
   binding.canonical_suffix = "test_nested_out";
   binding.external_c_type_name = "NestedOutputEnvelope";
   binding.direction = IoDirection::kOutput;
-  SetRequestIdMember(&binding, &NestedOutputEnvelope::request_id);
+
   SetOutputValue<NestedOutputEnvelope, NestedOutputSource>(
       &binding, [](NestedOutputEnvelope& out, const NestedOutputSource& value,
                    const ResolvedOutputPoolSpec& spec) {
@@ -120,7 +118,6 @@ inline OperatorValueTypeBinding MakeNestedOutputBinding(int32_t tag = 1) {
   binding.reset_external = [](void* ptr, const ResolvedOutputPoolSpec&) {
     auto* root = static_cast<NestedOutputEnvelope*>(ptr);
     auto* payload = static_cast<NestedOutputPayload*>(root->payload);
-    root->request_id = 0;
     payload->count = 0;
     if (root->kind == 1) {
       std::fill_n(static_cast<int32_t*>(payload->values), payload->capacity, 0);
@@ -145,12 +142,11 @@ inline int ConvertNestedOutput(const void* internal, void* external,
   auto& root = *static_cast<NestedOutputEnvelope*>(external);
   auto& payload = *static_cast<NestedOutputPayload*>(root.payload);
   if (root.kind != parameters.kind || payload.capacity != parameters.capacity ||
-      root.request_id != 0 || payload.count != 0) {
+      payload.count != 0) {
     if (error) *error = "Allocation, conversion and reset contracts disagree";
     return -4;
   }
   // 修改该槽位后才失败，因此回滚必须重置每个已取出的槽位。
-  root.request_id = result.request_id;
   payload.count = payload.capacity;
   if (parameters.reject_hit && result.is_hit) {
     if (error) *error = "Configured nested conversion rejected a hit";

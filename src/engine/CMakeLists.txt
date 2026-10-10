@@ -11,5 +11,3 @@ target_sources(edgeflow_model_execution_objects PRIVATE
 # Backend 单独编译，vendor 编译要求只提供给该目标。
 target_sources(edgeflow_model_execution_backends_objects PRIVATE
   ${EDGEFLOW_BACKEND_SOURCES})
-
-target_link_libraries(edgeflow_model_execution_objects PRIVATE edgeflow_stb_image)

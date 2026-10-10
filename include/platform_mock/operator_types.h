@@ -98,6 +98,8 @@ struct CreateParam {
  */
 using OpaqueData = std::shared_ptr<void>;
 using NamedIo = std::unordered_map<std::string, OpaqueData>;
+// Process requires equal input/output sizes; inputs[i] pairs with outputs[i].
+// Carrier request IDs and image frame indices do not determine this pairing.
 using NamedIoBatch = std::vector<NamedIo>;
 
 /**

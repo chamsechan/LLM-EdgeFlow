@@ -198,13 +198,8 @@ def check_effects(spec):
     samples = spec.get("samples", [])
     if not samples:
         raise RecipeError("Effects requires nonempty labelled samples")
-    ids = set()
     for sample in samples:
-        request_id = sample.get("request_id")
         checks = sample.get("expected", {})
-        if type(request_id) is not int or request_id in ids:
-            raise RecipeError("Effects request IDs must be unique integers")
-        ids.add(request_id)
         if not isinstance(checks, dict) or not any(key.startswith("/output/") for key in checks):
             raise RecipeError("Each sample needs an independent /output/... business expectation; /status alone is insufficient")
     minimum = spec.get("minimum_pass_rate", 1.0)

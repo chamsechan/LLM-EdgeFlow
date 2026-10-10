@@ -419,10 +419,6 @@ const OperatorValueTypeBinding* OperatorValueTypeRegistry::GetBindingBySuffix(
   return nullptr;
 }
 
-OperatorValueTypeRegistry::OperatorValueTypeRegistry() {
-  RegisterBuiltinBindings();
-}
-
 std::optional<OperatorValueTypeBinding>
 OperatorValueTypeRegistry::CopyBindingBySuffix(
     const std::string& suffix) const {

@@ -15,7 +15,7 @@ class VisionDocumentModel final
       InferenceConcurrency::kConcurrent;
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
-  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+  int Recognize(const ImageFrameBatch& images, OcrDocumentBatch* outputs,
                 std::string* diagnostic = nullptr) noexcept override;
 
  private:

@@ -13,7 +13,6 @@ namespace alg_demo {
  * @brief 单个样本的执行结果记录
  */
 struct DemoSampleResult {
-  uint64_t request_id = 0;
   int status = 0;           // 0 成功, 非 0 错误
   double latency_ms = 0.0;  // 耗时 (ms)
   std::string error;        // 错误信息 (若失败)

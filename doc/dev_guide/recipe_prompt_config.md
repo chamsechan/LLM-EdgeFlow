@@ -23,7 +23,7 @@ python3 tools/dev_recipe.py prepare prompt-config \
 
 ## 修改与验收
 
-在生成的 Pipeline 中修改提示词。效果文件包含可定位到真实数据集的路径、完整请求 ID 和
+在生成的 Pipeline 中修改提示词。效果文件包含可定位到真实数据集的路径、完整数据集行号 和
 独立的 `/output/...` 业务期望；有意改变业务结果时，应按需求修改期望，不能从本次运行结果
 自动回填期望。只检查 `/status` 不足以通过 recipe 的前置检查。
 

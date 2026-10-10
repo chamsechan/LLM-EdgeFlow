@@ -38,7 +38,7 @@ def owner(path):
 def forbidden(source, target):
     src, dst = owner(source), owner(target)
     if source.startswith(("src/adapter/input/", "src/adapter/output/")) and target in {
-        "include/adapter/platform_value_binding.h",
+        "include/adapter/operator/mock/platform_value_binding.h",
         "include/platform_mock/operator_data_types.h",
         "include/platform_mock/operator_types.h",
         "include/edgeflow/operator/types.h",
@@ -143,7 +143,7 @@ def self_test():
             return target
 
         for header in ("include/adapter/io_converter.h",
-                       "include/adapter/platform_value_binding.h",
+                       "include/adapter/operator/mock/platform_value_binding.h",
                        "include/core/pipeline_validator.h",
                        "include/core/alg_context.h",
                        "include/edgeflow/operator/interface.h",
@@ -154,7 +154,7 @@ def self_test():
             write(header)
         cases = [
             ("src/adapter/input/bad.cpp", "platform_mock/operator_data_types.h"),
-            ("src/adapter/output/bad.cpp", "adapter/platform_value_binding.h"),
+            ("src/adapter/output/bad.cpp", "adapter/operator/mock/platform_value_binding.h"),
             ("src/adapter/output/bad.cpp", "edgeflow/operator/interface.h"),
             ("src/engine/runtime/bad.cpp", "adapter/io_converter.h"),
             ("src/core/bad.cpp", "adapter/io_converter.h"),

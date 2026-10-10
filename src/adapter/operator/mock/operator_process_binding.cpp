@@ -1,4 +1,4 @@
-#include "adapter/operator/operator_process_binding.h"
+#include "adapter/operator/mock/operator_process_binding.h"
 
 #include <unordered_set>
 #include <utility>
@@ -7,7 +7,7 @@ namespace llm_edgeflow {
 namespace {
 using NamedIo = llm_edgeflow::operator_api::NamedIo;
 
-// A repeated carrier uses name.type; a unique carrier accepts any namespace.
+// 同一载体类型被多次选用时使用 name.type；仅选用一次时接受任意前缀。
 bool FindSlotKey(const NamedIo& row, const std::string& type,
                  const std::string& name, bool repeated_type, size_t frame,
                  std::string* found, std::string* error) {
@@ -44,16 +44,13 @@ bool RepeatedType(const std::vector<Selected>& selected,
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
     const std::vector<SelectedInput>& selected, const InputLimits& limits,
-    std::vector<ExternalInputBatchView>* out_views,
-    std::vector<uint64_t>* request_ids, std::string* error) {
-  if (!out_views || !request_ids) {
+    std::vector<ExternalInputBatchView>* out_views, std::string* error) {
+  if (!out_views) {
     if (error) *error = "Null input extraction destination";
     return -3;
   }
   out_views->clear();
   out_views->resize(selected.size());
-  request_ids->assign(inputs.size(), 0);
-  std::vector<bool> has_id(inputs.size(), false);
   std::vector<std::unordered_set<std::string>> recognized(inputs.size());
   for (size_t index = 0; index < selected.size(); ++index) {
     const auto& def = *selected[index].converter;
@@ -101,19 +98,6 @@ int ValidateAndExtractOperatorInputs(
                    "; expected " + std::to_string(*service);
         return -3;
       }
-      if (binding->read_request_id) {
-        const auto id = binding->read_request_id(payload.get());
-        if (has_id[frame] && (*request_ids)[frame] != id) {
-          if (error)
-            *error = "Struct " + binding->external_c_type_name + " frame " +
-                     std::to_string(frame) + " has request_id " +
-                     std::to_string(id) + "; expected " +
-                     std::to_string((*request_ids)[frame]);
-          return -3;
-        }
-        (*request_ids)[frame] = id;
-        has_id[frame] = true;
-      }
       recognized[frame].insert(key);
       payloads[frame] = payload;
     }
@@ -123,11 +107,6 @@ int ValidateAndExtractOperatorInputs(
       if (error)
         *error = "Unknown extra input keys present in frame " +
                  std::to_string(frame);
-      return -3;
-    }
-    if (!has_id[frame]) {
-      if (error)
-        *error = "No request_id source in frame " + std::to_string(frame);
       return -3;
     }
   }
@@ -181,73 +160,30 @@ int ResolveOperatorOutputs(
   return 0;
 }
 
-int AcquireOperatorOutputBlocks(
-    const std::vector<std::vector<FrameOutputBinding>>& frame_bindings,
-    const std::vector<std::shared_ptr<OutputPoolState>>& output_pools,
-    ScopedOutputLeaseGuard* lease_guard,
-    std::vector<AcquiredOutputBlock>* acquired_blocks, std::string* error) {
-  if (!lease_guard || !acquired_blocks) {
-    if (error) *error = "Null destination in AcquireOperatorOutputBlocks";
-    return -4;
-  }
-  acquired_blocks->clear();
-
-  size_t total_slots = 0;
-  for (const auto& fb : frame_bindings) {
-    total_slots += fb.size();
-  }
-  lease_guard->Reserve(total_slots);
-  acquired_blocks->reserve(total_slots);
-
-  for (size_t f = 0; f < frame_bindings.size(); ++f) {
-    for (const auto& binding : frame_bindings[f]) {
-      if (binding.output_index >= output_pools.size() ||
-          !output_pools[binding.output_index]) {
-        if (error) {
-          *error = "Missing output pool for slot " +
-                   std::to_string(binding.output_index);
-        }
-        return -5;
-      }
-      auto pool = output_pools[binding.output_index];
-      void* block = nullptr;
-      int acq_ret = pool->Acquire(&block);
-      if (acq_ret != 0 || !block) {
-        if (error) {
-          *error = "Output pool exhausted for slot " +
-                   std::to_string(binding.output_index);
-        }
-        return -4;
-      }
-      lease_guard->Track(pool, block);
-      acquired_blocks->push_back(
-          {f, binding.key, pool, block, binding.output_index});
+void PublishOperatorOutputs(
+    RuntimeOutputBatch* staged,
+    const std::vector<std::vector<FrameOutputBinding>>& bindings,
+    const std::vector<SelectedOutput>& selected,
+    llm_edgeflow::operator_api::NamedIoBatch* outputs) {
+  // 发布指针前，先完成所有可能抛异常的平台字段写入。
+  // 最终移交前，所有租约均由中立输出批次持有。
+  for (size_t row = 0; row < staged->rows.size(); ++row) {
+    for (auto& slot : staged->rows[row]) {
+      const auto& entry = selected.at(slot.output_index);
+      if (const auto service =
+              entry.host_binding.ServiceType(entry.converter->name))
+        entry.host_binding.write_service_type(slot.value.get(), *service);
     }
   }
-
-  return 0;
-}
-
-void PublishOperatorOutputs(
-    const std::vector<AcquiredOutputBlock>& acquired_blocks,
-    llm_edgeflow::operator_api::NamedIoBatch* outputs,
-    ScopedOutputLeaseGuard* lease_guard) {
-  if (!outputs || !lease_guard) return;
-
-  std::vector<std::pair<size_t, std::pair<std::string, std::shared_ptr<void>>>>
-      staged;
-  staged.reserve(acquired_blocks.size());
-  for (const auto& acq : acquired_blocks) {
-    std::shared_ptr<void> sp(acq.raw_block,
-                             OutputPoolDeleter{acq.pool, acq.raw_block});
-    staged.emplace_back(acq.frame_idx, std::make_pair(acq.key, std::move(sp)));
-  }
-
-  for (auto& [frame_idx, kv] : staged) {
-    (*outputs)[frame_idx][kv.first] = std::move(kv.second);
-  }
-
-  lease_guard->Commit();
+  // 修改调用方输出前，先确定所有写入位置。协议转换时已校验现有 key；
+  // 提交阶段不插入新条目，也不分配内存。
+  std::vector<std::shared_ptr<void>*> destinations;
+  for (size_t row = 0; row < bindings.size(); ++row)
+    for (const auto& binding : bindings[row])
+      destinations.push_back(&outputs->at(row).at(binding.key));
+  size_t index = 0;
+  for (auto& row : staged->rows)
+    for (auto& slot : row) *destinations[index++] = std::move(slot.value);
 }
 
 }  // namespace llm_edgeflow

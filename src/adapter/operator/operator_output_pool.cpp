@@ -199,4 +199,74 @@ void OutputPoolState::DestroyBlocks() noexcept {
   checked_out_count_ = 0;
 }
 
+int AcquireRuntimeOutputBlocks(
+    const RuntimeOutputBatch& outputs,
+    const std::vector<std::shared_ptr<OutputPoolState>>& output_pools,
+    ScopedOutputLeaseGuard* lease_guard,
+    std::vector<AcquiredOutputBlock>* acquired_blocks, std::string* error) {
+  if (!lease_guard || !acquired_blocks) {
+    if (error) *error = "Null destination in AcquireRuntimeOutputBlocks";
+    return -4;
+  }
+  acquired_blocks->clear();
+
+  size_t total_slots = 0;
+  for (const auto& fb : outputs.rows) {
+    total_slots += fb.size();
+  }
+  lease_guard->Reserve(total_slots);
+  acquired_blocks->reserve(total_slots);
+
+  for (size_t f = 0; f < outputs.rows.size(); ++f) {
+    for (size_t slot = 0; slot < outputs.rows[f].size(); ++slot) {
+      const auto& binding = outputs.rows[f][slot];
+      if (binding.output_index >= output_pools.size() ||
+          !output_pools[binding.output_index]) {
+        if (error) {
+          *error = "Missing output pool for slot " +
+                   std::to_string(binding.output_index);
+        }
+        return -5;
+      }
+      auto pool = output_pools[binding.output_index];
+      void* block = nullptr;
+      int acq_ret = pool->Acquire(&block);
+      if (acq_ret != 0 || !block) {
+        if (error) {
+          *error = "Output pool exhausted for slot " +
+                   std::to_string(binding.output_index);
+        }
+        return -4;
+      }
+      lease_guard->Track(pool, block);
+      acquired_blocks->push_back({f, slot, pool, block, binding.output_index});
+    }
+  }
+
+  return 0;
+}
+
+void PublishRuntimeOutputs(
+    const std::vector<AcquiredOutputBlock>& acquired_blocks,
+    RuntimeOutputBatch* outputs, ScopedOutputLeaseGuard* lease_guard) {
+  if (!outputs || !lease_guard) return;
+  RuntimeOutputBatch staged = *outputs;
+  for (const auto& acquired : acquired_blocks) {
+    // shared_ptr 控制块分配失败时会调用删除器。须先解除守卫对此块的管理，
+    // 避免同一内存块被重复归还。
+    lease_guard->Untrack(acquired.raw_block);
+    std::shared_ptr<void> value(
+        acquired.raw_block,
+        OutputPoolDeleter{acquired.pool, acquired.raw_block});
+    staged.rows.at(acquired.frame_idx).at(acquired.slot_idx).value =
+        std::move(value);
+  }
+  // 仅向调用方已选槽位提交值，行和槽位的存储仍由调用方持有；
+  // 所有暂存容器在此释放。
+  for (size_t row = 0; row < outputs->rows.size(); ++row)
+    for (size_t slot = 0; slot < outputs->rows[row].size(); ++slot)
+      outputs->rows[row][slot].value = std::move(staged.rows[row][slot].value);
+  lease_guard->Commit();
+}
+
 }  // namespace llm_edgeflow
