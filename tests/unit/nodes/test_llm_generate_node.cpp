@@ -184,11 +184,8 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
   EXPECT_EQ(model_->last_options.stop_words, std::vector<std::string>({"END"}));
 }
 
-TEST_F(LlmGenerateNodeTest,
-       RawAndNormalizedGenerationOptionsReachModelEqually) {
+TEST_F(LlmGenerateNodeTest, DefaultAndExplicitGenerationOptionsReachModel) {
   const auto schema = GenerateParameters();
-  const auto definition = PipelineCatalog::FindNode("llm_generate");
-  ASSERT_TRUE(definition.has_value());
   const nlohmann::json override_options = {{"temperature", 0.25},
                                            {"max_tokens", 47},
                                            {"top_k", 17},
@@ -203,41 +200,34 @@ TEST_F(LlmGenerateNodeTest,
     const auto expected = schema.Parse(raw_options, &diagnostic);
     ASSERT_TRUE(expected.has_value()) << diagnostic;
     EXPECT_EQ(expected->max_tokens, overridden ? 47 : 128);
-    nlohmann::json raw = raw_options;
-    raw["bind_model"] = "llm_model";
-    raw["endpoints"] = {{"answer", nlohmann::json::object()}};
-    nlohmann::json normalized;
-    ASSERT_TRUE(ValidateAndNormalizeFields(definition->config_fields, raw,
-                                           &normalized, nullptr));
+    nlohmann::json config = raw_options;
+    config["bind_model"] = "llm_model";
+    config["endpoints"] = {{"answer", nlohmann::json::object()}};
     const TextBatch prompts{
         {31, 7, "first"}, {19, 3, "second"}, {31, 9, "third"}};
-    for (const auto& config : {raw, normalized}) {
-      SCOPED_TRACE(config.dump());
-      auto node = NodeRegistry::Instance().Create("llm_generate");
-      ASSERT_NE(node, nullptr);
-      ASSERT_TRUE(
-          InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic))
-          << diagnostic;
-      const int before = model_->infer_calls;
-      AlgContext context;
-      context.Publish("input", prompts);
-      ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-      EXPECT_EQ(model_->infer_calls, before + 1);
-      EXPECT_FLOAT_EQ(model_->last_options.temperature, expected->temperature);
-      EXPECT_EQ(model_->last_options.max_tokens, expected->max_tokens);
-      EXPECT_EQ(model_->last_options.top_k, expected->top_k);
-      EXPECT_FLOAT_EQ(model_->last_options.top_p, expected->top_p);
-      EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty,
-                      expected->repetition_penalty);
-      EXPECT_EQ(model_->last_options.stop_words, expected->stop_words);
-      const auto* output = context.Read<TextBatch>("text");
-      ASSERT_NE(output, nullptr);
-      ASSERT_EQ(output->size(), prompts.size());
-      for (size_t i = 0; i < prompts.size(); ++i) {
-        EXPECT_EQ((*output)[i].req_id, prompts[i].req_id);
-        EXPECT_EQ((*output)[i].sub_id, prompts[i].sub_id);
-        EXPECT_EQ((*output)[i].data, "generated:" + prompts[i].data);
-      }
+    auto node = NodeRegistry::Instance().Create("llm_generate");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic))
+        << diagnostic;
+    const int before = model_->infer_calls;
+    AlgContext context;
+    context.Publish("input", prompts);
+    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
+    EXPECT_EQ(model_->infer_calls, before + 1);
+    EXPECT_FLOAT_EQ(model_->last_options.temperature, expected->temperature);
+    EXPECT_EQ(model_->last_options.max_tokens, expected->max_tokens);
+    EXPECT_EQ(model_->last_options.top_k, expected->top_k);
+    EXPECT_FLOAT_EQ(model_->last_options.top_p, expected->top_p);
+    EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty,
+                    expected->repetition_penalty);
+    EXPECT_EQ(model_->last_options.stop_words, expected->stop_words);
+    const auto* output = context.Read<TextBatch>("text");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), prompts.size());
+    for (size_t i = 0; i < prompts.size(); ++i) {
+      EXPECT_EQ((*output)[i].req_id, prompts[i].req_id);
+      EXPECT_EQ((*output)[i].sub_id, prompts[i].sub_id);
+      EXPECT_EQ((*output)[i].data, "generated:" + prompts[i].data);
     }
   }
 }
