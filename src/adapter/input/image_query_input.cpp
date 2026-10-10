@@ -13,7 +13,7 @@
 namespace llm_edgeflow {
 namespace {
 
-constexpr auto kImage = MakeBlackboardKey<ImageRefBatch>("image");
+constexpr auto kImage = MakeBlackboardKey<ImageFrameBatch>("image");
 constexpr auto kQuestion = MakeBlackboardKey<TextBatch>("question");
 
 constexpr const char* kFrameSlot = "frame";
@@ -26,7 +26,7 @@ int DecodeOperatorFrameInput(const ExternalInputBatchView& source,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  ImageRefBatch raw_images;
+  ImageFrameBatch raw_images;
 
   raw_images.reserve(source.count);
 
@@ -35,8 +35,8 @@ int DecodeOperatorFrameInput(const ExternalInputBatchView& source,
         ReadInputSlot<ImageInputValue>(source, kFrameSlot, i, options, status);
     if (!frame) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    std::string image_path = frame->image_uri;
-    raw_images.emplace_back(static_cast<uint32_t>(i), 0, std::move(image_path));
+    raw_images.emplace_back(static_cast<uint32_t>(i), 0,
+                            std::move(frame->frame));
   }
 
   if (!AdapterValidationHelper::PublishContextValue(

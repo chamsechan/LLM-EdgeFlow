@@ -179,7 +179,7 @@ class OcrCall : public detail::ModelCallBase<IOcrModel> {
       : ModelCallBase(std::move(model), std::move(slot_name),
                       std::move(model_name)) {}
 
-  NodeResult<OcrDocumentBatch> Recognize(const ImageRefBatch& inputs) const {
+  NodeResult<OcrDocumentBatch> Recognize(const ImageFrameBatch& inputs) const {
     return Invoke<OcrDocumentBatch>(
         inputs, "OCR", "recognize",
         [&](Interface& model, OcrDocumentBatch* outputs,

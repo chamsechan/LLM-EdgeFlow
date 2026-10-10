@@ -129,8 +129,10 @@ Kite 提供 encoder/prefill 向量能力，应在模型执行层增加符合实�
 ### 图像文档识别
 
 `vision_document` 实现现有 IOcrModel，要求 image_text_generation Backend 协议。
-它解码 PNG/JPEG/二进制 PNM，转换 RGB 平面并按 patch_size 补白边；不裁剪内容。
-输入文件上限 32 MiB，像素上限由 max_pixels 控制（默认 4194304，包含补边）。
+它接收请求自有的 RGB8 `ImageFrameBatch`，按 stride 读取像素，转换 RGB 平面并按
+patch_size 补白边；不裁剪内容。像素上限由 max_pixels 控制（默认 4194304，包含补边）。
+像素帧的宿主内存契约见[业务接入指南](dev_guide/business_onboarding.md#4-需要新的宿主类型时)。
+PNG/JPEG/二进制 PNM 仅由 Demo 解码后构造宿主帧，Demo 样例文件上限为 32 MiB。
 模型 patch_size 必须与视觉投影文件匹配；随附 SmolVLM 模型使用 16。
 
 Kite 通过原生 SetMultiModal_ChatHistory 编码图像并生成文字。run-config 必须包含

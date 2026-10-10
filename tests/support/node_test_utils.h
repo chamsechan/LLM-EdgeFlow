@@ -221,7 +221,7 @@ class ControlledMockOcrModel final : public IOcrModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+  int Recognize(const ImageFrameBatch& images, OcrDocumentBatch* outputs,
                 std::string* diagnostic = nullptr) noexcept override {
     if (diagnostic) diagnostic->clear();
     if (fail_) {
@@ -232,7 +232,7 @@ class ControlledMockOcrModel final : public IOcrModel {
     outputs->clear();
     for (const auto& item : images) {
       OcrDocumentItem doc;
-      doc.combined_text = "ocr:" + item.data;
+      doc.combined_text = "ocr:" + std::to_string(item.data.width);
       doc.boxes.push_back({0.0f, 0.0f, 10.0f, 10.0f, doc.combined_text, 0.99f});
       outputs->emplace_back(item.req_id, item.sub_id, std::move(doc));
     }

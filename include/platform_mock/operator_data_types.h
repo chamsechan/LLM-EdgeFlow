@@ -50,12 +50,15 @@ typedef struct CompanyAny {
 } CompanyAny;
 
 /**
- * @brief 图像帧镜像输入结构体 (Demo URI-backed 图像帧)
+ * @brief RGB8 图像帧镜像输入结构体 (行交错，借用至 Process 返回)
  */
 typedef struct CompanyFrame {
   uint64_t request_id;
   int32_t service_type;
-  const CompanyString* image_uri;
+  int32_t height;
+  int32_t width;
+  int32_t stride;  // 每行字节数，至少 width * 3
+  const void* data;  // 调用方保证 height * stride 字节可读，调用期间不修改
   const CompanyAny* metadata;
 } CompanyFrame;
 

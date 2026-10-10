@@ -51,20 +51,18 @@ TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 
-  std::string img1 = "./data/invoice_sample_01.jpg";
+  const std::vector<uint8_t> pixels1{255, 0, 0, 0, 255, 0};
   std::string p1 = "提取发票代码、号码与总金额";
-  std::string img2 = "./data/vat_receipt_02.png";
+  const std::vector<uint8_t> pixels2{0, 0, 255};
   std::string p2 = "提取购买方公司名称与税额";
 
-  CompanyString img1_cs{static_cast<int32_t>(img1.size()),
-                        const_cast<char*>(img1.data())};
-  CompanyFrame frame1{60001, kMockServiceOcrInvoiceQa, &img1_cs, nullptr};
+  CompanyFrame frame1{60001, kMockServiceOcrInvoiceQa, 1,      2,
+                      6,     pixels1.data(),           nullptr};
   CompanyString p1_cs{static_cast<int32_t>(p1.size()),
                       const_cast<char*>(p1.data())};
 
-  CompanyString img2_cs{static_cast<int32_t>(img2.size()),
-                        const_cast<char*>(img2.data())};
-  CompanyFrame frame2{60002, kMockServiceOcrInvoiceQa, &img2_cs, nullptr};
+  CompanyFrame frame2{60002, kMockServiceOcrInvoiceQa, 1,      1,
+                      3,     pixels2.data(),           nullptr};
   CompanyString p2_cs{static_cast<int32_t>(p2.size()),
                       const_cast<char*>(p2.data())};
 

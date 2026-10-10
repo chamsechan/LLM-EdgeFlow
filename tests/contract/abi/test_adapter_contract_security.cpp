@@ -1193,8 +1193,6 @@ TEST_F(AdapterContractSecurityTest,
        "query_text length 65537 exceeds max limit 65536"},
       {"doc_in", "doc_qa", kMockServiceDocQa, "doc_in.doc_text", 10485760,
        "doc_text length 10485761 exceeds max limit 10485760"},
-      {"frame", "ocr_invoice_qa", kMockServiceOcrInvoiceQa, "frame.image_uri",
-       4096, "CompanyFrame.image_uri length 4097 exceeds max limit 4096"},
       {"string", "ocr_invoice_qa", 0, "string", 65536,
        "string length 65537 exceeds max limit 65536"},
       {"rerank_in", "cross_rerank", kMockServiceCrossRerank,
@@ -1230,8 +1228,6 @@ TEST_F(AdapterContractSecurityTest,
       CompanyOperatorDocInput doc{
           101, service_type, field == "doc_in.doc_text" ? &large : &small,
           field == "doc_in.query_text" ? &large : &small};
-      CompanyFrame frame{101, service_type,
-                         field == "frame.image_uri" ? &large : &small, nullptr};
       CompanyOperatorRerankInput rerank{};
       rerank.request_id = 101;
       rerank.service_type = service_type;
@@ -1257,8 +1253,6 @@ TEST_F(AdapterContractSecurityTest,
         view.slots[type] = BorrowInputForTest({&audit});
       else if (type == "doc_in")
         view.slots[type] = BorrowInputForTest({&doc});
-      else if (type == "frame")
-        view.slots[type] = BorrowInputForTest({&frame});
       else if (type == "string")
         view.slots[type] = BorrowInputForTest({&large});
       else
@@ -1391,24 +1385,6 @@ TEST_F(AdapterContractSecurityTest, OperatorInputLimitsStayUnchanged) {
               : "Validation failed for input key test.rerank_in: "
                 "candidate_passages[0] length 10485761 exceeds max limit "
                 "10485760");
-  }
-
-  for (size_t length : {4096U, 4097U}) {
-    std::string path(length, 'x');
-    CompanyString uri{static_cast<int32_t>(length), path.data()};
-    char query_text[] = "query";
-    CompanyString query{5, query_text};
-    CompanyFrame frame{101, kMockServiceOcrInvoiceQa, &uri, nullptr};
-    NamedIoBatch inputs(1), outputs(1);
-    inputs[0]["test.frame"] = MakeBorrowedOperatorInput(&frame);
-    inputs[0]["test.string"] = MakeBorrowedOperatorInput(&query);
-    outputs[0]["test.od_out"] = nullptr;
-    check("demo/fixtures/mock/pipeline_ocr_invoice_qa.conf", inputs, outputs,
-          length == 4096 ? 0 : -3,
-          length == 4096
-              ? ""
-              : "Validation failed for input key test.frame: "
-                "CompanyFrame.image_uri length 4097 exceeds max limit 4096");
   }
 }
 

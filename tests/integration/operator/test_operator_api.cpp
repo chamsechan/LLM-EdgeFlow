@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -530,11 +531,10 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
   ASSERT_NE(handle, nullptr);
 
-  std::string uri = "./data/invoice_01.jpg";
+  const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
   std::string prompt = "提取发票代码、号码与总金额";
-  CompanyString uri_cs{static_cast<int32_t>(uri.size()),
-                       const_cast<char*>(uri.data())};
-  CompanyFrame frame{60001, kMockServiceOcrInvoiceQa, &uri_cs, nullptr};
+  CompanyFrame frame{60001,  kMockServiceOcrInvoiceQa, 1, 2, 6, pixels.data(),
+                     nullptr};
   CompanyString prompt_cs{static_cast<int32_t>(prompt.size()),
                           const_cast<char*>(prompt.data())};
 
@@ -556,6 +556,38 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   out_b.clear();
   out_sp.reset();
 
+  EXPECT_EQ(ops_.Destroy(handle), 0);
+}
+
+TEST_F(OperatorApiTest, OcrPixelFramesRejectInvalidInputWithoutOutput) {
+  auto param =
+      DefaultCreateParam("demo/fixtures/mock/pipeline_ocr_invoice_qa.conf");
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
+  std::string prompt = "提取金额";
+  CompanyString question{static_cast<int32_t>(prompt.size()), prompt.data()};
+  const CompanyFrame invalid[] = {
+      {60001, kMockServiceOcrInvoiceQa, 0, 2, 6, pixels.data(), nullptr},
+      {60001, kMockServiceOcrInvoiceQa, 1, 0, 6, pixels.data(), nullptr},
+      {60001, kMockServiceOcrInvoiceQa, -1, 2, 6, pixels.data(), nullptr},
+      {60001, kMockServiceOcrInvoiceQa, 1, -1, 6, pixels.data(), nullptr},
+      {60001, kMockServiceOcrInvoiceQa, 1, 2, 5, pixels.data(), nullptr},
+      {60001, kMockServiceOcrInvoiceQa, 1, 2, -1, pixels.data(), nullptr},
+      {60001, kMockServiceOcrInvoiceQa, 1, 2, 6, nullptr, nullptr},
+      {60001, kMockServiceOcrInvoiceQa, 16777217, 1, 3, pixels.data(), nullptr},
+  };
+  for (size_t i = 0; i < std::size(invalid); ++i) {
+    SCOPED_TRACE(i);
+    CompanyFrame frame = invalid[i];
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["camera_0.frame"] = MakeBorrowedOperatorInput(&frame);
+    inputs[0]["camera_0.string"] = MakeBorrowedOperatorInput(&question);
+    outputs[0]["camera_0.od_out"] = nullptr;
+    EXPECT_EQ(ops_.Process(handle, inputs, outputs),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(outputs[0]["camera_0.od_out"], nullptr);
+  }
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
@@ -1614,21 +1646,22 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 2;
-    std::vector<std::string> uris(kBatch), q_strs(kBatch);
-    std::vector<CompanyString> uri_cs(kBatch), q_cs(kBatch);
+    std::vector<std::string> q_strs(kBatch);
+    const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
+    std::vector<CompanyString> q_cs(kBatch);
     std::vector<CompanyFrame> frames(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
-      uris[i] = "data/invoice_0" + std::to_string(i + 1) + ".jpg";
       q_strs[i] = "What is invoice item #" + std::to_string(i) + "?";
-      uri_cs[i] =
-          CompanyString{static_cast<int32_t>(uris[i].size()), uris[i].data()};
       q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
                               q_strs[i].data()};
       frames[i].request_id = static_cast<uint64_t>(600 + i);
       frames[i].service_type = kMockServiceOcrInvoiceQa;
-      frames[i].image_uri = &uri_cs[i];
+      frames[i].height = 1;
+      frames[i].width = 2;
+      frames[i].stride = 6;
+      frames[i].data = pixels.data();
       frames[i].metadata = nullptr;
       batch_in[i]["camera_0.frame"] = MakeBorrowedOperatorInput(&frames[i]);
       batch_in[i]["query_channel.string"] = MakeBorrowedOperatorInput(&q_cs[i]);

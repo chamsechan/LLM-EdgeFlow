@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -62,15 +63,15 @@ struct AudioPcmPayload {
  */
 using AudioPcmBatch = std::vector<TraceableItem<AudioPcmPayload>>;
 
-/**
- * @brief 图像文件路径或引用批次 (ImageRefBatch) - 具有强类型特质
- */
-struct ImageRefBatch : public std::vector<TraceableItem<std::string>> {
-  using std::vector<TraceableItem<std::string>>::vector;
-  ImageRefBatch() = default;
-  ImageRefBatch(std::vector<TraceableItem<std::string>> v)
-      : std::vector<TraceableItem<std::string>>(std::move(v)) {}
+// Request-owned RGB8 pixels in interleaved HWC order. stride is bytes per row,
+// including padding; data owns exactly height * stride bytes.
+struct ImageFrame {
+  int width = 0;
+  int height = 0;
+  size_t stride = 0;
+  std::vector<uint8_t> data;
 };
+using ImageFrameBatch = std::vector<TraceableItem<ImageFrame>>;
 
 /**
  * @brief OCR 矩形边界与文本识别框 (OcrBoxRecord)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+图像输入从路径字符串改为请求自有的 RGB8 `ImageFrame` / `ImageFrameBatch`。
+平台 binding 校验宽高、步长、指针和字节上限后复制像素；Model 按步长完成补齐与 HWC→CHW
+预处理，不再解码文件。Demo 从样例图片构造像素帧，SDK 与 Model 不保留路径输入契约。
+
 Operator 函数表按 `Init, Create, Control, Process, Destroy, DeInit` 排列，函数指针不带
 `noexcept`。`Create(void**, const void*)` 在实现入口读取 `const CreateParam*`；
 `Control(void*, int, void*)` 将整数还原为现有 `ControlCommand`，保留命令数值和异常隔离。

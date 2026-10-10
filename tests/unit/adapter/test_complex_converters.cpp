@@ -392,12 +392,9 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   ASSERT_NE(out_conv, nullptr);
 
   // 准备 Operator 输入：frame 和 string
-  std::string uri_str = "/path/to/invoice.jpg";
-  CompanyString uri{static_cast<int32_t>(uri_str.size()),
-                    const_cast<char*>(uri_str.data())};
-  CompanyFrame frame{0, kMockServiceOcrInvoiceQa, nullptr, nullptr};
-  frame.request_id = 6001;
-  frame.image_uri = &uri;
+  std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
+  CompanyFrame frame{6001,   kMockServiceOcrInvoiceQa, 1, 2, 6, pixels.data(),
+                     nullptr};
 
   std::string q_str = "Total amount?";
   CompanyString query{static_cast<int32_t>(q_str.size()),

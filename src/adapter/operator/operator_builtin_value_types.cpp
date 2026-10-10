@@ -67,14 +67,25 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         "frame",
         [](const CompanyFrame& in, const InputLimits& limits,
            std::string* err) -> int {
-          if (!in.image_uri) {
-            if (err) *err = "CompanyFrame.image_uri is null";
+          if (in.width <= 0 || in.height <= 0 || in.stride <= 0 ||
+              static_cast<uint64_t>(in.stride) <
+                  static_cast<uint64_t>(in.width) * 3) {
+            if (err)
+              *err =
+                  "CompanyFrame requires positive dimensions and RGB8 stride "
+                  ">= width * 3";
             return -3;
           }
-          int ret =
-              ValidateCompanyString(in.image_uri, limits.max_image_uri_bytes,
-                                    "CompanyFrame.image_uri", err);
-          if (ret != 0) return ret;
+          if (!in.data) {
+            if (err) *err = "CompanyFrame.data is null";
+            return -3;
+          }
+          if (static_cast<uint64_t>(in.stride) * in.height >
+              limits.max_image_bytes) {
+            if (err) *err = "CompanyFrame pixels exceed max_image_bytes";
+            return -3;
+          }
+          int ret = 0;
           if (in.metadata) {
             ret = ValidateCompanyAnyPayload(in.metadata, limits.max_any_bytes,
                                             "CompanyFrame.metadata", err);
@@ -86,7 +97,13 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     SetServiceTypeMember(&binding, &CompanyFrame::service_type);
     SetInputValue<CompanyFrame, ImageInputValue>(
         &binding, [](const CompanyFrame& in) {
-          return ImageInputValue{ReadString(in.image_uri)};
+          ImageFrame frame;
+          frame.width = in.width;
+          frame.height = in.height;
+          frame.stride = static_cast<size_t>(in.stride);
+          const auto* pixels = static_cast<const uint8_t*>(in.data);
+          frame.data.assign(pixels, pixels + frame.stride * frame.height);
+          return ImageInputValue{std::move(frame)};
         });
     binding.services = {{"ocr_invoice_qa", kMockServiceOcrInvoiceQa}};
     RegisterBinding(std::move(binding));

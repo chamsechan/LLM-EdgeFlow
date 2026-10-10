@@ -309,14 +309,13 @@ TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
       << instance.create_diagnostic();
   ASSERT_NE(instance.get(), nullptr);
 
-  std::string img_path = "./data/invoice_sample.png";
+  const std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0};
   std::string query = "请提取发票代码和金额";
-  CompanyString cs_img{static_cast<int32_t>(img_path.size()),
-                       const_cast<char*>(img_path.data())};
   CompanyString cs_query{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
 
-  CompanyFrame frame{5001, kMockServiceOcrInvoiceQa, &cs_img, nullptr};
+  CompanyFrame frame{5001,   kMockServiceOcrInvoiceQa, 1, 2, 6, pixels.data(),
+                     nullptr};
 
   NamedIoBatch inputs(1);
   inputs[0]["ocr_channel.frame"] = MakeBorrowedOperatorInput(&frame);

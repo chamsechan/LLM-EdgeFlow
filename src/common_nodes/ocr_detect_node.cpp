@@ -3,7 +3,7 @@
 namespace llm_edgeflow {
 namespace {
 struct Inputs {
-  const ImageRefBatch* images = nullptr;
+  const ImageFrameBatch* images = nullptr;
 };
 struct Outputs {
   OcrDocumentBatch document;
