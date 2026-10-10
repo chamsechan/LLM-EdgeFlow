@@ -277,7 +277,8 @@ assert.match(runSummary({ status: "completed", result: { "summary.json": { total
 assert.doesNotMatch(runSummary({ status: "completed" }), /成功.*条/, "process completion must not invent sample successes");
 assert.match(runSummary({ status: "failed", error: { message: "missing asset" } }), /missing asset/);
 const samples = new FormElement("div"); samples.replaceChildren = () => { samples.children = []; };
-renderSamples(samples, { "results.jsonl": [{ request_id: 42, status: 0, output: { answer: unsafeText } }] });
+renderSamples(samples, { "results.jsonl": [{ status: 0, output: { answer: unsafeText } }] });
+assert.equal(samples.children[0].children[0].textContent, "行 0 · 状态 0");
 assert.equal(samples.children[0].children[1].children[1].textContent, unsafeText, "sample output must be rendered as text");
 renderSamples(samples, null);
 assert.equal(samples.children.length, 0, "changing documents must remove old sample cards");

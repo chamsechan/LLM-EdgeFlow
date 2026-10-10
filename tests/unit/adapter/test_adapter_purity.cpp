@@ -64,8 +64,7 @@ struct DocOutputFixture {
   CompanyString cs_ans{511, ans};
   char intent[128] = {0};
   CompanyString cs_intent{127, intent};
-  CompanyOperatorDocOutput out{0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0,
-                               0};
+  CompanyOperatorDocOutput out{kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
   DocOutputFixture() {
     out.answer_text = &cs_ans;
     out.intent_name = &cs_intent;
@@ -79,7 +78,7 @@ struct DocOutputFixture {
 struct KeywordOutputFixture {
   char match[2048] = {0};
   CompanyString cs_match{2047, match};
-  CompanyOperatorKeywordOutput out{0, kMockServiceKeywordMatch, 0, nullptr, 0};
+  CompanyOperatorKeywordOutput out{kMockServiceKeywordMatch, 0, nullptr, 0};
   KeywordOutputFixture() { out.match_result_json = &cs_match; }
   std::map<std::string, size_t> Capacities() const {
     return {{"match_result_json", sizeof(match) - 1}};
@@ -89,7 +88,7 @@ struct KeywordOutputFixture {
 struct EntityOutputFixture {
   char entities[2048] = {0};
   CompanyString cs_entities{2047, entities};
-  CompanyOperatorEntityOutput out{0, kMockServiceEntityExtract, nullptr, 0};
+  CompanyOperatorEntityOutput out{kMockServiceEntityExtract, nullptr, 0};
   EntityOutputFixture() { out.entities_json = &cs_entities; }
   std::map<std::string, size_t> Capacities() const {
     return {{"entities_json", sizeof(entities) - 1}};
@@ -104,7 +103,7 @@ struct AuditOutputFixture {
   char verdict[2048] = {0};
   CompanyString cs_verdict{2047, verdict};
   CompanyOperatorAuditOutput out{
-      0, kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
+      kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
   AuditOutputFixture() {
     out.risk_level = &cs_risk;
     out.matched_policy_clause = &cs_clause;
@@ -120,7 +119,7 @@ struct AuditOutputFixture {
 struct OdOutputFixture {
   char json[2048] = {0};
   CompanyString cs_json{2047, json};
-  CompanyOdOutput out{0, kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
+  CompanyOdOutput out{kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
   OdOutputFixture() { out.result_json = &cs_json; }
   std::map<std::string, size_t> Capacities() const {
     return {{"result_json", sizeof(json) - 1}};
@@ -132,8 +131,8 @@ struct AudioOutputFixture {
   CompanyString cs_text{511, text};
   char slot[2048] = {0};
   CompanyString cs_slot{2047, slot};
-  CompanyOperatorAudioOutput out{0, kMockServiceAudioAsrIntent, nullptr,
-                                 nullptr, 0};
+  CompanyOperatorAudioOutput out{kMockServiceAudioAsrIntent, nullptr, nullptr,
+                                 0};
   AudioOutputFixture() {
     out.transcribed_text = &cs_text;
     out.intent_slot_json = &cs_slot;
@@ -163,17 +162,14 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   CompanyString cs_doc{static_cast<int32_t>(doc_str.size()), doc_str.data()};
   CompanyString cs_query{static_cast<int32_t>(query_str.size()),
                          query_str.data()};
-  CompanyOperatorDocInput in{1001, kMockServiceDocQa, &cs_doc, &cs_query};
+  CompanyOperatorDocInput in{kMockServiceDocQa, &cs_doc, &cs_query};
 
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
-  const auto& req_ids = harness.RequestIds();
   const auto* docs = harness.Context().Read<TextBatch>("doc_text");
   const auto* queries = harness.Context().Read<TextBatch>("query_text");
-  ASSERT_EQ(req_ids.size(), 1U);
   ASSERT_NE(docs, nullptr);
   ASSERT_NE(queries, nullptr);
-  EXPECT_EQ(req_ids[0], 1001u);
   EXPECT_EQ((*docs)[0].data, "Doc Content");
   EXPECT_EQ((*queries)[0].data, "Query Question");
 
@@ -194,7 +190,6 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   std::vector<CompanyOperatorDocOutput> outputs = {doc_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, doc_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1001u);
   EXPECT_EQ(outputs[0].chunk_count, 1);
   ASSERT_NE(outputs[0].intent_name, nullptr);
   EXPECT_STREQ(outputs[0].intent_name->data, "GENERAL_QA");
@@ -215,7 +210,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
 
   std::string text_str = "Some text";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
-  CompanyOperatorKeywordInput in{1002, kMockServiceKeywordMatch, &cs_text};
+  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs_text};
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   RuleMatchBatch matches;
@@ -226,7 +221,6 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   std::vector<CompanyOperatorKeywordOutput> outputs = {kw_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, kw_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1002u);
   EXPECT_EQ(outputs[0].is_hit, 1);
   ASSERT_NE(outputs[0].match_result_json, nullptr);
   EXPECT_STREQ(outputs[0].match_result_json->data,
@@ -246,7 +240,7 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
 
   std::string text_str = "Entity text";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
-  CompanyOperatorEntityInput in{1003, kMockServiceEntityExtract, &cs_text};
+  CompanyOperatorEntityInput in{kMockServiceEntityExtract, &cs_text};
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   StructuredDocumentBatch entities;
@@ -258,7 +252,6 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1003u);
   EXPECT_EQ(outputs[0].status_code, 0);
   ASSERT_NE(outputs[0].entities_json, nullptr);
   EXPECT_STREQ(outputs[0].entities_json->data, "[\"E1\"]");
@@ -278,8 +271,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   std::string chan_str = "channel_vip";
   CompanyString cs_text{static_cast<int32_t>(text_str.size()), text_str.data()};
   CompanyString cs_chan{static_cast<int32_t>(chan_str.size()), chan_str.data()};
-  CompanyOperatorAuditInput in{1004, kMockServiceDialogueAudit, &cs_text,
-                               &cs_chan};
+  CompanyOperatorAuditInput in{kMockServiceDialogueAudit, &cs_text, &cs_chan};
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   StructuredDocumentBatch verdicts;
@@ -298,7 +290,6 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   std::vector<CompanyOperatorAuditOutput> outputs = {audit_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, audit_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1004u);
   EXPECT_FLOAT_EQ(outputs[0].risk_score, 0.1f);
   ASSERT_NE(outputs[0].risk_level, nullptr);
   EXPECT_STREQ(outputs[0].risk_level->data, "SAFE");
@@ -318,8 +309,7 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   std::string query_str = "Total amount?";
   CompanyString cs_query{static_cast<int32_t>(query_str.size()),
                          query_str.data()};
-  CompanyFrame frame{1005,   kMockServiceOcrInvoiceQa, 1, 2, 8, pixels.data(),
-                     nullptr};
+  CompanyFrame frame{kMockServiceOcrInvoiceQa, 1, 2, 8, pixels.data(), nullptr};
 
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("frame");
@@ -341,9 +331,7 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
-  const std::vector<uint64_t> request_ids{frame.request_id};
   test::ParsedInputOptions in_options(*in_conv);
-  in_options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -369,7 +357,7 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
                                                          "ocr_invoice_qa");
   ASSERT_NE(query_converter, nullptr);
   test::ParsedInputOptions query_options(*query_converter);
-  query_options.request_ids = &request_ids;
+
   ASSERT_EQ(::llm_edgeflow::test::DecodeForTest(*query_converter, in_view,
                                                 query_options, &ctx, &status),
             0);
@@ -395,14 +383,12 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   out_view.SetCapacity("od_out", "result_json", sizeof(od_fix.json) - 1);
 
   test::ParsedOutputOptions out_options(*out_conv);
-  out_options.request_ids = &request_ids;
 
   size_t written = 0;
   ASSERT_EQ(::llm_edgeflow::test::EncodeForTest(*out_conv, &ctx, out_options,
                                                 &out_view, &written, &status),
             0);
 
-  EXPECT_EQ(od_fix.out.request_id, 1005u);
   EXPECT_EQ(od_fix.out.detected_box_count, 1);
   ASSERT_NE(od_fix.out.result_json, nullptr);
   EXPECT_STREQ(od_fix.out.result_json->data, "{\"total\":99.9}");
@@ -419,7 +405,7 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   test::AdapterHarness harness(in_conv, out_conv);
 
   std::vector<float> pcm(1600, 0.05f);
-  CompanyOperatorAudioInput in{1006, kMockServiceAudioAsrIntent, pcm.data(),
+  CompanyOperatorAudioInput in{kMockServiceAudioAsrIntent, pcm.data(),
                                static_cast<int>(pcm.size()), 16000};
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
@@ -435,7 +421,6 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   std::vector<CompanyOperatorAudioOutput> outputs = {audio_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, audio_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1006u);
   ASSERT_NE(outputs[0].transcribed_text, nullptr);
   EXPECT_STREQ(outputs[0].transcribed_text->data, "turn left");
   ASSERT_NE(outputs[0].intent_slot_json, nullptr);
@@ -463,8 +448,7 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   CompanyString cs_cand1{static_cast<int32_t>(cand1_str.size()),
                          cand1_str.data()};
 
-  CompanyOperatorRerankInput in{0, kMockServiceCrossRerank, nullptr, {}, 0};
-  in.request_id = 1007;
+  CompanyOperatorRerankInput in{kMockServiceCrossRerank, nullptr, {}, 0};
   in.query_text = &cs_q;
   in.candidate_passages[0] = &cs_cand0;
   in.candidate_passages[1] = &cs_cand1;
@@ -480,7 +464,6 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   std::vector<CompanyOperatorRerankOutput> outputs(1);
   ASSERT_EQ(harness.EncodeOperator(&outputs), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1007u);
   EXPECT_EQ(outputs[0].count, 2);
   EXPECT_FLOAT_EQ(outputs[0].scores[0], 0.85f);
   EXPECT_EQ(outputs[0].sorted_indices[0], 1);
@@ -501,7 +484,7 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
   std::string json_query = "{\"query\":\"Hello\"}";
   CompanyString cs_text{static_cast<int32_t>(json_query.size()),
                         json_query.data()};
-  CompanyOperatorEntityInput in{1008, kMockServiceTranslate, &cs_text};
+  CompanyOperatorEntityInput in{kMockServiceTranslate, &cs_text};
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   TextBatch answers;
@@ -512,7 +495,6 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
   std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].request_id, 1008u);
   EXPECT_EQ(outputs[0].status_code, 0);
   ASSERT_NE(outputs[0].entities_json, nullptr);
   auto parsed = nlohmann::json::parse(outputs[0].entities_json->data);
@@ -531,7 +513,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // 情形 1：缺少 answer_text
   {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{1001});
+
     DocOutputFixture fix;
     std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
     EXPECT_NE(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
@@ -540,7 +522,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // 情形 2：有 answer_text 但缺少 intent -> 必须 fail-closed
   {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{1001});
+
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("answer_text", std::move(answers));
@@ -553,7 +535,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // 情形 3：有 intent 但缺少显式分块计数 -> 必须 fail-closed
   {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{1001});
+
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("answer_text", std::move(answers));
@@ -566,7 +548,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 
-  // 情形 4：所有输出都存在，但缺少请求 ID 表
+  // 情形 4：所有输出都存在，但批次行数与结果数量不一致
   {
     test::AdapterHarness harness(out_conv);
     TextBatch answers;
@@ -580,7 +562,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     harness.Publish("chunk_count", std::move(chunk_counts));
     DocOutputFixture fix;
     TestOutputBatchView destination;
-    destination.count = 1;
+    destination.count = 2;
     destination.leased_slots["doc_out"] = {&fix.out};
     destination.slot_types["doc_out"] = "CompanyOperatorDocOutput";
     destination.SetCapacity("doc_out", "answer_text",
@@ -595,7 +577,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
                                                   options, &destination,
                                                   &written, &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
-    EXPECT_EQ(status.FieldPath(), "request_ids");
+    EXPECT_EQ(status.FieldPath(), "answers");
+    EXPECT_EQ(written, 0U);
   }
 }
 
@@ -606,7 +589,6 @@ TEST_F(AdapterPurityTest,
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(out_conv);
-  harness.SetRequestIds(std::vector<uint64_t>{1001});
 
   // structured_verdicts 缺少必填字段 'risk_level' -> 必须 fail-closed
   StructuredDocumentBatch verdicts;
@@ -635,7 +617,6 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
        {JsonParseStatus::kOk, JsonParseStatus::kFailed,
         JsonParseStatus::kFallbackApplied}) {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{100, 200});
 
     StructuredDocumentBatch verdicts;
     for (uint32_t id : {1u, 0u}) {
@@ -655,7 +636,6 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
     const int ret = harness.EncodeOperator(&outputs, fix0.Capacities());
     if (parse_status == JsonParseStatus::kOk) {
       ASSERT_EQ(ret, 0) << harness.Status().ToString();
-      EXPECT_EQ(outputs[1].request_id, 200u);
       ASSERT_NE(outputs[1].matched_policy_clause, nullptr);
       EXPECT_STREQ(outputs[1].matched_policy_clause->data, "req1 first");
     } else {
@@ -672,7 +652,7 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
   for (const auto& ids :
        {std::vector<uint32_t>{0, 0}, std::vector<uint32_t>{0, 2}}) {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{100, 200});
+
     RuleMatchBatch matches;
     for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
     harness.Publish("matches", std::move(matches));
@@ -700,7 +680,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
     test::AdapterHarness harness(in_conv);
     CompanyString cs_chan{static_cast<int32_t>(valid_channel.size()),
                           const_cast<char*>(valid_channel.data())};
-    CompanyOperatorAuditInput in{5001, kMockServiceDialogueAudit, &cs_query,
+    CompanyOperatorAuditInput in{kMockServiceDialogueAudit, &cs_query,
                                  &cs_chan};
     EXPECT_EQ(harness.DecodeOperator({&in}), COMPANY_ALG_SUCCESS);
   }
@@ -710,7 +690,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
     test::AdapterHarness harness(in_conv);
     CompanyString cs_chan{static_cast<int32_t>(oversized_channel.size()),
                           const_cast<char*>(oversized_channel.data())};
-    CompanyOperatorAuditInput in{5002, kMockServiceDialogueAudit, &cs_query,
+    CompanyOperatorAuditInput in{kMockServiceDialogueAudit, &cs_query,
                                  &cs_chan};
     EXPECT_EQ(harness.DecodeOperator({&in}), COMPANY_ALG_ERR_INVALID_INPUT);
   }
@@ -721,7 +701,7 @@ TEST_F(AdapterPurityTest,
   const std::string long_answer(5000, 'a');
 
   AlgContext ctx;
-  const std::vector<uint64_t> request_ids{10};
+
   ctx.Publish("answer_text", TextBatch{{0, 0, long_answer}});
   ctx.Publish("intent",
               RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
@@ -732,12 +712,11 @@ TEST_F(AdapterPurityTest,
   ASSERT_NE(op_conv, nullptr);
 
   test::ParsedOutputOptions options(*op_conv);
-  options.request_ids = &request_ids;
 
   // 1. Operator 缓冲区容量较小 (500) -> BUFFER_TOO_SMALL
   {
-    CompanyOperatorDocOutput small_out{
-        0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
+    CompanyOperatorDocOutput small_out{kMockServiceDocQa, nullptr, 0.0f,
+                                       nullptr,           0,       0};
     std::vector<char> ans_buf(500);
     CompanyString cs_ans{0, ans_buf.data()};
     small_out.answer_text = &cs_ans;
@@ -761,8 +740,8 @@ TEST_F(AdapterPurityTest,
 
   // 2. Operator 可变缓冲区：6000 字节存储，保留完整答案
   {
-    CompanyOperatorDocOutput op_out{
-        0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
+    CompanyOperatorDocOutput op_out{kMockServiceDocQa, nullptr, 0.0f,
+                                    nullptr,           0,       0};
     std::vector<char> ans_buf(6000);
     CompanyString cs_ans{0, ans_buf.data()};
     op_out.answer_text = &cs_ans;
@@ -783,7 +762,6 @@ TEST_F(AdapterPurityTest,
                                                   &op_dest, &written, &status);
     EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, 1U);
-    EXPECT_EQ(op_out.request_id, 10U);
     EXPECT_EQ(std::string(op_out.answer_text->data), long_answer);
   }
 }
@@ -792,9 +770,8 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
   const auto* converter =
       IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
   ASSERT_NE(converter, nullptr);
-  const std::vector<uint64_t> request_ids{42};
+
   test::ParsedOutputOptions options(*converter);
-  options.request_ids = &request_ids;
 
   for (bool overflow : {false, true}) {
     SCOPED_TRACE(overflow);
@@ -810,8 +787,8 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
     char intent[4] = {'?', '?', '?', '!'};
     CompanyString answer_string{3, answer};
     CompanyString intent_string{0, intent};
-    CompanyOperatorDocOutput output{
-        0, kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
+    CompanyOperatorDocOutput output{kMockServiceDocQa, nullptr, 0.0f,
+                                    nullptr,           0,       0};
     output.answer_text = &answer_string;
     output.intent_name = &intent_string;
     TestOutputBatchView view;
@@ -854,7 +831,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
 
   std::string buffer = "{\"query\":\"original query\"}";
   CompanyString cs_buf{static_cast<int32_t>(buffer.size()), buffer.data()};
-  CompanyOperatorEntityInput in{5555, kMockServiceTranslate, &cs_buf};
+  CompanyOperatorEntityInput in{kMockServiceTranslate, &cs_buf};
 
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
@@ -867,7 +844,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
   EXPECT_EQ((*sentences)[0].data, "original query");
 }
 
-TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
+TEST_F(AdapterPurityTest, InputBatchSkeleton_PreservesDistinctRows) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "entity_in", "translate");
   ASSERT_NE(in_conv, nullptr);
@@ -881,17 +858,13 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
   std::string q1 = "{\"query\":\"q1\"}";
   CompanyString cs_q0{static_cast<int32_t>(q0.size()), q0.data()};
   CompanyString cs_q1{static_cast<int32_t>(q1.size()), q1.data()};
-  CompanyOperatorEntityInput in0{1234, kMockServiceTranslate, &cs_q0};
-  CompanyOperatorEntityInput in1{1234, kMockServiceTranslate, &cs_q1};
+  CompanyOperatorEntityInput in0{kMockServiceTranslate, &cs_q0};
+  CompanyOperatorEntityInput in1{kMockServiceTranslate, &cs_q1};
 
   ASSERT_EQ(harness.DecodeOperator({&in0, &in1}), 0);
 
-  const auto& req_ids = harness.RequestIds();
   const auto* sentences = harness.Context().Read<TextBatch>("query");
-  ASSERT_EQ(req_ids.size(), 2U);
   ASSERT_NE(sentences, nullptr);
-  EXPECT_EQ(req_ids[0], 1234u);
-  EXPECT_EQ(req_ids[1], 1234u);
   EXPECT_EQ((*sentences)[0].req_id, 0u);
   EXPECT_EQ((*sentences)[1].req_id, 1u);
 
@@ -901,8 +874,6 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
   EntityOutputFixture fix0, fix1;
   std::vector<CompanyOperatorEntityOutput> outputs = {fix0.out, fix1.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()), 0);
-  EXPECT_EQ(outputs[0].request_id, 1234u);
-  EXPECT_EQ(outputs[1].request_id, 1234u);
 }
 
 TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
@@ -917,14 +888,13 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
   CompanyString cs_valid{static_cast<int32_t>(valid_q.size()), valid_q.data()};
   CompanyString cs_invalid{static_cast<int32_t>(invalid_q.size()),
                            invalid_q.data()};
-  CompanyOperatorEntityInput in0{1, kMockServiceTranslate, &cs_valid};
-  CompanyOperatorEntityInput in1{2, kMockServiceTranslate, &cs_invalid};
+  CompanyOperatorEntityInput in0{kMockServiceTranslate, &cs_valid};
+  CompanyOperatorEntityInput in1{kMockServiceTranslate, &cs_invalid};
 
   EXPECT_EQ(harness.DecodeOperator({&in0, &in1}),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // ID 表由 binding 预先提供；失败的业务批次不得发布。
-  EXPECT_EQ(harness.RequestIds(), (std::vector<uint64_t>{1, 2}));
+  // 失败的业务批次不得发布。
   EXPECT_EQ(harness.Context().Read<TextBatch>("query"), nullptr);
 }
 
@@ -934,8 +904,6 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(out_conv);
-
-  harness.SetRequestIds(std::vector<uint64_t>{1001, 2002});
 
   // 打乱顺序：索引 1 先于索引 0 发布
   TextBatch answers{{1, 0, "Answer 1"}, {0, 0, "Answer 0"}};
@@ -950,14 +918,12 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   DocOutputFixture fix0, fix1;
   std::vector<CompanyOperatorDocOutput> outputs = {fix0.out, fix1.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()), 0);
-  EXPECT_EQ(outputs[0].request_id, 1001u);
   ASSERT_NE(outputs[0].answer_text, nullptr);
   EXPECT_STREQ(outputs[0].answer_text->data, "Answer 0");
   ASSERT_NE(outputs[0].intent_name, nullptr);
   EXPECT_STREQ(outputs[0].intent_name->data, "INTENT_0");
   EXPECT_EQ(outputs[0].chunk_count, 3);
 
-  EXPECT_EQ(outputs[1].request_id, 2002u);
   ASSERT_NE(outputs[1].answer_text, nullptr);
   EXPECT_STREQ(outputs[1].answer_text->data, "Answer 1");
   ASSERT_NE(outputs[1].intent_name, nullptr);
@@ -994,7 +960,7 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
     std::string text_str = "entity sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
-    CompanyOperatorEntityInput in{8001, kMockServiceEntityExtract, &cs_text};
+    CompanyOperatorEntityInput in{kMockServiceEntityExtract, &cs_text};
     EXPECT_EQ(harness.DecodeOperator({&in}), 0);
     const auto* sentences = harness.Context().Read<TextBatch>("sentence_text");
     ASSERT_NE(sentences, nullptr);
@@ -1007,7 +973,7 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
     std::string text_str = "keyword sentence";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
-    CompanyOperatorKeywordInput in{8002, kMockServiceKeywordMatch, &cs_text};
+    CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs_text};
     EXPECT_EQ(harness.DecodeOperator({&in}), 0);
     const auto* sentences = harness.Context().Read<TextBatch>("sentence_text");
     ASSERT_NE(sentences, nullptr);
@@ -1024,7 +990,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   // 上下文 A：实体抽取 Pipeline 的输出
   {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{9001});
+
     StructuredDocumentBatch batch;
     batch.emplace_back(
         0, 0,
@@ -1034,7 +1000,6 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
     EntityOutputFixture ent_fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
     ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-    EXPECT_EQ(outputs[0].request_id, 9001U);
     ASSERT_NE(outputs[0].entities_json, nullptr);
     EXPECT_STREQ(outputs[0].entities_json->data, "[\"PERSON: Alice\"]");
   }
@@ -1042,7 +1007,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   // 上下文 B：产出相同 schema 的通用结构化 JSON Pipeline 输出
   {
     test::AdapterHarness harness(out_conv);
-    harness.SetRequestIds(std::vector<uint64_t>{9002});
+
     StructuredDocumentBatch batch;
     batch.emplace_back(
         0, 0,
@@ -1052,7 +1017,6 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
     EntityOutputFixture ent_fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
     ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-    EXPECT_EQ(outputs[0].request_id, 9002U);
     ASSERT_NE(outputs[0].entities_json, nullptr);
     EXPECT_STREQ(outputs[0].entities_json->data, "{\"summary\":\"ok\"}");
   }
@@ -1096,15 +1060,13 @@ TEST_F(AdapterPurityTest,
     std::string text_str = "AI: Revolution in robotics";
     CompanyString cs_text{static_cast<int32_t>(text_str.size()),
                           text_str.data()};
-    CompanyOperatorEntityInput req_a{777, kMockServiceEntityExtract, &cs_text};
+    CompanyOperatorEntityInput req_a{kMockServiceEntityExtract, &cs_text};
     ExternalInputBatchView view;
     view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&req_a});
     view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
     view.count = 1;
 
-    std::vector<uint64_t> request_ids;
     test::ParsedInputOptions opts(*in_a);
-    opts.request_ids = &request_ids;
 
     AdapterStatus st;
     ASSERT_EQ(
@@ -1122,9 +1084,7 @@ TEST_F(AdapterPurityTest,
     view.slot_types["custom_input"] = "CustomMultiFieldInput";
     view.count = 1;
 
-    std::vector<uint64_t> request_ids;
     test::ParsedInputOptions opts(*in_b);
-    opts.request_ids = &request_ids;
 
     AdapterStatus st;
     view.binding = &custom_binding;
@@ -1150,14 +1110,13 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     EntityOutputFixture fix;
     std::vector<CompanyOperatorEntityOutput> outputs = {fix.out};
     test::AdapterHarness harness(out_a);
-    harness.SetRequestIds(std::vector<uint64_t>{5001});
+
     harness.Publish(
         "entities",
         StructuredDocumentBatch{
             {0, 0,
              JsonDocumentItem("[\"item_1\"]", true, JsonParseStatus::kOk)}});
     ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
-    EXPECT_EQ(outputs[0].request_id, 5001U);
     ASSERT_NE(outputs[0].entities_json, nullptr);
     EXPECT_STREQ(outputs[0].entities_json->data, "[\"item_1\"]");
   }
@@ -1171,12 +1130,11 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     KeywordOutputFixture fix;
     std::vector<CompanyOperatorKeywordOutput> outputs = {fix.out};
     test::AdapterHarness harness(out_b);
-    harness.SetRequestIds(std::vector<uint64_t>{5001});
+
     RuleMatchItem urgent(1, "URGENT", "急", 1.0f);
     urgent.slots["flag"] = "urgent";
     harness.Publish("matches", RuleMatchBatch{{0, 0, urgent}});
     ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
-    EXPECT_EQ(outputs[0].request_id, 5001U);
     EXPECT_EQ(outputs[0].is_hit, 1);
     ASSERT_NE(outputs[0].match_result_json, nullptr);
     EXPECT_STREQ(outputs[0].match_result_json->data,
@@ -1198,19 +1156,15 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   std::string plain_str = "Hello plain text";
   CompanyString cs_plain{static_cast<int32_t>(plain_str.size()),
                          plain_str.data()};
-  CompanyOperatorEntityInput plain_req{101, kMockServiceEntityExtract,
-                                       &cs_plain};
+  CompanyOperatorEntityInput plain_req{kMockServiceEntityExtract, &cs_plain};
   ExternalInputBatchView plain_view;
   plain_view.slots["entity_in"] =
       llm_edgeflow::BorrowInputForTest({&plain_req});
   plain_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   plain_view.count = 1;
 
-  std::vector<uint64_t> request_ids;
   test::ParsedInputOptions opts(*plain_conv);
   test::ParsedInputOptions json_options(*json_conv);
-  json_options.request_ids = &request_ids;
-  opts.request_ids = &request_ids;
 
   // entity_in/entity_extract 将其作为纯文本接受
   {
@@ -1238,7 +1192,7 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   // Payload 2：JSON 格式字符串 "{\"query\": \"Hello JSON\"}"
   std::string json_str = "{\"query\": \"Hello JSON\"}";
   CompanyString cs_json{static_cast<int32_t>(json_str.size()), json_str.data()};
-  CompanyOperatorEntityInput json_req{102, kMockServiceTranslate, &cs_json};
+  CompanyOperatorEntityInput json_req{kMockServiceTranslate, &cs_json};
   ExternalInputBatchView json_view;
   json_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&json_req});
   json_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";

@@ -272,21 +272,6 @@ TEST_F(IoConverterRegistryTest, AuditRequiresBindingValueReadersAndWriters) {
   ExpectAuditFailure("entity_out/test_service", "value writer");
 }
 
-TEST_F(IoConverterRegistryTest, OutputRequestIdMemberRequiresAWriter) {
-  auto output =
-      *OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
-  ASSERT_TRUE(output.read_request_id);
-  output.write_request_id = nullptr;
-  test_support::RegistryTestAccess::SetValueBinding(output);
-  ExpectAuditFailure("entity_out/test_service", "request_id writer");
-
-  output.read_request_id = nullptr;
-  test_support::RegistryTestAccess::SetValueBinding(std::move(output));
-  std::vector<std::string> errors;
-  EXPECT_TRUE(IoConverterRegistry::Instance().Audit(&errors))
-      << ::testing::PrintToString(errors);
-}
-
 TEST_F(IoConverterRegistryTest, NamedAllocatorMustMatchNeutralValueAndWriter) {
   const auto* builtin =
       OperatorValueTypeRegistry::Instance().GetOutputBinding("entity_out", "");
@@ -429,7 +414,6 @@ TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
   CompanyString string{static_cast<int32_t>(text.size()),
                        const_cast<char*>(text.data())};
   CompanyOperatorEntityInput request{};
-  request.request_id = 7001;
   request.service_type = kMockServiceEntityExtract;
   request.sentence_text = &string;
   operator_api::NamedIoBatch inputs(1);
@@ -442,7 +426,6 @@ TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
   const auto* result = static_cast<const CompanyOperatorEntityOutput*>(
       outputs[0].at("channel.entity_out").get());
   ASSERT_NE(result, nullptr);
-  EXPECT_EQ(result->request_id, request.request_id);
   EXPECT_EQ(result->service_type, kMockServiceEntityExtract);
   EXPECT_EQ(result->status_code, 0);
   ASSERT_NE(result->entities_json, nullptr);
@@ -798,7 +781,7 @@ TEST_F(IoConverterRegistryTest, SelectedInputsRejectDuplicateLogicalProducers) {
   EXPECT_EQ(diagnostic.path, "/io/input/1");
 }
 
-TEST_F(IoConverterRegistryTest, SelectedInputsRequireARequestIdSource) {
+TEST_F(IoConverterRegistryTest, SelectedStringInputsNeedNoRequestIdSource) {
   auto first = TestInput();
   first.type = "string";
   first.name = "first_string";
@@ -813,29 +796,14 @@ TEST_F(IoConverterRegistryTest, SelectedInputsRequireARequestIdSource) {
   ASSERT_TRUE(registry.RegisterInputConverter(first));
   ASSERT_TRUE(registry.RegisterInputConverter(second));
   auto document = TestDocument();
+  document["io"]["input"] = {{{"type", first.type}, {"name", first.name}},
+                             {{"type", second.type}, {"name", second.name}}};
   PreparedDeployment prepared;
   DeploymentDiagnostic diagnostic;
   ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
       << diagnostic.message;
-  document["io"]["input"] = {{{"type", first.type}, {"name", first.name}},
-                             {{"type", second.type}, {"name", second.name}}};
-  EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
-  EXPECT_EQ(diagnostic.code, "INVALID_COMBINATION");
-  EXPECT_EQ(diagnostic.path, "/io/input");
-  EXPECT_NE(diagnostic.message.find("request_id"), std::string::npos);
-  EXPECT_TRUE(prepared.inputs.empty());
-  EXPECT_TRUE(prepared.outputs.empty());
-  EXPECT_TRUE(prepared.neutral_pipeline_json.is_null());
-  EXPECT_TRUE(prepared.io_boundary.input_published_ports.empty());
-  EXPECT_TRUE(prepared.io_boundary.output_consumed_ports.empty());
-  std::unique_ptr<ValidatedIoPlan> plan;
-  std::string error;
-  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(document, "", &plan, &error,
-                                                    &diagnostic),
-            -2);
-  EXPECT_EQ(plan, nullptr);
-  EXPECT_EQ(diagnostic.code, "INVALID_COMBINATION");
-  EXPECT_EQ(diagnostic.path, "/io/input");
+  ASSERT_EQ(prepared.inputs.size(), 2U);
+  EXPECT_EQ(prepared.io_boundary.input_published_ports.size(), 2U);
 }
 
 TEST_F(IoConverterRegistryTest, ParameterDefaultsOverridesAndEscapedErrors) {

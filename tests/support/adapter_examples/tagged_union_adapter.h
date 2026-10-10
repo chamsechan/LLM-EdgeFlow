@@ -27,7 +27,6 @@ typedef struct {
 } TemplateImagePayload;
 
 typedef struct {
-  uint64_t request_id;
   int payload_type;  // 1：文本，2：图像
   union {
     TemplateTextPayload text;
@@ -36,13 +35,11 @@ typedef struct {
 } TemplateTaggedUnionInput;
 
 typedef struct {
-  uint64_t request_id;
   int status_code;
   char verdict[256];
 } TemplateTaggedUnionOutput;
 
 struct TemplateUnionItemDto {
-  uint64_t request_id;
   int payload_type;
   std::string text_content;
   std::string image_path;
@@ -51,7 +48,6 @@ struct TemplateUnionItemDto {
 };
 
 struct TemplateUnionResultDto {
-  uint64_t request_id;
   int status_code;
   std::string verdict;
 };
@@ -90,7 +86,6 @@ class TemplateTaggedUnionAdapter {
       }
 
       TemplateUnionItemDto item;
-      item.request_id = in->request_id;
       item.payload_type = in->payload_type;
 
       if (in->payload_type == TEMPLATE_PAYLOAD_TEXT) {
@@ -144,7 +139,6 @@ class TemplateTaggedUnionAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<TemplateTaggedUnionOutput*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
       out_ptr->status_code = (*res)[i].status_code;
 
       if (!AdapterValidationHelper::CheckedStringCopy(

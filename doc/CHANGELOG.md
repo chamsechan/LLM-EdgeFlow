@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+Operator 输入输出改为严格按 vector 行位置关联，移除通用 request_id 读取/匹配/回写钩子、
+强制 ID 来源和选项编号表。内部 `req_id/sub_id` 溯源与输出重排保留；无 ID 载体可直接接入，
+图像帧序号不用于请求关联。删除 mock 载体及 Demo 数据/结果中的 `request_id` 字段；
+Demo 与效果验证按记录顺序对应，不新增替代编号字段。可选输出仍保留原始行位置。
+
 图像输入从路径字符串改为请求自有的 RGB8 `ImageFrame` / `ImageFrameBatch`。
 平台 binding 校验宽高、步长、指针和字节上限后复制像素；Model 按步长完成补齐与 HWC→CHW
 预处理，不再解码文件。Demo 从样例图片构造像素帧，SDK 与 Model 不保留路径输入契约。
@@ -11,7 +16,7 @@ Operator 函数表按 `Init, Create, Control, Process, Destroy, DeInit` 排列�
 `Control(void*, int, void*)` 将整数还原为现有 `ControlCommand`，保留命令数值和异常隔离。
 
 平台布局集中到 `OperatorValueTypeBinding`：Converter 改用请求自有的中立 I/O 值，
-binding 负责字符串、metadata、请求编号、业务枚举映射及输出布局。删除 Converter 的平台类型、
+binding 负责字符串、metadata、业务枚举映射及输出布局。删除 Converter 的平台类型、
 业务枚举字段和直接读写 helper，不保留兼容别名或旧路径。完整请求解析、业务校验和响应组装仍由
 Converter 完成；输出按真实池容量写入，批次失败不发布租约。
 
@@ -45,7 +50,7 @@ JSON 目录解析，拒绝绝对路径、父目录分量和符号链接越界，
 Pipeline 用 `io.input` / `io.output` 的 `(type, name)` 选择单载体 Converter，删除 Core 业务登记和
 IoBinding。Converter 参数只读共享，输出字符串容量的默认值归 Converter、平台仅声明硬上限；
 预检与 Create 共用准备结果和容量预算。同类型的多个载体以 `name.type` 区分，Process 在转换前
-核对模拟平台的业务值与请求 ID，并保留可选输出的行位置；多输出失败时不发布任何租约。
+核对模拟平台的业务值，并保留可选输出的行位置；多输出失败时不发布任何租约。
 
 文本节点统一使用类型化字段与字段 Control。模板变量只引用已连接的输入，更新重新编译并校验；
 规则元素声明负责默认值、约束与正则编译。结构化解析的 `fallback` 直接使用 JSON 值，
@@ -260,13 +265,9 @@ Studio 应用表单时，未修改的数值、布尔、枚举、数组和对象�
 `effective_frame_depth` 和池深硬上限 `max_frame_depth_limit`。Operator 使用解析器给出的同一
 批次值；Demo 超限后提示查询命令，原有错误和退出码不变。现有配置中的显式默认值保持原样。
 
-请求编号回传移出业务端口：删除 `kRawRequestIds`，`DecodeRequestRows` / `EncodeResultRows`
-去掉请求编号端口参数。`InputDecodeOptions` / `OutputEncodeOptions` 新增 `request_ids`，由
-Operator 提供本次调用的编号表；自行组织转换的实现改用 `PublishRequestIds` / `RequestIds`，
-直接调用转换器的代码需在选项中提供编号表。解码成功却少记或漏记编号时，在租用输出块前返回
-`COMPANY_ALG_ERR_INVALID_INPUT`（`-3`）并报告转换器与数量。Catalog、Binding 端口映射和
-Studio 的 `$ingress` 不再列出 `raw_request_ids`；Operator 输出的 `request_id`、公共 ABI
-与配置格式不变。
+请求编号回传机制已由按行契约替代：`DecodeRequestRows` 以输入行号标记内部来源，
+`EncodeResultRows` 根据输出视图的原始批大小检查来源并恢复行序，不再需要外部编号表。
+Catalog、Binding 端口映射和 Studio 的 `$ingress` 不发布请求编号端口。
 
 `max_parallel_workers > 1` 时，Validator 将未声明并行安全的节点，以及会共享串行模型的
 节点拆到单独的层顺序执行；原本因此在 Create 时返回 `-2` 的配置现在可以运行。

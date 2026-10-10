@@ -25,7 +25,7 @@ do not mix a variant Catalog with default binaries.
 4. When a business I/O contract changes, verify the complete original request and response by
    directly calling Operator `Process` in the existing Operator/Adapter suite.
    When a Demo-supported business path changes, run that edited Pipeline through the compatible
-   Demo and check request IDs, status and expected output fields. Follow
+   Demo and check row correspondence, status and expected output fields. Follow
    [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案)
    for `.conf` / Profile selection and Demo Control behavior; running an unchanged Profile
    does not verify a new JSON file.

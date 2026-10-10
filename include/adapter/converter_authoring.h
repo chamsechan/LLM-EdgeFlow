@@ -62,16 +62,6 @@ inline std::optional<T> ReadInputSlot(const ExternalInputBatchView& source,
   return value;
 }
 
-inline const std::vector<uint64_t>* RequestIds(
-    const OutputEncodeOptions& options, AdapterStatus* status) {
-  if (!options.request_ids) {
-    AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing request id table in encode options", "request_ids",
-        options.Label().c_str());
-  }
-  return options.request_ids;
-}
-
 template <typename T>
 inline const T* ReadOutputValue(AlgContext& context,
                                 const BlackboardKey<T>& port,
@@ -103,15 +93,13 @@ bool WriteOutputValue(const ExternalOutputBatchView& destination,
                       const char* slot, size_t index, const Value& value,
                       const OutputEncodeOptions& options,
                       AdapterStatus* status) {
-  const auto* ids = RequestIds(options, status);
-  if (!ids) return false;
-  if (index >= ids->size()) {
+  if (index >= destination.count) {
     AdapterValidationHelper::ReturnInvalidInput(
-        status, "Output row exceeds request id table", "request_ids",
+        status, "Output row exceeds batch size", "destination",
         options.Label().c_str(), static_cast<int>(index));
     return false;
   }
-  const auto result = destination.Write(slot, index, (*ids)[index], value);
+  const auto result = destination.Write(slot, index, value);
   if (!result.IsOk()) {
     ReturnRowStatus(result, options.Label(), index, status);
     return false;
@@ -147,7 +135,7 @@ int DecodeRequestRows(
   return COMPANY_ALG_SUCCESS;
 }
 
-// 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架负责恢复外部 ID，
+// 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架按 req_id 恢复输出行，
 // 回调负责业务字段与序列化。
 template <typename Value, typename Payload, typename Encode>
 int EncodeResultRows(
@@ -164,15 +152,13 @@ int EncodeResultRows(
   const auto* results =
       ReadOutputValue(*context, result_port, options, status, "res");
   if (!results) return COMPANY_ALG_ERR_INVALID_INPUT;
-  const auto* ids = RequestIds(options, status);
-  if (!ids) return COMPANY_ALG_ERR_INVALID_INPUT;
   if (!destination || destination->count < results->size())
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
         "destination", options.Label().c_str());
   std::vector<const TraceableItem<Payload>*> ordered;
-  if (!IndexResults(results, ids, &ordered, "res", options.Label().c_str(),
-                    status))
+  if (!IndexResults(results, destination->count, &ordered, "res",
+                    options.Label().c_str(), status))
     return COMPANY_ALG_ERR_INVALID_INPUT;
   size_t written = 0;
   for (size_t i = 0; i < ordered.size(); ++i) {

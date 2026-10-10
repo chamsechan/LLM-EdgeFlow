@@ -7,10 +7,8 @@ namespace alg_demo {
 namespace {
 
 void ShowInvoiceResult(const void* output, const nlohmann::json&,
-                       uint64_t* request_id, int32_t* status,
-                       nlohmann::json* sample_output) {
+                       int32_t* status, nlohmann::json* sample_output) {
   const auto& out = *static_cast<const CompanyOdOutput*>(output);
-  *request_id = out.request_id;
   *status = out.status_code;
   (*sample_output)["detected_box_count"] = out.detected_box_count;
   std::string result_json;

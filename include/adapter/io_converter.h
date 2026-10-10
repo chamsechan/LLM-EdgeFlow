@@ -83,7 +83,7 @@ class ExternalOutputBatchView {
 
   template <typename T>
   AdapterStatus Write(const std::string& slot, size_t index,
-                      uint64_t request_id, const T& value) const {
+                      const T& value) const {
     auto type = slot_types.find(slot);
     if (!binding || binding->value_type != typeid(T) ||
         type == slot_types.end() ||
@@ -95,10 +95,7 @@ class ExternalOutputBatchView {
       return AdapterStatus::BufferTooSmall(
           "Missing output capacity specification", slot);
     auto* raw = leased_slots.at(slot)[index];
-    auto result = binding->write_value(raw, std::any(value), *spec);
-    if (result.IsOk() && binding->write_request_id)
-      binding->write_request_id(raw, request_id);
-    return result;
+    return binding->write_value(raw, std::any(value), *spec);
   }
 };
 
@@ -113,7 +110,6 @@ using IoPortBindings = std::unordered_map<std::string, std::string>;
 struct InputDecodeOptions {
   std::string type;
   std::string name;
-  const std::vector<uint64_t>* request_ids = nullptr;
   const ParameterValues* params = nullptr;
   const IoPortBindings* ports = nullptr;
 
@@ -133,7 +129,6 @@ struct InputDecodeOptions {
 struct OutputEncodeOptions {
   std::string type;
   std::string name;
-  const std::vector<uint64_t>* request_ids = nullptr;
   const ParameterValues* params = nullptr;
   const IoPortBindings* ports = nullptr;
 

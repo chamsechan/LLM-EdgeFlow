@@ -34,11 +34,15 @@ int EncodeOperatorRerankResult(AlgContext* context,
   const auto* res = ReadOutputValue(*context, kRanked, options, status);
   if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids = RequestIds(options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!destination) {
+    return AdapterValidationHelper::ReturnBufferTooSmall(
+        status, "Null output destination", "destination",
+        options.Label().c_str());
+  }
+  const size_t count = destination->count;
 
   std::vector<const RankedTextBatch::value_type*> first;
-  if (!IndexResults(res, raw_req_ids, &first, "ranked_results",
+  if (!IndexResults(res, destination->count, &first, "ranked_results",
                     options.Label().c_str(), status, true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -59,13 +63,6 @@ int EncodeOperatorRerankResult(AlgContext* context,
             options.Label().c_str());
       }
     }
-  }
-
-  size_t count = raw_req_ids->size();
-  if (!destination || destination->count < count) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Destination count is less than output count", "destination",
-        options.Label().c_str());
   }
 
   size_t written = 0;

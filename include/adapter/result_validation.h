@@ -11,7 +11,7 @@ namespace llm_edgeflow {
 // req_id 是输入批内索引，而非外部请求 ID。向任一 ABI 输出路径暴露有序
 // 视图前，须校验每个条目。
 template <typename Batch>
-bool IndexResults(const Batch* batch, const std::vector<uint64_t>* request_ids,
+bool IndexResults(const Batch* batch, size_t request_count,
                   std::vector<const typename Batch::value_type*>* ordered,
                   const char* field, const char* biz, AdapterStatus* status,
                   bool ranked = false) {
@@ -20,9 +20,9 @@ bool IndexResults(const Batch* batch, const std::vector<uint64_t>* request_ids,
         status, "Missing, duplicate or invalid result provenance", field, biz);
     return false;
   };
-  if (!batch || !request_ids) return invalid();
-  ordered->assign(request_ids->size(), nullptr);
-  std::vector<std::vector<uint32_t>> seen(request_ids->size());
+  if (!batch) return invalid();
+  ordered->assign(request_count, nullptr);
+  std::vector<std::vector<uint32_t>> seen(request_count);
   for (const auto& item : *batch) {
     if (item.req_id >= ordered->size() || (!ranked && item.sub_id != 0)) {
       return invalid();

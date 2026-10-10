@@ -95,9 +95,11 @@ int BuildImageQueryRequests(
   }
   storage->pixels.assign(rgb.get(),
                          rgb.get() + static_cast<size_t>(width) * height * 3);
-  storage->frame = {60001,     inputs[0].service_type.value_or(0),
-                    height,    width,
-                    width * 3, storage->pixels.data(),
+  storage->frame = {inputs[0].service_type.value_or(0),
+                    height,
+                    width,
+                    width * 3,
+                    storage->pixels.data(),
                     nullptr};
   storage->prompt_str = {static_cast<int32_t>(storage->prompt.size()),
                          const_cast<char*>(storage->prompt.data())};

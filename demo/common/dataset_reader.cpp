@@ -160,9 +160,7 @@ bool ReadAudioDataset(const std::string& manifest_path,
       return false;
     }
 
-    if (!item.contains("request_id") ||
-        !item["request_id"].is_number_unsigned() ||
-        !item.contains("pcm_f32le") || !item["pcm_f32le"].is_string() ||
+    if (!item.contains("pcm_f32le") || !item["pcm_f32le"].is_string() ||
         !item.contains("sample_rate") ||
         !item["sample_rate"].is_number_integer()) {
       if (error_msg) {
@@ -174,7 +172,6 @@ bool ReadAudioDataset(const std::string& manifest_path,
     }
 
     AudioDatasetSample sample;
-    sample.request_id = item["request_id"].get<uint64_t>();
     sample.pcm_f32le = item["pcm_f32le"].get<std::string>();
     sample.sample_rate = item["sample_rate"].get<int>();
     if (item.contains("reference_text") && item["reference_text"].is_string()) {

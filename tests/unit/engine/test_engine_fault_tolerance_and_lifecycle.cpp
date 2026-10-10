@@ -327,7 +327,6 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
     CompanyString cs_sentence{static_cast<int32_t>(sentence.size()),
                               const_cast<char*>(sentence.data())};
     CompanyOperatorKeywordInput in_req{};
-    in_req.request_id = static_cast<uint64_t>(10000 + cycle);
     in_req.service_type = kMockServiceKeywordMatch;
     in_req.sentence_text = &cs_sentence;
 

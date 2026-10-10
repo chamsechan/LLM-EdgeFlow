@@ -202,14 +202,11 @@ def compare_samples(records, spec):
     expected = spec.get("samples", [])
     if not expected or any(not row.get("expected") for row in expected):
         raise ValueError("An effect specification needs nonempty labelled samples and checks")
-    desired = {row["request_id"]: row for row in expected}
-    actual = {row["request_id"]: row for row in records}
-    if len(desired) != len(expected) or len(actual) != len(records) or desired.keys() != actual.keys():
-        return {"status": "failed", "reason": "Missing, duplicate or unexpected result request IDs", "pass_rate": 0.0}
+    if len(records) != len(expected):
+        return {"status": "failed", "reason": "Unexpected result count", "pass_rate": 0.0}
     passed = 0
     failures = []
-    for req_id, expectation in desired.items():
-        record = actual[req_id]
+    for row, (record, expectation) in enumerate(zip(records, expected)):
         matches = record.get("status") == 0
         for path, value in expectation["expected"].items():
             try:
@@ -219,14 +216,14 @@ def compare_samples(records, spec):
         if matches:
             passed += 1
         else:
-            failures.append(req_id)
+            failures.append(row)
     rate = passed / len(expected)
     minimum = spec.get("minimum_pass_rate", 1.0)
     if not isinstance(minimum, (int, float)) or not 0 < minimum <= 1:
         raise ValueError("minimum_pass_rate must be in (0, 1]")
     return {"status": "passed" if rate >= minimum else "failed", "metric": "selected_fields_exact_match",
             "total": len(expected), "passed": passed, "pass_rate": rate, "minimum_pass_rate": minimum,
-            "failed_request_ids": failures}
+            "failed_rows": failures}
 
 
 def effect_output(pipeline, spec):

@@ -98,10 +98,6 @@ class AdapterHarness {
   const AlgContext& Context() const { return ctx_; }
   AdapterStatus& Status() { return status_; }
   const AdapterStatus& Status() const { return status_; }
-  void SetRequestIds(std::vector<uint64_t> ids) {
-    request_ids_ = std::move(ids);
-  }
-  const std::vector<uint64_t>& RequestIds() const { return request_ids_; }
 
   int DecodeOperator(const std::vector<const void*>& inputs) {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
@@ -126,20 +122,7 @@ class AdapterHarness {
     options.name = in_conv_->name;
     options.params = input_params_.get();
     options.ports = &input_ports_;
-    options.request_ids = &request_ids_;
 
-    const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
-            in_conv_->type);
-    request_ids_.clear();
-    if (binding && binding->read_request_id) {
-      const auto it = view.slots.find(in_conv_->type);
-      if (it != view.slots.end())
-        for (const auto& item : it->second) {
-          if (item)
-            request_ids_.push_back(binding->read_request_id(item.get()));
-        }
-    }
     return DecodeForTest(*in_conv_, view, options, &ctx_, &status_);
   }
 
@@ -180,7 +163,7 @@ class AdapterHarness {
     options.name = out_conv_->name;
     options.params = output_params_.get();
     options.ports = &output_ports_;
-    options.request_ids = &request_ids_;
+
     return EncodeForTest(*out_conv_, &ctx_, options, view, written_count,
                          &status_);
   }
@@ -248,7 +231,6 @@ class AdapterHarness {
   IoPortBindings output_ports_;
   AlgContext ctx_;
   AdapterStatus status_;
-  std::vector<uint64_t> request_ids_;
 };
 
 }  // namespace test

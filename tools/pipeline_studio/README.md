@@ -164,7 +164,7 @@ Profile 提供数据集和运行参数，按有序 I/O 配对。所有模型文�
 ```
 
 指定 Profile 时结果目录使用 Profile 名；无 Profile 时使用 `.conf` 文件名主体。
-核对 `results.jsonl` 的请求 ID、状态与业务字段，以及 `summary.json`。
+按记录顺序核对 `results.jsonl` 的状态与业务字段，以及 `summary.json`。
 `chip`、`device_id`、`batch_size`、`depth` 来自 Profile，缺省为 cpu、0、1、1，
 自定义时用 `--profiles-file`。Studio 生成的命令引用配套 `demo-profile.json`，不会凭空补齐缺失字段。
 

@@ -93,7 +93,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           }
           return 0;
         });
-    SetRequestIdMember(&binding, &CompanyFrame::request_id);
     SetServiceTypeMember(&binding, &CompanyFrame::service_type);
     SetInputValue<CompanyFrame, ImageInputValue>(
         &binding, [](const CompanyFrame& in) {
@@ -114,13 +113,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     auto binding = MakePooledOutputBinding<CompanyOdOutput>(
         "od_out", {{"result_json", &CompanyOdOutput::result_json, {65536}}},
         [](CompanyOdOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.detected_box_count = 0;
           out.status_code = 0;
         },
         &CompanyOdOutput::metadata, 65536);
-    SetRequestIdMember(&binding, &CompanyOdOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOdOutput::service_type);
     SetOutputValue<CompanyOdOutput, DetectionOutputValue>(
         &binding, [](CompanyOdOutput& out, const DetectionOutputValue& value,
@@ -147,7 +144,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
                                        "sentence_text", err);
         });
-    SetRequestIdMember(&binding, &CompanyOperatorKeywordInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorKeywordInput::service_type);
     SetInputValue<CompanyOperatorKeywordInput, TextInputValue>(
         &binding, [](const CompanyOperatorKeywordInput& in) {
@@ -165,12 +161,10 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           &CompanyOperatorKeywordOutput::match_result_json,
           {65536}}},
         [](CompanyOperatorKeywordOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.is_hit = 0;
           out.status_code = 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorKeywordOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorKeywordOutput::service_type);
     SetOutputValue<CompanyOperatorKeywordOutput, KeywordOutputValue>(
         &binding,
@@ -199,7 +193,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
                                        "sentence_text", err);
         });
-    SetRequestIdMember(&binding, &CompanyOperatorEntityInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorEntityInput::service_type);
     SetInputValue<CompanyOperatorEntityInput, TextInputValue>(
         &binding, [](const CompanyOperatorEntityInput& in) {
@@ -218,11 +211,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           &CompanyOperatorEntityOutput::entities_json,
           {65536}}},
         [](CompanyOperatorEntityOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.status_code = 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorEntityOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorEntityOutput::service_type);
     SetOutputValue<CompanyOperatorEntityOutput, EntityOutputValue>(
         &binding,
@@ -257,7 +248,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           }
           return 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorDocInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorDocInput::service_type);
     SetInputValue<CompanyOperatorDocInput, DocumentInputValue>(
         &binding, [](const CompanyOperatorDocInput& in) {
@@ -275,13 +265,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         {{"intent_name", &CompanyOperatorDocOutput::intent_name, {255}},
          {"answer_text", &CompanyOperatorDocOutput::answer_text, {65536}}},
         [](CompanyOperatorDocOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.confidence = 0.0f;
           out.chunk_count = 0;
           out.status_code = 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorDocOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorDocOutput::service_type);
     SetOutputValue<CompanyOperatorDocOutput, DocumentOutputValue>(
         &binding,
@@ -323,7 +311,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           }
           return 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorAuditInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAuditInput::service_type);
     SetInputValue<CompanyOperatorAuditInput, AuditInputValue>(
         &binding, [](const CompanyOperatorAuditInput& in) {
@@ -346,12 +333,10 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           &CompanyOperatorAuditOutput::audit_verdict_json,
           {65536}}},
         [](CompanyOperatorAuditOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.risk_score = 0.0f;
           out.status_code = 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorAuditOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAuditOutput::service_type);
     SetOutputValue<CompanyOperatorAuditOutput, AuditOutputValue>(
         &binding,
@@ -414,7 +399,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           }
           return 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorAudioInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAudioInput::service_type);
     SetInputValue<CompanyOperatorAudioInput, AudioInputValue>(
         &binding, [](const CompanyOperatorAudioInput& in) {
@@ -439,11 +423,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           &CompanyOperatorAudioOutput::intent_slot_json,
           {65536}}},
         [](CompanyOperatorAudioOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.status_code = 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorAudioOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorAudioOutput::service_type);
     SetOutputValue<CompanyOperatorAudioOutput, AudioOutputValue>(
         &binding,
@@ -500,7 +482,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           }
           return 0;
         });
-    SetRequestIdMember(&binding, &CompanyOperatorRerankInput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorRerankInput::service_type);
     SetInputValue<CompanyOperatorRerankInput, RerankInputValue>(
         &binding, [](const CompanyOperatorRerankInput& in) {
@@ -519,7 +500,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   {
     auto binding = MakePooledOutputBinding<CompanyOperatorRerankOutput>(
         "rerank_out", {}, [](CompanyOperatorRerankOutput& out) noexcept {
-          out.request_id = 0;
           out.service_type = 0;
           out.count = 0;
           out.status_code = 0;
@@ -528,7 +508,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
             out.sorted_indices[i] = -1;
           }
         });
-    SetRequestIdMember(&binding, &CompanyOperatorRerankOutput::request_id);
     SetServiceTypeMember(&binding, &CompanyOperatorRerankOutput::service_type);
     SetOutputValue<CompanyOperatorRerankOutput, RerankOutputValue>(
         &binding,
