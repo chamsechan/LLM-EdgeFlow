@@ -914,7 +914,8 @@ TEST(FunctionNodeTest, IntermediateFailureProducesNoOutput) {
 
 TEST(FunctionNodeTest, MapPayloadsFailureNamesItem) {
   NodeHarness harness("failable_map");
-  harness.TextInput("input", {"ok1", "FAIL", "ok3"});
+  harness.TextInputWithBatch(
+      "input", TextBatch{{1, 0, "ok1"}, {7, 3, "FAIL"}, {2, 0, "ok3"}});
   auto result = harness.Run();
   ASSERT_FALSE(result.ok());
   EXPECT_EQ(result.process_code(), -9999);
@@ -923,7 +924,12 @@ TEST(FunctionNodeTest, MapPayloadsFailureNamesItem) {
       << result.diagnostic();
   EXPECT_NE(result.diagnostic().find("MapPayloads"), std::string::npos)
       << result.diagnostic();
-  EXPECT_NE(result.diagnostic().find("sub_id=0"), std::string::npos)
+  EXPECT_NE(result.diagnostic().find("Process returned -9999"),
+            std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("req_id=7"), std::string::npos)
+      << result.diagnostic();
+  EXPECT_NE(result.diagnostic().find("sub_id=3"), std::string::npos)
       << result.diagnostic();
 
   NodeHarness silent("silent_failure_map");

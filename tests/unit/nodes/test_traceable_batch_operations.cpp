@@ -1604,50 +1604,5 @@ TEST_F(TraceableBatchOperationsTest,
   EXPECT_NE(diag.find("sub_id=3"), std::string::npos);
 }
 
-inline NodeResult<std::string> RunMapItemFail(const std::string& s) {
-  if (s == "trigger_map_failure") {
-    return NodeResult<std::string>::Failure(NodeErrorKind::kBusinessError,
-                                            "map item failed", -5544);
-  }
-  return NodeResult<std::string>::Success(s);
-}
-
-struct MapItemFailInputs {
-  const TextBatch* input = nullptr;
-};
-
-inline NodeResult<TextBatch> RunMapItemFailBatch(const MapItemFailInputs& in) {
-  return MapPayloads(*in.input, &RunMapItemFail);
-}
-
-inline auto MapItemFailSpec() {
-  return MakeNodeSpec(InputsOf<MapItemFailInputs>({
-                          Required("input", &MapItemFailInputs::input),
-                      }),
-                      PreservedOutput<TextBatch>("output", "input"),
-                      &RunMapItemFailBatch)
-      .Description(
-          "Test fixture for MapPayloads failure diagnostic formatting");
-}
-
-REGISTER_FUNCTION_NODE(map_item_fail_test, MapItemFailSpec());
-
-TEST_F(TraceableBatchOperationsTest,
-       AuthorNodeFormatsMapPayloadsFailureDiagnostic) {
-  NodeHarness harness("map_item_fail_test");
-  TextBatch batch = {{1, 0, "ok"}, {7, 3, "trigger_map_failure"}};
-  harness.TextInputWithBatch("input", std::move(batch));
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.process_code(), -5544);
-  const auto& diag = result.diagnostic();
-  EXPECT_NE(diag.find("Process returned -5544"), std::string::npos);
-  EXPECT_NE(diag.find("MapPayloads"), std::string::npos);
-  EXPECT_NE(diag.find("map item failed"), std::string::npos);
-  EXPECT_NE(diag.find("req_id=7"), std::string::npos);
-  EXPECT_NE(diag.find("sub_id=3"), std::string::npos);
-}
-
 }  // namespace
 }  // namespace llm_edgeflow

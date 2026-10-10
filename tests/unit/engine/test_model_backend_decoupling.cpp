@@ -1354,6 +1354,8 @@ TEST(ModelBackendDecouplingTest, ModelManagerAtomicCommitAndCollision) {
   EXPECT_TRUE(manager.HasModel("model_a"));  // 原有项保持原样
   EXPECT_EQ(manager.GetModelRevision("model_a"), "rev_1");
 
+  EXPECT_EQ(manager.GetModel<IModel>("model_a"), m1);
+
   // 3. 自动 revision 必须包含完整物化输入，不能退化为模型名拼接。
   ModelManager revision_manager;
   ModelRegistration generated_revision;

@@ -232,7 +232,8 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
 
 TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
   const auto boundary = MakeTestBoundary(
-      {{"input.doc_candidates", "RankedTextBatch", true, "N:1"}},
+      {{"input.query", "TextBatch"},
+       {"input.doc_candidates", "RankedTextBatch", true, "N:1"}},
       {{"rerank.ranked", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
   auto has_constraint_err = [](const ValidationReport& r) {
     return std::any_of(r.diagnostics.begin(), r.diagnostics.end(),
@@ -241,8 +242,7 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
                        });
   };
 
-  // 绑定了 candidates 却缺少 query -> 失败
-  nlohmann::json bad_pipeline = {
+  const nlohmann::json pipeline = {
       {"models",
        {{{"type", "rerank"},
          {"name", "rerank_model"},
@@ -251,12 +251,25 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
       {"pipeline",
        {{{"name", "rerank"},
          {"type", "text_rerank"},
-         {"inputs", {{"candidates", "input.doc_candidates"}}},
+         {"inputs",
+          {{"queries", "input.query"}, {"candidates", "input.doc_candidates"}}},
          {"params", {{"bind_model", "rerank_model"}}}}}}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(bad_pipeline, boundary);
-  EXPECT_FALSE(plan.report.ok);
-  EXPECT_TRUE(has_constraint_err(plan.report)) << plan.report.ToJson().dump();
+  for (const char* port : {"queries", "candidates"}) {
+    SCOPED_TRACE(port);
+    auto bad_pipeline = pipeline;
+    bad_pipeline["pipeline"][0]["inputs"].erase(port);
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(bad_pipeline, boundary);
+    EXPECT_FALSE(plan.report.ok);
+    EXPECT_TRUE(has_constraint_err(plan.report)) << plan.report.ToJson().dump();
+    EXPECT_TRUE(std::any_of(
+        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+        [&](const auto& diagnostic) {
+          return diagnostic.message.find(port) != std::string::npos;
+        }))
+        << plan.report.ToJson().dump();
+  }
 }
 
 /**

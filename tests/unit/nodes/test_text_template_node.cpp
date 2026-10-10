@@ -38,6 +38,50 @@ std::string ResolveConfigPath(const std::string& relative) {
   return "../" + relative;
 }
 
+TEST_F(TextTemplateNodeTest, TypedPortsPreserveRequestGroupingAndSubIds) {
+  auto node = NodeRegistry::Instance().Create("text_template");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {
+      {"template",
+       "User: {{primary}} | Context: {{context}} | Doc: {{document}} | "
+       "Match: {{matches}}"},
+      {"separator", " / "},
+      {"overflow_policy", "fail"}};
+  ASSERT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  const TextBatch primary{
+      {100, 2, "Alice"}, {200, 9, "Carol"}, {100, 7, "Bob"}};
+  ctx.Publish("primary", primary);
+  ctx.Publish("context",
+              RankedTextBatch{{200, 4, RankedCandidate("Shanghai", 1.0f)},
+                              {100, 6, RankedCandidate("Beijing", 1.0f)},
+                              {100, 3, RankedCandidate("Office", 0.5f)}});
+  ctx.Publish("document", OcrDocumentBatch{{100, 5, OcrDocumentItem{{}, "A"}},
+                                           {200, 8, OcrDocumentItem{{}, "B"}},
+                                           {100, 1, OcrDocumentItem{{}, "C"}}});
+  ctx.Publish("matches",
+              RuleMatchBatch{{200, 3, RuleMatchItem(1, "USER", "Carol")},
+                             {100, 8, RuleMatchItem(1, "ADMIN", "Alice")}});
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Read<TextBatch>("text");
+  ASSERT_NE(out, nullptr);
+  ASSERT_EQ(out->size(), primary.size());
+  const std::vector<std::string> expected = {
+      "User: Alice | Context: Beijing / Office | Doc: A / C | Match: ADMIN "
+      "(Alice)",
+      "User: Carol | Context: Shanghai | Doc: B | Match: USER (Carol)",
+      "User: Bob | Context: Beijing / Office | Doc: A / C | Match: ADMIN "
+      "(Alice)"};
+  for (size_t i = 0; i < out->size(); ++i) {
+    EXPECT_EQ((*out)[i].req_id, primary[i].req_id);
+    EXPECT_EQ((*out)[i].sub_id, primary[i].sub_id);
+    EXPECT_EQ((*out)[i].data, expected[i]);
+  }
+}
+
 TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
   auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);

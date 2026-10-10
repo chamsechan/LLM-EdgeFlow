@@ -29,6 +29,70 @@ class TextRuleMatchNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
+TEST_F(TextRuleMatchNodeTest, KeywordsAndCapturedRulesComposeAcrossControl) {
+  auto node = NodeRegistry::Instance().Create("text_rule_match");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"categories", {{"GREETING", {"你好", "hello"}}}},
+                        {"rules",
+                         {{{"id", "nav_dest"},
+                           {"strategy", "regex"},
+                           {"pattern", "导航到(?<destination>.+)"},
+                           {"category", "NAVIGATION"},
+                           {"score", 1.0},
+                           {"constants", {{"avoid_toll", "false"}}}}}}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input;
+  input.emplace_back(1, 0, "你好，请帮我导航到北京天安门");
+  input.emplace_back(2, 0, "今天天气怎么样");
+  ctx.Publish("text", input);
+
+  EXPECT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(out, nullptr);
+  ASSERT_EQ(out->size(), 2u);
+
+  // 样本 1 同时命中 GREETING 和 NAVIGATION
+  const auto& first = (*out)[0].data;
+  EXPECT_EQ(first.is_hit, 1);
+  EXPECT_EQ(first.category, "GREETING");
+  EXPECT_EQ(first.matched_word, "你好");
+  EXPECT_EQ(first.slots["destination"], "北京天安门");
+  EXPECT_EQ(first.slots["avoid_toll"], "false");
+  ASSERT_EQ(first.matches.size(), 2u);
+  EXPECT_EQ(first.matches[0].source, RuleMatchSource::kKeyword);
+  EXPECT_EQ(first.matches[0].pattern, "你好");
+  EXPECT_EQ(first.matches[1].source, RuleMatchSource::kRule);
+  EXPECT_EQ(first.matches[1].rule_id, "nav_dest");
+  EXPECT_EQ(first.matches[1].category, "NAVIGATION");
+
+  // 样本 2 未命中
+  EXPECT_EQ((*out)[1].data.is_hit, 0);
+
+  // 通过 Control 动态更新规则
+  nlohmann::json update_rules = {{"rules",
+                                  {{{"id", "weather"},
+                                    {"strategy", "regex"},
+                                    {"pattern", "(?<city>.+)天气"},
+                                    {"category", "WEATHER"},
+                                    {"score", 0.9}}}}};
+  NodeControlResult c_res =
+      node->Control(kControlCmdUpdateRules, update_rules.dump());
+  EXPECT_EQ(c_res.status, NodeControlStatus::kHandled);
+
+  AlgContext ctx2;
+  TextBatch input2;
+  input2.emplace_back(3, 0, "北京天气怎么样");
+  ctx2.Publish("text", input2);
+  EXPECT_EQ(node->Process(&ctx2), 0);
+  const auto* out2 = ctx2.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(out2, nullptr);
+  EXPECT_EQ((*out2)[0].data.is_hit, 1);
+  EXPECT_EQ((*out2)[0].data.slots["city"], "北京");
+}
+
 TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
   auto node = NodeRegistry::Instance().Create("text_rule_match");
   ASSERT_NE(node, nullptr);
