@@ -421,7 +421,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       if (def.service_type) {
         const auto* binding =
             llm_edgeflow::OperatorValueTypeRegistry::Instance()
-                .GetOutputBinding(def.type, def.slot.allocator);
+                .GetBindingBySuffix(def.type);
         for (auto* block : blocks) {
           if (block) binding->write_service_type(block, *def.service_type);
         }

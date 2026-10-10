@@ -165,50 +165,57 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       diag->code == DiagnosticCode::kConfigFieldType ||
       diag->code == DiagnosticCode::kConfigFieldRange ||
       diag->code == DiagnosticCode::kConfigFieldEnum;
-  if (config_diagnostic && diag->path.rfind("/models/", 0) == 0 &&
-      root.contains("models") && root["models"].is_array()) {
-    const size_t idx_end = diag->path.find('/', 8);
-    if (idx_end == std::string::npos) return;
-    size_t model_index = 0;
-    try {
-      model_index = std::stoul(diag->path.substr(8, idx_end - 8));
-    } catch (...) {
-      return;
-    }
-    if (model_index >= root["models"].size()) return;
-    const auto& model = root["models"][model_index];
-    if (!model.is_object()) return;
-    const auto backend = model.find("backend");
-    if (backend == model.end() || !backend->is_object()) return;
-    const std::string model_prefix = "/models/" + std::to_string(model_index);
-    std::string params_path = model_prefix + "/params";
+  if (config_diagnostic) {
+    const bool node_parameter = diag->path.rfind("/pipeline/", 0) == 0;
+    const bool model_parameter = diag->path.rfind("/models/", 0) == 0;
+    if (!node_parameter && !model_parameter) return;
+    const auto owner_path =
+        diag->path.substr(0, diag->path.find('/', node_parameter ? 10 : 8));
+    const nlohmann::json::json_pointer owner_pointer(owner_path);
+    if (!root.contains(owner_pointer)) return;
+    const auto& owner = root.at(owner_pointer);
+    std::string params_path = owner_path + "/params";
     std::vector<ConfigFieldDefinition> fields;
-    if (diag->path.rfind(params_path + "/", 0) == 0) {
-      const auto implementations = ModelRegistry::Instance().FindImplementation(
-          model.value("type", ""), backend->value("type", ""));
-      if (implementations.size() != 1) return;
-      fields = implementations.front().params.Fields();
-    } else {
-      params_path = model_prefix + "/backend/params";
-      if (diag->path.rfind(params_path + "/", 0) != 0) return;
-      const auto definition =
-          PipelineCatalog::FindBackend(backend->value("type", ""));
+    if (node_parameter) {
+      const auto* definition = catalog.FindNode(owner.value("type", ""));
       if (!definition) return;
-      fields = definition->params.Fields();
+      fields = definition->config_fields;
+    } else {
+      const auto backend = owner.find("backend");
+      if (backend == owner.end() || !backend->is_object()) return;
+      if (diag->path.rfind(params_path + "/", 0) == 0) {
+        const auto implementations =
+            ModelRegistry::Instance().FindImplementation(
+                owner.value("type", ""), backend->value("type", ""));
+        if (implementations.size() != 1) return;
+        fields = implementations.front().params.Fields();
+      } else {
+        params_path = owner_path + "/backend/params";
+        const auto definition =
+            PipelineCatalog::FindBackend(backend->value("type", ""));
+        if (!definition) return;
+        fields = definition->params.Fields();
+      }
     }
-    const std::string field_name =
-        nlohmann::json::json_pointer(diag->path).back();
+    if (diag->path.rfind(params_path + "/", 0) != 0) return;
+    const nlohmann::json::json_pointer relative(
+        diag->path.substr(params_path.size()));
+    const std::string field_name = relative.back();
     ValidationRemediation rem;
-    rem.facts["model_name"] = model.value("name", "");
+    if (model_parameter) rem.facts["model_name"] = owner.value("name", "");
     rem.facts["params_path"] = params_path;
     rem.facts["field"] = field_name;
-    rem.summary =
-        "模型 '" + model.value("name", "") + "' 的参数 '" + field_name + "' ";
+    rem.summary = std::string(node_parameter ? "节点 '" : "模型 '") +
+                  owner.value("name", "") + "' 的参数 '" +
+                  relative.to_string().substr(1) + "' ";
     if (diag->code == DiagnosticCode::kUnknownConfigField) {
       rem.cause = RemediationCause::kUnknownConfigField;
       rem.summary += "未声明。";
       std::vector<std::string> names;
-      for (const auto& field : fields) names.push_back(field.name);
+      if (const auto* members =
+              FindConfigObjectFields(fields, relative.parent_pointer())) {
+        for (const auto& field : *members) names.push_back(field.name);
+      }
       rem.facts["candidate_fields"] =
           RankByEditDistance(field_name, std::move(names));
     } else {
@@ -216,10 +223,7 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
       rem.cause = missing ? RemediationCause::kMissingConfigField
                           : RemediationCause::kInvalidConfigValue;
       rem.summary += missing ? "未提供。" : "值不合法。";
-      const auto field = std::find_if(
-          fields.begin(), fields.end(),
-          [&](const auto& item) { return item.name == field_name; });
-      if (field != fields.end()) {
+      if (const auto* field = FindConfigField(fields, relative)) {
         rem.facts["expected_type"] = ConfigValueKindName(field->kind);
         if (field->minimum) rem.facts["minimum"] = *field->minimum;
         if (field->maximum) rem.facts["maximum"] = *field->maximum;
@@ -228,133 +232,6 @@ void PopulateBasicRemediation(ValidationDiagnostic* diag,
     }
     diag->remediation = std::move(rem);
     return;
-  }
-
-  if (diag->code == DiagnosticCode::kUnknownConfigField) {
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      if (idx_end != std::string::npos) {
-        size_t p_idx = 0;
-        try {
-          p_idx = std::stoul(diag->path.substr(10, idx_end - 10));
-        } catch (...) {
-          p_idx = static_cast<size_t>(-1);
-        }
-        if (p_idx < root["pipeline"].size()) {
-          const auto& node_obj = root["pipeline"][p_idx];
-          std::string node_type = node_obj.value("type", "");
-          const auto* def = catalog.FindNode(node_type);
-          std::string prefix =
-              "/pipeline/" + std::to_string(p_idx) + "/params/";
-          if (def && diag->path.rfind(prefix, 0) == 0) {
-            std::string field_name = diag->path.substr(prefix.size());
-            ValidationRemediation rem;
-            rem.cause = RemediationCause::kUnknownConfigField;
-            rem.summary = "节点 '" + diag->node_name +
-                          "' 的配置包含未知字段 '" + field_name + "'。";
-            rem.facts["field"] = field_name;
-
-            std::vector<std::string> names;
-            for (const auto& field : def->config_fields)
-              names.push_back(field.name);
-            rem.facts["candidate_fields"] =
-                RankByEditDistance(field_name, std::move(names));
-            diag->remediation = std::move(rem);
-          }
-        }
-      }
-    }
-  } else if (diag->code == DiagnosticCode::kMissingConfigField) {
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      if (idx_end != std::string::npos) {
-        size_t p_idx = 0;
-        try {
-          p_idx = std::stoul(diag->path.substr(10, idx_end - 10));
-        } catch (...) {
-          p_idx = static_cast<size_t>(-1);
-        }
-        if (p_idx < root["pipeline"].size()) {
-          const auto& node_obj = root["pipeline"][p_idx];
-          std::string node_type = node_obj.value("type", "");
-          const auto* def = catalog.FindNode(node_type);
-          std::string prefix =
-              "/pipeline/" + std::to_string(p_idx) + "/params/";
-          std::string field_name;
-          if (diag->path.rfind(prefix, 0) == 0) {
-            field_name = diag->path.substr(prefix.size());
-          }
-          if (def && !field_name.empty()) {
-            ValidationRemediation rem;
-            rem.cause = RemediationCause::kMissingConfigField;
-            rem.summary = "节点 '" + diag->node_name + "' 缺少必填配置字段 '" +
-                          field_name + "'。";
-            rem.facts["field"] = field_name;
-            auto cf_it = std::find_if(
-                def->config_fields.begin(), def->config_fields.end(),
-                [&](const auto& f) { return f.name == field_name; });
-            if (cf_it != def->config_fields.end()) {
-              rem.facts["expected_type"] = ConfigValueKindName(cf_it->kind);
-              if (cf_it->minimum.has_value())
-                rem.facts["minimum"] = *cf_it->minimum;
-              if (cf_it->maximum.has_value())
-                rem.facts["maximum"] = *cf_it->maximum;
-              if (!cf_it->enum_values.empty())
-                rem.facts["enum"] = cf_it->enum_values;
-            }
-            diag->remediation = std::move(rem);
-          }
-        }
-      }
-    }
-  } else if (diag->code == DiagnosticCode::kConfigFieldType ||
-             diag->code == DiagnosticCode::kConfigFieldRange ||
-             diag->code == DiagnosticCode::kConfigFieldEnum) {
-    if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
-        root["pipeline"].is_array()) {
-      size_t idx_end = diag->path.find('/', 10);
-      if (idx_end != std::string::npos) {
-        size_t p_idx = 0;
-        try {
-          p_idx = std::stoul(diag->path.substr(10, idx_end - 10));
-        } catch (...) {
-          p_idx = static_cast<size_t>(-1);
-        }
-        if (p_idx < root["pipeline"].size()) {
-          const auto& node_obj = root["pipeline"][p_idx];
-          std::string node_type = node_obj.value("type", "");
-          const auto* def = catalog.FindNode(node_type);
-          std::string prefix =
-              "/pipeline/" + std::to_string(p_idx) + "/params/";
-          std::string field_name;
-          if (diag->path.rfind(prefix, 0) == 0) {
-            field_name = diag->path.substr(prefix.size());
-          }
-          if (def && !field_name.empty()) {
-            ValidationRemediation rem;
-            rem.cause = RemediationCause::kInvalidConfigValue;
-            rem.summary = "节点 '" + diag->node_name + "' 的配置项 '" +
-                          field_name + "' 值不合法。";
-            rem.facts["field"] = field_name;
-            auto cf_it = std::find_if(
-                def->config_fields.begin(), def->config_fields.end(),
-                [&](const auto& f) { return f.name == field_name; });
-            if (cf_it != def->config_fields.end()) {
-              rem.facts["expected_type"] = ConfigValueKindName(cf_it->kind);
-              if (cf_it->minimum.has_value())
-                rem.facts["minimum"] = *cf_it->minimum;
-              if (cf_it->maximum.has_value())
-                rem.facts["maximum"] = *cf_it->maximum;
-              if (!cf_it->enum_values.empty())
-                rem.facts["enum"] = cf_it->enum_values;
-            }
-            diag->remediation = std::move(rem);
-          }
-        }
-      }
-    }
   } else if (diag->code == DiagnosticCode::kUnknownModelReference ||
              diag->code == DiagnosticCode::kModelTypeMismatch) {
     if (diag->path.rfind("/pipeline/", 0) == 0 && root.contains("pipeline") &&
@@ -740,7 +617,25 @@ ValidationReport ExplainPipeline(
           }
         }
       }
-      std::string field_name = diag.remediation->facts.value("field", "");
+      if (config) {
+        const nlohmann::json::json_pointer relative(
+            diag.path.substr(prefix.size() - 1));
+        const auto* members =
+            FindConfigObjectFields(fields, relative.parent_pointer());
+        const auto parent =
+            nlohmann::json::json_pointer(diag.path).parent_pointer();
+        if (members && root.contains(parent) && root.at(parent).is_object()) {
+          // Copy before replacing fields: members may point into its elements.
+          auto siblings = *members;
+          fields = std::move(siblings);
+          config = &root.at(parent);
+          prefix = parent.to_string() + "/";
+        } else {
+          config = nullptr;
+        }
+      }
+      const std::string field_name =
+          nlohmann::json::json_pointer(diag.path).back();
       if (config && config->contains(field_name)) {
         const auto& original_val = config->at(field_name);
         auto candidate_fields = diag.remediation->facts.value(
