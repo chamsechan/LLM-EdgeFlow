@@ -1,16 +1,12 @@
-# 框架运行时显式列出；Model 与 Backend 递归收集，下次构建时编译。
-file(GLOB_RECURSE EDGEFLOW_MODEL_SOURCES CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/models/*.cpp")
+# Model、运行时与公共实现自动收集；Backend 保持独立编译目标。
+file(GLOB_RECURSE EDGEFLOW_ENGINE_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 file(GLOB_RECURSE EDGEFLOW_BACKEND_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/backends/*.cpp")
+list(REMOVE_ITEM EDGEFLOW_ENGINE_SOURCES ${EDGEFLOW_BACKEND_SOURCES})
 
 target_sources(edgeflow_model_execution_objects PRIVATE
-  runtime/backend_registry.cpp
-  runtime/model_registry.cpp
-  runtime/model_runtime_factory.cpp
-  text/utf8.cpp
-  text_generation/common_autoregressive_generator.cpp
-  ${EDGEFLOW_MODEL_SOURCES})
+  ${EDGEFLOW_ENGINE_SOURCES})
 
 # Backend 单独编译，vendor 编译要求只提供给该目标。
 target_sources(edgeflow_model_execution_backends_objects PRIVATE

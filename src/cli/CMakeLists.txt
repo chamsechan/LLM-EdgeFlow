@@ -1,7 +1,10 @@
 # 基于 Validator 诊断的开发工具指引；不属于 SDK。
-add_library(edgeflow_pipeline_tooling STATIC
-  pipeline_remediation.cpp pipeline_authoring.cpp pipeline_json_schema.cpp
-  pipeline_document_validation.cpp)
+file(GLOB_RECURSE EDGEFLOW_PIPELINE_TOOLING_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+list(REMOVE_ITEM EDGEFLOW_PIPELINE_TOOLING_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/alg_show.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/alg_pipeline_tool.cpp")
+add_library(edgeflow_pipeline_tooling STATIC ${EDGEFLOW_PIPELINE_TOOLING_SOURCES})
 target_link_libraries(edgeflow_pipeline_tooling PUBLIC
   edgeflow_internal_headers llm_edgeflow::internal_runtime)
 
