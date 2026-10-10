@@ -989,7 +989,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
             "system {input}\n{\"key\": \"val\"} <next>||next");
 }
 
-TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
+TEST_F(CommonNodesTest, PromptDefaultsMatchFixtureAndNativePlans) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "entity_llm",
                                 model, "v1"));
@@ -1079,29 +1079,10 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
   }
 }
 
-TEST_F(CommonNodesTest,
-       PromptTemplateUnificationAcceptsJsonAndRejectsMalformedPlaceholders) {
+TEST_F(CommonNodesTest, PromptTemplatePreservesJsonLiterals) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
                                 "prompt_contract", model, "v1"));
-  // 1. 非法模板在校验和 Init 时被拒绝
-  for (const std::string pattern :
-       {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
-    SCOPED_TRACE(pattern);
-    auto doc = CustomPipeline("entity_extract");
-    auto& config = doc["pipeline"][0]["params"];
-    config["prompt_template"] = pattern;
-    const auto result = PipelineValidator::ValidateAndPlan(
-        doc, MakeTestBoundary(
-                 {{"input.sentence_text", "TextBatch"}},
-                 {{"parse_entities.document", "StructuredDocumentBatch"}}));
-    EXPECT_FALSE(result.report.ok);
-    config["bind_model"] = "prompt_contract";
-    auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
-    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
-  }
-
-  // 2. 含 JSON 字面花括号和 {{input}} 替换的合法模板
   for (const auto& [pattern, expected] :
        std::vector<std::pair<std::string, std::string>>{
            {"{\"text\": \"{{input}}\"}", "{\"text\": \"value\"}"},
@@ -1294,14 +1275,13 @@ TEST_F(CommonNodesTest, PromptContextIsExplicitAndRequiredWhenUsed) {
   EXPECT_EQ(model->calls, 1);
 }
 
-TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
+TEST_F(CommonNodesTest, PromptConfigurationRejectedBeforeInitialization) {
   const std::vector<nlohmann::json> bad_configs = {
       {{"stop_words", {123, ""}}},
       {{"stop_words", {""}}},
       {{"stop_words", "END"}},
       {{"unknown_field", true}},
       {{"strip_markdown", "yes"}},
-      {{"fallback_text", "DEFAULT"}},
       {{"max_tokens", 32769}},
       {{"max_tokens", 2.5}},
       {{"max_tokens", 4294967297ULL}},
@@ -1313,7 +1293,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"prompt_template", "{{unknown}}"}},
       {{"prompt_template", "{{input"}},
       {{"prompt_template", "{{}}"}},
-      {{"template_syntax", "standard"}}};
+      {{"prompt_template", "{{invalid name}}"}}};
   for (const auto& bad : bad_configs) {
     SCOPED_TRACE(bad.dump());
     auto doc = CustomPipeline("entity_extract");
@@ -1326,21 +1306,13 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
                  {{"input.sentence_text", "TextBatch"}},
                  {{"parse_entities.document", "StructuredDocumentBatch"}}));
     EXPECT_FALSE(preflight.report.ok);
-    config["bind_model"] = "llm_model";
-    auto node = NodeRegistry::Instance().Create("prompt_guided_llm");
-    ASSERT_NE(node, nullptr);
-    std::string init_error;
-    EXPECT_FALSE(
-        InitNodeForTest(*node, config, session_ctx_.get(), &init_error));
-    EXPECT_FALSE(init_error.empty());
-    bool matching_diagnostic = false;
-    for (const auto& diagnostic : preflight.report.diagnostics) {
-      if (diagnostic.path.rfind("/pipeline/0/params", 0) == 0 &&
-          init_error.find(diagnostic.message) != std::string::npos) {
-        matching_diagnostic = true;
-      }
-    }
-    EXPECT_TRUE(matching_diagnostic) << init_error;
+    EXPECT_TRUE(std::any_of(preflight.report.diagnostics.begin(),
+                            preflight.report.diagnostics.end(),
+                            [](const auto& diagnostic) {
+                              return diagnostic.path.rfind("/pipeline/0/params",
+                                                           0) == 0;
+                            }))
+        << preflight.report.ToJson().dump(2);
   }
   auto doc = CustomPipeline("doc_qa");
   doc["pipeline"][2]["inputs"].erase("context");

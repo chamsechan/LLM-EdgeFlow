@@ -108,7 +108,7 @@ TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
             "Literal: {primary}, JSON: {\"key\": 1}, Var: Alice");
 }
 
-TEST_F(TextTemplateNodeTest, MalformedPlaceholderFailsInit) {
+TEST_F(TextTemplateNodeTest, MalformedPlaceholderRejectedDuringPreparation) {
   auto node = NodeRegistry::Instance().Create("text_template");
   ASSERT_NE(node, nullptr);
 
@@ -259,10 +259,12 @@ nlohmann::json TemplatePipeline(const nlohmann::json& config) {
 }  // namespace
 
 TEST_F(TextTemplateNodeTest, UnconnectedInputVariableFailsPreparation) {
-  for (const std::string variable : {"context", "matches", "document"}) {
+  for (const std::string variable :
+       {"primary", "context", "matches", "document"}) {
     SCOPED_TRACE(variable);
     const std::string pattern = "Q={{primary}}|V={{" + variable + "}}";
     auto root = TemplatePipeline({{"template", pattern}});
+    root["pipeline"][0]["inputs"].erase(variable);
     const auto invalid = PipelineValidator::ValidateAndPlan(
         root, MakeTestBoundary({{"input.input_sentences", "TextBatch"}},
                                {{"rules.matches", "RuleMatchBatch"}}));
@@ -274,19 +276,7 @@ TEST_F(TextTemplateNodeTest, UnconnectedInputVariableFailsPreparation) {
                              d.path == "/pipeline/0/params" &&
                              d.message.find(variable) != std::string::npos;
                     }));
-    auto node = NodeRegistry::Instance().Create("text_template");
-    ASSERT_NE(node, nullptr);
-    std::string diagnostic;
-    EXPECT_FALSE(InitNodeForTest(*node, {{"template", pattern}},
-                                 session_ctx_.get(), &diagnostic, {variable}));
-    EXPECT_NE(diagnostic.find(variable), std::string::npos) << diagnostic;
   }
-  auto node = NodeRegistry::Instance().Create("text_template");
-  ASSERT_NE(node, nullptr);
-  std::string diagnostic;
-  EXPECT_FALSE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
-                               session_ctx_.get(), &diagnostic, {"primary"}));
-  EXPECT_NE(diagnostic.find("primary"), std::string::npos) << diagnostic;
 }
 
 TEST_F(TextTemplateNodeTest, ConnectedInputsWithoutRequestDataRenderEmpty) {

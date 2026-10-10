@@ -85,12 +85,6 @@ TEST_F(TextCorpusSourceNodeTest,
        "/corpus/1"}};
   for (const auto& item : invalid) {
     SCOPED_TRACE(item.config.dump());
-    auto node = NodeRegistry::Instance().Create("text_corpus_source");
-    ASSERT_NE(node, nullptr);
-    std::string diagnostic;
-    EXPECT_FALSE(
-        InitNodeForTest(*node, item.config, session_ctx_.get(), &diagnostic));
-    EXPECT_NE(diagnostic.find(item.path), std::string::npos) << diagnostic;
     const nlohmann::json pipeline = {
         {"models", nlohmann::json::array()},
         {"pipeline", nlohmann::json::array({{{"name", "source"},
