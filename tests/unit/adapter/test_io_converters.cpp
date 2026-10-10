@@ -211,8 +211,11 @@ TEST(IoConverterTest, OptionalInputPreservesEveryFramePosition) {
   optional.name = kCommonIoName;
   optional.service_type.reset();
   optional.slot.required = false;
-  const std::vector<SelectedInput> selected = {{&required, {}},
-                                               {&optional, {}}};
+  const auto binding = OperatorValueTypeRegistry::Instance()
+                           .CopyBindingBySuffix(required.type)
+                           .value();
+  const std::vector<SelectedInput> selected = {{&required, {}, {}, binding},
+                                               {&optional, {}, {}, binding}};
   char text[] = "hello";
   CompanyString sentence{5, text};
   operator_api::NamedIoBatch inputs(5);

@@ -215,18 +215,11 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     std::vector<std::shared_ptr<llm_edgeflow::OutputPoolState>> pools;
     for (const auto& selected : runtime->GetIoPlan()->outputs) {
       const auto& def = *selected.converter;
-      const auto* binding =
-          llm_edgeflow::OperatorValueTypeRegistry::Instance().GetOutputBinding(
-              def.type, def.slot.allocator);
-      if (!binding) {
-        SetLastError("Missing output allocator for " + def.Label());
-        return -5;
-      }
       std::shared_ptr<llm_edgeflow::OutputPoolState> pool;
       std::string pool_error;
       const int result = llm_edgeflow::OutputPoolState::Create(
-          def.type, effective_depth, selected.pool_spec, binding, &pool,
-          &pool_error);
+          def.type, effective_depth, selected.pool_spec,
+          &selected.allocator_binding, &pool, &pool_error);
       if (result != 0 || !pool) {
         SetLastError("Failed to create output pool for " + def.Label() + ": " +
                      pool_error);
@@ -330,15 +323,14 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     for (size_t index = 0; index < plan->inputs.size(); ++index) {
       const auto& selected = plan->inputs[index];
       const auto& def = *selected.converter;
-      const auto* binding = llm_edgeflow::OperatorValueTypeRegistry::Instance()
-                                .GetBindingBySuffix(def.type);
       std::vector<uint64_t> decoded_ids;
       llm_edgeflow::InputDecodeOptions options;
       options.type = def.type;
       options.name = def.name;
       options.params = selected.params.get();
       options.ports = &selected.ports;
-      options.request_ids = binding->read_request_id ? &decoded_ids : nullptr;
+      options.request_ids =
+          selected.host_binding.read_request_id ? &decoded_ids : nullptr;
       llm_edgeflow::AdapterStatus status;
       const int result =
           def.decode_fn(input_views[index], options, &req_ctx, &status);
@@ -347,7 +339,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
                      status.ToString());
         return result;
       }
-      if (binding->read_request_id && decoded_ids != request_ids) {
+      if (selected.host_binding.read_request_id && decoded_ids != request_ids) {
         SetLastError(
             "DecodeInput for " + def.Label() +
             " recorded request ids inconsistent with its input structs");
@@ -419,11 +411,9 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
         return -4;
       }
       if (def.service_type) {
-        const auto* binding =
-            llm_edgeflow::OperatorValueTypeRegistry::Instance()
-                .GetBindingBySuffix(def.type);
         for (auto* block : blocks) {
-          if (block) binding->write_service_type(block, *def.service_type);
+          if (block)
+            selected.host_binding.write_service_type(block, *def.service_type);
         }
       }
     }

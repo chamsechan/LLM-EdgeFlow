@@ -103,9 +103,12 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                 path.empty() ? "/" : path, error);
   }
   auto& converters = IoConverterRegistry::Instance();
+  auto& value_types = OperatorValueTypeRegistry::Instance();
   std::vector<std::string> audit_errors;
   if (!converters.Audit(&audit_errors))
     return Fail(diagnostic, "REGISTRY_CONFLICT", "/io", audit_errors.front());
+
+  // Audit guarantees the selected host and allocator bindings exist.
 
   PreparedDeployment prepared;
   std::set<std::pair<std::string, std::string>> seen;
@@ -124,6 +127,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                   UnknownConverter(entry, true));
     SelectedInput selected;
     selected.converter = def;
+    selected.host_binding = value_types.CopyBindingBySuffix(def->type).value();
     if (!ParseParameters(def->params, def->params.Fields(), entry, at,
                          &selected.params, diagnostic))
       return false;
@@ -132,9 +136,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
         return Fail(diagnostic, "DUPLICATE_PORT_PRODUCER", at,
                     "Duplicate input port: " + port.logical_name);
     }
-    has_request_id |= static_cast<bool>(OperatorValueTypeRegistry::Instance()
-                                            .GetBindingBySuffix(def->type)
-                                            ->read_request_id);
+    has_request_id |= static_cast<bool>(selected.host_binding.read_request_id);
     for (const auto& port : def->logical_ports) {
       const auto key = "input." + port.logical_name;
       selected.ports[port.logical_name] = key;
@@ -162,12 +164,14 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                   UnknownConverter(entry, false));
     SelectedOutput selected;
     selected.converter = def;
-    if (!ParseParameters(def->params, OutputConverterParameterFields(*def),
-                         entry, at, &selected.params, diagnostic))
+    selected.host_binding = value_types.CopyBindingBySuffix(def->type).value();
+    selected.allocator_binding =
+        value_types.CopyOutputBinding(def->type, def->slot.allocator).value();
+    const auto& binding = selected.allocator_binding;
+    if (!ParseParameters(def->params,
+                         OutputConverterParameterFields(*def, &binding), entry,
+                         at, &selected.params, diagnostic))
       return false;
-    const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetOutputBinding(
-            def->type, def->slot.allocator);
     ResolvedOutputPoolSpec spec;
     spec.type = def->type;
     spec.allocator = def->slot.allocator;
@@ -175,7 +179,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     spec.meta_num = def->slot.metadata_count;
     spec.metadata_type_id = def->slot.metadata_type_id;
     for (const auto& [field, limit] :
-         binding->output_layout.string_capacity_fields) {
+         binding.output_layout.string_capacity_fields) {
       const auto parameter = field + "_max_bytes";
       const auto value = selected.params->Integer(parameter);
       if (!value || *value < 1 ||
@@ -185,7 +189,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                     "Effective output size must be within platform limits");
       spec.capacities[field] = static_cast<uint32_t>(*value);
     }
-    if (!ResolveOutputPoolSpec(*binding, spec, &selected.pool_spec, &error))
+    if (!ResolveOutputPoolSpec(binding, spec, &selected.pool_spec, &error))
       return Fail(diagnostic, "INVALID_OUTPUT_ALLOCATION", at, error);
     for (const auto& [port, source] : entry.inputs) {
       const auto declared =
@@ -219,10 +223,9 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   if (!ResolveModelFiles(split.neutral_pipeline_json, options.pipeline_dir,
                          &prepared.neutral_pipeline_json, &error, diagnostic))
     return false;
-  ParsedPipelineConfig parsed;
   PipelineDiagnostic core_diagnostic;
-  if (!ParsePipelineConfig(prepared.neutral_pipeline_json, &parsed,
-                           &core_diagnostic)) {
+  if (!ParsePipelineConfig(prepared.neutral_pipeline_json,
+                           &prepared.parsed_pipeline, &core_diagnostic)) {
     if (diagnostic) diagnostic->pipeline_diagnostic = core_diagnostic;
     return Fail(diagnostic, DiagnosticCodeName(core_diagnostic.code),
                 core_diagnostic.path, core_diagnostic.message);

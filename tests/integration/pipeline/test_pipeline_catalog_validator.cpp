@@ -14,6 +14,7 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "cli/pipeline_document_validation.h"
 #include "cli/pipeline_remediation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -95,14 +96,54 @@ PreparedDeployment UnknownProducerFixture(size_t known_producers = 0) {
   return fixture;
 }
 
-const ValidationDiagnostic* FindDiagnostic(const ValidationReport& report,
-                                           DiagnosticCode code,
-                                           const std::string& path = {}) {
+template <typename Report>
+const typename decltype(Report::diagnostics)::value_type* FindDiagnostic(
+    const Report& report, DiagnosticCode code, const std::string& path = {}) {
   auto it = std::find_if(
       report.diagnostics.begin(), report.diagnostics.end(), [&](const auto& d) {
         return d.code == code && (path.empty() || d.path == path);
       });
   return it == report.diagnostics.end() ? nullptr : &*it;
+}
+
+TEST(PipelineValidatorTest, ToolReportPreservesCoreDiagnosticsAndPlan) {
+  auto fixture =
+      LoadRegistrationFixture("configs/pipeline_keyword_match_rules.json");
+  for (bool invalid : {false, true}) {
+    auto root = fixture.neutral_pipeline_json;
+    if (invalid) root["pipeline"][0]["params"]["typo"] = "value";
+    const auto core = PipelineValidator::Validate(root, fixture.io_boundary);
+    ASSERT_EQ(core.ok, !invalid) << core.ToJson();
+    const auto tool = AttachRemediation(root, core, fixture.io_boundary);
+    auto serialized = tool.ToJson();
+    bool has_remediation = false;
+    for (auto& diagnostic : serialized["diagnostics"]) {
+      has_remediation |= diagnostic.contains("remediation");
+      diagnostic.erase("remediation");
+    }
+    EXPECT_EQ(has_remediation, invalid);
+    EXPECT_EQ(serialized, core.ToJson());
+  }
+}
+
+TEST(PipelineValidatorTest, DocumentExplanationKeepsCoreReportNeutral) {
+  std::ifstream stream("configs/pipeline_keyword_match_rules.json");
+  ASSERT_TRUE(stream.is_open());
+  nlohmann::json document;
+  stream >> document;
+  document["pipeline"][0]["params"]["typo"] = "value";
+  const auto result =
+      ValidatePipelineDocument(document, DocumentValidationMode::kExplain);
+  ASSERT_TRUE(result.core_report);
+  ASSERT_FALSE(result.ok);
+  auto response = result.response;
+  bool has_remediation = false;
+  for (auto& diagnostic : response["diagnostics"]) {
+    has_remediation |= diagnostic.contains("remediation");
+    diagnostic.erase("remediation");
+  }
+  EXPECT_TRUE(has_remediation);
+  EXPECT_EQ(response, result.core_report->ToJson());
 }
 
 TEST(PipelineValidatorTest,
@@ -928,7 +969,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
-  const ValidationDiagnostic* target_diag = nullptr;
+  const ToolValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kUnknownConfigField &&
         diag.path == "/pipeline/0/params/temprature") {
@@ -1050,7 +1091,7 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   EXPECT_FALSE(report.ok);
   ASSERT_GE(report.diagnostics.size(), 2U);
 
-  const ValidationDiagnostic* typo_diag = nullptr;
+  const ToolValidationDiagnostic* typo_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kUnknownConfigField &&
         diag.path == "/pipeline/0/params/temprature") {
@@ -1085,7 +1126,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
-  const ValidationDiagnostic* target_diag = nullptr;
+  const ToolValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kUnknownNodeReference &&
         diag.node_name == "parse_entities" && diag.port == "text") {
@@ -1379,7 +1420,7 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
   ASSERT_FALSE(report.diagnostics.empty());
 
   // 请求作用域的分块不能连接要求会话作用域的消费端口。
-  const ValidationDiagnostic* target_diag = nullptr;
+  const ToolValidationDiagnostic* target_diag = nullptr;
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kPortLifetimeMismatch &&
         diag.node_name == "consumer" && diag.port == "flow") {
@@ -1443,8 +1484,8 @@ TEST(PipelineValidatorTest,
   const auto report = ExplainPipeline(root, boundary);
   EXPECT_FALSE(report.ok);
 
-  const ValidationDiagnostic* diag_a = nullptr;
-  const ValidationDiagnostic* diag_b = nullptr;
+  const ToolValidationDiagnostic* diag_a = nullptr;
+  const ToolValidationDiagnostic* diag_b = nullptr;
 
   for (const auto& diag : report.diagnostics) {
     if (diag.code == DiagnosticCode::kDuplicateDependency) {

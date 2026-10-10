@@ -6,6 +6,7 @@
 
 #include "adapter/deployment_diagnostic.h"
 #include "adapter/io_converter.h"
+#include "adapter/operator_value_type.h"
 #include "core/pipeline_validator.h"
 
 namespace llm_edgeflow {
@@ -17,6 +18,7 @@ struct SelectedInput {
   const InputConverterDefinition* converter = nullptr;
   IoPortBindings ports;
   std::shared_ptr<const ParameterValues> params;
+  OperatorValueTypeBinding host_binding;
 };
 
 struct SelectedOutput {
@@ -24,6 +26,8 @@ struct SelectedOutput {
   IoPortBindings ports;
   std::shared_ptr<const ParameterValues> params;
   ResolvedOutputPoolSpec pool_spec;
+  OperatorValueTypeBinding host_binding;
+  OperatorValueTypeBinding allocator_binding;
 };
 
 struct IoSelection {
@@ -33,6 +37,7 @@ struct IoSelection {
 
 struct PreparedDeployment : IoSelection {
   nlohmann::json neutral_pipeline_json;
+  ParsedPipelineConfig parsed_pipeline;
   PipelineIoBoundary io_boundary;
   void Clear() { *this = PreparedDeployment{}; }
 };
