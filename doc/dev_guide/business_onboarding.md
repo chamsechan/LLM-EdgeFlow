@@ -19,7 +19,7 @@
 | 位置 | 负责的工作 |
 | --- | --- |
 | Demo / 调用方 | 读取样例、构造 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
-| `OperatorValueTypeBinding` | 校验平台指针、长度和 metadata，读取与写入中立 I/O 值、请求编号及业务枚举，管理输出布局与内存 |
+| `OperatorValueTypeBinding` | 校验平台指针、长度和 metadata，读取与写入中立 I/O 值及业务枚举，管理输出布局与内存 |
 | `InputConverterDefinition::decode_fn` | 接收自有中立值，解析完整请求、校验并选择业务字段，发布至 `AlgContext` |
 | Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
 | `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应为中立值，经 binding 写入已租用输出池 |
@@ -74,7 +74,7 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 ./build/alg_demo --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
 ```
 
-查看 `results/business-onboarding/keyword_match/results.jsonl`：请求编号为 20001–20004，
+查看 `results/business-onboarding/keyword_match/results.jsonl`：四条记录按输入顺序排列，
 四条 `status` 均为 0，前两条 `output.is_hit` 为 true 且类别为 `SYSTEM_INIT`，后两条
 为 false。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
 新业务仍须换成自己的配置和输入验证。
@@ -109,15 +109,15 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    候选展开等算法使用 `ValidateDecodeRequest` / `ReadInputSlot<Value>` 显式组织，后者返回
    `std::optional<Value>`。平台指针、长度和表示形式由 binding 校验；业务确需更严格的限额
    则留在 Converter，例如 rerank 段落的 64 KiB 限制。
-   Operator 通过 binding 读取并逐行核对请求编号，选项中的编号表只读，Converter 不发布编号。
-   内部批次仍使用批内编号。定义 `InputConverterDefinition` 并用 `REGISTER_INPUT_CONVERTER` 注册。
+   Operator 按输入输出 vector 的行位置关联；内部 `req_id` 为本次调用的批内行号。
+   不要求宿主提供请求 ID，也不使用图像帧序号代替批内行号。定义 `InputConverterDefinition` 并用 `REGISTER_INPUT_CONVERTER` 注册。
 2. **实现输出转换器（`src/adapter/output/`）。**
    每请求一个结果时，写普通函数
    `AdapterStatus Encode(const Payload& result, Value* output)`，设置业务标量并直接赋值
    `std::string` 或自有数组。`EncodeOutputFn` 调用 `EncodeResultRows<Value>`，框架检查
-   每请求恰好一个 `sub_id=0` 的结果、恢复顺序，再通过 binding 写入内容与外部编号。
+   每请求恰好一个 `sub_id=0` 的结果、恢复行顺序，再通过 binding 写入内容。
    多路结果组合和排名显式使用 `ReadOutputValue` / `IndexResults`，组装中立值后调用
-   `WriteOutputValue`；读取编号表使用 `RequestIds`。binding 按真实输出池容量复制字符串和数组，
+   `WriteOutputValue`；`IndexResults` 使用输出视图的 `count` 校验原始批内来源。binding 按真实输出池容量复制字符串和数组，
    Converter 保留业务状态检查和完整 JSON 响应组装。定义 `OutputConverterDefinition`
    并用 `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **声明选择、参数与逻辑端口。**
@@ -126,7 +126,7 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    的 `value_type` 一致。`name` 是中性业务名；结构带业务成员时，binding 的 `services` 显式
    映射非 common 名称到平台枚举，Converter 不包含枚举。`common` 和无该成员的结构没有期望业务值。
    逻辑端口是 typed Blackboard key，接入准备将所选端口组合为 Core 必传边界。
-   每个输入发布不同端口；至少一个所选输入结构带请求 ID，多个都带时逐行一致。
+   每个输入发布不同端口；多个输入槽按同一批内行号配对，载体无需请求 ID 字段。
    声明参数使用普通 `Params` 与 `Parameters<Params>`，每个字段有默认值或 Required；
    无默认的 optional 可省略。Create 校验、赋值、Prepare、Validate 一次，Process 只读共享值。
    输出的每个字符串字段使用 `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
@@ -163,7 +163,8 @@ Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内
    结构名，例如 `CompanyFrame,CompanyString`。`DemoRequestBatch.storage` 必须持有字符串、
    数组与宿主结构，覆盖整个运行过程；请求键取自契约的 `demo.<type>`。
 2. 复用已有输出展示；新输出结构在 `demo/output/` 实现 `ShowResultFn`，
-   用 `REGISTER_DEMO_OUTPUT` 登记结构名。复制实际 `request_id`、`status_code` 和输出字段；
+   用 `REGISTER_DEMO_OUTPUT` 登记结构名。复制实际 `status_code` 和输出字段；Demo runner 按输入顺序写出结果，
+   不生成请求 ID 字段；
    请求信息只是可选的显示辅助，缺失时应能降级。两个目录的 `.cpp` 自动编入。
 3. 公共 `RunOperatorDemo` 统一预检、创建句柄、Control、分批 Process、显示和落盘。
    每批先把输出复制为 JSON，再归还所有输出租约。多个输出项的同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀，避免覆盖。
@@ -198,7 +199,7 @@ Process 有效批次上限为 `min(max_frame_depth, 64)`；超过时失败，不
 
 分配器、布局参数和 metadata 固定在槽声明中；另选布局需要另一个登记。
 业务参数只在 Create 解析；布局参数在注册审计归一化一次，所有分配共享不可变结果。
-可选输出也始终有池，宿主可以按行省略 key，其他行保持原来的索引和请求 ID。
+可选输出也始终有池，宿主可以按行省略 key，其他行保持原来的索引。
 同方向多项复用同一种载体时，使用 `name.type` 宿主 key；唯一 type 可以保留任意非空前缀。
 
 单份响应超过实际字段容量时返回 -4；本批租约全部归还，所有输出保持未发布状态。
@@ -215,7 +216,7 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ```
 
 确认 Catalog 中出现所选 `(type, name)`，平台槽、业务值、typed 端口与参数声明一致；随后对**本次新增或
-修改的 Pipeline** 执行 `validate`、`plan`，运行对应 Demo 并核对请求 ID、状态及业务字段。
+修改的 Pipeline** 执行 `validate`、`plan`，运行对应 Demo 并核对行位置、状态及业务字段。
 第 2 节的关键词命令是可运行参照，实际验证时替换为新业务、配置和数据集。
 有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#工具选择)
 构建并使用 `alg_pipeline_tool_test`。
@@ -228,9 +229,9 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 | Operator SDK | 初始化接受完整注册；在池容量内时输出完整，超池容量时无部分发布且后续请求可继续使用输出池 | [Operator 基础测试](../../tests/integration/operator/test_operator_api.cpp)、[公开 SDK 消费者测试](../../tests/contract/abi/test_cpp_operator_sdk.cpp) |
 | Pipeline / Demo | 新业务通过校验和计划，样例结果及错误路径符合预期 | [Catalog/Validator 测试](../../tests/integration/pipeline/test_pipeline_catalog_validator.cpp)、[Demo 测试](../../tests/integration/demo/test_demo_runner.cpp) |
 
-载体测试通过 `AdapterHarness` 绑定实际平台 reader/writer，并核对 Operator 提取的编号。
-直接调用 Converter 的测试用 `DecodeForTest` / `EncodeForTest` 挂接 binding；需要编码时提供已知的
-只读请求编号表。自定义视图必须具备匹配 binding、槽类型及池规格。测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量
+载体测试通过 `AdapterHarness` 绑定实际平台 reader/writer，并核对输入输出行位置。
+直接调用 Converter 的测试用 `DecodeForTest` / `EncodeForTest` 挂接 binding；输出视图的
+`count` 必须为原始批次行数（包括省略可选输出的行）。自定义视图必须具备匹配 binding、槽类型及池规格。测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量
 （数组大小减去结尾 NUL 的一字节），或用 `TestOutputBatchView::SetCapacity` 描述实际存储；
 `CompanyString.length` 是内容长度，不能作为容量。
 

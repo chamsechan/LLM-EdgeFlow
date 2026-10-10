@@ -62,7 +62,6 @@ int BuildRerankRequests(
   const int cand_count = std::min(static_cast<int>(storage->passages.size()),
                                   COMPANY_OPERATOR_MAX_RERANK_CANDIDATES);
   storage->passage_cs.reserve(cand_count);
-  storage->carrier.request_id = 80001;
   storage->carrier.service_type = inputs[0].service_type.value_or(0);
   storage->carrier.query_text = &storage->query_cs;
   storage->carrier.candidate_count = cand_count;

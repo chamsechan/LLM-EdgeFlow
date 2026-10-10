@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -83,11 +84,10 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
   EXPECT_EQ(output_prepare_calls, 1);
   char first[] = "one", second[] = "two";
   CompanyString first_text{3, first}, second_text{3, second};
-  CompanyOperatorKeywordInput first_input{42, kMockServiceKeywordMatch,
+  CompanyOperatorKeywordInput first_input{kMockServiceKeywordMatch,
                                           &first_text},
-      second_input{84, kMockServiceKeywordMatch, &second_text};
+      second_input{kMockServiceKeywordMatch, &second_text};
   ASSERT_EQ(harness.DecodeOperator({&first_input, &second_input}), 0);
-  EXPECT_EQ(harness.RequestIds(), (std::vector<uint64_t>{42, 84}));
   first[0] = 'x';
   const auto* texts = harness.Context().Read<TextBatch>("parameter_texts");
   ASSERT_NE(texts, nullptr);
@@ -103,8 +103,6 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
     outputs[0].entities_json = &first_output;
     outputs[1].entities_json = &second_output;
     ASSERT_EQ(harness.EncodeOperator(&outputs, {{"entities_json", 31}}), 0);
-    EXPECT_EQ(outputs[0].request_id, 42u);
-    EXPECT_EQ(outputs[1].request_id, 84u);
     EXPECT_STREQ(first_bytes, "IN:one:OUT");
     EXPECT_STREQ(second_bytes, "IN:two:OUT");
   }
@@ -132,7 +130,6 @@ TEST(IoConverterTest, OptionalInputPreservesEveryFramePosition) {
   std::vector<std::shared_ptr<CompanyOperatorEntityInput>> payloads;
   for (size_t i = 0; i < inputs.size(); ++i) {
     auto payload = std::make_shared<CompanyOperatorEntityInput>();
-    payload->request_id = 100 + i;
     payload->service_type = kMockServiceEntityExtract;
     payload->sentence_text = &sentence;
     inputs[i]["required.entity_in"] = payload;
@@ -140,11 +137,10 @@ TEST(IoConverterTest, OptionalInputPreservesEveryFramePosition) {
     payloads.push_back(std::move(payload));
   }
   std::vector<ExternalInputBatchView> views;
-  std::vector<uint64_t> request_ids;
+
   std::string error;
-  ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, selected, {}, &views,
-                                             &request_ids, &error),
-            0)
+  ASSERT_EQ(
+      ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error), 0)
       << error;
   ASSERT_EQ(views.size(), 2U);
   ASSERT_EQ(views[1].slots.at("entity_in").size(), inputs.size());
@@ -159,12 +155,11 @@ TEST(IoConverterTest, OptionalInputPreservesEveryFramePosition) {
     if (optional_value) {
       EXPECT_EQ(optional_value->sentence_text, "hello");
     }
-    EXPECT_EQ(request_ids[i], 100 + i);
   }
   inputs[2].erase("required.entity_in");
-  EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, selected, {}, &views,
-                                             &request_ids, &error),
-            -3);
+  EXPECT_EQ(
+      ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
+      -3);
   EXPECT_NE(error.find("Missing required input"), std::string::npos);
   EXPECT_NE(error.find("frame 2"), std::string::npos);
 }
@@ -175,7 +170,7 @@ TEST(IoConverterTest, InputUsesBoundKeyAndSkipsUnreferencedPublication) {
   ASSERT_NE(converter, nullptr);
   char bytes[] = "hello";
   CompanyString sentence{5, bytes};
-  CompanyOperatorKeywordInput input{42, kMockServiceKeywordMatch, &sentence};
+  CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &sentence};
   ExternalInputBatchView source;
   source.count = 1;
   source.slots["keyword_in"] = BorrowInputForTest({&input});
@@ -186,13 +181,11 @@ TEST(IoConverterTest, InputUsesBoundKeyAndSkipsUnreferencedPublication) {
                    : IoPortBindings{};
     test::ParsedInputOptions options(*converter, nlohmann::json::object(),
                                      ports);
-    const std::vector<uint64_t> request_ids{42};
-    options.request_ids = &request_ids;
+
     AlgContext context;
     AdapterStatus status;
     ASSERT_EQ(
         test::DecodeForTest(*converter, source, options, &context, &status), 0);
-    EXPECT_EQ(request_ids, (std::vector<uint64_t>{42}));
     EXPECT_FALSE(context.Has("sentence_text"));
     EXPECT_EQ(context.Has("input.bound_text"), referenced);
     if (referenced) {
@@ -209,11 +202,11 @@ namespace {
 constexpr auto kRowTexts = MakeBlackboardKey<TextBatch>("texts");
 }  // namespace
 
-TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
+TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndPreservesRowProvenance) {
   char bytes[] = {'a', 'b', 'c', '!'};
   CompanyString text{3, bytes};
-  CompanyOperatorKeywordInput first{42, kMockServiceKeywordMatch, &text},
-      second{42, kMockServiceKeywordMatch, &text};
+  CompanyOperatorKeywordInput first{kMockServiceKeywordMatch, &text},
+      second{kMockServiceKeywordMatch, &text};
   ExternalInputBatchView source;
   source.count = 2;
   source.slots["input"] = BorrowInputForTest({&first, &second});
@@ -226,8 +219,6 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
   const IoPortBindings ports{{"texts", "texts"}};
   options.ports = &ports;
 
-  const std::vector<uint64_t> request_ids{42, 42};
-  options.request_ids = &request_ids;
   AlgContext context;
   AdapterStatus status;
   ASSERT_EQ(DecodeRequestRows<TextInputValue>(
@@ -238,7 +229,6 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
                 }),
             COMPANY_ALG_SUCCESS);
   bytes[0] = 'x';
-  EXPECT_EQ(request_ids, (std::vector<uint64_t>{42, 42}));
   const auto* texts = context.Read(kRowTexts);
   ASSERT_NE(texts, nullptr);
   ASSERT_EQ(texts->size(), 2U);
@@ -252,8 +242,8 @@ TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndSeparatesDuplicateExternalIds) {
 TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   char first_bytes[] = "good", second_bytes[] = "bad";
   CompanyString first_text{4, first_bytes}, second_text{3, second_bytes};
-  CompanyOperatorKeywordInput first{1, kMockServiceKeywordMatch, &first_text},
-      second{2, kMockServiceKeywordMatch, &second_text};
+  CompanyOperatorKeywordInput first{kMockServiceKeywordMatch, &first_text},
+      second{kMockServiceKeywordMatch, &second_text};
   ExternalInputBatchView source;
   source.count = 2;
   source.slots["input"] = BorrowInputForTest({&first, &second});
@@ -266,8 +256,6 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   const IoPortBindings ports{{"texts", "texts"}};
   options.ports = &ports;
 
-  const std::vector<uint64_t> request_ids{1, 2};
-  options.request_ids = &request_ids;
   AlgContext context;
   AdapterStatus status;
   EXPECT_EQ(DecodeRequestRows<TextInputValue>(
@@ -284,13 +272,13 @@ TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
   EXPECT_EQ(status.SampleIndex(), 1);
   EXPECT_EQ(status.FieldPath(), "sentence_text");
   EXPECT_EQ(status.Message(), "bad sentence");
-  EXPECT_EQ(request_ids, (std::vector<uint64_t>{1, 2}));
   EXPECT_FALSE(context.Has(kRowTexts.name));
 }
 
-TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
+TEST(IoConverterTest,
+     EncodeRowsRestoresRowOrderOptionalPositionsAndChecksWriterCapacity) {
   AlgContext context;
-  const std::vector<uint64_t> request_ids{91, 17};
+
   context.Publish(kRowTexts,
                   TextBatch{{1, 0, "two"}, {0, 0, std::string("a\0b", 3)}});
   OutputEncodeOptions options;
@@ -298,11 +286,11 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
   options.name = "test_rows";
   const IoPortBindings ports{{"texts", "texts"}};
   options.ports = &ports;
-  options.request_ids = &request_ids;
+
   char first_bytes[4] = {}, second_bytes[4] = {};
   CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};
-  CompanyOperatorEntityOutput first{0, kMockServiceEntityExtract, nullptr, 0},
-      second{0, kMockServiceEntityExtract, nullptr, 0};
+  CompanyOperatorEntityOutput first{kMockServiceEntityExtract, nullptr, 0},
+      second{kMockServiceEntityExtract, nullptr, 0};
   first.entities_json = &first_text;
   second.entities_json = &second_text;
   TestOutputBatchView view;
@@ -324,14 +312,33 @@ TEST(IoConverterTest, EncodeRowsRestoresOrderAndIdsAndChecksWriterCapacity) {
                                           &status, "output", kRowTexts, encode),
       COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 2U);
-  EXPECT_EQ(first.request_id, 91U);
-  EXPECT_EQ(second.request_id, 17U);
   EXPECT_EQ(first.status_code, 23);
   EXPECT_EQ(second.status_code, 23);
   ASSERT_EQ(first_text.length, 3);
   EXPECT_EQ(std::string(first_bytes, 3), std::string("a\0b", 3));
   EXPECT_EQ(first_bytes[3], '\0');
   EXPECT_EQ(std::string(second_bytes, second_text.length), "two");
+
+  // 内部结果乱序且每行内容不同；可选槽缺失不能压缩批次行位置。
+  view.required = false;
+  for (size_t omitted = 0; omitted < 2; ++omitted) {
+    SCOPED_TRACE(omitted);
+    std::copy_n("old", 4, first_bytes);
+    std::copy_n("old", 4, second_bytes);
+    first_text.length = second_text.length = 3;
+    view.leased_slots["output"] = {omitted == 0 ? nullptr : &first,
+                                   omitted == 1 ? nullptr : &second};
+    ASSERT_EQ(EncodeResultRows<EntityOutputValue>(&context, options, &view,
+                                                  &written, &status, "output",
+                                                  kRowTexts, encode),
+              COMPANY_ALG_SUCCESS);
+    EXPECT_EQ(written, 1U);
+    EXPECT_EQ(std::string(first_bytes, 3),
+              omitted == 0 ? "old" : std::string("a\0b", 3));
+    EXPECT_EQ(std::string(second_bytes, 3), omitted == 1 ? "old" : "two");
+  }
+  view.required = true;
+  view.leased_slots["output"] = {&first, &second};
 
   view.SetCapacity("output", "entities_json", 1);
   written = 99;
@@ -368,7 +375,7 @@ TEST(IoConverterTest, TypedBindingRequiresExactSlotAndNeutralValueType) {
   ASSERT_NE(input_binding, nullptr);
   char bytes[] = "hello";
   CompanyString text{5, bytes};
-  CompanyOperatorKeywordInput row{42, kMockServiceKeywordMatch, &text};
+  CompanyOperatorKeywordInput row{kMockServiceKeywordMatch, &text};
   ExternalInputBatchView source;
   source.count = 1;
   source.binding = input_binding;
@@ -396,7 +403,7 @@ TEST(IoConverterTest, TypedBindingRequiresExactSlotAndNeutralValueType) {
   ASSERT_NE(output_binding, nullptr);
   char output_bytes[] = "old";
   CompanyString output_text{3, output_bytes};
-  CompanyOperatorEntityOutput output{7, kMockServiceEntityExtract, &output_text,
+  CompanyOperatorEntityOutput output{kMockServiceEntityExtract, &output_text,
                                      9};
   TestOutputBatchView destination;
   destination.count = 1;
@@ -406,31 +413,23 @@ TEST(IoConverterTest, TypedBindingRequiresExactSlotAndNeutralValueType) {
       output_binding->external_c_type_name;
   destination.SetCapacity("channel.entity_out", "entities_json", 3);
   EXPECT_FALSE(
-      destination.Write("channel.entity_out", 0, 42, DocumentOutputValue{})
-          .IsOk());
+      destination.Write("channel.entity_out", 0, DocumentOutputValue{}).IsOk());
   EXPECT_FALSE(
-      destination.Write("entity_out", 0, 42, EntityOutputValue{"new", 0})
-          .IsOk());
+      destination.Write("entity_out", 0, EntityOutputValue{"new", 0}).IsOk());
   EXPECT_FALSE(
-      destination
-          .Write("channel.entity_out", 1, 42, EntityOutputValue{"new", 0})
+      destination.Write("channel.entity_out", 1, EntityOutputValue{"new", 0})
           .IsOk());
-  EXPECT_EQ(output.request_id, 7U);
   EXPECT_EQ(output.status_code, 9);
   EXPECT_STREQ(output_bytes, "old");
   ASSERT_TRUE(
-      destination
-          .Write("channel.entity_out", 0, 42, EntityOutputValue{"new", 23})
+      destination.Write("channel.entity_out", 0, EntityOutputValue{"new", 23})
           .IsOk());
-  EXPECT_EQ(output.request_id, 42U);
   EXPECT_EQ(output.status_code, 23);
   EXPECT_STREQ(output_bytes, "new");
   destination.slot_types["channel.entity_out"] = "OtherCarrier";
   EXPECT_FALSE(
-      destination
-          .Write("channel.entity_out", 0, 100, EntityOutputValue{"bad", 0})
+      destination.Write("channel.entity_out", 0, EntityOutputValue{"bad", 0})
           .IsOk());
-  EXPECT_EQ(output.request_id, 42U);
   EXPECT_STREQ(output_bytes, "new");
 }
 
@@ -439,7 +438,7 @@ TEST(IoConverterTest, InputBindingValidatesLengthsAndOwnsExplicitLengthCopies) {
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_in");
   ASSERT_NE(binding, nullptr);
   CompanyString empty{0, nullptr};
-  CompanyOperatorKeywordInput row{42, kMockServiceKeywordMatch, &empty};
+  CompanyOperatorKeywordInput row{kMockServiceKeywordMatch, &empty};
   ExternalInputBatchView source;
   source.count = 1;
   source.binding = binding;
@@ -477,28 +476,26 @@ TEST(IoConverterTest,
   ASSERT_NE(binding, nullptr);
   char bytes[] = "old";
   CompanyString text{3, bytes};
-  CompanyOperatorEntityOutput row{7, kMockServiceEntityExtract, &text, 9};
+  CompanyOperatorEntityOutput row{kMockServiceEntityExtract, &text, 9};
   TestOutputBatchView view;
   view.count = 1;
   view.binding = binding;
   view.leased_slots["entity_out"] = {&row};
   view.slot_types["entity_out"] = binding->external_c_type_name;
-  auto status = view.Write("entity_out", 0, 42, EntityOutputValue{"new", 0});
+  auto status = view.Write("entity_out", 0, EntityOutputValue{"new", 0});
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   view.SetCapacity("entity_out", "other", 3);
-  status = view.Write("entity_out", 0, 42, EntityOutputValue{"new", 0});
+  status = view.Write("entity_out", 0, EntityOutputValue{"new", 0});
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.FieldPath(), "entities_json");
   EXPECT_STREQ(bytes, "old");
   EXPECT_EQ(text.length, 3);
-  EXPECT_EQ(row.request_id, 7U);
   EXPECT_EQ(row.status_code, 9);
   view.SetCapacity("entity_out", "entities_json", 2);
-  status = view.Write("entity_out", 0, 42, EntityOutputValue{"new", 0});
+  status = view.Write("entity_out", 0, EntityOutputValue{"new", 0});
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_STREQ(bytes, "old");
   EXPECT_EQ(text.length, 3);
-  EXPECT_EQ(row.request_id, 7U);
   EXPECT_EQ(row.status_code, 9);
 }
 
@@ -508,7 +505,7 @@ TEST(IoConverterTest, OutputBindingHonorsEmbeddedNullLengthAndTerminator) {
   ASSERT_NE(binding, nullptr);
   char bytes[] = {'?', '?', '?', '?', '!'};
   CompanyString text{0, bytes};
-  CompanyOperatorEntityOutput row{0, kMockServiceEntityExtract, &text, 0};
+  CompanyOperatorEntityOutput row{kMockServiceEntityExtract, &text, 0};
   TestOutputBatchView view;
   view.count = 1;
   view.binding = binding;
@@ -517,21 +514,19 @@ TEST(IoConverterTest, OutputBindingHonorsEmbeddedNullLengthAndTerminator) {
   view.SetCapacity("entity_out", "entities_json", 3);
   const std::string payload("a\0b", 3);
   ASSERT_TRUE(
-      view.Write("entity_out", 0, 42, EntityOutputValue{payload, 23}).IsOk());
+      view.Write("entity_out", 0, EntityOutputValue{payload, 23}).IsOk());
   EXPECT_EQ(text.length, 3);
   EXPECT_EQ(std::string(bytes, 3), payload);
   EXPECT_EQ(bytes[3], '\0');
   EXPECT_EQ(bytes[4], '!');
   EXPECT_FALSE(
-      view.Write("entity_out", 0, 100, EntityOutputValue{"abcd", 0}).IsOk());
+      view.Write("entity_out", 0, EntityOutputValue{"abcd", 0}).IsOk());
   EXPECT_EQ(text.length, 3);
   EXPECT_EQ(std::string(bytes, 3), payload);
   EXPECT_EQ(bytes[4], '!');
-  EXPECT_EQ(row.request_id, 42U);
   EXPECT_EQ(row.status_code, 23);
   view.SetCapacity("entity_out", "entities_json", 0);
-  ASSERT_TRUE(
-      view.Write("entity_out", 0, 100, EntityOutputValue{"", 0}).IsOk());
+  ASSERT_TRUE(view.Write("entity_out", 0, EntityOutputValue{"", 0}).IsOk());
   EXPECT_EQ(text.length, 0);
   EXPECT_EQ(bytes[0], '\0');
   EXPECT_EQ(bytes[2], 'b');
@@ -543,16 +538,12 @@ namespace {
 struct AlternateInputCarrier {
   std::string document;
   int32_t operation = 0;
-  struct Routing {
-    uint64_t correlation = 0;
-  } routing;
 };
 struct AlternateOutputCarrier {
   int32_t result = -1;
   std::vector<uint8_t> document;
   struct Routing {
     int32_t operation = 0;
-    uint64_t correlation = 0;
   } routing;
 };
 
@@ -570,9 +561,6 @@ OperatorValueTypeBinding AlternateInputBinding() {
     }
     return COMPANY_ALG_SUCCESS;
   };
-  binding.read_request_id = [](const void* raw) {
-    return static_cast<const AlternateInputCarrier*>(raw)->routing.correlation;
-  };
   SetServiceTypeMember(&binding, &AlternateInputCarrier::operation);
   binding.services = {{"translate", 501}, {"entity_extract", 503}};
   SetInputValue<AlternateInputCarrier, TextInputValue>(
@@ -587,9 +575,6 @@ OperatorValueTypeBinding AlternateOutputBinding() {
   binding.canonical_suffix = "entity_out";
   binding.external_c_type_name = "AlternateOutputCarrier";
   binding.direction = IoDirection::kOutput;
-  binding.write_request_id = [](void* raw, uint64_t id) {
-    static_cast<AlternateOutputCarrier*>(raw)->routing.correlation = id;
-  };
   binding.read_service_type = [](const void* raw) {
     return static_cast<const AlternateOutputCarrier*>(raw)->routing.operation;
   };
@@ -597,9 +582,6 @@ OperatorValueTypeBinding AlternateOutputBinding() {
     static_cast<AlternateOutputCarrier*>(raw)->routing.operation = service;
   };
   binding.services = {{"translate", 502}, {"entity_extract", 504}};
-  binding.read_request_id = [](const void* raw) {
-    return static_cast<const AlternateOutputCarrier*>(raw)->routing.correlation;
-  };
   binding.output_layout.string_capacity_fields = {{"entities_json", {65536}}};
   binding.output_layout.compute_block_payload_bytes =
       [](const ResolvedOutputPoolSpec& spec, size_t* bytes, std::string*) {
@@ -662,11 +644,11 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
   CompanyString mock_text{static_cast<int32_t>(mock_request.size()),
                           mock_request.data()};
   CompanyOperatorEntityInput mock_input{
-      91, *original_input->ServiceType("translate"), &mock_text};
-  AlternateInputCarrier alternate{json_request, 501, {91}};
+      *original_input->ServiceType("translate"), &mock_text};
+  AlternateInputCarrier alternate{json_request, 501};
   char bytes[128]{};
   CompanyString mock_output_text{0, bytes};
-  CompanyOperatorEntityOutput mock_output{0, 0, &mock_output_text, -1};
+  CompanyOperatorEntityOutput mock_output{0, &mock_output_text, -1};
   AlternateOutputCarrier alternate_result;
   for (bool alternate_layout : {false, true}) {
     SCOPED_TRACE(alternate_layout);
@@ -683,15 +665,15 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
                          : static_cast<void*>(&mock_input),
         [](void*) {});
     std::vector<ExternalInputBatchView> views;
-    std::vector<uint64_t> ids;
     std::string error;
-    ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, selected, {}, &views,
-                                               &ids, &error),
-              0)
+    ASSERT_EQ(
+        ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
+        0)
         << error;
-    ASSERT_EQ(ids, (std::vector<uint64_t>{91}));
+    ASSERT_EQ(views.size(), 1U);
+    EXPECT_EQ(views.front().count, 1U);
     test::ParsedInputOptions input_options(*input);
-    input_options.request_ids = &ids;
+
     AlgContext context;
     AdapterStatus status;
     ASSERT_EQ(input->decode_fn(views.front(), input_options, &context, &status),
@@ -704,7 +686,7 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
     ASSERT_TRUE(context.Publish("translation",
                                 TextBatch{{0, 0, std::string("a\0b", 3)}}));
     test::ParsedOutputOptions output_options(*output);
-    output_options.request_ids = &ids;
+
     TestOutputBatchView destination;
     destination.count = 1;
     destination.binding = &out_binding;
@@ -729,11 +711,9 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
     EXPECT_EQ(nlohmann::json::parse(response),
               nlohmann::json({{"translated", std::string("a\0b", 3)}}));
     if (alternate_layout) {
-      EXPECT_EQ(alternate_result.routing.correlation, 91U);
       EXPECT_EQ(alternate_result.routing.operation, 502);
       EXPECT_EQ(alternate_result.result, 0);
     } else {
-      EXPECT_EQ(mock_output.request_id, 91U);
       EXPECT_EQ(mock_output.service_type,
                 *original_output->ServiceType("translate"));
       EXPECT_EQ(mock_output.status_code, 0);
@@ -761,9 +741,9 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
       mock_text = {static_cast<int32_t>(mock_request.size()),
                    mock_request.data()};
     }
-    ASSERT_EQ(ValidateAndExtractOperatorInputs(inputs, selected, {}, &views,
-                                               &ids, &error),
-              0)
+    ASSERT_EQ(
+        ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
+        0)
         << error;
     AlgContext invalid_context;
     EXPECT_EQ(input->decode_fn(views.front(), input_options, &invalid_context,
@@ -779,9 +759,9 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
       alternate.operation = -1;
     else
       mock_input.service_type = -1;
-    EXPECT_EQ(ValidateAndExtractOperatorInputs(inputs, selected, {}, &views,
-                                               &ids, &error),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(
+        ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
+        COMPANY_ALG_ERR_INVALID_INPUT);
     EXPECT_NE(error.find("service_type"), std::string::npos);
   }
 }
@@ -839,9 +819,9 @@ TEST_F(IoConverterProcessTest,
                             operator_api::ComputePlatform::kCpu, 2),
             0)
       << instance.create_diagnostic();
-  AlternateInputCarrier first{R"({"query":"one"})", 501, {911}};
+  AlternateInputCarrier first{R"({"query":"one"})", 501};
   AlternateInputCarrier second{
-      nlohmann::json{{"query", std::string(80, 'x')}}.dump(), 501, {722}};
+      nlohmann::json{{"query", std::string(80, 'x')}}.dump(), 501};
   operator_api::NamedIoBatch inputs(2), outputs(2);
   inputs[0]["request.entity_in"] =
       operator_api::MakeBorrowedOperatorInput(&first);
@@ -861,7 +841,6 @@ TEST_F(IoConverterProcessTest,
     const auto* result = static_cast<const AlternateOutputCarrier*>(
         outputs[i].at("response.entity_out").get());
     ASSERT_NE(result, nullptr);
-    EXPECT_EQ(result->routing.correlation, i == 0 ? 911U : 722U);
     EXPECT_EQ(result->routing.operation, 502);
     EXPECT_EQ(result->result, 0);
     copied.push_back(nlohmann::json::parse(

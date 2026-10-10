@@ -7,10 +7,8 @@ namespace alg_demo {
 namespace {
 
 void ShowAuditResult(const void* output, const nlohmann::json& request_info,
-                     uint64_t* request_id, int32_t* status,
-                     nlohmann::json* sample_output) {
+                     int32_t* status, nlohmann::json* sample_output) {
   const auto& out = *static_cast<const CompanyOperatorAuditOutput*>(output);
-  *request_id = out.request_id;
   *status = out.status_code;
   std::string risk_level;
   std::string matched_policy_clause;

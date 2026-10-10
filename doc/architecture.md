@@ -157,7 +157,8 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。`DeInit` 清理全局登记的所有 handle，调用前须对所有实例完成同样的停流与释放；完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 - Pipeline 根 `io.input` / `io.output` 按 `(type, name)` 选择单槽转换器。`type` 是宿主 key 后缀，
   `name` 对应结构体业务值；唯一 type 接受任意前缀，重复 type 使用 `name.type`。
-  平台登记显式声明请求 ID 与业务成员，Process 逐行检查服务值和多项 ID 一致性。
+  平台登记显式声明业务成员；Process 逐行检查服务值，按输入输出 vector 的同一行关联请求，
+  不要求载体提供请求 ID。
   转换器 typed 端口组合成 Core 的必传 I/O 边界，见[输出分配方案](dev_guide/operator_output_allocation.md)。
 - 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。

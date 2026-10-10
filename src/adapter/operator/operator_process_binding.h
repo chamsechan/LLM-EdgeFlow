@@ -28,8 +28,7 @@ struct AcquiredOutputBlock {
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
     const std::vector<SelectedInput>& selected, const InputLimits& limits,
-    std::vector<ExternalInputBatchView>* out_views,
-    std::vector<uint64_t>* request_ids, std::string* error);
+    std::vector<ExternalInputBatchView>* out_views, std::string* error);
 
 int ResolveOperatorOutputs(
     const llm_edgeflow::operator_api::NamedIoBatch& outputs,

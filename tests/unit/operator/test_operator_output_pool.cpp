@@ -21,7 +21,6 @@
 namespace llm_edgeflow {
 
 struct BusinessSummaryOutput {
-  uint64_t request_id = 0;
   CompanyString* title = nullptr;
   CompanyString* summary = nullptr;
 };
@@ -37,7 +36,7 @@ OperatorValueTypeBinding MakeBusinessSummaryBinding() {
       "test_business_summary",
       {{title_name, &BusinessSummaryOutput::title, {31}},
        {summary_name, &BusinessSummaryOutput::summary, {63}}},
-      [](BusinessSummaryOutput& output) noexcept { output.request_id = 0; });
+      [](BusinessSummaryOutput&) noexcept {});
   title_name.assign(title_name.size(), 'x');
   summary_name.assign(summary_name.size(), 'x');
   return binding;
@@ -77,10 +76,12 @@ TEST_F(OperatorOutputPoolTest, OwnsCallbacksAfterSourceBindingIsDestroyed) {
   void* block = nullptr;
   ASSERT_EQ(pool->Acquire(&block), 0);
   auto* output = static_cast<BusinessSummaryOutput*>(block);
-  output->request_id = 42;
+  output->title->length = 1;
+  output->title->data[0] = 'x';
   pool->ReturnBlock(block);
   EXPECT_EQ(resets, 1);
-  EXPECT_EQ(output->request_id, 0u);
+  EXPECT_EQ(output->title->length, 0);
+  EXPECT_EQ(output->title->data[0], '\0');
   pool.reset();
   EXPECT_EQ(destroys, 1);
 }
@@ -124,7 +125,6 @@ TEST_F(OperatorOutputPoolTest,
   ASSERT_NE(title_data, nullptr);
   ASSERT_NE(summary_data, nullptr);
   for (int round = 0; round < 3; ++round) {
-    EXPECT_EQ(output->request_id, 0U);
     EXPECT_EQ(output->title, title);
     EXPECT_EQ(output->summary, summary);
     EXPECT_EQ(title->data, title_data);
@@ -133,7 +133,6 @@ TEST_F(OperatorOutputPoolTest,
     EXPECT_EQ(summary->length, 0);
     EXPECT_EQ(title_data[0], '\0');
     EXPECT_EQ(summary_data[0], '\0');
-    output->request_id = 42;
     std::memset(title_data, 't', 7);
     title_data[7] = '\0';
     title->length = 7;
@@ -288,7 +287,6 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   void* b1 = nullptr;
   ASSERT_EQ(pool->Acquire(&b1), 0);
   auto* out1 = static_cast<CompanyOperatorKeywordOutput*>(b1);
-  out1->request_id = 999;
   out1->is_hit = 1;
   out1->status_code = -42;
   std::strcpy(out1->match_result_json->data, "hello world");
@@ -305,7 +303,6 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   auto* out2 = static_cast<CompanyOperatorKeywordOutput*>(b2);
 
   // 验证 Reset 契约：内容重置为初始，但物理地址和容量完好保留
-  EXPECT_EQ(out2->request_id, 0u);
   EXPECT_EQ(out2->is_hit, 0);
   EXPECT_EQ(out2->status_code, 0);
   EXPECT_EQ(out2->match_result_json->length, 0);
@@ -333,7 +330,6 @@ TEST_F(OperatorOutputPoolTest,
     void* block = nullptr;
     ASSERT_EQ(pool->Acquire(&block), 0);
     auto* out = static_cast<CompanyOperatorEntityOutput*>(block);
-    EXPECT_EQ(out->request_id, 0u);
     EXPECT_EQ(out->status_code, 0);
     ASSERT_NE(out->entities_json, nullptr);
     CompanyString* original_string = out->entities_json;
@@ -341,7 +337,6 @@ TEST_F(OperatorOutputPoolTest,
     ASSERT_NE(original_data, nullptr);
     EXPECT_EQ(original_string->length, 0);
     EXPECT_EQ(original_data[0], '\0');
-    out->request_id = 999;
     out->status_code = -42;
     std::memset(original_data, 'x', capacity);
     original_data[capacity] = '\0';
@@ -360,7 +355,6 @@ TEST_F(OperatorOutputPoolTest,
     EXPECT_FALSE(allocated);
     EXPECT_EQ(reused, block);
     out = static_cast<CompanyOperatorEntityOutput*>(reused);
-    EXPECT_EQ(out->request_id, 0u);
     EXPECT_EQ(out->status_code, 0);
     EXPECT_EQ(out->entities_json, original_string);
     EXPECT_EQ(out->entities_json->data, original_data);
@@ -445,13 +439,11 @@ TEST_F(OperatorOutputPoolTest,
       {&CompanyOperatorDocOutput::intent_name,
        &CompanyOperatorDocOutput::answer_text},
       [](auto& out) {
-        out.request_id = 99;
         out.status_code = -42;
         out.confidence = 0.9f;
         out.chunk_count = 3;
       },
       [](const auto& out) {
-        EXPECT_EQ(out.request_id, 0u);
         EXPECT_EQ(out.status_code, 0);
         EXPECT_FLOAT_EQ(out.confidence, 0.0f);
         EXPECT_EQ(out.chunk_count, 0);
@@ -462,12 +454,10 @@ TEST_F(OperatorOutputPoolTest,
        &CompanyOperatorAuditOutput::matched_policy_clause,
        &CompanyOperatorAuditOutput::audit_verdict_json},
       [](auto& out) {
-        out.request_id = 99;
         out.status_code = -42;
         out.risk_score = 0.9f;
       },
       [](const auto& out) {
-        EXPECT_EQ(out.request_id, 0u);
         EXPECT_EQ(out.status_code, 0);
         EXPECT_FLOAT_EQ(out.risk_score, 0.0f);
       });
@@ -475,14 +465,8 @@ TEST_F(OperatorOutputPoolTest,
       "audio_out",
       {&CompanyOperatorAudioOutput::transcribed_text,
        &CompanyOperatorAudioOutput::intent_slot_json},
-      [](auto& out) {
-        out.request_id = 99;
-        out.status_code = -42;
-      },
-      [](const auto& out) {
-        EXPECT_EQ(out.request_id, 0u);
-        EXPECT_EQ(out.status_code, 0);
-      });
+      [](auto& out) { out.status_code = -42; },
+      [](const auto& out) { EXPECT_EQ(out.status_code, 0); });
 }
 
 TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
@@ -504,7 +488,6 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
     void* block = nullptr;
     ASSERT_EQ(pool->Acquire(&block), 0);
     auto* out = static_cast<CompanyOdOutput*>(block);
-    EXPECT_EQ(out->request_id, 0u);
     EXPECT_EQ(out->detected_box_count, 0);
     EXPECT_EQ(out->status_code, 0);
     auto* metadata = out->metadata;
@@ -529,7 +512,6 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
     ASSERT_NE(data, nullptr);
     std::strcpy(data, "{}");
     str->length = 2;
-    out->request_id = 99;
     out->detected_box_count = 3;
     out->status_code = -42;
     void* reused = nullptr;
@@ -544,7 +526,6 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
     ASSERT_EQ(result, 0);
     EXPECT_FALSE(allocated);
     ASSERT_EQ(reused, block);
-    EXPECT_EQ(out->request_id, 0u);
     EXPECT_EQ(out->detected_box_count, 0);
     EXPECT_EQ(out->status_code, 0);
     ASSERT_EQ(out->result_json, str);
@@ -581,10 +562,8 @@ TEST_F(OperatorOutputPoolTest, RerankOutputInitialAndReusedIndicesAreMinusOne) {
       EXPECT_EQ(block, previous);
     }
     auto* out = static_cast<CompanyOperatorRerankOutput*>(block);
-    EXPECT_EQ(out->request_id, 0u);
     EXPECT_EQ(out->count, 0);
     EXPECT_EQ(out->status_code, 0);
-    out->request_id = 99;
     out->count = COMPANY_OPERATOR_MAX_RERANK_CANDIDATES;
     out->status_code = -42;
     for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
@@ -870,7 +849,6 @@ TEST_F(OperatorOutputPoolTest,
   ASSERT_EQ(payload->capacity, 3u);
   void* original_values = payload->values;
   NestedOutputSource result;
-  result.request_id = 42;
   result.is_hit = 1;
   ASSERT_EQ(ConvertNestedOutput(&result, block, pool->Spec(), &error), 0)
       << error;
@@ -888,7 +866,6 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_FALSE(allocated_during_reuse);
   EXPECT_TRUE(reset_received_parameters);
   EXPECT_EQ(reused, block);
-  EXPECT_EQ(root->request_id, 0u);
   EXPECT_EQ(root->payload, payload);
   EXPECT_EQ(payload->values, original_values);
   EXPECT_EQ(payload->capacity, 3u);

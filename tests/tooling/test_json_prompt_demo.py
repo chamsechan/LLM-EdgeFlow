@@ -54,7 +54,7 @@ class JsonPromptDemoTest(unittest.TestCase):
             output = Path(command[command.index("--output-dir") + 1]) / "translate"
             output.mkdir(parents=True)
             (output / "results.jsonl").write_text(json.dumps({
-                "request_id": 30001, "status": 0,
+                "status": 0,
                 "output": {"entities": {"translated": translated, "extra": "from SDK"}},
             }), encoding="utf-8")
             return subprocess.CompletedProcess(command, 0)
@@ -66,11 +66,11 @@ class JsonPromptDemoTest(unittest.TestCase):
             self.assertEqual(json.loads(stdout.getvalue()), {"translated": translated, "extra": "from SDK"})
             self.assertEqual(len(stdout.getvalue().splitlines()), 1)
 
-    def test_checks_status_schema_cardinality_and_provenance(self):
-        good = {"request_id": 30001, "status": 0,
+    def test_checks_status_schema_cardinality_and_preserves_order(self):
+        good = {"status": 0,
                 "output": {"entities": {"translated": "你好"}}}
         invalid_runs = [
-            [], [dict(good, status=-42)], [dict(good, request_id=30002)],
+            [], [good, good], [dict(good, status=-42)],
             [dict(good, output={"entities": []})],
             [dict(good, output={"entities_raw": "broken"})],
         ]
@@ -81,12 +81,12 @@ class JsonPromptDemoTest(unittest.TestCase):
                 with self.subTest(records=records), self.assertRaises(ValueError):
                     demo.collect_responses(result, 1)
             result.write_text("\n".join(json.dumps(good) for _ in range(2)))
-            with self.assertRaises(ValueError):
-                demo.collect_responses(result, 2)
-            second = dict(good, request_id=30002, output={"entities": {"translated": "谢谢"}})
+            self.assertEqual([json.loads(item) for item in demo.collect_responses(result, 2)],
+                             [good["output"]["entities"], good["output"]["entities"]])
+            second = dict(good, output={"entities": {"translated": "谢谢", "extra": "preserved"}})
             result.write_text(json.dumps(second) + "\n" + json.dumps(good))
             self.assertEqual([json.loads(item) for item in demo.collect_responses(result, 2)],
-                             [{"translated": "你好"}, {"translated": "谢谢"}])
+                             [{"translated": "谢谢", "extra": "preserved"}, {"translated": "你好"}])
 
     def test_invalid_request_or_native_failure_does_not_publish_response(self):
         for payload, native_exit in [('invalid JSON', 0), ('{}', 5)]:

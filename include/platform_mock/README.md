@@ -14,6 +14,9 @@
 这些文件只持有模拟平台声明，不实现算法、平台资源或硬件能力。平台枚举存在不代表
 对应芯片已有可用 Backend。
 
+mock 输入输出载体不包含请求 ID 字段。`Process` 以输入输出 vector 的同一行关联请求；
+图像帧序号也不参与关联。
+
 ## 框架入口与包含方式
 
 SDK 调用方包含 `edgeflow/operator/interface.h`，获得函数入口以及 `CreateParam`、

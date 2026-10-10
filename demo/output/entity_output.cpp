@@ -7,10 +7,8 @@ namespace alg_demo {
 namespace {
 
 void ShowEntityResult(const void* output, const nlohmann::json&,
-                      uint64_t* request_id, int32_t* status,
-                      nlohmann::json* sample_output) {
+                      int32_t* status, nlohmann::json* sample_output) {
   const auto& out = *static_cast<const CompanyOperatorEntityOutput*>(output);
-  *request_id = out.request_id;
   *status = out.status_code;
   std::string entities_json;
   if (out.entities_json && out.entities_json->data) {

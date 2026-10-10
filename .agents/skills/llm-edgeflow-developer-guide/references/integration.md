@@ -24,8 +24,8 @@ and displays or copies the result. Reusing a host struct does not imply compatib
    `adapter/io_values.h`. Only binding files know platform types and their layouts.
 5. Pipeline root `io.input` / `io.output` are nonempty arrays selecting `{type, name, params?}`; outputs also declare `inputs`.
    Selected converter ports form the mandatory `PipelineIoBoundary` passed to Core validation.
-   Each input must publish distinct ports. At least one selected input struct declares request IDs;
-   all input items pair by batch row, with matching IDs where present. Named services on structs with
+   Each input must publish distinct ports. Input/output vectors have the same size and pair by row;
+   carriers need no request ID field. Image frame indices are not batch row indices. Named services on structs with
    a declared `service_type` require an explicit name-to-enum entry in binding `services`.
    Converter Definitions do not declare platform enums. `common` or a struct without that
    member has no expected service value. Lookup never falls back to `common`.
@@ -48,8 +48,10 @@ For one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows`
 callback receives `const Value&` and publishes business payloads. Output callbacks fill `Value*`,
 including ordinary `std::string` fields; `EncodeResultRows` or explicit `WriteOutputValue` calls
 the writer registered with `SetOutputValue<Host, Value>` using the leased pool specification.
-Bindings alone read/write platform members, string lengths, metadata, request IDs and layouts.
-Operator supplies the request ID table as read-only options; Converters do not publish IDs.
+Bindings alone read/write platform members, string lengths, metadata and layouts.
+Internal `req_id` is the current Process batch row; `sub_id` tracks split items. Output views
+retain the original batch count, including absent optional slots; encoders restore row order
+from provenance and reject duplicate, missing or out-of-range results.
 Never retain host pointers across Process calls or store request-local pointers in pooled outputs.
 
 Every output string has an integer `<field>_max_bytes` parameter with minimum 1 and a valid default.
@@ -64,8 +66,8 @@ The current mock platform has declarations in `include/platform_mock/`, traits a
 in `adapter/platform_value_binding.h`, and bindings in `operator_builtin_value_types.cpp`.
 A different platform supplies its own binding files, reusing neutral Converter values when content
 semantics match. Register matching `value_type` through `SetInputValue` / `SetOutputValue`.
-Declare actual request ID/service members with
-`SetRequestIdMember` / `SetServiceTypeMember`; do not infer memory layouts. New nested layouts use
+Declare actual service members with
+`SetServiceTypeMember`; do not infer memory layouts. New nested layouts use
 `REGISTER_OPERATOR_OUTPUT_ALLOCATOR` and their own allocation/reset/budget implementation.
 See the output allocation guide for ownership and actual-platform acceptance limits.
 

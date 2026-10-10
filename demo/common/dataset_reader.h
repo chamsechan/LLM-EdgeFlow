@@ -53,7 +53,6 @@ bool ReadTextFile(const std::string& file_path, std::string* out_content,
                   std::string* error_msg = nullptr);
 
 struct AudioDatasetSample {
-  uint64_t request_id = 0;
   std::string pcm_f32le;
   int sample_rate = 16000;
   std::string reference_text;

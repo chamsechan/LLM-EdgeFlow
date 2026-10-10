@@ -299,11 +299,10 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     }
 
     std::vector<llm_edgeflow::ExternalInputBatchView> input_views;
-    std::vector<uint64_t> request_ids;
     std::string input_error;
     const int input_result = llm_edgeflow::ValidateAndExtractOperatorInputs(
         inputs, plan->inputs, llm_edgeflow::InputLimits{}, &input_views,
-        &request_ids, &input_error);
+        &input_error);
     if (input_result != 0) {
       SetLastError(input_error);
       return input_result;
@@ -329,7 +328,6 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       options.name = def.name;
       options.params = selected.params.get();
       options.ports = &selected.ports;
-      options.request_ids = &request_ids;
       llm_edgeflow::AdapterStatus status;
       const int result =
           def.decode_fn(input_views[index], options, &req_ctx, &status);
@@ -388,7 +386,6 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       options.name = def.name;
       options.params = selected.params.get();
       options.ports = &selected.ports;
-      options.request_ids = &request_ids;
       size_t written_count = 0;
       llm_edgeflow::AdapterStatus status;
       const int result =

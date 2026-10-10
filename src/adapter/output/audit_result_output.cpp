@@ -57,9 +57,6 @@ int EncodeOperatorAuditResult(AlgContext* context,
       ReadOutputValue(*context, kMatchedPolicy, options, status);
   if (!matched_policy) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-  const auto* raw_req_ids = RequestIds(options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
-
   size_t count = verdicts->size();
   if (!destination || destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
@@ -74,14 +71,15 @@ int EncodeOperatorAuditResult(AlgContext* context,
   }
 
   std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
-  if (!IndexResults(verdicts, raw_req_ids, &verdicts_by_request, "verdicts",
-                    options.Label().c_str(), status)) {
+  if (!IndexResults(verdicts, destination->count, &verdicts_by_request,
+                    "verdicts", options.Label().c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<const RankedTextBatch::value_type*> matched_policy_by_request;
-  if (!IndexResults(matched_policy, raw_req_ids, &matched_policy_by_request,
-                    "matched_policy", options.Label().c_str(), status, true)) {
+  if (!IndexResults(matched_policy, destination->count,
+                    &matched_policy_by_request, "matched_policy",
+                    options.Label().c_str(), status, true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 

@@ -3,6 +3,7 @@
 
 // 本仓库 Demo 和测试使用的本地平台 mock 声明。
 // 它们是现有外部环境的替代品，不是公司 SDK 头文件。
+// Process 的输入输出按 vector 行位置对应，载体不含请求 ID 字段。
 
 #include <stddef.h>
 #include <stdint.h>
@@ -53,7 +54,6 @@ typedef struct CompanyAny {
  * @brief RGB8 图像帧镜像输入结构体 (行交错，借用至 Process 返回)
  */
 typedef struct CompanyFrame {
-  uint64_t request_id;
   int32_t service_type;
   int32_t height;
   int32_t width;
@@ -66,7 +66,6 @@ typedef struct CompanyFrame {
  * @brief OCR / 目标检测结构化输出镜像结构体
  */
 typedef struct CompanyOdOutput {
-  uint64_t request_id;
   int32_t service_type;
   int32_t detected_box_count;
   CompanyString* result_json;
@@ -78,7 +77,6 @@ typedef struct CompanyOdOutput {
  * @brief 业务 4: 对话合规审核 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorAuditInput {
-  uint64_t request_id;
   int32_t service_type;
   const CompanyString* user_text;
   const CompanyString* channel_name;
@@ -88,7 +86,6 @@ typedef struct CompanyOperatorAuditInput {
  * @brief 业务 4: 对话合规审核 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorAuditOutput {
-  uint64_t request_id;
   int32_t service_type;
   CompanyString* risk_level;
   float risk_score;
@@ -101,7 +98,6 @@ typedef struct CompanyOperatorAuditOutput {
  * @brief 业务 1: 关注词匹配 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorKeywordInput {
-  uint64_t request_id;
   int32_t service_type;
   const CompanyString* sentence_text;
 } CompanyOperatorKeywordInput;
@@ -110,7 +106,6 @@ typedef struct CompanyOperatorKeywordInput {
  * @brief 业务 1: 关注词匹配 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorKeywordOutput {
-  uint64_t request_id;
   int32_t service_type;
   int32_t is_hit;
   CompanyString* match_result_json;
@@ -121,7 +116,6 @@ typedef struct CompanyOperatorKeywordOutput {
  * @brief 业务 2: 实体抽取 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorEntityInput {
-  uint64_t request_id;
   int32_t service_type;
   const CompanyString* sentence_text;
 } CompanyOperatorEntityInput;
@@ -130,7 +124,6 @@ typedef struct CompanyOperatorEntityInput {
  * @brief 业务 2: 实体抽取 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorEntityOutput {
-  uint64_t request_id;
   int32_t service_type;
   CompanyString* entities_json;
   int32_t status_code;
@@ -140,7 +133,6 @@ typedef struct CompanyOperatorEntityOutput {
  * @brief 业务 3: 文档问答 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorDocInput {
-  uint64_t request_id;
   int32_t service_type;
   const CompanyString* doc_text;
   const CompanyString* query_text;
@@ -150,7 +142,6 @@ typedef struct CompanyOperatorDocInput {
  * @brief 业务 3: 文档问答 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorDocOutput {
-  uint64_t request_id;
   int32_t service_type;
   CompanyString* intent_name;
   float confidence;
@@ -163,7 +154,6 @@ typedef struct CompanyOperatorDocOutput {
  * @brief 业务 6: 语音识别与意图抽取 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorAudioInput {
-  uint64_t request_id;
   int32_t service_type;
   const float* pcm_buffer;
   int32_t pcm_length;
@@ -174,7 +164,6 @@ typedef struct CompanyOperatorAudioInput {
  * @brief 业务 6: 语音识别与意图抽取 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorAudioOutput {
-  uint64_t request_id;
   int32_t service_type;
   CompanyString* transcribed_text;
   CompanyString* intent_slot_json;
@@ -187,7 +176,6 @@ typedef struct CompanyOperatorAudioOutput {
  * @brief 业务 7: Cross-Encoder 精排 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorRerankInput {
-  uint64_t request_id;
   int32_t service_type;
   const CompanyString* query_text;
   const CompanyString*
@@ -199,7 +187,6 @@ typedef struct CompanyOperatorRerankInput {
  * @brief 业务 7: Cross-Encoder 精排 Operator 聚合输出结构体
  */
 typedef struct CompanyOperatorRerankOutput {
-  uint64_t request_id;
   int32_t service_type;
   float scores[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t sorted_indices[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];

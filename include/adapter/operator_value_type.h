@@ -187,8 +187,6 @@ struct OperatorValueTypeBinding {
   IoDirection direction = IoDirection::kUnknown;
   OperatorOutputLayoutDescriptor output_layout;
   ValidateExternalFn validate_external;
-  std::function<uint64_t(const void*)> read_request_id;
-  std::function<void(void*, uint64_t)> write_request_id;
   std::function<int32_t(const void*)> read_service_type;
   std::function<void(void*, int32_t)> write_service_type;
   AllocateExternalFn allocate_external;
@@ -209,21 +207,6 @@ constexpr const char* HostTypeName() {
                 "Declare the host struct with DECLARE_EXTERNAL_TYPE_TRAITS "
                 "before registering its ValueType");
   return ExternalTypeTraits<T>::TypeName();
-}
-
-template <typename T>
-void SetRequestIdMember(OperatorValueTypeBinding* binding,
-                        uint64_t T::*member) {
-  if (!binding || !member)
-    throw std::invalid_argument("Invalid request ID member");
-  if (binding->direction == IoDirection::kOutput) {
-    binding->write_request_id = [member](void* value, uint64_t id) {
-      static_cast<T*>(value)->*member = id;
-    };
-  }
-  binding->read_request_id = [member](const void* value) {
-    return static_cast<const T*>(value)->*member;
-  };
 }
 
 template <typename T>

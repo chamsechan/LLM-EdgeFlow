@@ -56,8 +56,8 @@ struct OutputObservation {
 std::atomic<int> input_prepare_calls{0};
 std::atomic<int> output_prepare_calls{0};
 std::mutex observations_mutex;
-std::map<uint64_t, InputObservation> input_observations;
-std::map<uint64_t, OutputObservation> output_observations;
+std::vector<InputObservation> input_observations;
+std::vector<OutputObservation> output_observations;
 DecodeInputFn production_keyword_decode = nullptr;
 
 Parameters<InputParams> InputParamSpec() {
@@ -100,10 +100,9 @@ int DecodeWithParameters(const ExternalInputBatchView& source,
     sentences[i].data =
         params.prefix + "|" + params.derived_prefix + "|" + sentences[i].data;
     std::lock_guard<std::mutex> lock(observations_mutex);
-    input_observations.emplace(
-        options.request_ids->at(i),
-        InputObservation{options.params, &params, options.params->Effective(),
-                         sentences[i].data});
+    input_observations.push_back(InputObservation{options.params, &params,
+                                                  options.params->Effective(),
+                                                  sentences[i].data});
   }
   return AdapterValidationHelper::PublishContextValue(
              *context, input_key, std::move(sentences), options.Label().c_str(),
@@ -119,11 +118,10 @@ int EncodeWithParameters(AlgContext* context,
   const auto& params = options.Params<OutputParams>();
   const auto capacity = destination->GetPoolSpec("keyword_out")
                             ->capacities.at("match_result_json");
-  for (const auto id : *options.request_ids) {
+  for (size_t i = 0; i < destination->count; ++i) {
     std::lock_guard<std::mutex> lock(observations_mutex);
-    output_observations.emplace(
-        id, OutputObservation{options.params, &params,
-                              options.params->Effective(), capacity});
+    output_observations.push_back(OutputObservation{
+        options.params, &params, options.params->Effective(), capacity});
   }
   return EncodeResultRows<KeywordOutputValue>(
       context, options, destination, written_count, status, "keyword_out",
@@ -219,12 +217,11 @@ class IoParametersTest : public test_support::OperatorTestFixture {
     return file + ".conf";
   }
 
-  void ProcessAndCheck(void* handle, uint64_t request_id,
-                       const std::string& prefix, const std::string& marker,
-                       int64_t requested_size) {
+  void ProcessAndCheck(void* handle, const std::string& prefix,
+                       const std::string& marker, int64_t requested_size) {
     char payload[] = "payload";
     CompanyString text{7, payload};
-    CompanyOperatorKeywordInput input{request_id, kInputService, &text};
+    CompanyOperatorKeywordInput input{kInputService, &text};
     operator_api::NamedIoBatch inputs(1), outputs(1);
     inputs[0]["test.keyword_in"] =
         operator_api::MakeBorrowedOperatorInput(&input);
@@ -235,7 +232,6 @@ class IoParametersTest : public test_support::OperatorTestFixture {
     ASSERT_NE(output, nullptr);
     const auto* result =
         static_cast<const CompanyOperatorKeywordOutput*>(output.get());
-    EXPECT_EQ(result->request_id, request_id);
     EXPECT_EQ(result->service_type, kOutputService);
     EXPECT_EQ(result->status_code, 0);
     EXPECT_EQ(result->is_hit, 1);
@@ -265,14 +261,13 @@ TEST_F(IoParametersTest,
       << instance.create_diagnostic();
   EXPECT_EQ(input_prepare_calls.load(), 1);
   EXPECT_EQ(output_prepare_calls.load(), 1);
-  ProcessAndCheck(instance.get(), 101, "alpha", "red", 32);
-  ProcessAndCheck(instance.get(), 102, "alpha", "red", 32);
+  ProcessAndCheck(instance.get(), "alpha", "red", 32);
+  ProcessAndCheck(instance.get(), "alpha", "red", 32);
   std::vector<std::thread> workers;
   for (uint64_t worker = 0; worker < 4; ++worker) {
     workers.emplace_back([&, worker] {
       for (uint64_t call = 0; call < 3; ++call)
-        ProcessAndCheck(instance.get(), 1000 + worker * 10 + call, "alpha",
-                        "red", 32);
+        ProcessAndCheck(instance.get(), "alpha", "red", 32);
     });
   }
   for (auto& worker : workers) worker.join();
@@ -280,9 +275,9 @@ TEST_F(IoParametersTest,
   EXPECT_EQ(output_prepare_calls.load(), 1);
   ASSERT_EQ(input_observations.size(), 14U);
   ASSERT_EQ(output_observations.size(), 14U);
-  const auto& first_input = input_observations.at(101);
-  const auto& first_output = output_observations.at(101);
-  for (const auto& [id, observation] : input_observations) {
+  const auto& first_input = input_observations.at(0);
+  const auto& first_output = output_observations.at(0);
+  for (const auto& observation : input_observations) {
     EXPECT_EQ(observation.values, first_input.values);
     EXPECT_EQ(observation.typed, first_input.typed);
     EXPECT_EQ(observation.typed->prefix, "alpha:prepared");
@@ -292,7 +287,7 @@ TEST_F(IoParametersTest,
     EXPECT_EQ(observation.transformed_text,
               "alpha:prepared|alpha:prepared:derived|payload");
   }
-  for (const auto& [id, observation] : output_observations) {
+  for (const auto& observation : output_observations) {
     EXPECT_EQ(observation.values, first_output.values);
     EXPECT_EQ(observation.typed, first_output.typed);
     EXPECT_EQ(observation.typed->requested_size, 32);
@@ -317,33 +312,26 @@ TEST_F(IoParametersTest,
       << second.create_diagnostic();
   EXPECT_EQ(input_prepare_calls.load(), 2);
   EXPECT_EQ(output_prepare_calls.load(), 2);
-  ProcessAndCheck(first.get(), 201, "alpha", "red", 32);
-  ProcessAndCheck(second.get(), 202, "beta", "blue", 64);
-  ProcessAndCheck(first.get(), 203, "alpha", "red", 32);
-  ProcessAndCheck(second.get(), 204, "beta", "blue", 64);
+  ProcessAndCheck(first.get(), "alpha", "red", 32);
+  ProcessAndCheck(second.get(), "beta", "blue", 64);
+  ProcessAndCheck(first.get(), "alpha", "red", 32);
+  ProcessAndCheck(second.get(), "beta", "blue", 64);
   EXPECT_EQ(input_prepare_calls.load(), 2);
   EXPECT_EQ(output_prepare_calls.load(), 2);
   ASSERT_EQ(input_observations.size(), 4U);
   ASSERT_EQ(output_observations.size(), 4U);
-  EXPECT_NE(input_observations.at(201).values,
-            input_observations.at(202).values);
-  EXPECT_NE(input_observations.at(201).typed, input_observations.at(202).typed);
-  EXPECT_EQ(input_observations.at(201).values,
-            input_observations.at(203).values);
-  EXPECT_EQ(input_observations.at(202).values,
-            input_observations.at(204).values);
-  EXPECT_NE(output_observations.at(201).values,
-            output_observations.at(202).values);
-  EXPECT_NE(output_observations.at(201).typed,
-            output_observations.at(202).typed);
-  EXPECT_EQ(output_observations.at(201).values,
-            output_observations.at(203).values);
-  EXPECT_EQ(output_observations.at(202).values,
-            output_observations.at(204).values);
-  EXPECT_EQ(output_observations.at(201).pool_capacity, 544U);
-  EXPECT_EQ(output_observations.at(202).pool_capacity, 576U);
-  EXPECT_EQ(output_observations.at(202).typed->requested_size, 64);
-  EXPECT_EQ(output_observations.at(202).effective,
+  EXPECT_NE(input_observations.at(0).values, input_observations.at(1).values);
+  EXPECT_NE(input_observations.at(0).typed, input_observations.at(1).typed);
+  EXPECT_EQ(input_observations.at(0).values, input_observations.at(2).values);
+  EXPECT_EQ(input_observations.at(1).values, input_observations.at(3).values);
+  EXPECT_NE(output_observations.at(0).values, output_observations.at(1).values);
+  EXPECT_NE(output_observations.at(0).typed, output_observations.at(1).typed);
+  EXPECT_EQ(output_observations.at(0).values, output_observations.at(2).values);
+  EXPECT_EQ(output_observations.at(1).values, output_observations.at(3).values);
+  EXPECT_EQ(output_observations.at(0).pool_capacity, 544U);
+  EXPECT_EQ(output_observations.at(1).pool_capacity, 576U);
+  EXPECT_EQ(output_observations.at(1).typed->requested_size, 64);
+  EXPECT_EQ(output_observations.at(1).effective,
             (nlohmann::json{{"marker", "blue:prepared"},
                             {"match_result_json_max_bytes", 576}}));
 }

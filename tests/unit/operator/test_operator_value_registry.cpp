@@ -500,9 +500,6 @@ TEST(OperatorValueRegistryTest,
     EXPECT_FALSE(registry.CopyBindingBySuffix("missing"));
     EXPECT_FALSE(registry.CopyOutputBinding("entity_in", "first"));
   }
-  CompanyOperatorEntityInput input{};
-  input.request_id = 123;
-  EXPECT_EQ(host->read_request_id(&input), 123u);
   EXPECT_EQ(allocator->allocation_name, "first");
   ResolvedOutputPoolSpec spec;
   spec.type = "entity_out";
@@ -1158,7 +1155,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     std::string channel(length < 0 ? 0 : length, 'c');
     CompanyString named_channel{static_cast<int32_t>(channel.size()),
                                 channel.data()};
-    CompanyOperatorAuditInput op_input{7, kMockServiceDialogueAudit, &text,
+    CompanyOperatorAuditInput op_input{kMockServiceDialogueAudit, &text,
                                        length < 0 ? nullptr : &named_channel};
     AlgContext ctx;
     const bool expected = length <= 256;
@@ -1173,8 +1170,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     options.type = in_conv->type;
     options.name = in_conv->name;
     options.params = parameters.get();
-    std::vector<uint64_t> request_ids;
-    options.request_ids = &request_ids;
+
     int dec_ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, view, options,
                                                       &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, expected);
@@ -1216,8 +1212,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
       {input_limits::kMaxAudioPcmSamples + 1, 16000, true, false}};
   for (const auto& test : cases) {
     CompanyOperatorAudioInput op_input{
-        7, kMockServiceAudioAsrIntent,
-        test.has_buffer ? samples.data() : nullptr, test.length, test.rate};
+        kMockServiceAudioAsrIntent, test.has_buffer ? samples.data() : nullptr,
+        test.length, test.rate};
     AlgContext ctx;
     ExternalInputBatchView view;
     view.slots["audio_in"] = BorrowInputForTest({&op_input});
@@ -1230,8 +1226,7 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
     options.type = in_conv->type;
     options.name = in_conv->name;
     options.params = parameters.get();
-    std::vector<uint64_t> request_ids;
-    options.request_ids = &request_ids;
+
     int dec_ret = ::llm_edgeflow::test::DecodeForTest(*in_conv, view, options,
                                                       &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, test.valid);
@@ -1240,8 +1235,8 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   }
   InputLimits limits;
   limits.max_audio_pcm_bytes = sizeof(float);
-  CompanyOperatorAudioInput input{7, kMockServiceAudioAsrIntent, samples.data(),
-                                  2, 16000};
+  CompanyOperatorAudioInput input{kMockServiceAudioAsrIntent, samples.data(), 2,
+                                  16000};
   EXPECT_NE(binding->validate_external(&input, limits, nullptr), 0);
 }
 

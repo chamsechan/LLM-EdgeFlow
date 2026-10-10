@@ -7,10 +7,8 @@ namespace alg_demo {
 namespace {
 
 void ShowKeywordResult(const void* output, const nlohmann::json&,
-                       uint64_t* request_id, int32_t* status,
-                       nlohmann::json* sample_output) {
+                       int32_t* status, nlohmann::json* sample_output) {
   const auto& out = *static_cast<const CompanyOperatorKeywordOutput*>(output);
-  *request_id = out.request_id;
   *status = out.status_code;
   (*sample_output)["is_hit"] = out.is_hit != 0;
   std::string match_result_json;

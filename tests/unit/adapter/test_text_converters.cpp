@@ -33,17 +33,15 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
   CompanyString cs2{static_cast<int32_t>(text2.size()),
                     const_cast<char*>(text2.data())};
 
-  CompanyOperatorEntityInput s1{1001, kMockServiceEntityExtract, &cs1};
-  CompanyOperatorEntityInput s2{1002, kMockServiceEntityExtract, &cs2};
+  CompanyOperatorEntityInput s1{kMockServiceEntityExtract, &cs1};
+  CompanyOperatorEntityInput s2{kMockServiceEntityExtract, &cs2};
 
   ExternalInputBatchView view;
   view.count = 2;
   view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&s1, &s2});
   view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  const std::vector<uint64_t> request_ids{s1.request_id, s2.request_id};
   test::ParsedInputOptions options(*conv);
-  options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -54,9 +52,6 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix(conv->type);
   ASSERT_NE(binding, nullptr);
-  ASSERT_TRUE(binding->read_request_id);
-  EXPECT_EQ(binding->read_request_id(&s1), 1001U);
-  EXPECT_EQ(binding->read_request_id(&s2), 1002U);
 
   const auto* sentences = ctx.Read<TextBatch>("sentence_text");
   ASSERT_NE(sentences, nullptr);
@@ -75,16 +70,14 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   std::string valid_json = "{\"query\": \"Translate me!\", \"lang\": \"en\"}";
   CompanyString cs_valid{static_cast<int32_t>(valid_json.size()),
                          const_cast<char*>(valid_json.data())};
-  CompanyOperatorEntityInput valid_s{2001, kMockServiceTranslate, &cs_valid};
+  CompanyOperatorEntityInput valid_s{kMockServiceTranslate, &cs_valid};
 
   ExternalInputBatchView valid_view;
   valid_view.count = 1;
   valid_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&valid_s});
   valid_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
-  std::vector<uint64_t> request_ids;
   test::ParsedInputOptions options(*conv);
-  options.request_ids = &request_ids;
 
   AlgContext ctx;
   AdapterStatus status;
@@ -101,8 +94,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
   std::string invalid_json = "{\"text\": \"No query field\"}";
   CompanyString cs_invalid{static_cast<int32_t>(invalid_json.size()),
                            const_cast<char*>(invalid_json.data())};
-  CompanyOperatorEntityInput invalid_s{2002, kMockServiceTranslate,
-                                       &cs_invalid};
+  CompanyOperatorEntityInput invalid_s{kMockServiceTranslate, &cs_invalid};
 
   ExternalInputBatchView invalid_view;
   invalid_view.count = 1;
@@ -125,13 +117,13 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   ASSERT_NE(conv->encode_fn, nullptr);
 
   AlgContext ctx;
-  std::vector<uint64_t> req_ids = {3001};
+
   TextBatch answers = {{0, 0, "Bonjour le monde"}};
   ctx.Publish("translation", answers);
 
   char buf[2048] = {0};
   CompanyString cs_buf{2047, buf};
-  CompanyOperatorEntityOutput out_struct{0, kMockServiceTranslate, nullptr, 0};
+  CompanyOperatorEntityOutput out_struct{kMockServiceTranslate, nullptr, 0};
   out_struct.entities_json = &cs_buf;
 
   TestOutputBatchView dest;
@@ -141,7 +133,6 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   dest.SetCapacity("entity_out", "entities_json", sizeof(buf) - 1);
 
   test::ParsedOutputOptions options(*conv);
-  options.request_ids = &req_ids;
 
   size_t written = 0;
   AdapterStatus status;
@@ -149,7 +140,6 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
                                                 &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(out_struct.request_id, 3001U);
   EXPECT_EQ(out_struct.status_code, 0);
 
   ASSERT_NE(out_struct.entities_json, nullptr);
@@ -167,8 +157,7 @@ TEST_F(TextConvertersTest, SameCarrierSelectsBusinessPayload) {
     EXPECT_NE(conv, nullptr);
     if (!conv) return std::string();
     CompanyString value{static_cast<int32_t>(text.size()), text.data()};
-    CompanyOperatorEntityInput input{1,
-                                     *OperatorValueTypeRegistry::Instance()
+    CompanyOperatorEntityInput input{*OperatorValueTypeRegistry::Instance()
                                           .GetBindingBySuffix(conv->type)
                                           ->ServiceType(conv->name),
                                      &value};
@@ -176,9 +165,8 @@ TEST_F(TextConvertersTest, SameCarrierSelectsBusinessPayload) {
     view.count = 1;
     view.slots["entity_in"] = BorrowInputForTest({&input});
     view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-    std::vector<uint64_t> request_ids;
+
     test::ParsedInputOptions options(*conv);
-    options.request_ids = &request_ids;
 
     AlgContext context;
     AdapterStatus status;
@@ -212,12 +200,6 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   ASSERT_TRUE(context.Publish("translation", TextBatch{{0, 0, "hello"}}));
   EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(
                 *conv, &context, options, &destination, &written, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "request_ids");
-  const std::vector<uint64_t> request_ids{42};
-  options.request_ids = &request_ids;
-  EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(
-                *conv, &context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.FieldPath(), "destination");
   destination.count = 1;
@@ -227,7 +209,7 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   EXPECT_EQ(status.FieldPath(), "entity_out");
   char bytes[2] = {};
   CompanyString text{1, bytes};
-  CompanyOperatorEntityOutput output{0, kMockServiceTranslate, nullptr, 0};
+  CompanyOperatorEntityOutput output{kMockServiceTranslate, nullptr, 0};
   output.entities_json = &text;
   destination.leased_slots["entity_out"] = {&output};
   destination.slot_types["entity_out"] = "CompanyOperatorEntityOutput";

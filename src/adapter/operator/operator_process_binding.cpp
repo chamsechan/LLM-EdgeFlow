@@ -44,16 +44,13 @@ bool RepeatedType(const std::vector<Selected>& selected,
 int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
     const std::vector<SelectedInput>& selected, const InputLimits& limits,
-    std::vector<ExternalInputBatchView>* out_views,
-    std::vector<uint64_t>* request_ids, std::string* error) {
-  if (!out_views || !request_ids) {
+    std::vector<ExternalInputBatchView>* out_views, std::string* error) {
+  if (!out_views) {
     if (error) *error = "Null input extraction destination";
     return -3;
   }
   out_views->clear();
   out_views->resize(selected.size());
-  request_ids->assign(inputs.size(), 0);
-  std::vector<bool> has_id(inputs.size(), false);
   std::vector<std::unordered_set<std::string>> recognized(inputs.size());
   for (size_t index = 0; index < selected.size(); ++index) {
     const auto& def = *selected[index].converter;
@@ -101,19 +98,6 @@ int ValidateAndExtractOperatorInputs(
                    "; expected " + std::to_string(*service);
         return -3;
       }
-      if (binding->read_request_id) {
-        const auto id = binding->read_request_id(payload.get());
-        if (has_id[frame] && (*request_ids)[frame] != id) {
-          if (error)
-            *error = "Struct " + binding->external_c_type_name + " frame " +
-                     std::to_string(frame) + " has request_id " +
-                     std::to_string(id) + "; expected " +
-                     std::to_string((*request_ids)[frame]);
-          return -3;
-        }
-        (*request_ids)[frame] = id;
-        has_id[frame] = true;
-      }
       recognized[frame].insert(key);
       payloads[frame] = payload;
     }
@@ -123,11 +107,6 @@ int ValidateAndExtractOperatorInputs(
       if (error)
         *error = "Unknown extra input keys present in frame " +
                  std::to_string(frame);
-      return -3;
-    }
-    if (!has_id[frame]) {
-      if (error)
-        *error = "No request_id source in frame " + std::to_string(frame);
       return -3;
     }
   }

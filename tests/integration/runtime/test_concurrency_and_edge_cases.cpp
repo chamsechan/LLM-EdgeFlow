@@ -67,9 +67,7 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
         std::string query = "客户请求VIP" + std::to_string(t) + "专席服务";
         CompanyString cs{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
-        CompanyOperatorKeywordInput in_req{
-            static_cast<uint64_t>(t * 1000 + iter), kMockServiceKeywordMatch,
-            &cs};
+        CompanyOperatorKeywordInput in_req{kMockServiceKeywordMatch, &cs};
 
         operator_api::NamedIoBatch inputs(1);
         inputs[0]["client_channel.keyword_in"] =
@@ -174,9 +172,8 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
     CompanyString cs_symbols{static_cast<int32_t>(symbols_str.size()),
                              const_cast<char*>(symbols_str.data())};
 
-    CompanyOperatorKeywordInput empty_req{99901, kMockServiceKeywordMatch,
-                                          &cs_empty};
-    CompanyOperatorKeywordInput symbols_req{99902, kMockServiceKeywordMatch,
+    CompanyOperatorKeywordInput empty_req{kMockServiceKeywordMatch, &cs_empty};
+    CompanyOperatorKeywordInput symbols_req{kMockServiceKeywordMatch,
                                             &cs_symbols};
 
     operator_api::NamedIoBatch inputs(2);
@@ -223,8 +220,8 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
     int ret = op.Create(&handle, &param);
     ASSERT_EQ(ret, 0);
 
-    CompanyOperatorAudioInput empty_audio{99903, kMockServiceAudioAsrIntent,
-                                          nullptr, 0, 16000};
+    CompanyOperatorAudioInput empty_audio{kMockServiceAudioAsrIntent, nullptr,
+                                          0, 16000};
     operator_api::NamedIoBatch inputs(1);
     inputs[0]["mic_0.audio_in"] =
         operator_api::MakeBorrowedOperatorInput(&empty_audio);

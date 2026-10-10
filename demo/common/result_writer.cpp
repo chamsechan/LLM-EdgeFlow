@@ -76,7 +76,6 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
 
       nlohmann::json record;
       record["profile"] = profile_name;
-      record["request_id"] = sample.request_id;
       record["status"] = sample.status;
       record["latency_ms"] = sample.latency_ms;
       if (sample.status != 0) {
