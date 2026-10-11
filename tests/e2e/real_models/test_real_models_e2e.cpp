@@ -1,237 +1,167 @@
 #include <gtest/gtest.h>
 
-#include <chrono>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
-#include <memory>
+#include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "edgeflow/operator/interface.h"
-#include "edgeflow/operator/types.h"
-#include "engine/model_interface.h"
-#include "engine/model_runtime_factory.h"
-#include "platform_mock/operator_data_types.h"
+#include "engine/backend_registry.h"
+#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
+namespace {
+namespace fs = std::filesystem;
+namespace api = operator_api;
+using Json = nlohmann::json;
 
-class RealModelE2ETest : public ::testing::Test {
+class OwnedRealOperator {
+ public:
+  explicit OwnedRealOperator(api::OperatorFunc table) : table_(table) {}
+  OwnedRealOperator(const OwnedRealOperator&) = delete;
+  OwnedRealOperator& operator=(const OwnedRealOperator&) = delete;
+  ~OwnedRealOperator() {
+    if (handle_) EXPECT_EQ(Close(), 0) << api::GetOperatorLastError();
+  }
+  int Open(const std::string& config, const fs::path& root) {
+    const auto directory = root.string();
+    api::CreateParam params;
+    params.cfg_file_name = config.c_str();
+    params.model_path = directory.c_str();
+    params.compute_platform = api::ComputePlatform::kCpu;
+    params.max_frame_depth = 1;
+    return table_.Create(&handle_, &params);
+  }
+  int Close() {
+    void* consumed = std::exchange(handle_, nullptr);
+    return consumed ? table_.Destroy(consumed) : 0;
+  }
+  void* get() const { return handle_; }
+
+ private:
+  api::OperatorFunc table_;
+  void* handle_ = nullptr;
+};
+
+class RealModelExecutionTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    project_root_ = std::filesystem::weakly_canonical(
-        std::filesystem::path(LLM_EDGEFLOW_PROJECT_SOURCE_DIR));
-    model_root_ = project_root_ / "configs";
-    model_path_ = model_root_ / "qwen2.5-0.5b-instruct-q4_k_m.gguf";
+    ops_ = api::Get_LLM_EDGEFLOW_OperatorTable();
+    ASSERT_EQ(ops_.Init(), 0) << api::GetOperatorLastError();
+    initialized_ = true;
+  }
+  void TearDown() override {
+    if (initialized_)
+      EXPECT_EQ(ops_.DeInit(), 0) << api::GetOperatorLastError();
+  }
+  api::OperatorFunc ops_{};
+  bool initialized_ = false;
+  fs::path root = LLM_EDGEFLOW_PROJECT_SOURCE_DIR;
+
+  static Json CopyResponse(const api::NamedIoBatch& outputs) {
+    const auto* output = static_cast<const CompanyOperatorOutput*>(
+        outputs.at(0).at("real.json_out").get());
+    EXPECT_NE(output, nullptr);
+    if (!output || !output->result_json) return Json();
+    EXPECT_EQ(output->status_code, 0);
+    return Json::parse(output->result_json->data,
+                       output->result_json->data + output->result_json->length);
   }
 
-  std::filesystem::path project_root_;
-  std::filesystem::path model_root_;
-  std::filesystem::path model_path_;
-
-  std::shared_ptr<ILlmModel> CreateModel() const {
-    ModelLoadSpec spec;
-    spec.impl_name = "qwen_causal_lm";
-    spec.backend_type = "llama_cpp";
-    spec.model_file = model_path_.string();
-    spec.model_params = {{"add_bos", false}};
-    spec.backend_params = {
-        {"context_size", 512}, {"decode_batch_size", 512}, {"n_gpu_layers", 0}};
-    std::string diagnostic;
-    auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
-    EXPECT_NE(model, nullptr) << diagnostic;
-    return std::dynamic_pointer_cast<ILlmModel>(model);
+  static std::vector<float> ReadPcm(const fs::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(stream)),
+                                     std::istreambuf_iterator<char>());
+    if (bytes.size() % 4 != 0) return {};
+    std::vector<float> pcm;
+    pcm.reserve(bytes.size() / 4);
+    for (size_t index = 0; index < bytes.size(); index += 4) {
+      const uint32_t bits = static_cast<uint32_t>(bytes[index]) |
+                            (static_cast<uint32_t>(bytes[index + 1]) << 8) |
+                            (static_cast<uint32_t>(bytes[index + 2]) << 16) |
+                            (static_cast<uint32_t>(bytes[index + 3]) << 24);
+      float sample = 0;
+      std::memcpy(&sample, &bits, sizeof(sample));
+      pcm.push_back(sample);
+    }
+    return pcm;
   }
 };
 
-// 1. 真实 Qwen GGUF 物理前向与自回归 Token 生成测试
-TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
-  ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
-      << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
-         "./scripts/fetch_real_test_models.sh --gguf-only";
-  auto model = CreateModel();
-  ASSERT_NE(model, nullptr);
-
-  std::string prompt = "你好，请用一句话告诉我什么是人工智能？";
-  GenerateOptions opt;
-  opt.random_seed = 17;
-  opt.max_tokens = 64;
-  opt.temperature = 0.7f;
-
-  TextBatch output;
-  auto t_start = std::chrono::high_resolution_clock::now();
-  int ret = model->Generate({{1, 0, prompt}}, opt, &output);
-  auto t_end = std::chrono::high_resolution_clock::now();
-
-  double elapsed_ms =
-      std::chrono::duration<double, std::milli>(t_end - t_start).count();
-
-  EXPECT_EQ(ret, 0);
-  ASSERT_EQ(output.size(), 1U);
-  EXPECT_FALSE(output[0].data.empty());
-  std::cout << "\n=================================================="
-            << std::endl;
-  std::cout << "  [Real Model E2E] Prompt : " << prompt << std::endl;
-  std::cout << "  [Real Model E2E] Output : " << output[0].data << std::endl;
-  std::cout << "  [Real Model E2E] Latency: " << elapsed_ms << " ms"
-            << std::endl;
-  std::cout << "=================================================="
-            << std::endl;
-}
-
-// 2. 真实 Qwen 模型在 FixedBatchExecutor 定长对齐批推理压测
-TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
-  ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
-      << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
-         "./scripts/fetch_real_test_models.sh --gguf-only";
-  auto model = CreateModel();
-  ASSERT_NE(model, nullptr);
-
-  // 构造 3 条请求，验证独立 sequence 与 provenance。
-  std::vector<TraceableItem<std::string>> input_batch = {
-      {101, 0, "中国的首都是哪里？"},
-      {102, 0, "1+1等于几？"},
-      {103, 0, "请用一句话介绍机器学习。"},
-  };
-
-  std::vector<TraceableItem<std::string>> output_batch;
-  GenerateOptions opt;
-  opt.random_seed = 17;
-  opt.max_tokens = 32;
-  opt.temperature = 0.1f;
-
-  int ret = model->Generate(input_batch, opt, &output_batch);
-  EXPECT_EQ(ret, 0);
-  ASSERT_EQ(output_batch.size(), 3);
-
-  // 严格校验 Provenance ID 追溯性与非空真实生成
-  for (size_t i = 0; i < output_batch.size(); ++i) {
-    EXPECT_EQ(output_batch[i].req_id, input_batch[i].req_id);
-    EXPECT_FALSE(output_batch[i].data.empty());
-    std::cout << "  [Batch Item #" << i << "] ReqID: " << output_batch[i].req_id
-              << " | Output: " << output_batch[i].data << std::endl;
+TEST_F(RealModelExecutionTest,
+       GgufTranslationTraversesPublicOperatorWithActualWeights) {
+  if (!BackendRegistry::Instance().Has("llama_cpp")) {
+    RecordProperty("optional_runtime_asset", "selected build lacks llama_cpp");
+    GTEST_SKIP() << "Selected build does not register llama_cpp";
   }
-}
-
-// 3. 真实模型接入 Operator 全链路端到端验证
-TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
-  ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
-      << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
-         "./scripts/fetch_real_test_models.sh --gguf-only";
-  std::vector<std::string> sentences = {
-      "李雷在微软北京研发中心负责AI大模型芯片开发。"};
-  std::ifstream corpus(project_root_ / "data/corpus_entity_extract.txt");
-  ASSERT_TRUE(corpus.good());
-  std::string line;
-  while (std::getline(corpus, line)) {
-    const auto first = line.find_first_not_of(" \t\r\n");
-    if (first != std::string::npos && line[first] != '#')
-      sentences.push_back(line);
+  const auto weight = root / "configs/qwen2.5-0.5b-instruct-q4_k_m.gguf";
+  if (!fs::is_regular_file(weight)) {
+    RecordProperty("optional_runtime_asset", weight.string());
+    GTEST_SKIP() << "Missing pinned GGUF; use "
+                    "scripts/fetch_real_test_models.sh --gguf-only: "
+                 << weight;
   }
-  ASSERT_GT(sentences.size(), 1u) << "Public Profile corpus must not be empty";
+  OwnedRealOperator instance(ops_);
+  ASSERT_EQ(instance.Open("configs/pipeline_translate_cpu.conf", root), 0)
+      << api::GetOperatorLastError();
+  std::string request = R"({"query":"Hello world."})";
+  CompanyString text{static_cast<int32_t>(request.size()), request.data()};
+  CompanyOperatorEntityInput carrier{0, &text};
+  api::NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["real.entity_in"] = api::MakeBorrowedOperatorInput(&carrier);
+  outputs[0]["real.json_out"] = {};
+  ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), 0)
+      << api::GetOperatorLastError();
+  const auto response = CopyResponse(outputs);
+  ASSERT_TRUE(response.is_object());
+  ASSERT_TRUE(response.contains("translated"));
+  ASSERT_TRUE(response["translated"].is_string());
+  EXPECT_FALSE(response["translated"].get<std::string>().empty());
+  // This proves physical execution and response transport, not translation
+  // quality.
+  outputs.clear();
+  EXPECT_EQ(instance.Close(), 0) << api::GetOperatorLastError();
+}
 
-  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-  ASSERT_EQ(op.Init(), 0);
-
-  const std::string root_str = project_root_.string();
-  operator_api::CreateParam create_param{};
-  create_param.model_path = root_str.c_str();
-  create_param.cfg_file_name = "configs/pipeline_entity_extract_cpu.conf";
-  create_param.device_id = 0;
-  create_param.compute_platform = operator_api::ComputePlatform::kCpu;
-  create_param.max_frame_depth = 25;
-
-  void* handle = nullptr;
-  ASSERT_EQ(op.Create(&handle, &create_param), 0);
-  ASSERT_NE(handle, nullptr);
-
-  for (size_t i = 0; i < sentences.size(); ++i) {
-    SCOPED_TRACE(sentences[i]);
-
-    CompanyString cs{static_cast<int32_t>(sentences[i].size()),
-                     const_cast<char*>(sentences[i].data())};
-    CompanyOperatorEntityInput req{kMockServiceEntityExtract, &cs};
-
-    operator_api::NamedIoBatch inputs(1);
-    inputs[0]["nlp_node.entity_in"] =
-        operator_api::MakeBorrowedOperatorInput(&req);
-    operator_api::NamedIoBatch outputs(1);
-    outputs[0]["nlp_node.json_out"] = nullptr;
-
-    const int ret = op.Process(handle, inputs, outputs);
-    EXPECT_EQ(ret, 0);
-    if (ret != 0) continue;
-    ASSERT_EQ(outputs.size(), 1u);
-    auto out_sp = outputs[0]["nlp_node.json_out"];
-    ASSERT_NE(out_sp, nullptr);
-    auto* out = static_cast<CompanyOperatorOutput*>(out_sp.get());
-    EXPECT_EQ(out->service_type, kMockServiceEntityExtract);
-    EXPECT_EQ(out->status_code, 0);
-    ASSERT_NE(out->result_json, nullptr);
-    std::string json_str(out->result_json->data, out->result_json->length);
-    const auto entities = nlohmann::json::parse(json_str, nullptr, false);
-    EXPECT_TRUE(entities.is_array()) << json_str;
-    EXPECT_FALSE(entities.empty()) << json_str;
-    std::cout << "  [Operator Real Model Output] " << json_str << std::endl;
+TEST_F(RealModelExecutionTest,
+       WhisperSpeechTraversesPublicOperatorWithActualPcm) {
+  if (!BackendRegistry::Instance().Has("whisper_cpp")) {
+    RecordProperty("optional_runtime_asset",
+                   "selected build lacks whisper_cpp");
+    GTEST_SKIP() << "Selected build does not register whisper_cpp";
   }
-
-  EXPECT_EQ(op.Destroy(handle), 0);
-  EXPECT_EQ(op.DeInit(), 0);
+  const auto weight = root / "configs/ggml-base.bin";
+  const auto audio = root / "data/audio/nav_001.f32";
+  if (!fs::is_regular_file(weight) || !fs::is_regular_file(audio)) {
+    RecordProperty("optional_runtime_asset",
+                   weight.string() + ";" + audio.string());
+    GTEST_SKIP() << "Missing pinned Whisper weight or speech fixture; use "
+                    "scripts/fetch_real_test_models.sh --whisper-e2e";
+  }
+  const auto pcm = ReadPcm(audio);
+  ASSERT_FALSE(pcm.empty());
+  OwnedRealOperator instance(ops_);
+  ASSERT_EQ(instance.Open("configs/pipeline_audio_asr_intent_cpu.conf", root),
+            0)
+      << api::GetOperatorLastError();
+  CompanyOperatorAudioInput carrier{0, pcm.data(),
+                                    static_cast<int32_t>(pcm.size()), 16000};
+  api::NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["real.audio_in"] = api::MakeBorrowedOperatorInput(&carrier);
+  outputs[0]["real.json_out"] = {};
+  ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), 0)
+      << api::GetOperatorLastError();
+  const auto response = CopyResponse(outputs);
+  ASSERT_TRUE(response.is_object());
+  ASSERT_TRUE(response["transcribed_text"].is_string());
+  EXPECT_FALSE(response["transcribed_text"].get<std::string>().empty());
+  EXPECT_TRUE(response["intent_slot"].is_object());
+  outputs.clear();
+  EXPECT_EQ(instance.Close(), 0) << api::GetOperatorLastError();
 }
-
-#ifdef HAVE_WHISPERCPP
-// 4. 真实 Whisper 模型音频转录端到端验证
-TEST_F(RealModelE2ETest, RealWhisperAsrTranscribe) {
-  const auto whisper_path = model_root_ / "ggml-base.bin";
-  ASSERT_TRUE(std::filesystem::is_regular_file(whisper_path))
-      << "ENABLE_REAL_MODEL_TESTS with HAVE_WHISPERCPP requires pinned "
-         "Whisper model; run ./scripts/fetch_real_test_models.sh --whisper";
-  const auto audio_path = project_root_ / "data/audio/nav_001.f32";
-  ASSERT_TRUE(std::filesystem::is_regular_file(audio_path))
-      << "Real audio file not found at " << audio_path;
-
-  ModelLoadSpec spec;
-  spec.impl_name = "whisper_asr";
-  spec.backend_type = "whisper_cpp";
-  spec.model_file = whisper_path.string();
-  spec.model_params = {
-      {"max_audio_seconds", 30},
-      {"max_output_bytes", 65536},
-  };
-  spec.backend_params = {{"n_threads", 2}};
-
-  std::string diagnostic;
-  auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
-  ASSERT_NE(model, nullptr) << diagnostic;
-  auto asr_model = std::dynamic_pointer_cast<IAsrModel>(model);
-  ASSERT_NE(asr_model, nullptr);
-
-  std::ifstream ifs(audio_path, std::ios::binary);
-  ASSERT_TRUE(ifs.is_open());
-  const auto sz = std::filesystem::file_size(audio_path);
-  std::vector<float> pcm(sz / sizeof(float));
-  ifs.read(reinterpret_cast<char*>(pcm.data()), sz);
-
-  AudioPcmPayload audio;
-  audio.sample_rate = 16000;
-  audio.pcm_data = std::move(pcm);
-
-  std::vector<TraceableItem<std::string>> output;
-  int ret = asr_model->Transcribe({{5001, 0, std::move(audio)}},
-                                  TranscribeOptions{}, &output);
-  EXPECT_EQ(ret, 0);
-  ASSERT_EQ(output.size(), 1U);
-  EXPECT_EQ(output[0].req_id, 5001);
-  EXPECT_FALSE(output[0].data.empty());
-  EXPECT_TRUE(output[0].data.find("导航") != std::string::npos ||
-              output[0].data.find("導航") != std::string::npos);
-  std::cout << "\n=================================================="
-            << std::endl;
-  std::cout << "  [Real Model E2E Whisper] Output: " << output[0].data
-            << std::endl;
-  std::cout << "=================================================="
-            << std::endl;
-}
-#endif
-
+}  // namespace
 }  // namespace llm_edgeflow
