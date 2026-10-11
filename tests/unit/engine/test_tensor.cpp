@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cerrno>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -9,6 +10,21 @@
 
 #include "engine/tensor.h"
 #include "tests/support/scoped_allocation_failure.h"
+
+#ifdef LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN
+namespace {
+thread_local bool fail_tensor_allocation = false;
+}
+extern "C" int __real_posix_memalign(void**, size_t, size_t);
+extern "C" int __wrap_posix_memalign(void** pointer, size_t alignment,
+                                     size_t bytes) {
+  if (fail_tensor_allocation) {
+    fail_tensor_allocation = false;
+    return ENOMEM;
+  }
+  return __real_posix_memalign(pointer, alignment, bytes);
+}
+#endif
 
 namespace llm_edgeflow {
 namespace {
@@ -137,6 +153,26 @@ TEST(TensorStorageTest, BothAccessorsRejectMalformedExternalStorage) {
   GetMutableTensorData<float>(&valid_external)[1] = 4.5F;
   EXPECT_EQ(GetTensorData<float>(valid_external)[1], 4.5F);
 }
+
+#ifdef LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN
+TEST(TensorStorageTest, FailedNativeAlignedAllocationIsNeverAValidEmptyTensor) {
+  Tensor tensor;
+  ASSERT_TRUE(CreateHostTensor({ElementType::kFloat32, {1}}, &tensor));
+  std::weak_ptr<ITensorBuffer> previous = tensor.buffer;
+  fail_tensor_allocation = true;
+  std::string diagnostic;
+  const bool success =
+      CreateHostTensor({ElementType::kFloat32, {2}}, &tensor, &diagnostic);
+  const bool injected = !fail_tensor_allocation;
+  fail_tensor_allocation = false;
+  EXPECT_TRUE(injected);
+  EXPECT_FALSE(success);
+  EXPECT_FALSE(tensor.buffer);
+  EXPECT_TRUE(tensor.desc.shape.empty());
+  EXPECT_TRUE(previous.expired());
+  EXPECT_NE(diagnostic.find("aligned HostTensorBuffer"), std::string::npos);
+}
+#endif
 
 }  // namespace
 }  // namespace llm_edgeflow

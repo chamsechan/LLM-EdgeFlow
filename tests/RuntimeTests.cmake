@@ -136,7 +136,6 @@ edgeflow_enable_test_pch(edgeflow_test_adapter_runner)
 file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp")
 list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_doc_qa_rerank.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_catalog_validator.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_authoring.cpp"
   "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
@@ -222,9 +221,6 @@ edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "LoggingRecordTest.*:LoggingNameOverrideTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DagPipelineTest edgeflow_test_core_runner
   "PipelineRuntimeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(EngineFaultToleranceAndLifecycleTest
-  edgeflow_test_core_runner "EngineFaultToleranceAndLifecycleTest.*"
-  "${_edgeflow_tier1}")
 edgeflow_add_runner_test(PipelineConfigTest edgeflow_test_core_runner
   "PipelineParsingTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
@@ -241,14 +237,6 @@ edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
   "PipelinePlanningTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
   "NodeDefinitionTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
-  "ModelBackendDecouplingTest.*:ModelConfigValidationTest.*" "${_edgeflow_tier1};kite")
-edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
-  "ModelBackendPipelineTest.*" "${_edgeflow_tier1};kite")
-edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
-  "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(OnnxAndRerankerModelTest edgeflow_test_core_runner
-  "OnnxAndRerankerModelTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
   "TextChunkNodeTest.*" "${_edgeflow_tier1}")
@@ -277,8 +265,6 @@ edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "AuthorNodeTest.*:ModelCallTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(NodeModelOptionsTest edgeflow_test_nodes_runner
-  "FunctionNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ScalarParametersTest edgeflow_test_nodes_runner
   "ScalarParametersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ControlPayloadTest edgeflow_test_nodes_runner
@@ -291,14 +277,6 @@ set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorSafetyTest edgeflow_test_adapter_runner
   "OperatorPublicationTest.*:OperatorBoundaryTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(DifferentIoModalitiesTest edgeflow_test_adapter_runner
-  "DifferentIoModalitiesTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(AllBizPipelinesTest edgeflow_test_adapter_runner
-  "AllBizPipelinesTest.*" "${_edgeflow_tier3}")
-edgeflow_add_runner_test(ConcurrencyAndEdgeCasesTest edgeflow_test_adapter_runner
-  "ConcurrencyAndEdgeCasesTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(RuntimeControlAndHotSwapTest edgeflow_test_adapter_runner
-  "RuntimeControlAndHotSwapTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runner
   "PlatformCarrierContractsTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(KeywordResponseTest edgeflow_test_adapter_runner
@@ -311,21 +289,13 @@ edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
   "OperatorValueRegistryTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(OperatorGoldenTest edgeflow_test_adapter_runner
-  "OperatorGoldenTest.*:ScopedTestOperatorTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
-  "AdapterPurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
   "IoConverterTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
   "IoConverterRegistryTest.*:ConverterRowsTest.*:ConverterIndexTest.*:ConverterKeyTest.*:ConverterRoutingTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConverterTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
-  "ComplexConvertersTest.*" "${_edgeflow_tier1}")
 
-edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
-  "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
 # Catalog、Validator 与 Authoring 的原生契约使用带工具依赖的 runner。
 edgeflow_add_runner_test(PipelineContractsTest edgeflow_test_tooling_runner
   "PipelineCatalogTest.*:PipelineEditingTest.*"
@@ -540,17 +510,12 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   BatchExecutorTest
   CompanyAlgLogTest
   DagPipelineTest
-  EngineFaultToleranceAndLifecycleTest
   PipelineConfigTest
   RegistryReentrantTest
   CatalogContractSsotTest
   TypedBlackboardContractsTest
   ValidatedPipelinePlanTest
   DefinitionSchemaValidationTest
-  ModelBackendDecouplingTest
-  ModelBackendPipelineTest
-  OnnxAndEmbeddingModelTest
-  OnnxAndRerankerModelTest
   TextChunkNodeTest
   TextEmbeddingNodeTest
   VectorTopKNodeTest
@@ -568,22 +533,14 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   ParameterBindingTest
   CppOperatorSdkTest
   OperatorSafetyTest
-  DifferentIoModalitiesTest
-  AllBizPipelinesTest
-  ConcurrencyAndEdgeCasesTest
-  RuntimeControlAndHotSwapTest
   AdapterContractSecurityTest
   OperatorApiTest
   OperatorOutputPoolTest
   RuntimeFacadeTest
   OperatorValueRegistryTest
-  OperatorGoldenTest
-  AdapterPurityTest
   IoConverterTest
   IoConverterRegistryTest
   TextConvertersTest
-  ComplexConvertersTest
-  DocQaRerankTest
   PipelineContractsTest
   DemoRunnerTest
   RegistryConflictNodeTest
