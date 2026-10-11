@@ -53,6 +53,16 @@ TEST(TensorStorageTest, AllocatesZeroedAlignedStorageWithSharedOwnership) {
   ASSERT_NE(GetMutableTensorData<int64_t>(&tensor), nullptr);
   *GetMutableTensorData<int64_t>(&tensor) = 73;
   EXPECT_EQ(*GetTensorData<int64_t>(tensor), 73);
+  ASSERT_TRUE(CreateHostTensor({ElementType::kInt32, {2}}, &tensor));
+  EXPECT_EQ(tensor.buffer->ByteSize(), 8U);
+  ASSERT_NE(GetMutableTensorData<int32_t>(&tensor), nullptr);
+  GetMutableTensorData<int32_t>(&tensor)[1] = -7;
+  EXPECT_EQ(GetTensorData<int32_t>(tensor)[1], -7);
+  ASSERT_TRUE(CreateHostTensor({ElementType::kUInt8, {2}}, &tensor));
+  EXPECT_EQ(tensor.buffer->ByteSize(), 2U);
+  ASSERT_NE(GetMutableTensorData<uint8_t>(&tensor), nullptr);
+  GetMutableTensorData<uint8_t>(&tensor)[1] = 255;
+  EXPECT_EQ(GetTensorData<uint8_t>(tensor)[1], 255);
   ASSERT_TRUE(CreateHostTensor({ElementType::kUInt8, {2, 0}}, &tensor));
   EXPECT_EQ(tensor.buffer->ByteSize(), 0U);
   std::string diagnostic;
