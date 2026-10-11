@@ -369,15 +369,20 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
              {"depends_on", nlohmann::json::array()},
              {"params", {{"req_str", "hello"}, {"opt_int", 200}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  auto it =
-      std::find_if(plan.report.diagnostics.begin(),
-                   plan.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kConfigFieldRange;
-                   });
-  ASSERT_NE(it, plan.report.diagnostics.end());
-  EXPECT_EQ(it->path, "/pipeline/0/params/opt_int");
+  for (int value : {0, 200}) {
+    SCOPED_TRACE(value);
+    pipeline["pipeline"][0]["params"]["opt_int"] = value;
+    auto plan =
+        PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
+    EXPECT_FALSE(plan.report.ok);
+    auto it =
+        std::find_if(plan.report.diagnostics.begin(),
+                     plan.report.diagnostics.end(), [](const auto& item) {
+                       return item.code == DiagnosticCode::kConfigFieldRange;
+                     });
+    ASSERT_NE(it, plan.report.diagnostics.end());
+    EXPECT_EQ(it->path, "/pipeline/0/params/opt_int");
+  }
 }
 
 TEST_F(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
@@ -1268,6 +1273,53 @@ TEST_F(DefinitionSchemaValidationTest, NodesRejectEmptyFlowMetadata) {
     node.outputs = {port};
     EXPECT_FALSE(ValidateNodeDefinitionStructure(node));
   }
+}
+
+TEST_F(DefinitionSchemaValidationTest,
+       ValidateAndNormalizeConfigSuccessAndDefaults) {
+  std::vector<ConfigFieldDefinition> schema = {
+      {"str_field", ConfigValueKind::kString, false, "default_str"},
+      {"int_field", ConfigValueKind::kInteger, false, 42, 1.0, 100.0},
+      {"num_field", ConfigValueKind::kNumber, false, 3.14, 0.0, 10.0},
+      {"bool_field", ConfigValueKind::kBoolean, false, true},
+      {"enum_field",
+       ConfigValueKind::kString,
+       false,
+       "opt_a",
+       std::nullopt,
+       std::nullopt,
+       {"opt_a", "opt_b"}},
+      {"req_field", ConfigValueKind::kString, true},
+  };
+
+  nlohmann::json input = {{"req_field", "user_val"}, {"int_field", 50}};
+
+  nlohmann::json normalized;
+  std::vector<ValidationDiagnostic> diags;
+  bool ok = ValidateAndNormalizeConfig(schema, input, &normalized, &diags,
+                                       "/test_config");
+
+  EXPECT_TRUE(ok);
+  EXPECT_TRUE(diags.empty());
+  EXPECT_EQ(normalized["req_field"], "user_val");
+  EXPECT_EQ(normalized["int_field"], 50);
+  EXPECT_EQ(normalized["str_field"], "default_str");
+  EXPECT_EQ(normalized["num_field"], 3.14);
+  EXPECT_EQ(normalized["bool_field"], true);
+  EXPECT_EQ(normalized["enum_field"], "opt_a");
+
+  // Callers may validate without requesting a normalized document.
+  EXPECT_TRUE(ValidateAndNormalizeConfig(schema, input, nullptr, &diags,
+                                         "/test_config"));
+  // 验证输入未被修改
+  EXPECT_FALSE(input.contains("str_field"));
+  input["unexpected_field"] = 123;
+  diags.clear();
+  EXPECT_FALSE(ValidateAndNormalizeConfig(schema, input, nullptr, &diags,
+                                          "/test_config"));
+  ASSERT_EQ(diags.size(), 1U);
+  EXPECT_EQ(diags.front().code, DiagnosticCode::kUnknownConfigField);
+  EXPECT_EQ(diags.front().path, "/test_config/unexpected_field");
 }
 
 }  // namespace llm_edgeflow

@@ -882,15 +882,6 @@ TEST_F(OnnxAndRerankerModelTest, FixedAndDynamicBatchScheduling) {
 // 3. Catalog 注册自省测试
 // =============================================================================
 
-TEST_F(OnnxAndRerankerModelTest, CatalogRegistrations) {
-  auto mdef_opt = ModelRegistry::Instance().Find("bge_reranker");
-  ASSERT_TRUE(mdef_opt.has_value());
-  EXPECT_EQ(mdef_opt->impl_name, "bge_reranker");
-  EXPECT_EQ(mdef_opt->model_type, "rerank");
-  EXPECT_EQ(mdef_opt->required_protocol, ExecutionProtocol::kTensorGraph);
-  EXPECT_EQ(mdef_opt->concurrency, InferenceConcurrency::kConcurrent);
-}
-
 // =============================================================================
 // 4. 真实 ONNX Runtime Fixture 端到端测试
 // =============================================================================

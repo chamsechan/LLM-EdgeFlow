@@ -150,7 +150,11 @@ class AdapterHarness {
     }
     size_t written = 0;
     int ret = EncodeOperator(&view, &written);
-    if (ret == 0 && written <= outputs->size()) {
+    if (ret == 0) {
+      if (written > outputs->size()) {
+        throw std::logic_error(
+            "Converter reported more rows than the test output capacity");
+      }
       outputs->resize(written);
     }
     return ret;

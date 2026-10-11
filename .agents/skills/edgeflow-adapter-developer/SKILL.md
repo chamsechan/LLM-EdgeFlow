@@ -52,10 +52,11 @@ Converter 不声明平台枚举。Operator 输入输出 vector 按同一行关�
 
 ## 验证新增路径
 
-复用 `tests/unit/adapter/` 与 `tests/contract/abi/` 的相关套件，使用
-`tests/support/adapter_harness.h`、`operator_test_fixture.h`。至少覆盖正常完整对象、
-契约要求的无效输入、输出容量不足、批次限额、逐行对应关系/状态及失败无残留输出。
-借用内存和多槽修改再补生命周期/释放断言。
+按[测试编写与归属](../../../tests/README.md)区分转换语义、公共机制和完整业务。
+复用 AdapterHarness 与 OperatorTestFixture；具体转换在 `tests/unit/adapter/` 验证，
+完整请求/响应进入 `tests/integration/operator/test_<biz>_operator.cpp`。
+公共容量/批次机制维护完整矩阵，业务保留契约要求的无效输入、容量、逐行关系和失败无残留证据；
+借用内存和多槽修改再补生命周期断言，不按业务复制整套公共机制测试。
 
 ```bash
 cmake --build build --target edgeflow_test_adapter_runner alg_pipeline_tool -j 4

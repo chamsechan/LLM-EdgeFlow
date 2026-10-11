@@ -24,6 +24,8 @@ TEST_F(TypedBlackboardContractsTest, TypedKeyOperations) {
   constexpr BlackboardKey<int> kTestInt{"test_int", "int"};
 
   AlgContext ctx;
+  EXPECT_FALSE(ctx.Has("missing"));
+  EXPECT_EQ(ctx.Read<int>("missing"), nullptr);
   EXPECT_FALSE(ctx.Has(kTestStrings));
   EXPECT_EQ(ctx.Read(kTestStrings), nullptr);
 
@@ -41,6 +43,7 @@ TEST_F(TypedBlackboardContractsTest, TypedKeyOperations) {
   auto* retrieved_int = ctx.Read(kTestInt);
   ASSERT_NE(retrieved_int, nullptr);
   EXPECT_EQ(*retrieved_int, 42);
+  EXPECT_EQ(ctx.Read<double>(kTestInt.name), nullptr);
 }
 
 // 2. 验证类型不匹配时安全返回 nullptr
@@ -79,18 +82,22 @@ TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
   // TraceableItem 批处理样本可追溯性
   std::vector<TraceableItem<std::string>> prompts = {
       TraceableItem<std::string>{1001, 0, "Prompt for 1001-0"},
-      TraceableItem<std::string>{1002, 0, "Prompt for 1002-0"}};
+      TraceableItem<std::string>{1002, 0, "Prompt for 1002-0"},
+      TraceableItem<std::string>{1001, 1, "Prompt for 1001-1"}};
   ASSERT_TRUE(ctx.Publish(kPrompts, prompts));
 
   auto* retrieved_prompts = ctx.Read(kPrompts);
   ASSERT_NE(retrieved_prompts, nullptr);
-  ASSERT_EQ(retrieved_prompts->size(), 2U);
+  ASSERT_EQ(retrieved_prompts->size(), 3U);
   EXPECT_EQ((*retrieved_prompts)[0].req_id, 1001U);
   EXPECT_EQ((*retrieved_prompts)[0].sub_id, 0U);
   EXPECT_EQ((*retrieved_prompts)[0].data, "Prompt for 1001-0");
   EXPECT_EQ((*retrieved_prompts)[1].req_id, 1002U);
   EXPECT_EQ((*retrieved_prompts)[1].sub_id, 0U);
   EXPECT_EQ((*retrieved_prompts)[1].data, "Prompt for 1002-0");
+  EXPECT_EQ((*retrieved_prompts)[2].req_id, 1001U);
+  EXPECT_EQ((*retrieved_prompts)[2].sub_id, 1U);
+  EXPECT_EQ((*retrieved_prompts)[2].data, "Prompt for 1001-1");
 }
 
 // 4. 验证错误状态与 write-once 请求值共享同一请求生命周期
@@ -200,6 +207,52 @@ TEST_F(TypedBlackboardContractsTest, BlackboardKeyAndBoundInputContracts) {
 
   EXPECT_NO_THROW((BoundInput<TextBatch>(key)));
   EXPECT_NO_THROW((BoundOutput<TextBatch>(key)));
+}
+
+static std::atomic<int> g_probe_constructed_count{0};
+static std::atomic<int> g_probe_destructed_count{0};
+
+struct LifetimeProbe {
+  std::vector<float> large_payload;
+  explicit LifetimeProbe(size_t elements = 10000)
+      : large_payload(elements, 1.234f) {
+    g_probe_constructed_count.fetch_add(1);
+  }
+  LifetimeProbe(const LifetimeProbe& o) : large_payload(o.large_payload) {
+    g_probe_constructed_count.fetch_add(1);
+  }
+  LifetimeProbe(LifetimeProbe&& o) noexcept
+      : large_payload(std::move(o.large_payload)) {
+    g_probe_constructed_count.fetch_add(1);
+  }
+  ~LifetimeProbe() { g_probe_destructed_count.fetch_add(1); }
+};
+
+TEST_F(TypedBlackboardContractsTest, LargePayloadRaiiDestruction) {
+  using namespace llm_edgeflow;
+
+  g_probe_constructed_count.store(0);
+  g_probe_destructed_count.store(0);
+
+  const int test_cycles = 50;
+  for (int i = 0; i < test_cycles; ++i) {
+    {
+      AlgContext ctx;
+      ctx.Publish("probe_1", LifetimeProbe(20000));
+      ctx.Publish("probe_2", LifetimeProbe(20000));
+
+      EXPECT_TRUE(ctx.Has("probe_1"));
+      EXPECT_TRUE(ctx.Has("probe_2"));
+      auto* p1 = ctx.Read<LifetimeProbe>("probe_1");
+      ASSERT_NE(p1, nullptr);
+      EXPECT_EQ(p1->large_payload.size(), 20000);
+      // 作用域退出，ctx 销毁
+    }
+  }
+
+  // 严格断言：构造次数与析构次数 100% 精确相等，且大于 0，无任何内存泄漏
+  EXPECT_GT(g_probe_constructed_count.load(), 0);
+  EXPECT_EQ(g_probe_constructed_count.load(), g_probe_destructed_count.load());
 }
 
 }  // namespace llm_edgeflow

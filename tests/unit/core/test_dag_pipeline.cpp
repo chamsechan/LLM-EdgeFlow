@@ -711,4 +711,135 @@ TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
   ThrowingProcessDagNode::failure_mode = 0;
 }
 
+class DeepDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "deep_dag";
+  bool Init(const NodeInitContext& init_ctx) override {
+    if (!init_ctx.plan || !init_ctx.session_ctx) return false;
+    name_ = init_ctx.plan->normalized_params.value("node_name", "deep_dag");
+    return true;
+  }
+
+  int Process(AlgContext* req_ctx) override {
+    AppendExecutionTrace(name_);
+    req_ctx->Publish("out_" + name_, std::string("DataFrom_") + name_);
+    return 0;
+  }
+
+  NodeControlResult Control(int cmd, const std::string& param) override {
+    (void)cmd;
+    (void)param;
+    return NodeControlResult::Handled(0);
+  }
+
+  const std::string& Name() const override { return name_; }
+
+ private:
+  std::string name_;
+};
+
+inline NodeDefinition MakeDeepDagNodeDef() {
+  NodeDefinition def;
+  def.node_type = DeepDagNode::kNodeType;
+  def.category = "test";
+  def.description = "test deep dag node";
+  def.config_fields = {ConfigFieldDefinition{
+      "node_name", ConfigValueKind::kString, false, "deep_dag"}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DeepDagNode, MakeDeepDagNodeDef());
+
+TEST_F(DagPipelineTest, Deep5LayerWavefrontDagExecution) {
+  using namespace llm_edgeflow;
+
+  // 构建 5 层 11 节点复杂 DAG 图:
+  // Layer 0: R1, R2
+  // Layer 1: A1, A2, A3 (依赖 R1, R2)
+  // Layer 2: M1, M2 (依赖 A1, A2, A3)
+  // Layer 3: B1, B2, B3 (依赖 M1, M2)
+  // Layer 4: Final (依赖 B1, B2, B3)
+  nlohmann::json deep_dag_config = {{"max_parallel_workers", 4},
+                                    {"pipeline",
+                                     {{{"name", "R1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "R1"}}},
+                                       {"depends_on", nlohmann::json::array()}},
+                                      {{"name", "R2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "R2"}}},
+                                       {"depends_on", nlohmann::json::array()}},
+
+                                      {{"name", "A1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A1"}}},
+                                       {"depends_on", {"R1"}}},
+                                      {{"name", "A2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A2"}}},
+                                       {"depends_on", {"R1", "R2"}}},
+                                      {{"name", "A3"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "A3"}}},
+                                       {"depends_on", {"R2"}}},
+
+                                      {{"name", "M1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "M1"}}},
+                                       {"depends_on", {"A1", "A2"}}},
+                                      {{"name", "M2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "M2"}}},
+                                       {"depends_on", {"A2", "A3"}}},
+
+                                      {{"name", "B1"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B1"}}},
+                                       {"depends_on", {"M1"}}},
+                                      {{"name", "B2"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B2"}}},
+                                       {"depends_on", {"M1", "M2"}}},
+                                      {{"name", "B3"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "B3"}}},
+                                       {"depends_on", {"M2"}}},
+
+                                      {{"name", "Final"},
+                                       {"type", "deep_dag"},
+                                       {"params", {{"node_name", "Final"}}},
+                                       {"depends_on", {"B1", "B2", "B3"}}}}}};
+
+  Pipeline pipeline;
+  ASSERT_TRUE(BuildTestPipeline(pipeline, deep_dag_config, MakeTestBoundary(),
+                                nullptr));
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
+
+  const auto& layers = pipeline.GetTopologicalLayers();
+  ASSERT_EQ(layers.size(), 5);
+  EXPECT_EQ(layers[0].size(), 2);  // 第 0 层：R1、R2
+  EXPECT_EQ(layers[1].size(), 3);  // 第 1 层：A1、A2、A3
+  EXPECT_EQ(layers[2].size(), 2);  // 第 2 层：M1、M2
+  EXPECT_EQ(layers[3].size(), 3);  // 第 3 层：B1、B2、B3
+  EXPECT_EQ(layers[4].size(), 1);  // 第 4 层：Final
+
+  AlgContext req_ctx;
+  ResetExecutionTrace();
+
+  int ret = pipeline.Execute(&req_ctx);
+  EXPECT_EQ(ret, 0);
+
+  const auto trace = SnapshotExecutionTrace();
+  EXPECT_EQ(trace.size(), 11);
+
+  // 验证所有节点的黑板产出均已写入
+  EXPECT_TRUE(req_ctx.Has("out_R1"));
+  EXPECT_TRUE(req_ctx.Has("out_R2"));
+  EXPECT_TRUE(req_ctx.Has("out_A2"));
+  EXPECT_TRUE(req_ctx.Has("out_M1"));
+  EXPECT_TRUE(req_ctx.Has("out_B2"));
+  EXPECT_TRUE(req_ctx.Has("out_Final"));
+}
+
 }  // namespace llm_edgeflow

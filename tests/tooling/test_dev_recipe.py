@@ -303,7 +303,7 @@ class DevRecipeTest(unittest.TestCase):
                 self.link_binary(DEMO, self.demo)
                 return subprocess.CompletedProcess(command, 0, "", "")
             if Path(command[0]).name == "edgeflow_test_nodes_runner":
-                listing = "CustomNodeCatalogTest.\n  prompt_guided_llm_BusinessExample\n"
+                listing = "CustomNodeBehaviorTest.\n  prompt_guided_llm_BusinessExample\n"
                 output = listing if "--gtest_list_tests" in command else "[  PASSED  ] 1 test.\n"
                 return subprocess.CompletedProcess(command, 0, output, "")
             return real_run(command, *args, **kwargs)

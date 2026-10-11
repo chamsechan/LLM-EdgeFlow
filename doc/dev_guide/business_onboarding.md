@@ -230,6 +230,9 @@ Process 有效批次上限为 `min(max_frame_depth, 64)`；超过时失败，不
 
 ## 7. 最小验证
 
+测试新增与复用边界见[测试指南](../../tests/README.md)。完整业务进入 `integration/operator/test_<biz>_operator.cpp`，
+转换语义与公共机制分别留在所属套件。
+
 重新构建，再检查新业务是否进入 Catalog：
 
 ```bash

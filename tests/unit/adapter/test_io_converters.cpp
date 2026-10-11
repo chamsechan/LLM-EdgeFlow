@@ -27,6 +27,33 @@ struct OutputRowParams {
   std::string suffix;
 };
 
+TEST(IoConverterTest, HarnessRejectsImpossibleWrittenCount) {
+  const auto* registered = IoConverterRegistry::Instance().FindOutputConverter(
+      "json_out", "translate");
+  ASSERT_NE(registered, nullptr);
+  auto converter = *registered;
+  static size_t reported;
+  reported = 2;
+  converter.encode_fn = [](AlgContext*, const OutputEncodeOptions&,
+                           ExternalOutputBatchView*, size_t* written,
+                           AdapterStatus*) {
+    *written = reported;
+    return 0;
+  };
+  test::AdapterHarness harness(&converter);
+  std::vector<CompanyOperatorOutput> outputs(1);
+  EXPECT_THROW(harness.EncodeOperator(&outputs), std::logic_error);
+  ASSERT_EQ(outputs.size(), 1U);
+  // Both a full and an empty result remain valid; neither may reuse stale
+  // count.
+  reported = 1;
+  EXPECT_EQ(harness.EncodeOperator(&outputs), 0);
+  EXPECT_EQ(outputs.size(), 1U);
+  reported = 0;
+  EXPECT_EQ(harness.EncodeOperator(&outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+}
+
 TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
   int input_prepare_calls = 0;
   int output_prepare_calls = 0;

@@ -95,7 +95,13 @@ TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
   EXPECT_EQ(node->Process(&ctx), 0);
   const auto* embeddings = ctx.Read<EmbeddingBatch>("embedding");
   ASSERT_NE(embeddings, nullptr);
-  EXPECT_EQ(embeddings->size(), 2u);
+  ASSERT_EQ(embeddings->size(), 2u);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    EXPECT_EQ((*embeddings)[i].req_id, inputs[i].req_id);
+    EXPECT_EQ((*embeddings)[i].sub_id, inputs[i].sub_id);
+    EXPECT_EQ((*embeddings)[i].data,
+              std::vector<float>(384, inputs[i].data.size()));
+  }
   EXPECT_EQ(counting_model_->infer_calls.load(), 1);
 }
 
@@ -160,55 +166,6 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
     EXPECT_EQ(node->Process(&ctx), 0);
     EXPECT_EQ(counting_model_->infer_calls.load(), 3);
   }
-}
-
-TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("text_embedding");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
-                              session_ctx_.get()));
-
-  AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
-}
-
-TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
-  auto node = NodeRegistry::Instance().Create("text_embedding");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
-                              session_ctx_.get()));
-
-  AlgContext ctx;
-  ctx.Publish("text", TextBatch{});
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<EmbeddingBatch>("embedding");
-  ASSERT_NE(output, nullptr);
-  EXPECT_TRUE(output->empty());
-  EXPECT_EQ(counting_model_->infer_calls.load(), 0);
-}
-
-TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("text_embedding");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model"}},
-                              session_ctx_.get()));
-
-  TextBatch inputs = {{8, 0, "first"}, {8, 1, "second"}};
-
-  counting_model_->return_wrong_count = true;
-  AlgContext count_ctx;
-  count_ctx.Publish("text", inputs);
-  EXPECT_EQ(node->Process(&count_ctx),
-            node_error::author_node::kOutputCountMismatch);
-  EXPECT_EQ(count_ctx.Read<EmbeddingBatch>("embedding"), nullptr);
-
-  counting_model_->return_wrong_count = false;
-  counting_model_->corrupt_provenance = true;
-  AlgContext provenance_ctx;
-  provenance_ctx.Publish("text", inputs);
-  EXPECT_EQ(node->Process(&provenance_ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
-  EXPECT_EQ(provenance_ctx.Read<EmbeddingBatch>("embedding"), nullptr);
 }
 
 TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {

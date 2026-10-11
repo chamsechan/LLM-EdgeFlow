@@ -246,7 +246,7 @@ def verify_compiled_gtest_coverage(
                     f"Compiled test '{test}' in '{exe.name}' is not covered by any CTest filter. "
                     "Add its suite to a filter in tests/RuntimeTests.cmake "
                     "(edgeflow_add_runner_test), or move the case into an existing suite "
-                    "such as CustomNodeCatalogTest."
+                    "such as CustomNodeBehaviorTest."
                 )
             else:
                 covered_test_names.add(f"{exe.name}:{test}")

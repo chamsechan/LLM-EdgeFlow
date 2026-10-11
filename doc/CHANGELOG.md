@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+测试按职责精简：Operator 业务场景只保留业务入口的一套，删除重复 API 冒烟与 Converter 用例；ASR/OCR/Embedding/LLM
+共用实际 Node 的模型输出契约测试。脚手架及 Recipe 使用 `CustomNodeBehaviorTest` 入口，
+新增与复用规则统一在[测试指南](../tests/README.md)，保留默认门禁与 sanitizer 覆盖。
+
 八类业务输出统一为 `json_out/<业务名>`，使用可承载字符串的 C 结构 `CompanyOperatorOutput`
 （`service_type`、`CompanyString* result_json`、`status_code`）。删除未使用的七种专用输出结构和对应中立值；
 转换器组装完整 JSON 响应，对象和数组保持 JSON 类型，Demo 直接解析展示。

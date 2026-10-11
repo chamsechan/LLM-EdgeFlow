@@ -5,100 +5,29 @@
 #include <string>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/session_context.h"
 #include "dev_support/inference/test_capability_models.h"
-#include "nodes/node_error_codes.h"
-#include "tests/support/model_registration.h"
-#include "tests/support/node_test_utils.h"
+#include "tests/support/node_harness.h"
 
 namespace llm_edgeflow {
 
-class AsrTranscribeNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    session_ctx_ = std::make_unique<SessionContext>();
-
-    asr_model_ = std::make_shared<test::TestAsrModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "asr_model",
-                                  asr_model_, "test-revision", "test_asr_model",
-                                  "asr", "test_tensor_backend"));
-  }
-  std::unique_ptr<SessionContext> session_ctx_;
-  std::shared_ptr<test::TestAsrModel> asr_model_;
-};
-
-TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "asr_model"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
+TEST(AsrTranscribeNodeTest, ProcessAudioTranscription) {
+  auto model = std::make_shared<test::TestAsrModel>();
+  NodeHarness harness("asr_transcribe");
+  harness.Config({{"bind_model", "model"}}).BindModel("model", model);
   AudioPcmBatch audio;
   audio.emplace_back(1, 0,
                      AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
-  ctx.Publish("audio", audio);
+  harness.CustomInput("audio", audio);
 
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("text");
+  const auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* out = result.Output<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
   EXPECT_EQ((*out)[0].req_id, 1u);
   EXPECT_EQ((*out)[0].sub_id, 0u);
   EXPECT_EQ((*out)[0].data, "transcript:16000:16000");
-}
-
-// 空音频产出空转写结果
-TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
-                              session_ctx_.get()));
-
-  AlgContext ctx;
-  ctx.Publish("audio", AudioPcmBatch{});
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("text");
-  ASSERT_NE(out, nullptr);
-  EXPECT_TRUE(out->empty());
-}
-
-TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
-                              session_ctx_.get()));
-
-  AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
-}
-
-TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
-                              session_ctx_.get()));
-
-  AudioPcmBatch audio;
-  audio.emplace_back(9, 3, AudioPcmPayload({0.1f, 0.2f}, 8000));
-
-  AlgContext count_ctx;
-  count_ctx.Publish("audio", audio);
-  asr_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&count_ctx),
-            node_error::author_node::kOutputCountMismatch);
-
-  asr_model_->return_wrong_count_ = false;
-  asr_model_->corrupt_provenance_ = true;
-  AlgContext provenance_ctx;
-  provenance_ctx.Publish("audio", audio);
-  EXPECT_EQ(node->Process(&provenance_ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
 }
 
 }  // namespace llm_edgeflow

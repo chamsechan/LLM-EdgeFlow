@@ -39,18 +39,20 @@
 
 ## 本地快速验证
 
+测试归属与公共覆盖见[测试指南](../../tests/README.md)；新增组件先补实际算法断言，按适用性复用公共契约。
+
 开发过程中只构建并运行节点测试 runner，把过滤器换成实际修改的套件：
 
 ```bash
 cmake --build build --target edgeflow_test_nodes_runner -j 4
 ./build/edgeflow_test_nodes_runner --gtest_list_tests
-./build/edgeflow_test_nodes_runner --gtest_filter='NodeAuthoringExamplesTest.*'
+./build/edgeflow_test_nodes_runner --gtest_filter='CustomNodeBehaviorTest.*'
 ```
 
 [Node 测试辅助](../../tests/support/node_test_utils.h)用已校验的 Plan 和 Session 初始化注册的 Node。
 把请求输入放进新的 `AlgContext`，调用 Process，断言实际输出和 `(req_id, sub_id)`，不要只检查
-工厂能否创建；还要覆盖空输入、非法输入和失败行为。脚手架的 `--write-test` 在
-`tests/unit/nodes/` 生成完整测试文件，节点 runner 自动收录，并由现有的 `CustomNodeCatalogTest`
+工厂能否创建。组件特有的空输入、非法输入与失败行为留在组件用例，公共规则矩阵按测试指南复用。脚手架的 `--write-test` 在
+`tests/unit/nodes/` 生成完整测试文件，节点 runner 自动收录，并由现有的 `CustomNodeBehaviorTest`
 过滤器覆盖；自己新建的套件名需要在 [tests/RuntimeTests.cmake](../../tests/RuntimeTests.cmake) 中加入过滤器。
 修改注册或 Definition 后重新构建 `alg_pipeline_tool`，再用同一构建检查组合后的方案。
 即使首次练习用的是 minimal 构建，最终门禁也会覆盖完整默认配置；交付按

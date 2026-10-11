@@ -249,7 +249,9 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
     if control_id is None and ((kind == "compute" and in_type == out_type == "TextBatch" and preserved)
                                or (kind == "model" and capability == "llm")):
         if kind == "compute":
-            return f"""#include <gtest/gtest.h>
+            return f"""// Component behavior: adapt sample expectations to the real algorithm.
+// Reuse helpers and framework contracts as described in tests/README.md.
+#include <gtest/gtest.h>
 #include <string>
 #include <vector>
 
@@ -259,7 +261,7 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
 
 namespace llm_edgeflow {{
 
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+TEST(CustomNodeBehaviorTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
@@ -270,7 +272,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   EXPECT_EQ(node->Name(), {cpp_string(name)});
 }}
 
-TEST(CustomNodeCatalogTest, {name}_MapPreservesInputData) {{
+TEST(CustomNodeBehaviorTest, {name}_MapPreservesInputData) {{
   NodeHarness harness({cpp_string(name)});
   harness.TextInput({cpp_string(in_name)}, {{"sample_text_1", "sample_text_2"}});
   auto result = harness.Run();
@@ -282,7 +284,9 @@ TEST(CustomNodeCatalogTest, {name}_MapPreservesInputData) {{
 }}  // namespace llm_edgeflow
 """
         elif kind == "model" and capability == "llm":
-            return f"""#include <gtest/gtest.h>
+            return f"""// Component behavior: adapt sample expectations to the real algorithm.
+// Reuse helpers and framework contracts as described in tests/README.md.
+#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -295,7 +299,7 @@ TEST(CustomNodeCatalogTest, {name}_MapPreservesInputData) {{
 
 namespace llm_edgeflow {{
 
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+TEST(CustomNodeBehaviorTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
@@ -306,7 +310,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   EXPECT_EQ(node->Name(), {cpp_string(name)});
 }}
 
-TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
+TEST(CustomNodeBehaviorTest, {name}_ExecutesLlmGeneration) {{
   auto mock_model = std::make_shared<test::ControlledMockLlmModel>();
   NodeHarness harness({cpp_string(name)});
   harness.Config({{ {{"bind_model", "test_model"}} }});
@@ -357,7 +361,9 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
     business_check = payload_check("output->at(0).data", in_type, sample_in_1, "expected")
 
     if control_id is not None:
-        return f"""#include <gtest/gtest.h>
+        return f"""// Component behavior: adapt sample expectations to the real algorithm.
+// Reuse helpers and framework contracts as described in tests/README.md.
+#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -372,7 +378,7 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
 
 namespace llm_edgeflow {{
 
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+TEST(CustomNodeBehaviorTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
@@ -383,7 +389,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   EXPECT_EQ(node->Name(), {cpp_string(name)});
 }}
 
-TEST(CustomNodeCatalogTest, {name}_ControlChangesOutputAndPreservesOnFailure) {{
+TEST(CustomNodeBehaviorTest, {name}_ControlChangesOutputAndPreservesOnFailure) {{
   NodeHarness harness({cpp_string(name)});
   harness.Config({{{{"prefix", "initial:"}}}});
   const auto check_output = [&](const std::string& expected) {{
@@ -410,7 +416,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlChangesOutputAndPreservesOnFailure) {{
   check_output("new:sample");
 }}
 
-TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
+TEST(CustomNodeBehaviorTest, {name}_RejectsInvalidInitialPrefix) {{
   const auto definition = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(definition.has_value());
   ASSERT_TRUE(static_cast<bool>(definition->validate_config));
@@ -425,7 +431,7 @@ TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
   EXPECT_NE(result.diagnostic().find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
 }}
 
-TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
+TEST(CustomNodeBehaviorTest, {name}_MissingInputFailsWithoutPublishing) {{
   NodeHarness harness({cpp_string(name)});
 
   auto result = harness.Run();
@@ -433,7 +439,7 @@ TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
   EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
-TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
+TEST(CustomNodeBehaviorTest, {name}_BusinessExample) {{
   NodeHarness harness({cpp_string(name)});
   harness.Config({{{{"prefix", "biz:"}}}});
 
@@ -456,7 +462,9 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
         is_pass_through = (in_type == out_type and
                            (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve"))
         if is_pass_through:
-            return f"""#include <gtest/gtest.h>
+            return f"""// Component behavior: adapt sample expectations to the real algorithm.
+// Reuse helpers and framework contracts as described in tests/README.md.
+#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -471,7 +479,7 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 
 namespace llm_edgeflow {{
 
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+TEST(CustomNodeBehaviorTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
@@ -482,7 +490,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   EXPECT_EQ(node->Name(), {cpp_string(name)});
 }}
 
-TEST(CustomNodeCatalogTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
+TEST(CustomNodeBehaviorTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
   NodeHarness harness({cpp_string(name)});
 
   auto result = harness.Run();
@@ -490,7 +498,7 @@ TEST(CustomNodeCatalogTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
   EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
-TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
+TEST(CustomNodeBehaviorTest, {name}_EmptyBatchPassesThrough) {{
   NodeHarness harness({cpp_string(name)});
 
   harness.CustomInput({cpp_string(in_name)}, {in_type}{{}});
@@ -501,7 +509,7 @@ TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
   EXPECT_TRUE(output->empty());
 }}
 
-TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
+TEST(CustomNodeBehaviorTest, {name}_PreservesBatchDataAndProvenance) {{
   NodeHarness harness({cpp_string(name)});
 
   {in_type} input;
@@ -533,7 +541,7 @@ TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
 {payload_check("repeated_output->at(1).data", in_type, sample_in_2, "repeated_expected")}
 }}
 
-TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
+TEST(CustomNodeBehaviorTest, {name}_BusinessExample) {{
   NodeHarness harness({cpp_string(name)});
 
   {in_type} input;
@@ -552,7 +560,9 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 }}  // namespace llm_edgeflow
 """
         else:
-            return f"""#include <gtest/gtest.h>
+            return f"""// Component behavior: adapt sample expectations to the real algorithm.
+// Reuse helpers and framework contracts as described in tests/README.md.
+#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -567,7 +577,7 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 
 namespace llm_edgeflow {{
 
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+TEST(CustomNodeBehaviorTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
@@ -576,7 +586,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   EXPECT_EQ(node->Name(), {cpp_string(name)});
 }}
 
-TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
+TEST(CustomNodeBehaviorTest, {name}_MissingInputFailsWithoutPublishing) {{
   NodeHarness harness({cpp_string(name)});
 
   auto result = harness.Run();
@@ -584,7 +594,7 @@ TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
   EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
-TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
+TEST(CustomNodeBehaviorTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
   NodeHarness harness({cpp_string(name)});
 
   {in_type} input;
@@ -636,7 +646,9 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
         expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
   EXPECT_EQ(output->at(0).sub_id, 0u);"""
 
-    return f"""#include <gtest/gtest.h>
+    return f"""// Component behavior: adapt sample expectations to the real algorithm.
+// Reuse helpers and framework contracts as described in tests/README.md.
+#include <gtest/gtest.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -652,7 +664,7 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
 
 namespace llm_edgeflow {{
 
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+TEST(CustomNodeBehaviorTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
@@ -664,7 +676,7 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   EXPECT_EQ(node->Name(), {cpp_string(name)});
 }}
 
-TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
+TEST(CustomNodeBehaviorTest, {name}_EmptyBatchPassesThrough) {{
   NodeHarness harness({cpp_string(name)});
   auto mock_model = std::make_shared<test::{mock_class}>();
   harness.BindModel("test_model", mock_model);
@@ -678,7 +690,7 @@ TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
   EXPECT_TRUE(output->empty());
 }}
 
-TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
+TEST(CustomNodeBehaviorTest, {name}_ControlledExecutionAndModelFailure) {{
   NodeHarness harness({cpp_string(name)});
   auto mock_model = std::make_shared<test::{mock_class}>();
   harness.BindModel("test_model", mock_model);
@@ -747,7 +759,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
   }}
 }}
 
-TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
+TEST(CustomNodeBehaviorTest, {name}_BusinessExample) {{
   NodeHarness harness({cpp_string(name)});
   auto mock_model = std::make_shared<test::{mock_class}>();
   harness.BindModel("test_model", mock_model);
@@ -990,9 +1002,9 @@ def main():
             print("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.")
             print("Next steps:")
             print("  Build command: cmake --build build --target edgeflow_test_nodes_runner")
-            print(f"  Test filter: CustomNodeCatalogTest.{name}_*")
-            print("  Run command: (cd build && ctest -R CommonNodesTest)")
-            print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"CustomNodeCatalogTest.{name}_*\")")
+            print(f"  Test filter: CustomNodeBehaviorTest.{name}_*")
+            print("  Run command: (cd build && ctest -R CustomNodeBehaviorTest)")
+            print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"CustomNodeBehaviorTest.{name}_*\")")
 
         if args.control_id is not None:
             print("Next: edit ApplyPrefix for business logic and Parameters/Field for config and Control validation. Walkthrough: doc/dev_guide/first_control.md")

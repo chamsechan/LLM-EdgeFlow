@@ -724,6 +724,15 @@ TEST_F(IoConverterRegistryTest,
       EXPECT_EQ(diagnostic.code, "UNKNOWN_CONVERTER");
       EXPECT_EQ(diagnostic.path, std::string("/io/") + side + "/0");
       EXPECT_NE(diagnostic.message.find("test_service"), std::string::npos);
+      std::unique_ptr<ValidatedIoPlan> plan;
+      std::string error;
+      EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(document, "", &plan,
+                                                        &error, &diagnostic),
+                -2);
+      EXPECT_EQ(plan, nullptr);
+      EXPECT_EQ(diagnostic.code, "UNKNOWN_CONVERTER");
+      EXPECT_EQ(diagnostic.path, std::string("/io/") + side + "/0");
+      EXPECT_NE(error.find(name), std::string::npos);
     }
     auto typo = TestDocument();
     const auto registered_type = typo["io"][side][0]["type"].get<std::string>();

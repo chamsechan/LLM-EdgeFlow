@@ -10,20 +10,15 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/converter_authoring.h"
-#include "adapter/deployment_io_config.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
-#include "adapter/io_plan_resolver.h"
 #include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/pipeline_catalog.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
-#include "engine/model_interface.h"
-#include "engine/model_registry.h"
 #include "platform_mock/error_codes.h"
 #include "platform_mock/operator_data_types.h"
 #include "tests/support/adapter_harness.h"
@@ -31,7 +26,6 @@
 
 namespace llm_edgeflow {
 namespace {
-constexpr auto kSentenceText = MakeBlackboardKey<TextBatch>("sentence_text");
 constexpr auto kAnswerText = MakeBlackboardKey<TextBatch>("answer_text");
 constexpr auto kIntent = MakeBlackboardKey<RuleMatchBatch>("intent");
 constexpr auto kChunkCount = MakeBlackboardKey<Int32Batch>("chunk_count");
@@ -47,7 +41,7 @@ nlohmann::json OutputJson(const CompanyOperatorOutput& value) {
 }
 }  // namespace
 
-class AdapterPurityTest : public ::testing::Test {
+class BusinessConvertersTest : public ::testing::Test {
  protected:
   void SetUp() override {
     SharedAlgorithmRuntime::GlobalInit();
@@ -57,14 +51,6 @@ class AdapterPurityTest : public ::testing::Test {
     operator_api::Get_LLM_EDGEFLOW_OperatorTable().DeInit();
   }
 };
-
-struct CustomMultiFieldInput {
-  uint64_t req_id;
-  const char* topic;
-  const char* content;
-};
-
-DECLARE_EXTERNAL_TYPE_TRAITS(CustomMultiFieldInput, "CustomMultiFieldInput");
 
 struct JsonOutputFixture {
   char json[8192] = {};
@@ -76,18 +62,15 @@ struct JsonOutputFixture {
 };
 
 // =========================================================================
-// 1. 全部 8 个业务的 Converter 纯净性
+// 业务 Converter 的字段转换；翻译协议由 TextConvertersTest 负责。
 // =========================================================================
 
-TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
+TEST_F(BusinessConvertersTest, DocQaInputFields) {
   const auto* in_conv =
       IoConverterRegistry::Instance().FindInputConverter("doc_in", "doc_qa");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
-  ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(in_conv, out_conv);
+  test::AdapterHarness harness(in_conv);
 
   std::string doc_str = "Doc Content";
   std::string query_str = "Query Question";
@@ -104,37 +87,9 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   ASSERT_NE(queries, nullptr);
   EXPECT_EQ((*docs)[0].data, "Doc Content");
   EXPECT_EQ((*queries)[0].data, "Query Question");
-
-  // 输出编码
-  TextBatch answers;
-  answers.emplace_back(0, 0, "Model Generated Answer");
-  harness.Publish("answer_text", std::move(answers));
-
-  RuleMatchBatch intents;
-  intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "query", 0.95f));
-  harness.Publish("intent", std::move(intents));
-
-  Int32Batch chunk_counts;
-  chunk_counts.emplace_back(0, 0, 1);
-  harness.Publish("chunk_count", std::move(chunk_counts));
-
-  JsonOutputFixture doc_fix;
-  std::vector<CompanyOperatorOutput> outputs = {doc_fix.out};
-  ASSERT_EQ(harness.EncodeOperator(&outputs, doc_fix.Capacities()), 0);
-
-  EXPECT_EQ(OutputJson(outputs[0]).at("chunk_count").get<int>(), 1);
-  ASSERT_NE(outputs[0].result_json, nullptr);
-  EXPECT_STREQ(
-      OutputJson(outputs[0]).at("intent_name").get<std::string>().c_str(),
-      "GENERAL_QA");
-  EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("confidence").get<float>(), 0.95f);
-  ASSERT_NE(outputs[0].result_json, nullptr);
-  EXPECT_STREQ(
-      OutputJson(outputs[0]).at("answer_text").get<std::string>().c_str(),
-      "Model Generated Answer");
 }
 
-TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
+TEST_F(BusinessConvertersTest, KeywordMatchFields) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "keyword_in", "keyword_match");
   ASSERT_NE(in_conv, nullptr);
@@ -150,22 +105,25 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
   RuleMatchBatch matches;
-  matches.emplace_back(0, 0, RuleMatchItem(1, "TEST_CAT", "测试", 0.5f));
+  RuleMatchItem match(1, "TEST_CAT", "测试", 0.5f);
+  match.slots["flag"] = "urgent";
+  matches.emplace_back(0, 0, std::move(match));
   harness.Publish("matches", std::move(matches));
 
   JsonOutputFixture kw_fix;
   std::vector<CompanyOperatorOutput> outputs = {kw_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, kw_fix.Capacities()), 0);
+  ASSERT_EQ(outputs.size(), 1U);
 
   EXPECT_EQ(OutputJson(outputs[0]).at("is_hit").get<int>(), 1);
   ASSERT_NE(outputs[0].result_json, nullptr);
   EXPECT_STREQ(outputs[0].result_json->data,
                "{\"confidence\":0.5,\"intent\":\"TEST_CAT\",\"is_hit\":1,"
                "\"matched_word\":"
-               "\"测试\",\"matches\":[],\"slots\":{}}");
+               "\"测试\",\"matches\":[],\"slots\":{\"flag\":\"urgent\"}}");
 }
 
-TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
+TEST_F(BusinessConvertersTest, EntityExtractFields) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "entity_in", "entity_extract");
   ASSERT_NE(in_conv, nullptr);
@@ -180,21 +138,28 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   CompanyOperatorEntityInput in{kMockServiceEntityExtract, &cs_text};
   ASSERT_EQ(harness.DecodeOperator({&in}), 0);
 
-  StructuredDocumentBatch entities;
-  entities.emplace_back(
-      0, 0, JsonDocumentItem("[\"E1\"]", true, JsonParseStatus::kOk));
-  harness.Publish("entities", std::move(entities));
+  for (const std::string payload : {"[\"E1\"]", "{\"summary\":\"ok\"}"}) {
+    SCOPED_TRACE(payload);
+    test::AdapterHarness output_harness(out_conv);
+    StructuredDocumentBatch entities;
+    entities.emplace_back(
+        0, 0, JsonDocumentItem(payload, true, JsonParseStatus::kOk));
+    output_harness.Publish("entities", std::move(entities));
 
-  JsonOutputFixture ent_fix;
-  std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
-  ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
+    JsonOutputFixture ent_fix;
+    std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
+    ASSERT_EQ(output_harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
+    ASSERT_EQ(outputs.size(), 1U);
 
-  EXPECT_EQ(outputs[0].status_code, 0);
-  ASSERT_NE(outputs[0].result_json, nullptr);
-  EXPECT_STREQ(outputs[0].result_json->data, "[\"E1\"]");
+    EXPECT_EQ(outputs[0].status_code, 0);
+    ASSERT_NE(outputs[0].result_json, nullptr);
+    EXPECT_EQ(std::string(outputs[0].result_json->data,
+                          outputs[0].result_json->length),
+              payload);
+  }
 }
 
-TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
+TEST_F(BusinessConvertersTest, DialogueAuditFields) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audit_in", "dialogue_audit");
   ASSERT_NE(in_conv, nullptr);
@@ -214,7 +179,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   StructuredDocumentBatch verdicts;
   verdicts.emplace_back(
       0, 0,
-      JsonDocumentItem("{\"risk_level\":\"SAFE\",\"risk_score\":0.1}", true,
+      JsonDocumentItem("{\"raw_verdict\":\"accepted\"}", true,
                        JsonParseStatus::kOk, "",
                        {{"risk_level", "SAFE"}, {"risk_score", 0.1f}}));
   harness.Publish("verdict", std::move(verdicts));
@@ -226,7 +191,10 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   JsonOutputFixture audit_fix;
   std::vector<CompanyOperatorOutput> outputs = {audit_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, audit_fix.Capacities()), 0);
+  ASSERT_EQ(outputs.size(), 1U);
 
+  EXPECT_EQ(OutputJson(outputs[0]).at("audit_verdict"),
+            nlohmann::json({{"raw_verdict", "accepted"}}));
   EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("risk_score").get<float>(), 0.1f);
   ASSERT_NE(outputs[0].result_json, nullptr);
   EXPECT_STREQ(
@@ -240,7 +208,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
                "Clause 1");
 }
 
-TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
+TEST_F(BusinessConvertersTest, OcrImageOwnershipAndFields) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "frame", "ocr_invoice_qa");
   ASSERT_NE(in_conv, nullptr);
@@ -332,13 +300,14 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
                                                 &out_view, &written, &status),
             0);
 
+  EXPECT_EQ(written, 1U);
   EXPECT_EQ(OutputJson(od_fix.out).at("detected_box_count").get<int>(), 1);
   ASSERT_NE(od_fix.out.result_json, nullptr);
   EXPECT_EQ(OutputJson(od_fix.out).at("result"),
             nlohmann::json({{"total", 99.9}}));
 }
 
-TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
+TEST_F(BusinessConvertersTest, AudioIntentFields) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audio_in", "audio_asr_intent");
   ASSERT_NE(in_conv, nullptr);
@@ -358,24 +327,35 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   harness.Publish("transcribed_text", std::move(transcripts));
 
   RuleMatchBatch intent_slots;
-  intent_slots.emplace_back(0, 0, RuleMatchItem(1, "NAV", "", 0.5f));
+  RuleMatchItem match(1, "NAV", "left", 0.5f, "r1");
+  match.matches.push_back({RuleMatchSource::kRule, "NAV", "r1", "left", 0.5f});
+  match.slots["target"] = "front";
+  intent_slots.emplace_back(0, 0, std::move(match));
   harness.Publish("intent_slot", std::move(intent_slots));
 
   JsonOutputFixture audio_fix;
   std::vector<CompanyOperatorOutput> outputs = {audio_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, audio_fix.Capacities()), 0);
+  ASSERT_EQ(outputs.size(), 1U);
 
   ASSERT_NE(outputs[0].result_json, nullptr);
   EXPECT_STREQ(
       OutputJson(outputs[0]).at("transcribed_text").get<std::string>().c_str(),
       "turn left");
   ASSERT_NE(outputs[0].result_json, nullptr);
-  EXPECT_STREQ(OutputJson(outputs[0]).at("intent_slot").dump().c_str(),
-               "{\"confidence\":0.5,\"intent\":\"NAV\",\"matched_word\":\"\","
-               "\"matches\":[],\"slots\":{}}");
+  EXPECT_EQ(OutputJson(outputs[0]).at("intent_slot"),
+            nlohmann::json({{"confidence", 0.5},
+                            {"intent", "NAV"},
+                            {"matched_word", "left"},
+                            {"matches",
+                             {{{"category", "NAV"},
+                               {"pattern", "left"},
+                               {"rule_id", "r1"},
+                               {"score", 0.5}}}},
+                            {"slots", {{"target", "front"}}}}));
 }
 
-TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
+TEST_F(BusinessConvertersTest, RankedCandidateFields) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "rerank_in", "cross_rerank");
   ASSERT_NE(in_conv, nullptr);
@@ -410,6 +390,7 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   JsonOutputFixture fix;
   std::vector<CompanyOperatorOutput> outputs{fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
+  ASSERT_EQ(outputs.size(), 1U);
 
   EXPECT_EQ(OutputJson(outputs[0]).at("count").get<int>(), 2);
   EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("scores").at(0).get<float>(),
@@ -420,41 +401,11 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   EXPECT_EQ(OutputJson(outputs[0]).at("sorted_indices").at(1).get<int>(), 0);
 }
 
-TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "json_out", "translate");
-  ASSERT_NE(out_conv, nullptr);
-
-  test::AdapterHarness harness(in_conv, out_conv);
-
-  std::string json_query = "{\"query\":\"Hello\"}";
-  CompanyString cs_text{static_cast<int32_t>(json_query.size()),
-                        json_query.data()};
-  CompanyOperatorEntityInput in{kMockServiceTranslate, &cs_text};
-  ASSERT_EQ(harness.DecodeOperator({&in}), 0);
-
-  TextBatch answers;
-  answers.emplace_back(0, 0, "Bonjour");
-  harness.Publish("translation", std::move(answers));
-
-  JsonOutputFixture ent_fix;
-  std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
-  ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-
-  EXPECT_EQ(outputs[0].status_code, 0);
-  ASSERT_NE(outputs[0].result_json, nullptr);
-  auto parsed = nlohmann::json::parse(outputs[0].result_json->data);
-  EXPECT_EQ(parsed["translated"], "Bonjour");
-}
-
 // =========================================================================
 // 2. 契约不变量与安全边界情形
 // =========================================================================
 
-TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
+TEST_F(BusinessConvertersTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   const auto* out_conv =
       IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
@@ -530,7 +481,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   }
 }
 
-TEST_F(AdapterPurityTest,
+TEST_F(BusinessConvertersTest,
        DialogueAuditAdapter_FailClosedWhenMissingStructuredFields) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
       "json_out", "dialogue_audit");
@@ -556,7 +507,7 @@ TEST_F(AdapterPurityTest,
             COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
-TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
+TEST_F(BusinessConvertersTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
       "json_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
@@ -596,7 +547,7 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
   }
 }
 
-TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
+TEST_F(BusinessConvertersTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
       "json_out", "keyword_match");
   ASSERT_NE(out_conv, nullptr);
@@ -616,7 +567,8 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
   }
 }
 
-TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
+TEST_F(BusinessConvertersTest,
+       DialogueAuditAdapter_RejectsOversizedChannelName) {
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       "audit_in", "dialogue_audit");
   ASSERT_NE(in_conv, nullptr);
@@ -648,7 +600,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapter_RejectsOversizedChannelName) {
   }
 }
 
-TEST_F(AdapterPurityTest,
+TEST_F(BusinessConvertersTest,
        VariableDocResultPreservesLongAnswerAndOperatorCapacity) {
   const std::string long_answer(5000, 'a');
 
@@ -713,7 +665,7 @@ TEST_F(AdapterPurityTest,
   }
 }
 
-TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
+TEST_F(BusinessConvertersTest, DocAnswerExactCapacityAndOneByteOverflow) {
   const auto* converter =
       IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(converter, nullptr);
@@ -764,83 +716,8 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
   }
 }
 
-TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  ASSERT_NE(in_conv, nullptr);
-
-  test::AdapterHarness harness(in_conv);
-
-  std::string buffer = "{\"query\":\"original query\"}";
-  CompanyString cs_buf{static_cast<int32_t>(buffer.size()), buffer.data()};
-  CompanyOperatorEntityInput in{kMockServiceTranslate, &cs_buf};
-
-  ASSERT_EQ(harness.DecodeOperator({&in}), 0);
-
-  // 覆写外部缓冲区
-  buffer[11] = 'X';
-  buffer[12] = 'X';
-
-  const auto* sentences = harness.Context().Read<TextBatch>("query");
-  ASSERT_NE(sentences, nullptr);
-  EXPECT_EQ((*sentences)[0].data, "original query");
-}
-
-TEST_F(AdapterPurityTest, InputBatchSkeleton_PreservesDistinctRows) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "json_out", "translate");
-  ASSERT_NE(out_conv, nullptr);
-
-  test::AdapterHarness harness(in_conv, out_conv);
-
-  std::string q0 = "{\"query\":\"q0\"}";
-  std::string q1 = "{\"query\":\"q1\"}";
-  CompanyString cs_q0{static_cast<int32_t>(q0.size()), q0.data()};
-  CompanyString cs_q1{static_cast<int32_t>(q1.size()), q1.data()};
-  CompanyOperatorEntityInput in0{kMockServiceTranslate, &cs_q0};
-  CompanyOperatorEntityInput in1{kMockServiceTranslate, &cs_q1};
-
-  ASSERT_EQ(harness.DecodeOperator({&in0, &in1}), 0);
-
-  const auto* sentences = harness.Context().Read<TextBatch>("query");
-  ASSERT_NE(sentences, nullptr);
-  EXPECT_EQ((*sentences)[0].req_id, 0u);
-  EXPECT_EQ((*sentences)[1].req_id, 1u);
-
-  TextBatch answers{{0, 0, "ans0"}, {1, 0, "ans1"}};
-  harness.Publish("translation", std::move(answers));
-
-  JsonOutputFixture fix0, fix1;
-  std::vector<CompanyOperatorOutput> outputs = {fix0.out, fix1.out};
-  ASSERT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()), 0);
-}
-
-TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  ASSERT_NE(in_conv, nullptr);
-
-  test::AdapterHarness harness(in_conv);
-
-  std::string valid_q = "{\"query\":\"valid\"}";
-  std::string invalid_q = "invalid json";
-  CompanyString cs_valid{static_cast<int32_t>(valid_q.size()), valid_q.data()};
-  CompanyString cs_invalid{static_cast<int32_t>(invalid_q.size()),
-                           invalid_q.data()};
-  CompanyOperatorEntityInput in0{kMockServiceTranslate, &cs_valid};
-  CompanyOperatorEntityInput in1{kMockServiceTranslate, &cs_invalid};
-
-  EXPECT_EQ(harness.DecodeOperator({&in0, &in1}),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // 失败的业务批次不得发布。
-  EXPECT_EQ(harness.Context().Read<TextBatch>("query"), nullptr);
-}
-
-TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
+TEST_F(BusinessConvertersTest,
+       DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   const auto* out_conv =
       IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
@@ -860,6 +737,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   JsonOutputFixture fix0, fix1;
   std::vector<CompanyOperatorOutput> outputs = {fix0.out, fix1.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()), 0);
+  ASSERT_EQ(outputs.size(), 2U);
   ASSERT_NE(outputs[0].result_json, nullptr);
   EXPECT_STREQ(
       OutputJson(outputs[0]).at("answer_text").get<std::string>().c_str(),
@@ -869,6 +747,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
       OutputJson(outputs[0]).at("intent_name").get<std::string>().c_str(),
       "INTENT_0");
   EXPECT_EQ(OutputJson(outputs[0]).at("chunk_count").get<int>(), 3);
+  EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("confidence").get<float>(), 0.9f);
 
   ASSERT_NE(outputs[1].result_json, nullptr);
   EXPECT_STREQ(
@@ -879,15 +758,16 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
       OutputJson(outputs[1]).at("intent_name").get<std::string>().c_str(),
       "INTENT_1");
   EXPECT_EQ(OutputJson(outputs[1]).at("chunk_count").get<int>(), 5);
+  EXPECT_FLOAT_EQ(OutputJson(outputs[1]).at("confidence").get<float>(), 0.8f);
 }
 
 // =========================================================================
-// 3. 独立复用证明 (第 13.1 节)
+// 不同宿主输入的语义
 // =========================================================================
 
 // 证明 1：输入 Converter 与业务声明的宿主类型匹配，
 // 并通过测试 binding 证明可复用
-TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
+TEST_F(BusinessConvertersTest, HostSpecificInputsShareLogicalPayload) {
   const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
       "entity_in", "entity_extract");
   ASSERT_NE(entity_conv, nullptr);
@@ -931,285 +811,45 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
   }
 }
 
-// 证明 2：输出 Converter 可跨 Pipeline 复用
-TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "json_out", "entity_extract");
-  ASSERT_NE(out_conv, nullptr);
+TEST_F(BusinessConvertersTest,
+       DocQaOutputPreservesEmbeddedNullAndRejectsSmallPool) {
+  const auto* converter =
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
+  ASSERT_NE(converter, nullptr);
+  const std::string answer("a\0b", 3);
+  AlgContext ctx;
 
-  // 上下文 A：实体抽取 Pipeline 的输出
-  {
-    test::AdapterHarness harness(out_conv);
+  ctx.Publish("answer_text", TextBatch{{0, 0, answer}});
+  ctx.Publish("intent", RuleMatchBatch{{0, 0, RuleMatchItem{}}});
+  ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
+  test::ParsedOutputOptions options(*converter);
 
-    StructuredDocumentBatch batch;
-    batch.emplace_back(
-        0, 0,
-        JsonDocumentItem("[\"PERSON: Alice\"]", true, JsonParseStatus::kOk));
-    harness.Publish("entities", std::move(batch));
+  char bytes[256] = {};
+  CompanyString answer_out{0, bytes};
+  CompanyOperatorOutput output{kMockServiceDocQa, nullptr, 0};
+  output.result_json = &answer_out;
 
-    JsonOutputFixture ent_fix;
-    std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
-    ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-    ASSERT_NE(outputs[0].result_json, nullptr);
-    EXPECT_STREQ(outputs[0].result_json->data, "[\"PERSON: Alice\"]");
-  }
+  TestOutputBatchView view;
+  view.count = 1;
+  view.leased_slots["json_out"] = {&output};
+  view.slot_types["json_out"] = "CompanyOperatorOutput";
+  view.SetCapacity("json_out", "result_json", 255);
 
-  // 上下文 B：产出相同 schema 的通用结构化 JSON Pipeline 输出
-  {
-    test::AdapterHarness harness(out_conv);
+  size_t written = 0;
+  AdapterStatus status;
+  ASSERT_EQ(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                                &view, &written, &status),
+            COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 1U);
+  EXPECT_EQ(OutputJson(output).at("answer_text").get<std::string>(), answer);
+  EXPECT_EQ(bytes[answer_out.length], '\0');
 
-    StructuredDocumentBatch batch;
-    batch.emplace_back(
-        0, 0,
-        JsonDocumentItem("{\"summary\":\"ok\"}", true, JsonParseStatus::kOk));
-    harness.Publish("entities", std::move(batch));
-
-    JsonOutputFixture ent_fix;
-    std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
-    ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-    ASSERT_NE(outputs[0].result_json, nullptr);
-    EXPECT_STREQ(outputs[0].result_json->data, "{\"summary\":\"ok\"}");
-  }
-}
-
-// 证明 3：多种外部输入格式驱动同一 Pipeline
-TEST_F(AdapterPurityTest,
-       ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
-  InputConverterDefinition custom_in_def;
-  custom_in_def.type = "custom_input";
-  custom_in_def.name = "test_multi_field";
-  custom_in_def.slot = ExternalInputSlot<TextInputValue>(custom_in_def.type);
-  custom_in_def.logical_ports = {OutputPort(kSentenceText)};
-  custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
-                               const InputDecodeOptions& options,
-                               AlgContext* ctx, AdapterStatus* status) -> int {
-    TextBatch texts;
-    for (size_t i = 0; i < src.count; ++i) {
-      auto item = src.Read<TextInputValue>("custom_input", i, status);
-      if (!item) return -3;
-      texts.emplace_back(static_cast<uint32_t>(i), 0, item->sentence_text);
-    }
-    ctx->Publish(options.Port(kSentenceText.name), std::move(texts));
-    return 0;
-  };
-
-  auto custom_binding = MakeTypedInputBinding<CustomMultiFieldInput>(
-      "custom_input", [](const CustomMultiFieldInput&, const InputLimits&,
-                         std::string*) { return 0; });
-  SetInputValue<CustomMultiFieldInput, TextInputValue>(
-      &custom_binding, [](const CustomMultiFieldInput& input) {
-        return TextInputValue{std::string(input.topic) + ": " + input.content};
-      });
-
-  // 格式 A：经 entity_in/entity_extract 的 CompanyOperatorEntityInput
-  AlgContext ctx_a;
-  {
-    const auto* in_a = IoConverterRegistry::Instance().FindInputConverter(
-        "entity_in", "entity_extract");
-    ASSERT_NE(in_a, nullptr);
-    std::string text_str = "AI: Revolution in robotics";
-    CompanyString cs_text{static_cast<int32_t>(text_str.size()),
-                          text_str.data()};
-    CompanyOperatorEntityInput req_a{kMockServiceEntityExtract, &cs_text};
-    ExternalInputBatchView view;
-    view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&req_a});
-    view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-    view.count = 1;
-
-    test::ParsedInputOptions opts(*in_a);
-
-    AdapterStatus st;
-    ASSERT_EQ(
-        ::llm_edgeflow::test::DecodeForTest(*in_a, view, opts, &ctx_a, &st), 0);
-  }
-
-  // 格式 B：经 test.multi_field 的 CustomMultiFieldInput
-  AlgContext ctx_b;
-  {
-    const auto* in_b = &custom_in_def;
-    ASSERT_NE(in_b, nullptr);
-    CustomMultiFieldInput req_b{777, "AI", "Revolution in robotics"};
-    ExternalInputBatchView view;
-    view.slots["custom_input"] = llm_edgeflow::BorrowInputForTest({&req_b});
-    view.slot_types["custom_input"] = "CustomMultiFieldInput";
-    view.count = 1;
-
-    test::ParsedInputOptions opts(*in_b);
-
-    AdapterStatus st;
-    view.binding = &custom_binding;
-    ASSERT_EQ(in_b->decode_fn(view, opts, &ctx_b, &st), 0);
-  }
-
-  const auto* texts_a = ctx_a.Read<TextBatch>("sentence_text");
-  const auto* texts_b = ctx_b.Read<TextBatch>("sentence_text");
-  ASSERT_NE(texts_a, nullptr);
-  ASSERT_NE(texts_b, nullptr);
-  EXPECT_EQ((*texts_a)[0].data, (*texts_b)[0].data);
-  EXPECT_EQ((*texts_a)[0].data, "AI: Revolution in robotics");
-}
-
-// 证明 4：同一 Pipeline 可独立切换输出格式
-TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
-  // 输出 binding A：json_out/entity_extract ->
-  // CompanyOperatorOutput
-  {
-    const auto* out_a = IoConverterRegistry::Instance().FindOutputConverter(
-        "json_out", "entity_extract");
-    ASSERT_NE(out_a, nullptr);
-    JsonOutputFixture fix;
-    std::vector<CompanyOperatorOutput> outputs = {fix.out};
-    test::AdapterHarness harness(out_a);
-
-    harness.Publish(
-        "entities",
-        StructuredDocumentBatch{
-            {0, 0,
-             JsonDocumentItem("[\"item_1\"]", true, JsonParseStatus::kOk)}});
-    ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
-    ASSERT_NE(outputs[0].result_json, nullptr);
-    EXPECT_STREQ(outputs[0].result_json->data, "[\"item_1\"]");
-  }
-
-  // 输出 binding B：json_out/keyword_match ->
-  // CompanyOperatorOutput
-  {
-    const auto* out_b = IoConverterRegistry::Instance().FindOutputConverter(
-        "json_out", "keyword_match");
-    ASSERT_NE(out_b, nullptr);
-    JsonOutputFixture fix;
-    std::vector<CompanyOperatorOutput> outputs = {fix.out};
-    test::AdapterHarness harness(out_b);
-
-    RuleMatchItem urgent(1, "URGENT", "急", 1.0f);
-    urgent.slots["flag"] = "urgent";
-    harness.Publish("matches", RuleMatchBatch{{0, 0, urgent}});
-    ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
-    EXPECT_EQ(OutputJson(outputs[0]).at("is_hit").get<int>(), 1);
-    ASSERT_NE(outputs[0].result_json, nullptr);
-    EXPECT_STREQ(outputs[0].result_json->data,
-                 "{\"confidence\":1.0,\"intent\":\"URGENT\",\"is_hit\":1,"
-                 "\"matched_word\":"
-                 "\"急\",\"matches\":[],\"slots\":{\"flag\":\"urgent\"}}");
-  }
-}
-
-// 证明 5：同一载体承载不同 schema
-TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
-  const auto* plain_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "entity_extract");
-  ASSERT_NE(plain_conv, nullptr);
-  const auto* json_conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  ASSERT_NE(json_conv, nullptr);
-
-  // Payload 1：纯文本 "Hello plain text"
-  std::string plain_str = "Hello plain text";
-  CompanyString cs_plain{static_cast<int32_t>(plain_str.size()),
-                         plain_str.data()};
-  CompanyOperatorEntityInput plain_req{kMockServiceEntityExtract, &cs_plain};
-  ExternalInputBatchView plain_view;
-  plain_view.slots["entity_in"] =
-      llm_edgeflow::BorrowInputForTest({&plain_req});
-  plain_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-  plain_view.count = 1;
-
-  test::ParsedInputOptions opts(*plain_conv);
-  test::ParsedInputOptions json_options(*json_conv);
-
-  // entity_in/entity_extract 将其作为纯文本接受
-  {
-    AlgContext ctx;
-    AdapterStatus st;
-
-    EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*plain_conv, plain_view, opts,
-                                                  &ctx, &st),
-              0);
-    const auto* s = ctx.Read<TextBatch>("sentence_text");
-    ASSERT_NE(s, nullptr);
-    EXPECT_EQ((*s)[0].data, "Hello plain text");
-  }
-
-  // entity_in/translate 因其不是 JSON 而拒绝
-  {
-    AlgContext ctx;
-    AdapterStatus st;
-    EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*json_conv, plain_view,
-                                                  json_options, &ctx, &st),
-              COMPANY_ALG_ERR_INVALID_INPUT);
-    EXPECT_EQ(st.FieldPath(), "json");
-  }
-
-  // Payload 2：JSON 格式字符串 "{\"query\": \"Hello JSON\"}"
-  std::string json_str = "{\"query\": \"Hello JSON\"}";
-  CompanyString cs_json{static_cast<int32_t>(json_str.size()), json_str.data()};
-  CompanyOperatorEntityInput json_req{kMockServiceTranslate, &cs_json};
-  ExternalInputBatchView json_view;
-  json_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&json_req});
-  json_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-  json_view.count = 1;
-
-  // entity_in/translate 解析成功并提取 "query"
-  {
-    AlgContext ctx;
-    AdapterStatus st;
-    EXPECT_EQ(::llm_edgeflow::test::DecodeForTest(*json_conv, json_view,
-                                                  json_options, &ctx, &st),
-              0);
-    const auto* s = ctx.Read<TextBatch>("query");
-    ASSERT_NE(s, nullptr);
-    EXPECT_EQ((*s)[0].data, "Hello JSON");
-  }
-}
-
-// 证明 6：拒绝非法组合
-TEST_F(AdapterPurityTest, UnknownConverterPairsFailBeforeExecution) {
-  nlohmann::json document = {
-      {"io",
-       {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
-        {"output",
-         {{{"type", "json_out"},
-           {"name", "keyword_match"},
-           {"inputs", {{"matches", "rules.matches"}}}}}}}},
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       {{{"name", "rules"},
-         {"type", "text_rule_match"},
-         {"inputs", {{"text", "input.sentence_text"}}},
-         {"params", {{"categories", {{"SYSTEM_INIT", {"init"}}}}}}}}}};
-  for (const char* side : {"input", "output"}) {
-    auto invalid = document;
-    invalid["io"][side][0]["name"] = "unknown_service";
-    std::unique_ptr<ValidatedIoPlan> plan;
-    DeploymentDiagnostic diagnostic;
-    std::string error;
-    EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(
-                  invalid, "./models", &plan, &error, &diagnostic),
-              -2);
-    EXPECT_EQ(plan, nullptr);
-    EXPECT_EQ(diagnostic.code, "UNKNOWN_CONVERTER");
-    EXPECT_EQ(diagnostic.path, std::string("/io/") + side + "/0");
-    EXPECT_NE(error.find("unknown_service"), std::string::npos);
-    EXPECT_NE(error.find("keyword_match"), std::string::npos);
-  }
-  DeploymentIoConfig config;
-  std::string error;
-  EXPECT_FALSE(DeploymentIoConfig::Parse(
-      {{"pipe_path", "test.json"}, {"extra_field", 1}}, ".", &config, &error));
-  EXPECT_NE(error.find("Unknown field"), std::string::npos);
-}
-
-TEST_F(AdapterPurityTest, ReuseProof_7_ValidationBeforeInitialization) {
-  operator_api::CreateParam param{};
-  param.cfg_file_name = "non_existent_path.conf";
-  param.model_path = "./configs";
-  param.device_id = 0;
-
-  void* handle = nullptr;
-  int ret =
-      operator_api::Get_LLM_EDGEFLOW_OperatorTable().Create(&handle, &param);
-  EXPECT_NE(ret, COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(handle, nullptr);
+  view.SetCapacity("json_out", "result_json", 1);
+  written = 0;
+  EXPECT_NE(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
+                                                &view, &written, &status),
+            COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 0U);
 }
 
 }  // namespace llm_edgeflow

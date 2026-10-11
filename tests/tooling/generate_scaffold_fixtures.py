@@ -90,7 +90,7 @@ with output.open("a", encoding="utf-8") as stream:
 #include "adapter/io_plan_resolver.h"
 
 namespace llm_edgeflow {
-TEST(CustomNodeCatalogTest,
+TEST(CustomNodeBehaviorTest,
      ControlTutorialDeploymentUsesCurrentNativeContracts) {
 ''')
     stream.write("  const std::filesystem::path directory = " + json.dumps(str(tutorial_dir.resolve())) + ";\n")

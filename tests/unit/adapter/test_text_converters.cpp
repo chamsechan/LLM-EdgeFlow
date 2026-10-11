@@ -60,95 +60,6 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
   EXPECT_EQ((*sentences)[1].data, "Second sentence");
 }
 
-TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
-  const auto* conv = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  ASSERT_NE(conv, nullptr);
-  ASSERT_NE(conv->decode_fn, nullptr);
-
-  // 1. 含 query 字段的合法 JSON
-  std::string valid_json = "{\"query\": \"Translate me!\", \"lang\": \"en\"}";
-  CompanyString cs_valid{static_cast<int32_t>(valid_json.size()),
-                         const_cast<char*>(valid_json.data())};
-  CompanyOperatorEntityInput valid_s{kMockServiceTranslate, &cs_valid};
-
-  ExternalInputBatchView valid_view;
-  valid_view.count = 1;
-  valid_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&valid_s});
-  valid_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-
-  test::ParsedInputOptions options(*conv);
-
-  AlgContext ctx;
-  AdapterStatus status;
-  int ret = ::llm_edgeflow::test::DecodeForTest(*conv, valid_view, options,
-                                                &ctx, &status);
-  EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
-
-  const auto* sentences = ctx.Read<TextBatch>("query");
-  ASSERT_NE(sentences, nullptr);
-  ASSERT_EQ(sentences->size(), 1U);
-  EXPECT_EQ((*sentences)[0].data, "Translate me!");
-
-  // 2. 不含 query 的非法 JSON
-  std::string invalid_json = "{\"text\": \"No query field\"}";
-  CompanyString cs_invalid{static_cast<int32_t>(invalid_json.size()),
-                           const_cast<char*>(invalid_json.data())};
-  CompanyOperatorEntityInput invalid_s{kMockServiceTranslate, &cs_invalid};
-
-  ExternalInputBatchView invalid_view;
-  invalid_view.count = 1;
-  invalid_view.slots["entity_in"] =
-      llm_edgeflow::BorrowInputForTest({&invalid_s});
-  invalid_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
-
-  AlgContext bad_ctx;
-  AdapterStatus bad_status;
-  ret = ::llm_edgeflow::test::DecodeForTest(*conv, invalid_view, options,
-                                            &bad_ctx, &bad_status);
-  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(bad_status.FieldPath(), "json");
-}
-
-TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
-  const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "json_out", "translate");
-  ASSERT_NE(conv, nullptr);
-  ASSERT_NE(conv->encode_fn, nullptr);
-
-  AlgContext ctx;
-
-  TextBatch answers = {{0, 0, "Bonjour le monde"}};
-  ctx.Publish("translation", answers);
-
-  char buf[2048] = {0};
-  CompanyString cs_buf{2047, buf};
-  CompanyOperatorOutput out_struct{kMockServiceTranslate, nullptr, 0};
-  out_struct.result_json = &cs_buf;
-
-  TestOutputBatchView dest;
-  dest.count = 1;
-  dest.leased_slots["json_out"] = {&out_struct};
-  dest.slot_types["json_out"] = "CompanyOperatorOutput";
-  dest.SetCapacity("json_out", "result_json", sizeof(buf) - 1);
-
-  test::ParsedOutputOptions options(*conv);
-
-  size_t written = 0;
-  AdapterStatus status;
-  int ret = ::llm_edgeflow::test::EncodeForTest(*conv, &ctx, options, &dest,
-                                                &written, &status);
-  EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(written, 1U);
-  EXPECT_EQ(out_struct.status_code, 0);
-
-  ASSERT_NE(out_struct.result_json, nullptr);
-  std::string json_res(out_struct.result_json->data,
-                       out_struct.result_json->length);
-  auto parsed = nlohmann::json::parse(json_res);
-  EXPECT_EQ(parsed["translated"], "Bonjour le monde");
-}
-
 TEST_F(TextConvertersTest, SameCarrierSelectsBusinessPayload) {
   // 两个输入转换器槽位与载体完全相同，但对同一请求的解析语义不同。
   const auto decode = [](const char* name, std::string text) {
@@ -220,6 +131,65 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.FieldPath(), "result_json");
   EXPECT_EQ(written, 0U);
+}
+
+TEST_F(TextConvertersTest, TranslationRowsOwnValuesAndFailAtomically) {
+  const auto* input_converter =
+      IoConverterRegistry::Instance().FindInputConverter("entity_in",
+                                                         "translate");
+  const auto* output_converter =
+      IoConverterRegistry::Instance().FindOutputConverter("json_out",
+                                                          "translate");
+  ASSERT_NE(input_converter, nullptr);
+  ASSERT_NE(output_converter, nullptr);
+  std::string first = R"({"query":"first","lang":"en"})";
+  std::string second = R"({"query":"second"})";
+  CompanyString first_text{static_cast<int32_t>(first.size()), first.data()};
+  CompanyString second_text{static_cast<int32_t>(second.size()), second.data()};
+  CompanyOperatorEntityInput first_input{kMockServiceTranslate, &first_text};
+  CompanyOperatorEntityInput second_input{kMockServiceTranslate, &second_text};
+  test::AdapterHarness harness(input_converter, output_converter);
+  ASSERT_EQ(harness.DecodeOperator({&first_input, &second_input}), 0);
+  // Converted data must outlive mutation of the caller's bytes.
+  first.assign(first.size(), 'x');
+  const auto* queries = harness.Context().Read<TextBatch>("query");
+  ASSERT_NE(queries, nullptr);
+  ASSERT_EQ(queries->size(), 2U);
+  EXPECT_EQ((*queries)[0].data, "first");
+  EXPECT_EQ((*queries)[1].data, "second");
+  EXPECT_EQ((*queries)[0].req_id, 0U);
+  EXPECT_EQ((*queries)[1].req_id, 1U);
+  EXPECT_EQ((*queries)[0].sub_id, 0U);
+  EXPECT_EQ((*queries)[1].sub_id, 0U);
+  ASSERT_TRUE(harness.Publish("translation",
+                              TextBatch{{1, 0, "ans1"}, {0, 0, "ans0"}}));
+  char bytes[2][128]{};
+  CompanyString text[] = {{0, bytes[0]}, {0, bytes[1]}};
+  std::vector<CompanyOperatorOutput> outputs = {
+      {kMockServiceTranslate, &text[0], -1},
+      {kMockServiceTranslate, &text[1], -1}};
+  ASSERT_EQ(harness.EncodeOperator(&outputs, {{"result_json", 127}}), 0);
+  ASSERT_EQ(outputs.size(), 2U);
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(outputs[i].status_code, 0);
+    EXPECT_EQ(nlohmann::json::parse(std::string(text[i].data, text[i].length)),
+              nlohmann::json({{"translated", "ans" + std::to_string(i)}}));
+  }
+  // Invalid second rows must not leave even the first converted row published.
+  first = R"({"query":"valid"})";
+  first_text = {static_cast<int32_t>(first.size()), first.data()};
+  for (std::string invalid :
+       {"Hello plain text", R"({"text":"missing query"})"}) {
+    SCOPED_TRACE(invalid);
+    second_text = {static_cast<int32_t>(invalid.size()), invalid.data()};
+    test::AdapterHarness rejected(input_converter);
+    EXPECT_EQ(rejected.DecodeOperator({&first_input, &second_input}),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(rejected.Status().FieldPath(), "json");
+    EXPECT_EQ(rejected.Status().SampleIndex(), 1);
+    EXPECT_EQ(rejected.Context().Read<TextBatch>("query"), nullptr);
+  }
 }
 
 }  // namespace llm_edgeflow

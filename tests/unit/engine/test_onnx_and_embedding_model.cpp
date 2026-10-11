@@ -806,7 +806,7 @@ TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {
 // 3. Catalog 注册自省与 TextEmbeddingNode 测试
 // =============================================================================
 
-TEST_F(OnnxAndEmbeddingModelTest, CatalogRegistrations) {
+TEST(OnnxModelCatalogTest, RegisteredModelsAndConditionalBackend) {
 #ifdef HAVE_ONNXRUNTIME
   auto bdef_opt = BackendRegistry::Instance().Find("onnxruntime");
   ASSERT_TRUE(bdef_opt.has_value());
@@ -818,12 +818,17 @@ TEST_F(OnnxAndEmbeddingModelTest, CatalogRegistrations) {
   EXPECT_FALSE(BackendRegistry::Instance().Find("onnxruntime").has_value());
 #endif
 
-  auto mdef_opt = ModelRegistry::Instance().Find("bge_embedding");
-  ASSERT_TRUE(mdef_opt.has_value());
-  EXPECT_EQ(mdef_opt->impl_name, "bge_embedding");
-  EXPECT_EQ(mdef_opt->model_type, "embedding");
-  EXPECT_EQ(mdef_opt->required_protocol, ExecutionProtocol::kTensorGraph);
-  EXPECT_EQ(mdef_opt->concurrency, InferenceConcurrency::kConcurrent);
+  for (const auto& [implementation, category] :
+       {std::pair{"bge_embedding", "embedding"},
+        std::pair{"bge_reranker", "rerank"}}) {
+    SCOPED_TRACE(implementation);
+    auto definition = ModelRegistry::Instance().Find(implementation);
+    ASSERT_TRUE(definition.has_value());
+    EXPECT_EQ(definition->impl_name, implementation);
+    EXPECT_EQ(definition->model_type, category);
+    EXPECT_EQ(definition->required_protocol, ExecutionProtocol::kTensorGraph);
+    EXPECT_EQ(definition->concurrency, InferenceConcurrency::kConcurrent);
+  }
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {

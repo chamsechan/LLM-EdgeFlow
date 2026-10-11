@@ -41,6 +41,8 @@ Engine 的 `backends/` 单独归 Backend 目标；Adapter 的 `shared_algorithm_
 分别归自己的可执行目标。新增独立目标时仍须声明其入口和归属，不能混入已有目标。
 测试按 `tests/RuntimeTests.cmake` 的目录和命名规则收集；跨 runner、进程隔离、生成源码及
 可选 E2E 目标保留显式登记，新测试 suite 仍须被 CTest filter 覆盖。
+具体 Node 的算法测试、公共机制测试和按业务组织的 Operator 集成测试分开归属；
+新增、复用与合并的边界统一见[测试指南](../../tests/README.md)。
 
 ## 头文件的三种使用范围
 

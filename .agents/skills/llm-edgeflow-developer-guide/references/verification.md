@@ -29,11 +29,12 @@ do not mix a variant Catalog with default binaries.
    [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案)
    for `.conf` / Profile selection and Demo Control behavior; running an unchanged Profile
    does not verify a new JSON file.
-5. Run focused tests during development. Extend an existing source/suite where it owns the contract.
+5. Choose ownership and shared coverage using the [test guide](../../../../tests/README.md).
+   Run focused tests during development. Extend an existing source/suite where it owns the contract.
    New `test_*.cpp` files in the directories matched by `tests/RuntimeTests.cmake` are
    automatically included in the owning runner; a new suite also needs a CTest filter.
    Keep process-isolated and opt-in tests explicitly registered. Generated custom Node
-   tests are collected from `tests/unit/nodes/` and use the existing `CustomNodeCatalogTest`
+   tests are collected from `tests/unit/nodes/` and use the existing `CustomNodeBehaviorTest`
    filter. Confirm the actual cases run, not just that the runner builds.
    For the final gate, follow
    [CONTRIBUTING](../../../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate): run it directly

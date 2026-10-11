@@ -49,6 +49,9 @@ description: 新增或修改 LLM-EdgeFlow Model 的预处理、输出解释和�
 
 ## 验证责任
 
+按[测试编写与归属](../../../tests/README.md)维护唯一责任入口。公共参数/批执行规则复用机制测试，
+具体实现保留语义、协议接入与资源生命周期证据；新测试承接旧测试全部独有契约后，同次删除旧用例。
+
 在 `tests/unit/engine/` 用确定性 Session 测试预处理/输出语义、能力和协议不匹配、批次边界、
 padding 与来源、失败清空；无效语义配置应在 Backend 创建/Load 前拒绝。
 `ModelConfigValidationTest` fixture 由 `ModelBackendDecouplingTest` 的 CTest 入口覆盖。

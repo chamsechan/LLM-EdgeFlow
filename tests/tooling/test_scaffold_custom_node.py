@@ -128,8 +128,8 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_awesome_feature_node.cpp"
             self.assertTrue(test_file.exists())
             test_content = test_file.read_text(encoding="utf-8")
-            self.assertIn("TEST(CustomNodeCatalogTest, awesome_feature_RegistrationAndInstantiation)", test_content)
-            self.assertIn("TEST(CustomNodeCatalogTest, awesome_feature_MapPreservesInputData)", test_content)
+            self.assertIn("TEST(CustomNodeBehaviorTest, awesome_feature_RegistrationAndInstantiation)", test_content)
+            self.assertIn("TEST(CustomNodeBehaviorTest, awesome_feature_MapPreservesInputData)", test_content)
 
             # 检查输出报告
             self.assertIn(f"Created {source_file}", result.stdout)
@@ -140,8 +140,8 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(list(Path(temp).rglob("CMakeLists.txt")), [])
             self.assertEqual(list((Path(temp) / "tests").glob("*.cmake")), [])
             self.assertIn("cmake --build build --target edgeflow_test_nodes_runner", result.stdout)
-            self.assertIn("CustomNodeCatalogTest.awesome_feature_*", result.stdout)
-            self.assertIn("(cd build && ctest -R CommonNodesTest)", result.stdout)
+            self.assertIn("CustomNodeBehaviorTest.awesome_feature_*", result.stdout)
+            self.assertIn("(cd build && ctest -R CustomNodeBehaviorTest)", result.stdout)
 
     def test_write_test_dry_run_does_not_create_files(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -157,7 +157,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_dry_run_node.cpp"
             self.assertIn(f"--- {source_file} (new file) ---", result.stdout)
             self.assertIn(f"--- {test_file} (new test file) ---", result.stdout)
-            self.assertIn("TEST(CustomNodeCatalogTest, dry_run_", result.stdout)
+            self.assertIn("TEST(CustomNodeBehaviorTest, dry_run_", result.stdout)
             self.assertIn("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.", result.stdout)
             self.assertNotIn("+  test_dry_run_node.cpp", result.stdout)
 

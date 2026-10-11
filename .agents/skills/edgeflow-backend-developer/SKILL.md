@@ -50,6 +50,9 @@ BatchPolicy 决定；测试后端仅支持 `kFixture`，`fixed_batch_size=0` 使
 
 ## 验证可执行边界
 
+按[测试编写与归属](../../../tests/README.md)维护唯一责任入口。公共参数/批执行规则复用机制测试，
+具体实现保留语义、协议接入与资源生命周期证据；新测试承接旧测试全部独有契约后，同次删除旧用例。
+
 沿用 `tests/unit/engine/` 和 `edgeflow_test_core_runner`，覆盖非法配置/路径、协议错误、
 资源创建失败与释放、声明支持的 batch/并发行为，以及关闭 Backend 时的行为。
 按实际改动选择 `ModelBackendDecouplingTest`、具体 Backend 套件和 `LayerGuardTest`。

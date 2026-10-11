@@ -5,85 +5,31 @@
 #include <string>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/session_context.h"
 #include "dev_support/inference/test_capability_models.h"
-#include "nodes/node_error_codes.h"
-#include "tests/support/model_registration.h"
-#include "tests/support/node_test_utils.h"
+#include "tests/support/node_harness.h"
 
 namespace llm_edgeflow {
 
-class OcrDetectNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    session_ctx_ = std::make_unique<SessionContext>();
-
-    ocr_model_ = std::make_shared<test::TestOcrModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "ocr_model",
-                                  ocr_model_, "test-revision", "test_ocr_model",
-                                  "ocr", "test_tensor_backend"));
-  }
-  std::unique_ptr<SessionContext> session_ctx_;
-  std::shared_ptr<test::TestOcrModel> ocr_model_;
-};
-
-TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
-  auto node = NodeRegistry::Instance().Create("ocr_detect");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "ocr_model"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
+TEST(OcrDetectNodeTest, ProcessOcrDetection) {
+  auto model = std::make_shared<test::TestOcrModel>();
+  NodeHarness harness("ocr_detect");
+  harness.Config({{"bind_model", "model"}}).BindModel("model", model);
   ImageFrameBatch images;
   images.emplace_back(1, 0, ImageFrame{2, 1, 6, {255, 0, 0, 0, 255, 0}});
-  ctx.Publish("images", images);
+  harness.CustomInput("images", images);
 
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out_doc = ctx.Read<OcrDocumentBatch>("document");
-  const auto* out_text = ctx.Read<TextBatch>("text");
+  const auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* out_doc = result.Output<OcrDocumentBatch>("document");
+  const auto* out_text = result.Output<TextBatch>("text");
   ASSERT_NE(out_doc, nullptr);
   ASSERT_NE(out_text, nullptr);
   ASSERT_EQ(out_doc->size(), 1u);
+  ASSERT_EQ(out_text->size(), 1u);
   ASSERT_EQ((*out_doc)[0].data.boxes.size(), 1u);
   EXPECT_EQ((*out_doc)[0].data.combined_text, "recognized:2");
   EXPECT_EQ((*out_text)[0].data, "recognized:2");
-}
-
-TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("ocr_detect");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
-                              session_ctx_.get()));
-
-  AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
-}
-
-TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("ocr_detect");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
-                              session_ctx_.get()));
-
-  ImageFrameBatch images;
-  images.emplace_back(7, 2, ImageFrame{1, 1, 3, {255, 0, 0}});
-
-  AlgContext count_ctx;
-  count_ctx.Publish("images", images);
-  ocr_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&count_ctx),
-            node_error::author_node::kOutputCountMismatch);
-
-  ocr_model_->return_wrong_count_ = false;
-  ocr_model_->corrupt_provenance_ = true;
-  AlgContext provenance_ctx;
-  provenance_ctx.Publish("images", images);
-  EXPECT_EQ(node->Process(&provenance_ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
 }
 
 }  // namespace llm_edgeflow

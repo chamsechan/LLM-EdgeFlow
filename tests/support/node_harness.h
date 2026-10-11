@@ -21,6 +21,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/model_registration.h"
 #include "tests/support/node_plan_fixture.h"
 

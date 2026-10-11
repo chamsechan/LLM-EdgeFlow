@@ -71,10 +71,10 @@ LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自�
 
 ## 验证与接入
 
-优先扩展现有测试；`tests/unit/nodes/test_*.cpp` 自动收集到节点 runner，新套件还需纳入
-CTest filter；脚手架 `--write-test` 沿用 `CustomNodeCatalogTest`。聚焦测试执行真实 `Run`，
-检查实际业务输出、空/缺失输入、多个请求及非零 `sub_id`、数量与来源、模型失败不发布结果；
-Control/缓存改动补回滚与并发测试。仅创建成功或检查 Catalog 不证明算法正确。
+按[测试编写与归属](../../../tests/README.md)选择组件用例或公共契约。具体 Node 文件验证真实
+`Run` 的算法、特有参数与必要接入；框架规则矩阵留在机制测试，派生数量/来源仍由算法用例负责。
+`tests/unit/nodes/test_*.cpp` 自动收集；脚手架 `--write-test` 使用 `CustomNodeBehaviorTest`，
+新 suite 须纳入 CTest filter。Control/缓存改动补回滚与并发证据。注册成功不能代替算法断言。
 
 ```bash
 cmake --build build --target edgeflow_test_nodes_runner alg_pipeline_tool -j 4

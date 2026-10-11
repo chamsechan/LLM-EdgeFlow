@@ -200,16 +200,13 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "AlgContextTest.*:TraceableItemTest.*:ModelManagerTest.*:PipelineTest.*:SessionContextTest.*"
+  "ModelManagerTest.*:PipelineTest.*:SessionContextTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DagPipelineTest edgeflow_test_core_runner
   "DagPipelineTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(EngineFaultToleranceAndLifecycleTest
-  edgeflow_test_core_runner "EngineFaultToleranceAndLifecycleTest.*"
-  "${_edgeflow_tier1}")
 edgeflow_add_runner_test(PipelineConfigTest edgeflow_test_core_runner
   "PipelineConfigTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
@@ -231,7 +228,7 @@ edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
 edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
   "ModelBackendPipelineTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
-  "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
+  "OnnxAndEmbeddingModelTest.*:OnnxModelCatalogTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(OnnxAndRerankerModelTest edgeflow_test_core_runner
   "OnnxAndRerankerModelTest.*" "${_edgeflow_tier1}")
 
@@ -247,6 +244,8 @@ edgeflow_add_runner_test(TextTemplateNodeTest edgeflow_test_nodes_runner
   "TextTemplateNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(LlmGenerateNodeTest edgeflow_test_nodes_runner
   "LlmGenerateNodeTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(NodeModelContractTest edgeflow_test_nodes_runner
+  "NodeModelContractTest/*.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(AsrTranscribeNodeTest edgeflow_test_nodes_runner
   "AsrTranscribeNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(OcrDetectNodeTest edgeflow_test_nodes_runner
@@ -258,8 +257,10 @@ edgeflow_add_runner_test(StructuredJsonParseNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
   "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
-  "NodeAuthoringExamplesTest.*:PromptGuidedLlmNodeTest.*:CustomNodeCatalogTest.*"
+  "NodeAuthoringExamplesTest.*:PromptGuidedLlmNodeTest.*"
   "${_edgeflow_tier1}")
+edgeflow_add_runner_test(CustomNodeBehaviorTest edgeflow_test_nodes_runner
+  "CustomNodeBehaviorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "FunctionNodeTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
@@ -270,10 +271,17 @@ set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorSafetyTest edgeflow_test_adapter_runner
   "OperatorSafetyTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(DifferentIoModalitiesTest edgeflow_test_adapter_runner
-  "DifferentIoModalitiesTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(AllBizPipelinesTest edgeflow_test_adapter_runner
-  "AllBizPipelinesTest.*" "${_edgeflow_tier3}")
+# Business contracts own complete requests/responses; runtime tests own lifecycle.
+set(EDGEFLOW_OPERATOR_BIZ_TESTS
+  DocQaOperatorTest DialogueAuditOperatorTest OcrInvoiceQaOperatorTest
+  AudioAsrIntentOperatorTest CrossRerankOperatorTest KeywordMatchOperatorTest
+  EntityExtractOperatorTest TranslateOperatorTest)
+foreach(suite IN LISTS EDGEFLOW_OPERATOR_BIZ_TESTS)
+  edgeflow_add_runner_test(${suite} edgeflow_test_adapter_runner
+    "${suite}.*" "${_edgeflow_tier3}")
+endforeach()
+edgeflow_add_runner_test(OperatorLifecycleTest edgeflow_test_adapter_runner
+  "OperatorLifecycleTest.*:OperatorGlobalLifecycleTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(ConcurrencyAndEdgeCasesTest edgeflow_test_adapter_runner
   "ConcurrencyAndEdgeCasesTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(RuntimeControlAndHotSwapTest edgeflow_test_adapter_runner
@@ -288,18 +296,16 @@ edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
   "OperatorValueRegistryTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(OperatorGoldenTest edgeflow_test_adapter_runner
-  "OperatorGoldenTest.*:ScopedTestOperatorTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
-  "AdapterPurityTest.*" "${_edgeflow_tier2}")
+edgeflow_add_runner_test(ScopedTestOperatorTest edgeflow_test_adapter_runner
+  "ScopedTestOperatorTest.*" "${_edgeflow_tier2}")
+edgeflow_add_runner_test(BusinessConvertersTest edgeflow_test_adapter_runner
+  "BusinessConvertersTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
   "IoConverterTest.*:IoConverterProcessTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
   "IoConverterRegistryTest.*:ConverterContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConvertersTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
-  "ComplexConvertersTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
@@ -444,44 +450,22 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     PROPERTIES WILL_FAIL TRUE)
 endif()
 
-set(EDGEFLOW_PIPELINE_CONFIGS
-  configs/pipeline_keyword_match_rules.json
-  configs/pipeline_entity_extract_default.json
-  configs/pipeline_doc_qa_default.json
-  configs/pipeline_dialogue_audit_default.json
-  configs/pipeline_doc_qa_cpu.json
-  configs/pipeline_doc_qa_rerank_default.json
-  configs/pipeline_doc_qa_rerank_cpu.json
-  configs/pipeline_entity_extract_cpu.json
-  demo/fixtures/mock/pipeline_ocr_invoice_qa.json
-  demo/fixtures/mock/pipeline_audio_asr_intent.json
-  configs/pipeline_cross_rerank_cpu.json)
-foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
-  get_filename_component(config_stem "${config_path}" NAME_WE)
-  add_test(NAME NativeCli_${config_stem}
-    COMMAND $<TARGET_FILE:alg_show>
-            ${PROJECT_SOURCE_DIR}/${config_path})
-  set_tests_properties(NativeCli_${config_stem}
-    PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    LABELS "${_edgeflow_tier4}")
-  if(config_path MATCHES "^configs/")
-    add_test(NAME PythonCli_${config_stem}
-      COMMAND ${PROJECT_SOURCE_DIR}/tools/pipeline_studio/server.py
-              ${config_path})
-    set_tests_properties(PythonCli_${config_stem}
-      PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-      LABELS "${_edgeflow_tier4}")
-  endif()
-endforeach()
+# PipelineValidatorTest.AllRepositoryPipelinesValidate owns the config matrix.
+# Viewer-specific rendering is asserted in test_pipeline_cli.py.
+add_test(NAME NativeCliSmokeTest COMMAND $<TARGET_FILE:alg_show>
+  ${PROJECT_SOURCE_DIR}/demo/fixtures/mock/pipeline_ocr_invoice_qa.json)
+add_test(NAME PythonCliSmokeTest
+  COMMAND ${PROJECT_SOURCE_DIR}/tools/pipeline_studio/server.py
+          configs/pipeline_keyword_match_rules.json)
+set_tests_properties(NativeCliSmokeTest PythonCliSmokeTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier4}")
 
-add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  catalog)
 add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
   ${CMAKE_CURRENT_SOURCE_DIR}/tooling/test_pipeline_cli.py
   --tool $<TARGET_FILE:alg_pipeline_tool>
   --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
   --repo ${PROJECT_SOURCE_DIR})
-set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
+set_tests_properties(PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
 set_tests_properties(PipelineToolValidateTest PROPERTIES
@@ -513,7 +497,6 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   FrameworkCoreTest
   CompanyAlgLogTest
   DagPipelineTest
-  EngineFaultToleranceAndLifecycleTest
   PipelineConfigTest
   RegistryReentrantTest
   CatalogContractSsotTest
@@ -532,19 +515,21 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   TextRerankNodeTest
   TextTemplateNodeTest
   LlmGenerateNodeTest
+  NodeModelContractTest
   AsrTranscribeNodeTest
   OcrDetectNodeTest
   TextRuleMatchNodeTest
   StructuredJsonParseNodeTest
   TextCorpusSourceNodeTest
   CommonNodesTest
+  CustomNodeBehaviorTest
   FunctionNodeTest
   SpecSignatureDiagnosticsTest
   ParameterBindingTest
   CppOperatorSdkTest
   OperatorSafetyTest
-  DifferentIoModalitiesTest
-  AllBizPipelinesTest
+  ${EDGEFLOW_OPERATOR_BIZ_TESTS}
+  OperatorLifecycleTest
   ConcurrencyAndEdgeCasesTest
   RuntimeControlAndHotSwapTest
   AdapterContractSecurityTest
@@ -552,12 +537,11 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorOutputPoolTest
   RuntimeFacadeTest
   OperatorValueRegistryTest
-  OperatorGoldenTest
-  AdapterPurityTest
+  ScopedTestOperatorTest
+  BusinessConvertersTest
   IoConverterTest
   IoConverterRegistryTest
   TextConvertersTest
-  ComplexConvertersTest
   DocQaRerankTest
   PipelineContractsTest
   DemoRunnerTest

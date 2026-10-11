@@ -52,55 +52,6 @@ TEST(PipelineTest, ThreadPoolConstructionFailureCleansUpAndAllowsRetry) {
   EXPECT_TRUE(completed);
 }
 
-// 1. 测试 AlgContext 黑板基础功能与类型安全
-TEST(AlgContextTest, BasicAndTypeSafety) {
-  AlgContext ctx;
-  EXPECT_FALSE(ctx.Has("non_existent_key"));
-  EXPECT_EQ(ctx.Read<int>("non_existent_key"), nullptr);
-
-  // 写入基础类型
-  ASSERT_TRUE(ctx.Publish("user_id", 12345));
-  ASSERT_TRUE(ctx.Publish("user_name", std::string("Alice")));
-  EXPECT_TRUE(ctx.Has("user_id"));
-  EXPECT_EQ(*ctx.Read<int>("user_id"), 12345);
-  EXPECT_EQ(*ctx.Read<std::string>("user_name"), "Alice");
-
-  // 类型不匹配时的安全性检查（不能崩溃，必须返回 nullptr）
-  EXPECT_EQ(ctx.Read<double>("user_id"), nullptr);
-
-  // 复杂结构测试
-  std::vector<std::string> tags = {"NLP", "NPU", "LLM"};
-  ASSERT_TRUE(ctx.Publish("tags", tags));
-  auto* retrieved_tags = ctx.Read<std::vector<std::string>>("tags");
-  ASSERT_NE(retrieved_tags, nullptr);
-  EXPECT_EQ(retrieved_tags->size(), 3U);
-  EXPECT_EQ((*retrieved_tags)[1], "NPU");
-
-  // 错误码设置与检查
-  ctx.SetError(-5001, "Simulated error");
-  EXPECT_EQ(ctx.GetErrorCode(), -5001);
-  EXPECT_EQ(ctx.GetErrorMessage(), "Simulated error");
-
-  // 请求值和诊断在本请求上下文生命周期内保持稳定。
-  EXPECT_TRUE(ctx.Has("user_id"));
-  EXPECT_EQ(ctx.GetErrorCode(), -5001);
-}
-
-// 2. 测试 TraceableItem 样本溯源机制
-TEST(TraceableItemTest, ProvenanceTracking) {
-  TraceableItem<std::string> item1(101, 0, "Chunk 0 of Req 101");
-  TraceableItem<std::string> item2(101, 1, "Chunk 1 of Req 101");
-  TraceableItem<std::string> item3(102, 0, "Chunk 0 of Req 102");
-
-  EXPECT_EQ(item1.req_id, 101U);
-  EXPECT_EQ(item1.sub_id, 0U);
-  EXPECT_EQ(item2.req_id, 101U);
-  EXPECT_EQ(item2.sub_id, 1U);
-  EXPECT_EQ(item3.req_id, 102U);
-  EXPECT_EQ(item3.sub_id, 0U);
-  EXPECT_EQ(item1.data, "Chunk 0 of Req 101");
-}
-
 // 3. 测试 ModelManager 的强类型多模型管理机制
 TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
