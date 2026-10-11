@@ -200,6 +200,8 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(TensorStorageTest edgeflow_test_core_runner
+  "TensorStorageTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
   "${_edgeflow_tier1}")
