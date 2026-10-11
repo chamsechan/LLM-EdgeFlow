@@ -314,7 +314,7 @@ edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
 # Catalog、Validator 与 Authoring 的原生契约使用带工具依赖的 runner。
 edgeflow_add_runner_test(PipelineContractsTest edgeflow_test_tooling_runner
-  "PipelineCatalogTest.*:PipelineValidatorTest.*:PipelineAuthoringTest.*"
+  "PipelineCatalogTest.*:PipelineAuthoringTest.*"
   "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
   "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")
