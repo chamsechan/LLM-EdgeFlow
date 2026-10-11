@@ -220,7 +220,7 @@ edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
 edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
   "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
-  "ValidatedPipelinePlanTest.*:PortShapeTest.*" "${_edgeflow_tier1}")
+  "PipelinePlanningTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(NodeBaseContractsTest edgeflow_test_core_runner
   "NodeBaseContractsTest.*:NodeErrorCodesTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner

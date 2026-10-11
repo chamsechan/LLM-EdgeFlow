@@ -1,1450 +1,751 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <fstream>
-#include <nlohmann/json.hpp>
+#include <cstdlib>
+#include <memory>
 #include <string>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "core/node_interface.h"
+#include "contracts/parameters.h"
 #include "core/node_registry.h"
-#include "core/pipeline.h"
-#include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "engine/backend_registry.h"
-#include "engine/model_interface.h"
 #include "engine/model_registry.h"
-#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
+namespace {
+using Json = nlohmann::json;
 
-class PlanTestNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "plan_test";
-  inline static nlohmann::json observed_config = nlohmann::json::object();
-
-  bool Init(const NodeInitContext& init_ctx) override {
-    if (!init_ctx.plan) return false;
-    observed_config = init_ctx.plan->normalized_params;
-    return true;
-  }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
+struct PlanningParameters {
+  int limit = 0;
+  std::string model;
 };
 
-NodeDefinition MakePlanTestNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = PlanTestNode::kNodeType;
-  def.category = "test";
-  def.description = "Plan test node";
-  def.config_fields = {{"retry_limit", ConfigValueKind::kInteger,
-                        /*required=*/false, /*default_value=*/3,
-                        /*minimum=*/0.0, /*maximum=*/10.0}};
-  def.parallel_safe = true;
-  return def;
+NodeDefinition RelayDefinition(const std::string& type) {
+  NodeDefinition definition;
+  definition.node_type = type;
+  definition.parallel_safe = true;
+  definition.inputs = {{"text", "text"}};
+  definition.outputs = {{"text", "text"}, {"unused", "text"}};
+  definition.config_fields =
+      Parameters<PlanningParameters>{
+          Field("limit", &PlanningParameters::limit).Default(4).Minimum(1)}
+          .Fields();
+  return definition;
 }
 
-REGISTER_NODE_WITH_DEFINITION(PlanTestNode, MakePlanTestNodeDefinition());
-
-class IoBoundaryTestNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "io_boundary_test";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeIoBoundaryTestNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = IoBoundaryTestNode::kNodeType;
-  def.category = "test";
-  def.description = "IO Boundary test node";
-  def.inputs = {NodePortDefinition{"input_data", "TextBatch", true, "1:1",
-                                   "preserve", "request"}};
-  def.outputs = {NodePortDefinition{"output_data", "TextBatch", true, "1:1",
-                                    "preserve", "request"}};
-  def.parallel_safe = true;
-  return def;
+Json Node(const std::string& name, const std::string& type = "planning_relay",
+          const std::string& source = "input.text") {
+  return {{"name", name}, {"type", type}, {"inputs", {{"text", source}}}};
 }
 
-REGISTER_NODE_WITH_DEFINITION(IoBoundaryTestNode,
-                              MakeIoBoundaryTestNodeDefinition());
-
-class SerializedPlanTestModel : public IModel {
- public:
-  inline static constexpr char kImplName[] = "serialized_plan_test";
-
-  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
-                                        std::string*) {
-    return std::make_shared<SerializedPlanTestModel>();
-  }
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = kImplName;
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string model_type = "plan_test";
-    return model_type;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kSerialized;
-  }
-};
-
-class SerializedPlanSession : public IBackendSession {
- public:
-  const std::string& BackendType() const noexcept override {
-    static const std::string type = "serialized_plan_backend";
-    return type;
-  }
-  ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kFixture;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  BatchPolicy GetBatchPolicy() const noexcept override { return {16, 0}; }
-};
-class SerializedPlanBackend : public IInferenceBackend {
- public:
-  const std::string& BackendType() const noexcept override {
-    static const std::string type = "serialized_plan_backend";
-    return type;
-  }
-  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
-                                        std::string*) noexcept override {
-    return std::make_shared<SerializedPlanSession>();
-  }
-};
-BackendDefinition MakeSerializedPlanBackendDefinition() {
-  BackendDefinition def;
-  def.backend_type = "serialized_plan_backend";
-  def.supported_protocols = {ExecutionProtocol::kFixture};
-  def.concurrency = InferenceConcurrency::kConcurrent;
-  return def;
-}
-REGISTER_BACKEND_WITH_DEFINITION(SerializedPlanBackend,
-                                 MakeSerializedPlanBackendDefinition());
-
-ModelDefinition MakeSerializedPlanTestModelDefinition() {
-  ModelDefinition def;
-  def.impl_name = SerializedPlanTestModel::kImplName;
-  def.model_type = "plan_test";
-  def.description = "Serialized model used by plan validation tests";
-  def.required_protocol = ExecutionProtocol::kFixture;
-  def.fixture_backends = {"serialized_plan_backend"};
-  def.concurrency = InferenceConcurrency::kSerialized;
-  return def;
+Json Pipeline(std::initializer_list<Json> nodes, size_t workers = 1) {
+  auto pipeline = Json::array();
+  for (const auto& node : nodes) pipeline.push_back(node);
+  return {{"max_parallel_workers", workers}, {"pipeline", std::move(pipeline)}};
 }
 
-REGISTER_MODEL_WITH_DEFINITION(SerializedPlanTestModel,
-                               MakeSerializedPlanTestModelDefinition());
-
-class ModelBoundPlanTestNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "model_bound_plan_test";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeModelBoundPlanTestNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = ModelBoundPlanTestNode::kNodeType;
-  def.category = "test";
-  def.description = "Model-bound plan test node";
-  def.config_fields = {{"bind_model", ConfigValueKind::kString, true}};
-  def.model_dependencies = {{"model", "plan_test", "bind_model"}};
-  def.parallel_safe = true;
-  return def;
+Json Model(const std::string& name = "generator",
+           const std::string& backend = "planning_concurrent_backend",
+           const std::string& category = "planning_generation") {
+  return {{"type", category},
+          {"name", name},
+          {"file", "unresolved/model.bin"},
+          {"backend", {{"type", backend}}}};
 }
 
-REGISTER_NODE_WITH_DEFINITION(ModelBoundPlanTestNode,
-                              MakeModelBoundPlanTestNodeDefinition());
-
-class MultiModelPlanTestNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "multi_model_plan_test";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeMultiModelPlanTestNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = MultiModelPlanTestNode::kNodeType;
-  def.category = "test";
-  def.description = "Multi-model plan test node";
-  def.config_fields = {
-      {"bind_generator", ConfigValueKind::kString, true},
-      {"bind_reviewer", ConfigValueKind::kString, true},
-  };
-  def.model_dependencies = {
-      {"generator", "plan_test", "bind_generator"},
-      {"reviewer", "plan_test", "bind_reviewer"},
-  };
-  def.parallel_safe = true;
-  return def;
+PipelineIoBoundary Boundary(const std::string& output = "relay.text") {
+  PipelineIoBoundary boundary;
+  boundary.input_published_ports = {{"input.text", "text"},
+                                    {"input.unused", "text"}};
+  IoPortDefinition result(output, "text");
+  result.logical_name = "result";
+  result.path = "/io/output/0/inputs";
+  result.has_binding = !output.empty();
+  boundary.output_consumed_ports.push_back(result);
+  return boundary;
 }
 
-REGISTER_NODE_WITH_DEFINITION(MultiModelPlanTestNode,
-                              MakeMultiModelPlanTestNodeDefinition());
-
-class FlowContractProducerNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "flow_contract_producer";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-class FlowContractConsumerNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "flow_contract_consumer";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeFlowContractProducerDefinition() {
-  NodeDefinition def;
-  def.node_type = FlowContractProducerNode::kNodeType;
-  def.category = "test";
-  def.description = "Produces a generated request-scoped collection";
-  def.outputs = {NodePortDefinition{"flow", "TextBatch", true, "1:N",
-                                    "generate_sub_id", "request"}};
-  return def;
+const ValidationDiagnostic* FindDiagnostic(const ValidationReport& report,
+                                           DiagnosticCode code,
+                                           const std::string& path) {
+  const auto found = std::find_if(
+      report.diagnostics.begin(), report.diagnostics.end(),
+      [&](const auto& item) { return item.code == code && item.path == path; });
+  return found == report.diagnostics.end() ? nullptr : &*found;
 }
 
-NodeDefinition MakeFlowContractConsumerDefinition() {
-  NodeDefinition def;
-  def.node_type = FlowContractConsumerNode::kNodeType;
-  def.category = "test";
-  def.description = "Requires incompatible flow metadata";
-  def.inputs = {NodePortDefinition{"flow", "TextBatch", true, "1:1",
-                                   "independent", "session"}};
-  return def;
+void ExpectError(const ValidatedPipelinePlan& plan, DiagnosticCode code,
+                 const std::string& path) {
+  EXPECT_FALSE(plan.report.ok);
+  EXPECT_NE(FindDiagnostic(plan.report, code, path), nullptr)
+      << plan.report.ToJson().dump(2);
 }
 
-REGISTER_NODE_WITH_DEFINITION(FlowContractProducerNode,
-                              MakeFlowContractProducerDefinition());
-REGISTER_NODE_WITH_DEFINITION(FlowContractConsumerNode,
-                              MakeFlowContractConsumerDefinition());
-
-// 形状夹具：一个逐条配对、一个按请求分组、一个不透明关系。
-// Validator 只关心它们的 Definition。
-class ShapeFixtureNode : public INode {
- public:
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = "shape_fixture";
-    return name;
+class PipelinePlanningTest : public ::testing::Test {
+ protected:
+  static void SetUpTestSuite() {
+    for (const auto* type :
+         {"planning_concurrent_backend", "planning_serial_backend",
+          "planning_incompatible_backend"}) {
+      BackendDefinition backend;
+      backend.backend_type = type;
+      backend.supported_protocols = {std::string(type) ==
+                                             "planning_incompatible_backend"
+                                         ? ExecutionProtocol::kTextGeneration
+                                         : ExecutionProtocol::kFixture};
+      backend.concurrency = std::string(type) == "planning_serial_backend"
+                                ? InferenceConcurrency::kSerialized
+                                : InferenceConcurrency::kConcurrent;
+      backend.params = Parameters<PlanningParameters>{
+          Field("limit", &PlanningParameters::limit).Default(8)};
+      ASSERT_TRUE(BackendRegistry::Instance().Register(
+          backend, []() -> std::unique_ptr<IInferenceBackend> {
+            ADD_FAILURE() << "Preflight must not create a backend";
+            return nullptr;
+          }));
+    }
+    for (const auto* category :
+         {"planning_generation", "planning_serial_model"}) {
+      ModelDefinition model;
+      model.model_type = category;
+      model.impl_name = std::string(category) + "_impl";
+      model.required_protocol = ExecutionProtocol::kFixture;
+      model.fixture_backends = {"planning_concurrent_backend",
+                                "planning_serial_backend"};
+      model.concurrency = std::string(category) == "planning_serial_model"
+                              ? InferenceConcurrency::kSerialized
+                              : InferenceConcurrency::kConcurrent;
+      model.params = Parameters<PlanningParameters>{
+          Field("limit", &PlanningParameters::limit).Default(16)};
+      ASSERT_TRUE(ModelRegistry::Instance().Register(
+          model,
+          [](const ModelCreateContext&,
+             std::string*) -> std::shared_ptr<IModel> {
+            ADD_FAILURE() << "Preflight must not create a model";
+            return nullptr;
+          }));
+    }
   }
+
+  void SetUp() override {
+    test_support::RegistryTestAccess::ResetNodes();
+    Register(RelayDefinition("planning_relay"));
+    auto split = RelayDefinition("planning_split");
+    split.outputs = {{"text", "text", true, "1:N", "generate_sub_id"}};
+    Register(split);
+    auto collect = RelayDefinition("planning_collect");
+    collect.inputs[0].cardinality = "N:1";
+    collect.outputs = {{"text", "text", true, "N:1", "aggregate"}};
+    Register(collect);
+    auto join = RelayDefinition("planning_join");
+    join.inputs = {{"left", "text"}, {"right", "text"}};
+    Register(join);
+    auto model_user = RelayDefinition("planning_model_user");
+    model_user.config_fields.push_back(Parameters<PlanningParameters>{
+        Field("model", &PlanningParameters::model).Required()}
+                                           .Fields()[0]);
+    model_user.model_dependencies = {
+        {"generator", "planning_generation", "model"}};
+    Register(model_user);
+  }
+
+  void Register(const NodeDefinition& definition) {
+    ASSERT_TRUE(NodeRegistry::Instance().Register(
+        definition.node_type,
+        []() -> std::unique_ptr<INode> {
+          ADD_FAILURE() << "Preflight must not create a node";
+          return nullptr;
+        },
+        definition));
+  }
+
+  Json ModelPipeline(size_t workers = 1) {
+    auto root = Pipeline({Node("relay", "planning_model_user")}, workers);
+    root["pipeline"][0]["params"] = {{"model", "generator"}};
+    root["models"] = Json::array({Model()});
+    return root;
+  }
+
+  // Every test restores the real catalog; probe creators never execute.
+  test_support::RegistryTestAccess::ScopedNodeState nodes_;
 };
 
-class ItemPairNode : public ShapeFixtureNode {
- public:
-  inline static constexpr char kNodeType[] = "item_pair";
-};
-
-class RequestGroupNode : public ShapeFixtureNode {
- public:
-  inline static constexpr char kNodeType[] = "request_group";
-};
-
-class OpaqueFlowNode : public ShapeFixtureNode {
- public:
-  inline static constexpr char kNodeType[] = "opaque_flow";
-};
-
-NodeDefinition MakeShapeFixtureDefinition(std::string node_type,
-                                          std::vector<NodePortDefinition> in,
-                                          std::vector<NodePortDefinition> out) {
-  NodeDefinition def;
-  def.node_type = std::move(node_type);
-  def.category = "test";
-  def.description = "Port shape fixture";
-  def.inputs = std::move(in);
-  def.outputs = std::move(out);
-  return def;
+TEST_F(PipelinePlanningTest, ProducesNormalizedBindingsAndReferencedPortsOnly) {
+  const auto root = ModelPipeline();
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  EXPECT_EQ(plan.report.topological_order, std::vector<std::string>{"relay"});
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"relay"}}));
+  ASSERT_EQ(plan.input_ports.size(), 1u);
+  EXPECT_EQ(plan.input_ports[0].blackboard_key, "input.text");
+  ASSERT_EQ(plan.models.size(), 1u);
+  const auto& model = plan.models[0];
+  EXPECT_EQ(model.model_name, "generator");
+  EXPECT_EQ(model.impl_name, "planning_generation_impl");
+  EXPECT_EQ(model.backend_type, "planning_concurrent_backend");
+  EXPECT_EQ(model.protocol, ExecutionProtocol::kFixture);
+  EXPECT_EQ(model.effective_concurrency, InferenceConcurrency::kConcurrent);
+  EXPECT_EQ(model.model_file, "unresolved/model.bin");
+  EXPECT_EQ(model.model_params, Json({{"limit", 16}}));
+  EXPECT_EQ(model.backend_params, Json({{"limit", 8}}));
+  const auto& node = plan.node_plans.at("relay");
+  EXPECT_EQ(node.normalized_params,
+            Json({{"model", "generator"}, {"limit", 4}}));
+  const auto* binding = node.FindModelBinding("generator");
+  ASSERT_NE(binding, nullptr);
+  EXPECT_EQ(binding->config_field, "model");
+  EXPECT_EQ(binding->model_type, "planning_generation");
+  EXPECT_EQ(binding->model_name, "generator");
+  ASSERT_EQ(node.ports.size(), 2u);
+  ASSERT_NE(node.FindPort("text"), nullptr);
+  EXPECT_EQ(node.FindPort("text")->blackboard_key, "input.text");
+  ASSERT_NE(node.FindPort("text", PortDirection::kOutput), nullptr);
+  EXPECT_EQ(node.FindPort("text", PortDirection::kOutput)->blackboard_key,
+            "relay.text");
+  EXPECT_EQ(node.FindPort("unused", PortDirection::kOutput), nullptr);
+  EXPECT_FALSE(root["pipeline"][0]["params"].contains("limit"));
 }
 
-REGISTER_NODE_WITH_DEFINITION(
-    ItemPairNode, MakeShapeFixtureDefinition(
-                      ItemPairNode::kNodeType,
-                      {NodePortDefinition{"left", "TextBatch", true},
-                       NodePortDefinition{"right", "TextBatch", false}},
-                      {NodePortDefinition{"paired", "TextBatch", true}}));
-REGISTER_NODE_WITH_DEFINITION(
-    RequestGroupNode,
-    MakeShapeFixtureDefinition(
-        RequestGroupNode::kNodeType,
-        {NodePortDefinition{"items", "TextBatch", true, "N:1", "aggregate"}},
-        {NodePortDefinition{"grouped", "TextBatch", true}}));
-REGISTER_NODE_WITH_DEFINITION(
-    OpaqueFlowNode,
-    MakeShapeFixtureDefinition(
-        OpaqueFlowNode::kNodeType,
-        {NodePortDefinition{"items", "TextBatch", true, "N:M"}},
-        {NodePortDefinition{"opaque", "TextBatch", true, "N:M"}}));
+TEST_F(PipelinePlanningTest,
+       ParsedEntryPointPreservesSourceLocationsAndValues) {
+  auto root = Pipeline(
+      {Node("producer"), Node("relay", "planning_relay", "producer.text")});
+  root["pipeline"][0]["params"] = {{"limit", 9}};
+  ParsedPipelineConfig parsed;
+  ASSERT_TRUE(ParsePipelineConfig(root, &parsed));
+  const auto plan =
+      PipelineValidator::ValidateParsedAndPlan(std::move(parsed), Boundary());
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  EXPECT_EQ(plan.node_plans.at("producer").normalized_params["limit"], 9);
+  EXPECT_EQ(plan.node_plans.at("relay").node.source_index, 1u);
+  EXPECT_EQ(plan.config.nodes[1].depends_on,
+            std::vector<std::string>{"producer"});
+}
 
-class ValidatedPipelinePlanTest : public ::testing::Test {};
+TEST_F(PipelinePlanningTest, PropagatesScalarFieldFailureAtNodeParameterPath) {
+  auto root = Pipeline({Node("relay")});
+  root["pipeline"][0]["params"] = {{"limit", 0}};
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ExpectError(plan, DiagnosticCode::kConfigFieldRange,
+              "/pipeline/0/params/limit");
+  const auto* error =
+      FindDiagnostic(plan.report, DiagnosticCode::kConfigFieldRange,
+                     "/pipeline/0/params/limit");
+  ASSERT_NE(error, nullptr);
+  EXPECT_EQ(error->node_name, "relay");
+}
 
-TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
+TEST_F(PipelinePlanningTest, PropagatesParserFailureBeforeBuildingAnyPlan) {
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      {{"pipeline", {{{"type", "planning_relay"}}}}}, Boundary());
+  ExpectError(plan, DiagnosticCode::kMissingField, "/pipeline/0/name");
+  EXPECT_TRUE(plan.node_plans.empty());
+  EXPECT_TRUE(plan.models.empty());
+  EXPECT_TRUE(plan.report.topological_order.empty());
+}
+
+TEST_F(PipelinePlanningTest,
+       SelectsModelAndBackendBeforeValidatingTheirParameters) {
   struct Case {
+    const char* name;
+    const char* path;
+    Json value;
     DiagnosticCode code;
-    const char* expected_name;
   };
   const std::vector<Case> cases = {
-      {DiagnosticCode::kOk, "OK"},
-      {DiagnosticCode::kJsonParse, "JSON_PARSE"},
-      {DiagnosticCode::kConfigFileOpen, "CONFIG_FILE_OPEN"},
-      {DiagnosticCode::kRootType, "ROOT_TYPE"},
-      {DiagnosticCode::kUnknownField, "UNKNOWN_FIELD"},
-      {DiagnosticCode::kMissingField, "MISSING_FIELD"},
-      {DiagnosticCode::kFieldType, "FIELD_TYPE"},
-      {DiagnosticCode::kFieldRange, "FIELD_RANGE"},
-      {DiagnosticCode::kInvalidCombination, "INVALID_COMBINATION"},
-      {DiagnosticCode::kDuplicateModelName, "DUPLICATE_MODEL_NAME"},
-      {DiagnosticCode::kDuplicateNodeName, "DUPLICATE_NODE_NAME"},
-      {DiagnosticCode::kInvalidNodeName, "INVALID_NODE_NAME"},
-      {DiagnosticCode::kUnknownNodeReference, "UNKNOWN_NODE_REFERENCE"},
-      {DiagnosticCode::kUnknownPortReference, "UNKNOWN_PORT_REFERENCE"},
-      {DiagnosticCode::kPortTypeMismatch, "PORT_TYPE_MISMATCH"},
-      {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
-      {DiagnosticCode::kUnknownModelType, "UNKNOWN_MODEL_TYPE"},
-      {DiagnosticCode::kUnknownBackend, "UNKNOWN_BACKEND"},
-      {DiagnosticCode::kModelTypeMismatch, "MODEL_TYPE_MISMATCH"},
-      {DiagnosticCode::kBackendProtocolMismatch, "BACKEND_PROTOCOL_MISMATCH"},
-      {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
-      {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
-      {DiagnosticCode::kDagCycle, "DAG_CYCLE"},
-      {DiagnosticCode::kRegistryConflict, "REGISTRY_CONFLICT"},
-      {DiagnosticCode::kUnknownConfigField, "UNKNOWN_CONFIG_FIELD"},
-      {DiagnosticCode::kMissingConfigField, "MISSING_CONFIG_FIELD"},
-      {DiagnosticCode::kConfigFieldType, "CONFIG_FIELD_TYPE"},
-      {DiagnosticCode::kConfigFieldRange, "CONFIG_FIELD_RANGE"},
-      {DiagnosticCode::kConfigFieldEnum, "CONFIG_FIELD_ENUM"},
-      {DiagnosticCode::kUnusedModel, "UNUSED_MODEL"},
-      {DiagnosticCode::kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE"},
-      {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
-      {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
-      {DiagnosticCode::kMissingOutputProducer, "MISSING_OUTPUT_PRODUCER"},
-      {DiagnosticCode::kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH"},
-      {DiagnosticCode::kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH"},
-      {DiagnosticCode::kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH"},
-      {DiagnosticCode::kInternalException, "INTERNAL_EXCEPTION"},
-      {DiagnosticCode::kModelMaterializationFailed,
-       "MODEL_MATERIALIZATION_FAILED"},
-      {DiagnosticCode::kNodeCreateFailed, "NODE_CREATE_FAILED"},
-      {DiagnosticCode::kNodeInitFailed, "NODE_INIT_FAILED"},
-      {DiagnosticCode::kInvalidBuildState, "INVALID_BUILD_STATE"},
+      {"unknown category", "/models/0/type", "absent_category",
+       DiagnosticCode::kUnknownModelType},
+      {"unknown backend", "/models/0/backend/type", "absent_backend",
+       DiagnosticCode::kUnknownBackend},
+      {"incompatible protocol", "/models/0/backend/type",
+       "planning_incompatible_backend",
+       DiagnosticCode::kBackendProtocolMismatch},
+      {"unknown reference", "/pipeline/0/params/model", "absent_instance",
+       DiagnosticCode::kUnknownModelReference},
+      {"wrong capability", "/models/0/type", "planning_serial_model",
+       DiagnosticCode::kModelTypeMismatch},
   };
-
-  EXPECT_EQ(cases.size(), 42u);
-  std::unordered_set<std::string> names;
-  for (const auto& item : cases) {
-    std::string name = DiagnosticCodeName(item.code);
-    EXPECT_STREQ(name.c_str(), item.expected_name);
-    EXPECT_TRUE(names.insert(name).second) << "Duplicate name: " << name;
+  for (const auto& example : cases) {
+    SCOPED_TRACE(example.name);
+    auto root = ModelPipeline();
+    root[Json::json_pointer(example.path)] = example.value;
+    const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+    ExpectError(plan, example.code,
+                example.code == DiagnosticCode::kModelTypeMismatch
+                    ? "/pipeline/0/params/model"
+                    : example.path);
   }
-  EXPECT_STREQ(DiagnosticCodeName(static_cast<DiagnosticCode>(9999)),
-               "UNKNOWN");
+  auto root = ModelPipeline();
+  root["models"][0]["backend"]["type"] = "absent_backend";
+  root["models"][0]["params"] = {{"unknown", 1}};
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ExpectError(plan, DiagnosticCode::kUnknownBackend, "/models/0/backend/type");
+  EXPECT_EQ(FindDiagnostic(plan.report, DiagnosticCode::kUnknownConfigField,
+                           "/models/0/params/unknown"),
+            nullptr);
 }
 
-TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
-  nlohmann::json pipeline_json = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array(
-           {{{"name", "producer"},
-             {"type", FlowContractProducerNode::kNodeType},
-             {"depends_on", nlohmann::json::array()}},
-            {{"name", "consumer"},
-             {"type", FlowContractConsumerNode::kNodeType},
-             {"inputs", {{"flow", "producer.flow"}}},
-             {"depends_on", nlohmann::json::array({"producer"})}}})}};
-
-  auto plan =
-      PipelineValidator::ValidateAndPlan(pipeline_json, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  const std::unordered_set<DiagnosticCode> expected = {
-      DiagnosticCode::kPortProvenanceMismatch,
-      DiagnosticCode::kPortLifetimeMismatch};
-  std::unordered_set<DiagnosticCode> actual;
-  for (const auto& diagnostic : plan.report.diagnostics) {
-    actual.insert(diagnostic.code);
-    if (expected.count(diagnostic.code)) {
-      EXPECT_EQ(diagnostic.path, "/pipeline/1/inputs/flow");
-      EXPECT_EQ(diagnostic.node_name, "consumer");
-      EXPECT_EQ(diagnostic.port, "flow");
-      EXPECT_EQ(diagnostic.related_nodes,
-                std::vector<std::string>({"producer"}));
-    }
-  }
-  for (const auto code : expected) EXPECT_TRUE(actual.count(code));
-  // 逐条输入接受拆分后的条目；只有 provenance 和 lifetime 校验失败。
-  EXPECT_FALSE(actual.count(DiagnosticCode::kPortCardinalityMismatch));
+TEST_F(PipelinePlanningTest, ModelReferenceIsRequiredAtItsDeclaredConfigField) {
+  auto root = ModelPipeline();
+  root["pipeline"][0]["params"].erase("model");
+  ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
+              DiagnosticCode::kMissingConfigField, "/pipeline/0/params/model");
 }
 
-class PortShapeTest : public ::testing::Test {
- protected:
-  static nlohmann::json Node(const std::string& name, const std::string& type,
-                             nlohmann::json inputs) {
-    return {{"name", name}, {"type", type}, {"inputs", std::move(inputs)}};
-  }
-
-  static nlohmann::json Split(const std::string& name) {
-    return Node(name, FlowContractProducerNode::kNodeType,
-                nlohmann::json::object());
-  }
-
-  ValidationReport Validate(nlohmann::json nodes,
-                            std::vector<IoPortDefinition> outputs = {}) const {
-    for (auto& output : outputs) {
-      output.logical_name =
-          output.blackboard_key.substr(output.blackboard_key.find('.') + 1);
-      output.path = "/io/output/0/inputs";
-    }
-    return PipelineValidator::Validate(
-        {{"pipeline", std::move(nodes)}},
-        MakeTestBoundary({{"input.request", "TextBatch", true}},
-                         std::move(outputs)));
-  }
-
-  static std::vector<ValidationDiagnostic> CardinalityErrors(
-      const ValidationReport& report) {
-    std::vector<ValidationDiagnostic> found;
-    for (const auto& diagnostic : report.diagnostics) {
-      if (diagnostic.code == DiagnosticCode::kPortCardinalityMismatch)
-        found.push_back(diagnostic);
-    }
-    return found;
-  }
-};
-
-TEST_F(ValidatedPipelinePlanTest, SerializesFactsOnlyWhenPresent) {
-  ValidationDiagnostic diagnostic;
-  EXPECT_TRUE(diagnostic.facts.is_object());
-  EXPECT_TRUE(diagnostic.facts.empty());
-  EXPECT_FALSE(diagnostic.ToJson().contains("facts"));
-  EXPECT_FALSE(diagnostic.ToJson().contains("remediation"));
-
-  diagnostic.facts = {{"actual_shape", {{"kind", "unknown"}}}};
-  EXPECT_EQ(diagnostic.ToJson().at("facts"), diagnostic.facts);
-  EXPECT_FALSE(diagnostic.ToJson().contains("remediation"));
+TEST_F(PipelinePlanningTest, NormalizesExplicitModelAndBackendValues) {
+  auto root = ModelPipeline();
+  root["models"][0]["params"] = {{"limit", 23}};
+  root["models"][0]["backend"]["params"] = {{"limit", 11}};
+  auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  ASSERT_EQ(plan.models.size(), 1u);
+  EXPECT_EQ(plan.models[0].model_params["limit"], 23);
+  EXPECT_EQ(plan.models[0].backend_params["limit"], 11);
+  root["models"][0]["backend"]["params"] = {{"limit", "eleven"}};
+  plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ExpectError(plan, DiagnosticCode::kConfigFieldType,
+              "/models/0/backend/params/limit");
 }
 
-TEST_F(PortShapeTest, ItemWiseNodeAcceptsSplitItems) {
-  const auto report =
-      Validate({Split("split"), Node("pair", ItemPairNode::kNodeType,
-                                     {{"left", "split.flow"}})});
-  EXPECT_TRUE(report.ok) << report.ToJson().dump();
+TEST_F(PipelinePlanningTest,
+       RejectsUnusedModelsButSuppressesUnreliableBindingAnalysis) {
+  auto root = Pipeline({Node("relay")});
+  root["models"] = Json::array({Model()});
+  ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
+              DiagnosticCode::kUnusedModel, "/models/0/name");
+  root["pipeline"][0]["type"] = "absent_node";
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ExpectError(plan, DiagnosticCode::kUnknownNodeType, "/pipeline/0/type");
+  EXPECT_EQ(FindDiagnostic(plan.report, DiagnosticCode::kUnusedModel,
+                           "/models/0/name"),
+            nullptr);
 }
 
-TEST_F(PortShapeTest, SplitItemsCannotReachOnePerRequestEgress) {
-  const auto report = Validate(
-      {Split("split"),
-       Node("pair", ItemPairNode::kNodeType, {{"left", "split.flow"}})},
-      {{"pair.paired", "TextBatch", true, "1:1", "preserve"}});
-  const auto errors = CardinalityErrors(report);
-  ASSERT_EQ(errors.size(), 1u) << report.ToJson().dump();
-  EXPECT_EQ(errors[0].path, "/io/output/0/inputs/paired");
-  EXPECT_EQ(errors[0].node_name, "pair");
-  EXPECT_EQ(errors[0].port, "paired");
-  EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"output"}));
-  EXPECT_NE(errors[0].message.find("'split.flow'"), std::string::npos);
-  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
-  const nlohmann::json declaration = {{"type_id", "TextBatch"},
-                                      {"cardinality", "1:1"},
-                                      {"provenance_policy", "preserve"},
-                                      {"lifetime", "request"}};
-  EXPECT_EQ(errors[0].facts.at("producer_name"), "pair");
-  EXPECT_EQ(errors[0].facts.at("consumer_name"), "output");
-  EXPECT_EQ(errors[0].facts.at("bound_key"), "pair.paired");
-  EXPECT_EQ(errors[0].facts.at("actual"), declaration);
-  EXPECT_EQ(errors[0].facts.at("expected"), declaration);
-  EXPECT_EQ(errors[0].facts.at("actual_shape"),
-            (nlohmann::json{{"kind", "multi"}, {"origin", "split.flow"}}));
-  EXPECT_EQ(errors[0].facts.at("expected_shape"),
-            (nlohmann::json{{"kind", "per_request"}}));
-  EXPECT_EQ(errors[0].ToJson().at("facts"), errors[0].facts);
-  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
+TEST_F(PipelinePlanningTest,
+       RejectsAmbiguousCompatibleImplementationsInIsolatedProcess) {
+  // ModelRegistry is process-lived. Keep this deliberately invalid catalog in a
+  // child.
+  EXPECT_EXIT(
+      {
+        ModelDefinition duplicate =
+            *ModelRegistry::Instance().Find("planning_generation_impl");
+        duplicate.impl_name = "planning_duplicate_impl";
+        if (!ModelRegistry::Instance().Register(
+                duplicate,
+                [](const ModelCreateContext&, std::string*)
+                    -> std::shared_ptr<IModel> { return nullptr; }))
+          std::_Exit(2);
+        const auto plan =
+            PipelineValidator::ValidateAndPlan(ModelPipeline(), Boundary());
+        std::_Exit(!plan.report.ok &&
+                           FindDiagnostic(plan.report,
+                                          DiagnosticCode::kRegistryConflict,
+                                          "/models/0/backend/type")
+                       ? 0
+                       : 1);
+      },
+      ::testing::ExitedWithCode(0), "");
 }
 
-TEST_F(PortShapeTest, CollectionEgressAcceptsSplitItems) {
-  const auto report = Validate(
-      {Split("split"),
-       Node("pair", ItemPairNode::kNodeType, {{"left", "split.flow"}})},
-      {{"pair.paired", "TextBatch", true, "N:1", "aggregate"}});
-  EXPECT_TRUE(report.ok) << report.ToJson().dump();
-}
-
-TEST_F(PortShapeTest, AggregatedItemsTransformItemWiseToOnePerRequest) {
-  const auto report = Validate(
-      {Split("split"),
-       Node("group", RequestGroupNode::kNodeType, {{"items", "split.flow"}}),
-       Node("pair", ItemPairNode::kNodeType,
-            {{"left", "group.grouped"}, {"right", "input.request"}})},
-      {{"pair.paired", "TextBatch", true, "1:1", "preserve"}});
-  EXPECT_TRUE(report.ok) << report.ToJson().dump();
-}
-
-TEST_F(PortShapeTest, MisalignedItemWiseInputsAreRejected) {
-  const auto report =
-      Validate({Split("split"),
-                Node("pair", ItemPairNode::kNodeType,
-                     {{"left", "input.request"}, {"right", "split.flow"}})});
-  const auto errors = CardinalityErrors(report);
-  ASSERT_EQ(errors.size(), 1u) << report.ToJson().dump();
-  EXPECT_EQ(errors[0].path, "/pipeline/1/inputs/right");
-  EXPECT_EQ(errors[0].node_name, "pair");
-  EXPECT_EQ(errors[0].port, "right");
-  EXPECT_EQ(errors[0].related_nodes, std::vector<std::string>({"split"}));
-  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
-  EXPECT_EQ(errors[0].facts.at("producer_name"), "split");
-  EXPECT_EQ(errors[0].facts.at("consumer_name"), "pair");
-  EXPECT_EQ(errors[0].facts.at("bound_key"), "split.flow");
-  EXPECT_EQ(errors[0].facts.at("anchor_port"), "left");
-  EXPECT_EQ(errors[0].facts.at("anchor_key"), "input.request");
-  EXPECT_EQ(errors[0].facts.at("actual").at("cardinality"), "1:N");
-  EXPECT_EQ(errors[0].facts.at("expected").at("cardinality"), "1:1");
-  EXPECT_EQ(errors[0].facts.at("actual_shape"),
-            (nlohmann::json{{"kind", "multi"}, {"origin", "split.flow"}}));
-  EXPECT_EQ(errors[0].facts.at("expected_shape"),
-            (nlohmann::json{{"kind", "per_request"}}));
-}
-
-TEST_F(PortShapeTest, ItemWiseInputsPairOnlyWithinOneFanOut) {
-  const auto same_origin = Validate(
-      {Split("split"),
-       Node("first", ItemPairNode::kNodeType, {{"left", "split.flow"}}),
-       Node("second", ItemPairNode::kNodeType, {{"left", "split.flow"}}),
-       Node("join", ItemPairNode::kNodeType,
-            {{"left", "first.paired"}, {"right", "second.paired"}})});
-  EXPECT_TRUE(same_origin.ok) << same_origin.ToJson().dump();
-
-  const auto different_origins =
-      Validate({Split("split_a"), Split("split_b"),
-                Node("join", ItemPairNode::kNodeType,
-                     {{"left", "split_a.flow"}, {"right", "split_b.flow"}})});
-  const auto errors = CardinalityErrors(different_origins);
-  ASSERT_EQ(errors.size(), 1u) << different_origins.ToJson().dump();
-  EXPECT_EQ(errors[0].port, "right");
-  EXPECT_FALSE(errors[0].ToJson().contains("remediation"));
-  EXPECT_EQ(errors[0].facts.at("producer_name"), "split_b");
-  EXPECT_EQ(errors[0].facts.at("consumer_name"), "join");
-  EXPECT_EQ(errors[0].facts.at("bound_key"), "split_b.flow");
-  EXPECT_EQ(errors[0].facts.at("anchor_port"), "left");
-  EXPECT_EQ(errors[0].facts.at("anchor_key"), "split_a.flow");
-  EXPECT_EQ(errors[0].facts.at("actual_shape"),
-            (nlohmann::json{{"kind", "multi"}, {"origin", "split_b.flow"}}));
-  EXPECT_EQ(errors[0].facts.at("expected_shape"),
-            (nlohmann::json{{"kind", "multi"}, {"origin", "split_a.flow"}}));
-}
-
-TEST_F(PortShapeTest, UnreservedConsumerNamesKeepNodeInputDiagnosticLocation) {
-  for (const std::string id :
-       {"$consumer", "$output_like", "PascalName", "自由名字"}) {
-    SCOPED_TRACE(id);
-    const auto shape_report =
-        Validate({Split("split"),
-                  Node(id, ItemPairNode::kNodeType,
-                       {{"left", "input.request"}, {"right", "split.flow"}})});
-    const auto shape_errors = CardinalityErrors(shape_report);
-    ASSERT_EQ(shape_errors.size(), 1u) << shape_report.ToJson().dump();
-    const auto& shape = shape_errors[0];
-    EXPECT_EQ(shape.node_name, id);
-    EXPECT_EQ(shape.related_nodes, std::vector<std::string>({"split"}));
-    EXPECT_EQ(shape.path, "/pipeline/1/inputs/right");
-    EXPECT_EQ(shape.port, "right");
-    EXPECT_EQ(shape.facts.at("producer_name"), "split");
-    EXPECT_EQ(shape.facts.at("consumer_name"), id);
-    EXPECT_EQ(shape.facts.at("bound_key"), "split.flow");
-    EXPECT_FALSE(shape.ToJson().contains("remediation"));
-
-    const auto flow_report =
-        Validate({Split("split"), Node(id, FlowContractConsumerNode::kNodeType,
-                                       {{"flow", "split.flow"}})});
-    ASSERT_EQ(flow_report.diagnostics.size(), 2u)
-        << flow_report.ToJson().dump();
-    for (const auto& flow : flow_report.diagnostics) {
-      EXPECT_TRUE(flow.code == DiagnosticCode::kPortProvenanceMismatch ||
-                  flow.code == DiagnosticCode::kPortLifetimeMismatch);
-      EXPECT_EQ(flow.node_name, id);
-      EXPECT_EQ(flow.related_nodes, std::vector<std::string>({"split"}));
-      EXPECT_EQ(flow.path, "/pipeline/1/inputs/flow");
-      EXPECT_EQ(flow.port, "flow");
-      EXPECT_EQ(flow.facts.at("producer_name"), "split");
-      EXPECT_EQ(flow.facts.at("consumer_name"), id);
-      EXPECT_EQ(flow.facts.at("bound_key"), "split.flow");
-      EXPECT_FALSE(flow.ToJson().contains("remediation"));
-    }
-  }
-}
-
-TEST_F(PortShapeTest, IngressPassthroughReportsNeutralIoOutputFacts) {
-  PipelineIoBoundary boundary;
-  boundary.input_published_ports = {IoPortDefinition{
-      "input.request", "TextBatch", true, "1:N", "generate_sub_id"}};
-  boundary.output_consumed_ports = {
-      IoPortDefinition{"input.request", "TextBatch", true}};
-  boundary.output_consumed_ports[0].logical_name = "request";
-  boundary.output_consumed_ports[0].path = "/io/output/0/inputs";
-  const auto report = PipelineValidator::Validate(
-      {{"pipeline",
-        {Node("probe", PlanTestNode::kNodeType, nlohmann::json::object())}}},
-      boundary);
-  const auto errors = CardinalityErrors(report);
-  const auto output = std::find_if(
-      errors.begin(), errors.end(),
-      [](const auto& d) { return d.path == "/io/output/0/inputs/request"; });
-  ASSERT_NE(output, errors.end()) << report.ToJson().dump();
-  EXPECT_EQ(output->node_name, "input");
-  EXPECT_EQ(output->related_nodes, std::vector<std::string>({"output"}));
-  EXPECT_EQ(output->port, "request");
-  EXPECT_EQ(output->facts.at("producer_name"), "input");
-  EXPECT_EQ(output->facts.at("consumer_name"), "output");
-  EXPECT_EQ(output->facts.at("bound_key"), "input.request");
-  EXPECT_EQ(output->facts.at("actual").at("type_id"), "TextBatch");
-  EXPECT_EQ(output->facts.at("expected").at("type_id"), "TextBatch");
-  EXPECT_EQ(output->facts.at("actual_shape"),
-            (nlohmann::json{{"kind", "multi"}, {"origin", "input.request"}}));
-  EXPECT_EQ(output->facts.at("expected_shape"),
-            (nlohmann::json{{"kind", "per_request"}}));
-  EXPECT_FALSE(output->ToJson().contains("remediation"));
-}
-
-TEST_F(PortShapeTest, UnknownShapeIsLeftToRuntimeChecks) {
-  const auto report = Validate(
-      {Split("split"),
-       Node("opaque", OpaqueFlowNode::kNodeType, {{"items", "split.flow"}})},
-      {{"opaque.opaque", "TextBatch", true, "1:1", "preserve"}});
-  EXPECT_TRUE(report.ok) << report.ToJson().dump();
-}
-
-TEST_F(ValidatedPipelinePlanTest, ResolvesProducerLifetimeBeforePlanning) {
-  const nlohmann::json document = {
-      {"models",
-       {{{"name", "embed_model"},
-         {"type", "embedding"},
-         {"backend", {{"type", "test_tensor_backend"}}},
-         {"file", "fixture.bin"}}}},
-      {"pipeline",
-       {{{"name", "embed"},
-         {"type", "text_embedding"},
-         {"inputs", {{"text", "input.query_text"}}},
-         {"params", {{"bind_model", "embed_model"}}}}}}};
-  for (const std::string lifetime : {"request", "session"}) {
-    SCOPED_TRACE(lifetime);
-    auto boundary = MakeTestBoundary(
-        {{"input.query_text", "TextBatch", true, "1:1", "preserve", lifetime}},
-        {{"embed.embedding", "EmbeddingBatch", true}});
-    const auto plan = PipelineValidator::ValidateAndPlan(document, boundary);
-    ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
-    const auto& node = plan.node_plans.at("embed");
-    ASSERT_NE(node.FindPort("text"), nullptr);
-    EXPECT_EQ(node.FindPort("text")->lifetime, lifetime);
-    ASSERT_NE(node.FindPort("embedding", PortDirection::kOutput), nullptr);
-    EXPECT_EQ(node.FindPort("embedding", PortDirection::kOutput)->lifetime,
-              lifetime);
-    EXPECT_FALSE(node.normalized_params.contains("cache"));
-  }
-}
-
-TEST_F(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
-  nlohmann::json pipeline_json = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "node_0"},
-                               {"type", PlanTestNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  auto plan =
-      PipelineValidator::ValidateAndPlan(pipeline_json, MakeTestBoundary());
-  ASSERT_TRUE(plan.report.ok);
-  ASSERT_TRUE(plan.node_plans.at("node_0").node.params.empty());
-  EXPECT_EQ(plan.node_plans.at("node_0").normalized_params.at("retry_limit"),
-            3);
-
-  PlanTestNode::observed_config = nlohmann::json::object();
-  Pipeline pipeline;
-  PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, pipeline_json, MakeTestBoundary(),
-                                &diagnostic))
-      << diagnostic.message;
-  EXPECT_EQ(PlanTestNode::observed_config.at("retry_limit"), 3);
-  EXPECT_EQ(pipeline.GetTopologicalOrder(),
-            std::vector<std::string>({"node_0"}));
-}
-
-TEST_F(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
-  // 测试 DAG 波前分层计算
-  nlohmann::json dag_json = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({
-           {{"name", "node_a"},
-            {"type", "plan_test"},
-            {"depends_on", nlohmann::json::array()}},
-           {{"name", "node_b"},
-            {"type", "plan_test"},
-            {"depends_on", nlohmann::json::array()}},
-           {{"name", "node_c"},
-            {"type", "plan_test"},
-            {"depends_on", nlohmann::json::array({"node_a", "node_b"})}},
-       })}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(dag_json, MakeTestBoundary());
-  EXPECT_TRUE(plan.report.ok);
-  ASSERT_EQ(plan.report.topological_layers.size(), 2u);
-  // 第 0 层为 node_a 和 node_b
-  EXPECT_EQ(plan.report.topological_layers[0].size(), 2u);
-  // 第 1 层为 node_c
-  EXPECT_EQ(plan.report.topological_layers[1].size(), 1u);
-  EXPECT_EQ(plan.report.topological_layers[1][0], "node_c");
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       SplitsSharedSerializedModelIntoSequentialLayers) {
-  nlohmann::json pipeline_json = {
-      {"max_parallel_workers", 4},
-      {"models",
-       nlohmann::json::array({{{"name", "shared"},
-                               {"type", "plan_test"},
-                               {"backend",
-                                {{"type", "serialized_plan_backend"},
-                                 {"params", nlohmann::json::object()}}},
-                               {"file", "serialized.bin"},
-                               {"params", nlohmann::json::object()}}})},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "node_a"},
-                               {"type", ModelBoundPlanTestNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"params", {{"bind_model", "shared"}}}},
-                              {{"name", "node_b"},
-                               {"type", ModelBoundPlanTestNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"params", {{"bind_model", "shared"}}}}})}};
-
-  auto plan =
-      PipelineValidator::ValidateAndPlan(pipeline_json, MakeTestBoundary());
+TEST_F(PipelinePlanningTest, DataAndOrderOnlyDependenciesFormOneUnion) {
+  auto root = Pipeline({Node("relay", "planning_relay", "producer.text"),
+                        Node("producer"), Node("order_only")});
+  root["pipeline"][0]["depends_on"] = {"order_only", "producer"};
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   EXPECT_EQ(plan.report.topological_layers,
-            (std::vector<std::vector<std::string>>{{"node_a"}, {"node_b"}}));
-  EXPECT_EQ(plan.report.topological_order,
-            (std::vector<std::string>{"node_a", "node_b"}));
-  pipeline_json["max_parallel_workers"] = 1;
-  plan = PipelineValidator::ValidateAndPlan(pipeline_json, MakeTestBoundary());
-  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
-  EXPECT_EQ(plan.report.topological_layers,
-            (std::vector<std::vector<std::string>>{{"node_a", "node_b"}}));
-  pipeline_json["max_parallel_workers"] = 4;
-  pipeline_json["pipeline"][1]["depends_on"] = {"node_a"};
-  EXPECT_TRUE(
-      PipelineValidator::Validate(pipeline_json, MakeTestBoundary()).ok);
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       ModelFilesRemainUnchangedWithoutDeploymentContext) {
-  const auto boundary = MakeTestBoundary(
-      {{"input.query_text", "TextBatch"},
-       {"input.candidates", "RankedTextBatch", true, "N:1"}},
-      {{"rank_relative.ranked", "RankedTextBatch", true, "N:1"}});
-  if (!BackendRegistry::Instance().Find("mock_path_backend").has_value()) {
-    BackendDefinition bdef;
-    bdef.backend_type = "mock_path_backend";
-    bdef.supported_protocols = {ExecutionProtocol::kFixture};
-    bdef.concurrency = InferenceConcurrency::kConcurrent;
-    BackendRegistry::Instance().Register(
-        bdef, []() -> std::unique_ptr<IInferenceBackend> { return nullptr; });
-  }
-
-  if (!ModelRegistry::Instance().Find("mock_path_model").has_value()) {
-    ModelDefinition mdef;
-    mdef.impl_name = "mock_path_model";
-    mdef.model_type = "rerank";
-    mdef.required_protocol = ExecutionProtocol::kFixture;
-    mdef.fixture_backends = {"mock_path_backend"};
-    mdef.concurrency = InferenceConcurrency::kConcurrent;
-    ModelRegistry::Instance().Register(
-        mdef,
-        [](const ModelCreateContext&, std::string*) -> std::shared_ptr<IModel> {
-          return nullptr;
-        });
-  }
-
-  nlohmann::json pipeline_json = {
-      {"models",
-       nlohmann::json::array({{{"name", "m_rel"},
-                               {"type", "rerank"},
-                               {"backend", {{"type", "mock_path_backend"}}},
-                               {"file", "./models/sub/model.onnx"},
-                               {"params", nlohmann::json::object()}},
-                              {{"name", "m_abs"},
-                               {"type", "rerank"},
-                               {"backend", {{"type", "mock_path_backend"}}},
-                               {"file", "/opt/models/fixed.onnx"},
-                               {"params", nlohmann::json::object()}},
-                              {{"name", "m_direct"},
-                               {"type", "rerank"},
-                               {"backend", {{"type", "mock_path_backend"}}},
-                               {"file", "model_direct.onnx"},
-                               {"params", nlohmann::json::object()}}})},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "rank_relative"},
-                               {"type", "text_rerank"},
-                               {"depends_on", nlohmann::json::array()},
-                               {"inputs",
-                                {{"queries", "input.query_text"},
-                                 {"candidates", "input.candidates"}}},
-                               {"params", {{"bind_model", "m_rel"}}}}})}};
-
-  for (const auto& [name, output] :
-       {std::pair<const char*, const char*>{"m_abs", "ranked_abs"},
-        {"m_direct", "ranked_direct"}}) {
-    auto node = pipeline_json["pipeline"][0];
-    node["name"] = std::string("rerank_") + name;
-    node["params"]["bind_model"] = name;
-    (void)output;
-    pipeline_json["pipeline"].push_back(std::move(node));
-  }
-
-  // 流程编排层保留已给定的文件值，路径解析由接入适配层负责。
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json, boundary);
-  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
-  EXPECT_EQ(plan.models[0].model_file, "./models/sub/model.onnx");
-  EXPECT_EQ(plan.models[1].model_file, "/opt/models/fixed.onnx");
-  EXPECT_EQ(plan.models[2].model_file, "model_direct.onnx");
-
-  auto plan_repeat =
-      PipelineValidator::ValidateAndPlan(pipeline_json, boundary);
-  ASSERT_TRUE(plan_repeat.report.ok);
-  EXPECT_EQ(plan_repeat.models[0].model_file, plan.models[0].model_file);
-  EXPECT_EQ(plan_repeat.models[1].model_file, plan.models[1].model_file);
-  EXPECT_EQ(plan_repeat.models[2].model_file, plan.models[2].model_file);
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       RejectsIncompatibleEgressPortExecutionContracts) {
-  auto boundary = MakeTestBoundary({}, {{"producer.flow", "TextBatch", true,
-                                         "1:1", "independent", "session"}});
-  boundary.output_consumed_ports[0].logical_name = "flow";
-  boundary.output_consumed_ports[0].path = "/io/output/0/inputs";
-
-  nlohmann::json pipeline_json = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "producer"},
-                               {"type", FlowContractProducerNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json, boundary);
-  EXPECT_FALSE(plan.report.ok);
-
-  bool found_cardinality = false;
-  bool found_provenance = false;
-  bool found_lifetime = false;
-  for (const auto& diag : plan.report.diagnostics) {
-    if (diag.code == DiagnosticCode::kPortCardinalityMismatch) {
-      found_cardinality = true;
-      EXPECT_EQ(diag.related_nodes, std::vector<std::string>({"output"}));
-      EXPECT_EQ(diag.port, "flow");
-    } else if (diag.code == DiagnosticCode::kPortProvenanceMismatch) {
-      found_provenance = true;
-      EXPECT_EQ(diag.related_nodes, std::vector<std::string>({"output"}));
-      EXPECT_EQ(diag.port, "flow");
-    } else if (diag.code == DiagnosticCode::kPortLifetimeMismatch) {
-      found_lifetime = true;
-      EXPECT_EQ(diag.related_nodes, std::vector<std::string>({"output"}));
-      EXPECT_EQ(diag.port, "flow");
-    }
-  }
-  EXPECT_TRUE(found_cardinality);
-  EXPECT_TRUE(found_provenance);
-  EXPECT_TRUE(found_lifetime);
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       OptionalEgressMayBeAbsentButMustMatchWhenPresent) {
-  auto boundary = MakeTestBoundary(
-      {}, {{"", "Int32Batch", false, "N:M", "aggregate", "request"}});
-  boundary.output_consumed_ports[0].logical_name = "optional";
-  boundary.output_consumed_ports[0].path = "/io/output/0/inputs";
-  const nlohmann::json config = {
-      {"pipeline",
-       {{{"name", "source"}, {"type", FlowContractProducerNode::kNodeType}}}}};
-  EXPECT_TRUE(PipelineValidator::ValidateAndPlan(config, boundary).report.ok);
-  boundary.output_consumed_ports[0].blackboard_key = "source.flow";
-  boundary.output_consumed_ports[0].has_binding = true;
-  const auto plan = PipelineValidator::ValidateAndPlan(config, boundary);
-  EXPECT_FALSE(plan.report.ok);
-  ASSERT_FALSE(plan.report.diagnostics.empty());
-  EXPECT_EQ(plan.report.diagnostics.back().code,
-            DiagnosticCode::kPortTypeMismatch);
-  EXPECT_EQ(plan.report.diagnostics.back().path,
-            "/io/output/0/inputs/optional");
-  EXPECT_EQ(plan.report.diagnostics.back().related_nodes,
-            std::vector<std::string>{"output"});
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       MultiModelBindingsAndConcurrencyDeduplication) {
-  nlohmann::json base_pipeline = {
-      {"max_parallel_workers", 4},
-      {"models", nlohmann::json::array({
-                     {{"name", "shared_a"},
-                      {"type", "plan_test"},
-                      {"backend",
-                       {{"type", "serialized_plan_backend"},
-                        {"params", nlohmann::json::object()}}},
-                      {"file", "model_a.bin"},
-                      {"params", nlohmann::json::object()}},
-                     {{"name", "independent_b"},
-                      {"type", "plan_test"},
-                      {"backend",
-                       {{"type", "serialized_plan_backend"},
-                        {"params", nlohmann::json::object()}}},
-                      {"file", "model_b.bin"},
-                      {"params", nlohmann::json::object()}},
-                 })},
-      {"pipeline",
-       nlohmann::json::array({
-           {{"name", "multi_node"},
-            {"type", MultiModelPlanTestNode::kNodeType},
-            {"depends_on", nlohmann::json::array()},
-            {"params",
-             {{"bind_generator", "shared_a"}, {"bind_reviewer", "shared_a"}}}},
-           {{"name", "parallel_node"},
-            {"type", ModelBoundPlanTestNode::kNodeType},
-            {"depends_on", nlohmann::json::array()},
-            {"params", {{"bind_model", "independent_b"}}}},
-       })}};
-
-  // 1. 同节点同实例去重且独立实例并行通过
-  auto plan_ok =
-      PipelineValidator::ValidateAndPlan(base_pipeline, MakeTestBoundary());
-  ASSERT_TRUE(plan_ok.report.ok) << plan_ok.report.ToJson().dump(2);
+            (std::vector<std::vector<std::string>>{{"producer", "order_only"},
+                                                   {"relay"}}));
+  EXPECT_EQ(plan.config.nodes[0].depends_on,
+            (std::vector<std::string>{"order_only", "producer"}));
+  EXPECT_EQ(plan.node_plans.at("relay").FindPort("text")->blackboard_key,
+            "producer.text");
   EXPECT_EQ(
-      plan_ok.report.topological_layers,
-      (std::vector<std::vector<std::string>>{{"multi_node", "parallel_node"}}));
-  const auto& multi_plan = plan_ok.node_plans["multi_node"];
-  ASSERT_EQ(multi_plan.model_bindings.size(), 2U);
-  EXPECT_EQ(multi_plan.model_bindings[0].name, "generator");
-  EXPECT_EQ(multi_plan.model_bindings[0].model_type, "plan_test");
-  EXPECT_EQ(multi_plan.model_bindings[0].config_field, "bind_generator");
-  EXPECT_EQ(multi_plan.model_bindings[0].model_name, "shared_a");
-
-  EXPECT_EQ(multi_plan.model_bindings[1].name, "reviewer");
-  EXPECT_EQ(multi_plan.model_bindings[1].model_type, "plan_test");
-  EXPECT_EQ(multi_plan.model_bindings[1].config_field, "bind_reviewer");
-  EXPECT_EQ(multi_plan.model_bindings[1].model_name, "shared_a");
-
-  // 2. 其他节点共享 serialized 模型时拆到单独的层
-  auto conflict_pipeline = base_pipeline;
-  conflict_pipeline["pipeline"][1]["params"]["bind_model"] = "shared_a";
-  conflict_pipeline["models"].erase(1);
-  auto serialized_plan =
-      PipelineValidator::ValidateAndPlan(conflict_pipeline, MakeTestBoundary());
-  ASSERT_TRUE(serialized_plan.report.ok)
-      << serialized_plan.report.ToJson().dump(2);
-  EXPECT_EQ(serialized_plan.report.topological_layers,
-            (std::vector<std::vector<std::string>>{{"multi_node"},
-                                                   {"parallel_node"}}));
-  EXPECT_EQ(serialized_plan.report.topological_order,
-            (std::vector<std::string>{"multi_node", "parallel_node"}));
+      plan.node_plans.at("order_only").FindPort("text", PortDirection::kOutput),
+      nullptr);
 }
 
-TEST_F(ValidatedPipelinePlanTest,
-       IoBoundaryValidationCoversIngressEgressAndExtraWrites) {
-  nlohmann::json valid_pipeline = {
-      {"pipeline", nlohmann::json::array({
-                       {{"name", "node1"},
-                        {"type", "io_boundary_test"},
-                        {"depends_on", nlohmann::json::array()},
-                        {"inputs", {{"input_data", "input.text_in"}}}},
-                   })}};
-
-  // 1. 合法 IO boundary：覆盖必需 ingress，消费 egress
-  PipelineIoBoundary valid_boundary;
-  valid_boundary.input_published_ports = {
-      IoPortDefinition("input.text_in", "TextBatch", true)};
-  valid_boundary.output_consumed_ports = {
-      IoPortDefinition("node1.output_data", "TextBatch", true)};
-
-  auto plan_ok =
-      PipelineValidator::ValidateAndPlan(valid_pipeline, valid_boundary);
-  EXPECT_TRUE(plan_ok.report.ok);
-
-  // 2. 缺失必需 ingress 端口发布
-  PipelineIoBoundary missing_in_boundary;
-  missing_in_boundary.output_consumed_ports =
-      valid_boundary.output_consumed_ports;
-  auto plan_missing_in =
-      PipelineValidator::ValidateAndPlan(valid_pipeline, missing_in_boundary);
-  EXPECT_FALSE(plan_missing_in.report.ok);
-  auto diag_in =
-      std::find_if(plan_missing_in.report.diagnostics.begin(),
-                   plan_missing_in.report.diagnostics.end(), [](const auto& d) {
-                     return d.code == DiagnosticCode::kUnknownPortReference;
-                   });
-  ASSERT_NE(diag_in, plan_missing_in.report.diagnostics.end());
-  EXPECT_EQ(diag_in->path, "/pipeline/0/inputs/input_data");
-
-  // 3. 缺失输出消费者所需的生产者
-  PipelineIoBoundary missing_out_boundary = valid_boundary;
-  missing_out_boundary.output_consumed_ports.push_back(
-      IoPortDefinition("", "TextBatch", true));
-  auto plan_missing_out =
-      PipelineValidator::ValidateAndPlan(valid_pipeline, missing_out_boundary);
-  EXPECT_FALSE(plan_missing_out.report.ok);
-  auto diag_out = std::find_if(
-      plan_missing_out.report.diagnostics.begin(),
-      plan_missing_out.report.diagnostics.end(), [](const auto& d) {
-        return d.code == DiagnosticCode::kMissingOutputProducer;
-      });
-  ASSERT_NE(diag_out, plan_missing_out.report.diagnostics.end());
-  EXPECT_EQ(diag_out->path, "/io/output");
-
-  // 4. 两个输入项发布同名逻辑端口。
-  PipelineIoBoundary conflict_boundary = valid_boundary;
-  conflict_boundary.input_published_ports.push_back(
-      IoPortDefinition("input.text_in", "TextBatch", true));
-  auto plan_conflict =
-      PipelineValidator::ValidateAndPlan(valid_pipeline, conflict_boundary);
-  EXPECT_FALSE(plan_conflict.report.ok);
-  auto diag_conflict =
-      std::find_if(plan_conflict.report.diagnostics.begin(),
-                   plan_conflict.report.diagnostics.end(), [](const auto& d) {
-                     return d.code == DiagnosticCode::kDuplicatePortProducer;
-                   });
-  ASSERT_NE(diag_conflict, plan_conflict.report.diagnostics.end());
+TEST_F(PipelinePlanningTest,
+       ArrayOrderCreatesNoDependencyAndBindingsDetermineOrder) {
+  const auto independent = PipelineValidator::ValidateAndPlan(
+      Pipeline({Node("later"), Node("earlier")}), Boundary("earlier.text"));
+  ASSERT_TRUE(independent.report.ok);
+  EXPECT_EQ(independent.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"later", "earlier"}}));
+  const auto linked = PipelineValidator::ValidateAndPlan(
+      Pipeline(
+          {Node("relay", "planning_relay", "producer.text"), Node("producer")}),
+      Boundary());
+  ASSERT_TRUE(linked.report.ok);
+  EXPECT_EQ(linked.report.topological_order,
+            (std::vector<std::string>{"producer", "relay"}));
+  EXPECT_EQ(linked.config.nodes[0].depends_on,
+            std::vector<std::string>{"producer"});
 }
 
-TEST_F(ValidatedPipelinePlanTest, InfersDependenciesAndMergesExtraOrder) {
-  const auto boundary = MakeTestBoundary({{"input.request", "TextBatch"}});
-  nlohmann::json config = {
-      {"pipeline",
-       {{{"name", "consumer"},
-         {"type", IoBoundaryTestNode::kNodeType},
-         {"inputs", {{"input_data", "producer.output_data"}}},
-         {"depends_on", {"barrier", "producer"}}},
-        {{"name", "barrier"},
-         {"type", PlanTestNode::kNodeType},
-         {"depends_on", {"producer"}}},
-        {{"name", "producer"},
-         {"type", IoBoundaryTestNode::kNodeType},
-         {"inputs", {{"input_data", "input.request"}}}}}}};
-  const auto plan = PipelineValidator::ValidateAndPlan(config, boundary);
+TEST_F(PipelinePlanningTest, RejectsInvalidOrderingAndDataCycles) {
+  struct Case {
+    const char* name;
+    Json dependencies;
+    DiagnosticCode code;
+    const char* path;
+  };
+  const std::vector<Case> cases = {
+      {"unknown dependency",
+       {"absent"},
+       DiagnosticCode::kInvalidDependency,
+       "/pipeline/0/depends_on/0"},
+      {"self dependency",
+       {"relay"},
+       DiagnosticCode::kDagCycle,
+       "/pipeline/0/depends_on/0"},
+      {"duplicate dependency",
+       {"producer", "producer"},
+       DiagnosticCode::kDuplicateDependency,
+       "/pipeline/0/depends_on/1"},
+  };
+  for (const auto& example : cases) {
+    SCOPED_TRACE(example.name);
+    auto root = Pipeline({Node("relay"), Node("producer")});
+    root["pipeline"][0]["depends_on"] = example.dependencies;
+    ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
+                example.code, example.path);
+  }
+  auto cycle = Pipeline({Node("relay", "planning_relay", "producer.text"),
+                         Node("producer", "planning_relay", "relay.text")});
+  ExpectError(PipelineValidator::ValidateAndPlan(cycle, Boundary()),
+              DiagnosticCode::kDagCycle, "/pipeline");
+  auto self = Pipeline({Node("relay", "planning_relay", "relay.text")});
+  ExpectError(PipelineValidator::ValidateAndPlan(self, Boundary()),
+              DiagnosticCode::kDagCycle, "/pipeline");
+}
+
+TEST_F(PipelinePlanningTest, RequiresExplicitInputAndStrictSourceReferences) {
+  struct Case {
+    const char* source;
+    DiagnosticCode code;
+  };
+  for (const auto& example : std::vector<Case>{
+           {"", DiagnosticCode::kFieldType},
+           {"text", DiagnosticCode::kFieldType},
+           {".text", DiagnosticCode::kFieldType},
+           {"input.", DiagnosticCode::kFieldType},
+           {"input.text.more", DiagnosticCode::kFieldType},
+           {"missing.text", DiagnosticCode::kUnknownNodeReference},
+           {"input.missing", DiagnosticCode::kUnknownPortReference}}) {
+    SCOPED_TRACE(example.source);
+    ExpectError(PipelineValidator::ValidateAndPlan(
+                    Pipeline({Node("relay", "planning_relay", example.source)}),
+                    Boundary()),
+                example.code, "/pipeline/0/inputs/text");
+  }
+  auto root = Pipeline({Node("relay")});
+  root["pipeline"][0].erase("inputs");
+  ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
+              DiagnosticCode::kMissingInputProducer, "/pipeline/0/inputs");
+  root["pipeline"][0]["inputs"] = {{"unknown", "input.text"}};
+  ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
+              DiagnosticCode::kUnknownField, "/pipeline/0/inputs/unknown");
+  root = Pipeline(
+      {Node("producer"), Node("relay", "planning_relay", "producer.missing")});
+  ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
+              DiagnosticCode::kUnknownPortReference, "/pipeline/1/inputs/text");
+}
+
+TEST_F(PipelinePlanningTest, TypeMismatchCarriesConsumerAndProducerFacts) {
+  auto boundary = Boundary();
+  boundary.input_published_ports[0].type_id = "tokens";
+  const auto plan =
+      PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary);
+  ExpectError(plan, DiagnosticCode::kPortTypeMismatch,
+              "/pipeline/0/inputs/text");
+  const auto* error =
+      FindDiagnostic(plan.report, DiagnosticCode::kPortTypeMismatch,
+                     "/pipeline/0/inputs/text");
+  ASSERT_NE(error, nullptr);
+  EXPECT_EQ(error->node_name, "relay");
+  EXPECT_EQ(error->port, "text");
+  EXPECT_EQ(error->related_nodes, std::vector<std::string>{"input"});
+  EXPECT_EQ(error->facts["bound_key"], "input.text");
+  EXPECT_EQ(error->facts["actual"]["type_id"], "tokens");
+  EXPECT_EQ(error->facts["expected"]["type_id"], "text");
+}
+
+TEST_F(PipelinePlanningTest, ChecksDuplicateIngressAndRequiredOutputClosure) {
+  auto boundary = Boundary();
+  boundary.input_published_ports.push_back(boundary.input_published_ports[0]);
+  ExpectError(
+      PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
+      DiagnosticCode::kDuplicatePortProducer, "/io/input");
+  boundary = Boundary("");
+  ExpectError(
+      PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
+      DiagnosticCode::kMissingOutputProducer, "/io/output/0/inputs");
+  boundary.output_consumed_ports[0].required = false;
+  const auto optional =
+      PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary);
+  ASSERT_TRUE(optional.report.ok);
+  EXPECT_EQ(optional.node_plans.at("relay").ports.size(), 1u);
+  boundary = Boundary();
+  boundary.output_consumed_ports[0].type_id = "tokens";
+  ExpectError(
+      PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
+      DiagnosticCode::kPortTypeMismatch, "/io/output/0/inputs/result");
+}
+
+TEST_F(PipelinePlanningTest, OptionalInputsRemainAbsentFromResolvedPorts) {
+  auto optional = RelayDefinition("planning_optional");
+  optional.inputs.push_back({"context", "text", false});
+  Register(optional);
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      Pipeline({Node("relay", "planning_optional")}), Boundary());
+  ASSERT_TRUE(plan.report.ok);
+  EXPECT_EQ(plan.node_plans.at("relay").FindPort("context"), nullptr);
+  EXPECT_EQ(plan.input_ports.size(), 1u);
+}
+
+TEST_F(PipelinePlanningTest, EnforcesEachPortGroupAgainstConnectedInputs) {
+  struct Case {
+    const char* name;
+    PortConstraintKind kind;
+    std::vector<std::vector<std::string>> valid;
+    std::vector<std::vector<std::string>> invalid;
+  };
+  const std::vector<Case> cases = {
+      {"at least one",
+       PortConstraintKind::kAtLeastOneOf,
+       {{"a"}, {"a", "b"}},
+       {{}}},
+      {"exactly one",
+       PortConstraintKind::kExactlyOneOf,
+       {{"a"}, {"b"}},
+       {{}, {"a", "b"}}},
+      {"all or none",
+       PortConstraintKind::kAllOrNone,
+       {{}, {"a", "b"}},
+       {{"a"}, {"b"}}},
+      {"at most one",
+       PortConstraintKind::kAtMostOneOf,
+       {{}, {"a"}, {"b"}},
+       {{"a", "b"}}},
+      {"one complete group",
+       PortConstraintKind::kExactOneGroupOf,
+       {{"a", "b"}, {"c"}},
+       {{}, {"a"}, {"a", "c"}, {"a", "b", "c"}}},
+  };
+  for (size_t i = 0; i < cases.size(); ++i) {
+    const auto& example = cases[i];
+    SCOPED_TRACE(example.name);
+    auto definition = RelayDefinition("planning_group_" + std::to_string(i));
+    definition.inputs = {
+        {"a", "text", false}, {"b", "text", false}, {"c", "text", false}};
+    definition.port_constraints =
+        example.kind == PortConstraintKind::kExactOneGroupOf
+            ? std::vector<PortGroupConstraint>{PortGroupConstraint::Groups(
+                  example.kind, {{"a", "b"}, {"c"}})}
+            : std::vector<PortGroupConstraint>{{example.kind, {"a", "b"}}};
+    Register(definition);
+    for (bool valid : {true, false}) {
+      for (const auto& connected : valid ? example.valid : example.invalid) {
+        SCOPED_TRACE(Json(connected).dump());
+        auto node = Node("relay", definition.node_type);
+        node["inputs"] = Json::object();
+        for (const auto& port : connected) node["inputs"][port] = "input.text";
+        const auto plan =
+            PipelineValidator::ValidateAndPlan(Pipeline({node}), Boundary());
+        if (valid)
+          EXPECT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+        else
+          ExpectError(plan, DiagnosticCode::kInvalidCombination, "/pipeline/0");
+      }
+    }
+  }
+}
+
+TEST_F(PipelinePlanningTest,
+       OneToOnePropagatesFanoutAndAggregationClosesSingleOutput) {
+  auto root = Pipeline({Node("split", "planning_split"),
+                        Node("relay", "planning_relay", "split.text")});
+  auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ExpectError(plan, DiagnosticCode::kPortCardinalityMismatch,
+              "/io/output/0/inputs/result");
+  const auto* error =
+      FindDiagnostic(plan.report, DiagnosticCode::kPortCardinalityMismatch,
+                     "/io/output/0/inputs/result");
+  ASSERT_NE(error, nullptr);
+  EXPECT_EQ(error->facts["actual_shape"],
+            Json({{"kind", "multi"}, {"origin", "split.text"}}));
+  EXPECT_EQ(error->facts["expected_shape"], Json({{"kind", "per_request"}}));
+  root["pipeline"].push_back(Node("collect", "planning_collect", "relay.text"));
+  plan = PipelineValidator::ValidateAndPlan(root, Boundary("collect.text"));
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   EXPECT_EQ(plan.report.topological_order,
-            (std::vector<std::string>{"producer", "barrier", "consumer"}));
+            (std::vector<std::string>{"split", "relay", "collect"}));
+  EXPECT_EQ(plan.node_plans.at("collect")
+                .FindPort("text", PortDirection::kOutput)
+                ->cardinality,
+            "N:1");
+}
+
+TEST_F(PipelinePlanningTest, ItemWiseInputsMustShareTheSameFanoutOrigin) {
+  auto root = Pipeline(
+      {Node("split", "planning_split"),
+       Node("relay", "planning_relay", "split.text"),
+       {{"name", "join"},
+        {"type", "planning_join"},
+        {"inputs", {{"left", "split.text"}, {"right", "relay.text"}}}}});
+  auto boundary = Boundary("join.text");
+  boundary.output_consumed_ports[0].cardinality = "N:M";
+  ASSERT_TRUE(PipelineValidator::ValidateAndPlan(root, boundary).report.ok);
+  root["pipeline"][1] = Node("relay", "planning_split", "split.text");
+  const auto plan = PipelineValidator::ValidateAndPlan(root, boundary);
+  ExpectError(plan, DiagnosticCode::kPortCardinalityMismatch,
+              "/pipeline/2/inputs/right");
+  const auto* error =
+      FindDiagnostic(plan.report, DiagnosticCode::kPortCardinalityMismatch,
+                     "/pipeline/2/inputs/right");
+  ASSERT_NE(error, nullptr);
+  EXPECT_EQ(error->facts["actual_shape"]["origin"], "relay.text");
+  EXPECT_EQ(error->facts["expected_shape"]["origin"], "split.text");
+  EXPECT_EQ(error->facts["anchor_port"], "left");
+}
+
+TEST_F(PipelinePlanningTest,
+       SessionSourceFlowsToRequestAndFollowLifetimeUsesResolvedInput) {
+  auto follow = RelayDefinition("planning_follow");
+  follow.outputs[0].lifetime_from_input = "text";
+  follow.validate_config = [](const Json&, const BindingFacts& facts,
+                              std::string*, std::string*) {
+    return facts.has_bindings && facts.connected_inputs.count("text") &&
+           facts.InputLifetime("text") == "session";
+  };
+  Register(follow);
+  auto boundary = Boundary("relay.text");
+  boundary.input_published_ports[0].lifetime = "session";
+  boundary.output_consumed_ports[0].lifetime = "session";
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      Pipeline({Node("relay", "planning_follow"),
+                Node("consumer", "planning_relay", "relay.text")}),
+      boundary);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  const auto& relay = plan.node_plans.at("relay");
+  EXPECT_EQ(relay.FindPort("text")->lifetime, "session");
+  EXPECT_EQ(relay.FindPort("text", PortDirection::kOutput)->lifetime,
+            "session");
+  EXPECT_EQ(plan.node_plans.at("consumer").FindPort("text")->lifetime,
+            "session");
+}
+
+TEST_F(PipelinePlanningTest,
+       RejectsRequestSourceForSessionConsumerAndStrictProvenance) {
+  auto session = RelayDefinition("planning_session_consumer");
+  session.inputs[0].lifetime = "session";
+  Register(session);
+  ExpectError(PipelineValidator::ValidateAndPlan(
+                  Pipeline({Node("relay", session.node_type)}), Boundary()),
+              DiagnosticCode::kPortLifetimeMismatch, "/pipeline/0/inputs/text");
+  auto boundary = Boundary();
+  boundary.output_consumed_ports[0].lifetime = "session";
+  ExpectError(
+      PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
+      DiagnosticCode::kPortLifetimeMismatch, "/io/output/0/inputs/result");
+  auto provenance = RelayDefinition("planning_provenance");
+  provenance.inputs[0].provenance_policy = "generate_sub_id";
+  Register(provenance);
+  ExpectError(PipelineValidator::ValidateAndPlan(
+                  Pipeline({Node("relay", provenance.node_type)}), Boundary()),
+              DiagnosticCode::kPortProvenanceMismatch,
+              "/pipeline/0/inputs/text");
+}
+
+TEST_F(PipelinePlanningTest,
+       ParallelLayersSerializeUnsafeNodesWithoutRejectingPlan) {
+  auto unsafe = RelayDefinition("planning_unsafe");
+  unsafe.parallel_safe = false;
+  Register(unsafe);
+  const auto root =
+      Pipeline({Node("unsafe_a", unsafe.node_type), Node("safe_a"),
+                Node("unsafe_b", unsafe.node_type), Node("safe_b")},
+               4);
+  const auto plan =
+      PipelineValidator::ValidateAndPlan(root, Boundary("safe_b.text"));
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   EXPECT_EQ(plan.report.topological_layers,
             (std::vector<std::vector<std::string>>{
-                {"producer"}, {"barrier"}, {"consumer"}}));
-  EXPECT_EQ(plan.config.max_parallel_workers, 1);
-  const auto& dependencies = plan.node_plans.at("consumer").node.depends_on;
+                {"safe_a", "safe_b"}, {"unsafe_a"}, {"unsafe_b"}}));
   EXPECT_EQ(
-      std::unordered_set<std::string>(dependencies.begin(), dependencies.end()),
-      (std::unordered_set<std::string>{"producer", "barrier"}));
-  EXPECT_EQ(dependencies.size(), 2U);
-  EXPECT_FALSE(config["pipeline"][2].contains("depends_on"));
-
-  ParsedPipelineConfig parsed;
-  ASSERT_TRUE(ParsePipelineConfig(config, &parsed));
-  const auto parsed_plan =
-      PipelineValidator::ValidateParsedAndPlan(std::move(parsed), boundary);
-  EXPECT_EQ(parsed_plan.report.ToJson(), plan.report.ToJson());
-  EXPECT_EQ(parsed_plan.node_plans.at("consumer").node.depends_on,
-            dependencies);
-  EXPECT_EQ(parsed_plan.node_plans.at("barrier").normalized_params,
-            plan.node_plans.at("barrier").normalized_params);
+      plan.report.topological_order,
+      (std::vector<std::string>{"safe_a", "safe_b", "unsafe_a", "unsafe_b"}));
 }
 
-TEST_F(ValidatedPipelinePlanTest, RejectsDataAndMixedDependencyCycles) {
-  for (bool mixed : {false, true}) {
-    SCOPED_TRACE(mixed ? "data plus order cycle" : "data cycle");
-    nlohmann::json first = {{"name", "first"},
-                            {"type", IoBoundaryTestNode::kNodeType},
-                            {"inputs", {{"input_data", "second.output_data"}}}};
-    nlohmann::json second = {{"name", "second"},
-                             {"type", IoBoundaryTestNode::kNodeType},
-                             {"inputs", {{"input_data", "first.output_data"}}}};
-    if (mixed) {
-      first["inputs"]["input_data"] = "input.request";
-      first["depends_on"] = {"second"};
-    }
-    const auto boundary = MakeTestBoundary({{"input.request", "TextBatch"}});
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        {{"pipeline", {first, second}}}, boundary);
-    ParsedPipelineConfig parsed;
-    ASSERT_TRUE(ParsePipelineConfig({{"pipeline", {first, second}}}, &parsed));
+TEST_F(PipelinePlanningTest, SingleWorkerRetainsTheOriginalWavefront) {
+  auto unsafe = RelayDefinition("planning_single_worker_unsafe");
+  unsafe.parallel_safe = false;
+  Register(unsafe);
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      Pipeline({Node("unsafe", unsafe.node_type), Node("relay")}), Boundary());
+  ASSERT_TRUE(plan.report.ok);
+  EXPECT_EQ(plan.config.max_parallel_workers, 1u);
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"unsafe", "relay"}}));
+}
+
+TEST_F(PipelinePlanningTest, DistinctSerializedModelInstancesCanShareALayer) {
+  auto root = ModelPipeline(4);
+  root["models"][0]["backend"]["type"] = "planning_serial_backend";
+  root["models"].push_back(Model("other", "planning_serial_backend"));
+  auto second = root["pipeline"][0];
+  second["name"] = "second";
+  second["params"]["model"] = "other";
+  root["pipeline"].push_back(second);
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"relay", "second"}}));
+}
+
+TEST_F(PipelinePlanningTest,
+       SharedModelSerializationUsesBothModelAndBackendDeclaration) {
+  for (const auto* backend :
+       {"planning_serial_backend", "planning_concurrent_backend"}) {
+    SCOPED_TRACE(backend);
+    auto root = ModelPipeline(4);
+    auto second = root["pipeline"][0];
+    second["name"] = "second";
+    root["pipeline"].push_back(second);
+    root["models"][0]["backend"]["type"] = backend;
+    const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+    ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+    const bool serial = std::string(backend) == "planning_serial_backend";
+    EXPECT_EQ(plan.models[0].effective_concurrency,
+              serial ? InferenceConcurrency::kSerialized
+                     : InferenceConcurrency::kConcurrent);
     EXPECT_EQ(
-        PipelineValidator::ValidateParsedAndPlan(std::move(parsed), boundary)
-            .report.ToJson(),
-        plan.report.ToJson());
-    EXPECT_FALSE(plan.report.ok);
-    EXPECT_TRUE(std::any_of(
-        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-        [](const auto& d) { return d.code == DiagnosticCode::kDagCycle; }))
-        << plan.report.ToJson().dump(2);
+        plan.report.topological_layers,
+        serial ? (std::vector<std::vector<std::string>>{{"relay"}, {"second"}})
+               : (std::vector<std::vector<std::string>>{{"relay", "second"}}));
   }
+  auto user = RelayDefinition("planning_serial_user");
+  user.config_fields =
+      NodeRegistry::Instance().Find("planning_model_user")->config_fields;
+  user.model_dependencies = {{"generator", "planning_serial_model", "model"}};
+  Register(user);
+  auto root = ModelPipeline(4);
+  root["models"][0]["type"] = "planning_serial_model";
+  root["pipeline"][0]["type"] = user.node_type;
+  auto second = root["pipeline"][0];
+  second["name"] = "second";
+  root["pipeline"].push_back(second);
+  const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
+  ASSERT_TRUE(plan.report.ok);
+  EXPECT_EQ(plan.models[0].effective_concurrency,
+            InferenceConcurrency::kSerialized);
+  EXPECT_EQ(plan.report.topological_layers,
+            (std::vector<std::vector<std::string>>{{"relay"}, {"second"}}));
 }
-
-TEST_F(ValidatedPipelinePlanTest, RejectsDataSelfCycle) {
-  const auto plan = PipelineValidator::ValidateAndPlan(
-      {{"pipeline",
-        {{{"name", "self"},
-          {"type", IoBoundaryTestNode::kNodeType},
-          {"inputs", {{"input_data", "self.output_data"}}}}}}},
-      MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  EXPECT_TRUE(std::any_of(
-      plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-      [](const auto& d) { return d.code == DiagnosticCode::kDagCycle; }))
-      << plan.report.ToJson().dump(2);
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       RequiredInputNeverFallsBackToSameNameProducer) {
-  const auto plan = PipelineValidator::ValidateAndPlan(
-      {{"pipeline",
-        {{{"name", "producer"}, {"type", FlowContractProducerNode::kNodeType}},
-         {{"name", "consumer"},
-          {"type", FlowContractConsumerNode::kNodeType},
-          {"depends_on", {"producer"}}}}}},
-      MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  const auto diagnostic =
-      std::find_if(plan.report.diagnostics.begin(),
-                   plan.report.diagnostics.end(), [](const auto& d) {
-                     return d.code == DiagnosticCode::kMissingInputProducer;
-                   });
-  ASSERT_NE(diagnostic, plan.report.diagnostics.end())
-      << plan.report.ToJson().dump(2);
-  EXPECT_EQ(diagnostic->path, "/pipeline/1/inputs");
-  EXPECT_EQ(diagnostic->node_name, "consumer");
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       ModelBindingIsRequiredEvenForOneMatchingModel) {
-  const auto plan = PipelineValidator::ValidateAndPlan(
-      {{"models",
-        {{{"name", "shared"},
-          {"type", "plan_test"},
-          {"backend", {{"type", "serialized_plan_backend"}}},
-          {"file", "fixture.bin"}}}},
-       {"pipeline",
-        {{{"name", "consumer"}, {"type", ModelBoundPlanTestNode::kNodeType}}}}},
-      MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  EXPECT_TRUE(std::any_of(
-      plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-      [](const auto& d) {
-        return d.code == DiagnosticCode::kMissingConfigField &&
-               d.path == "/pipeline/0/params/bind_model";
-      }))
-      << plan.report.ToJson().dump(2);
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       WorkerBudgetSchedulesUnsafeNodesSequentially) {
-  nlohmann::json config = {
-      {"pipeline",
-       {{{"name", "source"}, {"type", FlowContractProducerNode::kNodeType}},
-        {{"name", "independent"}, {"type", PlanTestNode::kNodeType}}}}};
-  EXPECT_TRUE(PipelineValidator::Validate(config, MakeTestBoundary()).ok);
-  config["max_parallel_workers"] = 1;
-  const auto sequential_report =
-      PipelineValidator::Validate(config, MakeTestBoundary());
-  ASSERT_TRUE(sequential_report.ok) << sequential_report.ToJson().dump(2);
-  EXPECT_EQ(sequential_report.topological_layers,
-            (std::vector<std::vector<std::string>>{{"source", "independent"}}));
-  config["max_parallel_workers"] = 2;
-  const auto report = PipelineValidator::Validate(config, MakeTestBoundary());
-  ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
-  EXPECT_EQ(report.topological_layers, (std::vector<std::vector<std::string>>{
-                                           {"independent"}, {"source"}}));
-  EXPECT_EQ(report.topological_order,
-            (std::vector<std::string>{"independent", "source"}));
-}
-
-TEST_F(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
-  nlohmann::json valid_pipeline = {
-      {"pipeline", nlohmann::json::array({
-                       {{"name", "node1"},
-                        {"type", "io_boundary_test"},
-                        {"depends_on", nlohmann::json::array()},
-                        {"inputs", {{"input_data", "input.text_in"}}}},
-                   })}};
-
-  PipelineIoBoundary boundary;
-  boundary.input_published_ports = {
-      IoPortDefinition("input.text_in", "TextBatch", true)};
-  boundary.output_consumed_ports = {
-      IoPortDefinition("node1.output_data", "TextBatch", true)};
-
-  auto plan = std::make_unique<ValidatedPipelinePlan>(
-      PipelineValidator::ValidateAndPlan(valid_pipeline, boundary));
-  ASSERT_TRUE(plan->report.ok);
-
-  Pipeline pipeline;
-  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kEmpty);
-
-  PipelineDiagnostic diag;
-  bool built = pipeline.BuildFromPlan(std::move(plan), &diag);
-  EXPECT_TRUE(built);
-  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kReady);
-  EXPECT_TRUE(pipeline.IsReady());
-
-  // 重复构建应被拒绝
-  auto plan2 = std::make_unique<ValidatedPipelinePlan>();
-  EXPECT_FALSE(pipeline.BuildFromPlan(std::move(plan2), &diag));
-  EXPECT_EQ(diag.code, DiagnosticCode::kInvalidBuildState);
-}
-
-TEST_F(ValidatedPipelinePlanTest, ExplicitSourcesHaveDistinctDiagnostics) {
-  const auto boundary = MakeTestBoundary({{"input.text", "TextBatch"}});
-  const nlohmann::json original = {
-      {"pipeline",
-       {{{"name", "consumer"},
-         {"type", IoBoundaryTestNode::kNodeType},
-         {"inputs", {{"input_data", "producer.output_data"}}}},
-        {{"name", "producer"},
-         {"type", IoBoundaryTestNode::kNodeType},
-         {"inputs", {{"input_data", "input.text"}}}}}}};
-  const auto valid = PipelineValidator::ValidateAndPlan(original, boundary);
-  ASSERT_TRUE(valid.report.ok) << valid.report.ToJson().dump();
-  EXPECT_EQ(valid.report.topological_order,
-            (std::vector<std::string>{"producer", "consumer"}));
-  EXPECT_EQ(
-      valid.node_plans.at("consumer").FindPort("input_data")->blackboard_key,
-      "producer.output_data");
-  EXPECT_EQ(
-      valid.node_plans.at("producer").FindPort("input_data")->blackboard_key,
-      "input.text");
-  for (const auto& [source, code] :
-       std::vector<std::pair<std::string, DiagnosticCode>>{
-           {"producerr.output_data", DiagnosticCode::kUnknownNodeReference},
-           {"producer.missing", DiagnosticCode::kUnknownPortReference},
-           {"input.missing", DiagnosticCode::kUnknownPortReference},
-           {"", DiagnosticCode::kFieldType},
-           {"bare_name", DiagnosticCode::kFieldType},
-           {".output_data", DiagnosticCode::kFieldType},
-           {"producer.", DiagnosticCode::kFieldType},
-           {"producer.output.data", DiagnosticCode::kFieldType}}) {
-    SCOPED_TRACE(source);
-    auto document = original;
-    document["pipeline"][0]["inputs"]["input_data"] = source;
-    const auto plan = PipelineValidator::ValidateAndPlan(document, boundary);
-    ASSERT_FALSE(plan.report.ok);
-    const auto diagnostic = std::find_if(
-        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-        [&](const auto& item) { return item.code == code; });
-    ASSERT_NE(diagnostic, plan.report.diagnostics.end())
-        << plan.report.ToJson();
-    EXPECT_EQ(diagnostic->path, "/pipeline/0/inputs/input_data");
-    EXPECT_EQ(diagnostic->node_name, "consumer");
-    EXPECT_EQ(diagnostic->port, "input_data");
-    if (code == DiagnosticCode::kUnknownNodeReference)
-      EXPECT_NE(std::find(diagnostic->suggestions.begin(),
-                          diagnostic->suggestions.end(), "producer"),
-                diagnostic->suggestions.end());
-    if (source == "producer.missing")
-      EXPECT_EQ(diagnostic->suggestions,
-                std::vector<std::string>{"output_data"});
-  }
-  auto wrong_type_boundary = boundary;
-  wrong_type_boundary.input_published_ports[0].type_id = "Int32Batch";
-  const auto wrong_type =
-      PipelineValidator::ValidateAndPlan(original, wrong_type_boundary);
-  const auto mismatch =
-      std::find_if(wrong_type.report.diagnostics.begin(),
-                   wrong_type.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kPortTypeMismatch;
-                   });
-  ASSERT_NE(mismatch, wrong_type.report.diagnostics.end());
-  EXPECT_EQ(mismatch->path, "/pipeline/1/inputs/input_data");
-}
-
-TEST_F(ValidatedPipelinePlanTest, OutputSourcesHaveExactConverterLocations) {
-  const nlohmann::json document = {
-      {"pipeline",
-       {{{"name", "producer"},
-         {"type", IoBoundaryTestNode::kNodeType},
-         {"inputs", {{"input_data", "input.text"}}}}}}};
-  for (const auto& [source, code] :
-       std::vector<std::pair<std::string, DiagnosticCode>>{
-           {"missing.output_data", DiagnosticCode::kUnknownNodeReference},
-           {"producer.missing", DiagnosticCode::kUnknownPortReference},
-           {"", DiagnosticCode::kFieldType},
-           {"producer.output.data", DiagnosticCode::kFieldType},
-           {"producer.output_data", DiagnosticCode::kPortTypeMismatch}}) {
-    auto boundary = MakeTestBoundary({{"input.text", "TextBatch"}},
-                                     {{source, "Int32Batch"}});
-    auto& output = boundary.output_consumed_ports[0];
-    output.logical_name = "answer";
-    output.path = "/io/output/3/inputs";
-    output.has_binding = true;
-    const auto plan = PipelineValidator::ValidateAndPlan(document, boundary);
-    ASSERT_FALSE(plan.report.ok);
-    const auto diagnostic = std::find_if(
-        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-        [&](const auto& item) { return item.code == code; });
-    ASSERT_NE(diagnostic, plan.report.diagnostics.end())
-        << plan.report.ToJson();
-    EXPECT_EQ(diagnostic->path, "/io/output/3/inputs/answer");
-    EXPECT_EQ(diagnostic->port, "answer");
-  }
-  auto missing_boundary =
-      MakeTestBoundary({{"input.text", "TextBatch"}}, {{"", "TextBatch"}});
-  missing_boundary.output_consumed_ports[0].logical_name = "answer";
-  missing_boundary.output_consumed_ports[0].path = "/io/output/3/inputs";
-  const auto missing =
-      PipelineValidator::ValidateAndPlan(document, missing_boundary);
-  ASSERT_EQ(missing.report.diagnostics.size(), 1U) << missing.report.ToJson();
-  EXPECT_EQ(missing.report.diagnostics[0].code,
-            DiagnosticCode::kMissingOutputProducer);
-  EXPECT_EQ(missing.report.diagnostics[0].path, "/io/output/3/inputs");
-}
-
-TEST_F(ValidatedPipelinePlanTest, ReservedAndDottedNamesFailBeforeBuild) {
-  for (const std::string name : {"input", "output", "dot.name"}) {
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        {{"pipeline", {{{"name", name}, {"type", PlanTestNode::kNodeType}}}}},
-        MakeTestBoundary());
-    ASSERT_FALSE(plan.report.ok);
-    ASSERT_EQ(plan.report.diagnostics.size(), 1U);
-    EXPECT_EQ(plan.report.diagnostics[0].code,
-              DiagnosticCode::kInvalidNodeName);
-    EXPECT_EQ(plan.report.diagnostics[0].path, "/pipeline/0/name");
-    EXPECT_TRUE(plan.node_plans.empty());
-  }
-  const auto allowed = PipelineValidator::ValidateAndPlan(
-      {{"pipeline",
-        {{{"name", "Free-名字"}, {"type", PlanTestNode::kNodeType}}}}},
-      MakeTestBoundary());
-  EXPECT_TRUE(allowed.report.ok) << allowed.report.ToJson();
-}
-
-TEST_F(ValidatedPipelinePlanTest, PlansOnlyReferencedNativeOutputsAndIngress) {
-  const nlohmann::json document = {{"pipeline",
-                                    {{{"name", "chunk"},
-                                      {"type", "text_chunk"},
-                                      {"inputs", {{"text", "input.text"}}}}}}};
-  const auto plan = PipelineValidator::ValidateAndPlan(
-      document,
-      MakeTestBoundary(
-          {{"input.text", "TextBatch"}, {"input.unused", "TextBatch"}},
-          {{"chunk.chunks", "TextBatch", true, "N:1", "aggregate"}}));
-  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
-  ASSERT_EQ(plan.input_ports.size(), 1U);
-  EXPECT_EQ(plan.input_ports[0].blackboard_key, "input.text");
-  const auto& chunk = plan.node_plans.at("chunk");
-  ASSERT_NE(chunk.FindPort("chunks", PortDirection::kOutput), nullptr);
-  EXPECT_EQ(chunk.FindPort("chunks", PortDirection::kOutput)->blackboard_key,
-            "chunk.chunks");
-  EXPECT_EQ(chunk.FindPort("chunk_counts", PortDirection::kOutput), nullptr);
-}
-
-TEST_F(ValidatedPipelinePlanTest,
-       FollowLifetimePropagatesAcrossDagAndPreparesFacts) {
-  test_support::RegistryTestAccess::ScopedNodeState state;
-  std::vector<std::string> prepared_lifetimes;
-  NodeDefinition follow;
-  follow.node_type = "follow_embedding_fixture";
-  follow.inputs = {{"embedding", "EmbeddingBatch"}};
-  follow.outputs = {{"embedding", "EmbeddingBatch", true, "1:1", "preserve",
-                     "request", "embedding"}};
-  follow.validate_config = [&](const nlohmann::json&, const BindingFacts& facts,
-                               std::string*, std::string*) {
-    prepared_lifetimes.push_back(facts.InputLifetime("embedding"));
-    return facts.IsConnected("embedding");
-  };
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      follow.node_type, [] { return std::make_unique<ShapeFixtureNode>(); },
-      follow));
-  NodeDefinition consumer;
-  consumer.node_type = "session_embedding_consumer_fixture";
-  consumer.inputs = {
-      {"embedding", "EmbeddingBatch", true, "N:1", "preserve", "session"}};
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      consumer.node_type, [] { return std::make_unique<ShapeFixtureNode>(); },
-      consumer));
-  nlohmann::json document = {
-      {"models",
-       {{{"type", "embedding"},
-         {"name", "encoder"},
-         {"file", "fixture.bin"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"name", "consume"},
-         {"type", consumer.node_type},
-         {"inputs", {{"embedding", "follow.embedding"}}}},
-        {{"name", "follow"},
-         {"type", follow.node_type},
-         {"inputs", {{"embedding", "embed.embedding"}}}},
-        {{"name", "embed"},
-         {"type", "text_embedding"},
-         {"params", {{"bind_model", "encoder"}}},
-         {"inputs", {{"text", "corpus.corpus"}}}},
-        {{"name", "corpus"},
-         {"type", "text_corpus_source"},
-         {"params", {{"corpus", {"shared"}}}}}}}};
-  const auto accepted =
-      PipelineValidator::ValidateAndPlan(document, MakeTestBoundary());
-  ASSERT_TRUE(accepted.report.ok) << accepted.report.ToJson();
-  EXPECT_EQ(accepted.report.topological_order,
-            (std::vector<std::string>{"corpus", "embed", "follow", "consume"}));
-  EXPECT_EQ(prepared_lifetimes, std::vector<std::string>{"session"});
-  EXPECT_EQ(accepted.node_plans.at("embed").FindPort("text")->lifetime,
-            "session");
-  EXPECT_EQ(accepted.node_plans.at("follow").FindPort("embedding")->lifetime,
-            "session");
-  EXPECT_EQ(accepted.node_plans.at("follow")
-                .FindPort("embedding", PortDirection::kOutput)
-                ->lifetime,
-            "session");
-  document["pipeline"][2]["inputs"]["text"] = "input.text";
-  const auto rejected = PipelineValidator::ValidateAndPlan(
-      document, MakeTestBoundary({{"input.text", "TextBatch"}}));
-  ASSERT_FALSE(rejected.report.ok);
-  EXPECT_EQ(prepared_lifetimes,
-            (std::vector<std::string>{"session", "request"}));
-  const auto diagnostic =
-      std::find_if(rejected.report.diagnostics.begin(),
-                   rejected.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kPortLifetimeMismatch;
-                   });
-  ASSERT_NE(diagnostic, rejected.report.diagnostics.end())
-      << rejected.report.ToJson();
-  EXPECT_EQ(diagnostic->path, "/pipeline/0/inputs/embedding");
-  EXPECT_EQ(rejected.node_plans.at("follow")
-                .FindPort("embedding", PortDirection::kOutput)
-                ->lifetime,
-            "request");
-}
-
+}  // namespace
 }  // namespace llm_edgeflow
