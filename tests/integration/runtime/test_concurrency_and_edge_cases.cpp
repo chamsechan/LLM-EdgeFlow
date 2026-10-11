@@ -12,6 +12,9 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/integration/json_output_test_utils.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 namespace llm_edgeflow {
 
@@ -73,15 +76,15 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
         inputs[0]["client_channel.keyword_in"] =
             operator_api::MakeBorrowedOperatorInput(&in_req);
         operator_api::NamedIoBatch outputs(1);
-        outputs[0]["client_channel.keyword_out"] = nullptr;
+        outputs[0]["client_channel.json_out"] = nullptr;
 
         ret = op.Process(handle, inputs, outputs);
         if (ret == 0 && !outputs.empty()) {
-          auto out_sp = outputs[0]["client_channel.keyword_out"];
+          auto out_sp = outputs[0]["client_channel.json_out"];
           if (out_sp) {
-            auto* out_res =
-                static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-            if (out_res && out_res->is_hit == 1) {
+            auto* out_res = static_cast<CompanyOperatorOutput*>(out_sp.get());
+            if (out_res &&
+                ParseJsonOutput(out_res).at("is_hit").get<int>() == 1) {
               success_count++;
             } else {
               error_count++;
@@ -183,23 +186,23 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
         operator_api::MakeBorrowedOperatorInput(&symbols_req);
 
     operator_api::NamedIoBatch outputs(2);
-    outputs[0]["client_channel.keyword_out"] = nullptr;
-    outputs[1]["client_channel.keyword_out"] = nullptr;
+    outputs[0]["client_channel.json_out"] = nullptr;
+    outputs[1]["client_channel.json_out"] = nullptr;
 
     ret = op.Process(handle, inputs, outputs);
     EXPECT_EQ(ret, 0);
     ASSERT_EQ(outputs.size(), 2u);
 
-    auto out0_sp = outputs[0]["client_channel.keyword_out"];
-    auto out1_sp = outputs[1]["client_channel.keyword_out"];
+    auto out0_sp = outputs[0]["client_channel.json_out"];
+    auto out1_sp = outputs[1]["client_channel.json_out"];
     ASSERT_NE(out0_sp, nullptr);
     ASSERT_NE(out1_sp, nullptr);
 
-    auto* out0 = static_cast<CompanyOperatorKeywordOutput*>(out0_sp.get());
-    auto* out1 = static_cast<CompanyOperatorKeywordOutput*>(out1_sp.get());
+    auto* out0 = static_cast<CompanyOperatorOutput*>(out0_sp.get());
+    auto* out1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
 
-    EXPECT_EQ(out0->is_hit, 0);
-    EXPECT_EQ(out1->is_hit, 0);
+    EXPECT_EQ(ParseJsonOutput(out0).at("is_hit").get<int>(), 0);
+    EXPECT_EQ(ParseJsonOutput(out1).at("is_hit").get<int>(), 0);
 
     out0_sp.reset();
     out1_sp.reset();
@@ -227,7 +230,7 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
         operator_api::MakeBorrowedOperatorInput(&empty_audio);
 
     operator_api::NamedIoBatch outputs(1);
-    outputs[0]["mic_0.audio_out"] = nullptr;
+    outputs[0]["mic_0.json_out"] = nullptr;
 
     ret = op.Process(handle, inputs, outputs);
     EXPECT_EQ(ret, 0);

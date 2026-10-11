@@ -10,6 +10,9 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/integration/json_output_test_utils.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 namespace llm_edgeflow {
 
@@ -75,31 +78,32 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
       operator_api::MakeBorrowedOperatorInput(&req1);
 
   operator_api::NamedIoBatch outputs(2);
-  outputs[0]["rag_channel.doc_out"] = nullptr;
-  outputs[1]["rag_channel.doc_out"] = nullptr;
+  outputs[0]["rag_channel.json_out"] = nullptr;
+  outputs[1]["rag_channel.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(outputs.size(), 2u);
 
-  auto out0_sp = outputs[0]["rag_channel.doc_out"];
-  auto out1_sp = outputs[1]["rag_channel.doc_out"];
+  auto out0_sp = outputs[0]["rag_channel.json_out"];
+  auto out1_sp = outputs[1]["rag_channel.json_out"];
   ASSERT_NE(out0_sp, nullptr);
   ASSERT_NE(out1_sp, nullptr);
 
-  auto* out0 = static_cast<CompanyOperatorDocOutput*>(out0_sp.get());
-  auto* out1 = static_cast<CompanyOperatorDocOutput*>(out1_sp.get());
+  auto* out0 = static_cast<CompanyOperatorOutput*>(out0_sp.get());
+  auto* out1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
 
   // 验证切片数与意图分类
-  EXPECT_GT(out0->chunk_count, 0);
-  ASSERT_NE(out0->intent_name, nullptr);
-  EXPECT_EQ(std::string(out0->intent_name->data, out0->intent_name->length),
+  EXPECT_GT(ParseJsonOutput(out0).at("chunk_count").get<int>(), 0);
+  ASSERT_TRUE(ParseJsonOutput(out0).contains("intent_name"));
+  EXPECT_EQ(ParseJsonOutput(out0).at("intent_name").get<std::string>(),
             "AFTER_SALES_REFUND");
-  ASSERT_NE(out0->answer_text, nullptr);
-  EXPECT_GT(out0->answer_text->length, 0);
+  ASSERT_TRUE(ParseJsonOutput(out0).contains("answer_text"));
+  EXPECT_GT(ParseJsonOutput(out0).at("answer_text").get<std::string>().size(),
+            0);
 
-  EXPECT_GT(out1->chunk_count, 0);
-  ASSERT_NE(out1->answer_text, nullptr);
+  EXPECT_GT(ParseJsonOutput(out1).at("chunk_count").get<int>(), 0);
+  ASSERT_TRUE(ParseJsonOutput(out1).contains("answer_text"));
   out0_sp.reset();
   out1_sp.reset();
   outputs.clear();
@@ -157,50 +161,48 @@ TEST_F(AllBizPipelinesTest, DialogueAuditPipeline) {
       operator_api::MakeBorrowedOperatorInput(&req_safe);
 
   operator_api::NamedIoBatch outputs(2);
-  outputs[0]["audit_channel.audit_out"] = nullptr;
-  outputs[1]["audit_channel.audit_out"] = nullptr;
+  outputs[0]["audit_channel.json_out"] = nullptr;
+  outputs[1]["audit_channel.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(outputs.size(), 2u);
 
-  auto out_viol_sp = outputs[0]["audit_channel.audit_out"];
-  auto out_safe_sp = outputs[1]["audit_channel.audit_out"];
+  auto out_viol_sp = outputs[0]["audit_channel.json_out"];
+  auto out_safe_sp = outputs[1]["audit_channel.json_out"];
   ASSERT_NE(out_viol_sp, nullptr);
   ASSERT_NE(out_safe_sp, nullptr);
 
-  auto* out_violation =
-      static_cast<CompanyOperatorAuditOutput*>(out_viol_sp.get());
-  auto* out_safe = static_cast<CompanyOperatorAuditOutput*>(out_safe_sp.get());
+  auto* out_violation = static_cast<CompanyOperatorOutput*>(out_viol_sp.get());
+  auto* out_safe = static_cast<CompanyOperatorOutput*>(out_safe_sp.get());
 
   // 验证样本 A 判定为 HIGH_RISK，且命中对应合规条款
-  ASSERT_NE(out_violation->risk_level, nullptr);
-  EXPECT_EQ(std::string(out_violation->risk_level->data,
-                        out_violation->risk_level->length),
+  ASSERT_TRUE(ParseJsonOutput(out_violation).contains("risk_level"));
+  EXPECT_EQ(ParseJsonOutput(out_violation).at("risk_level").get<std::string>(),
             "HIGH_RISK");
-  EXPECT_GE(out_violation->risk_score, 0.80f);
-  ASSERT_NE(out_violation->matched_policy_clause, nullptr);
-  std::string matched(out_violation->matched_policy_clause->data,
-                      out_violation->matched_policy_clause->length);
+  EXPECT_GE(ParseJsonOutput(out_violation).at("risk_score").get<float>(),
+            0.80f);
+  ASSERT_TRUE(ParseJsonOutput(out_violation).contains("matched_policy_clause"));
+  std::string matched = ParseJsonOutput(out_violation)
+                            .at("matched_policy_clause")
+                            .get<std::string>();
   EXPECT_TRUE(matched.find("退货") != std::string::npos ||
               matched.find("条款") != std::string::npos);
 
-  ASSERT_NE(out_violation->audit_verdict_json, nullptr);
-  std::string json_viol(out_violation->audit_verdict_json->data,
-                        out_violation->audit_verdict_json->length);
+  ASSERT_TRUE(ParseJsonOutput(out_violation).contains("audit_verdict"));
+  std::string json_viol =
+      ParseJsonOutput(out_violation).at("audit_verdict").dump();
   auto j_violation = nlohmann::json::parse(json_viol);
   EXPECT_EQ(j_violation["risk_level"], "HIGH_RISK");
 
   // 验证样本 B 判定为 SAFE
-  ASSERT_NE(out_safe->risk_level, nullptr);
-  EXPECT_EQ(
-      std::string(out_safe->risk_level->data, out_safe->risk_level->length),
-      "SAFE");
-  EXPECT_LE(out_safe->risk_score, 0.40f);
+  ASSERT_TRUE(ParseJsonOutput(out_safe).contains("risk_level"));
+  EXPECT_EQ(ParseJsonOutput(out_safe).at("risk_level").get<std::string>(),
+            "SAFE");
+  EXPECT_LE(ParseJsonOutput(out_safe).at("risk_score").get<float>(), 0.40f);
 
-  ASSERT_NE(out_safe->audit_verdict_json, nullptr);
-  std::string json_safe(out_safe->audit_verdict_json->data,
-                        out_safe->audit_verdict_json->length);
+  ASSERT_TRUE(ParseJsonOutput(out_safe).contains("audit_verdict"));
+  std::string json_safe = ParseJsonOutput(out_safe).at("audit_verdict").dump();
   auto j_safe = nlohmann::json::parse(json_safe);
   out_viol_sp.reset();
   out_safe_sp.reset();

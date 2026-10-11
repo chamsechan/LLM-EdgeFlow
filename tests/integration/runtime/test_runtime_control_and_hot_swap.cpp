@@ -16,7 +16,10 @@
 #include "edgeflow/operator/types.h"
 #include "platform_mock/error_codes.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/integration/json_output_test_utils.h"
 #include "tests/support/pipeline_test_utils.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 namespace llm_edgeflow {
 
@@ -244,15 +247,15 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   inputs_1[0]["client_channel.keyword_in"] =
       operator_api::MakeBorrowedOperatorInput(&in_req_1);
   operator_api::NamedIoBatch outputs_1(1);
-  outputs_1[0]["client_channel.keyword_out"] = nullptr;
+  outputs_1[0]["client_channel.json_out"] = nullptr;
 
   int ret = op.Process(handle, inputs_1, outputs_1);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(outputs_1.size(), 1u);
-  auto out1_sp = outputs_1[0]["client_channel.keyword_out"];
+  auto out1_sp = outputs_1[0]["client_channel.json_out"];
   ASSERT_NE(out1_sp, nullptr);
-  auto* out_res_1 = static_cast<CompanyOperatorKeywordOutput*>(out1_sp.get());
-  EXPECT_EQ(out_res_1->is_hit, 0);
+  auto* out_res_1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
+  EXPECT_EQ(ParseJsonOutput(out_res_1).at("is_hit").get<int>(), 0);
 
   // 1.2 运行时热下发新词库类别 "VIP_URGENT": ["VIP", "专席"]
   nlohmann::json control_param = {{"categories",
@@ -270,16 +273,16 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   EXPECT_EQ(ret, 0);
 
   // 1.3 再次执行匹配，验证新词库已即时生效并命中
-  outputs_1[0]["client_channel.keyword_out"] = nullptr;
+  outputs_1[0]["client_channel.json_out"] = nullptr;
   ret = op.Process(handle, inputs_1, outputs_1);
   EXPECT_EQ(ret, 0);
-  out1_sp = outputs_1[0]["client_channel.keyword_out"];
+  out1_sp = outputs_1[0]["client_channel.json_out"];
   ASSERT_NE(out1_sp, nullptr);
-  out_res_1 = static_cast<CompanyOperatorKeywordOutput*>(out1_sp.get());
-  EXPECT_EQ(out_res_1->is_hit, 1);
-  ASSERT_NE(out_res_1->match_result_json, nullptr);
-  std::string match_str(out_res_1->match_result_json->data,
-                        out_res_1->match_result_json->length);
+  out_res_1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
+  EXPECT_EQ(ParseJsonOutput(out_res_1).at("is_hit").get<int>(), 1);
+  ASSERT_NE(out_res_1->result_json, nullptr);
+  std::string match_str(out_res_1->result_json->data,
+                        out_res_1->result_json->length);
   nlohmann::json match_json = nlohmann::json::parse(match_str);
   ASSERT_TRUE(match_json.contains("matches"));
   ASSERT_FALSE(match_json["matches"].empty());
@@ -295,17 +298,17 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   inputs_2[0]["client_channel.keyword_in"] =
       operator_api::MakeBorrowedOperatorInput(&in_req_2);
   operator_api::NamedIoBatch outputs_2(1);
-  outputs_2[0]["client_channel.keyword_out"] = nullptr;
+  outputs_2[0]["client_channel.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs_2, outputs_2);
   EXPECT_EQ(ret, 0);
-  auto out2_sp = outputs_2[0]["client_channel.keyword_out"];
+  auto out2_sp = outputs_2[0]["client_channel.json_out"];
   ASSERT_NE(out2_sp, nullptr);
-  auto* out_res_2 = static_cast<CompanyOperatorKeywordOutput*>(out2_sp.get());
-  EXPECT_EQ(out_res_2->is_hit, 1);
-  ASSERT_NE(out_res_2->match_result_json, nullptr);
-  std::string match_str_2(out_res_2->match_result_json->data,
-                          out_res_2->match_result_json->length);
+  auto* out_res_2 = static_cast<CompanyOperatorOutput*>(out2_sp.get());
+  EXPECT_EQ(ParseJsonOutput(out_res_2).at("is_hit").get<int>(), 1);
+  ASSERT_NE(out_res_2->result_json, nullptr);
+  std::string match_str_2(out_res_2->result_json->data,
+                          out_res_2->result_json->length);
   nlohmann::json match_json_2 = nlohmann::json::parse(match_str_2);
   ASSERT_TRUE(match_json_2.contains("matches"));
   ASSERT_FALSE(match_json_2["matches"].empty());
@@ -350,7 +353,7 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
       inputs[0]["client_channel.keyword_in"] =
           operator_api::MakeBorrowedOperatorInput(&in_req);
       operator_api::NamedIoBatch outputs(1);
-      outputs[0]["client_channel.keyword_out"] = nullptr;
+      outputs[0]["client_channel.json_out"] = nullptr;
       int ret = op.Process(handle, inputs, outputs);
       if (ret == 0) {
         process_count.fetch_add(1);

@@ -10,6 +10,7 @@
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
+#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
@@ -17,7 +18,7 @@ namespace {
 constexpr auto kResult = MakeBlackboardKey<StructuredDocumentBatch>("result");
 constexpr auto kDocument = MakeBlackboardKey<OcrDocumentBatch>("document");
 
-constexpr const char* kOutputSlot = "od_out";
+constexpr const char* kOutputSlot = "json_out";
 
 struct Params {
   int64_t result_json_max_bytes = 0;
@@ -25,7 +26,7 @@ struct Params {
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>({
-      MaxBytes("result_json", &Params::result_json_max_bytes).Default(2047),
+      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
   });
 }
 
@@ -72,10 +73,8 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
       continue;
     }
-    DetectionOutputValue out;
+    JsonOutputValue out;
 
-    out.detected_box_count =
-        static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
     if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Structured result failed or used fallback", "invoice_jsons",
@@ -83,7 +82,12 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     }
     out.status_code = 0;
 
-    out.result_json = invoice_jsons_by_request[i]->data.json_payload;
+    out.result_json =
+        nlohmann::json(
+            {{"detected_box_count", ocr_docs_by_request[i]->data.boxes.size()},
+             {"result", nlohmann::json::parse(
+                            invoice_jsons_by_request[i]->data.json_payload)}})
+            .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
       return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -98,7 +102,7 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "ocr_invoice_qa";
-  def.slot = ExternalOutputSlot<DetectionOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kResult),
                        RequiredInputPort(kDocument)};
   def.params = ParamSpec();

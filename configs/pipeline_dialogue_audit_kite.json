@@ -8,7 +8,7 @@
     ],
     "output": [
       {
-        "type": "audit_out",
+        "type": "json_out",
         "name": "dialogue_audit",
         "inputs": {
           "verdict": "parse_verdict.document",

@@ -156,19 +156,19 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
     inputs[0]["nlp_node.entity_in"] =
         operator_api::MakeBorrowedOperatorInput(&req);
     operator_api::NamedIoBatch outputs(1);
-    outputs[0]["nlp_node.entity_out"] = nullptr;
+    outputs[0]["nlp_node.json_out"] = nullptr;
 
     const int ret = op.Process(handle, inputs, outputs);
     EXPECT_EQ(ret, 0);
     if (ret != 0) continue;
     ASSERT_EQ(outputs.size(), 1u);
-    auto out_sp = outputs[0]["nlp_node.entity_out"];
+    auto out_sp = outputs[0]["nlp_node.json_out"];
     ASSERT_NE(out_sp, nullptr);
-    auto* out = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
+    auto* out = static_cast<CompanyOperatorOutput*>(out_sp.get());
     EXPECT_EQ(out->service_type, kMockServiceEntityExtract);
     EXPECT_EQ(out->status_code, 0);
-    ASSERT_NE(out->entities_json, nullptr);
-    std::string json_str(out->entities_json->data, out->entities_json->length);
+    ASSERT_NE(out->result_json, nullptr);
+    std::string json_str(out->result_json->data, out->result_json->length);
     const auto entities = nlohmann::json::parse(json_str, nullptr, false);
     EXPECT_TRUE(entities.is_array()) << json_str;
     EXPECT_FALSE(entities.empty()) << json_str;

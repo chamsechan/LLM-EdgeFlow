@@ -56,9 +56,9 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
         });
   };
   OutputConverterDefinition output;
-  output.type = "entity_out";
+  output.type = "json_out";
   output.name = "test_parameters";
-  output.slot = ExternalOutputSlot<EntityOutputValue>(output.type);
+  output.slot = ExternalOutputSlot<JsonOutputValue>(output.type);
   output.logical_ports = {
       RequiredInputPort(MakeBlackboardKey<TextBatch>("parameter_texts"))};
   output.params =
@@ -71,11 +71,11 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
   output.encode_fn = [](AlgContext* context, const OutputEncodeOptions& options,
                         ExternalOutputBatchView* view, size_t* written,
                         AdapterStatus* status) {
-    return EncodeResultRows<EntityOutputValue>(
-        context, options, view, written, status, "entity_out",
+    return EncodeResultRows<JsonOutputValue>(
+        context, options, view, written, status, "json_out",
         MakeBlackboardKey<TextBatch>("parameter_texts"),
-        [&options](const std::string& text, EntityOutputValue* row) {
-          row->entities_json = text + options.Params<OutputRowParams>().suffix;
+        [&options](const std::string& text, JsonOutputValue* row) {
+          row->result_json = text + options.Params<OutputRowParams>().suffix;
           return AdapterStatus::Ok();
         });
   };
@@ -97,12 +97,12 @@ TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
   for (int call = 0; call < 2; ++call) {
     char first_bytes[32]{}, second_bytes[32]{};
     CompanyString first_output{0, first_bytes}, second_output{0, second_bytes};
-    std::vector<CompanyOperatorEntityOutput> outputs(2);
+    std::vector<CompanyOperatorOutput> outputs(2);
     outputs[0].service_type = kMockServiceEntityExtract;
     outputs[1].service_type = kMockServiceEntityExtract;
-    outputs[0].entities_json = &first_output;
-    outputs[1].entities_json = &second_output;
-    ASSERT_EQ(harness.EncodeOperator(&outputs, {{"entities_json", 31}}), 0);
+    outputs[0].result_json = &first_output;
+    outputs[1].result_json = &second_output;
+    ASSERT_EQ(harness.EncodeOperator(&outputs, {{"result_json", 31}}), 0);
     EXPECT_STREQ(first_bytes, "IN:one:OUT");
     EXPECT_STREQ(second_bytes, "IN:two:OUT");
   }
@@ -289,27 +289,27 @@ TEST(IoConverterTest,
 
   char first_bytes[4] = {}, second_bytes[4] = {};
   CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};
-  CompanyOperatorEntityOutput first{kMockServiceEntityExtract, nullptr, 0},
+  CompanyOperatorOutput first{kMockServiceEntityExtract, nullptr, 0},
       second{kMockServiceEntityExtract, nullptr, 0};
-  first.entities_json = &first_text;
-  second.entities_json = &second_text;
+  first.result_json = &first_text;
+  second.result_json = &second_text;
   TestOutputBatchView view;
   view.count = 2;
   view.leased_slots["output"] = {&first, &second};
-  view.slot_types["output"] = "CompanyOperatorEntityOutput";
+  view.slot_types["output"] = "CompanyOperatorOutput";
   view.binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
-  view.SetCapacity("output", "entities_json", 3);
-  auto encode = [](const std::string& text, EntityOutputValue* row) {
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
+  view.SetCapacity("output", "result_json", 3);
+  auto encode = [](const std::string& text, JsonOutputValue* row) {
     row->status_code = 23;
-    row->entities_json = text;
+    row->result_json = text;
     return AdapterStatus::Ok();
   };
   AdapterStatus status;
   size_t written = 99;
   ASSERT_EQ(
-      EncodeResultRows<EntityOutputValue>(&context, options, &view, &written,
-                                          &status, "output", kRowTexts, encode),
+      EncodeResultRows<JsonOutputValue>(&context, options, &view, &written,
+                                        &status, "output", kRowTexts, encode),
       COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 2U);
   EXPECT_EQ(first.status_code, 23);
@@ -328,10 +328,10 @@ TEST(IoConverterTest,
     first_text.length = second_text.length = 3;
     view.leased_slots["output"] = {omitted == 0 ? nullptr : &first,
                                    omitted == 1 ? nullptr : &second};
-    ASSERT_EQ(EncodeResultRows<EntityOutputValue>(&context, options, &view,
-                                                  &written, &status, "output",
-                                                  kRowTexts, encode),
-              COMPANY_ALG_SUCCESS);
+    ASSERT_EQ(
+        EncodeResultRows<JsonOutputValue>(&context, options, &view, &written,
+                                          &status, "output", kRowTexts, encode),
+        COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, 1U);
     EXPECT_EQ(std::string(first_bytes, 3),
               omitted == 0 ? "old" : std::string("a\0b", 3));
@@ -340,23 +340,23 @@ TEST(IoConverterTest,
   view.required = true;
   view.leased_slots["output"] = {&first, &second};
 
-  view.SetCapacity("output", "entities_json", 1);
+  view.SetCapacity("output", "result_json", 1);
   written = 99;
   EXPECT_EQ(
-      EncodeResultRows<EntityOutputValue>(&context, options, &view, &written,
-                                          &status, "output", kRowTexts, encode),
+      EncodeResultRows<JsonOutputValue>(&context, options, &view, &written,
+                                        &status, "output", kRowTexts, encode),
       COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(written, 0U);
   EXPECT_EQ(status.AdapterName(), options.Label());
   EXPECT_EQ(status.SampleIndex(), 0);
-  EXPECT_EQ(status.FieldPath(), "entities_json");
+  EXPECT_EQ(status.FieldPath(), "result_json");
 
-  view.SetCapacity("output", "entities_json", 3);
+  view.SetCapacity("output", "result_json", 3);
   written = 99;
   EXPECT_EQ(
-      EncodeResultRows<EntityOutputValue>(
+      EncodeResultRows<JsonOutputValue>(
           &context, options, &view, &written, &status, "output", kRowTexts,
-          [](const std::string& text, EntityOutputValue*) {
+          [](const std::string& text, JsonOutputValue*) {
             return text == "two" ? AdapterStatus::InvalidInput("cannot encode",
                                                                "business_field")
                                  : AdapterStatus::Ok();
@@ -399,36 +399,35 @@ TEST(IoConverterTest, TypedBindingRequiresExactSlotAndNeutralValueType) {
   EXPECT_FALSE(source.Read<TextInputValue>("channel.keyword_in", 0, &status));
 
   const auto* output_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(output_binding, nullptr);
   char output_bytes[] = "old";
   CompanyString output_text{3, output_bytes};
-  CompanyOperatorEntityOutput output{kMockServiceEntityExtract, &output_text,
-                                     9};
+  CompanyOperatorOutput output{kMockServiceEntityExtract, &output_text, 9};
   TestOutputBatchView destination;
   destination.count = 1;
   destination.binding = output_binding;
-  destination.leased_slots["channel.entity_out"] = {&output};
-  destination.slot_types["channel.entity_out"] =
+  destination.leased_slots["channel.json_out"] = {&output};
+  destination.slot_types["channel.json_out"] =
       output_binding->external_c_type_name;
-  destination.SetCapacity("channel.entity_out", "entities_json", 3);
+  destination.SetCapacity("channel.json_out", "result_json", 3);
   EXPECT_FALSE(
-      destination.Write("channel.entity_out", 0, DocumentOutputValue{}).IsOk());
+      destination.Write("channel.json_out", 0, TextInputValue{}).IsOk());
   EXPECT_FALSE(
-      destination.Write("entity_out", 0, EntityOutputValue{"new", 0}).IsOk());
+      destination.Write("json_out", 0, JsonOutputValue{"new", 0}).IsOk());
   EXPECT_FALSE(
-      destination.Write("channel.entity_out", 1, EntityOutputValue{"new", 0})
+      destination.Write("channel.json_out", 1, JsonOutputValue{"new", 0})
           .IsOk());
   EXPECT_EQ(output.status_code, 9);
   EXPECT_STREQ(output_bytes, "old");
   ASSERT_TRUE(
-      destination.Write("channel.entity_out", 0, EntityOutputValue{"new", 23})
+      destination.Write("channel.json_out", 0, JsonOutputValue{"new", 23})
           .IsOk());
   EXPECT_EQ(output.status_code, 23);
   EXPECT_STREQ(output_bytes, "new");
-  destination.slot_types["channel.entity_out"] = "OtherCarrier";
+  destination.slot_types["channel.json_out"] = "OtherCarrier";
   EXPECT_FALSE(
-      destination.Write("channel.entity_out", 0, EntityOutputValue{"bad", 0})
+      destination.Write("channel.json_out", 0, JsonOutputValue{"bad", 0})
           .IsOk());
   EXPECT_STREQ(output_bytes, "new");
 }
@@ -472,27 +471,27 @@ TEST(IoConverterTest, InputBindingValidatesLengthsAndOwnsExplicitLengthCopies) {
 TEST(IoConverterTest,
      OutputBindingRequiresFieldCapacityAndPreservesFailedDestination) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
   char bytes[] = "old";
   CompanyString text{3, bytes};
-  CompanyOperatorEntityOutput row{kMockServiceEntityExtract, &text, 9};
+  CompanyOperatorOutput row{kMockServiceEntityExtract, &text, 9};
   TestOutputBatchView view;
   view.count = 1;
   view.binding = binding;
-  view.leased_slots["entity_out"] = {&row};
-  view.slot_types["entity_out"] = binding->external_c_type_name;
-  auto status = view.Write("entity_out", 0, EntityOutputValue{"new", 0});
+  view.leased_slots["json_out"] = {&row};
+  view.slot_types["json_out"] = binding->external_c_type_name;
+  auto status = view.Write("json_out", 0, JsonOutputValue{"new", 0});
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  view.SetCapacity("entity_out", "other", 3);
-  status = view.Write("entity_out", 0, EntityOutputValue{"new", 0});
+  view.SetCapacity("json_out", "other", 3);
+  status = view.Write("json_out", 0, JsonOutputValue{"new", 0});
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.FieldPath(), "entities_json");
+  EXPECT_EQ(status.FieldPath(), "result_json");
   EXPECT_STREQ(bytes, "old");
   EXPECT_EQ(text.length, 3);
   EXPECT_EQ(row.status_code, 9);
-  view.SetCapacity("entity_out", "entities_json", 2);
-  status = view.Write("entity_out", 0, EntityOutputValue{"new", 0});
+  view.SetCapacity("json_out", "result_json", 2);
+  status = view.Write("json_out", 0, JsonOutputValue{"new", 0});
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_STREQ(bytes, "old");
   EXPECT_EQ(text.length, 3);
@@ -501,32 +500,30 @@ TEST(IoConverterTest,
 
 TEST(IoConverterTest, OutputBindingHonorsEmbeddedNullLengthAndTerminator) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
   char bytes[] = {'?', '?', '?', '?', '!'};
   CompanyString text{0, bytes};
-  CompanyOperatorEntityOutput row{kMockServiceEntityExtract, &text, 0};
+  CompanyOperatorOutput row{kMockServiceEntityExtract, &text, 0};
   TestOutputBatchView view;
   view.count = 1;
   view.binding = binding;
-  view.leased_slots["entity_out"] = {&row};
-  view.slot_types["entity_out"] = binding->external_c_type_name;
-  view.SetCapacity("entity_out", "entities_json", 3);
+  view.leased_slots["json_out"] = {&row};
+  view.slot_types["json_out"] = binding->external_c_type_name;
+  view.SetCapacity("json_out", "result_json", 3);
   const std::string payload("a\0b", 3);
-  ASSERT_TRUE(
-      view.Write("entity_out", 0, EntityOutputValue{payload, 23}).IsOk());
+  ASSERT_TRUE(view.Write("json_out", 0, JsonOutputValue{payload, 23}).IsOk());
   EXPECT_EQ(text.length, 3);
   EXPECT_EQ(std::string(bytes, 3), payload);
   EXPECT_EQ(bytes[3], '\0');
   EXPECT_EQ(bytes[4], '!');
-  EXPECT_FALSE(
-      view.Write("entity_out", 0, EntityOutputValue{"abcd", 0}).IsOk());
+  EXPECT_FALSE(view.Write("json_out", 0, JsonOutputValue{"abcd", 0}).IsOk());
   EXPECT_EQ(text.length, 3);
   EXPECT_EQ(std::string(bytes, 3), payload);
   EXPECT_EQ(bytes[4], '!');
   EXPECT_EQ(row.status_code, 23);
-  view.SetCapacity("entity_out", "entities_json", 0);
-  ASSERT_TRUE(view.Write("entity_out", 0, EntityOutputValue{"", 0}).IsOk());
+  view.SetCapacity("json_out", "result_json", 0);
+  ASSERT_TRUE(view.Write("json_out", 0, JsonOutputValue{"", 0}).IsOk());
   EXPECT_EQ(text.length, 0);
   EXPECT_EQ(bytes[0], '\0');
   EXPECT_EQ(bytes[2], 'b');
@@ -571,7 +568,7 @@ OperatorValueTypeBinding AlternateInputBinding() {
 
 OperatorValueTypeBinding AlternateOutputBinding() {
   OperatorValueTypeBinding binding;
-  binding.canonical_suffix = "entity_out";
+  binding.canonical_suffix = "json_out";
   binding.external_c_type_name = "AlternateOutputCarrier";
   binding.direction = IoDirection::kOutput;
   binding.read_service_type = [](const void* raw) {
@@ -580,18 +577,22 @@ OperatorValueTypeBinding AlternateOutputBinding() {
   binding.write_service_type = [](void* raw, int32_t service) {
     static_cast<AlternateOutputCarrier*>(raw)->routing.operation = service;
   };
-  binding.services = {{"translate", 502}, {"entity_extract", 504}};
-  binding.output_layout.string_capacity_fields = {{"entities_json", {65536}}};
+  binding.services = OperatorValueTypeRegistry::Instance()
+                         .GetBindingBySuffix("json_out")
+                         ->services;
+  binding.services["translate"] = 502;
+  binding.services["entity_extract"] = 504;
+  binding.output_layout.string_capacity_fields = {{"result_json", {65536}}};
   binding.output_layout.compute_block_payload_bytes =
       [](const ResolvedOutputPoolSpec& spec, size_t* bytes, std::string*) {
         *bytes =
-            sizeof(AlternateOutputCarrier) + spec.GetCapacity("entities_json");
+            sizeof(AlternateOutputCarrier) + spec.GetCapacity("result_json");
         return true;
       };
   binding.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                                  OwnedExternalBlock* block, std::string*) {
     auto value = std::make_unique<AlternateOutputCarrier>();
-    value->document.reserve(spec.GetCapacity("entities_json"));
+    value->document.reserve(spec.GetCapacity("result_json"));
     block->raw_struct = block->Own(std::move(value));
     return COMPANY_ALG_SUCCESS;
   };
@@ -604,16 +605,15 @@ OperatorValueTypeBinding AlternateOutputBinding() {
   binding.destroy_external = [](OwnedExternalBlock* block) {
     block->Destroy();
   };
-  SetOutputValue<AlternateOutputCarrier, EntityOutputValue>(
-      &binding, [](AlternateOutputCarrier& row, const EntityOutputValue& value,
+  SetOutputValue<AlternateOutputCarrier, JsonOutputValue>(
+      &binding, [](AlternateOutputCarrier& row, const JsonOutputValue& value,
                    const ResolvedOutputPoolSpec& spec) {
-        const auto capacity = spec.capacities.find("entities_json");
+        const auto capacity = spec.capacities.find("result_json");
         if (capacity == spec.capacities.end() ||
-            value.entities_json.size() > capacity->second)
+            value.result_json.size() > capacity->second)
           return AdapterStatus::BufferTooSmall("document exceeds capacity",
-                                               "entities_json");
-        row.document.assign(value.entities_json.begin(),
-                            value.entities_json.end());
+                                               "result_json");
+        row.document.assign(value.result_json.begin(), value.result_json.end());
         row.result = value.status_code;
         return AdapterStatus::Ok();
       });
@@ -625,13 +625,13 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
   const auto* input = IoConverterRegistry::Instance().FindInputConverter(
       "entity_in", "translate");
   const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "translate");
+      "json_out", "translate");
   ASSERT_NE(input, nullptr);
   ASSERT_NE(output, nullptr);
   const auto original_input =
       OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("entity_in");
   const auto original_output =
-      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("entity_out");
+      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("json_out");
   ASSERT_TRUE(original_input);
   ASSERT_TRUE(original_output);
   const auto alternate_input = AlternateInputBinding();
@@ -647,7 +647,7 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
   AlternateInputCarrier alternate{json_request, 501};
   char bytes[128]{};
   CompanyString mock_output_text{0, bytes};
-  CompanyOperatorEntityOutput mock_output{0, &mock_output_text, -1};
+  CompanyOperatorOutput mock_output{0, &mock_output_text, -1};
   AlternateOutputCarrier alternate_result;
   for (bool alternate_layout : {false, true}) {
     SCOPED_TRACE(alternate_layout);
@@ -691,9 +691,9 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
     destination.binding = &out_binding;
     void* raw_output = alternate_layout ? static_cast<void*>(&alternate_result)
                                         : static_cast<void*>(&mock_output);
-    destination.leased_slots["entity_out"] = {raw_output};
-    destination.slot_types["entity_out"] = out_binding.external_c_type_name;
-    destination.SetCapacity("entity_out", "entities_json", 127);
+    destination.leased_slots["json_out"] = {raw_output};
+    destination.slot_types["json_out"] = out_binding.external_c_type_name;
+    destination.SetCapacity("json_out", "result_json", 127);
     out_binding.write_service_type(raw_output,
                                    *out_binding.ServiceType("translate"));
     size_t written = 99;
@@ -717,14 +717,14 @@ TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
                 *original_output->ServiceType("translate"));
       EXPECT_EQ(mock_output.status_code, 0);
     }
-    destination.SetCapacity("entity_out", "entities_json", 1);
+    destination.SetCapacity("json_out", "result_json", 1);
     EXPECT_EQ(output->encode_fn(&context, output_options, &destination,
                                 &written, &status),
               COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
     EXPECT_EQ(written, 0U);
     EXPECT_EQ(status.SampleIndex(), 0);
-    EXPECT_EQ(status.AdapterName(), "entity_out/translate");
-    EXPECT_EQ(status.FieldPath(), "entities_json");
+    EXPECT_EQ(status.AdapterName(), "json_out/translate");
+    EXPECT_EQ(status.FieldPath(), "result_json");
     if (alternate_layout) {
       EXPECT_EQ(std::string(alternate_result.document.begin(),
                             alternate_result.document.end()),
@@ -788,9 +788,9 @@ TEST_F(IoConverterProcessTest,
       {"io",
        {{"input", {{{"type", "entity_in"}, {"name", "translate"}}}},
         {"output",
-         {{{"type", "entity_out"},
+         {{{"type", "json_out"},
            {"name", "translate"},
-           {"params", {{"entities_json_max_bytes", 64}}},
+           {"params", {{"result_json_max_bytes", 64}}},
            {"inputs", {{"translation", "copy.text"}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline",
@@ -825,19 +825,19 @@ TEST_F(IoConverterProcessTest,
       operator_api::MakeBorrowedOperatorInput(&first);
   inputs[1]["request.entity_in"] =
       operator_api::MakeBorrowedOperatorInput(&second);
-  for (auto& row : outputs) row["response.entity_out"] = nullptr;
+  for (auto& row : outputs) row["response.json_out"] = nullptr;
   // 第零行编码成功后，第一行因响应较大而失败。
   EXPECT_EQ(ops_.Process(instance.get(), inputs, outputs),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL)
       << operator_api::GetOperatorLastError();
-  for (const auto& row : outputs) EXPECT_FALSE(row.at("response.entity_out"));
+  for (const auto& row : outputs) EXPECT_FALSE(row.at("response.json_out"));
   second.document = R"({"query":"two"})";
   ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
       << operator_api::GetOperatorLastError();
   std::vector<nlohmann::json> copied;
   for (size_t i = 0; i < outputs.size(); ++i) {
     const auto* result = static_cast<const AlternateOutputCarrier*>(
-        outputs[i].at("response.entity_out").get());
+        outputs[i].at("response.json_out").get());
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->routing.operation, 502);
     EXPECT_EQ(result->result, 0);
@@ -847,7 +847,7 @@ TEST_F(IoConverterProcessTest,
         copied.back(),
         nlohmann::json({{"translated", i == 0 ? "copy:one" : "copy:two"}}));
   }
-  for (auto& row : outputs) row["response.entity_out"].reset();
+  for (auto& row : outputs) row["response.json_out"].reset();
   // 归还两个租约后，同一个深度为二的池应能再次处理完整批次。
   ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
       << operator_api::GetOperatorLastError();

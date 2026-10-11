@@ -177,6 +177,9 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 组件调用关系：`外部调用方 → Operator 协议壳 → SharedAlgorithmRuntime → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
+- 当前八类业务统一使用 `json_out` 与 `CompanyOperatorOutput` C 结构，完整结果存于
+  `result_json`、状态存于 `status_code`，各业务 `name` 选择响应契约。新增其他载体继续使用
+  ValueType/binding 与转换器注册接口，不向 Operator 中央分发添加业务分支。
 - `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。任意二进制数据使用 `CompanyBuffer`。
 - 输入存储由调用方保持有效；Process 在同步调用内保留输入 shared_ptr 视图并复制所需中性值，不跨调用保存输入指针或引用。
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义

@@ -132,10 +132,10 @@ TEST_F(CatalogContractSsotTest, AllProductionConvertersAreRegistered) {
       {"string", "ocr_invoice_qa"},    {"audio_in", "audio_asr_intent"},
       {"rerank_in", "cross_rerank"}};
   const std::pair<const char*, const char*> outputs[] = {
-      {"keyword_out", "keyword_match"},  {"entity_out", "entity_extract"},
-      {"entity_out", "translate"},       {"doc_out", "doc_qa"},
-      {"audit_out", "dialogue_audit"},   {"od_out", "ocr_invoice_qa"},
-      {"audio_out", "audio_asr_intent"}, {"rerank_out", "cross_rerank"}};
+      {"json_out", "keyword_match"},    {"json_out", "entity_extract"},
+      {"json_out", "translate"},        {"json_out", "doc_qa"},
+      {"json_out", "dialogue_audit"},   {"json_out", "ocr_invoice_qa"},
+      {"json_out", "audio_asr_intent"}, {"json_out", "cross_rerank"}};
   EXPECT_EQ(registry.AllInputConverters().size(), 9U);
   EXPECT_EQ(registry.AllOutputConverters().size(), 8U);
   for (const auto& [type, name] : inputs) {
@@ -381,12 +381,12 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   const auto& outputs = catalog.at("output_converters");
   const auto output = find_keyword(outputs);
   ASSERT_NE(output, outputs.end());
-  EXPECT_EQ(output->at("type"), "keyword_out");
+  EXPECT_EQ(output->at("type"), "json_out");
   EXPECT_EQ(output->at("name"), "keyword_match");
   EXPECT_EQ(output->at("service_type"), kMockServiceKeywordMatch);
   const auto& output_slot = output->at("slot");
-  EXPECT_EQ(output_slot.at("type_id"), "CompanyOperatorKeywordOutput");
-  EXPECT_EQ(output_slot.at("type_suffix"), "keyword_out");
+  EXPECT_EQ(output_slot.at("type_id"), "CompanyOperatorOutput");
+  EXPECT_EQ(output_slot.at("type_suffix"), "json_out");
   EXPECT_EQ(output_slot.at("required"), true);
   EXPECT_EQ(output_slot.at("allocator"), "");
   EXPECT_EQ(output_slot.at("allocator_params"), "");
@@ -394,10 +394,10 @@ TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
   EXPECT_EQ(output_slot.at("metadata_type_id"), 0);
   ASSERT_EQ(output->at("config_fields").size(), 1U);
   const auto& capacity = output->at("config_fields").at(0);
-  EXPECT_EQ(capacity.at("name"), "match_result_json_max_bytes");
+  EXPECT_EQ(capacity.at("name"), "result_json_max_bytes");
   EXPECT_EQ(capacity.at("type"), "integer");
   EXPECT_EQ(capacity.at("required"), false);
-  EXPECT_EQ(capacity.at("default"), 2047);
+  EXPECT_EQ(capacity.at("default"), 8191);
   EXPECT_EQ(capacity.at("minimum"), 1);
   EXPECT_EQ(capacity.at("maximum"), 65536);
 }
@@ -410,9 +410,9 @@ TEST_F(CatalogContractSsotTest,
   const auto* translate_input =
       registry.FindInputConverter("entity_in", "translate");
   const auto* extract_output =
-      registry.FindOutputConverter("entity_out", "entity_extract");
+      registry.FindOutputConverter("json_out", "entity_extract");
   const auto* translate_output =
-      registry.FindOutputConverter("entity_out", "translate");
+      registry.FindOutputConverter("json_out", "translate");
   ASSERT_NE(extract_input, nullptr);
   ASSERT_NE(translate_input, nullptr);
   ASSERT_NE(extract_output, nullptr);
@@ -447,27 +447,27 @@ TEST_F(CatalogContractSsotTest,
   ASSERT_TRUE(translate_output->params.Parse(nlohmann::json::object(),
                                              &translate_values, &error))
       << error;
-  EXPECT_EQ(extract_values->Integer("entities_json_max_bytes"), 2047);
-  EXPECT_EQ(translate_values->Integer("entities_json_max_bytes"), 8191);
-  ASSERT_TRUE(extract_output->params.Parse({{"entities_json_max_bytes", 100}},
+  EXPECT_EQ(extract_values->Integer("result_json_max_bytes"), 8191);
+  EXPECT_EQ(translate_values->Integer("result_json_max_bytes"), 8191);
+  ASSERT_TRUE(extract_output->params.Parse({{"result_json_max_bytes", 100}},
                                            &extract_values, &error))
       << error;
-  EXPECT_EQ(extract_values->Integer("entities_json_max_bytes"), 100);
-  EXPECT_EQ(translate_values->Integer("entities_json_max_bytes"), 8191);
+  EXPECT_EQ(extract_values->Integer("result_json_max_bytes"), 100);
+  EXPECT_EQ(translate_values->Integer("result_json_max_bytes"), 8191);
 
   const auto catalog = IoCatalog::ToJson();
   const auto& outputs = catalog.at("output_converters");
   for (const auto& [name, expected_default] :
-       std::vector<std::pair<std::string, int64_t>>{{"entity_extract", 2047},
+       std::vector<std::pair<std::string, int64_t>>{{"entity_extract", 8191},
                                                     {"translate", 8191}}) {
     const auto converter = std::find_if(
         outputs.begin(), outputs.end(), [&](const nlohmann::json& item) {
-          return item.at("type") == "entity_out" && item.at("name") == name;
+          return item.at("type") == "json_out" && item.at("name") == name;
         });
     ASSERT_NE(converter, outputs.end());
     ASSERT_EQ(converter->at("config_fields").size(), 1U);
     const auto& capacity = converter->at("config_fields").at(0);
-    EXPECT_EQ(capacity.at("name"), "entities_json_max_bytes");
+    EXPECT_EQ(capacity.at("name"), "result_json_max_bytes");
     EXPECT_EQ(capacity.at("default"), expected_default);
     EXPECT_EQ(capacity.at("minimum"), 1);
     EXPECT_EQ(capacity.at("maximum"), 65536);

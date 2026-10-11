@@ -8,7 +8,7 @@
     ],
     "output": [
       {
-        "type": "entity_out",
+        "type": "json_out",
         "name": "entity_extract",
         "inputs": {
           "entities": "parse_entities.document"

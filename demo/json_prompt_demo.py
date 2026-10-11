@@ -44,7 +44,7 @@ def collect_responses(result_file, count):
     for record in records:
         if record.get("status") != 0:
             raise ValueError("Demo returned a failed sample")
-        document = record.get("output", {}).get("entities")
+        document = record.get("output")
         if not isinstance(document, dict):
             raise ValueError("Demo result must contain a JSON response object")
         # 原样转发完整的 SDK 响应，此处不做业务字段投影。

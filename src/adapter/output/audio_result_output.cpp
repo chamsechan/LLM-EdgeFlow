@@ -11,6 +11,7 @@
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
+#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
@@ -19,19 +20,15 @@ constexpr auto kTranscribedText =
     MakeBlackboardKey<TextBatch>("transcribed_text");
 constexpr auto kIntentSlot = MakeBlackboardKey<RuleMatchBatch>("intent_slot");
 
-constexpr const char* kOutputSlot = "audio_out";
+constexpr const char* kOutputSlot = "json_out";
 
 struct Params {
-  int64_t transcribed_text_max_bytes = 0;
-  int64_t intent_slot_json_max_bytes = 0;
+  int64_t result_json_max_bytes = 0;
 };
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>({
-      MaxBytes("transcribed_text", &Params::transcribed_text_max_bytes)
-          .Default(511),
-      MaxBytes("intent_slot_json", &Params::intent_slot_json_max_bytes)
-          .Default(1023),
+      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
   });
 }
 
@@ -77,15 +74,15 @@ int EncodeOperatorAudioResult(AlgContext* context,
     if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
       continue;
     }
-    AudioOutputValue out;
+    JsonOutputValue out;
 
     out.status_code = intent_slots_by_request[i]->data.status_code;
 
-    const std::string slot_json =
-        SerializeRuleMatchResponse(intent_slots_by_request[i]->data);
-
-    out.transcribed_text = transcripts_by_request[i]->data;
-    out.intent_slot_json = slot_json;
+    out.result_json =
+        nlohmann::json({{"transcribed_text", transcripts_by_request[i]->data},
+                        {"intent_slot", BuildRuleMatchResponse(
+                                            intent_slots_by_request[i]->data)}})
+            .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
       return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -100,7 +97,7 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "audio_asr_intent";
-  def.slot = ExternalOutputSlot<AudioOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kTranscribedText),
                        RequiredInputPort(kIntentSlot)};
   def.params = ParamSpec();

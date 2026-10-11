@@ -8,7 +8,7 @@
     ],
     "output": [
       {
-        "type": "keyword_out",
+        "type": "json_out",
         "name": "keyword_match",
         "inputs": {
           "matches": "match_keywords.matches"

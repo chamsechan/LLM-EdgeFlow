@@ -55,7 +55,7 @@ class JsonPromptDemoTest(unittest.TestCase):
             output.mkdir(parents=True)
             (output / "results.jsonl").write_text(json.dumps({
                 "status": 0,
-                "output": {"entities": {"translated": translated, "extra": "from SDK"}},
+                "output": {"translated": translated, "extra": "from SDK"},
             }), encoding="utf-8")
             return subprocess.CompletedProcess(command, 0)
 
@@ -68,11 +68,11 @@ class JsonPromptDemoTest(unittest.TestCase):
 
     def test_checks_status_schema_cardinality_and_preserves_order(self):
         good = {"status": 0,
-                "output": {"entities": {"translated": "你好"}}}
+                "output": {"translated": "你好"}}
         invalid_runs = [
             [], [good, good], [dict(good, status=-42)],
-            [dict(good, output={"entities": []})],
-            [dict(good, output={"entities_raw": "broken"})],
+            [dict(good, output=[])],
+            [dict(good, output=None)],
         ]
         with tempfile.TemporaryDirectory() as tmp:
             result = Path(tmp) / "results.jsonl"
@@ -82,8 +82,8 @@ class JsonPromptDemoTest(unittest.TestCase):
                     demo.collect_responses(result, 1)
             result.write_text("\n".join(json.dumps(good) for _ in range(2)))
             self.assertEqual([json.loads(item) for item in demo.collect_responses(result, 2)],
-                             [good["output"]["entities"], good["output"]["entities"]])
-            second = dict(good, output={"entities": {"translated": "谢谢", "extra": "preserved"}})
+                             [good["output"], good["output"]])
+            second = dict(good, output={"translated": "谢谢", "extra": "preserved"})
             result.write_text(json.dumps(second) + "\n" + json.dumps(good))
             self.assertEqual([json.loads(item) for item in demo.collect_responses(result, 2)],
                              [{"translated": "谢谢", "extra": "preserved"}, {"translated": "你好"}])
