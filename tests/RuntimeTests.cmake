@@ -47,8 +47,7 @@ list(APPEND EDGEFLOW_TEST_CORE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_model_backend_pipeline.cpp")
 add_executable(edgeflow_test_core_runner
   ${EDGEFLOW_TEST_CORE_SRCS}
-  $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
+)
 edgeflow_enable_aligned_allocation_failure(edgeflow_test_core_runner)
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
@@ -108,8 +107,7 @@ file(GLOB EDGEFLOW_TEST_NODE_SRCS CONFIGURE_DEPENDS
 add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
-  $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
+)
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
   edgeflow_test_allocation_failure)
@@ -126,8 +124,7 @@ list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS
   "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
-  $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
+)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
   edgeflow_test_allocation_failure)
@@ -142,8 +139,7 @@ list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
 add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
   $<TARGET_OBJECTS:edgeflow_demo_objects>
-  $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
+)
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   llm_edgeflow::internal_runtime edgeflow_pipeline_tooling GTest::gtest
   GTest::gtest_main)
