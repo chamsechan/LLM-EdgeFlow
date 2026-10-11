@@ -5,9 +5,10 @@
 #include <new>
 
 namespace llm_edgeflow::test_support {
-thread_local ScopedAllocationFailure* ScopedAllocationFailure::active_ = nullptr;
-thread_local ScopedNextAllocationCallback* ScopedNextAllocationCallback::active_ =
+thread_local ScopedAllocationFailure* ScopedAllocationFailure::active_ =
     nullptr;
+thread_local ScopedNextAllocationCallback*
+    ScopedNextAllocationCallback::active_ = nullptr;
 
 ScopedAllocationFailure::ScopedAllocationFailure(std::ptrdiff_t count) noexcept
     : previous_(active_), remaining_(count) {
@@ -26,7 +27,7 @@ void ScopedAllocationFailure::BeforeAllocation() {
 }
 
 ScopedNextAllocationCallback::ScopedNextAllocationCallback(Callback callback,
-                                                         void* state) noexcept
+                                                           void* state) noexcept
     : previous_(active_), callback_(callback), state_(state) {
   active_ = this;
 }
@@ -52,8 +53,8 @@ void* Allocate(std::size_t bytes, std::size_t alignment = 0) {
     bytes = (bytes + alignment - 1) / alignment * alignment;
   }
   for (;;) {
-    void* memory = alignment ? std::aligned_alloc(alignment, bytes)
-                             : std::malloc(bytes);
+    void* memory =
+        alignment ? std::aligned_alloc(alignment, bytes) : std::malloc(bytes);
     if (memory) return memory;
     const auto handler = std::get_new_handler();
     if (!handler) throw std::bad_alloc();
@@ -61,7 +62,8 @@ void* Allocate(std::size_t bytes, std::size_t alignment = 0) {
   }
 }
 
-void* AllocateWithoutThrow(std::size_t bytes, std::size_t alignment = 0) noexcept {
+void* AllocateWithoutThrow(std::size_t bytes,
+                           std::size_t alignment = 0) noexcept {
   try {
     return Allocate(bytes, alignment);
   } catch (...) {
@@ -95,8 +97,12 @@ void* operator new[](std::size_t bytes, std::align_val_t alignment,
 void operator delete(void* memory) noexcept { std::free(memory); }
 void operator delete[](void* memory) noexcept { std::free(memory); }
 void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
-void operator delete[](void* memory, std::size_t) noexcept { std::free(memory); }
-void operator delete(void* memory, std::align_val_t) noexcept { std::free(memory); }
+void operator delete[](void* memory, std::size_t) noexcept {
+  std::free(memory);
+}
+void operator delete(void* memory, std::align_val_t) noexcept {
+  std::free(memory);
+}
 void operator delete[](void* memory, std::align_val_t) noexcept {
   std::free(memory);
 }
