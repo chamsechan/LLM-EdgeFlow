@@ -83,7 +83,8 @@ class RegistryTestAccess {
   static void SetValueBinding(OperatorValueTypeBinding binding) {
     auto& registry = OperatorValueTypeRegistry::Instance();
     std::lock_guard<std::mutex> lock(registry.mutex_);
-    registry.bindings_by_canonical_[binding.canonical_suffix] = std::move(binding);
+    registry.bindings_by_canonical_[binding.canonical_suffix] =
+        std::move(binding);
     registry.audited_ = false;
   }
 };
