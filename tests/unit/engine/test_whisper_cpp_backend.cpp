@@ -87,8 +87,10 @@ TEST(WhisperCppBackendTest,
 
 TEST(WhisperCppBackendTest, SuppliedModelRunsThroughNeutralAudioProtocol) {
   const char* file = std::getenv("EDGEFLOW_TEST_WHISPER_MODEL");
-  if (!file || !*file)
+  if (!file || !*file) {
+    RecordProperty("optional_runtime_asset", "EDGEFLOW_TEST_WHISPER_MODEL");
     GTEST_SKIP() << "EDGEFLOW_TEST_WHISPER_MODEL is not supplied";
+  }
   WhisperCppBackend provider;
   std::string diagnostic;
   auto session = std::dynamic_pointer_cast<IAudioTranscriptionSession>(
