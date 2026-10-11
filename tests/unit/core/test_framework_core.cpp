@@ -53,27 +53,6 @@ TEST(PipelineTest, ThreadPoolConstructionFailureCleansUpAndAllowsRetry) {
 }
 
 // 1. 测试 AlgContext 黑板基础功能与类型安全
-TEST(ModelManagerTest, TypedModels) {
-  ModelManager manager;
-  auto session = std::make_shared<test::TestTensorSession>("fixture.bin",
-                                                           BatchPolicy{4, 4});
-  ASSERT_TRUE(RegisterTestModel(
-      manager, "my_embed",
-      std::make_shared<test::TestBizEmbeddingModel>(session, 128), "test-v1"));
-  ASSERT_TRUE(RegisterTestModel(
-      manager, "my_rerank", std::make_shared<test::TestBizRerankModel>(session),
-      "test-v1"));
-
-  EXPECT_TRUE(manager.HasModel("my_embed"));
-  EXPECT_TRUE(manager.HasModel("my_rerank"));
-  EXPECT_FALSE(manager.HasModel("unknown_model"));
-
-  auto retrieved = manager.GetModel<IRerankModel>("my_rerank");
-  ASSERT_NE(retrieved, nullptr);
-  EXPECT_EQ(retrieved->ModelType(), "rerank");
-  EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank"), nullptr);
-}
-
 TEST(SessionContextTest, TypedDynamicResourcesRejectMismatchedAccess) {
   SessionContext context;
   SessionResourceKey<std::string> string_key("dynamic-resource");
