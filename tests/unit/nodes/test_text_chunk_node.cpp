@@ -10,7 +10,7 @@
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "nodes/node_error_codes.h"
-#include "tests/support/node_test_utils.h"
+#include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -21,17 +21,20 @@ constexpr BlackboardKey<Int32Batch> kCounts{"chunk_counts", "Int32Batch"};
 
 class TextChunkNodeTest : public ::testing::Test {
  protected:
+  bool Init(test_support::NodeProbe& probe, const nlohmann::json& params) {
+    return probe.Init("text_chunk", params, session_, {{"text", "text"}},
+                      {{"chunks", "chunks"}, {"chunk_counts", "chunk_counts"}});
+  }
   SessionContext session_;
 };
 
 TEST_F(TextChunkNodeTest, DefaultWindowIsOneHundredCodePointsWithoutOverlap) {
-  auto node = NodeRegistry::Instance().Create("text_chunk");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session_));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(Init(node, nlohmann::json::object()));
   AlgContext context;
   const std::string first_window(100, 'a');
   context.Publish(kText, TextBatch{{91, 7, first_window + "尾"}});
-  ASSERT_EQ(node->Process(&context), 0);
+  ASSERT_EQ(node.node->Process(&context), 0);
   const auto* chunks = context.Read(kChunks);
   const auto* counts = context.Read(kCounts);
   ASSERT_NE(chunks, nullptr);
@@ -73,14 +76,12 @@ TEST_F(TextChunkNodeTest, ProducesLiteralWindowsInUnicodeCodePoints) {
   };
   for (const auto& item : cases) {
     SCOPED_TRACE(item.name);
-    auto node = NodeRegistry::Instance().Create("text_chunk");
-    ASSERT_NE(node, nullptr);
-    ASSERT_TRUE(InitNodeForTest(
-        *node, {{"chunk_size", item.size}, {"overlap", item.overlap}},
-        &session_));
+    test_support::NodeProbe node;
+    ASSERT_TRUE(
+        Init(node, {{"chunk_size", item.size}, {"overlap", item.overlap}}));
     AlgContext context;
     context.Publish(kText, TextBatch{{91, 7, item.text}});
-    ASSERT_EQ(node->Process(&context), 0);
+    ASSERT_EQ(node.node->Process(&context), 0);
     const auto* chunks = context.Read(kChunks);
     ASSERT_NE(chunks, nullptr);
     ASSERT_EQ(chunks->size(), item.expected.size());
@@ -95,13 +96,11 @@ TEST_F(TextChunkNodeTest, ProducesLiteralWindowsInUnicodeCodePoints) {
 }
 
 TEST_F(TextChunkNodeTest, EmptyBatchPublishesTwoEmptyOutputs) {
-  auto node = NodeRegistry::Instance().Create("text_chunk");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node, {{"chunk_size", 3}, {"overlap", 1}}, &session_));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(Init(node, {{"chunk_size", 3}, {"overlap", 1}}));
   AlgContext context;
   context.Publish(kText, TextBatch{});
-  ASSERT_EQ(node->Process(&context), 0);
+  ASSERT_EQ(node.node->Process(&context), 0);
   const auto* chunks = context.Read(kChunks);
   const auto* counts = context.Read(kCounts);
   ASSERT_NE(chunks, nullptr);
@@ -111,10 +110,8 @@ TEST_F(TextChunkNodeTest, EmptyBatchPublishesTwoEmptyOutputs) {
 }
 
 TEST_F(TextChunkNodeTest, CountsKeepParentKeysAndChildrenAdvancePerRequest) {
-  auto node = NodeRegistry::Instance().Create("text_chunk");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node, {{"chunk_size", 3}, {"overlap", 1}}, &session_));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(Init(node, {{"chunk_size", 3}, {"overlap", 1}}));
   AlgContext context;
   context.Publish(
       kText, TextBatch{{73, 9, "abcdef"}, {12, 4, "四🙂五六"}, {73, 2, "jk"}});
@@ -122,7 +119,7 @@ TEST_F(TextChunkNodeTest, CountsKeepParentKeysAndChildrenAdvancePerRequest) {
                                   {73, 2, "ef"},   {12, 0, "四🙂五"},
                                   {12, 1, "五六"}, {73, 3, "jk"}};
   const Int32Batch expected_counts{{73, 9, 3}, {12, 4, 2}, {73, 2, 1}};
-  ASSERT_EQ(node->Process(&context), 0);
+  ASSERT_EQ(node.node->Process(&context), 0);
   const auto* chunks = context.Read(kChunks);
   const auto* counts = context.Read(kCounts);
   ASSERT_NE(chunks, nullptr);
@@ -144,15 +141,13 @@ TEST_F(TextChunkNodeTest, CountsKeepParentKeysAndChildrenAdvancePerRequest) {
 }
 
 TEST_F(TextChunkNodeTest, InvalidUtf8AfterValidParentPublishesNeitherOutput) {
-  auto node = NodeRegistry::Instance().Create("text_chunk");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node, {{"chunk_size", 3}, {"overlap", 1}}, &session_));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(Init(node, {{"chunk_size", 3}, {"overlap", 1}}));
   AlgContext context;
   // Two bytes of an unfinished four-byte code point after an ASCII prefix.
   const std::string invalid = std::string("no") + "\xF0\x9F";
   context.Publish(kText, TextBatch{{73, 9, "abcdef"}, {12, 4, invalid}});
-  EXPECT_EQ(node->Process(&context), node_error::text_chunk::kInvalidUtf8);
+  EXPECT_EQ(node.node->Process(&context), node_error::text_chunk::kInvalidUtf8);
   EXPECT_NE(
       context.GetErrorMessage().find("invalid UTF-8 input at byte offset 2"),
       std::string::npos);
@@ -163,13 +158,9 @@ TEST_F(TextChunkNodeTest, InvalidUtf8AfterValidParentPublishesNeitherOutput) {
 TEST_F(TextChunkNodeTest, OverlapMustBeSmallerThanWindow) {
   for (int64_t overlap : {4, 5}) {
     SCOPED_TRACE(overlap);
-    auto node = NodeRegistry::Instance().Create("text_chunk");
-    ASSERT_NE(node, nullptr);
-    std::string diagnostic;
-    EXPECT_FALSE(InitNodeForTest(*node,
-                                 {{"chunk_size", 4}, {"overlap", overlap}},
-                                 &session_, &diagnostic));
-    EXPECT_NE(diagnostic.find("overlap must be smaller than chunk_size"),
+    test_support::NodeProbe node;
+    EXPECT_FALSE(Init(node, {{"chunk_size", 4}, {"overlap", overlap}}));
+    EXPECT_NE(node.diagnostic.find("overlap must be smaller than chunk_size"),
               std::string::npos);
   }
 }
