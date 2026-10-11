@@ -200,14 +200,11 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "PipelineTest.*"
-  "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DagPipelineTest edgeflow_test_core_runner
-  "DagPipelineTest.*" "${_edgeflow_tier1}")
+  "PipelineRuntimeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(EngineFaultToleranceAndLifecycleTest
   edgeflow_test_core_runner "EngineFaultToleranceAndLifecycleTest.*"
   "${_edgeflow_tier1}")
@@ -225,8 +222,6 @@ edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
   "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
   "PipelinePlanningTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
-  "NodeOwnershipAndReuseTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
   "NodeDefinitionTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
@@ -517,7 +512,6 @@ set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
 set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   QualityGateScriptsContractTest
   BatchExecutorTest
-  FrameworkCoreTest
   CompanyAlgLogTest
   DagPipelineTest
   EngineFaultToleranceAndLifecycleTest
@@ -526,7 +520,6 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   CatalogContractSsotTest
   TypedBlackboardContractsTest
   ValidatedPipelinePlanTest
-  NodeOwnershipAndReuseTest
   DefinitionSchemaValidationTest
   ModelBackendDecouplingTest
   ModelBackendPipelineTest
