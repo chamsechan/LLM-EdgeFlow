@@ -1,1273 +1,219 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <cmath>
+#include <functional>
 #include <limits>
-#include <map>
-#include <nlohmann/json.hpp>
-#include <optional>
-#include <stdexcept>
 #include <string>
-#include <tuple>
-#include <type_traits>
-#include <unordered_set>
 #include <vector>
 
-#include "contracts/config_schema_validation.h"
-#include "contracts/control_payload.h"
-#include "core/common_contracts.h"
 #include "core/node_definition_validation.h"
-#include "core/node_interface.h"
-#include "core/node_registry.h"
-#include "core/pipeline.h"
-#include "core/pipeline_catalog.h"
-#include "core/pipeline_validator.h"
-#include "engine/backend_interface.h"
-#include "engine/backend_registry.h"
-#include "engine/model_interface.h"
-#include "engine/model_registry.h"
-#include "tests/support/pipeline_test_utils.h"
-#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
 
-class SchemaProbeNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "schema_probe";
-  static inline int s_init_count = 0;
-  static inline int s_process_count = 0;
+NodeDefinition ValidDefinition() {
+  NodeDefinition definition;
+  definition.node_type = "definition_probe";
+  definition.inputs = {NodePortDefinition{"text", "TextBatch"}};
+  definition.outputs = {NodePortDefinition{"answer", "TextBatch", true, "1:1",
+                                           "preserve", "request", "text"}};
+  definition.port_constraints = {
+      {PortConstraintKind::kAtMostOneOf, {"text", "answer"}}};
+  definition.control_commands = {{77, "update", "", {{"type", "object"}}}};
+  ConfigFieldDefinition limit;
+  limit.name = "limit";
+  limit.kind = ConfigValueKind::kInteger;
+  limit.default_value = 3;
+  limit.minimum = 0;
+  limit.maximum = 10;
+  ConfigFieldDefinition reference;
+  reference.name = "bind_generator";
+  reference.required = true;
+  ConfigFieldDefinition mode;
+  mode.name = "mode";
+  mode.enum_values = {"a", "b"};
+  mode.default_value = "a";
+  definition.config_fields = {limit, reference, mode};
+  definition.model_dependencies = {{"generator", "llm", "bind_generator"}};
+  return definition;
+}
 
-  static void ResetCounts() {
-    s_init_count = 0;
-    s_process_count = 0;
+TEST(NodeDefinitionTest,
+     AcceptsDeclaredFlowValuesAndExistingFollowLifetimeAnchor) {
+  for (const std::string cardinality : {"1:1", "1:N", "N:1", "N:M"}) {
+    SCOPED_TRACE(cardinality);
+    auto definition = ValidDefinition();
+    definition.inputs[0].cardinality = cardinality;
+    definition.outputs[0].cardinality = cardinality;
+    std::string error = "stale";
+    EXPECT_TRUE(ValidateNodeDefinitionStructure(definition, &error));
+    EXPECT_TRUE(error.empty());
   }
+  for (const std::string provenance :
+       {"preserve", "generate_sub_id", "aggregate", "independent"}) {
+    SCOPED_TRACE(provenance);
+    auto definition = ValidDefinition();
+    definition.inputs[0].provenance_policy = provenance;
+    definition.outputs[0].provenance_policy = provenance;
+    EXPECT_TRUE(ValidateNodeDefinitionStructure(definition));
+  }
+  for (const std::string lifetime : {"request", "session"}) {
+    SCOPED_TRACE(lifetime);
+    auto definition = ValidDefinition();
+    definition.inputs[0].lifetime = lifetime;
+    definition.outputs[0].lifetime = lifetime;
+    EXPECT_TRUE(ValidateNodeDefinitionStructure(definition));
+  }
+  auto grouped = ValidDefinition();
+  grouped.port_constraints = {PortGroupConstraint::Groups(
+      PortConstraintKind::kExactOneGroupOf, {{"text"}, {"answer"}})};
+  EXPECT_TRUE(ValidateNodeDefinitionStructure(grouped));
+}
 
-  bool Init(const NodeInitContext&) override {
-    ++s_init_count;
-    return true;
-  }
-  int Process(AlgContext*) override {
-    ++s_process_count;
-    return 0;
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeSchemaProbeNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = SchemaProbeNode::kNodeType;
-  def.category = "test";
-  def.description = "Schema probe test node";
-  def.parallel_safe = true;
-  def.config_fields = {
-      ConfigFieldDefinition{"req_str", ConfigValueKind::kString,
-                            /*required=*/true},
-      ConfigFieldDefinition{
-          "opt_int", ConfigValueKind::kInteger, /*required=*/false,
-          /*default_value=*/10, /*minimum=*/1.0, /*maximum=*/100.0},
-      ConfigFieldDefinition{"enum_mode", ConfigValueKind::kString,
-                            /*required=*/false,
-                            /*default_value=*/"fast", /*minimum=*/std::nullopt,
-                            /*maximum=*/std::nullopt,
-                            /*enum_values=*/{"fast", "accurate"}},
+TEST(NodeDefinitionTest, RejectsMalformedDeclarationsFromOneValidBase) {
+  struct Case {
+    const char* name;
+    std::function<void(NodeDefinition&)> change;
+    const char* error;
   };
-  return def;
-}
-
-REGISTER_NODE_WITH_DEFINITION(SchemaProbeNode, MakeSchemaProbeNodeDefinition());
-
-class SchemaProbeModelNode : public SchemaProbeNode {
- public:
-  inline static constexpr char kNodeType[] = "schema_probe_model";
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeSchemaProbeModelNodeDefinition() {
-  auto def = MakeSchemaProbeNodeDefinition();
-  def.node_type = SchemaProbeModelNode::kNodeType;
-  def.config_fields.push_back(
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true});
-  def.model_dependencies = {{"model", "schema_probe", "bind_model"}};
-  return def;
-}
-REGISTER_NODE_WITH_DEFINITION(SchemaProbeModelNode,
-                              MakeSchemaProbeModelNodeDefinition());
-
-class ThrowingValidateConfigNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "throwing_validate_config";
-  static inline bool s_called = false;
-  static inline int s_throw_mode = 0;
-
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-
-NodeDefinition MakeThrowingValidateConfigNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = ThrowingValidateConfigNode::kNodeType;
-  def.category = "test";
-  def.parallel_safe = true;
-  def.config_fields = {ConfigFieldDefinition{
-      "req_num", ConfigValueKind::kInteger, true, 10, 1.0, 100.0}};
-  def.validate_config = [](const nlohmann::json&, const auto&, std::string*,
-                           std::string*) {
-    ThrowingValidateConfigNode::s_called = true;
-    if (ThrowingValidateConfigNode::s_throw_mode == 1) {
-      throw std::runtime_error("simulated config validation crash");
-    } else if (ThrowingValidateConfigNode::s_throw_mode == 2) {
-      throw 42;
-    }
-    return true;
+  const std::vector<Case> cases{
+      {"empty node type", [](auto& d) { d.node_type.clear(); },
+       "Invalid or duplicate NodeDefinition"},
+      {"empty input name", [](auto& d) { d.inputs[0].logical_name.clear(); },
+       "Port key cannot be empty"},
+      {"empty output name", [](auto& d) { d.outputs[0].logical_name.clear(); },
+       "Port key cannot be empty"},
+      {"empty input type", [](auto& d) { d.inputs[0].type_id.clear(); },
+       "type_id cannot be empty"},
+      {"empty output type", [](auto& d) { d.outputs[0].type_id.clear(); },
+       "type_id cannot be empty"},
+      {"duplicate input", [](auto& d) { d.inputs.push_back(d.inputs[0]); },
+       "Duplicate port key"},
+      {"duplicate output", [](auto& d) { d.outputs.push_back(d.outputs[0]); },
+       "Duplicate port key"},
+      {"invalid cardinality", [](auto& d) { d.inputs[0].cardinality = "2:3"; },
+       "Invalid port cardinality"},
+      {"invalid provenance",
+       [](auto& d) { d.outputs[0].provenance_policy = "clone"; },
+       "Invalid port provenance"},
+      {"invalid lifetime", [](auto& d) { d.inputs[0].lifetime = "persistent"; },
+       "Invalid port lifetime"},
+      {"input cannot follow lifetime",
+       [](auto& d) { d.inputs[0].lifetime_from_input = "text"; },
+       "Invalid or duplicate NodeDefinition"},
+      {"output anchor must exist",
+       [](auto& d) { d.outputs[0].lifetime_from_input = "absent"; },
+       "Invalid or duplicate NodeDefinition"},
+      {"logical input cannot contain dot",
+       [](auto& d) {
+         d.inputs[0].logical_name = "input.text";
+         d.outputs[0].lifetime_from_input = "input.text";
+         d.port_constraints[0].ports = {"input.text", "answer"};
+       },
+       "Invalid or duplicate NodeDefinition"},
+      {"logical output cannot contain dot",
+       [](auto& d) {
+         d.outputs[0].logical_name = "node.answer";
+         d.port_constraints[0].ports = {"text", "node.answer"};
+       },
+       "Invalid or duplicate NodeDefinition"},
+      {"constraint needs ports",
+       [](auto& d) { d.port_constraints[0].ports.clear(); },
+       "Invalid or duplicate NodeDefinition"},
+      {"constraint references declared ports",
+       [](auto& d) { d.port_constraints[0].ports = {"absent"}; },
+       "Invalid or duplicate NodeDefinition"},
+      {"group constraint needs groups",
+       [](auto& d) {
+         d.port_constraints = {PortGroupConstraint::Groups(
+             PortConstraintKind::kExactOneGroupOf, {})};
+       },
+       "Invalid or duplicate NodeDefinition"},
+      {"group cannot be empty",
+       [](auto& d) {
+         d.port_constraints = {PortGroupConstraint::Groups(
+             PortConstraintKind::kExactOneGroupOf, {{}})};
+       },
+       "Invalid or duplicate NodeDefinition"},
+      {"group reference must exist",
+       [](auto& d) {
+         d.port_constraints = {PortGroupConstraint::Groups(
+             PortConstraintKind::kExactOneGroupOf, {{"absent"}})};
+       },
+       "Invalid or duplicate NodeDefinition"},
+      {"Control ID must be positive",
+       [](auto& d) { d.control_commands[0].cmd_id = 0; },
+       "Invalid or duplicate NodeDefinition"},
+      {"Control name nonempty",
+       [](auto& d) { d.control_commands[0].name.clear(); },
+       "Invalid or duplicate NodeDefinition"},
+      {"duplicate Control ID",
+       [](auto& d) { d.control_commands.emplace_back(77, "another"); },
+       "Invalid or duplicate NodeDefinition"},
+      {"duplicate Control name",
+       [](auto& d) { d.control_commands.emplace_back(78, "update"); },
+       "Invalid or duplicate NodeDefinition"},
+      {"Control schema is object",
+       [](auto& d) { d.control_commands[0].payload_schema = 7; },
+       "schema must be an object"},
+      {"Control schema rejects unsupported keyword",
+       [](auto& d) { d.control_commands[0].payload_schema["pattern"] = "x"; },
+       "Unsupported Control schema keyword"},
+      {"reversed config bounds",
+       [](auto& d) { d.config_fields[0].minimum = 11; },
+       "Minimum bound cannot be greater"},
+      {"nonfinite declaration",
+       [](auto& d) {
+         d.config_fields[0].maximum = std::numeric_limits<double>::infinity();
+       },
+       "bounds must be finite"},
+      {"duplicate config field",
+       [](auto& d) { d.config_fields.push_back(d.config_fields[0]); },
+       "Duplicate config field name"},
+      {"enum default outside declaration",
+       [](auto& d) { d.config_fields[2].default_value = "c"; },
+       "Invalid default for mode"},
+      {"dependency slot nonempty",
+       [](auto& d) { d.model_dependencies[0].name.clear(); },
+       "must be non-empty"},
+      {"dependency type nonempty",
+       [](auto& d) { d.model_dependencies[0].model_type.clear(); },
+       "must be non-empty"},
+      {"dependency reference nonempty",
+       [](auto& d) { d.model_dependencies[0].config_field.clear(); },
+       "must be non-empty"},
+      {"duplicate dependency slot",
+       [](auto& d) {
+         d.model_dependencies.push_back({"generator", "llm", "mode"});
+       },
+       "Duplicate model dependency name"},
+      {"duplicate dependency config field",
+       [](auto& d) {
+         d.model_dependencies.push_back({"second", "llm", "bind_generator"});
+       },
+       "Duplicate model dependency config_field"},
+      {"dependency reference must be declared",
+       [](auto& d) { d.model_dependencies[0].config_field = "absent"; },
+       "not found in config_fields"},
+      {"dependency reference is string",
+       [](auto& d) { d.config_fields[1].kind = ConfigValueKind::kInteger; },
+       "must be of string kind"},
+      {"dependency reference required",
+       [](auto& d) { d.config_fields[1].required = false; },
+       "must be required and have no default"},
+      {"dependency reference cannot default",
+       [](auto& d) { d.config_fields[1].default_value = "chosen"; },
+       "must be required and have no default"},
   };
-  return def;
+  ASSERT_TRUE(ValidateNodeDefinitionStructure(ValidDefinition()));
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    auto definition = ValidDefinition();
+    row.change(definition);
+    std::string error;
+    EXPECT_FALSE(ValidateNodeDefinitionStructure(definition, &error));
+    EXPECT_NE(error.find(row.error), std::string::npos) << error;
+  }
 }
-
-REGISTER_NODE_WITH_DEFINITION(ThrowingValidateConfigNode,
-                              MakeThrowingValidateConfigNodeDefinition());
-
-class SchemaProbeModel : public IModel {
- public:
-  inline static constexpr char kImplName[] = "schema_probe_model";
-  static inline int s_create_count = 0;
-
-  static void ResetCounts() { s_create_count = 0; }
-
-  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
-                                        std::string*) {
-    ++s_create_count;
-    return std::make_shared<SchemaProbeModel>();
-  }
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = kImplName;
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string model_type = "schema_probe";
-    return model_type;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-};
-
-ModelDefinition MakeSchemaProbeModelDefinition() {
-  ModelDefinition def;
-  def.impl_name = SchemaProbeModel::kImplName;
-  def.model_type = "schema_probe";
-  def.description = "Schema probe test model";
-  def.required_protocol = ExecutionProtocol::kFixture;
-  def.fixture_backends = {"schema_probe_backend"};
-  def.concurrency = InferenceConcurrency::kConcurrent;
-  return def;
-}
-
-class SchemaProbeBackend : public IInferenceBackend {
- public:
-  inline static constexpr char kBackendType[] = "schema_probe_backend";
-  static inline int s_load_count = 0;
-  static inline int s_validate_count = 0;
-  static inline nlohmann::json s_validated_config;
-
-  static void ResetCounts() {
-    s_load_count = 0;
-    s_validate_count = 0;
-    s_validated_config = nullptr;
-  }
-  const std::string& BackendType() const noexcept override {
-    static const std::string type = kBackendType;
-    return type;
-  }
-  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
-                                        std::string*) noexcept override {
-    ++s_load_count;
-    return nullptr;
-  }
-};
-
-BackendDefinition MakeSchemaProbeBackendDefinition() {
-  struct Params {
-    int device_id;
-    std::string precision;
-  };
-  BackendDefinition def;
-  def.backend_type = SchemaProbeBackend::kBackendType;
-  def.description = "Schema probe test backend";
-  def.supported_protocols = {ExecutionProtocol::kFixture};
-  def.concurrency = InferenceConcurrency::kConcurrent;
-  auto spec = Parameters<Params>{
-      Field("device_id", &Params::device_id).Default(0).Range(0, 16),
-      Field("precision", &Params::precision)
-          .Default("fp16")
-          .Enum({"fp16", "fp32", "int8"}),
-  };
-  spec.Validate([](const Params& params, std::string* diagnostic) {
-    ++SchemaProbeBackend::s_validate_count;
-    SchemaProbeBackend::s_validated_config = {{"device_id", params.device_id},
-                                              {"precision", params.precision}};
-    const int device_id = params.device_id;
-    // 使用其余均合法的字段值覆盖两种异常屏障。
-    if (device_id == 15) throw std::runtime_error("probe validation exception");
-    if (device_id == 16) throw 16;
-    if (device_id == 0 && params.precision == "int8") {
-      if (diagnostic) *diagnostic = "int8 requires device_id greater than zero";
-      return false;
-    }
-    return true;
-  });
-  def.params = std::move(spec);
-  return def;
-}
-
-nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_params) {
-  return {
-      {"models",
-       {{{"name", "probe_model"},
-         {"type", "schema_probe"},
-         {"backend",
-          {{"type", SchemaProbeBackend::kBackendType},
-           {"params", backend_params}}},
-         {"file", "probe.bin"},
-         {"params", nlohmann::json::object()}}}},
-      {"pipeline",
-       {{{"name", "node_0"},
-         {"type", SchemaProbeModelNode::kNodeType},
-         {"depends_on", nlohmann::json::array()},
-         {"params", {{"req_str", "valid"}, {"bind_model", "probe_model"}}}}}}};
-}
-
-REGISTER_MODEL_WITH_DEFINITION(SchemaProbeModel,
-                               MakeSchemaProbeModelDefinition());
-REGISTER_BACKEND_WITH_DEFINITION(SchemaProbeBackend,
-                                 MakeSchemaProbeBackendDefinition());
 
 }  // namespace
-
-class DefinitionSchemaValidationTest : public ::testing::Test {};
-
-TEST_F(DefinitionSchemaValidationTest, EnforcesRequiredField) {
-  nlohmann::json pipeline = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "node_0"},
-                               {"type", SchemaProbeNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"params", nlohmann::json::object()}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  ASSERT_FALSE(plan.report.diagnostics.empty());
-  auto it =
-      std::find_if(plan.report.diagnostics.begin(),
-                   plan.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kMissingConfigField;
-                   });
-  ASSERT_NE(it, plan.report.diagnostics.end());
-  EXPECT_EQ(it->path, "/pipeline/0/params/req_str");
-  EXPECT_EQ(it->node_name, "node_0");
-}
-
-TEST_F(DefinitionSchemaValidationTest, ElementHooksReportOwningParameterPath) {
-  struct Element {
-    std::string mode;
-    int prepared = 0;
-  };
-  struct Params {
-    std::vector<Element> rules;
-    std::map<std::string, Element> endpoints;
-    bool reject_whole;
-  };
-  auto elements =
-      Parameters<Element>{Field("mode", &Element::mode).Default("good")};
-  elements.Prepare([](Element* value, std::string* error) {
-    if (value->mode == "prepare_fail") {
-      if (error) *error = "element preparation failed";
-      return false;
-    }
-    value->prepared = 1;
-    return true;
-  });
-  elements.Validate([](const Element& value, std::string* error) {
-    if (value.mode == "validate_fail") {
-      if (error) *error = "element validation failed";
-      return false;
-    }
-    return value.prepared == 1;
-  });
-  auto params = Parameters<Params>{
-      Field("rules", &Params::rules).Default({}).Items(elements),
-      Field("endpoints", &Params::endpoints).Default({}).Items(elements),
-      Field("reject_whole", &Params::reject_whole).Default(false)};
-  params.Validate([](const Params& value, std::string* error) {
-    if (!value.reject_whole) return true;
-    if (error) *error = "whole parameter combination failed";
-    return false;
-  });
-  const std::string type = "element_hook_probe";
-  if (!NodeRegistry::Instance().Has(type)) {
-    NodeDefinition definition;
-    definition.node_type = type;
-    definition.config_fields = params.Fields();
-    definition.validate_config = [params](const auto& json, const auto& ports,
-                                          std::string* error,
-                                          std::string* field_path) {
-      return params.ValidateWithBindings(json, ports, error, field_path);
-    };
-    ASSERT_TRUE(NodeRegistry::Instance().Register(
-        type, [] { return std::make_unique<SchemaProbeNode>(); }, definition));
-  }
-  const std::vector<std::tuple<nlohmann::json, std::string, std::string>>
-      cases = {
-          {{{"rules", {{{"mode", "prepare_fail"}}}}}, "/rules", "Array item 0"},
-          {{{"rules", {{{"mode", "validate_fail"}}}}},
-           "/rules",
-           "Array item 0"},
-          {{{"endpoints", {{"alpha/key~name", {{"mode", "prepare_fail"}}}}}},
-           "/endpoints",
-           "alpha/key~name"},
-          {{{"endpoints", {{"time", {{"mode", "validate_fail"}}}}}},
-           "/endpoints",
-           "time"},
-          {{{"reject_whole", true}}, "", "whole parameter combination"}};
-  for (const auto& [config, suffix, message] : cases) {
-    SCOPED_TRACE(config.dump());
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        {{"pipeline",
-          {{{"name", "probe"}, {"type", type}, {"params", config}}}}},
-        MakeTestBoundary());
-    EXPECT_FALSE(plan.report.ok);
-    const auto diagnostic =
-        std::find_if(plan.report.diagnostics.begin(),
-                     plan.report.diagnostics.end(), [](const auto& value) {
-                       return value.code == DiagnosticCode::kInvalidCombination;
-                     });
-    ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-    EXPECT_EQ(diagnostic->path, "/pipeline/0/params" + suffix);
-    EXPECT_NE(diagnostic->message.find(message), std::string::npos);
-    EXPECT_EQ(diagnostic->node_name, "probe");
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
-  nlohmann::json pipeline = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array(
-           {{{"name", "node_0"},
-             {"type", SchemaProbeNode::kNodeType},
-             {"depends_on", nlohmann::json::array()},
-             {"params", {{"req_str", "hello"}, {"opt_int", 200}}}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  auto it =
-      std::find_if(plan.report.diagnostics.begin(),
-                   plan.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kConfigFieldRange;
-                   });
-  ASSERT_NE(it, plan.report.diagnostics.end());
-  EXPECT_EQ(it->path, "/pipeline/0/params/opt_int");
-}
-
-TEST_F(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
-  nlohmann::json pipeline = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array(
-           {{{"name", "node_0"},
-             {"type", SchemaProbeNode::kNodeType},
-             {"depends_on", nlohmann::json::array()},
-             {"params",
-              {{"req_str", "hello"}, {"enum_mode", "invalid_choice"}}}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  auto it = std::find_if(plan.report.diagnostics.begin(),
-                         plan.report.diagnostics.end(), [](const auto& item) {
-                           return item.code == DiagnosticCode::kConfigFieldEnum;
-                         });
-  ASSERT_NE(it, plan.report.diagnostics.end());
-  EXPECT_EQ(it->path, "/pipeline/0/params/enum_mode");
-}
-
-TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
-  nlohmann::json pipeline = {
-      {"models",
-       nlohmann::json::array(
-           {{{"name", "probe_model"},
-             {"type", "schema_probe"},
-             {"backend",
-              {{"type", SchemaProbeBackend::kBackendType},
-               {"params",
-                {{"device_id", 999}, {"precision", "invalid_prec"}}}}},
-             {"file", "probe.bin"},
-             {"params", nlohmann::json::object()}}})},
-      {"pipeline",
-       nlohmann::json::array(
-           {{{"name", "node_0"},
-             {"type", SchemaProbeModelNode::kNodeType},
-             {"depends_on", nlohmann::json::array()},
-             {"params",
-              {{"req_str", "valid"}, {"bind_model", "probe_model"}}}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-
-  bool has_range = false;
-  bool has_enum = false;
-  for (const auto& diag : plan.report.diagnostics) {
-    if (diag.code == DiagnosticCode::kConfigFieldRange &&
-        diag.path == "/models/0/backend/params/device_id") {
-      has_range = true;
-    }
-    if (diag.code == DiagnosticCode::kConfigFieldEnum &&
-        diag.path == "/models/0/backend/params/precision") {
-      has_enum = true;
-    }
-  }
-  EXPECT_TRUE(has_range);
-  EXPECT_TRUE(has_enum);
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       BackendCallbackReceivesNormalizedDefaults) {
-  for (const auto& config :
-       {nlohmann::json::object(),
-        nlohmann::json{{"device_id", 1}, {"precision", "int8"}}}) {
-    SchemaProbeBackend::ResetCounts();
-    SchemaProbeModel::ResetCounts();
-    SchemaProbeNode::ResetCounts();
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline(config), MakeTestBoundary());
-    EXPECT_TRUE(plan.report.ok);
-    EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
-    EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"),
-              config.value<int>("device_id", 0));
-    EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("precision"),
-              config.value<std::string>("precision", "fp16"));
-    EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
-    EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
-    EXPECT_EQ(SchemaProbeNode::s_init_count, 0);
-    EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       BackendCombinationFailurePreventsMaterialization) {
-  SchemaProbeBackend::ResetCounts();
-  SchemaProbeModel::ResetCounts();
-  SchemaProbeNode::ResetCounts();
-  const auto input = MakeSchemaProbePipeline({{"precision", "int8"}});
-  const auto plan =
-      PipelineValidator::ValidateAndPlan(input, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  const auto diagnostic =
-      std::find_if(plan.report.diagnostics.begin(),
-                   plan.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kInvalidCombination;
-                   });
-  ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-  EXPECT_EQ(diagnostic->path, "/models/0/backend/params");
-  EXPECT_EQ(diagnostic->message, "int8 requires device_id greater than zero");
-  EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
-  EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"), 0);
-
-  Pipeline pipeline;
-  PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, input, MakeTestBoundary(),
-                                 &build_diagnostic));
-  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
-  EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
-  EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
-  EXPECT_EQ(SchemaProbeNode::s_init_count, 0);
-  EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       InvalidBackendFieldsSkipSemanticCallback) {
-  for (const auto& config : {nlohmann::json{{"device_id", "wrong"}},
-                             nlohmann::json{{"device_id", 17}},
-                             nlohmann::json{{"precision", "unknown"}},
-                             nlohmann::json{{"undeclared", 1}}}) {
-    SCOPED_TRACE(config.dump());
-    SchemaProbeBackend::ResetCounts();
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline(config), MakeTestBoundary());
-    EXPECT_FALSE(plan.report.ok);
-    EXPECT_EQ(SchemaProbeBackend::s_validate_count, 0);
-    EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       BackendCallbackExceptionsBecomeDiagnostics) {
-  for (const int device_id : {15, 16}) {
-    SchemaProbeBackend::ResetCounts();
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline({{"device_id", device_id}}),
-        MakeTestBoundary());
-    EXPECT_FALSE(plan.report.ok);
-    EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
-    const auto diagnostic =
-        std::find_if(plan.report.diagnostics.begin(),
-                     plan.report.diagnostics.end(), [](const auto& item) {
-                       return item.code == DiagnosticCode::kInvalidCombination;
-                     });
-    ASSERT_NE(diagnostic, plan.report.diagnostics.end());
-    EXPECT_EQ(diagnostic->path, "/models/0/backend/params");
-    EXPECT_EQ(diagnostic->message,
-              device_id == 15 ? "probe validation exception"
-                              : "Unknown exception validating parameters");
-    EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
-  SchemaProbeNode::ResetCounts();
-  SchemaProbeModel::ResetCounts();
-  SchemaProbeBackend::ResetCounts();
-
-  nlohmann::json invalid_pipeline = {
-      {"models",
-       nlohmann::json::array({{{"name", "probe_model"},
-                               {"type", "schema_probe"},
-                               {"backend",
-                                {{"type", SchemaProbeBackend::kBackendType},
-                                 {"params", {{"device_id", -10}}}}},
-                               {"file", "probe.bin"},
-                               {"params", nlohmann::json::object()}}})},
-      {"pipeline",
-       nlohmann::json::array(
-           {{{"name", "node_0"},
-             {"type", SchemaProbeModelNode::kNodeType},
-             {"depends_on", nlohmann::json::array()},
-             {"params",
-              {{"req_str", "test"}, {"bind_model", "probe_model"}}}}})}};
-
-  Pipeline pipeline;
-  PipelineDiagnostic diag;
-  bool built =
-      BuildTestPipeline(pipeline, invalid_pipeline, MakeTestBoundary(), &diag);
-  EXPECT_FALSE(built);
-  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
-
-  // 严格零模型加载、零节点初始化、零推理副作用
-  EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
-  EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
-  EXPECT_EQ(SchemaProbeNode::s_init_count, 0);
-  EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
-}
-
-TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
-  // 1. 字段名重复
-  NodeDefinition dup_field_def;
-  dup_field_def.node_type = "invalid_dup_field";
-  dup_field_def.config_fields = {
-      ConfigFieldDefinition{"field_a", ConfigValueKind::kString},
-      ConfigFieldDefinition{"field_a", ConfigValueKind::kInteger},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_field_def));
-
-  // 2. Minimum > Maximum
-  NodeDefinition invalid_range_def;
-  invalid_range_def.node_type = "invalid_range";
-  invalid_range_def.config_fields = {
-      ConfigFieldDefinition{"num", ConfigValueKind::kNumber, false, 5.0, 10.0,
-                            1.0},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_range_def));
-
-  // 3. 默认值类型不匹配
-  NodeDefinition default_mismatch_def;
-  default_mismatch_def.node_type = "default_mismatch";
-  default_mismatch_def.config_fields = {
-      ConfigFieldDefinition{"flag", ConfigValueKind::kBoolean, false,
-                            "not_a_bool"},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(default_mismatch_def));
-
-  // 4. 默认值不在 enum 中
-  NodeDefinition enum_mismatch_def;
-  enum_mismatch_def.node_type = "enum_mismatch";
-  enum_mismatch_def.config_fields = {
-      ConfigFieldDefinition{"mode",
-                            ConfigValueKind::kString,
-                            false,
-                            "unknown_mode",
-                            std::nullopt,
-                            std::nullopt,
-                            {"mode_a", "mode_b"}},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(enum_mismatch_def));
-
-  // 5. enum 值重复
-  NodeDefinition dup_enum_def;
-  dup_enum_def.node_type = "dup_enum";
-  dup_enum_def.config_fields = {
-      ConfigFieldDefinition{"mode",
-                            ConfigValueKind::kString,
-                            false,
-                            "mode_a",
-                            std::nullopt,
-                            std::nullopt,
-                            {"mode_a", "mode_a"}},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_enum_def));
-
-  // 6. 非数值字段带有 minimum/maximum
-  NodeDefinition string_range_def;
-  string_range_def.node_type = "string_range";
-  string_range_def.config_fields = {
-      ConfigFieldDefinition{"str_fld", ConfigValueKind::kString, false, "hello",
-                            0.0, 10.0},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(string_range_def));
-
-  NodeDefinition bool_range_def;
-  bool_range_def.node_type = "bool_range";
-  bool_range_def.config_fields = {
-      ConfigFieldDefinition{"bool_fld", ConfigValueKind::kBoolean, false, true,
-                            0.0, 1.0},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(bool_range_def));
-
-  // 7. Node 声明了 model_dependencies，但 config_field 为空
-  NodeDefinition missing_model_field_def;
-  missing_model_field_def.node_type = "missing_model_field";
-  missing_model_field_def.model_dependencies = {{"generator", "llm", ""}};
-  missing_model_field_def.config_fields = {
-      ConfigFieldDefinition{"some_param", ConfigValueKind::kString},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(missing_model_field_def));
-
-  // 8. Node 声明了 model_dependencies，但字段不在 config_fields 中
-  NodeDefinition unlisted_model_field_def;
-  unlisted_model_field_def.node_type = "unlisted_model_field";
-  unlisted_model_field_def.model_dependencies = {
-      {"generator", "llm", "bind_model"}};
-  unlisted_model_field_def.config_fields = {
-      ConfigFieldDefinition{"other_param", ConfigValueKind::kString},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(unlisted_model_field_def));
-
-  // 9. Node 声明了 model_dependencies，但 config_field 不是 string
-  NodeDefinition nonstring_model_field_def;
-  nonstring_model_field_def.node_type = "non_string_model_field";
-  nonstring_model_field_def.model_dependencies = {
-      {"generator", "llm", "bind_model"}};
-  nonstring_model_field_def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kInteger},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(nonstring_model_field_def));
-
-  // 9b. Node 声明了重复的槽位名或重复的配置字段
-  NodeDefinition dup_slot_def;
-  dup_slot_def.node_type = "dup_slot";
-  dup_slot_def.model_dependencies = {
-      {"generator", "llm", "bind_model1"},
-      {"generator", "llm", "bind_model2"},
-  };
-  dup_slot_def.config_fields = {
-      ConfigFieldDefinition{"bind_model1", ConfigValueKind::kString, true},
-      ConfigFieldDefinition{"bind_model2", ConfigValueKind::kString, true},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_slot_def));
-
-  NodeDefinition dup_dep_field_def;
-  dup_dep_field_def.node_type = "dup_field";
-  dup_dep_field_def.model_dependencies = {
-      {"generator", "llm", "bind_model"},
-      {"reviewer", "llm", "bind_model"},
-  };
-  dup_dep_field_def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true},
-  };
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_dep_field_def));
-
-  // 10. 端口约束引用了未声明的端口
-  NodeDefinition invalid_constraint_def;
-  invalid_constraint_def.node_type = "invalid_constraint";
-  invalid_constraint_def.inputs = {
-      RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  invalid_constraint_def.port_constraints = {
-      PortGroupConstraint(PortConstraintKind::kAtLeastOneOf,
-                          std::vector<std::string>{"text", "unknown_port"})};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_constraint_def));
-
-  // 11. 非法的 Control 命令定义
-  NodeDefinition invalid_cmd_def;
-  invalid_cmd_def.node_type = "invalid_cmd";
-  invalid_cmd_def.control_commands = {
-      ControlCommandDefinition(0, "invalid_cmd")};  // id <= 0
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_cmd_def));
-
-  // 12. 输出生命周期必须跟随已声明的输入端口。
-  NodeDefinition invalid_lifetime_follow;
-  invalid_lifetime_follow.node_type = "invalid_lifetime_follow";
-  invalid_lifetime_follow.inputs = {NodePortDefinition{"text", "TextBatch"}};
-  invalid_lifetime_follow.outputs = {
-      NodePortDefinition{"result", "TextBatch", true, "1:1", "preserve",
-                         "request", "missing_input"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_lifetime_follow));
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ModelReferenceRejectsOptionalOrDefaultBinding) {
-  test_support::RegistryTestAccess::ScopedNodeState state_guard;
-  NodeDefinition definition;
-  definition.node_type = "explicit_model_reference";
-  definition.model_dependencies = {{"generator", "llm", "bind_model"}};
-  definition.config_fields = {{"bind_model", ConfigValueKind::kString, true}};
-  ASSERT_TRUE(ValidateNodeDefinitionStructure(definition));
-
-  auto optional = definition;
-  optional.node_type = "optional_model_reference";
-  optional.config_fields.front().required = false;
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(optional));
-  EXPECT_FALSE(NodeRegistry::Instance().Register(
-      optional.node_type, []() { return nullptr; }, optional));
-
-  auto with_default = definition;
-  with_default.node_type = "default_model_reference";
-  with_default.config_fields.front().default_value = "llm_model";
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(with_default));
-  EXPECT_FALSE(NodeRegistry::Instance().Register(
-      with_default.node_type, []() { return nullptr; }, with_default));
-}
-
-TEST_F(DefinitionSchemaValidationTest, ControlIdsBelongToOneNodeType) {
-  test_support::RegistryTestAccess::ScopedNodeState state_guard;
-  auto dummy_creator = []() { return nullptr; };
-
-  NodeDefinition first;
-  first.node_type = "private_control_owner";
-  first.control_commands = {
-      ControlCommandDefinition(2000000101, "private_update")};
-  ASSERT_TRUE(
-      NodeRegistry::Instance().Register(first.node_type, dummy_creator, first));
-  auto duplicate = first;
-  duplicate.node_type = "private_control_duplicate";
-  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
-                                                 dummy_creator, duplicate));
-  EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-  auto errors = NodeRegistry::Instance().GetConflictErrors();
-  std::string error = errors.empty() ? "" : errors.front();
-  EXPECT_NE(error.find("2000000101"), std::string::npos);
-  EXPECT_NE(error.find("private_control_owner"), std::string::npos);
-  test_support::RegistryTestAccess::ClearNodeFailures();
-
-  NodeDefinition invalid;
-  invalid.node_type = "non_object_control_schema";
-  invalid.control_commands = {
-      ControlCommandDefinition(2000000103, "invalid", "", false)};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid));
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ControlPayloadParsingPreservesOutputOnFailure) {
-  const nlohmann::json schema = {
-      {"type", "object"},
-      {"required", {"values"}},
-      {"additionalProperties", false},
-      {"properties",
-       {{"values", {{"type", "array"}, {"items", {{"type", "string"}}}}}}}};
-  nlohmann::json output = {{"old", true}};
-  const auto before = output;
-  std::string error;
-  EXPECT_FALSE(ParseControlPayload("{", schema, &output, &error));
-  EXPECT_FALSE(error.empty());
-  EXPECT_EQ(output, before);
-  EXPECT_FALSE(
-      ParseControlPayload(R"({"values":[1]})", schema, &output, &error));
-  EXPECT_EQ(output, before);
-  EXPECT_FALSE(ParseControlPayload(R"({"values":[],"extra":1})", schema,
-                                   &output, &error));
-  EXPECT_EQ(output, before);
-  ASSERT_TRUE(
-      ParseControlPayload(R"({"values":["a"]})", schema, &output, &error));
-  EXPECT_EQ(output["values"][0], "a");
-  EXPECT_TRUE(error.empty());
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ControlSchemaRejectsInvalidDeclarations) {
-  const std::vector<std::pair<nlohmann::json, std::string>> invalid = {
-      {{{"type", "int"}}, "type"},
-      {{{"type", {"number", "null"}}}, "type"},
-      {{{"minimum", "0"}}, "minimum"},
-      {{{"maximum", std::numeric_limits<double>::infinity()}}, "maximum"},
-      {{{"minimum", 2}, {"maximum", 1}}, "minimum"},
-      {{{"minProperties", -1}}, "minProperties"},
-      {{{"minProperties", 1.5}}, "minProperties"},
-      {{{"enum", nlohmann::json::array()}}, "enum"},
-      {{{"enum", {1, 1}}}, "enum"},
-      {{{"required", "name"}}, "required"},
-      {{{"required", {1}}}, "required"},
-      {{{"required", {"name", "name"}}}, "required"},
-      {{{"properties", nlohmann::json::array()}}, "properties"},
-      {{{"properties", {{"score", {{"exclusiveMaximum", 1}}}}}}, "score"},
-      {{{"items", nlohmann::json::array()}}, "items"},
-      {{{"additionalProperties", "false"}}, "additionalProperties"},
-      {{{"items", {{"type", "invalid"}}}}, "items"},
-      {{{"additionalProperties", {{"pattern", ".*"}}}}, "additionalProperties"},
-      {{{"description", false}}, "description"},
-      {{{"examples", 1}}, "examples"},
-      {{{"readOnly", "true"}}, "readOnly"},
-      {{{"oneOf", nlohmann::json::array()}}, "oneOf"}};
-  for (const auto& [schema, field] : invalid) {
-    SCOPED_TRACE(schema.dump());
-    NodeDefinition node;
-    node.node_type = "invalid_control_schema_probe";
-    node.control_commands = {
-        ControlCommandDefinition(2000000110, "schema_probe", "", schema)};
-    std::string error;
-    EXPECT_FALSE(ValidateNodeDefinitionStructure(node, &error));
-    EXPECT_NE(error.find(node.node_type), std::string::npos) << error;
-    EXPECT_NE(error.find("2000000110"), std::string::npos) << error;
-    EXPECT_NE(error.find(field), std::string::npos) << error;
-    EXPECT_FALSE(
-        ValidateControlPayload(nlohmann::json::object(), schema, &error));
-    EXPECT_FALSE(error.empty());
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ControlSchemaAllowsDocumentaryAnnotations) {
-  const nlohmann::json schema = {
-      {"type", "object"},
-      {"title", "Control parameters"},
-      {"description", "Runtime update"},
-      {"$comment", "Only fields supplied by the caller are updated"},
-      {"default", {{"score", 0.5}}},
-      {"examples", {{{"score", 0.8}}}},
-      {"deprecated", false},
-      {"readOnly", false},
-      {"writeOnly", true},
-      {"properties",
-       {{"score", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}}}}};
-  NodeDefinition node;
-  node.node_type = "annotated_control_schema_probe";
-  node.control_commands = {
-      ControlCommandDefinition(2000000111, "annotated_update", "", schema)};
-  std::string error;
-  ASSERT_TRUE(ValidateNodeDefinitionStructure(node, &error)) << error;
-  nlohmann::json payload;
-  ASSERT_TRUE(ParseControlPayload("{}", schema, &payload, &error)) << error;
-  EXPECT_EQ(payload, nlohmann::json::object());
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ControlPayloadEnforcesPublishedNumberBounds) {
-  const auto definition = PipelineCatalog::FindNode("text_rule_match");
-  ASSERT_TRUE(definition.has_value());
-  ASSERT_FALSE(definition->control_commands.empty());
-  const auto& schema = definition->control_commands.front().payload_schema;
-  for (const double score : {0.0, 0.5, 1.0}) {
-    const nlohmann::json payload = {
-        {"rules", {{{"pattern", "VIP"}, {"score", score}}}}};
-    std::string error;
-    EXPECT_TRUE(ValidateControlPayload(payload, schema, &error)) << error;
-  }
-  for (const double score : {-0.01, 1.01}) {
-    const nlohmann::json payload = {
-        {"rules", {{{"pattern", "VIP"}, {"score", score}}}}};
-    std::string error;
-    EXPECT_FALSE(ValidateControlPayload(payload, schema, &error));
-    EXPECT_NE(error.find("rules"), std::string::npos) << error;
-    EXPECT_NE(error.find("Array item 0"), std::string::npos) << error;
-    EXPECT_NE(error.find("score"), std::string::npos) << error;
-    EXPECT_NE(error.find(score < 0 ? "minimum" : "maximum"), std::string::npos)
-        << error;
-  }
-  EXPECT_FALSE(ValidateControlPayload(std::numeric_limits<double>::quiet_NaN(),
-                                      {{"type", "number"}}));
-  EXPECT_FALSE(ValidateControlPayload(std::numeric_limits<double>::infinity(),
-                                      {{"type", "number"}}));
-  EXPECT_FALSE(ValidateControlPayload(
-      nlohmann::json::object(),
-      {{"minProperties", std::numeric_limits<uint64_t>::max()}}));
-  EXPECT_TRUE(ValidateControlPayload(
-      3, {{"type", "integer"}, {"minimum", 3}, {"maximum", 3}}));
-  EXPECT_FALSE(
-      ValidateControlPayload(2, {{"type", "integer"}, {"minimum", 3}}));
-  EXPECT_FALSE(
-      ValidateControlPayload(4, {{"type", "integer"}, {"maximum", 3}}));
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       NodeToJsonExportsConstraintsAndCommands) {
-  const auto rerank_def = PipelineCatalog::FindNode("text_rerank");
-  ASSERT_TRUE(rerank_def.has_value());
-  auto json = PipelineCatalog::NodeToJson(*rerank_def);
-  EXPECT_TRUE(json.contains("port_constraints"));
-  EXPECT_TRUE(json["port_constraints"].is_array());
-  EXPECT_TRUE(json["port_constraints"].empty());
-  ASSERT_EQ(json["inputs"].size(), 2U);
-  EXPECT_EQ(json["inputs"][0]["key"], "queries");
-  EXPECT_EQ(json["inputs"][1]["key"], "candidates");
-
-  const auto rule_def = PipelineCatalog::FindNode("text_rule_match");
-  ASSERT_TRUE(rule_def.has_value());
-  auto rule_json = PipelineCatalog::NodeToJson(*rule_def);
-  EXPECT_TRUE(rule_json.contains("control_commands"));
-  EXPECT_TRUE(rule_json["control_commands"].is_array());
-  ASSERT_FALSE(rule_json["control_commands"].empty());
-  const auto& rule_payload_schema =
-      rule_json["control_commands"][0]["payload_schema"];
-  EXPECT_EQ(rule_payload_schema["minProperties"], 1);
-  EXPECT_EQ(rule_payload_schema["additionalProperties"], false);
-
-  const auto embedding_def = PipelineCatalog::FindNode("text_embedding");
-  ASSERT_TRUE(embedding_def.has_value());
-  auto embedding_json = PipelineCatalog::NodeToJson(*embedding_def);
-  ASSERT_FALSE(embedding_json["inputs"].empty());
-  EXPECT_FALSE(embedding_json["inputs"][0].contains("lifetime_from_input"));
-  ASSERT_FALSE(embedding_json["outputs"].empty());
-  EXPECT_EQ(embedding_json["outputs"][0]["lifetime_from_input"], "text");
-}
-
-TEST_F(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
-  const auto& nodes = PipelineCatalog::Nodes();
-  EXPECT_FALSE(nodes.empty());
-  for (const auto& node : nodes) {
-    EXPECT_FALSE(node.node_type.empty());
-    std::unordered_set<std::string> seen_names;
-    for (const auto& field : node.config_fields) {
-      EXPECT_FALSE(field.name.empty());
-      EXPECT_TRUE(seen_names.insert(field.name).second)
-          << "Duplicate config field '" << field.name << "' in node "
-          << node.node_type;
-      if (field.minimum && field.maximum) {
-        EXPECT_LE(*field.minimum, *field.maximum)
-            << "Inverted range in node " << node.node_type << "." << field.name;
-      }
-    }
-  }
-
-  const auto backends = PipelineCatalog::Backends();
-  EXPECT_FALSE(backends.empty());
-  for (const auto& backend : backends) {
-    EXPECT_FALSE(backend.backend_type.empty());
-    std::unordered_set<std::string> seen_names;
-    for (const auto& field : backend.params.Fields()) {
-      EXPECT_FALSE(field.name.empty());
-      EXPECT_TRUE(seen_names.insert(field.name).second)
-          << "Duplicate config field '" << field.name << "' in backend "
-          << backend.backend_type;
-      if (field.minimum && field.maximum) {
-        EXPECT_LE(*field.minimum, *field.maximum)
-            << "Inverted range in backend " << backend.backend_type << "."
-            << field.name;
-      }
-    }
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
-  // 空键
-  NodeDefinition empty_key_node;
-  empty_key_node.node_type = "empty_key_port";
-  empty_key_node.inputs = {
-      NodePortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(empty_key_node));
-
-  // 空 type_id
-  NodeDefinition empty_type_node;
-  empty_type_node.node_type = "empty_type_port";
-  empty_type_node.inputs = {
-      NodePortDefinition{"text", "", true, "1:1", "preserve", "request"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(empty_type_node));
-
-  // 非法 cardinality
-  NodeDefinition invalid_card_node;
-  invalid_card_node.node_type = "invalid_card_port";
-  invalid_card_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
-                                                 "3:3", "preserve", "request"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_card_node));
-
-  // 非法 provenance
-  NodeDefinition invalid_prov_node;
-  invalid_prov_node.node_type = "invalid_prov_port";
-  invalid_prov_node.inputs = {
-      NodePortDefinition{"text", "TextBatch", true, "1:1", "magic", "request"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_prov_node));
-
-  // 非法 lifetime
-  NodeDefinition invalid_life_node;
-  invalid_life_node.node_type = "invalid_life_port";
-  invalid_life_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
-                                                 "1:1", "preserve", "eternal"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_life_node));
-
-  // 输入端口键重复
-  NodeDefinition dup_key_node;
-  dup_key_node.node_type = "dup_key_port";
-  dup_key_node.inputs = {NodePortDefinition{"text", "TextBatch", true, "1:1",
-                                            "preserve", "request"},
-                         NodePortDefinition{"text", "TextBatch", false, "1:1",
-                                            "preserve", "request"}};
-  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_key_node));
-}
-
-TEST_F(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
-  nlohmann::json pipeline = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array(
-           {{{"name", "node_0"},
-             {"type", SchemaProbeNode::kNodeType},
-             {"depends_on", nlohmann::json::array()},
-             {"params", {{"req_str", "hello"}, {"opt_int", 20.5}}}}})}};
-
-  auto plan = PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  EXPECT_FALSE(plan.report.ok);
-  auto it = std::find_if(plan.report.diagnostics.begin(),
-                         plan.report.diagnostics.end(), [](const auto& item) {
-                           return item.code == DiagnosticCode::kConfigFieldType;
-                         });
-  ASSERT_NE(it, plan.report.diagnostics.end());
-  EXPECT_EQ(it->path, "/pipeline/0/params/opt_int");
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       ValidateConfigExceptionMappingAndShortCircuit) {
-  // 情形 1：字段校验失败 -> 不得调用 validate_config
-  ThrowingValidateConfigNode::s_called = false;
-  ThrowingValidateConfigNode::s_throw_mode = 1;
-  nlohmann::json pipeline_field_fail = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "node_0"},
-                               {"type", "throwing_validate_config"},
-                               {"depends_on", nlohmann::json::array()},
-                               {"params", {{"req_num", "not_an_int"}}}}})}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(pipeline_field_fail,
-                                                  MakeTestBoundary());
-  EXPECT_FALSE(plan1.report.ok);
-  EXPECT_FALSE(ThrowingValidateConfigNode::s_called);
-
-  // 情形 2：字段校验通过，validate_config 抛出 std::runtime_error
-  // -> 映射为 kInvalidCombination
-  ThrowingValidateConfigNode::s_called = false;
-  ThrowingValidateConfigNode::s_throw_mode = 1;
-  nlohmann::json pipeline_std_throw = {
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "node_0"},
-                               {"type", "throwing_validate_config"},
-                               {"depends_on", nlohmann::json::array()},
-                               {"params", {{"req_num", 50}}}}})}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(pipeline_std_throw,
-                                                  MakeTestBoundary());
-  EXPECT_FALSE(plan2.report.ok);
-  EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
-  auto it2 =
-      std::find_if(plan2.report.diagnostics.begin(),
-                   plan2.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kInvalidCombination;
-                   });
-  ASSERT_NE(it2, plan2.report.diagnostics.end());
-  EXPECT_NE(it2->message.find("simulated config validation crash"),
-            std::string::npos);
-
-  // 情形 3：字段校验通过，validate_config 抛出非 std 异常
-  // -> 映射为 kInvalidCombination
-  ThrowingValidateConfigNode::s_called = false;
-  ThrowingValidateConfigNode::s_throw_mode = 2;
-  auto plan3 = PipelineValidator::ValidateAndPlan(pipeline_std_throw,
-                                                  MakeTestBoundary());
-  EXPECT_FALSE(plan3.report.ok);
-  EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
-  auto it3 =
-      std::find_if(plan3.report.diagnostics.begin(),
-                   plan3.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == DiagnosticCode::kInvalidCombination;
-                   });
-  ASSERT_NE(it3, plan3.report.diagnostics.end());
-  EXPECT_NE(it3->message.find("unknown exception"), std::string::npos);
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       DefaultsAndSuppliedValuesShareConstraints) {
-  const auto check = [](ConfigFieldDefinition field,
-                        const nlohmann::json& value, bool valid) {
-    SCOPED_TRACE(ConfigValueKindName(field.kind));
-    SCOPED_TRACE(value.dump());
-    field.default_value = value;
-    std::string error;
-    EXPECT_EQ(ValidateConfigFieldDefinitions({field}, &error), valid) << error;
-    nlohmann::json normalized;
-    EXPECT_EQ(ValidateAndNormalizeFields({field}, nlohmann::json::object(),
-                                         &normalized, nullptr),
-              valid);
-    field.default_value = nullptr;
-    EXPECT_EQ(ValidateAndNormalizeFields({field}, {{field.name, value}},
-                                         &normalized, nullptr),
-              valid);
-  };
-  for (const auto& item :
-       std::vector<std::pair<ConfigValueKind, nlohmann::json>>{
-           {ConfigValueKind::kString, "text"},
-           {ConfigValueKind::kInteger, 4},
-           {ConfigValueKind::kNumber, 0.5},
-           {ConfigValueKind::kBoolean, true},
-           {ConfigValueKind::kObject, nlohmann::json::object()},
-           {ConfigValueKind::kMap, nlohmann::json::object()},
-           {ConfigValueKind::kArray, nlohmann::json::array()}}) {
-    ConfigFieldDefinition field;
-    field.name = "value";
-    field.kind = item.first;
-    check(field, item.second, true);
-    check(field,
-          item.first == ConfigValueKind::kString ? nlohmann::json(1)
-                                                 : nlohmann::json("bad"),
-          false);
-  }
-  ConfigFieldDefinition field;
-  field.name = "value";
-  field.kind = ConfigValueKind::kString;
-  field.enum_values = {"fast", "slow"};
-  check(field, "fast", true);
-  check(field, "other", false);
-  field.enum_values.clear();
-  for (auto kind : {ConfigValueKind::kInteger, ConfigValueKind::kNumber}) {
-    field.kind = kind;
-    field.minimum = -9007199254740992.0;
-    field.maximum = 9007199254740992.0;
-    check(field, int64_t{9007199254740992}, true);
-    check(field, uint64_t{9007199254740993}, false);
-    check(field, int64_t{-9007199254740993}, false);
-    check(field, std::numeric_limits<uint64_t>::max(), false);
-  }
-  field.minimum.reset();
-  field.maximum.reset();
-  for (auto kind : {ConfigValueKind::kNumber, ConfigValueKind::kJson}) {
-    field.kind = kind;
-    check(field, std::numeric_limits<double>::infinity(), false);
-    check(field, std::numeric_limits<double>::quiet_NaN(), false);
-  }
-  field.kind = ConfigValueKind::kInteger;
-  field.minimum = 0;
-  field.maximum = 2;
-  ConfigFieldDefinition array;
-  array.name = "values";
-  array.kind = ConfigValueKind::kArray;
-  array.items = std::make_shared<const ConfigFieldDefinition>(field);
-  check(array, nlohmann::json::array({0, 2}), true);
-  check(array, nlohmann::json::array({0, 3}), false);
-}
-
-TEST_F(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
-  const std::vector<ConfigFieldDefinition> fields = {
-      {"value", ConfigValueKind::kInteger, true, nullptr, -9007199254740992.0,
-       9007199254740992.0}};
-  nlohmann::json normalized;
-  for (const nlohmann::json& value :
-       {nlohmann::json(int64_t{9007199254740993}),
-        nlohmann::json(uint64_t{9007199254740993}),
-        nlohmann::json(int64_t{-9007199254740993})}) {
-    EXPECT_FALSE(ValidateAndNormalizeFields(fields, {{"value", value}},
-                                            &normalized, nullptr));
-    EXPECT_FALSE(ValidateAndNormalizeConfig(fields, {{"value", value}},
-                                            &normalized, nullptr));
-  }
-  EXPECT_TRUE(ValidateAndNormalizeFields(
-      fields, {{"value", int64_t{9007199254740992}}}, &normalized, nullptr));
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       IntegerBoundsHandleLimitsAndFractionalBounds) {
-  constexpr double kSignedLimit = 9223372036854775808.0;
-  constexpr double kUnsignedLimit = 18446744073709551616.0;
-  const auto signed_max = nlohmann::json(std::numeric_limits<int64_t>::max());
-  const auto signed_min = nlohmann::json(std::numeric_limits<int64_t>::min());
-  const auto unsigned_max =
-      nlohmann::json(std::numeric_limits<uint64_t>::max());
-  struct Case {
-    nlohmann::json value;
-    std::optional<double> minimum;
-    std::optional<double> maximum;
-    bool valid;
-  };
-  const std::vector<Case> cases = {
-      {signed_max, kSignedLimit, std::nullopt, false},
-      {unsigned_max, kUnsignedLimit, std::nullopt, false},
-      {signed_max, std::nextafter(kSignedLimit, 0.0), kSignedLimit, true},
-      {unsigned_max, std::nextafter(kUnsignedLimit, 0.0), kUnsignedLimit, true},
-      {signed_max, std::nullopt, std::nextafter(kSignedLimit, 0.0), false},
-      {unsigned_max, std::nullopt, std::nextafter(kUnsignedLimit, 0.0), false},
-      {signed_min, -kSignedLimit, -kSignedLimit, true},
-      {signed_min, std::nextafter(-kSignedLimit, 0.0), std::nullopt, false},
-      {signed_min, std::nullopt,
-       std::nextafter(-kSignedLimit, -std::numeric_limits<double>::infinity()),
-       false},
-      {uint64_t{0}, -0.5, 0.5, true},
-      {uint64_t{0}, 0.5, std::nullopt, false},
-      {uint64_t{0}, std::nullopt, -0.5, false},
-      {int64_t{-2}, -1.5, std::nullopt, false},
-      {int64_t{-1}, -1.5, std::nullopt, true},
-      {int64_t{-1}, std::nullopt, -1.5, false},
-      {int64_t{-2}, std::nullopt, -1.5, true},
-  };
-  for (const auto& item : cases) {
-    SCOPED_TRACE(nlohmann::json({{"value", item.value},
-                                 {"minimum", item.minimum.value_or(0.0)},
-                                 {"maximum", item.maximum.value_or(0.0)}})
-                     .dump());
-    std::vector<ConfigFieldDefinition> fields = {
-        {"value", ConfigValueKind::kInteger, true, nullptr, item.minimum,
-         item.maximum}};
-    nlohmann::json normalized;
-    EXPECT_EQ(ValidateAndNormalizeFields(fields, {{"value", item.value}},
-                                         &normalized, nullptr),
-              item.valid);
-    fields.front().default_value = item.value;
-    std::string error;
-    EXPECT_EQ(ValidateConfigFieldDefinitions(fields, &error), item.valid)
-        << error;
-  }
-}
-
-TEST_F(DefinitionSchemaValidationTest,
-       PortNamesKeepTheirRolesAndCatalogSpelling) {
-  static_assert(!std::is_convertible_v<NodePortDefinition, IoPortDefinition>);
-  static_assert(!std::is_convertible_v<IoPortDefinition, NodePortDefinition>);
-  const BlackboardKey<TextBatch> key{"request_text", "TextBatch"};
-  const auto input = RequiredInputPort("text", key);
-  const IoPortDefinition ingress{key.name, key.type_id, true};
-  EXPECT_EQ(input.logical_name, "text");
-  EXPECT_EQ(ingress.blackboard_key, "request_text");
-  NodeDefinition node;
-  node.node_type = "port_naming_probe";
-  node.inputs = {input};
-  const auto json = PipelineCatalog::NodeToJson(node);
-  EXPECT_EQ(json["inputs"][0]["key"], "text");
-  EXPECT_FALSE(json["inputs"][0].contains("logical_name"));
-}
-
-TEST_F(DefinitionSchemaValidationTest, NodesRejectEmptyFlowMetadata) {
-  for (int field = 0; field < 3; ++field) {
-    NodePortDefinition port{"value", "TextBatch", true,
-                            "1:1",   "preserve",  "request"};
-    if (field == 0) port.cardinality.clear();
-    if (field == 1) port.provenance_policy.clear();
-    if (field == 2) port.lifetime.clear();
-    NodeDefinition node;
-    node.node_type = "invalid_empty_flow_node";
-    node.outputs = {port};
-    EXPECT_FALSE(ValidateNodeDefinitionStructure(node));
-  }
-}
-
 }  // namespace llm_edgeflow
