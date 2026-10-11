@@ -222,7 +222,8 @@ add_test(NAME GovernanceConsistencyTest
 add_test(NAME DocLinksTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/check_doc_links.py)
 add_test(NAME DocLinksSelfTest
-  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/check_doc_links.py --self-test)
+  COMMAND ${Python3_EXECUTABLE}
+          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_doc_links_contract.py)
 add_test(NAME DiagramAssetsCheckTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 add_test(NAME DiagramRenderGateSelfTest
