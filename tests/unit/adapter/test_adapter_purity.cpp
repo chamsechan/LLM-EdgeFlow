@@ -40,6 +40,13 @@ constexpr auto kChunkCount = MakeBlackboardKey<Int32Batch>("chunk_count");
 
 namespace llm_edgeflow {
 
+namespace {
+nlohmann::json OutputJson(const CompanyOperatorOutput& value) {
+  return nlohmann::json::parse(
+      std::string(value.result_json->data, value.result_json->length));
+}
+}  // namespace
+
 class AdapterPurityTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -59,87 +66,12 @@ struct CustomMultiFieldInput {
 
 DECLARE_EXTERNAL_TYPE_TRAITS(CustomMultiFieldInput, "CustomMultiFieldInput");
 
-struct DocOutputFixture {
-  char ans[512] = {0};
-  CompanyString cs_ans{511, ans};
-  char intent[128] = {0};
-  CompanyString cs_intent{127, intent};
-  CompanyOperatorDocOutput out{kMockServiceDocQa, nullptr, 0.0f, nullptr, 0, 0};
-  DocOutputFixture() {
-    out.answer_text = &cs_ans;
-    out.intent_name = &cs_intent;
-  }
-  std::map<std::string, size_t> Capacities() const {
-    return {{"answer_text", sizeof(ans) - 1},
-            {"intent_name", sizeof(intent) - 1}};
-  }
-};
-
-struct KeywordOutputFixture {
-  char match[2048] = {0};
-  CompanyString cs_match{2047, match};
-  CompanyOperatorKeywordOutput out{kMockServiceKeywordMatch, 0, nullptr, 0};
-  KeywordOutputFixture() { out.match_result_json = &cs_match; }
-  std::map<std::string, size_t> Capacities() const {
-    return {{"match_result_json", sizeof(match) - 1}};
-  }
-};
-
-struct EntityOutputFixture {
-  char entities[2048] = {0};
-  CompanyString cs_entities{2047, entities};
-  CompanyOperatorEntityOutput out{kMockServiceEntityExtract, nullptr, 0};
-  EntityOutputFixture() { out.entities_json = &cs_entities; }
-  std::map<std::string, size_t> Capacities() const {
-    return {{"entities_json", sizeof(entities) - 1}};
-  }
-};
-
-struct AuditOutputFixture {
-  char risk[64] = {0};
-  CompanyString cs_risk{63, risk};
-  char clause[512] = {0};
-  CompanyString cs_clause{511, clause};
-  char verdict[2048] = {0};
-  CompanyString cs_verdict{2047, verdict};
-  CompanyOperatorAuditOutput out{
-      kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
-  AuditOutputFixture() {
-    out.risk_level = &cs_risk;
-    out.matched_policy_clause = &cs_clause;
-    out.audit_verdict_json = &cs_verdict;
-  }
-  std::map<std::string, size_t> Capacities() const {
-    return {{"risk_level", sizeof(risk) - 1},
-            {"matched_policy_clause", sizeof(clause) - 1},
-            {"audit_verdict_json", sizeof(verdict) - 1}};
-  }
-};
-
-struct OdOutputFixture {
-  char json[2048] = {0};
-  CompanyString cs_json{2047, json};
-  CompanyOdOutput out{kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
-  OdOutputFixture() { out.result_json = &cs_json; }
+struct JsonOutputFixture {
+  char json[8192] = {};
+  CompanyString text{0, json};
+  CompanyOperatorOutput out{0, &text, 0};
   std::map<std::string, size_t> Capacities() const {
     return {{"result_json", sizeof(json) - 1}};
-  }
-};
-
-struct AudioOutputFixture {
-  char text[512] = {0};
-  CompanyString cs_text{511, text};
-  char slot[2048] = {0};
-  CompanyString cs_slot{2047, slot};
-  CompanyOperatorAudioOutput out{kMockServiceAudioAsrIntent, nullptr, nullptr,
-                                 0};
-  AudioOutputFixture() {
-    out.transcribed_text = &cs_text;
-    out.intent_slot_json = &cs_slot;
-  }
-  std::map<std::string, size_t> Capacities() const {
-    return {{"transcribed_text", sizeof(text) - 1},
-            {"intent_slot_json", sizeof(slot) - 1}};
   }
 };
 
@@ -152,7 +84,7 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
       IoConverterRegistry::Instance().FindInputConverter("doc_in", "doc_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -186,16 +118,20 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   chunk_counts.emplace_back(0, 0, 1);
   harness.Publish("chunk_count", std::move(chunk_counts));
 
-  DocOutputFixture doc_fix;
-  std::vector<CompanyOperatorDocOutput> outputs = {doc_fix.out};
+  JsonOutputFixture doc_fix;
+  std::vector<CompanyOperatorOutput> outputs = {doc_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, doc_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].chunk_count, 1);
-  ASSERT_NE(outputs[0].intent_name, nullptr);
-  EXPECT_STREQ(outputs[0].intent_name->data, "GENERAL_QA");
-  EXPECT_FLOAT_EQ(outputs[0].confidence, 0.95f);
-  ASSERT_NE(outputs[0].answer_text, nullptr);
-  EXPECT_STREQ(outputs[0].answer_text->data, "Model Generated Answer");
+  EXPECT_EQ(OutputJson(outputs[0]).at("chunk_count").get<int>(), 1);
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[0]).at("intent_name").get<std::string>().c_str(),
+      "GENERAL_QA");
+  EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("confidence").get<float>(), 0.95f);
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[0]).at("answer_text").get<std::string>().c_str(),
+      "Model Generated Answer");
 }
 
 TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
@@ -203,7 +139,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
       "keyword_in", "keyword_match");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "keyword_out", "keyword_match");
+      "json_out", "keyword_match");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -217,14 +153,15 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   matches.emplace_back(0, 0, RuleMatchItem(1, "TEST_CAT", "测试", 0.5f));
   harness.Publish("matches", std::move(matches));
 
-  KeywordOutputFixture kw_fix;
-  std::vector<CompanyOperatorKeywordOutput> outputs = {kw_fix.out};
+  JsonOutputFixture kw_fix;
+  std::vector<CompanyOperatorOutput> outputs = {kw_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, kw_fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].is_hit, 1);
-  ASSERT_NE(outputs[0].match_result_json, nullptr);
-  EXPECT_STREQ(outputs[0].match_result_json->data,
-               "{\"confidence\":0.5,\"intent\":\"TEST_CAT\",\"matched_word\":"
+  EXPECT_EQ(OutputJson(outputs[0]).at("is_hit").get<int>(), 1);
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(outputs[0].result_json->data,
+               "{\"confidence\":0.5,\"intent\":\"TEST_CAT\",\"is_hit\":1,"
+               "\"matched_word\":"
                "\"测试\",\"matches\":[],\"slots\":{}}");
 }
 
@@ -233,7 +170,7 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
       "entity_in", "entity_extract");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "entity_extract");
+      "json_out", "entity_extract");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -248,13 +185,13 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
       0, 0, JsonDocumentItem("[\"E1\"]", true, JsonParseStatus::kOk));
   harness.Publish("entities", std::move(entities));
 
-  EntityOutputFixture ent_fix;
-  std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
+  JsonOutputFixture ent_fix;
+  std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
 
   EXPECT_EQ(outputs[0].status_code, 0);
-  ASSERT_NE(outputs[0].entities_json, nullptr);
-  EXPECT_STREQ(outputs[0].entities_json->data, "[\"E1\"]");
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(outputs[0].result_json->data, "[\"E1\"]");
 }
 
 TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
@@ -262,7 +199,7 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
       "audit_in", "dialogue_audit");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_out", "dialogue_audit");
+      "json_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -286,15 +223,21 @@ TEST_F(AdapterPurityTest, DialogueAuditAdapterPurity) {
   policies.emplace_back(0, 0, RankedCandidate("Clause 1", 1.0f, 1, 0));
   harness.Publish("matched_policy", std::move(policies));
 
-  AuditOutputFixture audit_fix;
-  std::vector<CompanyOperatorAuditOutput> outputs = {audit_fix.out};
+  JsonOutputFixture audit_fix;
+  std::vector<CompanyOperatorOutput> outputs = {audit_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, audit_fix.Capacities()), 0);
 
-  EXPECT_FLOAT_EQ(outputs[0].risk_score, 0.1f);
-  ASSERT_NE(outputs[0].risk_level, nullptr);
-  EXPECT_STREQ(outputs[0].risk_level->data, "SAFE");
-  ASSERT_NE(outputs[0].matched_policy_clause, nullptr);
-  EXPECT_STREQ(outputs[0].matched_policy_clause->data, "Clause 1");
+  EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("risk_score").get<float>(), 0.1f);
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[0]).at("risk_level").get<std::string>().c_str(),
+      "SAFE");
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(OutputJson(outputs[0])
+                   .at("matched_policy_clause")
+                   .get<std::string>()
+                   .c_str(),
+               "Clause 1");
 }
 
 TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
@@ -302,7 +245,7 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
       "frame", "ocr_invoice_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "od_out", "ocr_invoice_qa");
+      "json_out", "ocr_invoice_qa");
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<uint8_t> pixels{255, 0, 0, 0, 255, 0, 99, 88};
@@ -375,12 +318,12 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
   ocr_docs.emplace_back(0, 0, std::move(ocr_item));
   ctx.Publish("document", std::move(ocr_docs));
 
-  OdOutputFixture od_fix;
+  JsonOutputFixture od_fix;
   TestOutputBatchView out_view;
   out_view.count = 1;
-  out_view.leased_slots["od_out"] = {&od_fix.out};
-  out_view.slot_types["od_out"] = "CompanyOdOutput";
-  out_view.SetCapacity("od_out", "result_json", sizeof(od_fix.json) - 1);
+  out_view.leased_slots["json_out"] = {&od_fix.out};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+  out_view.SetCapacity("json_out", "result_json", sizeof(od_fix.json) - 1);
 
   test::ParsedOutputOptions out_options(*out_conv);
 
@@ -389,9 +332,10 @@ TEST_F(AdapterPurityTest, OcrInvoiceQaAdapterPurity) {
                                                 &out_view, &written, &status),
             0);
 
-  EXPECT_EQ(od_fix.out.detected_box_count, 1);
+  EXPECT_EQ(OutputJson(od_fix.out).at("detected_box_count").get<int>(), 1);
   ASSERT_NE(od_fix.out.result_json, nullptr);
-  EXPECT_STREQ(od_fix.out.result_json->data, "{\"total\":99.9}");
+  EXPECT_EQ(OutputJson(od_fix.out).at("result"),
+            nlohmann::json({{"total", 99.9}}));
 }
 
 TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
@@ -399,7 +343,7 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
       "audio_in", "audio_asr_intent");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audio_out", "audio_asr_intent");
+      "json_out", "audio_asr_intent");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -417,14 +361,16 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
   intent_slots.emplace_back(0, 0, RuleMatchItem(1, "NAV", "", 0.5f));
   harness.Publish("intent_slot", std::move(intent_slots));
 
-  AudioOutputFixture audio_fix;
-  std::vector<CompanyOperatorAudioOutput> outputs = {audio_fix.out};
+  JsonOutputFixture audio_fix;
+  std::vector<CompanyOperatorOutput> outputs = {audio_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, audio_fix.Capacities()), 0);
 
-  ASSERT_NE(outputs[0].transcribed_text, nullptr);
-  EXPECT_STREQ(outputs[0].transcribed_text->data, "turn left");
-  ASSERT_NE(outputs[0].intent_slot_json, nullptr);
-  EXPECT_STREQ(outputs[0].intent_slot_json->data,
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[0]).at("transcribed_text").get<std::string>().c_str(),
+      "turn left");
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(OutputJson(outputs[0]).at("intent_slot").dump().c_str(),
                "{\"confidence\":0.5,\"intent\":\"NAV\",\"matched_word\":\"\","
                "\"matches\":[],\"slots\":{}}");
 }
@@ -434,7 +380,7 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
       "rerank_in", "cross_rerank");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "rerank_out", "cross_rerank");
+      "json_out", "cross_rerank");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -461,14 +407,17 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   ranked.emplace_back(0, 1, RankedCandidate("cand0", 0.45f, 2, 0));
   harness.Publish("ranked", std::move(ranked));
 
-  std::vector<CompanyOperatorRerankOutput> outputs(1);
-  ASSERT_EQ(harness.EncodeOperator(&outputs), 0);
+  JsonOutputFixture fix;
+  std::vector<CompanyOperatorOutput> outputs{fix.out};
+  ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
 
-  EXPECT_EQ(outputs[0].count, 2);
-  EXPECT_FLOAT_EQ(outputs[0].scores[0], 0.85f);
-  EXPECT_EQ(outputs[0].sorted_indices[0], 1);
-  EXPECT_FLOAT_EQ(outputs[0].scores[1], 0.45f);
-  EXPECT_EQ(outputs[0].sorted_indices[1], 0);
+  EXPECT_EQ(OutputJson(outputs[0]).at("count").get<int>(), 2);
+  EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("scores").at(0).get<float>(),
+                  0.85f);
+  EXPECT_EQ(OutputJson(outputs[0]).at("sorted_indices").at(0).get<int>(), 1);
+  EXPECT_FLOAT_EQ(OutputJson(outputs[0]).at("scores").at(1).get<float>(),
+                  0.45f);
+  EXPECT_EQ(OutputJson(outputs[0]).at("sorted_indices").at(1).get<int>(), 0);
 }
 
 TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
@@ -476,7 +425,7 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
       "entity_in", "translate");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "translate");
+      "json_out", "translate");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -491,13 +440,13 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
   answers.emplace_back(0, 0, "Bonjour");
   harness.Publish("translation", std::move(answers));
 
-  EntityOutputFixture ent_fix;
-  std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
+  JsonOutputFixture ent_fix;
+  std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
 
   EXPECT_EQ(outputs[0].status_code, 0);
-  ASSERT_NE(outputs[0].entities_json, nullptr);
-  auto parsed = nlohmann::json::parse(outputs[0].entities_json->data);
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  auto parsed = nlohmann::json::parse(outputs[0].result_json->data);
   EXPECT_EQ(parsed["translated"], "Bonjour");
 }
 
@@ -507,15 +456,15 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
 
 TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
   // 情形 1：缺少 answer_text
   {
     test::AdapterHarness harness(out_conv);
 
-    DocOutputFixture fix;
-    std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
+    JsonOutputFixture fix;
+    std::vector<CompanyOperatorOutput> outputs = {fix.out};
     EXPECT_NE(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
   }
 
@@ -526,8 +475,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     TextBatch answers;
     answers.emplace_back(0, 0, "Some answer");
     harness.Publish("answer_text", std::move(answers));
-    DocOutputFixture fix;
-    std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
+    JsonOutputFixture fix;
+    std::vector<CompanyOperatorOutput> outputs = {fix.out};
     EXPECT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
@@ -542,8 +491,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     RuleMatchBatch intents;
     intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", 0.9f));
     harness.Publish("intent", std::move(intents));
-    DocOutputFixture fix;
-    std::vector<CompanyOperatorDocOutput> outputs = {fix.out};
+    JsonOutputFixture fix;
+    std::vector<CompanyOperatorOutput> outputs = {fix.out};
     EXPECT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
@@ -560,15 +509,14 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
     Int32Batch chunk_counts;
     chunk_counts.emplace_back(0, 0, 1);
     harness.Publish("chunk_count", std::move(chunk_counts));
-    DocOutputFixture fix;
+    JsonOutputFixture fix;
     TestOutputBatchView destination;
     destination.count = 2;
-    destination.leased_slots["doc_out"] = {&fix.out};
-    destination.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-    destination.SetCapacity("doc_out", "answer_text",
-                            fix.Capacities().at("answer_text"));
-    destination.SetCapacity("doc_out", "intent_name",
-                            fix.Capacities().at("intent_name"));
+    destination.leased_slots["json_out"] = {&fix.out};
+    destination.slot_types["json_out"] = "CompanyOperatorOutput";
+    destination.SetCapacity("json_out", "result_json",
+                            fix.Capacities().at("result_json"));
+
     test::ParsedOutputOptions options(*out_conv);
 
     AdapterStatus status;
@@ -585,7 +533,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
 TEST_F(AdapterPurityTest,
        DialogueAuditAdapter_FailClosedWhenMissingStructuredFields) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_out", "dialogue_audit");
+      "json_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(out_conv);
@@ -602,15 +550,15 @@ TEST_F(AdapterPurityTest,
   policies.emplace_back(0, 0, RankedCandidate("Clause", 1.0f, 1));
   harness.Publish("matched_policy", std::move(policies));
 
-  AuditOutputFixture fix;
-  std::vector<CompanyOperatorAuditOutput> outputs = {fix.out};
+  JsonOutputFixture fix;
+  std::vector<CompanyOperatorOutput> outputs = {fix.out};
   EXPECT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()),
             COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_out", "dialogue_audit");
+      "json_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
 
   for (const auto parse_status :
@@ -631,13 +579,17 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
                                     {0, 1, {"req0 second", 0.5f, 2, 2}},
                                     {1, 0, {"req1 first", 1.0f, 1, 1}}});
 
-    AuditOutputFixture fix0, fix1;
-    std::vector<CompanyOperatorAuditOutput> outputs = {fix0.out, fix1.out};
+    JsonOutputFixture fix0, fix1;
+    std::vector<CompanyOperatorOutput> outputs = {fix0.out, fix1.out};
     const int ret = harness.EncodeOperator(&outputs, fix0.Capacities());
     if (parse_status == JsonParseStatus::kOk) {
       ASSERT_EQ(ret, 0) << harness.Status().ToString();
-      ASSERT_NE(outputs[1].matched_policy_clause, nullptr);
-      EXPECT_STREQ(outputs[1].matched_policy_clause->data, "req1 first");
+      ASSERT_NE(outputs[1].result_json, nullptr);
+      EXPECT_STREQ(OutputJson(outputs[1])
+                       .at("matched_policy_clause")
+                       .get<std::string>()
+                       .c_str(),
+                   "req1 first");
     } else {
       EXPECT_NE(ret, 0);
     }
@@ -646,7 +598,7 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
 
 TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "keyword_out", "keyword_match");
+      "json_out", "keyword_match");
   ASSERT_NE(out_conv, nullptr);
 
   for (const auto& ids :
@@ -657,8 +609,8 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
     for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
     harness.Publish("matches", std::move(matches));
 
-    KeywordOutputFixture fix0, fix1;
-    std::vector<CompanyOperatorKeywordOutput> outputs = {fix0.out, fix1.out};
+    JsonOutputFixture fix0, fix1;
+    std::vector<CompanyOperatorOutput> outputs = {fix0.out, fix1.out};
     EXPECT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
@@ -708,27 +660,23 @@ TEST_F(AdapterPurityTest,
   ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
 
   const auto* op_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(op_conv, nullptr);
 
   test::ParsedOutputOptions options(*op_conv);
 
   // 1. Operator 缓冲区容量较小 (500) -> BUFFER_TOO_SMALL
   {
-    CompanyOperatorDocOutput small_out{kMockServiceDocQa, nullptr, 0.0f,
-                                       nullptr,           0,       0};
+    CompanyOperatorOutput small_out{kMockServiceDocQa, nullptr, 0};
     std::vector<char> ans_buf(500);
     CompanyString cs_ans{0, ans_buf.data()};
-    small_out.answer_text = &cs_ans;
-    std::vector<char> int_buf(128);
-    CompanyString cs_int{0, int_buf.data()};
-    small_out.intent_name = &cs_int;
+    small_out.result_json = &cs_ans;
 
     TestOutputBatchView small_dest;
-    small_dest.leased_slots["doc_out"].push_back(&small_out);
-    small_dest.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-    small_dest.SetCapacity("doc_out", "answer_text", 499);
-    small_dest.SetCapacity("doc_out", "intent_name", 127);
+    small_dest.leased_slots["json_out"].push_back(&small_out);
+    small_dest.slot_types["json_out"] = "CompanyOperatorOutput";
+    small_dest.SetCapacity("json_out", "result_json", 499);
+
     small_dest.count = 1;
 
     size_t written = 0;
@@ -740,20 +688,16 @@ TEST_F(AdapterPurityTest,
 
   // 2. Operator 可变缓冲区：6000 字节存储，保留完整答案
   {
-    CompanyOperatorDocOutput op_out{kMockServiceDocQa, nullptr, 0.0f,
-                                    nullptr,           0,       0};
+    CompanyOperatorOutput op_out{kMockServiceDocQa, nullptr, 0};
     std::vector<char> ans_buf(6000);
     CompanyString cs_ans{0, ans_buf.data()};
-    op_out.answer_text = &cs_ans;
-    std::vector<char> int_buf(128);
-    CompanyString cs_int{0, int_buf.data()};
-    op_out.intent_name = &cs_int;
+    op_out.result_json = &cs_ans;
 
     TestOutputBatchView op_dest;
-    op_dest.leased_slots["doc_out"].push_back(&op_out);
-    op_dest.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-    op_dest.SetCapacity("doc_out", "answer_text", ans_buf.size() - 1);
-    op_dest.SetCapacity("doc_out", "intent_name", int_buf.size() - 1);
+    op_dest.leased_slots["json_out"].push_back(&op_out);
+    op_dest.slot_types["json_out"] = "CompanyOperatorOutput";
+    op_dest.SetCapacity("json_out", "result_json", ans_buf.size() - 1);
+
     op_dest.count = 1;
 
     size_t written = 0;
@@ -762,13 +706,16 @@ TEST_F(AdapterPurityTest,
                                                   &op_dest, &written, &status);
     EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, 1U);
-    EXPECT_EQ(std::string(op_out.answer_text->data), long_answer);
+    EXPECT_EQ(
+        std::string(
+            OutputJson(op_out).at("answer_text").get<std::string>().c_str()),
+        long_answer);
   }
 }
 
 TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
   const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(converter, nullptr);
 
   test::ParsedOutputOptions options(*converter);
@@ -782,21 +729,20 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
                     RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", 0.9f)}});
     context.Publish(kChunkCount, Int32Batch{{0, 0, 3}});
 
-    // 容量按 payload 字节计；存储还需为结束符预留空间。
-    char answer[6] = {'o', 'l', 'd', '\0', '#', '!'};
-    char intent[4] = {'?', '?', '?', '!'};
-    CompanyString answer_string{3, answer};
-    CompanyString intent_string{0, intent};
-    CompanyOperatorDocOutput output{kMockServiceDocQa, nullptr, 0.0f,
-                                    nullptr,           0,       0};
-    output.answer_text = &answer_string;
-    output.intent_name = &intent_string;
+    const auto expected = nlohmann::json({{"intent_name", "QA"},
+                                          {"confidence", 0.9f},
+                                          {"answer_text", "1234"},
+                                          {"chunk_count", 3}})
+                              .dump();
+    std::vector<char> bytes(expected.size() + 2, '!');
+    std::memcpy(bytes.data(), "old", 4);
+    CompanyString text{3, bytes.data()};
+    CompanyOperatorOutput output{kMockServiceDocQa, &text, 0};
     TestOutputBatchView view;
     view.count = 1;
-    view.leased_slots["doc_out"] = {&output};
-    view.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-    view.SetCapacity("doc_out", "answer_text", 4);
-    view.SetCapacity("doc_out", "intent_name", 2);
+    view.leased_slots["json_out"] = {&output};
+    view.slot_types["json_out"] = "CompanyOperatorOutput";
+    view.SetCapacity("json_out", "result_json", expected.size());
     size_t written = 0;
     AdapterStatus status;
     EXPECT_EQ(
@@ -804,20 +750,16 @@ TEST_F(AdapterPurityTest, DocAnswerExactCapacityAndOneByteOverflow) {
                                             &view, &written, &status),
         overflow ? COMPANY_ALG_ERR_BUFFER_TOO_SMALL : COMPANY_ALG_SUCCESS);
     EXPECT_EQ(written, overflow ? 0U : 1U);
-    EXPECT_STREQ(intent, "QA");
-    EXPECT_EQ(intent_string.length, 2);
-    EXPECT_EQ(intent[3], '!');
-    EXPECT_EQ(answer[5], '!');
+    EXPECT_EQ(bytes.back(), '!');
     if (overflow) {
-      EXPECT_EQ(status.FieldPath(), "answer_text");
+      EXPECT_EQ(status.FieldPath(), "result_json");
       EXPECT_EQ(status.SampleIndex(), 0);
-      EXPECT_STREQ(answer, "old");
-      EXPECT_EQ(answer_string.length, 3);
-      EXPECT_EQ(answer[4], '#');
+      EXPECT_STREQ(bytes.data(), "old");
+      EXPECT_EQ(text.length, 3);
     } else {
-      EXPECT_STREQ(answer, "1234");
-      EXPECT_EQ(answer_string.length, 4);
-      EXPECT_EQ(answer[4], '\0');
+      EXPECT_EQ(OutputJson(output).at("answer_text"), "1234");
+      EXPECT_EQ(text.length, expected.size());
+      EXPECT_EQ(bytes[expected.size()], '\0');
     }
   }
 }
@@ -849,7 +791,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_PreservesDistinctRows) {
       "entity_in", "translate");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "translate");
+      "json_out", "translate");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(in_conv, out_conv);
@@ -871,8 +813,8 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_PreservesDistinctRows) {
   TextBatch answers{{0, 0, "ans0"}, {1, 0, "ans1"}};
   harness.Publish("translation", std::move(answers));
 
-  EntityOutputFixture fix0, fix1;
-  std::vector<CompanyOperatorEntityOutput> outputs = {fix0.out, fix1.out};
+  JsonOutputFixture fix0, fix1;
+  std::vector<CompanyOperatorOutput> outputs = {fix0.out, fix1.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()), 0);
 }
 
@@ -900,7 +842,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
 
 TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
   test::AdapterHarness harness(out_conv);
@@ -915,20 +857,28 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   harness.Publish("intent", std::move(intents));
   harness.Publish("chunk_count", std::move(chunks));
 
-  DocOutputFixture fix0, fix1;
-  std::vector<CompanyOperatorDocOutput> outputs = {fix0.out, fix1.out};
+  JsonOutputFixture fix0, fix1;
+  std::vector<CompanyOperatorOutput> outputs = {fix0.out, fix1.out};
   ASSERT_EQ(harness.EncodeOperator(&outputs, fix0.Capacities()), 0);
-  ASSERT_NE(outputs[0].answer_text, nullptr);
-  EXPECT_STREQ(outputs[0].answer_text->data, "Answer 0");
-  ASSERT_NE(outputs[0].intent_name, nullptr);
-  EXPECT_STREQ(outputs[0].intent_name->data, "INTENT_0");
-  EXPECT_EQ(outputs[0].chunk_count, 3);
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[0]).at("answer_text").get<std::string>().c_str(),
+      "Answer 0");
+  ASSERT_NE(outputs[0].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[0]).at("intent_name").get<std::string>().c_str(),
+      "INTENT_0");
+  EXPECT_EQ(OutputJson(outputs[0]).at("chunk_count").get<int>(), 3);
 
-  ASSERT_NE(outputs[1].answer_text, nullptr);
-  EXPECT_STREQ(outputs[1].answer_text->data, "Answer 1");
-  ASSERT_NE(outputs[1].intent_name, nullptr);
-  EXPECT_STREQ(outputs[1].intent_name->data, "INTENT_1");
-  EXPECT_EQ(outputs[1].chunk_count, 5);
+  ASSERT_NE(outputs[1].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[1]).at("answer_text").get<std::string>().c_str(),
+      "Answer 1");
+  ASSERT_NE(outputs[1].result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(outputs[1]).at("intent_name").get<std::string>().c_str(),
+      "INTENT_1");
+  EXPECT_EQ(OutputJson(outputs[1]).at("chunk_count").get<int>(), 5);
 }
 
 // =========================================================================
@@ -984,7 +934,7 @@ TEST_F(AdapterPurityTest, HostSpecificInputsShareLogicalPayload) {
 // 证明 2：输出 Converter 可跨 Pipeline 复用
 TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "entity_extract");
+      "json_out", "entity_extract");
   ASSERT_NE(out_conv, nullptr);
 
   // 上下文 A：实体抽取 Pipeline 的输出
@@ -997,11 +947,11 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
         JsonDocumentItem("[\"PERSON: Alice\"]", true, JsonParseStatus::kOk));
     harness.Publish("entities", std::move(batch));
 
-    EntityOutputFixture ent_fix;
-    std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
+    JsonOutputFixture ent_fix;
+    std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
     ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-    ASSERT_NE(outputs[0].entities_json, nullptr);
-    EXPECT_STREQ(outputs[0].entities_json->data, "[\"PERSON: Alice\"]");
+    ASSERT_NE(outputs[0].result_json, nullptr);
+    EXPECT_STREQ(outputs[0].result_json->data, "[\"PERSON: Alice\"]");
   }
 
   // 上下文 B：产出相同 schema 的通用结构化 JSON Pipeline 输出
@@ -1014,11 +964,11 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
         JsonDocumentItem("{\"summary\":\"ok\"}", true, JsonParseStatus::kOk));
     harness.Publish("entities", std::move(batch));
 
-    EntityOutputFixture ent_fix;
-    std::vector<CompanyOperatorEntityOutput> outputs = {ent_fix.out};
+    JsonOutputFixture ent_fix;
+    std::vector<CompanyOperatorOutput> outputs = {ent_fix.out};
     ASSERT_EQ(harness.EncodeOperator(&outputs, ent_fix.Capacities()), 0);
-    ASSERT_NE(outputs[0].entities_json, nullptr);
-    EXPECT_STREQ(outputs[0].entities_json->data, "{\"summary\":\"ok\"}");
+    ASSERT_NE(outputs[0].result_json, nullptr);
+    EXPECT_STREQ(outputs[0].result_json->data, "{\"summary\":\"ok\"}");
   }
 }
 
@@ -1101,14 +1051,14 @@ TEST_F(AdapterPurityTest,
 
 // 证明 4：同一 Pipeline 可独立切换输出格式
 TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
-  // 输出 binding A：entity_out/entity_extract ->
-  // CompanyOperatorEntityOutput
+  // 输出 binding A：json_out/entity_extract ->
+  // CompanyOperatorOutput
   {
     const auto* out_a = IoConverterRegistry::Instance().FindOutputConverter(
-        "entity_out", "entity_extract");
+        "json_out", "entity_extract");
     ASSERT_NE(out_a, nullptr);
-    EntityOutputFixture fix;
-    std::vector<CompanyOperatorEntityOutput> outputs = {fix.out};
+    JsonOutputFixture fix;
+    std::vector<CompanyOperatorOutput> outputs = {fix.out};
     test::AdapterHarness harness(out_a);
 
     harness.Publish(
@@ -1117,28 +1067,29 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
             {0, 0,
              JsonDocumentItem("[\"item_1\"]", true, JsonParseStatus::kOk)}});
     ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
-    ASSERT_NE(outputs[0].entities_json, nullptr);
-    EXPECT_STREQ(outputs[0].entities_json->data, "[\"item_1\"]");
+    ASSERT_NE(outputs[0].result_json, nullptr);
+    EXPECT_STREQ(outputs[0].result_json->data, "[\"item_1\"]");
   }
 
-  // 输出 binding B：keyword_out/keyword_match ->
-  // CompanyOperatorKeywordOutput
+  // 输出 binding B：json_out/keyword_match ->
+  // CompanyOperatorOutput
   {
     const auto* out_b = IoConverterRegistry::Instance().FindOutputConverter(
-        "keyword_out", "keyword_match");
+        "json_out", "keyword_match");
     ASSERT_NE(out_b, nullptr);
-    KeywordOutputFixture fix;
-    std::vector<CompanyOperatorKeywordOutput> outputs = {fix.out};
+    JsonOutputFixture fix;
+    std::vector<CompanyOperatorOutput> outputs = {fix.out};
     test::AdapterHarness harness(out_b);
 
     RuleMatchItem urgent(1, "URGENT", "急", 1.0f);
     urgent.slots["flag"] = "urgent";
     harness.Publish("matches", RuleMatchBatch{{0, 0, urgent}});
     ASSERT_EQ(harness.EncodeOperator(&outputs, fix.Capacities()), 0);
-    EXPECT_EQ(outputs[0].is_hit, 1);
-    ASSERT_NE(outputs[0].match_result_json, nullptr);
-    EXPECT_STREQ(outputs[0].match_result_json->data,
-                 "{\"confidence\":1.0,\"intent\":\"URGENT\",\"matched_word\":"
+    EXPECT_EQ(OutputJson(outputs[0]).at("is_hit").get<int>(), 1);
+    ASSERT_NE(outputs[0].result_json, nullptr);
+    EXPECT_STREQ(outputs[0].result_json->data,
+                 "{\"confidence\":1.0,\"intent\":\"URGENT\",\"is_hit\":1,"
+                 "\"matched_word\":"
                  "\"急\",\"matches\":[],\"slots\":{\"flag\":\"urgent\"}}");
   }
 }
@@ -1217,7 +1168,7 @@ TEST_F(AdapterPurityTest, UnknownConverterPairsFailBeforeExecution) {
       {"io",
        {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
         {"output",
-         {{{"type", "keyword_out"},
+         {{{"type", "json_out"},
            {"name", "keyword_match"},
            {"inputs", {{"matches", "rules.matches"}}}}}}}},
       {"models", nlohmann::json::array()},

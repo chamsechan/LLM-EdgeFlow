@@ -8,7 +8,7 @@
     ],
     "output": [
       {
-        "type": "audio_out",
+        "type": "json_out",
         "name": "audio_asr_intent",
         "inputs": {
           "transcribed_text": "transcribe_audio.text",

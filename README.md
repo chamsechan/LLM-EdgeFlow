@@ -124,6 +124,10 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 
 以下配置展示已有能力的组合方式。涉及模型的方案需要匹配的 Backend、权重及运行资源；实际可用的节点、模型和后端以目标构建的 `alg_pipeline_tool catalog` 为准。
 
+当前八类业务统一通过 `json_out` 输出类型返回 C 结构 `CompanyOperatorOutput`：
+`result_json` 承载完整业务 JSON，`status_code` 保存状态，不同 `name` 选择业务响应契约。
+以后需要新增其他结构时，沿用 [ValueType 与 binding 注册接口](doc/dev_guide/operator_output_allocation.md#实现与注册)。
+
 | 场景 | 处理方式 | 配置与运行条件 |
 | :--- | :--- | :--- |
 | 关注词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match_rules.json)；无需模型权重 |
@@ -133,6 +137,7 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 | Cross-Encoder 精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank_cpu.json)；ONNX Runtime 与精排模型 |
 | OCR 票据问答 | 票据图像转写后抽取字段并问答 | [配置](configs/pipeline_ocr_invoice_qa_kite.json)；Kite 与视觉、语言模型 |
 | 语音识别与意图槽位 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_intent_cpu.json)；启用 whisper.cpp 并准备语音模型 |
+| 翻译 | 完整 JSON 请求中的 `query` 翻译为中文 | [配置](configs/pipeline_translate_cpu.json)；llama.cpp 与语言模型 |
 
 Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置；参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
 

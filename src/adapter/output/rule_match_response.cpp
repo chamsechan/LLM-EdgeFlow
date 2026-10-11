@@ -5,7 +5,7 @@
 
 namespace llm_edgeflow {
 
-std::string SerializeRuleMatchResponse(const RuleMatchItem& result) {
+nlohmann::json BuildRuleMatchResponse(const RuleMatchItem& result) {
   nlohmann::json matches = nlohmann::json::array();
   for (const auto& hit : result.matches) {
     nlohmann::json entry;
@@ -28,7 +28,7 @@ std::string SerializeRuleMatchResponse(const RuleMatchItem& result) {
     response["confidence"] = result.score;
     response["slots"] = result.slots;
   }
-  return response.dump();
+  return response;
 }
 
 }  // namespace llm_edgeflow

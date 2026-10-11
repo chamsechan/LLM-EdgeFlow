@@ -8,8 +8,8 @@
 
 ## 直接调用 Operator API
 
-翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在根 `io` 中选择输入 `entity_in/translate` 与输出 `entity_out/translate`，框架据此选择转换器并组合内部边界；翻译输出默认容量为 8191 字节。
-输入/输出复用已有文本载体，因此结构字段仍叫 `sentence_text` / `entities_json`。
+翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在根 `io` 中选择输入 `entity_in/translate` 与输出 `json_out/translate`，框架据此选择转换器并组合内部边界；翻译输出默认容量为 8191 字节。
+输入复用实体输入载体的 `sentence_text` 字段；输出使用统一 C 结构 `CompanyOperatorOutput` 的 `result_json` 字段。
 传入的是完整对象文本，不是 `query` 子串，也不是双重 JSON 编码后的字符串：
 
 ```cpp
@@ -33,11 +33,11 @@ llm_edgeflow::operator_api::NamedIoBatch inputs(1);
 inputs[0]["trans.entity_in"] = llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&input);
 
 llm_edgeflow::operator_api::NamedIoBatch outputs(1);
-outputs[0]["trans.entity_out"] = nullptr;
+outputs[0]["trans.json_out"] = nullptr;
 
 int ret = op.Process(handle, inputs, outputs);
-/* ret == 0 时，outputs[0]["trans.entity_out"] 指向 CompanyOperatorEntityOutput，
-   其 entities_json 是完整的 {"translated":"..."}。
+/* ret == 0 时，outputs[0]["trans.json_out"] 指向 CompanyOperatorOutput，
+   其 result_json 是完整的 {"translated":"..."}，status_code 保存状态。
    复制需要的值，重置 outputs/租约后，调用 op.Destroy(handle)、op.DeInit()。 */
 ```
 
@@ -100,7 +100,7 @@ flowchart LR
 ```
 
 - [Translate InputConverter](../../src/adapter/input/translate_json_input.cpp) 与 [OutputConverter](../../src/adapter/output/translation_json_output.cpp)
-  复用 `entity_in/entity_out` 宿主类型和输出池，只增加 JSON 字段映射；统一 Demo 复用现有文本/JSON 运行函数。
+  复用 `entity_in` 输入载体与 `json_out` 统一输出载体和输出池，只增加 JSON 字段映射；统一 Demo 解析并展示完整响应。
 - [Pipeline](../../configs/pipeline_translate_cpu.json)仅使用已有 `llm_generate`，
   直接将 `input.query` 原文传入模型，生成纯文本 `translate_text.text`。翻译规则放在节点
   `system_prompt` 参数中，由现有 C++ Model 组装对话提示词。每条请求只调用一次文本

@@ -126,15 +126,15 @@ class PipelineCliTest(unittest.TestCase):
         response = self.command(
             "init", "--input", "keyword_in/keyword_match",
             "--input", "entity_in/entity_extract",
-            "--output", "keyword_out/keyword_match",
-            "--output", "entity_out/entity_extract",
+            "--output", "json_out/keyword_match",
+            "--output", "json_out/entity_extract",
         )
         self.assertEqual(response["pipeline"], {
             "io": {
                 "input": [{"type": "keyword_in", "name": "keyword_match"},
                           {"type": "entity_in", "name": "entity_extract"}],
-                "output": [{"type": "keyword_out", "name": "keyword_match"},
-                           {"type": "entity_out", "name": "entity_extract"}],
+                "output": [{"type": "json_out", "name": "keyword_match"},
+                           {"type": "json_out", "name": "entity_extract"}],
             },
             "models": [], "pipeline": [],
         })
@@ -143,7 +143,7 @@ class PipelineCliTest(unittest.TestCase):
         original = self.fixture("configs/pipeline_keyword_match_rules.json")
         self.assertEqual(self.command("init", "--profile", "keyword_match_rules")["pipeline"], original)
         draft = self.command("init", "--input", "keyword_in/keyword_match",
-                             "--output", "keyword_out/keyword_match")["pipeline"]
+                             "--output", "json_out/keyword_match")["pipeline"]
         added = self.command("edit", "--stdin", document={
             "pipeline": draft, "operation": {"kind": "add_node", "type": "text_rule_match"},
         })
@@ -168,7 +168,7 @@ class PipelineCliTest(unittest.TestCase):
 
     def test_resolution_uses_pipeline_directory_and_reports_declared_files(self):
         document = self.fixture("configs/pipeline_doc_qa_cpu.json")
-        document["io"]["output"][0]["params"] = {"answer_text_max_bytes": 137}
+        document["io"]["output"][0]["params"] = {"result_json_max_bytes": 137}
         expected_files = set()
         for index, model in enumerate(document["models"]):
             model["file"] = f"artifacts/{model['name']}.weights"
@@ -188,10 +188,10 @@ class PipelineCliTest(unittest.TestCase):
             "external_type": "CompanyOperatorDocInput", "params": {},
         })
         output = checked_io["io"]["output"][0]
-        self.assertEqual((output["type"], output["name"]), ("doc_out", "doc_qa"))
-        self.assertEqual(output["external_type"], "CompanyOperatorDocOutput")
-        self.assertEqual(output["params"]["answer_text_max_bytes"], 137)
-        self.assertEqual(output["params"]["intent_name_max_bytes"], 63)
+        self.assertEqual((output["type"], output["name"]), ("json_out", "doc_qa"))
+        self.assertEqual(output["external_type"], "CompanyOperatorOutput")
+        self.assertEqual(output["params"]["result_json_max_bytes"], 137)
+        self.assertEqual(set(output["params"]), {"result_json_max_bytes"})
         resolved = self.command("resolve-conf", conf.name, "--root", self.directory,
                                 "--depth", "3")["configuration"]
         self.assertEqual(resolved["pipeline_path"], str(pipeline))
@@ -209,7 +209,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(generated["params"]["endpoints"], {"answer": {"prompt": "{{input}}"}})
         self.assertEqual(generated["params"]["max_tokens"], 128)
         self.assertEqual(generated["params"]["temperature"], 0.3)
-        self.assertEqual(json.loads(resolved["output_pools"]["doc_out"]["params"]), output["params"])
+        self.assertEqual(json.loads(resolved["output_pools"]["json_out"]["params"]), output["params"])
         self.assertEqual((pipeline.read_bytes(), conf.read_bytes()), before)
 
     def test_test_build_selects_fixture_category_without_loading_resources(self):
@@ -226,7 +226,7 @@ class PipelineCliTest(unittest.TestCase):
         document = {
             "io": {
                 "input": [{"type": "entity_in", "name": "entity_extract"}],
-                "output": [{"type": "entity_out", "name": "entity_extract",
+                "output": [{"type": "json_out", "name": "entity_extract",
                             "inputs": {"entities": "extract.text"}}],
             },
             "models": [{"type": "llm", "name": "generator", "file": "artifacts/never_loaded.gguf",
@@ -419,10 +419,10 @@ class PipelineCommandsTest(unittest.TestCase):
                 (path / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
                 code, resolved = self.command("validate-io", str(path / "pipeline.conf"))
                 self.assertEqual(code, 0, resolved)
-                self.assertEqual(resolved["io"]["output"][0]["type"], "keyword_out")
-                self.assertEqual(set(resolved["output_pools"]), {"keyword_out"})
-                self.assertEqual(resolved["output_pools"]["keyword_out"]["capacities"],
-                                 {"match_result_json": 2047})
+                self.assertEqual(resolved["io"]["output"][0]["type"], "json_out")
+                self.assertEqual(set(resolved["output_pools"]), {"json_out"})
+                self.assertEqual(resolved["output_pools"]["json_out"]["capacities"],
+                                 {"result_json": 8191})
                 self.assertEqual((path / "pipeline.json").read_text(), before)
 
     def test_external_io_lists_and_pair_fields_are_required(self):
@@ -453,12 +453,12 @@ class PipelineCommandsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(described["node_type"], "text_rule_match")
         code, initialized = self.command("init", "--input", "keyword_in/keyword_match",
-                                         "--output", "keyword_out/keyword_match")
+                                         "--output", "json_out/keyword_match")
         self.assertEqual(code, 0, initialized)
         self.assertEqual(initialized["pipeline"]["pipeline"], [])
         self.assertEqual(initialized["pipeline"]["io"], {
             "input": [{"type": "keyword_in", "name": "keyword_match"}],
-            "output": [{"type": "keyword_out", "name": "keyword_match"}]})
+            "output": [{"type": "json_out", "name": "keyword_match"}]})
         pipeline = json.loads((REPO / "configs/pipeline_keyword_match_rules.json").read_text())
         code, validated = self.command("validate", "--stdin", input_pipeline=pipeline)
         self.assertEqual(code, 0, validated)
@@ -476,7 +476,7 @@ class PipelineCommandsTest(unittest.TestCase):
                 "unavailable_models": {"config": "pipeline.conf", "dataset": "unused.txt"}}}))
             (root / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
             io = {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-                  "output": [{"type": "keyword_out", "name": "keyword_match"}]}
+                  "output": [{"type": "json_out", "name": "keyword_match"}]}
             pipeline = {"io": io, "models": [{"type": "unregistered_in_this_build"}], "pipeline": []}
             (root / "pipeline.json").write_text(json.dumps(pipeline))
             process = subprocess.run([str(TEST_TOOL), "catalog"], cwd=root, capture_output=True, text=True)
@@ -546,12 +546,12 @@ class PipelineCommandsTest(unittest.TestCase):
             code, validated = self.command("validate", str(saved))
             self.assertEqual(code, 0, validated)
         empty = subprocess.run([str(TEST_TOOL), "init", "--raw", "--input", "keyword_in/keyword_match",
-                               "--output", "keyword_out/keyword_match"],
+                               "--output", "json_out/keyword_match"],
                                text=True, capture_output=True, cwd=REPO, check=False)
         self.assertEqual(empty.returncode, 0, empty.stderr)
         self.assertEqual(json.loads(empty.stdout), {
             "io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-                   "output": [{"type": "keyword_out", "name": "keyword_match"}]},
+                   "output": [{"type": "json_out", "name": "keyword_match"}]},
             "models": [], "pipeline": []})
 
     def test_init_rejects_invalid_options(self):
@@ -610,21 +610,21 @@ class PipelineCommandsTest(unittest.TestCase):
             self.assertEqual(direct["configuration"]["model_files"][0]["resolved"],
                              str(Path(directory) / pipe_doc["models"][0]["file"]))
             output = next(entry for entry in pipe_doc["io"]["output"]
-                          if entry["type"] == "entity_out")
-            output.setdefault("params", {})["entities_json_max_bytes"] = 0
+                          if entry["type"] == "json_out")
+            output.setdefault("params", {})["result_json_max_bytes"] = 0
             (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             code, rejected = self.command("resolve-conf", str(changed.relative_to(REPO)), "--root", str(REPO))
             self.assertEqual(code, 1)
             self.assertFalse(rejected["ok"])
             self.assertEqual(rejected["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
-            self.assertEqual(rejected["diagnostics"][0]["path"], "/io/output/0/params/entities_json_max_bytes")
-            self.assertIn("entities_json", rejected["diagnostics"][0]["message"])
+            self.assertEqual(rejected["diagnostics"][0]["path"], "/io/output/0/params/result_json_max_bytes")
+            self.assertIn("result_json", rejected["diagnostics"][0]["message"])
 
             pipe_doc["io"]["output"][0].pop("params")
             (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             code, defaulted = self.command("resolve-conf", str(changed.relative_to(REPO)), "--root", str(REPO))
             self.assertEqual(code, 0, defaulted)
-            self.assertEqual(defaulted["configuration"]["output_pools"]["entity_out"]["capacities"], {"entities_json": 2047})
+            self.assertEqual(defaulted["configuration"]["output_pools"]["json_out"]["capacities"], {"result_json": 8191})
 
             bad_conf = Path(directory) / "bad.conf"
             bad_conf.write_text("{}")
@@ -716,8 +716,8 @@ class PipelineCommandsTest(unittest.TestCase):
             changed_pipe = Path(directory) / conf["pipe_path"]
             # 显式的错误分配保留其精确的原生指针。
             output = next(entry for entry in pipe_doc["io"]["output"]
-                          if entry["type"] == "entity_out")
-            output.setdefault("params", {})["entities_json_max_bytes"] = 0
+                          if entry["type"] == "json_out")
+            output.setdefault("params", {})["result_json_max_bytes"] = 0
             changed_pipe.write_text(json.dumps(pipe_doc))
             changed_conf.write_text(json.dumps(conf))
 
@@ -727,7 +727,7 @@ class PipelineCommandsTest(unittest.TestCase):
             self.assertEqual(res["diagnostics"][0]["code"], "IO_VALIDATION_ERROR")
             self.assertEqual(
                 res["diagnostics"][0]["path"],
-                "/io/output/0/params/entities_json_max_bytes",
+                "/io/output/0/params/result_json_max_bytes",
             )
 
     def test_cli_unknown_converter_unknown_root_and_malformed_pair(self):
@@ -757,8 +757,8 @@ class PipelineCommandsTest(unittest.TestCase):
         for params, expected_code, path in (
             ({"unknown_field": 1}, "UNKNOWN_CONFIG_FIELD", "/io/output/0/params/unknown_field"),
             ([], "DEPLOYMENT_ERROR", "/io/output/0/params"),
-            ({"entities_json_max_bytes": 0}, "CONFIG_FIELD_RANGE", "/io/output/0/params/entities_json_max_bytes"),
-            ({"entities_json_max_bytes": 2.5}, "CONFIG_FIELD_TYPE", "/io/output/0/params/entities_json_max_bytes"),
+            ({"result_json_max_bytes": 0}, "CONFIG_FIELD_RANGE", "/io/output/0/params/result_json_max_bytes"),
+            ({"result_json_max_bytes": 2.5}, "CONFIG_FIELD_TYPE", "/io/output/0/params/result_json_max_bytes"),
         ):
             document = copy.deepcopy(pipeline)
             document["io"]["output"][0]["params"] = params

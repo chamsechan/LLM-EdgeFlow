@@ -14,6 +14,9 @@
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/integration/json_output_test_utils.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -77,27 +80,27 @@ TEST_F(DifferentIoModalitiesTest, OcrInvoiceQa) {
       operator_api::MakeBorrowedOperatorInput(&p2_cs);
 
   operator_api::NamedIoBatch outputs(2);
-  outputs[0]["camera_0.od_out"] = nullptr;
-  outputs[1]["camera_0.od_out"] = nullptr;
+  outputs[0]["camera_0.json_out"] = nullptr;
+  outputs[1]["camera_0.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(outputs.size(), 2u);
 
-  auto out1_sp = outputs[0]["camera_0.od_out"];
-  auto out2_sp = outputs[1]["camera_0.od_out"];
+  auto out1_sp = outputs[0]["camera_0.json_out"];
+  auto out2_sp = outputs[1]["camera_0.json_out"];
   ASSERT_NE(out1_sp, nullptr);
   ASSERT_NE(out2_sp, nullptr);
 
-  auto* out1 = static_cast<CompanyOdOutput*>(out1_sp.get());
-  auto* out2 = static_cast<CompanyOdOutput*>(out2_sp.get());
+  auto* out1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
+  auto* out2 = static_cast<CompanyOperatorOutput*>(out2_sp.get());
 
-  EXPECT_EQ(out1->detected_box_count, 6);
-  EXPECT_EQ(out2->detected_box_count, 6);
+  EXPECT_EQ(ParseJsonOutput(out1).at("detected_box_count").get<int>(), 6);
+  EXPECT_EQ(ParseJsonOutput(out2).at("detected_box_count").get<int>(), 6);
 
   ASSERT_NE(out1->result_json, nullptr);
   std::string json_str1(out1->result_json->data, out1->result_json->length);
-  auto j1 = nlohmann::json::parse(json_str1);
+  auto j1 = nlohmann::json::parse(json_str1).at("result");
   EXPECT_TRUE(j1.contains("invoice_code") && j1.contains("total_amount"));
 
   out1_sp.reset();
@@ -139,27 +142,27 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
       operator_api::MakeBorrowedOperatorInput(&in_audio2);
 
   operator_api::NamedIoBatch outputs(2);
-  outputs[0]["mic_0.audio_out"] = nullptr;
-  outputs[1]["mic_0.audio_out"] = nullptr;
+  outputs[0]["mic_0.json_out"] = nullptr;
+  outputs[1]["mic_0.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(outputs.size(), 2u);
 
-  auto out1_sp = outputs[0]["mic_0.audio_out"];
-  auto out2_sp = outputs[1]["mic_0.audio_out"];
+  auto out1_sp = outputs[0]["mic_0.json_out"];
+  auto out2_sp = outputs[1]["mic_0.json_out"];
   ASSERT_NE(out1_sp, nullptr);
   ASSERT_NE(out2_sp, nullptr);
 
-  auto* out1 = static_cast<CompanyOperatorAudioOutput*>(out1_sp.get());
-  auto* out2 = static_cast<CompanyOperatorAudioOutput*>(out2_sp.get());
+  auto* out1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
+  auto* out2 = static_cast<CompanyOperatorOutput*>(out2_sp.get());
 
-  ASSERT_NE(out1->intent_slot_json, nullptr);
-  std::string s1(out1->intent_slot_json->data, out1->intent_slot_json->length);
+  ASSERT_TRUE(ParseJsonOutput(out1).contains("intent_slot"));
+  std::string s1 = ParseJsonOutput(out1).at("intent_slot").dump();
   auto j1 = nlohmann::json::parse(s1);
 
-  ASSERT_NE(out2->intent_slot_json, nullptr);
-  std::string s2(out2->intent_slot_json->data, out2->intent_slot_json->length);
+  ASSERT_TRUE(ParseJsonOutput(out2).contains("intent_slot"));
+  std::string s2 = ParseJsonOutput(out2).at("intent_slot").dump();
   auto j2 = nlohmann::json::parse(s2);
 
   EXPECT_EQ(j1["intent"], "NAVIGATION");
@@ -173,16 +176,16 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
       operator_api::MakeBorrowedOperatorInput(&empty1);
   inputs[1]["mic_0.audio_in"] =
       operator_api::MakeBorrowedOperatorInput(&empty2);
-  outputs[0]["mic_0.audio_out"] = nullptr;
-  outputs[1]["mic_0.audio_out"] = nullptr;
+  outputs[0]["mic_0.json_out"] = nullptr;
+  outputs[1]["mic_0.json_out"] = nullptr;
 
   EXPECT_EQ(op.Process(handle, inputs, outputs), 0);
-  out1_sp = outputs[0]["mic_0.audio_out"];
-  out2_sp = outputs[1]["mic_0.audio_out"];
+  out1_sp = outputs[0]["mic_0.json_out"];
+  out2_sp = outputs[1]["mic_0.json_out"];
   ASSERT_NE(out1_sp, nullptr);
   ASSERT_NE(out2_sp, nullptr);
-  out1 = static_cast<CompanyOperatorAudioOutput*>(out1_sp.get());
-  out2 = static_cast<CompanyOperatorAudioOutput*>(out2_sp.get());
+  out1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
+  out2 = static_cast<CompanyOperatorOutput*>(out2_sp.get());
   EXPECT_EQ(out1->status_code, 0);
   EXPECT_EQ(out2->status_code, 0);
 
@@ -285,21 +288,22 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   inputs[0]["ranker.rerank_in"] =
       operator_api::MakeBorrowedOperatorInput(&in_rerank);
   operator_api::NamedIoBatch outputs(1);
-  outputs[0]["ranker.rerank_out"] = nullptr;
+  outputs[0]["ranker.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(outputs.size(), 1u);
 
-  auto out_sp = outputs[0]["ranker.rerank_out"];
+  auto out_sp = outputs[0]["ranker.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_rerank = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
+  auto* out_rerank = static_cast<CompanyOperatorOutput*>(out_sp.get());
 
-  EXPECT_EQ(out_rerank->count, 5);
+  EXPECT_EQ(ParseJsonOutput(out_rerank).at("count").get<int>(), 5);
 
-  for (int i = 0; i < out_rerank->count; ++i) {
+  for (int i = 0; i < ParseJsonOutput(out_rerank).at("count").get<int>(); ++i) {
     if (i > 0) {
-      EXPECT_GE(out_rerank->scores[i - 1], out_rerank->scores[i]);
+      EXPECT_GE(ParseJsonOutput(out_rerank).at("scores").at(i - 1).get<float>(),
+                ParseJsonOutput(out_rerank).at("scores").at(i).get<float>());
     }
   }
 

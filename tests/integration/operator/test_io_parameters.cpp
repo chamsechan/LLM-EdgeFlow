@@ -17,8 +17,11 @@
 #include "adapter/output/rule_match_response.h"
 #include "core/common_contracts.h"
 #include "edgeflow/operator/interface.h"
+#include "tests/integration/json_output_test_utils.h"
 #include "tests/support/operator_test_fixture.h"
 #include "tests/support/registry_test_access.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 namespace llm_edgeflow {
 namespace {
@@ -34,7 +37,7 @@ struct InputParams {
 
 struct OutputParams {
   std::string marker;
-  int64_t match_result_json_max_bytes = 0;
+  int64_t result_json_max_bytes = 0;
   std::string derived_marker;
   int64_t requested_size = 0;
 };
@@ -74,13 +77,13 @@ Parameters<InputParams> InputParamSpec() {
 Parameters<OutputParams> OutputParamSpec() {
   return Parameters<OutputParams>{
       Field("marker", &OutputParams::marker).Default("default"),
-      MaxBytes("match_result_json", &OutputParams::match_result_json_max_bytes)
+      MaxBytes("result_json", &OutputParams::result_json_max_bytes)
           .Maximum(4096)
           .Default(64)}
       .Prepare([](OutputParams* params, std::string*) {
         ++output_prepare_calls;
-        params->requested_size = params->match_result_json_max_bytes;
-        params->match_result_json_max_bytes += 512;
+        params->requested_size = params->result_json_max_bytes;
+        params->result_json_max_bytes += 512;
         params->marker += ":prepared";
         params->derived_marker = params->marker + ":derived";
         return true;
@@ -116,24 +119,23 @@ int EncodeWithParameters(AlgContext* context,
                          ExternalOutputBatchView* destination,
                          size_t* written_count, AdapterStatus* status) {
   const auto& params = options.Params<OutputParams>();
-  const auto capacity = destination->GetPoolSpec("keyword_out")
-                            ->capacities.at("match_result_json");
+  const auto capacity =
+      destination->GetPoolSpec("json_out")->capacities.at("result_json");
   for (size_t i = 0; i < destination->count; ++i) {
     std::lock_guard<std::mutex> lock(observations_mutex);
     output_observations.push_back(OutputObservation{
         options.params, &params, options.params->Effective(), capacity});
   }
-  return EncodeResultRows<KeywordOutputValue>(
-      context, options, destination, written_count, status, "keyword_out",
+  return EncodeResultRows<JsonOutputValue>(
+      context, options, destination, written_count, status, "json_out",
       MakeBlackboardKey<RuleMatchBatch>("matches"),
-      [&params](const RuleMatchItem& result, KeywordOutputValue* output) {
-        auto response =
-            nlohmann::json::parse(SerializeRuleMatchResponse(result));
+      [&params](const RuleMatchItem& result, JsonOutputValue* output) {
+        auto response = BuildRuleMatchResponse(result);
         response["marker"] = params.marker;
         response["derived_marker"] = params.derived_marker;
-        output->is_hit = result.is_hit;
+        response["is_hit"] = result.is_hit ? 1 : 0;
         output->status_code = result.status_code;
-        output->match_result_json = response.dump();
+        output->result_json = response.dump();
         return AdapterStatus::Ok();
       });
 }
@@ -147,7 +149,7 @@ class IoParametersTest : public test_support::OperatorTestFixture {
     const auto* input =
         registry.FindInputConverter("keyword_in", "keyword_match");
     const auto* output =
-        registry.FindOutputConverter("keyword_out", "keyword_match");
+        registry.FindOutputConverter("json_out", "keyword_match");
     ASSERT_NE(input, nullptr);
     ASSERT_NE(output, nullptr);
     production_keyword_decode = input->decode_fn;
@@ -160,7 +162,7 @@ class IoParametersTest : public test_support::OperatorTestFixture {
       definition.decode_fn = &DecodeWithParameters;
       ASSERT_TRUE(registry.RegisterInputConverter(definition));
     }
-    if (!registry.FindOutputConverter("keyword_out", kConverterName)) {
+    if (!registry.FindOutputConverter("json_out", kConverterName)) {
       auto definition = *output;
       definition.name = kConverterName;
       test_support::RegistryTestAccess::SetService(
@@ -196,12 +198,12 @@ class IoParametersTest : public test_support::OperatorTestFixture {
              {"name", kConverterName},
              {"params", {{"prefix", prefix}}}}}},
           {"output",
-           {{{"type", "keyword_out"},
+           {{{"type", "json_out"},
              {"name", kConverterName},
              {"inputs", {{"matches", "rules.matches"}}},
              {"params",
               {{"marker", marker},
-               {"match_result_json_max_bytes", requested_size}}}}}}}},
+               {"result_json_max_bytes", requested_size}}}}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline",
          {{{"name", "rules"},
@@ -225,24 +227,24 @@ class IoParametersTest : public test_support::OperatorTestFixture {
     operator_api::NamedIoBatch inputs(1), outputs(1);
     inputs[0]["test.keyword_in"] =
         operator_api::MakeBorrowedOperatorInput(&input);
-    outputs[0]["test.keyword_out"] = nullptr;
+    outputs[0]["test.json_out"] = nullptr;
     ASSERT_EQ(ops_.Process(handle, inputs, outputs), 0)
         << operator_api::GetOperatorLastError();
-    const auto output = outputs[0].at("test.keyword_out");
+    const auto output = outputs[0].at("test.json_out");
     ASSERT_NE(output, nullptr);
     const auto* result =
-        static_cast<const CompanyOperatorKeywordOutput*>(output.get());
+        static_cast<const CompanyOperatorOutput*>(output.get());
     EXPECT_EQ(result->service_type, kOutputService);
     EXPECT_EQ(result->status_code, 0);
-    EXPECT_EQ(result->is_hit, 1);
-    ASSERT_NE(result->match_result_json, nullptr);
-    ASSERT_NE(result->match_result_json->data, nullptr);
-    EXPECT_GT(result->match_result_json->length, requested_size);
-    EXPECT_LE(result->match_result_json->length, requested_size + 512);
+    EXPECT_EQ(ParseJsonOutput(result).at("is_hit").get<int>(), 1);
+    ASSERT_NE(result->result_json, nullptr);
+    ASSERT_NE(result->result_json->data, nullptr);
+    EXPECT_GT(result->result_json->length, requested_size);
+    EXPECT_LE(result->result_json->length, requested_size + 512);
     auto response = nlohmann::json::parse(
-        result->match_result_json->data,
-        result->match_result_json->data + result->match_result_json->length,
-        nullptr, false);
+        result->result_json->data,
+        result->result_json->data + result->result_json->length, nullptr,
+        false);
     ASSERT_TRUE(response.is_object());
     EXPECT_EQ(response["intent"], prefix);
     EXPECT_EQ(response["marker"], marker + ":prepared");
@@ -291,11 +293,11 @@ TEST_F(IoParametersTest,
     EXPECT_EQ(observation.values, first_output.values);
     EXPECT_EQ(observation.typed, first_output.typed);
     EXPECT_EQ(observation.typed->requested_size, 32);
-    EXPECT_EQ(observation.typed->match_result_json_max_bytes, 544);
+    EXPECT_EQ(observation.typed->result_json_max_bytes, 544);
     EXPECT_EQ(observation.pool_capacity, 544U);
     EXPECT_EQ(observation.effective,
               (nlohmann::json{{"marker", "red:prepared"},
-                              {"match_result_json_max_bytes", 544}}));
+                              {"result_json_max_bytes", 544}}));
   }
 }
 
@@ -333,7 +335,7 @@ TEST_F(IoParametersTest,
   EXPECT_EQ(output_observations.at(1).typed->requested_size, 64);
   EXPECT_EQ(output_observations.at(1).effective,
             (nlohmann::json{{"marker", "blue:prepared"},
-                            {"match_result_json_max_bytes", 576}}));
+                            {"result_json_max_bytes", 576}}));
 }
 
 }  // namespace

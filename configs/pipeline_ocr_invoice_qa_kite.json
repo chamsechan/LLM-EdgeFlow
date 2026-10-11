@@ -12,7 +12,7 @@
     ],
     "output": [
       {
-        "type": "od_out",
+        "type": "json_out",
         "name": "ocr_invoice_qa",
         "inputs": {
           "result": "parse_invoice.document",

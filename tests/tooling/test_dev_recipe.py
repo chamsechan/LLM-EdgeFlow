@@ -112,7 +112,7 @@ class DevRecipeTest(unittest.TestCase):
         self.assertTrue(report["ok"], report)
         effects = json.loads(self.target.with_name(self.target.stem + "_effects.json").read_text())
         self.assertEqual(len(effects["samples"]), 4)
-        self.assertEqual(effects["samples"][0]["expected"], {"/output/is_hit": True})
+        self.assertEqual(effects["samples"][0]["expected"], {"/output/is_hit": 1})
         self.assertTrue((self.target.parent / effects["dataset"]).is_file())
         result = self.verify()
         self.assertTrue(result["ok"], result)
@@ -235,7 +235,7 @@ class DevRecipeTest(unittest.TestCase):
     def test_multiple_output_deployment_is_rejected_before_generation(self):
         path = self.root / "configs/pipeline_keyword_match_rules.json"
         pipeline = json.loads(path.read_text())
-        pipeline["io"]["output"].append({"type": "entity_out", "name": "translate",
+        pipeline["io"]["output"].append({"type": "json_out", "name": "translate",
                                           "inputs": {"translation": "input.sentence_text"}})
         path.write_text(json.dumps(pipeline))
         report = self.assert_prepare_rejected_without_writes()
@@ -259,7 +259,7 @@ class DevRecipeTest(unittest.TestCase):
         for invalid in (
             dict(labelled, samples=[{"expected": {"/status": 0}}]),
             dict(labelled, samples=[labelled["samples"][0], {"expected": {}}]),
-            dict(labelled, output={"type": "entity_out", "name": "entity_extract"}),
+            dict(labelled, output={"type": "json_out", "name": "entity_extract"}),
         ):
             with self.subTest(spec=invalid):
                 source.write_text(json.dumps(invalid))

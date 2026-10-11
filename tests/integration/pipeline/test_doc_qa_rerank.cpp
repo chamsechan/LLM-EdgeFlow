@@ -7,7 +7,10 @@
 
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
+#include "tests/integration/json_output_test_utils.h"
 #include "tests/support/operator_test_fixture.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 using namespace llm_edgeflow::operator_api;
 
@@ -59,33 +62,37 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   in_batch[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in1);
   in_batch[1]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in2);
 
-  out_batch[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
-  out_batch[1]["rag_channel.doc_out"] = std::shared_ptr<void>();
+  out_batch[0]["rag_channel.json_out"] = std::shared_ptr<void>();
+  out_batch[1]["rag_channel.json_out"] = std::shared_ptr<void>();
 
   const int ret = ops_.Process(instance.get(), in_batch, out_batch);
   EXPECT_EQ(ret, 0) << "Process failed: " << GetOperatorLastError();
 
-  auto out1_sp = out_batch[0]["rag_channel.doc_out"];
-  auto out2_sp = out_batch[1]["rag_channel.doc_out"];
+  auto out1_sp = out_batch[0]["rag_channel.json_out"];
+  auto out2_sp = out_batch[1]["rag_channel.json_out"];
   ASSERT_NE(out1_sp, nullptr);
   ASSERT_NE(out2_sp, nullptr);
 
-  const auto* out1 =
-      static_cast<const CompanyOperatorDocOutput*>(out1_sp.get());
-  const auto* out2 =
-      static_cast<const CompanyOperatorDocOutput*>(out2_sp.get());
+  const auto* out1 = static_cast<const CompanyOperatorOutput*>(out1_sp.get());
+  const auto* out2 = static_cast<const CompanyOperatorOutput*>(out2_sp.get());
 
-  EXPECT_GT(out1->chunk_count, 0);
-  ASSERT_NE(out1->intent_name, nullptr);
-  EXPECT_STREQ(out1->intent_name->data, "TECH_ARCHITECTURE");
-  ASSERT_NE(out1->answer_text, nullptr);
-  EXPECT_GT(out1->answer_text->length, 0);
+  EXPECT_GT(ParseJsonOutput(out1).at("chunk_count").get<int>(), 0);
+  ASSERT_TRUE(ParseJsonOutput(out1).contains("intent_name"));
+  EXPECT_STREQ(
+      ParseJsonOutput(out1).at("intent_name").get<std::string>().c_str(),
+      "TECH_ARCHITECTURE");
+  ASSERT_TRUE(ParseJsonOutput(out1).contains("answer_text"));
+  EXPECT_GT(ParseJsonOutput(out1).at("answer_text").get<std::string>().size(),
+            0);
 
-  EXPECT_GT(out2->chunk_count, 0);
-  ASSERT_NE(out2->intent_name, nullptr);
-  EXPECT_STREQ(out2->intent_name->data, "AFTER_SALES_REFUND");
-  ASSERT_NE(out2->answer_text, nullptr);
-  EXPECT_GT(out2->answer_text->length, 0);
+  EXPECT_GT(ParseJsonOutput(out2).at("chunk_count").get<int>(), 0);
+  ASSERT_TRUE(ParseJsonOutput(out2).contains("intent_name"));
+  EXPECT_STREQ(
+      ParseJsonOutput(out2).at("intent_name").get<std::string>().c_str(),
+      "AFTER_SALES_REFUND");
+  ASSERT_TRUE(ParseJsonOutput(out2).contains("answer_text"));
+  EXPECT_GT(ParseJsonOutput(out2).at("answer_text").get<std::string>().size(),
+            0);
 
   out_batch.clear();
   out1_sp.reset();

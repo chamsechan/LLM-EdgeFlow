@@ -17,23 +17,23 @@ namespace {
 
 constexpr auto kTranslation = MakeBlackboardKey<TextBatch>("translation");
 
-constexpr const char* kOutputSlot = "entity_out";
+constexpr const char* kOutputSlot = "json_out";
 
 struct Params {
-  int64_t entities_json_max_bytes = 0;
+  int64_t result_json_max_bytes = 0;
 };
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>({
-      MaxBytes("entities_json", &Params::entities_json_max_bytes).Default(8191),
+      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
   });
 }
 
 AdapterStatus EncodeTranslation(const std::string& result,
-                                EntityOutputValue* output) {
+                                JsonOutputValue* output) {
   output->status_code = 0;
   const nlohmann::json response = {{"translated", result}};
-  output->entities_json = response.dump();
+  output->result_json = response.dump();
   return AdapterStatus::Ok();
 }
 
@@ -42,16 +42,16 @@ int EncodeOperatorTranslationJson(AlgContext* context,
                                   ExternalOutputBatchView* destination,
                                   size_t* written_count,
                                   AdapterStatus* status) {
-  return EncodeResultRows<EntityOutputValue>(context, options, destination,
-                                             written_count, status, kOutputSlot,
-                                             kTranslation, &EncodeTranslation);
+  return EncodeResultRows<JsonOutputValue>(context, options, destination,
+                                           written_count, status, kOutputSlot,
+                                           kTranslation, &EncodeTranslation);
 }
 
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "translate";
-  def.slot = ExternalOutputSlot<EntityOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kTranslation)};
   def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorTranslationJson;

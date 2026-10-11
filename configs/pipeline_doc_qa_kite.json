@@ -8,7 +8,7 @@
     ],
     "output": [
       {
-        "type": "doc_out",
+        "type": "json_out",
         "name": "doc_qa",
         "inputs": {
           "answer_text": "generate_answer.text",

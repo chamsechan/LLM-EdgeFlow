@@ -76,7 +76,7 @@ async function load(name) {
 const app = await load("app.js");
 await app.evaluate();
 const { state, history, drafts, handleApplyFix, restoreHistory } = app.namespace;
-const initial = { io: {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "keyword_out", name: "keyword_match"}]}, models: [], pipeline: [], comment: "before" };
+const initial = { io: {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "json_out", name: "keyword_match"}]}, models: [], pipeline: [], comment: "before" };
 const patched = { ...initial, comment: "after" };
 const fix = { id: "repair-1", title: "Repair", effect: "Replace comment", verification: "pipeline_valid",
   patch: [{ op: "replace", path: "/comment", value: "after" }] };
@@ -217,7 +217,7 @@ for (const change of [
 // I/O pair ordering follows the native Demo carrier order. Parameter overrides
 // do not change the Profile contract.
 reset();
-const profileIo = {input: [{type: "doc_in", name: "doc_qa"}, {type: "audit_in", name: "text_audit"}], output: [{type: "doc_out", name: "doc_qa"}]};
+const profileIo = {input: [{type: "doc_in", name: "doc_qa"}, {type: "audit_in", name: "text_audit"}], output: [{type: "json_out", name: "doc_qa"}]};
 state.catalog = {profiles: [{name: "ordered", suite: "neutral", io: profileIo}]};
 state.catalogProfiles = [];
 elements.get("#cloneProfile").id = "cloneProfile";

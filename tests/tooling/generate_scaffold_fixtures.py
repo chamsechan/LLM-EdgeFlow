@@ -113,7 +113,7 @@ TEST(CustomNodeCatalogTest,
   ASSERT_NE(plan->outputs[0].converter, nullptr);
   EXPECT_EQ(plan->inputs[0].converter->type, "keyword_in");
   EXPECT_EQ(plan->inputs[0].converter->name, "keyword_match");
-  EXPECT_EQ(plan->outputs[0].converter->type, "keyword_out");
+  EXPECT_EQ(plan->outputs[0].converter->type, "json_out");
   EXPECT_EQ(plan->outputs[0].converter->name, "keyword_match");
 }
 }  // namespace llm_edgeflow

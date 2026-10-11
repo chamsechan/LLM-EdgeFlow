@@ -33,6 +33,7 @@ class ScopedIoState {
   ScopedIoState& operator=(const ScopedIoState&) = delete;
 
  private:
+  test_support::RegistryTestAccess::ScopedValueTypeState value_state_;
   std::vector<InputConverterDefinition> inputs_;
   std::vector<OutputConverterDefinition> outputs_;
 };
@@ -40,7 +41,7 @@ class ScopedIoState {
 Json Document(const std::vector<std::string>& output_names = {"doc_qa"}) {
   Json outputs = Json::array();
   for (const auto& name : output_names)
-    outputs.push_back({{"type", "doc_out"},
+    outputs.push_back({{"type", "json_out"},
                        {"name", name},
                        {"inputs",
                         {{"answer_text", "answer.text"},
@@ -74,12 +75,12 @@ Json Node(const Json& document, const std::string& name) {
 
 void RegisterDocOutputs() {
   auto& registry = IoConverterRegistry::Instance();
-  const auto* original = registry.FindOutputConverter("doc_out", "doc_qa");
+  const auto* original = registry.FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(original, nullptr);
   const auto prototype = *original;
   for (const auto& [name, service] : std::vector<std::pair<std::string, int>>{
-           {"keyword_match", kMockServiceKeywordMatch},
-           {"entity_extract", kMockServiceEntityExtract}}) {
+           {"test_authoring_primary", 29101},
+           {"test_authoring_secondary", 29102}}) {
     auto definition = prototype;
     definition.name = name;
     test_support::RegistryTestAccess::SetService(definition.type,
@@ -99,7 +100,8 @@ bool HasDiagnostic(const Json& validation, const std::string& code) {
 TEST(PipelineAuthoringTest, RenameRewritesNodesOutputsAndOrderingReferences) {
   ScopedIoState scope;
   RegisterDocOutputs();
-  const auto original = Document({"keyword_match", "entity_extract"});
+  const auto original =
+      Document({"test_authoring_primary", "test_authoring_secondary"});
   ASSERT_TRUE(
       ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
   const Json request = {{"pipeline", original},
@@ -130,7 +132,8 @@ TEST(PipelineAuthoringTest,
      RemoveClearsAllReferencesAndKeepsUnrelatedBindings) {
   ScopedIoState scope;
   RegisterDocOutputs();
-  const auto original = Document({"keyword_match", "entity_extract"});
+  const auto original =
+      Document({"test_authoring_primary", "test_authoring_secondary"});
   ASSERT_TRUE(
       ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
   const Json request = {
@@ -162,7 +165,8 @@ TEST(PipelineAuthoringTest,
      SharedOutputPortIsAmbiguousForConnectAndDisconnect) {
   ScopedIoState scope;
   RegisterDocOutputs();
-  const auto original = Document({"keyword_match", "entity_extract"});
+  const auto original =
+      Document({"test_authoring_primary", "test_authoring_secondary"});
   ASSERT_TRUE(
       ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
   for (const char* kind : {"connect", "disconnect"}) {
@@ -182,8 +186,9 @@ TEST(PipelineAuthoringTest,
     EXPECT_EQ(request.dump(), before);
     ASSERT_EQ(result.failed_operation_index, 0U);
     ASSERT_FALSE(result.diagnostics.empty());
-    for (const char* fragment : {"AMBIGUOUS_OUTPUT_PORT", "output.answer_text",
-                                 "doc_out", "keyword_match", "entity_extract"})
+    for (const char* fragment :
+         {"AMBIGUOUS_OUTPUT_PORT", "output.answer_text", "json_out",
+          "test_authoring_primary", "test_authoring_secondary"})
       EXPECT_NE(result.diagnostics.front().find(fragment), std::string::npos);
   }
 }
