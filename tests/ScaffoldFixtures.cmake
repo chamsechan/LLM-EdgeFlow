@@ -16,9 +16,6 @@ set(EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
     "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/scaffold/scaffold_contracts.cpp")
 add_custom_command(
   OUTPUT "${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}"
-  BYPRODUCTS
-    "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/scaffold/control_tutorial/pipeline.json"
-    "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/scaffold/control_tutorial/pipeline.conf"
   COMMAND "${Python3_EXECUTABLE}"
           "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
           "${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}"

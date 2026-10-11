@@ -273,7 +273,7 @@ edgeflow_add_runner_test(StructuredJsonParseNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
   "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
-  "NodeAuthoringExamplesTest.*:PromptGuidedLlmNodeTest.*:CustomNodeCatalogTest.*"
+  "PromptGuidedLlmNodeTest.*:ScaffoldGeneratedNodeTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "AuthorNodeTest.*:ModelCallTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
