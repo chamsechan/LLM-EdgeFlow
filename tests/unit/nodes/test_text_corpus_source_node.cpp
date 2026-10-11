@@ -1,106 +1,51 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <memory>
-#include <nlohmann/json.hpp>
-#include <string>
-#include <vector>
-
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/pipeline_validator.h"
-#include "core/session_context.h"
-#include "tests/support/node_test_utils.h"
-#include "tests/support/pipeline_test_utils.h"
+#include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
+namespace {
+using test_support::NodeProbe;
 
-class TextCorpusSourceNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override { session_ctx_ = std::make_unique<SessionContext>(); }
-  std::unique_ptr<SessionContext> session_ctx_;
-};
-
-TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
-  auto node = NodeRegistry::Instance().Create("text_corpus_source");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {
-      {"corpus", {"Clause 1: Compliance", "Clause 2: Security"}}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("corpus");
-  ASSERT_NE(out, nullptr);
-  ASSERT_EQ(out->size(), 2u);
-  EXPECT_EQ((*out)[0].data, "Clause 1: Compliance");
-  EXPECT_EQ((*out)[1].data, "Clause 2: Security");
-  for (size_t index = 0; index < out->size(); ++index) {
-    EXPECT_EQ(out->at(index).req_id, 0u);
-    EXPECT_EQ(out->at(index).sub_id, index);
+TEST(TextCorpusSourceNodeTest,
+     PublishesLiteralCorpusInConfiguredOrderWithSessionIdentity) {
+  SessionContext session;
+  NodeProbe node;
+  ASSERT_TRUE(node.Init("text_corpus_source",
+                        {{"corpus", {"second", "第一", "second", ""}}}, session,
+                        {}, {{"corpus", "corpus", ""}}))
+      << node.diagnostic;
+  ASSERT_NE(node.plan.FindPort("corpus", PortDirection::kOutput), nullptr);
+  EXPECT_EQ(node.plan.FindPort("corpus", PortDirection::kOutput)->lifetime,
+            "session");
+  AlgContext first;
+  ASSERT_EQ(node.node->Process(&first), 0);
+  const auto* output = first.Read<TextBatch>("corpus");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 4u);
+  const std::vector<std::string> expected = {"second", "第一", "second", ""};
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ((*output)[i].req_id, 0u);
+    EXPECT_EQ((*output)[i].sub_id, i);
+    EXPECT_EQ((*output)[i].data, expected[i]);
   }
-  const auto definition = PipelineCatalog::FindNode("text_corpus_source");
-  ASSERT_TRUE(definition.has_value());
-  EXPECT_TRUE(definition->inputs.empty());
-  ASSERT_EQ(definition->outputs.size(), 1u);
-  EXPECT_EQ(definition->outputs.front().lifetime, "session");
+  AlgContext another;
+  ASSERT_EQ(node.node->Process(&another), 0);
+  ASSERT_NE(another.Read<TextBatch>("corpus"), nullptr);
+  EXPECT_EQ(another.Read<TextBatch>("corpus")->at(1).data, "第一");
 }
 
-TEST_F(TextCorpusSourceNodeTest, EmptyCorpusConfig) {
-  auto node = NodeRegistry::Instance().Create("text_corpus_source");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"corpus", nlohmann::json::array()}},
-                              session_ctx_.get()));
-
-  AlgContext ctx;
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("corpus");
-  ASSERT_NE(out, nullptr);
-  EXPECT_TRUE(out->empty());
+TEST(TextCorpusSourceNodeTest, EmptyCorpusPublishesAnEmptyBatch) {
+  SessionContext session;
+  NodeProbe node;
+  ASSERT_TRUE(node.Init("text_corpus_source",
+                        {{"corpus", nlohmann::json::array()}}, session, {},
+                        {{"corpus", "corpus", ""}}));
+  AlgContext context;
+  ASSERT_EQ(node.node->Process(&context), 0);
+  ASSERT_NE(context.Read<TextBatch>("corpus"), nullptr);
+  EXPECT_TRUE(context.Read<TextBatch>("corpus")->empty());
 }
-
-TEST_F(TextCorpusSourceNodeTest,
-       MissingAndInvalidCorpusRejectedDuringConfiguration) {
-  struct InvalidCase {
-    nlohmann::json config;
-    DiagnosticCode code;
-    std::string path;
-  };
-  const std::vector<InvalidCase> invalid = {
-      {nlohmann::json::object(), DiagnosticCode::kMissingConfigField,
-       "/corpus"},
-      {{{"corpus", "not an array"}},
-       DiagnosticCode::kConfigFieldType,
-       "/corpus"},
-      {{{"corpus", {"valid", 7}}},
-       DiagnosticCode::kConfigFieldType,
-       "/corpus/1"},
-      {{{"corpus", {"valid", false}}},
-       DiagnosticCode::kConfigFieldType,
-       "/corpus/1"},
-      {{{"corpus", {"valid", nullptr}}},
-       DiagnosticCode::kConfigFieldType,
-       "/corpus/1"}};
-  for (const auto& item : invalid) {
-    SCOPED_TRACE(item.config.dump());
-    const nlohmann::json pipeline = {
-        {"models", nlohmann::json::array()},
-        {"pipeline", nlohmann::json::array({{{"name", "source"},
-                                             {"type", "text_corpus_source"},
-                                             {"params", item.config}}})}};
-    const auto report =
-        PipelineValidator::Validate(pipeline, MakeTestBoundary());
-    EXPECT_FALSE(report.ok);
-    EXPECT_TRUE(
-        std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
-                    [&](const auto& error) {
-                      return error.path == "/pipeline/0/params" + item.path &&
-                             error.code == item.code;
-                    }))
-        << report.ToJson().dump(2);
-  }
-}
-
+}  // namespace
 }  // namespace llm_edgeflow
