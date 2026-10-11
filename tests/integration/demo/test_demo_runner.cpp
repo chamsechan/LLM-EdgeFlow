@@ -198,6 +198,39 @@ class KiteDemoDirectory final {
   std::filesystem::path path;
 };
 
+nlohmann::json JsonOutputPipeline(const nlohmann::json& result,
+                                  bool include_translation = false) {
+  nlohmann::json pipeline = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "json_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"type", "text_template"},
+         {"name", "json_text"},
+         {"params", {{"template", result.dump()}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"type", "structured_json_parse"},
+         {"name", "parse"},
+         {"params", {{"failure_policy", "fail"}}},
+         {"inputs", {{"text", "json_text.text"}}}}}}};
+  if (include_translation) {
+    pipeline["io"]["output"].push_back(
+        {{"type", "json_out"},
+         {"name", "translate"},
+         {"inputs", {{"translation", "translation.text"}}}});
+    pipeline["pipeline"].push_back(
+        {{"type", "text_template"},
+         {"name", "translation"},
+         {"params", {{"template", "翻译结果"}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}});
+  }
+  return pipeline;
+}
+
 }  // namespace
 
 TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
@@ -263,8 +296,101 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
   const auto sample = nlohmann::json::parse(line);
   EXPECT_EQ(sample["status"], 0);
-  ASSERT_TRUE(sample["output"].contains("entities"));
-  EXPECT_FALSE(sample["output"]["entities"].empty());
+  ASSERT_TRUE(sample["output"].is_object() || sample["output"].is_array());
+  EXPECT_FALSE(sample["output"].empty());
+}
+
+TEST(DemoRunnerTest, SingleJsonOutputPreservesCompleteValues) {
+  KiteDemoDirectory temporary;
+  std::ofstream(temporary.path / "pipeline.conf")
+      << R"({"pipe_path":"pipeline.json"})";
+  std::ofstream(temporary.path / "input.txt") << "source\n";
+  DemoOptions options;
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = (temporary.path / "output").string();
+  options.batch_size = 1;
+  const std::vector<nlohmann::json> expected_results = {
+      {{"entities", {"张三", "北京"}}, {"count", 2}},
+      nlohmann::json::array({"张三", {{"name", "北京"}}}),
+      nlohmann::json::array(),
+      nullptr,
+      "text",
+      7,
+      false};
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  for (const auto& expected : expected_results) {
+    SCOPED_TRACE(expected.dump());
+    std::ofstream(temporary.path / "pipeline.json")
+        << JsonOutputPipeline(expected);
+    nlohmann::json sdk_result;
+    {
+      OperatorFunc instance_ops{};
+      void* handle = nullptr;
+      ASSERT_EQ(CreateOperatorInstance(options, "JsonOutputTest", &instance_ops,
+                                       &handle),
+                0);
+      OperatorHandleGuard guard(instance_ops, handle);
+      char source[] = "source";
+      CompanyString text{6, source};
+      CompanyOperatorEntityInput input{kMockServiceEntityExtract, &text};
+      NamedIoBatch inputs(1), outputs(1);
+      inputs[0]["demo.entity_in"] = MakeBorrowedOperatorInput(&input);
+      outputs[0]["demo.json_out"] = nullptr;
+      ASSERT_EQ(instance_ops.Process(handle, inputs, outputs), 0)
+          << GetOperatorLastError();
+      const auto* carrier = static_cast<const CompanyOperatorOutput*>(
+          outputs[0].at("demo.json_out").get());
+      ASSERT_NE(carrier, nullptr);
+      ASSERT_NE(carrier->result_json, nullptr);
+      EXPECT_EQ(carrier->status_code, 0);
+      sdk_result = nlohmann::json::parse(
+          carrier->result_json->data,
+          carrier->result_json->data + carrier->result_json->length);
+      EXPECT_EQ(sdk_result, expected);
+    }
+    ASSERT_EQ(RunOperatorDemo(options), 0);
+    std::ifstream results(temporary.path / "output/pipeline/results.jsonl");
+    ASSERT_TRUE(results.good());
+    std::string line;
+    ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+    const auto sample = nlohmann::json::parse(line);
+    EXPECT_EQ(sample["status"], 0);
+    EXPECT_EQ(sample["output"], sdk_result);
+    EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
+  }
+  EXPECT_EQ(ops.DeInit(), 0);
+}
+
+TEST(DemoRunnerTest, MixedJsonOutputsPreserveEachCarrierUnderItsNameAndType) {
+  KiteDemoDirectory temporary;
+  const auto entities = nlohmann::json::array({"张三", {{"name", "北京"}}});
+  std::ofstream(temporary.path / "pipeline.json")
+      << JsonOutputPipeline(entities, true);
+  std::ofstream(temporary.path / "pipeline.conf")
+      << R"({"pipe_path":"pipeline.json"})";
+  std::ofstream(temporary.path / "input.txt") << "source\n";
+  DemoOptions options;
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = (temporary.path / "output").string();
+  options.batch_size = 1;
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(RunOperatorDemo(options), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
+  std::ifstream results(temporary.path / "output/pipeline/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+  const auto sample = nlohmann::json::parse(line);
+  EXPECT_EQ(sample["status"], 0);
+  EXPECT_EQ(
+      sample["output"],
+      (nlohmann::json{{"entity_extract.json_out", entities},
+                      {"translate.json_out", {{"translated", "翻译结果"}}}}));
+  EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
 }
 
 TEST(DemoRunnerTest, LogLevelEnvironmentConfiguration) {
