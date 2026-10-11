@@ -103,7 +103,8 @@ endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
 file(GLOB EDGEFLOW_TEST_NODE_SRCS CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/unit/nodes/test_*.cpp")
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/nodes/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/contracts/test_*.cpp")
 add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
@@ -262,6 +263,8 @@ edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "FunctionNodeTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ScalarParametersTest edgeflow_test_nodes_runner
+  "ScalarParametersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
   "ParameterBindingTest.*" "${_edgeflow_tier1}")
 
