@@ -41,7 +41,6 @@ class IoConverterRegistry {
       const std::string& type, const std::string& name) const;
 
   void ClearForTesting();
-  void ResetConflictForTesting();
 
  private:
   IoConverterRegistry() = default;

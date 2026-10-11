@@ -245,9 +245,4 @@ void IoConverterRegistry::ClearForTesting() {
   conflicts_.Clear();
 }
 
-void IoConverterRegistry::ResetConflictForTesting() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  conflicts_.Clear();
-}
-
 }  // namespace llm_edgeflow
