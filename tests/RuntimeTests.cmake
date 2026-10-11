@@ -332,7 +332,7 @@ edgeflow_add_runner_test(PipelineContractsTest edgeflow_test_tooling_runner
   "PipelineCatalogTest.*:PipelineAuthoringTest.*"
   "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
-  "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")
+  "SharedDemoConsumerTest.*" "${_edgeflow_tier3};kite;kite-real")
 
 add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict
   --gtest_filter=RegistryConflictNodeTest.*)
