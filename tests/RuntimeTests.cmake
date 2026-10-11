@@ -158,6 +158,10 @@ if(LLM_EDGEFLOW_HAS_WHISPERCPP)
   target_compile_definitions(edgeflow_test_tooling_runner PRIVATE HAVE_WHISPERCPP=1)
 endif()
 
+if(LLM_EDGEFLOW_HAS_LLAMACPP)
+  target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_LLAMACPP=1)
+endif()
+
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   foreach(target
       edgeflow_test_core_runner
