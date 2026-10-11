@@ -24,6 +24,25 @@ class TextChunkNodeTest : public ::testing::Test {
   SessionContext session_;
 };
 
+TEST_F(TextChunkNodeTest, DefaultWindowIsOneHundredCodePointsWithoutOverlap) {
+  auto node = NodeRegistry::Instance().Create("text_chunk");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session_));
+  AlgContext context;
+  const std::string first_window(100, 'a');
+  context.Publish(kText, TextBatch{{91, 7, first_window + "尾"}});
+  ASSERT_EQ(node->Process(&context), 0);
+  const auto* chunks = context.Read(kChunks);
+  const auto* counts = context.Read(kCounts);
+  ASSERT_NE(chunks, nullptr);
+  ASSERT_NE(counts, nullptr);
+  ASSERT_EQ(chunks->size(), 2U);
+  EXPECT_EQ(chunks->at(0).data, first_window);
+  EXPECT_EQ(chunks->at(1).data, "尾");
+  ASSERT_EQ(counts->size(), 1U);
+  EXPECT_EQ(counts->at(0).data, 2);
+}
+
 TEST_F(TextChunkNodeTest, ProducesLiteralWindowsInUnicodeCodePoints) {
   struct Case {
     const char* name;
