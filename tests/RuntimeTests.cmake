@@ -364,6 +364,8 @@ edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
 edgeflow_add_runner_test(WhisperCppBackendTest edgeflow_test_core_runner
   "WhisperCppBackendTest.*" "${_edgeflow_tier1}")
 
+edgeflow_add_runner_test(FileParametersTest edgeflow_test_adapter_runner
+  "FileParametersTest.*" "${_edgeflow_tier1}")
 # 架构与源码治理门禁。
 add_test(NAME LayerGuardTest
   COMMAND ${CMAKE_COMMAND} -E env
