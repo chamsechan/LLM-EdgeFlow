@@ -291,7 +291,7 @@ add_test(NAME CppOperatorSdkTest COMMAND test_cpp_operator_sdk)
 set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorSafetyTest edgeflow_test_adapter_runner
-  "OperatorSafetyTest.*" "${_edgeflow_tier2}")
+  "OperatorPublicationTest.*:OperatorBoundaryTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(DifferentIoModalitiesTest edgeflow_test_adapter_runner
   "DifferentIoModalitiesTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(AllBizPipelinesTest edgeflow_test_adapter_runner
