@@ -402,13 +402,8 @@ jobs:
           ccache -s
 
       - name: Verify Backend Registration and Real Model Tests
-        env:
-          LLM_EDGEFLOW_TEST_KITELLM_DEMOS: "1"
-          LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL: ${{ github.workspace }}/configs/SmolVLM-256M-Instruct-Q8_0.gguf
-          LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG: ${{ github.workspace }}/configs/kite_vision_run.json
-          LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
         run: |
-          test -s "${LLM_EDGEFLOW_TEST_KITELLM_MODEL}"
+          test -s configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
           ./build/variants/kite-cpu/alg_pipeline_tool catalog > build/variants/kite-cpu/catalog.json
           python3 - <<'PY'
           import json
@@ -433,6 +428,18 @@ jobs:
           (cd build/variants/kite-cpu && ctest -j4 \
             --output-on-failure --no-tests=error \
             -L "kite")
+          ./build/variants/kite-cpu/alg_demo \
+            --config configs/pipeline_entity_extract_kite.conf \
+            --dataset data/corpus_entity_extract.txt \
+            --output-dir build/variants/kite-cpu/real-text
+          ./build/variants/kite-cpu/alg_demo \
+            --config configs/pipeline_doc_qa_kite_generated_embeddings.conf \
+            --dataset data/corpus_doc_qa.txt \
+            --output-dir build/variants/kite-cpu/real-generated-embeddings
+          ./build/variants/kite-cpu/alg_demo \
+            --config configs/pipeline_ocr_invoice_qa_kite.conf \
+            --dataset data/corpus_ocr_invoice_qa_kite.txt \
+            --output-dir build/variants/kite-cpu/real-vision
 
       - name: Save Kite CCache
         uses: ./.github/actions/ccache-save
