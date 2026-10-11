@@ -299,9 +299,12 @@ class BusinessResponsesTest : public ::testing::Test {
   }
   void TearDown() override {
     outputs_.clear();
-    if (handle_)
+    if (handle_) {
       EXPECT_EQ(ops_.Destroy(handle_), 0) << api::GetOperatorLastError();
-    if (initialized_) EXPECT_EQ(ops_.DeInit(), 0);
+    }
+    if (initialized_) {
+      EXPECT_EQ(ops_.DeInit(), 0);
+    }
     if (!directory_.empty()) {
       std::error_code error;
       std::filesystem::remove_all(directory_, error);

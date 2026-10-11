@@ -25,7 +25,9 @@ class OwnedRealOperator {
   OwnedRealOperator(const OwnedRealOperator&) = delete;
   OwnedRealOperator& operator=(const OwnedRealOperator&) = delete;
   ~OwnedRealOperator() {
-    if (handle_) EXPECT_EQ(Close(), 0) << api::GetOperatorLastError();
+    if (handle_) {
+      EXPECT_EQ(Close(), 0) << api::GetOperatorLastError();
+    }
   }
   int Open(const std::string& config, const fs::path& root) {
     const auto directory = root.string();
@@ -55,8 +57,9 @@ class RealModelExecutionTest : public ::testing::Test {
     initialized_ = true;
   }
   void TearDown() override {
-    if (initialized_)
+    if (initialized_) {
       EXPECT_EQ(ops_.DeInit(), 0) << api::GetOperatorLastError();
+    }
   }
   api::OperatorFunc ops_{};
   bool initialized_ = false;
