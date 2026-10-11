@@ -319,7 +319,7 @@ edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
   "IoConverterTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
-  "IoConverterRegistryTest.*:ConverterContractsTest.*" "${_edgeflow_tier1}")
+  "IoConverterRegistryTest.*:ConverterRowsTest.*:ConverterIndexTest.*:ConverterKeyTest.*:ConverterRoutingTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConverterTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
