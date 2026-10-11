@@ -266,7 +266,7 @@ edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(ScalarParametersTest edgeflow_test_nodes_runner
   "ScalarParametersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
-  "ParameterBindingTest.*" "${_edgeflow_tier1}")
+  "ParameterBindingTest.*:NestedParametersTest.*" "${_edgeflow_tier1}")
 
 add_test(NAME CppOperatorSdkTest COMMAND test_cpp_operator_sdk)
 set_tests_properties(CppOperatorSdkTest PROPERTIES
