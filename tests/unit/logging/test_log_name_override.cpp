@@ -1,20 +1,15 @@
+#define COMPANY_ALG_LOG_NAME "HOST_COMPONENT"
 #include <gtest/gtest.h>
 
-#include <string>
-
-#define COMPANY_ALG_LOG_NAME "EDGEFLOW_OVERRIDE"
 #include "edgeflow/log.h"
 
-TEST(CompanyAlgLogNameOverrideTest, PublicMacroUsesCompileTimeNameOverride) {
-  const int saved_level = AlgBase_getLogLevelByName(COMPANY_ALG_LOG_NAME);
-  ASSERT_EQ(AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME,
-                                      E_ALG_BASE_LOG_LEVEL_INFO),
-            0);
-
+TEST(LoggingNameOverrideTest,
+     MacroUsesTranslationUnitNameWithExternalLoggerLinkage) {
+  const int saved = AlgBase_getLogLevelByName(nullptr);
+  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_DEBUG), 0);
   testing::internal::CaptureStderr();
-  ALG_LOG_INFO("override\n");
-  const std::string output = testing::internal::GetCapturedStderr();
-
-  EXPECT_EQ(output, "[Info][EDGEFLOW_OVERRIDE] override\n");
-  EXPECT_EQ(AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME, saved_level), 0);
+  ALG_LOG_DEBUG("record=%d", 42);
+  const auto record = testing::internal::GetCapturedStderr();
+  EXPECT_EQ(AlgBase_setLogLevelByName(nullptr, saved), 0);
+  EXPECT_EQ(record, "[Debug][HOST_COMPONENT] record=42");
 }

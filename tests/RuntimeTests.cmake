@@ -219,8 +219,7 @@ edgeflow_add_runner_test(ModelRuntimeFactoryTest edgeflow_test_core_runner
 edgeflow_add_runner_test(ConcreteModelSemanticsTest edgeflow_test_core_runner
   "BgeEmbeddingModelTest.*:BgeRerankerModelTest.*:GeneratedTextEmbeddingModelTest.*:VisionDocumentModelTest.*:WhisperAsrModelTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
-  "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
-  "${_edgeflow_tier1}")
+  "LoggingRecordTest.*:LoggingNameOverrideTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DagPipelineTest edgeflow_test_core_runner
   "PipelineRuntimeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(EngineFaultToleranceAndLifecycleTest
