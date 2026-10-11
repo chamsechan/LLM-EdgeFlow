@@ -214,7 +214,7 @@ edgeflow_add_runner_test(EngineFaultToleranceAndLifecycleTest
 edgeflow_add_runner_test(PipelineConfigTest edgeflow_test_core_runner
   "PipelineParsingTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
-  "RegistryReentrantTest.*" "${_edgeflow_tier1}")
+  "NodeRegistryTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
   "CatalogContractSsotTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(ModelManagerOwnershipTest edgeflow_test_core_runner

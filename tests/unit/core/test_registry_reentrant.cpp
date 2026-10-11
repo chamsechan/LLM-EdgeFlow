@@ -1,656 +1,218 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <future>
 #include <memory>
-#include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "core/node_interface.h"
 #include "core/node_registry.h"
-#include "core/pipeline.h"
-#include "core/pipeline_diagnostic.h"
-#include "engine/backend_registry.h"
-#include "engine/model_interface.h"
-#include "engine/model_registry.h"
-#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/registry_test_access.h"
-#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
+namespace {
 
-static NodeDefinition MakeTestNodeDef(const std::string& type) {
-  NodeDefinition def;
-  def.node_type = type;
-  def.category = "test";
-  def.description = "test node " + type;
-  def.parallel_safe = true;
-  return def;
-}
-
-static ModelDefinition MakeTestModelDef(const std::string& type) {
-  ModelDefinition def;
-  def.impl_name = type;
-  def.model_type = "embedding";
-  def.description = "test model " + type;
-  def.required_protocol = ExecutionProtocol::kFixture;
-  def.fixture_backends = {"reentrant_backend"};
-  def.concurrency = InferenceConcurrency::kConcurrent;
-  return def;
-}
-
-// RECHECK-R1-003: 构造期重入自身 Registry 查询，测试锁粒度是否正确释放
-class ReentrantNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "reentrant";
-  ReentrantNode() {
-    // 构造期间同步调用 NodeRegistry 查询
-    volatile bool has = NodeRegistry::Instance().Has("reentrant");
-    (void)has;
-  }
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  NodeControlResult Control(int, const std::string&) override {
-    return NodeControlResult::Handled(0);
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-REGISTER_NODE_WITH_DEFINITION(ReentrantNode,
-                              MakeTestNodeDef(ReentrantNode::kNodeType));
-
-class ReentrantModelNode : public ReentrantNode {
- public:
-  inline static constexpr char kNodeType[] = "reentrant_model";
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-static NodeDefinition MakeReentrantModelNodeDef() {
-  auto def = MakeTestNodeDef(ReentrantModelNode::kNodeType);
-  def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
-  def.model_dependencies = {{"model", "embedding", "bind_model"}};
-  return def;
-}
-REGISTER_NODE_WITH_DEFINITION(ReentrantModelNode, MakeReentrantModelNodeDef());
-
-class ReentrantSession : public IBackendSession {
- public:
-  const std::string& BackendType() const noexcept override {
-    static const std::string type = "reentrant_backend";
-    return type;
-  }
-  ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kFixture;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  BatchPolicy GetBatchPolicy() const noexcept override { return {4, 0}; }
-};
-class ReentrantBackend : public IInferenceBackend {
- public:
-  const std::string& BackendType() const noexcept override {
-    static const std::string type = "reentrant_backend";
-    return type;
-  }
-  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
-                                        std::string*) noexcept override {
-    return std::make_shared<ReentrantSession>();
-  }
-};
-static BackendDefinition MakeReentrantBackendDef() {
-  BackendDefinition def;
-  def.backend_type = "reentrant_backend";
-  def.supported_protocols = {ExecutionProtocol::kFixture};
-  def.concurrency = InferenceConcurrency::kConcurrent;
-  return def;
-}
-REGISTER_BACKEND_WITH_DEFINITION(ReentrantBackend, MakeReentrantBackendDef());
-
-class ReentrantModel : public IEmbeddingModel {
- public:
-  inline static constexpr char kImplName[] = "reentrant_model";
-
-  ReentrantModel() {
-    // 构造期间同步调用 ModelRegistry 查询
-    volatile bool has = ModelRegistry::Instance().Has(kImplName);
-    (void)has;
-  }
-  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
-                                        std::string*) {
-    return std::make_shared<ReentrantModel>();
-  }
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = kImplName;
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string model_type = "embedding";
-    return model_type;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  int Embed(const TextBatch&, EmbeddingBatch*,
-            std::string* diagnostic = nullptr) noexcept override {
-    if (diagnostic) diagnostic->clear();
-    return 0;
-  }
-};
-REGISTER_MODEL_WITH_DEFINITION(ReentrantModel,
-                               MakeTestModelDef(ReentrantModel::kImplName));
-
-TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
-  // 1. 同步测试 Node 构造期重入 NodeRegistry
-  {
-    Pipeline p;
-    PipelineDiagnostic diag;
-    nlohmann::json cfg = {
-        {"pipeline",
-         nlohmann::json::array({{{"name", "reentrant"},
-                                 {"type", "reentrant"},
-                                 {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
-    EXPECT_TRUE(p.IsReady());
-  }
-
-  // 2. 同步测试 Model 构造期重入 ModelRegistry
-  {
-    Pipeline p;
-    PipelineDiagnostic diag;
-    nlohmann::json cfg = {
-        {"models",
-         nlohmann::json::array({{{"name", "m1"},
-                                 {"type", "embedding"},
-                                 {"backend",
-                                  {{"type", "reentrant_backend"},
-                                   {"params", nlohmann::json::object()}}},
-                                 {"file", "reentrant.bin"},
-                                 {"params", nlohmann::json::object()}}})},
-        {"pipeline",
-         nlohmann::json::array({{{"name", "reentrant"},
-                                 {"type", "reentrant_model"},
-                                 {"params", {{"bind_model", "m1"}}},
-                                 {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(BuildTestPipeline(p, cfg, MakeTestBoundary(), &diag));
-    EXPECT_TRUE(p.IsReady());
-  }
-}
-
-class SimpleTestNode : public INode {
+class RegistryProbeNode final : public INode {
  public:
   bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
-  NodeControlResult Control(int, const std::string&) override {
-    return NodeControlResult::Handled(0);
-  }
   const std::string& Name() const override {
-    static const std::string name = "simple_test";
+    static const std::string name = "registry_probe";
     return name;
   }
 };
 
-// R5：creator 执行、creator 拷贝、Definition 回调拷贝及重入查询
-TEST(RegistryReentrantTest, ReentrantCreatorAndFactoryZeroDeadlock) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  bool factory_invoked = false;
-  bool registered = NodeRegistry::Instance().RegisterWithDefinitionFactory(
-      "reentrant_factory",
-      []() -> std::unique_ptr<INode> {
-        EXPECT_TRUE(NodeRegistry::Instance().Has("reentrant_factory"));
-        auto found = NodeRegistry::Instance().Find("reentrant_factory");
-        EXPECT_TRUE(found.has_value());
-        auto list = NodeRegistry::Instance().ListDefinitions();
-        EXPECT_FALSE(list.empty());
-        auto snap = NodeRegistry::Instance().Snapshot();
-        EXPECT_FALSE(snap.definitions.empty());
-        return std::make_unique<SimpleTestNode>();
-      },
-      [&]() -> NodeDefinition {
-        factory_invoked = true;
-        (void)NodeRegistry::Instance().Has("reentrant");
-        (void)NodeRegistry::Instance().ListDefinitions();
-        (void)NodeRegistry::Instance().Snapshot();
-        return MakeTestNodeDef("reentrant_factory");
-      });
-  EXPECT_TRUE(registered);
-  EXPECT_TRUE(factory_invoked);
-
-  auto instance = NodeRegistry::Instance().Create("reentrant_factory");
-  EXPECT_NE(instance, nullptr);
+NodeDefinition Definition(std::string type, int control = 0) {
+  NodeDefinition definition;
+  definition.node_type = std::move(type);
+  definition.description = "literal description";
+  definition.inputs = {NodePortDefinition{"text", "TextBatch"}};
+  definition.outputs = {NodePortDefinition{"answer", "TextBatch"}};
+  if (control) definition.control_commands.emplace_back(control, "update");
+  return definition;
 }
 
-// R5：creator 拷贝和 Definition 回调拷贝的重入，且不死锁
-struct ReentrantCopyCreator {
-  static inline std::atomic<int> copy_count{0};
+auto Creator() {
+  return [] { return std::make_unique<RegistryProbeNode>(); };
+}
 
-  ReentrantCopyCreator() = default;
-  ReentrantCopyCreator(const ReentrantCopyCreator& /*other*/) {
-    copy_count.fetch_add(1, std::memory_order_relaxed);
-    (void)NodeRegistry::Instance().Has("reentrant_callable_copy");
-    (void)NodeRegistry::Instance().ListTypes();
-    (void)NodeRegistry::Instance().Snapshot();
+class NodeRegistryTest : public ::testing::Test {
+ protected:
+  void SetUp() override { test_support::RegistryTestAccess::ResetNodes(); }
+  test_support::RegistryTestAccess::ScopedNodeState saved_;
+};
+
+TEST_F(NodeRegistryTest,
+       RegistrationAndReadSnapshotsAreIndependentSortedValues) {
+  auto& registry = NodeRegistry::Instance();
+  auto original = Definition("zeta");
+  ASSERT_TRUE(registry.Register("zeta", Creator(), original));
+  ASSERT_TRUE(registry.Register("alpha", Creator(), Definition("alpha")));
+  original.description = "mutated original";
+  auto snapshot = registry.Snapshot();
+  ASSERT_EQ(snapshot.definitions.size(), 2U);
+  EXPECT_EQ(snapshot.definitions[0].node_type, "alpha");
+  EXPECT_EQ(snapshot.definitions[1].node_type, "zeta");
+  EXPECT_FALSE(snapshot.has_conflict);
+  EXPECT_TRUE(snapshot.conflict_errors.empty());
+  auto found = registry.Find("zeta");
+  ASSERT_TRUE(found.has_value());
+  EXPECT_EQ(found->description, "literal description");
+  found->description = "mutated Find result";
+  snapshot.definitions[1].description = "mutated Snapshot result";
+  EXPECT_EQ(registry.Find("zeta")->description, "literal description");
+  EXPECT_EQ(registry.ListTypes(), (std::vector<std::string>{"alpha", "zeta"}));
+  EXPECT_EQ(registry.Create("unknown"), nullptr);
+  EXPECT_NE(registry.Create("alpha"), nullptr);
+}
+
+TEST_F(NodeRegistryTest, RejectedRegistrationLeavesEntriesAndStickyDiagnostic) {
+  enum class Defect {
+    kNullDefinition,
+    kEmptyType,
+    kType,
+    kCreator,
+    kStructure,
+    kDuplicate,
+    kControl
+  };
+  struct Case {
+    const char* name;
+    Defect defect;
+    const char* diagnostic;
+  };
+  const std::vector<Case> cases{
+      {"null Definition", Defect::kNullDefinition,
+       "requires a valid Definition"},
+      {"empty type", Defect::kEmptyType, "Empty node_type"},
+      {"wrong type", Defect::kType, "node_type mismatch"},
+      {"null creator", Defect::kCreator, "null creator"},
+      {"invalid Definition", Defect::kStructure, "Port key cannot be empty"},
+      {"duplicate type", Defect::kDuplicate, "Duplicate node registration"},
+      {"cross-node Control ID", Defect::kControl,
+       "Control ID 77 conflicts between base and candidate"},
+  };
+  auto& registry = NodeRegistry::Instance();
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    test_support::RegistryTestAccess::ResetNodes();
+    ASSERT_TRUE(registry.Register("base", Creator(), Definition("base", 77)));
+    const std::string type = row.defect == Defect::kDuplicate   ? "base"
+                             : row.defect == Defect::kEmptyType ? ""
+                                                                : "candidate";
+    auto candidate = Definition(type);
+    if (row.defect == Defect::kType) candidate.node_type = "different";
+    if (row.defect == Defect::kStructure)
+      candidate.inputs[0].logical_name.clear();
+    if (row.defect == Defect::kControl)
+      candidate.control_commands.emplace_back(77, "another");
+    NodeRegistry::CreatorFunc creator = Creator();
+    if (row.defect == Defect::kCreator) creator = {};
+    EXPECT_FALSE(registry.Register(
+        type, std::move(creator),
+        row.defect == Defect::kNullDefinition ? nullptr : &candidate));
+    EXPECT_TRUE(registry.Has("base"));
+    EXPECT_FALSE(registry.Has("candidate"));
+    ASSERT_TRUE(registry.HasConflict());
+    const auto errors = registry.GetConflictErrors();
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_NE(errors[0].find(row.diagnostic), std::string::npos);
+    auto snapshot = registry.Snapshot();
+    EXPECT_TRUE(snapshot.has_conflict);
+    EXPECT_EQ(snapshot.conflict_errors, errors);
+    snapshot.conflict_errors.clear();
+    ASSERT_TRUE(registry.Register("later", Creator(), Definition("later")));
+    EXPECT_TRUE(registry.HasConflict());
+    EXPECT_EQ(registry.GetConflictErrors(), errors);
   }
-  ReentrantCopyCreator(ReentrantCopyCreator&& other)
-      : ReentrantCopyCreator(other) {}
-  ReentrantCopyCreator& operator=(const ReentrantCopyCreator&) = default;
-  ReentrantCopyCreator& operator=(ReentrantCopyCreator&&) = default;
+}
 
+TEST_F(NodeRegistryTest,
+       DefinitionFactoryExceptionsBecomeRegistrationFailures) {
+  auto& registry = NodeRegistry::Instance();
+  for (bool standard : {true, false}) {
+    SCOPED_TRACE(standard);
+    test_support::RegistryTestAccess::ResetNodes();
+    EXPECT_FALSE(registry.RegisterWithDefinitionFactory(
+        "factory_probe", Creator(), [=]() -> NodeDefinition {
+          if (standard) throw std::runtime_error("literal factory exception");
+          throw 42;
+        }));
+    EXPECT_FALSE(registry.Has("factory_probe"));
+    EXPECT_TRUE(registry.HasConflict());
+    const auto errors = registry.GetConflictErrors();
+    ASSERT_EQ(errors.size(), 1U);
+    EXPECT_NE(errors[0].find("factory_probe definition error"),
+              std::string::npos);
+    EXPECT_NE(errors[0].find(standard ? "literal factory exception"
+                                      : "unknown exception"),
+              std::string::npos);
+  }
+}
+
+struct ReentryReads {
+  struct Attempt {
+    const char* stage;
+    std::future<bool> read;
+    bool ready_inside;
+  };
+  std::atomic<bool> armed{false};
+  std::vector<Attempt> attempts;
+  void Observe(const char* stage) {
+    auto read = std::async(std::launch::async, [] {
+      auto& registry = NodeRegistry::Instance();
+      return registry.Has("reentry") && registry.Find("reentry").has_value() &&
+             registry.Snapshot().definitions.size() == 1;
+    });
+    // Do not join while creator code is executing: a lock regression must
+    // finish Create before the blocked reader can finish.
+    const bool ready =
+        read.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    attempts.push_back({stage, std::move(read), ready});
+  }
+};
+struct ReentrantCreator {
+  std::shared_ptr<ReentryReads> observations;
+  explicit ReentrantCreator(std::shared_ptr<ReentryReads> state)
+      : observations(std::move(state)) {}
+  ReentrantCreator(const ReentrantCreator& other)
+      : observations(other.observations) {
+    if (observations->armed.load()) observations->Observe("copy");
+  }
   std::unique_ptr<INode> operator()() const {
-    return std::make_unique<SimpleTestNode>();
+    observations->Observe("invoke");
+    return std::make_unique<RegistryProbeNode>();
   }
 };
 
-struct ReentrantConfigValidator {
-  static inline std::atomic<int> copy_count{0};
-
-  ReentrantConfigValidator() = default;
-  ReentrantConfigValidator(const ReentrantConfigValidator& /*other*/) {
-    copy_count.fetch_add(1, std::memory_order_relaxed);
-    (void)NodeRegistry::Instance().Has("reentrant_callable_copy");
-    (void)NodeRegistry::Instance().ListTypes();
-  }
-  ReentrantConfigValidator(ReentrantConfigValidator&& other)
-      : ReentrantConfigValidator(other) {}
-  ReentrantConfigValidator& operator=(const ReentrantConfigValidator&) =
-      default;
-  ReentrantConfigValidator& operator=(ReentrantConfigValidator&&) = default;
-
-  bool operator()(const nlohmann::json&, const BindingFacts&, std::string*,
-                  std::string*) const {
-    return true;
-  }
-};
-
-struct ReentrantCopyFactory {
-  static inline std::atomic<int> copy_count{0};
-
-  ReentrantCopyFactory() = default;
-  ReentrantCopyFactory(const ReentrantCopyFactory& /*other*/) {
-    copy_count.fetch_add(1, std::memory_order_relaxed);
-    (void)NodeRegistry::Instance().Has("reentrant_callable_copy");
-    (void)NodeRegistry::Instance().ListTypes();
-    (void)NodeRegistry::Instance().Snapshot();
-  }
-  ReentrantCopyFactory(ReentrantCopyFactory&& other)
-      : ReentrantCopyFactory(other) {}
-  ReentrantCopyFactory& operator=(const ReentrantCopyFactory&) = default;
-  ReentrantCopyFactory& operator=(ReentrantCopyFactory&&) = default;
-
-  NodeDefinition operator()() const {
-    NodeDefinition def = MakeTestNodeDef("reentrant_callable_copy");
-    def.validate_config = ReentrantConfigValidator{};
-    return def;
-  }
-};
-
-TEST(RegistryReentrantTest, ReentrantCallableCopyZeroDeadlock) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  ReentrantCopyCreator::copy_count.store(0);
-  ReentrantConfigValidator::copy_count.store(0);
-  ReentrantCopyFactory::copy_count.store(0);
-
-  ReentrantCopyCreator creator;
-  ReentrantCopyFactory factory;
-
-  // 用 std::function 包装工厂，显式覆盖工厂可调用对象拷贝时的重入
-  std::function<NodeDefinition()> factory_wrapper = factory;
-
-  bool registered = NodeRegistry::Instance().RegisterWithDefinitionFactory(
-      "reentrant_callable_copy", creator, factory_wrapper);
-  EXPECT_TRUE(registered);
-  EXPECT_TRUE(NodeRegistry::Instance().Has("reentrant_callable_copy"));
-
-  // 创建 Node：在注册表锁外拷贝 handle->creator，触发
-  // ReentrantCopyCreator 拷贝
-  auto instance = NodeRegistry::Instance().Create("reentrant_callable_copy");
-  EXPECT_NE(instance, nullptr);
-  EXPECT_GT(ReentrantCopyCreator::copy_count.load(), 0);
-
-  // Snapshot：在注册表锁外拷贝 handle->definition，触发
-  // ReentrantConfigValidator 拷贝
-  auto snap = NodeRegistry::Instance().Snapshot();
-  EXPECT_FALSE(snap.definitions.empty());
-  EXPECT_GT(ReentrantConfigValidator::copy_count.load(), 0);
-
-  // ListDefinitions：同样在锁外拷贝 Definition
-  auto list = NodeRegistry::Instance().ListDefinitions();
-  EXPECT_FALSE(list.empty());
-
-  EXPECT_GT(ReentrantCopyFactory::copy_count.load(), 0);
-}
-
-// R4：配合 ScopedAllocationFailure 循环测试 Register 第 N 次分配后失败
-TEST(RegistryReentrantTest, RegisterFailAfterNIntegrity) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  const std::string sentinel = "alloc_fail_sentinel";
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      sentinel, []() { return std::make_unique<SimpleTestNode>(); },
-      MakeTestNodeDef(sentinel)));
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-
-  bool completed = false;
-  for (int step = 0; step < 20; ++step) {
-    const std::string candidate = "AllocFailProbe_" + std::to_string(step);
-    NodeRegistry::CreatorFunc creator = []() {
-      return std::make_unique<SimpleTestNode>();
-    };
-    NodeDefinition def = MakeTestNodeDef(candidate);
-    bool registered = false;
-    bool injected = false;
-    size_t outstanding = 0;
-    bool overflowed = false;
-    {
-      test_support::ScopedAllocationFailure failure(step);
-      registered = NodeRegistry::Instance().Register(candidate,
-                                                     std::move(creator), &def);
-      injected = failure.Triggered();
-      outstanding = failure.Outstanding();
-      overflowed = failure.Overflowed();
-    }
-    ASSERT_FALSE(overflowed);
-    if (!injected) {
-      EXPECT_TRUE(registered);
-      EXPECT_TRUE(NodeRegistry::Instance().Has(candidate));
-      EXPECT_NE(NodeRegistry::Instance().Create(candidate), nullptr);
-      completed = true;
-      break;
-    }
-    EXPECT_FALSE(registered);
-    EXPECT_FALSE(NodeRegistry::Instance().Has(candidate));
-    EXPECT_EQ(NodeRegistry::Instance().Create(candidate), nullptr);
-    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-    EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
-    EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);
-    EXPECT_LE(outstanding, 2u);
-
-    test_support::RegistryTestAccess::ClearNodeFailures();
-  }
-  EXPECT_TRUE(completed);
-}
-
-// R4/R5：插入时分配失败，且用户资源的析构函数调用 NodeRegistry::Has()，
-// 不得在 mutex_ 上死锁。
-struct ReentrantDestructorResource {
-  static inline std::atomic<int> destruct_count{0};
-  static inline std::atomic<int> reentrant_has_count{0};
-
-  ~ReentrantDestructorResource() {
-    destruct_count.fetch_add(1, std::memory_order_relaxed);
-    static const std::string sentinel = "alloc_fail_sentinel";
-    if (NodeRegistry::Instance().Has(sentinel)) {
-      auto created = NodeRegistry::Instance().Create(sentinel);
-      auto types = NodeRegistry::Instance().ListTypes();
-      auto found = NodeRegistry::Instance().Find(sentinel);
-      if (created != nullptr && !types.empty() && found.has_value()) {
-        reentrant_has_count.fetch_add(1, std::memory_order_relaxed);
-      }
-    }
-  }
-};
-
-TEST(RegistryReentrantTest,
-     RegisterAllocationFailureReentrantDestructorZeroDeadlock) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  ReentrantDestructorResource::destruct_count.store(0);
-  ReentrantDestructorResource::reentrant_has_count.store(0);
-
-  const std::string sentinel = "alloc_fail_sentinel";
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      sentinel, []() { return std::make_unique<SimpleTestNode>(); },
-      MakeTestNodeDef(sentinel)));
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-
-  bool completed = false;
-  int failure_steps_tested = 0;
-  for (int step = 0; step < 20; ++step) {
-    const std::string candidate =
-        "AllocFailReentrantProbe_" + std::to_string(step);
-    auto resource = std::make_shared<ReentrantDestructorResource>();
-    NodeRegistry::CreatorFunc creator =
-        [res = resource]() -> std::unique_ptr<INode> {
-      (void)res;
-      return std::make_unique<SimpleTestNode>();
-    };
-    resource.reset();
-
-    NodeDefinition def = MakeTestNodeDef(candidate);
-    bool registered = false;
-    bool injected = false;
-    size_t outstanding = 0;
-    bool overflowed = false;
-    {
-      test_support::ScopedAllocationFailure failure(step);
-      registered = NodeRegistry::Instance().Register(candidate,
-                                                     std::move(creator), &def);
-      injected = failure.Triggered();
-      outstanding = failure.Outstanding();
-      overflowed = failure.Overflowed();
-    }
-    ASSERT_FALSE(overflowed);
-    if (!injected) {
-      EXPECT_TRUE(registered);
-      EXPECT_TRUE(NodeRegistry::Instance().Has(candidate));
-      EXPECT_NE(NodeRegistry::Instance().Create(candidate), nullptr);
-      completed = true;
-      break;
-    }
-    failure_steps_tested++;
-    EXPECT_FALSE(registered);
-    EXPECT_FALSE(NodeRegistry::Instance().Has(candidate));
-    EXPECT_EQ(NodeRegistry::Instance().Create(candidate), nullptr);
-    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-    EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
-    EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);
-    EXPECT_LE(outstanding, 2u);
-
-    test_support::RegistryTestAccess::ClearNodeFailures();
-  }
-  EXPECT_TRUE(completed);
-  EXPECT_GE(failure_steps_tested, 5);
-  EXPECT_GE(ReentrantDestructorResource::destruct_count.load(), 5);
-  EXPECT_EQ(ReentrantDestructorResource::destruct_count.load(),
-            ReentrantDestructorResource::reentrant_has_count.load());
-}
-
-// R4：配合 ScopedAllocationFailure 循环测试重复 Register 第 N 次分配后失败
-TEST(RegistryReentrantTest, RegisterDuplicateFailAfterNIntegrity) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  const std::string existing = "alloc_fail_duplicate";
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      existing, []() { return std::make_unique<SimpleTestNode>(); },
-      MakeTestNodeDef(existing)));
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-
-  bool completed = false;
-  for (int step = 0; step < 20; ++step) {
-    NodeRegistry::CreatorFunc creator = []() {
-      return std::make_unique<SimpleTestNode>();
-    };
-    NodeDefinition def = MakeTestNodeDef(existing);
-    bool registered = false;
-    bool injected = false;
-    size_t outstanding = 0;
-    bool overflowed = false;
-    {
-      test_support::ScopedAllocationFailure failure(step);
-      registered =
-          NodeRegistry::Instance().Register(existing, std::move(creator), &def);
-      injected = failure.Triggered();
-      outstanding = failure.Outstanding();
-      overflowed = failure.Overflowed();
-    }
-    ASSERT_FALSE(overflowed);
-    EXPECT_FALSE(registered);
-    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-    EXPECT_TRUE(NodeRegistry::Instance().Has(existing));
-    EXPECT_NE(NodeRegistry::Instance().Create(existing), nullptr);
-    EXPECT_LE(outstanding, 2u);
-
-    if (!injected) {
-      completed = true;
-      break;
-    }
-    test_support::RegistryTestAccess::ClearNodeFailures();
-  }
-  EXPECT_TRUE(completed);
-}
-
-// R4：配合 ScopedAllocationFailure 循环测试跨 Node Control 冲突的 Register
-// 第 N 次分配后失败
-TEST(RegistryReentrantTest, RegisterControlConflictFailAfterNIntegrity) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  const std::string node_a = "alloc_fail_control_node_a";
-  NodeDefinition def_a = MakeTestNodeDef(node_a);
-  ControlCommandDefinition cmd_a;
-  cmd_a.cmd_id = 999;
-  cmd_a.name = "conflict_cmd";
-  cmd_a.payload_schema = nlohmann::json::object();
-  cmd_a.supports_hot_swap = false;
-  def_a.control_commands = {cmd_a};
-
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      node_a, []() { return std::make_unique<SimpleTestNode>(); }, def_a));
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-
-  const std::string node_b = "alloc_fail_control_node_b";
-  NodeDefinition def_b = MakeTestNodeDef(node_b);
-  ControlCommandDefinition cmd_b;
-  cmd_b.cmd_id = 999;  // 与 node_a 的命令冲突
-  cmd_b.name = "different_name";
-  cmd_b.payload_schema = nlohmann::json::object();
-  cmd_b.supports_hot_swap = false;
-  def_b.control_commands = {cmd_b};
-
-  bool completed = false;
-  for (int step = 0; step < 20; ++step) {
-    NodeRegistry::CreatorFunc creator = []() {
-      return std::make_unique<SimpleTestNode>();
-    };
-    NodeDefinition def = def_b;
-    bool registered = false;
-    bool injected = false;
-    size_t outstanding = 0;
-    bool overflowed = false;
-    {
-      test_support::ScopedAllocationFailure failure(step);
-      registered =
-          NodeRegistry::Instance().Register(node_b, std::move(creator), &def);
-      injected = failure.Triggered();
-      outstanding = failure.Outstanding();
-      overflowed = failure.Overflowed();
-    }
-    ASSERT_FALSE(overflowed);
-    EXPECT_FALSE(registered);
-    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-    EXPECT_FALSE(NodeRegistry::Instance().Has(node_b));
-    EXPECT_EQ(NodeRegistry::Instance().Create(node_b), nullptr);
-    EXPECT_TRUE(NodeRegistry::Instance().Has(node_a));
-    EXPECT_NE(NodeRegistry::Instance().Create(node_a), nullptr);
-    EXPECT_LE(outstanding, 2u);
-
-    if (!injected) {
-      completed = true;
-      break;
-    }
-    test_support::RegistryTestAccess::ClearNodeFailures();
-  }
-  EXPECT_TRUE(completed);
-}
-
-// R4：配合 ScopedAllocationFailure 循环测试 RegisterWithDefinitionFactory
-// 第 N 次分配后失败
-TEST(RegistryReentrantTest, RegisterWithDefinitionFactoryFailAfterNIntegrity) {
-  test_support::RegistryTestAccess::ScopedNodeState scoped;
-  const std::string sentinel = "factory_alloc_fail_sentinel";
-  ASSERT_TRUE(NodeRegistry::Instance().Register(
-      sentinel, []() { return std::make_unique<SimpleTestNode>(); },
-      MakeTestNodeDef(sentinel)));
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-
-  bool completed = false;
-  for (int step = 0; step < 20; ++step) {
-    const std::string candidate =
-        "FactoryAllocFailProbe_" + std::to_string(step);
-    bool registered = false;
-    bool injected = false;
-    size_t outstanding = 0;
-    bool overflowed = false;
-    {
-      test_support::ScopedAllocationFailure failure(step);
-      registered = NodeRegistry::Instance().RegisterWithDefinitionFactory(
-          candidate, []() { return std::make_unique<SimpleTestNode>(); },
-          [&]() { return MakeTestNodeDef(candidate); });
-      injected = failure.Triggered();
-      outstanding = failure.Outstanding();
-      overflowed = failure.Overflowed();
-    }
-    ASSERT_FALSE(overflowed);
-    if (!injected) {
-      EXPECT_TRUE(registered);
-      EXPECT_TRUE(NodeRegistry::Instance().Has(candidate));
-      EXPECT_NE(NodeRegistry::Instance().Create(candidate), nullptr);
-      completed = true;
-      break;
-    }
-    EXPECT_FALSE(registered);
-    EXPECT_FALSE(NodeRegistry::Instance().Has(candidate));
-    EXPECT_EQ(NodeRegistry::Instance().Create(candidate), nullptr);
-    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-    EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
-    EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);
-    EXPECT_LE(outstanding, 2u);
-
-    test_support::RegistryTestAccess::ClearNodeFailures();
-  }
-  EXPECT_TRUE(completed);
-}
-
-// R8：分配失败时 ScopedNodeState 的恢复不分配内存且稳健
-TEST(RegistryReentrantTest, ScopedNodeStateRestorationUnderAllocationFailure) {
-  const std::string sentinel = "restoration_sentinel";
-  {
-    test_support::RegistryTestAccess::ScopedNodeState outer;
-    ASSERT_TRUE(NodeRegistry::Instance().Register(
-        sentinel, []() { return std::make_unique<SimpleTestNode>(); },
-        MakeTestNodeDef(sentinel)));
-    ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-
-    {
-      std::optional<test_support::ScopedAllocationFailure> failure;
-      {
-        test_support::RegistryTestAccess::ScopedNodeState inner;
-        const std::string temp_node = "temporary_node_to_restore";
-        ASSERT_TRUE(NodeRegistry::Instance().Register(
-            temp_node, []() { return std::make_unique<SimpleTestNode>(); },
-            MakeTestNodeDef(temp_node)));
-        EXPECT_TRUE(NodeRegistry::Instance().Has(temp_node));
-
-        // 触发冲突，使 has_conflict_ 为 true
-        EXPECT_FALSE(NodeRegistry::Instance().Register(
-            temp_node, []() { return std::make_unique<SimpleTestNode>(); },
-            MakeTestNodeDef(temp_node)));
-        EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-
-        // 启用分配失败，使 ~ScopedNodeState 在 failure(0) 下运行
-        failure.emplace(0);
-      }
-      // inner 在 failure 生效期间析构，随后 failure 析构
-      ASSERT_TRUE(failure.has_value());
-      EXPECT_FALSE(failure->Triggered());
-    }
-
-    // inner 作用域在分配失败下销毁后，注册表必须完整恢复
-    EXPECT_FALSE(NodeRegistry::Instance().HasConflict());
-    EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
-    EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);
-    EXPECT_FALSE(NodeRegistry::Instance().Has("temporary_node_to_restore"));
-    EXPECT_EQ(NodeRegistry::Instance().Create("temporary_node_to_restore"),
-              nullptr);
+TEST_F(NodeRegistryTest, CreatorCopyAndInvocationBothPermitRegistryReentry) {
+  auto observations = std::make_shared<ReentryReads>();
+  auto& registry = NodeRegistry::Instance();
+  ASSERT_TRUE(registry.Register("reentry", ReentrantCreator(observations),
+                                Definition("reentry")));
+  observations->armed.store(true);
+  auto creating = std::async(std::launch::async,
+                             [&] { return registry.Create("reentry"); });
+  const bool ready =
+      creating.wait_for(std::chrono::seconds(8)) == std::future_status::ready;
+  auto node = creating.get();
+  std::vector<bool> results;
+  for (auto& attempt : observations->attempts)
+    results.push_back(attempt.read.get());
+  EXPECT_TRUE(ready);
+  EXPECT_NE(node, nullptr);
+  ASSERT_EQ(observations->attempts.size(), 2U);
+  EXPECT_STREQ(observations->attempts[0].stage, "copy");
+  EXPECT_STREQ(observations->attempts[1].stage, "invoke");
+  for (size_t i = 0; i < results.size(); ++i) {
+    SCOPED_TRACE(observations->attempts[i].stage);
+    EXPECT_TRUE(observations->attempts[i].ready_inside);
+    EXPECT_TRUE(results[i]);
   }
 }
 
+}  // namespace
 }  // namespace llm_edgeflow
