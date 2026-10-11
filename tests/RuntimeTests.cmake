@@ -283,6 +283,8 @@ edgeflow_add_runner_test(RuntimeControlAndHotSwapTest edgeflow_test_adapter_runn
   "RuntimeControlAndHotSwapTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runner
   "AdapterContractSecurityTest.*" "${_edgeflow_tier2}")
+edgeflow_add_runner_test(KeywordResponseTest edgeflow_test_adapter_runner
+  "KeywordResponseTest.*" "${_edgeflow_tier3}")
 edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
   "OperatorApiTest.*:IoParametersTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(RuntimeFacadeTest edgeflow_test_adapter_runner
