@@ -54,7 +54,7 @@ verify 依次完成：
    Demo 尚未存在时也可在此构建。
 3. 在更新后的 Catalog 中确认新 Node，并确认 Pipeline 实际使用该 Node。
 4. 原生 validate、plan 和 resolve-conf，确认部署指向本 Pipeline 和所选模型资产。
-5. 发现 `CustomNodeCatalogTest.my_summary_*` 用例并要求非零，执行后要求全部通过。
+5. 发现 `ScaffoldGeneratedNodeTest.my_summary_*` 用例并要求非零，执行后要求全部通过。
 6. 校验资产哈希，运行实际修改的方案，核对每个请求的业务输出。
 
 任一步失败会保留失败阶段、原生报告及未完成步骤，返回非零状态。新增源码被 Node runner

@@ -155,7 +155,7 @@ flowchart LR
 `alg_pipeline_tool` 用于查看生产注册，也能发现刚编译的自定义节点。
 
 查看 `results/first-node/entity_extract/results.jsonl`：第一条记录应有 `status: 0`，
-以及 `output.entities.nouns` 中的“张三”“清华大学”等值。`summary.json` 应显示一条成功、
+以及 mock 标识的实体列表。`summary.json` 应显示一条成功、
 零条失败。这里验证节点、编排与 Adapter 的完整路径，回答来自确定性测试模型。
 
 替换真实模型时，按目标构建的 Catalog 更新 `models` 和资产路径，节点的 `bind_model`
@@ -163,14 +163,13 @@ flowchart LR
 
 ## 7. 从练习进入真实开发
 
-首次运行只需要两个业务函数。准备交付时，把业务断言加入现有节点测试；可参考
-[`test_node_authoring_examples.cpp`](../../tests/unit/nodes/test_node_authoring_examples.cpp) 中的
-`StarterTextFunctionsFollowTheDocumentedExercise`。该测试编译本文的两个函数体，检查模型
-实际收到的提示词、后处理结果、多条输入的来源，以及输入快照未被修改。
+首次运行只需要两个业务函数。准备交付时，把独立算法预期加入业务测试；实际示例见
+[LLM Node 测试](../../tests/unit/nodes/test_llm_generate_node.cpp)。
 
-本练习的 `--write-test` 会创建真实测试文件，由节点 runner 自动收集。测试使用 `NodeHarness` 注入输入与 mock，
-检查输出及模型调用。修改算法后同步填写独立业务期望。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
-还应覆盖自己的边界输入。交付执行 `./scripts/run_all_tests.sh`，流程见
+本练习的 `--write-test` 创建最小真实测试，由节点 runner 收集并执行；使用
+[NodeProbe](../../tests/support/node_probe.h) 初始化实际 Node，再注入最小模型能力。
+修改算法后填写自己的业务预期，检查提示词、结果与来源。公共输入、发布和模型错误规则
+由 AuthorNode 测试统一负责。交付执行 `./scripts/run_all_tests.sh`，流程见
 [CONTRIBUTING](../../CONTRIBUTING.md)。
 
 | 接下来遇到的问题 | 去哪里看 |
