@@ -301,7 +301,7 @@ edgeflow_add_runner_test(ConcurrencyAndEdgeCasesTest edgeflow_test_adapter_runne
 edgeflow_add_runner_test(RuntimeControlAndHotSwapTest edgeflow_test_adapter_runner
   "RuntimeControlAndHotSwapTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runner
-  "AdapterContractSecurityTest.*" "${_edgeflow_tier2}")
+  "PlatformCarrierContractsTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(KeywordResponseTest edgeflow_test_adapter_runner
   "KeywordResponseTest.*" "${_edgeflow_tier3}")
 edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
