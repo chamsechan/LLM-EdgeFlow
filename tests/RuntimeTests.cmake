@@ -307,7 +307,7 @@ edgeflow_add_runner_test(KeywordResponseTest edgeflow_test_adapter_runner
 edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
   "OperatorApiTest.*:IoParametersTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(RuntimeFacadeTest edgeflow_test_adapter_runner
-  "RuntimeFacadeTest.*:RuntimeFacadeOptionsTest.*" "${_edgeflow_tier2}")
+  "RuntimeFacadeTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner

@@ -50,6 +50,7 @@ class SharedAlgorithmRuntime {
   size_t ProcessBatchLimit() const { return process_batch_limit_; }
 
  private:
+  friend struct SharedRuntimeTestAccess;
   std::unique_ptr<ValidatedIoPlan> io_plan_;
   std::unique_ptr<Pipeline> pipeline_;
   std::vector<std::shared_ptr<OutputPoolState>> output_pools_;
