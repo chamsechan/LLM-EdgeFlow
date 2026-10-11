@@ -42,9 +42,10 @@ Tensor Ints(std::vector<int64_t> shape, std::vector<int64_t> values) {
 }
 
 TensorMap RerankInputs() {
-  return {{"input_ids", Ints({2, 3}, {2, 4, 9, 3, 5, 7})},
-          {"attention_mask", Ints({2, 3}, {1, 1, 0, 1, 1, 1})},
-          {"token_type_ids", Ints({2, 3}, {0, 1, 1, 0, 1, 1})}};
+  return {
+      {"input_ids", Ints({2, 6}, {2, 4, 9, 0, 0, 0, 3, 5, 7, 0, 0, 0})},
+      {"attention_mask", Ints({2, 6}, {1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0})},
+      {"token_type_ids", Ints({2, 6}, {0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0})}};
 }
 
 TEST(OnnxRuntimeBackendTest,
@@ -67,7 +68,7 @@ TEST(OnnxRuntimeBackendTest,
   for (size_t i = 0; i < names.size(); ++i) {
     EXPECT_EQ(session->Inputs()[i].name, names[i]);
     EXPECT_EQ(session->Inputs()[i].element_type, ElementType::kInt64);
-    EXPECT_EQ(session->Inputs()[i].shape, (std::vector<int64_t>{-1, -1}));
+    EXPECT_EQ(session->Inputs()[i].shape, (std::vector<int64_t>{-1, 6}));
   }
   ASSERT_EQ(session->Outputs().size(), 1u);
   EXPECT_EQ(session->Outputs()[0].name, "logits");
@@ -124,14 +125,15 @@ TEST(OnnxRuntimeBackendTest, RunRejectsGraphInputMismatchAndClearsPriorOutput) {
   wrong_rank["input_ids"] = Ints({6}, {1, 2, 3, 4, 5, 6});
   check(std::move(wrong_rank), "rank mismatch");
   auto wrong_batch = RerankInputs();
-  wrong_batch["attention_mask"] = Ints({1, 3}, {1, 1, 1});
+  wrong_batch["attention_mask"] = Ints({1, 6}, {1, 1, 1, 0, 0, 0});
   check(std::move(wrong_batch), "batch dimensions are inconsistent");
   auto too_many = RerankInputs();
-  too_many["input_ids"] = Ints({3, 2}, {1, 2, 3, 4, 5, 6});
+  too_many["input_ids"] =
+      Ints({3, 6}, {1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
   check(std::move(too_many), "exceeds max_batch_size");
   auto incompatible_sequence = RerankInputs();
   incompatible_sequence["attention_mask"] = Ints({2, 2}, {1, 1, 1, 1});
-  check(std::move(incompatible_sequence), "broadcast");
+  check(std::move(incompatible_sequence), "static dimension 1 mismatch");
   EXPECT_EQ(session->Run(RerankInputs(), nullptr, &diagnostic), -1);
   EXPECT_NE(diagnostic.find("pointer is null"), std::string::npos);
   TensorMap recovered;

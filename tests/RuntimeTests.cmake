@@ -55,8 +55,6 @@ target_link_libraries(edgeflow_test_core_runner PRIVATE
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   set(EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/models")
-  set(EDGEFLOW_EMBEDDING_ONNX_FIXTURE
-      "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/embedding_fixture.onnx")
   set(EDGEFLOW_VOCAB_FIXTURE
       "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/vocab.txt")
   set(EDGEFLOW_RERANK_ONNX_FIXTURE
@@ -66,7 +64,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   file(MAKE_DIRECTORY "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}")
   add_custom_command(
     OUTPUT
-      "${EDGEFLOW_EMBEDDING_ONNX_FIXTURE}"
       "${EDGEFLOW_RERANK_ONNX_FIXTURE}"
       "${EDGEFLOW_NON_TENSOR_ONNX_FIXTURE}"
       "${EDGEFLOW_VOCAB_FIXTURE}"
@@ -74,11 +71,10 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
             "${PROJECT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
             --output-dir "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}"
     DEPENDS "${PROJECT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
-    COMMENT "Generating deterministic generated embedding and rerank ONNX Runtime fixtures"
+    COMMENT "Generating small rerank and non-tensor ONNX Runtime fixtures"
     VERBATIM)
   add_custom_target(edgeflow_generated_model_fixtures
     DEPENDS
-      "${EDGEFLOW_EMBEDDING_ONNX_FIXTURE}"
       "${EDGEFLOW_RERANK_ONNX_FIXTURE}"
       "${EDGEFLOW_NON_TENSOR_ONNX_FIXTURE}"
       "${EDGEFLOW_VOCAB_FIXTURE}")
@@ -90,14 +86,11 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     "${PROJECT_SOURCE_DIR}/tests/fixtures/pipelines/cross_rerank/pipeline_cross_rerank_fixture.conf"
     "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
     COPYONLY)
-  configure_file(
-    "${PROJECT_SOURCE_DIR}/tests/fixtures/pipelines/cross_rerank/pipeline_cross_rerank_missing_model.json"
-    "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.json"
-    COPYONLY)
-  configure_file(
-    "${PROJECT_SOURCE_DIR}/tests/fixtures/pipelines/cross_rerank/pipeline_cross_rerank_missing_model.conf"
-    "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
-    COPYONLY)
+  file(READ "${PROJECT_SOURCE_DIR}/tests/fixtures/pipelines/cross_rerank/pipeline_cross_rerank_fixture.json" _rerank_json)
+  string(JSON _missing_rerank SET "${_rerank_json}" models 0 file "\"missing-fixture.onnx\"")
+  file(WRITE "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.json" "${_missing_rerank}\n")
+  file(WRITE "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
+    "{\"pipe_path\":\"pipeline_cross_rerank_missing_model.json\"}\n")
 endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
@@ -170,7 +163,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     add_dependencies(${target} edgeflow_generated_model_fixtures)
     target_compile_definitions(${target} PRIVATE
       HAVE_ONNXRUNTIME=1
-      EDGEFLOW_EMBEDDING_ONNX_FIXTURE="${EDGEFLOW_EMBEDDING_ONNX_FIXTURE}"
       EDGEFLOW_RERANK_ONNX_FIXTURE="${EDGEFLOW_RERANK_ONNX_FIXTURE}"
       EDGEFLOW_NON_TENSOR_ONNX_FIXTURE="${EDGEFLOW_NON_TENSOR_ONNX_FIXTURE}"
       EDGEFLOW_VOCAB_FIXTURE="${EDGEFLOW_VOCAB_FIXTURE}")

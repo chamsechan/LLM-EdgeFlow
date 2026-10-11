@@ -1,281 +1,140 @@
 #!/usr/bin/env python3
-"""生成确定性、无外部依赖的 ONNX Runtime 测试夹具。
+"""Generate tiny ONNX graphs for native Backend loading and storage checks.
 
-该计算图有意保持很小，并非预训练的 BGE 模型。它用于验证
-``BgeEmbeddingModel`` 使用的真实 ONNX Runtime Load/Run 边界：
-
-  input_ids[int64, batch, sequence]
-    -> Cast -> Unsqueeze -> Mul(scale) -> Add(bias)
-    -> last_hidden_state[float32, batch, sequence, 128]
-
-只使用 Python 标准库。直接编码最小的 ONNX protobuf，
-因此干净的检出无需安装 ``onnx`` 或 ``numpy`` wheel。
+The writer uses only stdlib and the public ONNX protobuf field definitions:
+https://github.com/onnx/onnx/blob/main/onnx/onnx.proto
+Fixtures use IR 8 / opset 13, with dynamic batch and six tokens per row.
+These graphs exercise execution plumbing; they are not semantic model assets.
 """
 
-from __future__ import annotations
-
 import argparse
-import hashlib
-import math
-import os
-import struct
 from pathlib import Path
-from typing import List, Optional, Union
+import struct
+
+FLOAT = 1
+INT64 = 7
 
 
-def _varint(value: int) -> bytes:
+def varint(value):
+    """Encode a nonnegative protobuf integer without a protobuf dependency."""
     if value < 0:
-        value &= (1 << 64) - 1
+        raise ValueError("Fixture protobuf integers must be nonnegative")
     encoded = bytearray()
-    while value > 0x7F:
-        encoded.append((value & 0x7F) | 0x80)
+    while value >= 128:
+        encoded.append((value & 127) | 128)
         value >>= 7
     encoded.append(value)
     return bytes(encoded)
 
 
-def _key(field_number: int, wire_type: int) -> bytes:
-    return _varint((field_number << 3) | wire_type)
+def integer(field, value):
+    return varint(field << 3) + varint(value)
 
 
-def _int_field(field_number: int, value: int) -> bytes:
-    return _key(field_number, 0) + _varint(value)
+def message(field, value):
+    return varint((field << 3) | 2) + varint(len(value)) + value
 
 
-def _bytes_field(field_number: int, value: bytes) -> bytes:
-    return _key(field_number, 2) + _varint(len(value)) + value
+def text(field, value):
+    return message(field, value.encode("utf-8"))
 
 
-def _string_field(field_number: int, value: str) -> bytes:
-    return _bytes_field(field_number, value.encode("utf-8"))
-
-
-def _message_field(field_number: int, value: bytes) -> bytes:
-    return _bytes_field(field_number, value)
-
-
-def _tensor_shape(dimensions: List[Union[int, str]]) -> bytes:
+def tensor_type(element_type, dimensions):
     shape = bytearray()
     for dimension in dimensions:
-        if isinstance(dimension, str):
-            dim = _string_field(2, dimension)
-        else:
-            dim = _int_field(1, dimension)
-        shape += _message_field(1, dim)
-    return bytes(shape)
+        encoded = text(2, dimension) if isinstance(dimension, str) else integer(1, dimension)
+        shape.extend(message(1, encoded))  # TensorShapeProto.dim
+    tensor = integer(1, element_type) + message(2, bytes(shape))
+    return message(1, tensor)  # TypeProto.tensor_type
 
 
-def _value_info(name: str, element_type: int,
-                dimensions: List[Union[int, str]]) -> bytes:
-    tensor_type = _int_field(1, element_type)
-    tensor_type += _message_field(2, _tensor_shape(dimensions))
-    type_proto = _message_field(1, tensor_type)
-    return _string_field(1, name) + _message_field(2, type_proto)
+def value_info(name, element_type, dimensions, sequence=False):
+    declared_type = tensor_type(element_type, dimensions)
+    if sequence:
+        declared_type = message(4, message(1, declared_type))  # sequence_type.elem_type
+    return text(1, name) + message(2, declared_type)
 
 
-def _sequence_value_info(name: str, element_type: int,
-                         dimensions: List[Union[int, str]]) -> bytes:
-    tensor_type = _int_field(1, element_type)
-    tensor_type += _message_field(2, _tensor_shape(dimensions))
-    element_type_proto = _message_field(1, tensor_type)
-    sequence_type = _message_field(1, element_type_proto)
-    type_proto = _message_field(4, sequence_type)
-    return _string_field(1, name) + _message_field(2, type_proto)
-
-
-def _tensor(name: str, element_type: int, dimensions: List[int],
-            raw_data: bytes) -> bytes:
-    tensor = bytearray()
+def tensor(name, element_type, dimensions, values):
+    encoded = bytearray()
     for dimension in dimensions:
-        tensor += _int_field(1, dimension)
-    tensor += _int_field(2, element_type)
-    tensor += _string_field(8, name)
-    tensor += _bytes_field(9, raw_data)
-    return bytes(tensor)
+        encoded.extend(integer(1, dimension))
+    encoded.extend(integer(2, element_type))
+    encoded.extend(text(8, name))
+    format_code = "f" if element_type == FLOAT else "q"
+    encoded.extend(message(9, struct.pack("<" + format_code * len(values), *values)))
+    return bytes(encoded)
 
 
-def _attribute_int(name: str, value: int) -> bytes:
-    # AttributeProto.INT = 2.
-    return (_string_field(1, name) + _int_field(3, value) +
-            _int_field(20, 2))
+def attribute(name, value):
+    return text(1, name) + integer(3, value) + integer(20, 2)  # AttributeProto.INT
 
 
-def _node(op_type: str, inputs: List[str], outputs: List[str],
-          attributes: Optional[List[bytes]] = None) -> bytes:
-    node = bytearray()
-    for input_name in inputs:
-        node += _string_field(1, input_name)
-    for output_name in outputs:
-        node += _string_field(2, output_name)
-    node += _string_field(4, op_type)
-    for attribute in attributes or []:
-        node += _message_field(5, attribute)
-    return bytes(node)
+def node(operation, inputs, outputs, **attributes):
+    encoded = bytearray(text(4, operation))
+    for name in inputs:
+        encoded.extend(text(1, name))
+    for name in outputs:
+        encoded.extend(text(2, name))
+    for name, value in attributes.items():
+        encoded.extend(message(5, attribute(name, value)))
+    return bytes(encoded)
 
 
-def generate_vocab(vocab_path: Path) -> None:
-    tokens = [
-        "[PAD]", "[UNK]", "[CLS]", "[SEP]", "hello", "world", "bge",
-        "embedding", "test", "edgeflow", "北", "京", "大", "学", "智",
-        "能", "问", "答", "系", "统",
+def model(name, nodes, inputs, outputs, initializers=()):
+    graph = bytearray(text(2, name))
+    for operation in nodes:
+        graph.extend(message(1, operation))
+    for initializer in initializers:
+        graph.extend(message(5, initializer))
+    for declared_input in inputs:
+        graph.extend(message(11, declared_input))
+    for declared_output in outputs:
+        graph.extend(message(12, declared_output))
+    return (integer(1, 8) + text(2, "edgeflow_native_fixture") +
+            message(7, bytes(graph)) + message(8, integer(2, 13)))
+
+
+def rerank_graph():
+    """logits = .01 * sum(ids * mask * types) + .001 * sum(ids * mask)."""
+    nodes = [
+        node("Cast", ["input_ids"], ["ids"], to=FLOAT),
+        node("Cast", ["attention_mask"], ["mask"], to=FLOAT),
+        node("Cast", ["token_type_ids"], ["types"], to=FLOAT),
+        node("Mul", ["ids", "mask"], ["visible"]),
+        node("Mul", ["visible", "types"], ["candidate"]),
+        node("ReduceSum", ["visible", "row_axis"], ["all_sum"], keepdims=1),
+        node("ReduceSum", ["candidate", "row_axis"], ["candidate_sum"], keepdims=1),
+        node("Mul", ["all_sum", "all_scale"], ["all_score"]),
+        node("Mul", ["candidate_sum", "candidate_scale"], ["candidate_score"]),
+        node("Add", ["all_score", "candidate_score"], ["logits"]),
     ]
-    tokens.extend(f"token_{index}" for index in range(len(tokens), 1000))
-    vocab_path.parent.mkdir(parents=True, exist_ok=True)
-    vocab_path.write_text("\n".join(tokens) + "\n", encoding="utf-8")
+    inputs = [value_info(name, INT64, ["batch", 6])
+              for name in ("input_ids", "attention_mask", "token_type_ids")]
+    constants = [tensor("row_axis", INT64, [1], [1]),
+                 tensor("all_scale", FLOAT, [1], [0.001]),
+                 tensor("candidate_scale", FLOAT, [1], [0.01])]
+    return model("native_rerank", nodes, inputs,
+                 [value_info("logits", FLOAT, ["batch", 1])], constants)
 
 
-def generate_onnx_model(model_path: Path, hidden_dim: int = 128) -> None:
-    # TensorProto.FLOAT = 1, TensorProto.INT64 = 7.
-    scale = [0.25 + (index + 1) / hidden_dim for index in range(hidden_dim)]
-    bias = [math.sin(index + 1) * 0.5 for index in range(hidden_dim)]
-    scale_raw = struct.pack(f"<{hidden_dim}f", *scale)
-    bias_raw = struct.pack(f"<{hidden_dim}f", *bias)
-    axes_raw = struct.pack("<q", -1)
-
-    graph = bytearray()
-    graph += _message_field(
-        1, _node("Cast", ["input_ids"], ["ids_float"],
-                 [_attribute_int("to", 1)]))
-    graph += _message_field(
-        1, _node("Unsqueeze", ["ids_float", "unsqueeze_axes"],
-                 ["ids_expanded"]))
-    graph += _message_field(
-        1, _node("Mul", ["ids_expanded", "scale"], ["scaled_ids"]))
-    graph += _message_field(
-        1, _node("Add", ["scaled_ids", "bias"], ["last_hidden_state"]))
-    graph += _string_field(2, "edgeflow_embedding_fixture")
-    graph += _message_field(5, _tensor("unsqueeze_axes", 7, [1], axes_raw))
-    graph += _message_field(
-        5, _tensor("scale", 1, [1, 1, hidden_dim], scale_raw))
-    graph += _message_field(
-        5, _tensor("bias", 1, [1, 1, hidden_dim], bias_raw))
-    graph += _message_field(
-        11, _value_info("input_ids", 7, ["batch", "sequence"]))
-    graph += _message_field(
-        11, _value_info("attention_mask", 7, ["batch", "sequence"]))
-    graph += _message_field(
-        12, _value_info("last_hidden_state", 1,
-                        ["batch", "sequence", hidden_dim]))
-
-    model = bytearray()
-    model += _int_field(1, 8)  # ModelProto.ir_version
-    model += _string_field(2, "edgeflow_test_generator")
-    model += _message_field(7, bytes(graph))
-    model += _message_field(8, _int_field(2, 13))  # 默认 opset 13
-
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model_path.write_bytes(model)
+def non_tensor_graph():
+    return model("native_sequence", [node("SequenceConstruct", ["input_ids"], ["sequence_output"])],
+                 [value_info("input_ids", INT64, ["batch", 6])],
+                 [value_info("sequence_output", INT64, ["batch", 6], sequence=True)])
 
 
-def generate_rerank_onnx_model(model_path: Path) -> None:
-    # TensorProto.FLOAT = 1, TensorProto.INT64 = 7.
-    axes_raw = struct.pack("<q", 1)
-    scale_cand_raw = struct.pack("<f", 0.01)
-    scale_all_raw = struct.pack("<f", 0.001)
-
-    graph = bytearray()
-    graph += _message_field(
-        1, _node("Cast", ["input_ids"], ["ids_float"],
-                 [_attribute_int("to", 1)]))
-    graph += _message_field(
-        1, _node("Cast", ["attention_mask"], ["mask_float"],
-                 [_attribute_int("to", 1)]))
-    graph += _message_field(
-        1, _node("Cast", ["token_type_ids"], ["type_float"],
-                 [_attribute_int("to", 1)]))
-    graph += _message_field(
-        1, _node("Mul", ["ids_float", "mask_float"], ["masked_ids"]))
-    graph += _message_field(
-        1, _node("Mul", ["masked_ids", "type_float"], ["cand_ids"]))
-    graph += _message_field(
-        1, _node("ReduceSum", ["cand_ids", "reduce_axes"], ["cand_sum"],
-                 [_attribute_int("keepdims", 1)]))
-    graph += _message_field(
-        1, _node("ReduceSum", ["masked_ids", "reduce_axes"], ["all_sum"],
-                 [_attribute_int("keepdims", 1)]))
-    graph += _message_field(
-        1, _node("Mul", ["cand_sum", "scale_cand"], ["cand_scaled"]))
-    graph += _message_field(
-        1, _node("Mul", ["all_sum", "scale_all"], ["all_scaled"]))
-    graph += _message_field(
-        1, _node("Add", ["cand_scaled", "all_scaled"], ["logits"]))
-
-    graph += _string_field(2, "edgeflow_rerank_fixture")
-    graph += _message_field(5, _tensor("reduce_axes", 7, [1], axes_raw))
-    graph += _message_field(5, _tensor("scale_cand", 1, [1, 1], scale_cand_raw))
-    graph += _message_field(5, _tensor("scale_all", 1, [1, 1], scale_all_raw))
-
-    graph += _message_field(
-        11, _value_info("input_ids", 7, ["batch", "sequence"]))
-    graph += _message_field(
-        11, _value_info("attention_mask", 7, ["batch", "sequence"]))
-    graph += _message_field(
-        11, _value_info("token_type_ids", 7, ["batch", "sequence"]))
-    graph += _message_field(
-        12, _value_info("logits", 1, ["batch", 1]))
-
-    model = bytearray()
-    model += _int_field(1, 8)  # ModelProto.ir_version
-    model += _string_field(2, "edgeflow_test_generator")
-    model += _message_field(7, bytes(graph))
-    model += _message_field(8, _int_field(2, 13))  # 默认 opset 13
-
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model_path.write_bytes(model)
-
-
-def generate_non_tensor_output_model(model_path: Path) -> None:
-    graph = bytearray()
-    graph += _message_field(
-        1, _node("SequenceConstruct", ["input_ids"], ["sequence_output"]))
-    graph += _string_field(2, "edgeflow_non_tensor_output_fixture")
-    graph += _message_field(
-        11, _value_info("input_ids", 7, ["batch", "sequence"]))
-    graph += _message_field(
-        12, _sequence_value_info("sequence_output", 7,
-                                 ["batch", "sequence"]))
-
-    model = bytearray()
-    model += _int_field(1, 8)
-    model += _string_field(2, "edgeflow_test_generator")
-    model += _message_field(7, bytes(graph))
-    model += _message_field(8, _int_field(2, 13))
-
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model_path.write_bytes(model)
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--output-dir",
-        default=os.path.join(os.path.dirname(__file__), "..", "models"),
-        help="Directory receiving fixtures and vocab.txt",
-    )
-    args = parser.parse_args()
-
-    output_dir = Path(args.output_dir).resolve()
-    model_path = output_dir / "embedding_fixture.onnx"
-    rerank_path = output_dir / "rerank_fixture.onnx"
-    non_tensor_path = output_dir / "non_tensor_output_fixture.onnx"
-    vocab_path = output_dir / "vocab.txt"
-    generate_vocab(vocab_path)
-    generate_onnx_model(model_path)
-    generate_rerank_onnx_model(rerank_path)
-    generate_non_tensor_output_model(non_tensor_path)
-
-    print(f"ONNX_FIXTURE={model_path}")
-    print(f"ONNX_SHA256={_sha256(model_path)}")
-    print(f"RERANK_ONNX_FIXTURE={rerank_path}")
-    print(f"RERANK_ONNX_SHA256={_sha256(rerank_path)}")
-    print(f"NON_TENSOR_ONNX_FIXTURE={non_tensor_path}")
-    print(f"NON_TENSOR_ONNX_SHA256={_sha256(non_tensor_path)}")
-    print(f"VOCAB_FIXTURE={vocab_path}")
-    print(f"VOCAB_SHA256={_sha256(vocab_path)}")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    options = parser.parse_args()
+    options.output_dir.mkdir(parents=True, exist_ok=True)
+    graphs = {"rerank_fixture.onnx": rerank_graph(),
+              "non_tensor_output_fixture.onnx": non_tensor_graph()}
+    for name, graph in graphs.items():
+        (options.output_dir / name).write_bytes(graph)
+    vocabulary = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "hello", "world", "query", "candidate"]
+    (options.output_dir / "vocab.txt").write_text("\n".join(vocabulary) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
