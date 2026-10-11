@@ -56,7 +56,7 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 {
   "io": {
     "input": [{"type":"keyword_in", "name":"keyword_match"}],
-    "output": [{"type":"keyword_out", "name":"keyword_match",
+    "output": [{"type":"json_out", "name":"keyword_match",
                 "inputs":{"matches":"match_keywords.matches"}}]
   },
   "pipeline": [{"type":"text_rule_match", "name":"match_keywords",
@@ -64,9 +64,11 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 }
 ```
 
-可选 `params` 只填写必要覆盖，未写字段用代码声明的默认值。输出每个字符串有
-`<field>_max_bytes` 整数参数，范围为 1 到平台硬上限，例如 `answer_text_max_bytes: 4095`。
-翻译输出默认值为 8191；分配器、布局参数和 metadata 固定在登记，不由配置选择。
+当前八类业务统一使用 `json_out` 输出类型与 `CompanyOperatorOutput` C 结构，
+`name` 选择各业务的 JSON 响应契约；完整结果放在 `result_json`，状态放在 `status_code`。
+可选 `params` 只填写必要覆盖，未写字段用代码声明的默认值。统一输出只有
+`result_json_max_bytes` 容量参数，默认 8191 字节，范围 1–65536，例如
+`"params":{"result_json_max_bytes":16383}`。分配器、布局参数和 metadata 固定在登记，不由配置选择。
 参数在 Create 中解析、Prepare、Validate，生效值来自 Prepare 后的声明成员。
 可选输出也总是有池；宿主可按行省略 key。重复载体 type 的项使用 `name.type` 宿主 key，
 唯一 type 继续接受任意非空前缀。有效 Process 批次上限为 `min(max_frame_depth, 64)`。

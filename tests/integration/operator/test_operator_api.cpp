@@ -25,12 +25,15 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
+#include "tests/integration/json_output_test_utils.h"
 #include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 #include "tests/support/control_test_utils.h"
 #include "tests/support/operator_nested_output_fixture.h"
 #include "tests/support/operator_test_fixture.h"
 #include "tests/support/registry_test_access.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -345,13 +348,13 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
     CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &cs};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["control.keyword_in"] = MakeBorrowedOperatorInput(&input);
-    outputs[0]["control.keyword_out"] = nullptr;
+    outputs[0]["control.json_out"] = nullptr;
     ASSERT_EQ(ops_.Process(handle, inputs, outputs), 0)
         << GetOperatorLastError();
-    const auto* output = static_cast<CompanyOperatorKeywordOutput*>(
-        outputs[0]["control.keyword_out"].get());
+    const auto* output = static_cast<CompanyOperatorOutput*>(
+        outputs[0]["control.json_out"].get());
     ASSERT_NE(output, nullptr);
-    EXPECT_EQ(output->is_hit, expected_hit);
+    EXPECT_EQ(ParseJsonOutput(output).at("is_hit").get<int>(), expected_hit);
   };
   check(0);
   std::string payload = R"({"prefix":"VIP:"})";
@@ -469,7 +472,7 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b[0]["chan.json_out"] = std::shared_ptr<void>();
 
   EXPECT_EQ(ops_.Process(handle, in_b, out_b), -1);
 }
@@ -497,16 +500,16 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b[0]["chan.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["chan.keyword_out"];
+  auto out_sp = out_b[0]["chan.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->is_hit, 1);
-  EXPECT_NE(out_ptr->match_result_json, nullptr);
-  EXPECT_GT(out_ptr->match_result_json->length, 0);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_EQ(ParseJsonOutput(out_ptr).at("is_hit").get<int>(), 1);
+  EXPECT_NE(out_ptr->result_json, nullptr);
+  EXPECT_GT(out_ptr->result_json->length, 0);
 
   // 释放输出块，触发回池
   out_b.clear();
@@ -515,7 +518,7 @@ TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
-// 7. 多模态 OCR 业务多槽位聚合端到端 (frame + string -> od_out)
+// 7. 多模态 OCR 业务多槽位聚合端到端 (frame + string -> json_out)
 TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
@@ -538,14 +541,14 @@ TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["camera_0.frame"] = MakeBorrowedOperatorInput(&frame);
   in_b[0]["camera_0.string"] = MakeBorrowedOperatorInput(&prompt_cs);
-  out_b[0]["camera_0.od_out"] = std::shared_ptr<void>();
+  out_b[0]["camera_0.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["camera_0.od_out"];
+  auto out_sp = out_b[0]["camera_0.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOdOutput*>(out_sp.get());
-  EXPECT_GT(out_ptr->detected_box_count, 0);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_GT(ParseJsonOutput(out_ptr).at("detected_box_count").get<int>(), 0);
   EXPECT_NE(out_ptr->result_json, nullptr);
   EXPECT_GT(out_ptr->result_json->length, 0);
 
@@ -579,10 +582,10 @@ TEST_F(OperatorApiTest, OcrPixelFramesRejectInvalidInputWithoutOutput) {
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["camera_0.frame"] = MakeBorrowedOperatorInput(&frame);
     inputs[0]["camera_0.string"] = MakeBorrowedOperatorInput(&question);
-    outputs[0]["camera_0.od_out"] = nullptr;
+    outputs[0]["camera_0.json_out"] = nullptr;
     EXPECT_EQ(ops_.Process(handle, inputs, outputs),
               COMPANY_ALG_ERR_INVALID_INPUT);
-    EXPECT_EQ(outputs[0]["camera_0.od_out"], nullptr);
+    EXPECT_EQ(outputs[0]["camera_0.json_out"], nullptr);
   }
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
@@ -605,15 +608,16 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
+  out_b[0]["rag_channel.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["rag_channel.doc_out"];
+  auto out_sp = out_b[0]["rag_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorDocOutput*>(out_sp.get());
-  EXPECT_NE(out_ptr->answer_text, nullptr);
-  EXPECT_GT(out_ptr->answer_text->length, 0);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_TRUE(ParseJsonOutput(out_ptr).contains("answer_text"));
+  EXPECT_GT(
+      ParseJsonOutput(out_ptr).at("answer_text").get<std::string>().size(), 0);
 
   out_b.clear();
   out_sp.reset();
@@ -644,15 +648,16 @@ TEST_F(OperatorApiTest, EndToEndDialogueAudit) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["audit_channel.audit_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["audit_channel.audit_out"] = std::shared_ptr<void>();
+  out_b[0]["audit_channel.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["audit_channel.audit_out"];
+  auto out_sp = out_b[0]["audit_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorAuditOutput*>(out_sp.get());
-  EXPECT_NE(out_ptr->risk_level, nullptr);
-  EXPECT_GT(out_ptr->risk_level->length, 0);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_TRUE(ParseJsonOutput(out_ptr).contains("risk_level"));
+  EXPECT_GT(ParseJsonOutput(out_ptr).at("risk_level").get<std::string>().size(),
+            0);
 
   out_b.clear();
   out_sp.reset();
@@ -679,23 +684,25 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["mic_0.audio_out"] = std::shared_ptr<void>();
+  out_b[0]["mic_0.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["mic_0.audio_out"];
+  auto out_sp = out_b[0]["mic_0.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorAudioOutput*>(out_sp.get());
-  EXPECT_NE(out_ptr->transcribed_text, nullptr);
-  EXPECT_GT(out_ptr->transcribed_text->length, 0);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_TRUE(ParseJsonOutput(out_ptr).contains("transcribed_text"));
+  EXPECT_GT(
+      ParseJsonOutput(out_ptr).at("transcribed_text").get<std::string>().size(),
+      0);
 
   out_sp.reset();
-  out_b[0]["mic_0.audio_out"].reset();
+  out_b[0]["mic_0.json_out"].reset();
   in.pcm_buffer = nullptr;
   in.pcm_length = 0;
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
-  auto* empty_output = static_cast<CompanyOperatorAudioOutput*>(
-      out_b[0]["mic_0.audio_out"].get());
+  auto* empty_output =
+      static_cast<CompanyOperatorOutput*>(out_b[0]["mic_0.json_out"].get());
   ASSERT_NE(empty_output, nullptr);
   EXPECT_EQ(empty_output->status_code, 0);
   out_b.clear();
@@ -741,14 +748,14 @@ TEST_F(OperatorApiTest, EndToEndCrossRerank) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["ranker.rerank_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["ranker.rerank_out"] = std::shared_ptr<void>();
+  out_b[0]["ranker.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["ranker.rerank_out"];
+  auto out_sp = out_b[0]["ranker.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
-  EXPECT_EQ(out_ptr->count, 2);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_EQ(ParseJsonOutput(out_ptr).at("count").get<int>(), 2);
 
   out_b.clear();
   out_sp.reset();
@@ -777,9 +784,8 @@ TEST_F(OperatorApiTest, OutputSlotValidation) {
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
 
   // 1. 输出槽位为非空 shared_ptr -> 拦截返回 -4
-  CompanyOperatorKeywordOutput dummy_out{};
-  out_b[0]["chan.keyword_out"] =
-      std::shared_ptr<void>(&dummy_out, [](void*) {});
+  CompanyOperatorOutput dummy_out{};
+  out_b[0]["chan.json_out"] = std::shared_ptr<void>(&dummy_out, [](void*) {});
   EXPECT_EQ(ops_.Process(handle, in_b, out_b), -4);
 
   // 2. 缺少输出槽位 Key -> 拦截返回 -4
@@ -787,7 +793,7 @@ TEST_F(OperatorApiTest, OutputSlotValidation) {
   EXPECT_EQ(ops_.Process(handle, in_b, out_b), -4);
 
   // 3. 包含额外未知输出槽位 Key -> 拦截返回 -4
-  out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b[0]["chan.json_out"] = std::shared_ptr<void>();
   out_b[0]["chan.extra_key"] = std::shared_ptr<void>();
   EXPECT_EQ(ops_.Process(handle, in_b, out_b), -4);
 
@@ -809,14 +815,14 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
     for (size_t i = 0; i < count; ++i) {
       rows[i] = {kMockServiceKeywordMatch, &sentence};
       inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
-      outputs[i]["test.keyword_out"] = nullptr;
+      outputs[i]["test.json_out"] = nullptr;
     }
     EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), count == 64 ? 0 : -3)
         << GetOperatorLastError();
     if (count == 64) {
       for (size_t i = 0; i < count; ++i) {
-        const auto* result = static_cast<CompanyOperatorKeywordOutput*>(
-            outputs[i]["test.keyword_out"].get());
+        const auto* result = static_cast<CompanyOperatorOutput*>(
+            outputs[i]["test.json_out"].get());
         ASSERT_NE(result, nullptr);
         EXPECT_EQ(result->status_code, 0);
       }
@@ -824,7 +830,7 @@ TEST_F(OperatorApiTest, ProcessUsesResolvedEffectiveBatchLimit) {
       EXPECT_STREQ(GetOperatorLastError(),
                    "Input batch size 65 exceeds effective batch limit 64");
       for (const auto& frame : outputs)
-        EXPECT_EQ(frame.at("test.keyword_out"), nullptr);
+        EXPECT_EQ(frame.at("test.json_out"), nullptr);
       // 保留原有校验顺序：先检查批次上限，再读取载体和解析输出 key。
       outputs.front().clear();
       EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
@@ -860,16 +866,17 @@ TEST_F(OperatorApiTest, ProcessUsesRowOrderForDistinctInputs) {
     for (size_t i = 0; i < texts.size(); ++i) {
       rows[i] = {kMockServiceKeywordMatch, &sentences[i]};
       inputs[i]["test.keyword_in"] = MakeBorrowedOperatorInput(&rows[i]);
-      outputs[i]["test.keyword_out"] = nullptr;
+      outputs[i]["test.json_out"] = nullptr;
     }
     ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
         << GetOperatorLastError();
     for (size_t i = 0; i < texts.size(); ++i) {
-      const auto* result = static_cast<const CompanyOperatorKeywordOutput*>(
-          outputs[i].at("test.keyword_out").get());
+      const auto* result = static_cast<const CompanyOperatorOutput*>(
+          outputs[i].at("test.json_out").get());
       ASSERT_NE(result, nullptr);
       EXPECT_EQ(result->status_code, 0);
-      EXPECT_EQ(result->is_hit, i == 1 ? 0 : 1);
+      EXPECT_EQ(ParseJsonOutput(result).at("is_hit").get<int>(),
+                i == 1 ? 0 : 1);
     }
   }
 }
@@ -880,7 +887,7 @@ TEST_F(OperatorApiTest, CompanyStringProcessNeedsOnlyBatchRowPositions) {
       {"io",
        {{"input", {{{"type", "string"}, {"name", "ocr_invoice_qa"}}}},
         {"output",
-         {{{"type", "entity_out"},
+         {{{"type", "json_out"},
            {"name", "translate"},
            {"inputs", {{"translation", "copy.text"}}}}}}}},
       {"models", nlohmann::json::array()},
@@ -905,22 +912,22 @@ TEST_F(OperatorApiTest, CompanyStringProcessNeedsOnlyBatchRowPositions) {
   NamedIoBatch inputs(rows.size()), outputs(rows.size());
   for (size_t i = 0; i < rows.size(); ++i) {
     inputs[i]["test.string"] = MakeBorrowedOperatorInput(&rows[i]);
-    outputs[i]["test.entity_out"] = nullptr;
+    outputs[i]["test.json_out"] = nullptr;
   }
   ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
       << GetOperatorLastError();
   for (size_t i = 0; i < rows.size(); ++i) {
-    const auto* output = static_cast<const CompanyOperatorEntityOutput*>(
-        outputs[i]["test.entity_out"].get());
+    const auto* output = static_cast<const CompanyOperatorOutput*>(
+        outputs[i]["test.json_out"].get());
     ASSERT_NE(output, nullptr);
     EXPECT_EQ(output->status_code, 0);
-    EXPECT_EQ(nlohmann::json::parse(output->entities_json->data)["translated"],
+    EXPECT_EQ(nlohmann::json::parse(output->result_json->data)["translated"],
               texts[i]);
   }
-  outputs.assign(1, {{"test.entity_out", nullptr}});
+  outputs.assign(1, {{"test.json_out", nullptr}});
   EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(outputs[0]["test.entity_out"], nullptr);
+  EXPECT_EQ(outputs[0]["test.json_out"], nullptr);
 }
 
 // 13. 输出池耗尽、阻塞与唤醒复用测试
@@ -945,22 +952,22 @@ TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   NamedIoBatch in_b3(3), out_b3(3);
   for (int i = 0; i < 3; ++i) {
     in_b3[i]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-    out_b3[i]["chan.keyword_out"] = std::shared_ptr<void>();
+    out_b3[i]["chan.json_out"] = std::shared_ptr<void>();
   }
   EXPECT_EQ(ops_.Process(handle, in_b3, out_b3), -3);
 
   // 2. 连续检出 2 个块，暂不释放
   NamedIoBatch in_b1(1), out_b1(1);
   in_b1[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b1[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b1[0]["chan.json_out"] = std::shared_ptr<void>();
   ASSERT_EQ(ops_.Process(handle, in_b1, out_b1), 0);
-  auto out1 = out_b1[0]["chan.keyword_out"];
+  auto out1 = out_b1[0]["chan.json_out"];
 
   NamedIoBatch in_b2(1), out_b2(1);
   in_b2[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b2[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b2[0]["chan.json_out"] = std::shared_ptr<void>();
   ASSERT_EQ(ops_.Process(handle, in_b2, out_b2), 0);
-  auto out2 = out_b2[0]["chan.keyword_out"];
+  auto out2 = out_b2[0]["chan.json_out"];
 
   // 此时池中可用块为 0
   std::atomic<bool> thread_started{false};
@@ -970,7 +977,7 @@ TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
     thread_started = true;
     NamedIoBatch in_b(1), out_b(1);
     in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-    out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+    out_b[0]["chan.json_out"] = std::shared_ptr<void>();
     int ret = ops_.Process(handle, in_b, out_b);
     EXPECT_EQ(ret, 0);
     thread_completed = true;
@@ -1016,10 +1023,10 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b[0]["chan.json_out"] = std::shared_ptr<void>();
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto leak_out = out_b[0]["chan.keyword_out"];
+  auto leak_out = out_b[0]["chan.json_out"];
 
   // 调用方违约在未释放输出时调用 Destroy -> 返回 -1 且清理资源
   EXPECT_EQ(ops_.Destroy(handle), -1);
@@ -1049,8 +1056,8 @@ TEST_F(OperatorApiTest, ResolveOperatorConfigIoApi) {
   EXPECT_EQ(io.inputs[0].type_name, "CompanyOperatorKeywordInput");
   EXPECT_TRUE(io.inputs[0].required);
   EXPECT_EQ(io.inputs[0].service_type, kMockServiceKeywordMatch);
-  EXPECT_EQ(io.outputs[0].type, "keyword_out");
-  EXPECT_EQ(io.outputs[0].type_name, "CompanyOperatorKeywordOutput");
+  EXPECT_EQ(io.outputs[0].type, "json_out");
+  EXPECT_EQ(io.outputs[0].type_name, "CompanyOperatorOutput");
   ASSERT_EQ(ResolveOperatorConfigIo(
                 root.c_str(), "configs/pipeline_keyword_match_rules.conf", &io),
             0);
@@ -1088,7 +1095,7 @@ TEST_F(OperatorApiTest, ResolveOperatorConfigIoApi) {
   EXPECT_EQ(io.inputs[0].type_name, "CompanyFrame");
   EXPECT_EQ(io.inputs[1].type, "string");
   EXPECT_EQ(io.inputs[1].type_name, "CompanyString");
-  EXPECT_EQ(io.outputs[0].type, "od_out");
+  EXPECT_EQ(io.outputs[0].type, "json_out");
 }
 
 // 16. 实体抽取业务端到端 (Entity Extract)
@@ -1107,15 +1114,15 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["nlp.entity_out"] = std::shared_ptr<void>();
+  out_b[0]["nlp.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
-  auto out_sp = out_b[0]["nlp.entity_out"];
+  auto out_sp = out_b[0]["nlp.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
-  EXPECT_NE(out_ptr->entities_json, nullptr);
-  EXPECT_GT(out_ptr->entities_json->length, 0);
+  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  EXPECT_NE(out_ptr->result_json, nullptr);
+  EXPECT_GT(out_ptr->result_json->length, 0);
 
   out_b.clear();
   out_sp.reset();
@@ -1144,7 +1151,7 @@ TEST_F(OperatorApiTest, InputSharedPtrUseCountNotRetained) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = in_ptr;
-  out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  out_b[0]["chan.json_out"] = std::shared_ptr<void>();
 
   // process 前：in_ptr 由 in_ptr 和 in_b[0] 持有 (use_count == 2)
   EXPECT_EQ(in_ptr.use_count(), 2);
@@ -1185,9 +1192,9 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
 
     NamedIoBatch in_b(1), out_b(1);
     in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-    out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+    out_b[0]["chan.json_out"] = std::shared_ptr<void>();
     ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
-    EXPECT_NE(out_b[0]["chan.keyword_out"], nullptr);
+    EXPECT_NE(out_b[0]["chan.json_out"], nullptr);
 
     out_b.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -1212,10 +1219,10 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
 
     NamedIoBatch in_b1(1), out_b1(1);
     in_b1[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-    out_b1[0]["chan.keyword_out"] = std::shared_ptr<void>();
+    out_b1[0]["chan.json_out"] = std::shared_ptr<void>();
     ASSERT_EQ(ops_.Process(handle, in_b1, out_b1), 0);
 
-    void* first_block_addr = out_b1[0]["chan.keyword_out"].get();
+    void* first_block_addr = out_b1[0]["chan.json_out"].get();
     ASSERT_NE(first_block_addr, nullptr);
 
     // 释放输出块，触发回池
@@ -1224,10 +1231,10 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
     // 第二次调用，池中唯一的块必须被严格复用
     NamedIoBatch in_b2(1), out_b2(1);
     in_b2[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-    out_b2[0]["chan.keyword_out"] = std::shared_ptr<void>();
+    out_b2[0]["chan.json_out"] = std::shared_ptr<void>();
     ASSERT_EQ(ops_.Process(handle, in_b2, out_b2), 0);
 
-    void* second_block_addr = out_b2[0]["chan.keyword_out"].get();
+    void* second_block_addr = out_b2[0]["chan.json_out"].get();
     EXPECT_EQ(first_block_addr, second_block_addr);
 
     out_b2.clear();
@@ -1267,7 +1274,7 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
     for (int i = 0; i < 10; ++i) {
       NamedIoBatch in_b(1), out_b(1);
       in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-      out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+      out_b[0]["chan.json_out"] = std::shared_ptr<void>();
       if (ops_.Process(handle1, in_b, out_b) != 0) return;
       out_b.clear();
     }
@@ -1278,7 +1285,7 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
     for (int i = 0; i < 10; ++i) {
       NamedIoBatch in_b(1), out_b(1);
       in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-      out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
+      out_b[0]["chan.json_out"] = std::shared_ptr<void>();
       if (ops_.Process(handle2, in_b, out_b) != 0) return;
       out_b.clear();
     }
@@ -1308,10 +1315,10 @@ TEST_F(OperatorApiTest, IoParametersAreValidatedBeforeAllocation) {
   param.model_path = root.c_str();
   const std::vector<std::pair<nlohmann::json, std::string>> invalid = {
       {{{"unexpected", 1}}, "UNKNOWN_CONFIG_FIELD"},
-      {{{"match_result_json_max_bytes", "large"}}, "CONFIG_FIELD_TYPE"},
-      {{{"match_result_json_max_bytes", 0}}, "CONFIG_FIELD_RANGE"},
-      {{{"match_result_json_max_bytes", 65537}}, "CONFIG_FIELD_RANGE"},
-      {{{"match_result_json_max_bytes", 2.5}}, "CONFIG_FIELD_TYPE"}};
+      {{{"result_json_max_bytes", "large"}}, "CONFIG_FIELD_TYPE"},
+      {{{"result_json_max_bytes", 0}}, "CONFIG_FIELD_RANGE"},
+      {{{"result_json_max_bytes", 65537}}, "CONFIG_FIELD_RANGE"},
+      {{{"result_json_max_bytes", 2.5}}, "CONFIG_FIELD_TYPE"}};
   for (const auto& [params, code] : invalid) {
     auto document = base;
     document["io"]["output"][0]["params"] = params;
@@ -1364,19 +1371,18 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
 
   NamedIoBatch batch_outputs(7);
   for (size_t i = 0; i < 7; ++i) {
-    batch_outputs[i]["client_channel.keyword_out"] = nullptr;
+    batch_outputs[i]["client_channel.json_out"] = nullptr;
   }
 
   int ret = ops_.Process(handle, batch_inputs, batch_outputs);
   EXPECT_EQ(ret, 0);
 
   for (size_t i = 0; i < 7; ++i) {
-    auto out_sp = batch_outputs[i]["client_channel.keyword_out"];
+    auto out_sp = batch_outputs[i]["client_channel.json_out"];
     ASSERT_NE(out_sp, nullptr);
-    const auto* out =
-        static_cast<const CompanyOperatorKeywordOutput*>(out_sp.get());
+    const auto* out = static_cast<const CompanyOperatorOutput*>(out_sp.get());
     EXPECT_EQ(out->status_code, 0);
-    EXPECT_EQ(out->is_hit, 0);
+    EXPECT_EQ(ParseJsonOutput(out).at("is_hit").get<int>(), 0);
   }
 
   batch_outputs.clear();
@@ -1489,22 +1495,22 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].query_text = &q_cs[i];
       inputs[i].doc_text = &d_cs[i];
       batch_in[i]["qa.doc_in"] = MakeBorrowedOperatorInput(&inputs[i]);
-      batch_out[i]["qa.doc_out"] = nullptr;
+      batch_out[i]["qa.json_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyOperatorDocOutput*>(
-        batch_out[0]["qa.doc_out"].get());
-    auto* last_out = static_cast<CompanyOperatorDocOutput*>(
-        batch_out[kBatch - 1]["qa.doc_out"].get());
+    auto* first_out =
+        static_cast<CompanyOperatorOutput*>(batch_out[0]["qa.json_out"].get());
+    auto* last_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[kBatch - 1]["qa.json_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_NE(first_out->intent_name, nullptr);
-    EXPECT_NE(first_out->answer_text, nullptr);
-    EXPECT_NE(last_out->intent_name, nullptr);
-    EXPECT_NE(last_out->answer_text, nullptr);
+    EXPECT_TRUE(ParseJsonOutput(first_out).contains("intent_name"));
+    EXPECT_TRUE(ParseJsonOutput(first_out).contains("answer_text"));
+    EXPECT_TRUE(ParseJsonOutput(last_out).contains("intent_name"));
+    EXPECT_TRUE(ParseJsonOutput(last_out).contains("answer_text"));
 
     batch_out.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -1539,20 +1545,20 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].user_text = &u_cs[i];
       inputs[i].channel_name = &c_cs[i];
       batch_in[i]["audit.audit_in"] = MakeBorrowedOperatorInput(&inputs[i]);
-      batch_out[i]["audit.audit_out"] = nullptr;
+      batch_out[i]["audit.json_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyOperatorAuditOutput*>(
-        batch_out[0]["audit.audit_out"].get());
-    auto* last_out = static_cast<CompanyOperatorAuditOutput*>(
-        batch_out[kBatch - 1]["audit.audit_out"].get());
+    auto* first_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[0]["audit.json_out"].get());
+    auto* last_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[kBatch - 1]["audit.json_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_NE(first_out->risk_level, nullptr);
-    EXPECT_NE(first_out->audit_verdict_json, nullptr);
+    EXPECT_TRUE(ParseJsonOutput(first_out).contains("risk_level"));
+    EXPECT_TRUE(ParseJsonOutput(first_out).contains("audit_verdict"));
 
     batch_out.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -1587,20 +1593,20 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].pcm_length = 16000;
       inputs[i].pcm_buffer = pcm_buffers[i].data();
       batch_in[i]["audio.audio_in"] = MakeBorrowedOperatorInput(&inputs[i]);
-      batch_out[i]["audio.audio_out"] = nullptr;
+      batch_out[i]["audio.json_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyOperatorAudioOutput*>(
-        batch_out[0]["audio.audio_out"].get());
-    auto* last_out = static_cast<CompanyOperatorAudioOutput*>(
-        batch_out[kBatch - 1]["audio.audio_out"].get());
+    auto* first_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[0]["audio.json_out"].get());
+    auto* last_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[kBatch - 1]["audio.json_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_NE(first_out->transcribed_text, nullptr);
-    EXPECT_NE(first_out->intent_slot_json, nullptr);
+    EXPECT_TRUE(ParseJsonOutput(first_out).contains("transcribed_text"));
+    EXPECT_TRUE(ParseJsonOutput(first_out).contains("intent_slot"));
 
     batch_out.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -1647,24 +1653,24 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
         inputs[i].candidate_passages[c] = &c_cs[i][c];
       }
       batch_in[i]["rank.rerank_in"] = MakeBorrowedOperatorInput(&inputs[i]);
-      batch_out[i]["rank.rerank_out"] = nullptr;
+      batch_out[i]["rank.json_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyOperatorRerankOutput*>(
-        batch_out[0]["rank.rerank_out"].get());
-    auto* middle_out = static_cast<CompanyOperatorRerankOutput*>(
-        batch_out[1]["rank.rerank_out"].get());
-    auto* last_out = static_cast<CompanyOperatorRerankOutput*>(
-        batch_out[kBatch - 1]["rank.rerank_out"].get());
+    auto* first_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[0]["rank.json_out"].get());
+    auto* middle_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[1]["rank.json_out"].get());
+    auto* last_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[kBatch - 1]["rank.json_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(middle_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_EQ(first_out->count, 8);
-    EXPECT_EQ(middle_out->count, 8);
-    EXPECT_EQ(last_out->count, 8);
+    EXPECT_EQ(ParseJsonOutput(first_out).at("count").get<int>(), 8);
+    EXPECT_EQ(ParseJsonOutput(middle_out).at("count").get<int>(), 8);
+    EXPECT_EQ(ParseJsonOutput(last_out).at("count").get<int>(), 8);
 
     batch_out.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -1701,16 +1707,16 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       frames[i].metadata = nullptr;
       batch_in[i]["camera_0.frame"] = MakeBorrowedOperatorInput(&frames[i]);
       batch_in[i]["query_channel.string"] = MakeBorrowedOperatorInput(&q_cs[i]);
-      batch_out[i]["ocr_result.od_out"] = nullptr;
+      batch_out[i]["ocr_result.json_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out =
-        static_cast<CompanyOdOutput*>(batch_out[0]["ocr_result.od_out"].get());
-    auto* last_out = static_cast<CompanyOdOutput*>(
-        batch_out[kBatch - 1]["ocr_result.od_out"].get());
+    auto* first_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[0]["ocr_result.json_out"].get());
+    auto* last_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[kBatch - 1]["ocr_result.json_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
     EXPECT_NE(first_out->result_json, nullptr);
@@ -1745,20 +1751,20 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].service_type = kMockServiceEntityExtract;
       inputs[i].sentence_text = &s_cs[i];
       batch_in[i]["ner.entity_in"] = MakeBorrowedOperatorInput(&inputs[i]);
-      batch_out[i]["ner.entity_out"] = nullptr;
+      batch_out[i]["ner.json_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyOperatorEntityOutput*>(
-        batch_out[0]["ner.entity_out"].get());
-    auto* last_out = static_cast<CompanyOperatorEntityOutput*>(
-        batch_out[kBatch - 1]["ner.entity_out"].get());
+    auto* first_out =
+        static_cast<CompanyOperatorOutput*>(batch_out[0]["ner.json_out"].get());
+    auto* last_out = static_cast<CompanyOperatorOutput*>(
+        batch_out[kBatch - 1]["ner.json_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
-    EXPECT_NE(first_out->entities_json, nullptr);
-    EXPECT_NE(last_out->entities_json, nullptr);
+    EXPECT_NE(first_out->result_json, nullptr);
+    EXPECT_NE(last_out->result_json, nullptr);
 
     batch_out.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
@@ -1795,19 +1801,19 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
     inputs[i].sentence_text = &comp_strs[i];
     batch_in[i]["client_channel.keyword_in"] =
         MakeBorrowedOperatorInput(&inputs[i]);
-    batch_out[i]["client_channel.keyword_out"] = nullptr;
+    batch_out[i]["client_channel.json_out"] = nullptr;
   }
 
   int ret = ops_.Process(handle, batch_in, batch_out);
   EXPECT_EQ(ret, 0);
 
   for (size_t i = 0; i < kMaxBatch; ++i) {
-    auto out_sp = batch_out[i]["client_channel.keyword_out"];
+    auto out_sp = batch_out[i]["client_channel.json_out"];
     ASSERT_NE(out_sp, nullptr);
-    auto* out_ptr = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-    EXPECT_NE(out_ptr->match_result_json, nullptr);
+    auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
+    EXPECT_NE(out_ptr->result_json, nullptr);
     if (i % 2 == 0) {
-      EXPECT_EQ(out_ptr->is_hit, 1);
+      EXPECT_EQ(ParseJsonOutput(out_ptr).at("is_hit").get<int>(), 1);
     }
   }
 
@@ -1828,7 +1834,7 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
     over_inputs[i].sentence_text = &over_cs[i];
     over_batch_in[i]["client_channel.keyword_in"] =
         MakeBorrowedOperatorInput(&over_inputs[i]);
-    over_batch_out[i]["client_channel.keyword_out"] = nullptr;
+    over_batch_out[i]["client_channel.json_out"] = nullptr;
   }
 
   int over_ret = ops_.Process(handle, over_batch_in, over_batch_out);
@@ -1858,10 +1864,10 @@ TEST_F(OperatorApiTest, UnreleasedOutputLifecycleBreach) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["client_channel.keyword_out"] = nullptr;
+  out_b[0]["client_channel.json_out"] = nullptr;
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
-  ASSERT_NE(out_b[0]["client_channel.keyword_out"], nullptr);
+  ASSERT_NE(out_b[0]["client_channel.json_out"], nullptr);
 
   // 在调用方依然持有输出 shared_ptr 时调用 Destroy -> 必须返回 -1 (未归还违约)
   EXPECT_EQ(ops_.Destroy(handle), -1);
@@ -2087,10 +2093,10 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
         {"io",
          {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
           {"output",
-           {{{"type", "keyword_out"},
+           {{{"type", "json_out"},
              {"name", "keyword_match"},
              {"inputs", {{"matches", "rule.matches"}}},
-             {"params", {{"match_result_json_max_bytes", capacity}}}}}}}},
+             {"params", {{"result_json_max_bytes", capacity}}}}}}}},
         {"models", nlohmann::json::array()},
         {"pipeline",
          {{{"name", "rule"},
@@ -2115,23 +2121,23 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
     CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &text};
     NamedIoBatch inputs(1), outputs(1);
     inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
-    outputs[0]["chan.keyword_out"] = {};
+    outputs[0]["chan.json_out"] = {};
     for (int attempt = 0; attempt < 2; ++attempt) {
       const int ret = ops_.Process(handle, inputs, outputs);
       if (capacity > 2048) {
         ASSERT_EQ(ret, 0) << GetOperatorLastError();
-        auto* result = static_cast<CompanyOperatorKeywordOutput*>(
-            outputs[0]["chan.keyword_out"].get());
+        auto* result = static_cast<CompanyOperatorOutput*>(
+            outputs[0]["chan.json_out"].get());
         ASSERT_NE(result, nullptr);
-        EXPECT_GT(result->match_result_json->length, 2048);
-        const std::string json(result->match_result_json->data,
-                               result->match_result_json->length);
+        EXPECT_GT(result->result_json->length, 2048);
+        const std::string json(result->result_json->data,
+                               result->result_json->length);
         EXPECT_NE(json.find(word), std::string::npos);
         EXPECT_TRUE(nlohmann::json::accept(json));
-        outputs[0]["chan.keyword_out"].reset();
+        outputs[0]["chan.json_out"].reset();
       } else {
         EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-        EXPECT_EQ(outputs[0]["chan.keyword_out"], nullptr);
+        EXPECT_EQ(outputs[0]["chan.json_out"], nullptr);
       }
     }
     // 转换失败时必须归还唯一的租约，以便之后的小结果能正常写入。
@@ -2640,7 +2646,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
 
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in_plain);
-  out_b[0]["nlp.entity_out"] = std::shared_ptr<void>();
+  out_b[0]["nlp.json_out"] = std::shared_ptr<void>();
 
   // 实体抽取接受纯文本
   EXPECT_EQ(ops_.Process(entity_handle, in_b, out_b), 0);
@@ -2728,7 +2734,7 @@ TEST_F(OperatorApiTest, NamedServicesAreCheckedAndMultipleSlotsPairByRow) {
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i]["first.keyword_in"] = MakeBorrowedOperatorInput(&keyword[i]);
     inputs[i]["second.audit_in"] = MakeBorrowedOperatorInput(&audit[i]);
-    outputs[i]["result.keyword_out"] = {};
+    outputs[i]["result.json_out"] = {};
   }
   audit[1].service_type = 999;
   EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -3);
@@ -2737,19 +2743,18 @@ TEST_F(OperatorApiTest, NamedServicesAreCheckedAndMultipleSlotsPairByRow) {
             std::string::npos);
   EXPECT_NE(std::string(GetOperatorLastError()).find("expected 4"),
             std::string::npos);
-  for (const auto& row : outputs)
-    EXPECT_EQ(row.at("result.keyword_out"), nullptr);
+  for (const auto& row : outputs) EXPECT_EQ(row.at("result.json_out"), nullptr);
   audit[1].service_type = kMockServiceDialogueAudit;
   // 不同宿主槽的业务字段不参与关联；输入按相同行号配对。
   for (int round = 0; round < 2; ++round) {
     ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
         << GetOperatorLastError();
     for (size_t i = 0; i < outputs.size(); ++i) {
-      const auto* value = static_cast<const CompanyOperatorKeywordOutput*>(
-          outputs[i].at("result.keyword_out").get());
+      const auto* value = static_cast<const CompanyOperatorOutput*>(
+          outputs[i].at("result.json_out").get());
       ASSERT_NE(value, nullptr);
       EXPECT_EQ(value->service_type, kMockServiceKeywordMatch);
-      outputs[i]["result.keyword_out"].reset();
+      outputs[i]["result.json_out"].reset();
     }
   }
 }
@@ -2811,11 +2816,11 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
       {"io",
        {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
         {"output",
-         {{{"type", "entity_out"},
+         {{{"type", "json_out"},
            {"name", "entity_extract"},
            {"inputs", {{"entities", "parse.document"}}},
-           {"params", {{"entities_json_max_bytes", 4095}}}},
-          {{"type", "entity_out"},
+           {"params", {{"result_json_max_bytes", 4095}}}},
+          {{"type", "json_out"},
            {"name", "translate"},
            {"inputs", {{"translation", "copy.text"}}}}}}}},
       {"models", nlohmann::json::array()},
@@ -2843,9 +2848,9 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
       0)
       << error;
   ASSERT_EQ(resolved.io_plan->outputs.size(), 2u);
-  EXPECT_EQ(resolved.io_plan->outputs[0].pool_spec.GetCapacity("entities_json"),
+  EXPECT_EQ(resolved.io_plan->outputs[0].pool_spec.GetCapacity("result_json"),
             4095u);
-  EXPECT_EQ(resolved.io_plan->outputs[1].pool_spec.GetCapacity("entities_json"),
+  EXPECT_EQ(resolved.io_plan->outputs[1].pool_spec.GetCapacity("result_json"),
             8191u);
   ScopedTestOperator handle(ops_);
   ASSERT_EQ(handle.Create("pipeline.conf", temp.path().string(),
@@ -2857,27 +2862,27 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
   CompanyOperatorEntityInput row{kMockServiceEntityExtract, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["any.entity_in"] = MakeBorrowedOperatorInput(&row);
-  outputs[0]["any.entity_out"] = {};
+  outputs[0]["any.json_out"] = {};
   EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -4);
-  EXPECT_EQ(outputs[0].at("any.entity_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("any.json_out"), nullptr);
   outputs[0].clear();
-  outputs[0]["entity_extract.entity_out"] = {};
-  outputs[0]["translate.entity_out"] = {};
+  outputs[0]["entity_extract.json_out"] = {};
+  outputs[0]["translate.json_out"] = {};
   ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
       << GetOperatorLastError();
   for (const auto& [name, service] :
        std::vector<std::pair<std::string, int32_t>>{
            {"entity_extract", kMockServiceEntityExtract},
            {"translate", kMockServiceTranslate}}) {
-    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(
-        outputs[0].at(name + ".entity_out").get());
+    const auto* value = static_cast<const CompanyOperatorOutput*>(
+        outputs[0].at(name + ".json_out").get());
     ASSERT_NE(value, nullptr);
     EXPECT_EQ(value->service_type, service);
-    ASSERT_NE(value->entities_json, nullptr);
-    EXPECT_GT(value->entities_json->length, 2048);
-    EXPECT_LT(value->entities_json->length, 8191);
+    ASSERT_NE(value->result_json, nullptr);
+    EXPECT_GT(value->result_json->length, 2048);
+    EXPECT_LT(value->result_json->length, 8191);
     const auto parsed = nlohmann::json::parse(
-        std::string(value->entities_json->data, value->entities_json->length));
+        std::string(value->result_json->data, value->result_json->length));
     if (name == "translate")
       EXPECT_EQ(parsed.at("translated"), payload);
     else
@@ -2899,14 +2904,13 @@ TEST_F(OperatorApiTest, SameCarrierOutputsUseIndependentCapacitiesAndServices) {
             0)
       << overflow_handle.create_diagnostic();
   outputs.resize(1);
-  outputs[0]["translate.entity_out"] = {};
-  outputs[0]["entity_extract.entity_out"] = {};
+  outputs[0]["translate.json_out"] = {};
+  outputs[0]["entity_extract.json_out"] = {};
   EXPECT_EQ(ops_.Process(overflow_handle.get(), inputs, outputs), -4);
-  EXPECT_NE(
-      std::string(GetOperatorLastError()).find("entity_out/entity_extract"),
-      std::string::npos);
-  EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
-  EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("json_out/entity_extract"),
+            std::string::npos);
+  EXPECT_EQ(outputs[0].at("translate.json_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("entity_extract.json_out"), nullptr);
 }
 
 TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
@@ -2914,19 +2918,19 @@ TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
   using test_support::ScopedTestOperator;
   test_support::RegistryTestAccess::ScopedValueTypeState restore_bindings;
   auto binding =
-      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("entity_out");
+      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("json_out");
   ASSERT_TRUE(binding);
   const auto write_service = binding->write_service_type;
   bool inject_failure = true;
   int service_writes = 0;
   std::vector<std::string> encoded_values;
   binding->write_service_type = [&](void* raw, int32_t service) {
-    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(raw);
-    if (!value->entities_json)
+    const auto* value = static_cast<const CompanyOperatorOutput*>(raw);
+    if (!value->result_json)
       throw std::runtime_error("Service callback received unencoded output");
-    EXPECT_GT(value->entities_json->length, 0);
-    encoded_values.emplace_back(value->entities_json->data,
-                                value->entities_json->length);
+    EXPECT_GT(value->result_json->length, 0);
+    encoded_values.emplace_back(value->result_json->data,
+                                value->result_json->length);
     write_service(raw, service);
     if (++service_writes == 2 && inject_failure)
       throw std::runtime_error("Injected platform service translation failure");
@@ -2939,10 +2943,10 @@ TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
       {"io",
        {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
         {"output",
-         {{{"type", "entity_out"},
+         {{{"type", "json_out"},
            {"name", "entity_extract"},
            {"inputs", {{"entities", "parse.document"}}}},
-          {{"type", "entity_out"},
+          {{"type", "json_out"},
            {"name", "translate"},
            {"inputs", {{"translation", "text.text"}}}}}}}},
       {"models", nlohmann::json::array()},
@@ -2968,8 +2972,8 @@ TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
   CompanyOperatorEntityInput row{kMockServiceEntityExtract, &sentence};
   NamedIoBatch inputs(1), outputs(1);
   inputs[0]["request.entity_in"] = MakeBorrowedOperatorInput(&row);
-  outputs[0]["entity_extract.entity_out"] = {};
-  outputs[0]["translate.entity_out"] = {};
+  outputs[0]["entity_extract.json_out"] = {};
+  outputs[0]["translate.json_out"] = {};
   EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_EXCEPTION);
   EXPECT_NE(std::string(GetOperatorLastError())
@@ -2981,8 +2985,8 @@ TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
             nlohmann::json::parse(payload));
   EXPECT_EQ(nlohmann::json::parse(encoded_values[1]),
             nlohmann::json({{"translated", payload}}));
-  EXPECT_EQ(outputs[0].at("entity_extract.entity_out"), nullptr);
-  EXPECT_EQ(outputs[0].at("translate.entity_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("entity_extract.json_out"), nullptr);
+  EXPECT_EQ(outputs[0].at("translate.json_out"), nullptr);
 
   inject_failure = false;
   // 两个池的深度均为一；协议回调抛异常后，只有归还全部未发布租约，
@@ -2994,8 +2998,8 @@ TEST_F(OperatorApiTest, ServiceTranslationFailureDoesNotPublishAnyOutputSlot) {
        std::vector<std::pair<std::string, int32_t>>{
            {"entity_extract", kMockServiceEntityExtract},
            {"translate", kMockServiceTranslate}}) {
-    const auto* value = static_cast<const CompanyOperatorEntityOutput*>(
-        outputs[0].at(name + ".entity_out").get());
+    const auto* value = static_cast<const CompanyOperatorOutput*>(
+        outputs[0].at(name + ".json_out").get());
     ASSERT_NE(value, nullptr);
     EXPECT_EQ(value->service_type, service);
   }

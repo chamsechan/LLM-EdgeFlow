@@ -12,13 +12,24 @@
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
+#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
 
 constexpr auto kRanked = MakeBlackboardKey<RankedTextBatch>("ranked");
 
-constexpr const char* kOutputSlot = "rerank_out";
+constexpr const char* kOutputSlot = "json_out";
+
+struct Params {
+  int64_t result_json_max_bytes = 0;
+};
+
+Parameters<Params> ParamSpec() {
+  return Parameters<Params>({
+      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
+  });
+}
 
 int EncodeOperatorRerankResult(AlgContext* context,
                                const OutputEncodeOptions& options,
@@ -70,15 +81,20 @@ int EncodeOperatorRerankResult(AlgContext* context,
     if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
       continue;
     }
-    RerankOutputValue out;
+    JsonOutputValue out;
 
     const auto& cand_list = req_map[static_cast<uint32_t>(i)];
     out.status_code = 0;
-    out.items.reserve(cand_list.size());
+    auto scores = nlohmann::json::array();
+    auto indices = nlohmann::json::array();
     for (const auto& candidate : cand_list) {
-      out.items.push_back(
-          {candidate.score, static_cast<int32_t>(candidate.original_sub_id)});
+      scores.push_back(candidate.score);
+      indices.push_back(candidate.original_sub_id);
     }
+    out.result_json = nlohmann::json({{"scores", std::move(scores)},
+                                      {"sorted_indices", std::move(indices)},
+                                      {"count", cand_list.size()}})
+                          .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
       return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -93,8 +109,9 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "cross_rerank";
-  def.slot = ExternalOutputSlot<RerankOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kRanked, "N:1")};
+  def.params = ParamSpec();
   def.encode_fn = &EncodeOperatorRerankResult;
   return def;
 }

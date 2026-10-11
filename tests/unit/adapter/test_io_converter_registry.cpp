@@ -42,7 +42,7 @@ struct LayoutParams {
 };
 bool RegisterCountingAllocator() {
   const auto* builtin =
-      OperatorValueTypeRegistry::Instance().GetOutputBinding("entity_out", "");
+      OperatorValueTypeRegistry::Instance().GetOutputBinding("json_out", "");
   if (!builtin) return false;
   auto binding = *builtin;
   binding.normalize_parameters = MakeOutputParameterParser<LayoutParams>(
@@ -71,11 +71,11 @@ int DummyEncode(AlgContext*, const OutputEncodeOptions&,
   return 0;
 }
 struct SizeParams {
-  int64_t entities_json_max_bytes = 0;
+  int64_t result_json_max_bytes = 0;
 };
 Parameters<SizeParams> SizeParameters(int64_t default_size = 2047) {
   return Parameters<SizeParams>{
-      MaxBytes("entities_json", &SizeParams::entities_json_max_bytes)
+      MaxBytes("result_json", &SizeParams::result_json_max_bytes)
           .Default(default_size)};
 }
 InputConverterDefinition TestInput() {
@@ -90,9 +90,9 @@ InputConverterDefinition TestInput() {
 }
 OutputConverterDefinition TestOutput() {
   OutputConverterDefinition def;
-  def.type = "entity_out";
+  def.type = "json_out";
   def.name = "test_service";
-  def.slot = ExternalOutputSlot<EntityOutputValue>(def.type);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(def.type);
   def.logical_ports = {
       NodePortDefinition("answer_text", "TextBatch", true, "1:1")};
   def.params = SizeParameters();
@@ -102,7 +102,7 @@ OutputConverterDefinition TestOutput() {
 nlohmann::json TestIo() {
   return {{"input", {{{"type", "entity_in"}, {"name", "test_service"}}}},
           {"output",
-           {{{"type", "entity_out"},
+           {{{"type", "json_out"},
              {"name", "test_service"},
              {"inputs", {{"answer_text", "copy.text"}}}}}}};
 }
@@ -125,7 +125,7 @@ class IoConverterRegistryTest : public ::testing::Test {
     ASSERT_TRUE(RegisterCountingAllocator());
     test_support::RegistryTestAccess::SetService("entity_in", "test_service",
                                                  1001);
-    test_support::RegistryTestAccess::SetService("entity_out", "test_service",
+    test_support::RegistryTestAccess::SetService("json_out", "test_service",
                                                  1001);
     auto& registry = IoConverterRegistry::Instance();
     saved_inputs_ = registry.AllInputConverters();
@@ -160,16 +160,15 @@ class IoConverterRegistryTest : public ::testing::Test {
 TEST_F(IoConverterRegistryTest, ValidDefinitionsAreFoundByPairAndAuditCleanly) {
   auto& registry = IoConverterRegistry::Instance();
   const auto* input = registry.FindInputConverter("entity_in", "test_service");
-  const auto* output =
-      registry.FindOutputConverter("entity_out", "test_service");
+  const auto* output = registry.FindOutputConverter("json_out", "test_service");
   ASSERT_NE(input, nullptr);
   ASSERT_NE(output, nullptr);
   EXPECT_EQ(input->Label(), "entity_in/test_service");
-  EXPECT_EQ(output->Label(), "entity_out/test_service");
+  EXPECT_EQ(output->Label(), "json_out/test_service");
   EXPECT_EQ(input->slot.type_suffix, input->type);
   EXPECT_EQ(output->slot.type_suffix, output->type);
   EXPECT_EQ(registry.FindInputConverter("entity_in", "unknown"), nullptr);
-  EXPECT_EQ(registry.FindInputConverter("entity_out", "test_service"), nullptr);
+  EXPECT_EQ(registry.FindInputConverter("json_out", "test_service"), nullptr);
   std::vector<std::string> errors;
   EXPECT_TRUE(registry.Audit(&errors)) << ::testing::PrintToString(errors);
   EXPECT_TRUE(errors.empty());
@@ -191,7 +190,7 @@ TEST_F(IoConverterRegistryTest, DuplicatePairsAndServicesRemainConflicts) {
   output.name = "another_service";
   test_support::RegistryTestAccess::SetService(output.type, output.name, 1001);
   EXPECT_TRUE(registry.RegisterOutputConverter(output));
-  ExpectAuditFailure("entity_out", "Duplicate service_type");
+  ExpectAuditFailure("json_out", "Duplicate service_type");
   test_support::RegistryTestAccess::SetService(output.type, output.name, 1002);
   input.type = "keyword_in";
   input.slot = ExternalInputSlot<TextInputValue>(input.type);
@@ -247,7 +246,7 @@ TEST_F(IoConverterRegistryTest, SlotMustMatchRegisteredPlatformTypeAndSuffix) {
   auto output = TestOutput();
   output.name = "bad_output_struct";
   test_support::RegistryTestAccess::SetService(output.type, output.name, 1200);
-  output.slot.value_type = typeid(KeywordOutputValue);
+  output.slot.value_type = typeid(TextInputValue);
   ASSERT_TRUE(registry.RegisterOutputConverter(output));
   ExpectAuditFailure(output.Label(), "value type");
 }
@@ -266,21 +265,21 @@ TEST_F(IoConverterRegistryTest, AuditRequiresBindingValueReadersAndWriters) {
     ExpectAuditFailure("entity_in/test_service", "value reader");
   }
   test_support::RegistryTestAccess::SetValueBinding(input);
-  auto output = *values.GetBindingBySuffix("entity_out");
+  auto output = *values.GetBindingBySuffix("json_out");
   output.write_value = nullptr;
   test_support::RegistryTestAccess::SetValueBinding(std::move(output));
-  ExpectAuditFailure("entity_out/test_service", "value writer");
+  ExpectAuditFailure("json_out/test_service", "value writer");
 }
 
 TEST_F(IoConverterRegistryTest, NamedAllocatorMustMatchNeutralValueAndWriter) {
   const auto* builtin =
-      OperatorValueTypeRegistry::Instance().GetOutputBinding("entity_out", "");
+      OperatorValueTypeRegistry::Instance().GetOutputBinding("json_out", "");
   ASSERT_NE(builtin, nullptr);
   for (const bool wrong_type : {false, true}) {
     SCOPED_TRACE(wrong_type);
     auto binding = *builtin;
     if (wrong_type)
-      binding.value_type = typeid(KeywordOutputValue);
+      binding.value_type = typeid(TextInputValue);
     else
       binding.write_value = nullptr;
     const std::string allocator = wrong_type ? "unit_wrong_value_allocator"
@@ -323,7 +322,7 @@ TEST_F(IoConverterRegistryTest, ServiceDeclarationMatchesHostMembersAndCommon) {
   test_support::RegistryTestAccess::SetValueBinding(std::move(string_binding));
   ASSERT_TRUE(registry.RegisterInputConverter(string));
   auto output_binding =
-      *OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+      *OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   output_binding.services.erase(kCommonIoName);
   test_support::RegistryTestAccess::SetValueBinding(std::move(output_binding));
   ASSERT_TRUE(registry.RegisterOutputConverter(common));
@@ -333,7 +332,7 @@ TEST_F(IoConverterRegistryTest, ServiceDeclarationMatchesHostMembersAndCommon) {
 TEST_F(IoConverterRegistryTest,
        NamedAllocatorUsesHostServiceDeclarationForAudit) {
   ASSERT_NE(OperatorValueTypeRegistry::Instance().GetOutputBinding(
-                "entity_out", "unit_counting_allocator"),
+                "json_out", "unit_counting_allocator"),
             nullptr);
   auto& registry = IoConverterRegistry::Instance();
   for (const bool common : {false, true}) {
@@ -366,7 +365,7 @@ TEST_F(IoConverterRegistryTest,
 
 TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
   ASSERT_NE(OperatorValueTypeRegistry::Instance().GetOutputBinding(
-                "entity_out", "unit_counting_allocator"),
+                "json_out", "unit_counting_allocator"),
             nullptr);
   const auto input = std::find_if(
       saved_inputs_.begin(), saved_inputs_.end(), [](const auto& def) {
@@ -374,7 +373,7 @@ TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
       });
   const auto output = std::find_if(
       saved_outputs_.begin(), saved_outputs_.end(), [](const auto& def) {
-        return def.type == "entity_out" && def.name == "entity_extract";
+        return def.type == "json_out" && def.name == "entity_extract";
       });
   ASSERT_NE(input, saved_inputs_.end());
   ASSERT_NE(output, saved_outputs_.end());
@@ -389,7 +388,7 @@ TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
       {"io",
        {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
         {"output",
-         {{{"type", "entity_out"},
+         {{{"type", "json_out"},
            {"name", "entity_extract"},
            {"inputs", {{"entities", "parse.document"}}}}}}}},
       {"models", nlohmann::json::array()},
@@ -420,17 +419,17 @@ TEST_F(IoConverterRegistryTest, NamedAllocatorProcessWritesTheHostServiceType) {
   inputs[0]["channel.entity_in"] =
       operator_api::MakeBorrowedOperatorInput(&request);
   operator_api::NamedIoBatch outputs(1);
-  outputs[0]["channel.entity_out"] = nullptr;
+  outputs[0]["channel.json_out"] = nullptr;
   ASSERT_EQ(ops.Process(instance.get(), inputs, outputs), 0)
       << operator_api::GetOperatorLastError();
-  const auto* result = static_cast<const CompanyOperatorEntityOutput*>(
-      outputs[0].at("channel.entity_out").get());
+  const auto* result = static_cast<const CompanyOperatorOutput*>(
+      outputs[0].at("channel.json_out").get());
   ASSERT_NE(result, nullptr);
   EXPECT_EQ(result->service_type, kMockServiceEntityExtract);
   EXPECT_EQ(result->status_code, 0);
-  ASSERT_NE(result->entities_json, nullptr);
-  EXPECT_EQ(nlohmann::json::parse(std::string(result->entities_json->data,
-                                              result->entities_json->length)),
+  ASSERT_NE(result->result_json, nullptr);
+  EXPECT_EQ(nlohmann::json::parse(std::string(result->result_json->data,
+                                              result->result_json->length)),
             nlohmann::json::parse(text));
   outputs.clear();
   EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
@@ -465,7 +464,7 @@ TEST_F(IoConverterRegistryTest, AuditRejectsMissingOrInvalidSizeDeclarations) {
     if (variant == 0) output.params = ParameterSet{};
     if (variant == 1) {
       output.params = Parameters<SizeParams>{
-          Field("entities_json_max_bytes", &SizeParams::entities_json_max_bytes)
+          Field("result_json_max_bytes", &SizeParams::result_json_max_bytes)
               .Default(0)};
     }
     if (variant == 2) output.params = SizeParameters(65537);
@@ -520,24 +519,24 @@ TEST_F(IoConverterRegistryTest,
 
 TEST_F(IoConverterRegistryTest, StandardLayoutRequiresExplicitStringSizes) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetOutputBinding("entity_out", "");
+      OperatorValueTypeRegistry::Instance().GetOutputBinding("json_out", "");
   ASSERT_NE(binding, nullptr);
   ResolvedOutputPoolSpec requested;
-  requested.type = "entity_out";
+  requested.type = "json_out";
   ResolvedOutputPoolSpec resolved;
   std::string error;
   EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &error));
-  EXPECT_NE(error.find("entities_json"), std::string::npos);
-  requested.capacities["entities_json"] = 17;
+  EXPECT_NE(error.find("result_json"), std::string::npos);
+  requested.capacities["result_json"] = 17;
   ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &error))
       << error;
-  EXPECT_EQ(resolved.GetCapacity("entities_json"), 17u);
+  EXPECT_EQ(resolved.GetCapacity("result_json"), 17u);
 }
 
 TEST_F(IoConverterRegistryTest,
        AllocatorNormalizationIsCachedAcrossAuditAndCreate) {
   ASSERT_NE(OperatorValueTypeRegistry::Instance().GetOutputBinding(
-                "entity_out", "unit_counting_allocator"),
+                "json_out", "unit_counting_allocator"),
             nullptr);
   auto output = TestOutput();
   output.name = "counted_layout";
@@ -811,23 +810,21 @@ TEST_F(IoConverterRegistryTest, ParameterDefaultsOverridesAndEscapedErrors) {
   DeploymentDiagnostic diagnostic;
   ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
       << diagnostic.message;
-  EXPECT_EQ(prepared.outputs.front().pool_spec.GetCapacity("entities_json"),
+  EXPECT_EQ(prepared.outputs.front().pool_spec.GetCapacity("result_json"),
             2047u);
-  document["io"]["output"][0]["params"] = {{"entities_json_max_bytes", 17}};
+  document["io"]["output"][0]["params"] = {{"result_json_max_bytes", 17}};
   ASSERT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
       << diagnostic.message;
-  EXPECT_EQ(prepared.outputs.front()
-                .params->Get<SizeParams>()
-                .entities_json_max_bytes,
-            17);
-  EXPECT_EQ(prepared.outputs.front().pool_spec.GetCapacity("entities_json"),
-            17u);
+  EXPECT_EQ(
+      prepared.outputs.front().params->Get<SizeParams>().result_json_max_bytes,
+      17);
+  EXPECT_EQ(prepared.outputs.front().pool_spec.GetCapacity("result_json"), 17u);
   for (int64_t value : {0, 65537}) {
-    document["io"]["output"][0]["params"]["entities_json_max_bytes"] = value;
+    document["io"]["output"][0]["params"]["result_json_max_bytes"] = value;
     EXPECT_FALSE(
         PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
     EXPECT_EQ(diagnostic.code, "CONFIG_FIELD_RANGE");
-    EXPECT_EQ(diagnostic.path, "/io/output/0/params/entities_json_max_bytes");
+    EXPECT_EQ(diagnostic.path, "/io/output/0/params/result_json_max_bytes");
   }
   document["io"]["output"][0]["params"] = {{"bad~/field", 1}};
   EXPECT_FALSE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
@@ -844,11 +841,11 @@ TEST_F(IoConverterRegistryTest,
   output.params = SizeParameters(17).Prepare(
       [&](SizeParams* params, std::string* diagnostic) {
         ++prepare_calls;
-        if (params->entities_json_max_bytes == 13) {
+        if (params->result_json_max_bytes == 13) {
           if (diagnostic) *diagnostic = "unlucky size";
           return false;
         }
-        params->entities_json_max_bytes *= 2;
+        params->result_json_max_bytes *= 2;
         return true;
       });
   ASSERT_TRUE(IoConverterRegistry::Instance().RegisterOutputConverter(output));
@@ -862,13 +859,13 @@ TEST_F(IoConverterRegistryTest,
             0)
       << error;
   EXPECT_EQ(prepare_calls, 1);
-  EXPECT_EQ(plan->outputs.front().pool_spec.GetCapacity("entities_json"), 34u);
+  EXPECT_EQ(plan->outputs.front().pool_spec.GetCapacity("result_json"), 34u);
   EXPECT_EQ(plan->resolved_pipeline_json["io"]["output"][0]["params"],
-            nlohmann::json({{"entities_json_max_bytes", 34}}));
+            nlohmann::json({{"result_json_max_bytes", 34}}));
   EXPECT_EQ(plan->resolved_pipeline_json["io"]["input"][0]["params"],
             nlohmann::json::object());
   EXPECT_FALSE(document["io"]["output"][0].contains("params"));
-  document["io"]["output"][0]["params"] = {{"entities_json_max_bytes", 13}};
+  document["io"]["output"][0]["params"] = {{"result_json_max_bytes", 13}};
   EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(document, "", &plan, &error,
                                                     &diagnostic),
             -2);
@@ -927,7 +924,7 @@ TEST_F(IoConverterRegistryTest,
 TEST_F(IoConverterRegistryTest,
        OutputPoolBudgetAndDepthRejectOversizedHandles) {
   auto document = TestDocument();
-  document["io"]["output"][0]["params"] = {{"entities_json_max_bytes", 65536}};
+  document["io"]["output"][0]["params"] = {{"result_json_max_bytes", 65536}};
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string error;
   DeploymentDiagnostic diagnostic;
@@ -964,7 +961,7 @@ TEST_F(IoConverterRegistryTest,
       << error;
   ASSERT_NE(plan, nullptr);
   EXPECT_EQ(plan->resolved_pipeline_json["io"]["output"][0]["params"],
-            nlohmann::json({{"entities_json_max_bytes", 2047}}));
+            nlohmann::json({{"result_json_max_bytes", 2047}}));
   auto invalid = TestDocument();
   invalid["io"]["output"][0]["params"] = {{"unknown~/size", 17}};
   std::ofstream(pipeline) << invalid;

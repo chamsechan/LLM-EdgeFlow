@@ -15,8 +15,8 @@ Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。输入项只
 {
   "io": {
     "input": [{"type": "doc_in", "name": "doc_qa"}],
-    "output": [{"type": "doc_out", "name": "doc_qa",
-                "params": {"answer_text_max_bytes": 4095},
+    "output": [{"type": "json_out", "name": "doc_qa",
+                "params": {"result_json_max_bytes": 16383},
                 "inputs": {"answer_text": "generate_answer.text",
                            "intent": "match_intent.matches",
                            "chunk_count": "chunk_docs.chunk_counts"}}]
@@ -25,10 +25,23 @@ Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。输入项只
 ```
 
 `.conf` 只包含 `{"pipe_path":"pipeline.json"}`。普通业务复用已登记的结构和转换器，仅覆盖必要参数。
-每个输出字符串对应整数参数 `<field>_max_bytes`，最小值为 1；默认值只在转换器的
+当前八类业务使用同一 `json_out` 类型，绑定到 `CompanyOperatorOutput` C 结构：
+
+```c
+typedef struct CompanyOperatorOutput {
+  int32_t service_type;
+  CompanyString* result_json;
+  int32_t status_code;
+} CompanyOperatorOutput;
+```
+
+`result_json` 承载完整业务响应 JSON，`name` 决定字段契约；状态只在结构的 `status_code` 中。
+对应中立值为 `JsonOutputValue`，包含 `std::string result_json` 与 `int32_t status_code`。
+统一输出容量参数为 `result_json_max_bytes`，默认 8191 字节，范围 1–65536。
+未来新增其他结构时，每个字符串仍用整数参数 `<field>_max_bytes`，最小值为 1；默认值只在转换器的
 `Parameters<P>` / `MaxBytes` 中声明。平台 `OutputCapacityFieldConfig` 只持有最大容量。
 Catalog/schema 从平台登记补齐 maximum；创建时在 `Prepare` 后读取声明成员的生效尺寸，
-生成完整输出池规格，缺少尺寸或超过硬上限都会失败。翻译输出的默认容量为 8191 字节。
+生成完整输出池规格，缺少尺寸或超过硬上限都会失败。
 
 分配前检查池深、乘加溢出及 64 MiB 的句柄载荷预算。某一项的池计算或预算检查失败时，
 `INVALID_OUTPUT_ALLOCATION` 指向 `/io/output/<i>`；全部池的合计预算超限指向 `/io/output`。
@@ -48,8 +61,8 @@ Pipeline 配置。另一种布局或固定参数需要另一份转换器登记�
 ## 宿主 key 和多项配对
 
 同一方向只有一项使用某个 `type` 时，key 可以采用任意非空前缀，例如 `camera.doc_in`。
-多项复用同一种载体时，key 必须为 `name.type`，例如 `entity_extract.entity_out` 和
-`translate.entity_out`。初始为空的输出指针因此也有明确对应关系。
+多项复用同一种载体时，key 必须为 `name.type`，例如 `entity_extract.json_out` 和
+`translate.json_out`。初始为空的输出指针因此也有明确对应关系。
 
 `Process` 要求 `inputs.size() == outputs.size()`；各输入槽按批内行号配对，结果写回
 同一 `outputs[i]`。载体不需要请求 ID 字段；图像 `index` 是帧序号，不用于请求关联。
@@ -62,6 +75,8 @@ Process 在解码前核对 `service_type`，不一致整批失败，诊断包含
 
 新业务继续使用已注册宿主类型时，复用其 ValueType 与内存管理，载荷协议变化由转换器处理；
 已有 DTO 的 trait 也直接复用。只有需要新宿主类型或分配布局时，才执行本节步骤。
+`json_out` 是当前业务的载体选择，注册机制仍支持其他 C 结构。新增类型只需中立值、
+平台 binding 与转换器登记，Operator 中央分发无需新增业务或结构分支。
 
 当前模拟平台的结构在
 [`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)，traits、字符串和

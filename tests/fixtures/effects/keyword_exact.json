@@ -1,7 +1,7 @@
 {
   "name": "keyword-selected-config",
   "output": {
-    "type": "keyword_out",
+    "type": "json_out",
     "name": "keyword_match"
   },
   "dataset": "keyword_inputs.txt",
@@ -9,22 +9,22 @@
   "samples": [
     {
       "expected": {
-        "/output/is_hit": true
+        "/output/is_hit": 1
       }
     },
     {
       "expected": {
-        "/output/is_hit": true
+        "/output/is_hit": 1
       }
     },
     {
       "expected": {
-        "/output/is_hit": false
+        "/output/is_hit": 0
       }
     },
     {
       "expected": {
-        "/output/is_hit": false
+        "/output/is_hit": 0
       }
     }
   ]

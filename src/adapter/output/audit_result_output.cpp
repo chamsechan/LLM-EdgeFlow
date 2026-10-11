@@ -11,6 +11,7 @@
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
+#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
@@ -19,22 +20,15 @@ constexpr auto kVerdict = MakeBlackboardKey<StructuredDocumentBatch>("verdict");
 constexpr auto kMatchedPolicy =
     MakeBlackboardKey<RankedTextBatch>("matched_policy");
 
-constexpr const char* kOutputSlot = "audit_out";
+constexpr const char* kOutputSlot = "json_out";
 
 struct Params {
-  int64_t risk_level_max_bytes = 0;
-  int64_t matched_policy_clause_max_bytes = 0;
-  int64_t audit_verdict_json_max_bytes = 0;
+  int64_t result_json_max_bytes = 0;
 };
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>({
-      MaxBytes("risk_level", &Params::risk_level_max_bytes).Default(31),
-      MaxBytes("matched_policy_clause",
-               &Params::matched_policy_clause_max_bytes)
-          .Default(255),
-      MaxBytes("audit_verdict_json", &Params::audit_verdict_json_max_bytes)
-          .Default(1023),
+      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
   });
 }
 
@@ -88,7 +82,7 @@ int EncodeOperatorAuditResult(AlgContext* context,
     if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
       continue;
     }
-    AuditOutputValue out;
+    JsonOutputValue out;
 
     const auto& verdict_item = verdicts_by_request[i]->data;
     if (matched_policy_by_request[i]->data.rank != 1 ||
@@ -117,12 +111,13 @@ int EncodeOperatorAuditResult(AlgContext* context,
     const std::string& verdict_json = verdict_item.json_payload;
     std::string policy_clause = matched_policy_by_request[i]->data.text;
 
-    out.risk_score = risk_score;
     out.status_code = 0;
-
-    out.risk_level = risk_level;
-    out.matched_policy_clause = policy_clause;
-    out.audit_verdict_json = verdict_json;
+    out.result_json =
+        nlohmann::json({{"risk_level", risk_level},
+                        {"risk_score", risk_score},
+                        {"matched_policy_clause", policy_clause},
+                        {"audit_verdict", nlohmann::json::parse(verdict_json)}})
+            .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
       return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -137,7 +132,7 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "dialogue_audit";
-  def.slot = ExternalOutputSlot<AuditOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kVerdict),
                        RequiredInputPort(kMatchedPolicy, "N:1")};
   def.params = ParamSpec();

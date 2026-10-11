@@ -84,7 +84,7 @@ mkdir -p build/control_tutorial
 ```json
 {
   "io": {"input": [{"type":"keyword_in","name":"keyword_match"}],
-         "output": [{"type":"keyword_out","name":"keyword_match",
+         "output": [{"type":"json_out","name":"keyword_match",
                      "inputs":{"matches":"matcher.matches"}}]},
   "models": [],
   "pipeline": [
@@ -127,8 +127,8 @@ Pipeline 的根 `io` 中，输出项的 `inputs` 指定回包来源。Demo 与�
 ```
 
 查看 `build/control_tutorial/updated/keyword_match/results.jsonl`：应有 `status: 0`、
-`is_hit: true`，匹配类别为 `PREFIX_APPLIED`。去掉 `--control-cmd` 与 `--control-file` 后
-使用另一个输出目录运行，应得到 `is_hit: false`。这证明新增命令在节点中实际生效。
+`is_hit: 1`，匹配类别为 `PREFIX_APPLIED`。去掉 `--control-cmd` 与 `--control-file` 后
+使用另一个输出目录运行，应得到 `is_hit: 0`。这证明新增命令在节点中实际生效。
 
 将前缀改为数字或超过 64 字节的字符串时，Demo 应退出 5 并报告节点实例和具体原因。
 脚手架生成的节点测试还会在同一实例上检查失败后旧前缀仍生效。

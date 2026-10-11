@@ -133,11 +133,11 @@ console.log("Studio graph geometry, routing and interaction checks passed");
 // 都不得静默绑定到同名键。
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { graphDocument } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
-const catalog = {input_converters: [{type: "doc_in", name: "example", logical_ports: [{key: "request"}, {key: "extra"}]}], output_converters: [{type: "doc_out", name: "example", logical_ports: [{key: "answer"}]}], nodes: [
+const catalog = {input_converters: [{type: "doc_in", name: "example", logical_ports: [{key: "request"}, {key: "extra"}]}], output_converters: [{type: "json_out", name: "example", logical_ports: [{key: "answer"}]}], nodes: [
   {node_type: "producer", inputs: [], outputs: [{key: "text"}, {key: "optional"}]},
   {node_type: "consumer", inputs: [{key: "text", required: true}, {key: "optional", required: false}], outputs: []},
 ]};
-const pipelineDocument = {io: {input: [{type: "doc_in", name: "example"}], output: [{type: "doc_out", name: "example", inputs: {answer: "producer.text"}}]}, pipeline: [
+const pipelineDocument = {io: {input: [{type: "doc_in", name: "example"}], output: [{type: "json_out", name: "example", inputs: {answer: "producer.text"}}]}, pipeline: [
   {name: "consumer", type: "consumer", inputs: {text: "producer.text"}},
   {name: "producer", type: "producer"},
   {name: "missing", type: "consumer", depends_on: ["producer"]},

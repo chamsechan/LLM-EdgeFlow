@@ -119,25 +119,28 @@ TEST_F(OperatorSafetyTest, EndToEndDynamicControlAndVerification) {
   inputs[1]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&req1);
 
   NamedIoBatch outputs(2);
-  outputs[0]["client_channel.keyword_out"] = nullptr;
-  outputs[1]["client_channel.keyword_out"] = nullptr;
+  outputs[0]["client_channel.json_out"] = nullptr;
+  outputs[1]["client_channel.json_out"] = nullptr;
 
   ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
 
-  auto out0_sp = outputs[0]["client_channel.keyword_out"];
-  auto out1_sp = outputs[1]["client_channel.keyword_out"];
+  auto out0_sp = outputs[0]["client_channel.json_out"];
+  auto out1_sp = outputs[1]["client_channel.json_out"];
   ASSERT_NE(out0_sp, nullptr);
   ASSERT_NE(out1_sp, nullptr);
 
-  auto* out0 = static_cast<CompanyOperatorKeywordOutput*>(out0_sp.get());
-  auto* out1 = static_cast<CompanyOperatorKeywordOutput*>(out1_sp.get());
+  auto* out0 = static_cast<CompanyOperatorOutput*>(out0_sp.get());
+  auto* out1 = static_cast<CompanyOperatorOutput*>(out1_sp.get());
 
-  EXPECT_EQ(out0->is_hit, 1);
-  EXPECT_EQ(out1->is_hit, 0);
-  ASSERT_NE(out0->match_result_json, nullptr);
-  EXPECT_TRUE(std::string(out0->match_result_json->data,
-                          out0->match_result_json->length)
+  EXPECT_EQ(
+      nlohmann::json::parse(out0->result_json->data).at("is_hit").get<int>(),
+      1);
+  EXPECT_EQ(
+      nlohmann::json::parse(out1->result_json->data).at("is_hit").get<int>(),
+      0);
+  ASSERT_NE(out0->result_json, nullptr);
+  EXPECT_TRUE(std::string(out0->result_json->data, out0->result_json->length)
                   .find("TEST_VIP") != std::string::npos);
 
   out0_sp.reset();
@@ -181,7 +184,7 @@ TEST_F(OperatorSafetyTest, OutputBatchSizeMismatchProtection) {
 
   // 2) outputs 大小为 1 (小于需要的 2)，必须返回错误
   NamedIoBatch outputs(1);
-  outputs[0]["client_channel.keyword_out"] = nullptr;
+  outputs[0]["client_channel.json_out"] = nullptr;
   ret = op.Process(handle, inputs, outputs);
   EXPECT_NE(ret, 0);
 
@@ -212,8 +215,8 @@ TEST_F(OperatorSafetyTest, NullOrMissingSlotInBatchInputs) {
   // 第二个样本缺少必需槽位 client_channel.keyword_in
 
   NamedIoBatch outputs(2);
-  outputs[0]["client_channel.keyword_out"] = nullptr;
-  outputs[1]["client_channel.keyword_out"] = nullptr;
+  outputs[0]["client_channel.json_out"] = nullptr;
+  outputs[1]["client_channel.json_out"] = nullptr;
 
   int ret = op.Process(handle, inputs_with_missing_slot, outputs);
   EXPECT_NE(ret, 0);
@@ -257,10 +260,10 @@ TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
   EXPECT_EQ(outputs[0].at("invalid_output_key"), nullptr);
 
   outputs[0].clear();
-  outputs[0]["client.keyword_out"] = nullptr;
+  outputs[0]["client.json_out"] = nullptr;
   ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS);
-  auto* result = static_cast<CompanyOperatorKeywordOutput*>(
-      outputs[0].at("client.keyword_out").get());
+  auto* result = static_cast<CompanyOperatorOutput*>(
+      outputs[0].at("client.json_out").get());
   ASSERT_NE(result, nullptr);
   EXPECT_EQ(result->status_code, 0);
 }
@@ -277,10 +280,10 @@ TEST_F(OperatorSafetyTest,
   ASSERT_EQ(op.Create(&raw_handle, &param), 0);
   std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
 
-  // 只有第二个样本命中的类别序列化后超过配置的 2047 字节容量，
+  // 只有第二个样本命中的类别序列化后超过默认的 8191 字节容量，
   // 第一个样本可以正常编码。
   const std::string rules =
-      "{\"categories\":{\"" + std::string(2100, 'x') + "\":[\"overflow\"]}}";
+      "{\"categories\":{\"" + std::string(9000, 'x') + "\":[\"overflow\"]}}";
   ControlUpdateRulesParam control{rules.c_str()};
   ASSERT_EQ(
       op.Control(handle.get(), static_cast<int>(ControlCommand::kUpdateRules),
@@ -296,15 +299,15 @@ TEST_F(OperatorSafetyTest,
   inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&first);
   inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&second);
   NamedIoBatch outputs(2);
-  for (auto& output : outputs) output["client.keyword_out"] = nullptr;
+  for (auto& output : outputs) output["client.json_out"] = nullptr;
 
   EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_NE(std::string(GetOperatorLastError()).find("match_result_json"),
+  EXPECT_NE(std::string(GetOperatorLastError()).find("result_json"),
             std::string::npos);
   for (const auto& output : outputs) {
     ASSERT_EQ(output.size(), 1U);
-    EXPECT_EQ(output.at("client.keyword_out"), nullptr);
+    EXPECT_EQ(output.at("client.json_out"), nullptr);
   }
 
   // 用深度为 2 的池再处理一个两条目批次，证明所有失败的租约都已归还，
@@ -312,10 +315,13 @@ TEST_F(OperatorSafetyTest,
   second.sentence_text = &first_text;
   ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS);
   for (size_t i = 0; i < outputs.size(); ++i) {
-    auto* result = static_cast<CompanyOperatorKeywordOutput*>(
-        outputs[i].at("client.keyword_out").get());
+    auto* result = static_cast<CompanyOperatorOutput*>(
+        outputs[i].at("client.json_out").get());
     ASSERT_NE(result, nullptr);
-    EXPECT_EQ(result->is_hit, 0);
+    EXPECT_EQ(nlohmann::json::parse(result->result_json->data)
+                  .at("is_hit")
+                  .get<int>(),
+              0);
   }
 }
 
@@ -362,7 +368,7 @@ TEST_F(OperatorSafetyTest, FrameworkProcessBatchLimitEnforcement) {
     reqs[i].sentence_text = &cs;
     inputs[i]["client_channel.keyword_in"] =
         MakeBorrowedOperatorInput(&reqs[i]);
-    outputs[i]["client_channel.keyword_out"] = nullptr;
+    outputs[i]["client_channel.json_out"] = nullptr;
   }
 
   // 超过框架批次上限时必须前置拦截并返回错误
@@ -408,21 +414,20 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
         inputs[0]["client_channel.keyword_in"] =
             MakeBorrowedOperatorInput(&input);
         NamedIoBatch outputs(1);
-        outputs[0]["client_channel.keyword_out"] = nullptr;
+        outputs[0]["client_channel.json_out"] = nullptr;
 
         const int ret = op.Process(handle, inputs, outputs);
         if (ret != 0) {
           failures.fetch_add(1, std::memory_order_relaxed);
           continue;
         }
-        auto out_sp = outputs[0]["client_channel.keyword_out"];
+        auto out_sp = outputs[0]["client_channel.json_out"];
         if (!out_sp) {
           failures.fetch_add(1, std::memory_order_relaxed);
           continue;
         }
-        auto* out_dto =
-            static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-        if (out_dto->status_code != 0 || !out_dto->match_result_json) {
+        auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
+        if (out_dto->status_code != 0 || !out_dto->result_json) {
           failures.fetch_add(1, std::memory_order_relaxed);
         }
         outputs.clear();
@@ -440,11 +445,11 @@ TEST_F(OperatorSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
 }
 
 // 12. Entity 失败样本在结构化校验失败时，业务字段和 status
-// 与 entities_json 保留原调用者哨兵值
+// 与 result_json 保留原调用者哨兵值
 TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   const auto* out_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindOutputConverter(
-          "entity_out", "entity_extract");
+          "json_out", "entity_extract");
   ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;
@@ -467,16 +472,16 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   CompanyString cs1{static_cast<int32_t>(std::strlen("SENTINEL_PAYLOAD")),
                     buf1};
 
-  CompanyOperatorEntityOutput out0{}, out1{};
-  out0.entities_json = &cs0;
-  out1.entities_json = &cs1;
+  CompanyOperatorOutput out0{}, out1{};
+  out0.result_json = &cs0;
+  out1.result_json = &cs1;
   out1.status_code = -777;
 
   llm_edgeflow::TestOutputBatchView out_view;
   out_view.count = 2;
-  out_view.leased_slots["entity_out"] = {&out0, &out1};
-  out_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
-  out_view.SetCapacity("entity_out", "entities_json", 511);
+  out_view.leased_slots["json_out"] = {&out0, &out1};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+  out_view.SetCapacity("json_out", "result_json", 511);
 
   llm_edgeflow::OutputEncodeOptions options;
   const llm_edgeflow::IoPortBindings options_ports =
@@ -493,9 +498,9 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
 
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(out0.status_code, 0);
-  EXPECT_STREQ(out0.entities_json->data, "[\"valid_entity\"]");
+  EXPECT_STREQ(out0.result_json->data, "[\"valid_entity\"]");
 
   // 样本 1：业务校验失败，binding 未写入，所有平台字段保持哨兵值。
   EXPECT_EQ(out1.status_code, -777);
-  EXPECT_STREQ(out1.entities_json->data, "SENTINEL_PAYLOAD");
+  EXPECT_STREQ(out1.result_json->data, "SENTINEL_PAYLOAD");
 }

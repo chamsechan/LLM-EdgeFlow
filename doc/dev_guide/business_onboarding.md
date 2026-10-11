@@ -75,8 +75,8 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 ```
 
 查看 `results/business-onboarding/keyword_match/results.jsonl`：四条记录按输入顺序排列，
-四条 `status` 均为 0，前两条 `output.is_hit` 为 true 且类别为 `SYSTEM_INIT`，后两条
-为 false。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
+四条 `status` 均为 0，前两条 `output.is_hit` 为 1 且类别为 `SYSTEM_INIT`，后两条
+为 0。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
 新业务仍须换成自己的配置和输入验证。
 
 按下表核对需要补齐的部分；表中的名称都是这个已注册样例的名称，无需逐项复制。
@@ -89,12 +89,29 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 完整请求业务校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、完整响应组装及 `REGISTER_OUTPUT_CONVERTER` |
 | 平台 binding | [operator_builtin_value_types.cpp](../../src/adapter/operator/mock/operator_builtin_value_types.cpp)、[platform_value_binding.h](../../include/adapter/operator/mock/platform_value_binding.h) | 模拟平台的类型、traits、布局读写及内存管理；其他平台使用自己的 binding 文件，复用 Converter 的中立值，见[实现与注册](operator_output_allocation.md#实现与注册) |
-| Demo 载体与展示 | [keyword_input.cpp](../../demo/input/keyword_input.cpp)、[keyword_output.cpp](../../demo/output/keyword_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
+| Demo 载体与展示 | [keyword_input.cpp](../../demo/input/keyword_input.cpp)、[json_output.cpp](../../demo/output/json_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
 配置作者在根 `io.input` / `io.output` 填写所选载体 `type` 和业务 `name`。
-关键词例子分别为 `keyword_in/keyword_match` 与 `keyword_out/keyword_match`。
+关键词例子分别为 `keyword_in/keyword_match` 与 `json_out/keyword_match`。
 Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应构造和展示代码。
+
+当前八类业务的输出都复用 `json_out` 与 `CompanyOperatorOutput` C 结构。
+结构的 `result_json` 保存完整 JSON 响应，`service_type` 标识业务，`status_code` 保存状态。
+转换器使用中立值 `JsonOutputValue`，各业务 `name` 对应以下 JSON 内容：
+
+| `name` | `result_json` 内容 |
+| --- | --- |
+| `keyword_match` | 规则匹配对象及整数 `is_hit`（1 命中、0 未命中） |
+| `entity_extract` | 实体抽取 payload |
+| `translate` | `translated` 字符串 |
+| `doc_qa` | `intent_name`、`confidence`、`answer_text`、`chunk_count` |
+| `dialogue_audit` | `risk_level`、`risk_score`、`matched_policy_clause`、`audit_verdict` JSON 对象 |
+| `ocr_invoice_qa` | `detected_box_count`、`result` JSON 对象 |
+| `audio_asr_intent` | `transcribed_text`、`intent_slot` 规则匹配对象 |
+| `cross_rerank` | 排名顺序的 `scores`、原候选索引 `sorted_indices`、`count` |
+
+状态只在 C 结构的 `status_code` 中；JSON 对象和数组保持 JSON 类型，不再放在嵌套的字符串字段中。
 
 ## 3. 实现并注册转换器
 
@@ -155,7 +172,8 @@ SDK / Model 不接收文件路径；Demo 的 `[IMAGE]` 文件仅用来构造宿�
 
 Demo 调用 SDK 的 `ResolveOperatorConfigIo` 做只读预检，取得有序的输入、输出载体条目；
 请求构造按输入结构名组合分派，结果展示按输出结构名分派。同一宿主结构承载不同业务时共用 Demo，
-例如实体抽取与翻译都使用实体输入、输出结构。业务字段校验、选择和完整响应组装仍由 SDK 的转换器负责；
+例如实体抽取与翻译共用实体输入结构，八类业务共用 `CompanyOperatorOutput` 输出结构。
+统一展示解析 `result_json` 为 JSON 值并复制状态。业务字段校验、选择和完整响应组装仍由 SDK 的转换器负责；
 Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内部端口。
 
 1. 复用已有输入构造；需要新载体组合时，在 `demo/input/` 新建 `.cpp`，
@@ -167,7 +185,9 @@ Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内
    不生成请求 ID 字段；
    请求信息只是可选的显示辅助，缺失时应能降级。两个目录的 `.cpp` 自动编入。
 3. 公共 `RunOperatorDemo` 统一预检、创建句柄、Control、分批 Process、显示和落盘。
-   每批先把输出复制为 JSON，再归还所有输出租约。多个输出项的同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀，避免覆盖。
+   每批先把输出复制为 JSON，再归还所有输出租约。单个输出原样保留完整 JSON，包括顶层数组、标量和 `null`。
+   多个输出均为对象时，同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀。
+   多个输出含数组等非对象值时，以各自的 `name.type` 为键保留完整值，避免改变 JSON 类型或覆盖内容。
    Process 成功表示调用完成，逐条状态仍需检查 `results.jsonl` 和 `summary.json`。
 4. 准备数据、Pipeline 和 `.conf`，用 `--config`、`--dataset` 运行；可重复调用的预设可加入
    `demo/profiles.json`。`--list` 列出 Profile 与支持的载体。只修改已有载体上的业务契约时无需新增 Demo。
@@ -189,12 +209,14 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 Process 有效批次上限为 `min(max_frame_depth, 64)`；超过时失败，不自动拆批。
 池深 0 使用默认 25，池深硬上限为 1024。输出池数量与业务响应字节容量是不同限制。
 
-每个输出字符串字段对应 `params.<field>_max_bytes`，最小值为 1，默认值只在转换器声明。
+当前统一输出只声明 `params.result_json_max_bytes`，默认 8191 字节，范围 1–65536，
+限制完整 JSON 响应的字节数。未来新增结构时，每个输出字符串字段仍对应
+`params.<field>_max_bytes`，最小值为 1，默认值只在转换器声明。
 平台布局只保留硬上限；框架在 Prepare 后读取生效参数，生成全部池容量并检查总载荷预算。
-例如翻译 `entity_out/translate` 自带 `entities_json_max_bytes = 8191`，不用在配置重复填写。
+例如翻译 `json_out/translate` 自带 `result_json_max_bytes = 8191`，不用在配置重复填写。
 
 ```json
-{"type":"doc_out", "name":"doc_qa", "params":{"answer_text_max_bytes":4095}}
+{"type":"json_out", "name":"doc_qa", "params":{"result_json_max_bytes":16383}}
 ```
 
 分配器、布局参数和 metadata 固定在槽声明中；另选布局需要另一个登记。

@@ -59,6 +59,15 @@ static_assert(static_cast<int>(api::ControlCommand::kJson) == 4);
 static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
                                            (sizeof(char*) == 8 ? 4 : 0),
               "CompanyString memory layout check");
+static_assert(std::is_standard_layout_v<CompanyOperatorOutput>);
+static_assert(std::is_trivial_v<CompanyOperatorOutput>);
+static_assert(std::is_same_v<decltype(CompanyOperatorOutput::result_json),
+                             CompanyString*>);
+static_assert(offsetof(CompanyOperatorOutput, service_type) == 0);
+static_assert(offsetof(CompanyOperatorOutput, service_type) <
+              offsetof(CompanyOperatorOutput, result_json));
+static_assert(offsetof(CompanyOperatorOutput, result_json) <
+              offsetof(CompanyOperatorOutput, status_code));
 static_assert(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES == 8,
               "COMPANY_OPERATOR_MAX_RERANK_CANDIDATES must be 8");
 static_assert(E_ALG_BASE_LOG_LEVEL_FATAL == 0, "Fatal log level must remain 0");
@@ -135,7 +144,7 @@ int main() {
   if (val_ret != 0 || resolved_io.inputs.size() != 1 ||
       resolved_io.outputs.size() != 1 ||
       resolved_io.inputs[0].type != "keyword_in" ||
-      resolved_io.outputs[0].type != "keyword_out" ||
+      resolved_io.outputs[0].type != "json_out" ||
       resolved_io.inputs[0].name != "keyword_match" ||
       resolved_io.outputs[0].name != "keyword_match" ||
       resolved_io.inputs[0].service_type != kMockServiceKeywordMatch ||
@@ -176,7 +185,7 @@ int main() {
       llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&in_req1);
 
   llm_edgeflow::operator_api::NamedIoBatch outputs(1);
-  outputs[0]["client_channel.keyword_out"] = nullptr;
+  outputs[0]["client_channel.json_out"] = nullptr;
 
   if (op.Process(handle, inputs, outputs) != 0) {
     std::fprintf(stderr, "[SDK Consumer Test] op.Process failed: %s\n",
@@ -184,14 +193,14 @@ int main() {
     return 9;
   }
 
-  auto out_sp = outputs[0]["client_channel.keyword_out"];
+  auto out_sp = outputs[0]["client_channel.json_out"];
   if (!out_sp) {
     std::fprintf(
         stderr,
-        "[SDK Consumer Test] Output slot client_channel.keyword_out is null\n");
+        "[SDK Consumer Test] Output slot client_channel.json_out is null\n");
     return 10;
   }
-  auto* out_dto = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   if (out_dto->status_code != 0 ||
       out_dto->service_type != kMockServiceKeywordMatch) {
     std::fprintf(stderr, "[SDK Consumer Test] Unexpected output status=%d\n",
@@ -212,15 +221,16 @@ int main() {
   }
 
   // 9. 再次 Process，验证规则变更已生效
-  outputs[0]["client_channel.keyword_out"] = nullptr;
+  outputs[0]["client_channel.json_out"] = nullptr;
   if (op.Process(handle, inputs, outputs) != 0) {
     std::fprintf(stderr, "[SDK Consumer Test] Second op.Process failed: %s\n",
                  llm_edgeflow::operator_api::GetOperatorLastError());
     return 13;
   }
-  out_sp = outputs[0]["client_channel.keyword_out"];
-  out_dto = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
-  if (out_dto->is_hit != 1) {
+  out_sp = outputs[0]["client_channel.json_out"];
+  out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
+  if (std::string(out_dto->result_json->data, out_dto->result_json->length)
+          .find("\"is_hit\":1") == std::string::npos) {
     std::fprintf(
         stderr, "[SDK Consumer Test] Expected keyword hit after rule update\n");
     return 14;
@@ -228,9 +238,8 @@ int main() {
 
   // 10. 复制字段，并在 Destroy 前释放所有租约
   std::string match_copy;
-  if (out_dto->match_result_json && out_dto->match_result_json->data) {
-    match_copy.assign(out_dto->match_result_json->data,
-                      out_dto->match_result_json->length);
+  if (out_dto->result_json && out_dto->result_json->data) {
+    match_copy.assign(out_dto->result_json->data, out_dto->result_json->length);
   }
   out_sp.reset();
   outputs.clear();

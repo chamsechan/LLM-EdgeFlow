@@ -13,10 +13,10 @@ namespace alg_demo {
  * @brief 单个样本的执行结果记录
  */
 struct DemoSampleResult {
-  int status = 0;           // 0 成功, 非 0 错误
-  double latency_ms = 0.0;  // 耗时 (ms)
-  std::string error;        // 错误信息 (若失败)
-  nlohmann::json output;    // 业务自定义结果 JSON
+  int status = 0;                                    // 0 成功, 非 0 错误
+  double latency_ms = 0.0;                           // 耗时 (ms)
+  std::string error;                                 // 错误信息 (若失败)
+  nlohmann::json output = nlohmann::json::object();  // 业务自定义结果 JSON
 };
 
 /**

@@ -84,7 +84,7 @@ TEST(OperatorValueRegistryTest,
   EXPECT_NE(registry.GetOutputBinding(root.canonical_suffix, ""), nullptr);
   EXPECT_EQ(registry.GetOutputBinding(root.canonical_suffix, "unknown"),
             nullptr);
-  EXPECT_EQ(registry.GetOutputBinding("keyword_out", "nested_one"), nullptr);
+  EXPECT_EQ(registry.GetOutputBinding("json_out", "nested_one"), nullptr);
   EXPECT_FALSE(registry.RegisterOutputAllocator("late", root));
   EXPECT_FALSE(registry.HasConflict());
   EXPECT_EQ(registry.GlobalInit(), 0);
@@ -203,10 +203,10 @@ TEST(OperatorValueRegistryTest,
 TEST(OperatorValueRegistryTest,
      OutputParametersRejectUnsupportedAndMalformedData) {
   const auto* builtin =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(builtin, nullptr);
   ResolvedOutputPoolSpec requested;
-  requested.type = "keyword_out";
+  requested.type = "json_out";
   ResolvedOutputPoolSpec resolved;
   std::string error;
   EXPECT_FALSE(NormalizeOutputParameters(*builtin, R"({"kind":1})",
@@ -254,8 +254,8 @@ TEST(OperatorValueRegistryTest,
   EXPECT_FALSE(ResolveOutputPoolSpec(binding, requested, &resolved, &error));
   ASSERT_TRUE(
       NormalizeOutputParameters(binding, "{}", &requested.params, &error));
-  requested.type = "keyword_out";
-  requested.capacities["match_result_json"] = 2047;
+  requested.type = "json_out";
+  requested.capacities["result_json"] = 2047;
   EXPECT_FALSE(ResolveOutputPoolSpec(*builtin, requested, &resolved, &error));
 }
 
@@ -489,11 +489,11 @@ TEST(OperatorValueRegistryTest,
     OperatorValueTypeRegistry registry;
     RegisterMockOperatorBindings(registry);
     host = registry.CopyBindingBySuffix("entity_in");
-    auto output = registry.CopyOutputBinding("entity_out", "");
+    auto output = registry.CopyOutputBinding("json_out", "");
     ASSERT_TRUE(host);
     ASSERT_TRUE(output);
     ASSERT_TRUE(registry.RegisterOutputAllocator("first", *output));
-    allocator = registry.CopyOutputBinding("entity_out", "first");
+    allocator = registry.CopyOutputBinding("json_out", "first");
     ASSERT_TRUE(allocator);
     auto another = *host;
     another.canonical_suffix = "another_input";
@@ -504,8 +504,8 @@ TEST(OperatorValueRegistryTest,
   }
   EXPECT_EQ(allocator->allocation_name, "first");
   ResolvedOutputPoolSpec spec;
-  spec.type = "entity_out";
-  spec.capacities = {{"entities_json", 31}};
+  spec.type = "json_out";
+  spec.capacities = {{"result_json", 31}};
   OwnedExternalBlock block;
   std::string error;
   ASSERT_EQ(allocator->allocate_external(spec, &block, &error), 0) << error;
@@ -529,10 +529,8 @@ TEST(OperatorValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
 TEST(OperatorValueRegistryTest, BuiltinSuffixesHaveRegisteredBindings) {
   auto& reg = OperatorValueTypeRegistry::Instance();
   const std::vector<std::string> canonical_suffixes = {
-      "string",     "buffer",      "any",       "frame",      "od_out",
-      "keyword_in", "keyword_out", "entity_in", "entity_out", "doc_in",
-      "doc_out",    "audit_in",    "audit_out", "audio_in",   "audio_out",
-      "rerank_in",  "rerank_out"};
+      "string",    "buffer", "any",      "frame",    "json_out", "keyword_in",
+      "entity_in", "doc_in", "audit_in", "audio_in", "rerank_in"};
   for (const auto& suffix : canonical_suffixes) {
     const auto* binding = reg.GetBindingBySuffix(suffix);
     ASSERT_NE(binding, nullptr) << suffix;
@@ -541,31 +539,17 @@ TEST(OperatorValueRegistryTest, BuiltinSuffixesHaveRegisteredBindings) {
 }
 
 // 8. ComputeOutputPoolPayloadBytes 预算计算与边界检测 (R9-005)
-TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
+TEST(OperatorValueRegistryTest, UnifiedJsonOutputFootprintAndBudget) {
   const struct {
     const char* suffix;
     std::unordered_map<std::string, uint32_t> capacities;
-  } cases[] = {
-      {"doc_out", {{"intent_name", 63}, {"answer_text", 1023}}},
-      {"keyword_out", {{"match_result_json", 2047}}},
-      {"entity_out", {{"entities_json", 2047}}},
-      {"audit_out",
-       {{"risk_level", 31},
-        {"matched_policy_clause", 255},
-        {"audit_verdict_json", 1023}}},
-      {"od_out", {{"result_json", 2047}}},
-      {"audio_out", {{"transcribed_text", 511}, {"intent_slot_json", 1023}}},
-      {"rerank_out", {}}};
+  } cases[] = {{"json_out", {{"result_json", 8191}}}};
 
   for (const auto& test : cases) {
     const std::string suffix(test.suffix);
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
     spec.capacities = test.capacities;
-    if (suffix == "od_out") {
-      spec.meta_num = 64;
-      spec.metadata_type_id = 1;  // float32
-    }
 
     // Depth 0 -> 归一化为 25
     size_t bytes_d0 = 0;
@@ -611,12 +595,11 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
   // 64 MiB 预算超限拦截测试
   {
     ResolvedOutputPoolSpec huge_spec;
-    huge_spec.type = "keyword_out";
-    huge_spec.capacities["match_result_json"] =
-        100 * 1024 * 1024;  // 100 MiB 容量
+    huge_spec.type = "json_out";
+    huge_spec.capacities["result_json"] = 100 * 1024 * 1024;  // 100 MiB 容量
     size_t huge_bytes = 0;
     std::string huge_err;
-    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", huge_spec, 25,
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("json_out", huge_spec, 25,
                                                &huge_bytes, &huge_err));
     EXPECT_FALSE(huge_err.empty());
   }
@@ -761,7 +744,7 @@ TEST(OperatorValueRegistryTest,
   for (int step = 0; step < 4096; ++step) {
     OperatorValueTypeRegistry reg;
     RegisterMockOperatorBindings(reg);
-    const auto* original = reg.GetBindingBySuffix("keyword_out");
+    const auto* original = reg.GetBindingBySuffix("json_out");
     ASSERT_NE(original, nullptr);
     OperatorValueTypeBinding binding = *original;
     binding.canonical_suffix = "custom_retry_output";
@@ -788,7 +771,7 @@ TEST(OperatorValueRegistryTest,
     SCOPED_TRACE(step);
     EXPECT_FALSE(registered);
     EXPECT_EQ(outstanding, 0u);
-    EXPECT_EQ(reg.GetBindingBySuffix("keyword_out"), original);
+    EXPECT_EQ(reg.GetBindingBySuffix("json_out"), original);
     EXPECT_EQ(reg.GetBindingBySuffix(binding.canonical_suffix), nullptr);
     ASSERT_TRUE(reg.RegisterBinding(binding));
     EXPECT_NE(reg.GetBindingBySuffix(binding.canonical_suffix), nullptr);
@@ -805,33 +788,33 @@ TEST(OperatorValueRegistryTest,
   size_t out_bytes = 0;
 
   // 1. 空指针
-  EXPECT_FALSE(ComputeOutputPoolPayloadBytes("doc_out", {}, 10, nullptr, &err));
+  EXPECT_FALSE(
+      ComputeOutputPoolPayloadBytes("json_out", {}, 10, nullptr, &err));
 
   // 2. 空 spec.type (必须严格拒绝)
   {
     ResolvedOutputPoolSpec spec;
     spec.type = "";
     EXPECT_FALSE(
-        ComputeOutputPoolPayloadBytes("doc_out", spec, 10, &out_bytes, &err));
+        ComputeOutputPoolPayloadBytes("json_out", spec, 10, &out_bytes, &err));
     EXPECT_FALSE(err.empty());
   }
 
   // 3. spec.type 与 suffix 不匹配
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "od_out";
+    spec.type = "other_out";
     EXPECT_FALSE(
-        ComputeOutputPoolPayloadBytes("doc_out", spec, 10, &out_bytes, &err));
+        ComputeOutputPoolPayloadBytes("json_out", spec, 10, &out_bytes, &err));
   }
 
   // 4. 深度 0 归一化为 25 且输出总大小在合理范围内
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "doc_out";
-    spec.capacities["intent_name"] = 63;
-    spec.capacities["answer_text"] = 1023;
+    spec.type = "json_out";
+    spec.capacities["result_json"] = 8191;
     EXPECT_TRUE(
-        ComputeOutputPoolPayloadBytes("doc_out", spec, 0, &out_bytes, &err));
+        ComputeOutputPoolPayloadBytes("json_out", spec, 0, &out_bytes, &err));
     EXPECT_GT(out_bytes, 0u);
     EXPECT_LE(out_bytes, 64 * 1024 * 1024u);
   }
@@ -839,9 +822,9 @@ TEST(OperatorValueRegistryTest,
   // 5. 深度 1024 正常通过
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "keyword_out";
-    spec.capacities["match_result_json"] = 2047;
-    EXPECT_TRUE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1024,
+    spec.type = "json_out";
+    spec.capacities["result_json"] = 2047;
+    EXPECT_TRUE(ComputeOutputPoolPayloadBytes("json_out", spec, 1024,
                                               &out_bytes, &err));
     EXPECT_GT(out_bytes, 0u);
   }
@@ -849,16 +832,16 @@ TEST(OperatorValueRegistryTest,
   // 6. 深度 1025 超限拒绝
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "keyword_out";
-    spec.capacities["match_result_json"] = 2047;
-    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1025,
+    spec.type = "json_out";
+    spec.capacities["result_json"] = 2047;
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("json_out", spec, 1025,
                                                &out_bytes, &err));
   }
 
   // 7. Schema 最大字符串容量下，64 MiB 总预算边界仍由统一预算器拦截。
   {
     constexpr uint32_t kMaxKeywordCapacity = 65536;
-    constexpr size_t kBlockPayload = sizeof(CompanyOperatorKeywordOutput) +
+    constexpr size_t kBlockPayload = sizeof(CompanyOperatorOutput) +
                                      sizeof(CompanyString) +
                                      kMaxKeywordCapacity + 1;
     constexpr uint32_t kLargestAllowedDepth =
@@ -867,19 +850,19 @@ TEST(OperatorValueRegistryTest,
     static_assert(kLargestAllowedDepth < kMaxOutputPoolDepth);
 
     ResolvedOutputPoolSpec spec;
-    spec.type = "keyword_out";
-    spec.capacities["match_result_json"] = kMaxKeywordCapacity;
+    spec.type = "json_out";
+    spec.capacities["result_json"] = kMaxKeywordCapacity;
     EXPECT_TRUE(ComputeOutputPoolPayloadBytes(
-        "keyword_out", spec, kLargestAllowedDepth, &out_bytes, &err));
+        "json_out", spec, kLargestAllowedDepth, &out_bytes, &err));
     EXPECT_EQ(out_bytes, kBlockPayload * kLargestAllowedDepth);
 
     EXPECT_FALSE(ComputeOutputPoolPayloadBytes(
-        "keyword_out", spec, kLargestAllowedDepth + 1, &out_bytes, &err));
+        "json_out", spec, kLargestAllowedDepth + 1, &out_bytes, &err));
     EXPECT_NE(err.find("64 MiB"), std::string::npos);
 
-    spec.capacities["match_result_json"] = kMaxKeywordCapacity + 1;
-    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1,
-                                               &out_bytes, &err));
+    spec.capacities["result_json"] = kMaxKeywordCapacity + 1;
+    EXPECT_FALSE(
+        ComputeOutputPoolPayloadBytes("json_out", spec, 1, &out_bytes, &err));
     EXPECT_NE(err.find("max hard limit"), std::string::npos);
   }
 
@@ -895,46 +878,40 @@ TEST(OperatorValueRegistryTest,
     EXPECT_GT(checked, kMaxHandlePoolPayloadBytes);
   }
 
-  // 9. 只有 od_out 镜像声明 metadata；其他输出不得接受未分配却未计费的配置。
+  // 9. 无metadata成员的统一输出拒绝未分配的metadata容量。
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "doc_out";
-    spec.capacities["intent_name"] = 63;
-    spec.capacities["answer_text"] = 1023;
+    spec.type = "json_out";
+    spec.capacities["result_json"] = 8191;
     spec.meta_num = 1;
     spec.metadata_type_id = 1;
     EXPECT_FALSE(
-        ComputeOutputPoolPayloadBytes("doc_out", spec, 1, &out_bytes, &err));
+        ComputeOutputPoolPayloadBytes("json_out", spec, 1, &out_bytes, &err));
   }
 }
 
 TEST(OperatorValueRegistryTest, OutputBindingOwnsDirectionAndCapacityLimits) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("doc_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
   EXPECT_EQ(binding->direction, IoDirection::kOutput);
-  ASSERT_EQ(binding->output_layout.string_capacity_fields.size(), 2u);
-
+  ASSERT_EQ(binding->output_layout.string_capacity_fields.size(), 1u);
   ResolvedOutputPoolSpec requested;
-  requested.type = "doc_out";
-  requested.capacities["intent_name"] = 100;
+  requested.type = "json_out";
   ResolvedOutputPoolSpec resolved;
   std::string err;
   EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
-  EXPECT_EQ(err, "Missing output capacity field: answer_text");
+  EXPECT_EQ(err, "Missing output capacity field: result_json");
   EXPECT_TRUE(resolved.capacities.empty());
-  requested.capacities["answer_text"] = 1023;
+  requested.capacities["result_json"] = 100;
   ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err))
       << err;
-  EXPECT_EQ(resolved.GetCapacity("intent_name"), 100u);
-  EXPECT_EQ(resolved.GetCapacity("answer_text"), 1023u);
-
+  EXPECT_EQ(resolved.GetCapacity("result_json"), 100u);
   requested.capacities["unknown_field"] = 1;
   EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
   EXPECT_NE(err.find("Unknown capacity field"), std::string::npos);
-
   requested.capacities.erase("unknown_field");
-  requested.capacities["answer_text"] = 65537;
+  requested.capacities["result_json"] = 65537;
   EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
   EXPECT_NE(err.find("max hard limit"), std::string::npos);
 }
@@ -944,10 +921,7 @@ TEST(OperatorValueRegistryTest, SingleStringOutputCapacityContracts) {
     const char* suffix;
     const char* field;
     size_t root_bytes;
-  } cases[] = {
-      {"keyword_out", "match_result_json",
-       sizeof(CompanyOperatorKeywordOutput)},
-      {"entity_out", "entities_json", sizeof(CompanyOperatorEntityOutput)}};
+  } cases[] = {{"json_out", "result_json", sizeof(CompanyOperatorOutput)}};
   for (const auto& test : cases) {
     SCOPED_TRACE(test.suffix);
     const auto* binding =
@@ -1033,7 +1007,7 @@ TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   for (int i = 0; i < 4; ++i) {
     readers.emplace_back([&]() {
       while (!stop_flag.load()) {
-        const auto* b = reg.GetBindingBySuffix("doc_out");
+        const auto* b = reg.GetBindingBySuffix("json_out");
         EXPECT_NE(b, nullptr);
         EXPECT_EQ(reg.GetBindingBySuffix("unregistered_output"), nullptr);
       }

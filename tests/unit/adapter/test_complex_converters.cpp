@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,13 @@
 
 namespace llm_edgeflow {
 
+namespace {
+nlohmann::json OutputJson(const CompanyOperatorOutput& value) {
+  return nlohmann::json::parse(
+      std::string(value.result_json->data, value.result_json->length));
+}
+}  // namespace
+
 class ComplexConvertersTest : public ::testing::Test {};
 
 // ==================== DocQA ====================
@@ -29,7 +37,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
       IoConverterRegistry::Instance().FindInputConverter("doc_in", "doc_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(out_conv, nullptr);
 
   std::string doc_text = "Sample document text";
@@ -72,19 +80,14 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 
   char ans_buf[256] = {0};
   CompanyString cs_ans{255, ans_buf};
-  char int_buf[64] = {0};
-  CompanyString cs_int{63, int_buf};
-  CompanyOperatorDocOutput doc_out{kMockServiceDocQa, nullptr, 0.0f,
-                                   nullptr,           0,       0};
-  doc_out.answer_text = &cs_ans;
-  doc_out.intent_name = &cs_int;
+  CompanyOperatorOutput json_out{kMockServiceDocQa, nullptr, 0};
+  json_out.result_json = &cs_ans;
 
   TestOutputBatchView out_view;
   out_view.count = 1;
-  out_view.leased_slots["doc_out"] = {&doc_out};
-  out_view.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-  out_view.SetCapacity("doc_out", "answer_text", 255);
-  out_view.SetCapacity("doc_out", "intent_name", 63);
+  out_view.leased_slots["json_out"] = {&json_out};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+  out_view.SetCapacity("json_out", "result_json", 255);
 
   test::ParsedOutputOptions out_options(*out_conv);
 
@@ -93,18 +96,22 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(doc_out.chunk_count, 1);
-  ASSERT_NE(doc_out.intent_name, nullptr);
-  EXPECT_STREQ(doc_out.intent_name->data, "general_faq");
-  EXPECT_FLOAT_EQ(doc_out.confidence, 0.95f);
-  ASSERT_NE(doc_out.answer_text, nullptr);
-  EXPECT_STREQ(doc_out.answer_text->data, "This is the answer.");
+  EXPECT_EQ(OutputJson(json_out).at("chunk_count").get<int>(), 1);
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(json_out).at("intent_name").get<std::string>().c_str(),
+      "general_faq");
+  EXPECT_FLOAT_EQ(OutputJson(json_out).at("confidence").get<float>(), 0.95f);
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(json_out).at("answer_text").get<std::string>().c_str(),
+      "This is the answer.");
 }
 
 TEST_F(ComplexConvertersTest,
        DocQaOutputPreservesEmbeddedNullAndRejectsSmallPool) {
   const auto* converter =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_out", "doc_qa");
+      IoConverterRegistry::Instance().FindOutputConverter("json_out", "doc_qa");
   ASSERT_NE(converter, nullptr);
   const std::string answer("a\0b", 3);
   AlgContext ctx;
@@ -114,31 +121,27 @@ TEST_F(ComplexConvertersTest,
   ctx.Publish("chunk_count", Int32Batch{{0, 0, 1}});
   test::ParsedOutputOptions options(*converter);
 
-  char bytes[4] = {};
-  char intent_bytes[1] = {};
+  char bytes[256] = {};
   CompanyString answer_out{0, bytes};
-  CompanyString intent_out{0, intent_bytes};
-  CompanyOperatorDocOutput output{kMockServiceDocQa, nullptr, 0.0f,
-                                  nullptr,           0,       0};
-  output.answer_text = &answer_out;
-  output.intent_name = &intent_out;
+  CompanyOperatorOutput output{kMockServiceDocQa, nullptr, 0};
+  output.result_json = &answer_out;
+
   TestOutputBatchView view;
   view.count = 1;
-  view.leased_slots["doc_out"] = {&output};
-  view.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-  view.SetCapacity("doc_out", "answer_text", 3);
-  view.SetCapacity("doc_out", "intent_name", 0);
+  view.leased_slots["json_out"] = {&output};
+  view.slot_types["json_out"] = "CompanyOperatorOutput";
+  view.SetCapacity("json_out", "result_json", 255);
+
   size_t written = 0;
   AdapterStatus status;
   ASSERT_EQ(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
                                                 &view, &written, &status),
             COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  ASSERT_EQ(answer_out.length, 3);
-  EXPECT_EQ(std::string(answer_out.data, answer_out.length), answer);
-  EXPECT_EQ(bytes[3], '\0');
+  EXPECT_EQ(OutputJson(output).at("answer_text").get<std::string>(), answer);
+  EXPECT_EQ(bytes[answer_out.length], '\0');
 
-  view.SetCapacity("doc_out", "answer_text", 1);
+  view.SetCapacity("json_out", "result_json", 1);
   written = 0;
   EXPECT_NE(::llm_edgeflow::test::EncodeForTest(*converter, &ctx, options,
                                                 &view, &written, &status),
@@ -152,7 +155,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
       "rerank_in", "cross_rerank");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "rerank_out", "cross_rerank");
+      "json_out", "cross_rerank");
   ASSERT_NE(out_conv, nullptr);
 
   std::string query_text = "how to rerank?";
@@ -190,13 +193,14 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   ranked.emplace_back(0, 0, cand);
   ctx.Publish("ranked", std::move(ranked));
 
-  CompanyOperatorRerankOutput rerank_out{kMockServiceCrossRerank, {}, {}, 0, 0};
+  char bytes[256] = {};
+  CompanyString result{0, bytes};
+  CompanyOperatorOutput json_out{kMockServiceCrossRerank, &result, 0};
   TestOutputBatchView out_view;
   out_view.count = 1;
-  out_view.leased_slots["rerank_out"] = {&rerank_out};
-  out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
-  ResolvedOutputPoolSpec output_spec;
-  out_view.pool_specs["rerank_out"] = &output_spec;
+  out_view.leased_slots["json_out"] = {&json_out};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+  out_view.SetCapacity("json_out", "result_json", 255);
 
   test::ParsedOutputOptions out_options(*out_conv);
 
@@ -205,9 +209,9 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(rerank_out.count, 1);
-  EXPECT_FLOAT_EQ(rerank_out.scores[0], 0.98f);
-  EXPECT_EQ(rerank_out.sorted_indices[0], 0);
+  EXPECT_EQ(OutputJson(json_out).at("count").get<int>(), 1);
+  EXPECT_FLOAT_EQ(OutputJson(json_out).at("scores").at(0).get<float>(), 0.98f);
+  EXPECT_EQ(OutputJson(json_out).at("sorted_indices").at(0).get<int>(), 0);
 }
 
 // ==================== DialogueAudit ====================
@@ -216,7 +220,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
       "audit_in", "dialogue_audit");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audit_out", "dialogue_audit");
+      "json_out", "dialogue_audit");
   ASSERT_NE(out_conv, nullptr);
 
   std::string dialogue = "User text violating rules";
@@ -253,26 +257,19 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   policies.emplace_back(0, 0, RankedCandidate("Rule 12.3", 0.88f, 1, 0));
   ctx.Publish("matched_policy", std::move(policies));
 
-  char risk_buf[32] = {0};
-  CompanyString cs_risk{31, risk_buf};
-  char clause_buf[256] = {0};
-  CompanyString cs_clause{255, clause_buf};
   char verdict_buf[1024] = {0};
   CompanyString cs_verdict{1023, verdict_buf};
 
-  CompanyOperatorAuditOutput audit_out{
-      kMockServiceDialogueAudit, nullptr, 0.0f, nullptr, nullptr, 0};
-  audit_out.risk_level = &cs_risk;
-  audit_out.matched_policy_clause = &cs_clause;
-  audit_out.audit_verdict_json = &cs_verdict;
+  CompanyOperatorOutput json_out{kMockServiceDialogueAudit, nullptr, 0};
+
+  json_out.result_json = &cs_verdict;
 
   TestOutputBatchView out_view;
   out_view.count = 1;
-  out_view.leased_slots["audit_out"] = {&audit_out};
-  out_view.slot_types["audit_out"] = "CompanyOperatorAuditOutput";
-  out_view.SetCapacity("audit_out", "risk_level", 31);
-  out_view.SetCapacity("audit_out", "matched_policy_clause", 255);
-  out_view.SetCapacity("audit_out", "audit_verdict_json", 1023);
+  out_view.leased_slots["json_out"] = {&json_out};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+
+  out_view.SetCapacity("json_out", "result_json", 1023);
 
   test::ParsedOutputOptions out_options(*out_conv);
 
@@ -281,13 +278,19 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  ASSERT_NE(audit_out.risk_level, nullptr);
-  EXPECT_STREQ(audit_out.risk_level->data, "HIGH_RISK");
-  EXPECT_FLOAT_EQ(audit_out.risk_score, 0.88f);
-  ASSERT_NE(audit_out.matched_policy_clause, nullptr);
-  EXPECT_STREQ(audit_out.matched_policy_clause->data, "Rule 12.3");
-  ASSERT_NE(audit_out.audit_verdict_json, nullptr);
-  EXPECT_STREQ(audit_out.audit_verdict_json->data, "{\"risk\":\"high\"}");
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(OutputJson(json_out).at("risk_level").get<std::string>().c_str(),
+               "HIGH_RISK");
+  EXPECT_FLOAT_EQ(OutputJson(json_out).at("risk_score").get<float>(), 0.88f);
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(OutputJson(json_out)
+                   .at("matched_policy_clause")
+                   .get<std::string>()
+                   .c_str(),
+               "Rule 12.3");
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(OutputJson(json_out).at("audit_verdict").dump().c_str(),
+               "{\"risk\":\"high\"}");
 }
 
 // ==================== AudioAsrIntent ====================
@@ -296,7 +299,7 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
       "audio_in", "audio_asr_intent");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "audio_out", "audio_asr_intent");
+      "json_out", "audio_asr_intent");
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<float> pcm = {0.1f, 0.2f, -0.1f};
@@ -327,22 +330,19 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
   slots.emplace_back(0, 0, m);
   ctx.Publish("intent_slot", std::move(slots));
 
-  char trans_buf[512] = {0};
-  CompanyString cs_trans{511, trans_buf};
   char slot_buf[1024] = {0};
   CompanyString cs_slot{1023, slot_buf};
 
-  CompanyOperatorAudioOutput audio_out{kMockServiceAudioAsrIntent, nullptr,
-                                       nullptr, 0};
-  audio_out.transcribed_text = &cs_trans;
-  audio_out.intent_slot_json = &cs_slot;
+  CompanyOperatorOutput json_out{kMockServiceAudioAsrIntent, nullptr, 0};
+
+  json_out.result_json = &cs_slot;
 
   TestOutputBatchView out_view;
   out_view.count = 1;
-  out_view.leased_slots["audio_out"] = {&audio_out};
-  out_view.slot_types["audio_out"] = "CompanyOperatorAudioOutput";
-  out_view.SetCapacity("audio_out", "transcribed_text", 511);
-  out_view.SetCapacity("audio_out", "intent_slot_json", 1023);
+  out_view.leased_slots["json_out"] = {&json_out};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+
+  out_view.SetCapacity("json_out", "result_json", 1023);
 
   test::ParsedOutputOptions out_options(*out_conv);
 
@@ -351,10 +351,12 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentOperatorInputAndOutput) {
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  ASSERT_NE(audio_out.transcribed_text, nullptr);
-  EXPECT_STREQ(audio_out.transcribed_text->data, "open the front door");
-  ASSERT_NE(audio_out.intent_slot_json, nullptr);
-  EXPECT_STREQ(audio_out.intent_slot_json->data,
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(
+      OutputJson(json_out).at("transcribed_text").get<std::string>().c_str(),
+      "open the front door");
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_STREQ(OutputJson(json_out).at("intent_slot").dump().c_str(),
                "{\"confidence\":1.0,\"intent\":\"open_door\","
                "\"matched_word\":\"open\",\"matches\":[{\"category\":"
                "\"open_door\",\"pattern\":\"open\",\"rule_id\":\"r1\","
@@ -367,7 +369,7 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
       "frame", "ocr_invoice_qa");
   ASSERT_NE(in_conv, nullptr);
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "od_out", "ocr_invoice_qa");
+      "json_out", "ocr_invoice_qa");
   ASSERT_NE(out_conv, nullptr);
 
   // 准备 Operator 输入：frame 和 string
@@ -421,16 +423,16 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
   ocr_docs.emplace_back(0, 0, ocr_doc);
   ctx.Publish("document", std::move(ocr_docs));
 
-  // 目标 Operator od_out
-  CompanyOdOutput od_out{kMockServiceOcrInvoiceQa, 0, nullptr, nullptr, 0};
+  // 目标 Operator json_out
+  CompanyOperatorOutput json_out{kMockServiceOcrInvoiceQa, nullptr, 0};
   std::vector<char> buf(256);
   CompanyString res_str{255, buf.data()};
-  od_out.result_json = &res_str;
+  json_out.result_json = &res_str;
 
   TestOutputBatchView out_view;
-  out_view.leased_slots["od_out"] = {&od_out};
-  out_view.slot_types["od_out"] = "CompanyOdOutput";
-  out_view.SetCapacity("od_out", "result_json", 255);
+  out_view.leased_slots["json_out"] = {&json_out};
+  out_view.slot_types["json_out"] = "CompanyOperatorOutput";
+  out_view.SetCapacity("json_out", "result_json", 255);
   out_view.count = 1;
 
   test::ParsedOutputOptions out_options(*out_conv);
@@ -440,9 +442,10 @@ TEST_F(ComplexConvertersTest, OcrInvoiceQaOperatorInputAndOutput) {
                                             &out_view, &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
-  EXPECT_EQ(od_out.detected_box_count, 1);
-  ASSERT_NE(od_out.result_json, nullptr);
-  EXPECT_STREQ(od_out.result_json->data, "{\"total\":123.45}");
+  EXPECT_EQ(OutputJson(json_out).at("detected_box_count").get<int>(), 1);
+  ASSERT_NE(json_out.result_json, nullptr);
+  EXPECT_EQ(OutputJson(json_out).at("result"),
+            nlohmann::json({{"total", 123.45}}));
 }
 
 }  // namespace llm_edgeflow

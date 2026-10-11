@@ -1,7 +1,7 @@
 {
   "name": "entity-neutral-model-contract",
   "output": {
-    "type": "entity_out",
+    "type": "json_out",
     "name": "entity_extract"
   },
   "dataset": "../../../data/corpus_entity_extract.txt",
@@ -9,7 +9,7 @@
   "samples": [
     {
       "expected": {
-        "/output/entities/nouns": [
+        "/output/nouns": [
           "张三",
           "清华大学",
           "北京",

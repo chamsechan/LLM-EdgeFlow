@@ -44,31 +44,19 @@ DECLARE_EXTERNAL_TYPE_TRAITS(CompanyString, "CompanyString");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyBuffer, "CompanyBuffer");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAny, "CompanyAny");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyFrame, "CompanyFrame");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOdOutput, "CompanyOdOutput");
+DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorOutput, "CompanyOperatorOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAuditInput,
                              "CompanyOperatorAuditInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAuditOutput,
-                             "CompanyOperatorAuditOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorKeywordInput,
                              "CompanyOperatorKeywordInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorKeywordOutput,
-                             "CompanyOperatorKeywordOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorEntityInput,
                              "CompanyOperatorEntityInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorEntityOutput,
-                             "CompanyOperatorEntityOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorDocInput,
                              "CompanyOperatorDocInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorDocOutput,
-                             "CompanyOperatorDocOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAudioInput,
                              "CompanyOperatorAudioInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAudioOutput,
-                             "CompanyOperatorAudioOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorRerankInput,
                              "CompanyOperatorRerankInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorRerankOutput,
-                             "CompanyOperatorRerankOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(int, "int");
 
 bool ValidatePlatformMetadata(uint32_t count, int32_t type_id) noexcept;

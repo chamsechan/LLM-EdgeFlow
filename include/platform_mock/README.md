@@ -7,15 +7,20 @@
 | 文件 | 现有模拟定义 |
 | --- | --- |
 | [error_codes.h](error_codes.h) | `COMPANY_ALG_SUCCESS` 和 `COMPANY_ALG_ERR_*` 错误码 |
-| [operator_data_types.h](operator_data_types.h) | `CompanyString`、`CompanyBuffer`、`CompanyAny`、`CompanyFrame`、`CompanyOdOutput` 及各业务 `CompanyOperator*` 聚合结构 |
+| [operator_data_types.h](operator_data_types.h) | `CompanyString`、`CompanyBuffer`、`CompanyAny`、`CompanyFrame`、业务输入 `CompanyOperator*Input` 及统一输出 `CompanyOperatorOutput` |
 | [operator_types.h](operator_types.h) | C++ 平台枚举 `ComputePlatform`、控制命令/参数、`CreateParam`、`OpaqueData`、`NamedIo`、`NamedIoBatch` 和 `OperatorFunc` 函数表类型 |
 
-`error_codes.h` 可用于 C；`operator_data_types.h` 与 `operator_types.h` 为 Operator 平台结构与 C++17 交互类型头。
+`error_codes.h` 与 `operator_data_types.h` 可用于 C；`operator_types.h` 提供 C++17 交互类型。
 这些文件只持有模拟平台声明，不实现算法、平台资源或硬件能力。平台枚举存在不代表
 对应芯片已有可用 Backend。
 
 mock 输入输出载体不包含请求 ID 字段。`Process` 以输入输出 vector 的同一行关联请求；
 图像帧序号也不参与关联。
+
+当前八类业务共用 C 结构 `CompanyOperatorOutput`：`service_type` 标识业务，
+`CompanyString* result_json` 承载完整 JSON 响应，`status_code` 保存状态。
+Pipeline 使用同一 `json_out` 类型和不同业务 `name`，由各输出转换器组装 JSON。
+未来需要不同结构时，仍通过独立的 ValueType/binding 和转换器注册，不向中央分发增加业务分支。
 
 ## 框架入口与包含方式
 
@@ -35,9 +40,9 @@ SDK 调用方包含 `edgeflow/operator/interface.h`，获得函数入口以及 `
 ## 进入内网后
 
 完整项目进入授权内网后，才能核对真实公共头、替换接入边界的模拟依赖，并验证枚举、
-布局、所有权、控制和 I/O 转换。当前 `CompanyOperator*`、`CompanyFrame`、`CompanyOdOutput`
+布局、所有权、控制和 I/O 转换。当前 `CompanyOperator*`、`CompanyFrame`
 均带 `service_type`；`kMockService*` 是外网模拟的占位枚举，不表示公司内部实际取值。
-这些成员与枚举、输出 `CompanyAny` 元数据、槽声明的固定 `metadata_count` /
+这些成员与枚举、将来扩展结构使用的 `CompanyAny` 元数据、槽声明的固定 `metadata_count` /
 `metadata_type_id` 和外部 map key 后缀（`type`）都须按真实头文件与宿主约定核对。
 `CompanyString` 不带请求 ID 或业务值；请求 ID 和业务成员由平台登记显式声明。外部工作区不得请求、推断、复制或提交内部 SDK 的头文件、
 库、模型、配置和凭据；这里只准备中立接入边界。

@@ -334,7 +334,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
     inputs[0]["client_channel.keyword_in"] =
         operator_api::MakeBorrowedOperatorInput(&in_req);
     operator_api::NamedIoBatch outputs(1);
-    outputs[0]["client_channel.keyword_out"] = std::shared_ptr<void>();
+    outputs[0]["client_channel.json_out"] = std::shared_ptr<void>();
 
     int ret = op.Process(handle, inputs, outputs);
     EXPECT_EQ(ret, 0);

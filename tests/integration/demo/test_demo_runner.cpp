@@ -65,13 +65,14 @@ int EncodeDemoSecondaryOutput(AlgContext* context,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
-  return EncodeResultRows<KeywordOutputValue>(
-      context, options, destination, written_count, status, "keyword_out",
+  return EncodeResultRows<JsonOutputValue>(
+      context, options, destination, written_count, status, "json_out",
       MakeBlackboardKey<RuleMatchBatch>("matches"),
-      [](const RuleMatchItem& match, KeywordOutputValue* output) {
-        output->match_result_json = SerializeRuleMatchResponse(match);
+      [](const RuleMatchItem& match, JsonOutputValue* output) {
+        auto response = BuildRuleMatchResponse(match);
+        response["is_hit"] = match.is_hit ? 0 : 1;
+        output->result_json = response.dump();
         output->status_code = match.is_hit ? 0 : -17;
-        output->is_hit = !match.is_hit;
         return AdapterStatus::Ok();
       });
 }
@@ -91,7 +92,7 @@ int DecodeDemoUnsupportedInput(const ExternalInputBatchView& source,
 bool RegisterDemoIoFixtures() {
   auto& registry = IoConverterRegistry::Instance();
   const auto* production_output =
-      registry.FindOutputConverter("keyword_out", "keyword_match");
+      registry.FindOutputConverter("json_out", "keyword_match");
   const auto* production_input =
       registry.FindInputConverter("keyword_in", "keyword_match");
   if (!production_output || !production_input) return false;
@@ -197,6 +198,39 @@ class KiteDemoDirectory final {
   std::filesystem::path path;
 };
 
+nlohmann::json JsonOutputPipeline(const nlohmann::json& result,
+                                  bool include_translation = false) {
+  nlohmann::json pipeline = {
+      {"io",
+       {{"input", {{{"type", "entity_in"}, {"name", "entity_extract"}}}},
+        {"output",
+         {{{"type", "json_out"},
+           {"name", "entity_extract"},
+           {"inputs", {{"entities", "parse.document"}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"type", "text_template"},
+         {"name", "json_text"},
+         {"params", {{"template", result.dump()}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}},
+        {{"type", "structured_json_parse"},
+         {"name", "parse"},
+         {"params", {{"failure_policy", "fail"}}},
+         {"inputs", {{"text", "json_text.text"}}}}}}};
+  if (include_translation) {
+    pipeline["io"]["output"].push_back(
+        {{"type", "json_out"},
+         {"name", "translate"},
+         {"inputs", {{"translation", "translation.text"}}}});
+    pipeline["pipeline"].push_back(
+        {{"type", "text_template"},
+         {"name", "translation"},
+         {"params", {{"template", "翻译结果"}}},
+         {"inputs", {{"primary", "input.sentence_text"}}}});
+  }
+  return pipeline;
+}
+
 }  // namespace
 
 TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
@@ -262,8 +296,101 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
   const auto sample = nlohmann::json::parse(line);
   EXPECT_EQ(sample["status"], 0);
-  ASSERT_TRUE(sample["output"].contains("entities"));
-  EXPECT_FALSE(sample["output"]["entities"].empty());
+  ASSERT_TRUE(sample["output"].is_object() || sample["output"].is_array());
+  EXPECT_FALSE(sample["output"].empty());
+}
+
+TEST(DemoRunnerTest, SingleJsonOutputPreservesCompleteValues) {
+  KiteDemoDirectory temporary;
+  std::ofstream(temporary.path / "pipeline.conf")
+      << R"({"pipe_path":"pipeline.json"})";
+  std::ofstream(temporary.path / "input.txt") << "source\n";
+  DemoOptions options;
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = (temporary.path / "output").string();
+  options.batch_size = 1;
+  const std::vector<nlohmann::json> expected_results = {
+      {{"entities", {"张三", "北京"}}, {"count", 2}},
+      nlohmann::json::array({"张三", {{"name", "北京"}}}),
+      nlohmann::json::array(),
+      nullptr,
+      "text",
+      7,
+      false};
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  for (const auto& expected : expected_results) {
+    SCOPED_TRACE(expected.dump());
+    std::ofstream(temporary.path / "pipeline.json")
+        << JsonOutputPipeline(expected);
+    nlohmann::json sdk_result;
+    {
+      OperatorFunc instance_ops{};
+      void* handle = nullptr;
+      ASSERT_EQ(CreateOperatorInstance(options, "JsonOutputTest", &instance_ops,
+                                       &handle),
+                0);
+      OperatorHandleGuard guard(instance_ops, handle);
+      char source[] = "source";
+      CompanyString text{6, source};
+      CompanyOperatorEntityInput input{kMockServiceEntityExtract, &text};
+      NamedIoBatch inputs(1), outputs(1);
+      inputs[0]["demo.entity_in"] = MakeBorrowedOperatorInput(&input);
+      outputs[0]["demo.json_out"] = nullptr;
+      ASSERT_EQ(instance_ops.Process(handle, inputs, outputs), 0)
+          << GetOperatorLastError();
+      const auto* carrier = static_cast<const CompanyOperatorOutput*>(
+          outputs[0].at("demo.json_out").get());
+      ASSERT_NE(carrier, nullptr);
+      ASSERT_NE(carrier->result_json, nullptr);
+      EXPECT_EQ(carrier->status_code, 0);
+      sdk_result = nlohmann::json::parse(
+          carrier->result_json->data,
+          carrier->result_json->data + carrier->result_json->length);
+      EXPECT_EQ(sdk_result, expected);
+    }
+    ASSERT_EQ(RunOperatorDemo(options), 0);
+    std::ifstream results(temporary.path / "output/pipeline/results.jsonl");
+    ASSERT_TRUE(results.good());
+    std::string line;
+    ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+    const auto sample = nlohmann::json::parse(line);
+    EXPECT_EQ(sample["status"], 0);
+    EXPECT_EQ(sample["output"], sdk_result);
+    EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
+  }
+  EXPECT_EQ(ops.DeInit(), 0);
+}
+
+TEST(DemoRunnerTest, MixedJsonOutputsPreserveEachCarrierUnderItsNameAndType) {
+  KiteDemoDirectory temporary;
+  const auto entities = nlohmann::json::array({"张三", {{"name", "北京"}}});
+  std::ofstream(temporary.path / "pipeline.json")
+      << JsonOutputPipeline(entities, true);
+  std::ofstream(temporary.path / "pipeline.conf")
+      << R"({"pipe_path":"pipeline.json"})";
+  std::ofstream(temporary.path / "input.txt") << "source\n";
+  DemoOptions options;
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = (temporary.path / "output").string();
+  options.batch_size = 1;
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(RunOperatorDemo(options), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
+  std::ifstream results(temporary.path / "output/pipeline/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+  const auto sample = nlohmann::json::parse(line);
+  EXPECT_EQ(sample["status"], 0);
+  EXPECT_EQ(
+      sample["output"],
+      (nlohmann::json{{"entity_extract.json_out", entities},
+                      {"translate.json_out", {{"translated", "翻译结果"}}}}));
+  EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
 }
 
 TEST(DemoRunnerTest, LogLevelEnvironmentConfiguration) {
@@ -353,7 +480,7 @@ TEST(DemoRunnerTest, ConfigAloneResolvesRegisteredCarriers) {
   ASSERT_EQ(contract.inputs.size(), 1U);
   ASSERT_EQ(contract.outputs.size(), 1U);
   EXPECT_EQ(contract.inputs[0].type, "keyword_in");
-  EXPECT_EQ(contract.outputs[0].type, "keyword_out");
+  EXPECT_EQ(contract.outputs[0].type, "json_out");
   EXPECT_NE(DemoIoRegistry::Instance().FindInput(contract.inputs[0].type_name),
             nullptr);
   EXPECT_NE(
@@ -507,7 +634,7 @@ TEST(DemoRunnerTest, ConfigOverrideDeterminesResolvedCarriers) {
   ASSERT_EQ(contract.inputs.size(), 1U);
   ASSERT_EQ(contract.outputs.size(), 1U);
   EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorKeywordInput");
-  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorKeywordOutput");
+  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorOutput");
 }
 
 TEST(DemoRunnerTest, ProfileRejectsUnknownFieldsAndInvalidShapes) {
@@ -628,11 +755,7 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
     SCOPED_TRACE(type);
     EXPECT_NE(production.FindInput(type), nullptr);
   }
-  for (const char* type :
-       {"CompanyOperatorKeywordOutput", "CompanyOperatorEntityOutput",
-        "CompanyOperatorDocOutput", "CompanyOperatorAuditOutput",
-        "CompanyOperatorRerankOutput", "CompanyOperatorAudioOutput",
-        "CompanyOdOutput"}) {
+  for (const char* type : {"CompanyOperatorOutput"}) {
     SCOPED_TRACE(type);
     EXPECT_NE(production.FindOutput(type), nullptr);
   }
@@ -705,7 +828,7 @@ TEST(DemoRunnerTest, UnsupportedInputCombinationListsRegisteredCarriers) {
             std::string::npos);
   EXPECT_NE(diagnostic.find("input: CompanyFrame,CompanyString"),
             std::string::npos);
-  EXPECT_NE(diagnostic.find("output: CompanyOperatorKeywordOutput"),
+  EXPECT_NE(diagnostic.find("output: CompanyOperatorOutput"),
             std::string::npos);
   EXPECT_FALSE(
       std::filesystem::exists(temporary.path / "pipeline/results.jsonl"));
@@ -719,14 +842,14 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
   ASSERT_TRUE(pipeline_file.good());
   auto pipeline = nlohmann::json::parse(pipeline_file);
   pipeline["io"]["output"] = {
-      {{"type", "keyword_out"},
+      {{"type", "json_out"},
        {"name", "test_demo_primary"},
        {"inputs", {{"matches", "match_keywords.matches"}}},
-       {"params", {{"match_result_json_max_bytes", 2047}}}},
-      {{"type", "keyword_out"},
+       {"params", {{"result_json_max_bytes", 2047}}}},
+      {{"type", "json_out"},
        {"name", "test_demo_secondary"},
        {"inputs", {{"matches", "match_keywords.matches"}}},
-       {"params", {{"match_result_json_max_bytes", 2047}}}}};
+       {"params", {{"result_json_max_bytes", 2047}}}}};
   std::ofstream(temporary.path / "pipeline.json") << pipeline;
   std::ofstream(temporary.path / "pipeline.conf")
       << R"({"pipe_path":"pipeline.json"})";
@@ -742,8 +865,8 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
   std::string error;
   ASSERT_TRUE(ResolveConfigIo(options, &contract, &error)) << error;
   ASSERT_EQ(contract.outputs.size(), 2U);
-  EXPECT_EQ(contract.outputs[0].type, "keyword_out");
-  EXPECT_EQ(contract.outputs[1].type, "keyword_out");
+  EXPECT_EQ(contract.outputs[0].type, "json_out");
+  EXPECT_EQ(contract.outputs[1].type, "json_out");
   EXPECT_EQ(contract.outputs[0].name, "test_demo_primary");
   EXPECT_EQ(contract.outputs[1].name, "test_demo_secondary");
   EXPECT_EQ(contract.outputs[0].service_type, 10031);
@@ -761,25 +884,22 @@ TEST(DemoRunnerTest, MultiOutputCollisionsPreserveValuesAndReleaseEachBatch) {
     const auto sample = nlohmann::json::parse(line);
     EXPECT_EQ(sample["status"], index == 1 ? -17 : 0);
     const auto& output = sample["output"];
-    EXPECT_EQ(output.size(), 4U);
+    EXPECT_EQ(output.size(), index == 1 ? 4U : 12U);
     EXPECT_FALSE(output.contains("is_hit"));
-    EXPECT_FALSE(output.contains("match_result"));
-    ASSERT_TRUE(output.contains("test_demo_primary.keyword_out.is_hit"));
-    ASSERT_TRUE(output.contains("test_demo_secondary.keyword_out.is_hit"));
-    ASSERT_TRUE(output.contains("test_demo_primary.keyword_out.match_result"));
-    ASSERT_TRUE(
-        output.contains("test_demo_secondary.keyword_out.match_result"));
-    EXPECT_EQ(output["test_demo_primary.keyword_out.is_hit"], index != 1);
-    EXPECT_EQ(output["test_demo_secondary.keyword_out.is_hit"], index == 1);
-    EXPECT_TRUE(
-        output["test_demo_primary.keyword_out.match_result"].is_object());
-    EXPECT_EQ(output["test_demo_primary.keyword_out.match_result"],
-              output["test_demo_secondary.keyword_out.match_result"]);
+    EXPECT_FALSE(output.contains("matches"));
+    ASSERT_TRUE(output.contains("test_demo_primary.json_out.is_hit"));
+    ASSERT_TRUE(output.contains("test_demo_secondary.json_out.is_hit"));
+    ASSERT_TRUE(output.contains("test_demo_primary.json_out.matches"));
+    ASSERT_TRUE(output.contains("test_demo_secondary.json_out.matches"));
+    EXPECT_EQ(output["test_demo_primary.json_out.is_hit"], index != 1 ? 1 : 0);
+    EXPECT_EQ(output["test_demo_secondary.json_out.is_hit"],
+              index == 1 ? 1 : 0);
+    EXPECT_TRUE(output["test_demo_primary.json_out.matches"].is_array());
+    EXPECT_EQ(output["test_demo_primary.json_out.matches"],
+              output["test_demo_secondary.json_out.matches"]);
     if (index != 1) {
-      EXPECT_NE(
-          output["test_demo_primary.keyword_out.match_result"].dump().find(
-              "SYSTEM_INIT"),
-          std::string::npos);
+      EXPECT_EQ(output["test_demo_primary.json_out.intent"], "SYSTEM_INIT");
+      EXPECT_EQ(output["test_demo_secondary.json_out.intent"], "SYSTEM_INIT");
     }
   }
   EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
@@ -815,20 +935,20 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
       {"configs/pipeline_keyword_match_rules.conf",
        "data/corpus_keyword_match.txt", 2, "is_hit"},
       {"demo/fixtures/mock/pipeline_entity_extract.conf",
-       "data/corpus_entity_extract.txt", 1, "entities"},
+       "data/corpus_entity_extract.txt", 1, "nouns"},
       {"demo/fixtures/mock/pipeline_doc_qa.conf", "data/corpus_doc_qa.txt", 2,
        "answer_text"},
       {"demo/fixtures/mock/pipeline_dialogue_audit.conf",
        "data/corpus_dialogue_audit.txt", 2, "audit_verdict"},
       {"demo/fixtures/mock/pipeline_ocr_invoice_qa.conf",
-       "data/corpus_ocr_invoice_qa.txt", 1, "extracted_invoice"},
+       "data/corpus_ocr_invoice_qa.txt", 1, "result"},
       {"demo/fixtures/mock/pipeline_audio_asr_intent.conf",
        "data/corpus_audio_asr_intent.txt", 1, "transcribed_text"},
       {"demo/fixtures/mock/pipeline_audio_asr_intent.conf",
        "data/corpus_audio_asr_intent_whisper.jsonl", 1, "transcribed_text",
        "real"},
       {(temporary.path / "rerank.conf").string(),
-       "data/corpus_cross_rerank.txt", 1, "ranked_results"}};
+       "data/corpus_cross_rerank.txt", 1, "sorted_indices"}};
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   for (const auto& test_case : cases) {
@@ -895,26 +1015,24 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
         show(output.get(), info, &status, &displayed);
         EXPECT_EQ(status, 0);
         EXPECT_TRUE(displayed.contains(test_case.output_field));
-        if (entry.type_name == "CompanyOperatorRerankOutput") {
-          EXPECT_EQ(displayed["query"], "怎么办理7天无理由退款？");
-          ASSERT_EQ(displayed["ranked_results"].size(), 3U);
-          EXPECT_EQ(displayed["ranked_results"][0]["passage_index"], 1);
-          EXPECT_EQ(displayed["ranked_results"][0]["passage_text"],
-                    "条款B: 售后退款支持7天无理由，原路退回付款账户。");
-          nlohmann::json without_info = nlohmann::json::object();
-          show(output.get(), nlohmann::json::object(), &status, &without_info);
-          EXPECT_EQ(status, 0);
-          EXPECT_FALSE(without_info.contains("query"));
-          ASSERT_EQ(without_info["ranked_results"].size(), 3U);
-          for (const auto& ranked : without_info["ranked_results"])
-            EXPECT_FALSE(ranked.contains("passage_text"));
-          EXPECT_EQ(without_info["ranked_results"][0]["passage_index"], 1);
-        } else if (entry.type_name == "CompanyOperatorAuditOutput") {
-          EXPECT_EQ(displayed["channel"], info["channel"]);
-          nlohmann::json without_info = nlohmann::json::object();
-          show(output.get(), nlohmann::json::object(), &status, &without_info);
-          EXPECT_FALSE(without_info.contains("channel"));
-          EXPECT_EQ(without_info["audit_verdict"], displayed["audit_verdict"]);
+        const auto* carrier =
+            static_cast<const CompanyOperatorOutput*>(output.get());
+        EXPECT_EQ(displayed,
+                  nlohmann::json::parse(carrier->result_json->data,
+                                        carrier->result_json->data +
+                                            carrier->result_json->length));
+        nlohmann::json without_info = nlohmann::json::object();
+        show(output.get(), nlohmann::json::object(), &status, &without_info);
+        EXPECT_EQ(status, 0);
+        EXPECT_EQ(without_info, displayed);
+        if (std::string(test_case.output_field) == "sorted_indices") {
+          ASSERT_EQ(displayed["sorted_indices"].size(), 3U);
+          EXPECT_EQ(displayed["sorted_indices"][0], 1);
+          EXPECT_EQ(displayed["count"], 3);
+          EXPECT_EQ(displayed["scores"].size(), 3U);
+        } else if (std::string(test_case.output_field) == "nouns") {
+          ASSERT_TRUE(displayed["nouns"].is_array());
+          EXPECT_FALSE(displayed["nouns"].empty());
         }
         copied_outputs.push_back(std::move(displayed));
       }
@@ -923,9 +1041,8 @@ TEST(DemoRunnerTest, BuiltCarriersSurviveMoveAndDisplayActualOperatorOutputs) {
     EXPECT_TRUE(lifetime.expired());
     for (const auto& displayed : copied_outputs)
       EXPECT_TRUE(displayed.contains(test_case.output_field));
-    if (std::string(test_case.output_field) == "ranked_results") {
-      EXPECT_EQ(copied_outputs[0]["ranked_results"][0]["passage_text"],
-                "条款B: 售后退款支持7天无理由，原路退回付款账户。");
+    if (std::string(test_case.output_field) == "sorted_indices") {
+      EXPECT_EQ(copied_outputs[0]["sorted_indices"][0], 1);
     }
   }
   EXPECT_EQ(ops.DeInit(), 0);
@@ -976,7 +1093,7 @@ TEST(DemoRunnerTest, EntityAndTranslateShareCarrierBuildersAndDisplays) {
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
   const auto sample = nlohmann::json::parse(line);
   EXPECT_EQ(sample["status"], 0);
-  EXPECT_TRUE(sample["output"]["entities"]["translated"].is_string());
+  EXPECT_TRUE(sample["output"]["translated"].is_string());
 }
 
 TEST(DemoRunnerTest, AudioDatasetRequirementsUseSuiteClassification) {
@@ -1077,8 +1194,8 @@ TEST(DemoRunnerTest,
       EXPECT_EQ(sample["status"], 0);
       const auto& output = sample["output"];
       if (std::string(profile) == "entity_extract_custom_mock") {
-        ASSERT_TRUE(output.contains("entities"));
-        EXPECT_EQ(output["entities"]["nouns"],
+        ASSERT_TRUE(output.contains("nouns"));
+        EXPECT_EQ(output["nouns"],
                   nlohmann::json({"张三", "清华大学", "北京", "人工智能",
                                   "算法工程师", "NPU", "芯片", "深度学习",
                                   "大模型", "项目", "公司"}));
@@ -1267,15 +1384,15 @@ TEST(DemoRunnerTest, ConfigIoResolutionAndFailureClearsContract) {
   for (const auto& entry :
        {Case{"demo/fixtures/mock/pipeline_entity_extract.conf",
              "entity_extract", "CompanyOperatorEntityInput",
-             "CompanyOperatorEntityOutput", kMockServiceEntityExtract},
+             "CompanyOperatorOutput", kMockServiceEntityExtract},
         Case{"demo/fixtures/mock/pipeline_doc_qa.conf", "doc_qa",
-             "CompanyOperatorDocInput", "CompanyOperatorDocOutput",
+             "CompanyOperatorDocInput", "CompanyOperatorOutput",
              kMockServiceDocQa},
         Case{"demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "doc_qa",
-             "CompanyOperatorDocInput", "CompanyOperatorDocOutput",
+             "CompanyOperatorDocInput", "CompanyOperatorOutput",
              kMockServiceDocQa},
         Case{"configs/pipeline_keyword_match_rules.conf", "keyword_match",
-             "CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput",
+             "CompanyOperatorKeywordInput", "CompanyOperatorOutput",
              kMockServiceKeywordMatch}}) {
     DemoOptions options;
     options.config_path = entry.config;
@@ -1368,7 +1485,7 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
   const auto record = nlohmann::json::parse(line);
   EXPECT_EQ(record["status"], 0);
-  EXPECT_EQ(record["output"]["is_hit"], true);
+  EXPECT_EQ(record["output"]["is_hit"], 1);
   EXPECT_NE(record.dump().find("PREFIX_APPLIED"), std::string::npos);
   options.control_file.reset();
   EXPECT_EQ(RunOperatorDemo(options),
@@ -1446,9 +1563,9 @@ TEST(DemoRunnerTest, KeywordControlProfileAndCliFileOverride) {
 
   const auto configured = run_and_read();
   ASSERT_EQ(configured.size(), 2U);
-  EXPECT_EQ(configured[0]["output"]["is_hit"], true);
+  EXPECT_EQ(configured[0]["output"]["is_hit"], 1);
   EXPECT_NE(configured[0].dump().find("SYSTEM_INIT"), std::string::npos);
-  EXPECT_EQ(configured[1]["output"]["is_hit"], false);
+  EXPECT_EQ(configured[1]["output"]["is_hit"], 0);
 
   DemoOptions cli;
   cli.profile = "keyword_match_control";
@@ -1464,8 +1581,8 @@ TEST(DemoRunnerTest, KeywordControlProfileAndCliFileOverride) {
   EXPECT_EQ(options.control_file, "data/keyword_match_control.json");
   const auto example = run_and_read();
   ASSERT_EQ(example.size(), 2U);
-  EXPECT_EQ(example[0]["output"]["is_hit"], false);
-  EXPECT_EQ(example[1]["output"]["is_hit"], true);
+  EXPECT_EQ(example[0]["output"]["is_hit"], 0);
+  EXPECT_EQ(example[1]["output"]["is_hit"], 1);
   EXPECT_NE(example[1].dump().find("VIP_SERVICE"), std::string::npos);
 
   const auto control_path = temporary.path / "control.json";
@@ -1478,9 +1595,9 @@ TEST(DemoRunnerTest, KeywordControlProfileAndCliFileOverride) {
   EXPECT_EQ(options.control_file, control_path.string());
   const auto explicit_file = run_and_read();
   ASSERT_EQ(explicit_file.size(), 2U);
-  EXPECT_EQ(explicit_file[0]["output"]["is_hit"], true);
+  EXPECT_EQ(explicit_file[0]["output"]["is_hit"], 1);
   EXPECT_NE(explicit_file[0].dump().find("FILE_RULE"), std::string::npos);
-  EXPECT_EQ(explicit_file[1]["output"]["is_hit"], false);
+  EXPECT_EQ(explicit_file[1]["output"]["is_hit"], 0);
   EXPECT_EQ(ops.DeInit(), 0);
 }
 
@@ -1505,8 +1622,7 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   };
   ASSERT_EQ(RunOperatorDemo(options), 0);
   const auto original = read_sample();
-  EXPECT_EQ(original["output"]["extracted_invoice"]["invoice_code"],
-            "011002200111");
+  EXPECT_EQ(original["output"]["result"]["invoice_code"], "011002200111");
 
   const auto control_path = temporary.path / "control.json";
   std::ofstream(control_path) << R"({"template":"提取实体：{{primary}}"})";
@@ -1516,8 +1632,8 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   ASSERT_EQ(RunOperatorDemo(options), 0);
   const auto updated = read_sample();
   EXPECT_EQ(updated["status"], 0);
-  EXPECT_TRUE(updated["output"]["extracted_invoice"]["nouns"].is_array());
-  EXPECT_FALSE(updated["output"]["extracted_invoice"].contains("invoice_code"));
+  EXPECT_TRUE(updated["output"]["result"]["nouns"].is_array());
+  EXPECT_FALSE(updated["output"]["result"].contains("invoice_code"));
 
   options.control_cmd = 19999;
   EXPECT_EQ(RunOperatorDemo(options), 5);

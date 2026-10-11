@@ -10,7 +10,10 @@
 
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
+#include "tests/integration/json_output_test_utils.h"
 #include "tests/support/operator_test_fixture.h"
+
+using llm_edgeflow::test_support::ParseJsonOutput;
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -144,22 +147,25 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
   inputs[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in);
 
   NamedIoBatch outputs(1);
-  outputs[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
+  outputs[0]["rag_channel.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
-  auto out_sp = outputs[0]["rag_channel.doc_out"];
+  auto out_sp = outputs[0]["rag_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOperatorDocOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceDocQa);
   EXPECT_EQ(out_dto->status_code, 0);
-  ASSERT_NE(out_dto->intent_name, nullptr);
-  EXPECT_STREQ(out_dto->intent_name->data, "TECH_ARCHITECTURE");
-  EXPECT_GT(out_dto->confidence, 0.5f);
-  EXPECT_GT(out_dto->chunk_count, 0);
-  ASSERT_NE(out_dto->answer_text, nullptr);
-  EXPECT_GT(out_dto->answer_text->length, 0);
+  ASSERT_TRUE(ParseJsonOutput(out_dto).contains("intent_name"));
+  EXPECT_STREQ(
+      ParseJsonOutput(out_dto).at("intent_name").get<std::string>().c_str(),
+      "TECH_ARCHITECTURE");
+  EXPECT_GT(ParseJsonOutput(out_dto).at("confidence").get<float>(), 0.5f);
+  EXPECT_GT(ParseJsonOutput(out_dto).at("chunk_count").get<int>(), 0);
+  ASSERT_TRUE(ParseJsonOutput(out_dto).contains("answer_text"));
+  EXPECT_GT(
+      ParseJsonOutput(out_dto).at("answer_text").get<std::string>().size(), 0);
 
   outputs.clear();
   out_sp.reset();
@@ -191,21 +197,21 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
 
   NamedIoBatch outputs(1);
-  outputs[0]["chan.keyword_out"] = std::shared_ptr<void>();
+  outputs[0]["chan.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
-  auto out_sp = outputs[0]["chan.keyword_out"];
+  auto out_sp = outputs[0]["chan.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceKeywordMatch);
-  EXPECT_EQ(out_dto->is_hit, 1);
-  ASSERT_NE(out_dto->match_result_json, nullptr);
-  EXPECT_NE(std::string(out_dto->match_result_json->data,
-                        out_dto->match_result_json->length)
-                .find("VIP"),
-            std::string::npos);
+  EXPECT_EQ(ParseJsonOutput(out_dto).at("is_hit").get<int>(), 1);
+  ASSERT_NE(out_dto->result_json, nullptr);
+  EXPECT_NE(
+      std::string(out_dto->result_json->data, out_dto->result_json->length)
+          .find("VIP"),
+      std::string::npos);
 
   outputs.clear();
   out_sp.reset();
@@ -232,17 +238,17 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   inputs[0]["ner_channel.entity_in"] = MakeBorrowedOperatorInput(&in);
 
   NamedIoBatch outputs(1);
-  outputs[0]["ner_channel.entity_out"] = std::shared_ptr<void>();
+  outputs[0]["ner_channel.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
-  auto out_sp = outputs[0]["ner_channel.entity_out"];
+  auto out_sp = outputs[0]["ner_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceEntityExtract);
-  ASSERT_NE(out_dto->entities_json, nullptr);
-  EXPECT_GT(out_dto->entities_json->length, 0);
+  ASSERT_NE(out_dto->result_json, nullptr);
+  EXPECT_GT(out_dto->result_json->length, 0);
 
   outputs.clear();
   out_sp.reset();
@@ -273,20 +279,20 @@ TEST_F(OperatorGoldenTest, DialogueAuditGolden) {
   inputs[0]["audit_channel.audit_in"] = MakeBorrowedOperatorInput(&in);
 
   NamedIoBatch outputs(1);
-  outputs[0]["audit_channel.audit_out"] = std::shared_ptr<void>();
+  outputs[0]["audit_channel.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
-  auto out_sp = outputs[0]["audit_channel.audit_out"];
+  auto out_sp = outputs[0]["audit_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOperatorAuditOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceDialogueAudit);
   EXPECT_EQ(out_dto->status_code, 0);
-  ASSERT_NE(out_dto->risk_level, nullptr);
-  ASSERT_NE(out_dto->matched_policy_clause, nullptr);
-  ASSERT_NE(out_dto->audit_verdict_json, nullptr);
-  EXPECT_GT(out_dto->audit_verdict_json->length, 0);
+  ASSERT_TRUE(ParseJsonOutput(out_dto).contains("risk_level"));
+  ASSERT_TRUE(ParseJsonOutput(out_dto).contains("matched_policy_clause"));
+  ASSERT_TRUE(ParseJsonOutput(out_dto).contains("audit_verdict"));
+  EXPECT_GT(ParseJsonOutput(out_dto).at("audit_verdict").dump().size(), 0);
 
   outputs.clear();
   out_sp.reset();
@@ -313,16 +319,16 @@ TEST_F(OperatorGoldenTest, OcrInvoiceQaGolden) {
   inputs[0]["ocr_channel.string"] = MakeBorrowedOperatorInput(&cs_query);
 
   NamedIoBatch outputs(1);
-  outputs[0]["ocr_channel.od_out"] = std::shared_ptr<void>();
+  outputs[0]["ocr_channel.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
-  auto out_sp = outputs[0]["ocr_channel.od_out"];
+  auto out_sp = outputs[0]["ocr_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOdOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceOcrInvoiceQa);
-  EXPECT_GT(out_dto->detected_box_count, 0);
+  EXPECT_GT(ParseJsonOutput(out_dto).at("detected_box_count").get<int>(), 0);
   ASSERT_NE(out_dto->result_json, nullptr);
   EXPECT_GT(out_dto->result_json->length, 0);
 
@@ -359,28 +365,27 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   inputs[2]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in3);
 
   NamedIoBatch outputs(3);
-  outputs[0]["mic_0.audio_out"] = std::shared_ptr<void>();
-  outputs[1]["mic_0.audio_out"] = std::shared_ptr<void>();
-  outputs[2]["mic_0.audio_out"] = std::shared_ptr<void>();
+  outputs[0]["mic_0.json_out"] = std::shared_ptr<void>();
+  outputs[1]["mic_0.json_out"] = std::shared_ptr<void>();
+  outputs[2]["mic_0.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
 
   // 校验样本 1：导航
-  auto out_sp1 = outputs[0]["mic_0.audio_out"];
+  auto out_sp1 = outputs[0]["mic_0.json_out"];
   ASSERT_NE(out_sp1, nullptr);
-  auto* out_dto1 = static_cast<CompanyOperatorAudioOutput*>(out_sp1.get());
+  auto* out_dto1 = static_cast<CompanyOperatorOutput*>(out_sp1.get());
   EXPECT_EQ(out_dto1->service_type, kMockServiceAudioAsrIntent);
   EXPECT_EQ(out_dto1->status_code, 0);
-  ASSERT_NE(out_dto1->transcribed_text, nullptr);
-  ASSERT_NE(out_dto1->intent_slot_json, nullptr);
-  std::string transcript1(out_dto1->transcribed_text->data,
-                          out_dto1->transcribed_text->length);
+  ASSERT_TRUE(ParseJsonOutput(out_dto1).contains("transcribed_text"));
+  ASSERT_TRUE(ParseJsonOutput(out_dto1).contains("intent_slot"));
+  std::string transcript1 =
+      ParseJsonOutput(out_dto1).at("transcribed_text").get<std::string>();
   EXPECT_STREQ(transcript1.c_str(), "帮我导航到清华科技园，避开拥堵路段。");
 
-  std::string slot_str1(out_dto1->intent_slot_json->data,
-                        out_dto1->intent_slot_json->length);
+  std::string slot_str1 = ParseJsonOutput(out_dto1).at("intent_slot").dump();
   auto j1 = nlohmann::json::parse(slot_str1);
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   ASSERT_TRUE(j1.contains("slots"));
@@ -389,19 +394,18 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   EXPECT_EQ(j1["slots"]["avoid_toll"], false);
 
   // 校验样本 2：空调控制
-  auto out_sp2 = outputs[1]["mic_0.audio_out"];
+  auto out_sp2 = outputs[1]["mic_0.json_out"];
   ASSERT_NE(out_sp2, nullptr);
-  auto* out_dto2 = static_cast<CompanyOperatorAudioOutput*>(out_sp2.get());
+  auto* out_dto2 = static_cast<CompanyOperatorOutput*>(out_sp2.get());
   EXPECT_EQ(out_dto2->service_type, kMockServiceAudioAsrIntent);
   EXPECT_EQ(out_dto2->status_code, 0);
-  ASSERT_NE(out_dto2->transcribed_text, nullptr);
-  ASSERT_NE(out_dto2->intent_slot_json, nullptr);
-  std::string transcript2(out_dto2->transcribed_text->data,
-                          out_dto2->transcribed_text->length);
+  ASSERT_TRUE(ParseJsonOutput(out_dto2).contains("transcribed_text"));
+  ASSERT_TRUE(ParseJsonOutput(out_dto2).contains("intent_slot"));
+  std::string transcript2 =
+      ParseJsonOutput(out_dto2).at("transcribed_text").get<std::string>();
   EXPECT_STREQ(transcript2.c_str(), "把空调温度调到24度，风量开到二档。");
 
-  std::string slot_str2(out_dto2->intent_slot_json->data,
-                        out_dto2->intent_slot_json->length);
+  std::string slot_str2 = ParseJsonOutput(out_dto2).at("intent_slot").dump();
   auto j2 = nlohmann::json::parse(slot_str2);
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
   ASSERT_TRUE(j2.contains("slots"));
@@ -409,19 +413,18 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   EXPECT_EQ(j2["slots"]["fan_speed"], 2);
 
   // 校验样本 3：通用语音指令回退
-  auto out_sp3 = outputs[2]["mic_0.audio_out"];
+  auto out_sp3 = outputs[2]["mic_0.json_out"];
   ASSERT_NE(out_sp3, nullptr);
-  auto* out_dto3 = static_cast<CompanyOperatorAudioOutput*>(out_sp3.get());
+  auto* out_dto3 = static_cast<CompanyOperatorOutput*>(out_sp3.get());
   EXPECT_EQ(out_dto3->service_type, kMockServiceAudioAsrIntent);
   EXPECT_EQ(out_dto3->status_code, 0);
-  ASSERT_NE(out_dto3->transcribed_text, nullptr);
-  ASSERT_NE(out_dto3->intent_slot_json, nullptr);
-  std::string transcript3(out_dto3->transcribed_text->data,
-                          out_dto3->transcribed_text->length);
+  ASSERT_TRUE(ParseJsonOutput(out_dto3).contains("transcribed_text"));
+  ASSERT_TRUE(ParseJsonOutput(out_dto3).contains("intent_slot"));
+  std::string transcript3 =
+      ParseJsonOutput(out_dto3).at("transcribed_text").get<std::string>();
   EXPECT_STREQ(transcript3.c_str(), "今天北京天气怎么样？");
 
-  std::string slot_str3(out_dto3->intent_slot_json->data,
-                        out_dto3->intent_slot_json->length);
+  std::string slot_str3 = ParseJsonOutput(out_dto3).at("intent_slot").dump();
   auto j3 = nlohmann::json::parse(slot_str3);
   EXPECT_EQ(j3["intent"], "GENERAL_VOICE_CMD");
   ASSERT_TRUE(j3.contains("slots"));
@@ -499,14 +502,14 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   inputs[0]["ranker.rerank_in"] = MakeBorrowedOperatorInput(&in);
 
   NamedIoBatch outputs(1);
-  outputs[0]["ranker.rerank_out"] = std::shared_ptr<void>();
+  outputs[0]["ranker.json_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), 0);
-  auto out_sp = outputs[0]["ranker.rerank_out"];
+  auto out_sp = outputs[0]["ranker.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceCrossRerank);
-  EXPECT_GT(out_dto->count, 0);
+  EXPECT_GT(ParseJsonOutput(out_dto).at("count").get<int>(), 0);
 
   outputs.clear();
   out_sp.reset();
@@ -533,20 +536,20 @@ TEST_F(OperatorGoldenTest, TranslateGolden) {
   inputs[0]["trans_channel.entity_in"] = MakeBorrowedOperatorInput(&in);
 
   NamedIoBatch outputs(1);
-  outputs[0]["trans_channel.entity_out"] = std::shared_ptr<void>();
+  outputs[0]["trans_channel.json_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
-  auto out_sp = outputs[0]["trans_channel.entity_out"];
+  auto out_sp = outputs[0]["trans_channel.json_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_dto = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
+  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
   EXPECT_EQ(out_dto->service_type, kMockServiceTranslate);
   EXPECT_EQ(out_dto->status_code, 0);
-  ASSERT_NE(out_dto->entities_json, nullptr);
-  EXPECT_GT(out_dto->entities_json->length, 0);
-  auto res_json = nlohmann::json::parse(std::string(
-      out_dto->entities_json->data, out_dto->entities_json->length));
+  ASSERT_NE(out_dto->result_json, nullptr);
+  EXPECT_GT(out_dto->result_json->length, 0);
+  auto res_json = nlohmann::json::parse(
+      std::string(out_dto->result_json->data, out_dto->result_json->length));
   EXPECT_TRUE(res_json.contains("translated"));
 
   outputs.clear();

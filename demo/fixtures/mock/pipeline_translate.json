@@ -8,7 +8,7 @@
     ],
     "output": [
       {
-        "type": "entity_out",
+        "type": "json_out",
         "name": "translate",
         "inputs": {
           "translation": "translate_text.text"

@@ -25,7 +25,7 @@ AdapterStatus WriteString(CompanyString* output, const std::string& text,
 }  // namespace
 
 void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
-  // 1. string -> CompanyString
+  // string -> CompanyString
   {
     auto binding = MakeTypedInputBinding<CompanyString>(
         "string",
@@ -39,7 +39,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 2. buffer -> CompanyBuffer
+  // buffer -> CompanyBuffer
   {
     auto binding = MakeTypedInputBinding<CompanyBuffer>(
         "buffer",
@@ -51,7 +51,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 3. any -> CompanyAny
+  // any -> CompanyAny
   {
     auto binding = MakeTypedInputBinding<CompanyAny>(
         "any",
@@ -63,7 +63,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 4. frame -> CompanyFrame
+  // frame -> CompanyFrame
   {
     auto binding = MakeTypedInputBinding<CompanyFrame>(
         "frame",
@@ -110,34 +110,37 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 5. od_out -> CompanyOdOutput
+  // json_out -> CompanyOperatorOutput
   {
-    auto binding = MakePooledOutputBinding<CompanyOdOutput>(
-        "od_out", {{"result_json", &CompanyOdOutput::result_json, {65536}}},
-        [](CompanyOdOutput& out) noexcept {
+    auto binding = MakePooledOutputBinding<CompanyOperatorOutput>(
+        "json_out",
+        {{"result_json", &CompanyOperatorOutput::result_json, {65536}}},
+        [](CompanyOperatorOutput& out) noexcept {
           out.service_type = 0;
-          out.detected_box_count = 0;
           out.status_code = 0;
-        },
-        &CompanyOdOutput::metadata, 65536);
-    SetServiceTypeMember(&binding, &CompanyOdOutput::service_type);
-    SetOutputValue<CompanyOdOutput, DetectionOutputValue>(
-        &binding, [](CompanyOdOutput& out, const DetectionOutputValue& value,
+        });
+    SetServiceTypeMember(&binding, &CompanyOperatorOutput::service_type);
+    SetOutputValue<CompanyOperatorOutput, JsonOutputValue>(
+        &binding, [](CompanyOperatorOutput& out, const JsonOutputValue& value,
                      const ResolvedOutputPoolSpec& spec) {
-          {
-            auto status = WriteString(out.result_json, value.result_json,
-                                      "result_json", spec);
-            if (!status.IsOk()) return status;
-          }
-          out.detected_box_count = value.detected_box_count;
+          auto status = WriteString(out.result_json, value.result_json,
+                                    "result_json", spec);
+          if (!status.IsOk()) return status;
           out.status_code = value.status_code;
           return AdapterStatus::Ok();
         });
-    binding.services = {{"ocr_invoice_qa", kMockServiceOcrInvoiceQa}};
+    binding.services = {{"keyword_match", kMockServiceKeywordMatch},
+                        {"entity_extract", kMockServiceEntityExtract},
+                        {"doc_qa", kMockServiceDocQa},
+                        {"dialogue_audit", kMockServiceDialogueAudit},
+                        {"ocr_invoice_qa", kMockServiceOcrInvoiceQa},
+                        {"audio_asr_intent", kMockServiceAudioAsrIntent},
+                        {"cross_rerank", kMockServiceCrossRerank},
+                        {"translate", kMockServiceTranslate}};
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 6. keyword_in -> CompanyOperatorKeywordInput
+  // keyword_in -> CompanyOperatorKeywordInput
   {
     auto binding = MakeTypedInputBinding<CompanyOperatorKeywordInput>(
         "keyword_in",
@@ -155,38 +158,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 7. keyword_out -> CompanyOperatorKeywordOutput
-  {
-    auto binding = MakePooledOutputBinding<CompanyOperatorKeywordOutput>(
-        "keyword_out",
-        {{"match_result_json",
-          &CompanyOperatorKeywordOutput::match_result_json,
-          {65536}}},
-        [](CompanyOperatorKeywordOutput& out) noexcept {
-          out.service_type = 0;
-          out.is_hit = 0;
-          out.status_code = 0;
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorKeywordOutput::service_type);
-    SetOutputValue<CompanyOperatorKeywordOutput, KeywordOutputValue>(
-        &binding,
-        [](CompanyOperatorKeywordOutput& out, const KeywordOutputValue& value,
-           const ResolvedOutputPoolSpec& spec) {
-          {
-            auto status =
-                WriteString(out.match_result_json, value.match_result_json,
-                            "match_result_json", spec);
-            if (!status.IsOk()) return status;
-          }
-          out.is_hit = value.is_hit;
-          out.status_code = value.status_code;
-          return AdapterStatus::Ok();
-        });
-    binding.services = {{"keyword_match", kMockServiceKeywordMatch}};
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // 8. entity_in -> CompanyOperatorEntityInput
+  // entity_in -> CompanyOperatorEntityInput
   {
     auto binding = MakeTypedInputBinding<CompanyOperatorEntityInput>(
         "entity_in",
@@ -205,36 +177,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 9. entity_out -> CompanyOperatorEntityOutput
-  {
-    auto binding = MakePooledOutputBinding<CompanyOperatorEntityOutput>(
-        "entity_out",
-        {{"entities_json",
-          &CompanyOperatorEntityOutput::entities_json,
-          {65536}}},
-        [](CompanyOperatorEntityOutput& out) noexcept {
-          out.service_type = 0;
-          out.status_code = 0;
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorEntityOutput::service_type);
-    SetOutputValue<CompanyOperatorEntityOutput, EntityOutputValue>(
-        &binding,
-        [](CompanyOperatorEntityOutput& out, const EntityOutputValue& value,
-           const ResolvedOutputPoolSpec& spec) {
-          {
-            auto status = WriteString(out.entities_json, value.entities_json,
-                                      "entities_json", spec);
-            if (!status.IsOk()) return status;
-          }
-          out.status_code = value.status_code;
-          return AdapterStatus::Ok();
-        });
-    binding.services = {{"entity_extract", kMockServiceEntityExtract},
-                        {"translate", kMockServiceTranslate}};
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // 10. doc_in -> CompanyOperatorDocInput
+  // doc_in -> CompanyOperatorDocInput
   {
     auto binding = MakeTypedInputBinding<CompanyOperatorDocInput>(
         "doc_in",
@@ -260,43 +203,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 11. doc_out -> CompanyOperatorDocOutput
-  {
-    auto binding = MakePooledOutputBinding<CompanyOperatorDocOutput>(
-        "doc_out",
-        {{"intent_name", &CompanyOperatorDocOutput::intent_name, {255}},
-         {"answer_text", &CompanyOperatorDocOutput::answer_text, {65536}}},
-        [](CompanyOperatorDocOutput& out) noexcept {
-          out.service_type = 0;
-          out.confidence = 0.0f;
-          out.chunk_count = 0;
-          out.status_code = 0;
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorDocOutput::service_type);
-    SetOutputValue<CompanyOperatorDocOutput, DocumentOutputValue>(
-        &binding,
-        [](CompanyOperatorDocOutput& out, const DocumentOutputValue& value,
-           const ResolvedOutputPoolSpec& spec) {
-          {
-            auto status = WriteString(out.intent_name, value.intent_name,
-                                      "intent_name", spec);
-            if (!status.IsOk()) return status;
-          }
-          {
-            auto status = WriteString(out.answer_text, value.answer_text,
-                                      "answer_text", spec);
-            if (!status.IsOk()) return status;
-          }
-          out.confidence = value.confidence;
-          out.chunk_count = value.chunk_count;
-          out.status_code = value.status_code;
-          return AdapterStatus::Ok();
-        });
-    binding.services = {{"doc_qa", kMockServiceDocQa}};
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // 12. audit_in -> CompanyOperatorAuditInput
+  // audit_in -> CompanyOperatorAuditInput
   {
     auto binding = MakeTypedInputBinding<CompanyOperatorAuditInput>(
         "audit_in",
@@ -323,53 +230,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 13. audit_out -> CompanyOperatorAuditOutput
-  {
-    auto binding = MakePooledOutputBinding<CompanyOperatorAuditOutput>(
-        "audit_out",
-        {{"risk_level", &CompanyOperatorAuditOutput::risk_level, {255}},
-         {"matched_policy_clause",
-          &CompanyOperatorAuditOutput::matched_policy_clause,
-          {4096}},
-         {"audit_verdict_json",
-          &CompanyOperatorAuditOutput::audit_verdict_json,
-          {65536}}},
-        [](CompanyOperatorAuditOutput& out) noexcept {
-          out.service_type = 0;
-          out.risk_score = 0.0f;
-          out.status_code = 0;
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorAuditOutput::service_type);
-    SetOutputValue<CompanyOperatorAuditOutput, AuditOutputValue>(
-        &binding,
-        [](CompanyOperatorAuditOutput& out, const AuditOutputValue& value,
-           const ResolvedOutputPoolSpec& spec) {
-          {
-            auto status = WriteString(out.risk_level, value.risk_level,
-                                      "risk_level", spec);
-            if (!status.IsOk()) return status;
-          }
-          {
-            auto status = WriteString(out.matched_policy_clause,
-                                      value.matched_policy_clause,
-                                      "matched_policy_clause", spec);
-            if (!status.IsOk()) return status;
-          }
-          {
-            auto status =
-                WriteString(out.audit_verdict_json, value.audit_verdict_json,
-                            "audit_verdict_json", spec);
-            if (!status.IsOk()) return status;
-          }
-          out.risk_score = value.risk_score;
-          out.status_code = value.status_code;
-          return AdapterStatus::Ok();
-        });
-    binding.services = {{"dialogue_audit", kMockServiceDialogueAudit}};
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // 14. audio_in -> CompanyOperatorAudioInput
+  // audio_in -> CompanyOperatorAudioInput
   {
     auto binding = MakeTypedInputBinding<CompanyOperatorAudioInput>(
         "audio_in",
@@ -414,45 +275,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
     registry.RegisterBinding(std::move(binding));
   }
 
-  // 15. audio_out -> CompanyOperatorAudioOutput
-  {
-    auto binding = MakePooledOutputBinding<CompanyOperatorAudioOutput>(
-        "audio_out",
-        {{"transcribed_text",
-          &CompanyOperatorAudioOutput::transcribed_text,
-          {16384}},
-         {"intent_slot_json",
-          &CompanyOperatorAudioOutput::intent_slot_json,
-          {65536}}},
-        [](CompanyOperatorAudioOutput& out) noexcept {
-          out.service_type = 0;
-          out.status_code = 0;
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorAudioOutput::service_type);
-    SetOutputValue<CompanyOperatorAudioOutput, AudioOutputValue>(
-        &binding,
-        [](CompanyOperatorAudioOutput& out, const AudioOutputValue& value,
-           const ResolvedOutputPoolSpec& spec) {
-          {
-            auto status =
-                WriteString(out.transcribed_text, value.transcribed_text,
-                            "transcribed_text", spec);
-            if (!status.IsOk()) return status;
-          }
-          {
-            auto status =
-                WriteString(out.intent_slot_json, value.intent_slot_json,
-                            "intent_slot_json", spec);
-            if (!status.IsOk()) return status;
-          }
-          out.status_code = value.status_code;
-          return AdapterStatus::Ok();
-        });
-    binding.services = {{"audio_asr_intent", kMockServiceAudioAsrIntent}};
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // 16. rerank_in -> CompanyOperatorRerankInput
+  // rerank_in -> CompanyOperatorRerankInput
   {
     auto binding = MakeTypedInputBinding<CompanyOperatorRerankInput>(
         "rerank_in",
@@ -493,43 +316,6 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
             value.candidate_passages.push_back(
                 ReadString(in.candidate_passages[i]));
           return value;
-        });
-    binding.services = {{"cross_rerank", kMockServiceCrossRerank}};
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // 17. rerank_out -> CompanyOperatorRerankOutput
-  {
-    auto binding = MakePooledOutputBinding<CompanyOperatorRerankOutput>(
-        "rerank_out", {}, [](CompanyOperatorRerankOutput& out) noexcept {
-          out.service_type = 0;
-          out.count = 0;
-          out.status_code = 0;
-          for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
-            out.scores[i] = 0.0f;
-            out.sorted_indices[i] = -1;
-          }
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorRerankOutput::service_type);
-    SetOutputValue<CompanyOperatorRerankOutput, RerankOutputValue>(
-        &binding,
-        [](CompanyOperatorRerankOutput& out, const RerankOutputValue& value,
-           const ResolvedOutputPoolSpec&) {
-          out.status_code = value.status_code;
-          if (value.items.size() > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES)
-            return AdapterStatus::BufferTooSmall(
-                "Ranked result exceeds platform capacity", "items");
-          out.count = static_cast<int32_t>(value.items.size());
-          for (size_t i = 0; i < value.items.size(); ++i) {
-            if (value.items[i].original_index < 0 ||
-                value.items[i].original_index >=
-                    COMPANY_OPERATOR_MAX_RERANK_CANDIDATES)
-              return AdapterStatus::InvalidInput("Invalid ranked result index",
-                                                 "items");
-            out.scores[i] = value.items[i].score;
-            out.sorted_indices[i] = value.items[i].original_index;
-          }
-          return AdapterStatus::Ok();
         });
     binding.services = {{"cross_rerank", kMockServiceCrossRerank}};
     registry.RegisterBinding(std::move(binding));
