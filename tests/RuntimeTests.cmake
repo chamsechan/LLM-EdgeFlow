@@ -341,7 +341,7 @@ foreach(_authoring_case invalid_default duplicate_member factory_exception)
 endforeach()
 
 edgeflow_add_runner_test(ModelBackendRegistryConflictTest
-  test_model_backend_registry_conflict "ModelBackendRegistryConflictTest.*"
+  test_model_backend_registry_conflict "ModelExecutionRegistryTest.*"
   "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
