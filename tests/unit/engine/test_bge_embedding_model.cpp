@@ -1,10 +1,5 @@
 #include <gtest/gtest.h>
-#include <unistd.h>
 
-#include <algorithm>
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -12,90 +7,29 @@
 
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "tests/support/model_probe.h"
+#include "tests/support/tensor_graph_probe.h"
 
 namespace llm_edgeflow {
 namespace {
 
-class EmbeddingGraph final : public ITensorGraphSession {
- public:
-  const std::string& BackendType() const noexcept override { return backend; }
-  ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kTensorGraph;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kSerialized;
-  }
-  BatchPolicy GetBatchPolicy() const noexcept override { return policy; }
-  const std::vector<TensorSpec>& Inputs() const noexcept override {
-    return inputs;
-  }
-  const std::vector<TensorSpec>& Outputs() const noexcept override {
-    return outputs;
-  }
-  int Run(const TensorMap& input, TensorMap* output,
-          std::string* diagnostic) noexcept override {
-    ++calls;
-    observed = input;
-    *output = response;
-    *diagnostic = reason;
-    return code;
-  }
+using test_support::Encoded;
+using test_support::FloatOutput;
 
-  const std::string backend = "neutral_embedding_graph";
-  BatchPolicy policy{1, 0};
-  std::vector<TensorSpec> inputs{
-      {"input_ids", ElementType::kInt64, {-1, 4}},
-      {"attention_mask", ElementType::kInt64, {-1, 4}}};
-  std::vector<TensorSpec> outputs{
-      {"last_hidden_state", ElementType::kFloat32, {-1, 4, 2}}};
-  TensorMap observed;
-  TensorMap response;
-  int calls = 0;
-  int code = 0;
-  std::string reason;
+class EmbeddingGraph final : public test_support::TensorGraphProbe {
+ public:
+  EmbeddingGraph() : TensorGraphProbe("neutral_embedding_graph") {
+    policy = {1, 0};
+    inputs = {{"input_ids", ElementType::kInt64, {-1, 4}},
+              {"attention_mask", ElementType::kInt64, {-1, 4}}};
+    outputs = {{"last_hidden_state", ElementType::kFloat32, {-1, 4, 2}}};
+  }
 };
 
-Tensor FloatOutput(std::vector<int64_t> shape,
-                   const std::vector<float>& values) {
-  Tensor tensor;
-  EXPECT_TRUE(
-      CreateHostTensor({ElementType::kFloat32, std::move(shape)}, &tensor));
-  float* data = GetMutableTensorData<float>(&tensor);
-  EXPECT_NE(data, nullptr);
-  if (data) std::copy(values.begin(), values.end(), data);
-  return tensor;
-}
-
-std::vector<int64_t> Encoded(const TensorMap& tensors, const std::string& name,
-                             size_t count) {
-  const auto found = tensors.find(name);
-  EXPECT_NE(found, tensors.end());
-  if (found == tensors.end()) return {};
-  const auto* data = GetTensorData<int64_t>(found->second);
-  EXPECT_NE(data, nullptr);
-  return data ? std::vector<int64_t>(data, data + count)
-              : std::vector<int64_t>{};
-}
-
-class BgeEmbeddingModelTest : public ::testing::Test {
+class BgeEmbeddingModelTest : public test_support::WordPieceVocabularyTest {
  protected:
-  void SetUp() override {
-    char path[] = "/tmp/edgeflow-embedding-vocab-XXXXXX";
-    const int fd = mkstemp(path);
-    ASSERT_GE(fd, 0);
-    close(fd);
-    vocab = path;
-    std::ofstream file(vocab);
-    file << "[PAD]\n[UNK]\n[CLS]\n[SEP]\nhello\nworld\n##s\n";
-    ASSERT_TRUE(file.good());
-  }
-  void TearDown() override {
-    if (!vocab.empty()) std::remove(vocab.c_str());
-  }
   nlohmann::json Parameters() const {
     return {{"tokenizer_file", vocab}, {"normalize", false}};
   }
-  std::string vocab;
 };
 
 TEST_F(BgeEmbeddingModelTest, WordPieceMaskAndPoolingHaveLiteralResults) {
