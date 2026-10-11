@@ -206,7 +206,8 @@ add_test(NAME LayerGuardTest
           "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
           ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
 add_test(NAME LayerGuardSelfTest
-  COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh --self-test)
+  COMMAND ${Python3_EXECUTABLE}
+          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_layer_guard_contract.py)
 add_test(NAME SpecSignatureDiagnosticsTest
   COMMAND ${CMAKE_COMMAND}
           "-DLAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
