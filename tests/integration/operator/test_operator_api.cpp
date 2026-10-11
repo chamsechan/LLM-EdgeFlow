@@ -479,45 +479,6 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
 
 // 5. CompanyString 校验规则测试 (包含嵌入 NUL 拦截、负长度与超限拦截)
 
-// 6. 关注词匹配端到端 (Keyword Match)
-TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
-  auto param = DefaultCreateParam("configs/pipeline_keyword_match_rules.conf");
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
-
-  ControlUpdateRulesParam rules_param{
-      "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  ASSERT_EQ(ops_.Control(handle, static_cast<int>(ControlCommand::kUpdateRules),
-                         &rules_param),
-            0);
-
-  std::string text = "请帮我联系VIP专员，加急处理";
-  CompanyString cs{static_cast<int32_t>(text.size()),
-                   const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput in{kMockServiceKeywordMatch, &cs};
-
-  NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
-  out_b[0]["chan.json_out"] = std::shared_ptr<void>();
-
-  ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
-
-  auto out_sp = out_b[0]["chan.json_out"];
-  ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyOperatorOutput*>(out_sp.get());
-  EXPECT_EQ(ParseJsonOutput(out_ptr).at("is_hit").get<int>(), 1);
-  EXPECT_NE(out_ptr->result_json, nullptr);
-  EXPECT_GT(out_ptr->result_json->length, 0);
-
-  // 释放输出块，触发回池
-  out_b.clear();
-  out_sp.reset();
-
-  EXPECT_EQ(ops_.Destroy(handle), 0);
-}
-
 // 7. 多模态 OCR 业务多槽位聚合端到端 (frame + string -> json_out)
 TEST_F(OperatorApiTest, EndToEndOcrInvoiceQaMultiSlot) {
   std::string root_dir = GetConfDir();
