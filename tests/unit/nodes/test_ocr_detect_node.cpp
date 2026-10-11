@@ -1,89 +1,99 @@
 #include <gtest/gtest.h>
 
-#include <memory>
-#include <nlohmann/json.hpp>
-#include <string>
-#include <vector>
-
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/session_context.h"
-#include "dev_support/inference/test_capability_models.h"
-#include "nodes/node_error_codes.h"
-#include "tests/support/model_registration.h"
-#include "tests/support/node_test_utils.h"
+#include "engine/model_interface.h"
+#include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
-
-class OcrDetectNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    session_ctx_ = std::make_unique<SessionContext>();
-
-    ocr_model_ = std::make_shared<test::TestOcrModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "ocr_model",
-                                  ocr_model_, "test-revision", "test_ocr_model",
-                                  "ocr", "test_tensor_backend"));
+namespace {
+class RecordingOcr final : public IOcrModel {
+ public:
+  const std::string& ImplName() const noexcept override { return impl; }
+  const std::string& ModelType() const noexcept override { return type; }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
   }
-  std::unique_ptr<SessionContext> session_ctx_;
-  std::shared_ptr<test::TestOcrModel> ocr_model_;
+  int Recognize(const ImageFrameBatch& images, OcrDocumentBatch* output,
+                std::string* diagnostic) noexcept override {
+    if (diagnostic) diagnostic->clear();
+    calls.push_back(images);
+    output->clear();
+    if (fail) {
+      if (diagnostic) *diagnostic = "image recognition failed";
+      return -17;
+    }
+    *output = response;
+    return 0;
+  }
+  std::string impl = "node_recording_ocr", type = "ocr";
+  bool fail = false;
+  OcrDocumentBatch response;
+  std::vector<ImageFrameBatch> calls;
 };
 
-TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
-  auto node = NodeRegistry::Instance().Create("ocr_detect");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "ocr_model"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  ImageFrameBatch images;
-  images.emplace_back(1, 0, ImageFrame{2, 1, 6, {255, 0, 0, 0, 255, 0}});
-  ctx.Publish("images", images);
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out_doc = ctx.Read<OcrDocumentBatch>("document");
-  const auto* out_text = ctx.Read<TextBatch>("text");
-  ASSERT_NE(out_doc, nullptr);
-  ASSERT_NE(out_text, nullptr);
-  ASSERT_EQ(out_doc->size(), 1u);
-  ASSERT_EQ((*out_doc)[0].data.boxes.size(), 1u);
-  EXPECT_EQ((*out_doc)[0].data.combined_text, "recognized:2");
-  EXPECT_EQ((*out_text)[0].data, "recognized:2");
+TEST(OcrDetectNodeTest,
+     PublishesWholeDocumentsAndTheirCombinedTextFromTheSameCall) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingOcr>();
+  model->response = {
+      {9, 4,
+       OcrDocumentItem{{{1, 2, 3, 4, "A", 0.9f}, {5, 6, 7, 8, "猫", 0.8f}},
+                       "A\n猫"}},
+      {2, 7, OcrDocumentItem{{}, "empty boxes"}}};
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "vision", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init("ocr_detect", {{"bind_model", "vision"}}, session,
+                        {{"images", "images", ""}},
+                        {{"document", "docs", ""}, {"text", "text", ""}}));
+  AlgContext context;
+  const ImageFrame frame{1, 1, 3, {10, 20, 30}};
+  ASSERT_TRUE(
+      context.Publish("images", ImageFrameBatch{{9, 4, frame}, {2, 7, frame}}));
+  ASSERT_EQ(node.node->Process(&context), 0);
+  ASSERT_EQ(model->calls.size(), 1u);
+  EXPECT_EQ(model->calls[0][0].data.data, (std::vector<uint8_t>{10, 20, 30}));
+  EXPECT_EQ(model->calls[0][1].req_id, 2u);
+  const auto* docs = context.Read<OcrDocumentBatch>("docs");
+  const auto* text = context.Read<TextBatch>("text");
+  ASSERT_NE(docs, nullptr);
+  ASSERT_NE(text, nullptr);
+  ASSERT_EQ(docs->size(), 2u);
+  ASSERT_EQ(text->size(), 2u);
+  ASSERT_EQ((*docs)[0].data.boxes.size(), 2u);
+  const auto& box = (*docs)[0].data.boxes[1];
+  EXPECT_FLOAT_EQ(box.x, 5);
+  EXPECT_FLOAT_EQ(box.y, 6);
+  EXPECT_FLOAT_EQ(box.width, 7);
+  EXPECT_FLOAT_EQ(box.height, 8);
+  EXPECT_EQ(box.text, "猫");
+  EXPECT_FLOAT_EQ(box.confidence, 0.8f);
+  EXPECT_EQ((*docs)[0].data.combined_text, "A\n猫");
+  EXPECT_EQ((*text)[0].data, "A\n猫");
+  EXPECT_EQ((*text)[0].req_id, 9u);
+  EXPECT_EQ((*text)[0].sub_id, 4u);
+  EXPECT_EQ((*text)[1].data, "empty boxes");
+  EXPECT_TRUE((*docs)[1].data.boxes.empty());
 }
 
-TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("ocr_detect");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
-                              session_ctx_.get()));
-
-  AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
+TEST(OcrDetectNodeTest,
+     RecognitionFailurePublishesNeitherDocumentNorDerivedText) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingOcr>();
+  model->fail = true;
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "vision", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init("ocr_detect", {{"bind_model", "vision"}}, session,
+                        {{"images", "images", ""}},
+                        {{"document", "docs", ""}, {"text", "text", ""}}));
+  AlgContext context;
+  ASSERT_TRUE(context.Publish(
+      "images", ImageFrameBatch{{1, 3, ImageFrame{1, 1, 3, {1, 2, 3}}}}));
+  EXPECT_EQ(node.node->Process(&context), -17);
+  EXPECT_FALSE(context.Has("docs"));
+  EXPECT_FALSE(context.Has("text"));
+  EXPECT_NE(context.GetErrorMessage().find("image recognition failed"),
+            std::string::npos);
 }
-
-TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("ocr_detect");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model"}},
-                              session_ctx_.get()));
-
-  ImageFrameBatch images;
-  images.emplace_back(7, 2, ImageFrame{1, 1, 3, {255, 0, 0}});
-
-  AlgContext count_ctx;
-  count_ctx.Publish("images", images);
-  ocr_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&count_ctx),
-            node_error::author_node::kOutputCountMismatch);
-
-  ocr_model_->return_wrong_count_ = false;
-  ocr_model_->corrupt_provenance_ = true;
-  AlgContext provenance_ctx;
-  provenance_ctx.Publish("images", images);
-  EXPECT_EQ(node->Process(&provenance_ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
-}
-
+}  // namespace
 }  // namespace llm_edgeflow
