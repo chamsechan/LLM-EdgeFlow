@@ -1,0 +1,20 @@
+# CMake's GoogleTest module adds an output-based skip regex, even when main
+# rejects a required skip. Remove that property while interpreting its generated
+# CTest entries. Explicit return code 77 remains the only optional skip signal.
+function(set_tests_properties)
+  set(forwarded)
+  set(drop_value OFF)
+  math(EXPR last "${ARGC} - 1")
+  foreach(index RANGE 0 ${last})
+    set(argument "${ARGV${index}}")
+    if(drop_value)
+      set(drop_value OFF)
+    elseif(argument STREQUAL "SKIP_REGULAR_EXPRESSION")
+      set(drop_value ON)
+    else()
+      string(REPLACE ";" "\\;" argument "${argument}")
+      list(APPEND forwarded "${argument}")
+    endif()
+  endforeach()
+  _set_tests_properties(${forwarded})
+endfunction()

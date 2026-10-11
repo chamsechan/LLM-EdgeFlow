@@ -112,8 +112,10 @@ TEST(LlamaCppBackendTest,
 TEST(LlamaCppBackendTest,
      SuppliedGgufProducesSeededOwnedTextThroughNeutralSession) {
   const char* file = std::getenv("EDGEFLOW_TEST_LLAMA_GGUF");
-  if (!file || !*file)
+  if (!file || !*file) {
+    RecordProperty("optional_runtime_asset", "EDGEFLOW_TEST_LLAMA_GGUF");
     GTEST_SKIP() << "EDGEFLOW_TEST_LLAMA_GGUF is not supplied";
+  }
   std::string diagnostic;
   auto provider = BackendRegistry::Instance().Create("llama_cpp");
   ASSERT_NE(provider, nullptr);

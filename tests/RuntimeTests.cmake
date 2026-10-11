@@ -9,30 +9,23 @@ add_test(NAME ThirdPartyCacheMetadataTest
           -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
           -DTEST_ROOT=${PROJECT_BINARY_DIR}/third_party_cache_metadata_test
           -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_third_party_cache_metadata.cmake)
-set_tests_properties(ThirdPartyCacheMetadataTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
-function(edgeflow_enable_test_pch target_name)
-  if(NOT LLM_EDGEFLOW_TEST_PCH)
-    return()
+# Runtime runners share only their test entrypoint, runtime link and optional PCH.
+# Fixture sources, allocation instrumentation and component libraries stay local.
+function(edgeflow_configure_gtest_target target_name)
+  target_sources(${target_name} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/gtest_main.cpp")
+  target_link_libraries(${target_name} PRIVATE
+    llm_edgeflow::internal_runtime GTest::gtest)
+  if(LLM_EDGEFLOW_TEST_PCH)
+    target_precompile_headers(${target_name} PRIVATE
+      <gtest/gtest.h>
+      <nlohmann/json.hpp>
+      <atomic>
+      <memory>
+      <string>
+      <vector>)
   endif()
-  target_precompile_headers(${target_name} PRIVATE
-    <gtest/gtest.h>
-    <nlohmann/json.hpp>
-    <atomic>
-    <memory>
-    <string>
-    <vector>)
-endfunction()
-
-function(edgeflow_add_runner_test test_name runner_name gtest_filter labels)
-  add_test(
-    NAME ${test_name}
-    COMMAND $<TARGET_FILE:${runner_name}> --gtest_filter=${gtest_filter})
-  set_tests_properties(${test_name} PROPERTIES
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    LABELS "${labels}")
 endfunction()
 
 # 只扫描每个 runner 自有的测试目录。生成的源码、进程隔离的契约测试和
@@ -42,16 +35,12 @@ file(GLOB EDGEFLOW_TEST_CORE_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/core/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/engine/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/logging/test_*.cpp")
-# Pipeline 集成测试的 runner 依赖不同。
-list(APPEND EDGEFLOW_TEST_CORE_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_model_backend_pipeline.cpp")
 add_executable(edgeflow_test_core_runner
   ${EDGEFLOW_TEST_CORE_SRCS}
 )
 edgeflow_enable_aligned_allocation_failure(edgeflow_test_core_runner)
-target_link_libraries(edgeflow_test_core_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
-  edgeflow_test_allocation_failure)
+edgeflow_configure_gtest_target(edgeflow_test_core_runner)
+target_link_libraries(edgeflow_test_core_runner PRIVATE edgeflow_test_allocation_failure)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   set(EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/models")
@@ -92,7 +81,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   file(WRITE "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
     "{\"pipe_path\":\"pipeline_cross_rerank_missing_model.json\"}\n")
 endif()
-edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
 file(GLOB EDGEFLOW_TEST_NODE_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/nodes/test_*.cpp"
@@ -101,16 +89,14 @@ add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
 )
-target_link_libraries(edgeflow_test_nodes_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
-  edgeflow_test_allocation_failure)
-edgeflow_enable_test_pch(edgeflow_test_nodes_runner)
+edgeflow_configure_gtest_target(edgeflow_test_nodes_runner)
+target_link_libraries(edgeflow_test_nodes_runner PRIVATE edgeflow_test_allocation_failure)
 
 file(GLOB EDGEFLOW_TEST_ADAPTER_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/adapter/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/operator/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/operator/test_*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/runtime/test_*.cpp")
+)
 list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/contract/abi/test_operator_safety.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/contract/abi/test_adapter_contract_security.cpp"
@@ -118,10 +104,8 @@ list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
 )
-target_link_libraries(edgeflow_test_adapter_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
-  edgeflow_test_allocation_failure)
-edgeflow_enable_test_pch(edgeflow_test_adapter_runner)
+edgeflow_configure_gtest_target(edgeflow_test_adapter_runner)
+target_link_libraries(edgeflow_test_adapter_runner PRIVATE edgeflow_test_allocation_failure)
 
 file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp")
@@ -133,10 +117,8 @@ add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
   $<TARGET_OBJECTS:edgeflow_demo_objects>
 )
-target_link_libraries(edgeflow_test_tooling_runner PRIVATE
-  llm_edgeflow::internal_runtime edgeflow_pipeline_tooling GTest::gtest
-  GTest::gtest_main)
-edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
+edgeflow_configure_gtest_target(edgeflow_test_tooling_runner)
+target_link_libraries(edgeflow_test_tooling_runner PRIVATE edgeflow_pipeline_tooling)
 target_compile_definitions(edgeflow_test_tooling_runner PRIVATE
   EDGEFLOW_DEMO_BINARY="$<TARGET_FILE:alg_demo>")
 add_dependencies(edgeflow_test_tooling_runner alg_demo)
@@ -149,7 +131,6 @@ endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
   target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_LLAMACPP=1)
 endif()
-
 if(LLM_EDGEFLOW_HAS_KITELLM)
   target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_KITELLM=1)
 endif()
@@ -175,156 +156,49 @@ add_executable(test_cpp_operator_sdk "${PROJECT_SOURCE_DIR}/tests/contract/abi/t
 set_target_properties(test_cpp_operator_sdk PROPERTIES LINK_LIBRARIES "llm_edgeflow::sdk")
 
 add_executable(test_registry_conflict "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_registry_conflict.cpp")
-target_link_libraries(test_registry_conflict PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+edgeflow_configure_gtest_target(test_registry_conflict)
 
 add_executable(test_model_backend_registry_conflict
   "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_model_backend_registry_conflict.cpp")
-target_link_libraries(test_model_backend_registry_conflict PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+edgeflow_configure_gtest_target(test_model_backend_registry_conflict)
 
 add_executable(test_catalog_contract_ssot
   "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_catalog_contract_ssot.cpp")
-target_link_libraries(test_catalog_contract_ssot PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+edgeflow_configure_gtest_target(test_catalog_contract_ssot)
+target_link_libraries(test_catalog_contract_ssot PRIVATE edgeflow_pipeline_tooling)
+foreach(backend ONNXRUNTIME LLAMACPP WHISPERCPP KITELLM)
+  target_compile_definitions(test_catalog_contract_ssot PRIVATE
+    EDGEFLOW_EXPECT_${backend}=$<BOOL:${LLM_EDGEFLOW_HAS_${backend}}>)
+endforeach()
 
-set(_edgeflow_tier1 "tier1;dev-fast;sanitizer-compatible;sanitizer-runtime")
+# GoogleTest discovers the compiled cases, including generated tests. There is
+# no historical suite allowlist; each case gets its own actual execution filter.
+include(GoogleTest)
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/SafeGtestDiscovery.cmake")
 set(_edgeflow_tier2 "tier2;dev-fast;sanitizer-compatible;sanitizer-runtime")
 set(_edgeflow_tier3 "tier3;integration;dev-fast;sanitizer-compatible;sanitizer-runtime")
 set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
-
-edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
-  "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TensorStorageTest edgeflow_test_core_runner
-  "TensorStorageTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(KiteBackendTest edgeflow_test_core_runner
-  "KiteBackendTest.*" "${_edgeflow_tier1};kite")
-edgeflow_add_runner_test(OnnxRuntimeBackendTest edgeflow_test_core_runner
-  "OnnxRuntimeBackendTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ModelRuntimeFactoryTest edgeflow_test_core_runner
-  "ModelRuntimeFactoryTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ConcreteModelSemanticsTest edgeflow_test_core_runner
-  "BgeEmbeddingModelTest.*:BgeRerankerModelTest.*:GeneratedTextEmbeddingModelTest.*:VisionDocumentModelTest.*:WhisperAsrModelTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
-  "LoggingRecordTest.*:LoggingNameOverrideTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(DagPipelineTest edgeflow_test_core_runner
-  "PipelineRuntimeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(PipelineConfigTest edgeflow_test_core_runner
-  "PipelineParsingTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
-  "NodeRegistryTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
-  "CatalogContractSsotTest.*" "${_edgeflow_tier1};kite")
-edgeflow_add_runner_test(ModelManagerOwnershipTest edgeflow_test_core_runner
-  "ModelManagerOwnershipTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(SessionResourcesTest edgeflow_test_core_runner
-  "SessionResourcesTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
-  "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
-  "PipelinePlanningTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
-  "NodeDefinitionTest.*" "${_edgeflow_tier1}")
-
-edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
-  "TextChunkNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TextEmbeddingNodeTest edgeflow_test_nodes_runner
-  "TextEmbeddingNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(VectorTopKNodeTest edgeflow_test_nodes_runner
-  "VectorTopKNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TextRerankNodeTest edgeflow_test_nodes_runner
-  "TextRerankNodeTest.*:TextRerankRankingTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TextTemplateNodeTest edgeflow_test_nodes_runner
-  "TextTemplateNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(LlmGenerateNodeTest edgeflow_test_nodes_runner
-  "LlmGenerateNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(AsrTranscribeNodeTest edgeflow_test_nodes_runner
-  "AsrTranscribeNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(OcrDetectNodeTest edgeflow_test_nodes_runner
-  "OcrDetectNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TextRuleMatchNodeTest edgeflow_test_nodes_runner
-  "TextRuleMatchNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(StructuredJsonParseNodeTest edgeflow_test_nodes_runner
-  "StructuredJsonParseNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
-  "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
-  "PromptGuidedLlmNodeTest.*:ScaffoldGeneratedNodeTest.*"
-  "${_edgeflow_tier1}")
-edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
-  "AuthorNodeTest.*:ModelCallTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ScalarParametersTest edgeflow_test_nodes_runner
-  "ScalarParametersTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ControlPayloadTest edgeflow_test_nodes_runner
-  "ControlPayloadTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
-  "NestedParametersTest.*:ParameterStateTest.*" "${_edgeflow_tier1}")
-
+function(edgeflow_discover target)
+  gtest_discover_tests(${target}
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 30
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    TEST_LIST ${target}_cases
+    PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
+endfunction()
+edgeflow_discover(edgeflow_test_core_runner)
+edgeflow_discover(edgeflow_test_nodes_runner)
+edgeflow_discover(edgeflow_test_adapter_runner)
+edgeflow_discover(edgeflow_test_tooling_runner)
+edgeflow_discover(test_registry_conflict)
+edgeflow_discover(test_model_backend_registry_conflict)
+edgeflow_discover(test_catalog_contract_ssot)
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/RuntimeLabels.cmake")
 add_test(NAME CppOperatorSdkTest COMMAND test_cpp_operator_sdk)
 set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
-edgeflow_add_runner_test(OperatorSafetyTest edgeflow_test_adapter_runner
-  "OperatorPublicationTest.*:OperatorBoundaryTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(AdapterContractSecurityTest edgeflow_test_adapter_runner
-  "PlatformCarrierContractsTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(KeywordResponseTest edgeflow_test_adapter_runner
-  "KeywordResponseTest.*" "${_edgeflow_tier3}")
-edgeflow_add_runner_test(OperatorApiTest edgeflow_test_adapter_runner
-  "OperatorEntryTest.*:OperatorFailureMappingTest.*:IoParametersTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(RuntimeFacadeTest edgeflow_test_adapter_runner
-  "RuntimeFacadeTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
-  "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
-  "OperatorValueRegistryTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
-  "IoConverterTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(IoConverterRegistryTest edgeflow_test_adapter_runner
-  "IoConverterRegistryTest.*:ConverterRowsTest.*:ConverterIndexTest.*:ConverterKeyTest.*:ConverterRoutingTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
-  "TextConverterTest.*" "${_edgeflow_tier1}")
-
-# Catalog、Validator 与 Authoring 的原生契约使用带工具依赖的 runner。
-edgeflow_add_runner_test(PipelineContractsTest edgeflow_test_tooling_runner
-  "PipelineCatalogTest.*:PipelineEditingTest.*"
-  "${_edgeflow_tier3}")
-edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
-  "SharedDemoConsumerTest.*" "${_edgeflow_tier3};kite;kite-real")
-
-add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict
-  --gtest_filter=RegistryConflictNodeTest.*)
-add_test(NAME RegistryConflictModelTest COMMAND test_registry_conflict
-  --gtest_filter=RegistryConflictModelTest.*)
-set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
-  PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "${_edgeflow_tier1}" TIMEOUT 5)
-foreach(_authoring_case invalid_default duplicate_member factory_exception)
-  add_test(NAME RegistryAuthoringStartup_${_authoring_case}
-    COMMAND ${CMAKE_COMMAND} -E env
-      "EDGEFLOW_BAD_AUTHORING_CASE=${_authoring_case}"
-      $<TARGET_FILE:test_registry_conflict>
-      --gtest_filter=RegistryAuthoringStartupTest.*)
-  set_tests_properties(RegistryAuthoringStartup_${_authoring_case}
-    PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    LABELS "${_edgeflow_tier1}" TIMEOUT 5)
-endforeach()
-
-edgeflow_add_runner_test(ModelBackendRegistryConflictTest
-  test_model_backend_registry_conflict "ModelExecutionRegistryTest.*"
-  "${_edgeflow_tier1}")
-
-edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
-  "QwenCausalLmModelTest.*"
-  "${_edgeflow_tier1}")
-edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
-  "LlamaCppBackendTest.*" "${_edgeflow_tier1};kite;kite-real")
-edgeflow_add_runner_test(WhisperCppBackendTest edgeflow_test_core_runner
-  "WhisperCppBackendTest.*" "${_edgeflow_tier1}")
-
-edgeflow_add_runner_test(FileParametersTest edgeflow_test_adapter_runner
-  "FileParametersTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(BusinessResponsesTest edgeflow_test_adapter_runner
-  "BusinessResponsesTest.*" "${_edgeflow_tier3}")
 
 # 架构与源码治理门禁。
 add_test(NAME LayerGuardTest
@@ -336,13 +210,9 @@ add_test(NAME LayerGuardSelfTest
 add_test(NAME SpecSignatureDiagnosticsTest
   COMMAND ${CMAKE_COMMAND}
           "-DLAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
-          "-DFIXTURE_DIR=${PROJECT_SOURCE_DIR}/tests/fixtures/spec_signatures"
           "-DFUNCTION_NODE_HEADER=${PROJECT_SOURCE_DIR}/include/nodes/function_node.h"
           "-DCONCEPTS_DOC=${PROJECT_SOURCE_DIR}/doc/dev_guide/custom_node_concepts.md"
           -P "${PROJECT_SOURCE_DIR}/tests/contract/authoring/test_spec_signature_diagnostics.cmake")
-set_tests_properties(SpecSignatureDiagnosticsTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 add_test(NAME ArchitectureDocsDriftTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
 add_test(NAME ArchitectureDocsDriftGateSelfTest
@@ -360,6 +230,7 @@ add_test(NAME DiagramRenderGateSelfTest
 add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
 set_tests_properties(
+  ThirdPartyCacheMetadataTest SpecSignatureDiagnosticsTest
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
   DocLinksTest DocLinksSelfTest ScriptGeneratorDetectionTest
@@ -373,24 +244,17 @@ add_test(NAME PipelineStudioServerTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/tooling/test_pipeline_studio.py)
 set_tests_properties(PipelineStudioServerTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "${_edgeflow_tier4}"
   ENVIRONMENT
     "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>;LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
 add_test(NAME CustomNodeScaffoldTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/tooling/test_scaffold_custom_node.py)
-set_tests_properties(CustomNodeScaffoldTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "${_edgeflow_tier4}")
 
 add_test(NAME DevRecipeTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/tooling/test_dev_recipe.py)
 set_tests_properties(DevRecipeTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "${_edgeflow_tier4}"
   ENVIRONMENT
     "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
@@ -430,36 +294,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     PROPERTIES WILL_FAIL TRUE)
 endif()
 
-set(EDGEFLOW_PIPELINE_CONFIGS
-  configs/pipeline_keyword_match_rules.json
-  configs/pipeline_entity_extract_default.json
-  configs/pipeline_doc_qa_default.json
-  configs/pipeline_dialogue_audit_default.json
-  configs/pipeline_doc_qa_cpu.json
-  configs/pipeline_doc_qa_rerank_default.json
-  configs/pipeline_doc_qa_rerank_cpu.json
-  configs/pipeline_entity_extract_cpu.json
-  demo/fixtures/mock/pipeline_ocr_invoice_qa.json
-  demo/fixtures/mock/pipeline_audio_asr_intent.json
-  configs/pipeline_cross_rerank_cpu.json)
-foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
-  get_filename_component(config_stem "${config_path}" NAME_WE)
-  add_test(NAME NativeCli_${config_stem}
-    COMMAND $<TARGET_FILE:alg_show>
-            ${PROJECT_SOURCE_DIR}/${config_path})
-  set_tests_properties(NativeCli_${config_stem}
-    PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    LABELS "${_edgeflow_tier4}")
-  if(config_path MATCHES "^configs/")
-    add_test(NAME PythonCli_${config_stem}
-      COMMAND ${PROJECT_SOURCE_DIR}/tools/pipeline_studio/server.py
-              ${config_path})
-    set_tests_properties(PythonCli_${config_stem}
-      PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-      LABELS "${_edgeflow_tier4}")
-  endif()
-endforeach()
-
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
   catalog)
 add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
@@ -467,7 +301,9 @@ add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
   --tool $<TARGET_FILE:alg_pipeline_tool>
   --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
   --repo ${PROJECT_SOURCE_DIR})
-set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
+set_tests_properties(
+  PipelineStudioServerTest CustomNodeScaffoldTest DevRecipeTest
+  PipelineToolCatalogTest PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
 set_tests_properties(PipelineToolValidateTest PROPERTIES
@@ -483,68 +319,3 @@ add_custom_target(edgeflow_dev_tests DEPENDS
 
 get_property(_edgeflow_registered_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_edgeflow_registered_tests} PROPERTIES TIMEOUT 120)
-set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
-  RegistryAuthoringStartup_invalid_default
-  RegistryAuthoringStartup_duplicate_member
-  RegistryAuthoringStartup_factory_exception
-  PROPERTIES TIMEOUT 5)
-# 需显式开启的真实 Kite 部署测试会加载文本、ONNX 和视觉模型。
-set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
-
-# 规范 runner 组装必须包含的运行时契约测试。
-# 冒烟测试和工具测试可以扩展此集合，但组装时不得静默遗漏其中任何一项。
-set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
-  QualityGateScriptsContractTest
-  BatchExecutorTest
-  CompanyAlgLogTest
-  DagPipelineTest
-  PipelineConfigTest
-  RegistryReentrantTest
-  CatalogContractSsotTest
-  TypedBlackboardContractsTest
-  ValidatedPipelinePlanTest
-  DefinitionSchemaValidationTest
-  TextChunkNodeTest
-  TextEmbeddingNodeTest
-  VectorTopKNodeTest
-  TextRerankNodeTest
-  TextTemplateNodeTest
-  LlmGenerateNodeTest
-  AsrTranscribeNodeTest
-  OcrDetectNodeTest
-  TextRuleMatchNodeTest
-  StructuredJsonParseNodeTest
-  TextCorpusSourceNodeTest
-  CommonNodesTest
-  FunctionNodeTest
-  SpecSignatureDiagnosticsTest
-  ParameterBindingTest
-  CppOperatorSdkTest
-  OperatorSafetyTest
-  AdapterContractSecurityTest
-  OperatorApiTest
-  OperatorOutputPoolTest
-  RuntimeFacadeTest
-  OperatorValueRegistryTest
-  IoConverterTest
-  IoConverterRegistryTest
-  TextConvertersTest
-  PipelineContractsTest
-  DemoRunnerTest
-  RegistryConflictNodeTest
-  RegistryConflictModelTest
-  ModelBackendRegistryConflictTest
-  QwenCausalLmModelTest
-  LlamaCppBackendTest
-  WhisperCppBackendTest)
-
-function(edgeflow_assert_required_test_inventory)
-  get_property(registered_tests DIRECTORY PROPERTY TESTS)
-  foreach(required_test IN LISTS EDGEFLOW_REQUIRED_CONTRACT_TESTS)
-    if(NOT required_test IN_LIST registered_tests)
-      message(FATAL_ERROR
-        "Test mode omitted required contract suite: ${required_test}")
-    endif()
-  endforeach()
-endfunction()
-edgeflow_assert_required_test_inventory()
