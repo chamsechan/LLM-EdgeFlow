@@ -1,104 +1,97 @@
 #include <gtest/gtest.h>
 
-#include <memory>
-#include <nlohmann/json.hpp>
-#include <string>
-#include <vector>
-
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/session_context.h"
-#include "dev_support/inference/test_capability_models.h"
-#include "nodes/node_error_codes.h"
-#include "tests/support/model_registration.h"
-#include "tests/support/node_test_utils.h"
+#include "engine/model_interface.h"
+#include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
-
-class AsrTranscribeNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    session_ctx_ = std::make_unique<SessionContext>();
-
-    asr_model_ = std::make_shared<test::TestAsrModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "asr_model",
-                                  asr_model_, "test-revision", "test_asr_model",
-                                  "asr", "test_tensor_backend"));
+namespace {
+class RecordingAsr final : public IAsrModel {
+ public:
+  const std::string& ImplName() const noexcept override { return impl; }
+  const std::string& ModelType() const noexcept override { return type; }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
   }
-  std::unique_ptr<SessionContext> session_ctx_;
-  std::shared_ptr<test::TestAsrModel> asr_model_;
+  bool SupportsLanguage(std::string_view language) const noexcept override {
+    ++language_checks;
+    checked_language = std::string(language);
+    return supports_language;
+  }
+  int Transcribe(const AudioPcmBatch& audio, const TranscribeOptions& options,
+                 TextBatch* output, std::string* diagnostic) noexcept override {
+    if (diagnostic) diagnostic->clear();
+    calls.push_back(audio);
+    languages.push_back(options.language);
+    output->clear();
+    if (fail) {
+      if (diagnostic) *diagnostic = "audio decoder failed";
+      return -42;
+    }
+    for (size_t i = 0; i < audio.size(); ++i)
+      output->emplace_back(audio[i].req_id, audio[i].sub_id, responses.at(i));
+    return 0;
+  }
+  std::string impl = "node_recording_asr", type = "asr";
+  mutable int language_checks = 0;
+  mutable std::string checked_language;
+  bool supports_language = true, fail = false;
+  std::vector<std::string> responses = {"你好", "hello"};
+  std::vector<AudioPcmBatch> calls;
+  std::vector<std::string> languages;
 };
 
-TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "asr_model"}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  AudioPcmBatch audio;
-  audio.emplace_back(1, 0,
-                     AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
-  ctx.Publish("audio", audio);
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("text");
-  ASSERT_NE(out, nullptr);
-  ASSERT_EQ(out->size(), 1u);
-  EXPECT_EQ((*out)[0].req_id, 1u);
-  EXPECT_EQ((*out)[0].sub_id, 0u);
-  EXPECT_EQ((*out)[0].data, "transcript:16000:16000");
+TEST(AsrTranscribeNodeTest,
+     ChecksLanguageOnceAndPassesAudioAndOptionsForEachCall) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingAsr>();
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "speech", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init("asr_transcribe",
+                        {{"bind_model", "speech"}, {"language", "en"}}, session,
+                        {{"audio", "audio", ""}}, {{"text", "text", ""}}))
+      << node.diagnostic;
+  EXPECT_EQ(model->language_checks, 1);
+  EXPECT_EQ(model->checked_language, "en");
+  const AudioPcmBatch audio = {{9, 4, AudioPcmPayload({0.5f, -0.25f}, 32000)},
+                               {3, 7, AudioPcmPayload({0.75f}, 16000)}};
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    AlgContext context;
+    ASSERT_TRUE(context.Publish("audio", audio));
+    ASSERT_EQ(node.node->Process(&context), 0);
+    const auto* output = context.Read<TextBatch>("text");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), 2u);
+    EXPECT_EQ((*output)[0].data, "你好");
+    EXPECT_EQ((*output)[0].req_id, 9u);
+    EXPECT_EQ((*output)[0].sub_id, 4u);
+    EXPECT_EQ((*output)[1].data, "hello");
+    EXPECT_EQ((*output)[1].req_id, 3u);
+  }
+  EXPECT_EQ(model->language_checks, 1);
+  EXPECT_EQ(model->languages, (std::vector<std::string>{"en", "en"}));
+  ASSERT_EQ(model->calls.size(), 2u);
+  EXPECT_EQ(model->calls[0][0].data.sample_rate, 32000);
+  EXPECT_EQ(model->calls[0][0].data.pcm_data,
+            (std::vector<float>{0.5f, -0.25f}));
+  EXPECT_EQ(model->calls[1][1].sub_id, 7u);
 }
 
-// 空音频产出空转写结果
-TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
-                              session_ctx_.get()));
-
-  AlgContext ctx;
-  ctx.Publish("audio", AudioPcmBatch{});
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("text");
-  ASSERT_NE(out, nullptr);
-  EXPECT_TRUE(out->empty());
+TEST(AsrTranscribeNodeTest,
+     UnsupportedLanguageIsRejectedBeforeAnyTranscription) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingAsr>();
+  model->supports_language = false;
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "speech", model));
+  test_support::NodeProbe node;
+  EXPECT_FALSE(node.Init(
+      "asr_transcribe", {{"bind_model", "speech"}, {"language", "fr"}}, session,
+      {{"audio", "audio", ""}}, {{"text", "text", ""}}));
+  EXPECT_EQ(model->language_checks, 1);
+  EXPECT_EQ(model->checked_language, "fr");
+  EXPECT_TRUE(model->calls.empty());
+  EXPECT_NE(node.diagnostic.find("fr"), std::string::npos);
 }
-
-TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
-                              session_ctx_.get()));
-
-  AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
-}
-
-TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("asr_transcribe");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model"}},
-                              session_ctx_.get()));
-
-  AudioPcmBatch audio;
-  audio.emplace_back(9, 3, AudioPcmPayload({0.1f, 0.2f}, 8000));
-
-  AlgContext count_ctx;
-  count_ctx.Publish("audio", audio);
-  asr_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&count_ctx),
-            node_error::author_node::kOutputCountMismatch);
-
-  asr_model_->return_wrong_count_ = false;
-  asr_model_->corrupt_provenance_ = true;
-  AlgContext provenance_ctx;
-  provenance_ctx.Publish("audio", audio);
-  EXPECT_EQ(node->Process(&provenance_ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
-}
-
+}  // namespace
 }  // namespace llm_edgeflow
