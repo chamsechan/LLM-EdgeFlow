@@ -244,528 +244,168 @@ def render_model_node(name, description, capability, in_port, out_port):
 def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
-
     preserved = (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve")
-    if control_id is None and ((kind == "compute" and in_type == out_type == "TextBatch" and preserved)
-                               or (kind == "model" and capability == "llm")):
-        if kind == "compute":
-            return f"""#include <gtest/gtest.h>
-#include <string>
-#include <vector>
+    inputs = {
+        "TextBatch": 'std::string("example")',
+        "AudioPcmBatch": "AudioPcmPayload({0.25f, -0.5f}, 16000)",
+        "ImageFrameBatch": "ImageFrame{1, 1, 3, {1, 2, 3}}",
+        "QueryCandidatesBatch": 'QueryCandidatePair{"query", "candidate"}',
+        "Int32Batch": "int32_t{-7}",
+    }
+    input_payload = inputs.get(in_type, f"{get_item_type_for_batch(in_type)}{{}}")
+    fixture = ""
+    setup = ""
+    params = "nlohmann::json::object()"
+    checks = {
+        "TextBatch": 'EXPECT_EQ(item.data, "example");',
+        "AudioPcmBatch": "EXPECT_EQ(item.data.pcm_data, (std::vector<float>{0.25f, -0.5f}));\n  EXPECT_EQ(item.data.sample_rate, 16000);",
+        "ImageFrameBatch": "EXPECT_EQ(item.data.width, 1);\n  EXPECT_EQ(item.data.height, 1);\n  EXPECT_EQ(item.data.stride, 3u);\n  EXPECT_EQ(item.data.data, (std::vector<uint8_t>{1, 2, 3}));",
+        "QueryCandidatesBatch": 'EXPECT_EQ(item.data.query, "query");\n  EXPECT_EQ(item.data.candidate, "candidate");',
+        "Int32Batch": "EXPECT_EQ(item.data, -7);",
+        "EmbeddingBatch": "EXPECT_TRUE(item.data.empty());",
+        "ScoreBatch": "EXPECT_FLOAT_EQ(item.data, 0.0f);",
+        "OcrDocumentBatch": "EXPECT_TRUE(item.data.combined_text.empty());\n  EXPECT_TRUE(item.data.boxes.empty());",
+        "RankedTextBatch": "EXPECT_TRUE(item.data.text.empty());\n  EXPECT_FLOAT_EQ(item.data.score, 0.0f);\n  EXPECT_EQ(item.data.rank, 0);\n  EXPECT_EQ(item.data.original_sub_id, 0u);\n  EXPECT_EQ(item.data.metadata, nlohmann::json::object());",
+        "RuleMatchBatch": "EXPECT_EQ(item.data.is_hit, 0);\n  EXPECT_EQ(item.data.status_code, 0);\n  EXPECT_TRUE(item.data.category.empty());\n  EXPECT_TRUE(item.data.matches.empty());\n  EXPECT_EQ(item.data.slots, nlohmann::json::object());",
+        "StructuredDocumentBatch": "EXPECT_TRUE(item.data.json_payload.empty());\n  EXPECT_EQ(item.data.structured_data, nlohmann::json::object());\n  EXPECT_FALSE(item.data.is_valid);\n  EXPECT_EQ(item.data.parse_status, JsonParseStatus::kOk);\n  EXPECT_TRUE(item.data.diagnostic.empty());",
+    }
+    payload_checks = checks.get(out_type, "// Add domain payload assertions for this custom batch type.")
+    if kind == "model":
+        _, model_input, model_output, method = CAPABILITY_MAP[capability]
+        interface = {"llm": "ILlmModel", "embedding": "IEmbeddingModel", "asr": "IAsrModel",
+                     "ocr": "IOcrModel", "rerank": "IRerankModel"}[capability]
+        options = {"llm": ", const GenerateOptions&", "asr": ", const TranscribeOptions&"}.get(capability, "")
+        language = ('  bool SupportsLanguage(std::string_view language) const noexcept override {\n'
+                    '    return language == "zh";\n  }\n') if capability == "asr" else ""
+        returned = {"llm": 'std::string("fixture text")', "embedding": "std::vector<float>{3, 4}",
+                    "asr": 'std::string("fixture audio")', "ocr": 'OcrDocumentItem{{}, "fixture ocr"}',
+                    "rerank": "0.75f"}[capability]
+        payload_checks = {
+            "llm": 'EXPECT_EQ(item.data, "fixture text");',
+            "embedding": "EXPECT_EQ(item.data, (std::vector<float>{3, 4}));",
+            "asr": 'EXPECT_EQ(item.data, "fixture audio");',
+            "ocr": 'EXPECT_EQ(item.data.combined_text, "fixture ocr");\n  EXPECT_TRUE(item.data.boxes.empty());',
+            "rerank": "EXPECT_FLOAT_EQ(item.data, 0.75f);",
+        }[capability]
+        fixture = f'''class RecordingModel final : public {interface} {{
+ public:
+  const std::string& ImplName() const noexcept override {{
+    static const std::string value = {cpp_string("scaffold_" + name + "_fixture")};
+    return value;
+  }}
+  const std::string& ModelType() const noexcept override {{
+    static const std::string value = {cpp_string(capability)};
+    return value;
+  }}
+  InferenceConcurrency Concurrency() const noexcept override {{
+    return InferenceConcurrency::kConcurrent;
+  }}
+{language}  int {method}(const {model_input}& inputs{options}, {model_output}* outputs,
+               std::string*) noexcept override {{
+    ++calls;
+    if (!outputs || inputs.size() != 1) return -1;
+    req_id = inputs.front().req_id;
+    sub_id = inputs.front().sub_id;
+    try {{
+      outputs->clear();
+      outputs->emplace_back(req_id, sub_id, {returned});
+      return 0;
+    }} catch (...) {{
+      outputs->clear();
+      return -1;
+    }}
+  }}
+  int calls = 0;
+  uint32_t req_id = 0;
+  uint32_t sub_id = 0;
+}};
 
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "tests/support/node_harness.h"
-
-namespace llm_edgeflow {{
-
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  EXPECT_FALSE(def->inputs.empty());
-  EXPECT_FALSE(def->outputs.empty());
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-}}
-
-TEST(CustomNodeCatalogTest, {name}_MapPreservesInputData) {{
-  NodeHarness harness({cpp_string(name)});
-  harness.TextInput({cpp_string(in_name)}, {{"sample_text_1", "sample_text_2"}});
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  EXPECT_EQ(result.TextValues({cpp_string(out_name)}),
-            (std::vector<std::string>{{"sample_text_1", "sample_text_2"}}));
-}}
-
-}}  // namespace llm_edgeflow
-"""
-        elif kind == "model" and capability == "llm":
-            return f"""#include <gtest/gtest.h>
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "engine/model_interface.h"
-#include "tests/support/node_harness.h"
-#include "tests/support/node_test_utils.h"
-
-namespace llm_edgeflow {{
-
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  EXPECT_FALSE(def->inputs.empty());
-  EXPECT_FALSE(def->outputs.empty());
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-}}
-
-TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
-  auto mock_model = std::make_shared<test::ControlledMockLlmModel>();
-  NodeHarness harness({cpp_string(name)});
-  harness.Config({{ {{"bind_model", "test_model"}} }});
-  harness.BindModel("test_model", mock_model);
-  harness.TextInput({cpp_string(in_name)}, {{"hello", "world"}});
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  EXPECT_EQ(result.TextValues({cpp_string(out_name)}),
-            (std::vector<std::string>{{"mock_answer:hello", "mock_answer:world"}}));
-}}
-
-}}  // namespace llm_edgeflow
-"""
-
-    def sample_value_for_type(t, index=1):
-        if t == "TextBatch":
-            return f'"sample_text_{index}"'
-        if t == "ImageFrameBatch":
-            return f'ImageFrame{{{index}, 1, {index * 3}, std::vector<uint8_t>({index * 3}, 255)}}'
-        if t == "AudioPcmBatch":
-            return f'AudioPcmPayload{{std::vector<float>{{0.1f, 0.2f}}, 16000}}'
-        if t == "QueryCandidatesBatch":
-            return f'QueryCandidatePair{{"query_{index}", "candidate_{index}"}}'
-        if t == "Int32Batch":
-            return f'{index * 10}'
-        return "{}"
-
-    sample_in_1 = sample_value_for_type(in_type, 1)
-    sample_in_2 = sample_value_for_type(in_type, 2)
-    sample_in_3 = sample_value_for_type(in_type, 3)
-
-    def payload_check(actual, batch_type, expected, label):
-        # 用具名值避免聚合初始化的逗号进入 GoogleTest 宏参数。
-        fields = {
-            "ImageFrameBatch": ("width", "height", "stride", "data"),
-            "AudioPcmBatch": ("pcm_data", "sample_rate"),
-            "QueryCandidatesBatch": ("query", "candidate"),
-        }.get(batch_type, ())
-        lines = [f"  const {get_item_type_for_batch(batch_type)} {label} = {expected};"]
-        if fields:
-            lines.extend(f"  EXPECT_EQ({actual}.{field}, {label}.{field});" for field in fields)
-        else:
-            lines.append(f"  EXPECT_EQ({actual}, {label});")
-        return "\n".join(lines)
-
-    compute_checks = [payload_check(f"output->at({i}).data", in_type, sample, f"expected_{i}")
-                      for i, sample in enumerate((sample_in_1, sample_in_2, sample_in_3))]
-    business_check = payload_check("output->at(0).data", in_type, sample_in_1, "expected")
-
+'''
+        setup = '''  auto model = std::make_shared<RecordingModel>();
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "fixture", model));
+'''
+        params = 'nlohmann::json{{"bind_model", "fixture"}}'
     if control_id is not None:
-        return f"""#include <gtest/gtest.h>
-#include <memory>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "core/common_contracts.h"
-#include "core/node_definition.h"
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "tests/support/node_harness.h"
-#include "tests/support/node_test_utils.h"
-
-namespace llm_edgeflow {{
-
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  EXPECT_FALSE(def->inputs.empty());
-  EXPECT_FALSE(def->outputs.empty());
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-}}
-
-TEST(CustomNodeCatalogTest, {name}_ControlChangesOutputAndPreservesOnFailure) {{
-  NodeHarness harness({cpp_string(name)});
-  harness.Config({{{{"prefix", "initial:"}}}});
-  const auto check_output = [&](const std::string& expected) {{
-    TextBatch input;
-    input.emplace_back(17, 3, "sample");
-    harness.CustomInput({cpp_string(in_name)}, std::move(input));
-    auto result = harness.Run();
-    ASSERT_TRUE(result.ok()) << result.diagnostic();
-    const auto* output = result.Output<TextBatch>({cpp_string(out_name)});
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 1u);
-    EXPECT_EQ(output->at(0).req_id, 17u);
-    EXPECT_EQ(output->at(0).sub_id, 3u);
-    EXPECT_EQ(output->at(0).data, expected);
-  }};
-  check_output("initial:sample");
-  const auto update = [&](const nlohmann::json& payload) {{
-    return harness.Control({control_id}, payload).status;
-  }};
-  ASSERT_EQ(update({{{{"prefix", "new:"}}}}), NodeControlStatus::kHandled);
-  check_output("new:sample");
-  EXPECT_EQ(update({{{{"prefix", 12}}}}), NodeControlStatus::kFailed);
-  EXPECT_EQ(update({{{{"prefix", std::string(65, 'x')}}}}), NodeControlStatus::kFailed);
-  check_output("new:sample");
-}}
-
-TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
-  const auto definition = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(definition.has_value());
-  ASSERT_TRUE(static_cast<bool>(definition->validate_config));
-  std::string error;
-  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), BindingFacts{{}}, &error, nullptr));
-  const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
-  EXPECT_FALSE(definition->validate_config(invalid, BindingFacts{{}}, &error, nullptr));
-  EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
-  NodeHarness harness({cpp_string(name)});
-  auto result = harness.Config(invalid).Run();
-  EXPECT_TRUE(result.init_failed());
-  EXPECT_NE(result.diagnostic().find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
-}}
-
-TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
-  NodeHarness harness({cpp_string(name)});
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-}}
-
-TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
-  NodeHarness harness({cpp_string(name)});
-  harness.Config({{{{"prefix", "biz:"}}}});
-
-  // 可编辑的业务输入，以及独立的期望输出。
-  TextBatch input;
-  input.emplace_back(101, 1, "task_sample");
-  harness.CustomInput({cpp_string(in_name)}, std::move(input));
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  const auto* output = result.Output<TextBatch>({cpp_string(out_name)});
-  ASSERT_NE(output, nullptr);
-  ASSERT_EQ(output->size(), 1u);
-  EXPECT_EQ(output->at(0).data, "biz:task_sample");
-}}
-
-}}  // namespace llm_edgeflow
-"""
-
-    if kind == "compute":
-        is_pass_through = (in_type == out_type and
-                           (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve"))
-        if is_pass_through:
-            return f"""#include <gtest/gtest.h>
-#include <memory>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "core/common_contracts.h"
-#include "core/node_definition.h"
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "tests/support/node_harness.h"
-#include "tests/support/node_test_utils.h"
-
-namespace llm_edgeflow {{
-
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  EXPECT_FALSE(def->inputs.empty());
-  EXPECT_FALSE(def->outputs.empty());
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-}}
-
-TEST(CustomNodeCatalogTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
-  NodeHarness harness({cpp_string(name)});
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-}}
-
-TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
-  NodeHarness harness({cpp_string(name)});
-
-  harness.CustomInput({cpp_string(in_name)}, {in_type}{{}});
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
-  ASSERT_NE(output, nullptr);
-  EXPECT_TRUE(output->empty());
-}}
-
-TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
-  NodeHarness harness({cpp_string(name)});
-
-  {in_type} input;
-  input.emplace_back(101, 3, {sample_in_1});
-  input.emplace_back(101, 19, {sample_in_2});
-  input.emplace_back(205, 1, {sample_in_3});
-  harness.CustomInput({cpp_string(in_name)}, input);
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
-  ASSERT_NE(output, nullptr);
-  ASSERT_EQ(output->size(), 3u);
-  EXPECT_EQ(output->at(0).req_id, 101u);
-  EXPECT_EQ(output->at(0).sub_id, 3u);
-{compute_checks[0]}
-  EXPECT_EQ(output->at(1).req_id, 101u);
-  EXPECT_EQ(output->at(1).sub_id, 19u);
-{compute_checks[1]}
-  EXPECT_EQ(output->at(2).req_id, 205u);
-  EXPECT_EQ(output->at(2).sub_id, 1u);
-{compute_checks[2]}
-  auto repeated = harness.Run();
-  ASSERT_TRUE(repeated.ok()) << repeated.diagnostic();
-  const auto* repeated_output = repeated.Output<{out_type}>({cpp_string(out_name)});
-  ASSERT_NE(repeated_output, nullptr);
-  ASSERT_EQ(repeated_output->size(), 3u);
-  EXPECT_EQ(repeated_output->at(1).req_id, 101u);
-  EXPECT_EQ(repeated_output->at(1).sub_id, 19u);
-{payload_check("repeated_output->at(1).data", in_type, sample_in_2, "repeated_expected")}
-}}
-
-TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
-  NodeHarness harness({cpp_string(name)});
-
-  {in_type} input;
-  input.emplace_back(1, 0, {sample_in_1});
-  harness.CustomInput({cpp_string(in_name)}, input);
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
-  ASSERT_NE(output, nullptr);
-  ASSERT_EQ(output->size(), 1u);
-  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);
-{business_check}
-}}
-
-}}  // namespace llm_edgeflow
-"""
-        else:
-            return f"""#include <gtest/gtest.h>
-#include <memory>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "core/common_contracts.h"
-#include "core/node_definition.h"
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "tests/support/node_harness.h"
-#include "tests/support/node_test_utils.h"
-
-namespace llm_edgeflow {{
-
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-}}
-
-TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
-  NodeHarness harness({cpp_string(name)});
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-}}
-
-TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
-  NodeHarness harness({cpp_string(name)});
-
-  {in_type} input;
-  input.emplace_back(1, 0, {sample_in_1});
-  harness.CustomInput({cpp_string(in_name)}, std::move(input));
-  auto result = harness.Run();
-  EXPECT_EQ(result.process_code(), -8102);
-  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-}}
-
-}}  // namespace llm_edgeflow
-"""
-
-    # 模型调用
-    count_error = "node_error::author_node::kOutputCountMismatch"
-    provenance_error = "node_error::author_node::kOutputProvenanceMismatch"
-    mock_class = {
-        "llm": "ControlledMockLlmModel",
-        "embedding": "ControlledMockEmbeddingModel",
-        "rerank": "ControlledMockRerankModel",
-        "ocr": "ControlledMockOcrModel",
-        "asr": "ControlledMockAsrModel",
-    }.get(capability, "ControlledMockLlmModel")
-
-    if capability == "llm":
-        expected_output_check = f"""  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);
-  EXPECT_EQ(output->at(0).data, "mock_answer:" + std::string({sample_in_1}));"""
-    elif capability == "embedding":
-        expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);
-  const std::vector<float> expected = {0.1f, 0.2f, 0.3f};
-  EXPECT_EQ(output->at(0).data, expected);"""
-    elif capability == "rerank":
-        expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);
-  EXPECT_FLOAT_EQ(output->at(0).data, 0.95f);"""
-    elif capability == "ocr":
-        expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);
-  EXPECT_EQ(output->at(0).data.combined_text, "ocr:1");
-  ASSERT_EQ(output->at(0).data.boxes.size(), 1u);
-  EXPECT_EQ(output->at(0).data.boxes[0].text, "ocr:1");"""
-    elif capability == "asr":
-        expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);
-  EXPECT_EQ(output->at(0).data, "transcribed_audio");"""
+        params = 'nlohmann::json{{"prefix", "before:"}}'
+        payload_checks = 'EXPECT_EQ(item.data, "before:example");'
+    succeeds = kind == "model" or (preserved and in_type == out_type)
+    if succeeds:
+        execution = f'''  ASSERT_EQ(probe.node->Process(&context), 0) << context.GetErrorMessage();
+  const auto* result = context.Read<{out_type}>("result");
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1u);
+  const auto& item = result->front();
+  EXPECT_EQ(item.req_id, 7u);
+  EXPECT_EQ(item.sub_id, 2u);
+  {payload_checks}
+'''
     else:
-        expected_output_check = """  EXPECT_EQ(output->at(0).req_id, 1u);
-  EXPECT_EQ(output->at(0).sub_id, 0u);"""
+        execution = '''  EXPECT_EQ(probe.node->Process(&context), -8102);
+  EXPECT_FALSE(context.Has("result"));
+'''
+    if kind == "model":
+        execution += '''  EXPECT_EQ(model->calls, 1);
+  EXPECT_EQ(model->req_id, 7u);
+  EXPECT_EQ(model->sub_id, 2u);
+'''
+    if control_id is not None:
+        execution += f'''  ASSERT_EQ(probe.node->Control({control_id}, R"({{"prefix":"after:"}})").status,
+            NodeControlStatus::kHandled);
+  const auto verify_after = [&] {{
+    AlgContext next;
+    EXPECT_TRUE(next.Publish("input", inputs));
+    EXPECT_EQ(probe.node->Process(&next), 0);
+    const auto* updated = next.Read<{out_type}>("result");
+    ASSERT_NE(updated, nullptr);
+    ASSERT_EQ(updated->size(), 1u);
+    EXPECT_EQ(updated->front().req_id, 7u);
+    EXPECT_EQ(updated->front().sub_id, 2u);
+    EXPECT_EQ(updated->front().data, "after:example");
+  }};
+  verify_after();
+  const auto invalid = nlohmann::json{{{{"prefix", std::string(65, 'x')}}}}.dump();
+  EXPECT_EQ(probe.node->Control({control_id}, invalid).status, NodeControlStatus::kFailed);
+  verify_after();
+'''
+    return f'''#include <gtest/gtest.h>
 
-    return f"""#include <gtest/gtest.h>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
+#include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_definition.h"
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "tests/support/node_harness.h"
-#include "tests/support/node_test_utils.h"
-#include "nodes/node_error_codes.h"
+#include "engine/model_interface.h"
+#include "tests/support/node_probe.h"
 
-namespace llm_edgeflow {{
-
-TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  ASSERT_EQ(def->model_dependencies.size(), 1U);
-  EXPECT_EQ(def->model_dependencies[0].model_type, {cpp_string(capability)});
-  EXPECT_EQ(def->model_dependencies[0].config_field, "bind_model");
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-}}
-
-TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
-  NodeHarness harness({cpp_string(name)});
-  auto mock_model = std::make_shared<test::{mock_class}>();
-  harness.BindModel("test_model", mock_model);
-  harness.Config({{{{"bind_model", "test_model"}}}});
-
-  harness.CustomInput({cpp_string(in_name)}, {in_type}{{}});
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
-  ASSERT_NE(output, nullptr);
-  EXPECT_TRUE(output->empty());
-}}
-
-TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
-  NodeHarness harness({cpp_string(name)});
-  auto mock_model = std::make_shared<test::{mock_class}>();
-  harness.BindModel("test_model", mock_model);
-  harness.Config({{{{"bind_model", "test_model"}}}});
-
-  // 1. 缺少输入时失败，且不发布输出
-  {{
-    auto result = harness.Run();
-    EXPECT_FALSE(result.ok());
-    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-  }}
-
-  // 2. 正常执行成功
-  {{
-    {in_type} input;
-    input.emplace_back(101, 1, {sample_in_1});
-    input.emplace_back(101, 2, {sample_in_2});
-    harness.CustomInput({cpp_string(in_name)}, std::move(input));
-    auto result = harness.Run();
-    ASSERT_TRUE(result.ok()) << result.diagnostic();
-    const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 2u);
-    EXPECT_EQ(output->at(0).req_id, 101u);
-    EXPECT_EQ(output->at(0).sub_id, 1u);
-  }}
-
-  // 3. 模型失败时失败，且不发布输出
-  {{
-    mock_model->fail_ = true;
-
-    {in_type} input;
-    input.emplace_back(101, 1, {sample_in_1});
-    harness.CustomInput({cpp_string(in_name)}, std::move(input));
-    auto result = harness.Run();
-    EXPECT_FALSE(result.ok());
-    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-    mock_model->fail_ = false;
-  }}
-
-  // 4. 输出数量不一致时失败，且不发布
-  {{
-    mock_model->return_wrong_count_ = true;
-
-    {in_type} input;
-    input.emplace_back(101, 1, {sample_in_1});
-    input.emplace_back(101, 2, {sample_in_2});
-    harness.CustomInput({cpp_string(in_name)}, std::move(input));
-    auto result = harness.Run();
-    EXPECT_EQ(result.process_code(), {count_error});
-    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-    mock_model->return_wrong_count_ = false;
-  }}
-
-  // 5. 来源信息损坏时失败，且不发布
-  {{
-    mock_model->corrupt_provenance_ = true;
-
-    {in_type} input;
-    input.emplace_back(101, 1, {sample_in_1});
-    harness.CustomInput({cpp_string(in_name)}, std::move(input));
-    auto result = harness.Run();
-    EXPECT_EQ(result.process_code(), {provenance_error});
-    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
-    mock_model->corrupt_provenance_ = false;
-  }}
-}}
-
-TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
-  NodeHarness harness({cpp_string(name)});
-  auto mock_model = std::make_shared<test::{mock_class}>();
-  harness.BindModel("test_model", mock_model);
-  harness.Config({{{{"bind_model", "test_model"}}}});
-
-  {in_type} input;
-  input.emplace_back(1, 0, {sample_in_1});
-  harness.CustomInput({cpp_string(in_name)}, std::move(input));
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
-  ASSERT_NE(output, nullptr);
-  ASSERT_EQ(output->size(), 1u);
-{expected_output_check}
-}}
-
-}}  // namespace llm_edgeflow
-"""
+namespace llm_edgeflow::scaffold_{name}_test {{
+{fixture}TEST(ScaffoldGeneratedNodeTest, {name}_ExecutesDeclaredContract) {{
+  const auto definition = NodeRegistry::Instance().Find({cpp_string(name)});
+  ASSERT_TRUE(definition);
+  EXPECT_EQ(definition->category, "custom");
+  EXPECT_EQ(definition->description, {cpp_string(description)});
+  ASSERT_EQ(definition->inputs.size(), 1u);
+  EXPECT_EQ(definition->inputs.front().logical_name, {cpp_string(in_name)});
+  EXPECT_EQ(definition->inputs.front().cardinality, {cpp_string(in_card)});
+  EXPECT_EQ(definition->inputs.front().provenance_policy, {cpp_string(in_prov)});
+  EXPECT_EQ(definition->inputs.front().type_id, MakeBlackboardKey<{in_type}>("input").type_id);
+  ASSERT_EQ(definition->outputs.size(), 1u);
+  EXPECT_EQ(definition->outputs.front().logical_name, {cpp_string(out_name)});
+  EXPECT_EQ(definition->outputs.front().cardinality, {cpp_string(out_card)});
+  EXPECT_EQ(definition->outputs.front().provenance_policy, {cpp_string(out_prov)});
+  EXPECT_EQ(definition->outputs.front().type_id, MakeBlackboardKey<{out_type}>("result").type_id);
+  SessionContext session;
+{setup}  test_support::NodeProbe probe;
+  ASSERT_TRUE(probe.Init({cpp_string(name)}, {params}, session,
+                         {{{{{cpp_string(in_name)}, "input"}}}},
+                         {{{{{cpp_string(out_name)}, "result"}}}})) << probe.diagnostic;
+  {in_type} inputs;
+  inputs.emplace_back(7, 2, {input_payload});
+  AlgContext context;
+  ASSERT_TRUE(context.Publish("input", inputs));
+{execution}}}
+}}  // namespace llm_edgeflow::scaffold_{name}_test
+'''
 
 
 class ChangePlan:
@@ -990,9 +630,9 @@ def main():
             print("Tests in tests/unit/nodes/test_*.cpp are discovered automatically.")
             print("Next steps:")
             print("  Build command: cmake --build build --target edgeflow_test_nodes_runner")
-            print(f"  Test filter: CustomNodeCatalogTest.{name}_*")
-            print("  Run command: (cd build && ctest -R CommonNodesTest)")
-            print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"CustomNodeCatalogTest.{name}_*\")")
+            print(f"  Test filter: ScaffoldGeneratedNodeTest.{name}_*")
+            print("  Run command: (cd build && ctest -R ScaffoldGeneratedNodeTest)")
+            print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"ScaffoldGeneratedNodeTest.{name}_*\")")
 
         if args.control_id is not None:
             print("Next: edit ApplyPrefix for business logic and Parameters/Field for config and Control validation. Walkthrough: doc/dev_guide/first_control.md")

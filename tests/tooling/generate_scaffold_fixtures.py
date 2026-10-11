@@ -1,120 +1,82 @@
 #!/usr/bin/env python3
-"""仅用于构建的测试夹具：调用公开 CLI，并编译其原样输出。"""
-from pathlib import Path
+"""Compile the actual public scaffold's sources and --write-test output.
+
+Only anonymous namespace names are isolated for the existing single-TU runner.
+The scaffold owns all generated algorithms and their emitted consumer tests.
+"""
+
 import os
-import json
+from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
 
-root = Path(__file__).resolve().parents[2]
-output = Path(sys.argv[1])
-output.parent.mkdir(parents=True, exist_ok=True)
-cases = [("scaffold_compute", ["--kind", "compute"]),
-         ("scaffold_conversion", ["--out-port", "output:Int32Batch"]),
-         ("scaffold_split_stub", ["--out-port", "output:TextBatch:1:N:generate_sub_id"])]
-for cap in ("llm", "embedding", "asr", "ocr", "rerank"):
-    cases.append((f"scaffold_model_{cap}", ["--kind", "model", "-m", cap]))
-cases.append(("scaffold_tutorial_llm", ["--kind", "model", "-m", "llm"]))
-cases.append(("scaffold_control", ["--control-id", "2000000042"]))
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "tools/scaffold_custom_node.py"
 
 
-def apply_documented_text_functions(code):
-    """编译教程中讲解的两个业务函数体原文。"""
-    guide = (root / "doc/dev_guide/first_custom_node.md").read_text(encoding="utf-8")
-    for function in ("BuildPrompt", "FormatAnswer"):
-        snippet = re.search(r"<!-- starter-example:" + function + r" -->\s*```cpp\n(.*?)\n```",
-                            guide, re.DOTALL)
-        if not snippet:
-            raise RuntimeError(f"Missing documented {function} exercise")
-        pattern = (r"(static std::string " + function
-                   + r"\(const std::string& text\)\s*\{)\s*return text;\s*\}")
-        body = "\n".join("    " + line for line in snippet.group(1).splitlines())
-        code, count = re.subn(pattern, lambda match: match.group(1) + "\n" + body + "\n  }", code)
-        if count != 1:
-            raise RuntimeError(f"Starter no longer has exactly one editable {function}")
-    return code
+def isolated_namespaces(content, namespace):
+    """Keep generated bodies intact while avoiding single-TU local-name clashes."""
+    counter = 0
+
+    def replace(match):
+        nonlocal counter
+        counter += 1
+        return f"inline namespace {namespace}_{counter} {{"
+
+    return re.sub(r"namespace\s*\{", replace, content)
 
 
-with output.open("w", encoding="utf-8") as stream:
-    standalone_cases = [
-        ("scaffold_written_text", ["--kind", "compute"]),
-        ("scaffold_written_audio", ["--kind", "compute", "--in-port", "input:AudioPcmBatch",
-                                      "--out-port", "output:AudioPcmBatch"]),
-        ("scaffold_written_control", ["--control-id", "2000000043"]),
+def generate(output):
+    # Each entry selects a distinct production template or typed call signature.
+    requests = [
+        ("scaffold_text_identity", ["--in-port", "sentences:TextBatch", "--out-port", "answers:TextBatch"]),
+        ("scaffold_audio_identity", ["--in-port", "samples:AudioPcmBatch", "--out-port", "copy:AudioPcmBatch"]),
+        ("scaffold_conversion_pending", ["--in-port", "input:TextBatch", "--out-port", "output:Int32Batch"]),
+        ("scaffold_llm_call", ["--kind", "model", "--model-capability", "llm"]),
+        ("scaffold_embedding_call", ["--kind", "model", "--model-capability", "embedding"]),
+        ("scaffold_asr_call", ["--kind", "model", "--model-capability", "asr"]),
+        ("scaffold_ocr_call", ["--kind", "model", "--model-capability", "ocr"]),
+        ("scaffold_rerank_call", ["--kind", "model", "--model-capability", "rerank"]),
+        ("scaffold_prefix_control", ["--control-id", "2000000042"]),
     ]
-    standalone_cases.append(("scaffold_written_llm", ["--kind", "model", "-m", "llm"]))
-    standalone_cases.append(("scaffold_written_map", ["--kind", "compute"]))
-    standalone_cases.extend(cases)
-    with tempfile.TemporaryDirectory(prefix="edgeflow-written-fixtures-") as directory:
-        fixture_root = Path(directory)
-        (fixture_root / "src/custom_nodes").mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ, LLM_EDGEFLOW_REPO_ROOT=str(fixture_root))
-        for name, options in standalone_cases:
-            subprocess.run([sys.executable, str(root / "tools/scaffold_custom_node.py"),
-                            name, *options, "--write-test"],
-                           env=env, text=True, capture_output=True, check=True)
-        for source in sorted((fixture_root / "src/custom_nodes").glob("*.cpp")):
-            code = source.read_text(encoding="utf-8")
-            if source.name == "scaffold_tutorial_llm_node.cpp":
-                code = apply_documented_text_functions(code)
-            # 在合并后的源码中保留各源文件匿名命名空间的隔离性。
-            code = code.replace("namespace {", f"namespace {source.stem} {{", 1)
-            stream.write(code)
-        for test in sorted((fixture_root / "tests/unit/nodes").glob("test_*.cpp")):
-            code = test.read_text(encoding="utf-8")
-            if test.name == "test_scaffold_tutorial_llm_node.cpp":
-                code = code.replace('mock_answer:', 'mock_answer:实体抽取：\\n')
-            stream.write(code)
+    sections = ["// Generated from public CLI source and --write-test artifacts.\n"]
+    with tempfile.TemporaryDirectory(prefix="scaffold-compile-") as directory:
+        root = Path(directory)
+        environment = {**os.environ, "LLM_EDGEFLOW_REPO_ROOT": str(root)}
+        for name, arguments in requests:
+            result = subprocess.run([sys.executable, str(SCRIPT), name, "--write-test", *arguments],
+                                    env=environment, capture_output=True, text=True, timeout=30)
+            if result.returncode:
+                raise RuntimeError(f"Scaffold generation failed for {name}:\n{result.stdout}\n{result.stderr}")
+            source = root / "src/custom_nodes" / f"{name}_node.cpp"
+            consumer = root / "tests/unit/nodes" / f"test_{name}_node.cpp"
+            for kind, path in (("source", source), ("test", consumer)):
+                content = path.read_text(encoding="utf-8")
+                if kind == "test" and ('node_harness.h' in content or 'node_test_utils.h' in content):
+                    raise RuntimeError(f"Generated consumer still depends on retired helpers: {path.name}")
+                sections.append(f"\n// Exact generated {kind}: {path.name}\n")
+                sections.append(isolated_namespaces(content, f"fixture_{name}_{kind}"))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Publish a complete fixture artifact; interrupted generation retains the prior one.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                     prefix=f".{output.name}.", delete=False) as stream:
+        staged = Path(stream.name)
+        try:
+            stream.write("".join(sections))
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(staged, output)
+    finally:
+        staged.unlink(missing_ok=True)
 
-# 让教程中可运行的 Control 部署继续接受原生校验。
-# 只把教程 Node 类型替换为隔离生成的等价类型。
-guide = (root / "doc/dev_guide/first_control.md").read_text(encoding="utf-8")
-json_blocks = re.findall(r"```json\n(.*?)\n```", guide, re.DOTALL)
-if len(json_blocks) < 2:
-    raise RuntimeError("Control walkthrough must include pipeline and conf JSON")
-tutorial_dir = output.parent / "control_tutorial"
-tutorial_dir.mkdir(parents=True, exist_ok=True)
-pipeline = json.loads(json_blocks[0])
-if pipeline["pipeline"][0]["type"] != "prefix_control":
-    raise RuntimeError("Control walkthrough node no longer matches the generated fixture")
-pipeline["pipeline"][0]["type"] = "scaffold_control"
-(tutorial_dir / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
-(tutorial_dir / "pipeline.conf").write_text(json_blocks[1], encoding="utf-8")
-with output.open("a", encoding="utf-8") as stream:
-    stream.write('''
-#include <filesystem>
 
-#include "adapter/deployment_io_config.h"
-#include "adapter/io_plan_resolver.h"
-
-namespace llm_edgeflow {
-TEST(CustomNodeCatalogTest,
-     ControlTutorialDeploymentUsesCurrentNativeContracts) {
-''')
-    stream.write("  const std::filesystem::path directory = " + json.dumps(str(tutorial_dir.resolve())) + ";\n")
-    stream.write('''  DeploymentIoConfig parsed;
-  std::string error;
-  ASSERT_TRUE(DeploymentIoConfig::ReadFromFile(
-      (directory / "pipeline.conf").string(), &parsed, &error))
-      << error;
-  EXPECT_EQ(std::filesystem::path(parsed.resolved_pipe_path),
-            std::filesystem::canonical(directory / "pipeline.json"));
-  std::unique_ptr<ValidatedIoPlan> plan;
-  ASSERT_EQ(IoPlanResolver::ResolveFromConfig(parsed, &plan,
-                                              &error),
-            0)
-      << error;
-  ASSERT_NE(plan, nullptr);
-  ASSERT_EQ(plan->inputs.size(), 1U);
-  ASSERT_EQ(plan->outputs.size(), 1U);
-  ASSERT_NE(plan->inputs[0].converter, nullptr);
-  ASSERT_NE(plan->outputs[0].converter, nullptr);
-  EXPECT_EQ(plan->inputs[0].converter->type, "keyword_in");
-  EXPECT_EQ(plan->inputs[0].converter->name, "keyword_match");
-  EXPECT_EQ(plan->outputs[0].converter->type, "json_out");
-  EXPECT_EQ(plan->outputs[0].converter->name, "keyword_match");
-}
-}  // namespace llm_edgeflow
-''')
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: generate_scaffold_fixtures.py OUTPUT.cpp")
+    generate(Path(sys.argv[1]).resolve())
