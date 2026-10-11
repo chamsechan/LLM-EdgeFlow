@@ -260,6 +260,8 @@ edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
   "AuthorNodeTest.*:ModelCallTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(NodeModelOptionsTest edgeflow_test_nodes_runner
+  "FunctionNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ScalarParametersTest edgeflow_test_nodes_runner
   "ScalarParametersTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ControlPayloadTest edgeflow_test_nodes_runner
