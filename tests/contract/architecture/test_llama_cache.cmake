@@ -1,116 +1,85 @@
-# 用很小的本地目标覆盖生产环境的 configure/import/archive 路径。
-# 这些检查无需下载 llama.cpp，也无需目标平台编译器。
-set(_llama_fixture "${TEST_ROOT}/llama_fixture")
-file(MAKE_DIRECTORY "${_llama_fixture}/upstream/include"
-                    "${_llama_fixture}/upstream/ggml/include")
-file(WRITE "${_llama_fixture}/upstream/include/llama.h" "// fixture\n")
-file(WRITE "${_llama_fixture}/upstream/ggml/include/ggml.h" "// fixture\n")
-file(WRITE "${_llama_fixture}/upstream/stub.c" "int cache_fixture(void) { return 0; }\n")
-file(WRITE "${_llama_fixture}/upstream/CMakeLists.txt" [=[
-cmake_minimum_required(VERSION 3.16)
-project(llama_cache_upstream C)
-option(GGML_BLAS "ggml: use BLAS" ${APPLE})
-foreach(lib llama ggml ggml-base ggml-cpu)
-  add_library(${lib} STATIC stub.c)
+cmake_minimum_required(VERSION 3.19)
+if(NOT PROJECT_SOURCE_DIR OR NOT TEST_ROOT)
+  message(FATAL_ERROR "Supply PROJECT_SOURCE_DIR and isolated TEST_ROOT")
+endif()
+set(fixture "${TEST_ROOT}/llama")
+file(MAKE_DIRECTORY "${fixture}/cmake_ext" "${fixture}/neutral/include" "${fixture}/neutral/ggml/include")
+foreach(module ThirdPartyEngines ThirdPartyCacheMetadata KiteLlm WhisperCpp)
+  configure_file("${PROJECT_SOURCE_DIR}/cmake_ext/${module}.cmake"
+                 "${fixture}/cmake_ext/${module}.cmake" COPYONLY)
 endforeach()
-if(GGML_BLAS)
-  add_library(ggml-blas STATIC stub.c)
-endif()
+# Tiny neutral archives exercise the cache importer; they are not vendor binaries.
+file(WRITE "${fixture}/neutral/include/llama.h" "int neutral_llama();\n")
+file(WRITE "${fixture}/neutral/ggml/include/ggml.h" "int neutral_ggml();\n")
+file(WRITE "${fixture}/neutral/llama.cpp" "int neutral_ggml(); int neutral_llama(){return neutral_ggml();}\n")
+file(WRITE "${fixture}/neutral/ggml.cpp" "int neutral_cpu(); int neutral_base(); int neutral_ggml(){return neutral_cpu()+neutral_base();}\n")
+file(WRITE "${fixture}/neutral/cpu.cpp" "int neutral_cpu(){return 2;}\n")
+file(WRITE "${fixture}/neutral/base.cpp" "int neutral_base(){return 3;}\n")
+file(WRITE "${fixture}/neutral/CMakeLists.txt" [=[
+cmake_minimum_required(VERSION 3.19)
+project(NeutralCache LANGUAGES CXX)
+add_library(llama STATIC llama.cpp)
+add_library(ggml STATIC ggml.cpp)
+add_library(ggml-cpu STATIC cpu.cpp)
+add_library(ggml-base STATIC base.cpp)
+target_link_libraries(llama PUBLIC ggml)
+target_link_libraries(ggml PUBLIC ggml-cpu ggml-base)
 ]=])
-file(WRITE "${_llama_fixture}/CMakeLists.txt" [=[
-cmake_minimum_required(VERSION 3.16)
-project(llama_cache_fixture C CXX)
-# 只模拟平台默认值；编译仍使用宿主工具链。
-set(APPLE ${TEST_APPLE})
-include("${EDGEFLOW_SOURCE_DIR}/cmake_ext/ThirdPartyEngines.cmake")
-if(NOT "${_LLAMA_FOUND}" STREQUAL "${EXPECT_FOUND}")
-  message(FATAL_ERROR "Expected cache hit=${EXPECT_FOUND}, got ${_LLAMA_FOUND}")
+file(WRITE "${fixture}/consumer.cpp" "#include <llama.h>\nint main(){return neutral_llama()==5?0:1;}\n")
+file(WRITE "${fixture}/CMakeLists.txt" [=[
+cmake_minimum_required(VERSION 3.19)
+project(CacheConsumer LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(ENABLE_ONNXRUNTIME OFF CACHE BOOL "" FORCE)
+set(ENABLE_LLAMACPP ON CACHE BOOL "" FORCE)
+set(ENABLE_KITELLM OFF CACHE BOOL "" FORCE)
+set(ENABLE_WHISPERCPP OFF CACHE BOOL "" FORCE)
+set(GGML_BLAS OFF CACHE BOOL "" FORCE)
+set(FETCHCONTENT_SOURCE_DIR_LLAMA_CPP_SOURCE "${CMAKE_SOURCE_DIR}/neutral" CACHE PATH "" FORCE)
+include(cmake_ext/ThirdPartyEngines.cmake)
+if(NOT LLM_EDGEFLOW_HAS_LLAMACPP)
+  message(FATAL_ERROR "Neutral source must configure the llama cache path")
 endif()
-if(EXPECT_BLAS AND NOT TARGET ggml-blas)
-  message(FATAL_ERROR "BLAS-enabled configuration must provide ggml-blas")
-elseif(NOT EXPECT_BLAS AND TARGET ggml-blas)
-  message(FATAL_ERROR "BLAS-disabled configuration must not import stale ggml-blas")
+get_target_property(imported llama IMPORTED)
+if(EXPECT_IMPORTED AND NOT imported)
+  message(FATAL_ERROR "Expected verified cache import")
+elseif(EXPECT_SOURCE AND imported)
+  message(FATAL_ERROR "Incomplete/incompatible cache must select source")
 endif()
+add_executable(consumer consumer.cpp)
+target_include_directories(consumer PRIVATE ${LLAMACPP_INCLUDE_DIRS})
+target_link_libraries(consumer PRIVATE llama)
 ]=])
-
-function(configure_llama_case step expected_found expected_blas)
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" -S "${_case_source}" -B "${_case_root}/${step}"
-            "-DEDGEFLOW_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-            "-DFETCHCONTENT_SOURCE_DIR_LLAMA_CPP_SOURCE=${_llama_fixture}/upstream"
-            -DENABLE_ONNXRUNTIME=OFF -DENABLE_KITELLM=OFF -DENABLE_WHISPERCPP=OFF
-            "-DTEST_APPLE=${_apple}" "-DEXPECT_FOUND=${expected_found}"
-            "-DEXPECT_BLAS=${expected_blas}" ${ARGN}
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+function(run_checked)
+  execute_process(COMMAND ${ARGN} RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
   if(NOT result EQUAL 0)
-    message(FATAL_ERROR "llama cache ${_case_name}/${step}: ${output}${error}")
+    message(FATAL_ERROR "Cache consumer failed (${result}): ${ARGN}\n${output}\n${error}")
   endif()
 endfunction()
-
-function(build_llama_case step)
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_case_root}/${step}"
-            --target archive_llama_cpp_to_3rdparty --config Release
-    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
-  if(NOT result EQUAL 0)
-    message(FATAL_ERROR "llama archive ${_case_name}/${step}: ${output}${error}")
+run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/source-build" -DEXPECT_SOURCE=ON)
+run_checked("${CMAKE_COMMAND}" --build "${fixture}/source-build" --parallel 2)
+run_checked("${fixture}/source-build/consumer")
+set(cache "${fixture}/3rdparty/llama_cpp")
+foreach(archive llama ggml ggml-cpu ggml-base)
+  if(NOT EXISTS "${cache}/lib/lib${archive}.a")
+    message(FATAL_ERROR "Actual neutral build did not publish ${archive} cache archive")
   endif()
-endfunction()
-
-function(check_llama_cache _case_name _apple _blas)
-  set(_case_root "${TEST_ROOT}/${_case_name}")
-  set(_case_source "${_case_root}/source")
-  file(REMOVE_RECURSE "${_case_root}")
-  file(MAKE_DIRECTORY "${_case_source}/cmake_ext")
-  file(COPY "${_llama_fixture}/CMakeLists.txt" DESTINATION "${_case_source}")
-  file(COPY "${PROJECT_SOURCE_DIR}/cmake_ext/ThirdPartyCacheMetadata.cmake"
-            "${PROJECT_SOURCE_DIR}/cmake_ext/KiteLlm.cmake"
-            "${PROJECT_SOURCE_DIR}/cmake_ext/WhisperCpp.cmake"
-       DESTINATION "${_case_source}/cmake_ext")
-  set(_cache "${_case_source}/3rdparty/llama_cpp")
-
-  configure_llama_case(fresh OFF ${_blas} ${ARGN})
-  build_llama_case(fresh)
-  configure_llama_case(reuse ON ${_blas} ${ARGN})
-
-  if(_blas)
-    file(REMOVE "${_cache}/lib/libggml-blas.a")
-    configure_llama_case(missing_blas OFF ON ${ARGN})
-    build_llama_case(missing_blas)
-    configure_llama_case(repaired ON ON ${ARGN})
-  else()
-    file(WRITE "${_cache}/lib/libggml-blas.a" "stale archive")
-    configure_llama_case(stale_blas ON OFF ${ARGN})
-  endif()
-
-  file(REMOVE "${_cache}/lib/libggml-base.a")
-  configure_llama_case(missing_base OFF ${_blas} ${ARGN})
-  build_llama_case(missing_base)
-
-  if(_blas)
-    set(_opposite OFF)
-  else()
-    set(_opposite ON)
-  endif()
-  configure_llama_case(changed_option OFF ${_opposite} ${ARGN}
-                       "-DGGML_BLAS=${_opposite}")
-  configure_llama_case(changed_vendor OFF ${_blas} ${ARGN}
-                       -DGGML_BLAS_VENDOR=FixtureVendor)
-
-  # 重建父 revision 的标记：源码/工具链相同，但不含 BLAS 字段。
-  # 保留所有归档，使拒绝只取决于元数据。
-  set(_marker "${_cache}/.edgeflow-cache-fingerprint")
-  file(READ "${_marker}" _legacy)
-  string(REGEX REPLACE "GGML_BLAS=[^,\n]*," "" _legacy "${_legacy}")
-  string(REGEX REPLACE "GGML_BLAS_VENDOR=[^,\n]*," "" _legacy "${_legacy}")
-  string(REGEX REPLACE "fingerprint=[^\n]*\n" "" _legacy "${_legacy}")
-  string(SHA256 _legacy_hash "${_legacy}")
-  file(WRITE "${_marker}" "${_legacy}fingerprint=${_legacy_hash}\n")
-  configure_llama_case(legacy OFF ${_blas} ${ARGN})
-endfunction()
-
-check_llama_cache(apple_default ON ON)
-check_llama_cache(apple_disabled ON OFF -DGGML_BLAS=OFF)
-check_llama_cache(nonapple_enabled OFF ON -DGGML_BLAS=ON)
-check_llama_cache(nonapple_default OFF OFF)
+endforeach()
+if(NOT EXISTS "${cache}/.edgeflow-cache-fingerprint")
+  message(FATAL_ERROR "Archive publication did not include pinned cache metadata")
+endif()
+file(READ "${cache}/.edgeflow-cache-fingerprint" metadata)
+if(NOT metadata MATCHES "version=70adb1b4cea5ee39f867792c78dc59320921eda7" OR
+   NOT metadata MATCHES "source_sha256=94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4" OR
+   NOT metadata MATCHES "BUILD_SHARED_LIBS=OFF")
+  message(FATAL_ERROR "Published llama cache must identify the current source pin and ABI")
+endif()
+run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/import-build" -DEXPECT_IMPORTED=ON)
+run_checked("${CMAKE_COMMAND}" --build "${fixture}/import-build" --parallel 2)
+run_checked("${fixture}/import-build/consumer")
+# Metadata alone cannot turn an incomplete archive set into a usable import.
+file(REMOVE "${cache}/lib/libggml-cpu.a")
+run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/missing-build" -DEXPECT_SOURCE=ON)
+file(WRITE "${cache}/.edgeflow-cache-fingerprint" "stale metadata")
+run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/stale-build" -DEXPECT_SOURCE=ON)
+message(STATUS "PASS neutral source publication, imported link execution and invalid-cache fallback")
