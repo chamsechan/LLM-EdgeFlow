@@ -306,16 +306,28 @@ inline int RunOperatorDemo(const DemoOptions& options) {
         if (status != 0 && sample.status == 0) sample.status = status;
         for (const auto& field : parts[j].items()) ++field_counts[field.key()];
       }
-      for (size_t j = 0; j < parts.size(); ++j) {
-        const auto& entry = contract.outputs[j];
-        const auto prefix = output_type_counts[entry.type] > 1
-                                ? entry.name + "." + entry.type
-                                : entry.type;
-        for (const auto& field : parts[j].items()) {
-          const auto key = field_counts[field.key()] > 1
-                               ? prefix + "." + field.key()
-                               : field.key();
-          sample.output[key] = field.value();
+      const bool all_objects =
+          std::all_of(parts.begin(), parts.end(),
+                      [](const auto& part) { return part.is_object(); });
+      if (parts.size() == 1) {
+        sample.output = std::move(parts.front());
+      } else if (!all_objects) {
+        for (size_t j = 0; j < parts.size(); ++j) {
+          const auto& entry = contract.outputs[j];
+          sample.output[entry.name + "." + entry.type] = std::move(parts[j]);
+        }
+      } else {
+        for (size_t j = 0; j < parts.size(); ++j) {
+          const auto& entry = contract.outputs[j];
+          const auto prefix = output_type_counts[entry.type] > 1
+                                  ? entry.name + "." + entry.type
+                                  : entry.type;
+          for (const auto& field : parts[j].items()) {
+            const auto key = field_counts[field.key()] > 1
+                                 ? prefix + "." + field.key()
+                                 : field.key();
+            sample.output[key] = field.value();
+          }
         }
       }
       std::cout << "[OperatorRunner] Row " << offset + i << ": "

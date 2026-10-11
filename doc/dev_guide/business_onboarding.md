@@ -185,7 +185,9 @@ Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内
    不生成请求 ID 字段；
    请求信息只是可选的显示辅助，缺失时应能降级。两个目录的 `.cpp` 自动编入。
 3. 公共 `RunOperatorDemo` 统一预检、创建句柄、Control、分批 Process、显示和落盘。
-   每批先把输出复制为 JSON，再归还所有输出租约。多个输出项的同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀，避免覆盖。
+   每批先把输出复制为 JSON，再归还所有输出租约。单个输出原样保留完整 JSON，包括顶层数组、标量和 `null`。
+   多个输出均为对象时，同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀。
+   多个输出含数组等非对象值时，以各自的 `name.type` 为键保留完整值，避免改变 JSON 类型或覆盖内容。
    Process 成功表示调用完成，逐条状态仍需检查 `results.jsonl` 和 `summary.json`。
 4. 准备数据、Pipeline 和 `.conf`，用 `--config`、`--dataset` 运行；可重复调用的预设可加入
    `demo/profiles.json`。`--list` 列出 Profile 与支持的载体。只修改已有载体上的业务契约时无需新增 Demo。

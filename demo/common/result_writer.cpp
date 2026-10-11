@@ -82,8 +82,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
         record["error"] =
             sample.error.empty() ? "Sample execution failed" : sample.error;
       }
-      record["output"] =
-          sample.output.is_null() ? nlohmann::json::object() : sample.output;
+      record["output"] = sample.output;
 
       ofs << record.dump() << "\n";
     }
