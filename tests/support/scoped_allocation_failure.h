@@ -8,8 +8,8 @@ namespace llm_edgeflow::test_support {
 // disarms injection so diagnostics and cleanup can allocate normally.
 class ScopedAllocationFailure {
  public:
-  explicit ScopedAllocationFailure(std::ptrdiff_t successful_allocations = -1)
-      noexcept;
+  explicit ScopedAllocationFailure(
+      std::ptrdiff_t successful_allocations = -1) noexcept;
   ~ScopedAllocationFailure();
   ScopedAllocationFailure(const ScopedAllocationFailure&) = delete;
   ScopedAllocationFailure& operator=(const ScopedAllocationFailure&) = delete;
