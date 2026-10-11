@@ -103,6 +103,11 @@ int OutputPoolState::Acquire(void** out_block) {
   *out_block = nullptr;
 
   std::unique_lock<std::mutex> lock(mutex_);
+  struct WaitingGuard {
+    uint32_t& count;
+    explicit WaitingGuard(uint32_t& value) : count(value) { ++count; }
+    ~WaitingGuard() { --count; }
+  } waiting(waiting_acquirers_);
   available_.wait(lock, [this]() { return closing_ || free_count_ > 0; });
 
   if (closing_) {
