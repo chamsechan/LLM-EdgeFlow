@@ -1,64 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-cd "${ROOT_DIR}"
-
-echo "================================================================"
-echo " [Self-Test] Testing Architecture Docs Drift Gate Failures"
-echo "================================================================"
-
-TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-doc-drift.XXXXXX")"
-cleanup() {
-  rm -rf "${TMP_ROOT}"
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+workspace=$(mktemp -d "${TMPDIR:-/tmp}/architecture-docs-consumer.XXXXXX")
+trap 'rm -rf "$workspace"' EXIT
+mkdir -p "$workspace/doc/assets"
+for document in architecture.md developer_guide.md CHANGELOG.md architecture_classes.puml architecture_flow.puml; do
+  cp "$root/doc/$document" "$workspace/doc/$document"
+done
+cp "$root/doc/assets/architecture_class_diagram.svg" "$workspace/doc/assets/"
+cp "$root/doc/assets/architecture_flow.svg" "$workspace/doc/assets/"
+cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
+check() {
+  LLM_EDGEFLOW_ARCH_DOC_ROOT="$workspace/doc" bash "$root/scripts/check_architecture_docs.sh"
 }
-trap cleanup EXIT INT TERM
-cp -R doc "${TMP_ROOT}/doc"
-FIXTURE_DOC_ROOT="${TMP_ROOT}/doc"
-
-run_fixture_gate() {
-  LLM_EDGEFLOW_ARCH_DOC_ROOT="${FIXTURE_DOC_ROOT}" \
-    ./scripts/check_architecture_docs.sh >/dev/null 2>&1
+expect_failure() {
+  local expected=$1
+  if check >"$workspace/output" 2>&1; then
+    echo "FAIL: documentation drift passed: $expected" >&2
+    exit 1
+  fi
+  if ! grep -Fq "$expected" "$workspace/output"; then
+    cat "$workspace/output" >&2
+    exit 1
+  fi
 }
-
-./scripts/check_architecture_docs.sh >/dev/null 2>&1
-
-rm "${FIXTURE_DOC_ROOT}/assets/framework_overview.svg"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed the missing README overview SVG"
-  exit 1
-fi
-cp doc/assets/framework_overview.svg \
-  "${FIXTURE_DOC_ROOT}/assets/framework_overview.svg"
-
-sed -i.bak 's/ValidatedIoPlan/ObsoleteIoPlan/g' \
-  "${FIXTURE_DOC_ROOT}/architecture_flow.puml"
-rm -f "${FIXTURE_DOC_ROOT}/architecture_flow.puml.bak"
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a missing current deployment plan concept"
-  exit 1
-fi
-cp doc/architecture_flow.puml "${FIXTURE_DOC_ROOT}/architecture_flow.puml"
-
-CURRENT_PRODUCT_VERSION="$(sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' CMakeLists.txt)"
-if [[ -z "${CURRENT_PRODUCT_VERSION}" ]]; then
-  echo "❌ Failed to parse project VERSION from CMakeLists.txt"
-  exit 1
-fi
-if ! grep -Fq "${CURRENT_PRODUCT_VERSION}" "${FIXTURE_DOC_ROOT}/architecture.md"; then
-  echo "❌ Expected architecture.md fixture to contain current product version ${CURRENT_PRODUCT_VERSION}"
-  exit 1
-fi
-sed -i.bak "s/${CURRENT_PRODUCT_VERSION//./\\.}/99.0.0/g" \
-  "${FIXTURE_DOC_ROOT}/architecture.md"
-rm -f "${FIXTURE_DOC_ROOT}/architecture.md.bak"
-if grep -Fq "${CURRENT_PRODUCT_VERSION}" "${FIXTURE_DOC_ROOT}/architecture.md"; then
-  echo "❌ Failed to mutate product version in architecture.md fixture"
-  exit 1
-fi
-if run_fixture_gate; then
-  echo "❌ Docs drift gate missed a stale product version"
-  exit 1
-fi
-
-echo "✅ Architecture docs drift gate negative self-tests passed."
+check >"$workspace/output"
+python3 - "$workspace/doc/architecture.md" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace('ValidatedPipelinePlan', 'RemovedPlanReference'))
+PY
+expect_failure "missing reference to 'ValidatedPipelinePlan'"
+cp "$root/doc/architecture.md" "$workspace/doc/architecture.md"
+rm "$workspace/doc/assets/framework_overview.svg"
+expect_failure 'missing or empty'
+cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
+version=$(sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' "$root/CMakeLists.txt")
+python3 - "$workspace/doc/CHANGELOG.md" "$version" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace(sys.argv[2], '0.0.0-stale'))
+PY
+expect_failure 'does not name current product version'
+echo 'PASS current documentation gate detects concept, asset and version drift'
