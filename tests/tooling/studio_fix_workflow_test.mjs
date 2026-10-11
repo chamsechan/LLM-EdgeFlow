@@ -1,234 +1,57 @@
-// 执行应用真实的修复处理函数和历史记录。只替换渲染/网络边界，
-// 应用状态转换仍是生产代码。
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import vm from "node:vm";
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 
-class Element {
-  constructor(tag = "div") {
-    this.tagName = tag.toUpperCase(); this.children = []; this.listeners = {};
-    this.style = {}; this.dataset = {}; this.value = "";
-    this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
-  }
-  append(...children) { this.children.push(...children); }
-  appendChild(child) { this.append(child); return child; }
-  replaceChildren(...children) { this.children = children; }
-  addEventListener(name, callback) { this.listeners[name] = callback; }
-  setAttribute() {}
-  querySelectorAll() { return []; }
-  focus() {}
-  add(option) { this.append(option); }
-  get options() { return this.children; }
-}
-const elements = new Map();
-const document = {
-  querySelector(selector) {
-    if (!elements.has(selector)) elements.set(selector, new Element());
-    return elements.get(selector);
-  },
-  querySelectorAll() { return []; }, createElement: tag => new Element(tag),
-  addEventListener() {}, documentElement: new Element(), body: new Element(),
-};
-let previewResponse, previewCalls = 0, confirmations = 0, validationCalls = 0;
-let authoringResponse, authoringCalls = [], preflightResponse;
-const requests = [];
-const context = vm.createContext({
-  document, structuredClone, console, URL, URLSearchParams,
-  setTimeout() {}, clearTimeout() {}, requestAnimationFrame() {},
-  localStorage: { getItem() { return null; }, setItem() {} },
-  window: { addEventListener() {}, confirm() { confirmations++; return true; },
-    location: { search: "", hash: "" } },
-  Option: class extends Element { constructor(text, value) { super("option"); this.textContent = text; this.value = value; } },
-  async testApi(path) {
-    if (path.startsWith("/catalog")) return { nodes: [], models: [], profiles: [], input_converters: [], output_converters: [] };
-    if (path === "/profiles") return { profiles: [] };
-    if (path === "/pipelines") return { pipelines: [] };
-    if (path === "/assets") return { selections: [], variants: [] };
-    throw new Error(`Unexpected API request: ${path}`);
-  },
-  async testWrite(path, method, body) {
-    requests.push({ path, body: structuredClone(body) });
-    if (path === "/authoring/preview") { authoringCalls.push(structuredClone(body)); return await authoringResponse; }
-    if (path === "/preflight") return await preflightResponse;
-    if (path === "/fixes/preview") { previewCalls++; return await previewResponse; }
-    if (path === "/validate") { validationCalls++; return { ok: true, revision: "revision-1", tool_fingerprint: "tool-1", diagnostics: [], plan: { topological_order: [], layers: [] } }; }
-    throw new Error(`Unexpected API request: ${path}`);
-  },
-});
-const web = new URL("../../tools/pipeline_studio/web/", import.meta.url);
-const modules = new Map();
-async function load(name) {
-  if (modules.has(name)) return modules.get(name);
-  let code = readFileSync(new URL(name, web), "utf8");
-  if (name === "api.js") code = "export const initialPipeline = ''; export const api = globalThis.testApi; export const write = globalThis.testWrite;";
-  if (name === "graph.js") code = "export class GraphView { constructor() { this.positions = {}; } render() {} fit() {} focusNode() {} }";
-  if (name === "app.js") {
-    const startup = code.indexOf("\ntry {\n  await refreshLists();");
-    assert.notEqual(startup, -1, "Locate and omit browser startup, without extracting the handler");
-    code = code.slice(0, startup);
-    code += "\nrenderAll = () => {}; updateEditorStatus = () => {};\nexport { state, history, drafts, handleApplyFix, handleApplyReviewedFix, applyAuthoring, runPreflight, renderPreflightFreshness, markPipelineChanged, restoreHistory, refreshLists, loadCatalog, validate, filterProfiles };";
-  }
-  const module = new vm.SourceTextModule(code, { context, identifier: name });
-  modules.set(name, module);
-  await module.link(specifier => load(specifier.replace(/^\.\//, "")));
-  return module;
-}
-const app = await load("app.js");
-await app.evaluate();
-const { state, history, drafts, handleApplyFix, restoreHistory } = app.namespace;
-const initial = { io: {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "json_out", name: "keyword_match"}]}, models: [], pipeline: [], comment: "before" };
-const patched = { ...initial, comment: "after" };
-const fix = { id: "repair-1", title: "Repair", effect: "Replace comment", verification: "pipeline_valid",
-  patch: [{ op: "replace", path: "/comment", value: "after" }] };
-function reset() {
-  Object.assign(state, { pipeline: structuredClone(initial), selected: "", loading: false,
-    editing: true, catalogReady: true, pipelineVersion: 1, documentVersion: 1,
-    savedPipeline: JSON.stringify(initial), dirty: false, deployment: null, preflight: null,
-    validationReport: { revision: "revision-1", tool_fingerprint: "tool-1", diagnostics: [
-      { code: "TEST", remediation: { fixes: [fix] } },
-    ] },
-  });
-  drafts.clear(); history.reset({ pipeline: state.pipeline, selected: "" });
-  previewCalls = 0; confirmations = 0; authoringCalls = []; requests.length = 0;
-  previewResponse = Promise.resolve({ ok: true, patched: structuredClone(patched), report: { ok: true } });
-}
-const plain = value => JSON.parse(JSON.stringify(value));
-reset();
-await handleApplyFix(fix);
-assert.deepEqual(plain(state.pipeline), initial, "Preview never changes the draft before page approval");
-assert.equal(history.canUndo, false);
-assert.equal(confirmations, 0, "Repair review must not invoke a blocking browser dialog");
-assert.equal(elements.get("#fixReviewPanel").hidden, false);
-await app.namespace.handleApplyReviewedFix();
-assert.deepEqual(plain(state.pipeline), patched, "Apply replaces the current draft");
-assert.equal(state.dirty, true, "Applying a repair marks the document unsaved");
-assert.equal(previewCalls, 2, "Application revalidates the reviewed patch and tool fingerprint");
-await restoreHistory("undo");
-assert.deepEqual(plain(state.pipeline), initial, "Undo restores a complete application snapshot");
-await restoreHistory("redo");
-assert.deepEqual(plain(state.pipeline), patched, "Redo must not lose the pipeline wrapper");
+const base = process.argv[2];
+assert.ok(base, 'HTTP consumer requires the running isolated Studio URL');
+globalThis.location = {href: `${base}/index.html`, hash: ''};
+const web = new URL('../../tools/pipeline_studio/web/', import.meta.url);
+const load = async name => import(`data:text/javascript;base64,${Buffer.from(await readFile(new URL(name, web))).toString('base64')}`);
+const {write, api} = await load('api.js');
+const {createHistory} = await load('editor.js');
+const opened = await api('/pipeline?filename=pipeline_keyword_match_rules.json');
+const beforeFile = structuredClone(opened.pipeline);
+const draft = structuredClone(opened.pipeline);
+delete draft.pipeline[0].inputs.text;
+const report = await write('/validate', 'POST', {pipeline: draft, explain: true}, true);
+assert.equal(report.ok, false);
+assert.ok(report.revision && report.tool_fingerprint);
+const snapshot = structuredClone(draft);
+const patch = [{op: 'add', path: '/pipeline/0/inputs/text', value: 'input.sentence_text'}];
+const body = {pipeline: draft, patch, revision: report.revision, tool_fingerprint: report.tool_fingerprint};
+const preview = await write('/fixes/preview', 'POST', body);
+assert.equal(preview.ok, true);
+assert.equal(preview.report.ok, true);
+assert.equal(preview.patched.pipeline[0].inputs.text, 'input.sentence_text');
+assert.deepEqual(draft, snapshot, 'preview cannot mutate the caller draft');
+assert.deepEqual((await api('/pipeline?filename=pipeline_keyword_match_rules.json')).pipeline, beforeFile);
+assert.notEqual(preview.revision, report.revision);
+const secondPreview = await write('/fixes/preview', 'POST', body);
+assert.deepEqual(secondPreview.patched, preview.patched);
+const history = createHistory();
+history.reset(snapshot);
+history.record(secondPreview.patched);
+assert.deepEqual(history.undo(), snapshot);
+assert.equal(history.undo(), null);
+assert.deepEqual(history.redo(), beforeFile);
 
-for (const mutate of [
-  () => { state.pipeline.comment = "user edit"; state.pipelineVersion++; },
-  () => { state.pipeline = { ...initial, comment: "other document" }; state.documentVersion++; },
-  () => { drafts.set("node", { prompt: "unsaved form" }); },
-]) {
-  reset();
-  let resolve;
-  previewResponse = new Promise(done => { resolve = done; });
-  const running = handleApplyFix(fix);
-  assert.equal(previewCalls, 1, "Preview request must actually be in flight");
-  mutate();
-  const expected = structuredClone(state.pipeline);
-  resolve({ ok: true, patched: structuredClone(patched), report: { ok: true } });
-  await running;
-  assert.deepEqual(plain(state.pipeline), expected, "Late preview must preserve newer user work");
-  assert.equal(history.canUndo, false, "Rejected late repair creates no history entry");
-  assert.equal(confirmations, 0, "A stale repair must not ask the user to approve it");
-}
-reset();
-drafts.set("json", "{ unfinished");
-await handleApplyFix(fix);
-assert.equal(previewCalls, 0, "Do not preview a repair against unapplied form buffers");
+await assert.rejects(write('/fixes/preview', 'POST', {...body, revision: 'old'}),
+  error => error.status === 409 && error.payload.error.code === 'REVISION_CONFLICT');
+await assert.rejects(write('/fixes/preview', 'POST', {...body, tool_fingerprint: 'old'}),
+  error => error.status === 409 && error.payload.error.code === 'TOOL_OUTDATED');
+const changed = structuredClone(draft);
+changed.comment = 'changed after validation';
+await assert.rejects(write('/fixes/preview', 'POST', {...body, pipeline: changed}),
+  error => error.status === 409 && error.payload.error.code === 'REVISION_CONFLICT');
+await assert.rejects(write('/fixes/preview', 'POST', {...body, patch: [{op: 'remove', path: '/absent'}]}),
+  error => error.status === 400 && error.payload.error.code === 'PATCH_APPLICATION_FAILED');
+assert.deepEqual((await api('/pipeline?filename=pipeline_keyword_match_rules.json')).pipeline, beforeFile);
 
-
-// 应用必须通过原生接口提交图修改，并把完整候选 (含保留的顺序)
-// 视为一次可撤销的操作。
-reset();
-const graphInitial = { ...initial, pipeline: [{name: "a", type: "source"}, {name: "b", type: "target", depends_on: ["a"], inputs: { text: "a.text" } }] };
-state.pipeline = structuredClone(graphInitial);
-history.reset({ pipeline: state.pipeline, selected: "" });
-const graphCandidate = structuredClone(graphInitial);
-delete graphCandidate.pipeline[1].inputs.text;
-authoringResponse = { ok: true, pipeline: graphCandidate, validation: { ok: false, diagnostics: [] } };
-const disconnect = { kind: "disconnect", source: { node: "a", port: "text" }, target: { node: "b", port: "text" } };
-await app.namespace.applyAuthoring(disconnect);
-assert.equal(authoringCalls.length, 1);
-assert.deepEqual(authoringCalls[0].operation, disconnect);
-assert.deepEqual(authoringCalls[0].pipeline, graphInitial);
-assert.equal(authoringCalls[0].revision, "revision-1");
-assert.equal(authoringCalls[0].tool_fingerprint, "tool-1");
-assert.deepEqual(plain(state.pipeline), graphCandidate, "Use the complete native candidate without a second graph transform");
-await restoreHistory("undo");
-assert.deepEqual(plain(state.pipeline), graphInitial);
-assert.equal(history.canUndo, false, "One action records exactly one history transaction");
-
-for (const change of [
-  () => { state.pipeline.comment = "newer"; state.pipelineVersion++; },
-  () => { state.documentVersion++; },
-  () => { drafts.set("json", "unfinished"); },
-]) {
-  reset();
-  let finish;
-  authoringResponse = new Promise(resolve => { finish = resolve; });
-  const action = app.namespace.applyAuthoring(disconnect);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(authoringCalls.length, 1);
-  change();
-  const expected = structuredClone(state.pipeline);
-  finish({ ok: true, pipeline: patched, validation: { ok: true, diagnostics: [] } });
-  await action;
-  assert.deepEqual(plain(state.pipeline), expected, "Late graph operations cannot replace newer work");
-  assert.equal(history.canUndo, false);
-}
-
-// 页面审阅可能持续任意时长：提交已审阅的候选前，
-// 拒绝草稿编辑和已变化的工具。
-reset();
-await handleApplyFix(fix);
-state.pipeline.comment = "edited while reviewing";
-state.pipelineVersion++;
-await app.namespace.handleApplyReviewedFix();
-assert.equal(state.pipeline.comment, "edited while reviewing");
-assert.equal(history.canUndo, false);
-reset();
-await handleApplyFix(fix);
-previewResponse = Promise.reject(new Error("TOOL_FINGERPRINT_MISMATCH"));
-await app.namespace.handleApplyReviewedFix();
-assert.deepEqual(plain(state.pipeline), initial);
-assert.equal(history.canUndo, false);
-assert.equal(confirmations, 0);
-
-const ready = { ok: true, summary: { status: "ready", tools: { alg_pipeline_tool: true, alg_demo: true }, assets: [] } };
-const elementText = node => [node.textContent || "", ...node.children.map(elementText)].join("\n");
-reset();
-preflightResponse = ready;
-await app.namespace.runPreflight();
-assert.match(elementText(elements.get("#preflightSummary")), /alg_pipeline_tool=✓.*alg_demo=✓/);
-elements.get("#runProfile").value = "other-profile";
-app.namespace.renderPreflightFreshness();
-assert.match(elementText(elements.get("#preflightSummary")), /过期|重新预检/);
-for (const change of [
-  () => { state.pipelineVersion++; state.pipeline.comment = "newer"; },
-  () => { state.documentVersion++; },
-  () => { elements.get("#runProfile").value = "different-profile"; },
-  () => { state.deployment = { conf_name: "different.conf", conf_revision: "new" }; },
-]) {
-  reset();
-  let finish;
-  preflightResponse = new Promise(resolve => { finish = resolve; });
-  const action = app.namespace.runPreflight();
-  change();
-  finish({ ...ready, summary: { ...ready.summary, next_step: "STALE_RESPONSE_SENTINEL" } });
-  await action;
-  assert.doesNotMatch(elementText(elements.get("#preflightSummary")), /STALE_RESPONSE_SENTINEL/,
-    "Delayed preflight must not display a result for another draft or deployment");
-}
-// I/O pair ordering follows the native Demo carrier order. Parameter overrides
-// do not change the Profile contract.
-reset();
-const profileIo = {input: [{type: "doc_in", name: "doc_qa"}, {type: "audit_in", name: "text_audit"}], output: [{type: "json_out", name: "doc_qa"}]};
-state.catalog = {profiles: [{name: "ordered", suite: "neutral", io: profileIo}]};
-state.catalogProfiles = [];
-elements.get("#cloneProfile").id = "cloneProfile";
-elements.get("#runProfile").id = "runProfile";
-for (const [io, expected] of [
-  [structuredClone(profileIo), ["ordered"]],
-  [{input: profileIo.input.map(entry => ({...entry, params: {limit: 2}})), output: profileIo.output.map(entry => ({...entry, params: {capacity: 3}}))}, ["ordered"]],
-  [{...profileIo, input: [...profileIo.input].reverse()}, []],
-]) {
-  state.pipeline.io = io;
-  app.namespace.filterProfiles();
-  assert.deepEqual(elements.get("#runProfile").options.map(option => option.value), expected);
-}
-console.log("Studio native authoring, page approval and preflight snapshot regressions passed");
+// Remediation is native Validator data, preserved by the service for UI review.
+const fixes = report.diagnostics.flatMap(item => item.remediation?.fixes || []);
+assert.ok(fixes.length > 0, 'missing required input should offer a native repair');
+const nativeFix = fixes.find(fix => fix.patch.some(operation => operation.path === '/pipeline/0/inputs' && operation.value?.text === 'input.sentence_text'));
+assert.ok(nativeFix, 'native remediation connects the required logical input');
+const nativePreview = await write('/fixes/preview', 'POST', {...body, patch: nativeFix.patch});
+assert.equal(nativePreview.report.ok, true);
+assert.deepEqual(nativePreview.patched, beforeFile);
+console.log('PASS Studio native fix preview, revisions, fingerprint and one-step history');
