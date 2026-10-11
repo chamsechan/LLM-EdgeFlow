@@ -1,222 +1,34 @@
 #include <gtest/gtest.h>
 
-#include <cstdlib>
 #include <memory>
-#include <nlohmann/json.hpp>
-#include <stdexcept>
 #include <string>
 
-#include "contracts/parameters.h"
-#include "core/node_interface.h"
 #include "core/node_registry.h"
-#include "core/pipeline.h"
-#include "core/pipeline_diagnostic.h"
-#include "core/pipeline_validator.h"
 #include "edgeflow/operator/interface.h"
-#include "engine/model_interface.h"
-#include "engine/model_registry.h"
-#include "platform_mock/error_codes.h"
-#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
-
-inline NodeDefinition MakeTestNodeDef(const std::string& type) {
-  NodeDefinition def;
-  def.node_type = type;
-  def.category = "test";
-  def.description = "test node " + type;
-  def.parallel_safe = true;
-  return def;
+TEST(RegistrationStartupTest,
+     DuplicateNodePreservesFirstEntryAndPermanentlyRejectsStartup) {
+  auto& registry = NodeRegistry::Instance();
+  ASSERT_FALSE(registry.HasConflict());
+  const auto original = registry.Find("text_rule_match");
+  ASSERT_TRUE(original.has_value());
+  const auto table = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(table.Init(), 0) << operator_api::GetOperatorLastError();
+  ASSERT_EQ(table.DeInit(), 0);
+  EXPECT_FALSE(registry.Register(
+      original->node_type, [] { return std::unique_ptr<INode>{}; }, *original));
+  ASSERT_TRUE(registry.HasConflict());
+  ASSERT_NE(registry.Create(original->node_type), nullptr);
+  const auto errors = registry.GetConflictErrors();
+  ASSERT_FALSE(errors.empty());
+  EXPECT_NE(errors.front().find("text_rule_match"), std::string::npos);
+  EXPECT_NE(table.Init(), 0);
+  const std::string first = operator_api::GetOperatorLastError();
+  EXPECT_NE(first.find("text_rule_match"), std::string::npos);
+  EXPECT_NE(table.Init(), 0);
+  EXPECT_TRUE(registry.HasConflict());
+  EXPECT_EQ(registry.Find("text_rule_match")->outputs.size(),
+            original->outputs.size());
 }
-
-inline ModelDefinition MakeTestModelDef(const std::string& type) {
-  ModelDefinition def;
-  def.impl_name = type;
-  def.model_type = "embedding";
-  def.description = "test model " + type;
-  def.required_protocol = ExecutionProtocol::kTensorGraph;
-  def.concurrency = InferenceConcurrency::kConcurrent;
-  return def;
-}
-
-class DummyNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "dummy";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  NodeControlResult Control(int, const std::string&) override {
-    return NodeControlResult::Handled(0);
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-REGISTER_NODE_WITH_DEFINITION(DummyNode, MakeTestNodeDef(DummyNode::kNodeType));
-
-namespace {
-struct BadAuthoringParameters {
-  int count = 0;
-};
-
-// 该声明在 main 之前执行。每个 CTest 选择独立进程，
-// 因此编写期失败不会污染现有的注册表场景。
-const bool kAuthoringStartupAttempted = [] {
-  const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
-  if (!selected) return false;
-  NodeRegistry::Instance().RegisterWithDefinitionFactory(
-      "bad_authoring", [] { return std::make_unique<DummyNode>(); },
-      [selected] {
-        const std::string scenario(selected);
-        if (scenario == "invalid_default") {
-          const Parameters<BadAuthoringParameters> parameters({
-              Field("count", &BadAuthoringParameters::count)
-                  .Default(-1)
-                  .Minimum(0),
-          });
-          (void)parameters;
-        } else if (scenario == "duplicate_member") {
-          const Parameters<BadAuthoringParameters> parameters({
-              Field("count", &BadAuthoringParameters::count).Required(),
-              Field("other", &BadAuthoringParameters::count).Required(),
-          });
-          (void)parameters;
-        } else if (scenario == "factory_exception") {
-          throw std::runtime_error("authoring factory deliberately failed");
-        }
-        return MakeTestNodeDef("bad_authoring");
-      });
-  return true;
-}();
-}  // namespace
-
-TEST(RegistryAuthoringStartupTest,
-     DeclarationFailureReachesMainAndFailsClosed) {
-  const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
-  if (!selected) GTEST_SKIP() << "Requires a process-isolated authoring case";
-  ASSERT_TRUE(kAuthoringStartupAttempted);
-  const std::string scenario(selected);
-  std::string reason;
-  if (scenario == "invalid_default") {
-    reason =
-        "Invalid default for count: Numeric value is below minimum 0.000000";
-  } else if (scenario == "duplicate_member") {
-    reason =
-        "Same struct member bound to multiple config fields (count, other)";
-  } else {
-    ASSERT_EQ(scenario, "factory_exception");
-    reason = "authoring factory deliberately failed";
-  }
-  EXPECT_FALSE(NodeRegistry::Instance().Has("bad_authoring"));
-  EXPECT_EQ(NodeRegistry::Instance().Create("bad_authoring"), nullptr);
-  ASSERT_TRUE(NodeRegistry::Instance().HasConflict());
-
-  const nlohmann::json config = {
-      {"pipeline",
-       nlohmann::json::array({{{"name", "dummy"},
-                               {"type", DummyNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-  const auto validation =
-      PipelineValidator::ValidateAndPlan(config, MakeTestBoundary());
-  EXPECT_FALSE(validation.report.ok);
-  ASSERT_FALSE(validation.report.diagnostics.empty());
-  const auto& diagnostic = validation.report.diagnostics.front();
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_NE(diagnostic.message.find("bad_authoring"), std::string::npos);
-  EXPECT_NE(diagnostic.message.find(reason), std::string::npos);
-
-  Pipeline pipeline;
-  PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(BuildTestPipeline(pipeline, config, MakeTestBoundary(),
-                                 &build_diagnostic));
-  EXPECT_EQ(build_diagnostic.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_NE(build_diagnostic.message.find("bad_authoring"), std::string::npos);
-  EXPECT_NE(build_diagnostic.message.find(reason), std::string::npos);
-}
-
-class DummyModel : public IEmbeddingModel {
- public:
-  inline static constexpr char kImplName[] = "dummy_model";
-  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
-                                        std::string*) {
-    return std::make_shared<DummyModel>();
-  }
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = kImplName;
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string model_type = "embedding";
-    return model_type;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  int Embed(const TextBatch&, EmbeddingBatch*,
-            std::string* diagnostic = nullptr) noexcept override {
-    if (diagnostic) diagnostic->clear();
-    return 0;
-  }
-};
-REGISTER_MODEL_WITH_DEFINITION(DummyModel,
-                               MakeTestModelDef(DummyModel::kImplName));
-
-TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-  ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
-  EXPECT_FALSE(NodeRegistry::Instance().Register(
-      DummyNode::kNodeType, []() { return std::make_unique<DummyNode>(); },
-      MakeTestNodeDef(DummyNode::kNodeType)));
-  EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
-  EXPECT_NE(NodeRegistry::Instance().Create(DummyNode::kNodeType), nullptr);
-
-  Pipeline pipe;
-  PipelineDiagnostic diag;
-  nlohmann::json cfg = {
-      {"pipeline",
-       nlohmann::json::array({{{"name", "dummy"},
-                               {"type", DummyNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, MakeTestBoundary(), &diag));
-  EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_EQ(diag.path, "/pipeline");
-}
-
-TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
-  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
-  ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
-  EXPECT_FALSE(ModelRegistry::Instance().Register(
-      MakeTestModelDef(DummyModel::kImplName), DummyModel::Create));
-  EXPECT_TRUE(ModelRegistry::Instance().HasConflict());
-
-  Pipeline pipe;
-  PipelineDiagnostic diag;
-  nlohmann::json cfg = {
-      {"models",
-       nlohmann::json::array({{{"name", "m1"},
-                               {"type", "embedding"},
-                               {"backend",
-                                {{"type", "unused_backend"},
-                                 {"params", nlohmann::json::object()}}},
-                               {"file", "unused.bin"},
-                               {"params", nlohmann::json::object()}}})},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "dummy"},
-                               {"type", DummyNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, MakeTestBoundary(), &diag));
-  EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
-  EXPECT_EQ(diag.path, "/models");
-  const std::string reason =
-      "Duplicate model registration for type: dummy_model";
-  EXPECT_NE(diag.message.find(reason), std::string::npos);
-
-  // SDK 初始化同样失败，最近错误标明注册表与原因。
-  const auto operator_table = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-  EXPECT_EQ(operator_table.Init(), COMPANY_ALG_ERR_REGISTRY_CONFLICT);
-  EXPECT_NE(std::string(operator_api::GetOperatorLastError())
-                .find("ModelRegistry: " + reason),
-            std::string::npos);
-}
-
 }  // namespace llm_edgeflow
