@@ -230,7 +230,7 @@ edgeflow_add_runner_test(NodeBaseContractsTest edgeflow_test_core_runner
 edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
   "NodeOwnershipAndReuseTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
-  "DefinitionSchemaValidationTest.*" "${_edgeflow_tier1}")
+  "NodeDefinitionTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
   "ModelBackendDecouplingTest.*:ModelConfigValidationTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
