@@ -10,6 +10,7 @@
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
+#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 namespace {
@@ -18,17 +19,15 @@ constexpr auto kAnswerText = MakeBlackboardKey<TextBatch>("answer_text");
 constexpr auto kIntent = MakeBlackboardKey<RuleMatchBatch>("intent");
 constexpr auto kChunkCount = MakeBlackboardKey<Int32Batch>("chunk_count");
 
-constexpr const char* kOutputSlot = "doc_out";
+constexpr const char* kOutputSlot = "json_out";
 
 struct Params {
-  int64_t intent_name_max_bytes = 0;
-  int64_t answer_text_max_bytes = 0;
+  int64_t result_json_max_bytes = 0;
 };
 
 Parameters<Params> ParamSpec() {
   return Parameters<Params>({
-      MaxBytes("intent_name", &Params::intent_name_max_bytes).Default(63),
-      MaxBytes("answer_text", &Params::answer_text_max_bytes).Default(1023),
+      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
   });
 }
 
@@ -80,15 +79,15 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
       continue;
     }
-    DocumentOutputValue out;
+    JsonOutputValue out;
 
     const auto& match = intents_by_req[i]->data;
-    out.confidence = match.score;
-    out.chunk_count = chunks_by_req[i]->data;
     out.status_code = match.status_code;
-
-    out.intent_name = match.category;
-    out.answer_text = answers_by_req[i]->data;
+    out.result_json = nlohmann::json({{"intent_name", match.category},
+                                      {"confidence", match.score},
+                                      {"answer_text", answers_by_req[i]->data},
+                                      {"chunk_count", chunks_by_req[i]->data}})
+                          .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
       return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -103,7 +102,7 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "doc_qa";
-  def.slot = ExternalOutputSlot<DocumentOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
   def.logical_ports = {RequiredInputPort(kAnswerText),
                        RequiredInputPort(kIntent),
                        RequiredInputPort(kChunkCount)};

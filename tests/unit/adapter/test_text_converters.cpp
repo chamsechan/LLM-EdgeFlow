@@ -112,7 +112,7 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 
 TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "translate");
+      "json_out", "translate");
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->encode_fn, nullptr);
 
@@ -123,14 +123,14 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
 
   char buf[2048] = {0};
   CompanyString cs_buf{2047, buf};
-  CompanyOperatorEntityOutput out_struct{kMockServiceTranslate, nullptr, 0};
-  out_struct.entities_json = &cs_buf;
+  CompanyOperatorOutput out_struct{kMockServiceTranslate, nullptr, 0};
+  out_struct.result_json = &cs_buf;
 
   TestOutputBatchView dest;
   dest.count = 1;
-  dest.leased_slots["entity_out"] = {&out_struct};
-  dest.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
-  dest.SetCapacity("entity_out", "entities_json", sizeof(buf) - 1);
+  dest.leased_slots["json_out"] = {&out_struct};
+  dest.slot_types["json_out"] = "CompanyOperatorOutput";
+  dest.SetCapacity("json_out", "result_json", sizeof(buf) - 1);
 
   test::ParsedOutputOptions options(*conv);
 
@@ -142,9 +142,9 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(out_struct.status_code, 0);
 
-  ASSERT_NE(out_struct.entities_json, nullptr);
-  std::string json_res(out_struct.entities_json->data,
-                       out_struct.entities_json->length);
+  ASSERT_NE(out_struct.result_json, nullptr);
+  std::string json_res(out_struct.result_json->data,
+                       out_struct.result_json->length);
   auto parsed = nlohmann::json::parse(json_res);
   EXPECT_EQ(parsed["translated"], "Bonjour le monde");
 }
@@ -185,7 +185,7 @@ TEST_F(TextConvertersTest, SameCarrierSelectsBusinessPayload) {
 
 TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
-      "entity_out", "translate");
+      "json_out", "translate");
   ASSERT_NE(conv, nullptr);
   test::ParsedOutputOptions options(*conv);
 
@@ -206,19 +206,19 @@ TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
   EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(
                 *conv, &context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.FieldPath(), "entity_out");
+  EXPECT_EQ(status.FieldPath(), "json_out");
   char bytes[2] = {};
   CompanyString text{1, bytes};
-  CompanyOperatorEntityOutput output{kMockServiceTranslate, nullptr, 0};
-  output.entities_json = &text;
-  destination.leased_slots["entity_out"] = {&output};
-  destination.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
-  destination.SetCapacity("entity_out", "entities_json", 1);
+  CompanyOperatorOutput output{kMockServiceTranslate, nullptr, 0};
+  output.result_json = &text;
+  destination.leased_slots["json_out"] = {&output};
+  destination.slot_types["json_out"] = "CompanyOperatorOutput";
+  destination.SetCapacity("json_out", "result_json", 1);
   EXPECT_EQ(::llm_edgeflow::test::EncodeForTest(
                 *conv, &context, options, &destination, &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.FieldPath(), "entities_json");
+  EXPECT_EQ(status.FieldPath(), "result_json");
   EXPECT_EQ(written, 0U);
 }
 

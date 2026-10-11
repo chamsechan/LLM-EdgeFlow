@@ -90,7 +90,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         with self.assertRaises(SHOW.StudioError) as link:
             self.service.open_pipeline("pipeline_link.json")
         self.assertEqual(link.exception.code, "SYMLINK_REJECTED")
-        invalid = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'pipeline': []}
+        invalid = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {}}]}, 'pipeline': []}
         with self.assertRaises(SHOW.StudioError) as validation:
             self.service.save_pipeline("pipeline_invalid.json", invalid, None, True)
         self.assertEqual(validation.exception.code, "VALIDATION_FAILED")
@@ -115,12 +115,12 @@ class WorkbenchServiceTest(unittest.TestCase):
         results = job["result"]["results.jsonl"]
         self.assertEqual(len(results), 2)
         self.assertEqual([result["status"] for result in results], [0, 0])
-        self.assertTrue(results[0]["output"]["is_hit"])
-        self.assertEqual(results[0]["output"]["match_result"]["intent"], "STUDIO_DRAFT")
-        self.assertEqual(results[0]["output"]["match_result"]["matches"], [
+        self.assertEqual(results[0]["output"]["is_hit"], 1)
+        self.assertEqual(results[0]["output"]["intent"], "STUDIO_DRAFT")
+        self.assertEqual(results[0]["output"]["matches"], [
             {"category": "STUDIO_DRAFT", "matched_word": "VIP"}
         ])
-        self.assertFalse(results[1]["output"]["is_hit"])
+        self.assertEqual(results[1]["output"]["is_hit"], 0)
 
     def test_startup_opens_each_kite_file_without_backend_validation(self):
         files = list((ROOT / "configs").glob("pipeline_*_kite*.json"))
@@ -157,14 +157,14 @@ class WorkbenchServiceTest(unittest.TestCase):
 
     def test_terminal_viewer_prints_declared_mappings_without_inferring_order(self):
         pipeline = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-                           "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {"matches": "consumer.matches"}}]},
+                           "output": [{"type": "json_out", "name": "keyword_match", "inputs": {"matches": "consumer.matches"}}]},
                     "pipeline": [{"name": "consumer", "type": "text_rule_match", "inputs": {"text": "producer.text"}},
                                  {"name": "producer", "type": "text_template", "inputs": {"primary": "input.sentence_text"}}]}
         with mock.patch("builtins.print") as output:
             SHOW.render_terminal(Path("pipeline.json"), pipeline)
         rendered = "\n".join(call.args[0] for call in output.call_args_list if call.args)
         self.assertIn('inputs: {"text": "producer.text"}', rendered)
-        self.assertIn('output keyword_out/keyword_match: {"matches": "consumer.matches"}', rendered)
+        self.assertIn('output json_out/keyword_match: {"matches": "consumer.matches"}', rendered)
         self.assertIn('depends_on: [] (额外顺序)', rendered)
         self.assertLess(rendered.index("consumer: text_rule_match"), rendered.index("producer: text_template"))
 
@@ -390,7 +390,7 @@ class RunnableSolutionTest(unittest.TestCase):
             process = subprocess.run(command[3:], cwd=command[1], text=True, capture_output=True, timeout=30)
             self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
             records = [json.loads(line) for line in (output / Path(saved["conf_filename"]).stem / "results.jsonl").read_text().splitlines()]
-            self.assertEqual(records[0]["output"]["match_result"]["intent"], "SAVED_RULE")
+            self.assertEqual(records[0]["output"]["intent"], "SAVED_RULE")
         finally:
             shutil.rmtree(output, ignore_errors=True)
 
@@ -588,7 +588,7 @@ class RunnableSolutionTest(unittest.TestCase):
                 self.assertTrue(Path(conf_file).exists())
                 self.assertTrue(Path(conf_file).with_suffix(".json").exists())
                 reached_pair.append(Path(conf_file))
-                raise SHOW.StudioError("DEPLOYMENT_VALIDATION_FAILED", "invalid match_result_json_max_bytes")
+                raise SHOW.StudioError("DEPLOYMENT_VALIDATION_FAILED", "invalid result_json_max_bytes")
             return resolve(conf_file, profile)
 
         with mock.patch.object(self.service, "resolve_run_conf", side_effect=reject_owned_conf):
@@ -596,20 +596,20 @@ class RunnableSolutionTest(unittest.TestCase):
                 self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_rules")
         self.assertEqual(len(reached_pair), 1)
         self.assertEqual(error.exception.code, "DEPLOYMENT_VALIDATION_FAILED")
-        self.assertIn("match_result_json", str(error.exception))
+        self.assertIn("result_json", str(error.exception))
         self.assertEqual(list(self.configs.iterdir()), [unrelated])
         self.assertEqual(unrelated.read_text(), "keep")
 
     def test_profile_preserves_explicit_io_selection_and_output_parameters(self):
         pipeline = copy.deepcopy(self.keyword)
-        output_params(pipeline, "keyword_out")["match_result_json_max_bytes"] = 3071
+        output_params(pipeline, "json_out")["result_json_max_bytes"] = 3071
         snapshot = copy.deepcopy(pipeline)
         saved = self.service.save_solution("pipeline_profile_io.json", pipeline, "keyword_match_rules")
         self.assertEqual(saved["pipeline"], snapshot)
         self.assertEqual(saved["configuration"]["io"]["output"][0]["params"],
-                         {"match_result_json_max_bytes": 3071})
-        self.assertEqual(saved["configuration"]["output_pools"]["keyword_out"]["capacities"],
-                         {"match_result_json": 3071})
+                         {"result_json_max_bytes": 3071})
+        self.assertEqual(saved["configuration"]["output_pools"]["json_out"]["capacities"],
+                         {"result_json": 3071})
         for name in ("", "unknown_converter", "entity_extract"):
             with self.subTest(name=name):
                 changed = copy.deepcopy(self.keyword)
@@ -936,7 +936,7 @@ const code = readFileSync(process.argv[1], 'utf8');
 const w = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const catalog = JSON.parse(readFileSync(0, 'utf8'));
 const pipeline = {io:{input:[{type:'keyword_in',name:'keyword_match'}],
-  output:[{type:'keyword_out',name:'keyword_match',inputs:{matches:'rule.matches'}}]}, models:[], pipeline:[
+  output:[{type:'json_out',name:'keyword_match',inputs:{matches:'rule.matches'}}]}, models:[], pipeline:[
   {name:'template', type:'text_template', params:{template:'{{primary}}'}, inputs:{primary:'input.sentence_text'}},
   {name:'rule', type:'text_rule_match', depends_on:['template'], inputs:{text:'template.text'}}
 ]};
@@ -953,7 +953,7 @@ if (backend) {
   const nestedAsset = {model:{file:'nested/weights.bin',params:{tokenizer_file:'vocab.txt'}},
     paths:{'/file':'nested/weights.bin','/params/tokenizer_file':'vocab.txt'}};
   assert.deepEqual(w.assetModel(nestedAsset), nestedAsset.model);
-  const io = {input:[{type:'doc_in',name:'doc_qa'}],output:[{type:'doc_out',name:'doc_qa'}]};
+  const io = {input:[{type:'doc_in',name:'doc_qa'}],output:[{type:'json_out',name:'doc_qa'}]};
   const models = {io:structuredClone(io),models:[], pipeline:[]};
   w.upsertModel(models,catalog,'',{name:'embed',type:modelDef.model_type,
     backend:{type:backend.backend_type},file:'embed.onnx',params:{tokenizer_file:'vocab.txt'}});
@@ -1046,8 +1046,8 @@ process.stdout.write(JSON.stringify(pipeline));
     def test_init_multiple_io_pairs_roundtrips_and_keeps_independent_output_pools(self):
         inputs = [{"type": "keyword_in", "name": "keyword_match"},
                   {"type": "audit_in", "name": "dialogue_audit"}]
-        outputs = [{"type": "entity_out", "name": "entity_extract"},
-                   {"type": "entity_out", "name": "translate"}]
+        outputs = [{"type": "json_out", "name": "entity_extract"},
+                   {"type": "json_out", "name": "translate"}]
         request = urllib.request.Request(
             self.base + "/init", data=json.dumps({"input": inputs, "output": outputs}).encode(),
             method="POST", headers={"Content-Type": "application/json"})
@@ -1059,9 +1059,9 @@ process.stdout.write(JSON.stringify(pipeline));
         pipeline["pipeline"] = [{"type": "structured_json_parse", "name": "parse",
                                  "inputs": {"text": "input.user_text"}}]
         pipeline["io"]["output"][0].update(inputs={"entities": "parse.document"},
-                                          params={"entities_json_max_bytes": 511})
+                                          params={"result_json_max_bytes": 511})
         pipeline["io"]["output"][1].update(inputs={"translation": "input.user_text"},
-                                          params={"entities_json_max_bytes": 255})
+                                          params={"result_json_max_bytes": 255})
         validation = self.service.validate(pipeline)
         self.assertTrue(validation["ok"], validation)
         saved = self.service.save_pipeline("pipeline_multi.json", pipeline, None, save_as=True)
@@ -1072,11 +1072,11 @@ process.stdout.write(JSON.stringify(pipeline));
         conf.write_text(json.dumps({"pipe_path": saved["filename"]}))
         configured = self.service.resolve_run_conf(conf, {})
         pools = configured["output_pools"]
-        self.assertEqual(set(pools), {"entity_extract.entity_out", "translate.entity_out"})
-        self.assertEqual(pools["entity_extract.entity_out"]["capacities"], {"entities_json": 511})
-        self.assertEqual(pools["translate.entity_out"]["capacities"], {"entities_json": 255})
-        self.assertIsInstance(pools["translate.entity_out"]["params"], str)
-        self.assertEqual(configured["io"]["output"][1]["params"]["entities_json_max_bytes"], 255)
+        self.assertEqual(set(pools), {"entity_extract.json_out", "translate.json_out"})
+        self.assertEqual(pools["entity_extract.json_out"]["capacities"], {"result_json": 511})
+        self.assertEqual(pools["translate.json_out"]["capacities"], {"result_json": 255})
+        self.assertIsInstance(pools["translate.json_out"]["params"], str)
+        self.assertEqual(configured["io"]["output"][1]["params"]["result_json_max_bytes"], 255)
 
 
 class SelectionVerificationTest(unittest.TestCase):
@@ -1151,20 +1151,20 @@ class SelectionVerificationTest(unittest.TestCase):
         selection = SHOW.SELECTION
         pipeline = {"io": {
             "input": [{"type": "keyword_in", "name": "keyword_match", "params": {"max_input_bytes": 100}}],
-            "output": [{"type": "keyword_out", "name": "keyword_match", "params": {"match_result_json_max_bytes": 1024}},
-                       {"type": "entity_out", "name": "translate", "params": {"entities_json_max_bytes": 1024}}]},
+            "output": [{"type": "json_out", "name": "keyword_match", "params": {"result_json_max_bytes": 1024}},
+                       {"type": "json_out", "name": "translate", "params": {"result_json_max_bytes": 1024}}]},
             "models": []}
         snapshot = copy.deepcopy(pipeline)
         conf = selection.build_run_conf(pipeline, [], "nested/pipeline.json")
         self.assertEqual(conf, {"pipe_path": "pipeline.json"})
         self.assertEqual(pipeline, snapshot)
-        selection.build_run_conf(pipeline, [{"type": "keyword_out", "name": "keyword_match",
-            "params": {"match_result_json_max_bytes": 2048}}], "pipeline.json")
+        selection.build_run_conf(pipeline, [{"type": "json_out", "name": "keyword_match",
+            "params": {"result_json_max_bytes": 2048}}], "pipeline.json")
         self.assertEqual(pipeline["io"]["input"], snapshot["io"]["input"])
         self.assertEqual(pipeline["io"]["output"][1], snapshot["io"]["output"][1])
-        self.assertEqual(output_params(pipeline, "keyword_out")["match_result_json_max_bytes"], 2048)
+        self.assertEqual(output_params(pipeline, "json_out", "keyword_match")["result_json_max_bytes"], 2048)
         with self.assertRaises(ValueError):
-            selection.build_run_conf(pipeline, [{"type": "keyword_out", "name": "unselected"}], "pipeline.json")
+            selection.build_run_conf(pipeline, [{"type": "json_out", "name": "unselected"}], "pipeline.json")
 
     def test_asset_hashes_include_sidecars_and_changed_paths_are_unregistered(self):
         selection = SHOW.SELECTION
@@ -1267,7 +1267,7 @@ class SelectionVerificationTest(unittest.TestCase):
         broken_records = receipt["records"][:-1]
         self.assertEqual(selection.compare_samples(broken_records, selection.read_json(spec))["status"], "failed")
         records = json.loads(json.dumps(receipt["records"]))
-        records[0]["output"]["is_hit"] = False
+        records[0]["output"]["is_hit"] = 0
         metrics = selection.compare_samples(records, selection.read_json(spec))
         self.assertEqual(metrics["status"], "failed")
         self.assertEqual(metrics["failed_rows"], [0])
@@ -1279,8 +1279,8 @@ class SelectionVerificationTest(unittest.TestCase):
         tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
         pipeline = selection.read_json(ROOT / "configs/pipeline_keyword_match_rules.json")
         spec = ROOT / "tests/fixtures/effects/keyword_exact.json"
-        outputs = [{"type": "keyword_out", "name": "keyword_match",
-                    "params": {"match_result_json_max_bytes": 2048}}]
+        outputs = [{"type": "json_out", "name": "keyword_match",
+                    "params": {"result_json_max_bytes": 2048}}]
         with tempfile.TemporaryDirectory(prefix="selection-inheritance-", dir=ROOT / "build") as directory:
             root = Path(directory)
             source = root / "selected.json"
@@ -1311,7 +1311,7 @@ class SelectionVerificationTest(unittest.TestCase):
             checked = selection.attach_evidence(copy.deepcopy(report), evidence, spec, conf, SHOW.DEMO_BINARY, root)
             self.assertTrue(checked["ready_for_biz"])
 
-            inherited["io"]["output"][0]["params"]["match_result_json_max_bytes"] = 4096
+            inherited["io"]["output"][0]["params"]["result_json_max_bytes"] = 4096
             deployment.write_text(json.dumps(inherited))
             changed = selection.attach_evidence(copy.deepcopy(report), evidence, spec, conf, SHOW.DEMO_BINARY, root)
             self.assertEqual(changed["effects"]["status"], "stale")
@@ -1334,7 +1334,7 @@ class SelectionVerificationTest(unittest.TestCase):
             def run_with_changed_deployment(command, **kwargs):
                 result = run(command, **kwargs)
                 if Path(command[0]).resolve() == SHOW.DEMO_BINARY.resolve():
-                    output_params(pipeline, "keyword_out")["match_result_json_max_bytes"] = 4096
+                    output_params(pipeline, "json_out")["result_json_max_bytes"] = 4096
                     deployment.write_text(json.dumps(pipeline))
                 return result
 
@@ -1477,7 +1477,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_add_node_explicit_name_and_errors(self):
         req = {
-            "pipeline": {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []},
+            "pipeline": {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []},
             "operation": {'kind': 'add_node', 'type': 'text_rule_match', 'name': 'custom_rule'},
         }
         code, res = self.run_edit(req)
@@ -1510,7 +1510,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_rename_rejects_duplicate_name(self):
         pipe = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-            "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {"matches": "rule.matches"}}]},
+            "output": [{"type": "json_out", "name": "keyword_match", "inputs": {"matches": "rule.matches"}}]},
             "models": [], "pipeline": [
                 {"name": "template", "type": "text_template", "inputs": {"primary": "input.sentence_text"}},
                 {"name": "rule", "type": "text_rule_match", "depends_on": ["template"], "inputs": {"text": "template.text"}}]}
@@ -1521,7 +1521,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_connect_and_disconnect_output(self):
         pipe = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-            "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {"matches": "audit.matches"}}]},
+            "output": [{"type": "json_out", "name": "keyword_match", "inputs": {"matches": "audit.matches"}}]},
             "models": [], "pipeline": [
                 {"name": "rule", "type": "text_rule_match", "inputs": {"text": "input.sentence_text"}},
                 {"name": "audit", "type": "text_rule_match", "depends_on": ["rule"], "inputs": {"text": "rule.matches"}}]}
@@ -1539,7 +1539,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(disconnected["pipeline"]["pipeline"], pipe["pipeline"], "output edits preserve independent consumers")
 
     def test_authoring_disconnect_preserves_extra_order_and_removes_input(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {'text': 'tpl.text'}, 'params': {}}]}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {'text': 'tpl.text'}, 'params': {}}]}
         # 断开数据端口时保留执行依赖 (回归用例 1)
         req = {
             "pipeline": pipe,
@@ -1569,7 +1569,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertEqual(res_rm_dep["pipeline"]["pipeline"][1]["depends_on"], [])
 
     def test_authoring_batch_operations_and_request_limit(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
         req_valid = {
             "pipeline": pipe,
             "operations": [
@@ -1598,7 +1598,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_rename_and_reuse_name_preserves_distinct_references(self):
         pipe = {"io": {"input": [{"type": "keyword_in", "name": "keyword_match"}],
-            "output": [{"type": "keyword_out", "name": "keyword_match", "inputs": {}}]}, "models": [], "pipeline": []}
+            "output": [{"type": "json_out", "name": "keyword_match", "inputs": {}}]}, "models": [], "pipeline": []}
         operations = [
             {"kind": "add_node", "type": "text_rule_match", "name": "foo"},
             {"kind": "rename_node", "node": "foo", "new_name": "bar"},
@@ -1615,7 +1615,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
 
     def test_studio_authoring_preview_endpoint(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
         res = self.service.preview_authoring(
             pipe,
             operation={'kind': 'add_node', 'type': 'text_rule_match', 'name': 'n1'},
@@ -1721,7 +1721,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         conf["pipe_path"] = pipeline_path.name
         for model in pipeline.get("models", []):
             model["file"] = "deployed_" + model["name"]
-        output_params(pipeline, "doc_out")["answer_text_max_bytes"] = 2047
+        output_params(pipeline, "json_out")["result_json_max_bytes"] = 2047
         pipeline_path.write_text(json.dumps(pipeline))
         conf_path.write_text(json.dumps(conf))
         self.service.associate_deployment(pipeline_path.name, conf_path.name)
@@ -1769,7 +1769,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
         self.assertEqual(pipeline["models"][0]["file"], "raw_edit.onnx")
         self.assertEqual(candidate, {"pipe_path": path.name})
-        self.assertEqual(output_params(pipeline, "doc_out")["answer_text_max_bytes"], 2047)
+        self.assertEqual(output_params(pipeline, "json_out")["result_json_max_bytes"], 2047)
 
     def test_associated_new_model_does_not_invent_deployment_override(self):
         pipeline, conf, path, _ = self.associated_doc_qa()
@@ -1799,7 +1799,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         # 在 configs 中创建 Pipeline
         pipe_path = self.configs / "pipeline_doc_qa_assoc.json"
         doc_qa_pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text())
-        output_params(doc_qa_pipe, "doc_out")["answer_text_max_bytes"] = 2047
+        output_params(doc_qa_pipe, "json_out")["result_json_max_bytes"] = 2047
         pipe_path.write_text(json.dumps(doc_qa_pipe, indent=2))
 
         # 在 configs 中创建指向该 Pipeline 的 conf
@@ -1833,13 +1833,13 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
             "new_embed_model.onnx",
         )
         # 验证 conf 中与模型无关的设置保持不变
-        self.assertEqual(output_params(updated_pipe, "doc_out"),
-                         {"answer_text_max_bytes": 2047})
+        self.assertEqual(output_params(updated_pipe, "json_out"),
+                         {"result_json_max_bytes": 2047})
         updated_conf = json.loads(conf_path.read_text())
         self.assertEqual(updated_conf, {"pipe_path": pipe_path.name})
 
     def test_authoring_oversized_payload_rejection_4mib(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
         large_comment = "x" * (4 * 1024 * 1024 + 100)
         req = {
             "pipeline": pipe,
@@ -1852,7 +1852,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("REQUEST_TOO_LARGE", res["diagnostics"][0]["message"])
 
     def test_authoring_reserved_node_names_rejected(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {}}]}, 'models': [], 'pipeline': []}
         req_add_ingress = {
             "pipeline": pipe,
             "operation": {'kind': 'add_node', 'type': 'text_rule_match', 'name': 'input'},
@@ -1862,7 +1862,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertFalse(res1["ok"])
         self.assertIn("INVALID_NODE_NAME", res1["diagnostics"][0]["message"])
 
-        pipe2 = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'node_a.matches'}}]}, 'models': [], 'pipeline': [{'name': 'node_a', 'type': 'text_rule_match', 'depends_on': [], 'inputs': {}, 'params': {}}]}
+        pipe2 = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {'matches': 'node_a.matches'}}]}, 'models': [], 'pipeline': [{'name': 'node_a', 'type': 'text_rule_match', 'depends_on': [], 'inputs': {}, 'params': {}}]}
         req_rename_egress = {
             "pipeline": pipe2,
             "operation": {"kind": "rename_node", "node": "node_a", "new_name": "output"},
@@ -1874,7 +1874,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
 
     def test_authoring_disconnect_requires_explicit_binding(self):
         # 同名输出加显式顺序不得产生输入绑定。
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {}, 'params': {}}]}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {}, 'params': {}}]}
         req_disc = {
             "pipeline": pipe,
             "operation": {
@@ -1889,7 +1889,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertIn("连线不存在", res["diagnostics"][0]["message"])
 
         # 断开入口连接
-        pipe_ing = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'rule', 'type': 'text_rule_match', 'depends_on': [], 'inputs': {'text': 'input.sentence_text'}, 'params': {}}]}
+        pipe_ing = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'rule', 'type': 'text_rule_match', 'depends_on': [], 'inputs': {'text': 'input.sentence_text'}, 'params': {}}]}
         req_ing_disc = {
             "pipeline": pipe_ing,
             "operation": {
@@ -1904,7 +1904,7 @@ class AuthoringAndDeploymentTest(unittest.TestCase):
         self.assertNotIn("text", res_ing["pipeline"]["pipeline"][0]["inputs"])
 
     def test_authoring_remove_node_handles_consumers_and_egress(self):
-        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'keyword_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {'text': 'tpl.text'}, 'params': {}}]}
+        pipe = {'io': {'input': [{'type': 'keyword_in', 'name': 'keyword_match'}], 'output': [{'type': 'json_out', 'name': 'keyword_match', 'inputs': {'matches': 'rule.matches'}}]}, 'models': [], 'pipeline': [{'name': 'tpl', 'type': 'text_template', 'depends_on': [], 'inputs': {}, 'params': {'template': '{{primary}}'}}, {'name': 'rule', 'type': 'text_rule_match', 'depends_on': ['tpl'], 'inputs': {'text': 'tpl.text'}, 'params': {}}]}
         req = {
             "pipeline": pipe,
             "operation": {"kind": "remove_node", "node": "rule"},

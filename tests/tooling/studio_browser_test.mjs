@@ -44,10 +44,10 @@ try {
   await page.locator("#createInputs button").filter({hasText: "添加输入"}).click();
   await page.selectOption("#create_input_0_type", "keyword_in");
   await page.locator("#createOutputs button").filter({hasText: "添加输出"}).click();
-  await page.selectOption("#create_output_0_type", "keyword_out");
+  await page.selectOption("#create_output_0_type", "json_out");
   await page.click("#newButton");
   await page.waitForFunction(() => document.querySelectorAll(".node").length === 2 && !document.querySelector("#newButton").disabled);
-  assert.deepEqual(initializationRequests.at(-1), {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "keyword_out", name: "keyword_match"}]});
+  assert.deepEqual(initializationRequests.at(-1), {input: [{type: "keyword_in", name: "keyword_match"}], output: [{type: "json_out", name: "keyword_match"}]});
   assert.deepEqual((await json()).pipeline, [], "explicit I/O selections create an empty native draft");
   page.once("dialog", dialog => dialog.accept());
   await page.selectOption("#cloneProfile", "keyword_match_rules");
@@ -89,15 +89,15 @@ try {
   await page.click("#openRunButton");
   await page.locator("#bizContract > summary").click();
   for (const [label, expected] of [
-    ["输入 → 输出", ["keyword_in/keyword_match → keyword_out/keyword_match"]],
+    ["输入 → 输出", ["keyword_in/keyword_match → json_out/keyword_match"]],
     ["输入 Converter", ["keyword_in/keyword_match"]],
-    ["输出 Converter", ["keyword_out/keyword_match"]],
-    ["宿主类型", ["CompanyOperatorKeywordInput", "CompanyOperatorKeywordOutput"]],
-    ["类型注册后缀", ["keyword_in", "keyword_out"]],
+    ["输出 Converter", ["json_out/keyword_match"]],
+    ["宿主类型", ["CompanyOperatorKeywordInput", "CompanyOperatorOutput"]],
+    ["类型注册后缀", ["keyword_in", "json_out"]],
   ]) assert.deepEqual(await contractValues(label), expected, label);
   await open("pipeline_browser_multi.json");
   await page.click("#openRunButton");
-  assert.deepEqual(await contractValues("输入 → 输出"), ["doc_in/doc_qa → doc_out/doc_qa"]);
+  assert.deepEqual(await contractValues("输入 → 输出"), ["doc_in/doc_qa → json_out/doc_qa"]);
   assert.doesNotMatch(await page.locator("#bizContractFields").textContent(), /keyword/,
     "Changing documents must replace every previous contract field");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -135,7 +135,7 @@ try {
   assert.equal(await page.locator('body').evaluate(el => el.classList.contains('editing')), false);
   const beforeIoEdit = await json();
   await page.locator("#ioSettings > summary").click();
-  const outputCapacity = page.locator('#ioOutputs [data-field="match_result_json_max_bytes"]');
+  const outputCapacity = page.locator('#ioOutputs [data-field="result_json_max_bytes"]');
   assert.equal(await outputCapacity.isDisabled(), true, "browsing never edits converter parameters");
   assert.equal(await outputCapacity.inputValue(), "", "converter defaults remain unset in the draft");
   await page.click("#editModeButton");
@@ -145,7 +145,7 @@ try {
   const afterIoEdit = await json();
   assert.deepEqual(afterIoEdit.io.input, beforeIoEdit.io.input);
   assert.deepEqual(afterIoEdit.io.output[0].inputs, beforeIoEdit.io.output[0].inputs);
-  assert.equal(afterIoEdit.io.output[0].params.match_result_json_max_bytes, 4096);
+  assert.equal(afterIoEdit.io.output[0].params.result_json_max_bytes, 4096);
   assert.ok(await page.locator("#runProfile option[value=keyword_match_rules]").count(), "parameter overrides preserve the Profile contract");
   await page.click("#undoButton");
   assert.deepEqual(await json(), beforeIoEdit, "I/O Apply records one complete undo transaction");
@@ -213,7 +213,7 @@ try {
   await page.waitForFunction(() => document.querySelector("#runSummary").textContent.includes("运行已完成"));
   const editedRecords = JSON.parse(await page.locator('#runResult').textContent())['results.jsonl'];
   assert.equal(editedRecords[0].output.match_result.intent, 'SAVED_BROWSER');
-  assert.equal(editedRecords[1].output.is_hit, false);
+  assert.equal(editedRecords[1].output.is_hit, 0);
   await screenshot('edited-run-results');
   page.once("dialog", dialog => dialog.accept("pipeline_browser_pair.json"));
   await page.click("#saveSolutionButton");

@@ -63,15 +63,13 @@ typedef struct CompanyFrame {
 } CompanyFrame;
 
 /**
- * @brief OCR / 目标检测结构化输出镜像结构体
+ * @brief 统一业务输出；JSON 字符串由输出池持有，有效期随输出租约。
  */
-typedef struct CompanyOdOutput {
+typedef struct CompanyOperatorOutput {
   int32_t service_type;
-  int32_t detected_box_count;
   CompanyString* result_json;
-  CompanyAny* metadata;
   int32_t status_code;
-} CompanyOdOutput;
+} CompanyOperatorOutput;
 
 /**
  * @brief 业务 4: 对话合规审核 Operator 聚合输入结构体
@@ -83,18 +81,6 @@ typedef struct CompanyOperatorAuditInput {
 } CompanyOperatorAuditInput;
 
 /**
- * @brief 业务 4: 对话合规审核 Operator 聚合输出结构体
- */
-typedef struct CompanyOperatorAuditOutput {
-  int32_t service_type;
-  CompanyString* risk_level;
-  float risk_score;
-  CompanyString* matched_policy_clause;
-  CompanyString* audit_verdict_json;
-  int32_t status_code;
-} CompanyOperatorAuditOutput;
-
-/**
  * @brief 业务 1: 关注词匹配 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorKeywordInput {
@@ -103,31 +89,12 @@ typedef struct CompanyOperatorKeywordInput {
 } CompanyOperatorKeywordInput;
 
 /**
- * @brief 业务 1: 关注词匹配 Operator 聚合输出结构体
- */
-typedef struct CompanyOperatorKeywordOutput {
-  int32_t service_type;
-  int32_t is_hit;
-  CompanyString* match_result_json;
-  int32_t status_code;
-} CompanyOperatorKeywordOutput;
-
-/**
  * @brief 业务 2: 实体抽取 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorEntityInput {
   int32_t service_type;
   const CompanyString* sentence_text;
 } CompanyOperatorEntityInput;
-
-/**
- * @brief 业务 2: 实体抽取 Operator 聚合输出结构体
- */
-typedef struct CompanyOperatorEntityOutput {
-  int32_t service_type;
-  CompanyString* entities_json;
-  int32_t status_code;
-} CompanyOperatorEntityOutput;
 
 /**
  * @brief 业务 3: 文档问答 Operator 聚合输入结构体
@@ -139,18 +106,6 @@ typedef struct CompanyOperatorDocInput {
 } CompanyOperatorDocInput;
 
 /**
- * @brief 业务 3: 文档问答 Operator 聚合输出结构体
- */
-typedef struct CompanyOperatorDocOutput {
-  int32_t service_type;
-  CompanyString* intent_name;
-  float confidence;
-  CompanyString* answer_text;
-  int32_t chunk_count;
-  int32_t status_code;
-} CompanyOperatorDocOutput;
-
-/**
  * @brief 业务 6: 语音识别与意图抽取 Operator 聚合输入结构体
  */
 typedef struct CompanyOperatorAudioInput {
@@ -159,16 +114,6 @@ typedef struct CompanyOperatorAudioInput {
   int32_t pcm_length;
   int32_t sample_rate;
 } CompanyOperatorAudioInput;
-
-/**
- * @brief 业务 6: 语音识别与意图抽取 Operator 聚合输出结构体
- */
-typedef struct CompanyOperatorAudioOutput {
-  int32_t service_type;
-  CompanyString* transcribed_text;
-  CompanyString* intent_slot_json;
-  int32_t status_code;
-} CompanyOperatorAudioOutput;
 
 #define COMPANY_OPERATOR_MAX_RERANK_CANDIDATES 8
 
@@ -182,17 +127,6 @@ typedef struct CompanyOperatorRerankInput {
       candidate_passages[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t candidate_count;
 } CompanyOperatorRerankInput;
-
-/**
- * @brief 业务 7: Cross-Encoder 精排 Operator 聚合输出结构体
- */
-typedef struct CompanyOperatorRerankOutput {
-  int32_t service_type;
-  float scores[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
-  int32_t sorted_indices[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
-  int32_t count;
-  int32_t status_code;
-} CompanyOperatorRerankOutput;
 
 #ifdef __cplusplus
 }

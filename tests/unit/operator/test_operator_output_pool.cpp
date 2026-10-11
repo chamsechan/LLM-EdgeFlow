@@ -23,6 +23,8 @@ namespace llm_edgeflow {
 struct BusinessSummaryOutput {
   CompanyString* title = nullptr;
   CompanyString* summary = nullptr;
+  CompanyAny* metadata = nullptr;
+  int32_t status_code = 0;
 };
 
 DECLARE_EXTERNAL_TYPE_TRAITS(BusinessSummaryOutput, "BusinessSummaryOutput");
@@ -36,10 +38,19 @@ OperatorValueTypeBinding MakeBusinessSummaryBinding() {
       "test_business_summary",
       {{title_name, &BusinessSummaryOutput::title, {31}},
        {summary_name, &BusinessSummaryOutput::summary, {63}}},
-      [](BusinessSummaryOutput&) noexcept {});
+      [](BusinessSummaryOutput& out) noexcept { out.status_code = 0; });
   title_name.assign(title_name.size(), 'x');
   summary_name.assign(summary_name.size(), 'x');
   return binding;
+}
+
+OperatorValueTypeBinding MakeBusinessSummaryMetadataBinding() {
+  return MakePooledOutputBinding<BusinessSummaryOutput>(
+      "test_business_metadata",
+      {{"title", &BusinessSummaryOutput::title, {31}},
+       {"summary", &BusinessSummaryOutput::summary, {63}}},
+      [](BusinessSummaryOutput& out) noexcept { out.status_code = 0; },
+      &BusinessSummaryOutput::metadata, 65536);
 }
 
 }  // namespace
@@ -175,17 +186,16 @@ TEST_F(OperatorOutputPoolTest,
 // 1. 深度 0 归一化为 25 且正常预分配，深度 > 1024 拦截
 TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  int ret =
-      OutputPoolState::Create("keyword_out", 0, spec, binding, &pool, &err);
+  int ret = OutputPoolState::Create("json_out", 0, spec, binding, &pool, &err);
   ASSERT_EQ(ret, 0);
   ASSERT_NE(pool, nullptr);
   EXPECT_EQ(pool->Depth(), 25u);
@@ -194,8 +204,8 @@ TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
 
   // 超过 1024 硬上限
   std::shared_ptr<OutputPoolState> pool_bad;
-  ret = OutputPoolState::Create("keyword_out", 1025, spec, binding, &pool_bad,
-                                &err);
+  ret =
+      OutputPoolState::Create("json_out", 1025, spec, binding, &pool_bad, &err);
   EXPECT_EQ(ret, -2);
   EXPECT_EQ(pool_bad, nullptr);
 }
@@ -203,17 +213,17 @@ TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
 // 2. 状态账本防重复归还、防外部指针注入与无下溢
 TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 3, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(OutputPoolState::Create("json_out", 3, spec, binding, &pool, &err),
+            0);
   ASSERT_EQ(pool->FreeBlockCount(), 3u);
 
   void* block1 = nullptr;
@@ -272,26 +282,26 @@ TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
 // 3. 地址复用与 Reset 契约保留嵌套容量
 TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 100;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 100;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 1, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(OutputPoolState::Create("json_out", 1, spec, binding, &pool, &err),
+            0);
 
   void* b1 = nullptr;
   ASSERT_EQ(pool->Acquire(&b1), 0);
-  auto* out1 = static_cast<CompanyOperatorKeywordOutput*>(b1);
-  out1->is_hit = 1;
+  auto* out1 = static_cast<CompanyOperatorOutput*>(b1);
+  out1->service_type = 42;
   out1->status_code = -42;
-  std::strcpy(out1->match_result_json->data, "hello world");
-  out1->match_result_json->length = 11;
-  char* original_data_addr = out1->match_result_json->data;
+  std::strcpy(out1->result_json->data, "hello world");
+  out1->result_json->length = 11;
+  char* original_data_addr = out1->result_json->data;
 
   // 归还
   pool->ReturnBlock(b1);
@@ -300,28 +310,28 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   void* b2 = nullptr;
   ASSERT_EQ(pool->Acquire(&b2), 0);
   EXPECT_EQ(b1, b2);
-  auto* out2 = static_cast<CompanyOperatorKeywordOutput*>(b2);
+  auto* out2 = static_cast<CompanyOperatorOutput*>(b2);
 
   // 验证 Reset 契约：内容重置为初始，但物理地址和容量完好保留
-  EXPECT_EQ(out2->is_hit, 0);
+  EXPECT_EQ(out2->service_type, 0);
   EXPECT_EQ(out2->status_code, 0);
-  EXPECT_EQ(out2->match_result_json->length, 0);
-  EXPECT_EQ(out2->match_result_json->data[0], '\0');
-  EXPECT_EQ(out2->match_result_json->data, original_data_addr);
+  EXPECT_EQ(out2->result_json->length, 0);
+  EXPECT_EQ(out2->result_json->data[0], '\0');
+  EXPECT_EQ(out2->result_json->data, original_data_addr);
 
   pool->ReturnBlock(b2);
 }
 
 TEST_F(OperatorOutputPoolTest,
-       EntityOutputReusePreservesDeclaredAndCustomCapacity) {
+       JsonOutputReusePreservesDeclaredAndCustomCapacity) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
-  for (uint32_t capacity : {2047u, 100u}) {
+  for (uint32_t capacity : {8191u, 100u}) {
     SCOPED_TRACE(capacity);
     ResolvedOutputPoolSpec spec;
-    spec.type = "entity_out";
-    spec.capacities["entities_json"] = capacity;
+    spec.type = "json_out";
+    spec.capacities["result_json"] = capacity;
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
     ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
@@ -329,10 +339,10 @@ TEST_F(OperatorOutputPoolTest,
         << err;
     void* block = nullptr;
     ASSERT_EQ(pool->Acquire(&block), 0);
-    auto* out = static_cast<CompanyOperatorEntityOutput*>(block);
+    auto* out = static_cast<CompanyOperatorOutput*>(block);
     EXPECT_EQ(out->status_code, 0);
-    ASSERT_NE(out->entities_json, nullptr);
-    CompanyString* original_string = out->entities_json;
+    ASSERT_NE(out->result_json, nullptr);
+    CompanyString* original_string = out->result_json;
     char* original_data = original_string->data;
     ASSERT_NE(original_data, nullptr);
     EXPECT_EQ(original_string->length, 0);
@@ -354,11 +364,11 @@ TEST_F(OperatorOutputPoolTest,
     ASSERT_EQ(result, 0);
     EXPECT_FALSE(allocated);
     EXPECT_EQ(reused, block);
-    out = static_cast<CompanyOperatorEntityOutput*>(reused);
+    out = static_cast<CompanyOperatorOutput*>(reused);
     EXPECT_EQ(out->status_code, 0);
-    EXPECT_EQ(out->entities_json, original_string);
-    EXPECT_EQ(out->entities_json->data, original_data);
-    EXPECT_EQ(out->entities_json->length, 0);
+    EXPECT_EQ(out->result_json, original_string);
+    EXPECT_EQ(out->result_json->data, original_data);
+    EXPECT_EQ(out->result_json->length, 0);
     EXPECT_EQ(original_data[0], '\0');
     pool->ReturnBlock(reused);
   }
@@ -367,13 +377,12 @@ TEST_F(OperatorOutputPoolTest,
 namespace {
 
 template <typename T, typename Mutate, typename Verify>
-void CheckMultiStringOutputReuse(const char* suffix,
+void CheckMultiStringOutputReuse(const OperatorValueTypeBinding& owned_binding,
                                  std::vector<CompanyString * T::*> fields,
                                  Mutate mutate, Verify verify) {
+  const auto* binding = &owned_binding;
+  const auto& suffix = binding->canonical_suffix;
   SCOPED_TRACE(suffix);
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
-  ASSERT_NE(binding, nullptr);
   ResolvedOutputPoolSpec spec;
   spec.type = suffix;
   for (const auto& [name, config] :
@@ -434,50 +443,22 @@ void CheckMultiStringOutputReuse(const char* suffix,
 
 TEST_F(OperatorOutputPoolTest,
        MultiStringOutputsReuseAllFieldsWithoutAllocation) {
-  CheckMultiStringOutputReuse<CompanyOperatorDocOutput>(
-      "doc_out",
-      {&CompanyOperatorDocOutput::intent_name,
-       &CompanyOperatorDocOutput::answer_text},
-      [](auto& out) {
-        out.status_code = -42;
-        out.confidence = 0.9f;
-        out.chunk_count = 3;
-      },
-      [](const auto& out) {
-        EXPECT_EQ(out.status_code, 0);
-        EXPECT_FLOAT_EQ(out.confidence, 0.0f);
-        EXPECT_EQ(out.chunk_count, 0);
-      });
-  CheckMultiStringOutputReuse<CompanyOperatorAuditOutput>(
-      "audit_out",
-      {&CompanyOperatorAuditOutput::risk_level,
-       &CompanyOperatorAuditOutput::matched_policy_clause,
-       &CompanyOperatorAuditOutput::audit_verdict_json},
-      [](auto& out) {
-        out.status_code = -42;
-        out.risk_score = 0.9f;
-      },
-      [](const auto& out) {
-        EXPECT_EQ(out.status_code, 0);
-        EXPECT_FLOAT_EQ(out.risk_score, 0.0f);
-      });
-  CheckMultiStringOutputReuse<CompanyOperatorAudioOutput>(
-      "audio_out",
-      {&CompanyOperatorAudioOutput::transcribed_text,
-       &CompanyOperatorAudioOutput::intent_slot_json},
+  const auto binding = MakeBusinessSummaryBinding();
+  CheckMultiStringOutputReuse<BusinessSummaryOutput>(
+      binding, {&BusinessSummaryOutput::title, &BusinessSummaryOutput::summary},
       [](auto& out) { out.status_code = -42; },
       [](const auto& out) { EXPECT_EQ(out.status_code, 0); });
 }
 
-TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
-  ASSERT_NE(binding, nullptr);
+TEST_F(OperatorOutputPoolTest,
+       AuthoredOutputReusePreservesOptionalMetadataStorage) {
+  const auto owned_binding = MakeBusinessSummaryMetadataBinding();
+  const auto* binding = &owned_binding;
   for (int32_t type_id : {0, 1, 4}) {
     SCOPED_TRACE(type_id);
     ResolvedOutputPoolSpec spec;
-    spec.type = "od_out";
-    spec.capacities["result_json"] = 2047;
+    spec.type = binding->canonical_suffix;
+    spec.capacities = {{"title", 17}, {"summary", 17}};
     spec.metadata_type_id = type_id;
     spec.meta_num = type_id == 0 ? 0 : 3;
     std::shared_ptr<OutputPoolState> pool;
@@ -487,8 +468,8 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
         << err;
     void* block = nullptr;
     ASSERT_EQ(pool->Acquire(&block), 0);
-    auto* out = static_cast<CompanyOdOutput*>(block);
-    EXPECT_EQ(out->detected_box_count, 0);
+    auto* out = static_cast<BusinessSummaryOutput*>(block);
+
     EXPECT_EQ(out->status_code, 0);
     auto* metadata = out->metadata;
     void* payload = nullptr;
@@ -506,13 +487,13 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
           spec.meta_num * FindCompanyAnyType(type_id)->element_size;
       std::memset(payload, 1, metadata->byte_length);
     }
-    auto* str = out->result_json;
+    auto* str = out->title;
     ASSERT_NE(str, nullptr);
     auto* data = str->data;
     ASSERT_NE(data, nullptr);
     std::strcpy(data, "{}");
     str->length = 2;
-    out->detected_box_count = 3;
+
     out->status_code = -42;
     void* reused = nullptr;
     int result = -1;
@@ -526,9 +507,9 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
     ASSERT_EQ(result, 0);
     EXPECT_FALSE(allocated);
     ASSERT_EQ(reused, block);
-    EXPECT_EQ(out->detected_box_count, 0);
+
     EXPECT_EQ(out->status_code, 0);
-    ASSERT_EQ(out->result_json, str);
+    ASSERT_EQ(out->title, str);
     EXPECT_EQ(str->data, data);
     EXPECT_EQ(str->length, 0);
     EXPECT_EQ(data[0], '\0');
@@ -543,54 +524,20 @@ TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
   }
 }
 
-TEST_F(OperatorOutputPoolTest, RerankOutputInitialAndReusedIndicesAreMinusOne) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("rerank_out");
-  ASSERT_NE(binding, nullptr);
-  ResolvedOutputPoolSpec spec;
-  spec.type = "rerank_out";
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
-            0)
-      << err;
-  void* previous = nullptr;
-  for (int round = 0; round < 2; ++round) {
-    void* block = nullptr;
-    ASSERT_EQ(pool->Acquire(&block), 0);
-    if (previous) {
-      EXPECT_EQ(block, previous);
-    }
-    auto* out = static_cast<CompanyOperatorRerankOutput*>(block);
-    EXPECT_EQ(out->count, 0);
-    EXPECT_EQ(out->status_code, 0);
-    out->count = COMPANY_OPERATOR_MAX_RERANK_CANDIDATES;
-    out->status_code = -42;
-    for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
-      EXPECT_FLOAT_EQ(out->scores[i], 0.0f);
-      EXPECT_EQ(out->sorted_indices[i], -1);
-      out->scores[i] = 0.9f;
-      out->sorted_indices[i] = i;
-    }
-    pool->ReturnBlock(block);
-    previous = block;
-  }
-}
-
 // 4. ScopedOutputLeaseGuard 的 Untrack 与 Rollback 事务边界
 TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 3, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(OutputPoolState::Create("json_out", 3, spec, binding, &pool, &err),
+            0);
   EXPECT_EQ(pool->FreeBlockCount(), 3u);
 
   {
@@ -618,17 +565,17 @@ TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
 // 6. 多线程并发归还与条件变量唤醒
 TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 1, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(OutputPoolState::Create("json_out", 1, spec, binding, &pool, &err),
+            0);
 
   void* block = nullptr;
   ASSERT_EQ(pool->Acquire(&block), 0);
@@ -659,7 +606,7 @@ TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
 // 9. 严格 spec.type 与 64 MiB 预算边界拦截 (R9-005)
 TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("doc_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   // 1. spec.type 为空 -> 严格拒绝
@@ -668,7 +615,8 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
     spec.type = "";
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
-    int ret = OutputPoolState::Create("doc_out", 5, spec, binding, &pool, &err);
+    int ret =
+        OutputPoolState::Create("json_out", 5, spec, binding, &pool, &err);
     EXPECT_EQ(ret, -2);
     EXPECT_EQ(pool, nullptr);
     EXPECT_FALSE(err.empty());
@@ -677,10 +625,12 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
   // 2. spec.type 类型不匹配 -> 严格拒绝
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "od_out";
+    spec.type = "different_output";
+    spec.capacities["result_json"] = 8191;
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
-    int ret = OutputPoolState::Create("doc_out", 5, spec, binding, &pool, &err);
+    int ret =
+        OutputPoolState::Create("json_out", 5, spec, binding, &pool, &err);
     EXPECT_EQ(ret, -2);
     EXPECT_EQ(pool, nullptr);
     EXPECT_FALSE(err.empty());
@@ -689,12 +639,11 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
   // 3. 超出 64 MiB 预算硬上限 -> 拒绝
   {
     ResolvedOutputPoolSpec spec;
-    spec.type = "doc_out";
-    spec.capacities["intent_name"] = 255;
-    spec.capacities["answer_text"] = 65536;
+    spec.type = "json_out";
+    spec.capacities["result_json"] = 65536;
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
-    int ret = OutputPoolState::Create("doc_out", kMaxOutputPoolDepth, spec,
+    int ret = OutputPoolState::Create("json_out", kMaxOutputPoolDepth, spec,
                                       binding, &pool, &err);
     EXPECT_EQ(ret, -2);
     EXPECT_EQ(pool, nullptr);
@@ -706,22 +655,14 @@ TEST_F(OperatorOutputPoolTest,
        EveryAllocationFailureReleasesResourcesAndAllowsRetry) {
   const auto nested_binding = test_support::MakeNestedOutputBinding();
   const auto authored_binding = MakeBusinessSummaryBinding();
+  const auto metadata_binding = MakeBusinessSummaryMetadataBinding();
   const struct {
     const char* type;
     std::unordered_map<std::string, uint32_t> capacities;
-  } cases[] = {
-      {"keyword_out", {{"match_result_json", 2047}}},
-      {"entity_out", {{"entities_json", 2047}}},
-      {"doc_out", {{"intent_name", 63}, {"answer_text", 1023}}},
-      {"audit_out",
-       {{"risk_level", 31},
-        {"matched_policy_clause", 255},
-        {"audit_verdict_json", 1023}}},
-      {"audio_out", {{"transcribed_text", 511}, {"intent_slot_json", 1023}}},
-      {"rerank_out", {}},
-      {"od_out", {{"result_json", 2047}}},
-      {"test_nested_out", {}},
-      {"test_business_summary", {{"title", 7}, {"summary", 15}}}};
+  } cases[] = {{"json_out", {{"result_json", 2047}}},
+               {"test_nested_out", {}},
+               {"test_business_summary", {{"title", 7}, {"summary", 15}}},
+               {"test_business_metadata", {{"title", 7}, {"summary", 15}}}};
   for (const auto& test : cases) {
     const std::string suffix(test.type);
     const auto* binding =
@@ -730,11 +671,13 @@ TEST_F(OperatorOutputPoolTest,
             : OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
     if (suffix == authored_binding.canonical_suffix)
       binding = &authored_binding;
+    if (suffix == metadata_binding.canonical_suffix)
+      binding = &metadata_binding;
     ASSERT_NE(binding, nullptr);
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
     spec.capacities = test.capacities;
-    if (suffix == "od_out") {
+    if (suffix == metadata_binding.canonical_suffix) {
       spec.meta_num = 5;
       spec.metadata_type_id = 1;
     }
@@ -932,8 +875,8 @@ TEST_F(OperatorOutputPoolTest,
        PublicationAllocationFailuresRollbackWholeBatch) {
   constexpr uint32_t kDepth = 3;
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix(spec.type);
   std::shared_ptr<OutputPoolState> pool;
@@ -1100,17 +1043,17 @@ TEST_F(OperatorOutputPoolTest,
 TEST_F(OperatorOutputPoolTest,
        TrackRollsBackBlockOnRegistrationAllocationFailure) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 3, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(OutputPoolState::Create("json_out", 3, spec, binding, &pool, &err),
+            0);
   ASSERT_EQ(pool->FreeBlockCount(), 3u);
   ASSERT_EQ(pool->CheckedOutCount(), 0u);
 
@@ -1148,22 +1091,20 @@ TEST_F(OperatorOutputPoolTest,
 
 TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool_a;
   std::shared_ptr<OutputPoolState> pool_b;
   std::string err;
   ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 2, spec, binding, &pool_a, &err),
-      0);
+      OutputPoolState::Create("json_out", 2, spec, binding, &pool_a, &err), 0);
   ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 1, spec, binding, &pool_b, &err),
-      0);
+      OutputPoolState::Create("json_out", 1, spec, binding, &pool_b, &err), 0);
 
   // 关闭 pool_b，使其 Acquire 立即失败 (返回 -9) 而不发生条件变量无限阻塞
   pool_b->CloseAndDrain();
@@ -1193,9 +1134,9 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
 
   // 为后续合法调用提供正常的 pool_b_new
   std::shared_ptr<OutputPoolState> pool_b_new;
-  ASSERT_EQ(OutputPoolState::Create("keyword_out", 1, spec, binding,
-                                    &pool_b_new, &err),
-            0);
+  ASSERT_EQ(
+      OutputPoolState::Create("json_out", 1, spec, binding, &pool_b_new, &err),
+      0);
   pools[1] = pool_b_new;
 
   // 下一次合法调用能够成功
@@ -1216,17 +1157,17 @@ TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
 
 TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
   const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
-  spec.type = "keyword_out";
-  spec.capacities["match_result_json"] = 2047;
+  spec.type = "json_out";
+  spec.capacities["result_json"] = 2047;
 
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 2, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(OutputPoolState::Create("json_out", 2, spec, binding, &pool, &err),
+            0);
   ASSERT_EQ(pool->FreeBlockCount(), 2u);
 
   // 第 0 帧使用有效输出索引 0，第 1 帧使用缺失输出索引 1

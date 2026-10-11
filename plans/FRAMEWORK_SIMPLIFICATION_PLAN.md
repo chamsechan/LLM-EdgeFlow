@@ -251,7 +251,7 @@
       "outputs": { "matches": "rule_matches" } }
   ],
   "io": {"input":[{"type":"keyword_in","name":"keyword_match"}],
-         "output":[{"type":"keyword_out","name":"keyword_match"}]}
+         "output":[{"type":"json_out","name":"keyword_match"}]}
 }
 ```
 

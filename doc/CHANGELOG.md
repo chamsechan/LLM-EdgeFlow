@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+八类业务输出统一为 `json_out/<业务名>`，使用可承载字符串的 C 结构 `CompanyOperatorOutput`
+（`service_type`、`CompanyString* result_json`、`status_code`）。删除未使用的七种专用输出结构和对应中立值；
+转换器组装完整 JSON 响应，对象和数组保持 JSON 类型，Demo 直接解析展示。
+规则结果直接组装为 JSON 对象，在完整响应出口序列化一次；删除旧测试夹具别名和重复的输出池复用测试。
+输出容量统一为 `result_json_max_bytes`，默认 8191 字节、硬上限 65536 字节，删除旧业务字段容量参数。
+`RegisterOperatorValueType`、`SetOutputValue` 与池化 binding 接口继续支持新增结构，无需修改中央分发。
+
 拆分 Operator 协议壳与中立 Runtime：`SharedAlgorithmRuntime` 接管部署准备、Converter 调度、
 Pipeline 执行、输出池、租约和两阶段发布，使用中立创建/批次/控制对象。
 mock 协议壳集中于 `src/adapter/operator/mock/`，保留 ABI 解析、具体 binding、平台字段

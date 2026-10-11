@@ -1,13 +1,12 @@
 #pragma once
 
-#include <string>
+#include <nlohmann/json.hpp>
 
 #include "core/common_contracts.h"
 
 namespace llm_edgeflow {
 
-// 将规则匹配结果序列化为 JSON 对象，供关键词响应 (match_result_json)
-// 和音频响应 (intent_slot_json) 使用。
-std::string SerializeRuleMatchResponse(const RuleMatchItem& result);
+// 构造规则匹配对象，供关键词响应和音频响应的 intent_slot 字段使用。
+nlohmann::json BuildRuleMatchResponse(const RuleMatchItem& result);
 
 }  // namespace llm_edgeflow

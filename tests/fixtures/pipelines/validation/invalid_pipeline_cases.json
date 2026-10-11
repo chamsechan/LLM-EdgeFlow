@@ -28,7 +28,7 @@
         ],
         "output": [
           {
-            "type": "keyword_out",
+            "type": "json_out",
             "name": "keyword_match",
             "inputs": {
               "matches": "input.rule_matches"
@@ -103,7 +103,7 @@
         ],
         "output": [
           {
-            "type": "entity_out",
+            "type": "json_out",
             "name": "entity_extract",
             "inputs": {
               "entities": "post.document"
@@ -178,7 +178,7 @@
         ],
         "output": [
           {
-            "type": "entity_out",
+            "type": "json_out",
             "name": "entity_extract",
             "inputs": {
               "entities": "post.document"
@@ -252,7 +252,7 @@
         ],
         "output": [
           {
-            "type": "entity_out",
+            "type": "json_out",
             "name": "entity_extract",
             "inputs": {
               "entities": "post.document"
@@ -305,7 +305,7 @@
         ],
         "output": [
           {
-            "type": "keyword_out",
+            "type": "json_out",
             "name": "keyword_match",
             "inputs": {
               "matches": "b.matches"
@@ -363,7 +363,7 @@
         ],
         "output": [
           {
-            "type": "doc_out",
+            "type": "json_out",
             "name": "doc_qa",
             "inputs": {
               "answer_text": "answer.text",
@@ -401,7 +401,7 @@
         ],
         "output": [
           {
-            "type": "keyword_out",
+            "type": "json_out",
             "name": "keyword_match",
             "inputs": {
               "matches": "input.rule_matches"
@@ -453,7 +453,7 @@
         ],
         "output": [
           {
-            "type": "keyword_out",
+            "type": "json_out",
             "name": "keyword_match",
             "inputs": {
               "matches": "node_b.matches"
@@ -495,7 +495,7 @@
         ],
         "output": [
           {
-            "type": "keyword_out",
+            "type": "json_out",
             "name": "keyword_match",
             "inputs": {
               "matches": "node_a.matches"
@@ -534,7 +534,7 @@
         ],
         "output": [
           {
-            "type": "keyword_out",
+            "type": "json_out",
             "name": "keyword_match",
             "inputs": {
               "matches": "keyword.matches"

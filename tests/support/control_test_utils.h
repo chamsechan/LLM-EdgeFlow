@@ -13,7 +13,7 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
       {"io",
        {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
         {"output",
-         {{{"type", "keyword_out"},
+         {{{"type", "json_out"},
            {"name", "keyword_match"},
            {"inputs", {{"matches", "matcher.matches"}}}}}}}},
       {"models", nlohmann::json::array()},
