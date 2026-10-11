@@ -114,12 +114,15 @@ TEST(FixedBatchExecutorTest, AnyLaterFailureRollsBackTheSuccessfulPrefix) {
     EXPECT_EQ(calls, 2);
     EXPECT_TRUE(outputs.empty());
     EXPECT_FALSE(diagnostic.empty());
-    if (failure == Failure::kDetail)
+    if (failure == Failure::kDetail) {
       EXPECT_EQ(diagnostic, "device refused row");
-    if (failure == Failure::kCode)
+    }
+    if (failure == Failure::kCode) {
       EXPECT_EQ(diagnostic, "Batch execution failed");
-    if (failure == Failure::kStandard)
+    }
+    if (failure == Failure::kStandard) {
       EXPECT_EQ(diagnostic, "backend exception");
+    }
   }
 }
 
@@ -158,6 +161,25 @@ TEST(FixedBatchExecutorTest, ItemAdapterPreservesValuesAndCustomExceptionCode) {
   EXPECT_EQ(code, -71);
   EXPECT_EQ(diagnostic, "item failure");
   EXPECT_TRUE(outputs.empty());
+}
+
+TEST(FixedBatchExecutorTest, DynamicTailRejectsExtraResultsAndRollsBackPrefix) {
+  Items outputs;
+  int calls = 0;
+  std::string diagnostic;
+  const int code = FixedBatchExecutor::Execute<int, int>(
+      kInputs, {3, 0},
+      [&](const BatchSlice& slice, std::vector<int>* batch) {
+        ++calls;
+        *batch = slice.offset == 0 ? std::vector<int>{1, 2, 3}
+                                   : std::vector<int>{4, 5};
+        return 0;
+      },
+      &outputs, &diagnostic);
+  EXPECT_EQ(code, -3);
+  EXPECT_EQ(calls, 2);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "Batch output count mismatch");
 }
 
 TEST(FixedBatchExecutorTest, OutputAllocationFailureIsContained) {
