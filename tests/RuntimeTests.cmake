@@ -201,7 +201,7 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "ModelManagerTest.*:PipelineTest.*:SessionContextTest.*"
+  "PipelineTest.*:SessionContextTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
@@ -217,6 +217,8 @@ edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
   "RegistryReentrantTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
   "CatalogContractSsotTest.*" "${_edgeflow_tier1};kite")
+edgeflow_add_runner_test(ModelManagerOwnershipTest edgeflow_test_core_runner
+  "ModelManagerOwnershipTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
   "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
