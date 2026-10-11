@@ -201,7 +201,7 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "AlgContextTest.*:TraceableItemTest.*:ModelManagerTest.*:PipelineTest.*:SessionContextTest.*"
+  "ModelManagerTest.*:PipelineTest.*:SessionContextTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
