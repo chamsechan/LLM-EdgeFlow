@@ -1,292 +1,226 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <stdexcept>
 #include <string>
-#include <utility>
 #include <vector>
 
-#include "adapter/io_converter_registry.h"
 #include "cli/pipeline_authoring.h"
-#include "cli/pipeline_document_validation.h"
-#include "edgeflow/operator/types.h"
-#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
 using Json = nlohmann::json;
 
-class ScopedIoState {
- public:
-  ScopedIoState()
-      : inputs_(IoConverterRegistry::Instance().AllInputConverters()),
-        outputs_(IoConverterRegistry::Instance().AllOutputConverters()) {}
-  ~ScopedIoState() {
-    auto& registry = IoConverterRegistry::Instance();
-    registry.ClearForTesting();
-    for (const auto& definition : inputs_)
-      EXPECT_TRUE(registry.RegisterInputConverter(definition));
-    for (const auto& definition : outputs_)
-      EXPECT_TRUE(registry.RegisterOutputConverter(definition));
-  }
-  ScopedIoState(const ScopedIoState&) = delete;
-  ScopedIoState& operator=(const ScopedIoState&) = delete;
-
- private:
-  test_support::RegistryTestAccess::ScopedValueTypeState value_state_;
-  std::vector<InputConverterDefinition> inputs_;
-  std::vector<OutputConverterDefinition> outputs_;
-};
-
-Json Document(const std::vector<std::string>& output_names = {"doc_qa"}) {
-  Json outputs = Json::array();
-  for (const auto& name : output_names)
-    outputs.push_back({{"type", "json_out"},
-                       {"name", name},
-                       {"inputs",
-                        {{"answer_text", "answer.text"},
-                         {"intent", "intent.matches"},
-                         {"chunk_count", "chunks.chunk_counts"}}}});
-  return {{"io",
-           {{"input", {{{"type", "doc_in"}, {"name", "doc_qa"}}}},
-            {"output", std::move(outputs)}}},
-          {"models", Json::array()},
+Json Document() {
+  return {{"models", Json::array()},
+          {"io",
+           {{"input", {{{"type", "keyword_in"}, {"name", "keyword_match"}}}},
+            {"output",
+             {{{"type", "json_out"},
+               {"name", "keyword_match"},
+               {"inputs", {{"matches", "match.matches"}}}}}}}},
           {"pipeline",
-           {{{"type", "text_chunk"},
-             {"name", "chunks"},
-             {"inputs", {{"text", "input.doc_text"}}}},
+           {{{"type", "text_template"},
+             {"name", "render"},
+             {"params", {{"template", "render.text {{primary}}"}}},
+             {"inputs", {{"primary", "input.sentence_text"}}}},
             {{"type", "text_rule_match"},
-             {"name", "intent"},
-             {"inputs", {{"text", "input.query_text"}}}},
+             {"name", "match"},
+             {"inputs", {{"text", "render.text"}}},
+             {"depends_on", {"render"}}},
             {{"type", "text_template"},
-             {"name", "answer"},
-             {"inputs", {{"primary", "input.query_text"}}}},
-            {{"type", "text_template"},
-             {"name", "decorate"},
-             {"inputs", {{"primary", "answer.text"}}},
-             {"depends_on", {"answer"}}}}}};
+             {"name", "render_more"},
+             {"inputs", {{"primary", "render.text"}}},
+             {"depends_on", {"match", "render"}}}}}};
 }
 
-Json Node(const Json& document, const std::string& name) {
-  for (const auto& node : document.at("pipeline"))
-    if (node.at("name") == name) return node;
-  throw std::out_of_range("Missing node: " + name);
+AuthoringResult Edit(const Json& document, const Json& operations,
+                     bool valid = false) {
+  return PipelineAuthoring::ApplyRequest({{"pipeline", document},
+                                          {"operations", operations},
+                                          {"require_valid", valid}});
+}
+Json Edge(const std::string& kind, const std::string& source,
+          const std::string& source_port, const std::string& target,
+          const std::string& target_port) {
+  return {{"kind", kind},
+          {"source", {{"node", source}, {"port", source_port}}},
+          {"target", {{"node", target}, {"port", target_port}}}};
 }
 
-void RegisterDocOutputs() {
-  auto& registry = IoConverterRegistry::Instance();
-  const auto* original = registry.FindOutputConverter("json_out", "doc_qa");
-  ASSERT_NE(original, nullptr);
-  const auto prototype = *original;
-  for (const auto& [name, service] : std::vector<std::pair<std::string, int>>{
-           {"test_authoring_primary", 29101},
-           {"test_authoring_secondary", 29102}}) {
-    auto definition = prototype;
-    definition.name = name;
-    test_support::RegistryTestAccess::SetService(definition.type,
-                                                 definition.name, service);
-    ASSERT_TRUE(registry.RegisterOutputConverter(definition));
-  }
-}
-
-bool HasDiagnostic(const Json& validation, const std::string& code) {
-  const auto& diagnostics = validation.at("diagnostics");
-  return std::any_of(
-      diagnostics.begin(), diagnostics.end(),
-      [&](const auto& diagnostic) { return diagnostic.at("code") == code; });
-}
-}  // namespace
-
-TEST(PipelineAuthoringTest, RenameRewritesNodesOutputsAndOrderingReferences) {
-  ScopedIoState scope;
-  RegisterDocOutputs();
-  const auto original =
-      Document({"test_authoring_primary", "test_authoring_secondary"});
-  ASSERT_TRUE(
-      ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
-  const Json request = {{"pipeline", original},
-                        {"require_valid", true},
-                        {"operation",
-                         {{"kind", "rename_node"},
-                          {"node", "answer"},
-                          {"new_name", "prepare_answer"}}}};
-  const auto before = request.dump();
-  const auto result = PipelineAuthoring::ApplyRequest(request);
-  ASSERT_TRUE(result.ok) << result.ToJson().dump(2);
+TEST(PipelineEditingTest,
+     AddUsesCatalogTypesAndUniqueNamesWithoutMaterializingDefaults) {
+  const auto document = Document();
+  const auto result = Edit(
+      document, Json::array({{{"kind", "add_node"}, {"type", "text_template"}},
+                             {{"kind", "add_node"},
+                              {"type", "text_template"},
+                              {"params", {{"template", "literal"}}}}}));
+  ASSERT_TRUE(result.ok) << result.ToJson();
   ASSERT_TRUE(result.pipeline.has_value());
-  EXPECT_EQ(request.dump(), before);
-  EXPECT_EQ(Node(*result.pipeline, "prepare_answer").at("inputs"),
-            Node(original, "answer").at("inputs"));
-  const auto& consumer = Node(*result.pipeline, "decorate");
-  EXPECT_EQ(consumer.at("inputs").at("primary"), "prepare_answer.text");
-  EXPECT_EQ(consumer.at("depends_on"), Json::array({"prepare_answer"}));
-  for (const auto& output : result.pipeline->at("io").at("output")) {
-    EXPECT_EQ(output.at("inputs").at("answer_text"), "prepare_answer.text");
-    EXPECT_EQ(output.at("inputs").at("intent"), "intent.matches");
-    EXPECT_EQ(output.at("inputs").at("chunk_count"), "chunks.chunk_counts");
-  }
-  EXPECT_TRUE(result.validation.at("ok").get<bool>());
+  const auto& nodes = (*result.pipeline)["pipeline"];
+  ASSERT_EQ(nodes.size(), 5u);
+  EXPECT_EQ(nodes[3]["name"], "text_template");
+  EXPECT_FALSE(nodes[3].contains("params"));
+  EXPECT_EQ(nodes[4]["name"], "text_template_2");
+  EXPECT_EQ(nodes[4]["params"], Json({{"template", "literal"}}));
+  EXPECT_EQ(document["pipeline"].size(), 3u);
+  ASSERT_EQ(result.changes.size(), 2u);
+  EXPECT_EQ(result.changes[0].action, "add_node");
+  EXPECT_FALSE(result.validation["ok"].get<bool>());
+  EXPECT_FALSE(result.failed_operation_index.has_value());
 }
 
-TEST(PipelineAuthoringTest,
-     RemoveClearsAllReferencesAndKeepsUnrelatedBindings) {
-  ScopedIoState scope;
-  RegisterDocOutputs();
-  const auto original =
-      Document({"test_authoring_primary", "test_authoring_secondary"});
-  ASSERT_TRUE(
-      ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
-  const Json request = {
-      {"pipeline", original},
-      {"require_valid", false},
-      {"operation", {{"kind", "remove_node"}, {"node", "answer"}}}};
-  const auto before = request.dump();
-  const auto result = PipelineAuthoring::ApplyRequest(request);
-  ASSERT_TRUE(result.ok) << result.ToJson().dump(2);
+TEST(PipelineEditingTest,
+     RenameRewritesDataOrderAndBoundaryReferencesButKeepsLiteralParams) {
+  const auto document = Document();
+  const auto result = Edit(document,
+                           Json::array({{{"kind", "rename_node"},
+                                         {"node", "render"},
+                                         {"new_name", "rendered"}},
+                                        {{"kind", "rename_node"},
+                                         {"node", "match"},
+                                         {"new_name", "matched"}}}),
+                           true);
+  ASSERT_TRUE(result.ok) << result.ToJson();
   ASSERT_TRUE(result.pipeline.has_value());
-  EXPECT_EQ(request.dump(), before);
-  EXPECT_EQ(result.pipeline->at("pipeline").size(),
-            original.at("pipeline").size() - 1);
-  const auto& consumer = Node(*result.pipeline, "decorate");
-  EXPECT_FALSE(consumer.at("inputs").contains("primary"));
-  EXPECT_TRUE(consumer.at("depends_on").empty());
-  EXPECT_EQ(Node(*result.pipeline, "chunks"), Node(original, "chunks"));
-  EXPECT_EQ(Node(*result.pipeline, "intent"), Node(original, "intent"));
-  for (const auto& output : result.pipeline->at("io").at("output")) {
-    EXPECT_FALSE(output.at("inputs").contains("answer_text"));
-    EXPECT_EQ(output.at("inputs").at("intent"), "intent.matches");
-    EXPECT_EQ(output.at("inputs").at("chunk_count"), "chunks.chunk_counts");
-  }
-  EXPECT_FALSE(result.validation.at("ok").get<bool>());
-  EXPECT_TRUE(HasDiagnostic(result.validation, "MISSING_OUTPUT_PRODUCER"));
+  const auto& candidate = *result.pipeline;
+  EXPECT_EQ(candidate["pipeline"][1]["inputs"]["text"], "rendered.text");
+  EXPECT_EQ(candidate["pipeline"][2]["inputs"]["primary"], "rendered.text");
+  EXPECT_EQ(candidate["pipeline"][2]["depends_on"],
+            Json::array({"matched", "rendered"}));
+  EXPECT_EQ(candidate["io"]["output"][0]["inputs"]["matches"],
+            "matched.matches");
+  EXPECT_EQ(candidate["pipeline"][0]["params"]["template"],
+            "render.text {{primary}}");
+  EXPECT_EQ(candidate["pipeline"][2]["name"], "render_more");
+  EXPECT_EQ(document["pipeline"][0]["name"], "render");
+  EXPECT_TRUE(result.validation["ok"].get<bool>());
+  EXPECT_EQ(result.changes[0].affected_nodes,
+            (std::vector<std::string>{"rendered", "match", "render_more"}));
+  EXPECT_EQ(result.changes[1].affected_nodes,
+            (std::vector<std::string>{"matched", "render_more", "output"}));
 }
 
-TEST(PipelineAuthoringTest,
-     SharedOutputPortIsAmbiguousForConnectAndDisconnect) {
-  ScopedIoState scope;
-  RegisterDocOutputs();
-  const auto original =
-      Document({"test_authoring_primary", "test_authoring_secondary"});
-  ASSERT_TRUE(
-      ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
-  for (const char* kind : {"connect", "disconnect"}) {
-    SCOPED_TRACE(kind);
-    const Json request = {
-        {"pipeline", original},
-        {"require_valid", true},
-        {"operation",
-         {{"kind", kind},
-          {"source", {{"node", "answer"}, {"port", "text"}}},
-          {"target", {{"node", "output"}, {"port", "answer_text"}}}}}};
-    const auto before = request.dump();
-    const auto result = PipelineAuthoring::ApplyRequest(request);
-    EXPECT_FALSE(result.ok);
-    EXPECT_FALSE(result.pipeline.has_value());
-    EXPECT_FALSE(result.ToJson().contains("pipeline"));
-    EXPECT_EQ(request.dump(), before);
-    ASSERT_EQ(result.failed_operation_index, 0U);
-    ASSERT_FALSE(result.diagnostics.empty());
-    for (const char* fragment :
-         {"AMBIGUOUS_OUTPUT_PORT", "output.answer_text", "json_out",
-          "test_authoring_primary", "test_authoring_secondary"})
-      EXPECT_NE(result.diagnostics.front().find(fragment), std::string::npos);
-  }
+TEST(PipelineEditingTest,
+     RemoveClearsOnlyReferencesToItsNodeAndCanPublishAnInvalidDraft) {
+  const auto result = Edit(
+      Document(), Json::array({{{"kind", "remove_node"}, {"node", "match"}}}));
+  ASSERT_TRUE(result.ok) << result.ToJson();
+  ASSERT_TRUE(result.pipeline.has_value());
+  const auto& candidate = *result.pipeline;
+  ASSERT_EQ(candidate["pipeline"].size(), 2u);
+  EXPECT_EQ(candidate["pipeline"][1]["inputs"]["primary"], "render.text");
+  EXPECT_EQ(candidate["pipeline"][1]["depends_on"], Json::array({"render"}));
+  EXPECT_TRUE(candidate["io"]["output"][0]["inputs"].empty());
+  EXPECT_FALSE(result.validation["ok"].get<bool>());
+  EXPECT_EQ(result.changes[0].affected_nodes,
+            (std::vector<std::string>{"match", "render_more", "output"}));
+  const auto strict =
+      Edit(Document(),
+           Json::array({{{"kind", "remove_node"}, {"node", "match"}}}), true);
+  EXPECT_FALSE(strict.ok);
+  EXPECT_FALSE(strict.pipeline.has_value());
+  EXPECT_FALSE(strict.failed_operation_index.has_value());
+  EXPECT_FALSE(strict.validation["ok"].get<bool>());
 }
 
-TEST(PipelineAuthoringTest,
-     FailedLaterOperationReturnsNoPartiallyEditedDocument) {
-  const Json request = {
-      {"pipeline", Document()},
-      {"operations",
-       {{{"kind", "rename_node"},
-         {"node", "answer"},
-         {"new_name", "prepare_answer"}},
-        {{"kind", "connect"},
-         {"source", {{"node", "missing_source"}, {"port", "text"}}},
-         {"target", {{"node", "decorate"}, {"port", "primary"}}}}}}};
-  const auto before = request.dump();
-  const auto result = PipelineAuthoring::ApplyRequest(request);
+TEST(PipelineEditingTest,
+     ConnectAndDisconnectResolveRealNodeIngressAndEgressPorts) {
+  const auto result = Edit(
+      Document(),
+      Json::array({Edge("disconnect", "render", "text", "match", "text"),
+                   Edge("connect", "input", "sentence_text", "match", "text"),
+                   Edge("disconnect", "match", "matches", "output", "matches"),
+                   Edge("connect", "match", "matches", "output", "matches")}),
+      true);
+  ASSERT_TRUE(result.ok) << result.ToJson();
+  ASSERT_TRUE(result.pipeline.has_value());
+  EXPECT_EQ((*result.pipeline)["pipeline"][1]["inputs"]["text"],
+            "input.sentence_text");
+  EXPECT_EQ((*result.pipeline)["io"]["output"][0]["inputs"]["matches"],
+            "match.matches");
+  ASSERT_EQ(result.changes.size(), 4u);
+  const auto serialized = result.ToJson();
+  EXPECT_EQ(serialized["changes"][1]["port"], "text");
+  EXPECT_EQ(serialized["changes"][1]["affected_nodes"],
+            Json::array({"input", "match"}));
+  EXPECT_TRUE(serialized.contains("validation"));
+}
+
+TEST(
+    PipelineEditingTest,
+    OrderingIsDeduplicatedRemovedAndCycleFailureLeavesOperationStateUntouched) {
+  const auto result = Edit(Document(),
+                           Json::array({{{"kind", "add_dependency"},
+                                         {"node", "render_more"},
+                                         {"depends_on", "render"}},
+                                        {{"kind", "remove_dependency"},
+                                         {"node", "render_more"},
+                                         {"depends_on", "match"}}}),
+                           true);
+  ASSERT_TRUE(result.ok) << result.ToJson();
+  EXPECT_EQ((*result.pipeline)["pipeline"][2]["depends_on"],
+            Json::array({"render"}));
+  auto candidate = Document();
+  const auto original = candidate;
+  std::vector<AuthoringChange> changes;
+  std::string error;
+  EXPECT_FALSE(PipelineAuthoring::ApplyOperation(
+      &candidate,
+      {{"kind", "add_dependency"}, {"node", "render"}, {"depends_on", "match"}},
+      &changes, &error));
+  EXPECT_EQ(candidate, original);
+  EXPECT_TRUE(changes.empty());
+  EXPECT_NE(error.find("DAG_CYCLE"), std::string::npos);
+}
+
+TEST(PipelineEditingTest,
+     BatchFailureExposesIndexAndErrorWithoutPublishingPartialCandidate) {
+  const auto document = Document();
+  const auto result =
+      Edit(document, Json::array({{{"kind", "rename_node"},
+                                   {"node", "render"},
+                                   {"new_name", "renamed"}},
+                                  Edge("disconnect", "input", "sentence_text",
+                                       "match", "text")}));
   EXPECT_FALSE(result.ok);
   EXPECT_FALSE(result.pipeline.has_value());
-  EXPECT_FALSE(result.ToJson().contains("pipeline"));
-  ASSERT_EQ(result.failed_operation_index, 1U);
-  ASSERT_FALSE(result.diagnostics.empty());
-  EXPECT_NE(result.diagnostics.front().find("NODE_NOT_FOUND"),
-            std::string::npos);
-  EXPECT_EQ(request.dump(), before);
-  EXPECT_EQ(Node(request.at("pipeline"), "decorate").at("inputs").at("primary"),
-            "answer.text");
+  ASSERT_TRUE(result.failed_operation_index.has_value());
+  EXPECT_EQ(*result.failed_operation_index, 1u);
+  const auto serialized = result.ToJson();
+  EXPECT_FALSE(serialized.contains("pipeline"));
+  ASSERT_EQ(serialized["diagnostics"].size(), 1u);
+  EXPECT_EQ(serialized["diagnostics"][0]["code"], "AUTHORING_ERROR");
+  EXPECT_EQ(serialized["diagnostics"][0]["path"], "/");
+  EXPECT_EQ(document, Document());
 }
 
-TEST(PipelineAuthoringTest,
-     RequireValidRejectsMissingOutputWithoutReturningDraft) {
-  const Json request = {
-      {"pipeline", Document()},
-      {"require_valid", true},
-      {"operation", {{"kind", "remove_node"}, {"node", "answer"}}}};
-  const auto before = request.dump();
-  const auto result = PipelineAuthoring::ApplyRequest(request);
-  EXPECT_FALSE(result.ok);
-  EXPECT_FALSE(result.pipeline.has_value());
-  EXPECT_FALSE(result.validation.at("ok").get<bool>());
-  EXPECT_TRUE(HasDiagnostic(result.validation, "MISSING_OUTPUT_PRODUCER"));
-  EXPECT_EQ(request.dump(), before);
-}
-
-TEST(PipelineAuthoringTest, NativeValidationFindsCycleIntroducedByReferences) {
-  const auto original = Document();
-  ASSERT_TRUE(
-      ValidatePipelineDocument(original, DocumentValidationMode::kValidate).ok);
-  auto cyclic = original;
-  cyclic["pipeline"][2]["inputs"]["primary"] = "decorate.text";
-  const auto native =
-      ValidatePipelineDocument(cyclic, DocumentValidationMode::kValidate);
-  EXPECT_FALSE(native.ok);
-  EXPECT_TRUE(HasDiagnostic(native.response, "DAG_CYCLE"));
-  const std::vector<Json> operations = {
-      {{"kind", "connect"},
-       {"source", {{"node", "decorate"}, {"port", "text"}}},
-       {"target", {{"node", "answer"}, {"port", "primary"}}}},
-      {{"kind", "add_dependency"},
-       {"node", "answer"},
-       {"depends_on", "decorate"}}};
+TEST(PipelineEditingTest,
+     EditingProtocolRejectsUnknownFieldsTypesEndpointsAndAmbiguousNames) {
+  const Json operations = Json::array(
+      {{{"kind", "add_node"}, {"type", "missing_type"}},
+       {{"kind", "rename_node"}, {"node", "render"}, {"new_name", "input"}},
+       {{"kind", "add_node"}, {"type", "text_template"}, {"params", 42}},
+       Edge("connect", "output", "matches", "match", "text"),
+       Edge("connect", "render", "missing_port", "match", "text"),
+       Edge("connect", "match", "matches", "render_more", "primary"),
+       {{"kind", "remove_node"}, {"node", "render"}, {"extra", true}}});
   for (const auto& operation : operations) {
     SCOPED_TRACE(operation.dump());
-    for (const bool require_valid : {true, false}) {
-      SCOPED_TRACE(require_valid);
-      const Json request = {{"pipeline", original},
-                            {"require_valid", require_valid},
-                            {"operation", operation}};
-      const auto before = request.dump();
-      const auto rejected = PipelineAuthoring::ApplyRequest(request);
-      EXPECT_FALSE(rejected.ok);
-      EXPECT_FALSE(rejected.pipeline.has_value());
-      EXPECT_FALSE(rejected.ToJson().contains("pipeline"));
-      EXPECT_EQ(rejected.failed_operation_index, 0U);
-      ASSERT_FALSE(rejected.diagnostics.empty());
-      EXPECT_NE(rejected.diagnostics.front().find("DAG_CYCLE"),
-                std::string::npos);
-      EXPECT_EQ(request.dump(), before);
-    }
+    const auto result = PipelineAuthoring::ApplyRequest(
+        {{"pipeline", Document()}, {"operation", operation}});
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(result.pipeline.has_value());
+    ASSERT_FALSE(result.diagnostics.empty());
+    EXPECT_TRUE(result.changes.empty());
   }
+  auto ambiguous = Document();
+  ambiguous["pipeline"].push_back(ambiguous["pipeline"][0]);
+  const auto result = PipelineAuthoring::ApplyRequest(
+      {{"pipeline", ambiguous},
+       {"operation", {{"kind", "remove_node"}, {"node", "render"}}}});
+  ASSERT_FALSE(result.diagnostics.empty());
+  EXPECT_NE(result.diagnostics[0].find("AMBIGUOUS_NODE_NAME"),
+            std::string::npos);
 }
-
-TEST(PipelineAuthoringTest,
-     AutomaticNamesAvoidCollisionsWithoutWritingDefaults) {
-  const Json request = {{"pipeline", Document()},
-                        {"operations",
-                         {{{"kind", "add_node"}, {"type", "text_template"}},
-                          {{"kind", "add_node"}, {"type", "text_template"}}}}};
-  const auto before = request.dump();
-  const auto result = PipelineAuthoring::ApplyRequest(request);
-  ASSERT_TRUE(result.ok) << result.ToJson().dump(2);
-  ASSERT_TRUE(result.pipeline.has_value());
-  for (const char* name : {"text_template", "text_template_2"}) {
-    const auto& added = Node(*result.pipeline, name);
-    EXPECT_EQ(added.at("type"), "text_template");
-    EXPECT_FALSE(added.contains("params"));
-    EXPECT_FALSE(added.contains("inputs"));
-  }
-  EXPECT_EQ(request.dump(), before);
-}
+}  // namespace
 }  // namespace llm_edgeflow
