@@ -206,6 +206,8 @@ edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TensorStorageTest edgeflow_test_core_runner
   "TensorStorageTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(OnnxRuntimeBackendTest edgeflow_test_core_runner
+  "OnnxRuntimeBackendTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelRuntimeFactoryTest edgeflow_test_core_runner
   "ModelRuntimeFactoryTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ConcreteModelSemanticsTest edgeflow_test_core_runner
