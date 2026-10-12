@@ -67,7 +67,7 @@ TEST(IoConverterRegistryTest,
   EXPECT_EXIT(
       ([] {
         auto& registry = IoConverterRegistry::Instance();
-        registry.ClearForTesting();
+        test_support::RegistryTestAccess::ResetConverters();
         auto input = Input("common");
         ASSERT_TRUE(registry.RegisterInputConverter(input));
         ASSERT_TRUE(registry.RegisterInputConverter(Input("special")));
@@ -106,7 +106,7 @@ TEST(IoConverterRegistryTest,
      InvalidAndDuplicateRegistrationsKeepOriginalEntriesAndStickyConflict) {
   EXPECT_EXIT(([] {
                 auto& registry = IoConverterRegistry::Instance();
-                registry.ClearForTesting();
+                test_support::RegistryTestAccess::ResetConverters();
                 ASSERT_TRUE(registry.RegisterInputConverter(Input("common")));
                 auto duplicate = Input("common");
                 duplicate.logical_ports.clear();
@@ -134,7 +134,7 @@ TEST(IoConverterRegistryTest,
   EXPECT_EXIT(
       ([] {
         auto& registry = IoConverterRegistry::Instance();
-        registry.ClearForTesting();
+        test_support::RegistryTestAccess::ResetConverters();
         ASSERT_TRUE(registry.RegisterOutputConverter(Output("common")));
         auto unused = Output("translate");
         unused.params = Parameters<OutputParams>{
@@ -199,7 +199,7 @@ TEST(IoConverterRegistryTest,
         auto& registry = IoConverterRegistry::Instance();
         for (const auto& invalid : cases) {
           SCOPED_TRACE(invalid.label);
-          registry.ClearForTesting();
+          test_support::RegistryTestAccess::ResetConverters();
           ASSERT_TRUE(registry.RegisterInputConverter(invalid.input));
           ASSERT_TRUE(registry.RegisterOutputConverter(invalid.output));
           std::vector<std::string> errors;
@@ -219,7 +219,7 @@ TEST(IoConverterRegistryTest,
       ([] {
         test_support::RegistryTestAccess::ScopedValueTypeState value_state;
         auto& registry = IoConverterRegistry::Instance();
-        registry.ClearForTesting();
+        test_support::RegistryTestAccess::ResetConverters();
         int normalization_calls = 0;
         int allocation_calls = 0;
         auto binding = OperatorValueTypeRegistry::Instance().CopyOutputBinding(

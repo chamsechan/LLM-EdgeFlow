@@ -154,7 +154,7 @@ class ScopedConverters {
         outputs_(IoConverterRegistry::Instance().AllOutputConverters()) {}
   ~ScopedConverters() {
     auto& registry = IoConverterRegistry::Instance();
-    registry.ClearForTesting();
+    test_support::RegistryTestAccess::ResetConverters();
     for (const auto& definition : inputs_)
       registry.RegisterInputConverter(definition);
     for (const auto& definition : outputs_)
