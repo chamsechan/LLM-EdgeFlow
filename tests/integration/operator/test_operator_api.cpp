@@ -121,6 +121,12 @@ TEST_F(OperatorEntryTest, ControlMapsRequestAndUnsupportedCommandStages) {
                          &malformed),
             -2);
   api::ControlJsonParam unknown{2000000099, "{}"};
+  for (const int command : {3, 99}) {
+    EXPECT_EQ(ops_.Control(handle_, command, &unknown), -2);
+    EXPECT_NE(std::string(api::GetOperatorLastError())
+                  .find("Unsupported or unknown ControlCommand"),
+              std::string::npos);
+  }
   EXPECT_EQ(ops_.Control(handle_, static_cast<int>(api::ControlCommand::kJson),
                          &unknown),
             -7);

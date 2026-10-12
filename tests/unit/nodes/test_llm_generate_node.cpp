@@ -58,10 +58,10 @@ TEST(LlmGenerateNodeTest,
                 {{"text", "text", ""}, {"document", "docs", ""}}));
   AlgContext context;
   ASSERT_TRUE(
-      context.Publish("input", TextBatch{{9, 4, "one"}, {2, 7, "two"}}));
+      context.Publish("input", TextBatch{{9, 4, "{{input}}"}, {2, 7, "two"}}));
   ASSERT_EQ(node.node->Process(&context), 0);
   ASSERT_EQ(model->calls.size(), 1u);
-  EXPECT_EQ(model->calls[0][0].data, "Q=one");
+  EXPECT_EQ(model->calls[0][0].data, "Q={{input}}");
   EXPECT_EQ(model->calls[0][1].data, "Q=two");
   const auto* text = context.Read<TextBatch>("text");
   const auto* docs = context.Read<StructuredDocumentBatch>("docs");

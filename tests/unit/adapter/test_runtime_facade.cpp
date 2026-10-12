@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <any>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -297,9 +298,10 @@ class RuntimeFacadeTest : public ::testing::Test {
     ExternalInputBatchView view;
     view.count = values.size();
     view.binding = &input_binding;
-    view.slot_types["entity_in"] = "InputCarrier";
+    view.slot = "entity_in";
+    view.external_c_type_name = "InputCarrier";
     for (const auto& value : values)
-      view.slots["entity_in"].push_back(
+      view.values.push_back(
           std::make_shared<InputCarrier>(InputCarrier{value}));
     input.views.push_back(std::move(view));
     return input;
@@ -364,6 +366,46 @@ TEST_F(RuntimeFacadeTest, ProcessUsesFreshContextAndCopiedRuntimeOptions) {
   EXPECT_FALSE(trace->saw_old_context);
   EXPECT_EQ(trace->observed, (std::vector<std::string>{"C", "D"}));
   EXPECT_EQ(trace->resets, 4);
+}
+
+TEST_F(RuntimeFacadeTest,
+       InputViewsUseOnlyPlannedCallbacksAndMatchingCarriers) {
+  Create();
+  ASSERT_NE(runtime, nullptr);
+  int caller_callbacks = 0;
+  auto caller_binding = input_binding;
+  caller_binding.validate_external = [&](const void*, const InputLimits&,
+                                         std::string*) {
+    ++caller_callbacks;
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  };
+  caller_binding.read_value = [&](const void*) -> std::any {
+    ++caller_callbacks;
+    return TextInputValue{"untrusted"};
+  };
+  auto input = Input({"A", "B"});
+  input.views[0].binding = &caller_binding;
+  for (const bool wrong_slot : {true, false}) {
+    auto mismatched = input;
+    if (wrong_slot)
+      mismatched.views[0].slot = "other";
+    else
+      mismatched.views[0].external_c_type_name = "OtherCarrier";
+    auto output = Output();
+    std::string error;
+    EXPECT_NE(runtime->Process(mismatched, &output, &error), 0);
+    EXPECT_NE(error.find("Missing or mismatched input binding"),
+              std::string::npos);
+    EXPECT_EQ(trace->processed, 0);
+    EXPECT_EQ(trace->resets, 0);
+    EXPECT_EQ(output.rows[0][0].value, nullptr);
+    EXPECT_EQ(output.rows[1][0].value, nullptr);
+  }
+  auto output = Output();
+  std::string error;
+  ASSERT_EQ(runtime->Process(input, &output, &error), 0) << error;
+  EXPECT_EQ(caller_callbacks, 0);
+  EXPECT_EQ(trace->observed, (std::vector<std::string>{"A", "B"}));
 }
 
 TEST_F(RuntimeFacadeTest, BatchAndViewBoundsFailBeforeExecutionOrAcquisition) {

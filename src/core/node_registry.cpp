@@ -96,11 +96,8 @@ bool NodeRegistry::Register(const std::string& node_type, CreatorFunc creator,
       std::string_view msg =
           failure_msg.empty() ? fallback_msg : std::string_view(failure_msg);
       if (!msg.empty()) {
-        try {
-          ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
-                        msg.data());
-        } catch (...) {
-        }
+        ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                      msg.data());
       }
       RecordRegistrationFailure(msg);
       return false;
@@ -139,11 +136,8 @@ bool NodeRegistry::Register(const std::string& node_type, CreatorFunc creator,
           duplicate_msg.empty()
               ? std::string_view("Duplicate node registration")
               : std::string_view(duplicate_msg);
-      try {
-        ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
-                      msg.data());
-      } catch (...) {
-      }
+      ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                    msg.data());
       RecordRegistrationFailure(msg);
       return false;
     }
@@ -154,11 +148,8 @@ bool NodeRegistry::Register(const std::string& node_type, CreatorFunc creator,
           control_error.empty()
               ? std::string_view("Cross-node control conflict")
               : std::string_view(control_error);
-      try {
-        ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
-                      msg.data());
-      } catch (...) {
-      }
+      ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                    msg.data());
       RecordRegistrationFailure(msg);
       return false;
     }
@@ -170,20 +161,14 @@ bool NodeRegistry::Register(const std::string& node_type, CreatorFunc creator,
     std::string_view msg = (what_str != nullptr)
                                ? std::string_view(what_str)
                                : std::string_view("std::exception");
-    try {
-      ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
-                    msg.data());
-    } catch (...) {
-    }
+    ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                  msg.data());
     RecordRegistrationFailure(msg);
     return false;
   } catch (...) {
     has_conflict_.store(true, std::memory_order_release);
-    try {
-      ALG_LOG_ERROR(
-          "[NodeRegistry] Unknown exception during node registration\n");
-    } catch (...) {
-    }
+    ALG_LOG_ERROR(
+        "[NodeRegistry] Unknown exception during node registration\n");
     RecordRegistrationFailure("Unknown exception during node registration");
     return false;
   }
