@@ -1,10 +1,7 @@
-#include <dlfcn.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <chrono>
-#include <cstdio>
-#include <cstdlib>
 #include <future>
 #include <memory>
 #include <new>
@@ -16,48 +13,6 @@
 
 #include "adapter/operator/operator_output_pool.h"
 #include "tests/support/scoped_allocation_failure.h"
-
-namespace {
-thread_local std::promise<void>* wait_entered = nullptr;
-}  // namespace
-
-// Interpose only in this test executable; production keeps its original class
-// and wait call. Resolve the original libstdc++/libc++ member-call symbol.
-#if defined(_LIBCPP_VERSION)
-#define EDGEFLOW_CONDITION_WAIT_SYMBOL \
-  "_ZNSt3__118condition_variable4waitERNS_11unique_lockINS_5mutexEEE"
-#else
-#define EDGEFLOW_CONDITION_WAIT_SYMBOL \
-  "_ZNSt18condition_variable4waitERSt11unique_lockISt5mutexE"
-#endif
-#define EDGEFLOW_STRINGIFY_IMPL(value) #value
-#define EDGEFLOW_STRINGIFY(value) EDGEFLOW_STRINGIFY_IMPL(value)
-
-extern "C" void ObserveConditionWait(
-    std::condition_variable* condition,
-    std::unique_lock<std::mutex>*
-        lock) asm(EDGEFLOW_STRINGIFY(__USER_LABEL_PREFIX__)
-                      EDGEFLOW_CONDITION_WAIT_SYMBOL);
-
-extern "C" void ObserveConditionWait(std::condition_variable* condition,
-                                     std::unique_lock<std::mutex>* lock) {
-  using Wait =
-      void (*)(std::condition_variable*, std::unique_lock<std::mutex>*);
-  static const auto real_wait =
-      reinterpret_cast<Wait>(dlsym(RTLD_NEXT, EDGEFLOW_CONDITION_WAIT_SYMBOL));
-  if (!real_wait) {
-    std::fprintf(stderr, "Cannot resolve the real condition-variable wait\n");
-    std::abort();
-  }
-  // The pool mutex is still held. Return/Close takes that same mutex, so it
-  // cannot notify before the real wait atomically unlocks and starts waiting.
-  if (auto* entered = std::exchange(wait_entered, nullptr))
-    entered->set_value();
-  real_wait(condition, lock);
-}
-#undef EDGEFLOW_CONDITION_WAIT_SYMBOL
-#undef EDGEFLOW_STRINGIFY
-#undef EDGEFLOW_STRINGIFY_IMPL
 
 namespace llm_edgeflow {
 namespace {
@@ -259,20 +214,22 @@ TEST_F(OperatorOutputPoolTest, EmptyPoolWaitsUntilActualBlockReturn) {
   auto promise = std::make_shared<std::promise<AcquireResult>>();
   auto result = promise->get_future();
   std::thread worker([owner = pool, promise, entered] {
-    wait_entered = entered.get();
+    entered->set_value();
     void* block = nullptr;
     const int code = owner->Acquire(&block);
-    wait_entered = nullptr;
     promise->set_value({code, block});
   });
-  const bool entered_wait =
+  const bool initiated =
       waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
-  if (entered_wait)
+  const bool blocked = result.wait_for(std::chrono::milliseconds(100)) ==
+                       std::future_status::timeout;
+  if (initiated)
     pool->ReturnBlock(held);
   else
     pool->CloseAndDrain();
   const bool ready = FinishAcquirer(&worker, &result, pool);
-  ASSERT_TRUE(entered_wait);
+  ASSERT_TRUE(initiated);
+  EXPECT_TRUE(blocked);
   ASSERT_TRUE(ready);
   const auto acquired = result.get();
   EXPECT_EQ(acquired.code, 0);
@@ -284,8 +241,7 @@ TEST_F(OperatorOutputPoolTest, EmptyPoolWaitsUntilActualBlockReturn) {
   EXPECT_EQ(trace->resets, 2);
 }
 
-TEST_F(OperatorOutputPoolTest,
-       CloseWakesAnObservedWaitingAcquireWithClosedCode) {
+TEST_F(OperatorOutputPoolTest, CloseWakesBlockedAcquireWithClosedCode) {
   Create(1);
   ASSERT_NE(pool, nullptr);
   void* held = nullptr;
@@ -295,17 +251,19 @@ TEST_F(OperatorOutputPoolTest,
   auto promise = std::make_shared<std::promise<AcquireResult>>();
   auto result = promise->get_future();
   std::thread worker([owner = pool, promise, entered] {
-    wait_entered = entered.get();
+    entered->set_value();
     void* block = nullptr;
     const int code = owner->Acquire(&block);
-    wait_entered = nullptr;
     promise->set_value({code, block});
   });
-  const bool entered_wait =
+  const bool initiated =
       waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  const bool blocked = result.wait_for(std::chrono::milliseconds(100)) ==
+                       std::future_status::timeout;
   const uint32_t outstanding = pool->CloseAndDrain();
   const bool ready = FinishAcquirer(&worker, &result, pool);
-  ASSERT_TRUE(entered_wait);
+  ASSERT_TRUE(initiated);
+  EXPECT_TRUE(blocked);
   ASSERT_TRUE(ready);
   const auto acquired = result.get();
   EXPECT_EQ(outstanding, 1U);

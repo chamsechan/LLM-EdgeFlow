@@ -21,13 +21,6 @@
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
-struct SharedRuntimeTestAccess {
-  static bool MutexHeld(SharedAlgorithmRuntime& runtime) {
-    if (!runtime.mutex_.try_lock()) return true;
-    runtime.mutex_.unlock();
-    return false;
-  }
-};
 namespace {
 constexpr auto kText = MakeBlackboardKey<TextBatch>("text");
 constexpr auto kResult = MakeBlackboardKey<TextBatch>("result");
@@ -56,6 +49,9 @@ struct Trace {
   void PauseIfRequested() {
     std::unique_lock<std::mutex> lock(mutex);
     if (!pause) return;
+    // Only the first operation pauses; an unserialized second operation must
+    // be able to finish and fail the blocking assertion.
+    pause = false;
     entered = true;
     cv.notify_all();
     cv.wait(lock, [this] { return released; });
@@ -463,30 +459,47 @@ TEST_F(RuntimeFacadeTest,
   }
 }
 
-TEST_F(RuntimeFacadeTest, ProcessAndControlEachHoldTheSameRuntimeMutex) {
+TEST_F(RuntimeFacadeTest, ProcessAndControlSerializeInBothDirections) {
   Create();
   ASSERT_NE(runtime, nullptr);
+  auto invoke = [&](bool control) {
+    if (control) return runtime->ExecuteControl({kProbeCommand, "{}"});
+    auto output = Output();
+    return runtime->Process(Input({"A", "B"}), &output);
+  };
   for (const bool control : {false, true}) {
     trace->pause = true;
     trace->entered = false;
     trace->released = false;
-    auto operation = std::async(std::launch::async, [&, control] {
-      if (control) return runtime->ExecuteControl({kProbeCommand, "{}"});
-      auto output = Output();
-      return runtime->Process(Input({"A", "B"}), &output);
-    });
+    auto operation = std::async(std::launch::async,
+                                [&, control] { return invoke(control); });
     const bool entered = trace->AwaitEntry();
-    const bool mutex_held =
-        entered && SharedRuntimeTestAccess::MutexHeld(*runtime);
+    std::promise<void> initiated;
+    auto started = initiated.get_future();
+    auto competing = std::async(std::launch::async, [&] {
+      initiated.set_value();
+      return invoke(!control);
+    });
+    const bool launched =
+        started.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    const bool blocked = competing.wait_for(std::chrono::milliseconds(100)) ==
+                         std::future_status::timeout;
     trace->Release();
     const bool completed = operation.wait_for(std::chrono::seconds(5)) ==
                            std::future_status::ready;
+    const bool competing_completed =
+        competing.wait_for(std::chrono::seconds(5)) ==
+        std::future_status::ready;
     ASSERT_TRUE(entered);
+    EXPECT_TRUE(launched);
+    EXPECT_TRUE(blocked);
     ASSERT_TRUE(completed);
-    EXPECT_TRUE(mutex_held);
+    ASSERT_TRUE(competing_completed);
     EXPECT_EQ(operation.get(), 0);
+    EXPECT_EQ(competing.get(), 0);
   }
-  EXPECT_EQ(trace->control_calls, 1);
+  EXPECT_EQ(trace->processed, 2);
+  EXPECT_EQ(trace->control_calls, 2);
 }
 
 TEST_F(RuntimeFacadeTest,

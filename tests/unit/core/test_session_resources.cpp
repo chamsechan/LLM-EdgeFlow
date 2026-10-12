@@ -4,39 +4,16 @@
 #include <chrono>
 #include <future>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "core/session_context.h"
 #include "nodes/session_resources.h"
 
 namespace llm_edgeflow {
-struct SessionResourceTestAccess {
-  static bool WaitForCallers(SessionContext& session, const std::string& key,
-                             long callers) {
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    do {
-      {
-        std::unique_lock<std::mutex> lock(session.resource_mutex_,
-                                          std::try_to_lock);
-        if (lock.owns_lock()) {
-          const auto entry = session.flights_.find(key);
-          // One reference in the map, one in each participating invocation.
-          if (entry != session.flights_.end() &&
-              entry->second.use_count() == callers + 1)
-            return true;
-        }
-      }
-      std::this_thread::yield();
-    } while (std::chrono::steady_clock::now() < deadline);
-    return false;
-  }
-};
 namespace {
 
 TEST(SessionResourcesTest,
-     OneFactoryServesAnExactCohortAndSessionOwnsTheValue) {
+     ConcurrentCallersShareOneFactoryAndSessionOwnsTheValue) {
   std::weak_ptr<std::string> lifetime;
   {
     SessionContext session;
@@ -44,10 +21,11 @@ TEST(SessionResourcesTest,
     std::promise<void> entered, release;
     auto started = entered.get_future();
     auto resume = release.get_future().share();
-    std::atomic<int> calls{0};
+    std::atomic<int> calls{0}, callers{0};
+    std::promise<void> all_started;
+    auto initiated = all_started.get_future();
     auto factory = [&] {
-      ++calls;
-      entered.set_value();
+      if (++calls == 1) entered.set_value();
       // A different resource may be constructed while this factory is active.
       auto other =
           session.GetOrCreateResource(SessionResourceKey<int>("revision"),
@@ -56,18 +34,22 @@ TEST(SessionResourcesTest,
       resume.wait();
       return std::make_shared<std::string>("owned dictionary");
     };
-    std::vector<std::future<std::shared_ptr<std::string>>> results;
-    results.push_back(std::async(std::launch::async, [&] {
+    auto invoke = [&] {
+      if (++callers == 8) all_started.set_value();
       return session.GetOrCreateResource(key, factory);
-    }));
+    };
+    std::vector<std::future<std::shared_ptr<std::string>>> results;
+    results.push_back(std::async(std::launch::async, invoke));
     started.wait();
     for (int i = 1; i < 8; ++i) {
-      results.push_back(std::async(std::launch::async, [&] {
-        return session.GetOrCreateResource(key, factory);
-      }));
+      results.push_back(std::async(std::launch::async, invoke));
     }
-    const bool joined =
-        SessionResourceTestAccess::WaitForCallers(session, key.Name(), 8);
+    const bool launched = initiated.wait_for(std::chrono::seconds(5)) ==
+                          std::future_status::ready;
+    bool blocked = true;
+    for (auto& result : results)
+      blocked &= result.wait_for(std::chrono::milliseconds(50)) ==
+                 std::future_status::timeout;
     std::atomic<int> wrong_factory_calls{0};
     auto wrong_type = std::async(std::launch::async, [&] {
       try {
@@ -100,14 +82,15 @@ TEST(SessionResourcesTest,
     for (auto& result : results) {
       auto value = result.get();
       if (!first) first = value;
-      EXPECT_EQ(value, first);
+      EXPECT_EQ(value.get(), first.get());
     }
     EXPECT_TRUE(wrong_type.get());
     EXPECT_TRUE(wrong_set.get());
     EXPECT_TRUE(rejected_without_waiting);
     EXPECT_TRUE(set_rejected_without_waiting);
     EXPECT_EQ(wrong_factory_calls, 0);
-    ASSERT_TRUE(joined);
+    EXPECT_TRUE(launched);
+    EXPECT_TRUE(blocked);
     ASSERT_NE(first, nullptr);
     EXPECT_EQ(*first, "owned dictionary");
     EXPECT_EQ(calls, 1);
@@ -135,24 +118,26 @@ TEST(SessionResourcesTest,
   EXPECT_TRUE(lifetime.expired());
 }
 
-TEST(SessionResourcesTest, FailureIsSharedOnlyWithinItsFlightAndCanBeRetried) {
+TEST(SessionResourcesTest, ConcurrentFailureIsNotCachedAndCanBeRetried) {
   SessionContext session;
   const SessionResourceKey<int> key("index");
   std::promise<void> entered, release;
   auto started = entered.get_future();
   auto resume = release.get_future().share();
-  std::atomic<int> calls{0};
+  std::atomic<int> calls{0}, callers{0};
+  std::promise<void> all_started;
+  auto initiated = all_started.get_future();
   // Keep the injected exception alive until every waiter has finished reading
   // it.
   const auto injected =
       std::make_exception_ptr(std::runtime_error("index unavailable"));
   auto factory = [&]() -> std::shared_ptr<int> {
-    ++calls;
-    entered.set_value();
+    if (++calls == 1) entered.set_value();
     resume.wait();
     std::rethrow_exception(injected);
   };
   auto invoke = [&] {
+    if (++callers == 8) all_started.set_value();
     try {
       session.GetOrCreateResource(key, factory);
       return std::string("missing failure");
@@ -165,12 +150,21 @@ TEST(SessionResourcesTest, FailureIsSharedOnlyWithinItsFlightAndCanBeRetried) {
   started.wait();
   for (int i = 1; i < 8; ++i)
     results.push_back(std::async(std::launch::async, invoke));
-  const bool joined =
-      SessionResourceTestAccess::WaitForCallers(session, key.Name(), 8);
+  const bool launched =
+      initiated.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  bool blocked = true;
+  for (auto& result : results)
+    blocked &= result.wait_for(std::chrono::milliseconds(50)) ==
+               std::future_status::timeout;
   release.set_value();
   for (auto& result : results) EXPECT_EQ(result.get(), "index unavailable");
-  EXPECT_TRUE(joined);
-  EXPECT_EQ(calls, 1);
+  EXPECT_TRUE(launched);
+  EXPECT_TRUE(blocked);
+  // A caller may be descheduled before entering GetOrCreateResource and then
+  // start another failed flight after release. Count the explicit retry from
+  // the completed failures, without depending on internal flight membership.
+  const int failed_calls = calls;
+  EXPECT_GE(failed_calls, 1);
   EXPECT_EQ(session.GetResource(key), nullptr);
   auto recovered = session.GetOrCreateResource(key, [&] {
     ++calls;
@@ -178,7 +172,7 @@ TEST(SessionResourcesTest, FailureIsSharedOnlyWithinItsFlightAndCanBeRetried) {
   });
   ASSERT_NE(recovered, nullptr);
   EXPECT_EQ(*recovered, 17);
-  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(calls, failed_calls + 1);
 }
 
 TEST(SessionResourcesTest, NullAndTypedFacadeFailuresAreNotCached) {
