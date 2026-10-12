@@ -1,5 +1,6 @@
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -57,11 +58,12 @@ NodeResult<Outputs> Run(const Inputs& inputs, const Params& params,
     TextBatch prompts;
     prompts.reserve(inputs.input->size());
     for (const auto& input : *inputs.input) {
-      std::string prompt;
-      for (const auto& part : endpoint.parts)
-        prompt += part.type == TextTemplateTokenType::kLiteral ? part.value
-                                                               : input.data;
-      prompts.emplace_back(input.req_id, input.sub_id, std::move(prompt));
+      prompts.emplace_back(
+          input.req_id, input.sub_id,
+          RenderTextTemplate(endpoint.parts,
+                             [&](const std::string&) -> std::string_view {
+                               return input.data;
+                             }));
     }
     auto result = models.generator.Generate(prompts, params.generation);
     if (!result.ok()) {

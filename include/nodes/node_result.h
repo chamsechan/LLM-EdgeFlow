@@ -43,7 +43,6 @@ enum class BatchFailureReason {
   kDuplicate,
   kMissing,
   kUnknown,
-  kCountMismatch,
   kSubIdOverflow,
   kCountOverflow,
   kCallbackFailed,
@@ -57,8 +56,6 @@ inline const char* BatchFailureReasonName(BatchFailureReason reason) noexcept {
       return "missing";
     case BatchFailureReason::kUnknown:
       return "unknown";
-    case BatchFailureReason::kCountMismatch:
-      return "count_mismatch";
     case BatchFailureReason::kSubIdOverflow:
       return "sub_id_overflow";
     case BatchFailureReason::kCountOverflow:

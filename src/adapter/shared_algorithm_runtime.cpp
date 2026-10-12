@@ -276,9 +276,10 @@ int SharedAlgorithmRuntime::Process(
       view.count = inputs.count;
       view.required = def.slot.required;
       view.binding = &selected.allocator_binding;
-      view.slot_types[def.type] = selected.host_binding.external_c_type_name;
-      view.pool_specs[def.type] = &output_pools_[index]->Spec();
-      auto& blocks = view.leased_slots[def.type];
+      view.slot = def.type;
+      view.external_c_type_name = selected.host_binding.external_c_type_name;
+      view.pool_spec = &output_pools_[index]->Spec();
+      auto& blocks = view.leased_values;
       blocks.resize(inputs.count, nullptr);
       size_t requested_count = 0;
       for (const auto& block : acquired) {

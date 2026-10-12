@@ -123,6 +123,7 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    `AdapterStatus Decode(const Value& input, Payload* output)`，接收 `adapter/io_values.h`
    中的自有值，解析完整请求并校验业务要求。`DecodeInputFn` 调用 `DecodeRequestRows<Value>`，
    传入槽、typed 端口与函数；框架负责 binding 读取、循环、批内来源编号和发布。
+   需要转交图像等自有载荷时，回调可接收 `Value&` 并移动其成员；不得移动或保存宿主内存。
    候选展开等算法使用 `ValidateDecodeRequest` / `ReadInputSlot<Value>` 显式组织，后者返回
    `std::optional<Value>`。平台指针、长度和表示形式由 binding 校验；业务确需更严格的限额
    则留在 Converter，例如 rerank 段落的 64 KiB 限制。

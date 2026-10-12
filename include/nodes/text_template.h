@@ -80,4 +80,18 @@ inline bool ParseTextTemplate(const std::string& pattern,
   return true;
 }
 
+template <typename Resolver>
+std::string RenderTextTemplate(const std::vector<TextTemplateToken>& tokens,
+                               Resolver&& resolve) {
+  std::string rendered;
+  rendered.reserve(256);
+  for (const auto& token : tokens) {
+    if (token.type == TextTemplateTokenType::kLiteral)
+      rendered += token.value;
+    else
+      rendered += resolve(token.value);
+  }
+  return rendered;
+}
+
 }  // namespace llm_edgeflow

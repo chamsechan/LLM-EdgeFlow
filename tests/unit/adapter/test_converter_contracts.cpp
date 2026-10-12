@@ -47,17 +47,19 @@ class ConverterRowsTest : public ::testing::Test {
     ExternalInputBatchView view;
     view.count = rows.size();
     view.binding = &input_binding;
-    view.slot_types["in"] = "RowCarrier";
-    for (const auto& row : rows) view.slots["in"].push_back(row);
+    view.slot = "in";
+    view.external_c_type_name = "RowCarrier";
+    for (const auto& row : rows) view.values.push_back(row);
     return view;
   }
   ExternalOutputBatchView Output(std::vector<RowCarrier>* rows) const {
     ExternalOutputBatchView view;
     view.count = rows->size();
     view.binding = &output_binding;
-    view.slot_types["out"] = "RowCarrier";
-    view.pool_specs["out"] = &pool;
-    for (auto& row : *rows) view.leased_slots["out"].push_back(&row);
+    view.slot = "out";
+    view.external_c_type_name = "RowCarrier";
+    view.pool_spec = &pool;
+    for (auto& row : *rows) view.leased_values.push_back(&row);
     return view;
   }
   int Decode(const ExternalInputBatchView& source, AlgContext* context,
@@ -109,6 +111,47 @@ TEST_F(ConverterRowsTest, DecodeRequiresContextAndAtLeastOneRequest) {
   EXPECT_FALSE(context.Has("bound.rows"));
 }
 
+TEST_F(ConverterRowsTest, InputViewRejectsWrongSlotTypeAndMissingRow) {
+  auto source = Input({std::make_shared<RowCarrier>(RowCarrier{"A"})});
+  AdapterStatus status;
+  EXPECT_FALSE(source.Read<TextInputValue>("other", 0, &status));
+  EXPECT_EQ(status.FieldPath(), "other");
+  EXPECT_FALSE(source.Read<std::string>("in", 0, &status));
+  EXPECT_FALSE(source.Read<TextInputValue>("in", 1, &status));
+  source.external_c_type_name = "OtherCarrier";
+  EXPECT_FALSE(source.Read<TextInputValue>("in", 0, &status));
+  source.external_c_type_name = "RowCarrier";
+  source.binding = nullptr;
+  EXPECT_FALSE(source.Read<TextInputValue>("in", 0, &status));
+  source.binding = &input_binding;
+  auto value = source.Read<TextInputValue>("in", 0, &status);
+  ASSERT_TRUE(value);
+  EXPECT_EQ(value->sentence_text, "A");
+}
+
+TEST_F(ConverterRowsTest, OutputViewRequiresMatchingBindingAndPoolBeforeWrite) {
+  std::vector<RowCarrier> rows{{"untouched"}};
+  auto destination = Output(&rows);
+  const TextInputValue value{"changed"};
+  EXPECT_FALSE(destination.Write("other", 0, value).IsOk());
+  EXPECT_FALSE(destination.Write("out", 0, std::string("wrong type")).IsOk());
+  EXPECT_FALSE(destination.Write("out", 1, value).IsOk());
+  destination.external_c_type_name = "OtherCarrier";
+  EXPECT_FALSE(destination.Write("out", 0, value).IsOk());
+  destination.external_c_type_name = "RowCarrier";
+  destination.binding = nullptr;
+  EXPECT_FALSE(destination.Write("out", 0, value).IsOk());
+  destination.binding = &output_binding;
+  destination.pool_spec = nullptr;
+  const auto missing_pool = destination.Write("out", 0, value);
+  EXPECT_EQ(missing_pool.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(missing_pool.Message(), "Missing output capacity specification");
+  EXPECT_EQ(rows[0].text, "untouched");
+  destination.pool_spec = &pool;
+  EXPECT_TRUE(destination.Write("out", 0, value).IsOk());
+  EXPECT_EQ(rows[0].text, "changed");
+}
+
 TEST_F(ConverterRowsTest, DecodePublishesOnlyAfterEveryRowAndOwnsValues) {
   auto first = std::make_shared<RowCarrier>(RowCarrier{"first"});
   auto second = std::make_shared<RowCarrier>(RowCarrier{"second"});
@@ -119,7 +162,7 @@ TEST_F(ConverterRowsTest, DecodePublishesOnlyAfterEveryRowAndOwnsValues) {
   ASSERT_EQ(Decode(source, &context, &status, &calls), 0);
   EXPECT_EQ(calls, 2);
   first->text = "changed";
-  source.slots.clear();
+  source.values.clear();
   second.reset();
   const auto* rows = context.Read<TextBatch>("bound.rows");
   ASSERT_NE(rows, nullptr);
@@ -248,7 +291,7 @@ TEST_F(ConverterRowsTest, OptionalMissingOutputRowRetainsOtherRowPosition) {
   std::vector<RowCarrier> rows{{"unused"}, {"before"}};
   auto destination = Output(&rows);
   destination.required = false;
-  destination.leased_slots["out"][0] = nullptr;
+  destination.leased_values[0] = nullptr;
   AdapterStatus status;
   size_t written = 0;
   int calls = 0;
@@ -363,8 +406,8 @@ TEST_F(ConverterRoutingTest, UniqueTypeAcceptsDifferentNamespacesPerRow) {
       << error;
   ASSERT_EQ(views.size(), 1U);
   EXPECT_EQ(views[0].count, 2U);
-  EXPECT_EQ(views[0].slots.at("entity_in")[0].get(), &first.value);
-  EXPECT_EQ(views[0].slots.at("entity_in")[1].get(), &second.value);
+  EXPECT_EQ(views[0].values[0].get(), &first.value);
+  EXPECT_EQ(views[0].values[1].get(), &second.value);
 }
 
 TEST_F(ConverterRoutingTest,
@@ -384,8 +427,8 @@ TEST_F(ConverterRoutingTest,
       ValidateAndExtractOperatorInputs(input, selected, {}, &views, &error), 0)
       << error;
   ASSERT_EQ(views.size(), 2U);
-  EXPECT_EQ(views[0].slots.at("entity_in")[0].get(), &entity.value);
-  EXPECT_EQ(views[1].slots.at("entity_in")[0].get(), &translate.value);
+  EXPECT_EQ(views[0].values[0].get(), &entity.value);
+  EXPECT_EQ(views[1].values[0].get(), &translate.value);
   input[0].erase("translate.entity_in");
   input[0]["arbitrary.entity_in"] =
       operator_api::MakeBorrowedOperatorInput(&translate.value);
@@ -442,8 +485,8 @@ TEST_F(ConverterRoutingTest,
       0);
   ASSERT_EQ(views.size(), 1U);
   EXPECT_EQ(views[0].count, 1U);
-  EXPECT_EQ(views[0].slots.at("entity_in").size(), 1U);
-  EXPECT_EQ(views[0].slots.at("entity_in")[0], nullptr);
+  EXPECT_EQ(views[0].values.size(), 1U);
+  EXPECT_EQ(views[0].values[0], nullptr);
   EXPECT_EQ(ValidateAndExtractOperatorInputs({{{"x.entity_in", nullptr}}},
                                              entity_inputs, {}, &views, &error),
             -3);

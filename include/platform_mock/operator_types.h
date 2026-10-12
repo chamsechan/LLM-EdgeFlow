@@ -29,11 +29,9 @@ enum class ComputePlatform : int32_t {
  * @brief 运行时动态控制命令枚举
  */
 enum class ControlCommand : int32_t {
-  kUpdateRules = 1,      // 更新词表 / 规则库
-  kSwitchPrompt = 2,     // 切换提示词模板
-  kUpdateThreshold = 3,  // 调整判定阈值
+  kUpdateRules = 1,   // 更新词表 / 规则库
+  kSwitchPrompt = 2,  // 切换提示词模板
   kJson = 4,  // 通用 JSON 传输；节点命令由 ControlJsonParam::cmd_id 指定
-  // 后续命令只能追加，不能复用已有数值
 };
 
 // -------------------------------------------------------------
@@ -55,14 +53,6 @@ struct ControlSwitchPromptParam {
   const char* prompt_id = nullptr;  // 提示词标识符 (可选)
   const char* prompt_template_str =
       nullptr;  // 提示词模板字符串 (包含 {{context}}/{{query}} 等占位符)
-};
-
-/**
- * @brief kUpdateThreshold 对应强类型参数结构体
- */
-struct ControlUpdateThresholdParam {
-  const char* category_or_rule_name = nullptr;  // 目标规则名或分类名 (可选)
-  float threshold = 0.0f;  // 判定阈值 (范围 0.0f ~ 1.0f)
 };
 
 /**

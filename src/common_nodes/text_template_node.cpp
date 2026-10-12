@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -169,24 +170,15 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
       }
     }
 
-    std::string rendered;
-    rendered.reserve(256);
-
-    for (const auto& token : state.compiled_tokens) {
-      if (token.type == TextTemplateTokenType::kLiteral) {
-        rendered += token.value;
-      } else {
-        const auto& var = token.value;
-        if (var == "primary")
-          rendered += primary_str;
-        else if (var == "context")
-          rendered += context_str;
-        else if (var == "matches")
-          rendered += matches_str;
-        else if (var == "document")
-          rendered += doc_str;
-      }
-    }
+    std::string rendered =
+        RenderTextTemplate(state.compiled_tokens,
+                           [&](const std::string& name) -> std::string_view {
+                             if (name == "primary") return primary_str;
+                             if (name == "context") return context_str;
+                             if (name == "matches") return matches_str;
+                             if (name == "document") return doc_str;
+                             return {};
+                           });
 
     const auto max_length = static_cast<size_t>(state.max_length);
     if (rendered.size() > max_length) {

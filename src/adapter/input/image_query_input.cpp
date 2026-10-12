@@ -1,9 +1,7 @@
-#include <cstdint>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "adapter/adapter_status.h"
-#include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_values.h"
@@ -22,59 +20,23 @@ constexpr const char* kQuerySlot = "string";
 int DecodeOperatorFrameInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  ImageFrameBatch raw_images;
-
-  raw_images.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    auto frame =
-        ReadInputSlot<ImageInputValue>(source, kFrameSlot, i, options, status);
-    if (!frame) return COMPANY_ALG_ERR_INVALID_INPUT;
-
-    raw_images.emplace_back(static_cast<uint32_t>(i), 0,
-                            std::move(frame->frame));
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, options.Port(kImage.name), std::move(raw_images),
-          options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
+  return DecodeRequestRows<ImageInputValue>(
+      source, options, context, status, kFrameSlot, kImage,
+      [](ImageInputValue& value, ImageFrame* frame) {
+        *frame = std::move(value.frame);
+        return AdapterStatus::Ok();
+      });
 }
 
 int DecodeOperatorQueryInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              AlgContext* context, AdapterStatus* status) {
-  if (!ValidateDecodeRequest(source, options, context, status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  TextBatch raw_queries;
-  raw_queries.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    auto query =
-        ReadInputSlot<std::string>(source, kQuerySlot, i, options, status);
-    if (!query) return COMPANY_ALG_ERR_INVALID_INPUT;
-
-    std::string query_prompt = *query;
-    raw_queries.emplace_back(static_cast<uint32_t>(i), 0,
-                             std::move(query_prompt));
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, options.Port(kQuestion.name), std::move(raw_queries),
-          options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
+  return DecodeRequestRows<std::string>(
+      source, options, context, status, kQuerySlot, kQuestion,
+      [](std::string& value, std::string* question) {
+        *question = std::move(value);
+        return AdapterStatus::Ok();
+      });
 }
 
 InputConverterDefinition MakeOperatorFrameInputConverter() {
