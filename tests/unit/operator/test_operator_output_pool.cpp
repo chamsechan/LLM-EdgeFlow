@@ -1,38 +1,66 @@
+#include <dlfcn.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <future>
 #include <memory>
 #include <new>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "adapter/operator/operator_output_pool.h"
 #include "tests/support/scoped_allocation_failure.h"
 
-namespace llm_edgeflow {
-
-struct OutputPoolTestAccess {
-  static uint32_t WaitingAcquirers(const OutputPoolState& pool) {
-    std::lock_guard<std::mutex> lock(pool.mutex_);
-    return pool.waiting_acquirers_;
-  }
-};
-
 namespace {
+thread_local std::promise<void>* wait_entered = nullptr;
+}  // namespace
 
-bool AwaitWaitingAcquirer(const OutputPoolState& pool) {
-  const auto deadline =
-      std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  do {
-    if (OutputPoolTestAccess::WaitingAcquirers(pool) == 1) return true;
-    std::this_thread::yield();
-  } while (std::chrono::steady_clock::now() < deadline);
-  return false;
+// Interpose only in this test executable; production keeps its original class
+// and wait call. Resolve the original libstdc++/libc++ member-call symbol.
+#if defined(_LIBCPP_VERSION)
+#define EDGEFLOW_CONDITION_WAIT_SYMBOL \
+  "_ZNSt3__118condition_variable4waitERNS_11unique_lockINS_5mutexEEE"
+#else
+#define EDGEFLOW_CONDITION_WAIT_SYMBOL \
+  "_ZNSt18condition_variable4waitERSt11unique_lockISt5mutexE"
+#endif
+#define EDGEFLOW_STRINGIFY_IMPL(value) #value
+#define EDGEFLOW_STRINGIFY(value) EDGEFLOW_STRINGIFY_IMPL(value)
+
+extern "C" void ObserveConditionWait(
+    std::condition_variable* condition,
+    std::unique_lock<std::mutex>*
+        lock) asm(EDGEFLOW_STRINGIFY(__USER_LABEL_PREFIX__)
+                      EDGEFLOW_CONDITION_WAIT_SYMBOL);
+
+extern "C" void ObserveConditionWait(std::condition_variable* condition,
+                                     std::unique_lock<std::mutex>* lock) {
+  using Wait =
+      void (*)(std::condition_variable*, std::unique_lock<std::mutex>*);
+  static const auto real_wait =
+      reinterpret_cast<Wait>(dlsym(RTLD_NEXT, EDGEFLOW_CONDITION_WAIT_SYMBOL));
+  if (!real_wait) {
+    std::fprintf(stderr, "Cannot resolve the real condition-variable wait\n");
+    std::abort();
+  }
+  // The pool mutex is still held. Return/Close takes that same mutex, so it
+  // cannot notify before the real wait atomically unlocks and starts waiting.
+  if (auto* entered = std::exchange(wait_entered, nullptr))
+    entered->set_value();
+  real_wait(condition, lock);
 }
+#undef EDGEFLOW_CONDITION_WAIT_SYMBOL
+#undef EDGEFLOW_STRINGIFY
+#undef EDGEFLOW_STRINGIFY_IMPL
+
+namespace llm_edgeflow {
+namespace {
 
 struct AcquireResult {
   int code;
@@ -226,14 +254,19 @@ TEST_F(OperatorOutputPoolTest, EmptyPoolWaitsUntilActualBlockReturn) {
   ASSERT_NE(pool, nullptr);
   void* held = nullptr;
   ASSERT_EQ(pool->Acquire(&held), 0);
+  auto entered = std::make_shared<std::promise<void>>();
+  auto waiting = entered->get_future();
   auto promise = std::make_shared<std::promise<AcquireResult>>();
   auto result = promise->get_future();
-  std::thread worker([owner = pool, promise] {
+  std::thread worker([owner = pool, promise, entered] {
+    wait_entered = entered.get();
     void* block = nullptr;
     const int code = owner->Acquire(&block);
+    wait_entered = nullptr;
     promise->set_value({code, block});
   });
-  const bool entered_wait = AwaitWaitingAcquirer(*pool);
+  const bool entered_wait =
+      waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
   if (entered_wait)
     pool->ReturnBlock(held);
   else
@@ -257,14 +290,19 @@ TEST_F(OperatorOutputPoolTest,
   ASSERT_NE(pool, nullptr);
   void* held = nullptr;
   ASSERT_EQ(pool->Acquire(&held), 0);
+  auto entered = std::make_shared<std::promise<void>>();
+  auto waiting = entered->get_future();
   auto promise = std::make_shared<std::promise<AcquireResult>>();
   auto result = promise->get_future();
-  std::thread worker([owner = pool, promise] {
+  std::thread worker([owner = pool, promise, entered] {
+    wait_entered = entered.get();
     void* block = nullptr;
     const int code = owner->Acquire(&block);
+    wait_entered = nullptr;
     promise->set_value({code, block});
   });
-  const bool entered_wait = AwaitWaitingAcquirer(*pool);
+  const bool entered_wait =
+      waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
   const uint32_t outstanding = pool->CloseAndDrain();
   const bool ready = FinishAcquirer(&worker, &result, pool);
   ASSERT_TRUE(entered_wait);
@@ -273,7 +311,6 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_EQ(outstanding, 1U);
   EXPECT_EQ(acquired.code, -9);
   EXPECT_EQ(acquired.block, nullptr);
-  EXPECT_EQ(OutputPoolTestAccess::WaitingAcquirers(*pool), 0U);
   pool->DestroyBlocks();
   EXPECT_EQ(trace->roots_destroyed, 1);
 }

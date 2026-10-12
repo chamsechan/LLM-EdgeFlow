@@ -79,7 +79,6 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   }
 
  private:
-  friend struct OutputPoolTestAccess;
   OutputPoolState() noexcept = default;
 
   uint32_t depth_ = 0;
@@ -95,7 +94,6 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   mutable std::mutex mutex_;
   std::condition_variable available_;
   uint32_t checked_out_count_ = 0;
-  uint32_t waiting_acquirers_ = 0;
   bool closing_ = false;
 };
 
