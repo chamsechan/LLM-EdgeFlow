@@ -25,8 +25,7 @@ endif()
 # 校验一致性测试使用确定性注册，不污染生产 CLI 或共享 SDK。
 add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/cli/alg_pipeline_tool.cpp
-  $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
+  $<TARGET_OBJECTS:edgeflow_demo_fixture_models>)
 target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime
   edgeflow_pipeline_tooling)
 target_compile_definitions(alg_pipeline_tool_test PRIVATE
@@ -45,12 +44,19 @@ endfunction()
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+set(_edgeflow_guard_sanitizers "")
+if(ENABLE_SANITIZERS)
+  list(APPEND _edgeflow_guard_sanitizers --sanitizers "${LLM_EDGEFLOW_SANITIZERS}")
+endif()
 add_test(NAME QualityGateScriptsContractTest
   COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.py)
-set_tests_properties(QualityGateScriptsContractTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
+          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.py
+          --cxx ${CMAKE_CXX_COMPILER}
+          ${_edgeflow_guard_sanitizers}
+          --gtest-include $<TARGET_PROPERTY:GTest::gtest,INTERFACE_INCLUDE_DIRECTORIES>
+          --gtest-library $<TARGET_FILE:GTest::gtest>
+          --gtest-main ${PROJECT_SOURCE_DIR}/tests/support/gtest_main.cpp
+          --ctest-policy ${PROJECT_SOURCE_DIR}/tests/SafeGtestDiscovery.cmake)
 
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeTests.cmake)
 
@@ -58,13 +64,14 @@ add_test(NAME JsonPromptDemoTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_json_prompt_demo.py)
 set_tests_properties(JsonPromptDemoTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier3;tooling;dev-fast;sanitizer-compatible")
+  LABELS "tier3;tooling;dev-fast;sanitizer-compatible"
+  ENVIRONMENT "LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 add_test(NAME TestLabelsContractTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_test_labels_contract.py
           --build-dir ${PROJECT_BINARY_DIR})
-set_tests_properties(TestLabelsContractTest PROPERTIES
+set_tests_properties(QualityGateScriptsContractTest TestLabelsContractTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
@@ -77,11 +84,13 @@ if(ENABLE_REAL_MODEL_TESTS)
   endif()
   target_compile_definitions(test_real_models_e2e PRIVATE
     LLM_EDGEFLOW_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+  target_sources(test_real_models_e2e PRIVATE support/gtest_main.cpp)
   target_link_libraries(test_real_models_e2e PRIVATE
-    llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
-  add_test(NAME RealModelE2ETest COMMAND test_real_models_e2e)
+    llm_edgeflow::internal_runtime GTest::gtest)
+  add_test(NAME RealModelE2ETest COMMAND test_real_models_e2e --gtest_filter=*)
   set_tests_properties(RealModelE2ETest PROPERTIES
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     LABELS "tier3;slow;real-model"
+    SKIP_RETURN_CODE 77
     TIMEOUT 1800)
 endif()

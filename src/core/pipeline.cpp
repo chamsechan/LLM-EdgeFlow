@@ -328,10 +328,6 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
 
   bool success = false;
   try {
-    if (test_internal_hook_) {
-      test_internal_hook_();
-    }
-
     if (!plan) {
       if (diagnostic) {
         diagnostic->code = DiagnosticCode::kInternalException;

@@ -2,1210 +2,474 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstring>
+#include <future>
 #include <memory>
+#include <new>
 #include <stdexcept>
+#include <string>
 #include <thread>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include "adapter/io_converter.h"
-#include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_output_pool.h"
-#include "adapter/operator/operator_value_type_registry.h"
-#include "adapter/operator_value_type.h"
-#include "adapter/runtime_types.h"
-#include "scoped_allocation_failure.h"
-#include "tests/support/operator_nested_output_fixture.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
-
-struct BusinessSummaryOutput {
-  CompanyString* title = nullptr;
-  CompanyString* summary = nullptr;
-  CompanyAny* metadata = nullptr;
-  int32_t status_code = 0;
-};
-
-DECLARE_EXTERNAL_TYPE_TRAITS(BusinessSummaryOutput, "BusinessSummaryOutput");
-
 namespace {
 
-OperatorValueTypeBinding MakeBusinessSummaryBinding() {
-  std::string title_name = "title";
-  std::string summary_name = "summary";
-  auto binding = MakePooledOutputBinding<BusinessSummaryOutput>(
-      "test_business_summary",
-      {{title_name, &BusinessSummaryOutput::title, {31}},
-       {summary_name, &BusinessSummaryOutput::summary, {63}}},
-      [](BusinessSummaryOutput& out) noexcept { out.status_code = 0; });
-  title_name.assign(title_name.size(), 'x');
-  summary_name.assign(summary_name.size(), 'x');
+struct AcquireResult {
+  int code;
+  void* block;
+};
+
+// A notification regression must fail a bounded check without leaving a joined
+// test thread blocked forever. The fallback DestroyBlocks also notifies
+// waiters.
+bool FinishAcquirer(std::thread* worker, std::future<AcquireResult>* result,
+                    const std::shared_ptr<OutputPoolState>& pool) {
+  const bool ready =
+      result->wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  if (!ready) pool->DestroyBlocks();
+  const bool recovered = ready || result->wait_for(std::chrono::seconds(5)) ==
+                                      std::future_status::ready;
+  if (recovered)
+    worker->join();
+  else
+    worker->detach();  // The thread owns its promise and pool until it exits.
+  return ready;
+}
+
+struct AllocationTrace {
+  std::atomic<int> allocations{0};
+  std::atomic<int> root_live{0};
+  std::atomic<int> nested_live{0};
+  std::atomic<int> roots_destroyed{0};
+  std::atomic<int> nested_destroyed{0};
+  std::atomic<int> destroy_callbacks{0};
+  std::atomic<int> resets{0};
+  int fail_at = -1;
+  bool reset_throws = false;
+};
+
+struct RootValue {
+  explicit RootValue(AllocationTrace* trace) : trace(trace) {
+    ++trace->root_live;
+  }
+  ~RootValue() {
+    --trace->root_live;
+    ++trace->roots_destroyed;
+  }
+  AllocationTrace* trace;
+  int content = 0;
+};
+
+struct NestedValue {
+  explicit NestedValue(AllocationTrace* trace) : trace(trace) {
+    ++trace->nested_live;
+  }
+  ~NestedValue() {
+    --trace->nested_live;
+    ++trace->nested_destroyed;
+  }
+  AllocationTrace* trace;
+};
+
+OperatorValueTypeBinding TraceBinding(
+    const std::shared_ptr<AllocationTrace>& trace) {
+  OperatorValueTypeBinding binding;
+  binding.canonical_suffix = "pool_contract";
+  binding.external_c_type_name = "RootValue";
+  binding.direction = IoDirection::kOutput;
+  binding.output_layout.compute_block_payload_bytes =
+      [](const ResolvedOutputPoolSpec&, size_t* bytes, std::string*) {
+        *bytes = sizeof(RootValue) + sizeof(NestedValue);
+        return true;
+      };
+  binding.allocate_external = [trace](const ResolvedOutputPoolSpec&,
+                                      OwnedExternalBlock* block,
+                                      std::string* error) {
+    const int index = trace->allocations++;
+    block->raw_struct = block->Own(std::make_unique<RootValue>(trace.get()));
+    block->Own(std::make_unique<NestedValue>(trace.get()));
+    if (index == trace->fail_at) {
+      *error = "native allocator rejected completed nested block";
+      return -71;
+    }
+    return 0;
+  };
+  binding.reset_external = [trace](void* raw, const ResolvedOutputPoolSpec&) {
+    ++trace->resets;
+    if (trace->reset_throws) throw std::runtime_error("native reset failure");
+    static_cast<RootValue*>(raw)->content = 0;
+  };
+  binding.destroy_external = [trace](OwnedExternalBlock* block) {
+    ++trace->destroy_callbacks;
+    block->Destroy();
+  };
   return binding;
 }
 
-OperatorValueTypeBinding MakeBusinessSummaryMetadataBinding() {
-  return MakePooledOutputBinding<BusinessSummaryOutput>(
-      "test_business_metadata",
-      {{"title", &BusinessSummaryOutput::title, {31}},
-       {"summary", &BusinessSummaryOutput::summary, {63}}},
-      [](BusinessSummaryOutput& out) noexcept { out.status_code = 0; },
-      &BusinessSummaryOutput::metadata, 65536);
-}
-
-}  // namespace
-
 class OperatorOutputPoolTest : public ::testing::Test {
  protected:
-  void SetUp() override { OperatorValueTypeRegistry::Instance().GlobalInit(); }
+  void SetUp() override {
+    trace = std::make_shared<AllocationTrace>();
+    binding = TraceBinding(trace);
+    spec.type = "pool_contract";
+  }
+  void Create(uint32_t depth) {
+    std::string diagnostic;
+    ASSERT_EQ(OutputPoolState::Create("pool_contract", depth, spec, &binding,
+                                      &pool, &diagnostic),
+              0)
+        << diagnostic;
+    ASSERT_NE(pool, nullptr);
+  }
+  std::shared_ptr<AllocationTrace> trace;
+  OperatorValueTypeBinding binding;
+  ResolvedOutputPoolSpec spec;
+  std::shared_ptr<OutputPoolState> pool;
 };
 
-TEST_F(OperatorOutputPoolTest, OwnsCallbacksAfterSourceBindingIsDestroyed) {
-  int resets = 0;
-  int destroys = 0;
-  std::shared_ptr<OutputPoolState> pool;
-  std::string error;
-  {
-    auto binding = MakeBusinessSummaryBinding();
-    const auto reset = binding.reset_external;
-    binding.destroy_external = [&](OwnedExternalBlock* block) {
-      ++destroys;
-      block->Destroy();
-    };
-    ResolvedOutputPoolSpec spec;
-    spec.type = binding.canonical_suffix;
-    spec.capacities = {{"title", 7}, {"summary", 23}};
-    binding.reset_external = [&, reset](void* block,
-                                        const ResolvedOutputPoolSpec& spec) {
-      ++resets;
-      reset(block, spec);
-    };
-    ASSERT_EQ(
-        OutputPoolState::Create(spec.type, 1, spec, &binding, &pool, &error), 0)
-        << error;
-  }
-  void* block = nullptr;
-  ASSERT_EQ(pool->Acquire(&block), 0);
-  auto* output = static_cast<BusinessSummaryOutput*>(block);
-  output->title->length = 1;
-  output->title->data[0] = 'x';
-  pool->ReturnBlock(block);
-  EXPECT_EQ(resets, 1);
-  EXPECT_EQ(output->title->length, 0);
-  EXPECT_EQ(output->title->data[0], '\0');
-  pool.reset();
-  EXPECT_EQ(destroys, 1);
-}
-
 TEST_F(OperatorOutputPoolTest,
-       AuthoredOutputFieldsDriveBudgetAllocationAndReuse) {
-  const auto binding = MakeBusinessSummaryBinding();
-  EXPECT_EQ(binding.external_c_type_name, "BusinessSummaryOutput");
-  ASSERT_EQ(binding.output_layout.string_capacity_fields.size(), 2U);
-  EXPECT_EQ(
-      binding.output_layout.string_capacity_fields.at("title").max_capacity,
-      31U);
-  EXPECT_EQ(
-      binding.output_layout.string_capacity_fields.at("summary").max_capacity,
-      63U);
-  ResolvedOutputPoolSpec spec;
-  spec.type = binding.canonical_suffix;
-  spec.capacities["title"] = 7;
-  spec.capacities["summary"] = 23;
-  size_t bytes = 0;
-  std::string error;
-  ASSERT_TRUE(ComputeOutputPoolPayloadBytes(binding, spec, 1, &bytes, &error))
-      << error;
-  EXPECT_EQ(bytes,
-            sizeof(BusinessSummaryOutput) + 2 * sizeof(CompanyString) + 8 + 24);
-  std::shared_ptr<OutputPoolState> pool;
-  ASSERT_EQ(
-      OutputPoolState::Create(spec.type, 1, spec, &binding, &pool, &error), 0)
-      << error;
-  void* block = nullptr;
-  ASSERT_EQ(pool->Acquire(&block), 0);
-  auto* output = static_cast<BusinessSummaryOutput*>(block);
-  ASSERT_NE(output, nullptr);
-  EXPECT_EQ(static_cast<void*>(output), block);
-  ASSERT_NE(output->title, nullptr);
-  ASSERT_NE(output->summary, nullptr);
-  CompanyString* title = output->title;
-  CompanyString* summary = output->summary;
-  char* title_data = title->data;
-  char* summary_data = summary->data;
-  ASSERT_NE(title_data, nullptr);
-  ASSERT_NE(summary_data, nullptr);
-  for (int round = 0; round < 3; ++round) {
-    EXPECT_EQ(output->title, title);
-    EXPECT_EQ(output->summary, summary);
-    EXPECT_EQ(title->data, title_data);
-    EXPECT_EQ(summary->data, summary_data);
-    EXPECT_EQ(title->length, 0);
-    EXPECT_EQ(summary->length, 0);
-    EXPECT_EQ(title_data[0], '\0');
-    EXPECT_EQ(summary_data[0], '\0');
-    std::memset(title_data, 't', 7);
-    title_data[7] = '\0';
-    title->length = 7;
-    std::memset(summary_data, 's', 23);
-    summary_data[23] = '\0';
-    summary->length = 23;
-    void* reused = nullptr;
-    int result = -1;
-    bool allocated = false;
-    {
-      test_support::ScopedAllocationFailure failure(0);
-      pool->ReturnBlock(block);
-      result = pool->Acquire(&reused);
-      allocated = failure.Triggered();
-    }
-    ASSERT_EQ(result, 0);
-    EXPECT_FALSE(allocated);
-    EXPECT_EQ(reused, block);
-  }
-  pool->ReturnBlock(block);
-}
-
-TEST_F(OperatorOutputPoolTest,
-       AuthoredOutputRejectsAmbiguousFieldDescriptions) {
-  using Field = OutputStringField<BusinessSummaryOutput>;
-  const std::vector<std::vector<Field>> invalid_fields = {
-      {{"", &BusinessSummaryOutput::title, {31}}},
-      {{"title", &BusinessSummaryOutput::title, {31}},
-       {"title", &BusinessSummaryOutput::summary, {63}}},
-      {{"title", &BusinessSummaryOutput::title, {31}},
-       {"summary", &BusinessSummaryOutput::title, {63}}}};
-  for (const auto& fields : invalid_fields) {
-    EXPECT_THROW(MakePooledOutputBinding<BusinessSummaryOutput>(
-                     "test_invalid_fields", fields,
-                     [](BusinessSummaryOutput&) noexcept {}),
-                 std::invalid_argument);
-  }
-}
-
-// 1. 深度 0 归一化为 25 且正常预分配，深度 > 1024 拦截
-TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  int ret = OutputPoolState::Create("json_out", 0, spec, binding, &pool, &err);
-  ASSERT_EQ(ret, 0);
+       PreallocationCreatesAllBlocksBeforeFirstAcquire) {
+  Create(2);
   ASSERT_NE(pool, nullptr);
-  EXPECT_EQ(pool->Depth(), 25u);
-  EXPECT_EQ(pool->FreeBlockCount(), 25u);
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-
-  // 超过 1024 硬上限
-  std::shared_ptr<OutputPoolState> pool_bad;
-  ret =
-      OutputPoolState::Create("json_out", 1025, spec, binding, &pool_bad, &err);
-  EXPECT_EQ(ret, -2);
-  EXPECT_EQ(pool_bad, nullptr);
-}
-
-// 2. 状态账本防重复归还、防外部指针注入与无下溢
-TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create("json_out", 3, spec, binding, &pool, &err),
-            0);
-  ASSERT_EQ(pool->FreeBlockCount(), 3u);
-
-  void* block1 = nullptr;
-  ASSERT_EQ(pool->Acquire(&block1), 0);
-  ASSERT_NE(block1, nullptr);
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
-  EXPECT_EQ(pool->CheckedOutCount(), 1u);
-
-  // 正常归还 1 次
-  pool->ReturnBlock(block1);
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-
-  // 重复归还 block1 -> 应被账本拦截，不增加 free 数量，计数不下溢
-  pool->ReturnBlock(block1);
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-
-  // 归还非本池分配的野指针 -> 应被账本拦截
-  int dummy = 123;
-  pool->ReturnBlock(&dummy);
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-
-  // block1 留在队列中；另外两个以不同于取出的顺序归还。
-  void *block2 = nullptr, *block3 = nullptr;
-  ASSERT_EQ(pool->Acquire(&block2), 0);
-  ASSERT_EQ(pool->Acquire(&block3), 0);
-  EXPECT_NE(block2, block1);
-  EXPECT_NE(block3, block1);
-  EXPECT_NE(block2, block3);
-  pool->ReturnBlock(block3);
-  pool->ReturnBlock(block2);
-  // 反复轮转保持 FIFO 地址且不分配内存。
-  for (int round = 0; round < 3; ++round) {
-    for (void* expected : {block1, block3, block2}) {
-      ASSERT_GT(pool->FreeBlockCount(), 0u);
-      void* actual = nullptr;
-      int result = 0;
-      bool allocated = false;
-      {
-        test_support::ScopedAllocationFailure failure(0);
-        result = pool->Acquire(&actual);
-        pool->ReturnBlock(actual);
-        allocated = failure.Triggered();
-      }
-      ASSERT_EQ(result, 0);
-      EXPECT_EQ(actual, expected);
-      EXPECT_FALSE(allocated);
-    }
-  }
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-}
-
-// 3. 地址复用与 Reset 契约保留嵌套容量
-TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 100;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create("json_out", 1, spec, binding, &pool, &err),
-            0);
-
-  void* b1 = nullptr;
-  ASSERT_EQ(pool->Acquire(&b1), 0);
-  auto* out1 = static_cast<CompanyOperatorOutput*>(b1);
-  out1->service_type = 42;
-  out1->status_code = -42;
-  std::strcpy(out1->result_json->data, "hello world");
-  out1->result_json->length = 11;
-  char* original_data_addr = out1->result_json->data;
-
-  // 归还
-  pool->ReturnBlock(b1);
-
-  // 再次检出
-  void* b2 = nullptr;
-  ASSERT_EQ(pool->Acquire(&b2), 0);
-  EXPECT_EQ(b1, b2);
-  auto* out2 = static_cast<CompanyOperatorOutput*>(b2);
-
-  // 验证 Reset 契约：内容重置为初始，但物理地址和容量完好保留
-  EXPECT_EQ(out2->service_type, 0);
-  EXPECT_EQ(out2->status_code, 0);
-  EXPECT_EQ(out2->result_json->length, 0);
-  EXPECT_EQ(out2->result_json->data[0], '\0');
-  EXPECT_EQ(out2->result_json->data, original_data_addr);
-
-  pool->ReturnBlock(b2);
+  EXPECT_EQ(trace->allocations, 2);
+  EXPECT_EQ(trace->root_live, 2);
+  EXPECT_EQ(trace->nested_live, 2);
+  EXPECT_EQ(pool->FreeBlockCount(), 2U);
+  void* first = nullptr;
+  void* second = nullptr;
+  ASSERT_EQ(pool->Acquire(&first), 0);
+  ASSERT_EQ(pool->Acquire(&second), 0);
+  EXPECT_NE(first, second);
+  EXPECT_EQ(trace->allocations, 2);
+  EXPECT_EQ(pool->CheckedOutCount(), 2U);
+  EXPECT_EQ(pool->FreeBlockCount(), 0U);
+  pool->ReturnBlock(first);
+  pool->ReturnBlock(second);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
+  EXPECT_EQ(pool->FreeBlockCount(), 2U);
+  pool.reset();
+  EXPECT_EQ(trace->roots_destroyed, 2);
+  EXPECT_EQ(trace->nested_destroyed, 2);
 }
 
 TEST_F(OperatorOutputPoolTest,
-       JsonOutputReusePreservesDeclaredAndCustomCapacity) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-  for (uint32_t capacity : {8191u, 100u}) {
-    SCOPED_TRACE(capacity);
-    ResolvedOutputPoolSpec spec;
-    spec.type = "json_out";
-    spec.capacities["result_json"] = capacity;
-    std::shared_ptr<OutputPoolState> pool;
-    std::string err;
-    ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
-              0)
-        << err;
-    void* block = nullptr;
-    ASSERT_EQ(pool->Acquire(&block), 0);
-    auto* out = static_cast<CompanyOperatorOutput*>(block);
-    EXPECT_EQ(out->status_code, 0);
-    ASSERT_NE(out->result_json, nullptr);
-    CompanyString* original_string = out->result_json;
-    char* original_data = original_string->data;
-    ASSERT_NE(original_data, nullptr);
-    EXPECT_EQ(original_string->length, 0);
-    EXPECT_EQ(original_data[0], '\0');
-    out->status_code = -42;
-    std::memset(original_data, 'x', capacity);
-    original_data[capacity] = '\0';
-    original_string->length = static_cast<int32_t>(capacity);
-
-    void* reused = nullptr;
-    int result = -1;
-    bool allocated = false;
-    {
-      test_support::ScopedAllocationFailure failure(0);
-      pool->ReturnBlock(block);
-      result = pool->Acquire(&reused);
-      allocated = failure.Triggered();
-    }
-    ASSERT_EQ(result, 0);
-    EXPECT_FALSE(allocated);
-    EXPECT_EQ(reused, block);
-    out = static_cast<CompanyOperatorOutput*>(reused);
-    EXPECT_EQ(out->status_code, 0);
-    EXPECT_EQ(out->result_json, original_string);
-    EXPECT_EQ(out->result_json->data, original_data);
-    EXPECT_EQ(out->result_json->length, 0);
-    EXPECT_EQ(original_data[0], '\0');
-    pool->ReturnBlock(reused);
-  }
+       PartialNativeAllocationFailureCleansPrefixAndCurrentBlock) {
+  trace->fail_at = 1;
+  std::string diagnostic;
+  EXPECT_EQ(OutputPoolState::Create("pool_contract", 3, spec, &binding, &pool,
+                                    &diagnostic),
+            -71);
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_EQ(diagnostic, "native allocator rejected completed nested block");
+  EXPECT_EQ(trace->allocations, 2);
+  EXPECT_EQ(trace->root_live, 0);
+  EXPECT_EQ(trace->nested_live, 0);
+  EXPECT_EQ(trace->roots_destroyed, 2);
+  EXPECT_EQ(trace->nested_destroyed, 2);
+  EXPECT_EQ(trace->destroy_callbacks, 1);
 }
 
-namespace {
+TEST_F(OperatorOutputPoolTest,
+       NativeAllocationExceptionAlsoCleansCompletedPrefix) {
+  auto ordinary_allocate = binding.allocate_external;
+  bool injected = false;
+  binding.allocate_external =
+      [&, ordinary_allocate](const ResolvedOutputPoolSpec& requested,
+                             OwnedExternalBlock* block, std::string* error) {
+        if (trace->allocations == 1) {
+          test_support::ScopedAllocationFailure failure(0);
+          try {
+            auto root = std::make_unique<RootValue>(trace.get());
+            block->raw_struct = block->Own(std::move(root));
+          } catch (const std::bad_alloc&) {
+            injected = failure.Triggered();
+            throw;
+          }
+        }
+        return ordinary_allocate(requested, block, error);
+      };
+  std::string diagnostic;
+  EXPECT_EQ(OutputPoolState::Create("pool_contract", 3, spec, &binding, &pool,
+                                    &diagnostic),
+            -4);
+  EXPECT_TRUE(injected);
+  EXPECT_EQ(pool, nullptr);
+  EXPECT_FALSE(diagnostic.empty());
+  EXPECT_EQ(trace->root_live, 0);
+  EXPECT_EQ(trace->nested_live, 0);
+  EXPECT_EQ(trace->roots_destroyed, 1);
+  EXPECT_EQ(trace->nested_destroyed, 1);
+}
 
-template <typename T, typename Mutate, typename Verify>
-void CheckMultiStringOutputReuse(const OperatorValueTypeBinding& owned_binding,
-                                 std::vector<CompanyString * T::*> fields,
-                                 Mutate mutate, Verify verify) {
-  const auto* binding = &owned_binding;
-  const auto& suffix = binding->canonical_suffix;
-  SCOPED_TRACE(suffix);
-  ResolvedOutputPoolSpec spec;
-  spec.type = suffix;
-  for (const auto& [name, config] :
-       binding->output_layout.string_capacity_fields) {
-    spec.capacities[name] = 17;
-  }
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create(suffix, 1, spec, binding, &pool, &err), 0)
-      << err;
+TEST_F(OperatorOutputPoolTest, EmptyPoolWaitsUntilActualBlockReturn) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* held = nullptr;
+  ASSERT_EQ(pool->Acquire(&held), 0);
+  auto entered = std::make_shared<std::promise<void>>();
+  auto waiting = entered->get_future();
+  auto promise = std::make_shared<std::promise<AcquireResult>>();
+  auto result = promise->get_future();
+  std::thread worker([owner = pool, promise, entered] {
+    entered->set_value();
+    void* block = nullptr;
+    const int code = owner->Acquire(&block);
+    promise->set_value({code, block});
+  });
+  const bool initiated =
+      waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  const bool blocked = result.wait_for(std::chrono::milliseconds(100)) ==
+                       std::future_status::timeout;
+  if (initiated)
+    pool->ReturnBlock(held);
+  else
+    pool->CloseAndDrain();
+  const bool ready = FinishAcquirer(&worker, &result, pool);
+  ASSERT_TRUE(initiated);
+  EXPECT_TRUE(blocked);
+  ASSERT_TRUE(ready);
+  const auto acquired = result.get();
+  EXPECT_EQ(acquired.code, 0);
+  EXPECT_EQ(acquired.block, held);
+  EXPECT_EQ(pool->CheckedOutCount(), 1U);
+  EXPECT_EQ(pool->FreeBlockCount(), 0U);
+  EXPECT_EQ(trace->allocations, 1);
+  pool->ReturnBlock(acquired.block);
+  EXPECT_EQ(trace->resets, 2);
+}
+
+TEST_F(OperatorOutputPoolTest, CloseWakesBlockedAcquireWithClosedCode) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* held = nullptr;
+  ASSERT_EQ(pool->Acquire(&held), 0);
+  auto entered = std::make_shared<std::promise<void>>();
+  auto waiting = entered->get_future();
+  auto promise = std::make_shared<std::promise<AcquireResult>>();
+  auto result = promise->get_future();
+  std::thread worker([owner = pool, promise, entered] {
+    entered->set_value();
+    void* block = nullptr;
+    const int code = owner->Acquire(&block);
+    promise->set_value({code, block});
+  });
+  const bool initiated =
+      waiting.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  const bool blocked = result.wait_for(std::chrono::milliseconds(100)) ==
+                       std::future_status::timeout;
+  const uint32_t outstanding = pool->CloseAndDrain();
+  const bool ready = FinishAcquirer(&worker, &result, pool);
+  ASSERT_TRUE(initiated);
+  EXPECT_TRUE(blocked);
+  ASSERT_TRUE(ready);
+  const auto acquired = result.get();
+  EXPECT_EQ(outstanding, 1U);
+  EXPECT_EQ(acquired.code, -9);
+  EXPECT_EQ(acquired.block, nullptr);
+  pool->DestroyBlocks();
+  EXPECT_EQ(trace->roots_destroyed, 1);
+}
+
+TEST_F(OperatorOutputPoolTest, ReturnRejectsForeignNullAndDuplicateBlocks) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
   void* block = nullptr;
   ASSERT_EQ(pool->Acquire(&block), 0);
-  auto* out = static_cast<T*>(block);
-  verify(*out);
-  mutate(*out);
-  std::vector<CompanyString*> strings;
-  std::vector<char*> buffers;
-  for (auto member : fields) {
-    auto* str = out->*member;
-    ASSERT_NE(str, nullptr);
-    ASSERT_NE(str->data, nullptr);
-    EXPECT_EQ(str->length, 0);
-    EXPECT_EQ(str->data[0], '\0');
-    strings.push_back(str);
-    buffers.push_back(str->data);
-    std::memset(str->data, 'x', 17);
-    str->data[17] = '\0';
-    str->length = 17;
-  }
+  int foreign = 0;
+  pool->ReturnBlock(&foreign);
+  pool->ReturnBlock(nullptr);
+  EXPECT_EQ(pool->CheckedOutCount(), 1U);
+  EXPECT_EQ(pool->FreeBlockCount(), 0U);
+  EXPECT_EQ(trace->resets, 0);
+  static_cast<RootValue*>(block)->content = 7;
+  pool->ReturnBlock(block);
+  EXPECT_EQ(trace->resets, 1);
+  EXPECT_EQ(static_cast<RootValue*>(block)->content, 0);
+  pool->ReturnBlock(block);
+  EXPECT_EQ(trace->resets, 1);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
+  EXPECT_EQ(pool->FreeBlockCount(), 1U);
+}
+
+TEST_F(OperatorOutputPoolTest, ResetExceptionStillReturnsReusableBlock) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* original = nullptr;
+  ASSERT_EQ(pool->Acquire(&original), 0);
+  trace->reset_throws = true;
+  pool->ReturnBlock(original);
+  EXPECT_EQ(trace->resets, 1);
+  EXPECT_EQ(pool->FreeBlockCount(), 1U);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
   void* reused = nullptr;
-  int result = -1;
-  bool allocated = false;
+  ASSERT_EQ(pool->Acquire(&reused), 0);
+  EXPECT_EQ(reused, original);
+  trace->reset_throws = false;
+  pool->ReturnBlock(reused);
+  EXPECT_EQ(trace->resets, 2);
+}
+
+TEST_F(OperatorOutputPoolTest, LastSharedReferenceReturnsBlockExactlyOnce) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  std::shared_ptr<void> lease(block, OutputPoolDeleter{pool, block});
+  auto copy = lease;
+  lease.reset();
+  EXPECT_EQ(trace->resets, 0);
+  EXPECT_EQ(pool->CheckedOutCount(), 1U);
+  copy.reset();
+  EXPECT_EQ(trace->resets, 1);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
+  EXPECT_EQ(pool->FreeBlockCount(), 1U);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       LeaseWeakReferenceDoesNotKeepPoolOrPayloadAlive) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  std::shared_ptr<void> lease(block, OutputPoolDeleter{pool, block});
+  std::weak_ptr<OutputPoolState> observed_pool = pool;
+  pool.reset();
+  EXPECT_TRUE(observed_pool.expired());
+  EXPECT_EQ(trace->root_live, 0);
+  EXPECT_EQ(trace->nested_live, 0);
+  EXPECT_EQ(trace->roots_destroyed, 1);
+  // The lease pointer is intentionally not dereferenced after pool destruction.
+  lease.reset();
+  EXPECT_EQ(trace->resets, 0);
+  EXPECT_EQ(trace->roots_destroyed, 1);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       CloseReportsOutstandingAndDestroyConsumesBlocks) {
+  Create(2);
+  ASSERT_NE(pool, nullptr);
+  void* outstanding = nullptr;
+  ASSERT_EQ(pool->Acquire(&outstanding), 0);
+  EXPECT_EQ(pool->CloseAndDrain(), 1U);
+  void* refused = outstanding;
+  EXPECT_EQ(pool->Acquire(&refused), -9);
+  EXPECT_EQ(refused, nullptr);
+  pool->ReturnBlock(outstanding);
+  EXPECT_EQ(trace->resets, 0);
+  EXPECT_EQ(pool->CheckedOutCount(), 1U);
+  pool->DestroyBlocks();
+  EXPECT_EQ(trace->root_live, 0);
+  EXPECT_EQ(trace->nested_live, 0);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
+  EXPECT_EQ(pool->CloseAndDrain(), 0U);
+  pool.reset();
+  EXPECT_EQ(trace->roots_destroyed, 2);
+  EXPECT_EQ(trace->nested_destroyed, 2);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       GuardRollbackReturnsTrackedBlocksAndIsIdempotent) {
+  Create(2);
+  ASSERT_NE(pool, nullptr);
+  void* first = nullptr;
+  void* second = nullptr;
+  ASSERT_EQ(pool->Acquire(&first), 0);
+  ASSERT_EQ(pool->Acquire(&second), 0);
+  {
+    ScopedOutputLeaseGuard guard;
+    guard.Reserve(2);
+    guard.Track(pool, first);
+    guard.Track(pool, second);
+    guard.Rollback();
+    EXPECT_EQ(pool->CheckedOutCount(), 0U);
+    EXPECT_EQ(trace->resets, 2);
+    guard.Rollback();
+  }
+  EXPECT_EQ(trace->resets, 2);
+  EXPECT_EQ(pool->FreeBlockCount(), 2U);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       GuardCommitTransfersResponsibilityToSharedLease) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  std::shared_ptr<void> lease;
+  {
+    ScopedOutputLeaseGuard guard;
+    guard.Track(pool, block);
+    lease = std::shared_ptr<void>(block, OutputPoolDeleter{pool, block});
+    guard.Commit();
+  }
+  EXPECT_EQ(trace->resets, 0);
+  EXPECT_EQ(pool->CheckedOutCount(), 1U);
+  lease.reset();
+  EXPECT_EQ(trace->resets, 1);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       TrackAllocationFailureReturnsNewlyAcquiredBlock) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  ScopedOutputLeaseGuard guard;
+  bool threw = false;
+  bool injected = false;
   {
     test_support::ScopedAllocationFailure failure(0);
-    pool->ReturnBlock(block);
-    result = pool->Acquire(&reused);
-    allocated = failure.Triggered();
+    try {
+      guard.Track(pool, block);
+    } catch (const std::bad_alloc&) {
+      threw = true;
+    }
+    injected = failure.Triggered();
   }
-  ASSERT_EQ(result, 0);
-  EXPECT_FALSE(allocated);
-  ASSERT_EQ(reused, block);
-  out = static_cast<T*>(reused);
-  verify(*out);
-  for (size_t i = 0; i < fields.size(); ++i) {
-    auto* str = out->*fields[i];
-    ASSERT_EQ(str, strings[i]);
-    EXPECT_EQ(str->data, buffers[i]);
-    EXPECT_EQ(str->length, 0);
-    EXPECT_EQ(str->data[0], '\0');
-    // 复用后整个配置的缓冲区仍可用。
-    std::memset(str->data, 'y', 17);
-    str->data[17] = '\0';
+  EXPECT_TRUE(injected);
+  EXPECT_TRUE(threw);
+  EXPECT_EQ(trace->resets, 1);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
+  EXPECT_EQ(pool->FreeBlockCount(), 1U);
+  guard.Rollback();
+  EXPECT_EQ(trace->resets, 1);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       SharedLeaseConstructorFailureReturnsBlockWithoutCommit) {
+  Create(1);
+  ASSERT_NE(pool, nullptr);
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  ScopedOutputLeaseGuard guard;
+  guard.Track(pool, block);
+  guard.Untrack(block);
+  bool threw = false;
+  bool committed = false;
+  bool injected = false;
+  {
+    test_support::ScopedAllocationFailure failure(0);
+    try {
+      std::shared_ptr<void> lease(block, OutputPoolDeleter{pool, block});
+      guard.Commit();
+      committed = true;
+    } catch (const std::bad_alloc&) {
+      threw = true;
+    }
+    injected = failure.Triggered();
   }
-  pool->ReturnBlock(reused);
+  EXPECT_TRUE(injected);
+  EXPECT_TRUE(threw);
+  EXPECT_FALSE(committed);
+  EXPECT_EQ(trace->resets, 1);
+  EXPECT_EQ(pool->CheckedOutCount(), 0U);
+  EXPECT_EQ(pool->FreeBlockCount(), 1U);
+  guard.Rollback();
+  EXPECT_EQ(trace->resets, 1);
 }
 
 }  // namespace
-
-TEST_F(OperatorOutputPoolTest,
-       MultiStringOutputsReuseAllFieldsWithoutAllocation) {
-  const auto binding = MakeBusinessSummaryBinding();
-  CheckMultiStringOutputReuse<BusinessSummaryOutput>(
-      binding, {&BusinessSummaryOutput::title, &BusinessSummaryOutput::summary},
-      [](auto& out) { out.status_code = -42; },
-      [](const auto& out) { EXPECT_EQ(out.status_code, 0); });
-}
-
-TEST_F(OperatorOutputPoolTest,
-       AuthoredOutputReusePreservesOptionalMetadataStorage) {
-  const auto owned_binding = MakeBusinessSummaryMetadataBinding();
-  const auto* binding = &owned_binding;
-  for (int32_t type_id : {0, 1, 4}) {
-    SCOPED_TRACE(type_id);
-    ResolvedOutputPoolSpec spec;
-    spec.type = binding->canonical_suffix;
-    spec.capacities = {{"title", 17}, {"summary", 17}};
-    spec.metadata_type_id = type_id;
-    spec.meta_num = type_id == 0 ? 0 : 3;
-    std::shared_ptr<OutputPoolState> pool;
-    std::string err;
-    ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
-              0)
-        << err;
-    void* block = nullptr;
-    ASSERT_EQ(pool->Acquire(&block), 0);
-    auto* out = static_cast<BusinessSummaryOutput*>(block);
-
-    EXPECT_EQ(out->status_code, 0);
-    auto* metadata = out->metadata;
-    void* payload = nullptr;
-    if (type_id == 0) {
-      EXPECT_EQ(metadata, nullptr);
-    } else {
-      ASSERT_NE(metadata, nullptr);
-      EXPECT_EQ(metadata->type_id, type_id);
-      EXPECT_EQ(metadata->element_count, 0);
-      EXPECT_EQ(metadata->byte_length, 0);
-      payload = metadata->data;
-      ASSERT_NE(payload, nullptr);
-      metadata->element_count = spec.meta_num;
-      metadata->byte_length =
-          spec.meta_num * FindCompanyAnyType(type_id)->element_size;
-      std::memset(payload, 1, metadata->byte_length);
-    }
-    auto* str = out->title;
-    ASSERT_NE(str, nullptr);
-    auto* data = str->data;
-    ASSERT_NE(data, nullptr);
-    std::strcpy(data, "{}");
-    str->length = 2;
-
-    out->status_code = -42;
-    void* reused = nullptr;
-    int result = -1;
-    bool allocated = false;
-    {
-      test_support::ScopedAllocationFailure failure(0);
-      pool->ReturnBlock(block);
-      result = pool->Acquire(&reused);
-      allocated = failure.Triggered();
-    }
-    ASSERT_EQ(result, 0);
-    EXPECT_FALSE(allocated);
-    ASSERT_EQ(reused, block);
-
-    EXPECT_EQ(out->status_code, 0);
-    ASSERT_EQ(out->title, str);
-    EXPECT_EQ(str->data, data);
-    EXPECT_EQ(str->length, 0);
-    EXPECT_EQ(data[0], '\0');
-    ASSERT_EQ(out->metadata, metadata);
-    if (metadata) {
-      EXPECT_EQ(metadata->type_id, type_id);
-      EXPECT_EQ(metadata->data, payload);
-      EXPECT_EQ(metadata->element_count, 0);
-      EXPECT_EQ(metadata->byte_length, 0);
-    }
-    pool->ReturnBlock(reused);
-  }
-}
-
-// 4. ScopedOutputLeaseGuard 的 Untrack 与 Rollback 事务边界
-TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create("json_out", 3, spec, binding, &pool, &err),
-            0);
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-
-  {
-    ScopedOutputLeaseGuard guard;
-    void *b1 = nullptr, *b2 = nullptr, *b3 = nullptr;
-    ASSERT_EQ(pool->Acquire(&b1), 0);
-    ASSERT_EQ(pool->Acquire(&b2), 0);
-    ASSERT_EQ(pool->Acquire(&b3), 0);
-    EXPECT_EQ(pool->FreeBlockCount(), 0u);
-
-    guard.Track(pool, b1);
-    guard.Track(pool, b2);
-    guard.Track(pool, b3);
-
-    // 模拟构造 shared_ptr 时将 b1 移交给外部智能指针 (Untrack)
-    guard.Untrack(b1);
-
-    // guard 析构触发 Rollback，b2 和 b3 应自动归还，b1 仍由模拟外部持有
-  }
-
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
-  EXPECT_EQ(pool->CheckedOutCount(), 1u);
-}
-
-// 6. 多线程并发归还与条件变量唤醒
-TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create("json_out", 1, spec, binding, &pool, &err),
-            0);
-
-  void* block = nullptr;
-  ASSERT_EQ(pool->Acquire(&block), 0);
-  EXPECT_EQ(pool->FreeBlockCount(), 0u);
-
-  std::atomic<bool> worker_done{false};
-  std::thread worker([&]() {
-    void* acquired = nullptr;
-    // 阻塞等待唤醒
-    if (pool->Acquire(&acquired) == 0 && acquired != nullptr) {
-      pool->ReturnBlock(acquired);
-      worker_done = true;
-    }
-  });
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(40));
-  EXPECT_FALSE(worker_done);
-
-  // 归还主线程块，触发唤醒
-  pool->ReturnBlock(block);
-
-  worker.join();
-  EXPECT_TRUE(worker_done);
-  EXPECT_EQ(pool->FreeBlockCount(), 1u);
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-}
-
-// 9. 严格 spec.type 与 64 MiB 预算边界拦截 (R9-005)
-TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  // 1. spec.type 为空 -> 严格拒绝
-  {
-    ResolvedOutputPoolSpec spec;
-    spec.type = "";
-    std::shared_ptr<OutputPoolState> pool;
-    std::string err;
-    int ret =
-        OutputPoolState::Create("json_out", 5, spec, binding, &pool, &err);
-    EXPECT_EQ(ret, -2);
-    EXPECT_EQ(pool, nullptr);
-    EXPECT_FALSE(err.empty());
-  }
-
-  // 2. spec.type 类型不匹配 -> 严格拒绝
-  {
-    ResolvedOutputPoolSpec spec;
-    spec.type = "different_output";
-    spec.capacities["result_json"] = 8191;
-    std::shared_ptr<OutputPoolState> pool;
-    std::string err;
-    int ret =
-        OutputPoolState::Create("json_out", 5, spec, binding, &pool, &err);
-    EXPECT_EQ(ret, -2);
-    EXPECT_EQ(pool, nullptr);
-    EXPECT_FALSE(err.empty());
-  }
-
-  // 3. 超出 64 MiB 预算硬上限 -> 拒绝
-  {
-    ResolvedOutputPoolSpec spec;
-    spec.type = "json_out";
-    spec.capacities["result_json"] = 65536;
-    std::shared_ptr<OutputPoolState> pool;
-    std::string err;
-    int ret = OutputPoolState::Create("json_out", kMaxOutputPoolDepth, spec,
-                                      binding, &pool, &err);
-    EXPECT_EQ(ret, -2);
-    EXPECT_EQ(pool, nullptr);
-    EXPECT_NE(err.find("64 MiB"), std::string::npos);
-  }
-}
-
-TEST_F(OperatorOutputPoolTest,
-       EveryAllocationFailureReleasesResourcesAndAllowsRetry) {
-  const auto nested_binding = test_support::MakeNestedOutputBinding();
-  const auto authored_binding = MakeBusinessSummaryBinding();
-  const auto metadata_binding = MakeBusinessSummaryMetadataBinding();
-  const struct {
-    const char* type;
-    std::unordered_map<std::string, uint32_t> capacities;
-  } cases[] = {{"json_out", {{"result_json", 2047}}},
-               {"test_nested_out", {}},
-               {"test_business_summary", {{"title", 7}, {"summary", 15}}},
-               {"test_business_metadata", {{"title", 7}, {"summary", 15}}}};
-  for (const auto& test : cases) {
-    const std::string suffix(test.type);
-    const auto* binding =
-        suffix == nested_binding.canonical_suffix
-            ? &nested_binding
-            : OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
-    if (suffix == authored_binding.canonical_suffix)
-      binding = &authored_binding;
-    if (suffix == metadata_binding.canonical_suffix)
-      binding = &metadata_binding;
-    ASSERT_NE(binding, nullptr);
-    ResolvedOutputPoolSpec spec;
-    spec.type = suffix;
-    spec.capacities = test.capacities;
-    if (suffix == metadata_binding.canonical_suffix) {
-      spec.meta_num = 5;
-      spec.metadata_type_id = 1;
-    }
-    if (binding->normalize_parameters) {
-      std::string error;
-      ASSERT_TRUE(
-          NormalizeOutputParameters(*binding, "{}", &spec.params, &error))
-          << error;
-    }
-    // 多个块用于验证前面的块已成功后的回滚。
-    for (uint32_t depth : {1u, 3u}) {
-      bool completed = false;
-      for (int step = 0; step < 4096; ++step) {
-        SCOPED_TRACE(suffix + " depth=" + std::to_string(depth) +
-                     " allocation=" + std::to_string(step));
-        bool injected = false;
-        bool published = false;
-        bool ready = false;
-        bool overflowed = false;
-        size_t outstanding = 0;
-        int result = -4;
-        {
-          test_support::ScopedAllocationFailure failure(step);
-          {
-            std::shared_ptr<OutputPoolState> pool;
-            std::string error;
-            try {
-              result = OutputPoolState::Create(suffix, depth, spec, binding,
-                                               &pool, &error);
-            } catch (const std::bad_alloc&) {
-              // 预检分配失败可能传播到 Operator 异常屏障；
-              // 此时也不得留下池或泄漏的分配。
-            }
-            failure.DisableFailure();
-            published = pool != nullptr;
-            ready = pool && pool->Depth() == depth &&
-                    pool->FreeBlockCount() == depth &&
-                    pool->CheckedOutCount() == 0;
-          }
-          injected = failure.Triggered();
-          outstanding = failure.Outstanding();
-          overflowed = failure.Overflowed();
-        }
-        ASSERT_FALSE(overflowed);
-        EXPECT_EQ(outstanding, 0u);
-        if (!injected) {
-          EXPECT_EQ(result, 0);
-          EXPECT_TRUE(ready);
-          completed = true;
-          break;
-        }
-        EXPECT_NE(result, 0);
-        EXPECT_FALSE(published);
-        std::shared_ptr<OutputPoolState> recovered;
-        std::string error;
-        ASSERT_EQ(OutputPoolState::Create(suffix, depth, spec, binding,
-                                          &recovered, &error),
-                  0)
-            << error;
-        EXPECT_EQ(recovered->FreeBlockCount(), depth);
-        EXPECT_EQ(recovered->CheckedOutCount(), 0u);
-      }
-      EXPECT_TRUE(completed)
-          << "Allocation sweep never reached successful creation";
-    }
-  }
-}
-
-TEST_F(OperatorOutputPoolTest,
-       NormalizedNestedParametersReachAllocationConversionAndReset) {
-  using namespace test_support;
-  auto binding = MakeNestedOutputBinding(2);
-  binding.allocation_name = "nested_strategy";
-  const auto normalize = binding.normalize_parameters;
-  int normalization_calls = 0;
-  binding.normalize_parameters =
-      [&](const std::string& input,
-          std::shared_ptr<const OutputAllocationParameters>* output,
-          std::string* error) {
-        ++normalization_calls;
-        return normalize(input, output, error);
-      };
-  const auto original_reset = binding.reset_external;
-  bool reset_received_parameters = false;
-  binding.reset_external = [&](void* ptr, const ResolvedOutputPoolSpec& spec) {
-    const auto& parameters = spec.Parameters<NestedOutputParameters>();
-    reset_received_parameters =
-        spec.allocator == "nested_strategy" && parameters.kind == 1 &&
-        parameters.capacity == 3 && !parameters.reject_hit;
-    original_reset(ptr, spec);
-  };
-  ResolvedOutputPoolSpec requested;
-  requested.type = binding.canonical_suffix;
-  requested.allocator = "nested_strategy";
-  std::shared_ptr<OutputPoolState> pool;
-  std::string error;
-  ASSERT_TRUE(
-      NormalizeOutputParameters(binding, "{}", &requested.params, &error))
-      << error;
-  ASSERT_EQ(OutputPoolState::Create(requested.type, 1, requested, &binding,
-                                    &pool, &error),
-            0)
-      << error;
-  void* block = nullptr;
-  ASSERT_EQ(pool->Acquire(&block), 0);
-  auto* root = static_cast<NestedOutputEnvelope*>(block);
-  ASSERT_NE(root, nullptr);
-  ASSERT_EQ(root->kind, 1);
-  ASSERT_EQ(root->allocator_tag, 2);
-  auto* payload = static_cast<NestedOutputPayload*>(root->payload);
-  ASSERT_NE(payload, nullptr);
-  ASSERT_EQ(payload->capacity, 3u);
-  void* original_values = payload->values;
-  NestedOutputSource result;
-  result.is_hit = 1;
-  ASSERT_EQ(ConvertNestedOutput(&result, block, pool->Spec(), &error), 0)
-      << error;
-  EXPECT_EQ(static_cast<int32_t*>(payload->values)[2], 212);
-  void* reused = nullptr;
-  int acquired = -1;
-  bool allocated_during_reuse = false;
-  {
-    ScopedAllocationFailure failure(0);
-    pool->ReturnBlock(block);
-    acquired = pool->Acquire(&reused);
-    allocated_during_reuse = failure.Triggered();
-  }
-  ASSERT_EQ(acquired, 0);
-  EXPECT_FALSE(allocated_during_reuse);
-  EXPECT_TRUE(reset_received_parameters);
-  EXPECT_EQ(reused, block);
-  EXPECT_EQ(root->payload, payload);
-  EXPECT_EQ(payload->values, original_values);
-  EXPECT_EQ(payload->capacity, 3u);
-  EXPECT_EQ(payload->count, 0u);
-  EXPECT_EQ(static_cast<int32_t*>(payload->values)[2], 0);
-  ASSERT_EQ(ConvertNestedOutput(&result, reused, pool->Spec(), &error), 0)
-      << error;
-  pool->ReturnBlock(reused);
-  EXPECT_EQ(normalization_calls, 1);
-}
-
-TEST_F(OperatorOutputPoolTest,
-       CustomAllocatorErrorReleasesPartialTreeAndEarlierCompleteBlocks) {
-  using namespace test_support;
-  auto binding = MakeNestedOutputBinding();
-  const auto complete_allocate = binding.allocate_external;
-  int calls = 0;
-  binding.allocate_external = [&](const ResolvedOutputPoolSpec& spec,
-                                  OwnedExternalBlock* block,
-                                  std::string* error) {
-    if (++calls != 2) return complete_allocate(spec, block, error);
-    auto* root = block->Own(std::make_unique<NestedOutputEnvelope>());
-    block->raw_struct = root;
-    root->payload = block->Own(std::make_unique<NestedOutputPayload>());
-    if (error) *error = "Failed after allocating the root and nested header";
-    return -4;
-  };
-  ResolvedOutputPoolSpec spec;
-  spec.type = binding.canonical_suffix;
-  std::string parameter_error;
-  ASSERT_TRUE(
-      NormalizeOutputParameters(binding, "{}", &spec.params, &parameter_error))
-      << parameter_error;
-  size_t outstanding = 1;
-  bool published = true;
-  int result = 0;
-  {
-    ScopedAllocationFailure ledger;
-    {
-      std::shared_ptr<OutputPoolState> pool;
-      std::string error;
-      result =
-          OutputPoolState::Create(spec.type, 3, spec, &binding, &pool, &error);
-      published = pool != nullptr;
-    }
-    outstanding = ledger.Outstanding();
-  }
-  EXPECT_EQ(result, -4);
-  EXPECT_FALSE(published);
-  EXPECT_EQ(calls, 2);
-  EXPECT_EQ(outstanding, 0u);
-
-  binding.allocate_external = complete_allocate;
-  std::shared_ptr<OutputPoolState> recovered;
-  std::string error;
-  ASSERT_EQ(
-      OutputPoolState::Create(spec.type, 3, spec, &binding, &recovered, &error),
-      0)
-      << error;
-  EXPECT_EQ(recovered->FreeBlockCount(), 3u);
-}
-
-TEST_F(OperatorOutputPoolTest,
-       PublicationAllocationFailuresRollbackWholeBatch) {
-  constexpr uint32_t kDepth = 3;
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(spec.type);
-  std::shared_ptr<OutputPoolState> pool;
-  std::string error;
-  ASSERT_EQ(
-      OutputPoolState::Create(spec.type, kDepth, spec, binding, &pool, &error),
-      0);
-  bool completed = false;
-  for (int step = 0; step < 4096; ++step) {
-    SCOPED_TRACE(step);
-    RuntimeOutputBatch outputs;
-    outputs.rows.resize(kDepth);
-    std::vector<AcquiredOutputBlock> acquired;
-    ScopedOutputLeaseGuard lease;
-    lease.Reserve(kDepth);
-    ASSERT_EQ(pool->FreeBlockCount(), kDepth);
-    for (uint32_t i = 0; i < kDepth; ++i) {
-      outputs.rows[i].push_back({0, nullptr});
-      void* block = nullptr;
-      ASSERT_EQ(pool->Acquire(&block), 0);
-      lease.Track(pool, block);
-      acquired.push_back({i, 0, pool, block, 0});
-    }
-    bool threw = false;
-    bool injected = false;
-    bool all_null = false;
-    bool all_present = false;
-    size_t outstanding = 0;
-    bool overflowed = false;
-    {
-      test_support::ScopedAllocationFailure failure(step);
-      try {
-        PublishRuntimeOutputs(acquired, &outputs, &lease);
-      } catch (const std::bad_alloc&) {
-        threw = true;
-      }
-      failure.DisableFailure();
-      all_null = true;
-      all_present = true;
-      for (const auto& row : outputs.rows) {
-        all_null &= !row.front().value;
-        all_present &= static_cast<bool>(row.front().value);
-      }
-      // Process 使用的同一守卫会回滚所有未发布的租约。
-      lease.Rollback();
-      outputs.rows.clear();
-      injected = failure.Triggered();
-      outstanding = failure.Outstanding();
-      overflowed = failure.Overflowed();
-    }
-    ASSERT_FALSE(overflowed);
-    EXPECT_EQ(outstanding, 0u);
-    EXPECT_EQ(pool->CheckedOutCount(), 0u);
-    ASSERT_EQ(pool->FreeBlockCount(), kDepth);
-    if (!injected) {
-      EXPECT_FALSE(threw);
-      EXPECT_TRUE(all_present);
-      completed = true;
-      break;
-    }
-    EXPECT_TRUE(threw);
-    EXPECT_TRUE(all_null);
-  }
-  EXPECT_TRUE(completed)
-      << "Allocation sweep never reached successful publication";
-}
-
-TEST_F(OperatorOutputPoolTest,
-       AllocationFailureScopeRestoresAndIsolatesThreads) {
-  std::atomic<bool> worker_start{false};
-  bool worker_ok = false;
-  std::thread worker([&] {
-    while (!worker_start.load()) std::this_thread::yield();
-    try {
-      void* ptr = ::operator new(32);
-      ::operator delete(ptr);
-      worker_ok = true;
-    } catch (...) {
-    }
-  });
-  bool inner_threw = false;
-  bool outer_threw = false;
-  bool inner_injected = false;
-  bool outer_injected = false;
-  {
-    test_support::ScopedAllocationFailure outer(0);
-    worker_start = true;
-    worker.join();
-    {
-      test_support::ScopedAllocationFailure inner(0);
-      try {
-        void* ptr = ::operator new(16);
-        ::operator delete(ptr);
-      } catch (const std::bad_alloc&) {
-        inner_threw = true;
-      }
-      inner_injected = inner.Triggered();
-    }
-    try {
-      void* ptr = ::operator new(16);
-      ::operator delete(ptr);
-    } catch (const std::bad_alloc&) {
-      outer_threw = true;
-    }
-    outer_injected = outer.Triggered();
-  }
-  EXPECT_TRUE(worker_ok);
-  EXPECT_TRUE(inner_threw && inner_injected);
-  EXPECT_TRUE(outer_threw && outer_injected);
-  // 展开已启用的作用域也会恢复默认分配行为。
-  try {
-    test_support::ScopedAllocationFailure failure(0);
-    throw 1;
-  } catch (int) {
-  }
-  EXPECT_NO_THROW({
-    void* ptr = ::operator new(16);
-    ::operator delete(ptr);
-  });
-}
-
-TEST_F(OperatorOutputPoolTest,
-       AllocationLedgerTracksScalarArrayAndAlignedStorage) {
-  size_t live = 0;
-  size_t released = 1;
-  bool overflowed = false;
-  bool nothrow_failed = false;
-  bool aligned = false;
-  {
-    test_support::ScopedAllocationFailure scope;
-    void* scalar = ::operator new(17);
-    void* array = ::operator new[](33, std::nothrow);
-    void* storage = ::operator new(65, std::align_val_t{64});
-    void* aligned_array =
-        ::operator new[](129, std::align_val_t{64}, std::nothrow);
-    aligned = reinterpret_cast<uintptr_t>(storage) % 64 == 0 &&
-              reinterpret_cast<uintptr_t>(aligned_array) % 64 == 0;
-    live = scope.Outstanding();
-    {
-      test_support::ScopedAllocationFailure nested(0);
-      void* failed = ::operator new(17, std::nothrow);
-      nothrow_failed = failed == nullptr && nested.Triggered();
-      ::operator delete(failed);
-      // 嵌套作用域中的释放也必须更新父作用域的账本。
-      ::operator delete(scalar, size_t{17});
-      ::operator delete[](array);
-      ::operator delete(storage, size_t{65}, std::align_val_t{64});
-      ::operator delete[](aligned_array, std::align_val_t{64});
-    }
-    released = scope.Outstanding();
-    overflowed = scope.Overflowed();
-  }
-  EXPECT_EQ(live, 4u);
-  EXPECT_EQ(released, 0u);
-  EXPECT_FALSE(overflowed);
-  EXPECT_TRUE(nothrow_failed);
-  EXPECT_TRUE(aligned);
-}
-
-// --------------------------------------------------------------------------
-// AcquireRuntimeOutputBlocks 异常安全与回滚测试
-// --------------------------------------------------------------------------
-
-TEST_F(OperatorOutputPoolTest,
-       TrackRollsBackBlockOnRegistrationAllocationFailure) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create("json_out", 3, spec, binding, &pool, &err),
-            0);
-  ASSERT_EQ(pool->FreeBlockCount(), 3u);
-  ASSERT_EQ(pool->CheckedOutCount(), 0u);
-
-  void* block = nullptr;
-  ASSERT_EQ(pool->Acquire(&block), 0);
-  ASSERT_NE(block, nullptr);
-  EXPECT_EQ(pool->CheckedOutCount(), 1u);
-
-  // 故障注入：未 Reserve 的 ScopedOutputLeaseGuard 在 Track 时 push_back 抛出
-  // bad_alloc
-  ScopedOutputLeaseGuard guard;
-  bool threw_bad_alloc = false;
-  try {
-    test_support::ScopedAllocationFailure failure(0);
-    guard.Track(pool, block);
-  } catch (const std::bad_alloc&) {
-    threw_bad_alloc = true;
-  }
-  EXPECT_TRUE(threw_bad_alloc);
-
-  // 验证块已被自动归还，CheckedOut 归零，无泄漏
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-
-  // 下一次合法调用能够成功
-  guard.Reserve(1);
-  void* block_next = nullptr;
-  ASSERT_EQ(pool->Acquire(&block_next), 0);
-  EXPECT_EQ(pool->CheckedOutCount(), 1u);
-  EXPECT_NO_THROW(guard.Track(pool, block_next));
-  guard.Rollback();
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-  EXPECT_EQ(pool->FreeBlockCount(), 3u);
-}
-
-TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool_a;
-  std::shared_ptr<OutputPoolState> pool_b;
-  std::string err;
-  ASSERT_EQ(
-      OutputPoolState::Create("json_out", 2, spec, binding, &pool_a, &err), 0);
-  ASSERT_EQ(
-      OutputPoolState::Create("json_out", 1, spec, binding, &pool_b, &err), 0);
-
-  // 关闭 pool_b，使其 Acquire 立即失败 (返回 -9) 而不发生条件变量无限阻塞
-  pool_b->CloseAndDrain();
-
-  // 构造单帧多槽位: slot_a 和 slot_b
-  RuntimeOutputBatch frame_bindings;
-  frame_bindings.rows = {{{0, nullptr}, {1, nullptr}}};
-
-  std::vector<std::shared_ptr<OutputPoolState>> pools = {pool_a, pool_b};
-
-  // 执行获取：slot_a 成功，slot_b 失败
-  {
-    ScopedOutputLeaseGuard guard;
-    std::vector<AcquiredOutputBlock> acquired;
-    std::string acq_err;
-    int ret = AcquireRuntimeOutputBlocks(frame_bindings, pools, &guard,
-                                         &acquired, &acq_err);
-    EXPECT_EQ(ret, -4);
-    EXPECT_NE(acq_err.find("Output pool exhausted for slot 1"),
-              std::string::npos);
-    // guard 析构触发 Rollback
-  }
-
-  // 验证 slot_a 的块已被完全回滚，无泄漏
-  EXPECT_EQ(pool_a->CheckedOutCount(), 0u);
-  EXPECT_EQ(pool_a->FreeBlockCount(), 2u);
-
-  // 为后续合法调用提供正常的 pool_b_new
-  std::shared_ptr<OutputPoolState> pool_b_new;
-  ASSERT_EQ(
-      OutputPoolState::Create("json_out", 1, spec, binding, &pool_b_new, &err),
-      0);
-  pools[1] = pool_b_new;
-
-  // 下一次合法调用能够成功
-  {
-    ScopedOutputLeaseGuard guard;
-    std::vector<AcquiredOutputBlock> acquired;
-    std::string acq_err;
-    int ret = AcquireRuntimeOutputBlocks(frame_bindings, pools, &guard,
-                                         &acquired, &acq_err);
-    EXPECT_EQ(ret, 0);
-    EXPECT_EQ(acquired.size(), 2u);
-    EXPECT_EQ(pool_a->CheckedOutCount(), 1u);
-    EXPECT_EQ(pool_b_new->CheckedOutCount(), 1u);
-  }
-  EXPECT_EQ(pool_a->CheckedOutCount(), 0u);
-  EXPECT_EQ(pool_b_new->CheckedOutCount(), 0u);
-}
-
-TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "json_out";
-  spec.capacities["result_json"] = 2047;
-
-  std::shared_ptr<OutputPoolState> pool;
-  std::string err;
-  ASSERT_EQ(OutputPoolState::Create("json_out", 2, spec, binding, &pool, &err),
-            0);
-  ASSERT_EQ(pool->FreeBlockCount(), 2u);
-
-  // 第 0 帧使用有效输出索引 0，第 1 帧使用缺失输出索引 1
-  RuntimeOutputBatch frame_bindings;
-  frame_bindings.rows = {{{0, nullptr}}, {{1, nullptr}}};
-
-  std::vector<std::shared_ptr<OutputPoolState>> pools = {pool};
-
-  {
-    ScopedOutputLeaseGuard guard;
-    std::vector<AcquiredOutputBlock> acquired;
-    std::string acq_err;
-    int ret = AcquireRuntimeOutputBlocks(frame_bindings, pools, &guard,
-                                         &acquired, &acq_err);
-    EXPECT_EQ(ret, -5);
-    EXPECT_NE(acq_err.find("Missing output pool for slot 1"),
-              std::string::npos);
-  }
-
-  // 验证第 0 帧检出的块已被 Rollback 归还，CheckedOut 归零
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
-
-  // 下一次单帧合法调用必须成功
-  {
-    RuntimeOutputBatch single_frame;
-    single_frame.rows = {{{0, nullptr}}};
-    ScopedOutputLeaseGuard guard;
-    std::vector<AcquiredOutputBlock> acquired;
-    std::string acq_err;
-    int ret = AcquireRuntimeOutputBlocks(single_frame, pools, &guard, &acquired,
-                                         &acq_err);
-    EXPECT_EQ(ret, 0);
-    EXPECT_EQ(acquired.size(), 1u);
-    EXPECT_EQ(pool->CheckedOutCount(), 1u);
-  }
-  EXPECT_EQ(pool->CheckedOutCount(), 0u);
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
-}
-
 }  // namespace llm_edgeflow

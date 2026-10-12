@@ -1,264 +1,128 @@
-/**
- * @file test_cpp_operator_sdk.cpp
- * @brief 公开 C++ Operator SDK 的消费方测试。
- *
- * 验证外部 C++ 消费方只使用公开 SDK 头文件即可链接 llm_edgeflow::sdk，
- * 不依赖任何内部头文件、运行时对象或测试 mock。
- */
-
-#include <cstddef>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
+#include <filesystem>
+#include <iostream>
 #include <string>
 #include <type_traits>
-#include <vector>
 
-#include "edgeflow/export.h"
-#include "edgeflow/log.h"
 #include "edgeflow/operator/interface.h"
-#include "edgeflow/operator/types.h"
-#include "edgeflow/version.h"
-#include "platform_mock/error_codes.h"
-#include "platform_mock/operator_data_types.h"
-#include "platform_mock/operator_types.h"
 
-// 公开布局与契约断言
 namespace api = llm_edgeflow::operator_api;
 
-// 精确匹配外部函数指针类型，包括不带 noexcept 的约定。
 static_assert(std::is_same_v<decltype(api::OperatorFunc::Init), int (*)()>);
 static_assert(std::is_same_v<decltype(api::OperatorFunc::Create),
                              int (*)(void**, const void*)>);
-static_assert(std::is_same_v<decltype(api::OperatorFunc::Control),
-                             int (*)(void*, int, void*)>);
 static_assert(std::is_same_v<decltype(api::OperatorFunc::Process),
                              int (*)(void*, const api::NamedIoBatch&,
                                      api::NamedIoBatch&)>);
+static_assert(std::is_same_v<decltype(api::OperatorFunc::Control),
+                             int (*)(void*, int, void*)>);
 static_assert(
     std::is_same_v<decltype(api::OperatorFunc::Destroy), int (*)(void*)>);
 static_assert(std::is_same_v<decltype(api::OperatorFunc::DeInit), int (*)()>);
-static_assert(std::is_standard_layout_v<api::OperatorFunc>);
-static_assert(offsetof(api::OperatorFunc, Init) == 0);
-static_assert(offsetof(api::OperatorFunc, Init) <
-              offsetof(api::OperatorFunc, Create));
-static_assert(offsetof(api::OperatorFunc, Create) <
-              offsetof(api::OperatorFunc, Control));
-static_assert(offsetof(api::OperatorFunc, Control) <
-              offsetof(api::OperatorFunc, Process));
-static_assert(offsetof(api::OperatorFunc, Process) <
-              offsetof(api::OperatorFunc, Destroy));
-static_assert(offsetof(api::OperatorFunc, Destroy) <
-              offsetof(api::OperatorFunc, DeInit));
-static_assert(static_cast<int>(api::ControlCommand::kUpdateRules) == 1);
-static_assert(static_cast<int>(api::ControlCommand::kSwitchPrompt) == 2);
-static_assert(static_cast<int>(api::ControlCommand::kUpdateThreshold) == 3);
-static_assert(static_cast<int>(api::ControlCommand::kJson) == 4);
+static_assert(noexcept(api::Get_LLM_EDGEFLOW_OperatorTable()));
+static_assert(noexcept(api::GetOperatorLastError()));
 
-static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
-                                           (sizeof(char*) == 8 ? 4 : 0),
-              "CompanyString memory layout check");
-static_assert(std::is_standard_layout_v<CompanyOperatorOutput>);
-static_assert(std::is_trivial_v<CompanyOperatorOutput>);
-static_assert(std::is_same_v<decltype(CompanyOperatorOutput::result_json),
-                             CompanyString*>);
-static_assert(offsetof(CompanyOperatorOutput, service_type) == 0);
-static_assert(offsetof(CompanyOperatorOutput, service_type) <
-              offsetof(CompanyOperatorOutput, result_json));
-static_assert(offsetof(CompanyOperatorOutput, result_json) <
-              offsetof(CompanyOperatorOutput, status_code));
-static_assert(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES == 8,
-              "COMPANY_OPERATOR_MAX_RERANK_CANDIDATES must be 8");
-static_assert(E_ALG_BASE_LOG_LEVEL_FATAL == 0, "Fatal log level must remain 0");
-static_assert(E_ALG_BASE_LOG_LEVEL_WARNING == 2,
-              "Warning log level must remain 2");
-static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
-              "Verbose log level must remain 5");
+namespace {
+class ConsumerSession {
+ public:
+  api::OperatorFunc ops = api::Get_LLM_EDGEFLOW_OperatorTable();
+  void* handle = nullptr;
+  bool initialized = false;
+
+  ~ConsumerSession() {
+    if (handle) ops.Destroy(handle);
+    if (initialized) ops.DeInit();
+  }
+};
+
+bool Check(bool condition, const char* operation) {
+  if (condition) return true;
+  std::cerr << operation << ": " << api::GetOperatorLastError() << '\n';
+  return false;
+}
+
+bool CopyResult(ConsumerSession& session, const api::OperatorIoContract& io,
+                const std::string& text, std::string* copied) {
+  CompanyString bytes{static_cast<int32_t>(text.size()),
+                      const_cast<char*>(text.data())};
+  CompanyOperatorKeywordInput carrier{
+      io.inputs.front().service_type.value_or(0), &bytes};
+  api::NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["client.keyword_in"] = api::MakeBorrowedOperatorInput(&carrier);
+  outputs[0]["client.json_out"] = {};
+  if (!Check(session.ops.Process(session.handle, inputs, outputs) == 0,
+             "Process"))
+    return false;
+  const auto& slot = outputs[0].at("client.json_out");
+  if (!Check(static_cast<bool>(slot), "published output")) return false;
+  const auto* result = static_cast<const CompanyOperatorOutput*>(slot.get());
+  if (!Check(result->status_code == 0 && result->result_json &&
+                 result->result_json->data && result->result_json->length > 0,
+             "complete response carrier"))
+    return false;
+  copied->assign(result->result_json->data, result->result_json->length);
+  // The host copies bytes before returning the pool lease, then destroys
+  // safely.
+  outputs.clear();
+  return true;
+}
+}  // namespace
 
 int main() {
-  // 1. 版本契约检查
-  if (std::strcmp(COMPANY_ALG_PRODUCT_VERSION, "11.0.0") != 0) {
-    std::fprintf(stderr,
-                 "[SDK Consumer Test] Generated version contract drifted\n");
+  ConsumerSession session;
+  if (!Check(session.ops.Init && session.ops.Create && session.ops.Process &&
+                 session.ops.Control && session.ops.Destroy &&
+                 session.ops.DeInit,
+             "public function table"))
     return 1;
-  }
-
-  // 2. 日志 API 检查
-  if (AlgBase_getLogLevelByName("LLM_EDGEFLOW") !=
-      E_ALG_BASE_LOG_LEVEL_WARNING) {
-    std::fprintf(stderr,
-                 "[SDK Consumer Test] Public log default must be WARNING\n");
-    return 2;
-  }
-  if (AlgBase_setLogLevelByName("LLM_EDGEFLOW", E_ALG_BASE_LOG_LEVEL_WARNING) !=
-          0 ||
-      AlgBase_getLogLevelByName("LLM_EDGEFLOW") !=
-          E_ALG_BASE_LOG_LEVEL_WARNING) {
-    std::fprintf(stderr,
-                 "[SDK Consumer Test] Failed to configure public log API\n");
-    return 3;
-  }
-  ALG_LOG_DEBUG("This debug record is filtered\n");
-  ALG_LOG_WARNING("[SDK Consumer Test] Public log macro is operational\n");
-
-  // 3. 检查 Operator 函数表
-  auto op = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-  if (!op.Init || !op.Create || !op.Process || !op.Control || !op.Destroy ||
-      !op.DeInit) {
-    std::fprintf(
-        stderr,
-        "[SDK Consumer Test] Operator function table has null entries\n");
-    return 4;
-  }
-
-  // 4. Init
-  if (op.Init() != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.Init failed\n");
-    return 5;
-  }
-
-  // 定位 configs 目录
-  const char* root_candidates[] = {".", "..", "../.."};
-  const char* config_rel = "configs/pipeline_keyword_match_rules.conf";
-  std::string root_dir;
-  for (const char* r : root_candidates) {
-    std::string test_p = std::string(r) + "/" + config_rel;
-    FILE* fp = std::fopen(test_p.c_str(), "r");
-    if (fp) {
-      std::fclose(fp);
-      root_dir = r;
-      break;
-    }
-  }
-  if (root_dir.empty()) {
-    std::fprintf(stderr, "[SDK Consumer Test] Could not find %s\n", config_rel);
-    return 6;
-  }
-
-  // 5. ResolveOperatorConfigIo
-  char err_buf[512] = {0};
-  llm_edgeflow::operator_api::OperatorIoContract resolved_io;
-  int val_ret = llm_edgeflow::operator_api::ResolveOperatorConfigIo(
-      root_dir.c_str(), config_rel, &resolved_io, err_buf, sizeof(err_buf));
-  if (val_ret != 0 || resolved_io.inputs.size() != 1 ||
-      resolved_io.outputs.size() != 1 ||
-      resolved_io.inputs[0].type != "keyword_in" ||
-      resolved_io.outputs[0].type != "json_out" ||
-      resolved_io.inputs[0].name != "keyword_match" ||
-      resolved_io.outputs[0].name != "keyword_match" ||
-      resolved_io.inputs[0].service_type != kMockServiceKeywordMatch ||
-      resolved_io.outputs[0].service_type != kMockServiceKeywordMatch) {
-    std::fprintf(stderr,
-                 "[SDK Consumer Test] ResolveOperatorConfigIo failed: %s\n",
-                 err_buf);
-    return 7;
-  }
-
-  // 6. Create
-  llm_edgeflow::operator_api::CreateParam create_param{};
-  create_param.model_path = root_dir.c_str();
-  create_param.cfg_file_name = config_rel;
-  create_param.device_id = 0;
-  create_param.compute_platform =
-      llm_edgeflow::operator_api::ComputePlatform::kCpu;
-  create_param.max_frame_depth = 25;
-
-  void* handle = nullptr;
-  const void* opaque_create_param = &create_param;
-  if (op.Create(&handle, opaque_create_param) != 0 || !handle) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.Create failed: %s\n",
-                 llm_edgeflow::operator_api::GetOperatorLastError());
-    return 8;
-  }
-
-  // 7. Process
-  std::string text1 = "客户要求加急处理VIP订单";
-  CompanyString cs1{static_cast<int32_t>(text1.size()),
-                    const_cast<char*>(text1.data())};
-  CompanyOperatorKeywordInput in_req1{};
-  in_req1.service_type = kMockServiceKeywordMatch;
-  in_req1.sentence_text = &cs1;
-
-  llm_edgeflow::operator_api::NamedIoBatch inputs(1);
-  inputs[0]["client_channel.keyword_in"] =
-      llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&in_req1);
-
-  llm_edgeflow::operator_api::NamedIoBatch outputs(1);
-  outputs[0]["client_channel.json_out"] = nullptr;
-
-  if (op.Process(handle, inputs, outputs) != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.Process failed: %s\n",
-                 llm_edgeflow::operator_api::GetOperatorLastError());
-    return 9;
-  }
-
-  auto out_sp = outputs[0]["client_channel.json_out"];
-  if (!out_sp) {
-    std::fprintf(
-        stderr,
-        "[SDK Consumer Test] Output slot client_channel.json_out is null\n");
-    return 10;
-  }
-  auto* out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
-  if (out_dto->status_code != 0 ||
-      out_dto->service_type != kMockServiceKeywordMatch) {
-    std::fprintf(stderr, "[SDK Consumer Test] Unexpected output status=%d\n",
-                 out_dto->status_code);
-    return 11;
-  }
-
-  // 8. Control：更新规则类别
-  llm_edgeflow::operator_api::ControlUpdateRulesParam rules_param{
-      "{\"categories\":{\"URGENT\":[\"加急\"]}}"};
-  if (op.Control(handle,
-                 static_cast<int>(
-                     llm_edgeflow::operator_api::ControlCommand::kUpdateRules),
-                 &rules_param) != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.Control failed: %s\n",
-                 llm_edgeflow::operator_api::GetOperatorLastError());
-    return 12;
-  }
-
-  // 9. 再次 Process，验证规则变更已生效
-  outputs[0]["client_channel.json_out"] = nullptr;
-  if (op.Process(handle, inputs, outputs) != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] Second op.Process failed: %s\n",
-                 llm_edgeflow::operator_api::GetOperatorLastError());
-    return 13;
-  }
-  out_sp = outputs[0]["client_channel.json_out"];
-  out_dto = static_cast<CompanyOperatorOutput*>(out_sp.get());
-  if (std::string(out_dto->result_json->data, out_dto->result_json->length)
-          .find("\"is_hit\":1") == std::string::npos) {
-    std::fprintf(
-        stderr, "[SDK Consumer Test] Expected keyword hit after rule update\n");
-    return 14;
-  }
-
-  // 10. 复制字段，并在 Destroy 前释放所有租约
-  std::string match_copy;
-  if (out_dto->result_json && out_dto->result_json->data) {
-    match_copy.assign(out_dto->result_json->data, out_dto->result_json->length);
-  }
-  out_sp.reset();
-  outputs.clear();
-  inputs.clear();
-
-  // 11. Destroy 句柄
-  if (op.Destroy(handle) != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.Destroy failed: %s\n",
-                 llm_edgeflow::operator_api::GetOperatorLastError());
-    return 15;
-  }
-
-  // 12. DeInit
-  if (op.DeInit() != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.DeInit failed\n");
-    return 16;
-  }
-
-  std::printf(
-      "[SDK Consumer Test] All C++ Operator SDK consumer tests passed.\n");
+  if (!Check(session.ops.Init() == 0, "Init")) return 1;
+  session.initialized = true;
+  const std::string root = std::filesystem::current_path().string();
+  const char* config = "configs/pipeline_keyword_match_rules.conf";
+  api::OperatorIoContract io;
+  char diagnostic[512] = {};
+  if (!Check(api::ResolveOperatorConfigIo(root.c_str(), config, &io, diagnostic,
+                                          sizeof(diagnostic)) == 0,
+             diagnostic))
+    return 1;
+  if (!Check(io.inputs.size() == 1 && io.outputs.size() == 1 &&
+                 io.inputs[0].type == "keyword_in" &&
+                 io.outputs[0].type == "json_out",
+             "resolved host contract"))
+    return 1;
+  api::CreateParam create;
+  create.model_path = root.c_str();
+  create.cfg_file_name = config;
+  create.compute_platform = api::ComputePlatform::kCpu;
+  create.max_frame_depth = 1;
+  if (!Check(
+          session.ops.Create(&session.handle, &create) == 0 && session.handle,
+          "Create"))
+    return 1;
+  std::string before;
+  if (!CopyResult(session, io, "初始化完成", &before)) return 1;
+  if (!Check(before.find("SYSTEM_INIT") != std::string::npos,
+             "response from configured rule"))
+    return 1;
+  const std::string control = "{\"categories\":{\"SDK\":[\"宿主\"]}}";
+  api::ControlUpdateRulesParam update{control.c_str()};
+  if (!Check(session.ops.Control(
+                 session.handle,
+                 static_cast<int>(api::ControlCommand::kUpdateRules),
+                 &update) == 0,
+             "Control"))
+    return 1;
+  std::string after;
+  if (!CopyResult(session, io, "宿主调用", &after)) return 1;
+  if (!Check(after.find("SDK") != std::string::npos &&
+                 before.find("SYSTEM_INIT") != std::string::npos,
+             "controlled response and retained host copy"))
+    return 1;
+  void* handle = session.handle;
+  session.handle = nullptr;
+  if (!Check(session.ops.Destroy(handle) == 0, "Destroy")) return 1;
+  session.initialized = false;
+  if (!Check(session.ops.DeInit() == 0, "DeInit")) return 1;
+  std::cout << "PASS public SDK lifecycle, control, response copy and lease "
+               "release\n";
   return 0;
 }

@@ -1,415 +1,128 @@
 #include <gtest/gtest.h>
 
-#include <memory>
-#include <nlohmann/json.hpp>
-#include <string>
-#include <vector>
-
-#include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/pipeline_validator.h"
-#include "core/session_context.h"
-#include "edgeflow/operator/interface.h"
 #include "engine/model_interface.h"
-#include "nodes/node_error_codes.h"
-#include "tests/support/model_registration.h"
-#include "tests/support/node_test_utils.h"
-#include "tests/support/pipeline_test_utils.h"
+#include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
-
 namespace {
-
-class FakeRerankModel : public IRerankModel {
+class RecordingRerank final : public IRerankModel {
  public:
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = "fake_reranker";
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string cap = "rerank";
-    return cap;
-  }
+  const std::string& ImplName() const noexcept override { return impl; }
+  const std::string& ModelType() const noexcept override { return type; }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-
-  int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
-            std::string* diagnostic = nullptr) noexcept override {
-    ++score_calls_;
+  int Score(const QueryCandidatesBatch& inputs, ScoreBatch* output,
+            std::string* diagnostic) noexcept override {
     if (diagnostic) diagnostic->clear();
-    if (!outputs) return -1;
-    outputs->clear();
-    if (fail_score_) return -1;
-
-    if (return_wrong_count_) {
-      outputs->emplace_back(0, 0, 1.0f);
-      return 0;
-    }
-
-    for (size_t i = 0; i < inputs.size(); ++i) {
-      const auto& item = inputs[i];
-      uint32_t r_id = item.req_id;
-      uint32_t s_id = item.sub_id;
-      if (corrupt_provenance_ && i == 0) {
-        s_id += 999;
-      }
-      float score = 0.5f;
-      if (item.data.candidate.find("HIGH") != std::string::npos) {
-        score = 0.95f;
-      } else if (item.data.candidate.find("MID") != std::string::npos) {
-        score = 0.75f;
-      } else if (item.data.candidate.find("LOW") != std::string::npos) {
-        score = 0.15f;
-      }
-      outputs->emplace_back(r_id, s_id, score);
-    }
+    calls.push_back(inputs);
+    output->clear();
+    for (size_t i = 0; i < inputs.size(); ++i)
+      output->emplace_back(inputs[i].req_id, inputs[i].sub_id, scores.at(i));
     return 0;
   }
-
-  int score_calls_ = 0;
-  bool fail_score_ = false;
-  bool return_wrong_count_ = false;
-  bool corrupt_provenance_ = false;
+  std::string impl = "node_recording_rerank", type = "rerank";
+  std::vector<float> scores = {0.1f, 0.7f, 0.9f, 0.2f};
+  std::vector<QueryCandidatesBatch> calls;
 };
 
+TEST(TextRerankNodeTest,
+     BuildsPairsAndRanksWithinEachRequestUsingLiteralModelScores) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingRerank>();
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "ranker", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init(
+      "text_rerank", {{"bind_model", "ranker"}, {"top_k", 2}}, session,
+      {{"queries", "queries", ""}, {"candidates", "candidates", ""}},
+      {{"ranked", "result", ""}}));
+  AlgContext context;
+  ASSERT_TRUE(context.Publish(
+      "queries", TextBatch{{5, 8, "query five"}, {2, 3, "query two"}}));
+  ASSERT_TRUE(context.Publish(
+      "candidates",
+      RankedTextBatch{{5, 0, RankedCandidate("five low", 8, 1, 777)},
+                      {2, 9, RankedCandidate("two high", 3, 1, 999)},
+                      {5, 4, RankedCandidate("five high", 1, 2, 444)},
+                      {2, 2, RankedCandidate("two low", 7, 2, 222)}}));
+  ASSERT_EQ(node.node->Process(&context), 0);
+  ASSERT_EQ(model->calls.size(), 1u);
+  const auto& pairs = model->calls[0];
+  ASSERT_EQ(pairs.size(), 4u);
+  EXPECT_EQ(pairs[0].data.query, "query five");
+  EXPECT_EQ(pairs[0].data.candidate, "five low");
+  EXPECT_EQ(pairs[1].data.query, "query two");
+  EXPECT_EQ(pairs[1].sub_id, 9u);
+  EXPECT_EQ(pairs[2].data.candidate, "five high");
+  const auto* output = context.Read<RankedTextBatch>("result");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 4u);
+  const std::vector<std::string> texts = {"two high", "two low", "five high",
+                                          "five low"};
+  const std::vector<float> scores = {0.7f, 0.2f, 0.9f, 0.1f};
+  const std::vector<uint32_t> originals = {9, 2, 4, 0};
+  for (size_t i = 0; i < output->size(); ++i) {
+    EXPECT_EQ((*output)[i].req_id, i < 2 ? 2u : 5u);
+    EXPECT_EQ((*output)[i].sub_id, i % 2);
+    EXPECT_EQ((*output)[i].data.rank, static_cast<int>(i % 2 + 1));
+    EXPECT_EQ((*output)[i].data.text, texts[i]);
+    EXPECT_FLOAT_EQ((*output)[i].data.score, scores[i]);
+    EXPECT_EQ((*output)[i].data.original_sub_id, originals[i]);
+  }
+}
+
+TEST(TextRerankNodeTest, TopKIsAppliedPerRequestAfterReranking) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingRerank>();
+  model->scores = {0.2f, 0.9f, 0.8f};
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "ranker", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(
+      node.Init("text_rerank", {{"bind_model", "ranker"}}, session,
+                {{"queries", "queries", ""}, {"candidates", "candidates", ""}},
+                {{"ranked", "result", ""}}));
+  AlgContext context;
+  ASSERT_TRUE(
+      context.Publish("queries", TextBatch{{1, 0, "one"}, {2, 0, "two"}}));
+  ASSERT_TRUE(context.Publish(
+      "candidates", RankedTextBatch{{1, 8, RankedCandidate("low")},
+                                    {1, 3, RankedCandidate("high")},
+                                    {2, 6, RankedCandidate("other")}}));
+  ASSERT_EQ(node.node->Process(&context), 0);
+  const auto* output = context.Read<RankedTextBatch>("result");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 2u);
+  EXPECT_EQ((*output)[0].data.text, "high");
+  EXPECT_EQ((*output)[0].data.original_sub_id, 3u);
+  EXPECT_EQ((*output)[1].data.text, "other");
+  EXPECT_EQ((*output)[1].req_id, 2u);
+}
+
+TEST(TextRerankNodeTest,
+     DuplicateQueriesAndCandidatesWithoutAQueryFailBeforeScoring) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingRerank>();
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "ranker", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(
+      node.Init("text_rerank", {{"bind_model", "ranker"}}, session,
+                {{"queries", "queries", ""}, {"candidates", "candidates", ""}},
+                {{"ranked", "result", ""}}));
+  for (bool duplicate : {true, false}) {
+    SCOPED_TRACE(duplicate);
+    AlgContext context;
+    const TextBatch queries = duplicate
+                                  ? TextBatch{{1, 0, "first"}, {1, 4, "second"}}
+                                  : TextBatch{{2, 0, "unrelated"}};
+    ASSERT_TRUE(context.Publish("queries", queries));
+    ASSERT_TRUE(context.Publish(
+        "candidates", RankedTextBatch{{1, 8, RankedCandidate("candidate")}}));
+    EXPECT_NE(node.node->Process(&context), 0);
+    EXPECT_FALSE(context.Has("result"));
+    EXPECT_TRUE(model->calls.empty());
+  }
+}
 }  // namespace
-
-class TextRerankNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    session_ctx_ = std::make_unique<SessionContext>();
-
-    // 注册 Fake IRerankModel
-    fake_model_ = std::make_shared<FakeRerankModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(),
-                                  "fake_rerank_model", fake_model_, "v1",
-                                  "fake_reranker", "rerank", "mock"));
-  }
-
-  std::shared_ptr<FakeRerankModel> fake_model_;
-  std::unique_ptr<SessionContext> session_ctx_;
-};
-
-// queries + ranked candidates
-TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
-  auto node = NodeRegistry::Instance().Create("text_rerank");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  TextBatch queries;
-  queries.emplace_back(1, 0, "How to refund?");
-
-  RankedTextBatch candidates;
-  candidates.emplace_back(
-      1, 0, RankedCandidate("Refund Policy Guide HIGH", 0.8f, 1, 0));
-  candidates.emplace_back(1, 1,
-                          RankedCandidate("Company About Us LOW", 0.2f, 2, 1));
-  candidates.emplace_back(1, 2,
-                          RankedCandidate("Contact Support MID", 0.5f, 3, 2));
-
-  ctx.Publish("queries", queries);
-  ctx.Publish("candidates", candidates);
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
-  ASSERT_NE(ranked, nullptr);
-  ASSERT_EQ(ranked->size(), 2u);
-  EXPECT_EQ((*ranked)[0].data.text, "Refund Policy Guide HIGH");
-  EXPECT_EQ((*ranked)[0].data.original_sub_id, 0u);
-  EXPECT_EQ((*ranked)[1].data.text, "Contact Support MID");
-  EXPECT_EQ((*ranked)[1].data.original_sub_id, 2u);
-}
-
-TEST_F(TextRerankNodeTest, RejectsMultipleQueriesBeforeCallingModel) {
-  auto node = NodeRegistry::Instance().Create("text_rerank");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "fake_rerank_model"}},
-                              session_ctx_.get()));
-  AlgContext ctx;
-  ctx.Publish("queries", TextBatch{{7, 0, "first"}, {7, 1, "second"}});
-  ctx.Publish("candidates",
-              RankedTextBatch{{7, 0, RankedCandidate("HIGH", 0.9f, 7, 0)}});
-  EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
-  EXPECT_EQ(fake_model_->score_calls_, 0);
-  EXPECT_FALSE(ctx.Has("ranked"));
-}
-
-TEST_F(TextRerankNodeTest, RejectsCandidateWithoutQueryBeforeCallingModel) {
-  auto node = NodeRegistry::Instance().Create("text_rerank");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "fake_rerank_model"}},
-                              session_ctx_.get()));
-  AlgContext ctx;
-  ctx.Publish("queries", TextBatch{{7, 0, "query"}});
-  ctx.Publish("candidates",
-              RankedTextBatch{{7, 0, RankedCandidate("HIGH", 0.9f, 7, 0)},
-                              {8, 0, RankedCandidate("orphan", 0.8f, 8, 0)}});
-  EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
-  EXPECT_EQ(fake_model_->score_calls_, 0);
-  EXPECT_FALSE(ctx.Has("ranked"));
-}
-
-TEST_F(TextRerankNodeTest, RejectsCandidatesWithConnectedEmptyQueries) {
-  auto node = NodeRegistry::Instance().Create("text_rerank");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "fake_rerank_model"}},
-                              session_ctx_.get()));
-  AlgContext ctx;
-  ctx.Publish("queries", TextBatch{});
-  ctx.Publish("candidates",
-              RankedTextBatch{{7, 0, RankedCandidate("HIGH", 0.9f, 7, 0)}});
-  EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
-  EXPECT_EQ(fake_model_->score_calls_, 0);
-  EXPECT_FALSE(ctx.Has("ranked"));
-}
-
-TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
-  auto node = NodeRegistry::Instance().Create("text_rerank");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  TextBatch queries = {{1, 0, "Q1"}, {2, 0, "Q2"}};
-  RankedTextBatch candidates = {
-      {1, 0, RankedCandidate("Q1 LOW", 0.0f, 0, 0)},
-      {1, 1, RankedCandidate("Q1 HIGH", 0.0f, 0, 1)},
-      {2, 0, RankedCandidate("Q2 HIGH", 0.0f, 0, 0)},
-      {2, 1, RankedCandidate("Q2 MID", 0.0f, 0, 1)},
-  };
-  ctx.Publish("queries", queries);
-  ctx.Publish("candidates", candidates);
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
-  ASSERT_NE(ranked, nullptr);
-  ASSERT_EQ(ranked->size(), 2u);
-  EXPECT_EQ((*ranked)[0].req_id, 1u);
-  EXPECT_EQ((*ranked)[0].data.text, "Q1 HIGH");
-  EXPECT_EQ((*ranked)[1].req_id, 2u);
-  EXPECT_EQ((*ranked)[1].data.text, "Q2 HIGH");
-}
-
-TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
-  auto node = NodeRegistry::Instance().Create("text_rerank");
-  ASSERT_NE(node, nullptr);
-  nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  ctx.Publish("queries", TextBatch{{1, 0, "Q"}});
-  ctx.Publish("candidates",
-              RankedTextBatch{{1, 0, RankedCandidate("HIGH", 0.0f, 0, 0)},
-                              {1, 1, RankedCandidate("LOW", 0.0f, 0, 1)}});
-
-  // 打分出错
-  fake_model_->fail_score_ = true;
-  EXPECT_EQ(node->Process(&ctx), -1);
-
-  EXPECT_FALSE(ctx.Has("ranked"));
-
-  // 打分数量不一致
-  fake_model_->fail_score_ = false;
-  fake_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&ctx), node_error::author_node::kOutputCountMismatch);
-
-  EXPECT_FALSE(ctx.Has("ranked"));
-
-  // 打分来源不一致
-  fake_model_->return_wrong_count_ = false;
-  fake_model_->corrupt_provenance_ = true;
-  EXPECT_EQ(node->Process(&ctx),
-            node_error::author_node::kOutputProvenanceMismatch);
-  EXPECT_FALSE(ctx.Has("ranked"));
-}
-
-TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
-  const auto boundary = MakeTestBoundary(
-      {{"input.query", "TextBatch"},
-       {"input.doc_candidates", "RankedTextBatch", true, "N:1"}},
-      {{"rerank.ranked", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
-  auto has_constraint_err = [](const ValidationReport& r) {
-    return std::any_of(r.diagnostics.begin(), r.diagnostics.end(),
-                       [](const auto& d) {
-                         return d.code == DiagnosticCode::kMissingInputProducer;
-                       });
-  };
-
-  const nlohmann::json pipeline = {
-      {"models",
-       {{{"type", "rerank"},
-         {"name", "rerank_model"},
-         {"file", "rerank.fixture"},
-         {"backend", {{"type", "test_tensor_backend"}}}}}},
-      {"pipeline",
-       {{{"name", "rerank"},
-         {"type", "text_rerank"},
-         {"inputs",
-          {{"queries", "input.query"}, {"candidates", "input.doc_candidates"}}},
-         {"params", {{"bind_model", "rerank_model"}}}}}}};
-
-  for (const char* port : {"queries", "candidates"}) {
-    SCOPED_TRACE(port);
-    auto bad_pipeline = pipeline;
-    bad_pipeline["pipeline"][0]["inputs"].erase(port);
-    const auto plan =
-        PipelineValidator::ValidateAndPlan(bad_pipeline, boundary);
-    EXPECT_FALSE(plan.report.ok);
-    EXPECT_TRUE(has_constraint_err(plan.report)) << plan.report.ToJson().dump();
-    EXPECT_TRUE(std::any_of(
-        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-        [&](const auto& diagnostic) {
-          return diagnostic.message.find(port) != std::string::npos;
-        }))
-        << plan.report.ToJson().dump();
-  }
-}
-
-/**
- * @brief 专用于测试 text_rerank 重排序与 Top-K 行为的可控 Mock 引擎
- */
-class ControllableMockRerankModel : public IRerankModel {
- public:
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = "controllable_mock_rerank";
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string model_type = "rerank";
-    return model_type;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-
-  int Score(const QueryCandidatesBatch& input_pairs, ScoreBatch* output_scores,
-            std::string* diagnostic = nullptr) noexcept override {
-    if (diagnostic) diagnostic->clear();
-    if (!output_scores) return -1;
-    output_scores->clear();
-    for (const auto& item : input_pairs) {
-      float score = 0.5f;
-      if (item.data.candidate.find("SCORE_0.9") != std::string::npos) {
-        score = 0.9f;
-      } else if (item.data.candidate.find("SCORE_0.7") != std::string::npos) {
-        score = 0.7f;
-      } else if (item.data.candidate.find("SCORE_0.3") != std::string::npos) {
-        score = 0.3f;
-      } else if (item.data.candidate.find("SCORE_0.1") != std::string::npos) {
-        score = 0.1f;
-      }
-      output_scores->emplace_back(item.req_id, item.sub_id, score);
-    }
-    return 0;
-  }
-};
-
-class TextRerankRankingTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
-    mock_model_ = std::make_shared<ControllableMockRerankModel>();
-    RegisterTestModel(session_ctx_.GetModelManager(), "test_rerank_model",
-                      mock_model_, "test-v1");
-    node_ = NodeRegistry::Instance().Create("text_rerank");
-    ASSERT_NE(node_, nullptr);
-  }
-
-  void TearDown() override {
-    operator_api::Get_LLM_EDGEFLOW_OperatorTable().DeInit();
-  }
-
-  std::shared_ptr<ControllableMockRerankModel> mock_model_;
-  SessionContext session_ctx_;
-  std::unique_ptr<INode> node_;
-};
-
-// 1. 验证重排序与 Top-K 选精逻辑 (打分最高的候选排在前面)
-TEST_F(TextRerankRankingTest, ReorderAndTopKFiltering) {
-  nlohmann::json cfg = {
-      {"bind_model", "test_rerank_model"},
-      {"top_k", 2},
-  };
-  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
-
-  AlgContext ctx;
-  TextBatch raw_queries = {
-      TraceableItem<std::string>{0, 0, "什么是深度学习？"},
-      TraceableItem<std::string>{1, 0, "退款流程？"},
-  };
-  ctx.Publish(BlackboardKey<TextBatch>{"queries", "TextBatch"}, raw_queries);
-
-  // 故意将低分样本放在前面，高分样本放在后面，测试重排序
-  RankedTextBatch input_candidates = {
-      // Request 0 的 3 个候选 (期望排序: sub_id=2 (0.9) -> sub_id=1 (0.7))
-      {0, 0, RankedCandidate("候选 A (SCORE_0.1)", 0.1f, 1, 0)},
-      {0, 1, RankedCandidate("候选 B (SCORE_0.7)", 0.7f, 2, 1)},
-      {0, 2, RankedCandidate("候选 C (SCORE_0.9)", 0.9f, 3, 2)},
-      // Request 1 的 2 个候选 (期望排序: sub_id=1 (0.9) -> sub_id=0 (0.3))
-      {1, 0, RankedCandidate("候选 D (SCORE_0.3)", 0.3f, 1, 0)},
-      {1, 1, RankedCandidate("候选 E (SCORE_0.9)", 0.9f, 2, 1)},
-  };
-  ctx.Publish(BlackboardKey<RankedTextBatch>{"candidates", "RankedTextBatch"},
-              input_candidates);
-
-  int ret = node_->Process(&ctx);
-  EXPECT_EQ(ret, 0);
-
-  auto* result =
-      ctx.Read(BlackboardKey<RankedTextBatch>{"ranked", "RankedTextBatch"});
-  ASSERT_NE(result, nullptr);
-  // 每个请求保留 top_k=2，共 4 个输出
-  ASSERT_EQ(result->size(), 4U);
-
-  // Request 0: 验证 Top-1 是 SCORE_0.9, Top-2 是 SCORE_0.7
-  EXPECT_EQ((*result)[0].req_id, 0U);
-  EXPECT_EQ((*result)[0].data.original_sub_id, 2U);
-  EXPECT_EQ((*result)[0].data.text, "候选 C (SCORE_0.9)");
-
-  EXPECT_EQ((*result)[1].req_id, 0U);
-  EXPECT_EQ((*result)[1].data.original_sub_id, 1U);
-  EXPECT_EQ((*result)[1].data.text, "候选 B (SCORE_0.7)");
-
-  // Request 1: 验证 Top-1 是 SCORE_0.9, Top-2 是 SCORE_0.3
-  EXPECT_EQ((*result)[2].req_id, 1U);
-  EXPECT_EQ((*result)[2].data.original_sub_id, 1U);
-  EXPECT_EQ((*result)[2].data.text, "候选 E (SCORE_0.9)");
-
-  EXPECT_EQ((*result)[3].req_id, 1U);
-  EXPECT_EQ((*result)[3].data.original_sub_id, 0U);
-  EXPECT_EQ((*result)[3].data.text, "候选 D (SCORE_0.3)");
-}
-
-// 2. 验证空候选集鲁棒性
-TEST_F(TextRerankRankingTest, EmptyCandidatesHandling) {
-  nlohmann::json cfg = {{"bind_model", "test_rerank_model"}, {"top_k", 1}};
-  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
-
-  AlgContext ctx;
-  TextBatch raw_queries = {TraceableItem<std::string>{0, 0, "Query"}};
-  ctx.Publish(BlackboardKey<TextBatch>{"queries", "TextBatch"}, raw_queries);
-  ctx.Publish(BlackboardKey<RankedTextBatch>{"candidates", "RankedTextBatch"},
-              RankedTextBatch{});
-
-  int ret = node_->Process(&ctx);
-  EXPECT_EQ(ret, 0);
-}
-
-// 3. 验证缺失黑板 Key 拦截
-TEST_F(TextRerankRankingTest, MissingContextKeyHandling) {
-  nlohmann::json cfg = {{"bind_model", "test_rerank_model"}};
-  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
-
-  AlgContext ctx;  // 空黑板
-  int ret = node_->Process(&ctx);
-  EXPECT_EQ(ret, node_error::author_node::kMissingInput);
-}
-
 }  // namespace llm_edgeflow

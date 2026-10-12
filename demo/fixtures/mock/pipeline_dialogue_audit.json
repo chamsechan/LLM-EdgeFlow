@@ -47,9 +47,6 @@
       "type": "llm",
       "name": "audit_llm",
       "file": "qwen_1_8b_npu.bin",
-      "params": {
-        "max_seq_len": 1024
-      },
       "backend": {
         "type": "test_causal_lm_backend",
         "params": {

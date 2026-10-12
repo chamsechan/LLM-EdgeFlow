@@ -1,197 +1,225 @@
 #include <gtest/gtest.h>
 
-#include <chrono>
+#include <array>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "adapter/model_file_resolver.h"
-#include "contracts/config_schema.h"
-#include "contracts/config_schema_validation.h"
 #include "contracts/parameters.h"
-#include "contracts/path_utils.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
 namespace llm_edgeflow {
 namespace {
-namespace fs = std::filesystem;
-
-struct FileTestDirectory {
-  fs::path root =
-      fs::temp_directory_path() /
-      ("edgeflow-file-params-" +
-       std::to_string(
-           std::chrono::steady_clock::now().time_since_epoch().count()));
-  FileTestDirectory() { fs::create_directories(root / "pipeline"); }
-  ~FileTestDirectory() {
-    std::error_code ec;
-    fs::remove_all(root, ec);
-  }
-};
-
-struct ModelFileParams {
-  std::string tokenizer_file;
+using Json = nlohmann::json;
+struct ModelFiles {
+  std::optional<std::string> tokens;
   std::string note;
 };
-struct BackendFileParams {
-  std::optional<std::string> run_config_file;
+struct BackendFiles {
+  std::optional<std::string> run_config;
 };
 
-bool RegisterFileFixtures() {
-  auto& models = ModelRegistry::Instance();
-  auto& backends = BackendRegistry::Instance();
-  if (!backends.Has("file_parameter_backend")) {
+bool RegisterFileDeclarations() {
+  static const bool registered = [] {
     BackendDefinition backend;
-    backend.backend_type = "file_parameter_backend";
+    backend.backend_type = "file_resolution_fixture";
     backend.supported_protocols = {ExecutionProtocol::kFixture};
-    backend.params = Parameters<BackendFileParams>{
-        Field("run_config_file", &BackendFileParams::run_config_file).File()};
-    if (!backends.Register(backend, [] { return nullptr; })) return false;
-  }
-  if (!models.Has("file_parameter_model")) {
-    ModelDefinition model;
-    model.impl_name = "file_parameter_model";
-    model.model_type = "file_parameter_type";
-    model.required_protocol = ExecutionProtocol::kFixture;
-    model.fixture_backends = {"file_parameter_backend"};
-    model.params = Parameters<ModelFileParams>{
-        Field("tokenizer_file", &ModelFileParams::tokenizer_file)
-            .Required()
-            .File(),
-        Field("note", &ModelFileParams::note).Default("")};
-    if (!models.Register(model, [](const auto&, auto*) { return nullptr; }))
+    backend.params = Parameters<BackendFiles>{
+        Field("run_config", &BackendFiles::run_config).File()};
+    if (!BackendRegistry::Instance().Register(
+            backend, [] { return std::unique_ptr<IInferenceBackend>{}; }))
       return false;
+    ModelDefinition model;
+    model.impl_name = "file_resolution_model";
+    model.model_type = "llm";
+    model.required_protocol = ExecutionProtocol::kFixture;
+    model.fixture_backends = {backend.backend_type};
+    model.params =
+        Parameters<ModelFiles>{Field("token/file~", &ModelFiles::tokens).File(),
+                               Field("note", &ModelFiles::note).Default("")};
+    return ModelRegistry::Instance().Register(
+        model, [](const ModelCreateContext&, std::string*) {
+          return std::shared_ptr<IModel>{};
+        });
+  }();
+  return registered;
+}
+
+Json FileDocument() {
+  return {
+      {"models",
+       Json::array({{{"type", "llm"},
+                     {"name", "model"},
+                     {"file", "weights/model.bin"},
+                     {"params",
+                      {{"token/file~", "tokens/vocab.txt"},
+                       {"note", "../opaque prompt"}}},
+                     {"backend",
+                      {{"type", "file_resolution_fixture"},
+                       {"params", {{"run_config", "runtime/run.json"}}}}}}})},
+      {"other", "unchanged"}};
+}
+
+class FileParametersTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    ASSERT_TRUE(RegisterFileDeclarations());
+    char directory[] = "/tmp/edgeflow-file-resolution-XXXXXX";
+    ASSERT_NE(mkdtemp(directory), nullptr);
+    directory_ = directory;
+    root_ = directory_ / "pipeline";
+    std::filesystem::create_directory(root_);
   }
-  return true;
-}
-
-nlohmann::json FileDocument() {
-  return {{"models",
-           {{{"type", "file_parameter_type"},
-             {"name", "encoder"},
-             {"file", "weights/missing.bin"},
-             {"params",
-              {{"tokenizer_file", "vocab/missing.txt"},
-               {"note", "../literal-text"}}},
-             {"backend",
-              {{"type", "file_parameter_backend"},
-               {"params", {{"run_config_file", "run/config.json"}}}}}}}}};
-}
-}  // namespace
-
-TEST(ConverterContractsTest,
-     RelativeFilesRejectPortableEscapeAndAllowMissingFiles) {
-  FileTestDirectory directory;
-  const auto base = directory.root / "pipeline";
-  fs::path resolved;
-  std::string error;
-  for (const std::string& invalid :
-       {std::string(), std::string("/absolute.bin"),
-        std::string("C:\\absolute.bin"), std::string("C:relative.bin"),
-        std::string("\\\\server\\share\\model.bin"),
-        std::string("../model.bin"), std::string("nested/../model.bin"),
-        std::string("nested\\..\\model.bin"), std::string("nul\0file", 8)}) {
-    SCOPED_TRACE(invalid);
-    EXPECT_FALSE(ResolveFileUnderDirectory(base, invalid, &resolved, &error));
-    EXPECT_TRUE(resolved.empty());
-    EXPECT_FALSE(error.empty());
-    EXPECT_FALSE(ResolveFileUnderDirectory({}, invalid, &resolved, &error));
+  void TearDown() override {
+    std::error_code error;
+    if (!directory_.empty()) std::filesystem::remove_all(directory_, error);
+    EXPECT_FALSE(error) << error.message();
   }
-  ASSERT_TRUE(
-      ResolveFileUnderDirectory(base, "nested/missing.bin", &resolved, &error))
-      << error;
-  EXPECT_EQ(resolved, fs::weakly_canonical(base / "nested/missing.bin"));
-  EXPECT_FALSE(fs::exists(resolved));
-  ASSERT_TRUE(
-      ResolveFileUnderDirectory(base, "..name/missing.bin", &resolved, &error))
-      << error;
-  EXPECT_EQ(resolved, fs::weakly_canonical(base / "..name/missing.bin"));
-  ASSERT_TRUE(
-      ResolveFileUnderDirectory({}, "nested\\missing.bin", &resolved, &error));
-  EXPECT_EQ(resolved, fs::path("nested/missing.bin"));
-  fs::create_directories(directory.root / "outside");
-  fs::create_directory_symlink(directory.root / "outside", base / "escape");
-  EXPECT_FALSE(
-      ResolveFileUnderDirectory(base, "escape/missing.bin", &resolved, &error));
-  EXPECT_TRUE(resolved.empty());
-}
+  std::filesystem::path directory_;
+  std::filesystem::path root_;
+};
 
-TEST(ConverterContractsTest,
-     FileMetadataResolvesOnlySelectedFileFieldsAtomically) {
-  ASSERT_TRUE(RegisterFileFixtures());
-  FileTestDirectory directory;
-  const auto base = directory.root / "pipeline";
-  const auto document = FileDocument();
-  const auto original = document;
-  nlohmann::json resolved;
+TEST_F(
+    FileParametersTest,
+    KnownModelAndDeclaredFilesResolveAgainstJsonDirectoryWithoutExistenceChecks) {
+  const auto source = FileDocument();
+  Json resolved;
   std::string error;
   DeploymentDiagnostic diagnostic;
-  ASSERT_TRUE(ResolveModelFiles(document, base.string(), &resolved, &error,
-                                &diagnostic))
+  ASSERT_TRUE(
+      ResolveModelFiles(source, root_.string(), &resolved, &error, &diagnostic))
       << error;
-  const auto& model = resolved["models"][0];
-  EXPECT_EQ(model["file"], (base / "weights/missing.bin").string());
-  EXPECT_EQ(model["params"]["tokenizer_file"],
-            (base / "vocab/missing.txt").string());
-  EXPECT_EQ(model["backend"]["params"]["run_config_file"],
-            (base / "run/config.json").string());
-  EXPECT_EQ(model["params"]["note"], "../literal-text");
-  EXPECT_EQ(document, original);
-  ASSERT_TRUE(ResolveModelFiles(document, "", &resolved, &error, &diagnostic));
-  EXPECT_EQ(resolved, original);
-  for (const auto& path : {"/models/0/file", "/models/0/params/tokenizer_file",
-                           "/models/0/backend/params/run_config_file"}) {
-    auto invalid = document;
-    invalid[nlohmann::json::json_pointer(path)] = "../escape";
-    EXPECT_FALSE(ResolveModelFiles(invalid, base.string(), &resolved, &error,
+  auto expected = source;
+  expected["models"][0]["file"] = (root_ / "weights/model.bin").string();
+  expected["models"][0]["params"]["token/file~"] =
+      (root_ / "tokens/vocab.txt").string();
+  expected["models"][0]["backend"]["params"]["run_config"] =
+      (root_ / "runtime/run.json").string();
+  EXPECT_EQ(resolved, expected);
+  EXPECT_EQ(source, FileDocument());
+  EXPECT_EQ(resolved["models"][0]["params"]["note"], "../opaque prompt");
+  EXPECT_FALSE(std::filesystem::exists(root_ / "weights/model.bin"));
+  EXPECT_TRUE(diagnostic.code.empty());
+}
+
+TEST_F(FileParametersTest, NoDirectoryStillEnforcesPortableRelativeSpelling) {
+  auto source = FileDocument();
+  source["models"][0]["file"] = "weights\\.\\model.bin";
+  Json resolved;
+  std::string error;
+  ASSERT_TRUE(ResolveModelFiles(source, "", &resolved, &error));
+  auto expected = source;
+  expected["models"][0]["file"] = "weights/model.bin";
+  EXPECT_EQ(resolved, expected);
+  source["models"][0]["params"].erase("token/file~");
+  source["models"][0]["backend"]["params"].erase("run_config");
+  ASSERT_TRUE(ResolveModelFiles(source, root_.string(), &resolved, &error));
+  EXPECT_FALSE(resolved["models"][0]["params"].contains("token/file~"));
+  EXPECT_TRUE(resolved["models"][0]["backend"]["params"].empty());
+}
+
+TEST_F(
+    FileParametersTest,
+    UnsafeModelFilenamesFailAtomicallyIncludingLexicallyLocalParentComponents) {
+  const std::vector<std::string> filenames{"",
+                                           "../outside.bin",
+                                           "weights/../model.bin",
+                                           "/tmp/model.bin",
+                                           "C:model.bin",
+                                           "C:\\model.bin",
+                                           "\\\\server\\share\\model.bin",
+                                           std::string("model\0.bin", 10)};
+  for (const auto& filename : filenames) {
+    SCOPED_TRACE(filename);
+    auto source = FileDocument();
+    source["models"][0]["file"] = filename;
+    const auto original = source;
+    Json resolved = {{"previous", true}};
+    std::string error;
+    DeploymentDiagnostic diagnostic;
+    EXPECT_FALSE(ResolveModelFiles(source, root_.string(), &resolved, &error,
                                    &diagnostic));
-    EXPECT_EQ(diagnostic.code, "INVALID_FILE_PATH");
-    EXPECT_EQ(diagnostic.path, path);
     EXPECT_TRUE(resolved.is_null());
-    EXPECT_EQ(invalid[nlohmann::json::json_pointer(path)], "../escape");
-  }
-  auto unknown = document;
-  unknown["models"][0]["type"] = "not_registered";
-  unknown["models"][0]["file"] = "../defer-to-core";
-  ASSERT_TRUE(ResolveModelFiles(unknown, base.string(), &resolved, &error,
-                                &diagnostic));
-  EXPECT_EQ(resolved, unknown);
-  auto malformed = document;
-  malformed["models"][0].erase("name");
-  malformed["models"][0]["file"] = "../defer-to-core";
-  ASSERT_TRUE(ResolveModelFiles(malformed, base.string(), &resolved, &error,
-                                &diagnostic));
-  EXPECT_EQ(resolved, malformed);
-  for (const char* path : {"/models/0/params", "/models/0/backend/params"}) {
-    malformed = document;
-    malformed[nlohmann::json::json_pointer(path)] = false;
-    malformed["models"][0]["file"] = "../defer-to-core";
-    ASSERT_TRUE(ResolveModelFiles(malformed, base.string(), &resolved, &error,
-                                  &diagnostic));
-    EXPECT_EQ(resolved, malformed);
+    EXPECT_EQ(source, original);
+    EXPECT_EQ(diagnostic.code, "INVALID_FILE_PATH");
+    EXPECT_EQ(diagnostic.path, "/models/0/file");
+    EXPECT_FALSE(error.empty());
   }
 }
 
-TEST(ConverterContractsTest, FileMetadataIsExportedAndStringOnly) {
-  ASSERT_TRUE(RegisterFileFixtures());
-  const auto model = ModelRegistry::Instance().Find("file_parameter_model");
-  const auto backend =
-      BackendRegistry::Instance().Find("file_parameter_backend");
-  ASSERT_TRUE(model);
-  ASSERT_TRUE(backend);
-  const auto model_fields = model->params.Fields();
-  const auto backend_fields = backend->params.Fields();
-  ASSERT_EQ(model_fields.size(), 2U);
-  EXPECT_TRUE(ConfigFieldToJson(model_fields[0])["file"].get<bool>());
-  EXPECT_TRUE(ConfigFieldJsonSchema(model_fields[0])["file"].get<bool>());
-  EXPECT_FALSE(ConfigFieldToJson(model_fields[1]).contains("file"));
-  ASSERT_EQ(backend_fields.size(), 1U);
-  EXPECT_FALSE(backend_fields[0].required);
-  EXPECT_TRUE(backend_fields[0].default_value.is_null());
-  auto invalid = model_fields[0];
-  invalid.kind = ConfigValueKind::kInteger;
-  std::string error;
-  EXPECT_FALSE(ValidateConfigFieldDefinitions({invalid}, &error));
+TEST_F(FileParametersTest,
+       DeclaredFileErrorsUseEscapedFieldPathsAndDiscardEarlierResolutions) {
+  struct InvalidField {
+    const char* pointer;
+    const char* expected_path;
+  };
+  const std::array<InvalidField, 2> fields{
+      {{"/models/0/params/token~1file~0", "/models/0/params/token~1file~0"},
+       {"/models/0/backend/params/run_config",
+        "/models/0/backend/params/run_config"}}};
+  for (const auto& field : fields) {
+    SCOPED_TRACE(field.pointer);
+    auto source = FileDocument();
+    source[Json::json_pointer(field.pointer)] = "local/../forbidden.bin";
+    Json resolved = {{"previous", true}};
+    std::string error;
+    DeploymentDiagnostic diagnostic;
+    EXPECT_FALSE(ResolveModelFiles(source, root_.string(), &resolved, &error,
+                                   &diagnostic));
+    EXPECT_TRUE(resolved.is_null());
+    EXPECT_EQ(diagnostic.code, "INVALID_FILE_PATH");
+    EXPECT_EQ(diagnostic.path, field.expected_path);
+    EXPECT_EQ(source["models"][0]["file"], "weights/model.bin");
+  }
 }
+
+TEST_F(FileParametersTest,
+       ExistingAndMissingTargetsUnderEscapingSymlinkAreRejected) {
+  const auto outside = directory_ / "outside";
+  std::filesystem::create_directory(outside);
+  std::ofstream(outside / "model.bin") << "neutral resource";
+  std::filesystem::create_directory_symlink(outside, root_ / "linked");
+  for (const char* file : {"linked/model.bin", "linked/missing.bin"}) {
+    auto source = FileDocument();
+    source["models"][0]["file"] = file;
+    Json resolved;
+    std::string error;
+    DeploymentDiagnostic diagnostic;
+    EXPECT_FALSE(ResolveModelFiles(source, root_.string(), &resolved, &error,
+                                   &diagnostic));
+    EXPECT_TRUE(resolved.is_null());
+    EXPECT_EQ(diagnostic.path, "/models/0/file");
+    EXPECT_NE(error.find("escapes"), std::string::npos);
+  }
+}
+
+TEST_F(FileParametersTest,
+       UnknownSelectionsAndStructuralErrorsRemainForCoreToDiagnose) {
+  auto source = FileDocument();
+  source["models"][0]["backend"]["type"] =
+      "unknown_backend_for_file_resolution";
+  source["models"][0]["file"] = "../not-resolved.bin";
+  Json resolved;
+  std::string error;
+  ASSERT_TRUE(ResolveModelFiles(source, root_.string(), &resolved, &error));
+  EXPECT_EQ(resolved, source);
+  source = FileDocument();
+  source["models"][0]["file"] = 123;
+  ASSERT_TRUE(ResolveModelFiles(source, root_.string(), &resolved, &error));
+  EXPECT_EQ(resolved, source);
+  source["models"][0]["file"] = "weights/model.bin";
+  source["models"][0]["params"]["token/file~"] = 123;
+  ASSERT_TRUE(ResolveModelFiles(source, root_.string(), &resolved, &error));
+  EXPECT_EQ(resolved["models"][0]["params"]["token/file~"], 123);
+  EXPECT_FALSE(ResolveModelFiles(source, root_.string(), nullptr, &error));
+}
+
+}  // namespace
 }  // namespace llm_edgeflow

@@ -2,1606 +2,558 @@
 
 #include <cstdint>
 #include <limits>
-#include <memory>
-#include <random>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
-#include "contracts/traceable_item.h"
-#include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "engine/model_interface.h"
-#include "nodes/authoring.h"
+#include "nodes/traceable_algorithms.h"
 #include "nodes/traceable_batch_operations.h"
-#include "tests/support/node_harness.h"
-#include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
 namespace {
 
-class CountingMockLlmModel final : public ILlmModel {
- public:
-  const std::string& ImplName() const noexcept override {
-    static const std::string t = "counting_mock_llm";
-    return t;
+template <typename Payload>
+void ExpectBatch(const std::vector<TraceableItem<Payload>>& actual,
+                 const std::vector<TraceableItem<Payload>>& expected) {
+  ASSERT_EQ(actual.size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(actual[i].req_id, expected[i].req_id);
+    EXPECT_EQ(actual[i].sub_id, expected[i].sub_id);
+    EXPECT_EQ(actual[i].data, expected[i].data);
   }
-  const std::string& ModelType() const noexcept override {
-    static const std::string cap = "llm";
-    return cap;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-
-  int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs,
-               std::string* diagnostic = nullptr) noexcept override {
-    if (diagnostic) diagnostic->clear();
-    ++call_count;
-    last_options = options;
-    last_prompts = prompts;
-    if (fail_first_n > 0 && call_count <= fail_first_n) {
-      if (outputs) outputs->clear();
-      return -8901;
-    }
-    if (always_fail) {
-      if (outputs) outputs->clear();
-      return -8902;
-    }
-    if (outputs) {
-      outputs->clear();
-      for (const auto& item : prompts) {
-        outputs->emplace_back(item.req_id, item.sub_id, "ans:" + item.data);
-      }
-      if (return_wrong_count && !outputs->empty()) outputs->pop_back();
-      if (corrupt_provenance && !outputs->empty()) ++(*outputs)[0].sub_id;
-    }
-    return 0;
-  }
-
-  mutable int call_count = 0;
-  mutable GenerateOptions last_options;
-  mutable TextBatch last_prompts;
-  int fail_first_n = 0;
-  bool always_fail = false;
-  bool return_wrong_count = false;
-  bool corrupt_provenance = false;
-};
-
-class TraceableBatchOperationsTest : public ::testing::Test {
- protected:
-};
-
-// ============================================================================
-// 1. JoinByItem 测试
-// ============================================================================
-
-TEST_F(TraceableBatchOperationsTest, JoinByItemExactMatchingOrderPreserved) {
-  std::vector<TraceableItem<std::string>> left = {
-      {1, 0, "q1"}, {2, 0, "q2"}, {3, 0, "q3"}};
-  std::vector<TraceableItem<std::string>> right = {
-      {3, 0, "a3"}, {1, 0, "a1"}, {2, 0, "a2"}};
-
-  auto res = JoinByItem(left, right, JoinMode::kExact);
-  ASSERT_TRUE(res.ok()) << res.failure().message;
-
-  const auto& view = res.value();
-  ASSERT_EQ(view.size(), 3u);
-  EXPECT_FALSE(view.empty());
-
-  // 严格保持 left 顺序
-  EXPECT_EQ(view[0].req_id(), 1u);
-  EXPECT_EQ(view[0].sub_id(), 0u);
-  EXPECT_EQ(view[0].left_payload(), "q1");
-  ASSERT_TRUE(view[0].has_right());
-  EXPECT_EQ(*view[0].right_payload(), "a1");
-
-  EXPECT_EQ(view[1].req_id(), 2u);
-  EXPECT_EQ(view[1].sub_id(), 0u);
-  EXPECT_EQ(view[1].left_payload(), "q2");
-  ASSERT_TRUE(view[1].has_right());
-  EXPECT_EQ(*view[1].right_payload(), "a2");
-
-  EXPECT_EQ(view[2].req_id(), 3u);
-  EXPECT_EQ(view[2].sub_id(), 0u);
-  EXPECT_EQ(view[2].left_payload(), "q3");
-  ASSERT_TRUE(view[2].has_right());
-  EXPECT_EQ(*view[2].right_payload(), "a3");
 }
 
-TEST_F(TraceableBatchOperationsTest,
-       JoinByItemLeftModeMissingRightNullPointer) {
-  std::vector<TraceableItem<std::string>> left = {
-      {1, 0, "q1"}, {2, 0, "q2"}, {3, 0, "q3"}};
-  std::vector<TraceableItem<std::string>> right = {{1, 0, "a1"}, {3, 0, "a3"}};
-
-  auto res = JoinByItem(left, right, JoinMode::kLeft);
-  ASSERT_TRUE(res.ok()) << res.failure().message;
-
-  const auto& view = res.value();
-  ASSERT_EQ(view.size(), 3u);
-
-  EXPECT_TRUE(view[0].has_right());
-  EXPECT_EQ(*view[0].right_payload(), "a1");
-
-  EXPECT_FALSE(view[1].has_right());
-  EXPECT_EQ(view[1].right, nullptr);
-  EXPECT_EQ(view[1].right_payload(), nullptr);
-  EXPECT_EQ(view[1].left_payload(), "q2");
-
-  EXPECT_TRUE(view[2].has_right());
-  EXPECT_EQ(*view[2].right_payload(), "a3");
-}
-
-TEST_F(TraceableBatchOperationsTest, JoinByItemExactModeMissingRightFails) {
-  std::vector<TraceableItem<std::string>> left = {{1, 0, "q1"}, {2, 0, "q2"}};
-  std::vector<TraceableItem<std::string>> right = {{1, 0, "a1"}};
-
-  auto res = JoinByItem(left, right, JoinMode::kExact);
-  ASSERT_FALSE(res.ok());
-  const auto& failure = res.failure();
+void ExpectDetail(const NodeFailure& failure, const char* operation,
+                  BatchFailureReason reason, TraceableItemKey key,
+                  NodeErrorKind kind = NodeErrorKind::kInputError) {
+  EXPECT_EQ(failure.kind, kind);
   ASSERT_TRUE(failure.batch_detail.has_value());
-  EXPECT_EQ(failure.batch_detail->operation, "JoinByItem");
-  EXPECT_EQ(failure.batch_detail->reason, BatchFailureReason::kMissing);
+  EXPECT_EQ(failure.batch_detail->operation, operation);
+  EXPECT_EQ(failure.batch_detail->reason, reason);
   ASSERT_TRUE(failure.batch_detail->key.has_value());
-  EXPECT_EQ(failure.batch_detail->key->req_id, 2u);
-  EXPECT_EQ(failure.batch_detail->key->sub_id, 0u);
+  EXPECT_EQ(failure.batch_detail->key->req_id, key.req_id);
+  EXPECT_EQ(failure.batch_detail->key->sub_id, key.sub_id);
 }
 
-TEST_F(TraceableBatchOperationsTest, JoinByItemRightExtraKeyFailsBothModes) {
-  std::vector<TraceableItem<std::string>> left = {{1, 0, "q1"}};
-  std::vector<TraceableItem<std::string>> right = {{1, 0, "a1"},
-                                                   {99, 0, "extra"}};
+struct AcceptPayload {
+  bool operator()(const std::string&) const { return true; }
+};
+template <typename Left, typename Right, typename = void>
+struct CanJoin : std::false_type {};
+template <typename Left, typename Right>
+struct CanJoin<Left, Right,
+               std::void_t<decltype(JoinByItem(std::declval<Left>(),
+                                               std::declval<Right>()))>>
+    : std::true_type {};
+template <typename Anchor, typename Members, typename = void>
+struct CanGroup : std::false_type {};
+template <typename Anchor, typename Members>
+struct CanGroup<Anchor, Members,
+                std::void_t<decltype(GroupByRequest(std::declval<Anchor>(),
+                                                    std::declval<Members>()))>>
+    : std::true_type {};
+template <typename Batch, typename = void>
+struct CanSelect : std::false_type {};
+template <typename Batch>
+struct CanSelect<Batch, std::void_t<decltype(SelectBatch(std::declval<Batch>(),
+                                                         AcceptPayload{}))>>
+    : std::true_type {};
 
-  // Exact 模式失败
-  auto exact_res = JoinByItem(left, right, JoinMode::kExact);
-  ASSERT_FALSE(exact_res.ok());
-  ASSERT_TRUE(exact_res.failure().batch_detail.has_value());
-  EXPECT_EQ(exact_res.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-  ASSERT_TRUE(exact_res.failure().batch_detail->key.has_value());
-  EXPECT_EQ(exact_res.failure().batch_detail->key->req_id, 99u);
-
-  // Left 模式遇到 right 中的未知键同样失败
-  auto left_res = JoinByItem(left, right, JoinMode::kLeft);
-  ASSERT_FALSE(left_res.ok());
-  ASSERT_TRUE(left_res.failure().batch_detail.has_value());
-  EXPECT_EQ(left_res.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-  ASSERT_TRUE(left_res.failure().batch_detail->key.has_value());
-  EXPECT_EQ(left_res.failure().batch_detail->key->req_id, 99u);
+TEST(TraceableBatchOperationsTest, BorrowedViewsRequireLvalueStorage) {
+  static_assert(CanJoin<TextBatch&, const TextBatch&>::value);
+  static_assert(!CanJoin<TextBatch&&, const TextBatch&>::value);
+  static_assert(!CanJoin<const TextBatch&, const TextBatch&&>::value);
+  static_assert(CanGroup<const TextBatch&, TextBatch&>::value);
+  static_assert(!CanGroup<const TextBatch&&, TextBatch&>::value);
+  static_assert(!CanGroup<const TextBatch&, TextBatch&&>::value);
+  static_assert(CanSelect<const TextBatch&>::value);
+  static_assert(!CanSelect<TextBatch&&>::value);
+  static_assert(!CanSelect<const TextBatch&&>::value);
+  static_assert(!std::is_constructible_v<JoinedRow<std::string, std::string>,
+                                         TraceableItem<std::string>&&>);
+  SUCCEED();
 }
 
-TEST_F(TraceableBatchOperationsTest, JoinByItemDuplicateKeysFail) {
-  // left 中有重复
-  std::vector<TraceableItem<std::string>> left_dup = {{1, 0, "q1"},
-                                                      {1, 0, "q1_dup"}};
-  std::vector<TraceableItem<std::string>> right = {{1, 0, "a1"}};
-
-  auto res1 = JoinByItem(left_dup, right, JoinMode::kExact);
-  ASSERT_FALSE(res1.ok());
-  ASSERT_TRUE(res1.failure().batch_detail.has_value());
-  EXPECT_EQ(res1.failure().batch_detail->reason,
-            BatchFailureReason::kDuplicate);
-  EXPECT_EQ(res1.failure().batch_detail->key->req_id, 1u);
-
-  // right 中有重复
-  std::vector<TraceableItem<std::string>> left = {{1, 0, "q1"}};
-  std::vector<TraceableItem<std::string>> right_dup = {{1, 0, "a1"},
-                                                       {1, 0, "a1_dup"}};
-  auto res2 = JoinByItem(left, right_dup, JoinMode::kExact);
-  ASSERT_FALSE(res2.ok());
-  ASSERT_TRUE(res2.failure().batch_detail.has_value());
-  EXPECT_EQ(res2.failure().batch_detail->reason,
-            BatchFailureReason::kDuplicate);
-  EXPECT_EQ(res2.failure().batch_detail->key->req_id, 1u);
-}
-
-TEST_F(TraceableBatchOperationsTest, JoinByItemEmptyCombinations) {
-  std::vector<TraceableItem<std::string>> empty;
-  std::vector<TraceableItem<std::string>> non_empty = {{1, 0, "q1"}};
-
-  // 两侧都为空：两种模式均成功
-  auto res_both_empty_exact = JoinByItem(empty, empty, JoinMode::kExact);
-  EXPECT_TRUE(res_both_empty_exact.ok());
-  EXPECT_TRUE(res_both_empty_exact.value().empty());
-
-  auto res_both_empty_left = JoinByItem(empty, empty, JoinMode::kLeft);
-  EXPECT_TRUE(res_both_empty_left.ok());
-  EXPECT_TRUE(res_both_empty_left.value().empty());
-
-  // left 为空、right 非空：两种模式均失败
-  auto res_left_empty_exact = JoinByItem(empty, non_empty, JoinMode::kExact);
-  EXPECT_FALSE(res_left_empty_exact.ok());
-  EXPECT_EQ(res_left_empty_exact.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-
-  auto res_left_empty_left = JoinByItem(empty, non_empty, JoinMode::kLeft);
-  EXPECT_FALSE(res_left_empty_left.ok());
-  EXPECT_EQ(res_left_empty_left.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-
-  // left 非空、right 为空：exact 失败，left 成功
-  auto res_right_empty_exact = JoinByItem(non_empty, empty, JoinMode::kExact);
-  EXPECT_FALSE(res_right_empty_exact.ok());
-  EXPECT_EQ(res_right_empty_exact.failure().batch_detail->reason,
-            BatchFailureReason::kMissing);
-
-  auto res_right_empty_left = JoinByItem(non_empty, empty, JoinMode::kLeft);
-  ASSERT_TRUE(res_right_empty_left.ok());
-  ASSERT_EQ(res_right_empty_left.value().size(), 1u);
-  EXPECT_FALSE(res_right_empty_left.value()[0].has_right());
-}
-
-// ============================================================================
-// 2. GroupByRequest 测试
-// ============================================================================
-
-TEST_F(TraceableBatchOperationsTest, GroupByRequestAnchorFirstAppearanceOrder) {
-  // A0 (req 10), B0 (req 20), A1 (req 10)
-  std::vector<TraceableItem<std::string>> anchor = {
-      {10, 0, "A0"}, {20, 0, "B0"}, {10, 1, "A1"}};
-  std::vector<TraceableItem<std::string>> members = {
-      {20, 0, "mB0"}, {10, 0, "mA0"}, {10, 1, "mA1"}};
-
-  auto res = GroupByRequest(anchor, members);
-  ASSERT_TRUE(res.ok()) << res.failure().message;
-
-  const auto& view = res.value();
-  ASSERT_EQ(view.size(), 2u);
-
-  // 在锚点中首次出现的顺序：先 req 10，后 req 20
-  EXPECT_EQ(view[0].req_id(), 10u);
-  EXPECT_EQ(view[1].req_id(), 20u);
-
-  // 分组 10 的锚点
-  ASSERT_EQ(view[0].anchor_count(), 2u);
-  EXPECT_EQ(view[0].anchors()[0].get().data, "A0");
-  EXPECT_EQ(view[0].anchors()[1].get().data, "A1");
-
-  // 分组 20 的锚点
-  ASSERT_EQ(view[1].anchor_count(), 1u);
-  EXPECT_EQ(view[1].anchors()[0].get().data, "B0");
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       GroupByRequestMembersRelativeOrderPreserved) {
-  std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"}};
-  // 成员的 sub_id 依次为 5 和 2 (未排序！)
-  std::vector<TraceableItem<std::string>> members = {{10, 5, "m5"},
-                                                     {10, 2, "m2"}};
-
-  auto res = GroupByRequest(anchor, members);
-  ASSERT_TRUE(res.ok()) << res.failure().message;
-
-  const auto& view = res.value();
-  ASSERT_EQ(view.size(), 1u);
-  ASSERT_EQ(view[0].member_count(), 2u);
-  EXPECT_EQ(view[0].members()[0].get().data, "m5");
-  EXPECT_EQ(view[0].members()[1].get().data, "m2");
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       GroupByRequestAnchorWithNoMembersKeepsEmptyGroup) {
-  std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"},
-                                                    {20, 0, "B0"}};
-  std::vector<TraceableItem<std::string>> members = {{10, 0, "mA0"}};
-
-  auto res = GroupByRequest(anchor, members);
-  ASSERT_TRUE(res.ok()) << res.failure().message;
-
-  const auto& view = res.value();
-  ASSERT_EQ(view.size(), 2u);
-  EXPECT_EQ(view[0].req_id(), 10u);
-  EXPECT_TRUE(view[0].has_members());
-
-  EXPECT_EQ(view[1].req_id(), 20u);
-  EXPECT_FALSE(view[1].has_members());
-  EXPECT_EQ(view[1].member_count(), 0u);
-}
-
-TEST_F(TraceableBatchOperationsTest, GroupByRequestUnknownMemberReqIdFails) {
-  std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"}};
-  std::vector<TraceableItem<std::string>> members = {{999, 0, "m999"}};
-
-  auto res = GroupByRequest(anchor, members);
-  ASSERT_FALSE(res.ok());
-  ASSERT_TRUE(res.failure().batch_detail.has_value());
-  EXPECT_EQ(res.failure().batch_detail->operation, "GroupByRequest");
-  EXPECT_EQ(res.failure().batch_detail->reason, BatchFailureReason::kUnknown);
-  ASSERT_TRUE(res.failure().batch_detail->key.has_value());
-  EXPECT_EQ(res.failure().batch_detail->key->req_id, 999u);
-}
-
-TEST_F(TraceableBatchOperationsTest, GroupByRequestDuplicatesFail) {
-  // 锚点中有重复
-  std::vector<TraceableItem<std::string>> anchor_dup = {{10, 0, "A0"},
-                                                        {10, 0, "A0_dup"}};
-  std::vector<TraceableItem<std::string>> members = {{10, 0, "m0"}};
-  auto res1 = GroupByRequest(anchor_dup, members);
-  ASSERT_FALSE(res1.ok());
-  EXPECT_EQ(res1.failure().batch_detail->reason,
-            BatchFailureReason::kDuplicate);
-
-  // 成员中有重复
-  std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"}};
-  std::vector<TraceableItem<std::string>> members_dup = {{10, 0, "m0"},
-                                                         {10, 0, "m0_dup"}};
-  auto res2 = GroupByRequest(anchor, members_dup);
-  ASSERT_FALSE(res2.ok());
-  EXPECT_EQ(res2.failure().batch_detail->reason,
-            BatchFailureReason::kDuplicate);
-}
-
-TEST_F(TraceableBatchOperationsTest, GroupByRequestEmptyCombinations) {
-  std::vector<TraceableItem<std::string>> empty;
-  std::vector<TraceableItem<std::string>> members = {{10, 0, "m"}};
-
-  // 锚点和成员都为空：成功
-  auto res_empty = GroupByRequest(empty, empty);
-  EXPECT_TRUE(res_empty.ok());
-  EXPECT_TRUE(res_empty.value().empty());
-
-  // 锚点为空、成员非空：失败
-  auto res_fail = GroupByRequest(empty, members);
-  EXPECT_FALSE(res_fail.ok());
-  EXPECT_EQ(res_fail.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       GroupByRequestPreservesOriginalAnchorOrderFor1to1) {
-  // 锚点为 A0, B0, A1
-  std::vector<TraceableItem<std::string>> anchor = {
-      {10, 0, "A0"}, {20, 0, "B0"}, {10, 1, "A1"}};
-  std::vector<TraceableItem<std::string>> members = {
-      {10, 0, "ctx10_1"}, {10, 1, "ctx10_2"}, {20, 0, "ctx20_1"}};
-
-  auto res = GroupByRequest(anchor, members);
-  ASSERT_TRUE(res.ok());
-
-  const auto& view = res.value();
-
-  // 用 GroupByAnchorIndex 生成 1:1 输出
-  std::vector<TraceableItem<std::string>> output;
-  output.reserve(anchor.size());
-  for (size_t i = 0; i < anchor.size(); ++i) {
-    const auto& item = anchor[i];
-    const auto& group = view.GroupByAnchorIndex(i);
-    std::string combined = item.data + ":(";
-    for (const auto& m : group.members()) {
-      combined += m.get().data + ",";
-    }
-    combined += ")";
-    output.emplace_back(item.req_id, item.sub_id, std::move(combined));
+TEST(TraceableBatchOperationsTest,
+     JoinUsesWholeKeysLeftOrderAndBorrowedAddresses) {
+  const TextBatch left{{30, 9, "left-a"}, {10, 2, "left-b"}, {30, 1, "left-c"}};
+  const TextBatch right{
+      {30, 1, "right-c"}, {30, 9, "right-a"}, {10, 2, "right-b"}};
+  auto exact = JoinByItem(left, right);
+  ASSERT_TRUE(exact.ok());
+  ASSERT_EQ(exact.value().size(), 3U);
+  const std::vector<size_t> right_indices{1, 2, 0};
+  for (size_t i = 0; i < right_indices.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(&exact.value()[i].left, &left[i]);
+    EXPECT_EQ(exact.value()[i].right, &right[right_indices[i]]);
   }
+  EXPECT_EQ(&exact.value().left_batch(), &left);
+  EXPECT_EQ(&exact.value().right_batch(), &right);
 
-  // 输出必须严格按锚点顺序：A0, B0, A1
-  ASSERT_EQ(output.size(), 3u);
-  EXPECT_EQ(output[0].req_id, 10u);
-  EXPECT_EQ(output[0].sub_id, 0u);
-  EXPECT_EQ(output[0].data, "A0:(ctx10_1,ctx10_2,)");
-
-  EXPECT_EQ(output[1].req_id, 20u);
-  EXPECT_EQ(output[1].sub_id, 0u);
-  EXPECT_EQ(output[1].data, "B0:(ctx20_1,)");
-
-  EXPECT_EQ(output[2].req_id, 10u);
-  EXPECT_EQ(output[2].sub_id, 1u);
-  EXPECT_EQ(output[2].data, "A1:(ctx10_1,ctx10_2,)");
+  const TextBatch partial{{30, 1, "right-c"}};
+  auto left_join = JoinByItem(left, partial, JoinMode::kLeft);
+  ASSERT_TRUE(left_join.ok());
+  ASSERT_EQ(left_join.value().size(), 3U);
+  EXPECT_EQ(left_join.value()[0].right, nullptr);
+  EXPECT_EQ(left_join.value()[1].right, nullptr);
+  EXPECT_EQ(left_join.value()[2].right, &partial[0]);
+  for (size_t i = 0; i < left.size(); ++i)
+    EXPECT_EQ(&left_join.value()[i].left, &left[i]);
+  const TextBatch empty;
+  auto empty_join = JoinByItem(empty, empty);
+  ASSERT_TRUE(empty_join.ok());
+  EXPECT_TRUE(empty_join.value().empty());
 }
 
-// ============================================================================
-// 3. SelectBatch 与 ScatterReplace 测试
-// ============================================================================
-
-TEST_F(TraceableBatchOperationsTest, SelectAndScatterAllSelected) {
-  std::vector<TraceableItem<std::string>> anchor = {
-      {1, 0, "a"}, {2, 0, "b"}, {3, 0, "c"}};
-
-  auto sel_res = SelectBatch(anchor, [](const std::string&) { return true; });
-  ASSERT_TRUE(sel_res.ok());
-  const auto& selection = sel_res.value();
-  EXPECT_EQ(selection.size(), 3u);
-
-  auto sub_batch = selection.Materialize();
-  ASSERT_EQ(sub_batch.size(), 3u);
-  for (auto& item : sub_batch) {
-    item.data += "_mod";
+TEST(TraceableBatchOperationsTest, JoinRejectsDuplicateMissingAndUnknownKeys) {
+  struct Case {
+    const char* name;
+    TextBatch left, right;
+    JoinMode mode;
+    BatchFailureReason reason;
+    TraceableItemKey key;
+  };
+  const std::vector<Case> cases{
+      {"left duplicate",
+       {{30, 9, "a"}, {30, 9, "b"}},
+       {{30, 9, "r"}},
+       JoinMode::kExact,
+       BatchFailureReason::kDuplicate,
+       {30, 9}},
+      {"right duplicate",
+       {{30, 9, "a"}},
+       {{30, 9, "r"}, {30, 9, "s"}},
+       JoinMode::kLeft,
+       BatchFailureReason::kDuplicate,
+       {30, 9}},
+      {"Exact missing right item",
+       {{30, 9, "a"}, {30, 1, "b"}},
+       {{30, 1, "r"}},
+       JoinMode::kExact,
+       BatchFailureReason::kMissing,
+       {30, 9}},
+      {"Exact unknown subkey",
+       {{30, 9, "a"}},
+       {{30, 1, "r"}},
+       JoinMode::kExact,
+       BatchFailureReason::kUnknown,
+       {30, 1}},
+      {"Left also rejects extras",
+       {{30, 9, "a"}},
+       {{30, 9, "r"}, {31, 9, "s"}},
+       JoinMode::kLeft,
+       BatchFailureReason::kUnknown,
+       {31, 9}},
+  };
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    auto result = JoinByItem(row.left, row.right, row.mode);
+    ASSERT_FALSE(result.ok());
+    ExpectDetail(result.failure(), "JoinByItem", row.reason, row.key);
   }
-
-  auto scatter_res = ScatterReplace(selection, sub_batch);
-  ASSERT_TRUE(scatter_res.ok());
-  const auto& full = scatter_res.value();
-  ASSERT_EQ(full.size(), 3u);
-  EXPECT_EQ(full[0].data, "a_mod");
-  EXPECT_EQ(full[1].data, "b_mod");
-  EXPECT_EQ(full[2].data, "c_mod");
 }
 
-TEST_F(TraceableBatchOperationsTest, SelectAndScatterNoneSelected) {
-  std::vector<TraceableItem<std::string>> anchor = {
-      {1, 0, "a"}, {2, 0, "b"}, {3, 0, "c"}};
-
-  auto sel_res = SelectBatch(anchor, [](const std::string&) { return false; });
-  ASSERT_TRUE(sel_res.ok());
-  const auto& selection = sel_res.value();
-  EXPECT_EQ(selection.size(), 0u);
-  EXPECT_TRUE(selection.empty());
-
-  auto sub_batch = selection.Materialize();
-  EXPECT_TRUE(sub_batch.empty());
-
-  auto scatter_res = ScatterReplace(selection, sub_batch);
-  ASSERT_TRUE(scatter_res.ok());
-  const auto& full = scatter_res.value();
-  ASSERT_EQ(full.size(), 3u);
-  EXPECT_EQ(full[0].data, "a");
-  EXPECT_EQ(full[1].data, "b");
-  EXPECT_EQ(full[2].data, "c");
+TEST(TraceableBatchOperationsTest,
+     GroupsFollowFirstAnchorRequestAndMemberOrder) {
+  const TextBatch anchor{
+      {30, 9, "a"}, {10, 2, "b"}, {30, 1, "c"}, {20, 8, "d"}};
+  const TextBatch members{{10, 6, "m1"}, {30, 4, "m2"}, {10, 0, "m3"}};
+  auto result = GroupByRequest(anchor, members);
+  ASSERT_TRUE(result.ok());
+  const auto& groups = result.value();
+  ASSERT_EQ(groups.size(), 3U);
+  const std::vector<uint32_t> requests{30, 10, 20};
+  const std::vector<std::vector<size_t>> anchor_indices{{0, 2}, {1}, {3}};
+  const std::vector<std::vector<size_t>> member_indices{{1}, {0, 2}, {}};
+  for (size_t i = 0; i < requests.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(groups[i].req_id(), requests[i]);
+    ASSERT_EQ(groups[i].anchor_count(), anchor_indices[i].size());
+    ASSERT_EQ(groups[i].member_count(), member_indices[i].size());
+    for (size_t j = 0; j < anchor_indices[i].size(); ++j)
+      EXPECT_EQ(&groups[i].anchors()[j].get(), &anchor[anchor_indices[i][j]]);
+    for (size_t j = 0; j < member_indices[i].size(); ++j)
+      EXPECT_EQ(&groups[i].members()[j].get(), &members[member_indices[i][j]]);
+  }
+  EXPECT_FALSE(groups[2].has_members());
+  EXPECT_EQ(groups.FindByReqId(10), &groups[1]);
+  EXPECT_EQ(groups.FindByReqId(99), nullptr);
+  const std::vector<size_t> index_by_anchor{0, 1, 0, 2};
+  for (size_t i = 0; i < index_by_anchor.size(); ++i)
+    EXPECT_EQ(&groups.GroupByAnchorIndex(i), &groups[index_by_anchor[i]]);
+  const TextBatch empty;
+  auto empty_groups = GroupByRequest(empty, empty);
+  ASSERT_TRUE(empty_groups.ok());
+  EXPECT_TRUE(empty_groups.value().empty());
 }
 
-TEST_F(TraceableBatchOperationsTest,
-       SelectAndScatterPartialOutOfOrderReplacements) {
-  std::vector<TraceableItem<std::string>> anchor = {
-      {1, 0, "apple"}, {2, 0, "banana"}, {3, 0, "cherry"}};
-
-  // 选出长度 > 5 的条目："banana" (索引 1) 和 "cherry" (索引 2)
-  auto sel_res = SelectBatch(
-      anchor, [](const std::string& text) { return text.size() > 5; });
-  ASSERT_TRUE(sel_res.ok());
-  const auto& selection = sel_res.value();
-  ASSERT_EQ(selection.size(), 2u);
-
-  // 以逆序提供替换项
-  std::vector<TraceableItem<std::string>> replacements = {{3, 0, "CHERRY"},
-                                                          {2, 0, "BANANA"}};
-
-  auto scatter_res = ScatterReplace(selection, replacements);
-  ASSERT_TRUE(scatter_res.ok()) << scatter_res.failure().message;
-  const auto& full = scatter_res.value();
-  ASSERT_EQ(full.size(), 3u);
-
-  // 未选中的条目 0 仍为 "apple"
-  EXPECT_EQ(full[0].req_id, 1u);
-  EXPECT_EQ(full[0].data, "apple");
-
-  // 选中的条目 1 更新为 "BANANA"
-  EXPECT_EQ(full[1].req_id, 2u);
-  EXPECT_EQ(full[1].data, "BANANA");
-
-  // 选中的条目 2 更新为 "CHERRY"
-  EXPECT_EQ(full[2].req_id, 3u);
-  EXPECT_EQ(full[2].data, "CHERRY");
+TEST(TraceableBatchOperationsTest,
+     GroupRejectsDuplicateKeysAndUnknownRequests) {
+  struct Case {
+    const char* name;
+    TextBatch anchor, members;
+    BatchFailureReason reason;
+    TraceableItemKey key;
+  };
+  const std::vector<Case> cases{
+      {"duplicate anchor",
+       {{30, 9, "a"}, {30, 9, "b"}},
+       {},
+       BatchFailureReason::kDuplicate,
+       {30, 9}},
+      {"duplicate member",
+       {{30, 9, "a"}},
+       {{30, 2, "m"}, {30, 2, "n"}},
+       BatchFailureReason::kDuplicate,
+       {30, 2}},
+      {"unknown member request",
+       {{30, 9, "a"}},
+       {{31, 9, "m"}},
+       BatchFailureReason::kUnknown,
+       {31, 9}},
+  };
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    auto result = GroupByRequest(row.anchor, row.members);
+    ASSERT_FALSE(result.ok());
+    ExpectDetail(result.failure(), "GroupByRequest", row.reason, row.key);
+  }
 }
 
-TEST_F(TraceableBatchOperationsTest, SelectBatchPredicateFailures) {
-  std::vector<TraceableItem<std::string>> anchor = {
-      {1, 0, "ok"}, {2, 0, "fail"}, {3, 0, "ok"}};
-
-  // 谓词返回失败的 NodeResult
-  auto res =
-      SelectBatch(anchor, [](const std::string& text) -> NodeResult<bool> {
-        if (text == "fail") {
-          return NodeResult<bool>::Failure(NodeErrorKind::kBusinessError,
-                                           "Predicate check failed", -5555);
-        }
-        return NodeResult<bool>::Success(true);
+TEST(TraceableBatchOperationsTest,
+     SelectBorrowsAndScatterReplacesOnlySelectedWholeKeys) {
+  TextBatch anchor{
+      {20, 4, "keep"}, {30, 9, "replace"}, {20, 2, "replace"}, {30, 1, "keep"}};
+  auto selected =
+      SelectBatch(anchor, [](const TraceableItem<std::string>& item) {
+        return item.sub_id == 9 || item.sub_id == 2;
       });
-  ASSERT_FALSE(res.ok());
-  EXPECT_EQ(res.failure().cause_code, -5555);
-  ASSERT_TRUE(res.failure().batch_detail.has_value());
-  EXPECT_EQ(res.failure().batch_detail->reason,
-            BatchFailureReason::kCallbackFailed);
-  ASSERT_TRUE(res.failure().batch_detail->key.has_value());
-  EXPECT_EQ(res.failure().batch_detail->key->req_id, 2u);
+  ASSERT_TRUE(selected.ok());
+  ASSERT_EQ(selected.value().size(), 2U);
+  EXPECT_EQ(&selected.value()[0], &anchor[1]);
+  EXPECT_EQ(&selected.value()[1], &anchor[2]);
+  auto owned = selected.value().Materialize();
+  anchor[1].data = "changed after Materialize";
+  ExpectBatch(owned, TextBatch{{30, 9, "replace"}, {20, 2, "replace"}});
+  const TextBatch replacements{{20, 2, "B"}, {30, 9, "A"}};
+  auto scattered = ScatterReplace(selected.value(), replacements);
+  ASSERT_TRUE(scattered.ok());
+  ExpectBatch(
+      scattered.value(),
+      TextBatch{{20, 4, "keep"}, {30, 9, "A"}, {20, 2, "B"}, {30, 1, "keep"}});
+  auto none = SelectBatch(anchor, [](const std::string&) { return false; });
+  ASSERT_TRUE(none.ok());
+  EXPECT_TRUE(none.value().empty());
+  const TextBatch empty;
+  auto unchanged = ScatterReplace(none.value(), empty);
+  ASSERT_TRUE(unchanged.ok());
+  ExpectBatch(unchanged.value(), TextBatch{{20, 4, "keep"},
+                                           {30, 9, "changed after Materialize"},
+                                           {20, 2, "replace"},
+                                           {30, 1, "keep"}});
+}
 
-  // 谓词抛异常
-  auto throw_res = SelectBatch(anchor, [](const std::string& text) -> bool {
-    if (text == "fail") throw std::runtime_error("Unexpected error");
+TEST(TraceableBatchOperationsTest, SelectionAndScatterRejectInvalidCoverage) {
+  const TextBatch duplicate{{30, 9, "a"}, {30, 9, "b"}};
+  int calls = 0;
+  auto rejected = SelectBatch(duplicate, [&](const std::string&) {
+    ++calls;
     return true;
   });
-  ASSERT_FALSE(throw_res.ok());
-  ASSERT_TRUE(throw_res.failure().batch_detail.has_value());
-  EXPECT_EQ(throw_res.failure().batch_detail->reason,
-            BatchFailureReason::kCallbackFailed);
-  EXPECT_EQ(throw_res.failure().batch_detail->key->req_id, 2u);
-}
-
-TEST_F(TraceableBatchOperationsTest, ScatterReplaceErrorValidations) {
-  std::vector<TraceableItem<std::string>> anchor = {
-      {1, 0, "apple"}, {2, 0, "banana"}, {3, 0, "cherry"}};
-  auto sel_res =
-      SelectBatch(anchor, [](const std::string& s) { return s == "banana"; });
-  ASSERT_TRUE(sel_res.ok());
-  const auto& selection = sel_res.value();
-
-  // 1. 替换项中有重复
-  std::vector<TraceableItem<std::string>> dup_repl = {{2, 0, "b1"},
-                                                      {2, 0, "b2"}};
-  auto res_dup = ScatterReplace(selection, dup_repl);
-  ASSERT_FALSE(res_dup.ok());
-  EXPECT_EQ(res_dup.failure().batch_detail->reason,
-            BatchFailureReason::kDuplicate);
-
-  // 2. 替换项含未选中的键 (如 1:0 在锚点中但未被选中)
-  std::vector<TraceableItem<std::string>> unselected_repl = {
-      {1, 0, "new_apple"}};
-  auto res_unsel = ScatterReplace(selection, unselected_repl);
-  ASSERT_FALSE(res_unsel.ok());
-  EXPECT_EQ(res_unsel.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-
-  // 3. 替换项含未知键 (不在锚点中)
-  std::vector<TraceableItem<std::string>> unknown_repl = {{99, 0, "ghost"}};
-  auto res_unk = ScatterReplace(selection, unknown_repl);
-  ASSERT_FALSE(res_unk.ok());
-  EXPECT_EQ(res_unk.failure().batch_detail->reason,
-            BatchFailureReason::kUnknown);
-
-  // 4. 替换项缺少选中的键
-  std::vector<TraceableItem<std::string>> empty_repl;
-  auto res_miss = ScatterReplace(selection, empty_repl);
-  ASSERT_FALSE(res_miss.ok());
-  EXPECT_EQ(res_miss.failure().batch_detail->reason,
-            BatchFailureReason::kMissing);
-}
-
-// ============================================================================
-// 4. SplitPayloads 测试
-// ============================================================================
-
-TEST_F(TraceableBatchOperationsTest,
-       SplitPayloadsMultipleParentsContinuousSubId) {
-  std::vector<TraceableItem<std::string>> input = {
-      {1, 5, "hello world"},
-      {1, 9, "single"},
-      {2, 1, "foo bar baz"},
+  ASSERT_FALSE(rejected.ok());
+  EXPECT_EQ(calls, 0);
+  ExpectDetail(rejected.failure(), "SelectBatch",
+               BatchFailureReason::kDuplicate, {30, 9});
+  const TextBatch anchor{{30, 9, "a"}, {10, 2, "keep"}, {30, 1, "b"}};
+  auto selected = SelectBatch(
+      anchor,
+      [](const TraceableItem<std::string>& item) { return item.req_id == 30; });
+  ASSERT_TRUE(selected.ok());
+  struct Case {
+    const char* name;
+    TextBatch replacements;
+    BatchFailureReason reason;
+    TraceableItemKey key;
   };
-
-  auto res = SplitPayloads(input, [](const std::string& str) {
-    std::vector<std::string> words;
-    size_t start = 0;
-    while (start < str.size()) {
-      size_t space = str.find(' ', start);
-      if (space == std::string::npos) {
-        words.push_back(str.substr(start));
-        break;
-      }
-      words.push_back(str.substr(start, space - start));
-      start = space + 1;
-    }
-    return words;
-  });
-
-  ASSERT_TRUE(res.ok()) << res.failure().message;
-  const auto& result = res.value();
-
-  // 检查子条目
-  ASSERT_EQ(result.children.size(), 6u);
-  // req 1 条目 0：2 个词 -> sub_id 0, 1
-  EXPECT_EQ(result.children[0].req_id, 1u);
-  EXPECT_EQ(result.children[0].sub_id, 0u);
-  EXPECT_EQ(result.children[0].data, "hello");
-
-  EXPECT_EQ(result.children[1].req_id, 1u);
-  EXPECT_EQ(result.children[1].sub_id, 1u);
-  EXPECT_EQ(result.children[1].data, "world");
-
-  // req 1 条目 1：1 个词 -> sub_id 2 (req 1 内连续！)
-  EXPECT_EQ(result.children[2].req_id, 1u);
-  EXPECT_EQ(result.children[2].sub_id, 2u);
-  EXPECT_EQ(result.children[2].data, "single");
-
-  // req 2 条目 0：3 个词 -> req 2 的 sub_id 从 0 开始！
-  EXPECT_EQ(result.children[3].req_id, 2u);
-  EXPECT_EQ(result.children[3].sub_id, 0u);
-  EXPECT_EQ(result.children[3].data, "foo");
-
-  EXPECT_EQ(result.children[4].req_id, 2u);
-  EXPECT_EQ(result.children[4].sub_id, 1u);
-  EXPECT_EQ(result.children[4].data, "bar");
-
-  EXPECT_EQ(result.children[5].req_id, 2u);
-  EXPECT_EQ(result.children[5].sub_id, 2u);
-  EXPECT_EQ(result.children[5].data, "baz");
-
-  // 检查计数
-  ASSERT_EQ(result.counts.size(), 3u);
-  EXPECT_EQ(result.counts[0].req_id, 1u);
-  EXPECT_EQ(result.counts[0].sub_id, 5u);
-  EXPECT_EQ(result.counts[0].data, 2);
-
-  EXPECT_EQ(result.counts[1].req_id, 1u);
-  EXPECT_EQ(result.counts[1].sub_id, 9u);
-  EXPECT_EQ(result.counts[1].data, 1);
-
-  EXPECT_EQ(result.counts[2].req_id, 2u);
-  EXPECT_EQ(result.counts[2].sub_id, 1u);
-  EXPECT_EQ(result.counts[2].data, 3);
+  const std::vector<Case> cases{
+      {"duplicate replacement",
+       {{30, 9, "A"}, {30, 9, "B"}},
+       BatchFailureReason::kDuplicate,
+       {30, 9}},
+      {"missing selected key",
+       {{30, 1, "B"}},
+       BatchFailureReason::kMissing,
+       {30, 9}},
+      {"known but unselected",
+       {{10, 2, "X"}},
+       BatchFailureReason::kUnknown,
+       {10, 2}},
+      {"unknown full key",
+       {{30, 2, "X"}},
+       BatchFailureReason::kUnknown,
+       {30, 2}},
+  };
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    auto result = ScatterReplace(selected.value(), row.replacements);
+    ASSERT_FALSE(result.ok());
+    ExpectDetail(result.failure(), "ScatterReplace", row.reason, row.key);
+  }
 }
 
-TEST_F(TraceableBatchOperationsTest,
-       SplitPayloadsInterleavedRequestsCounterNotReset) {
-  std::vector<TraceableItem<std::string>> input = {
-      {1, 0, "a b"},
-      {2, 0, "x"},
-      {1, 1, "c d"},
+TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
+  const TextBatch anchor{{30, 9, "first"}, {10, 2, "second"}, {30, 1, "third"}};
+  struct Case {
+    const char* name;
+    int fault;
+    const char* message;
   };
+  const std::vector<Case> cases{
+      {"NodeResult failure", 0, "literal predicate failure"},
+      {"standard exception", 1, "literal predicate exception"},
+      {"unknown exception", 2, "unknown exception"}};
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    int calls = 0;
+    auto result =
+        SelectBatch(anchor, [&](const std::string&) -> NodeResult<bool> {
+          if (++calls == 1) return NodeResult<bool>::Success(true);
+          if (row.fault == 1)
+            throw std::runtime_error("literal predicate exception");
+          if (row.fault == 2) throw 42;
+          return NodeResult<bool>::Failure(
+              NodeErrorKind::kBusinessError, "literal predicate failure",
+              BatchFailureDetail{"previous operation",
+                                 BatchFailureReason::kMissing,
+                                 TraceableItemKey{88, 4}},
+              -932);
+        });
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(calls, 2);
+    ExpectDetail(result.failure(), "SelectBatch",
+                 BatchFailureReason::kCallbackFailed, {10, 2},
+                 NodeErrorKind::kBusinessError);
+    EXPECT_EQ(result.failure().cause_code, row.fault == 0 ? -932 : 0);
+    EXPECT_NE(result.failure().message.find(row.message), std::string::npos);
+  }
+  auto item_predicate =
+      SelectBatch(anchor, [](const TraceableItem<std::string>& item) {
+        return NodeResult<bool>::Success(item.req_id == 10);
+      });
+  ASSERT_TRUE(item_predicate.ok());
+  ExpectBatch(item_predicate.value().Materialize(),
+              TextBatch{{10, 2, "second"}});
+}
 
-  auto res = SplitPayloads(input, [](const std::string& str) {
-    if (str == "a b") return std::vector<std::string>{"a", "b"};
-    if (str == "x") return std::vector<std::string>{"x"};
-    if (str == "c d") return std::vector<std::string>{"c", "d"};
+TEST(TraceableBatchOperationsTest,
+     SplitPreservesParentsAndAllocatesChildrenPerRequest) {
+  const TextBatch input{
+      {30, 9, "two"}, {10, 2, "one"}, {30, 1, "none"}, {30, 7, "last"}};
+  auto result = SplitPayloads(input, [](const std::string& value) {
+    if (value == "two") return std::vector<std::string>{"A", "B"};
+    if (value == "one") return std::vector<std::string>{"C"};
+    if (value == "last") return std::vector<std::string>{"D"};
     return std::vector<std::string>{};
   });
-
-  ASSERT_TRUE(res.ok());
-  const auto& children = res.value().children;
-  ASSERT_EQ(children.size(), 5u);
-
-  EXPECT_EQ(children[0].req_id, 1u);
-  EXPECT_EQ(children[0].sub_id, 0u);
-
-  EXPECT_EQ(children[1].req_id, 1u);
-  EXPECT_EQ(children[1].sub_id, 1u);
-
-  EXPECT_EQ(children[2].req_id, 2u);
-  EXPECT_EQ(children[2].sub_id, 0u);
-
-  // req 1 继续：sub_id 必须为 2, 3！
-  EXPECT_EQ(children[3].req_id, 1u);
-  EXPECT_EQ(children[3].sub_id, 2u);
-
-  EXPECT_EQ(children[4].req_id, 1u);
-  EXPECT_EQ(children[4].sub_id, 3u);
-}
-
-TEST_F(TraceableBatchOperationsTest, SplitPayloadsZeroChildrenAndEmptyInput) {
-  // 零个子条目是合法的
-  std::vector<TraceableItem<std::string>> input = {{1, 0, "empty"}};
-  auto res = SplitPayloads(
-      input, [](const std::string&) { return std::vector<std::string>{}; });
-  ASSERT_TRUE(res.ok());
-  EXPECT_TRUE(res.value().children.empty());
-  ASSERT_EQ(res.value().counts.size(), 1u);
-  EXPECT_EQ(res.value().counts[0].data, 0);
-
-  // 空输入
-  std::vector<TraceableItem<std::string>> empty_input;
-  auto empty_res = SplitPayloads(empty_input, [](const std::string&) {
-    return std::vector<std::string>{"never"};
+  ASSERT_TRUE(result.ok());
+  ExpectBatch(
+      result.value().children,
+      TextBatch{{30, 0, "A"}, {30, 1, "B"}, {10, 0, "C"}, {30, 2, "D"}});
+  ExpectBatch(result.value().counts,
+              Int32Batch{{30, 9, 2}, {10, 2, 1}, {30, 1, 0}, {30, 7, 1}});
+  const TextBatch single{{40, 7, "single"}};
+  auto wrapped = SplitPayloads(single, [](const std::string&) {
+    return NodeResult<std::vector<int32_t>>::Success({3, 4});
   });
-  ASSERT_TRUE(empty_res.ok());
-  EXPECT_TRUE(empty_res.value().children.empty());
-  EXPECT_TRUE(empty_res.value().counts.empty());
+  ASSERT_TRUE(wrapped.ok());
+  ExpectBatch(wrapped.value().children, Int32Batch{{40, 0, 3}, {40, 1, 4}});
+  ExpectBatch(wrapped.value().counts, Int32Batch{{40, 7, 2}});
+  const TextBatch empty;
+  int calls = 0;
+  auto empty_result = SplitPayloads(empty, [&](const std::string&) {
+    ++calls;
+    return std::vector<int>{7};
+  });
+  ASSERT_TRUE(empty_result.ok());
+  EXPECT_EQ(calls, 0);
+  EXPECT_TRUE(empty_result.value().children.empty());
+  EXPECT_TRUE(empty_result.value().counts.empty());
 }
 
-TEST_F(TraceableBatchOperationsTest,
-       SplitPayloadsCallbackFailurePreservesCause) {
-  std::vector<TraceableItem<std::string>> input = {
-      {1, 0, "ok"}, {2, 3, "fail"}, {3, 0, "ok"}};
-
-  auto res = SplitPayloads(
-      input, [](const std::string& s) -> NodeResult<std::vector<std::string>> {
-        if (s == "fail") {
-          return NodeResult<std::vector<std::string>>::Failure(
-              NodeErrorKind::kBusinessError, "custom splitter error", -7788);
-        }
-        return NodeResult<std::vector<std::string>>::Success(
-            std::vector<std::string>{s});
-      });
-
-  ASSERT_FALSE(res.ok());
-  EXPECT_EQ(res.failure().cause_code, -7788);
-  ASSERT_TRUE(res.failure().batch_detail.has_value());
-  EXPECT_EQ(res.failure().batch_detail->operation, "SplitPayloads");
-  EXPECT_EQ(res.failure().batch_detail->reason,
-            BatchFailureReason::kCallbackFailed);
-  ASSERT_TRUE(res.failure().batch_detail->key.has_value());
-  EXPECT_EQ(res.failure().batch_detail->key->req_id, 2u);
-  EXPECT_EQ(res.failure().batch_detail->key->sub_id, 3u);
+TEST(TraceableBatchOperationsTest,
+     SplitRejectsDuplicatesAndAttachesCallbackFailures) {
+  const TextBatch duplicate{{30, 9, "a"}, {30, 9, "b"}};
+  int calls = 0;
+  auto rejected = SplitPayloads(duplicate, [&](const std::string&) {
+    ++calls;
+    return std::vector<int>{1};
+  });
+  ASSERT_FALSE(rejected.ok());
+  EXPECT_EQ(calls, 0);
+  ExpectDetail(rejected.failure(), "SplitPayloads",
+               BatchFailureReason::kDuplicate, {30, 9});
+  const TextBatch input{{30, 9, "first"}, {10, 2, "second"}, {30, 1, "third"}};
+  struct Case {
+    const char* name;
+    int fault;
+    const char* message;
+  };
+  const std::vector<Case> cases{
+      {"NodeResult failure", 0, "literal split failure"},
+      {"standard exception", 1, "literal split exception"},
+      {"unknown exception", 2, "unknown exception"}};
+  for (const auto& row : cases) {
+    SCOPED_TRACE(row.name);
+    calls = 0;
+    auto result = SplitPayloads(
+        input, [&](const std::string&) -> NodeResult<std::vector<int>> {
+          if (++calls == 1) return NodeResult<std::vector<int>>::Success({7});
+          if (row.fault == 1)
+            throw std::runtime_error("literal split exception");
+          if (row.fault == 2) throw 42;
+          return NodeResult<std::vector<int>>::Failure(
+              NodeErrorKind::kModelCallError, "literal split failure",
+              BatchFailureDetail{"previous operation",
+                                 BatchFailureReason::kMissing,
+                                 TraceableItemKey{88, 4}},
+              -933, "literal stage", "literal slot");
+        });
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(calls, 2);
+    ExpectDetail(result.failure(), "SplitPayloads",
+                 BatchFailureReason::kCallbackFailed, {10, 2},
+                 row.fault == 0 ? NodeErrorKind::kModelCallError
+                                : NodeErrorKind::kBusinessError);
+    EXPECT_EQ(result.failure().cause_code, row.fault == 0 ? -933 : 0);
+    EXPECT_NE(result.failure().message.find(row.message), std::string::npos);
+    if (row.fault == 0) {
+      EXPECT_EQ(result.failure().stage, "literal stage");
+      EXPECT_EQ(result.failure().model_slot, "literal slot");
+    }
+  }
 }
 
-TEST_F(TraceableBatchOperationsTest, SplitPayloadsSubIdOverflowSeam) {
-  std::vector<TraceableItem<std::string>> input = {{1, 0, "split"}};
-
-  // 通过内部测试接缝设置接近边界的 sub_id
-  std::unordered_map<uint32_t, uint64_t> initial = {
-      {1, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())}};
-
-  auto res = detail::SplitPayloadsInternal(
+TEST(TraceableBatchOperationsTest, SplitChecksCountAndSubIdAtNarrowBoundaries) {
+  const TraceableItemKey parent{30, 9};
+  auto zero = detail::CheckedSplitCount(0, parent);
+  ASSERT_TRUE(zero.ok());
+  EXPECT_EQ(zero.value(), 0);
+  constexpr size_t max_count =
+      static_cast<size_t>(std::numeric_limits<int32_t>::max());
+  auto maximum = detail::CheckedSplitCount(max_count, parent);
+  ASSERT_TRUE(maximum.ok());
+  EXPECT_EQ(maximum.value(), std::numeric_limits<int32_t>::max());
+  auto overflow = detail::CheckedSplitCount(max_count + 1, parent);
+  ASSERT_FALSE(overflow.ok());
+  ExpectDetail(overflow.failure(), "SplitPayloads",
+               BatchFailureReason::kCountOverflow, parent,
+               NodeErrorKind::kBusinessError);
+  const TextBatch input{{30, 9, "parent"}};
+  constexpr uint32_t max_sub = std::numeric_limits<uint32_t>::max();
+  auto last_valid = detail::SplitPayloadsInternal(
+      input,
+      [](const std::string&) { return std::vector<std::string>{"last"}; },
+      {{30, max_sub}});
+  ASSERT_TRUE(last_valid.ok());
+  ExpectBatch(last_valid.value().children, TextBatch{{30, max_sub, "last"}});
+  auto exhausted = detail::SplitPayloadsInternal(
       input,
       [](const std::string&) {
-        // 生成 2 个子条目：第一个恰好用到 UINT32_MAX，第二个溢出！
-        return std::vector<std::string>{"chunk1", "chunk2"};
+        return std::vector<std::string>{"last", "overflow"};
       },
-      initial);
-
-  ASSERT_FALSE(res.ok());
-  ASSERT_TRUE(res.failure().batch_detail.has_value());
-  EXPECT_EQ(res.failure().batch_detail->operation, "SplitPayloads");
-  EXPECT_EQ(res.failure().batch_detail->reason,
-            BatchFailureReason::kSubIdOverflow);
-  ASSERT_TRUE(res.failure().batch_detail->key.has_value());
-  EXPECT_EQ(res.failure().batch_detail->key->req_id, 1u);
+      {{30, max_sub}});
+  ASSERT_FALSE(exhausted.ok());
+  ExpectDetail(exhausted.failure(), "SplitPayloads",
+               BatchFailureReason::kSubIdOverflow, parent,
+               NodeErrorKind::kBusinessError);
 }
 
-TEST_F(TraceableBatchOperationsTest, CheckedSplitCountInt32Boundaries) {
-  const size_t max_count =
-      static_cast<size_t>(std::numeric_limits<int32_t>::max());
-  for (size_t count : {size_t{0}, max_count - 1, max_count}) {
-    SCOPED_TRACE(count);
-    auto result = detail::CheckedSplitCount(count, TraceableItemKey{42, 9});
-    ASSERT_TRUE(result.ok());
-    EXPECT_EQ(result.value(), static_cast<int32_t>(count));
-  }
-  for (size_t count : {max_count + 1, std::numeric_limits<size_t>::max()}) {
-    SCOPED_TRACE(count);
-    auto result = detail::CheckedSplitCount(count, TraceableItemKey{42, 9});
+TEST(TraceableBatchOperationsTest,
+     MapKeepsOrderProvenanceAndSkipsEmptyCallbacks) {
+  const Int32Batch input{{30, 9, 11}, {10, 2, 22}, {30, 9, 33}};
+  int calls = 0;
+  auto plain = MapPayloads(input, [&](int32_t value) {
+    ++calls;
+    return value + 1;
+  });
+  EXPECT_EQ(calls, 3);
+  ExpectBatch(plain, Int32Batch{{30, 9, 12}, {10, 2, 23}, {30, 9, 34}});
+  auto wrapped = MapPayloads(input, [](int32_t value) {
+    return NodeResult<int32_t>::Success(value + 1);
+  });
+  ASSERT_TRUE(wrapped.ok());
+  ExpectBatch(wrapped.value(),
+              Int32Batch{{30, 9, 12}, {10, 2, 23}, {30, 9, 34}});
+  const Int32Batch empty;
+  calls = 0;
+  EXPECT_TRUE(MapPayloads(empty, [&](int32_t value) {
+                ++calls;
+                return value;
+              }).empty());
+  auto empty_wrapped = MapPayloads(empty, [&](int32_t value) {
+    ++calls;
+    return NodeResult<int32_t>::Success(value);
+  });
+  ASSERT_TRUE(empty_wrapped.ok());
+  EXPECT_TRUE(empty_wrapped.value().empty());
+  EXPECT_EQ(calls, 0);
+}
+
+TEST(TraceableBatchOperationsTest,
+     MapPreservesExistingFailureDetailsOrAttachesItemKey) {
+  const Int32Batch input{{30, 9, 11}, {10, 2, 22}, {30, 1, 33}};
+  for (bool supplied_detail : {false, true}) {
+    SCOPED_TRACE(supplied_detail);
+    int calls = 0;
+    auto result = MapPayloads(input, [&](int32_t value) {
+      ++calls;
+      if (value != 22) return NodeResult<int32_t>::Success(value + 1);
+      NodeFailure failure{NodeErrorKind::kModelCallError, "literal map failure",
+                          -934, "literal stage", "literal slot"};
+      failure.source_location = "literal source";
+      if (supplied_detail)
+        failure.batch_detail = BatchFailureDetail{"original operation",
+                                                  BatchFailureReason::kMissing,
+                                                  TraceableItemKey{99, 7}};
+      return NodeResult<int32_t>::Failure(std::move(failure));
+    });
     ASSERT_FALSE(result.ok());
-    EXPECT_EQ(result.failure().kind, NodeErrorKind::kBusinessError);
-    EXPECT_EQ(result.failure().cause_code, 0);
-    EXPECT_NE(result.failure().message.find("Int32 capacity"),
-              std::string::npos);
-    ASSERT_TRUE(result.failure().batch_detail.has_value());
-    const auto& detail = *result.failure().batch_detail;
-    EXPECT_EQ(detail.operation, "SplitPayloads");
-    EXPECT_EQ(detail.reason, BatchFailureReason::kCountOverflow);
-    ASSERT_TRUE(detail.key.has_value());
-    EXPECT_EQ(detail.key->req_id, 42u);
-    EXPECT_EQ(detail.key->sub_id, 9u);
-    EXPECT_NE(result.failure().FormatDiagnostic("").find("req_id=42, sub_id=9"),
-              std::string::npos);
+    EXPECT_EQ(calls, 2);
+    EXPECT_EQ(result.failure().cause_code, -934);
+    EXPECT_EQ(result.failure().message, "literal map failure");
+    EXPECT_EQ(result.failure().stage, "literal stage");
+    EXPECT_EQ(result.failure().model_slot, "literal slot");
+    EXPECT_EQ(result.failure().source_location, "literal source");
+    ExpectDetail(
+        result.failure(),
+        supplied_detail ? "original operation" : "MapPayloads",
+        supplied_detail ? BatchFailureReason::kMissing
+                        : BatchFailureReason::kCallbackFailed,
+        supplied_detail ? TraceableItemKey{99, 7} : TraceableItemKey{10, 2},
+        NodeErrorKind::kModelCallError);
   }
 }
 
-TEST_F(TraceableBatchOperationsTest,
-       SplitPayloadsMaxSubIdThenZeroChildrenSucceeds) {
-  const TextBatch input = {{42, 3, "last child"}, {42, 9, "empty"}};
-  const std::unordered_map<uint32_t, uint64_t> initial = {
-      {42, static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())}};
-  auto result = detail::SplitPayloadsInternal(
-      input,
-      [](const std::string& payload) {
-        return payload == "empty" ? std::vector<std::string>{}
-                                  : std::vector<std::string>{payload};
-      },
-      initial);
-  ASSERT_TRUE(result.ok());
-  ASSERT_EQ(result.value().children.size(), 1u);
-  EXPECT_EQ(result.value().children[0].req_id, 42u);
-  EXPECT_EQ(result.value().children[0].sub_id,
-            std::numeric_limits<uint32_t>::max());
-  EXPECT_EQ(result.value().children[0].data, "last child");
-  ASSERT_EQ(result.value().counts.size(), 2u);
-  EXPECT_EQ(result.value().counts[0].req_id, 42u);
-  EXPECT_EQ(result.value().counts[0].sub_id, 3u);
-  EXPECT_EQ(result.value().counts[0].data, 1);
-  EXPECT_EQ(result.value().counts[1].req_id, 42u);
-  EXPECT_EQ(result.value().counts[1].sub_id, 9u);
-  EXPECT_EQ(result.value().counts[1].data, 0);
-}
-
-// ============================================================================
-// 5. 视图与所有权测试
-// ============================================================================
-
-// 用 SFINAE 探测工厂函数被删除的重载
-template <typename L, typename R, typename = void>
-struct CanJoinByItem : std::false_type {};
-template <typename L, typename R>
-struct CanJoinByItem<
-    L, R,
-    std::void_t<decltype(JoinByItem(std::declval<L>(), std::declval<R>()))>>
-    : std::true_type {};
-
-template <typename A, typename M, typename = void>
-struct CanGroupByRequest : std::false_type {};
-template <typename A, typename M>
-struct CanGroupByRequest<
-    A, M,
-    std::void_t<decltype(GroupByRequest(std::declval<A>(), std::declval<M>()))>>
-    : std::true_type {};
-
-template <typename B, typename P, typename = void>
-struct CanSelectBatch : std::false_type {};
-template <typename B, typename P>
-struct CanSelectBatch<
-    B, P,
-    std::void_t<decltype(SelectBatch(std::declval<B>(), std::declval<P>()))>>
-    : std::true_type {};
-
-template <typename G, typename I, typename = void>
-struct CanAddAnchor : std::false_type {};
-template <typename G, typename I>
-struct CanAddAnchor<
-    G, I, std::void_t<decltype(std::declval<G>().AddAnchor(std::declval<I>()))>>
-    : std::true_type {};
-
-template <typename G, typename I, typename = void>
-struct CanAddMember : std::false_type {};
-template <typename G, typename I>
-struct CanAddMember<
-    G, I, std::void_t<decltype(std::declval<G>().AddMember(std::declval<I>()))>>
-    : std::true_type {};
-
-TEST_F(TraceableBatchOperationsTest, CompileTimeRejectionOfRvalues) {
-  using Batch = std::vector<TraceableItem<std::string>>;
-  using Pred = bool (*)(const std::string&);
-  using Item = TraceableItem<std::string>;
-  using Group = RequestGroup<std::string, std::string>;
-
-  // ItemJoinView 必须拒绝非 const 和 const 右值
-  static_assert(
-      std::is_constructible_v<ItemJoinView<std::string, std::string>,
-                              const Batch&, const Batch&,
-                              std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must accept const lvalues");
-  static_assert(
-      std::is_constructible_v<ItemJoinView<std::string, std::string>, Batch&,
-                              Batch&,
-                              std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must accept non-const lvalues");
-  static_assert(
-      !std::is_constructible_v<
-          ItemJoinView<std::string, std::string>, Batch&&, const Batch&,
-          std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must reject rvalue left");
-  static_assert(
-      !std::is_constructible_v<
-          ItemJoinView<std::string, std::string>, const Batch&&, const Batch&,
-          std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must reject const rvalue left");
-  static_assert(!std::is_constructible_v<
-                    ItemJoinView<std::string, std::string>, const Batch&,
-                    Batch&&, std::vector<JoinedRow<std::string, std::string>>>,
-                "ItemJoinView must reject rvalue right");
-  static_assert(
-      !std::is_constructible_v<
-          ItemJoinView<std::string, std::string>, const Batch&, const Batch&&,
-          std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must reject const rvalue right");
-  static_assert(!std::is_constructible_v<
-                    ItemJoinView<std::string, std::string>, Batch&&, Batch&&,
-                    std::vector<JoinedRow<std::string, std::string>>>,
-                "ItemJoinView must reject both non-const rvalues");
-  static_assert(
-      !std::is_constructible_v<
-          ItemJoinView<std::string, std::string>, Batch&&, const Batch&&,
-          std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must reject rvalue left, const rvalue right");
-  static_assert(!std::is_constructible_v<
-                    ItemJoinView<std::string, std::string>, const Batch&&,
-                    Batch&&, std::vector<JoinedRow<std::string, std::string>>>,
-                "ItemJoinView must reject const rvalue left, rvalue right");
-  static_assert(
-      !std::is_constructible_v<
-          ItemJoinView<std::string, std::string>, const Batch&&, const Batch&&,
-          std::vector<JoinedRow<std::string, std::string>>>,
-      "ItemJoinView must reject both const rvalues");
-
-  // JoinByItem 工厂函数必须拒绝非 const 和 const 右值
-  static_assert(CanJoinByItem<const Batch&, const Batch&>::value,
-                "JoinByItem must accept const lvalues");
-  static_assert(CanJoinByItem<Batch&, Batch&>::value,
-                "JoinByItem must accept non-const lvalues");
-  static_assert(CanJoinByItem<Batch&, const Batch&>::value,
-                "JoinByItem must accept mixed lvalues");
-  static_assert(CanJoinByItem<const Batch&, Batch&>::value,
-                "JoinByItem must accept mixed lvalues");
-  static_assert(!CanJoinByItem<Batch&&, const Batch&>::value,
-                "JoinByItem must reject rvalue left");
-  static_assert(!CanJoinByItem<const Batch&&, const Batch&>::value,
-                "JoinByItem must reject const rvalue left");
-  static_assert(!CanJoinByItem<const Batch&, Batch&&>::value,
-                "JoinByItem must reject rvalue right");
-  static_assert(!CanJoinByItem<const Batch&, const Batch&&>::value,
-                "JoinByItem must reject const rvalue right");
-  static_assert(!CanJoinByItem<Batch&&, Batch&&>::value,
-                "JoinByItem must reject both non-const rvalues");
-  static_assert(!CanJoinByItem<Batch&&, const Batch&&>::value,
-                "JoinByItem must reject rvalue left, const rvalue right");
-  static_assert(!CanJoinByItem<const Batch&&, Batch&&>::value,
-                "JoinByItem must reject const rvalue left, rvalue right");
-  static_assert(!CanJoinByItem<const Batch&&, const Batch&&>::value,
-                "JoinByItem must reject both const rvalues");
-
-  // RequestGroupView 必须拒绝非 const 和 const 右值
-  static_assert(
-      std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, const Batch&,
-          const Batch&, std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must accept const lvalues");
-  static_assert(std::is_constructible_v<
-                    RequestGroupView<std::string, std::string>, Batch&, Batch&,
-                    std::vector<RequestGroup<std::string, std::string>>,
-                    std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-                "RequestGroupView must accept non-const lvalues");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, Batch&&, const Batch&,
-          std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject rvalue anchor");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, const Batch&&,
-          const Batch&, std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject const rvalue anchor");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, const Batch&, Batch&&,
-          std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject rvalue members");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, const Batch&,
-          const Batch&&, std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject const rvalue members");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, Batch&&, Batch&&,
-          std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject both non-const rvalues");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, Batch&&, const Batch&&,
-          std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject rvalue anchor, const rvalue members");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, const Batch&&, Batch&&,
-          std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject const rvalue anchor, rvalue members");
-  static_assert(
-      !std::is_constructible_v<
-          RequestGroupView<std::string, std::string>, const Batch&&,
-          const Batch&&, std::vector<RequestGroup<std::string, std::string>>,
-          std::vector<size_t>, std::unordered_map<uint32_t, size_t>>,
-      "RequestGroupView must reject both const rvalues");
-
-  // GroupByRequest 工厂函数必须拒绝非 const 和 const 右值
-  static_assert(CanGroupByRequest<const Batch&, const Batch&>::value,
-                "GroupByRequest must accept const lvalues");
-  static_assert(CanGroupByRequest<Batch&, Batch&>::value,
-                "GroupByRequest must accept non-const lvalues");
-  static_assert(CanGroupByRequest<Batch&, const Batch&>::value,
-                "GroupByRequest must accept mixed lvalues");
-  static_assert(CanGroupByRequest<const Batch&, Batch&>::value,
-                "GroupByRequest must accept mixed lvalues");
-  static_assert(!CanGroupByRequest<Batch&&, const Batch&>::value,
-                "GroupByRequest must reject rvalue anchor");
-  static_assert(!CanGroupByRequest<const Batch&&, const Batch&>::value,
-                "GroupByRequest must reject const rvalue anchor");
-  static_assert(!CanGroupByRequest<const Batch&, Batch&&>::value,
-                "GroupByRequest must reject rvalue members");
-  static_assert(!CanGroupByRequest<const Batch&, const Batch&&>::value,
-                "GroupByRequest must reject const rvalue members");
-  static_assert(!CanGroupByRequest<Batch&&, Batch&&>::value,
-                "GroupByRequest must reject both non-const rvalues");
-  static_assert(
-      !CanGroupByRequest<Batch&&, const Batch&&>::value,
-      "GroupByRequest must reject rvalue anchor, const rvalue members");
-  static_assert(
-      !CanGroupByRequest<const Batch&&, Batch&&>::value,
-      "GroupByRequest must reject const rvalue anchor, rvalue members");
-  static_assert(!CanGroupByRequest<const Batch&&, const Batch&&>::value,
-                "GroupByRequest must reject both const rvalues");
-
-  // Selection 必须拒绝非 const 和 const 右值
-  static_assert(!std::is_constructible_v<Selection<std::string>, Batch&&,
-                                         std::vector<size_t>>,
-                "Selection must reject rvalue anchor");
-  static_assert(!std::is_constructible_v<Selection<std::string>, const Batch&&,
-                                         std::vector<size_t>>,
-                "Selection must reject const rvalue anchor");
-
-  // SelectBatch 工厂函数必须拒绝非 const 和 const 右值
-  static_assert(CanSelectBatch<const Batch&, Pred>::value,
-                "SelectBatch must accept const lvalue");
-  static_assert(CanSelectBatch<Batch&, Pred>::value,
-                "SelectBatch must accept non-const lvalue");
-  static_assert(!CanSelectBatch<Batch&&, Pred>::value,
-                "SelectBatch must reject rvalue anchor");
-  static_assert(!CanSelectBatch<const Batch&&, Pred>::value,
-                "SelectBatch must reject const rvalue anchor");
-
-  // RequestGroup 的 AddAnchor 和 AddMember 必须拒绝右值条目
-  static_assert(CanAddAnchor<Group&, const Item&>::value,
-                "AddAnchor must accept const lvalue item");
-  static_assert(CanAddAnchor<Group&, Item&>::value,
-                "AddAnchor must accept non-const lvalue item");
-  static_assert(!CanAddAnchor<Group&, Item&&>::value,
-                "AddAnchor must reject rvalue item");
-  static_assert(!CanAddAnchor<Group&, const Item&&>::value,
-                "AddAnchor must reject const rvalue item");
-
-  static_assert(CanAddMember<Group&, const Item&>::value,
-                "AddMember must accept const lvalue item");
-  static_assert(CanAddMember<Group&, Item&>::value,
-                "AddMember must accept non-const lvalue item");
-  static_assert(!CanAddMember<Group&, Item&&>::value,
-                "AddMember must reject rvalue item");
-  static_assert(!CanAddMember<Group&, const Item&&>::value,
-                "AddMember must reject const rvalue item");
-
-  // JoinedRow 必须拒绝右值 left 条目
-  static_assert(std::is_constructible_v<JoinedRow<std::string, std::string>,
-                                        const Item&, const Item*>,
-                "JoinedRow must accept const lvalue left");
-  static_assert(std::is_constructible_v<JoinedRow<std::string, std::string>,
-                                        Item&, const Item*>,
-                "JoinedRow must accept non-const lvalue left");
-  static_assert(!std::is_constructible_v<JoinedRow<std::string, std::string>,
-                                         Item&&, const Item*>,
-                "JoinedRow must reject rvalue left");
-  static_assert(!std::is_constructible_v<JoinedRow<std::string, std::string>,
-                                         const Item&&, const Item*>,
-                "JoinedRow must reject const rvalue left");
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       MaterializeIndependentOfSelectionLifetime) {
-  std::vector<TraceableItem<std::string>> anchor = {{1, 0, "persist_me"}};
-  std::vector<TraceableItem<std::string>> materialized;
-  {
-    auto sel_res = SelectBatch(anchor, [](const std::string&) { return true; });
-    ASSERT_TRUE(sel_res.ok());
-    materialized = sel_res.value().Materialize();
-  }
-  // sel_res 和 Selection 此时已离开作用域
-  ASSERT_EQ(materialized.size(), 1u);
-  EXPECT_EQ(materialized[0].req_id, 1u);
-  EXPECT_EQ(materialized[0].data, "persist_me");
-}
-
-// ============================================================================
-// 6. 使用 Mock LLM 验证入门 Node
-// ============================================================================
-
-TEST_F(TraceableBatchOperationsTest, StarterBatchJoinNodeHarness) {
-  auto mock_llm = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("starter_batch_join");
-  harness.Config({{"bind_model", "test_llm"}});
-  harness.BindModel("test_llm", mock_llm);
-
-  harness.TextInput("questions", {"what is capital", "who wrote hamlet"});
-  harness.TextInput("attributes", {"author", "geography"});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-
-  EXPECT_EQ(mock_llm->call_count, 1);
-  const auto& prompts = mock_llm->last_prompts;
-  ASSERT_EQ(prompts.size(), 2u);
-  EXPECT_EQ(prompts[0].data, "what is capital [attr: author]");
-  EXPECT_EQ(prompts[1].data, "who wrote hamlet [attr: geography]");
-}
-
-TEST_F(TraceableBatchOperationsTest, StarterBatchGroupNodeHarness) {
-  auto mock_llm = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("starter_batch_group");
-  harness.Config({{"bind_model", "test_llm"}});
-  harness.BindModel("test_llm", mock_llm);
-
-  // 交错的 query
-  harness.CustomInput("queries",
-                      TextBatch{{10, 0, "q1"}, {20, 0, "q2"}, {10, 1, "q3"}});
-  // 聚合的参考资料
-  harness.CustomInput(
-      "references",
-      TextBatch{{10, 0, "ref1"}, {10, 1, "ref2"}, {20, 0, "ref3"}});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-
-  EXPECT_EQ(mock_llm->call_count, 1);
-  const auto& prompts = mock_llm->last_prompts;
-  ASSERT_EQ(prompts.size(), 3u);
-  // req 10 query 0：上下文 ref1 + ref2
-  EXPECT_EQ(prompts[0].req_id, 10u);
-  EXPECT_EQ(prompts[0].sub_id, 0u);
-  EXPECT_EQ(prompts[0].data, "ref1\nref2\nq1");
-
-  // req 20 query 0：上下文 ref3
-  EXPECT_EQ(prompts[1].req_id, 20u);
-  EXPECT_EQ(prompts[1].sub_id, 0u);
-  EXPECT_EQ(prompts[1].data, "ref3\nq2");
-
-  // req 10 query 1：上下文 ref1 + ref2
-  EXPECT_EQ(prompts[2].req_id, 10u);
-  EXPECT_EQ(prompts[2].sub_id, 1u);
-  EXPECT_EQ(prompts[2].data, "ref1\nref2\nq3");
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       StarterBatchSelectScatterNodeHarnessNoneSelected) {
-  auto generator = std::make_shared<CountingMockLlmModel>();
-  auto polisher = std::make_shared<CountingMockLlmModel>();
-
-  NodeHarness harness("starter_batch_select_scatter");
-  harness.Config(
-      {{"bind_model", "test_gen_llm"}, {"polish_model", "test_pol_llm"}});
-  harness.BindModel("test_gen_llm", generator);
-  harness.BindModel("test_pol_llm", polisher);
-
-  // 生成器产出的答案不含 [POLISH]
-  harness.TextInput("input", {"hello", "world"});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-
-  EXPECT_EQ(generator->call_count, 1);
-  EXPECT_EQ(polisher->call_count, 0);  // 跳过了第二次调用！
-  EXPECT_EQ(result.TextValues("output"),
-            (std::vector<std::string>{"ans:hello", "ans:world"}));
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       StarterBatchSelectScatterNodeHarnessPartialPolishing) {
-  class PolishingMockLlm final : public ILlmModel {
-   public:
-    const std::string& ImplName() const noexcept override {
-      static const std::string t = "polishing_mock_llm";
-      return t;
-    }
-    const std::string& ModelType() const noexcept override {
-      static const std::string cap = "llm";
-      return cap;
-    }
-    InferenceConcurrency Concurrency() const noexcept override {
-      return InferenceConcurrency::kConcurrent;
-    }
-
-    int Generate(const TextBatch& prompts, const GenerateOptions&,
-                 TextBatch* outputs,
-                 std::string* diagnostic = nullptr) noexcept override {
-      if (diagnostic) diagnostic->clear();
-      ++call_count;
-      last_prompts = prompts;
-      if (outputs) {
-        outputs->clear();
-        for (const auto& item : prompts) {
-          if (is_generator) {
-            // 条目含 "bad" 时，输出带 [POLISH]
-            std::string text = (item.data.find("bad") != std::string::npos)
-                                   ? (item.data + " [POLISH]")
-                                   : ("clean:" + item.data);
-            outputs->emplace_back(item.req_id, item.sub_id, std::move(text));
-          } else {
-            // 润色器：把 [POLISH] 替换为润色后的版本
-            std::string text = item.data;
-            size_t tag = text.find(" [POLISH]");
-            if (tag != std::string::npos) text.erase(tag);
-            outputs->emplace_back(item.req_id, item.sub_id, "polished:" + text);
-          }
-        }
-      }
-      return 0;
-    }
-
-    bool is_generator = true;
-    mutable int call_count = 0;
-    mutable TextBatch last_prompts;
-  };
-
-  auto generator = std::make_shared<PolishingMockLlm>();
-  generator->is_generator = true;
-  auto polisher = std::make_shared<PolishingMockLlm>();
-  polisher->is_generator = false;
-
-  NodeHarness harness("starter_batch_select_scatter");
-  harness.Config(
-      {{"bind_model", "test_gen_llm"}, {"polish_model", "test_pol_llm"}});
-  harness.BindModel("test_gen_llm", generator);
-  harness.BindModel("test_pol_llm", polisher);
-
-  // 输入 1 正常，输入 2 有问题，输入 3 正常
-  harness.TextInput("input", {"good1", "bad2", "good3"});
-
-  auto result = harness.Run();
-  ASSERT_TRUE(result.ok()) << result.diagnostic();
-
-  // 生成器对全部 3 个条目只调用一次
-  EXPECT_EQ(generator->call_count, 1);
-  EXPECT_EQ(generator->last_prompts.size(), 3u);
-
-  // 润色器只对选中的 1 个条目 ("bad2 [POLISH]") 调用一次
-  EXPECT_EQ(polisher->call_count, 1);
-  ASSERT_EQ(polisher->last_prompts.size(), 1u);
-  EXPECT_EQ(polisher->last_prompts[0].req_id, 102u);
-  EXPECT_EQ(polisher->last_prompts[0].sub_id, 0u);
-  EXPECT_EQ(polisher->last_prompts[0].data, "bad2 [POLISH]");
-
-  // 完整输出按原顺序排列：正常条目不变，润色条目被替换
-  auto outputs = result.TextValues("output");
-  ASSERT_EQ(outputs.size(), 3u);
-  EXPECT_EQ(outputs[0], "clean:good1");
-  EXPECT_EQ(outputs[1], "polished:bad2");
-  EXPECT_EQ(outputs[2], "clean:good3");
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       StarterBatchSelectScatterNodePolisherFailure) {
-  auto generator = std::make_shared<CountingMockLlmModel>();
-  auto polisher = std::make_shared<CountingMockLlmModel>();
-  polisher->always_fail = true;
-
-  // 自定义 Node 设置 polish_tag = "ans:"，使生成器的输出被选中
-  NodeHarness harness("starter_batch_select_scatter");
-  harness.Config({{"bind_model", "test_gen_llm"},
-                  {"polish_model", "test_pol_llm"},
-                  {"polish_tag", "ans:"}});
-  harness.BindModel("test_gen_llm", generator);
-  harness.BindModel("test_pol_llm", polisher);
-
-  harness.TextInput("input", {"item1"});
-
-  auto result = harness.Run();
-  ASSERT_FALSE(result.ok());
-  EXPECT_EQ(generator->call_count, 1);
-  EXPECT_EQ(polisher->call_count, 1);
-}
-
-// ============================================================================
-// 7. 功能集成与来源断言
-// ============================================================================
-
-struct DirectSubBatchInputs {
-  const TextBatch* input = nullptr;
-};
-struct DirectSubBatchOptions {};
-
-NodeResult<TextBatch> RunDirectSubBatch(const DirectSubBatchInputs& in,
-                                        const DirectSubBatchOptions&) {
-  if (!in.input || in.input->empty()) {
-    return NodeResult<TextBatch>::Success(TextBatch{});
-  }
-  auto sel =
-      SelectBatch(*in.input, [](const std::string& s) { return s == "keep"; });
-  if (!sel.ok()) {
-    return NodeResult<TextBatch>::Failure(std::move(sel).ExtractFailure());
-  }
-  // 有意不经 ScatterReplace 直接返回子批次，
-  // 以测试 PreservedOutput 数量校验的 fail-closed 行为。
-  return sel.value().Materialize();
-}
-
-auto DirectSubBatchSpec() {
-  return MakeNodeSpec(InputsOf<DirectSubBatchInputs>({
-                          Required("input", &DirectSubBatchInputs::input),
-                      }),
-                      PreservedOutput<TextBatch>("output", "input"),
-                      Parameters<DirectSubBatchOptions>({}), &RunDirectSubBatch)
-      .Description("Test fixture for unscattered sub-batch rejection");
-}
-
-REGISTER_FUNCTION_NODE(direct_sub_batch_test, DirectSubBatchSpec());
-
-TEST_F(TraceableBatchOperationsTest, FunctionNodeRejectsDirectSubBatchReturn) {
-  NodeHarness harness("direct_sub_batch_test");
-  harness.TextInput("input", {"keep", "drop"});
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.process_code(),
-            node_error::author_node::kOutputCountMismatch);
-  EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
-}
-
-TEST_F(TraceableBatchOperationsTest, DeterministicSeedRandomPermutation) {
-  std::vector<TraceableItem<std::string>> left;
-  std::vector<TraceableItem<std::string>> right;
-  for (uint32_t i = 0; i < 20; ++i) {
-    left.emplace_back(i + 1, 0, "q_" + std::to_string(i));
-    right.emplace_back(i + 1, 0, "a_" + std::to_string(i));
-  }
-
-  std::mt19937 rng(42);
-  std::shuffle(right.begin(), right.end(), rng);
-
-  auto join_res = JoinByItem(left, right, JoinMode::kExact);
-  ASSERT_TRUE(join_res.ok());
-  const auto& view = join_res.value();
-  ASSERT_EQ(view.size(), 20u);
-
-  for (size_t i = 0; i < 20; ++i) {
-    EXPECT_EQ(view[i].req_id(), i + 1);
-    EXPECT_EQ(view[i].sub_id(), 0u);
-    EXPECT_EQ(view[i].left_payload(), "q_" + std::to_string(i));
-    ASSERT_TRUE(view[i].has_right());
-    EXPECT_EQ(*view[i].right_payload(), "a_" + std::to_string(i));
-  }
-}
-
-TEST_F(TraceableBatchOperationsTest, SelectBatchCatchesNonStdException) {
-  std::vector<TraceableItem<std::string>> anchor = {{1, 0, "throw_int"}};
-  auto res = SelectBatch(anchor, [](const std::string&) -> bool { throw 42; });
-  ASSERT_FALSE(res.ok());
-  ASSERT_TRUE(res.failure().batch_detail.has_value());
-  EXPECT_EQ(res.failure().batch_detail->reason,
-            BatchFailureReason::kCallbackFailed);
-  EXPECT_EQ(res.failure().batch_detail->key->req_id, 1u);
-}
-
-TEST_F(TraceableBatchOperationsTest, SplitPayloadsCatchesNonStdException) {
-  std::vector<TraceableItem<std::string>> input = {{1, 0, "throw_int"}};
-  auto res = SplitPayloads(
-      input, [](const std::string&) -> std::vector<std::string> { throw 42; });
-  ASSERT_FALSE(res.ok());
-  ASSERT_TRUE(res.failure().batch_detail.has_value());
-  EXPECT_EQ(res.failure().batch_detail->reason,
-            BatchFailureReason::kCallbackFailed);
-  EXPECT_EQ(res.failure().batch_detail->key->req_id, 1u);
-}
-
-TEST_F(TraceableBatchOperationsTest, RequestGroupViewHasReqIdAndContains) {
-  std::vector<TraceableItem<std::string>> anchor = {{10, 0, "A0"},
-                                                    {20, 0, "B0"}};
-  std::vector<TraceableItem<std::string>> members = {{10, 0, "m0"}};
-  auto res = GroupByRequest(anchor, members);
-  ASSERT_TRUE(res.ok());
-  const auto& view = res.value();
-  EXPECT_TRUE(view.HasReqId(10));
-  EXPECT_TRUE(view.Contains(20));
-  EXPECT_FALSE(view.HasReqId(30));
-  EXPECT_FALSE(view.Contains(999));
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       SelectBatchTraceableItemPredicateSupported) {
-  std::vector<TraceableItem<std::string>> anchor = {
-      {1, 0, "alpha"}, {2, 0, "beta"}, {3, 0, "gamma"}};
-
-  // 1. 谓词接受 const TraceableItem<Payload>& 并返回 bool
-  auto res_bool = SelectBatch(
-      anchor,
-      [](const TraceableItem<std::string>& item) { return item.req_id == 2; });
-  ASSERT_TRUE(res_bool.ok());
-  EXPECT_EQ(res_bool.value().size(), 1u);
-  EXPECT_EQ(res_bool.value()[0].data, "beta");
-
-  // 2. 谓词接受 const TraceableItem<Payload>& 并返回 NodeResult<bool>
-  auto res_node = SelectBatch(
-      anchor, [](const TraceableItem<std::string>& item) -> NodeResult<bool> {
-        if (item.sub_id != 0) {
-          return NodeResult<bool>::Failure(NodeErrorKind::kBusinessError,
-                                           "Invalid sub_id");
-        }
-        return NodeResult<bool>::Success(item.req_id >= 2);
-      });
-  ASSERT_TRUE(res_node.ok());
-  EXPECT_EQ(res_node.value().size(), 2u);
-  EXPECT_EQ(res_node.value()[0].data, "beta");
-  EXPECT_EQ(res_node.value()[1].data, "gamma");
-}
-
-TEST_F(TraceableBatchOperationsTest, BatchFailureDetailFormatDiagnosticDirect) {
-  // 1. batch_detail 含键的失败
-  NodeFailure f1(
-      NodeErrorKind::kBusinessError, "predicate failed",
-      BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
-                         TraceableItemKey{42, 9}},
-      -7788);
-  EXPECT_EQ(
-      f1.FormatDiagnostic("fallback"),
-      "SelectBatch callback_failed for req_id=42, sub_id=9: predicate failed");
-
-  // 2. 消息已含 req_id 的失败，避免重复格式化
-  NodeFailure f2(
-      NodeErrorKind::kInputError,
-      "JoinByItem right batch missing key present in left: req_id=2, sub_id=0",
-      BatchFailureDetail{"JoinByItem", BatchFailureReason::kMissing,
-                         TraceableItemKey{2, 0}});
-  EXPECT_EQ(
-      f2.FormatDiagnostic("fallback"),
-      "JoinByItem right batch missing key present in left: req_id=2, sub_id=0");
-
-  // 3. 不含 batch_detail 的失败
-  NodeFailure f3(NodeErrorKind::kBusinessError, "plain error", -1234);
-  EXPECT_EQ(f3.FormatDiagnostic("fallback"), "plain error");
-
-  // 4. 消息为空、batch_detail 含键的失败
-  NodeFailure f4(
-      NodeErrorKind::kBusinessError, "",
-      BatchFailureDetail{"SplitPayloads", BatchFailureReason::kCallbackFailed,
-                         TraceableItemKey{10, 3}},
-      -6677);
-  EXPECT_EQ(f4.FormatDiagnostic("fallback"),
-            "SplitPayloads callback_failed for req_id=10, sub_id=3: fallback");
-
-  // 5. 消息中 req_id 子串冲突 (req_id=4 与 req_id=400)
-  NodeFailure f5(
-      NodeErrorKind::kBusinessError, "failed on req_id=400",
-      BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
-                         TraceableItemKey{4, 9}},
-      -7788);
-  EXPECT_EQ(f5.FormatDiagnostic("fallback"),
-            "SelectBatch callback_failed for req_id=4, sub_id=9: failed on "
-            "req_id=400");
-
-  // 6. 消息含 req_id 但缺少 sub_id
-  NodeFailure f6(
-      NodeErrorKind::kBusinessError, "failed on req_id=42",
-      BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
-                         TraceableItemKey{42, 9}},
-      -7788);
-  EXPECT_EQ(f6.FormatDiagnostic("fallback"),
-            "SelectBatch callback_failed for req_id=42, sub_id=9: failed on "
-            "req_id=42");
-
-  // 7. 消息已含完整结构化细节，避免重复格式化
-  NodeFailure f7(
-      NodeErrorKind::kBusinessError,
-      "SelectBatch callback_failed for req_id=42, sub_id=9: predicate failed",
-      BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
-                         TraceableItemKey{42, 9}},
-      -7788);
-  EXPECT_EQ(
-      f7.FormatDiagnostic("fallback"),
-      "SelectBatch callback_failed for req_id=42, sub_id=9: predicate failed");
-}
-
-TEST_F(TraceableBatchOperationsTest, BatchDiagnosticRequiresCompleteKeyTokens) {
-  for (const std::string message :
-       {"SelectBatch predicate failed for req_id=42",
-        "SelectBatch predicate failed for req_id=420, sub_id=9",
-        "SelectBatch predicate failed for req_id=42, sub_id=90",
-        "SelectBatch predicate failed for xreq_id=42, sub_id=9",
-        "SelectBatch predicate failed for req_id=42, xsub_id=9",
-        "SelectBatch predicate failed for req_id=42x, sub_id=9",
-        "SelectBatch predicate failed for req_id=42, sub_id=9x"}) {
-    SCOPED_TRACE(message);
-    NodeFailure failure(
-        NodeErrorKind::kBusinessError, message,
-        BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
-                           TraceableItemKey{42, 9}},
-        -7788);
-    EXPECT_EQ(
-        failure.FormatDiagnostic("fallback"),
-        "SelectBatch callback_failed for req_id=42, sub_id=9: " + message);
-    EXPECT_EQ(failure.message, message);
-    EXPECT_EQ(failure.cause_code, -7788);
-  }
-}
-
-struct BatchSelectFailInputs {
-  const TextBatch* input = nullptr;
-};
-struct BatchSelectFailOptions {};
-
-NodeResult<TextBatch> RunBatchSelectFail(const BatchSelectFailInputs& in,
-                                         const BatchSelectFailOptions&) {
-  if (!in.input || in.input->empty()) {
-    return NodeResult<TextBatch>::Success(TextBatch{});
-  }
-  // 条目 (42, 9) 触发失败，cause_code = -7788，message = "predicate failed"
-  auto sel =
-      SelectBatch(*in.input, [](const std::string& s) -> NodeResult<bool> {
-        if (s == "trigger_partial_key_failure") {
-          return NodeResult<bool>::Failure(
-              NodeErrorKind::kBusinessError,
-              "SelectBatch predicate failed for req_id=42", -7788);
-        }
-        if (s == "trigger_failure") {
-          return NodeResult<bool>::Failure(NodeErrorKind::kBusinessError,
-                                           "predicate failed", -7788);
-        }
-        return NodeResult<bool>::Success(true);
-      });
-  if (!sel.ok()) {
-    return NodeResult<TextBatch>::Failure(std::move(sel).ExtractFailure());
-  }
-  return NodeResult<TextBatch>::Success(*in.input);
-}
-
-auto BatchSelectFailSpec() {
-  return MakeNodeSpec(InputsOf<BatchSelectFailInputs>({
-                          Required("input", &BatchSelectFailInputs::input),
-                      }),
-                      PreservedOutput<TextBatch>("output", "input"),
-                      Parameters<BatchSelectFailOptions>({}),
-                      &RunBatchSelectFail)
-      .Description(
-          "Test fixture for SelectBatch failure diagnostic formatting");
-}
-
-REGISTER_FUNCTION_NODE(batch_select_fail_test, BatchSelectFailSpec());
-
-TEST_F(TraceableBatchOperationsTest,
-       AuthorNodeFormatsSelectBatchFailureDiagnostic) {
-  NodeHarness harness("batch_select_fail_test");
-  TextBatch batch = {{1, 0, "ok"}, {42, 9, "trigger_failure"}};
-  harness.TextInputWithBatch("input", std::move(batch));
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.process_code(), -7788);
-  const auto& diag = result.diagnostic();
-  EXPECT_NE(diag.find("Process returned -7788"), std::string::npos);
-  EXPECT_NE(diag.find("SelectBatch"), std::string::npos);
-  EXPECT_NE(diag.find("predicate failed"), std::string::npos);
-  EXPECT_NE(diag.find("req_id=42"), std::string::npos);
-  EXPECT_NE(diag.find("sub_id=9"), std::string::npos);
-}
-
-TEST_F(TraceableBatchOperationsTest,
-       AuthorNodeCompletesSelectBatchPartialKeyDiagnostic) {
-  NodeHarness harness("batch_select_fail_test");
-  harness.TextInputWithBatch("input", {{42, 9, "trigger_partial_key_failure"}});
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.process_code(), -7788);
-  EXPECT_NE(result.diagnostic().find("Process returned -7788"),
-            std::string::npos);
-  EXPECT_NE(result.diagnostic().find(
-                "SelectBatch callback_failed for req_id=42, sub_id=9: "
-                "SelectBatch predicate failed for req_id=42"),
-            std::string::npos);
-}
-
-struct BatchSplitFailInputs {
-  const TextBatch* input = nullptr;
-};
-struct BatchSplitFailOptions {};
-
-NodeResult<TextBatch> RunBatchSplitFail(const BatchSplitFailInputs& in,
-                                        const BatchSplitFailOptions&) {
-  if (!in.input || in.input->empty()) {
-    return NodeResult<TextBatch>::Success(TextBatch{});
-  }
-  auto split = SplitPayloads(
-      *in.input,
-      [](const std::string& s) -> NodeResult<std::vector<std::string>> {
-        if (s == "trigger_split_failure") {
-          return NodeResult<std::vector<std::string>>::Failure(
-              NodeErrorKind::kBusinessError, "split callback failed", -6677);
-        }
-        return NodeResult<std::vector<std::string>>::Success({s});
-      });
-  if (!split.ok()) {
-    return NodeResult<TextBatch>::Failure(std::move(split).ExtractFailure());
-  }
-  return NodeResult<TextBatch>::Success(*in.input);
-}
-
-auto BatchSplitFailSpec() {
-  return MakeNodeSpec(InputsOf<BatchSplitFailInputs>({
-                          Required("input", &BatchSplitFailInputs::input),
-                      }),
-                      PreservedOutput<TextBatch>("output", "input"),
-                      Parameters<BatchSplitFailOptions>({}), &RunBatchSplitFail)
-      .Description(
-          "Test fixture for SplitPayloads failure diagnostic formatting");
-}
-
-REGISTER_FUNCTION_NODE(batch_split_fail_test, BatchSplitFailSpec());
-
-TEST_F(TraceableBatchOperationsTest,
-       AuthorNodeFormatsSplitPayloadsFailureDiagnostic) {
-  NodeHarness harness("batch_split_fail_test");
-  TextBatch batch = {{10, 3, "trigger_split_failure"}};
-  harness.TextInputWithBatch("input", std::move(batch));
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_EQ(result.process_code(), -6677);
-  const auto& diag = result.diagnostic();
-  EXPECT_NE(diag.find("Process returned -6677"), std::string::npos);
-  EXPECT_NE(diag.find("SplitPayloads"), std::string::npos);
-  EXPECT_NE(diag.find("split callback failed"), std::string::npos);
-  EXPECT_NE(diag.find("req_id=10"), std::string::npos);
-  EXPECT_NE(diag.find("sub_id=3"), std::string::npos);
+TEST(TraceableBatchOperationsTest, MapLeavesExceptionsForTheRuntimeBoundary) {
+  const Int32Batch input{{30, 9, 11}};
+  EXPECT_THROW(MapPayloads(input,
+                           [](int32_t) -> int32_t {
+                             throw std::runtime_error("literal map exception");
+                           }),
+               std::runtime_error);
+  EXPECT_THROW(MapPayloads(input,
+                           [](int32_t) -> NodeResult<int32_t> {
+                             throw std::runtime_error("literal map exception");
+                           }),
+               std::runtime_error);
+  EXPECT_THROW(MapPayloads(input, [](int32_t) -> int32_t { throw 42; }), int);
+  EXPECT_THROW(
+      MapPayloads(input, [](int32_t) -> NodeResult<int32_t> { throw 42; }),
+      int);
 }
 
 }  // namespace

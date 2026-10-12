@@ -1,678 +1,251 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <future>
-#include <limits>
-#include <memory>
-#include <nlohmann/json.hpp>
-#include <string>
-#include <vector>
-
-#include "contracts/config_schema_validation.h"
-#include "contracts/diagnostic.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
-#include "core/pipeline_validator.h"
-#include "core/session_context.h"
 #include "engine/model_interface.h"
-#include "nodes/generate_parameters.h"
-#include "nodes/model_calls.h"
-#include "nodes/node_base.h"
-#include "nodes/node_error_codes.h"
-#include "tests/support/model_registration.h"
-#include "tests/support/node_test_utils.h"
-#include "tests/support/pipeline_test_utils.h"
+#include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
-
 namespace {
-
-class ContractLlmModel final : public ILlmModel {
+using Json = nlohmann::json;
+class RecordingLlm final : public ILlmModel {
  public:
-  const std::string& ImplName() const noexcept override {
-    static const std::string type = "contract_llm";
-    return type;
-  }
-  const std::string& ModelType() const noexcept override {
-    static const std::string model_type = "llm";
-    return model_type;
-  }
+  const std::string& ImplName() const noexcept override { return impl; }
+  const std::string& ModelType() const noexcept override { return type; }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-
+  bool SupportsRandomSeed() const noexcept override {
+    ++seed_checks;
+    return supports_seed;
+  }
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs,
-               std::string* diagnostic = nullptr) noexcept override {
+               TextBatch* output, std::string* diagnostic) noexcept override {
     if (diagnostic) diagnostic->clear();
-    if (!outputs) return -1;
-    if (fail_with_input_reason) {
-      outputs->clear();
-      SetDiagnosticNoexcept(diagnostic, prompts.empty() ? "backend failure"
-                                                        : prompts.front().data);
-      return -77;
-    }
-    ++infer_calls;
-    prompt_batches.push_back(prompts);
+    calls.push_back(prompts);
     call_options.push_back(options);
-    if (fail_on_call == infer_calls) {
-      outputs->clear();
-      SetDiagnosticNoexcept(diagnostic, "endpoint backend unavailable");
-      return -77;
+    output->clear();
+    if (fail_call == calls.size()) {
+      if (diagnostic) *diagnostic = "endpoint generation failed";
+      return -61;
     }
-    last_options = options;
-    outputs->clear();
-    for (const auto& prompt : prompts) {
-      outputs->emplace_back(prompt.req_id, prompt.sub_id,
-                            "generated:" + prompt.data);
-    }
-    if (return_wrong_count &&
-        (fault_on_call == 0 || fault_on_call == infer_calls) &&
-        !outputs->empty()) {
-      outputs->pop_back();
-    }
-    if ((corrupt_provenance || corrupt_request) &&
-        (fault_on_call == 0 || fault_on_call == infer_calls) &&
-        outputs->size() > 1) {
-      if (corrupt_request)
-        ++(*outputs)[1].req_id;
-      else
-        ++(*outputs)[1].sub_id;
-    }
+    const auto& replies = responses.at(calls.size() - 1);
+    for (size_t i = 0; i < prompts.size(); ++i)
+      output->emplace_back(prompts[i].req_id, prompts[i].sub_id, replies.at(i));
     return 0;
   }
-
-  int infer_calls = 0;
-  GenerateOptions last_options;
-  std::vector<TextBatch> prompt_batches;
+  std::string impl = "node_recording_llm", type = "llm";
+  bool supports_seed = true;
+  mutable int seed_checks = 0;
+  size_t fail_call = 0;
+  std::vector<std::vector<std::string>> responses;
+  std::vector<TextBatch> calls;
   std::vector<GenerateOptions> call_options;
-  int fail_on_call = 0;
-  int fault_on_call = 0;
-  bool return_wrong_count = false;
-  bool corrupt_provenance = false;
-  bool corrupt_request = false;
-  bool fail_with_input_reason = false;
 };
 
-}  // namespace
-
-class LlmGenerateNodeTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    session_ctx_ = std::make_unique<SessionContext>();
-
-    model_ = std::make_shared<ContractLlmModel>();
-    ASSERT_TRUE(RegisterTestModel(session_ctx_->GetModelManager(), "llm_model",
-                                  model_, "test-v1"));
-  }
-  std::unique_ptr<SessionContext> session_ctx_;
-  std::shared_ptr<ContractLlmModel> model_;
-};
-
-TEST_F(LlmGenerateNodeTest, ModelReasonReachesRequestErrorWithoutOutput) {
-  model_->fail_with_input_reason = true;
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
+TEST(LlmGenerateNodeTest,
+     SingleEndpointKeepsRawTextAndWrapsItAsAStringInTheDocument) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingLlm>();
+  model->responses = {{"  raw\n答案 ", "{\"number\":7}"}};
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
+  test_support::NodeProbe node;
   ASSERT_TRUE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
-                      session_ctx_.get()));
-  AlgContext ctx;
-  ctx.Publish("input", TextBatch{{0, 0, "backend context capacity exceeded"}});
-  EXPECT_EQ(node->Process(&ctx), -77);
-  EXPECT_NE(ctx.GetErrorMessage().find("backend context capacity exceeded"),
-            std::string::npos);
-  EXPECT_EQ(ctx.Read<TextBatch>("text"), nullptr);
-  EXPECT_EQ(ctx.Read<StructuredDocumentBatch>("document"), nullptr);
-}
-
-TEST_F(LlmGenerateNodeTest, ConcurrentModelCallsKeepIndependentReasons) {
-  model_->fail_with_input_reason = true;
-  LlmCall call(model_);
-  auto first = std::async(std::launch::async, [&] {
-    return call.Generate(TextBatch{{0, 0, "backend failure A"}});
-  });
-  auto second = std::async(std::launch::async, [&] {
-    return call.Generate(TextBatch{{1, 0, "backend failure B"}});
-  });
-  auto first_result = first.get();
-  auto second_result = second.get();
-  ASSERT_FALSE(first_result.ok());
-  ASSERT_FALSE(second_result.ok());
-  EXPECT_NE(first_result.failure().message.find("backend failure A"),
-            std::string::npos);
-  EXPECT_EQ(first_result.failure().message.find("backend failure B"),
-            std::string::npos);
-  EXPECT_NE(second_result.failure().message.find("backend failure B"),
-            std::string::npos);
-  EXPECT_EQ(second_result.failure().message.find("backend failure A"),
-            std::string::npos);
-}
-
-TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-
-  nlohmann::json cfg = {{"bind_model", "llm_model"},
-                        {"endpoints", {{"answer", nlohmann::json::object()}}},
-                        {"temperature", 0.7},
-                        {"max_tokens", 128},
-                        {"top_k", 32},
-                        {"top_p", 0.8},
-                        {"repetition_penalty", 1.15},
-                        {"stop_words", {"END"}}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-  AlgContext ctx;
-  TextBatch prompts;
-  prompts.emplace_back(1, 0, "Explain quantum physics");
-  prompts.emplace_back(2, 0, "Summarize article");
-  ctx.Publish("input", prompts);
-
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Read<TextBatch>("text");
-  ASSERT_NE(out, nullptr);
-  ASSERT_EQ(out->size(), 2u);
-  EXPECT_FALSE((*out)[0].data.empty());
-  EXPECT_FALSE((*out)[1].data.empty());
-  EXPECT_EQ((*out)[0].req_id, 1U);
-  EXPECT_EQ((*out)[1].req_id, 2U);
-  EXPECT_FLOAT_EQ(model_->last_options.temperature, 0.7f);
-  EXPECT_EQ(model_->last_options.max_tokens, 128);
-  EXPECT_EQ(model_->last_options.top_k, 32);
-  EXPECT_FLOAT_EQ(model_->last_options.top_p, 0.8f);
-  EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty, 1.15f);
-  EXPECT_EQ(model_->last_options.stop_words, std::vector<std::string>({"END"}));
-}
-
-TEST_F(LlmGenerateNodeTest, DefaultAndExplicitGenerationOptionsReachModel) {
-  const auto schema = GenerateParameters();
-  const nlohmann::json override_options = {{"temperature", 0.25},
-                                           {"max_tokens", 47},
-                                           {"top_k", 17},
-                                           {"top_p", 0.6},
-                                           {"repetition_penalty", 1.3},
-                                           {"stop_words", {"END", "STOP"}}};
-  for (bool overridden : {false, true}) {
-    SCOPED_TRACE(overridden);
-    const auto raw_options =
-        overridden ? override_options : nlohmann::json::object();
-    std::string diagnostic;
-    const auto expected = schema.Parse(raw_options, &diagnostic);
-    ASSERT_TRUE(expected.has_value()) << diagnostic;
-    EXPECT_EQ(expected->max_tokens, overridden ? 47 : 128);
-    nlohmann::json config = raw_options;
-    config["bind_model"] = "llm_model";
-    config["endpoints"] = {{"answer", nlohmann::json::object()}};
-    const TextBatch prompts{
-        {31, 7, "first"}, {19, 3, "second"}, {31, 9, "third"}};
-    auto node = NodeRegistry::Instance().Create("llm_generate");
-    ASSERT_NE(node, nullptr);
-    ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic))
-        << diagnostic;
-    const int before = model_->infer_calls;
-    AlgContext context;
-    context.Publish("input", prompts);
-    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-    EXPECT_EQ(model_->infer_calls, before + 1);
-    ASSERT_EQ(model_->prompt_batches.back().size(), prompts.size());
-    for (size_t i = 0; i < prompts.size(); ++i) {
-      EXPECT_EQ(model_->prompt_batches.back()[i].data, prompts[i].data);
-      EXPECT_EQ(model_->prompt_batches.back()[i].req_id, prompts[i].req_id);
-      EXPECT_EQ(model_->prompt_batches.back()[i].sub_id, prompts[i].sub_id);
-    }
-    EXPECT_FLOAT_EQ(model_->last_options.temperature, expected->temperature);
-    EXPECT_EQ(model_->last_options.max_tokens, expected->max_tokens);
-    EXPECT_EQ(model_->last_options.top_k, expected->top_k);
-    EXPECT_FLOAT_EQ(model_->last_options.top_p, expected->top_p);
-    EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty,
-                    expected->repetition_penalty);
-    EXPECT_EQ(model_->last_options.stop_words, expected->stop_words);
-    const auto* output = context.Read<TextBatch>("text");
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), prompts.size());
-    for (size_t i = 0; i < prompts.size(); ++i) {
-      EXPECT_EQ((*output)[i].req_id, prompts[i].req_id);
-      EXPECT_EQ((*output)[i].sub_id, prompts[i].sub_id);
-      EXPECT_EQ((*output)[i].data, "generated:" + prompts[i].data);
-    }
-  }
-}
-
-TEST_F(LlmGenerateNodeTest, GenerationOptionsAcceptInclusiveBounds) {
-  const auto schema = GenerateParameters();
-  const std::vector<nlohmann::json> valid = {
-      {{"temperature", 0},
-       {"max_tokens", 1},
-       {"top_k", 0},
-       {"top_p", 1.0e-9},
-       {"repetition_penalty", 1.0e-9},
-       {"stop_words", nlohmann::json::array()}},
-      {{"temperature", 2},
-       {"max_tokens", 32768},
-       {"top_k", std::numeric_limits<int32_t>::max()},
-       {"top_p", 1},
-       {"repetition_penalty", 100},
-       {"stop_words", {"END"}}}};
-  for (auto config : valid) {
-    SCOPED_TRACE(config.dump());
-    std::string diagnostic;
-    ASSERT_TRUE(schema.Parse(config, &diagnostic).has_value()) << diagnostic;
-    config["bind_model"] = "llm_model";
-    config["endpoints"] = {{"answer", nlohmann::json::object()}};
-    auto node = NodeRegistry::Instance().Create("llm_generate");
-    ASSERT_NE(node, nullptr);
-    ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic))
-        << diagnostic;
-    AlgContext context;
-    context.Publish("input", TextBatch{{71, 4, "boundary"}});
-    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-    ASSERT_NE(context.Read<TextBatch>("text"), nullptr);
-    EXPECT_EQ(context.Read<TextBatch>("text")->front().req_id, 71U);
-    EXPECT_EQ(context.Read<TextBatch>("text")->front().sub_id, 4U);
-  }
-}
-
-TEST_F(LlmGenerateNodeTest, ValidatorRejectsInvalidOptions) {
-  const std::vector<nlohmann::json> invalid = {
-      {{"stop_words", nlohmann::json::array({42})}},
-      {{"stop_words", nlohmann::json::array({""})}},
-      {{"stop_words", "END"}},
-      {{"max_tokens", 32769}},
-      {{"max_tokens", 0}},
-      {{"max_tokens", uint64_t{1} << 32}},
-      {{"top_k", -1}},
-      {{"top_k", uint64_t{1} << 32}},
-      {{"temperature", -0.01}},
-      {{"temperature", 2.01}},
-      {{"top_p", 1.0e-10}},
-      {{"top_p", 1.01}},
-      {{"repetition_penalty", 0.0}},
-      {{"repetition_penalty", 100.01}}};
-  // 检查 Node 的预检诊断无需构造 Model。
-  for (auto config : invalid) {
-    SCOPED_TRACE(config.dump());
-    config["bind_model"] = "llm_model";
-    config["endpoints"] = {{"answer", nlohmann::json::object()}};
-    const nlohmann::json pipeline = {
-        {"pipeline", nlohmann::json::array({{{"name", "generate"},
-                                             {"type", "llm_generate"},
-                                             {"params", config}}})}};
-    const auto plan =
-        PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-    EXPECT_FALSE(plan.report.ok);
-    bool config_rejected = false;
-    for (const auto& diagnostic : plan.report.diagnostics) {
-      if (diagnostic.path.rfind("/pipeline/0/params", 0) == 0 &&
-          diagnostic.code != DiagnosticCode::kUnknownModelReference)
-        config_rejected = true;
-    }
-    EXPECT_TRUE(config_rejected);
-  }
-  std::string diagnostic;
-  EXPECT_NE(PrepareNodePlanForTest(
-                "llm_generate",
-                {{"bind_model", "llm_model"},
-                 {"endpoints", {{"answer", nlohmann::json::object()}}},
-                 {"stop_words", nlohmann::json::array({"END"})},
-                 {"max_tokens", 32768},
-                 {"top_p", 1.0e-9}},
-                {}, "", "", &diagnostic),
-            nullptr)
-      << diagnostic;
-}
-
-TEST_F(LlmGenerateNodeTest, StopWordElementTypeErrorReportsExactConfigPath) {
-  const nlohmann::json options = {{"stop_words", {"END", 42}}};
-  auto config = options;
-  config["bind_model"] = "llm_model";
-  config["endpoints"] = {{"answer", nlohmann::json::object()}};
-  const nlohmann::json pipeline = {
-      {"pipeline", nlohmann::json::array({{{"name", "generate"},
-                                           {"type", "llm_generate"},
-                                           {"params", config}}})}};
-  const auto plan =
-      PipelineValidator::ValidateAndPlan(pipeline, MakeTestBoundary());
-  bool exact_diagnostic = false;
-  for (const auto& error : plan.report.diagnostics) {
-    if (error.path == "/pipeline/0/params/stop_words/1" &&
-        error.code == DiagnosticCode::kConfigFieldType) {
-      exact_diagnostic = true;
-    }
-  }
-  EXPECT_TRUE(exact_diagnostic) << plan.report.ToJson().dump(2);
-  EXPECT_EQ(model_->infer_calls, 0);
-}
-
-TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
-                      session_ctx_.get()));
-
-  for (bool wrong_type : {false, true}) {
-    SCOPED_TRACE(wrong_type);
-    AlgContext context;
-    if (wrong_type) context.Publish("input", Int32Batch{{1, 0, 123}});
-    EXPECT_EQ(node->Process(&context), node_error::author_node::kMissingInput);
-    EXPECT_FALSE(context.IsOk());
-    EXPECT_FALSE(context.Has("text"));
-    EXPECT_FALSE(context.Has("document"));
-    EXPECT_EQ(model_->infer_calls, 0);
-  }
-}
-
-TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
-                      session_ctx_.get()));
-
-  AlgContext ctx;
-  ctx.Publish("input", TextBatch{});
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<TextBatch>("text");
-  ASSERT_NE(output, nullptr);
-  EXPECT_TRUE(output->empty());
-  const auto* document = ctx.Read<StructuredDocumentBatch>("document");
-  ASSERT_NE(document, nullptr);
-  EXPECT_TRUE(document->empty());
-  EXPECT_EQ(model_->infer_calls, 0);
-}
-
-TEST_F(LlmGenerateNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
-                      session_ctx_.get()));
-
-  TextBatch prompts = {{3, 0, "first"}, {3, 1, "second"}};
-
-  for (int fault = 0; fault < 3; ++fault) {
-    SCOPED_TRACE(fault);
-    model_->return_wrong_count = fault == 0;
-    model_->corrupt_request = fault == 1;
-    model_->corrupt_provenance = fault == 2;
-    AlgContext context;
-    context.Publish("input", prompts);
-    const int before = model_->infer_calls;
-    EXPECT_EQ(node->Process(&context),
-              fault == 0 ? node_error::author_node::kOutputCountMismatch
-                         : node_error::author_node::kOutputProvenanceMismatch);
-    EXPECT_FALSE(context.IsOk());
-    EXPECT_EQ(context.Read<TextBatch>("text"), nullptr);
-    EXPECT_EQ(context.Read<StructuredDocumentBatch>("document"), nullptr);
-    EXPECT_EQ(model_->infer_calls, before + 1);
-  }
-}
-
-TEST_F(LlmGenerateNodeTest, SingleEndpointPublishesRawAnswerAndNamedDocument) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
-                      session_ctx_.get()));
-  const TextBatch inputs{{31, 7, "first\n\"quoted\""},
-                         {19, 3, "{\"opaque\":true}"},
-                         {31, 9, "literal {{input}}"}};
+      node.Init("llm_generate",
+                {{"bind_model", "writer"},
+                 {"endpoints", {{"answer", {{"prompt", "Q={{input}}"}}}}}},
+                session, {{"input", "input", ""}},
+                {{"text", "text", ""}, {"document", "docs", ""}}));
   AlgContext context;
-  context.Publish("input", inputs);
-  ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-  ASSERT_EQ(model_->prompt_batches.size(), 1U);
+  ASSERT_TRUE(
+      context.Publish("input", TextBatch{{9, 4, "one"}, {2, 7, "two"}}));
+  ASSERT_EQ(node.node->Process(&context), 0);
+  ASSERT_EQ(model->calls.size(), 1u);
+  EXPECT_EQ(model->calls[0][0].data, "Q=one");
+  EXPECT_EQ(model->calls[0][1].data, "Q=two");
   const auto* text = context.Read<TextBatch>("text");
-  const auto* document = context.Read<StructuredDocumentBatch>("document");
+  const auto* docs = context.Read<StructuredDocumentBatch>("docs");
   ASSERT_NE(text, nullptr);
-  ASSERT_NE(document, nullptr);
-  ASSERT_EQ(text->size(), inputs.size());
-  ASSERT_EQ(document->size(), inputs.size());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    const auto answer = "generated:" + inputs[i].data;
-    EXPECT_EQ((*text)[i].data, answer);
-    EXPECT_EQ((*text)[i].req_id, inputs[i].req_id);
-    EXPECT_EQ((*text)[i].sub_id, inputs[i].sub_id);
-    EXPECT_EQ(model_->prompt_batches[0][i].data, inputs[i].data);
-    EXPECT_EQ((*document)[i].req_id, inputs[i].req_id);
-    EXPECT_EQ((*document)[i].sub_id, inputs[i].sub_id);
-    EXPECT_TRUE((*document)[i].data.is_valid);
-    const nlohmann::json expected = {{"answer", answer}};
-    EXPECT_EQ((*document)[i].data.structured_data, expected);
-    EXPECT_EQ(nlohmann::json::parse((*document)[i].data.json_payload),
-              expected);
-  }
+  ASSERT_NE(docs, nullptr);
+  ASSERT_EQ(text->size(), 2u);
+  ASSERT_EQ(docs->size(), 2u);
+  EXPECT_EQ((*text)[0].data, "  raw\n答案 ");
+  EXPECT_EQ((*text)[1].data, "{\"number\":7}");
+  EXPECT_EQ((*docs)[0].data.structured_data,
+            Json({{"answer", "  raw\n答案 "}}));
+  EXPECT_EQ((*docs)[1].data.structured_data,
+            Json({{"answer", "{\"number\":7}"}}));
+  EXPECT_EQ((*docs)[1].data.json_payload, R"({"answer":"{\"number\":7}"})");
+  EXPECT_TRUE((*docs)[0].data.is_valid);
+  EXPECT_EQ((*docs)[0].req_id, 9u);
+  EXPECT_EQ((*text)[1].sub_id, 7u);
 }
 
-TEST_F(LlmGenerateNodeTest, MultipleEndpointsCallWholeBatchesInNameOrder) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(
-      *node,
-      {{"bind_model", "llm_model"},
-       {"temperature", 0.25},
-       {"max_tokens", 47},
-       {"system_prompt", "shared system"},
-       {"endpoints",
-        {{"z_last", {{"prompt", "Z:{{input}}"}}},
-         {"a_first", {{"prompt", "A:{{ input }}|{{input}}"}}}}}},
-      session_ctx_.get()));
-  for (const auto& inputs :
-       {TextBatch{{31, 7, "first"}, {19, 3, "second"}, {31, 9, "third"}},
-        TextBatch{{54, 8, "next {{input}}"}}}) {
-    const size_t before = model_->prompt_batches.size();
-    AlgContext context;
-    context.Publish("input", inputs);
-    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-    ASSERT_EQ(model_->prompt_batches.size(), before + 2);
-    ASSERT_EQ(model_->prompt_batches[before].size(), inputs.size());
-    ASSERT_EQ(model_->prompt_batches[before + 1].size(), inputs.size());
-    for (size_t call = before; call < before + 2; ++call) {
-      EXPECT_FLOAT_EQ(model_->call_options[call].temperature, 0.25f);
-      EXPECT_EQ(model_->call_options[call].max_tokens, 47);
-      EXPECT_EQ(model_->call_options[call].system_prompt, "shared system");
-    }
-    const auto* text = context.Read<TextBatch>("text");
-    const auto* document = context.Read<StructuredDocumentBatch>("document");
-    ASSERT_NE(text, nullptr);
-    ASSERT_NE(document, nullptr);
-    ASSERT_EQ(text->size(), inputs.size());
-    ASSERT_EQ(document->size(), inputs.size());
-    for (size_t i = 0; i < inputs.size(); ++i) {
-      const auto first = "A:" + inputs[i].data + "|" + inputs[i].data;
-      const auto last = "Z:" + inputs[i].data;
-      EXPECT_EQ(model_->prompt_batches[before][i].data, first);
-      EXPECT_EQ(model_->prompt_batches[before + 1][i].data, last);
-      for (size_t call = before; call < before + 2; ++call) {
-        EXPECT_EQ(model_->prompt_batches[call][i].req_id, inputs[i].req_id);
-        EXPECT_EQ(model_->prompt_batches[call][i].sub_id, inputs[i].sub_id);
-      }
-      const nlohmann::json expected = {{"a_first", "generated:" + first},
-                                       {"z_last", "generated:" + last}};
-      EXPECT_EQ((*document)[i].data.structured_data, expected);
-      EXPECT_EQ((*document)[i].data.json_payload, expected.dump());
-      EXPECT_EQ((*text)[i].data, expected.dump());
-      EXPECT_EQ((*text)[i].req_id, inputs[i].req_id);
-      EXPECT_EQ((*text)[i].sub_id, inputs[i].sub_id);
-      EXPECT_EQ((*document)[i].req_id, inputs[i].req_id);
-      EXPECT_EQ((*document)[i].sub_id, inputs[i].sub_id);
-    }
-  }
-}
-
-TEST_F(LlmGenerateNodeTest,
-       EndpointMapAndTemplatesAreValidatedBeforeInference) {
-  const std::vector<nlohmann::json> invalid = {
-      nlohmann::json::object(),
-      {{"endpoints", nlohmann::json::object()}},
-      {{"endpoints", nlohmann::json::array()}},
-      {{"endpoints", {{"answer", 42}}}},
-      {{"endpoints", {{"answer", {{"prompt", 42}}}}}},
-      {{"endpoints", {{"answer", {{"prompt", "{{unknown}}"}}}}}},
-      {{"endpoints", {{"answer", {{"prompt", "{{input"}}}}}}};
-  for (auto params : invalid) {
-    SCOPED_TRACE(params.dump());
-    params["bind_model"] = "llm_model";
-    auto node = NodeRegistry::Instance().Create("llm_generate");
-    ASSERT_NE(node, nullptr);
-    std::string diagnostic;
-    EXPECT_FALSE(
-        InitNodeForTest(*node, params, session_ctx_.get(), &diagnostic));
-    EXPECT_FALSE(diagnostic.empty());
-  }
-  EXPECT_EQ(model_->infer_calls, 0);
-}
-
-TEST_F(LlmGenerateNodeTest, LaterEndpointFailuresPublishNeitherOutput) {
-  for (int fault = 0; fault < 3; ++fault) {
-    SCOPED_TRACE(fault);
-    model_ = std::make_shared<ContractLlmModel>();
-    SessionContext session;
-    ASSERT_TRUE(RegisterTestModel(session.GetModelManager(), "llm_model",
-                                  model_, "v1"));
-    model_->fail_on_call = fault == 0 ? 2 : 0;
-    model_->fault_on_call = 2;
-    model_->return_wrong_count = fault == 1;
-    model_->corrupt_provenance = fault == 2;
-    auto node = NodeRegistry::Instance().Create("llm_generate");
-    ASSERT_NE(node, nullptr);
-    ASSERT_TRUE(
-        InitNodeForTest(*node,
-                        {{"bind_model", "llm_model"},
+TEST(LlmGenerateNodeTest,
+     MultipleEndpointsPublishCompleteJsonAndForwardEveryCallOption) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingLlm>();
+  model->responses = {{"A猫", "A2"}, {"S9", "S2"}};
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init("llm_generate",
+                        {{"bind_model", "writer"},
                          {"endpoints",
-                          {{"a_success", nlohmann::json::object()},
-                           {"b_failure", nlohmann::json::object()},
-                           {"c_unreachable", nlohmann::json::object()}}}},
-                        &session));
-    AlgContext context;
-    context.Publish("input", TextBatch{{43, 7, "first"}, {19, 8, "second"}});
-    EXPECT_EQ(node->Process(&context),
-              fault == 0 ? -77
-              : fault == 1
-                  ? node_error::author_node::kOutputCountMismatch
-                  : node_error::author_node::kOutputProvenanceMismatch);
-    EXPECT_EQ(model_->infer_calls, 2);
-    EXPECT_NE(context.GetErrorMessage().find("b_failure"), std::string::npos);
-    EXPECT_FALSE(context.Has("text"));
-    EXPECT_FALSE(context.Has("document"));
-  }
-}
-
-TEST_F(LlmGenerateNodeTest, UnreferencedOutputsMayBeOmittedFromRuntimePlan) {
-  for (const char* referenced : {"text", "document", ""}) {
-    SCOPED_TRACE(referenced);
-    std::string diagnostic;
-    auto plan = PrepareNodePlanForTest(
-        "llm_generate",
-        {{"bind_model", "llm_model"},
-         {"endpoints", {{"answer", nlohmann::json::object()}}}},
-        {}, "", "", &diagnostic);
-    ASSERT_NE(plan, nullptr) << diagnostic;
-    plan->ports.erase(std::remove_if(plan->ports.begin(), plan->ports.end(),
-                                     [&](const auto& port) {
-                                       return port.direction ==
-                                                  PortDirection::kOutput &&
-                                              port.logical_name != referenced;
-                                     }),
-                      plan->ports.end());
-    auto node = NodeRegistry::Instance().Create("llm_generate");
-    ASSERT_NE(node, nullptr);
-    ASSERT_TRUE(node->Init({plan.get(), session_ctx_.get(), &diagnostic}))
-        << diagnostic;
-    AlgContext context;
-    context.Publish("input", TextBatch{{43, 7, "payload"}});
-    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-    EXPECT_EQ(context.Has("text"), std::string(referenced) == "text");
-    EXPECT_EQ(context.Has("document"), std::string(referenced) == "document");
-    EXPECT_FALSE(context.Has(""));
-    if (std::string(referenced) == "text") {
-      EXPECT_EQ(context.Read<TextBatch>("text")->front().data,
-                "generated:payload");
-    }
-    if (std::string(referenced) == "document") {
-      EXPECT_EQ(context.Read<StructuredDocumentBatch>("document")
-                    ->front()
-                    .data.structured_data,
-                nlohmann::json({{"answer", "generated:payload"}}));
-    }
-  }
-}
-
-TEST_F(LlmGenerateNodeTest,
-       SingleEndpointPreservesRawBytesWhenDocumentCannotEncodeUtf8) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
+                          {{"summary", {{"prompt", "Short/{{input}}"}}},
+                           {"answer", {{"prompt", "Answer: {{input}}"}}}}},
+                         {"system_prompt", "multi"},
+                         {"max_tokens", 37},
+                         {"temperature", 0.2},
+                         {"top_k", 4},
+                         {"top_p", 0.8},
+                         {"repetition_penalty", 1.1},
+                         {"stop_words", {"<end>"}},
+                         {"random_seed", 7}},
+                        session, {{"input", "input", ""}},
+                        {{"text", "text", ""}, {"document", "docs", ""}}));
+  EXPECT_EQ(model->seed_checks, 1);
+  AlgContext context;
   ASSERT_TRUE(
-      InitNodeForTest(*node,
-                      {{"bind_model", "llm_model"},
-                       {"endpoints", {{"answer", nlohmann::json::object()}}}},
-                      session_ctx_.get()));
-  const std::string invalid = std::string("opaque ") + static_cast<char>(0xff);
-  const TextBatch inputs{{43, 7, invalid}, {19, 8, "valid"}};
-  AlgContext context;
-  context.Publish("input", inputs);
-  ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
-  EXPECT_EQ(model_->infer_calls, 1);
-  const auto* text = context.Read<TextBatch>("text");
-  const auto* document = context.Read<StructuredDocumentBatch>("document");
-  ASSERT_NE(text, nullptr);
-  ASSERT_NE(document, nullptr);
-  ASSERT_EQ(text->size(), inputs.size());
-  ASSERT_EQ(document->size(), inputs.size());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    const auto answer = "generated:" + inputs[i].data;
-    EXPECT_EQ((*text)[i].data, answer);
-    EXPECT_EQ((*text)[i].req_id, inputs[i].req_id);
-    EXPECT_EQ((*text)[i].sub_id, inputs[i].sub_id);
-    EXPECT_EQ((*document)[i].req_id, inputs[i].req_id);
-    EXPECT_EQ((*document)[i].sub_id, inputs[i].sub_id);
-    EXPECT_EQ(
-        (*document)[i].data.structured_data.at("answer").get<std::string>(),
-        answer);
+      context.Publish("input", TextBatch{{9, 4, "one"}, {2, 7, "two"}}));
+  ASSERT_EQ(node.node->Process(&context), 0);
+  ASSERT_EQ(model->calls.size(), 2u);
+  EXPECT_EQ(model->calls[0][0].data, "Answer: one");
+  EXPECT_EQ(model->calls[0][1].data, "Answer: two");
+  EXPECT_EQ(model->calls[1][0].data, "Short/one");
+  EXPECT_EQ(model->calls[1][1].data, "Short/two");
+  for (const auto& options : model->call_options) {
+    EXPECT_EQ(options.system_prompt, "multi");
+    EXPECT_EQ(options.max_tokens, 37);
+    EXPECT_FLOAT_EQ(options.temperature, 0.2f);
+    EXPECT_EQ(options.top_k, 4);
+    EXPECT_FLOAT_EQ(options.top_p, 0.8f);
+    EXPECT_FLOAT_EQ(options.repetition_penalty, 1.1f);
+    EXPECT_EQ(options.stop_words, std::vector<std::string>{"<end>"});
+    EXPECT_EQ(options.random_seed, 7);
   }
-  const auto& failed = document->front().data;
-  EXPECT_FALSE(failed.is_valid);
-  EXPECT_EQ(failed.parse_status, JsonParseStatus::kFailed);
-  EXPECT_TRUE(failed.json_payload.empty());
-  EXPECT_NE(failed.diagnostic.find("UTF-8"), std::string::npos);
-  const auto& valid = document->back().data;
-  EXPECT_TRUE(valid.is_valid);
-  EXPECT_EQ(valid.parse_status, JsonParseStatus::kOk);
-  EXPECT_TRUE(valid.diagnostic.empty());
-  EXPECT_EQ(nlohmann::json::parse(valid.json_payload),
-            nlohmann::json({{"answer", "generated:valid"}}));
+  EXPECT_EQ(model->seed_checks, 1);
+  const auto* text = context.Read<TextBatch>("text");
+  const auto* docs = context.Read<StructuredDocumentBatch>("docs");
+  ASSERT_NE(text, nullptr);
+  ASSERT_NE(docs, nullptr);
+  ASSERT_EQ(text->size(), 2u);
+  ASSERT_EQ(docs->size(), 2u);
+  const std::vector<std::string> expected = {
+      R"({"answer":"A猫","summary":"S9"})",
+      R"({"answer":"A2","summary":"S2"})"};
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ((*text)[i].data, expected[i]);
+    EXPECT_EQ((*docs)[i].data.json_payload, expected[i]);
+    EXPECT_EQ((*docs)[i].data.structured_data, Json::parse(expected[i]));
+    EXPECT_TRUE((*docs)[i].data.is_valid);
+  }
 }
 
-TEST_F(LlmGenerateNodeTest,
-       MultipleEndpointsRejectInvalidUtf8WithoutPublishingEitherOutput) {
-  auto node = NodeRegistry::Instance().Create("llm_generate");
-  ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node,
-                              {{"bind_model", "llm_model"},
-                               {"endpoints",
-                                {{"first", nlohmann::json::object()},
-                                 {"second", nlohmann::json::object()}}}},
-                              session_ctx_.get()));
+TEST(LlmGenerateNodeTest,
+     SecondEndpointFailurePublishesNeitherPartiallyFilledOutput) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingLlm>();
+  model->responses = {{"first answer"}};
+  model->fail_call = 2;
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init("llm_generate",
+                        {{"bind_model", "writer"},
+                         {"endpoints",
+                          {{"a", {{"prompt", "first:{{input}}"}}},
+                           {"b", {{"prompt", "second:{{input}}"}}}}}},
+                        session, {{"input", "input", ""}},
+                        {{"text", "text", ""}, {"document", "docs", ""}}));
   AlgContext context;
-  context.Publish("input",
-                  TextBatch{{43, 7, std::string(1, static_cast<char>(0xff))}});
-  EXPECT_EQ(node->Process(&context),
-            static_cast<int>(NodeRuntimeCode::kUnhandledException));
-  EXPECT_EQ(model_->infer_calls, 2);
-  EXPECT_NE(context.GetErrorMessage().find("UTF-8"), std::string::npos);
+  ASSERT_TRUE(context.Publish("input", TextBatch{{1, 8, "question"}}));
+  EXPECT_EQ(node.node->Process(&context), -61);
+  ASSERT_EQ(model->calls.size(), 2u);
+  EXPECT_EQ(model->calls[1][0].data, "second:question");
   EXPECT_FALSE(context.Has("text"));
-  EXPECT_FALSE(context.Has("document"));
+  EXPECT_FALSE(context.Has("docs"));
+  EXPECT_NE(context.GetErrorMessage().find("Endpoint 'b'"), std::string::npos);
 }
 
+TEST(LlmGenerateNodeTest,
+     InvalidUtf8SingleAnswerKeepsRawTextButMarksDocumentInvalid) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingLlm>();
+  const std::string invalid("\xff", 1);
+  model->responses = {{invalid}};
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
+  test_support::NodeProbe node;
+  ASSERT_TRUE(node.Init(
+      "llm_generate",
+      {{"bind_model", "writer"}, {"endpoints", {{"answer", Json::object()}}}},
+      session, {{"input", "input", ""}},
+      {{"text", "text", ""}, {"document", "docs", ""}}));
+  AlgContext context;
+  ASSERT_TRUE(context.Publish("input", TextBatch{{4, 3, "question"}}));
+  ASSERT_EQ(node.node->Process(&context), 0);
+  ASSERT_NE(context.Read<TextBatch>("text"), nullptr);
+  EXPECT_EQ(context.Read<TextBatch>("text")->front().data, invalid);
+  const auto* docs = context.Read<StructuredDocumentBatch>("docs");
+  ASSERT_NE(docs, nullptr);
+  EXPECT_FALSE(docs->front().data.is_valid);
+  EXPECT_EQ(docs->front().data.parse_status, JsonParseStatus::kFailed);
+  EXPECT_EQ(docs->front().data.structured_data["answer"], invalid);
+  EXPECT_TRUE(docs->front().data.json_payload.empty());
+  EXPECT_FALSE(docs->front().data.diagnostic.empty());
+}
+
+TEST(LlmGenerateNodeTest,
+     SharedModelReceivesDifferentNodeOptionsWithoutSharedMutableSettings) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingLlm>();
+  model->responses = {{"first"}, {"second"}};
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
+  test_support::NodeProbe first, second;
+  const Json endpoints = {{"answer", Json::object()}};
+  ASSERT_TRUE(first.Init("llm_generate",
+                         {{"bind_model", "writer"},
+                          {"endpoints", endpoints},
+                          {"system_prompt", "first system"},
+                          {"max_tokens", 11},
+                          {"random_seed", 101}},
+                         session, {{"input", "input", ""}},
+                         {{"text", "first", ""}}));
+  ASSERT_TRUE(second.Init("llm_generate",
+                          {{"bind_model", "writer"},
+                           {"endpoints", endpoints},
+                           {"system_prompt", "second system"},
+                           {"max_tokens", 22},
+                           {"random_seed", 202}},
+                          session, {{"input", "input", ""}},
+                          {{"text", "second", ""}}));
+  AlgContext context;
+  ASSERT_TRUE(context.Publish("input", TextBatch{{1, 0, "same input"}}));
+  ASSERT_EQ(first.node->Process(&context), 0);
+  ASSERT_EQ(second.node->Process(&context), 0);
+  ASSERT_EQ(model->call_options.size(), 2u);
+  EXPECT_EQ(model->call_options[0].system_prompt, "first system");
+  EXPECT_EQ(model->call_options[0].max_tokens, 11);
+  EXPECT_EQ(model->call_options[0].random_seed, 101);
+  EXPECT_EQ(model->call_options[1].system_prompt, "second system");
+  EXPECT_EQ(model->call_options[1].max_tokens, 22);
+  EXPECT_EQ(model->call_options[1].random_seed, 202);
+  EXPECT_EQ(model->seed_checks, 2);
+}
+
+TEST(LlmGenerateNodeTest, UnsupportedExplicitSeedFailsOnlyAtInitialization) {
+  SessionContext session;
+  auto model = std::make_shared<RecordingLlm>();
+  model->supports_seed = false;
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
+  test_support::NodeProbe node;
+  EXPECT_FALSE(node.Init("llm_generate",
+                         {{"bind_model", "writer"},
+                          {"random_seed", 3},
+                          {"endpoints", {{"answer", Json::object()}}}},
+                         session, {{"input", "input", ""}},
+                         {{"text", "text", ""}}));
+  EXPECT_EQ(model->seed_checks, 1);
+  EXPECT_TRUE(model->calls.empty());
+  EXPECT_NE(node.diagnostic.find("random_seed"), std::string::npos);
+}
+}  // namespace
 }  // namespace llm_edgeflow

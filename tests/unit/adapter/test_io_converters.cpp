@@ -1,861 +1,410 @@
 #include <gtest/gtest.h>
-#include <unistd.h>
 
-#include <algorithm>
-#include <filesystem>
-#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "adapter/converter_authoring.h"
-#include "adapter/io_converter.h"
-#include "adapter/io_converter_registry.h"
-#include "adapter/operator/mock/operator_process_binding.h"
-#include "adapter/operator/mock/platform_value_binding.h"
-#include "contracts/inference_payloads.h"
+#include "adapter/io_values.h"
 #include "core/common_contracts.h"
-#include "tests/support/adapter_harness.h"
-#include "tests/support/adapter_test_views.h"
-#include "tests/support/operator_test_fixture.h"
-#include "tests/support/registry_test_access.h"
+#include "tests/support/converter_probe.h"
 
 namespace llm_edgeflow {
-struct InputRowParams {
-  std::string prefix;
-};
-struct OutputRowParams {
-  std::string suffix;
-};
+namespace {
 
-TEST(IoConverterTest, HarnessParsesOnceAndRowsReadSharedTypedParameters) {
-  int input_prepare_calls = 0;
-  int output_prepare_calls = 0;
-  InputConverterDefinition input;
-  input.type = "keyword_in";
-  input.name = "test_parameters";
-  input.slot = ExternalInputSlot<TextInputValue>(input.type);
-  input.logical_ports = {
-      OutputPort(MakeBlackboardKey<TextBatch>("parameter_texts"))};
-  input.params =
-      Parameters<InputRowParams>{
-          Field("prefix", &InputRowParams::prefix).Default("IN:")}
-          .Prepare([&](InputRowParams*, std::string*) {
-            ++input_prepare_calls;
-            return true;
-          });
-  input.decode_fn = [](const ExternalInputBatchView& source,
-                       const InputDecodeOptions& options, AlgContext* context,
-                       AdapterStatus* status) {
-    return DecodeRequestRows<TextInputValue>(
-        source, options, context, status, "keyword_in",
-        MakeBlackboardKey<TextBatch>("parameter_texts"),
-        [&options](const TextInputValue& row, std::string* payload) {
-          *payload =
-              options.Params<InputRowParams>().prefix + row.sentence_text;
-          return AdapterStatus::Ok();
-        });
-  };
-  OutputConverterDefinition output;
-  output.type = "json_out";
-  output.name = "test_parameters";
-  output.slot = ExternalOutputSlot<JsonOutputValue>(output.type);
-  output.logical_ports = {
-      RequiredInputPort(MakeBlackboardKey<TextBatch>("parameter_texts"))};
-  output.params =
-      Parameters<OutputRowParams>{
-          Field("suffix", &OutputRowParams::suffix).Default(":OUT")}
-          .Prepare([&](OutputRowParams*, std::string*) {
-            ++output_prepare_calls;
-            return true;
-          });
-  output.encode_fn = [](AlgContext* context, const OutputEncodeOptions& options,
-                        ExternalOutputBatchView* view, size_t* written,
-                        AdapterStatus* status) {
-    return EncodeResultRows<JsonOutputValue>(
-        context, options, view, written, status, "json_out",
-        MakeBlackboardKey<TextBatch>("parameter_texts"),
-        [&options](const std::string& text, JsonOutputValue* row) {
-          row->result_json = text + options.Params<OutputRowParams>().suffix;
-          return AdapterStatus::Ok();
-        });
-  };
-  test::AdapterHarness harness(&input, &output);
-  EXPECT_EQ(input_prepare_calls, 1);
-  EXPECT_EQ(output_prepare_calls, 1);
-  char first[] = "one", second[] = "two";
-  CompanyString first_text{3, first}, second_text{3, second};
-  CompanyOperatorKeywordInput first_input{kMockServiceKeywordMatch,
-                                          &first_text},
-      second_input{kMockServiceKeywordMatch, &second_text};
-  ASSERT_EQ(harness.DecodeOperator({&first_input, &second_input}), 0);
-  first[0] = 'x';
-  const auto* texts = harness.Context().Read<TextBatch>("parameter_texts");
-  ASSERT_NE(texts, nullptr);
-  ASSERT_EQ(texts->size(), 2u);
-  EXPECT_EQ(texts->front().data, "IN:one");
-  EXPECT_EQ(texts->back().data, "IN:two");
-  for (int call = 0; call < 2; ++call) {
-    char first_bytes[32]{}, second_bytes[32]{};
-    CompanyString first_output{0, first_bytes}, second_output{0, second_bytes};
-    std::vector<CompanyOperatorOutput> outputs(2);
-    outputs[0].service_type = kMockServiceEntityExtract;
-    outputs[1].service_type = kMockServiceEntityExtract;
-    outputs[0].result_json = &first_output;
-    outputs[1].result_json = &second_output;
-    ASSERT_EQ(harness.EncodeOperator(&outputs, {{"result_json", 31}}), 0);
-    EXPECT_STREQ(first_bytes, "IN:one:OUT");
-    EXPECT_STREQ(second_bytes, "IN:two:OUT");
+using test_support::DecodeConverter;
+using test_support::EncodeJsonConverter;
+
+void ExpectTextRows(const AlgContext& context, const std::string& port,
+                    const std::vector<std::string>& expected) {
+  const auto* batch = context.Read<TextBatch>("decoded." + port);
+  ASSERT_NE(batch, nullptr);
+  ASSERT_EQ(batch->size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ((*batch)[i].req_id, i);
+    EXPECT_EQ((*batch)[i].sub_id, 0U);
+    EXPECT_EQ((*batch)[i].data, expected[i]);
   }
-  EXPECT_EQ(input_prepare_calls, 1);
-  EXPECT_EQ(output_prepare_calls, 1);
 }
 
-TEST(IoConverterTest, OptionalInputPreservesEveryFramePosition) {
-  InputConverterDefinition required;
-  required.type = "entity_in";
-  required.name = "required";
-  required.slot = ExternalInputSlot<TextInputValue>(required.type);
-  auto optional = required;
-  optional.name = kCommonIoName;
-  optional.slot.required = false;
-  auto binding = OperatorValueTypeRegistry::Instance()
-                     .CopyBindingBySuffix(required.type)
-                     .value();
-  binding.services[required.name] = kMockServiceEntityExtract;
-  const std::vector<SelectedInput> selected = {{&required, {}, {}, binding},
-                                               {&optional, {}, {}, binding}};
-  char text[] = "hello";
-  CompanyString sentence{5, text};
-  operator_api::NamedIoBatch inputs(5);
-  std::vector<std::shared_ptr<CompanyOperatorEntityInput>> payloads;
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    auto payload = std::make_shared<CompanyOperatorEntityInput>();
-    payload->service_type = kMockServiceEntityExtract;
-    payload->sentence_text = &sentence;
-    inputs[i]["required.entity_in"] = payload;
-    if (i % 2 == 1) inputs[i]["common.entity_in"] = payload;
-    payloads.push_back(std::move(payload));
-  }
-  std::vector<ExternalInputBatchView> views;
+TEST(IoConverterTest, DocumentAndQueryStaySeparateOwnedStreams) {
+  auto first = std::make_shared<DocumentInputValue>();
+  *first = {"完整文档\npage2", "问题一"};
+  auto second = std::make_shared<DocumentInputValue>();
+  *second = {"other document", "question two"};
+  AlgContext context;
+  AdapterStatus status;
+  ASSERT_EQ(DecodeConverter<DocumentInputValue>(
+                "doc_in", "doc_qa", {first, second}, &context, &status),
+            0);
+  first->doc_text = "mutated";
+  first->query_text.clear();
+  second.reset();
+  ExpectTextRows(context, "doc_text", {"完整文档\npage2", "other document"});
+  ExpectTextRows(context, "query_text", {"问题一", "question two"});
+}
 
-  std::string error;
+TEST(IoConverterTest, AuditKeepsChannelMetadataSeparateFromUserText) {
+  auto first = std::make_shared<AuditInputValue>();
+  *first = {"user says buy", "sales"};
+  auto second = std::make_shared<AuditInputValue>();
+  *second = {"user asks help", "support"};
+  AlgContext context;
+  AdapterStatus status;
   ASSERT_EQ(
-      ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error), 0)
-      << error;
-  ASSERT_EQ(views.size(), 2U);
-  ASSERT_EQ(views[1].slots.at("entity_in").size(), inputs.size());
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    const auto required_value =
-        views[0].Read<TextInputValue>("entity_in", i, nullptr);
-    ASSERT_TRUE(required_value);
-    EXPECT_EQ(required_value->sentence_text, "hello");
-    const auto optional_value =
-        views[1].Read<TextInputValue>("entity_in", i, nullptr);
-    EXPECT_EQ(optional_value.has_value(), i % 2 == 1);
-    if (optional_value) {
-      EXPECT_EQ(optional_value->sentence_text, "hello");
-    }
-  }
-  inputs[2].erase("required.entity_in");
-  EXPECT_EQ(
-      ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
-      -3);
-  EXPECT_NE(error.find("Missing required input"), std::string::npos);
-  EXPECT_NE(error.find("frame 2"), std::string::npos);
+      DecodeConverter<AuditInputValue>("audit_in", "dialogue_audit",
+                                       {first, second}, &context, &status),
+      0);
+  first->user_text.clear();
+  first->channel_name = "changed";
+  second.reset();
+  ExpectTextRows(context, "user_text", {"user says buy", "user asks help"});
+  ExpectTextRows(context, "channel_name", {"sales", "support"});
 }
 
-TEST(IoConverterTest, InputUsesBoundKeyAndSkipsUnreferencedPublication) {
-  const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
-      "keyword_in", "keyword_match");
-  ASSERT_NE(converter, nullptr);
-  char bytes[] = "hello";
-  CompanyString sentence{5, bytes};
-  CompanyOperatorKeywordInput input{kMockServiceKeywordMatch, &sentence};
-  ExternalInputBatchView source;
-  source.count = 1;
-  source.slots["keyword_in"] = BorrowInputForTest({&input});
-  source.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
-  for (bool referenced : {true, false}) {
-    const IoPortBindings ports =
-        referenced ? IoPortBindings{{"sentence_text", "input.bound_text"}}
-                   : IoPortBindings{};
-    test::ParsedInputOptions options(*converter, nlohmann::json::object(),
-                                     ports);
+TEST(IoConverterTest, InvoiceFrameAndQuestionKeepCompleteOwnedValues) {
+  auto first = std::make_shared<ImageInputValue>();
+  first->frame = {2, 1, 8, {10, 20, 30, 40, 50, 60, 99, 88}};
+  auto second = std::make_shared<ImageInputValue>();
+  second->frame = {1, 1, 3, {70, 80, 90}};
+  AlgContext context;
+  AdapterStatus status;
+  ASSERT_EQ(DecodeConverter<ImageInputValue>(
+                "frame", "ocr_invoice_qa", {first, second}, &context, &status),
+            0);
+  first->frame.data.assign(8, 0);
+  second.reset();
+  const auto* images = context.Read<ImageFrameBatch>("decoded.image");
+  ASSERT_NE(images, nullptr);
+  ASSERT_EQ(images->size(), 2U);
+  EXPECT_EQ((*images)[0].req_id, 0U);
+  EXPECT_EQ((*images)[0].sub_id, 0U);
+  EXPECT_EQ((*images)[0].data.width, 2);
+  EXPECT_EQ((*images)[0].data.height, 1);
+  EXPECT_EQ((*images)[0].data.stride, 8U);
+  EXPECT_EQ((*images)[0].data.data,
+            (std::vector<uint8_t>{10, 20, 30, 40, 50, 60, 99, 88}));
+  EXPECT_EQ((*images)[1].req_id, 1U);
+  EXPECT_EQ((*images)[1].data.data, (std::vector<uint8_t>{70, 80, 90}));
+  auto question = std::make_shared<std::string>("税额是多少？");
+  auto other = std::make_shared<std::string>("invoice number?");
+  ASSERT_EQ(DecodeConverter<std::string>("string", "ocr_invoice_qa",
+                                         {question, other}, &context, &status),
+            0);
+  question->clear();
+  ExpectTextRows(context, "question", {"税额是多少？", "invoice number?"});
+}
 
+TEST(IoConverterTest, AudioCopiesPcmAndPreservesSupportedCarrierSampleRates) {
+  for (const int rate : {8000, 44100, 192000}) {
+    auto row = std::make_shared<AudioInputValue>();
+    *row = {{-0.5f, 0, 0.75f}, rate};
+    auto second = std::make_shared<AudioInputValue>();
+    *second = {{0.5f}, 16000};
     AlgContext context;
     AdapterStatus status;
     ASSERT_EQ(
-        test::DecodeForTest(*converter, source, options, &context, &status), 0);
-    EXPECT_FALSE(context.Has("sentence_text"));
-    EXPECT_EQ(context.Has("input.bound_text"), referenced);
-    if (referenced) {
-      const auto* text = context.Read<TextBatch>("input.bound_text");
-      ASSERT_NE(text, nullptr);
-      ASSERT_EQ(text->size(), 1u);
-      EXPECT_EQ(text->front().data, "hello");
-      EXPECT_EQ(text->front().req_id, 0u);
-    }
+        DecodeConverter<AudioInputValue>("audio_in", "audio_asr_intent",
+                                         {row, second}, &context, &status),
+        0);
+    row->pcm.clear();
+    row->sample_rate = 0;
+    const auto* audio = context.Read<AudioPcmBatch>("decoded.audio");
+    ASSERT_NE(audio, nullptr);
+    ASSERT_EQ(audio->size(), 2U);
+    EXPECT_EQ((*audio)[0].req_id, 0U);
+    EXPECT_EQ((*audio)[0].sub_id, 0U);
+    EXPECT_EQ((*audio)[1].req_id, 1U);
+    EXPECT_EQ((*audio)[1].sub_id, 0U);
+    EXPECT_EQ((*audio)[1].data.pcm_data, (std::vector<float>{0.5f}));
+    EXPECT_EQ((*audio)[1].data.sample_rate, 16000);
+    EXPECT_EQ((*audio)[0].data.pcm_data, (std::vector<float>{-0.5f, 0, 0.75f}));
+    EXPECT_EQ((*audio)[0].data.sample_rate, rate);
   }
 }
 
-namespace {
-constexpr auto kRowTexts = MakeBlackboardKey<TextBatch>("texts");
-}  // namespace
-
-TEST(IoConverterTest, DecodeRowsOwnsPayloadsAndPreservesRowProvenance) {
-  char bytes[] = {'a', 'b', 'c', '!'};
-  CompanyString text{3, bytes};
-  CompanyOperatorKeywordInput first{kMockServiceKeywordMatch, &text},
-      second{kMockServiceKeywordMatch, &text};
-  ExternalInputBatchView source;
-  source.count = 2;
-  source.slots["input"] = BorrowInputForTest({&first, &second});
-  source.slot_types["input"] = "CompanyOperatorKeywordInput";
-  source.binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_in");
-  InputDecodeOptions options;
-  options.type = "input";
-  options.name = "test_rows";
-  const IoPortBindings ports{{"texts", "texts"}};
-  options.ports = &ports;
-
-  AlgContext context;
-  AdapterStatus status;
-  ASSERT_EQ(DecodeRequestRows<TextInputValue>(
-                source, options, &context, &status, "input", kRowTexts,
-                [](const TextInputValue& row, std::string* value) {
-                  *value = row.sentence_text;
-                  return AdapterStatus::Ok();
-                }),
-            COMPANY_ALG_SUCCESS);
-  bytes[0] = 'x';
-  const auto* texts = context.Read(kRowTexts);
-  ASSERT_NE(texts, nullptr);
-  ASSERT_EQ(texts->size(), 2U);
-  for (size_t i = 0; i < texts->size(); ++i) {
-    EXPECT_EQ((*texts)[i].req_id, i);
-    EXPECT_EQ((*texts)[i].sub_id, 0U);
-    EXPECT_EQ((*texts)[i].data, "abc");
-  }
-}
-
-TEST(IoConverterTest, DecodeRowsReportsCallbackFailureWithoutPublishingBatch) {
-  char first_bytes[] = "good", second_bytes[] = "bad";
-  CompanyString first_text{4, first_bytes}, second_text{3, second_bytes};
-  CompanyOperatorKeywordInput first{kMockServiceKeywordMatch, &first_text},
-      second{kMockServiceKeywordMatch, &second_text};
-  ExternalInputBatchView source;
-  source.count = 2;
-  source.slots["input"] = BorrowInputForTest({&first, &second});
-  source.slot_types["input"] = "CompanyOperatorKeywordInput";
-  source.binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_in");
-  InputDecodeOptions options;
-  options.type = "input";
-  options.name = "test_rows";
-  const IoPortBindings ports{{"texts", "texts"}};
-  options.ports = &ports;
-
-  AlgContext context;
-  AdapterStatus status;
-  EXPECT_EQ(DecodeRequestRows<TextInputValue>(
-                source, options, &context, &status, "input", kRowTexts,
-                [](const TextInputValue& row, std::string* value) {
-                  if (row.sentence_text == "bad")
-                    return AdapterStatus::InvalidInput("bad sentence",
-                                                       "sentence_text");
-                  *value = "accepted";
-                  return AdapterStatus::Ok();
-                }),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.AdapterName(), options.Label());
-  EXPECT_EQ(status.SampleIndex(), 1);
-  EXPECT_EQ(status.FieldPath(), "sentence_text");
-  EXPECT_EQ(status.Message(), "bad sentence");
-  EXPECT_FALSE(context.Has(kRowTexts.name));
-}
-
-TEST(IoConverterTest,
-     EncodeRowsRestoresRowOrderOptionalPositionsAndChecksWriterCapacity) {
-  AlgContext context;
-
-  context.Publish(kRowTexts,
-                  TextBatch{{1, 0, "two"}, {0, 0, std::string("a\0b", 3)}});
-  OutputEncodeOptions options;
-  options.type = "output";
-  options.name = "test_rows";
-  const IoPortBindings ports{{"texts", "texts"}};
-  options.ports = &ports;
-
-  char first_bytes[4] = {}, second_bytes[4] = {};
-  CompanyString first_text{0, first_bytes}, second_text{0, second_bytes};
-  CompanyOperatorOutput first{kMockServiceEntityExtract, nullptr, 0},
-      second{kMockServiceEntityExtract, nullptr, 0};
-  first.result_json = &first_text;
-  second.result_json = &second_text;
-  TestOutputBatchView view;
-  view.count = 2;
-  view.leased_slots["output"] = {&first, &second};
-  view.slot_types["output"] = "CompanyOperatorOutput";
-  view.binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  view.SetCapacity("output", "result_json", 3);
-  auto encode = [](const std::string& text, JsonOutputValue* row) {
-    row->status_code = 23;
-    row->result_json = text;
-    return AdapterStatus::Ok();
-  };
-  AdapterStatus status;
-  size_t written = 99;
-  ASSERT_EQ(
-      EncodeResultRows<JsonOutputValue>(&context, options, &view, &written,
-                                        &status, "output", kRowTexts, encode),
-      COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(written, 2U);
-  EXPECT_EQ(first.status_code, 23);
-  EXPECT_EQ(second.status_code, 23);
-  ASSERT_EQ(first_text.length, 3);
-  EXPECT_EQ(std::string(first_bytes, 3), std::string("a\0b", 3));
-  EXPECT_EQ(first_bytes[3], '\0');
-  EXPECT_EQ(std::string(second_bytes, second_text.length), "two");
-
-  // 内部结果乱序且每行内容不同；可选槽缺失不能压缩批次行位置。
-  view.required = false;
-  for (size_t omitted = 0; omitted < 2; ++omitted) {
-    SCOPED_TRACE(omitted);
-    std::copy_n("old", 4, first_bytes);
-    std::copy_n("old", 4, second_bytes);
-    first_text.length = second_text.length = 3;
-    view.leased_slots["output"] = {omitted == 0 ? nullptr : &first,
-                                   omitted == 1 ? nullptr : &second};
-    ASSERT_EQ(
-        EncodeResultRows<JsonOutputValue>(&context, options, &view, &written,
-                                          &status, "output", kRowTexts, encode),
-        COMPANY_ALG_SUCCESS);
-    EXPECT_EQ(written, 1U);
-    EXPECT_EQ(std::string(first_bytes, 3),
-              omitted == 0 ? "old" : std::string("a\0b", 3));
-    EXPECT_EQ(std::string(second_bytes, 3), omitted == 1 ? "old" : "two");
-  }
-  view.required = true;
-  view.leased_slots["output"] = {&first, &second};
-
-  view.SetCapacity("output", "result_json", 1);
-  written = 99;
-  EXPECT_EQ(
-      EncodeResultRows<JsonOutputValue>(&context, options, &view, &written,
-                                        &status, "output", kRowTexts, encode),
-      COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(written, 0U);
-  EXPECT_EQ(status.AdapterName(), options.Label());
-  EXPECT_EQ(status.SampleIndex(), 0);
-  EXPECT_EQ(status.FieldPath(), "result_json");
-
-  view.SetCapacity("output", "result_json", 3);
-  written = 99;
-  EXPECT_EQ(
-      EncodeResultRows<JsonOutputValue>(
-          &context, options, &view, &written, &status, "output", kRowTexts,
-          [](const std::string& text, JsonOutputValue*) {
-            return text == "two" ? AdapterStatus::InvalidInput("cannot encode",
-                                                               "business_field")
-                                 : AdapterStatus::Ok();
-          }),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(written, 0U);
-  EXPECT_EQ(status.AdapterName(), options.Label());
-  EXPECT_EQ(status.SampleIndex(), 1);
-  EXPECT_EQ(status.FieldPath(), "business_field");
-  EXPECT_EQ(status.Message(), "cannot encode");
-}
-
-TEST(IoConverterTest, TypedBindingRequiresExactSlotAndNeutralValueType) {
-  const auto* input_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_in");
-  ASSERT_NE(input_binding, nullptr);
-  char bytes[] = "hello";
-  CompanyString text{5, bytes};
-  CompanyOperatorKeywordInput row{kMockServiceKeywordMatch, &text};
-  ExternalInputBatchView source;
-  source.count = 1;
-  source.binding = input_binding;
-  source.slots["channel.keyword_in"] = BorrowInputForTest({&row});
-  source.slot_types["channel.keyword_in"] = input_binding->external_c_type_name;
-  AdapterStatus status;
-  auto value = source.Read<TextInputValue>("channel.keyword_in", 0, &status);
-  ASSERT_TRUE(value);
-  bytes[0] = 'x';
-  EXPECT_EQ(value->sentence_text, "hello");
-  EXPECT_FALSE(
-      source.Read<DocumentInputValue>("channel.keyword_in", 0, &status));
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_FALSE(source.Read<TextInputValue>("keyword_in", 0, &status));
-  EXPECT_FALSE(source.Read<TextInputValue>("channel.keyword_in", 1, &status));
-  source.slot_types["channel.keyword_in"] = "OtherCarrier";
-  EXPECT_FALSE(source.Read<TextInputValue>("channel.keyword_in", 0, &status));
-  source.slot_types.clear();
-  EXPECT_FALSE(source.Read<TextInputValue>("channel.keyword_in", 0, &status));
-  source.binding = nullptr;
-  EXPECT_FALSE(source.Read<TextInputValue>("channel.keyword_in", 0, &status));
-
-  const auto* output_binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(output_binding, nullptr);
-  char output_bytes[] = "old";
-  CompanyString output_text{3, output_bytes};
-  CompanyOperatorOutput output{kMockServiceEntityExtract, &output_text, 9};
-  TestOutputBatchView destination;
-  destination.count = 1;
-  destination.binding = output_binding;
-  destination.leased_slots["channel.json_out"] = {&output};
-  destination.slot_types["channel.json_out"] =
-      output_binding->external_c_type_name;
-  destination.SetCapacity("channel.json_out", "result_json", 3);
-  EXPECT_FALSE(
-      destination.Write("channel.json_out", 0, TextInputValue{}).IsOk());
-  EXPECT_FALSE(
-      destination.Write("json_out", 0, JsonOutputValue{"new", 0}).IsOk());
-  EXPECT_FALSE(
-      destination.Write("channel.json_out", 1, JsonOutputValue{"new", 0})
-          .IsOk());
-  EXPECT_EQ(output.status_code, 9);
-  EXPECT_STREQ(output_bytes, "old");
-  ASSERT_TRUE(
-      destination.Write("channel.json_out", 0, JsonOutputValue{"new", 23})
-          .IsOk());
-  EXPECT_EQ(output.status_code, 23);
-  EXPECT_STREQ(output_bytes, "new");
-  destination.slot_types["channel.json_out"] = "OtherCarrier";
-  EXPECT_FALSE(
-      destination.Write("channel.json_out", 0, JsonOutputValue{"bad", 0})
-          .IsOk());
-  EXPECT_STREQ(output_bytes, "new");
-}
-
-TEST(IoConverterTest, InputBindingValidatesLengthsAndOwnsExplicitLengthCopies) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_in");
-  ASSERT_NE(binding, nullptr);
-  CompanyString empty{0, nullptr};
-  CompanyOperatorKeywordInput row{kMockServiceKeywordMatch, &empty};
-  ExternalInputBatchView source;
-  source.count = 1;
-  source.binding = binding;
-  source.slots["keyword_in"] = BorrowInputForTest({&row});
-  source.slot_types["keyword_in"] = binding->external_c_type_name;
-  AdapterStatus status;
-  const auto value = source.Read<TextInputValue>("keyword_in", 0, &status);
-  ASSERT_TRUE(value);
-  EXPECT_TRUE(value->sentence_text.empty());
-  row.sentence_text = nullptr;
-  EXPECT_FALSE(source.Read<TextInputValue>("keyword_in", 0, &status));
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  CompanyString missing{1, nullptr};
-  row.sentence_text = &missing;
-  EXPECT_FALSE(source.Read<TextInputValue>("keyword_in", 0, &status));
-  char bytes[] = {'a', '\0', 'b'};
-  CompanyString negative{-1, bytes};
-  row.sentence_text = &negative;
-  EXPECT_FALSE(source.Read<TextInputValue>("keyword_in", 0, &status));
-  CompanyString binary{3, bytes};
-  row.sentence_text = &binary;
-  EXPECT_FALSE(source.Read<TextInputValue>("keyword_in", 0, &status));
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  bytes[1] = 'b';
-  const auto copied = source.Read<TextInputValue>("keyword_in", 0, &status);
-  ASSERT_TRUE(copied);
-  bytes[0] = 'x';
-  EXPECT_EQ(copied->sentence_text, "abb");
-}
-
-TEST(IoConverterTest,
-     OutputBindingRequiresFieldCapacityAndPreservesFailedDestination) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-  char bytes[] = "old";
-  CompanyString text{3, bytes};
-  CompanyOperatorOutput row{kMockServiceEntityExtract, &text, 9};
-  TestOutputBatchView view;
-  view.count = 1;
-  view.binding = binding;
-  view.leased_slots["json_out"] = {&row};
-  view.slot_types["json_out"] = binding->external_c_type_name;
-  auto status = view.Write("json_out", 0, JsonOutputValue{"new", 0});
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  view.SetCapacity("json_out", "other", 3);
-  status = view.Write("json_out", 0, JsonOutputValue{"new", 0});
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.FieldPath(), "result_json");
-  EXPECT_STREQ(bytes, "old");
-  EXPECT_EQ(text.length, 3);
-  EXPECT_EQ(row.status_code, 9);
-  view.SetCapacity("json_out", "result_json", 2);
-  status = view.Write("json_out", 0, JsonOutputValue{"new", 0});
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_STREQ(bytes, "old");
-  EXPECT_EQ(text.length, 3);
-  EXPECT_EQ(row.status_code, 9);
-}
-
-TEST(IoConverterTest, OutputBindingHonorsEmbeddedNullLengthAndTerminator) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("json_out");
-  ASSERT_NE(binding, nullptr);
-  char bytes[] = {'?', '?', '?', '?', '!'};
-  CompanyString text{0, bytes};
-  CompanyOperatorOutput row{kMockServiceEntityExtract, &text, 0};
-  TestOutputBatchView view;
-  view.count = 1;
-  view.binding = binding;
-  view.leased_slots["json_out"] = {&row};
-  view.slot_types["json_out"] = binding->external_c_type_name;
-  view.SetCapacity("json_out", "result_json", 3);
-  const std::string payload("a\0b", 3);
-  ASSERT_TRUE(view.Write("json_out", 0, JsonOutputValue{payload, 23}).IsOk());
-  EXPECT_EQ(text.length, 3);
-  EXPECT_EQ(std::string(bytes, 3), payload);
-  EXPECT_EQ(bytes[3], '\0');
-  EXPECT_EQ(bytes[4], '!');
-  EXPECT_FALSE(view.Write("json_out", 0, JsonOutputValue{"abcd", 0}).IsOk());
-  EXPECT_EQ(text.length, 3);
-  EXPECT_EQ(std::string(bytes, 3), payload);
-  EXPECT_EQ(bytes[4], '!');
-  EXPECT_EQ(row.status_code, 23);
-  view.SetCapacity("json_out", "result_json", 0);
-  ASSERT_TRUE(view.Write("json_out", 0, JsonOutputValue{"", 0}).IsOk());
-  EXPECT_EQ(text.length, 0);
-  EXPECT_EQ(bytes[0], '\0');
-  EXPECT_EQ(bytes[2], 'b');
-}
-
-namespace {
-// 这些测试载体刻意采用不同的成员顺序、名称和字符串存储方式。
-struct AlternateInputCarrier {
-  std::string document;
-  int32_t operation = 0;
-};
-struct AlternateOutputCarrier {
-  int32_t result = -1;
-  std::vector<uint8_t> document;
-  struct Routing {
-    int32_t operation = 0;
-  } routing;
-};
-
-OperatorValueTypeBinding AlternateInputBinding() {
-  OperatorValueTypeBinding binding;
-  binding.canonical_suffix = "entity_in";
-  binding.external_c_type_name = "AlternateInputCarrier";
-  binding.direction = IoDirection::kInput;
-  binding.validate_external = [](const void* raw, const InputLimits& limits,
-                                 std::string* error) {
-    const auto& row = *static_cast<const AlternateInputCarrier*>(raw);
-    if (row.document.size() > limits.max_text_bytes) {
-      if (error) *error = "document exceeds text limit";
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-    return COMPANY_ALG_SUCCESS;
-  };
-  SetServiceTypeMember(&binding, &AlternateInputCarrier::operation);
-  binding.services = {{"translate", 501}, {"entity_extract", 503}};
-  SetInputValue<AlternateInputCarrier, TextInputValue>(
-      &binding, [](const AlternateInputCarrier& row) {
-        return TextInputValue{row.document};
-      });
-  return binding;
-}
-
-OperatorValueTypeBinding AlternateOutputBinding() {
-  OperatorValueTypeBinding binding;
-  binding.canonical_suffix = "json_out";
-  binding.external_c_type_name = "AlternateOutputCarrier";
-  binding.direction = IoDirection::kOutput;
-  binding.read_service_type = [](const void* raw) {
-    return static_cast<const AlternateOutputCarrier*>(raw)->routing.operation;
-  };
-  binding.write_service_type = [](void* raw, int32_t service) {
-    static_cast<AlternateOutputCarrier*>(raw)->routing.operation = service;
-  };
-  binding.services = OperatorValueTypeRegistry::Instance()
-                         .GetBindingBySuffix("json_out")
-                         ->services;
-  binding.services["translate"] = 502;
-  binding.services["entity_extract"] = 504;
-  binding.output_layout.string_capacity_fields = {{"result_json", {65536}}};
-  binding.output_layout.compute_block_payload_bytes =
-      [](const ResolvedOutputPoolSpec& spec, size_t* bytes, std::string*) {
-        *bytes =
-            sizeof(AlternateOutputCarrier) + spec.GetCapacity("result_json");
-        return true;
-      };
-  binding.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                                 OwnedExternalBlock* block, std::string*) {
-    auto value = std::make_unique<AlternateOutputCarrier>();
-    value->document.reserve(spec.GetCapacity("result_json"));
-    block->raw_struct = block->Own(std::move(value));
-    return COMPANY_ALG_SUCCESS;
-  };
-  binding.reset_external = [](void* raw, const ResolvedOutputPoolSpec&) {
-    auto& value = *static_cast<AlternateOutputCarrier*>(raw);
-    value.document.clear();
-    value.result = -1;
-    value.routing = {};
-  };
-  binding.destroy_external = [](OwnedExternalBlock* block) {
-    block->Destroy();
-  };
-  SetOutputValue<AlternateOutputCarrier, JsonOutputValue>(
-      &binding, [](AlternateOutputCarrier& row, const JsonOutputValue& value,
-                   const ResolvedOutputPoolSpec& spec) {
-        const auto capacity = spec.capacities.find("result_json");
-        if (capacity == spec.capacities.end() ||
-            value.result_json.size() > capacity->second)
-          return AdapterStatus::BufferTooSmall("document exceeds capacity",
-                                               "result_json");
-        row.document.assign(value.result_json.begin(), value.result_json.end());
-        row.result = value.status_code;
-        return AdapterStatus::Ok();
-      });
-  return binding;
-}
-}  // namespace
-
-TEST(IoConverterTest, SameTranslationConvertersServeDifferentPlatformLayouts) {
-  const auto* input = IoConverterRegistry::Instance().FindInputConverter(
-      "entity_in", "translate");
-  const auto* output = IoConverterRegistry::Instance().FindOutputConverter(
-      "json_out", "translate");
-  ASSERT_NE(input, nullptr);
-  ASSERT_NE(output, nullptr);
-  const auto original_input =
-      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("entity_in");
-  const auto original_output =
-      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("json_out");
-  ASSERT_TRUE(original_input);
-  ASSERT_TRUE(original_output);
-  const auto alternate_input = AlternateInputBinding();
-  const auto alternate_output = AlternateOutputBinding();
-  ASSERT_EQ(input->slot.value_type, alternate_input.value_type);
-  ASSERT_EQ(output->slot.value_type, alternate_output.value_type);
-  const std::string json_request = R"({"query":"hello","metadata":{"tag":7}})";
-  std::string mock_request = json_request;
-  CompanyString mock_text{static_cast<int32_t>(mock_request.size()),
-                          mock_request.data()};
-  CompanyOperatorEntityInput mock_input{
-      *original_input->ServiceType("translate"), &mock_text};
-  AlternateInputCarrier alternate{json_request, 501};
-  char bytes[128]{};
-  CompanyString mock_output_text{0, bytes};
-  CompanyOperatorOutput mock_output{0, &mock_output_text, -1};
-  AlternateOutputCarrier alternate_result;
-  for (bool alternate_layout : {false, true}) {
-    SCOPED_TRACE(alternate_layout);
-    const auto& in_binding =
-        alternate_layout ? alternate_input : *original_input;
-    const auto& out_binding =
-        alternate_layout ? alternate_output : *original_output;
-    InputConverterDefinition selected_input = *input;
-    const std::vector<SelectedInput> selected{
-        {&selected_input, {}, {}, in_binding}};
-    operator_api::NamedIoBatch inputs(1);
-    inputs[0]["request.entity_in"] = std::shared_ptr<void>(
-        alternate_layout ? static_cast<void*>(&alternate)
-                         : static_cast<void*>(&mock_input),
-        [](void*) {});
-    std::vector<ExternalInputBatchView> views;
-    std::string error;
-    ASSERT_EQ(
-        ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
-        0)
-        << error;
-    ASSERT_EQ(views.size(), 1U);
-    EXPECT_EQ(views.front().count, 1U);
-    test::ParsedInputOptions input_options(*input);
-
+TEST(IoConverterTest, AudioRejectsRatesOutsideConverterRange) {
+  for (const int rate : {7999, 192001}) {
+    auto row = std::make_shared<AudioInputValue>();
+    *row = {{0.25f}, rate};
     AlgContext context;
     AdapterStatus status;
-    ASSERT_EQ(input->decode_fn(views.front(), input_options, &context, &status),
-              0)
-        << status.Message();
-    const auto* queries = context.Read<TextBatch>("query");
-    ASSERT_NE(queries, nullptr);
-    ASSERT_EQ(queries->size(), 1U);
-    EXPECT_EQ(queries->front().data, "hello");
-    ASSERT_TRUE(context.Publish("translation",
-                                TextBatch{{0, 0, std::string("a\0b", 3)}}));
-    test::ParsedOutputOptions output_options(*output);
-
-    TestOutputBatchView destination;
-    destination.count = 1;
-    destination.binding = &out_binding;
-    void* raw_output = alternate_layout ? static_cast<void*>(&alternate_result)
-                                        : static_cast<void*>(&mock_output);
-    destination.leased_slots["json_out"] = {raw_output};
-    destination.slot_types["json_out"] = out_binding.external_c_type_name;
-    destination.SetCapacity("json_out", "result_json", 127);
-    out_binding.write_service_type(raw_output,
-                                   *out_binding.ServiceType("translate"));
-    size_t written = 99;
-    ASSERT_EQ(output->encode_fn(&context, output_options, &destination,
-                                &written, &status),
-              0)
-        << status.Message();
-    EXPECT_EQ(written, 1U);
-    const std::string response =
-        alternate_layout
-            ? std::string(alternate_result.document.begin(),
-                          alternate_result.document.end())
-            : std::string(mock_output_text.data, mock_output_text.length);
-    EXPECT_EQ(nlohmann::json::parse(response),
-              nlohmann::json({{"translated", std::string("a\0b", 3)}}));
-    if (alternate_layout) {
-      EXPECT_EQ(alternate_result.routing.operation, 502);
-      EXPECT_EQ(alternate_result.result, 0);
-    } else {
-      EXPECT_EQ(mock_output.service_type,
-                *original_output->ServiceType("translate"));
-      EXPECT_EQ(mock_output.status_code, 0);
-    }
-    destination.SetCapacity("json_out", "result_json", 1);
-    EXPECT_EQ(output->encode_fn(&context, output_options, &destination,
-                                &written, &status),
-              COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-    EXPECT_EQ(written, 0U);
-    EXPECT_EQ(status.SampleIndex(), 0);
-    EXPECT_EQ(status.AdapterName(), "json_out/translate");
-    EXPECT_EQ(status.FieldPath(), "result_json");
-    if (alternate_layout) {
-      EXPECT_EQ(std::string(alternate_result.document.begin(),
-                            alternate_result.document.end()),
-                response);
-    } else {
-      EXPECT_EQ(std::string(mock_output_text.data, mock_output_text.length),
-                response);
-    }
-    if (alternate_layout) {
-      alternate.document = R"({"query":7})";
-    } else {
-      mock_request = R"({"query":7})";
-      mock_text = {static_cast<int32_t>(mock_request.size()),
-                   mock_request.data()};
-    }
-    ASSERT_EQ(
-        ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
-        0)
-        << error;
-    AlgContext invalid_context;
-    EXPECT_EQ(input->decode_fn(views.front(), input_options, &invalid_context,
-                               &status),
+    EXPECT_EQ(DecodeConverter<AudioInputValue>("audio_in", "audio_asr_intent",
+                                               {row}, &context, &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
-    EXPECT_EQ(status.FieldPath(), "json");
-    EXPECT_EQ(status.SampleIndex(), 0);
-    EXPECT_EQ(status.AdapterName(), "entity_in/translate");
-    EXPECT_FALSE(invalid_context.Has("query"));
-    // 输入提取还须校验所选 binding 声明的业务类型映射。
-    if (alternate_layout)
-      alternate.operation = -1;
-    else
-      mock_input.service_type = -1;
-    EXPECT_EQ(
-        ValidateAndExtractOperatorInputs(inputs, selected, {}, &views, &error),
-        COMPANY_ALG_ERR_INVALID_INPUT);
-    EXPECT_NE(error.find("service_type"), std::string::npos);
+    EXPECT_EQ(status.FieldPath(), "audio_in.sample_rate");
+    EXPECT_EQ(status.Message(), "sample_rate out of range");
+    EXPECT_FALSE(context.Has("decoded.audio"));
   }
 }
 
-class IoConverterProcessTest : public test_support::OperatorTestFixture {
- protected:
-  void SetUp() override {
-    test_support::RegistryTestAccess::SetValueBinding(AlternateInputBinding());
-    test_support::RegistryTestAccess::SetValueBinding(AlternateOutputBinding());
-    directory_ = std::filesystem::temp_directory_path() /
-                 ("edgeflow_alternate_binding_" + std::to_string(getpid()));
-    std::filesystem::create_directories(directory_);
-    OperatorTestFixture::SetUp();
+TEST(IoConverterTest,
+     RerankExpandsCandidatesWithRequestLocalRankAndSourceIndex) {
+  auto first = std::make_shared<RerankInputValue>();
+  *first = {"Q0", {"first", "second"}};
+  auto second = std::make_shared<RerankInputValue>();
+  *second = {"Q1", {"third"}};
+  AlgContext context;
+  AdapterStatus status;
+  ASSERT_EQ(
+      DecodeConverter<RerankInputValue>("rerank_in", "cross_rerank",
+                                        {first, second}, &context, &status),
+      0);
+  first->query_text.clear();
+  first->candidate_passages.clear();
+  second.reset();
+  ExpectTextRows(context, "query_text", {"Q0", "Q1"});
+  const auto* candidates = context.Read<RankedTextBatch>("decoded.candidates");
+  ASSERT_NE(candidates, nullptr);
+  ASSERT_EQ(candidates->size(), 3U);
+  const RankedTextBatch expected = {{0, 0, {"first", 0, 1, 0}},
+                                    {0, 1, {"second", 0, 2, 1}},
+                                    {1, 0, {"third", 0, 1, 0}}};
+  for (size_t i = 0; i < expected.size(); ++i) {
+    EXPECT_EQ((*candidates)[i].req_id, expected[i].req_id);
+    EXPECT_EQ((*candidates)[i].sub_id, expected[i].sub_id);
+    EXPECT_EQ((*candidates)[i].data.text, expected[i].data.text);
+    EXPECT_FLOAT_EQ((*candidates)[i].data.score, 0);
+    EXPECT_EQ((*candidates)[i].data.rank, expected[i].data.rank);
+    EXPECT_EQ((*candidates)[i].data.original_sub_id,
+              expected[i].data.original_sub_id);
+    EXPECT_EQ((*candidates)[i].data.metadata, nlohmann::json::object());
   }
-  void TearDown() override {
-    OperatorTestFixture::TearDown();
-    std::filesystem::remove_all(directory_);
-  }
-  std::filesystem::path directory_;
-  test_support::RegistryTestAccess::ScopedValueTypeState value_types_;
-};
-
-TEST_F(IoConverterProcessTest,
-       TranslationBindingsOwnPlatformLayoutThroughProcess) {
-  const nlohmann::json document = {
-      {"io",
-       {{"input", {{{"type", "entity_in"}, {"name", "translate"}}}},
-        {"output",
-         {{{"type", "json_out"},
-           {"name", "translate"},
-           {"params", {{"result_json_max_bytes", 64}}},
-           {"inputs", {{"translation", "copy.text"}}}}}}}},
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       {{{"name", "copy"},
-         {"type", "text_template"},
-         {"inputs", {{"primary", "input.query"}}},
-         {"params", {{"template", "copy:{{primary}}"}}}}}}};
-  std::ofstream(directory_ / "pipeline.json") << document;
-  std::ofstream(directory_ / "pipeline.conf")
-      << nlohmann::json{{"pipe_path", "pipeline.json"}};
-  operator_api::OperatorIoContract contract;
-  ASSERT_EQ(operator_api::ResolveOperatorConfigIo(directory_.c_str(),
-                                                  "pipeline.conf", &contract),
-            0)
-      << operator_api::GetOperatorLastError();
-  ASSERT_EQ(contract.inputs.size(), 1U);
-  ASSERT_EQ(contract.outputs.size(), 1U);
-  EXPECT_EQ(contract.inputs.front().type_name, "AlternateInputCarrier");
-  EXPECT_EQ(contract.inputs.front().service_type, 501);
-  EXPECT_EQ(contract.outputs.front().type_name, "AlternateOutputCarrier");
-  EXPECT_EQ(contract.outputs.front().service_type, 502);
-  test_support::ScopedTestOperator instance(ops_);
-  ASSERT_EQ(instance.Create("pipeline.conf", directory_.string(),
-                            operator_api::ComputePlatform::kCpu, 2),
-            0)
-      << instance.create_diagnostic();
-  AlternateInputCarrier first{R"({"query":"one"})", 501};
-  AlternateInputCarrier second{
-      nlohmann::json{{"query", std::string(80, 'x')}}.dump(), 501};
-  operator_api::NamedIoBatch inputs(2), outputs(2);
-  inputs[0]["request.entity_in"] =
-      operator_api::MakeBorrowedOperatorInput(&first);
-  inputs[1]["request.entity_in"] =
-      operator_api::MakeBorrowedOperatorInput(&second);
-  for (auto& row : outputs) row["response.json_out"] = nullptr;
-  // 第零行编码成功后，第一行因响应较大而失败。
-  EXPECT_EQ(ops_.Process(instance.get(), inputs, outputs),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL)
-      << operator_api::GetOperatorLastError();
-  for (const auto& row : outputs) EXPECT_FALSE(row.at("response.json_out"));
-  second.document = R"({"query":"two"})";
-  ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
-      << operator_api::GetOperatorLastError();
-  std::vector<nlohmann::json> copied;
-  for (size_t i = 0; i < outputs.size(); ++i) {
-    const auto* result = static_cast<const AlternateOutputCarrier*>(
-        outputs[i].at("response.json_out").get());
-    ASSERT_NE(result, nullptr);
-    EXPECT_EQ(result->routing.operation, 502);
-    EXPECT_EQ(result->result, 0);
-    copied.push_back(nlohmann::json::parse(
-        std::string(result->document.begin(), result->document.end())));
-    EXPECT_EQ(
-        copied.back(),
-        nlohmann::json({{"translated", i == 0 ? "copy:one" : "copy:two"}}));
-  }
-  for (auto& row : outputs) row["response.json_out"].reset();
-  // 归还两个租约后，同一个深度为二的池应能再次处理完整批次。
-  ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), COMPANY_ALG_SUCCESS)
-      << operator_api::GetOperatorLastError();
-  outputs.clear();
-  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
-  EXPECT_EQ(copied,
-            (std::vector<nlohmann::json>{{{"translated", "copy:one"}},
-                                         {{"translated", "copy:two"}}}));
 }
 
+TEST(IoConverterTest, RerankRequiresCandidateListAndBoundsEachPassage) {
+  for (const auto& candidates :
+       {std::vector<std::string>{},
+        std::vector<std::string>{std::string(65537, 'x')}}) {
+    auto row = std::make_shared<RerankInputValue>();
+    *row = {"query", candidates};
+    AlgContext context;
+    AdapterStatus status;
+    EXPECT_EQ(DecodeConverter<RerankInputValue>("rerank_in", "cross_rerank",
+                                                {row}, &context, &status),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(status.FieldPath(), "rerank_in.candidate_passages");
+    EXPECT_EQ(status.Message(),
+              candidates.empty() ? "At least one candidate passage is required"
+                                 : "candidate passage length exceeds limit");
+    EXPECT_FALSE(context.Has("decoded.candidates"));
+  }
+}
+
+TEST(IoConverterTest, DocumentAnswerUsesIntentStatusAndChunkCount) {
+  AlgContext context;
+  RuleMatchItem intent(1, "REFUND", "refund", 0.75f);
+  intent.status_code = 9;
+  ASSERT_TRUE(
+      context.Publish("result.answer_text", TextBatch{{0, 0, "退款说明"}}));
+  ASSERT_TRUE(context.Publish("result.intent", RuleMatchBatch{{0, 0, intent}}));
+  ASSERT_TRUE(context.Publish("result.chunk_count", Int32Batch{{0, 0, 3}}));
+  std::vector<JsonOutputValue> rows(1);
+  AdapterStatus status;
+  ASSERT_EQ(EncodeJsonConverter("doc_qa", &context, &rows, &status), 0);
+  EXPECT_EQ(rows[0].status_code, 9);
+  EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
+            nlohmann::json::parse(R"({
+    "intent_name":"REFUND","confidence":0.75,"answer_text":"退款说明","chunk_count":3
+  })"));
+  AlgContext missing_count;
+  ASSERT_TRUE(
+      missing_count.Publish("result.answer_text", TextBatch{{0, 0, "text"}}));
+  ASSERT_TRUE(
+      missing_count.Publish("result.intent", RuleMatchBatch{{0, 0, intent}}));
+  EXPECT_EQ(EncodeJsonConverter("doc_qa", &missing_count, &rows, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "chunk_count");
+}
+
+TEST(IoConverterTest, AudioResponseNestsIntentWithoutKeywordIsHitField) {
+  RuleMatchItem intent(1, "PLAY", "play", 0.5f, "play_rule");
+  intent.status_code = 5;
+  intent.slots = {{"song", "夜曲"}};
+  intent.matches = {
+      {RuleMatchSource::kRule, "PLAY", "play_rule", "play song", 0.5f}};
+  AlgContext context;
+  ASSERT_TRUE(context.Publish("result.transcribed_text",
+                              TextBatch{{0, 0, "播放夜曲"}}));
+  ASSERT_TRUE(
+      context.Publish("result.intent_slot", RuleMatchBatch{{0, 0, intent}}));
+  std::vector<JsonOutputValue> rows(1);
+  AdapterStatus status;
+  ASSERT_EQ(EncodeJsonConverter("audio_asr_intent", &context, &rows, &status),
+            0);
+  EXPECT_EQ(rows[0].status_code, 5);
+  EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
+            nlohmann::json::parse(R"({
+    "transcribed_text":"播放夜曲","intent_slot":{"intent":"PLAY","matched_word":"play",
+    "confidence":0.5,"slots":{"song":"夜曲"},"matches":[{"category":"PLAY",
+    "rule_id":"play_rule","pattern":"play song","score":0.5}]}
+  })"));
+  AlgContext missing_intent;
+  ASSERT_TRUE(missing_intent.Publish("result.transcribed_text",
+                                     TextBatch{{0, 0, "text"}}));
+  EXPECT_EQ(
+      EncodeJsonConverter("audio_asr_intent", &missing_intent, &rows, &status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "intent_slot");
+}
+
+TEST(IoConverterTest, InvoiceResponseNestsParsedResultAndCountsDetectedBoxes) {
+  AlgContext context;
+  JsonDocumentItem invoice(R"({"invoice_no":"I7","total":12})");
+  OcrDocumentItem document;
+  document.combined_text = "raw OCR omitted from external response";
+  document.boxes.resize(2);
+  ASSERT_TRUE(context.Publish("result.result",
+                              StructuredDocumentBatch{{0, 0, invoice}}));
+  ASSERT_TRUE(
+      context.Publish("result.document", OcrDocumentBatch{{0, 0, document}}));
+  std::vector<JsonOutputValue> rows(1);
+  AdapterStatus status;
+  ASSERT_EQ(EncodeJsonConverter("ocr_invoice_qa", &context, &rows, &status), 0);
+  EXPECT_EQ(rows[0].status_code, 0);
+  EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
+            nlohmann::json::parse(R"({
+    "detected_box_count":2,"result":{"invoice_no":"I7","total":12}
+  })"));
+  AlgContext missing_document;
+  ASSERT_TRUE(missing_document.Publish(
+      "result.result", StructuredDocumentBatch{{0, 0, invoice}}));
+  EXPECT_EQ(
+      EncodeJsonConverter("ocr_invoice_qa", &missing_document, &rows, &status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "document");
+}
+
+TEST(IoConverterTest, InvoiceRejectsFallbackEvenWithValidJson) {
+  AlgContext context;
+  ASSERT_TRUE(context.Publish(
+      "result.result",
+      StructuredDocumentBatch{
+          {0, 0,
+           JsonDocumentItem("{}", true, JsonParseStatus::kFallbackApplied)}}));
+  ASSERT_TRUE(context.Publish("result.document", OcrDocumentBatch{{0, 0, {}}}));
+  std::vector<JsonOutputValue> rows(1);
+  AdapterStatus status;
+  EXPECT_EQ(EncodeJsonConverter("ocr_invoice_qa", &context, &rows, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "invoice_jsons");
+  EXPECT_EQ(status.Message(), "Structured result failed or used fallback");
+}
+
+TEST(IoConverterTest, AuditResponseUsesStructuredRiskAndOriginalVerdictJson) {
+  JsonDocumentItem verdict(
+      R"({"risk_level":"SAFE","risk_score":0.25,"reason":"ok"})");
+  verdict.structured_data = {
+      {"risk_level", "SAFE"}, {"risk_score", 0.25}, {"reason", "ok"}};
+  AlgContext context;
+  ASSERT_TRUE(context.Publish("result.verdict",
+                              StructuredDocumentBatch{{0, 0, verdict}}));
+  ASSERT_TRUE(context.Publish(
+      "result.matched_policy",
+      RankedTextBatch{{0, 0, {"clause A", 0.75f, 1, 8}},
+                      {0, 1, {"not the selected clause", 0.5f, 2, 9}}}));
+  std::vector<JsonOutputValue> rows(1);
+  AdapterStatus status;
+  ASSERT_EQ(EncodeJsonConverter("dialogue_audit", &context, &rows, &status), 0);
+  EXPECT_EQ(rows[0].status_code, 0);
+  EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
+            nlohmann::json::parse(R"({
+    "risk_level":"SAFE","risk_score":0.25,"matched_policy_clause":"clause A",
+    "audit_verdict":{"risk_level":"SAFE","risk_score":0.25,"reason":"ok"}
+  })"));
+  AlgContext missing_policy;
+  ASSERT_TRUE(missing_policy.Publish("result.verdict",
+                                     StructuredDocumentBatch{{0, 0, verdict}}));
+  EXPECT_EQ(
+      EncodeJsonConverter("dialogue_audit", &missing_policy, &rows, &status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "matched_policy");
+}
+
+TEST(IoConverterTest, AuditRejectsInvalidRiskSchemaRangeAndPolicyRank) {
+  struct Case {
+    const char* name;
+    nlohmann::json risk;
+    int rank;
+    const char* detail;
+  };
+  const std::vector<Case> cases = {
+      {"missing risk score", {{"risk_level", "SAFE"}}, 1, "types"},
+      {"wrong risk level type",
+       {{"risk_level", 1}, {"risk_score", 0.5}},
+       1,
+       "types"},
+      {"unsupported risk level",
+       {{"risk_level", "UNKNOWN"}, {"risk_score", 0.5}},
+       1,
+       "Invalid risk level or score"},
+      {"negative score",
+       {{"risk_level", "SAFE"}, {"risk_score", -0.1}},
+       1,
+       "Invalid risk level or score"},
+      {"above one score",
+       {{"risk_level", "SAFE"}, {"risk_score", 1.1}},
+       1,
+       "Invalid risk level or score"},
+      {"selected policy rank is not one",
+       {{"risk_level", "SAFE"}, {"risk_score", 0.5}},
+       2,
+       "types"},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.name);
+    JsonDocumentItem verdict(test.risk.dump());
+    verdict.structured_data = test.risk;
+    AlgContext context;
+    ASSERT_TRUE(context.Publish("result.verdict",
+                                StructuredDocumentBatch{{0, 0, verdict}}));
+    ASSERT_TRUE(context.Publish(
+        "result.matched_policy",
+        RankedTextBatch{{0, 0, {"clause", 0.5f, test.rank, 0}}}));
+    std::vector<JsonOutputValue> rows(1);
+    AdapterStatus status;
+    EXPECT_EQ(EncodeJsonConverter("dialogue_audit", &context, &rows, &status),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(status.FieldPath(), "structured_verdicts");
+    EXPECT_NE(status.Message().find(test.detail), std::string::npos);
+  }
+}
+
+TEST(IoConverterTest, RerankResponseSortsByRankAndReportsOriginalIndicesOnly) {
+  AlgContext context;
+  ASSERT_TRUE(context.Publish(
+      "result.ranked",
+      RankedTextBatch{{0, 1, {"second", 0.25f, 2, 9, {{"ignored", true}}}},
+                      {0, 0, {"first", 0.75f, 1, 4}},
+                      {1, 0, {"other row", 0.5f, 1, 3}}}));
+  std::vector<JsonOutputValue> rows(2);
+  AdapterStatus status;
+  ASSERT_EQ(EncodeJsonConverter("cross_rerank", &context, &rows, &status), 0);
+  EXPECT_EQ(rows[0].status_code, 0);
+  EXPECT_EQ(rows[1].status_code, 0);
+  EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
+            nlohmann::json::parse(
+                R"({"scores":[0.75,0.25],"sorted_indices":[4,9],"count":2})"));
+  EXPECT_EQ(nlohmann::json::parse(rows[1].result_json),
+            nlohmann::json::parse(
+                R"({"scores":[0.5],"sorted_indices":[3],"count":1})"));
+}
+
+TEST(IoConverterTest, RerankRequiresRanksStartingAtOneWithoutGapsOrDuplicates) {
+  for (const std::vector<int>& ranks :
+       {std::vector<int>{0, 1}, std::vector<int>{1, 3},
+        std::vector<int>{1, 1}}) {
+    AlgContext context;
+    ASSERT_TRUE(context.Publish(
+        "result.ranked", RankedTextBatch{{0, 0, {"A", 0.5f, ranks[0], 0}},
+                                         {0, 1, {"B", 0.25f, ranks[1], 1}}}));
+    std::vector<JsonOutputValue> rows(1);
+    AdapterStatus status;
+    EXPECT_EQ(EncodeJsonConverter("cross_rerank", &context, &rows, &status),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(status.FieldPath(), "ranked_results");
+    EXPECT_EQ(status.Message(), "Invalid ranked result");
+  }
+}
+
+}  // namespace
 }  // namespace llm_edgeflow

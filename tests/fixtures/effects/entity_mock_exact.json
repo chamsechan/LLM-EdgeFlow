@@ -1,5 +1,5 @@
 {
-  "name": "entity-neutral-model-contract",
+  "name": "mock-entity-transport",
   "output": {
     "type": "json_out",
     "name": "entity_extract"
@@ -10,17 +10,7 @@
     {
       "expected": {
         "/output/nouns": [
-          "张三",
-          "清华大学",
-          "北京",
-          "人工智能",
-          "算法工程师",
-          "NPU",
-          "芯片",
-          "深度学习",
-          "大模型",
-          "项目",
-          "公司"
+          "mock entity"
         ]
       }
     }

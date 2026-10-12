@@ -262,7 +262,7 @@ runner 的源码归属见 [tests/RuntimeTests.cmake](../../tests/RuntimeTests.cm
 
 | 修改内容 | 构建目标 | 常用 GoogleTest 过滤器 |
 | --- | --- | --- |
-| 转换器、协议拷贝或 Operator 绑定 | `edgeflow_test_adapter_runner` | `IoConverterRegistryTest.*` / `OperatorApiTest.*` |
+| 转换器、协议拷贝或 Operator 绑定 | `edgeflow_test_adapter_runner` | `IoConverterRegistryTest.*` / `OperatorEntryTest.*` |
 | Demo 结果转换或 Pipeline 集成 | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
 
 ```bash

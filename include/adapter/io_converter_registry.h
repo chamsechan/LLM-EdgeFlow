@@ -11,6 +11,10 @@
 
 namespace llm_edgeflow {
 
+namespace test_support {
+class RegistryTestAccess;
+}
+
 struct OperatorValueTypeBinding;
 
 // Size fields inherit the platform hard maximum for validation and tools.
@@ -40,10 +44,8 @@ class IoConverterRegistry {
   std::shared_ptr<const OutputAllocationParameters> OutputParameters(
       const std::string& type, const std::string& name) const;
 
-  void ClearForTesting();
-  void ResetConflictForTesting();
-
  private:
+  friend class test_support::RegistryTestAccess;
   IoConverterRegistry() = default;
   ~IoConverterRegistry() = default;
 

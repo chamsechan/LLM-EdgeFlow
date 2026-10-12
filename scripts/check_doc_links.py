@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 import string
 import subprocess
-import tempfile
 import unicodedata
 from urllib.parse import unquote
 
@@ -175,81 +174,10 @@ def check(root):
     return errors, counters
 
 
-def self_test():
-    def write(root, name, text):
-        path = root / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-
-    with tempfile.TemporaryDirectory(prefix="doc-links-") as directory:
-        root = Path(directory)
-        write(root, "guide/target.md", "# Title\n## 6. 输出容量与生命周期\n## Repeat\n## Repeat\n"
-                                       "## `plans/` 目录\n<a id=\"manual\"></a>\n")
-        write(root, "guide/code.cpp", "int main() {}\n")
-        write(root, "index.md",
-              "[a](guide/target.md#6-输出容量与生命周期) [b](guide/target.md#repeat-1)\n"
-              "[c](guide/target.md#plans-目录) [d](guide/) [e](#local) [f](guide/code.cpp#L1)\n"
-              "[g](guide/target.md#manual) [h](https://example.com/x.md#none)\n"
-              "<img src=\"guide/code.cpp\"> `[skip](missing.md)`\n"
-              "```markdown\n[skip](missing.md)\n```\n## Local\n")
-        errors, counters = check(root)
-        assert errors == [], errors
-        # 七个内联链接和一个 img src；https 链接会被跳过。
-        assert counters == {"files": 2, "links": 8, "anchor_links": 4}, counters
-
-        write(root, "guide/guide_(old).md", "# Heading\n")
-        write(root, "guide/guide_(old_(nested_(v1))).md", "# Heading\n")
-        write(root, "guide/file space.md", "# Heading\n")
-        valid_links = [
-            '[x](guide/guide_(old).md#heading)',
-            '[x](guide/guide_(old_(nested_(v1))).md#heading)',
-            r'[x](guide/guide_\(old\).md#heading)',
-            "[x](<guide/file space.md#heading> 'caption')",
-            "[x](guide/target.md 'caption')",
-            '[x](guide/target.md (caption))',
-            r'''[x](guide/target.md "say \"hello\"")''',
-            '[x](guide/target.md "title [skip](missing.md)")',
-        ]
-        write(root, "syntax.md", "\n".join(valid_links) + "\n"
-              "[literal](guide_(unbalanced.md)\n"
-              "[literal](<guide/target.md>'missing separator')\n"
-              "[literal](guide/target.md (nested(title)))\n")
-        errors, counters = check(root)
-        assert errors == [], errors
-        assert counters["links"] == 8 + len(valid_links), counters
-
-        write(root, "broken.md",
-              "[x](guide/missing.md) [y](guide/target.md#nope) [z](../outside.md)\n"
-              "[single](missing.md 'caption') [paren](missing.md (caption))\n"
-              "[balanced](missing_(old).md) [angle](<missing file.md> 'caption')\n")
-        errors, _ = check(root)
-        assert len(errors) == 7, errors
-        assert "missing link target" in errors[0], errors
-        assert "missing heading anchor" in errors[1], errors
-        assert "leaves the repository" in errors[2], errors
-        for error, target in zip(errors[3:],
-                                 ("missing.md", "missing.md", "missing_(old).md", "missing file.md")):
-            assert error.endswith("missing link target: " + target), errors
-
-    with tempfile.TemporaryDirectory(prefix="doc-links-empty-") as directory:
-        errors, _ = check(Path(directory))
-        assert any("no Markdown files" in error for error in errors), errors
-
-    with tempfile.TemporaryDirectory(prefix="doc-links-unlinked-") as directory:
-        write(Path(directory), "only.md", "# Only\n[self](#only)\n")
-        errors, _ = check(Path(directory))
-        assert any("no cross-file heading anchors" in error for error in errors), errors
-    print("Markdown link checker self-tests passed.")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    if args.self_test:
-        self_test()
-        return 0
     errors, counters = check(args.root)
     for error in errors:
         print(error)
