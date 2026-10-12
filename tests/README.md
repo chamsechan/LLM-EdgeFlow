@@ -60,6 +60,11 @@ cmake --build build --target edgeflow_test_nodes_runner -j4
 现有 `scripts/run_sanitizers.sh` 入口。分配故障只在测试可执行文件替换 `new/delete`，不跟踪
 其他线程或 `malloc`；资源归还由实际池账本和对象生命周期断言证明，sanitizer 补充检查。
 ELF 的 `posix_memalign` 故障包装仅在 Tensor 测试链接时启用。
+注册表清理与状态恢复实现只在 `tests/support/`；生产类保留必要的测试友元访问。
+输出池等待由 Adapter 测试可执行文件观测真实 `std::condition_variable::wait`，
+再转发至动态标准库原函数。一次性线程局部信号在池锁仍持有时发出，确保归还或关闭
+不会抢在实际等待之前通知；生产池不含测试计数或回调。当前实际执行证据来自
+Linux/libstdc++；Apple/libc++ 的符号分支尚未实际运行。
 
 默认构建执行 ONNX Runtime 小图和 llama.cpp 的实际加载失败路径。没有 GGUF 时，物理生成
 用例明确跳过；`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
@@ -72,27 +77,27 @@ Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `ST
 
 ## 维护成本
 
-当前人工维护范围为 **22,465 行**，包含注释和空行，同一文件只计一次。
+当前人工维护范围为 **22,508 行**，包含注释和空行，同一文件只计一次。
 第三方、构建产物、生成输出和二进制资产不计；生成器及手写模板计入。
-这仍比设计预算上沿 20,200 行多 **2,265 行**，规模验收尚未达标。
+这仍比设计预算上沿 20,200 行多 **2,308 行**，规模验收尚未达标。
 
 | 范围 | 行数 |
 | --- | ---: |
-| 单元测试与工程、SDK 契约 | 14,426 |
+| 单元测试与工程、SDK 契约 | 14,463 |
 | 集成与工具入口测试 | 3,490 |
 | 可选真实权重 E2E | 170 |
-| helper、文本夹具、测试构建/发现配置与源码观测接口 | 1,415 |
+| helper、文本夹具、测试构建/发现配置与源码观测接口 | 1,421 |
 | Demo mock 场景、dev_support 替身与作者模板 | 1,757 |
 | ONNX 生成器与脚手架测试模板 | 306 |
 | 门禁、专项执行、资产获取脚本、sanitizer 配置与 CI | 901 |
-| **合计** | **22,465** |
+| **合计** | **22,508** |
 
 `tests/`、`dev_support/` 和 `demo/fixtures/mock/` 的人工代码与文本配置全部计入；
 脚本计入 `generate_test_onnx_model.py`、`run_all_tests.sh`、`run_sanitizers.sh`、
 `run_real_model_e2e.sh`、`fetch_real_test_models.sh` 以及完整 `ci.yml`。
 另计 `ubsan_suppressions.txt` 4 行、`GoogleTest.cmake` 75 行、
 `LayerHeaderViews.cmake` 的测试编译清单生成函数及其说明 31 行、根 CMake 的测试接线
-6 行，以及生产源码中仅服务测试的注册表清理/访问和等待观测接口 34 行。
+6 行，以及生产源码中仅服务测试的注册表与等待/锁观测访问声明 21 行。
 通用生产工具只计其测试专用部分：`scaffold_custom_node.py` 中
 `render_standalone_test` 的完整函数，共 165 行。Markdown 使用指南属于文档。
 后续调整仍使用这一口径，不将 mock 场景、共享 helper 或模板移出统计范围。
