@@ -34,6 +34,32 @@
 内部构建系统使用；本仓库不在该位置保留转发目录或符号链接。
 `cmake` 命令、`CMakeLists.txt` 文件名，以及第三方安装包的 `lib/cmake/` 路径保持原约定。
 
+根 `CMakeLists.txt` 只负责禁止源码内构建、声明项目和按顺序加载模块：
+
+| 模块 | 职责 |
+| :--- | :--- |
+| `ProjectSetup.cmake` | 编译标准、警告、PIC、sanitizer、生成头与版本脚本，以及 public/extension/internal 头目标 |
+| `Dependencies.cmake` | 聚合中立依赖；每个依赖独立维护 |
+| `company/KiteLlm.cmake` | 当前 Kite 发布包选择、校验与编译链接探针，提供 Backend 编译定义和链接库 |
+| `RuntimeGraph.cmake` | 各层依赖与 OBJECT 目标、Backend 能力接线，加载 `src/` |
+| `ProductTargets.cmake` | SDK 产物与版本脚本、输出路径、Demo、CLI 和测试入口 |
+
+开源引擎分别由 `engines/OnnxRuntime.cmake`、`engines/LlamaCpp.cmake` 和
+`engines/WhisperCpp.cmake` 维护，缓存指纹由 `ThirdPartyCacheMetadata.cmake` 共用。
+Whisper 复用 llama.cpp 的 GGML，因此依赖聚合中先加载 llama.cpp。
+测试依赖 GoogleTest 在测试入口按需加载。中立模块不加载公司模块；根文件负责装配。
+
+当前构建使用 CMake 3.19、预设和现有依赖来源；尚未接入公司 `platform` / `sdk`、
+toolchain、`DH_*` 或镜像规则。公司构建上下文应归 `company/`，不能由中立模块推定。
+仅检查组织边界和模块引用可运行：
+
+```bash
+cmake -P tests/contract/architecture/test_cmake_structure.cmake
+```
+
+该检查无需编译器、网络或 SDK，不证明真实编译、链接和公司 SDK 布局正确；
+完整构建与测试仍使用 `./scripts/run_all_tests.sh`。
+
 `src/` 各层实现目录、`src/cli/` 与 `demo/` 使用 `GLOB_RECURSE CONFIGURE_DEPENDS`
 递归收集 `.cpp`，普通实现文件增删无需修改 CMake，下次构建自动更新。
 Engine 的 `backends/` 单独归 Backend 目标；Adapter 的 `shared_algorithm_runtime.cpp`

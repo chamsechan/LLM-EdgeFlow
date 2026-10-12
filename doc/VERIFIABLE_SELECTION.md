@@ -126,7 +126,8 @@ python3 tools/verify_selection.py check \
 
 当前 [Whisper Backend](../src/engine/backends/whisper_cpp/whisper_cpp_backend.cpp) 支持 CPU，
 设备 ID 为 0 或省略。启用 `ENABLE_WHISPERCPP` 还需启用 `ENABLE_LLAMACPP` 复用 GGML，
-并关闭 `ENABLE_KITELLM`；约束由 [CMake 模块](../cmake_ext/WhisperCpp.cmake)执行。
+并关闭 `ENABLE_KITELLM`；共享 GGML 的要求由 [Whisper 模块](../cmake_ext/engines/WhisperCpp.cmake)
+执行，Kite 互斥约束由 [公司接入模块](../cmake_ext/company/KiteLlm.cmake)执行。
 权重准备见[模型资产说明](../configs/README.md)。默认构建通过、测试替身通过或单条真实音频通过，
 均不能代替目标语料的识别效果和目标设备性能验收。
 

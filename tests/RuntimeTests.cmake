@@ -201,6 +201,10 @@ set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
 
 # 架构与源码治理门禁。
+add_test(NAME CMakeStructureTest
+  COMMAND ${CMAKE_COMMAND}
+          -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+          -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_cmake_structure.cmake)
 add_test(NAME LayerGuardTest
   COMMAND ${CMAKE_COMMAND} -E env
           "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
@@ -232,7 +236,7 @@ add_test(NAME DiagramRenderGateSelfTest
 add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
 set_tests_properties(
-  ThirdPartyCacheMetadataTest SpecSignatureDiagnosticsTest
+  CMakeStructureTest ThirdPartyCacheMetadataTest SpecSignatureDiagnosticsTest
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
   DocLinksTest DocLinksSelfTest ScriptGeneratorDetectionTest

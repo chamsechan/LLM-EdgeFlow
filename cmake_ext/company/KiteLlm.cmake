@@ -5,11 +5,14 @@ set(LLM_EDGEFLOW_HAS_KITELLM OFF)
 if(NOT ENABLE_KITELLM)
   return()
 endif()
-if(ENABLE_LLAMACPP)
+if(ENABLE_LLAMACPP OR ENABLE_WHISPERCPP)
   message(FATAL_ERROR
     "kiteLLM embeds a different llama.cpp/ggml version. Use "
-    "-DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF to avoid symbol collisions.")
+    "-DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF -DENABLE_WHISPERCPP=OFF "
+    "to avoid symbol collisions.")
 endif()
+
+include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 
 set(_kite_release "v0.1.0")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
@@ -26,7 +29,7 @@ else()
     "${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 set(_kite_asset "kiteLLM-${_kite_platform}.tar.gz")
-set(_kite_cache "${LLM_EDGEFLOW_3RDPARTY_DIR}/kite_llm/${_kite_release}/${_kite_platform}")
+set(_kite_cache "${CMAKE_SOURCE_DIR}/3rdparty/kite_llm/${_kite_release}/${_kite_platform}")
 set(_kite_archive "${_kite_cache}/${_kite_asset}")
 file(MAKE_DIRECTORY "${_kite_cache}")
 # 不同构建目录共享此归档缓存。
@@ -140,4 +143,6 @@ if(NOT KITELLM_DIRECT_API_COMPATIBLE)
     "toolchain and OpenMP/system runtime compatibility in CMake's configure log.")
 endif()
 set(LLM_EDGEFLOW_HAS_KITELLM ON)
+list(APPEND LLM_EDGEFLOW_BACKEND_COMPILE_DEFINITIONS HAVE_KITELLM=1)
+list(APPEND THIRD_PARTY_ENGINE_LIBS kiteLLM::kiteLLM)
 message(STATUS "[kiteLLM] Verified ${_kite_release}: ${_kite_imported_library}")

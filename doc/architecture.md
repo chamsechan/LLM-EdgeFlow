@@ -282,7 +282,8 @@ Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填�
 ### 编译期边界与 Composition Root
 
 各层按总览表中的职责目标独立编译，只链接其下方的
-dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
+dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，通过
+`cmake_ext/RuntimeGraph.cmake` 定义层目标与依赖，通过 `ProductTargets.cmake` 装配产物，另以
 `edgeflow_composition_objects` 持有日志和共享运行时装配翻译单元。最终 SDK、仓库工具和
 测试只聚合这些对象，不重新声明层内源码。
 

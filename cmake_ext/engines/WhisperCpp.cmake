@@ -1,4 +1,6 @@
-# cmake_ext/WhisperCpp.cmake
+include(FetchContent)
+include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+
 # whisper.cpp 开源语音转写引擎配置 (用于 float32 16kHz PCM 音频转写)
 
 option(ENABLE_WHISPERCPP "Enable whisper.cpp ASR engine (reuses shared GGML provider)" OFF)
@@ -14,14 +16,9 @@ if(NOT ENABLE_LLAMACPP)
     "ENABLE_WHISPERCPP=ON requires ENABLE_LLAMACPP=ON to reuse the shared GGML runtime provider.")
 endif()
 
-if(ENABLE_KITELLM)
-  message(FATAL_ERROR
-    "ENABLE_WHISPERCPP=ON cannot coexist with ENABLE_KITELLM=ON in the current architecture.")
-endif()
-
 message(STATUS "[Model Execution] Enabling whisper.cpp Backend support...")
 
-set(WHISPER_3RDPARTY_DIR "${LLM_EDGEFLOW_3RDPARTY_DIR}/whisper_cpp")
+set(WHISPER_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/whisper_cpp")
 set(_WHISPER_FOUND OFF)
 set(LLM_EDGEFLOW_WHISPERCPP_COMMIT "371b5a7561823ab2bb32142d2751e35e7534727b")
 set(_WHISPER_SOURCE_SHA256 "89051d8fca516a3ad1f5c2f8f9d2fccb089afbaec338fca3f8731999babc6f81")
