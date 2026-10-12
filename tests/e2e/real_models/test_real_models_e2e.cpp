@@ -113,7 +113,7 @@ TEST_F(RealModelExecutionTest,
       << api::GetOperatorLastError();
   std::string request = R"({"query":"Hello world."})";
   CompanyString text{static_cast<int32_t>(request.size()), request.data()};
-  CompanyOperatorEntityInput carrier{0, &text};
+  CompanyOperatorEntityInput carrier{kMockServiceTranslate, &text};
   api::NamedIoBatch inputs(1), outputs(1);
   inputs[0]["real.entity_in"] = api::MakeBorrowedOperatorInput(&carrier);
   outputs[0]["real.json_out"] = {};
@@ -151,7 +151,7 @@ TEST_F(RealModelExecutionTest,
   ASSERT_EQ(instance.Open("configs/pipeline_audio_asr_intent_cpu.conf", root),
             0)
       << api::GetOperatorLastError();
-  CompanyOperatorAudioInput carrier{0, pcm.data(),
+  CompanyOperatorAudioInput carrier{kMockServiceAudioAsrIntent, pcm.data(),
                                     static_cast<int32_t>(pcm.size()), 16000};
   api::NamedIoBatch inputs(1), outputs(1);
   inputs[0]["real.audio_in"] = api::MakeBorrowedOperatorInput(&carrier);
