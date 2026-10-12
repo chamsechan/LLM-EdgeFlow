@@ -41,7 +41,8 @@ ctest --test-dir build -R '^OperatorOutputPoolTest\.' --output-on-failure --no-t
 
 四个 runner 的源码目录在 `RuntimeTests.cmake` 中定义。GoogleTest 从编译出的用例生成 CTest
 入口，包含脚手架的原样生成测试；新 suite 不需要加入历史名称清单。`TestLabelsContractTest`
-把实际用例与 CTest 过滤器对照，拒绝空匹配、漏执行、重复执行及不明确的 tier。
+把实际用例与 CTest 过滤器对照，拒绝空匹配、漏执行、重复执行及不明确的 tier，
+同时拒绝禁用的 CTest 条目和仅列举 GoogleTest 用例的命令。
 独立 registry/SDK 目标保持进程和公开依赖隔离。
 
 测试 main 拒绝零执行和必需测试跳过，重复执行中任何一轮的必需跳过都会失败。可选资产
@@ -71,20 +72,20 @@ Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `ST
 
 ## 维护成本
 
-当前人工维护范围为 **22,461 行**，包含注释和空行，同一文件只计一次。
+当前人工维护范围为 **22,489 行**，包含注释和空行，同一文件只计一次。
 第三方、构建产物、生成输出和二进制资产不计；生成器及手写模板计入。
-这仍比设计预算上沿 20,200 行多 **2,261 行**，规模验收尚未达标。
+这仍比设计预算上沿 20,200 行多 **2,289 行**，规模验收尚未达标。
 
 | 范围 | 行数 |
 | --- | ---: |
-| 单元测试与工程、SDK 契约 | 14,398 |
+| 单元测试与工程、SDK 契约 | 14,426 |
 | 集成与工具入口测试 | 3,490 |
 | 可选真实权重 E2E | 170 |
 | helper、文本夹具、测试构建/发现配置与源码观测接口 | 1,415 |
 | Demo mock 场景、dev_support 替身与作者模板 | 1,781 |
 | ONNX 生成器与脚手架测试模板 | 306 |
 | 门禁、专项执行、资产获取脚本、sanitizer 配置与 CI | 901 |
-| **合计** | **22,461** |
+| **合计** | **22,489** |
 
 `tests/`、`dev_support/` 和 `demo/fixtures/mock/` 的人工代码与文本配置全部计入；
 脚本计入 `generate_test_onnx_model.py`、`run_all_tests.sh`、`run_sanitizers.sh`、

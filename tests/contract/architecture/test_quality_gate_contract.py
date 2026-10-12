@@ -113,6 +113,28 @@ TEST(Guard, OptionalAsset) {
         command += [str(source), str(HARNESS.gtest_main), str(HARNESS.gtest_library), '-o', str(executable)]
         compiled = subprocess.run(command, capture_output=True, text=True, timeout=60)
         self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+        registrations = self.root / 'registrations'
+        registrations.mkdir()
+        for name, argument, property_, diagnostic in (
+                ('enabled', '', '', ''),
+                ('execution_zero', '--gtest_list_tests=0', '', ''),
+                ('execution_false', '--gtest_list_tests=false', '', ''),
+                ('disabled', '', 'DISABLED TRUE', 'Registered CTest entry is disabled'),
+                ('list_only', '--gtest_list_tests', '', 'CTest execution command must not list GoogleTest cases'),
+                ('list_valued', '--gtest_list_tests=1', '', 'CTest execution command must not list GoogleTest cases')):
+            with self.subTest(registration=name):
+                (registrations / 'CTestTestfile.cmake').write_text(
+                    f'add_test(registered "{executable}" --gtest_filter=* {argument})\n'
+                    f'set_tests_properties(registered PROPERTIES LABELS tier1 SKIP_RETURN_CODE 77 {property_})\n'
+                    'add_test(other cmake -E true)\n'
+                    'set_tests_properties(other PROPERTIES LABELS tier1)\n')
+                inspected = subprocess.run(
+                    [sys.executable, str(ROOT / 'tests/contract/architecture/test_test_labels_contract.py'),
+                     '--build-dir', str(registrations)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(inspected.returncode, 1 if diagnostic else 0,
+                                 inspected.stdout + inspected.stderr)
+                if diagnostic:
+                    self.assertIn(diagnostic, inspected.stdout + inspected.stderr)
         for name, expected in (('Pass', 0), ('Fail', 1), ('RequiredSkip', 1),
                                ('EmptyAssetMarker', 1), ('OptionalAsset', 77), ('Absent', 1)):
             with self.subTest(name=name):

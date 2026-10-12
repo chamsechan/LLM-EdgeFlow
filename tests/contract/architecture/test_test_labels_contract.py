@@ -24,10 +24,16 @@ class TestRegistrationConsumerTest(unittest.TestCase):
         for test in tests:
             with self.subTest(test=test['name']):
                 properties = {item['name']: item['value'] for item in test.get('properties', [])}
+                self.assertFalse(properties.get('DISABLED', False), 'Registered CTest entry is disabled')
                 labels = set(properties.get('LABELS', []))
                 self.assertEqual(len(labels & {'tier1', 'tier2', 'tier3', 'tier4'}), 1)
                 command = test.get('command', [])
                 self.assertTrue(command, 'registered test needs an executable command')
+                listing_flags = [argument.partition('=') for argument in command
+                                 if argument.split('=', 1)[0] == '--gtest_list_tests']
+                self.assertFalse(any(not separator or value[:1] not in ('0', 'f', 'F')
+                                     for _, separator, value in listing_flags),
+                                 'CTest execution command must not list GoogleTest cases')
                 filters = [argument.split('=', 1)[1] for argument in command if argument.startswith('--gtest_filter=')]
                 if not filters:
                     continue
