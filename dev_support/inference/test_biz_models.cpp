@@ -182,9 +182,6 @@ class TestBizRerankModel final
   }
 };
 
-struct LlmParams {
-  int max_seq_len;
-};
 std::string MockSchemaResponse(const std::string& prompt) {
   if (prompt.find("实体与名词抽取助手") != std::string::npos)
     return R"({"nouns":["mock entity"]})";
@@ -202,8 +199,7 @@ class TestBizLlmModel final : public FixtureModel<TestBizLlmModel, ILlmModel> {
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic) {
     if (!RequireFixtureSession(context, diagnostic)) return nullptr;
-    (void)context
-        .Params<LlmParams>();  // Compatibility field for current mock Profiles.
+    (void)context.Params<NoParameters>();
     return std::make_shared<TestBizLlmModel>(context.backend_session);
   }
   int Generate(const TextBatch& inputs, const GenerateOptions&,
@@ -274,12 +270,7 @@ REGISTER_MODEL_WITH_DEFINITION(
     TestBizRerankModel,
     MockDefinition<TestBizRerankModel>("test_tensor_backend"));
 REGISTER_MODEL_WITH_DEFINITION(
-    TestBizLlmModel,
-    MockDefinition<TestBizLlmModel>(
-        "test_causal_lm_backend",
-        Parameters<LlmParams>{Field("max_seq_len", &LlmParams::max_seq_len)
-                                  .Default(512)
-                                  .Range(1, 1048576)}));
+    TestBizLlmModel, MockDefinition<TestBizLlmModel>("test_causal_lm_backend"));
 REGISTER_MODEL_WITH_DEFINITION(
     TestBizOcrModel, MockDefinition<TestBizOcrModel>("test_tensor_backend"));
 REGISTER_MODEL_WITH_DEFINITION(

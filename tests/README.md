@@ -72,9 +72,9 @@ Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `ST
 
 ## 维护成本
 
-当前人工维护范围为 **22,489 行**，包含注释和空行，同一文件只计一次。
+当前人工维护范围为 **22,465 行**，包含注释和空行，同一文件只计一次。
 第三方、构建产物、生成输出和二进制资产不计；生成器及手写模板计入。
-这仍比设计预算上沿 20,200 行多 **2,289 行**，规模验收尚未达标。
+这仍比设计预算上沿 20,200 行多 **2,265 行**，规模验收尚未达标。
 
 | 范围 | 行数 |
 | --- | ---: |
@@ -82,10 +82,10 @@ Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `ST
 | 集成与工具入口测试 | 3,490 |
 | 可选真实权重 E2E | 170 |
 | helper、文本夹具、测试构建/发现配置与源码观测接口 | 1,415 |
-| Demo mock 场景、dev_support 替身与作者模板 | 1,781 |
+| Demo mock 场景、dev_support 替身与作者模板 | 1,757 |
 | ONNX 生成器与脚手架测试模板 | 306 |
 | 门禁、专项执行、资产获取脚本、sanitizer 配置与 CI | 901 |
-| **合计** | **22,489** |
+| **合计** | **22,465** |
 
 `tests/`、`dev_support/` 和 `demo/fixtures/mock/` 的人工代码与文本配置全部计入；
 脚本计入 `generate_test_onnx_model.py`、`run_all_tests.sh`、`run_sanitizers.sh`、
