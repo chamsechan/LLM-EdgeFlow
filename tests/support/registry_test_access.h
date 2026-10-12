@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/node_registry.h"
 
@@ -48,6 +49,21 @@ class RegistryTestAccess {
       retired.swap(registry.entries_);
       registry.conflict_errors_.clear();
       registry.has_conflict_.store(false);
+    }
+  }
+
+  static void ResetConverters() {
+    auto& registry = IoConverterRegistry::Instance();
+    decltype(registry.input_converters_) inputs;
+    decltype(registry.output_converters_) outputs;
+    decltype(registry.output_parameters_) parameters;
+    {
+      std::lock_guard<std::mutex> audit_lock(registry.audit_mutex_);
+      std::lock_guard<std::mutex> lock(registry.mutex_);
+      inputs.swap(registry.input_converters_);
+      outputs.swap(registry.output_converters_);
+      parameters.swap(registry.output_parameters_);
+      registry.conflicts_.Clear();
     }
   }
 
