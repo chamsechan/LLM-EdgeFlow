@@ -1,6 +1,5 @@
 #include "adapter/operator/mock/operator_control_registry.h"
 
-#include <cmath>
 #include <cstring>
 
 #include "contracts/control_payload.h"
@@ -106,43 +105,6 @@ int OperatorControlRegistry::ResolveControlParam(
         nlohmann::json j;
         j["template"] = param->prompt_template_str;
         *out_cmd_id = kControlCmdUpdatePrompt;
-        *out_json_str = j.dump();
-        return 0;
-      }
-
-      case llm_edgeflow::operator_api::ControlCommand::kUpdateThreshold: {
-        const auto* param = static_cast<
-            const llm_edgeflow::operator_api::ControlUpdateThresholdParam*>(
-            control_param);
-        if (!std::isfinite(param->threshold) || param->threshold < 0.0f ||
-            param->threshold > 1.0f) {
-          if (error_msg) {
-            *error_msg =
-                "ControlUpdateThresholdParam::threshold must be a finite float "
-                "in range [0.0, 1.0]: " +
-                std::to_string(param->threshold);
-          }
-          return -2;
-        }
-        std::string cat = "";
-        if (param->category_or_rule_name) {
-          size_t cat_len = strnlen(param->category_or_rule_name, 256);
-          if (cat_len >= 256) {
-            if (error_msg) {
-              *error_msg =
-                  "ControlUpdateThresholdParam::category_or_rule_name exceeds "
-                  "256 bytes";
-            }
-            return -2;
-          }
-          cat = param->category_or_rule_name;
-        }
-        nlohmann::json j;
-        j["threshold"] = param->threshold;
-        if (!cat.empty()) {
-          j["category"] = cat;
-        }
-        *out_cmd_id = kControlCmdUpdateThreshold;
         *out_json_str = j.dump();
         return 0;
       }

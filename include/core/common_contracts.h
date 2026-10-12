@@ -19,8 +19,6 @@ namespace llm_edgeflow {
 
 inline constexpr int kControlCmdUpdateRules = 1;
 inline constexpr int kControlCmdUpdatePrompt = 2;
-inline constexpr int kControlCmdUpdateThreshold = 3;
-inline constexpr int kControlCmdUpdateParams = 4;
 
 // ==============================================================================
 // 2. 基础批处理值类型 (Common Contract Value Types)

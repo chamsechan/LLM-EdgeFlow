@@ -26,7 +26,8 @@ TEST(TextTemplateNodeTest,
       << node.diagnostic;
   AlgContext context;
   ASSERT_TRUE(context.Publish(
-      "primary", TextBatch{{7, 8, "P8"}, {2, 9, "P2"}, {7, 3, "P3"}}));
+      "primary",
+      TextBatch{{7, 8, "P8 {{context}}"}, {2, 9, "P2"}, {7, 3, "P3"}}));
   ASSERT_TRUE(context.Publish("context",
                               RankedTextBatch{{7, 9, RankedCandidate("C1")},
                                               {2, 4, RankedCandidate("C2")},
@@ -45,7 +46,8 @@ TEST(TextTemplateNodeTest,
   ASSERT_EQ(output->size(), 3u);
   EXPECT_EQ((*output)[0].req_id, 7u);
   EXPECT_EQ((*output)[0].sub_id, 8u);
-  EXPECT_EQ((*output)[0].data, "P8|C1;C3|route (VIP), word|D1;D2|{literal}");
+  EXPECT_EQ((*output)[0].data,
+            "P8 {{context}}|C1;C3|route (VIP), word|D1;D2|{literal}");
   EXPECT_EQ((*output)[1].req_id, 2u);
   EXPECT_EQ((*output)[1].sub_id, 9u);
   EXPECT_EQ((*output)[1].data, "P2|C2|other|D3|{literal}");

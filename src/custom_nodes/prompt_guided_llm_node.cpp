@@ -47,21 +47,6 @@ bool PreparePrompt(Params* params, std::string* error) {
   return true;
 }
 
-// 纯算法：使用变量渲染 prompt 模板。
-std::string RenderPromptFromParts(const std::vector<TextTemplateToken>& parts,
-                                  const std::string& input,
-                                  const std::string& context) {
-  std::string result;
-  for (const auto& part : parts) {
-    if (part.type == TextTemplateTokenType::kLiteral) {
-      result += part.value;
-    } else {
-      result += part.value == "input" ? input : context;
-    }
-  }
-  return result;
-}
-
 // 纯算法：移除 LLM 响应中的 Markdown 代码围栏。
 std::string StripMarkdownCodeFence(std::string_view text) {
   size_t start = text.find_first_not_of(" \t\r\n");
@@ -116,7 +101,10 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
     }
     prompts.emplace_back(
         item.req_id, item.sub_id,
-        RenderPromptFromParts(params.prompt_parts, item.data, context));
+        RenderTextTemplate(params.prompt_parts,
+                           [&](const std::string& name) -> std::string_view {
+                             return name == "input" ? item.data : context;
+                           }));
   }
   auto result = models.generator.Generate(prompts, params.generation);
   if (result.ok() && params.strip_markdown) {

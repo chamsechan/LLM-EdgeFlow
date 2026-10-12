@@ -58,7 +58,7 @@ validate service values before decoding. The batch bound is `min(max_frame_depth
 For one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows` from
 `converter_authoring.h`. Multiple logical streams and aggregations retain explicit algorithms.
 `SetInputValue<Host, Value>` copies validated carrier content into owned values; the input row
-callback receives `const Value&` and publishes business payloads. Output callbacks fill `Value*`,
+callback receives `const Value&`, or `Value&` to move owned payloads. Output callbacks fill `Value*`,
 including ordinary `std::string` fields; `EncodeResultRows` or explicit `WriteOutputValue` calls
 the writer registered with `SetOutputValue<Host, Value>` using the leased pool specification.
 Bindings alone read/write platform members, string lengths, metadata and layouts.

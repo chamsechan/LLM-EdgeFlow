@@ -305,6 +305,29 @@ TEST(TraceableBatchOperationsTest, SelectionAndScatterRejectInvalidCoverage) {
   }
 }
 
+TEST(TraceableBatchOperationsTest, SelectionPrefersPayloadWhenBothAreCallable) {
+  struct Predicate {
+    int payload_calls = 0;
+    int item_calls = 0;
+
+    bool operator()(const std::string& payload) {
+      ++payload_calls;
+      return payload == "selected";
+    }
+    NodeResult<bool> operator()(const TraceableItem<std::string>&) {
+      ++item_calls;
+      return NodeResult<bool>::Failure(NodeErrorKind::kBusinessError,
+                                       "item overload must not run");
+    }
+  } predicate;
+  const TextBatch anchor{{30, 9, "keep"}, {10, 2, "selected"}};
+  auto result = SelectBatch(anchor, predicate);
+  ASSERT_TRUE(result.ok());
+  ExpectBatch(result.value().Materialize(), TextBatch{{10, 2, "selected"}});
+  EXPECT_EQ(predicate.payload_calls, 2);
+  EXPECT_EQ(predicate.item_calls, 0);
+}
+
 TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
   const TextBatch anchor{{30, 9, "first"}, {10, 2, "second"}, {30, 1, "third"}};
   struct Case {
@@ -347,6 +370,26 @@ TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
   ASSERT_TRUE(item_predicate.ok());
   ExpectBatch(item_predicate.value().Materialize(),
               TextBatch{{10, 2, "second"}});
+
+  int item_calls = 0;
+  auto failed_item = SelectBatch(
+      anchor, [&](const TraceableItem<std::string>& item) -> NodeResult<bool> {
+        ++item_calls;
+        if (item.req_id != 10) return NodeResult<bool>::Success(true);
+        return NodeResult<bool>::Failure(
+            NodeErrorKind::kInputError, "item predicate failed",
+            BatchFailureDetail{"previous operation",
+                               BatchFailureReason::kMissing,
+                               TraceableItemKey{88, 4}},
+            -933);
+      });
+  ASSERT_FALSE(failed_item.ok());
+  EXPECT_EQ(item_calls, 2);
+  ExpectDetail(failed_item.failure(), "SelectBatch",
+               BatchFailureReason::kCallbackFailed, {10, 2},
+               NodeErrorKind::kInputError);
+  EXPECT_EQ(failed_item.failure().cause_code, -933);
+  EXPECT_EQ(failed_item.failure().message, "item predicate failed");
 }
 
 TEST(TraceableBatchOperationsTest,

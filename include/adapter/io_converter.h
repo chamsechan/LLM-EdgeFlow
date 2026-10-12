@@ -29,29 +29,28 @@ namespace llm_edgeflow {
 class ExternalInputBatchView {
  public:
   size_t count = 0;
-  std::unordered_map<std::string, std::vector<std::shared_ptr<void>>> slots;
-  std::unordered_map<std::string, std::string> slot_types;
+  std::string slot;
+  std::string external_c_type_name;
+  std::vector<std::shared_ptr<void>> values;
 
   const OperatorValueTypeBinding* binding = nullptr;
 
   template <typename T>
-  std::optional<T> Read(const std::string& slot, size_t index,
+  std::optional<T> Read(const std::string& slot_name, size_t index,
                         AdapterStatus* status) const {
-    auto it = slots.find(slot);
-    auto type = slot_types.find(slot);
-    if (!binding || binding->value_type != typeid(T) ||
-        type == slot_types.end() ||
-        type->second != binding->external_c_type_name || it == slots.end() ||
-        index >= it->second.size() || !it->second[index]) {
+    if (!binding || binding->value_type != typeid(T) || slot != slot_name ||
+        external_c_type_name != binding->external_c_type_name ||
+        index >= values.size() || !values[index]) {
       if (status)
         *status = AdapterStatus::InvalidInput(
-            "Missing or mismatched input binding", slot);
+            "Missing or mismatched input binding", slot_name);
       return std::nullopt;
     }
     std::string error;
-    const void* raw = it->second[index].get();
+    const void* raw = values[index].get();
     if (binding->validate_external(raw, InputLimits{}, &error) != 0) {
-      if (status) *status = AdapterStatus::InvalidInput(std::move(error), slot);
+      if (status)
+        *status = AdapterStatus::InvalidInput(std::move(error), slot_name);
       return std::nullopt;
     }
     return std::any_cast<T>(binding->read_value(raw));
@@ -63,39 +62,31 @@ class ExternalOutputBatchView {
  public:
   size_t count = 0;
   bool required = true;
-  std::unordered_map<std::string, std::vector<void*>> leased_slots;
-  std::unordered_map<std::string, std::string> slot_types;
-  std::unordered_map<std::string, const ResolvedOutputPoolSpec*> pool_specs;
-
-  const ResolvedOutputPoolSpec* GetPoolSpec(
-      const std::string& slot_name) const {
-    auto it = pool_specs.find(slot_name);
-    return it == pool_specs.end() ? nullptr : it->second;
-  }
+  std::string slot;
+  std::string external_c_type_name;
+  std::vector<void*> leased_values;
+  const ResolvedOutputPoolSpec* pool_spec = nullptr;
 
   const OperatorValueTypeBinding* binding = nullptr;
 
-  bool HasSlot(const std::string& slot, size_t index) const {
-    auto it = leased_slots.find(slot);
-    return it != leased_slots.end() && index < it->second.size() &&
-           it->second[index];
+  bool HasSlot(const std::string& slot_name, size_t index) const {
+    return slot == slot_name && index < leased_values.size() &&
+           leased_values[index];
   }
 
   template <typename T>
-  AdapterStatus Write(const std::string& slot, size_t index,
+  AdapterStatus Write(const std::string& slot_name, size_t index,
                       const T& value) const {
-    auto type = slot_types.find(slot);
     if (!binding || binding->value_type != typeid(T) ||
-        type == slot_types.end() ||
-        type->second != binding->external_c_type_name || !HasSlot(slot, index))
+        external_c_type_name != binding->external_c_type_name ||
+        !HasSlot(slot_name, index))
       return AdapterStatus::BufferTooSmall(
-          "Missing or mismatched output binding", slot);
-    const auto* spec = GetPoolSpec(slot);
-    if (!spec)
+          "Missing or mismatched output binding", slot_name);
+    if (!pool_spec)
       return AdapterStatus::BufferTooSmall(
-          "Missing output capacity specification", slot);
-    auto* raw = leased_slots.at(slot)[index];
-    return binding->write_value(raw, std::any(value), *spec);
+          "Missing output capacity specification", slot_name);
+    return binding->write_value(leased_values[index], std::any(value),
+                                *pool_spec);
   }
 };
 
