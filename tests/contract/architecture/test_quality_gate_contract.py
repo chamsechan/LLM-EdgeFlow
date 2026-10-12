@@ -156,8 +156,8 @@ TEST(Guard, OptionalAsset) {
             'set_tests_properties(optional PROPERTIES SKIP_RETURN_CODE 77 '
             'SKIP_REGULAR_EXPRESSION "SKIPPED")\n')
         for name, code in (('required', 8), ('optional', 0)):
-            checked = subprocess.run(['ctest', '--test-dir', str(driver), '-R', f'^{name}$',
-                                      '--output-on-failure', '--no-tests=error'], capture_output=True, text=True)
+            checked = subprocess.run(['ctest', '-R', f'^{name}$', '--output-on-failure', '--no-tests=error'],
+                                     cwd=driver, capture_output=True, text=True)
             self.assertEqual(checked.returncode, code, checked.stdout + checked.stderr)
         self.assertIn('Skipped', checked.stdout)
         listing = subprocess.run([str(executable), '--gtest_list_tests'],

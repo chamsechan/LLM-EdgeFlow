@@ -36,7 +36,7 @@ Converter、Validator、Pipeline 和 Node；仅替换模型边界。Demo/Python 
 ```bash
 cmake --build build --target edgeflow_test_nodes_runner -j4
 ./build/edgeflow_test_nodes_runner --gtest_filter='TextChunkNodeTest.*'
-ctest --test-dir build -R '^OperatorOutputPoolTest\.' --output-on-failure --no-tests=error
+(cd build && ctest -R '^OperatorOutputPoolTest\.' --output-on-failure --no-tests=error)
 ```
 
 四个 runner 的源码目录在 `RuntimeTests.cmake` 中定义。GoogleTest 从编译出的用例生成 CTest

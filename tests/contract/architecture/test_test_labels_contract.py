@@ -13,7 +13,7 @@ BUILD = None
 
 class TestRegistrationConsumerTest(unittest.TestCase):
     def test_current_registrations_have_one_tier_and_nonempty_actual_gtest_filters(self):
-        process = subprocess.run(['ctest', '--test-dir', str(BUILD), '--show-only=json-v1'],
+        process = subprocess.run(['ctest', '--show-only=json-v1'], cwd=BUILD,
                                  capture_output=True, text=True, check=True)
         tests = json.loads(process.stdout)['tests']
         self.assertTrue(tests, 'CTest discovery must not be empty')
