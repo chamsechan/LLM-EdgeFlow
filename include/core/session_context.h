@@ -270,10 +270,6 @@ class SessionContext {
   }
 
  private:
-  // The test observer reads flight ownership to establish an exact waiter
-  // cohort.
-  friend struct SessionResourceTestAccess;
-
   struct ResourceEntry {
     std::shared_ptr<void> value;
     std::type_index type;

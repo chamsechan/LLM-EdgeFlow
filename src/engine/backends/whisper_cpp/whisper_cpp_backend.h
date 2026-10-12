@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 
@@ -18,13 +17,6 @@ class WhisperCppBackend final : public BackendIdentity<WhisperCppBackend> {
   std::shared_ptr<IBackendSession> Load(
       const BackendLoadSpec& spec,
       std::string* diagnostic = nullptr) noexcept override;
-
-  void SetLoadHook(std::function<void()> hook) noexcept {
-    test_load_hook_ = std::move(hook);
-  }
-
- private:
-  std::function<void()> test_load_hook_;
 };
 
 }  // namespace llm_edgeflow

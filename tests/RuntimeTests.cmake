@@ -106,9 +106,6 @@ add_executable(edgeflow_test_adapter_runner
 )
 edgeflow_configure_gtest_target(edgeflow_test_adapter_runner)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE edgeflow_test_allocation_failure)
-# The condition-variable observer in the pool tests forwards to the real
-# standard-library wait. It is linked only into this executable.
-target_link_libraries(edgeflow_test_adapter_runner PRIVATE ${CMAKE_DL_LIBS})
 
 file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp")
