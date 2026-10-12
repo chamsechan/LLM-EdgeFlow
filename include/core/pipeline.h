@@ -95,9 +95,6 @@ class Pipeline {
   static NodeExecutionResult ExecuteNodeSafely(INode* node, AlgContext* req_ctx,
                                                std::string_view node_name);
 
-  friend class PipelineConfigTest;
-  std::function<void()> test_internal_hook_;
-
   State state_ = State::kEmpty;
   ExecutionMode execution_mode_ = ExecutionMode::kSequential;
   // 使用堆所有权，确保完整暂存的运行时组件提交到本 façade 时，

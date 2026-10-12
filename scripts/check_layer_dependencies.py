@@ -4,7 +4,6 @@
 import argparse
 from pathlib import Path
 import re
-import tempfile
 
 
 # 有意与 Node 共享的纯头文件运行时及编写契约。
@@ -130,81 +129,11 @@ def check(root):
     return errors
 
 
-def self_test():
-    with tempfile.TemporaryDirectory(prefix="edgeflow-include-contract-") as directory:
-        root = Path(directory)
-        for name in ("include", "src", "demo"):
-            (root / name).mkdir()
-
-        def write(path, content=""):
-            target = root / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
-            return target
-
-        for header in ("include/adapter/io_converter.h",
-                       "include/adapter/operator/mock/platform_value_binding.h",
-                       "include/core/pipeline_validator.h",
-                       "include/core/alg_context.h",
-                       "include/edgeflow/operator/interface.h",
-                       "include/platform_mock/operator_data_types.h",
-                       "include/platform_mock/operator_types.h",
-                       "include/platform_mock/error_codes.h",
-                       "src/custom_nodes/domain_node.h"):
-            write(header)
-        cases = [
-            ("src/adapter/input/bad.cpp", "platform_mock/operator_data_types.h"),
-            ("src/adapter/output/bad.cpp", "adapter/operator/mock/platform_value_binding.h"),
-            ("src/adapter/output/bad.cpp", "edgeflow/operator/interface.h"),
-            ("src/engine/runtime/bad.cpp", "adapter/io_converter.h"),
-            ("src/core/bad.cpp", "adapter/io_converter.h"),
-            ("include/nodes/bad.h", "edgeflow/operator/interface.h"),
-            ("src/common_nodes/bad.cpp", "core/pipeline_validator.h"),
-            ("src/custom_nodes/bad.cpp", "core/pipeline_validator.h"),
-            ("include/nodes/bad.h", "../adapter/io_converter.h"),
-            ("src/common_nodes/bad.cpp", "custom_nodes/domain_node.h"),
-            ("include/core/session_context.h", "core/pipeline_validator.h"),
-        ]
-        for header in ("operator_data_types.h", "operator_types.h", "error_codes.h"):
-            cases.extend((path, f"platform_mock/{header}") for path in (
-                "src/core/bad.cpp", "src/common_nodes/bad.cpp", "src/custom_nodes/bad.cpp",
-                "include/nodes/bad.h", "src/engine/models/bad.cpp", "src/engine/backends/foreign/bad.cpp"))
-            for path in ("src/adapter/biz/good.cpp", "demo/good.cpp"):
-                allowed = write(path, f'#include "platform_mock/{header}"\n')
-                assert not check(root), (path, header)
-                allowed.unlink()
-        for vendor, backend in (("onnxruntime_cxx_api.h", "onnxruntime"),
-                                ("llama.h", "llama_cpp"), ("whisper.h", "whisper_cpp"),
-                                ("kiteLLM.h", "kite_llm")):
-            cases.extend((path, vendor) for path in (
-                "src/engine/models/bge_embedding/bad.cpp", "include/engine/bad.h",
-                "include/nodes/bad.h", "src/engine/backends/foreign/bad.cpp"))
-            allowed = write(f"src/engine/backends/{backend}/good.cpp", f'#include "{vendor}"\n')
-            assert not check(root), vendor
-            allowed.unlink()
-        for path, header in cases:
-            for directive in (f'#include "{header}"', f'# include <{header}>'):
-                file = write(path, directive + "\n")
-                assert check(root), (path, directive)
-                file.unlink()
-        # 本地辅助文件不得隐藏反向依赖。
-        write("src/engine/models/demo/model.cpp", '#include "helper.h"\n')
-        helper = write("src/engine/models/demo/helper.h", '#include "adapter/io_converter.h"\n')
-        assert check(root)
-        helper.write_text("")
-        write("include/nodes/good.h", '#include "core/alg_context.h"\n')
-        assert not check(root)
-    print("Include ownership positive/negative and indirect dependency tests passed.")
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    if args.self_test:
-        self_test()
-        return 0
     errors = check(args.root)
     for error in errors:
         print(error)

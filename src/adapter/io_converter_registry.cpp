@@ -236,18 +236,4 @@ IoConverterRegistry::OutputParameters(const std::string& type,
   return it->second;
 }
 
-void IoConverterRegistry::ClearForTesting() {
-  std::lock_guard<std::mutex> audit_lock(audit_mutex_);
-  std::lock_guard<std::mutex> lock(mutex_);
-  input_converters_.clear();
-  output_converters_.clear();
-  output_parameters_.clear();
-  conflicts_.Clear();
-}
-
-void IoConverterRegistry::ResetConflictForTesting() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  conflicts_.Clear();
-}
-
 }  // namespace llm_edgeflow

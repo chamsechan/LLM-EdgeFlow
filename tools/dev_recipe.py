@@ -410,7 +410,7 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path,
         if recipe == "text-llm-node":
             step = "focused_test"
             runner = build / "edgeflow_test_nodes_runner"
-            filter_arg = f"--gtest_filter=CustomNodeCatalogTest.{name}_*"
+            filter_arg = f"--gtest_filter=ScaffoldGeneratedNodeTest.{name}_*"
             discovery = subprocess.run([str(runner), filter_arg, "--gtest_list_tests"], cwd=root,
                                        capture_output=True, text=True, check=False)
             count = sum(bool(re.match(r"^  [A-Za-z_][A-Za-z0-9_]*(?:\s|$)", line)) for line in discovery.stdout.splitlines())

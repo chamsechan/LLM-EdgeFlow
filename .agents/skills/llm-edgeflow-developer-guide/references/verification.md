@@ -33,7 +33,7 @@ do not mix a variant Catalog with default binaries.
    New `test_*.cpp` files in the directories matched by `tests/RuntimeTests.cmake` are
    automatically included in the owning runner; a new suite also needs a CTest filter.
    Keep process-isolated and opt-in tests explicitly registered. Generated custom Node
-   tests are collected from `tests/unit/nodes/` and use the existing `CustomNodeCatalogTest`
+   tests are collected from `tests/unit/nodes/` and use the existing `ScaffoldGeneratedNodeTest`
    filter. Confirm the actual cases run, not just that the runner builds.
    For the final gate, follow
    [CONTRIBUTING](../../../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate): run it directly

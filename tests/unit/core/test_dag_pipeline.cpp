@@ -1,714 +1,756 @@
 #include <gtest/gtest.h>
 
-#include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
-#include <iostream>
+#include <map>
+#include <memory>
 #include <mutex>
-#include <nlohmann/json.hpp>
+#include <new>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include "core/alg_context.h"
-#include "core/node_interface.h"
-#include "core/node_registry.h"
 #include "core/pipeline.h"
-#include "tests/support/pipeline_test_utils.h"
+#include "core/thread_pool.h"
+#include "tests/support/registry_test_access.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
+namespace {
+using Json = nlohmann::json;
+constexpr int kUpdate = 8127;
+const SessionResourceKey<int> kWitness("runtime_test_witness");
 
-static std::mutex s_trace_mutex;
-static std::vector<std::string> s_execution_trace;
-
-static void ResetExecutionTrace() {
-  std::lock_guard<std::mutex> lock(s_trace_mutex);
-  s_execution_trace.clear();
-}
-
-static void AppendExecutionTrace(std::string node_name) {
-  std::lock_guard<std::mutex> lock(s_trace_mutex);
-  s_execution_trace.push_back(std::move(node_name));
-}
-
-static std::vector<std::string> SnapshotExecutionTrace() {
-  std::lock_guard<std::mutex> lock(s_trace_mutex);
-  return s_execution_trace;
-}
-
-inline NodeDefinition MakeDagNodeDef(const std::string& type,
-                                     std::vector<NodePortDefinition> inputs,
-                                     std::vector<NodePortDefinition> outputs) {
-  NodeDefinition def;
-  def.node_type = type;
-  def.category = "test";
-  def.description = "test dag node";
-  def.inputs = std::move(inputs);
-  def.outputs = std::move(outputs);
-  def.parallel_safe = true;
-  return def;
-}
-
-// 辅助测试算子定义
-class DagTestNodeA : public INode {
- public:
-  inline static constexpr char kNodeType[] = "dag_test_node_a";
-  bool Init(const NodeInitContext& init_ctx) override {
-    plan_ = init_ctx.plan;
-    return plan_ != nullptr;
-  }
-  int Process(AlgContext* req_ctx) override {
-    AppendExecutionTrace("NodeA");
-    if (const auto* output =
-            plan_->FindPort("node_a_out", PortDirection::kOutput))
-      req_ctx->Publish(output->blackboard_key, std::string("DataFromA"));
-    return 0;
-  }
-  NodeControlResult Control(int cmd, const std::string& param) override {
-    (void)cmd;
-    (void)param;
-    return NodeControlResult::Handled(0);
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-
- private:
-  const ValidatedNodePlan* plan_ = nullptr;
-};
-REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
-                              MakeDagNodeDef(DagTestNodeA::kNodeType, {},
-                                             {{"node_a_out", "string"}}));
-
-class DagTestNodeB : public INode {
- public:
-  inline static constexpr char kNodeType[] = "dag_test_node_b";
-  bool Init(const NodeInitContext& init_ctx) override {
-    plan_ = init_ctx.plan;
-    return plan_ != nullptr;
-  }
-  int Process(AlgContext* req_ctx) override {
-    AppendExecutionTrace("NodeB");
-    // 必须依赖 NodeA 的输出
-    auto* a_out = req_ctx->Read<std::string>(
-        plan_->FindPort("node_a_out")->blackboard_key);
-    if (!a_out) return -101;
-    if (const auto* output =
-            plan_->FindPort("node_b_out", PortDirection::kOutput))
-      req_ctx->Publish(output->blackboard_key,
-                       std::string("DataFromB_after_") + *a_out);
-    return 0;
-  }
-  NodeControlResult Control(int cmd, const std::string& param) override {
-    (void)cmd;
-    (void)param;
-    return NodeControlResult::Handled(0);
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-
- private:
-  const ValidatedNodePlan* plan_ = nullptr;
-};
-REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
-                              MakeDagNodeDef(DagTestNodeB::kNodeType,
-                                             {{"node_a_out", "string"}},
-                                             {{"node_b_out", "string"}}));
-
-class DagTestNodeC : public INode {
- public:
-  inline static constexpr char kNodeType[] = "dag_test_node_c";
-  bool Init(const NodeInitContext& init_ctx) override {
-    plan_ = init_ctx.plan;
-    return plan_ != nullptr;
-  }
-  int Process(AlgContext* req_ctx) override {
-    AppendExecutionTrace("NodeC");
-    // 依赖 NodeA 的输出 (分支 2)
-    auto* a_out = req_ctx->Read<std::string>(
-        plan_->FindPort("node_a_out")->blackboard_key);
-    if (!a_out) return -102;
-    if (const auto* output =
-            plan_->FindPort("node_c_out", PortDirection::kOutput))
-      req_ctx->Publish(output->blackboard_key,
-                       std::string("DataFromC_after_") + *a_out);
-    return 0;
-  }
-  NodeControlResult Control(int cmd, const std::string& param) override {
-    (void)cmd;
-    (void)param;
-    return NodeControlResult::Handled(0);
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-
- private:
-  const ValidatedNodePlan* plan_ = nullptr;
-};
-REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
-                              MakeDagNodeDef(DagTestNodeC::kNodeType,
-                                             {{"node_a_out", "string"}},
-                                             {{"node_c_out", "string"}}));
-
-class DagTestUnsafeNodeC : public DagTestNodeC {
- public:
-  inline static constexpr char kNodeType[] = "dag_test_unsafe_node_c";
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
+enum class Failure { kNone, kReject, kStandard, kUnknown };
+struct Behavior {
+  Failure init = Failure::kNone;
+  Failure process = Failure::kNone;
+  int process_code = 0;
+  std::string process_error;
+  bool blocked = false;
+  NodeControlStatus control = NodeControlStatus::kHandled;
+  int control_code = 0;
 };
 
-inline NodeDefinition MakeUnsafeDagNodeDef() {
-  auto def =
-      MakeDagNodeDef(DagTestUnsafeNodeC::kNodeType, {{"node_a_out", "string"}},
-                     {{"node_c_out", "string"}});
-  def.parallel_safe = false;
-  return def;
-}
-
-REGISTER_NODE_WITH_DEFINITION(DagTestUnsafeNodeC, MakeUnsafeDagNodeDef());
-
-class DagTestNodeD : public INode {
- public:
-  inline static constexpr char kNodeType[] = "dag_test_node_d";
-  bool Init(const NodeInitContext& init_ctx) override {
-    plan_ = init_ctx.plan;
-    return plan_ != nullptr;
-  }
-  int Process(AlgContext* req_ctx) override {
-    AppendExecutionTrace("NodeD");
-    // 汇聚 NodeB 和 NodeC 两个分支
-    auto* b_out = req_ctx->Read<std::string>(
-        plan_->FindPort("node_b_out")->blackboard_key);
-    auto* c_out = req_ctx->Read<std::string>(
-        plan_->FindPort("node_c_out")->blackboard_key);
-    if (!b_out || !c_out) return -103;
-
-    if (const auto* output =
-            plan_->FindPort("final_dag_result", PortDirection::kOutput))
-      req_ctx->Publish(output->blackboard_key, *b_out + " + " + *c_out);
-    return 0;
-  }
-  NodeControlResult Control(int cmd, const std::string& param) override {
-    (void)cmd;
-    (void)param;
-    return NodeControlResult::Handled(0);
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-
- private:
-  const ValidatedNodePlan* plan_ = nullptr;
+struct Recording {
+  std::mutex mutex;
+  std::condition_variable changed;
+  std::map<std::string, Behavior> behavior;
+  std::vector<std::string> initialized, started, completed, destroyed,
+      controlled;
+  std::map<std::string, const ValidatedNodePlan*> plans;
+  std::map<std::string, SessionContext*> sessions;
+  std::map<std::string, int> control_values;
+  std::set<std::string> released;
+  std::weak_ptr<int> resource;
+  Pipeline* pipeline = nullptr;
+  std::vector<Pipeline::State> init_states;
+  bool retained_addresses_valid = true;
+  size_t active = 0;
+  size_t completed_at_return = 0;
+  size_t active_at_return = 0;
+  size_t config_validations = 0;
+  std::thread::id diagnostic_fault_caller;
+  std::function<void()> arm_diagnostic_fault;
+  std::string diagnostic_name;
+  bool diagnostic_fault_armed = false;
+  bool diagnostic_fault_triggered = false;
+  bool caught_bad_alloc = false;
 };
-REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
-                              MakeDagNodeDef(DagTestNodeD::kNodeType,
-                                             {{"node_b_out", "string"},
-                                              {"node_c_out", "string"}},
-                                             {{"final_dag_result", "string"}}));
 
-class ThrowingProcessDagNode : public INode {
+class RecorderNode final : public INode {
  public:
-  inline static constexpr char kNodeType[] = "throwing_process_dag";
-  bool Init(const NodeInitContext&) override { return true; }
-  static inline int failure_mode = 0;
-  int Process(AlgContext* ctx) override {
-    if (failure_mode == 1) throw 42;
-    if (failure_mode == 2) return -8103;
-    if (failure_mode == 3 || failure_mode == 4) {
-      ctx->SetError(-9999, "diagnostic from this invocation");
-      return -8104;
+  RecorderNode(std::shared_ptr<Recording> recording, std::string type)
+      : recording_(std::move(recording)), type_(std::move(type)) {}
+  ~RecorderNode() override {
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    if (plan_) {
+      recording_->retained_addresses_valid &=
+          plan_->node.name == instance_ && session_ &&
+          session_->GetResource(kWitness) == resource_.lock();
+      recording_->destroyed.push_back(instance_);
     }
-    throw std::runtime_error("parallel process failure");
   }
-  const std::string& Name() const override {
-    if (failure_mode == 4) throw std::bad_alloc();
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-REGISTER_NODE_WITH_DEFINITION(ThrowingProcessDagNode,
-                              MakeDagNodeDef(ThrowingProcessDagNode::kNodeType,
-                                             {}, {}));
-
-class GatedProcessDagNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "gated_process_dag";
-
-  static void Reset() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    started_ = false;
-    released_ = false;
-    completed_.store(false);
-  }
-
-  static bool WaitUntilStarted(std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return condition_.wait_for(lock, timeout, []() { return started_; });
-  }
-
-  static void Release() {
+  bool Init(const NodeInitContext& context) override {
+    plan_ = context.plan;
+    session_ = context.session_ctx;
+    instance_ = plan_->node.name;
+    auto resource = session_->GetOrCreateResource(
+        kWitness, [] { return std::make_shared<int>(19); });
+    resource_ = resource;
     {
-      std::lock_guard<std::mutex> lock(mutex_);
-      released_ = true;
+      std::lock_guard<std::mutex> lock(recording_->mutex);
+      recording_->initialized.push_back(instance_);
+      recording_->plans[instance_] = plan_;
+      recording_->sessions[instance_] = session_;
+      recording_->resource = resource;
+      if (recording_->pipeline)
+        recording_->init_states.push_back(recording_->pipeline->GetState());
+      behavior_ = recording_->behavior[instance_];
     }
-    condition_.notify_all();
+    if (behavior_.init == Failure::kStandard)
+      throw std::runtime_error("init failure");
+    if (behavior_.init == Failure::kUnknown) throw 19;
+    if (behavior_.init == Failure::kReject)
+      return context.Fail("init rejected");
+    return true;
   }
-
-  static bool Completed() { return completed_.load(); }
-
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override {
+  int Process(AlgContext* context) override {
     {
-      std::unique_lock<std::mutex> lock(mutex_);
-      started_ = true;
-      condition_.notify_all();
-      condition_.wait(lock, []() { return released_; });
+      std::unique_lock<std::mutex> lock(recording_->mutex);
+      recording_->started.push_back(instance_);
+      ++recording_->active;
+      recording_->changed.notify_all();
+      if (behavior_.blocked)
+        recording_->changed.wait(
+            lock, [&] { return recording_->released.count(instance_) > 0; });
     }
-    completed_.store(true);
-    return 0;
+    if (!behavior_.process_error.empty())
+      context->SetError(behavior_.process_code, behavior_.process_error);
+    if (behavior_.process == Failure::kNone && behavior_.process_code == 0)
+      context->Publish(instance_ + ".completed", 1);
+    {
+      std::lock_guard<std::mutex> lock(recording_->mutex);
+      recording_->completed.push_back(instance_);
+      --recording_->active;
+      recording_->changed.notify_all();
+    }
+    if (behavior_.process == Failure::kStandard)
+      throw std::runtime_error("process failure");
+    if (behavior_.process == Failure::kUnknown) throw 23;
+    return behavior_.process_code;
+  }
+  NodeControlResult Control(int, const std::string& payload) override {
+    const auto value = Json::parse(payload).at("limit").get<int>();
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    recording_->controlled.push_back(instance_);
+    if (behavior_.control == NodeControlStatus::kFailed)
+      return NodeControlResult::Failed(behavior_.control_code,
+                                       "update rejected");
+    if (behavior_.control == NodeControlStatus::kUnsupported)
+      return NodeControlResult::Unsupported();
+    recording_->control_values[instance_] = value;
+    return NodeControlResult::Handled();
   }
   const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    if (recording_->arm_diagnostic_fault &&
+        recording_->diagnostic_fault_caller == std::this_thread::get_id() &&
+        !recording_->diagnostic_fault_armed) {
+      recording_->arm_diagnostic_fault();
+      recording_->diagnostic_fault_armed = true;
+      recording_->changed.notify_all();
+    }
+    return recording_->diagnostic_name.empty() ? type_
+                                               : recording_->diagnostic_name;
   }
 
  private:
-  static inline std::mutex mutex_;
-  static inline std::condition_variable condition_;
-  static inline bool started_ = false;
-  static inline bool released_ = false;
-  static inline std::atomic<bool> completed_{false};
+  std::shared_ptr<Recording> recording_;
+  std::string type_, instance_;
+  const ValidatedNodePlan* plan_ = nullptr;
+  SessionContext* session_ = nullptr;
+  Behavior behavior_;
+  std::weak_ptr<int> resource_;
 };
-REGISTER_NODE_WITH_DEFINITION(GatedProcessDagNode,
-                              MakeDagNodeDef(GatedProcessDagNode::kNodeType, {},
-                                             {}));
 
-class ParallelFailureCoordinator {
- public:
-  static void Reset() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    first_error_set_ = false;
-    second_error_set_ = false;
+class PipelineRuntimeTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    test_support::RegistryTestAccess::ResetNodes();
+    NodeDefinition definition;
+    definition.node_type = "runtime_recorder";
+    definition.parallel_safe = true;
+    definition.validate_config = [recording = recording_](
+                                     const Json&, const BindingFacts&,
+                                     std::string*, std::string*) {
+      std::lock_guard<std::mutex> lock(recording->mutex);
+      ++recording->config_validations;
+      return true;
+    };
+    definition.control_commands = {
+        {kUpdate,
+         "update",
+         "",
+         {{"type", "object"},
+          {"required", {"limit"}},
+          {"additionalProperties", false},
+          {"properties", {{"limit", {{"type", "integer"}, {"minimum", 1}}}}}}}};
+    ASSERT_TRUE(NodeRegistry::Instance().Register(
+        definition.node_type,
+        [recording = recording_] {
+          return std::make_unique<RecorderNode>(recording, "runtime_recorder");
+        },
+        definition));
   }
 
-  static void MarkFirstAndWaitForSecond() {
-    std::unique_lock<std::mutex> lock(mutex_);
-    first_error_set_ = true;
-    condition_.notify_all();
-    condition_.wait(lock, []() { return second_error_set_; });
-  }
-
-  static void WaitForFirst() {
-    std::unique_lock<std::mutex> lock(mutex_);
-    condition_.wait(lock, []() { return first_error_set_; });
-  }
-
-  static void MarkSecond() {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      second_error_set_ = true;
+  std::unique_ptr<ValidatedPipelinePlan> Plan(
+      const std::vector<std::string>& names = {"first"}, size_t workers = 1,
+      bool chain = false) {
+    auto nodes = Json::array();
+    for (size_t i = 0; i < names.size(); ++i) {
+      Json node = {{"name", names[i]}, {"type", "runtime_recorder"}};
+      if (chain && i) node["depends_on"] = {names[i - 1]};
+      nodes.push_back(node);
     }
-    condition_.notify_all();
+    return std::make_unique<ValidatedPipelinePlan>(
+        PipelineValidator::ValidateAndPlan(
+            {{"pipeline", nodes}, {"max_parallel_workers", workers}}, {}));
   }
 
- private:
-  static inline std::mutex mutex_;
-  static inline std::condition_variable condition_;
-  static inline bool first_error_set_ = false;
-  static inline bool second_error_set_ = false;
-};
-
-class FirstFailingDagNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "first_failing_dag";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext* req_ctx) override {
-    req_ctx->SetError(-8101, "first parallel failure");
-    ParallelFailureCoordinator::MarkFirstAndWaitForSecond();
-    return -8101;
+  std::unique_ptr<ValidatedPipelinePlan> ParallelPlan() {
+    return std::make_unique<ValidatedPipelinePlan>(
+        PipelineValidator::ValidateAndPlan(
+            {{"max_parallel_workers", 2},
+             {"pipeline",
+              {{{"name", "first"}, {"type", "runtime_recorder"}},
+               {{"name", "second"}, {"type", "runtime_recorder"}},
+               {{"name", "lower"},
+                {"type", "runtime_recorder"},
+                {"depends_on", {"first", "second"}}}}}},
+            {}));
   }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-REGISTER_NODE_WITH_DEFINITION(FirstFailingDagNode,
-                              MakeDagNodeDef(FirstFailingDagNode::kNodeType, {},
-                                             {}));
 
-class SecondFailingDagNode : public INode {
- public:
-  inline static constexpr char kNodeType[] = "second_failing_dag";
-  bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext* req_ctx) override {
-    ParallelFailureCoordinator::WaitForFirst();
-    req_ctx->SetError(-8102, "second parallel failure");
-    ParallelFailureCoordinator::MarkSecond();
-    return -8102;
-  }
-  const std::string& Name() const override {
-    static const std::string name = kNodeType;
-    return name;
-  }
-};
-REGISTER_NODE_WITH_DEFINITION(SecondFailingDagNode,
-                              MakeDagNodeDef(SecondFailingDagNode::kNodeType,
-                                             {}, {}));
-
-// -----------------------------------------------------------------------------
-// GTest 测试套件
-// -----------------------------------------------------------------------------
-class DagPipelineTest : public ::testing::Test {};
-
-// 1. 乱序书写自动拓扑重排 (Shuffled JSON -> Correct Order)
-TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
-  // JSON 中故意将 D 写在最前，B 和 C 其次，A 写在最后 (逆序输入)
-  nlohmann::json config = {
-      {"pipeline",
-       {{{"name", "node_d"},
-         {"type", "dag_test_node_d"},
-         {"inputs",
-          {{"node_b_out", "node_b.node_b_out"},
-           {"node_c_out", "node_c.node_c_out"}}}},
-        {{"name", "node_c"},
-         {"type", "dag_test_node_c"},
-         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
-        {{"name", "node_b"},
-         {"type", "dag_test_node_b"},
-         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
-        {{"name", "node_a"}, {"type", "dag_test_node_a"}}}}};
-
-  for (int workers : {1, 4}) {
-    SCOPED_TRACE(workers);
-    config["max_parallel_workers"] = workers;
-    Pipeline pipeline;
-    bool ok = BuildTestPipeline(
-        pipeline, config,
-        MakeTestBoundary({}, {{"node_d.final_dag_result", "string"}}), nullptr);
-    ASSERT_TRUE(ok);
-
-    // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
-    const auto& order = pipeline.GetTopologicalOrder();
-    ASSERT_EQ(order.size(), 4U);
-    EXPECT_EQ(order[0], "node_a");
-    EXPECT_EQ(order[3], "node_d");
-
-    // 执行管线并验证执行轨迹
-    AlgContext req_ctx;
-    ResetExecutionTrace();
-
-    int ret = pipeline.Execute(&req_ctx);
-    EXPECT_EQ(ret, 0);
-
-    const auto trace = SnapshotExecutionTrace();
-    ASSERT_EQ(trace.size(), 4);
-    EXPECT_EQ(trace[0], "NodeA");
-    EXPECT_EQ(trace[3], "NodeD");
-
-    auto* final_res = req_ctx.Read<std::string>("node_d.final_dag_result");
-    ASSERT_NE(final_res, nullptr);
-    EXPECT_EQ(*final_res,
-              "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
-  }
-}
-
-// 2. 钻石分支与汇聚拓扑测试 (Diamond Branch & Merge)
-TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
-  nlohmann::json config = {
-      {"pipeline",
-       {{{"name", "A"},
-         {"type", "dag_test_node_a"},
-         {"depends_on", nlohmann::json::array()}},
-        {{"name", "B"},
-         {"type", "dag_test_node_b"},
-         {"inputs", {{"node_a_out", "A.node_a_out"}}},
-         {"depends_on", {"A"}}},
-        {{"name", "C"},
-         {"type", "dag_test_node_c"},
-         {"inputs", {{"node_a_out", "A.node_a_out"}}},
-         {"depends_on", {"A"}}},
-        {{"name", "D"},
-         {"type", "dag_test_node_d"},
-         {"inputs",
-          {{"node_b_out", "B.node_b_out"}, {"node_c_out", "C.node_c_out"}}},
-         {"depends_on", {"B", "C"}}}}}};
-
-  Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
-
-  AlgContext req_ctx;
-  ResetExecutionTrace();
-
-  int ret = pipeline.Execute(&req_ctx);
-  EXPECT_EQ(ret, 0);
-
-  const auto trace = SnapshotExecutionTrace();
-  ASSERT_EQ(trace.size(), 4);
-  EXPECT_EQ(trace[0], "NodeA");
-  EXPECT_EQ(trace[3], "NodeD");
-}
-
-// 异步波前分层并发调度测试 (Parallel Wavefront Execution)
-TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
-  nlohmann::json parallel_config = {
-      {"max_parallel_workers", 4},
-      {"pipeline",
-       {// Layer 0: Root 节点 A
-        {{"name", "node_a"},
-         {"type", "dag_test_node_a"},
-         {"depends_on", nlohmann::json::array()}},
-        // Layer 1: 兄弟节点 B 和 C 均依赖 A，在 Layer 1 并发执行
-        {{"name", "node_b"},
-         {"type", "dag_test_node_b"},
-         {"inputs", {{"node_a_out", "node_a.node_a_out"}}},
-         {"depends_on", {"node_a"}}},
-        {{"name", "node_c"},
-         {"type", "dag_test_node_c"},
-         {"inputs", {{"node_a_out", "node_a.node_a_out"}}},
-         {"depends_on", {"node_a"}}},
-        // Layer 2: 汇聚节点 D，依赖 B 和 C
-        {{"name", "node_d"},
-         {"type", "dag_test_node_d"},
-         {"inputs",
-          {{"node_b_out", "node_b.node_b_out"},
-           {"node_c_out", "node_c.node_c_out"}}},
-         {"depends_on", {"node_b", "node_c"}}}}}};
-
-  Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(
-      pipeline, parallel_config,
-      MakeTestBoundary({}, {{"node_d.final_dag_result", "string"}}), nullptr));
-  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
-
-  const auto& layers = pipeline.GetTopologicalLayers();
-  ASSERT_EQ(layers.size(), 3);
-  EXPECT_EQ(layers[0].size(), 1);  // 第 0 层：node_a
-  EXPECT_EQ(layers[1].size(),
-            2);                    // 第 1 层：node_b、node_c (并行波前)
-  EXPECT_EQ(layers[2].size(), 1);  // 第 2 层：node_d
-
-  AlgContext req_ctx;
-  ResetExecutionTrace();
-
-  int ret = pipeline.Execute(&req_ctx);
-  EXPECT_EQ(ret, 0);
-
-  auto* final_res = req_ctx.Read<std::string>("node_d.final_dag_result");
-  ASSERT_NE(final_res, nullptr);
-  EXPECT_EQ(*final_res,
-            "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
-}
-
-TEST_F(DagPipelineTest, UnsafeNodeRunsInOwnLayer) {
-  nlohmann::json config = {
-      {"pipeline",
-       {{{"name", "node_a"}, {"type", DagTestNodeA::kNodeType}},
-        {{"name", "node_b"},
-         {"type", DagTestNodeB::kNodeType},
-         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
-        {{"name", "node_c"},
-         {"type", DagTestUnsafeNodeC::kNodeType},
-         {"inputs", {{"node_a_out", "node_a.node_a_out"}}}},
-        {{"name", "node_d"},
-         {"type", DagTestNodeD::kNodeType},
-         {"inputs",
-          {{"node_b_out", "node_b.node_b_out"},
-           {"node_c_out", "node_c.node_c_out"}}}}}}};
-
-  for (int workers : {4, 1}) {
-    SCOPED_TRACE(workers);
-    config["max_parallel_workers"] = workers;
-    const auto report = PipelineValidator::Validate(config, MakeTestBoundary());
-    ASSERT_TRUE(report.ok) << report.ToJson().dump(2);
-    const std::vector<std::vector<std::string>> expected_layers =
-        workers > 1 ? std::vector<std::vector<std::string>>{{"node_a"},
-                                                            {"node_b"},
-                                                            {"node_c"},
-                                                            {"node_d"}}
-                    : std::vector<std::vector<std::string>>{
-                          {"node_a"}, {"node_b", "node_c"}, {"node_d"}};
-    EXPECT_EQ(report.topological_layers, expected_layers);
-    EXPECT_EQ(
-        report.topological_order,
-        (std::vector<std::string>{"node_a", "node_b", "node_c", "node_d"}));
-
-    Pipeline pipeline;
-    ASSERT_TRUE(BuildTestPipeline(
-        pipeline, config,
-        MakeTestBoundary({}, {{"node_d.final_dag_result", "string"}}),
-        nullptr));
-    AlgContext context;
-    ResetExecutionTrace();
-    EXPECT_EQ(pipeline.Execute(&context), 0);
-    const auto* result = context.Read<std::string>("node_d.final_dag_result");
-    ASSERT_NE(result, nullptr);
-    EXPECT_EQ(*result, "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
-    EXPECT_EQ(SnapshotExecutionTrace(),
-              (std::vector<std::string>{"NodeA", "NodeB", "NodeC", "NodeD"}));
-  }
-}
-
-TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
-  const nlohmann::json config = {
-      {"max_parallel_workers", 2},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "throwing"},
-                               {"type", ThrowingProcessDagNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}},
-                              {{"name", "gated"},
-                               {"type", GatedProcessDagNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  GatedProcessDagNode::Reset();
-  Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
-
-  AlgContext context;
-  auto execution = std::async(std::launch::async,
-                              [&]() { return pipeline.Execute(&context); });
-  EXPECT_TRUE(GatedProcessDagNode::WaitUntilStarted(std::chrono::seconds(1)));
-  EXPECT_EQ(execution.wait_for(std::chrono::milliseconds(50)),
-            std::future_status::timeout);
-
-  GatedProcessDagNode::Release();
-  EXPECT_EQ(execution.get(), -1);
-  EXPECT_TRUE(GatedProcessDagNode::Completed());
-  EXPECT_FALSE(context.IsOk());
-  EXPECT_NE(context.GetErrorMessage().find("parallel process failure"),
-            std::string::npos);
-}
-
-TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
-  const nlohmann::json config = {
-      {"max_parallel_workers", 2},
-      {"pipeline",
-       nlohmann::json::array({{{"name", "first"},
-                               {"type", FirstFailingDagNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}},
-                              {{"name", "second"},
-                               {"type", SecondFailingDagNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  ParallelFailureCoordinator::Reset();
-  Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
-
-  AlgContext context;
-  EXPECT_EQ(pipeline.Execute(&context), -8101);
-  EXPECT_EQ(context.GetErrorCode(), -8101);
-  EXPECT_NE(context.GetErrorMessage().find("Node 'first'"), std::string::npos);
-  EXPECT_NE(context.GetErrorMessage().find("first parallel failure"),
-            std::string::npos);
-}
-
-// 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)
-TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
-  AlgContext req_ctx;
-  const int num_threads = 16;
-  const int ops_per_thread = 500;
-
-  std::vector<std::thread> workers;
-  workers.reserve(num_threads);
-
-  for (int t = 0; t < num_threads; ++t) {
-    workers.emplace_back([&req_ctx, t]() {
-      for (int i = 0; i < ops_per_thread; ++i) {
-        std::string my_key =
-            "thread_" + std::to_string(t) + "_key_" + std::to_string(i % 10);
-        req_ctx.Publish(my_key, i * 100 + t);
-
-        // 并发读取
-        const int* val = req_ctx.Read<int>(my_key);
-        if (val) {
-          EXPECT_GE(*val, 0);
-        }
-
-        // 并发交叉读取共享 Key
-        if (req_ctx.Has("shared_counter")) {
-          req_ctx.Read<int>("shared_counter");
-        } else {
-          req_ctx.Publish("shared_counter", 1);
-        }
-      }
+  bool WaitFor(const std::vector<std::string>& names, bool completed = false) {
+    std::unique_lock<std::mutex> lock(recording_->mutex);
+    return recording_->changed.wait_for(lock, std::chrono::seconds(3), [&] {
+      const auto& events =
+          completed ? recording_->completed : recording_->started;
+      for (const auto& name : names)
+        if (std::find(events.begin(), events.end(), name) == events.end())
+          return false;
+      return true;
     });
   }
 
-  for (auto& w : workers) {
-    w.join();
+  void Release(const std::vector<std::string>& names) {
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    recording_->released.insert(names.begin(), names.end());
+    recording_->changed.notify_all();
   }
 
-  EXPECT_TRUE(req_ctx.IsOk());
-}
-
-TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
-  for (int workers : {1, 4}) {
-    for (int failure = 0; failure < 4; ++failure) {
-      ThrowingProcessDagNode::failure_mode = failure;
-      nlohmann::json config = {{"max_parallel_workers", workers},
-                               {"pipeline",
-                                {{{"name", "failing"},
-                                  {"type", ThrowingProcessDagNode::kNodeType},
-                                  {"depends_on", nlohmann::json::array()}}}}};
-      Pipeline pipeline;
-      EXPECT_TRUE(
-          BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
-      AlgContext ctx;
-      ctx.SetError(-9998, "stale diagnostic");
-      const int expected = failure < 2 ? -1 : (failure == 2 ? -8103 : -8104);
-      EXPECT_EQ(pipeline.Execute(&ctx), expected);
-      EXPECT_EQ(ctx.GetErrorCode(), expected);
-      EXPECT_NE(ctx.GetErrorMessage().find("Node 'failing'"),
-                std::string::npos);
-      EXPECT_EQ(ctx.GetErrorMessage().find("stale diagnostic"),
-                std::string::npos);
-      if (failure == 3) {
-        EXPECT_NE(ctx.GetErrorMessage().find("diagnostic from this invocation"),
-                  std::string::npos);
-      }
-    }
+  void ExpectFailed(Pipeline& pipeline, PipelineDiagnostic& diagnostic) {
+    EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
+    AlgContext context;
+    EXPECT_EQ(pipeline.Execute(&context), -1);
+    EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})"), -1);
+    EXPECT_FALSE(pipeline.BuildFromPlan(Plan(), &diagnostic));
+    EXPECT_EQ(diagnostic.code, DiagnosticCode::kInvalidBuildState);
+    EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
   }
-  ThrowingProcessDagNode::failure_mode = 0;
-}
 
-TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
-  const nlohmann::json config = {{"max_parallel_workers", 2},
-                                 {"pipeline",
-                                  {{{"name", "failing"},
-                                    {"type", ThrowingProcessDagNode::kNodeType},
-                                    {"depends_on", nlohmann::json::array()}},
-                                   {{"name", "gated"},
-                                    {"type", GatedProcessDagNode::kNodeType},
-                                    {"depends_on", nlohmann::json::array()}}}}};
-  GatedProcessDagNode::Reset();
+  test_support::RegistryTestAccess::ScopedNodeState registry_;
+  std::shared_ptr<Recording> recording_ = std::make_shared<Recording>();
+};
+
+TEST_F(PipelineRuntimeTest, EmptyAndReadyStateGuardsAndOneShotBuild) {
   Pipeline pipeline;
-  ASSERT_TRUE(BuildTestPipeline(pipeline, config, MakeTestBoundary(), nullptr));
-  ThrowingProcessDagNode::failure_mode = 4;
-  AlgContext ctx;
-  auto execution = std::async(std::launch::async, [&] {
-    try {
-      return pipeline.Execute(&ctx);
-    } catch (const std::bad_alloc&) {
-      return -999;
-    }
-  });
-  EXPECT_TRUE(GatedProcessDagNode::WaitUntilStarted(std::chrono::seconds(1)));
-  EXPECT_EQ(execution.wait_for(std::chrono::milliseconds(50)),
-            std::future_status::timeout);
-  GatedProcessDagNode::Release();
-  EXPECT_EQ(execution.get(), -999);
-  EXPECT_TRUE(GatedProcessDagNode::Completed());
-  ThrowingProcessDagNode::failure_mode = 0;
+  recording_->pipeline = &pipeline;
+  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kEmpty);
+  AlgContext context;
+  EXPECT_EQ(pipeline.Execute(&context), -1);
+  ControlFailureStage stage = ControlFailureStage::kNode;
+  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})", nullptr, &stage), -1);
+  EXPECT_EQ(stage, ControlFailureStage::kNone);
+  PipelineDiagnostic diagnostic{DiagnosticCode::kFieldType, "/stale", "stale"};
+  ASSERT_TRUE(pipeline.BuildFromPlan(Plan(), &diagnostic));
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kOk);
+  EXPECT_TRUE(diagnostic.path.empty());
+  EXPECT_EQ(recording_->init_states,
+            std::vector<Pipeline::State>{Pipeline::State::kBuilding});
+  EXPECT_TRUE(pipeline.IsReady());
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kSequential);
+  EXPECT_EQ(pipeline.Execute(nullptr), -1);
+  EXPECT_EQ(pipeline.Execute(&context), 0);
+  EXPECT_FALSE(pipeline.BuildFromPlan(Plan(), &diagnostic));
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kInvalidBuildState);
+  EXPECT_TRUE(pipeline.IsReady());
+  EXPECT_EQ(recording_->initialized.size(), 1u);
 }
 
+TEST_F(PipelineRuntimeTest,
+       InvalidAndNullPlansFailWithoutMaterializationOrRetry) {
+  for (bool null_plan : {true, false}) {
+    SCOPED_TRACE(null_plan);
+    Pipeline pipeline;
+    auto plan = null_plan ? nullptr
+                          : std::make_unique<ValidatedPipelinePlan>(
+                                PipelineValidator::ValidateAndPlan(
+                                    {{"pipeline", Json::array()}}, {}));
+    PipelineDiagnostic diagnostic;
+    EXPECT_FALSE(pipeline.BuildFromPlan(std::move(plan), &diagnostic));
+    EXPECT_EQ(diagnostic.code, null_plan ? DiagnosticCode::kInternalException
+                                         : DiagnosticCode::kFieldRange);
+    EXPECT_EQ(diagnostic.path, null_plan ? "/" : "/pipeline");
+    EXPECT_TRUE(recording_->initialized.empty());
+    ExpectFailed(pipeline, diagnostic);
+  }
+}
+
+TEST_F(PipelineRuntimeTest,
+       OwnsTheExactPlanAndStableSessionThroughNodeDestruction) {
+  {
+    Pipeline pipeline;
+    RuntimeOptions options;
+    options.has_device_id = true;
+    options.device_id = 3;
+    options.chip_type = "test_target";
+    pipeline.GetSessionContext().SetRuntimeOptions(options);
+    auto plan = std::make_unique<ValidatedPipelinePlan>(
+        PipelineValidator::ValidateAndPlan(
+            {{"pipeline",
+              {{{"name", "second"},
+                {"type", "runtime_recorder"},
+                {"depends_on", {"first"}}},
+               {{"name", "first"}, {"type", "runtime_recorder"}}}}},
+            {}));
+    ASSERT_TRUE(plan->report.ok);
+    const auto* original = plan.get();
+    const auto validations_after_planning = recording_->config_validations;
+    EXPECT_EQ(validations_after_planning, 2u);
+    ASSERT_TRUE(pipeline.BuildFromPlan(std::move(plan)));
+    EXPECT_EQ(recording_->config_validations, validations_after_planning);
+    EXPECT_EQ(&pipeline.GetPlan(), original);
+    EXPECT_EQ(recording_->initialized,
+              (std::vector<std::string>{"first", "second"}));
+    for (const auto& name : {"second", "first"}) {
+      EXPECT_EQ(recording_->plans.at(name),
+                &pipeline.GetPlan().node_plans.at(name));
+      EXPECT_EQ(recording_->sessions.at(name), &pipeline.GetSessionContext());
+    }
+    EXPECT_EQ(pipeline.GetSessionContext().GetRuntimeOptions().device_id, 3);
+    EXPECT_EQ(pipeline.GetSessionContext().GetRuntimeOptions().chip_type,
+              "test_target");
+    AlgContext context;
+    EXPECT_EQ(pipeline.Execute(&context), 0);
+    EXPECT_EQ(recording_->started,
+              (std::vector<std::string>{"first", "second"}));
+    EXPECT_FALSE(recording_->resource.expired());
+  }
+  EXPECT_EQ(recording_->destroyed.size(), 2u);
+  EXPECT_TRUE(recording_->retained_addresses_valid);
+  EXPECT_TRUE(recording_->resource.expired());
+}
+
+TEST_F(PipelineRuntimeTest, SeparatePipelinesOwnSeparateNodesAndSessions) {
+  Pipeline first, second;
+  ASSERT_TRUE(first.BuildFromPlan(Plan({"one"})));
+  ASSERT_TRUE(second.BuildFromPlan(Plan({"two"})));
+  EXPECT_NE(recording_->plans.at("one"), recording_->plans.at("two"));
+  EXPECT_NE(recording_->sessions.at("one"), recording_->sessions.at("two"));
+  AlgContext context;
+  EXPECT_EQ(first.Execute(&context), 0);
+  EXPECT_EQ(second.Execute(&context), 0);
+  EXPECT_EQ(recording_->started, (std::vector<std::string>{"one", "two"}));
+}
+
+TEST_F(PipelineRuntimeTest,
+       CreationNullAndExceptionsDestroyOnlyTheStagedPrefix) {
+  for (Failure failure :
+       {Failure::kReject, Failure::kStandard, Failure::kUnknown}) {
+    SCOPED_TRACE(static_cast<int>(failure));
+    auto definition = *NodeRegistry::Instance().Find("runtime_recorder");
+    definition.node_type =
+        "runtime_create_" + std::to_string(static_cast<int>(failure));
+    definition.control_commands.clear();
+    ASSERT_TRUE(NodeRegistry::Instance().Register(
+        definition.node_type,
+        [failure]() -> std::unique_ptr<INode> {
+          if (failure == Failure::kStandard)
+            throw std::runtime_error("create failure");
+          if (failure == Failure::kUnknown) throw 29;
+          return nullptr;
+        },
+        definition));
+    auto plan = std::make_unique<ValidatedPipelinePlan>(
+        PipelineValidator::ValidateAndPlan(
+            {{"pipeline",
+              {{{"name", "prefix"}, {"type", "runtime_recorder"}},
+               {{"name", "bad"}, {"type", definition.node_type}},
+               {{"name", "untouched"}, {"type", "runtime_recorder"}}}}},
+            {}));
+    ASSERT_TRUE(plan->report.ok);
+    Pipeline pipeline;
+    auto* original_session = &pipeline.GetSessionContext();
+    PipelineDiagnostic diagnostic;
+    ASSERT_FALSE(pipeline.BuildFromPlan(std::move(plan), &diagnostic));
+    EXPECT_EQ(diagnostic.code, DiagnosticCode::kNodeCreateFailed);
+    EXPECT_EQ(diagnostic.path, "/pipeline/1/type");
+    EXPECT_EQ(&pipeline.GetSessionContext(), original_session);
+    EXPECT_TRUE(pipeline.GetPlan().node_plans.empty());
+    EXPECT_EQ(recording_->initialized.back(), "prefix");
+    EXPECT_EQ(recording_->destroyed.back(), "prefix");
+    EXPECT_TRUE(recording_->resource.expired());
+    EXPECT_TRUE(recording_->retained_addresses_valid);
+    ExpectFailed(pipeline, diagnostic);
+  }
+}
+
+TEST_F(PipelineRuntimeTest,
+       InitRejectionAndExceptionsLeaveNoPublishedAssembly) {
+  for (Failure failure :
+       {Failure::kReject, Failure::kStandard, Failure::kUnknown}) {
+    SCOPED_TRACE(static_cast<int>(failure));
+    recording_->behavior["bad"].init = failure;
+    recording_->initialized.clear();
+    recording_->destroyed.clear();
+    Pipeline pipeline;
+    auto* original_session = &pipeline.GetSessionContext();
+    PipelineDiagnostic diagnostic;
+    ASSERT_FALSE(pipeline.BuildFromPlan(Plan({"prefix", "bad", "untouched"}),
+                                        &diagnostic));
+    EXPECT_EQ(diagnostic.code, DiagnosticCode::kNodeInitFailed);
+    EXPECT_EQ(diagnostic.path, "/pipeline/1/params");
+    EXPECT_EQ(recording_->initialized,
+              (std::vector<std::string>{"prefix", "bad"}));
+    EXPECT_EQ(recording_->destroyed.size(), 2u);
+    EXPECT_TRUE(recording_->retained_addresses_valid);
+    EXPECT_TRUE(recording_->resource.expired());
+    EXPECT_EQ(&pipeline.GetSessionContext(), original_session);
+    EXPECT_TRUE(pipeline.GetPlan().node_plans.empty());
+    ExpectFailed(pipeline, diagnostic);
+  }
+}
+
+TEST_F(PipelineRuntimeTest, AssemblyAllocationFailureConvergesToFailedState) {
+  auto plan = Plan();
+  ASSERT_TRUE(plan->report.ok);
+  Pipeline pipeline;
+  auto* original_session = &pipeline.GetSessionContext();
+  PipelineDiagnostic diagnostic;
+  bool built = true;
+  bool injected = false;
+  {
+    test_support::ScopedAllocationFailure fault(0);
+    built = pipeline.BuildFromPlan(std::move(plan), &diagnostic);
+    injected = fault.Triggered();
+  }
+  ASSERT_TRUE(injected);
+  EXPECT_FALSE(built);
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kInternalException);
+  EXPECT_EQ(&pipeline.GetSessionContext(), original_session);
+  EXPECT_TRUE(pipeline.GetPlan().node_plans.empty());
+  ExpectFailed(pipeline, diagnostic);
+}
+
+TEST_F(PipelineRuntimeTest,
+       SequentialExecutionStopsAtFailureAndPreservesUpstreamData) {
+  recording_->behavior["bad"].process_code = -31;
+  recording_->behavior["bad"].process_error = "request rejected";
+  Pipeline pipeline;
+  ASSERT_TRUE(
+      pipeline.BuildFromPlan(Plan({"prefix", "bad", "untouched"}, 1, true)));
+  AlgContext context;
+  EXPECT_EQ(pipeline.Execute(&context), -31);
+  EXPECT_EQ(recording_->started, (std::vector<std::string>{"prefix", "bad"}));
+  ASSERT_NE(context.Read<int>("prefix.completed"), nullptr);
+  EXPECT_EQ(*context.Read<int>("prefix.completed"), 1);
+  EXPECT_FALSE(context.Has("untouched.completed"));
+  EXPECT_EQ(context.GetErrorCode(), -31);
+  EXPECT_NE(context.GetErrorMessage().find("request rejected"),
+            std::string::npos);
+  EXPECT_TRUE(pipeline.IsReady());
+}
+
+TEST_F(PipelineRuntimeTest,
+       ProcessExceptionsAreContainedInSequentialAndParallelExecution) {
+  for (size_t workers : {1u, 2u}) {
+    for (Failure failure : {Failure::kStandard, Failure::kUnknown}) {
+      SCOPED_TRACE(workers);
+      SCOPED_TRACE(static_cast<int>(failure));
+      recording_->behavior["bad"].process = failure;
+      Pipeline pipeline;
+      ASSERT_TRUE(pipeline.BuildFromPlan(Plan({"bad", "peer"}, workers)));
+      AlgContext context;
+      EXPECT_EQ(pipeline.Execute(&context), -1);
+      EXPECT_EQ(context.GetErrorCode(), -1);
+      EXPECT_NE(context.GetErrorMessage().find("bad"), std::string::npos);
+      EXPECT_NE(
+          context.GetErrorMessage().find(failure == Failure::kStandard
+                                             ? "process failure"
+                                             : "Unknown Process exception"),
+          std::string::npos);
+      EXPECT_EQ(recording_->active, 0u);
+      EXPECT_TRUE(pipeline.IsReady());
+    }
+  }
+}
+
+TEST_F(PipelineRuntimeTest,
+       ParallelJoinAndErrorSelectionFollowPlanInsteadOfCompletionOrder) {
+  recording_->behavior["first"].blocked = true;
+  recording_->behavior["first"].process_code = -11;
+  recording_->behavior["second"].blocked = true;
+  recording_->behavior["second"].process_code = -22;
+  recording_->behavior["second"].process_error = "second diagnostic";
+  auto plan = ParallelPlan();
+  ASSERT_TRUE(plan->report.ok);
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromPlan(std::move(plan)));
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
+  AlgContext context;
+  int code = 0;
+  std::thread execution([&] {
+    code = pipeline.Execute(&context);
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    recording_->completed_at_return = recording_->completed.size();
+    recording_->changed.notify_all();
+  });
+  const bool both_entered = WaitFor({"first", "second"});
+  Release({"second"});
+  const bool second_completed = WaitFor({"second"}, true);
+  Release({"first", "second"});
+  execution.join();
+  // No fatal assertions occur while a task or the caller thread is blocked.
+  ASSERT_TRUE(both_entered);
+  ASSERT_TRUE(second_completed);
+  EXPECT_EQ(code, -11);
+  EXPECT_EQ(recording_->completed,
+            (std::vector<std::string>{"second", "first"}));
+  EXPECT_EQ(recording_->completed_at_return, 2u);
+  EXPECT_EQ(recording_->active, 0u);
+  EXPECT_EQ(recording_->started.size(), 2u);
+  EXPECT_EQ(context.GetErrorCode(), -11);
+  EXPECT_NE(context.GetErrorMessage().find("first"), std::string::npos);
+  EXPECT_NE(context.GetErrorMessage().find("-11"), std::string::npos);
+  EXPECT_EQ(context.GetErrorMessage().find("second diagnostic"),
+            std::string::npos);
+}
+
+TEST_F(PipelineRuntimeTest, FirstFailureWaitsForAnAlreadyActivePeer) {
+  recording_->behavior["first"].blocked = true;
+  recording_->behavior["first"].process_code = -11;
+  recording_->behavior["second"].blocked = true;
+  auto pipeline = std::make_unique<Pipeline>();
+  ASSERT_TRUE(pipeline->BuildFromPlan(ParallelPlan()));
+  AlgContext context;
+  auto execution = std::async(std::launch::async, [&] {
+    const int code = pipeline->Execute(&context);
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    recording_->active_at_return = recording_->active;
+    recording_->completed_at_return = recording_->completed.size();
+    return code;
+  });
+  const bool both_entered = WaitFor({"first", "second"});
+  Release({"first"});
+  const bool first_completed = WaitFor({"first"}, true);
+  const auto while_peer_blocked =
+      execution.wait_for(std::chrono::milliseconds(50));
+  Release({"first", "second"});
+  const int code = execution.get();
+  pipeline.reset();
+  // Release and join precede all assertions, including failed handshakes.
+  ASSERT_TRUE(both_entered);
+  ASSERT_TRUE(first_completed);
+  EXPECT_EQ(while_peer_blocked, std::future_status::timeout);
+  EXPECT_EQ(code, -11);
+  EXPECT_EQ(recording_->active_at_return, 0u);
+  EXPECT_EQ(recording_->completed_at_return, 2u);
+  EXPECT_EQ(recording_->completed,
+            (std::vector<std::string>{"first", "second"}));
+  EXPECT_EQ(recording_->started.size(), 2u);
+}
+
+TEST_F(PipelineRuntimeTest,
+       DiagnosticAllocationUnwindJoinsAnAlreadyActivePeer) {
+  recording_->behavior["first"].blocked = true;
+  recording_->behavior["first"].process_code = -11;
+  recording_->behavior["second"].blocked = true;
+  recording_->diagnostic_name = std::string(200, 'd');
+  auto pipeline = std::make_unique<Pipeline>();
+  ASSERT_TRUE(pipeline->BuildFromPlan(ParallelPlan()));
+  AlgContext context;
+  auto execution = std::async(std::launch::async, [&] {
+    std::optional<test_support::ScopedAllocationFailure> fault;
+    {
+      std::lock_guard<std::mutex> lock(recording_->mutex);
+      recording_->diagnostic_fault_caller = std::this_thread::get_id();
+      recording_->arm_diagnostic_fault = [&fault] { fault.emplace(0); };
+    }
+    try {
+      (void)pipeline->Execute(&context);
+    } catch (const std::bad_alloc&) {
+      std::lock_guard<std::mutex> lock(recording_->mutex);
+      recording_->caught_bad_alloc = true;
+    }
+    std::lock_guard<std::mutex> lock(recording_->mutex);
+    recording_->diagnostic_fault_triggered = fault && fault->Triggered();
+    recording_->active_at_return = recording_->active;
+    recording_->completed_at_return = recording_->completed.size();
+    recording_->arm_diagnostic_fault = nullptr;
+  });
+  const bool both_entered = WaitFor({"first", "second"});
+  Release({"first"});
+  bool armed = false;
+  {
+    std::unique_lock<std::mutex> lock(recording_->mutex);
+    armed = recording_->changed.wait_for(lock, std::chrono::seconds(3), [&] {
+      return recording_->diagnostic_fault_armed;
+    });
+  }
+  const auto while_peer_blocked =
+      execution.wait_for(std::chrono::milliseconds(50));
+  Release({"first", "second"});
+  execution.get();
+  pipeline.reset();
+  // The caller-only Name callback arms real new failure on copying a long
+  // diagnostic name. Workers remain unaffected; no production hook throws.
+  ASSERT_TRUE(both_entered);
+  ASSERT_TRUE(armed);
+  EXPECT_EQ(while_peer_blocked, std::future_status::timeout);
+  EXPECT_TRUE(recording_->diagnostic_fault_triggered);
+  EXPECT_TRUE(recording_->caught_bad_alloc);
+  EXPECT_EQ(recording_->active_at_return, 0u);
+  EXPECT_EQ(recording_->completed_at_return, 2u);
+  EXPECT_EQ(recording_->started.size(), 2u);
+}
+
+TEST_F(PipelineRuntimeTest,
+       SuccessfulParallelLayerCompletesBeforeItsDependentLayer) {
+  Pipeline pipeline;
+  auto plan = ParallelPlan();
+  ASSERT_TRUE(pipeline.BuildFromPlan(std::move(plan)));
+  AlgContext context;
+  EXPECT_EQ(pipeline.Execute(&context), 0);
+  EXPECT_EQ(recording_->completed.back(), "lower");
+  EXPECT_TRUE(context.Has("first.completed"));
+  EXPECT_TRUE(context.Has("second.completed"));
+  EXPECT_TRUE(context.Has("lower.completed"));
+}
+
+TEST_F(PipelineRuntimeTest, ControlValidatesRequestsBeforeCallingAnyNode) {
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromPlan(Plan({"first", "second"})));
+  const std::vector<std::string> invalid = {
+      "{",
+      R"({"limit":0})",
+      R"({"unknown":2})",
+      R"({"$edgeflow_control":2,"node":"first","payload":{"limit":2}})",
+      R"({"$edgeflow_control":1,"node":"first"})",
+      R"({"$edgeflow_control":1,"node":"","payload":{"limit":2}})",
+      R"({"$edgeflow_control":1,"node":"missing","payload":{"limit":2}})"};
+  for (const auto& request : invalid) {
+    SCOPED_TRACE(request);
+    std::string error;
+    ControlFailureStage stage = ControlFailureStage::kNone;
+    EXPECT_EQ(pipeline.Control(kUpdate, request, &error, &stage), -1);
+    EXPECT_EQ(stage, ControlFailureStage::kRequest);
+    EXPECT_FALSE(error.empty());
+    EXPECT_TRUE(recording_->controlled.empty());
+  }
+}
+
+TEST_F(PipelineRuntimeTest,
+       TargetedControlAndBroadcastApplyTheBusinessPayload) {
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromPlan(Plan({"first", "second"})));
+  std::string error = "stale";
+  ControlFailureStage stage = ControlFailureStage::kRequest;
+  EXPECT_EQ(
+      pipeline.Control(
+          kUpdate,
+          R"({"$edgeflow_control":1,"node":"second","payload":{"limit":3}})",
+          &error, &stage),
+      0);
+  EXPECT_EQ(stage, ControlFailureStage::kNone);
+  EXPECT_TRUE(error.empty());
+  EXPECT_EQ(recording_->controlled, std::vector<std::string>{"second"});
+  EXPECT_EQ(recording_->control_values.at("second"), 3);
+  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":5})", &error, &stage), 0);
+  EXPECT_EQ(recording_->controlled,
+            (std::vector<std::string>{"second", "first", "second"}));
+  EXPECT_EQ(recording_->control_values.at("first"), 5);
+  EXPECT_EQ(recording_->control_values.at("second"), 5);
+}
+
+TEST_F(PipelineRuntimeTest,
+       BroadcastFailureKeepsEarlierUpdatesAndContinuesToLaterNodes) {
+  recording_->behavior["bad"].control = NodeControlStatus::kFailed;
+  recording_->behavior["bad"].control_code = -37;
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromPlan(Plan({"first", "bad", "last"})));
+  std::string error;
+  ControlFailureStage stage;
+  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":7})", &error, &stage), -37);
+  EXPECT_EQ(stage, ControlFailureStage::kNode);
+  EXPECT_EQ(recording_->controlled,
+            (std::vector<std::string>{"first", "bad", "last"}));
+  EXPECT_EQ(recording_->control_values.at("first"), 7);
+  EXPECT_EQ(recording_->control_values.at("last"), 7);
+  EXPECT_EQ(recording_->control_values.count("bad"), 0u);
+  EXPECT_NE(error.find("bad"), std::string::npos);
+  EXPECT_TRUE(pipeline.IsReady());
+}
+
+TEST_F(PipelineRuntimeTest,
+       UnsupportedAndUnhandledCommandsReportTheirOwnStage) {
+  recording_->behavior["first"].control = NodeControlStatus::kUnsupported;
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromPlan(Plan()));
+  ControlFailureStage stage = ControlFailureStage::kNone;
+  EXPECT_EQ(pipeline.Control(kUpdate + 1, R"({"limit":2})", nullptr, &stage),
+            -7);
+  EXPECT_EQ(stage, ControlFailureStage::kUnsupported);
+  EXPECT_TRUE(recording_->controlled.empty());
+  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})", nullptr, &stage), -7);
+  EXPECT_EQ(stage, ControlFailureStage::kUnsupported);
+  EXPECT_EQ(recording_->controlled, std::vector<std::string>{"first"});
+}
+
+TEST_F(PipelineRuntimeTest,
+       ThreadPoolConstructionUnwindsEveryAllocationFailure) {
+  bool reached_success = false;
+  size_t failures = 0;
+  for (std::ptrdiff_t point = 0; point < 64 && !reached_success; ++point) {
+    test_support::ScopedAllocationFailure fault(point);
+    try {
+      auto pool = std::make_unique<ThreadPool>(3);
+      reached_success = !fault.Triggered();
+    } catch (const std::bad_alloc&) {
+      ++failures;
+    }
+  }
+  EXPECT_TRUE(reached_success);
+  EXPECT_GT(failures, 0u);
+}
+
+TEST_F(PipelineRuntimeTest,
+       SubmissionAllocationFailuresLeaveNoTasksUsingTheRequest) {
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromPlan(Plan({"first", "second"}, 2)));
+  bool reached_success = false;
+  size_t failures = 0;
+  for (std::ptrdiff_t point = 0; point < 128 && !reached_success; ++point) {
+    AlgContext context;
+    bool injected = false;
+    {
+      test_support::ScopedAllocationFailure fault(point);
+      try {
+        (void)pipeline.Execute(&context);
+      } catch (const std::bad_alloc&) { /* Before submission, allocation may
+                                           escape. */
+      }
+      injected = fault.Triggered();
+    }
+    {
+      std::lock_guard<std::mutex> lock(recording_->mutex);
+      EXPECT_EQ(recording_->active, 0u);
+      EXPECT_EQ(recording_->started.size(), recording_->completed.size());
+    }
+    if (injected)
+      ++failures;
+    else
+      reached_success = true;
+  }
+  EXPECT_TRUE(reached_success);
+  EXPECT_GT(failures, 0u);
+}
+}  // namespace
 }  // namespace llm_edgeflow

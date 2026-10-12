@@ -23,9 +23,6 @@
       "type": "llm",
       "name": "llm_model",
       "file": "artifacts/neutral-llm.fixture",
-      "params": {
-        "max_seq_len": 1024
-      },
       "backend": {
         "type": "test_causal_lm_backend",
         "params": {

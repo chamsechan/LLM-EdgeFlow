@@ -1,159 +1,110 @@
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 
-const source = readFileSync(new URL("../../tools/pipeline_studio/web/graph.js", import.meta.url), "utf8");
-const { GraphView, nodeSize, layeredPositions, graphBounds, fitTransform, zoomTransform, routeOrthogonal } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
-
-const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
-const nodes = [{ id: "sink", depends_on: ["root"] }, { id: "root" }, { id: "parallel" }];
-const sizes = { root: nodeSize({ inputs: Array(7).fill({}) }), parallel: nodeSize({ outputs: [{}] }), sink: nodeSize() };
-const positions = layeredPositions(nodes, sizes);
-assert.equal(positions.root.x, 65);
-assert.ok(positions.sink.x > positions.root.x);
-assert.ok(positions.parallel.y >= positions.root.y + sizes.root.height + 40, "actual tall node bounds must not overlap the next row");
-assert.ok(nodeSize({ inputs: [{}] }).height < 140, "single-port nodes should not retain fixed 310px rows");
-
-const distantPositions = { first: { x: -1200, y: -800 }, last: { x: 4800, y: 500 } };
-const route = [{ x: -1300, y: -1000 }, { x: 5100, y: -1000 }];
-const bounds = graphBounds(distantPositions, {}, [route]);
-const camera = fitTransform(bounds, 640, 400);
-assert.ok(camera.scale < .35, "fit must accommodate graphs larger than the previous zoom floor");
-for (const point of [{ x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.width, y: bounds.y + bounds.height }]) {
-  const x = point.x * camera.scale + camera.offset.x, y = point.y * camera.scale + camera.offset.y;
-  assert.ok(x >= 32 - 1e-8 && x <= 608 + 1e-8);
-  assert.ok(y >= 32 - 1e-8 && y <= 368 + 1e-8);
-}
-assert.deepEqual(fitTransform(graphBounds({}), 640, 400), { scale: 1, offset: { x: 0, y: 0 } });
-const anchor = { x: 285, y: 173 }, zoomed = zoomTransform(camera.scale, camera.offset, .9, anchor);
-near((anchor.x - camera.offset.x) / camera.scale, (anchor.x - zoomed.offset.x) / zoomed.scale);
-near((anchor.y - camera.offset.y) / camera.scale, (anchor.y - zoomed.offset.y) / zoomed.scale);
-
-function crossesCard(a, b, rect) {
-  if (a.x === b.x) return a.x > rect.x && a.x < rect.x + rect.width && Math.max(a.y, b.y) > rect.y && Math.min(a.y, b.y) < rect.y + rect.height;
-  assert.equal(a.y, b.y, "every route segment must be orthogonal");
-  return a.y > rect.y && a.y < rect.y + rect.height && Math.max(a.x, b.x) > rect.x && Math.min(a.x, b.x) < rect.x + rect.width;
-}
-for (const [from, to, rectangles] of [
-  [{ x: 280, y: 84 }, { x: 1100, y: 84 }, [{ x: 0, y: 0, width: 280, height: 140 }, { x: 390, y: -30, width: 280, height: 230 }, { x: 750, y: -150, width: 220, height: 270 }, { x: 1100, y: 0, width: 280, height: 140 }]],
-  [{ x: 1080, y: 300 }, { x: 0, y: 84 }, [{ x: 800, y: 220, width: 280, height: 140 }, { x: 0, y: 0, width: 280, height: 140 }, { x: 400, y: -60, width: 280, height: 440 }]],
-  [{ x: -420, y: -216 }, { x: 80, y: 90 }, [{ x: -700, y: -300, width: 280, height: 140 }, { x: -320, y: -250, width: 280, height: 300 }, { x: 80, y: 0, width: 280, height: 140 }]],
-]) {
-  const path = routeOrthogonal(from, to, rectangles);
-  assert.deepEqual(path[0], from);
-  assert.deepEqual(path.at(-1), to);
-  assert.deepEqual(routeOrthogonal(from, to, rectangles), path, "routing must be stable across renders");
-  for (let index = 1; index < path.length; index++) {
-    for (const rect of rectangles) assert.ok(!crossesCard(path[index - 1], path[index], rect), `route crosses ${JSON.stringify(rect)}: ${JSON.stringify(path)}`);
-  }
-}
-
-// 小型 DOM 测试桩，无需浏览器依赖即可覆盖事件安全和相机生命周期。
-class Element {
-  constructor(tag = "g") {
-    this.tag = tag; this.attrs = {}; this.dataset = {}; this.children = []; this.listeners = {};
-    this.classList = {
-      contains: name => (this.attrs.class || "").split(" ").includes(name),
-      toggle: (name, on) => {
-        const values = new Set((this.attrs.class || "").split(" ").filter(Boolean));
-        if (on) values.add(name); else values.delete(name);
-        this.attrs.class = [...values].join(" ");
-      },
-    };
-  }
-  setAttribute(key, value) { this.attrs[key] = value; }
-  removeAttribute(key) { delete this.attrs[key]; }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; }
-  addEventListener(name, listener) { (this.listeners[name] ??= []).push(listener); }
-  fire(name, event = {}) { for (const listener of this.listeners[name] || []) listener(event); }
-}
-const windowElement = new Element();
-globalThis.window = windowElement;
-globalThis.document = { createElementNS: (_, tag) => new Element(tag) };
-let resized;
-globalThis.ResizeObserver = class {
-  constructor(callback) { resized = callback; }
-  observe() {}
+const web = new URL('../../tools/pipeline_studio/web/', import.meta.url);
+const load = async name => import(`data:text/javascript;base64,${Buffer.from(await readFile(new URL(name, web))).toString('base64')}`);
+const graph = await load('graph.js');
+const {graphDocument} = await load('workbench.js');
+const port = key => ({key, type_id: 'text', cardinality: '1:1'});
+const catalog = {
+  nodes: [{node_type: 'transform', inputs: [port('text')], outputs: [port('answer')]}],
+  input_converters: [{type: 'in', name: 'first', logical_ports: [port('text')]},
+    {type: 'in', name: 'second', logical_ports: [port('text'), port('extra')]}],
+  output_converters: [{type: 'out', name: 'result', logical_ports: [port('answer')]}],
 };
-const root = new Element("svg");
-root.clientWidth = 800; root.clientHeight = 500;
-const layers = Object.fromEntries(["viewport", "edges", "nodes", "draftEdge"].map(id => [`#${id}`, new Element()]));
-root.querySelector = selector => layers[selector];
-root.getBoundingClientRect = () => ({ left: 20, top: 30 });
-let selected, deleted = 0, connections = 0;
-const graph = new GraphView(root, { selectEdge: edge => { selected = edge; }, deleteEdge: () => deleted++, connect: () => connections++ });
-const renderedNodes = [{ id: "a", node_type: "Source" }, { id: "b", node_type: "Target", depends_on: ["a"] }];
-const definitions = { a: { outputs: [{ key: "out" }] }, b: { inputs: [{ key: "in" }] } };
-const binding = { source: "a", sourcePort: "out", target: "b", targetPort: "in" };
-graph.render(renderedNodes, "", new Set(), new Set(), definitions, [binding]);
-assert.equal(graph.editable, false);
-const initialNode = layers["#nodes"].children[0];
-graph.render(renderedNodes, "a", new Set(), new Set(), definitions, [binding]);
-assert.equal(layers["#nodes"].children[0], initialNode, "selection must retain DOM targets for double-click and keyboard focus");
-assert.ok(initialNode.classList.contains("selected"));
-const edge = layers["#edges"].children[0];
-edge.fire("click", { stopPropagation() {} });
-assert.equal(selected, binding);
-assert.equal(deleted, 0, "clicking an edge must never delete a binding");
-assert.ok(edge.classList.contains("selected"));
-assert.ok(edge.children.some(child => child.classList.contains("edge-hit")));
-const output = layers["#nodes"].children[0].children.find(child => child.classList.contains("output"));
-output.fire("pointerdown", { stopPropagation() {}, button: 0 });
-assert.equal(graph.connecting, null, "browse mode must not begin a connection");
-graph.editable = true;
-output.fire("pointerdown", { stopPropagation() {}, button: 0 });
-assert.ok(graph.connecting);
-graph.editable = false;
-graph.render(renderedNodes, "", new Set(), new Set(), definitions, [binding]);
-assert.equal(graph.connecting, null, "returning to browse cancels a pending connection");
-assert.equal(connections, 0);
+const pipeline = {
+  io: {input: [{type: 'in', name: 'first'}, {type: 'in', name: 'second'}],
+    output: [{type: 'out', name: 'result', inputs: {answer: 'b.answer'}}]},
+  pipeline: [
+    {type: 'transform', name: 'a', inputs: {text: 'input.text'}},
+    {type: 'transform', name: 'b', inputs: {text: 'a.answer'}, depends_on: ['a', 'order_only']},
+    {type: 'not_available', name: 'order_only'},
+  ],
+};
+const before = structuredClone(pipeline);
+const display = graphDocument(pipeline, catalog);
+assert.deepEqual(pipeline, before);
+assert.deepEqual(display.nodes.map(node => node.id), ['input', 'a', 'b', 'order_only', 'output']);
+assert.deepEqual(display.definitions.input.outputs.map(port => port.key), ['text', 'extra']);
+assert.equal(display.edges.filter(edge => edge.source === 'a' && edge.target === 'b').length, 1);
+assert.deepEqual(display.edges.find(edge => edge.source === 'order_only'), {
+  source: 'order_only', target: 'b', dependency: true,
+});
+assert.deepEqual(display.nodes.find(node => node.id === 'b').depends_on, ['a', 'order_only']);
+assert.deepEqual(display.definitions.order_only, {});
+assert.equal(display.edges.at(-1).target, 'output');
+assert.deepEqual(graphDocument(null, catalog).nodes, []);
 
-graph.zoomBy(2);
-const oldScale = graph.scale;
-graph.positions = { a: { x: -3000, y: -1000 }, b: { x: 3000, y: 1000 } };
-graph.render(renderedNodes, "", new Set(), new Set(), definitions, [binding]);
-assert.ok(graph.scale < oldScale, "opening stored positions must fit even without relayout");
-assert.ok(graph.autoFit);
-root.clientWidth = 500;
-resized();
-const updatedBounds = graphBounds(graph.positions, graph.sizes, graph.routes);
-near(graph.scale, fitTransform(updatedBounds, 500, 500).scale);
-const localAnchor = { x: 100, y: 200 };
-const originalWorld = { x: (localAnchor.x - graph.offset.x) / graph.scale, y: (localAnchor.y - graph.offset.y) / graph.scale };
-root.fire("wheel", { preventDefault() {}, deltaY: -90, clientX: 120, clientY: 230 });
-near((localAnchor.x - graph.offset.x) / graph.scale, originalWorld.x);
-near((localAnchor.y - graph.offset.y) / graph.scale, originalWorld.y);
-graph.resetZoom();
-near(graph.scale, 1);
-layers["#nodes"].children[1].fire("dblclick", { stopPropagation() {}, target: { classList: { contains: () => false } } });
-near(graph.positions.b.x + graph.sizes.b.width / 2, (root.clientWidth / 2 - graph.offset.x) / graph.scale);
-console.log("Studio graph geometry, routing and interaction checks passed");
+assert.deepEqual(graph.nodeSize(), {width: 280, height: 76});
+assert.deepEqual(graph.nodeSize({inputs: [port('a'), port('b'), port('c')]}), {width: 280, height: 168});
+const sizes = Object.fromEntries(display.nodes.map(node => [node.id, graph.nodeSize(display.definitions[node.id])]));
+const positions = graph.layeredPositions(display.nodes, sizes);
+assert.ok(positions.a.x > positions.input.x);
+assert.ok(positions.b.x > positions.a.x);
+assert.ok(positions.output.x > positions.b.x);
+for (const position of Object.values(positions)) {
+  assert.ok(Number.isFinite(position.x));
+  assert.ok(Number.isFinite(position.y));
+}
+const siblings = graph.layeredPositions([{id: 'tall'}, {id: 'short'}], {
+  tall: {width: 280, height: 200}, short: {width: 280, height: 76},
+});
+assert.equal(siblings.short.y - siblings.tall.y, 248);
+const duplicateOrder = graph.layeredPositions([{id: 'a'}, {id: 'b', depends_on: ['a', 'a', 'absent']}]);
+assert.equal(duplicateOrder.b.x - duplicateOrder.a.x, 356);
 
-// 可见的数据边只由原始数据映射决定。缺失的必需或可选输入
-// 都不得静默绑定到同名键。
-const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
-const { graphDocument } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
-const catalog = {input_converters: [{type: "doc_in", name: "example", logical_ports: [{key: "request"}, {key: "extra"}]}], output_converters: [{type: "json_out", name: "example", logical_ports: [{key: "answer"}]}], nodes: [
-  {node_type: "producer", inputs: [], outputs: [{key: "text"}, {key: "optional"}]},
-  {node_type: "consumer", inputs: [{key: "text", required: true}, {key: "optional", required: false}], outputs: []},
-]};
-const pipelineDocument = {io: {input: [{type: "doc_in", name: "example"}], output: [{type: "json_out", name: "example", inputs: {answer: "producer.text"}}]}, pipeline: [
-  {name: "consumer", type: "consumer", inputs: {text: "producer.text"}},
-  {name: "producer", type: "producer"},
-  {name: "missing", type: "consumer", depends_on: ["producer"]},
-]};
-const documentBeforeGraph = structuredClone(pipelineDocument);
-const graphDocumentResult = graphDocument(pipelineDocument, catalog);
-assert.equal(graphDocumentResult.edges.filter(edge => !edge.dependency).length, 2);
-assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.target === "consumer" && edge.targetPort === "text"));
-assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.target === "missing" && edge.dependency));
-assert.ok(!graphDocumentResult.edges.some(edge => edge.targetPort === "optional"));
-assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.sourcePort === "text" && edge.target === "output" && edge.targetPort === "answer"));
-assert.deepEqual(graphDocumentResult.definitions.input.outputs.map(port => port.key), ["request", "extra"]);
-assert.deepEqual(graphDocumentResult.definitions.output.inputs.map(port => port.key), ["answer"]);
-assert.equal(graphDocumentResult.nodes.find(node => node.id === "producer").node_type, "producer", "view identity projects native node names and types");
-assert.deepEqual(pipelineDocument, documentBeforeGraph, "rendering must never persist inferred dependencies");
-const directIngress = structuredClone(pipelineDocument);
-directIngress.pipeline[0].inputs.text = "input.request";
-assert.ok(graphDocument(directIngress, catalog).edges.some(edge => edge.source === "input" && edge.sourcePort === "request" && edge.target === "consumer"));
-console.log("Studio explicit input/output references and independent ordering checks passed");
+const source = {x: 0, y: 100}, target = {x: 500, y: 100};
+const obstacle = {x: 200, y: 50, width: 100, height: 100};
+const route = graph.routeOrthogonal(source, target, [obstacle]);
+assert.deepEqual(route[0], source);
+assert.deepEqual(route.at(-1), target);
+assert.ok(route.length > 2);
+for (let index = 1; index < route.length; index++) {
+  const a = route[index - 1], b = route[index];
+  assert.ok(a.x === b.x || a.y === b.y, 'every route segment is orthogonal');
+  if (a.x === b.x) {
+    assert.ok(!(a.x > 200 && a.x < 300 && Math.max(a.y, b.y) > 50 && Math.min(a.y, b.y) < 150));
+  } else {
+    assert.ok(!(a.y > 50 && a.y < 150 && Math.max(a.x, b.x) > 200 && Math.min(a.x, b.x) < 300));
+  }
+}
+assert.deepEqual(graph.routeOrthogonal(source, target, []), [source, target]);
+const bounds = graph.graphBounds({node: {x: 10, y: 20}, invalid: {x: NaN, y: Infinity}}, {}, [[{x: -50, y: -30}]]);
+assert.deepEqual(bounds, {x: -50, y: -30, width: 340, height: 126});
+assert.deepEqual(graph.graphBounds({}), {x: 0, y: 0, width: 0, height: 0});
+const fit = graph.fitTransform(bounds, 800, 600);
+assert.ok(fit.scale <= 1 && fit.scale > 0);
+assert.ok(bounds.x * fit.scale + fit.offset.x >= 0);
+assert.deepEqual(graph.fitTransform(bounds, 0, 600), {scale: 1, offset: {x: 0, y: 0}});
+const anchor = {x: 200, y: 150};
+const zoom = graph.zoomTransform(0.5, {x: 10, y: 20}, 2, anchor);
+assert.equal((anchor.x - zoom.offset.x) / zoom.scale, (anchor.x - 10) / 0.5);
+assert.equal((anchor.y - zoom.offset.y) / zoom.scale, (anchor.y - 20) / 0.5);
+
+// Exercise real public view methods without reproducing SVG rendering.
+const notifications = [];
+const view = Object.create(graph.GraphView.prototype);
+Object.assign(view, {
+  root: {clientWidth: 800, clientHeight: 600},
+  viewport: {setAttribute(name, value) { notifications.push([name, value]); }},
+  callbacks: {positionsChanged(value) { notifications.push(['positions', structuredClone(value)]); }},
+  positions: {a: {x: 900, y: 700}, removed: {x: 1, y: 1}, b: {x: NaN, y: 2}},
+  sizes: {a: graph.nodeSize(), b: graph.nodeSize()}, routes: [], scale: 1, offset: {x: 0, y: 0},
+});
+view.layout([{id: 'a'}, {id: 'b', depends_on: ['a']}]);
+assert.deepEqual(view.positions.a, {x: 900, y: 700});
+assert.equal(view.positions.removed, undefined);
+assert.ok(Number.isFinite(view.positions.b.x));
+view.layout([{id: 'a'}, {id: 'b', depends_on: ['a']}], true);
+assert.equal(view.positions.a.x, 65);
+view.fit();
+assert.equal(view.autoFit, true);
+view.zoomBy(100);
+assert.equal(view.scale, 3);
+assert.equal(view.autoFit, false);
+view.resetZoom();
+assert.equal(view.scale, 1);
+view.focusNode('a');
+assert.equal((view.positions.a.x + 140) * view.scale + view.offset.x, 400);
+assert.ok(notifications.some(([name]) => name === 'transform'));
+console.log('PASS Studio graph document, geometry, routes and view transforms');

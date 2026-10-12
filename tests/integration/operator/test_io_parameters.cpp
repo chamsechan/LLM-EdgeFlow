@@ -1,341 +1,291 @@
 #include <gtest/gtest.h>
 
-#include <atomic>
-#include <chrono>
-#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <map>
-#include <mutex>
+#include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
-#include "adapter/converter_authoring.h"
-#include "adapter/io_converter_registry.h"
-#include "adapter/operator/mock/platform_value_binding.h"
-#include "adapter/output/rule_match_response.h"
-#include "core/common_contracts.h"
+#include "adapter/deployment_io_config.h"
+#include "adapter/deployment_preparation.h"
+#include "adapter/io_plan_resolver.h"
+#include "adapter/operator/operator_config_resolver.h"
+#include "adapter/runtime_types.h"
+#include "adapter/shared_algorithm_runtime.h"
 #include "edgeflow/operator/interface.h"
-#include "tests/integration/json_output_test_utils.h"
-#include "tests/support/operator_test_fixture.h"
-#include "tests/support/registry_test_access.h"
-
-using llm_edgeflow::test_support::ParseJsonOutput;
 
 namespace llm_edgeflow {
 namespace {
+using Json = nlohmann::json;
 
-constexpr char kConverterName[] = "test_prepared_io_parameters";
-constexpr int32_t kInputService = 21001;
-constexpr int32_t kOutputService = 21002;
-
-struct InputParams {
-  std::string prefix;
-  std::string derived_prefix;
-};
-
-struct OutputParams {
-  std::string marker;
-  int64_t result_json_max_bytes = 0;
-  std::string derived_marker;
-  int64_t requested_size = 0;
-};
-
-struct InputObservation {
-  const ParameterValues* values;
-  const InputParams* typed;
-  nlohmann::json effective;
-  std::string transformed_text;
-};
-
-struct OutputObservation {
-  const ParameterValues* values;
-  const OutputParams* typed;
-  nlohmann::json effective;
-  uint32_t pool_capacity;
-};
-
-std::atomic<int> input_prepare_calls{0};
-std::atomic<int> output_prepare_calls{0};
-std::mutex observations_mutex;
-std::vector<InputObservation> input_observations;
-std::vector<OutputObservation> output_observations;
-DecodeInputFn production_keyword_decode = nullptr;
-
-Parameters<InputParams> InputParamSpec() {
-  return Parameters<InputParams>{
-      Field("prefix", &InputParams::prefix).Default("alpha")}
-      .Prepare([](InputParams* params, std::string*) {
-        ++input_prepare_calls;
-        params->prefix += ":prepared";
-        params->derived_prefix = params->prefix + ":derived";
-        return true;
-      });
+Json KeywordDeployment(uint32_t capacity = 8191) {
+  return {
+      {"io",
+       {{"input",
+         Json::array({{{"type", "keyword_in"}, {"name", "keyword_match"}}})},
+        {"output",
+         Json::array({{{"type", "json_out"},
+                       {"name", "keyword_match"},
+                       {"params", {{"result_json_max_bytes", capacity}}},
+                       {"inputs", {{"matches", "rules.matches"}}}}})}}},
+      {"pipeline",
+       Json::array({{{"type", "text_rule_match"},
+                     {"name", "rules"},
+                     {"inputs", {{"text", "input.sentence_text"}}},
+                     {"params", {{"categories", {{"HIT", {"hello"}}}}}}}})}};
 }
 
-Parameters<OutputParams> OutputParamSpec() {
-  return Parameters<OutputParams>{
-      Field("marker", &OutputParams::marker).Default("default"),
-      MaxBytes("result_json", &OutputParams::result_json_max_bytes)
-          .Maximum(4096)
-          .Default(64)}
-      .Prepare([](OutputParams* params, std::string*) {
-        ++output_prepare_calls;
-        params->requested_size = params->result_json_max_bytes;
-        params->result_json_max_bytes += 512;
-        params->marker += ":prepared";
-        params->derived_marker = params->marker + ":derived";
-        return true;
-      });
-}
-
-int DecodeWithParameters(const ExternalInputBatchView& source,
-                         const InputDecodeOptions& options, AlgContext* context,
-                         AdapterStatus* status) {
-  AlgContext decoded;
-  const int code = production_keyword_decode(source, options, &decoded, status);
-  if (code != 0) return code;
-  const auto& params = options.Params<InputParams>();
-  const std::string input_key = options.Port("sentence_text");
-  auto sentences = *decoded.Read<TextBatch>(input_key);
-  for (size_t i = 0; i < sentences.size(); ++i) {
-    sentences[i].data =
-        params.prefix + "|" + params.derived_prefix + "|" + sentences[i].data;
-    std::lock_guard<std::mutex> lock(observations_mutex);
-    input_observations.push_back(InputObservation{options.params, &params,
-                                                  options.params->Effective(),
-                                                  sentences[i].data});
-  }
-  return AdapterValidationHelper::PublishContextValue(
-             *context, input_key, std::move(sentences), options.Label().c_str(),
-             status)
-             ? COMPANY_ALG_SUCCESS
-             : COMPANY_ALG_ERR_INVALID_INPUT;
-}
-
-int EncodeWithParameters(AlgContext* context,
-                         const OutputEncodeOptions& options,
-                         ExternalOutputBatchView* destination,
-                         size_t* written_count, AdapterStatus* status) {
-  const auto& params = options.Params<OutputParams>();
-  const auto capacity =
-      destination->GetPoolSpec("json_out")->capacities.at("result_json");
-  for (size_t i = 0; i < destination->count; ++i) {
-    std::lock_guard<std::mutex> lock(observations_mutex);
-    output_observations.push_back(OutputObservation{
-        options.params, &params, options.params->Effective(), capacity});
-  }
-  return EncodeResultRows<JsonOutputValue>(
-      context, options, destination, written_count, status, "json_out",
-      MakeBlackboardKey<RuleMatchBatch>("matches"),
-      [&params](const RuleMatchItem& result, JsonOutputValue* output) {
-        auto response = BuildRuleMatchResponse(result);
-        response["marker"] = params.marker;
-        response["derived_marker"] = params.derived_marker;
-        response["is_hit"] = result.is_hit ? 1 : 0;
-        output->status_code = result.status_code;
-        output->result_json = response.dump();
-        return AdapterStatus::Ok();
-      });
-}
-
-class IoParametersTest : public test_support::OperatorTestFixture {
+class IoParametersTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    OperatorTestFixture::SetUp();
-    if (HasFatalFailure()) return;
-    auto& registry = IoConverterRegistry::Instance();
-    const auto* input =
-        registry.FindInputConverter("keyword_in", "keyword_match");
-    const auto* output =
-        registry.FindOutputConverter("json_out", "keyword_match");
-    ASSERT_NE(input, nullptr);
-    ASSERT_NE(output, nullptr);
-    production_keyword_decode = input->decode_fn;
-    if (!registry.FindInputConverter("keyword_in", kConverterName)) {
-      auto definition = *input;
-      definition.name = kConverterName;
-      test_support::RegistryTestAccess::SetService(
-          definition.type, definition.name, kInputService);
-      definition.params = InputParamSpec();
-      definition.decode_fn = &DecodeWithParameters;
-      ASSERT_TRUE(registry.RegisterInputConverter(definition));
-    }
-    if (!registry.FindOutputConverter("json_out", kConverterName)) {
-      auto definition = *output;
-      definition.name = kConverterName;
-      test_support::RegistryTestAccess::SetService(
-          definition.type, definition.name, kOutputService);
-      definition.params = OutputParamSpec();
-      definition.encode_fn = &EncodeWithParameters;
-      ASSERT_TRUE(registry.RegisterOutputConverter(definition));
-    }
-    input_prepare_calls = 0;
-    output_prepare_calls = 0;
-    input_observations.clear();
-    output_observations.clear();
-    directory_ =
-        std::filesystem::temp_directory_path() /
-        ("edgeflow-io-parameters-" +
-         std::to_string(
-             std::chrono::steady_clock::now().time_since_epoch().count()));
-    ASSERT_TRUE(std::filesystem::create_directory(directory_));
+    char directory[] = "/tmp/edgeflow-deployment-XXXXXX";
+    ASSERT_NE(mkdtemp(directory), nullptr);
+    directory_ = directory;
+    root_ = directory_ / "root";
+    config_ = root_ / "conf";
+    std::filesystem::create_directories(config_ / "nested");
+    WritePipeline(KeywordDeployment());
+    WriteConfig("pipeline.json");
   }
-
   void TearDown() override {
     std::error_code error;
-    std::filesystem::remove_all(directory_, error);
-    OperatorTestFixture::TearDown();
+    if (!directory_.empty()) std::filesystem::remove_all(directory_, error);
+    EXPECT_FALSE(error) << error.message();
   }
-
-  std::string WriteConfig(const std::string& file, const std::string& prefix,
-                          const std::string& marker, int64_t requested_size) {
-    const nlohmann::json pipeline = {
-        {"io",
-         {{"input",
-           {{{"type", "keyword_in"},
-             {"name", kConverterName},
-             {"params", {{"prefix", prefix}}}}}},
-          {"output",
-           {{{"type", "json_out"},
-             {"name", kConverterName},
-             {"inputs", {{"matches", "rules.matches"}}},
-             {"params",
-              {{"marker", marker},
-               {"result_json_max_bytes", requested_size}}}}}}}},
-        {"models", nlohmann::json::array()},
-        {"pipeline",
-         {{{"name", "rules"},
-           {"type", "text_rule_match"},
-           {"inputs", {{"text", "input.sentence_text"}}},
-           {"params",
-            {{"categories",
-              {{"alpha", {"alpha:prepared|alpha:prepared:derived"}},
-               {"beta", {"beta:prepared|beta:prepared:derived"}}}}}}}}}};
-    std::ofstream(directory_ / (file + ".json")) << pipeline.dump();
-    std::ofstream(directory_ / (file + ".conf"))
-        << nlohmann::json({{"pipe_path", file + ".json"}}).dump();
-    return file + ".conf";
+  void WritePipeline(const Json& document) {
+    std::ofstream(config_ / "pipeline.json") << document.dump(2);
   }
-
-  void ProcessAndCheck(void* handle, const std::string& prefix,
-                       const std::string& marker, int64_t requested_size) {
-    char payload[] = "payload";
-    CompanyString text{7, payload};
-    CompanyOperatorKeywordInput input{kInputService, &text};
-    operator_api::NamedIoBatch inputs(1), outputs(1);
-    inputs[0]["test.keyword_in"] =
-        operator_api::MakeBorrowedOperatorInput(&input);
-    outputs[0]["test.json_out"] = nullptr;
-    ASSERT_EQ(ops_.Process(handle, inputs, outputs), 0)
-        << operator_api::GetOperatorLastError();
-    const auto output = outputs[0].at("test.json_out");
-    ASSERT_NE(output, nullptr);
-    const auto* result =
-        static_cast<const CompanyOperatorOutput*>(output.get());
-    EXPECT_EQ(result->service_type, kOutputService);
-    EXPECT_EQ(result->status_code, 0);
-    EXPECT_EQ(ParseJsonOutput(result).at("is_hit").get<int>(), 1);
-    ASSERT_NE(result->result_json, nullptr);
-    ASSERT_NE(result->result_json->data, nullptr);
-    EXPECT_GT(result->result_json->length, requested_size);
-    EXPECT_LE(result->result_json->length, requested_size + 512);
-    auto response = nlohmann::json::parse(
-        result->result_json->data,
-        result->result_json->data + result->result_json->length, nullptr,
-        false);
-    ASSERT_TRUE(response.is_object());
-    EXPECT_EQ(response["intent"], prefix);
-    EXPECT_EQ(response["marker"], marker + ":prepared");
-    EXPECT_EQ(response["derived_marker"], marker + ":prepared:derived");
+  void WriteConfig(const std::string& path) {
+    std::ofstream(config_ / "deploy.conf") << Json{{"pipe_path", path}}.dump();
   }
-
-  std::filesystem::path directory_;
+  int Resolve(const std::string& file, uint32_t depth,
+              ResolvedOperatorConfig* out,
+              DeploymentDiagnostic* diagnostic = nullptr) {
+    return OperatorConfigResolver::Resolve(root_.c_str(), file.c_str(), out,
+                                           &error_, depth, diagnostic);
+  }
+  std::filesystem::path directory_, root_, config_;
+  std::string error_;
 };
 
 TEST_F(IoParametersTest,
-       PrepareRunsOnceAndRepeatedConcurrentProcessSharesValues) {
-  test_support::ScopedTestOperator instance(ops_);
-  ASSERT_EQ(instance.Create(WriteConfig("single", "alpha", "red", 32),
-                            directory_.string()),
-            0)
-      << instance.create_diagnostic();
-  EXPECT_EQ(input_prepare_calls.load(), 1);
-  EXPECT_EQ(output_prepare_calls.load(), 1);
-  ProcessAndCheck(instance.get(), "alpha", "red", 32);
-  ProcessAndCheck(instance.get(), "alpha", "red", 32);
-  std::vector<std::thread> workers;
-  for (uint64_t worker = 0; worker < 4; ++worker) {
-    workers.emplace_back([&, worker] {
-      for (uint64_t call = 0; call < 3; ++call)
-        ProcessAndCheck(instance.get(), "alpha", "red", 32);
-    });
+       ReadOnlyResolutionNormalizesDepthAndReturnsNativeHostContract) {
+  struct Depth {
+    uint32_t requested, pool, process;
+  };
+  for (const auto depth : {Depth{0, 25, 25}, Depth{64, 64, 64},
+                           Depth{65, 65, 64}, Depth{1024, 1024, 64}}) {
+    SCOPED_TRACE(depth.requested);
+    ResolvedOperatorConfig result;
+    ASSERT_EQ(Resolve("conf/deploy.conf", depth.requested, &result), 0)
+        << error_;
+    EXPECT_EQ(result.effective_frame_depth, depth.pool);
+    EXPECT_EQ(result.effective_process_batch_limit, depth.process);
+    ASSERT_NE(result.io_plan, nullptr);
+    EXPECT_EQ(result.io_plan->output_pool_depth, depth.pool);
+    EXPECT_EQ(result.pipeline_path, config_ / "pipeline.json");
+    ASSERT_EQ(result.io_plan->outputs.size(), 1u);
+    EXPECT_EQ(result.io_plan->outputs[0].pool_spec.GetCapacity("result_json"),
+              8191u);
   }
-  for (auto& worker : workers) worker.join();
-  EXPECT_EQ(input_prepare_calls.load(), 1);
-  EXPECT_EQ(output_prepare_calls.load(), 1);
-  ASSERT_EQ(input_observations.size(), 14U);
-  ASSERT_EQ(output_observations.size(), 14U);
-  const auto& first_input = input_observations.at(0);
-  const auto& first_output = output_observations.at(0);
-  for (const auto& observation : input_observations) {
-    EXPECT_EQ(observation.values, first_input.values);
-    EXPECT_EQ(observation.typed, first_input.typed);
-    EXPECT_EQ(observation.typed->prefix, "alpha:prepared");
-    EXPECT_EQ(observation.typed->derived_prefix, "alpha:prepared:derived");
-    EXPECT_EQ(observation.effective,
-              (nlohmann::json{{"prefix", "alpha:prepared"}}));
-    EXPECT_EQ(observation.transformed_text,
-              "alpha:prepared|alpha:prepared:derived|payload");
+  ResolvedOperatorConfig invalid;
+  EXPECT_EQ(Resolve("conf/deploy.conf", 1025, &invalid), -2);
+  EXPECT_EQ(invalid.io_plan, nullptr);
+  EXPECT_NE(error_.find("exceeds hard limit"), std::string::npos);
+  operator_api::OperatorIoContract contract;
+  ASSERT_EQ(operator_api::ResolveOperatorConfigIo(
+                root_.c_str(), "conf/deploy.conf", &contract),
+            0);
+  ASSERT_EQ(contract.inputs.size(), 1u);
+  ASSERT_EQ(contract.outputs.size(), 1u);
+  EXPECT_EQ(contract.inputs[0].type, "keyword_in");
+  EXPECT_EQ(contract.inputs[0].name, "keyword_match");
+  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorKeywordInput");
+  EXPECT_EQ(contract.inputs[0].service_type, kMockServiceKeywordMatch);
+  EXPECT_EQ(contract.outputs[0].type, "json_out");
+  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorOutput");
+  EXPECT_EQ(contract.outputs[0].service_type, kMockServiceKeywordMatch);
+}
+
+TEST_F(IoParametersTest,
+       ConfigAndPipelinePathsPermitContainedNormalizationButRejectEscape) {
+  ResolvedOperatorConfig result;
+  ASSERT_EQ(Resolve("conf/nested/../deploy.conf", 2, &result), 0) << error_;
+  EXPECT_EQ(result.conf_path, config_ / "deploy.conf");
+  WriteConfig("nested/../pipeline.json");
+  ASSERT_EQ(Resolve("conf/deploy.conf", 2, &result), 0) << error_;
+  EXPECT_EQ(result.pipeline_path, config_ / "pipeline.json");
+  WriteConfig((config_ / "pipeline.json").string());
+  ASSERT_EQ(Resolve("conf/deploy.conf", 2, &result), 0) << error_;
+  const auto outside = directory_ / "outside";
+  std::filesystem::create_directory(outside);
+  std::ofstream(outside / "deploy.conf") << R"({"pipe_path":"pipeline.json"})";
+  std::ofstream(outside / "pipeline.json") << KeywordDeployment().dump();
+  std::filesystem::create_symlink(outside / "deploy.conf",
+                                  root_ / "linked.conf");
+  for (const auto& file :
+       {std::string("../outside/deploy.conf"),
+        (config_ / "deploy.conf").string(), std::string("C:deploy.conf"),
+        std::string("\\\\server\\deploy.conf"),
+        std::string("conf/missing.conf"), std::string("conf"),
+        std::string("linked.conf")}) {
+    SCOPED_TRACE(file);
+    ResolvedOperatorConfig rejected;
+    EXPECT_EQ(Resolve(file, 2, &rejected), -2);
+    EXPECT_EQ(rejected.io_plan, nullptr);
   }
-  for (const auto& observation : output_observations) {
-    EXPECT_EQ(observation.values, first_output.values);
-    EXPECT_EQ(observation.typed, first_output.typed);
-    EXPECT_EQ(observation.typed->requested_size, 32);
-    EXPECT_EQ(observation.typed->result_json_max_bytes, 544);
-    EXPECT_EQ(observation.pool_capacity, 544U);
-    EXPECT_EQ(observation.effective,
-              (nlohmann::json{{"marker", "red:prepared"},
-                              {"result_json_max_bytes", 544}}));
+  std::filesystem::create_symlink(outside / "pipeline.json",
+                                  config_ / "linked.json");
+  for (const auto& pipe :
+       {std::string("../pipeline.json"), std::string("linked.json"),
+        (outside / "pipeline.json").string(), std::string("missing.json")}) {
+    SCOPED_TRACE(pipe);
+    WriteConfig(pipe);
+    DeploymentDiagnostic diagnostic;
+    ResolvedOperatorConfig rejected;
+    EXPECT_EQ(Resolve("conf/deploy.conf", 2, &rejected, &diagnostic), -2);
+    EXPECT_EQ(rejected.io_plan, nullptr);
+    EXPECT_EQ(diagnostic.path, "/pipe_path");
   }
 }
 
 TEST_F(IoParametersTest,
-       SameConverterPairKeepsTwoHandlesParametersIndependent) {
-  test_support::ScopedTestOperator first(ops_), second(ops_);
-  ASSERT_EQ(first.Create(WriteConfig("first", "alpha", "red", 32),
-                         directory_.string()),
+       DeploymentConfAcceptsOnlyPipePathAndDoesNotSearchForMissingPipelines) {
+  DeploymentIoConfig config;
+  DeploymentDiagnostic diagnostic;
+  std::string error;
+  EXPECT_FALSE(DeploymentIoConfig::Parse(
+      {{"pipe_path", "pipeline.json"}, {"models", Json::array()}},
+      config_.string(), &config, &error, &diagnostic));
+  EXPECT_EQ(diagnostic.path, "/models");
+  EXPECT_FALSE(DeploymentIoConfig::Parse({{"pipe_path", 7}}, config_.string(),
+                                         &config, &error, &diagnostic));
+  EXPECT_EQ(diagnostic.path, "/pipe_path");
+  std::ofstream(root_ / "elsewhere.json") << KeywordDeployment().dump();
+  EXPECT_FALSE(DeploymentIoConfig::Parse({{"pipe_path", "elsewhere.json"}},
+                                         config_.string(), &config, &error,
+                                         &diagnostic));
+  EXPECT_NE(error.find("does not exist"), std::string::npos);
+}
+
+TEST_F(IoParametersTest,
+       ExactSelectionsAndUniqueIngressPortsFailWithOwnedDiagnosticPaths) {
+  struct InvalidSelection {
+    const char* label;
+    Json document;
+    const char* code;
+    const char* path;
+  };
+  std::vector<InvalidSelection> cases;
+  auto unknown = KeywordDeployment();
+  unknown["io"]["input"][0]["name"] = "not_keyword_match";
+  cases.push_back(
+      {"unknown pair", unknown, "UNKNOWN_CONVERTER", "/io/input/0"});
+  auto duplicate = KeywordDeployment();
+  duplicate["io"]["input"].push_back(duplicate["io"]["input"][0]);
+  cases.push_back(
+      {"duplicate selection", duplicate, "DUPLICATE_IO_ENTRY", "/io/input/1"});
+  auto port_collision = KeywordDeployment();
+  port_collision["io"]["input"].push_back(
+      {{"type", "entity_in"}, {"name", "entity_extract"}});
+  cases.push_back({"duplicate producer", port_collision,
+                   "DUPLICATE_PORT_PRODUCER", "/io/input/1"});
+  auto unknown_egress = KeywordDeployment();
+  unknown_egress["io"]["output"][0]["inputs"] = {{"wrong", "rules.matches"}};
+  cases.push_back({"unknown egress", unknown_egress, "UNKNOWN_FIELD",
+                   "/io/output/0/inputs/wrong"});
+  auto duplicate_output = KeywordDeployment();
+  duplicate_output["io"]["output"].push_back(
+      duplicate_output["io"]["output"][0]);
+  cases.push_back({"duplicate output", duplicate_output, "DUPLICATE_IO_ENTRY",
+                   "/io/output/1"});
+  for (const auto& invalid : cases) {
+    SCOPED_TRACE(invalid.label);
+    PreparedDeployment prepared;
+    DeploymentDiagnostic diagnostic;
+    EXPECT_FALSE(PrepareDeploymentDocument(invalid.document, {}, &prepared,
+                                           &diagnostic));
+    EXPECT_TRUE(prepared.inputs.empty());
+    EXPECT_TRUE(prepared.outputs.empty());
+    EXPECT_EQ(diagnostic.code, invalid.code);
+    EXPECT_EQ(diagnostic.path, invalid.path);
+  }
+}
+
+TEST_F(
+    IoParametersTest,
+    OutputCapacityInheritsNativeHardLimitAndPreparedDepthCannotChangeAtCreate) {
+  std::unique_ptr<ValidatedIoPlan> plan;
+  DeploymentDiagnostic diagnostic;
+  ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(65536),
+                                                    config_.string(), &plan,
+                                                    &error_, &diagnostic, 2),
             0)
-      << first.create_diagnostic();
-  ASSERT_EQ(second.Create(WriteConfig("second", "beta", "blue", 64),
-                          directory_.string()),
+      << error_;
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(plan->outputs[0].pool_spec.GetCapacity("result_json"), 65536u);
+  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(65537),
+                                                    config_.string(), &plan,
+                                                    &error_, &diagnostic, 2),
+            -2);
+  EXPECT_EQ(plan, nullptr);
+  EXPECT_EQ(diagnostic.code, "CONFIG_FIELD_RANGE");
+  EXPECT_EQ(diagnostic.path, "/io/output/0/params/result_json_max_bytes");
+  ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(),
+                                                    config_.string(), &plan,
+                                                    &error_, &diagnostic, 2),
             0)
-      << second.create_diagnostic();
-  EXPECT_EQ(input_prepare_calls.load(), 2);
-  EXPECT_EQ(output_prepare_calls.load(), 2);
-  ProcessAndCheck(first.get(), "alpha", "red", 32);
-  ProcessAndCheck(second.get(), "beta", "blue", 64);
-  ProcessAndCheck(first.get(), "alpha", "red", 32);
-  ProcessAndCheck(second.get(), "beta", "blue", 64);
-  EXPECT_EQ(input_prepare_calls.load(), 2);
-  EXPECT_EQ(output_prepare_calls.load(), 2);
-  ASSERT_EQ(input_observations.size(), 4U);
-  ASSERT_EQ(output_observations.size(), 4U);
-  EXPECT_NE(input_observations.at(0).values, input_observations.at(1).values);
-  EXPECT_NE(input_observations.at(0).typed, input_observations.at(1).typed);
-  EXPECT_EQ(input_observations.at(0).values, input_observations.at(2).values);
-  EXPECT_EQ(input_observations.at(1).values, input_observations.at(3).values);
-  EXPECT_NE(output_observations.at(0).values, output_observations.at(1).values);
-  EXPECT_NE(output_observations.at(0).typed, output_observations.at(1).typed);
-  EXPECT_EQ(output_observations.at(0).values, output_observations.at(2).values);
-  EXPECT_EQ(output_observations.at(1).values, output_observations.at(3).values);
-  EXPECT_EQ(output_observations.at(0).pool_capacity, 544U);
-  EXPECT_EQ(output_observations.at(1).pool_capacity, 576U);
-  EXPECT_EQ(output_observations.at(1).typed->requested_size, 64);
-  EXPECT_EQ(output_observations.at(1).effective,
-            (nlohmann::json{{"marker", "blue:prepared"},
-                            {"result_json_max_bytes", 576}}));
+      << error_;
+  RuntimeCreateOptions options;
+  options.output_pool_depth = 3;
+  std::unique_ptr<SharedAlgorithmRuntime> runtime;
+  EXPECT_NE(SharedAlgorithmRuntime::CreateFromIoPlan(std::move(plan), options,
+                                                     &runtime, &error_),
+            0);
+  EXPECT_EQ(runtime, nullptr);
+  EXPECT_NE(error_.find("depth"), std::string::npos);
+}
+
+TEST_F(IoParametersTest,
+       RequestedDepthAndAggregateOutputSlotsConsumeOneHandleBudget) {
+  std::unique_ptr<ValidatedIoPlan> plan;
+  DeploymentDiagnostic diagnostic;
+  auto source = KeywordDeployment(40000);
+  ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(
+                source, config_.string(), &plan, &error_, &diagnostic, 1024),
+            0)
+      << error_;
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(plan->output_pool_depth, 1024u);
+  source["io"]["output"].push_back(
+      {{"type", "json_out"},
+       {"name", "translate"},
+       {"params", {{"result_json_max_bytes", 40000}}},
+       {"inputs", {{"translation", "render.text"}}}});
+  source["pipeline"].push_back(
+      {{"type", "text_template"},
+       {"name", "render"},
+       {"inputs", {{"primary", "input.sentence_text"}}}});
+  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(
+                source, config_.string(), &plan, &error_, &diagnostic, 1024),
+            -2);
+  EXPECT_EQ(plan, nullptr);
+  EXPECT_EQ(diagnostic.code, "INVALID_OUTPUT_ALLOCATION");
+  EXPECT_EQ(diagnostic.path, "/io/output");
+  EXPECT_NE(error_.find("per-handle payload budget"), std::string::npos);
+  ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(
+                source, config_.string(), &plan, &error_, &diagnostic, 64),
+            0)
+      << error_;
+  EXPECT_EQ(plan->outputs.size(), 2u);
+  // An individual 64 KiB output at requested depth 1024 also exceeds 64 MiB
+  // once the native outer structure and string header are counted.
+  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(65536),
+                                                    config_.string(), &plan,
+                                                    &error_, &diagnostic, 1024),
+            -2);
+  EXPECT_EQ(diagnostic.path, "/io/output/0");
 }
 
 }  // namespace

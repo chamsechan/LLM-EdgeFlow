@@ -1,19 +1,72 @@
 #pragma once
 
-#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
 
 namespace llm_edgeflow::test_support {
 
+// Restore native singleton state. Swapped callback owners are destroyed only
+// after the destructor's lock has been released; they may reenter the registry.
 class RegistryTestAccess {
  public:
+  class ScopedNodeState {
+   public:
+    ScopedNodeState() {
+      auto& registry = NodeRegistry::Instance();
+      std::lock_guard<std::mutex> lock(registry.mutex_);
+      entries_ = registry.entries_;
+      errors_ = registry.conflict_errors_;
+      conflict_ = registry.has_conflict_.load();
+    }
+    ~ScopedNodeState() {
+      auto& registry = NodeRegistry::Instance();
+      std::lock_guard<std::mutex> lock(registry.mutex_);
+      registry.entries_.swap(entries_);
+      registry.conflict_errors_.swap(errors_);
+      registry.has_conflict_.store(conflict_);
+    }
+    ScopedNodeState(const ScopedNodeState&) = delete;
+    ScopedNodeState& operator=(const ScopedNodeState&) = delete;
+
+   private:
+    std::unordered_map<std::string, NodeRegistry::EntryHandle> entries_;
+    std::vector<std::string> errors_;
+    bool conflict_ = false;
+  };
+
+  static void ResetNodes() {
+    std::unordered_map<std::string, NodeRegistry::EntryHandle> retired;
+    auto& registry = NodeRegistry::Instance();
+    {
+      std::lock_guard<std::mutex> lock(registry.mutex_);
+      retired.swap(registry.entries_);
+      registry.conflict_errors_.clear();
+      registry.has_conflict_.store(false);
+    }
+  }
+
+  static void ResetConverters() {
+    auto& registry = IoConverterRegistry::Instance();
+    decltype(registry.input_converters_) inputs;
+    decltype(registry.output_converters_) outputs;
+    decltype(registry.output_parameters_) parameters;
+    {
+      std::lock_guard<std::mutex> audit_lock(registry.audit_mutex_);
+      std::lock_guard<std::mutex> lock(registry.mutex_);
+      inputs.swap(registry.input_converters_);
+      outputs.swap(registry.output_converters_);
+      parameters.swap(registry.output_parameters_);
+      registry.conflicts_.Clear();
+    }
+  }
+
   class ScopedValueTypeState {
    public:
     ScopedValueTypeState() {
@@ -37,10 +90,12 @@ class RegistryTestAccess {
     ScopedValueTypeState& operator=(const ScopedValueTypeState&) = delete;
 
    private:
-    std::unordered_map<std::string, OperatorValueTypeBinding> bindings_,
-        allocators_;
-    bool conflict_ = false, audited_ = false;
+    std::unordered_map<std::string, OperatorValueTypeBinding> bindings_;
+    std::unordered_map<std::string, OperatorValueTypeBinding> allocators_;
+    bool conflict_ = false;
+    bool audited_ = false;
   };
+
   static void SetValueBinding(OperatorValueTypeBinding binding) {
     auto& registry = OperatorValueTypeRegistry::Instance();
     std::lock_guard<std::mutex> lock(registry.mutex_);
@@ -48,69 +103,5 @@ class RegistryTestAccess {
         std::move(binding);
     registry.audited_ = false;
   }
-  static void SetService(const std::string& suffix, const std::string& name,
-                         int32_t value) {
-    auto& registry = OperatorValueTypeRegistry::Instance();
-    std::lock_guard<std::mutex> lock(registry.mutex_);
-    registry.bindings_by_canonical_.at(suffix).services[name] = value;
-    registry.audited_ = false;
-  }
-  static void ResetNodes() {
-    std::unordered_map<std::string, NodeRegistry::EntryHandle> old_entries;
-    {
-      std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);
-      old_entries.swap(NodeRegistry::Instance().entries_);
-      NodeRegistry::Instance().has_conflict_.store(false,
-                                                   std::memory_order_release);
-      NodeRegistry::Instance().conflict_errors_.clear();
-    }
-    // old_entries 在锁外析构
-  }
-
-  static void ClearNodeFailures() noexcept {
-    try {
-      std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);
-      NodeRegistry::Instance().has_conflict_.store(false,
-                                                   std::memory_order_release);
-      NodeRegistry::Instance().conflict_errors_.clear();
-    } catch (...) {
-    }
-  }
-
-  class ScopedNodeState {
-   public:
-    ScopedNodeState() {
-      std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);
-      saved_entries_ = NodeRegistry::Instance().entries_;
-      saved_has_conflict_ = NodeRegistry::Instance().has_conflict_.load(
-          std::memory_order_acquire);
-      saved_conflict_errors_ = NodeRegistry::Instance().conflict_errors_;
-    }
-
-    ~ScopedNodeState() noexcept {
-      std::unordered_map<std::string, NodeRegistry::EntryHandle> old_entries;
-      std::vector<std::string> old_errors;
-      try {
-        std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);
-        old_entries.swap(NodeRegistry::Instance().entries_);
-        NodeRegistry::Instance().entries_.swap(saved_entries_);
-        NodeRegistry::Instance().has_conflict_.store(saved_has_conflict_,
-                                                     std::memory_order_release);
-        old_errors.swap(NodeRegistry::Instance().conflict_errors_);
-        NodeRegistry::Instance().conflict_errors_.swap(saved_conflict_errors_);
-      } catch (...) {
-      }
-      // old_entries、old_errors 在锁外析构，且不分配内存
-    }
-
-    ScopedNodeState(const ScopedNodeState&) = delete;
-    ScopedNodeState& operator=(const ScopedNodeState&) = delete;
-
-   private:
-    std::unordered_map<std::string, NodeRegistry::EntryHandle> saved_entries_;
-    bool saved_has_conflict_ = false;
-    std::vector<std::string> saved_conflict_errors_;
-  };
 };
-
 }  // namespace llm_edgeflow::test_support

@@ -1,30 +1,12 @@
-# Development runtime support
+# 开发支持
 
-This directory owns development fixtures, Node authoring templates and focused benchmarks.
-`inference/` provides deterministic runtime implementations used by mock Demo profiles and tests.
-They may register test Model or Backend Definitions, but they must never be linked into the
-production `alg_sdk` shared library or referenced by real deployment profiles.
+`inference/test_biz_models.cpp` 为 mock Demo Profile 和测试 CLI 提供最小确定性能力。
+五个 Model 持有中性 fixture Session；Backend 只声明策略和并发，不伪装厂商推理协议。
+一次 OBJECT 链接包含全部注册，SDK 和生产 CLI 不链接这些替身。
 
-Reusable helpers that do not register runtime capabilities remain under `tests/support/`.
+`node_authoring/starter_*.cpp` 是当前 Node 作者教程和脚手架的普通 C++ 模板。LLM、Control
+生成副本和其最小测试由既有 runner 编译执行；其余示例展示多模型及批次 API，按原样编译。
+测试自己的算法预期仍留在对应业务用例，通用规则由公共机制测试负责。
 
-`node_authoring/starter_llm_node.cpp` and `starter_control_node.cpp` are inputs to the custom Node
-scaffolder. Generated copies are compiled in the existing test runners; authors generate their
-own named copy under `src/custom_nodes/` to include it in a solution. The introductory LLM
-walkthrough compiles its two documented business function bodies in those tests.
-
-The other `starter_*.cpp` files demonstrate batch operations and multiple-model use. The Node
-runner compiles these examples directly. No starter file is linked into a production target here.
-
-`benchmarks/` and `node_authoring/benchmark/` contain opt-in development measurements. They are
-separate from the default runtime and correctness suites.
-
-After running `./scripts/run_all_tests.sh`, measure the current template and rule snapshot
-Nodes, with and without concurrent Control updates, using an empty output directory:
-
-```bash
-python3 dev_support/benchmarks/control_snapshots.py --output-dir /tmp/edgeflow-control-snapshots --rounds 1
-```
-
-The script saves request timing, Control allocation counts, command logs and median summaries
-in that directory. It compiles only current sources; historical source comparisons and the
-`--baseline` option have been removed.
+没有使用方的历史 helper、对照基线和重复业务测试不保留。测试维护和执行见
+[tests/README.md](../tests/README.md)。

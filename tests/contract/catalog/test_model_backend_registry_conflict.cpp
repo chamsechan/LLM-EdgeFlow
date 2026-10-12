@@ -1,128 +1,269 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <future>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
-#include "core/pipeline_catalog.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
-#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
 
-ModelRegistry::Creator NullModelCreator() {
-  return [](const ModelCreateContext&, std::string*) {
-    return std::shared_ptr<IModel>{};
-  };
-}
-
-BackendRegistry::Creator NullBackendCreator() {
-  return []() { return std::unique_ptr<IInferenceBackend>{}; };
-}
-
-ModelDefinition ValidModelDefinition(std::string impl_name) {
+ModelDefinition ModelDefinitionFor(std::string name) {
   ModelDefinition definition;
-  definition.impl_name = std::move(impl_name);
-  definition.model_type = "embedding";
-  definition.description = "original";
-  definition.required_protocol = ExecutionProtocol::kTensorGraph;
-  definition.concurrency = InferenceConcurrency::kConcurrent;
+  definition.impl_name = std::move(name);
+  definition.model_type = "registry_probe";
+  definition.description = "literal model";
+  definition.required_protocol = ExecutionProtocol::kFixture;
+  definition.fixture_backends = {"registry_backend"};
   return definition;
 }
-
-BackendDefinition ValidBackendDefinition(std::string backend_type) {
+BackendDefinition BackendDefinitionFor(std::string name) {
   BackendDefinition definition;
-  definition.backend_type = std::move(backend_type);
-  definition.description = "original";
-  definition.supported_protocols = {ExecutionProtocol::kTensorGraph};
-  definition.concurrency = InferenceConcurrency::kConcurrent;
+  definition.backend_type = std::move(name);
+  definition.description = "literal backend";
+  definition.supported_protocols = {ExecutionProtocol::kFixture};
   return definition;
 }
+auto NullModel() {
+  return [](const ModelCreateContext&,
+            std::string*) -> std::shared_ptr<IModel> { return nullptr; };
+}
+auto NullBackend() {
+  return []() -> std::unique_ptr<IInferenceBackend> { return nullptr; };
+}
+void Check(bool condition) {
+  if (!condition) std::_Exit(1);
+}
 
-TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
-  auto& model_registry = ModelRegistry::Instance();
-  auto& backend_registry = BackendRegistry::Instance();
+TEST(ModelExecutionRegistryTest, DefinitionsAreIndependentSortedSnapshots) {
+  auto& models = ModelRegistry::Instance();
+  auto& backends = BackendRegistry::Instance();
+  auto model = ModelDefinitionFor("registry_zeta");
+  model.model_type = "registry_snapshot";
+  auto backend = BackendDefinitionFor("registry_zeta");
+  ASSERT_TRUE(models.Register(model, NullModel()));
+  ASSERT_TRUE(backends.Register(backend, NullBackend()));
+  model.description = "changed caller";
+  backend.description = "changed caller";
+  auto found_model = models.Find("registry_zeta");
+  auto found_backend = backends.Find("registry_zeta");
+  ASSERT_TRUE(found_model);
+  ASSERT_TRUE(found_backend);
+  EXPECT_EQ(found_model->description, "literal model");
+  EXPECT_EQ(found_backend->description, "literal backend");
+  found_model->fixture_backends.clear();
+  found_backend->supported_protocols.clear();
+  EXPECT_EQ(models.Find("registry_zeta")->fixture_backends,
+            (std::vector<std::string>{"registry_backend"}));
+  EXPECT_EQ(backends.Find("registry_zeta")->supported_protocols,
+            (std::vector<ExecutionProtocol>{ExecutionProtocol::kFixture}));
+  const auto names = models.ListImplNames();
+  const auto types = backends.ListTypes();
+  EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
+  EXPECT_TRUE(std::is_sorted(types.begin(), types.end()));
+  EXPECT_TRUE(models.Has("registry_zeta"));
+  EXPECT_TRUE(backends.Has("registry_zeta"));
+}
 
-  auto model = ValidModelDefinition("");
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
+TEST(ModelExecutionRegistryTest,
+     InvalidDeclarationsNeverInstallAndLeaveStickyErrors) {
+  // Each invalid registration is isolated because conflicts intentionally
+  // persist.
+  for (int defect = 0; defect < 9; ++defect) {
+    SCOPED_TRACE(defect);
+    EXPECT_EXIT(
+        ([&] {
+          auto definition = ModelDefinitionFor("invalid_model");
+          auto creator = ModelRegistry::Creator(NullModel());
+          switch (defect) {
+            case 0:
+              definition.impl_name.clear();
+              break;
+            case 1:
+              definition.model_type.clear();
+              break;
+            case 2:
+              definition.required_protocol = static_cast<ExecutionProtocol>(99);
+              break;
+            case 3:
+              definition.concurrency = static_cast<InferenceConcurrency>(99);
+              break;
+            case 4:
+              creator = {};
+              break;
+            case 5:
+              definition.fixture_backends.clear();
+              break;
+            case 6:
+              definition.required_protocol = ExecutionProtocol::kTensorGraph;
+              break;
+            case 7:
+              definition.fixture_backends = {""};
+              break;
+            case 8:
+              definition.fixture_backends = {"registry_backend",
+                                             "registry_backend"};
+              break;
+          }
+          auto& registry = ModelRegistry::Instance();
+          Check(!registry.Register(definition, creator));
+          Check(!registry.Has("invalid_model"));
+          Check(registry.HasConflict());
+          Check(!registry.GetConflictErrors().empty());
+          std::_Exit(0);
+        }()),
+        ::testing::ExitedWithCode(0), "");
+  }
+  for (int defect = 0; defect < 6; ++defect) {
+    SCOPED_TRACE(defect);
+    EXPECT_EXIT(([&] {
+                  auto definition = BackendDefinitionFor("invalid_backend");
+                  auto creator = BackendRegistry::Creator(NullBackend());
+                  switch (defect) {
+                    case 0:
+                      definition.backend_type.clear();
+                      break;
+                    case 1:
+                      definition.supported_protocols.clear();
+                      break;
+                    case 2:
+                      definition.concurrency =
+                          static_cast<InferenceConcurrency>(99);
+                      break;
+                    case 3:
+                      creator = {};
+                      break;
+                    case 4:
+                      definition.supported_protocols = {
+                          static_cast<ExecutionProtocol>(99)};
+                      break;
+                    case 5:
+                      definition.supported_protocols.push_back(
+                          ExecutionProtocol::kFixture);
+                      break;
+                  }
+                  auto& registry = BackendRegistry::Instance();
+                  Check(!registry.Register(definition, creator));
+                  Check(!registry.Has("invalid_backend"));
+                  Check(registry.HasConflict());
+                  Check(!registry.GetConflictErrors().empty());
+                  std::_Exit(0);
+                }()),
+                ::testing::ExitedWithCode(0), "");
+  }
+}
 
-  model = ValidModelDefinition("empty_capability_model");
-  model.model_type.clear();
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
+TEST(ModelExecutionRegistryTest,
+     DuplicateKeepsTheOriginalDeclarationAndCreator) {
+  EXPECT_EXIT(
+      ([&] {
+        auto& models = ModelRegistry::Instance();
+        auto& backends = BackendRegistry::Instance();
+        int model_calls = 0, backend_calls = 0;
+        auto model = ModelDefinitionFor("duplicate_model");
+        auto backend = BackendDefinitionFor("duplicate_backend");
+        Check(models.Register(model,
+                              [&](const ModelCreateContext&,
+                                  std::string*) -> std::shared_ptr<IModel> {
+                                ++model_calls;
+                                return nullptr;
+                              }));
+        Check(backends.Register(backend,
+                                [&]() -> std::unique_ptr<IInferenceBackend> {
+                                  ++backend_calls;
+                                  return nullptr;
+                                }));
+        model.description = "second model";
+        backend.description = "second backend";
+        Check(!models.Register(model, NullModel()));
+        Check(!backends.Register(backend, NullBackend()));
+        Check(models.Find("duplicate_model")->description == "literal model");
+        Check(backends.Find("duplicate_backend")->description ==
+              "literal backend");
+        models.Create("duplicate_model", {});
+        backends.Create("duplicate_backend");
+        Check(model_calls == 1 && backend_calls == 1);
+        Check(models.HasConflict() && backends.HasConflict());
+        std::_Exit(0);
+      }()),
+      ::testing::ExitedWithCode(0), "");
+}
 
-  model = ValidModelDefinition("null_model_creator");
-  EXPECT_FALSE(model_registry.Register(model, {}));
+TEST(ModelExecutionRegistryTest,
+     SelectionUsesProtocolAndFixtureWhitelistAndAuditRejectsAmbiguity) {
+  EXPECT_EXIT(
+      ([&] {
+        auto& models = ModelRegistry::Instance();
+        auto& backends = BackendRegistry::Instance();
+        Check(backends.Register(BackendDefinitionFor("registry_backend"),
+                                NullBackend()));
+        Check(backends.Register(BackendDefinitionFor("registry_unlisted"),
+                                NullBackend()));
+        auto model = ModelDefinitionFor("first_registry_impl");
+        Check(models.Register(model, NullModel()));
+        const auto compatible =
+            models.FindImplementation("registry_probe", "registry_backend");
+        Check(compatible.size() == 1 &&
+              compatible.front().impl_name == "first_registry_impl");
+        Check(models.FindImplementation("registry_probe", "registry_unlisted")
+                  .empty());
+        Check(models.FindImplementation("missing", "registry_backend").empty());
+        Check(models.FindImplementation("registry_probe", "missing").empty());
+        model.impl_name = "second_registry_impl";
+        Check(models.Register(model, NullModel()));
+        Check(models.FindImplementation("registry_probe", "registry_backend")
+                  .size() == 2);
+        std::vector<std::string> errors;
+        Check(!models.Audit(backends, &errors));
+        bool identified = false;
+        for (const auto& error : errors)
+          identified |= error.find("registry_probe") != std::string::npos &&
+                        error.find("registry_backend") != std::string::npos;
+        Check(identified);
+        std::_Exit(0);
+      }()),
+      ::testing::ExitedWithCode(0), "");
+}
 
-  model = ValidModelDefinition("invalid_model_protocol");
-  model.required_protocol = static_cast<ExecutionProtocol>(999);
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
-
-  model = ValidModelDefinition("invalid_model_concurrency");
-  model.concurrency = static_cast<InferenceConcurrency>(999);
-  EXPECT_FALSE(model_registry.Register(model, NullModelCreator()));
-
-  model = ValidModelDefinition("invalid_model_schema");
-  struct InvalidRangeParams {
-    std::optional<int> threads;
-  };
-  EXPECT_THROW(
-      (Parameters<InvalidRangeParams>{
-          Field("threads", &InvalidRangeParams::threads).Range(10, 2)}),
-      std::invalid_argument);
-
-  auto backend = ValidBackendDefinition("");
-  EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
-
-  backend = ValidBackendDefinition("empty_protocol_backend");
-  backend.supported_protocols.clear();
-  EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
-
-  backend = ValidBackendDefinition("null_backend_creator");
-  EXPECT_FALSE(backend_registry.Register(backend, {}));
-
-  backend = ValidBackendDefinition("invalid_backend_protocol");
-  backend.supported_protocols = {static_cast<ExecutionProtocol>(999)};
-  EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
-
-  backend = ValidBackendDefinition("duplicate_backend_protocol");
-  backend.supported_protocols = {ExecutionProtocol::kTensorGraph,
-                                 ExecutionProtocol::kTensorGraph};
-  EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
-
-  backend = ValidBackendDefinition("invalid_backend_concurrency");
-  backend.concurrency = static_cast<InferenceConcurrency>(999);
-  EXPECT_FALSE(backend_registry.Register(backend, NullBackendCreator()));
-
-  auto original_model = ValidModelDefinition("atomic_model");
-  ASSERT_TRUE(model_registry.Register(original_model, NullModelCreator()));
-  auto duplicate_model = original_model;
-  duplicate_model.description = "duplicate";
-  EXPECT_FALSE(model_registry.Register(duplicate_model, NullModelCreator()));
-  const auto stored_model = model_registry.Find(original_model.impl_name);
-  ASSERT_TRUE(stored_model.has_value());
-  EXPECT_EQ(stored_model->description, "original");
-
-  auto original_backend = ValidBackendDefinition("atomic_backend");
-  ASSERT_TRUE(
-      backend_registry.Register(original_backend, NullBackendCreator()));
-  auto duplicate_backend = original_backend;
-  duplicate_backend.description = "duplicate";
-  EXPECT_FALSE(
-      backend_registry.Register(duplicate_backend, NullBackendCreator()));
-  const auto stored_backend =
-      backend_registry.Find(original_backend.backend_type);
-  ASSERT_TRUE(stored_backend.has_value());
-  EXPECT_EQ(stored_backend->description, "original");
-
-  test_support::RegistryTestAccess::ResetNodes();
-  EXPECT_TRUE(model_registry.Has(original_model.impl_name));
-  EXPECT_TRUE(backend_registry.Has(original_backend.backend_type));
-
-  EXPECT_TRUE(model_registry.HasConflict());
-  EXPECT_TRUE(backend_registry.HasConflict());
-  EXPECT_FALSE(model_registry.GetConflictErrors().empty());
-  EXPECT_FALSE(backend_registry.GetConflictErrors().empty());
+TEST(ModelExecutionRegistryTest,
+     CreatorInvocationCanReenterAndExceptionsBecomeDiagnostics) {
+  EXPECT_EXIT(([&] {
+                auto& models = ModelRegistry::Instance();
+                auto& backends = BackendRegistry::Instance();
+                Check(models.Register(
+                    ModelDefinitionFor("reenter_model"),
+                    [&](const ModelCreateContext&,
+                        std::string*) -> std::shared_ptr<IModel> {
+                      Check(models.Find("reenter_model").has_value());
+                      throw std::runtime_error("model callback exception");
+                    }));
+                Check(backends.Register(
+                    BackendDefinitionFor("reenter_backend"),
+                    [&]() -> std::unique_ptr<IInferenceBackend> {
+                      Check(backends.Find("reenter_backend").has_value());
+                      throw 31;
+                    }));
+                auto result = std::async(std::launch::async, [&] {
+                  std::string model_error, backend_error;
+                  Check(!models.Create("reenter_model", {}, &model_error));
+                  Check(!backends.Create("reenter_backend", &backend_error));
+                  Check(model_error.find("model callback exception") !=
+                        std::string::npos);
+                  Check(!backend_error.empty());
+                });
+                Check(result.wait_for(std::chrono::seconds(2)) ==
+                      std::future_status::ready);
+                result.get();
+                std::_Exit(0);
+              }()),
+              ::testing::ExitedWithCode(0), "");
 }
 
 }  // namespace

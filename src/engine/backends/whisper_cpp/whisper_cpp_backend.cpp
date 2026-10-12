@@ -235,10 +235,6 @@ REGISTER_BACKEND_WITH_DEFINITION(WhisperCppBackend,
 std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
-    if (test_load_hook_) {
-      test_load_hook_();
-    }
-
     if (spec.requested_protocol != ExecutionProtocol::kAudioTranscription) {
       SetDiagnosticNoexcept(
           diagnostic,

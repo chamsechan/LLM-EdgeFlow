@@ -343,7 +343,7 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 `NodeResult::Failure`，原因写明字段或来源。执行包装统一处理诊断和发布，普通算法不保存
 Context 指针。配置更新由包装提供一致快照；含外部资源的更新仍需明确资源生命周期。
 
-第一次测试可复用 [InitNodeForTest](../../tests/support/node_test_utils.h)，将断言加入现有
+第一次测试可复用 [NodeProbe](../../tests/support/node_probe.h)，将断言加入现有
 Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
 先用两个不同请求、非零 `sub_id` 验证不会串结果，再检查算法自己的正常和失败输出。
 无需为了组织一个复杂 Node 再增加继承层、配置语言或专用测试执行器。

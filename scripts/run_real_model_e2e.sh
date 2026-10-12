@@ -60,10 +60,10 @@ echo ">>> 执行真实模型物理测试 (Google Test)..."
 echo "=================================================================="
 if [[ "${MODE}" == "whisper" ]]; then
   "${BUILD_DIR}/test_real_models_e2e" --gtest_color=yes \
-    --gtest_filter="RealModelE2ETest.RealWhisperAsrTranscribe"
+    --gtest_filter="RealModelExecutionTest.WhisperSpeechTraversesPublicOperatorWithActualPcm"
 elif [[ "${MODE}" == "gguf-only" ]]; then
   "${BUILD_DIR}/test_real_models_e2e" --gtest_color=yes \
-    --gtest_filter="-RealModelE2ETest.RealWhisperAsrTranscribe"
+    --gtest_filter="-RealModelExecutionTest.WhisperSpeechTraversesPublicOperatorWithActualPcm"
 else
   "${BUILD_DIR}/test_real_models_e2e" --gtest_color=yes
 fi
