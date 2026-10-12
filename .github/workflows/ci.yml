@@ -63,7 +63,7 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
@@ -128,7 +128,7 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/ThirdPartyEngines.cmake', 'cmake_ext/NlohmannJson.cmake', 'cmake_ext/StbImage.cmake') }}
+          key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
             3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
@@ -194,7 +194,7 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
@@ -268,7 +268,7 @@ jobs:
             3rdparty/whisper_cpp
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
             3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
             3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
@@ -351,7 +351,7 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
             3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
