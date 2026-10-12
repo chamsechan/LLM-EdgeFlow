@@ -46,30 +46,7 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
     spec.execution_target.platform = runtime_options.chip_type;
 
     std::string factory_diag;
-    std::shared_ptr<IModel> model;
-    try {
-      model = ModelRuntimeFactory::Create(spec, &factory_diag);
-    } catch (const std::exception& e) {
-      if (diagnostic) {
-        diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
-        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
-        diagnostic->message = "Exception creating model '" +
-                              model_plan.model_name + "': " + e.what();
-      }
-      ALG_LOG_ERROR("[Pipeline] Exception creating model [%s]: %s\n",
-                    model_plan.model_name.c_str(), e.what());
-      return false;
-    } catch (...) {
-      if (diagnostic) {
-        diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
-        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
-        diagnostic->message =
-            "Unknown exception creating model '" + model_plan.model_name + "'";
-      }
-      ALG_LOG_ERROR("[Pipeline] Unknown exception creating model [%s]\n",
-                    model_plan.model_name.c_str());
-      return false;
-    }
+    auto model = ModelRuntimeFactory::Create(spec, &factory_diag);
 
     if (!model) {
       if (diagnostic) {

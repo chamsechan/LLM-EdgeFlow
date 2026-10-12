@@ -26,12 +26,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
   const auto* candidates = inputs.candidates;
 
   QueryCandidatesBatch pair_items;
-  struct CandidatePayload {
-    uint32_t req_id;
-    uint32_t sub_id;
-    std::string text;
-  };
-  std::vector<CandidatePayload> cand_payloads;
 
   std::unordered_map<uint32_t, std::string> query_map;
   for (const auto& q : *queries) {
@@ -44,7 +38,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
   }
 
   pair_items.reserve(candidates->size());
-  cand_payloads.reserve(candidates->size());
   for (const auto& c : *candidates) {
     const auto query = query_map.find(c.req_id);
     if (query == query_map.end()) {
@@ -55,7 +48,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
     std::string q = query->second;
     pair_items.emplace_back(c.req_id, c.sub_id,
                             QueryCandidatePair{std::move(q), c.data.text});
-    cand_payloads.push_back({c.req_id, c.sub_id, c.data.text});
   }
 
   auto scores = models.reranker.Score(pair_items);
@@ -70,9 +62,9 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
     float score;
   };
   std::map<uint32_t, std::vector<ScoredCandidate>> req_scored_map;
-  for (size_t i = 0; i < pair_scores.size() && i < cand_payloads.size(); ++i) {
-    req_scored_map[cand_payloads[i].req_id].push_back(
-        {cand_payloads[i].sub_id, std::move(cand_payloads[i].text),
+  for (size_t i = 0; i < pair_scores.size(); ++i) {
+    req_scored_map[pair_items[i].req_id].push_back(
+        {pair_items[i].sub_id, std::move(pair_items[i].data.candidate),
          pair_scores[i].data});
   }
 

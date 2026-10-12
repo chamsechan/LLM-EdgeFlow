@@ -58,9 +58,10 @@ int ValidateAndExtractOperatorInputs(
     auto& view = (*out_views)[index];
     view.count = inputs.size();
     view.binding = binding;
-    view.slot_types[def.type] = binding->external_c_type_name;
+    view.slot = def.type;
+    view.external_c_type_name = binding->external_c_type_name;
     const auto service = binding->ServiceType(def.name);
-    auto& payloads = view.slots[def.type];
+    auto& payloads = view.values;
     payloads.resize(inputs.size());
     for (size_t frame = 0; frame < inputs.size(); ++frame) {
       std::string key;

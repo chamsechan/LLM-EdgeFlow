@@ -34,8 +34,9 @@ int DecodeConverter(const std::string& type, const std::string& name,
   ExternalInputBatchView source;
   source.count = rows.size();
   source.binding = &binding;
-  source.slot_types[type] = "OwnedCarrier";
-  for (const auto& row : rows) source.slots[type].push_back(row);
+  source.slot = type;
+  source.external_c_type_name = "OwnedCarrier";
+  for (const auto& row : rows) source.values.push_back(row);
   IoPortBindings ports;
   for (const auto& port : definition->logical_ports)
     ports.emplace(port.logical_name, "decoded." + port.logical_name);
@@ -67,10 +68,11 @@ inline int EncodeJsonConverter(const std::string& name, AlgContext* context,
   ExternalOutputBatchView destination;
   destination.count = rows->size();
   destination.binding = &binding;
-  destination.slot_types["json_out"] = "JsonCarrier";
+  destination.slot = "json_out";
+  destination.external_c_type_name = "JsonCarrier";
   ResolvedOutputPoolSpec pool;
-  destination.pool_specs["json_out"] = &pool;
-  for (auto& row : *rows) destination.leased_slots["json_out"].push_back(&row);
+  destination.pool_spec = &pool;
+  for (auto& row : *rows) destination.leased_values.push_back(&row);
   IoPortBindings ports;
   for (const auto& port : definition->logical_ports)
     ports.emplace(port.logical_name, "result." + port.logical_name);

@@ -575,6 +575,20 @@ class Selection {
 template <typename Payload, typename Predicate>
 NodeResult<Selection<Payload>> SelectBatch(
     const std::vector<TraceableItem<Payload>>& anchor, Predicate&& predicate) {
+  constexpr bool accepts_payload =
+      std::is_invocable_v<Predicate, const Payload&>;
+  static_assert(
+      accepts_payload ||
+          std::is_invocable_v<Predicate, const TraceableItem<Payload>&>,
+      "SelectBatch predicate must accept (const Payload&) or (const "
+      "TraceableItem<Payload>&)");
+  using Argument = std::conditional_t<accepts_payload, const Payload&,
+                                      const TraceableItem<Payload>&>;
+  using Ret = std::invoke_result_t<Predicate, Argument>;
+  static_assert(
+      std::is_same_v<Ret, bool> || std::is_same_v<Ret, NodeResult<bool>>,
+      "SelectBatch predicate must return bool or NodeResult<bool>");
+
   std::unordered_set<TraceableItemKey> seen_keys;
   for (const auto& item : anchor) {
     TraceableItemKey key{item.req_id, item.sub_id};
@@ -593,62 +607,24 @@ NodeResult<Selection<Payload>> SelectBatch(
   for (size_t i = 0; i < anchor.size(); ++i) {
     const auto& item = anchor[i];
     try {
-      if constexpr (std::is_invocable_v<Predicate, const Payload&>) {
-        using Ret = std::invoke_result_t<Predicate, const Payload&>;
-        if constexpr (std::is_same_v<Ret, bool>) {
-          if (predicate(item.data)) {
-            selected_indices.push_back(i);
-          }
-        } else if constexpr (std::is_same_v<Ret, NodeResult<bool>>) {
-          auto res = predicate(item.data);
-          if (!res.ok()) {
-            auto failure = std::move(res).ExtractFailure();
-            failure.batch_detail = BatchFailureDetail{
-                "SelectBatch", BatchFailureReason::kCallbackFailed,
-                TraceableItemKey{item.req_id, item.sub_id}};
-            return NodeResult<Selection<Payload>>::Failure(std::move(failure));
-          }
-          if (res.value()) {
-            selected_indices.push_back(i);
-          }
-        } else {
-          static_assert(std::is_same_v<Ret, bool> ||
-                            std::is_same_v<Ret, NodeResult<bool>>,
-                        "SelectBatch predicate must return bool or "
-                        "NodeResult<bool>");
+      const auto invoke_predicate = [&]() -> Ret {
+        if constexpr (accepts_payload)
+          return predicate(item.data);
+        else
+          return predicate(item);
+      };
+      if constexpr (std::is_same_v<Ret, bool>) {
+        if (invoke_predicate()) selected_indices.push_back(i);
+      } else if constexpr (std::is_same_v<Ret, NodeResult<bool>>) {
+        auto res = invoke_predicate();
+        if (!res.ok()) {
+          auto failure = std::move(res).ExtractFailure();
+          failure.batch_detail = BatchFailureDetail{
+              "SelectBatch", BatchFailureReason::kCallbackFailed,
+              TraceableItemKey{item.req_id, item.sub_id}};
+          return NodeResult<Selection<Payload>>::Failure(std::move(failure));
         }
-      } else if constexpr (std::is_invocable_v<Predicate,
-                                               const TraceableItem<Payload>&>) {
-        using Ret =
-            std::invoke_result_t<Predicate, const TraceableItem<Payload>&>;
-        if constexpr (std::is_same_v<Ret, bool>) {
-          if (predicate(item)) {
-            selected_indices.push_back(i);
-          }
-        } else if constexpr (std::is_same_v<Ret, NodeResult<bool>>) {
-          auto res = predicate(item);
-          if (!res.ok()) {
-            auto failure = std::move(res).ExtractFailure();
-            failure.batch_detail = BatchFailureDetail{
-                "SelectBatch", BatchFailureReason::kCallbackFailed,
-                TraceableItemKey{item.req_id, item.sub_id}};
-            return NodeResult<Selection<Payload>>::Failure(std::move(failure));
-          }
-          if (res.value()) {
-            selected_indices.push_back(i);
-          }
-        } else {
-          static_assert(std::is_same_v<Ret, bool> ||
-                            std::is_same_v<Ret, NodeResult<bool>>,
-                        "SelectBatch predicate must return bool or "
-                        "NodeResult<bool>");
-        }
-      } else {
-        static_assert(
-            std::is_invocable_v<Predicate, const Payload&> ||
-                std::is_invocable_v<Predicate, const TraceableItem<Payload>&>,
-            "SelectBatch predicate must accept (const Payload&) or (const "
-            "TraceableItem<Payload>&)");
+        if (res.value()) selected_indices.push_back(i);
       }
     } catch (const std::exception& e) {
       return NodeResult<Selection<Payload>>::Failure(

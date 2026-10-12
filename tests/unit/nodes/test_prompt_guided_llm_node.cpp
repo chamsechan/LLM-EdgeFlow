@@ -107,9 +107,10 @@ TEST(PromptGuidedLlmNodeTest,
                  {"prompt_template", "{literal} {{input}} {\"key\":1}"}},
                 session, {{"input", "input", ""}}, {{"output", "output", ""}}));
   AlgContext context;
-  ASSERT_TRUE(context.Publish("input", TextBatch{{1, 3, "Q"}}));
+  ASSERT_TRUE(context.Publish("input", TextBatch{{1, 3, "Q {{context}}"}}));
   ASSERT_EQ(node.node->Process(&context), 0);
-  EXPECT_EQ(model->calls.front().front().data, "{literal} Q {\"key\":1}");
+  EXPECT_EQ(model->calls.front().front().data,
+            "{literal} Q {{context}} {\"key\":1}");
   EXPECT_EQ(context.Read<TextBatch>("output")->front().data,
             "  ```text\nraw\n```  ");
   EXPECT_EQ(model->seed_checks, 0);

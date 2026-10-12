@@ -35,7 +35,7 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 Converter 只处理 `adapter/io_values.h` 中的请求自有值，不包含平台类型或读取平台成员。
 槽用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中立类型；对应 binding
 通过 `SetInputValue<Host, Value>` / `SetOutputValue<Host, Value>` 提供读取和写入。
-输入行函数接收 `const Value&`；输出行函数接收 `Value*`，直接赋值 `std::string`。
+输入行函数接收 `const Value&`，或接收 `Value&` 以移动请求自有载荷；输出行函数接收 `Value*`，直接赋值 `std::string`。
 多流输出组装中立值后调用 `WriteOutputValue`，由 binding 按真实池容量写入。
 平台布局、字符串表示、metadata 和业务枚举映射只在 binding 中处理；
 当前模拟平台的 traits、字符串和分配 helper 位于 `adapter/operator/mock/platform_value_binding.h`。

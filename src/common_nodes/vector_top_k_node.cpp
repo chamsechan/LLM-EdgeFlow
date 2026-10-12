@@ -23,7 +23,6 @@ struct Params {
 };
 float CosineSimilarity(const std::vector<float>& v1,
                        const std::vector<float>& v2) {
-  if (v1.empty() || v1.size() != v2.size()) return 0.0f;
   float dot = 0.0f, norm1 = 0.0f, norm2 = 0.0f;
   for (size_t i = 0; i < v1.size(); ++i) {
     dot += v1[i] * v2[i];
@@ -35,7 +34,6 @@ float CosineSimilarity(const std::vector<float>& v1,
 }
 
 float DotProduct(const std::vector<float>& v1, const std::vector<float>& v2) {
-  if (v1.empty() || v1.size() != v2.size()) return 0.0f;
   float dot = 0.0f;
   for (size_t i = 0; i < v1.size(); ++i) {
     dot += v1[i] * v2[i];
@@ -59,12 +57,9 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   }
   // 索引候选文本 (根据 req_id 和 sub_id)
   std::unordered_map<uint64_t, std::string> text_map;
-  if (candidate_texts) {
-    for (size_t i = 0; i < candidate_texts->size(); ++i) {
-      const auto& ct = (*candidate_texts)[i];
-      uint64_t key = (static_cast<uint64_t>(ct.req_id) << 32) | ct.sub_id;
-      text_map[key] = ct.data;
-    }
+  for (const auto& ct : *candidate_texts) {
+    uint64_t key = (static_cast<uint64_t>(ct.req_id) << 32) | ct.sub_id;
+    text_map[key] = ct.data;
   }
 
   // 按 req_id 对候选向量分组
@@ -99,7 +94,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
     }
 
     struct ScoredItem {
-      size_t cand_idx;
       uint32_t original_sub_id;
       float score;
       std::string text;
@@ -127,12 +121,12 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
             (static_cast<uint64_t>(c_item.req_id) << 32) | c_item.sub_id;
         if (text_map.find(text_key) != text_map.end()) {
           text = text_map[text_key];
-        } else if (candidate_texts) {
+        } else {
           return NodeResult<RankedTextBatch>::Failure(
               NodeErrorKind::kBusinessError,
               "Candidate text provenance is missing", -3102);
         }
-        scored_list.push_back({c_idx, c_item.sub_id, score, std::move(text)});
+        scored_list.push_back({c_item.sub_id, score, std::move(text)});
       }
     }
 
