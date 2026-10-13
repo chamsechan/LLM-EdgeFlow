@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/operator/operator_output_pool.h"
 #include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
@@ -181,6 +181,15 @@ TEST(OperatorValueRegistryTest,
     EXPECT_TRUE(resolved.type.empty());
     EXPECT_TRUE(resolved.capacities.empty());
     EXPECT_FALSE(error.empty());
+    size_t bytes = 99;
+    EXPECT_FALSE(
+        ComputeOutputPoolPayloadBytes(binding, invalid[i], 2, &bytes, &error));
+    EXPECT_EQ(bytes, 0u);
+    std::shared_ptr<OutputPoolState> pool;
+    EXPECT_EQ(OutputPoolState::Create(binding.canonical_suffix, 2, invalid[i],
+                                      &binding, &pool, &error),
+              -2);
+    EXPECT_EQ(pool, nullptr);
   }
 }
 
@@ -212,6 +221,12 @@ TEST(
     EXPECT_FALSE(
         ComputeOutputPoolPayloadBytes(invalid, spec, 2, &bytes, &error));
     EXPECT_EQ(bytes, 0u);
+    EXPECT_NE(error.find(expected), std::string::npos) << error;
+    std::shared_ptr<OutputPoolState> pool;
+    EXPECT_EQ(OutputPoolState::Create(invalid.canonical_suffix, 2, spec,
+                                      &invalid, &pool, &error),
+              -2);
+    EXPECT_EQ(pool, nullptr);
     EXPECT_NE(error.find(expected), std::string::npos) << error;
   };
   check(

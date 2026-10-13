@@ -100,89 +100,6 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
   }
 }
 
-bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
-                                   const ResolvedOutputPoolSpec& spec,
-                                   uint32_t depth, size_t* out_bytes,
-                                   std::string* err) noexcept {
-  try {
-    if (!out_bytes) {
-      if (err) *err = "Null out_bytes pointer";
-      return false;
-    }
-    *out_bytes = 0;
-
-    ResolvedOutputPoolSpec resolved;
-    if (!ResolveOutputPoolSpec(binding, spec, &resolved, err)) {
-      return false;
-    }
-
-    uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
-    if (effective_depth > kMaxOutputPoolDepth) {
-      if (err) {
-        *err = "Output pool depth " + std::to_string(effective_depth) +
-               " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
-      }
-      return false;
-    }
-
-    if (!binding.output_layout.compute_block_payload_bytes) {
-      if (err) {
-        *err = "Missing output block budget callback for suffix '" +
-               binding.canonical_suffix + "'";
-      }
-      return false;
-    }
-
-    size_t single_block_bytes = 0;
-    try {
-      if (!binding.output_layout.compute_block_payload_bytes(
-              resolved, &single_block_bytes, err)) {
-        return false;
-      }
-    } catch (const std::exception& e) {
-      SetDiagnosticNoexcept(err, e.what());
-      return false;
-    } catch (...) {
-      SetDiagnosticNoexcept(err,
-                            "Unknown exception computing output block payload");
-      return false;
-    }
-    if (single_block_bytes == 0) {
-      if (err) {
-        *err = "Output block payload is zero for suffix '" +
-               binding.canonical_suffix + "'";
-      }
-      return false;
-    }
-
-    size_t total_pool_bytes = 0;
-    if (!CheckedMultiply(effective_depth, single_block_bytes,
-                         &total_pool_bytes)) {
-      if (err) *err = "Total pool payload calculation overflowed";
-      return false;
-    }
-
-    if (total_pool_bytes > kMaxHandlePoolPayloadBytes) {
-      if (err) {
-        *err = "Total pool payload (" + std::to_string(total_pool_bytes) +
-               " bytes) exceeds maximum allowed payload budget " +
-               std::to_string(kMaxHandlePoolPayloadBytes) + " bytes (64 MiB)";
-      }
-      return false;
-    }
-
-    *out_bytes = total_pool_bytes;
-    return true;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return false;
-  } catch (...) {
-    SetDiagnosticNoexcept(
-        err, "Unknown exception computing output pool payload bytes");
-    return false;
-  }
-}
-
 OperatorValueTypeRegistry& OperatorValueTypeRegistry::Instance() {
   static OperatorValueTypeRegistry instance;
   return instance;
@@ -218,10 +135,10 @@ bool OperatorValueTypeRegistry::HasConflict() const {
 int OperatorValueTypeRegistry::GlobalInit() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
-    return -6;
+    return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
   }
   if (audited_) {
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
   const auto valid_binding = [](const OperatorValueTypeBinding& binding) {
     if (binding.canonical_suffix.empty() ||
@@ -252,7 +169,7 @@ int OperatorValueTypeRegistry::GlobalInit() {
   for (const auto& [suffix, binding] : bindings_by_canonical_) {
     if (!valid_binding(binding)) {
       has_conflict_ = true;
-      return -6;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
     }
   }
   for (const auto& [name, binding] : output_allocators_) {
@@ -261,11 +178,11 @@ int OperatorValueTypeRegistry::GlobalInit() {
         root->second.direction != IoDirection::kOutput ||
         root->second.external_c_type_name != binding.external_c_type_name) {
       has_conflict_ = true;
-      return -6;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
     }
   }
   audited_ = true;
-  return 0;
+  return COMPANY_ALG_SUCCESS;
 }
 
 bool OperatorValueTypeRegistry::RegisterBinding(

@@ -72,7 +72,7 @@
 | S4 收敛 Node 作者层和诊断 | P10、P15、P19、P24 | 减少模板分支和无效字段，删除选定工具 JSON 字段 | S3 验收通过；本轮保留 D09 API | 已验收 |
 | S5 简化单条注册与异常路径 | P22、P26 | 不复制整个 registry，重复 catch 收敛 | S4 验收通过；具备故障注入覆盖 | 已验收 |
 | S6 删除模型 revision | P23 | 会话内不可变模型不再维护无用版本链路 | S5 验收通过；身份和缓存隔离测试保留 | 已验收 |
-| S7 收敛部署诊断和输出池内部计算 | P20—P21、P25 | 同义映射集中，消除一个内部重复校验，错误码可读 | S6 验收通过 | 未开始 |
+| S7 收敛部署诊断和输出池内部计算 | P20—P21、P25 | 同义映射集中，消除一个内部重复校验，错误码可读 | S6 验收通过 | 已验收 |
 | S8 复用路径处理原语 | P29 | 共用机制，保留三类策略差异 | S7 验收通过；已有路径行为矩阵 | 未开始 |
 | S9 收敛守卫并完成文档整理 | P08、P28 | 一处维护相同规则，文档描述当前能力 | S8 验收通过；先证明新守卫覆盖 | 未开始 |
 
@@ -209,10 +209,13 @@
 
 #### S7：收敛部署诊断和输出池内部计算
 
+已完成本地验收：统一门禁 399 项，398 通过、1 项因未提供 GGUF 跳过；独立复核无阻塞项。公共预算与建池均验证非法容量/元数据/分配器、零预算、溢出和回调异常；原有全句柄预算、深度一致性及 CLI/SDK 错误映射检查通过。P25 逐项映射见下表。
+
 **修改范围：** `deployment_preparation.cpp`、`pipeline_validator.cpp`、诊断声明，`operator_output_pool.cpp`、`operator_value_type_registry.cpp`，Adapter 错误码使用处。
 
 1. 将两个同义字段错误映射集中到一个 Core 可拥有、Integration 可向下依赖的函数，保留路径拼接、未知字段建议和原有错误语义。
 2. 分离输出池“校验”和“已校验 spec 的纯预算计算”。纯计算函数仅供内部已验证路径使用；公共入口仍自行验证。
+   预算回调异常由纯计算函数外层统一捕获，不再嵌套重复 catch；公共预算入口仍返回失败，建池仍返回 `-2`，不落入分配异常的 `-4`。
 3. 对每个候选替换分支确认错误语义和数值同时匹配，并在 PR/修改说明列出“位置与条件、当前含义、旧数值、所用常量、对外映射”。facade 已通过 Adapter 头使用 mock 常量，其同义分支可纳入；不新增 mock include 或扩大语义依赖，已有传递依赖清理另议。不能确认同义的裸码保持原样，不以禁止新增 include 代替语义审查。
 
 **验收条件：**
@@ -224,6 +227,36 @@
 - 不缓存可变计划的“已验证”标记，不删除诊断双通道；这两类更大改动另见 D16、D17。
 
 **聚焦验证：** G1、G2、G4 的 Validator/部署/输出池用例；完成后运行统一交付门禁。
+
+**P25 实际替换映射：** 以下均保持原数值、阶段标记和协议壳映射；不增加 include。
+
+| 文件 / 函数与条件 | 原码 → 既有常量 | 对外映射 |
+| --- | --- | --- |
+| `shared_algorithm_runtime.cpp` / ResolveIoPlan 空 plan 输出指针 | -2 → `COMPANY_ALG_ERR_INVALID_PARAM` | 查询返回 -2；Create 准备阶段仍为 -2 |
+| 同文件 / CreateFromIoPlan 缺失或不完整计划 | -2 → `COMPANY_ALG_ERR_INVALID_PARAM` | Create 准备失败 -2 |
+| 同文件 / CreateFromIoPlan 非法设备或池深度 | -2 → `COMPANY_ALG_ERR_INVALID_PARAM` | Create 准备失败 -2 |
+| 同文件 / CreateFromIoPlan 深度与计划预算不同 | -2 → `COMPANY_ALG_ERR_INVALID_PARAM` | Create 准备失败 -2 |
+| 同文件 / Process 输入批次超限 | -3 → `COMPANY_ALG_ERR_INVALID_INPUT` | 非执行阶段原样 -3 |
+| 同文件 / Process 输入数量或视图数非法 | -3 → `COMPANY_ALG_ERR_INVALID_INPUT` | 非执行阶段原样 -3 |
+| 同文件 / Process 输入视图与已验证类型不符 | -3 → `COMPANY_ALG_ERR_INVALID_INPUT` | 非执行阶段原样 -3 |
+| 同文件 / Process 输出行数不符或空输出 | -4 → `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` | 非执行阶段原样 -4 |
+| 同文件 / Process 输出槽非法、重复或占用 | -4 → `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` | 非执行阶段原样 -4 |
+| 同文件 / Process 缺必需输出 | -4 → `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` | 非执行阶段原样 -4 |
+| 同文件 / Process 实际写入数不符 | -4 → `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` | 非执行阶段原样 -4 |
+| 同文件 / ResolveIoPlan 的标准及未知异常 | -99 / -100 → `COMPANY_ALG_ERR_EXCEPTION` / `COMPANY_ALG_ERR_UNKNOWN` | 原有异常映射 |
+| 同文件 / Create 的标准及未知异常 | 同上 | Create 保留 -99 / -100 |
+| 同文件 / CreateFromIoPlan 的标准及未知异常 | 同上 | Create 保留 -99 / -100 |
+| 同文件 / Process 的标准及未知异常 | 同上 | 保留当前阶段映射 |
+| 同文件 / ExecuteControl 的标准及未知异常 | 同上 | 重置 runtime 阶段后原样返回 |
+| 同文件 / Close 的标准及未知异常 | 同上 | 原样返回 |
+| 同文件 / ResolveIoPlan、CreateFromIoPlan、Process、Close 成功 | 0 → `COMPANY_ALG_SUCCESS` | 0 |
+| `operator_value_type_registry.cpp` / GlobalInit 已有冲突 | -6 → `COMPANY_ALG_ERR_REGISTRY_CONFLICT` | -6 |
+| 同文件 / GlobalInit binding 审计失败 | -6 → `COMPANY_ALG_ERR_REGISTRY_CONFLICT` | -6 |
+| 同文件 / GlobalInit allocator 审计失败 | -6 → `COMPANY_ALG_ERR_REGISTRY_CONFLICT` | -6 |
+| 同文件 / GlobalInit 已审计、审计成功 | 0 → `COMPANY_ALG_SUCCESS` | 0 |
+| `operator_config_resolver.cpp` / ResolveRequiredFileUnderRoot、Resolve 成功 | 0 → `COMPANY_ALG_SUCCESS` | 0 |
+
+保留 runtime 全部 `-1`（空输出指针、未初始化/已关闭、未归还租约）、创建缺池兜底 `-4`、pool 缺池 `-5`、所有 resolver 内部负码及变量返回码，不将它们按数字重新分类。
 
 #### S8：复用路径处理原语
 

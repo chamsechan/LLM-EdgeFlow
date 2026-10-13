@@ -100,7 +100,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
     }
 
     *resolved = canon_p;
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
     return -2;
@@ -215,7 +215,7 @@ int OperatorConfigResolver::Resolve(
 
     result->io_plan = std::move(io_plan);
 
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
     if (out_diagnostic) {
