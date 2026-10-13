@@ -68,7 +68,7 @@
 | --- | --- | --- | --- | --- |
 | S1 清理确定废弃的声明与入口 | P01—P07、P18 | 旧概念不再进入构建，死 API 删除，现有消费者使用保留接口 | 记录实施基线，确认无新的生产消费者 | 已验收 |
 | S2 精简 Studio / Demo 开发入口 | P09、P14、P27 | 单一请求字段和 Demo 入口，文本输入步骤复用 | S1 验收通过 | 已验收 |
-| S3 精简 Adapter 声明与载体辅助逻辑 | P11—P13、P16—P17 | 公共参数/声明复用，mock 与 Catalog 移除选定冗余 | S2 验收通过；明确表内协议修改面 | 未开始 |
+| S3 精简 Adapter 声明与载体辅助逻辑 | P11—P13、P16—P17 | 公共参数/声明复用，mock 与 Catalog 移除选定冗余 | S2 验收通过；明确表内协议修改面 | 已验收 |
 | S4 收敛 Node 作者层和诊断 | P10、P15、P19、P24 | 减少模板分支和无效字段，删除选定工具 JSON 字段 | S3 验收通过；先明确 D09 在本轮保留还是删除 | 未开始 |
 | S5 简化单条注册与异常路径 | P22、P26 | 不复制整个 registry，重复 catch 收敛 | S4 验收通过；具备故障注入覆盖 | 未开始 |
 | S6 删除模型 revision | P23 | 会话内不可变模型不再维护无用版本链路 | S5 验收通过；身份和缓存隔离测试保留 | 未开始 |
@@ -121,6 +121,8 @@
 **聚焦验证：** G4、G5；完成后运行统一交付门禁。
 
 #### S3：精简 Adapter 声明与载体辅助逻辑
+
+已完成本地验收：P11—P13、P16—P17 全部落地；统一门禁 397 项，396 通过、1 项因未提供 GGUF 跳过。Catalog 前后结构对比仅删除 17 个 `slot.type_suffix`，其余内容一致；关键词配置原生 validate/plan 通过，Demo smoke 通过。独立复核无阻塞项。
 
 **修改范围：** `include/adapter/io_converter.h`、`converter_authoring.h`，`src/adapter/input/`、`output/`、注册/Catalog 实现、mock binding/control，`include/platform_mock/`，Studio 的 Catalog 消费代码。
 

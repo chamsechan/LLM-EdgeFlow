@@ -16,8 +16,6 @@ void AuditDefinition(const Definition& def,
   const auto fail = [&](const std::string& message) {
     errors->push_back(def.Label() + ": " + message);
   };
-  if (def.slot.type_suffix != def.type)
-    fail("Slot type_suffix must equal converter type");
   if (!value || value->direction != direction) {
     fail("No registered platform binding for the slot");
   } else {

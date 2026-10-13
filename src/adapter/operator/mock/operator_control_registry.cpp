@@ -92,16 +92,6 @@ int OperatorControlRegistry::ResolveControlParam(
           }
           return -2;
         }
-        if (param->prompt_id) {
-          size_t id_len = strnlen(param->prompt_id, 256);
-          if (id_len >= 256) {
-            if (error_msg) {
-              *error_msg =
-                  "ControlSwitchPromptParam::prompt_id exceeds 256 bytes";
-            }
-            return -2;
-          }
-        }
         nlohmann::json j;
         j["template"] = param->prompt_template_str;
         *out_cmd_id = kControlCmdUpdatePrompt;

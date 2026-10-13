@@ -101,8 +101,7 @@ LLM 生成参数复用 [`GenerateParameters()`](../../include/nodes/generate_par
 
 [text_template](../common_nodes/text_template_node.cpp) 在 `Prepare` 中编译模板，
 只允许已连接的 `primary`、`context`、`matches`、`document` 变量；未知变量或引用未连接端口
-在此拒绝。连接了端口但某请求没有数据时，该变量为空字符串。`update_prompt` 只替换 `template`；
-Operator 的 `prompt_id` 仍由接入层检查长度，但不转发到节点。
+在此拒绝。连接了端口但某请求没有数据时，该变量为空字符串。`update_prompt` 只替换 `template`。
 
 [text_rule_match](../common_nodes/text_rule_match_node.cpp) 用映射声明 `categories`，
 用 `Field("rules", ...).Items(...)` 声明规则字段，并在元素的 `Prepare` 中编译正则。

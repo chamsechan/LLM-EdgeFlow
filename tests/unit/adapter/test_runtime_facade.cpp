@@ -245,7 +245,7 @@ class RuntimeFacadeTest : public ::testing::Test {
     OutputConverterDefinition output;
     output.type = "json_out";
     output.name = "runtime_facade";
-    output.slot = ExternalOutputSlot<JsonOutputValue>("json_out");
+    output.slot = ExternalOutputSlot<JsonOutputValue>();
     output.slot.required = false;
     output.logical_ports = {RequiredInputPort(kResult)};
     output.params = Parameters<OutputParameters>(

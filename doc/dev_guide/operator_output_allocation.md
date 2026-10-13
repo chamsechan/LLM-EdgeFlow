@@ -238,7 +238,7 @@ facade 不解析平台 key，不读取具体成员。本次沿用原有 `int` �
 宿主类型、业务值和必需性可通过公开 `ResolveOperatorConfigIo` 预检；它与 Create 使用同一准备链路，
 不加载模型。批次有效上限为 `min(max_frame_depth, 64)`。
 
-**借用输入与输出租约。** `CompanyString` 用于文本，二进制使用 `CompanyBuffer`。
+**借用输入与输出租约。** `CompanyString` 按显式长度保存文本。
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回；库不跨调用保存输入指针。
 输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
 需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。

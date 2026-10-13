@@ -43,7 +43,7 @@ InputConverterDefinition MakeOperatorFrameInputConverter() {
   InputConverterDefinition def;
   def.type = kFrameSlot;
   def.name = "ocr_invoice_qa";
-  def.slot = ExternalInputSlot<ImageInputValue>(kFrameSlot);
+  def.slot = ExternalInputSlot<ImageInputValue>();
   def.logical_ports = {OutputPort(kImage)};
   def.decode_fn = &DecodeOperatorFrameInput;
   return def;
@@ -53,7 +53,7 @@ InputConverterDefinition MakeOperatorQueryInputConverter() {
   InputConverterDefinition def;
   def.type = kQuerySlot;
   def.name = "ocr_invoice_qa";
-  def.slot = ExternalInputSlot<std::string>(kQuerySlot);
+  def.slot = ExternalInputSlot<std::string>();
   def.logical_ports = {OutputPort(kQuestion)};
   def.decode_fn = &DecodeOperatorQueryInput;
   return def;

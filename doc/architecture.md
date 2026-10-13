@@ -180,7 +180,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 当前八类业务统一使用 `json_out` 与 `CompanyOperatorOutput` C 结构，完整结果存于
   `result_json`、状态存于 `status_code`，各业务 `name` 选择响应契约。新增其他载体继续使用
   ValueType/binding 与转换器注册接口，不向 Operator 中央分发添加业务分支。
-- `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。任意二进制数据使用 `CompanyBuffer`。
+- `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。
 - 输入存储由调用方保持有效；Process 在同步调用内保留输入 shared_ptr 视图并复制所需中性值，不跨调用保存输入指针或引用。
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的

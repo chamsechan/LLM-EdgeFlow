@@ -12,16 +12,15 @@
 namespace llm_edgeflow {
 
 template <typename T>
-inline ExternalSlotDefinition ExternalInputSlot(std::string type) {
+inline ExternalSlotDefinition ExternalInputSlot() {
   ExternalSlotDefinition slot;
   slot.value_type = typeid(T);
-  slot.type_suffix = std::move(type);
   return slot;
 }
 
 template <typename T>
-inline ExternalSlotDefinition ExternalOutputSlot(std::string type) {
-  return ExternalInputSlot<T>(std::move(type));
+inline ExternalSlotDefinition ExternalOutputSlot() {
+  return ExternalInputSlot<T>();
 }
 
 template <typename P>
