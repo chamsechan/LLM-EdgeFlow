@@ -146,7 +146,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   }
 
   // 校验符号链接目标，防止符号链接逃出配置目录
-  fs::path real_pipe = fs::canonical(canonical_pipe, ec);
+  const auto real_pipe = fs::canonical(canonical_pipe, ec);
   if (ec || !IsPathWithinRoot(canonical_base, real_pipe)) {
     std::string msg =
         "pipe_path escapes config directory: " + out_config->pipe_path;
