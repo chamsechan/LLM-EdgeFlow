@@ -134,27 +134,17 @@ std::shared_ptr<IModel> ModelRegistry::Create(
       creator = it->second.creator;
     }
 
-    try {
-      return creator(context, diagnostic);
-    } catch (const std::exception& error) {
-      SetDiagnosticNoexcept(diagnostic, "Exception creating model " +
-                                            impl_name + ": " + error.what());
-      return nullptr;
-    } catch (...) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "Unknown exception creating model " + impl_name);
-      return nullptr;
-    }
+    return creator(context, diagnostic);
   } catch (const std::exception& error) {
     try {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing model " +
+      SetDiagnosticNoexcept(diagnostic, "Exception creating model " +
                                             impl_name + ": " + error.what());
     } catch (...) {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing model");
+      SetDiagnosticNoexcept(diagnostic, "Exception creating model");
     }
     return nullptr;
   } catch (...) {
-    SetDiagnosticNoexcept(diagnostic, "Unknown exception preparing model");
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception creating model");
     return nullptr;
   }
 }
