@@ -112,7 +112,8 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 需要会话缓存时，`Run` 显式接收 `const SessionResources&`。普通工厂返回 `NodeResult<T>`，
 交给 `GetOrCreateResult<T>(key, factory)`，得到 `NodeResult<std::shared_ptr<T>>`；框架复用资源、
 向等待者保留完整失败信息，失败后允许重试。这是 Node 作者唯一的缓存创建入口。
-缓存 key 必须包含影响结果的输入、参数和通过 `GetModelRevision` 取得的模型版本；
+模型注册后在会话内不可替换；缓存 key 必须包含模型名及影响结果的输入、参数和来源信息，
+不同会话独立持有缓存；
 参考 [text_embedding](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否

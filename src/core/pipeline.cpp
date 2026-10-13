@@ -66,10 +66,6 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
     registration.model_name = model_plan.model_name;
     registration.impl_name = model_plan.impl_name;
     registration.model_type = model_plan.model_type;
-    registration.backend_type = model_plan.backend_type;
-    registration.model_file = model_plan.model_file;
-    registration.model_params = model_plan.model_params;
-    registration.backend_params = model_plan.backend_params;
     registration.model = std::move(model);
     staged_models.push_back(std::move(registration));
   }

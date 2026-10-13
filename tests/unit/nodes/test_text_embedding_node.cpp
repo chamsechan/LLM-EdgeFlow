@@ -38,8 +38,7 @@ TEST(TextEmbeddingNodeTest,
      TwoNodesShareSessionCacheAndPublishIndependentOutputValues) {
   SessionContext session;
   auto model = std::make_shared<RecordingEmbedding>();
-  ASSERT_TRUE(
-      test_support::RegisterNodeModel(session, "encoder", model, "weights-a"));
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder", model));
   test_support::NodeProbe first, second;
   ASSERT_TRUE(first.Init("text_embedding", {{"bind_model", "encoder"}}, session,
                          {{"text", "corpus_a", "session"}},
@@ -76,11 +75,10 @@ TEST(TextEmbeddingNodeTest,
             "session");
 }
 
-TEST(TextEmbeddingNodeTest,
-     CacheIdentityIncludesTextRequestSubItemAndModelRevision) {
+TEST(TextEmbeddingNodeTest, CacheIdentityIncludesTextRequestAndSubItem) {
   SessionContext session;
   auto model = std::make_shared<RecordingEmbedding>();
-  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder", model, "r1"));
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(node.Init("text_embedding", {{"bind_model", "encoder"}}, session,
                         {{"text", "input", "session"}},
@@ -102,12 +100,6 @@ TEST(TextEmbeddingNodeTest,
       EXPECT_EQ(output->front().sub_id, distinct[i].front().sub_id);
     }
   }
-  ASSERT_TRUE(session.GetModelManager().UpdateModelRevision("encoder", "r2"));
-  AlgContext changed;
-  ASSERT_TRUE(changed.Publish("input", distinct.front()));
-  ASSERT_EQ(node.node->Process(&changed), 0);
-  EXPECT_EQ(model->calls.size(), 5u);
-  EXPECT_EQ(model->calls.back().front().data, "alpha");
 }
 
 TEST(TextEmbeddingNodeTest,
@@ -133,17 +125,14 @@ TEST(TextEmbeddingNodeTest,
             (std::vector<float>{1, 2}));
 }
 
-TEST(TextEmbeddingNodeTest,
-     ModelNamesPartitionCachesWithIdenticalRevisionsAndInputs) {
+TEST(TextEmbeddingNodeTest, ModelNamesPartitionCachesWithIdenticalInputs) {
   SessionContext session;
   auto model_a = std::make_shared<RecordingEmbedding>();
   auto model_b = std::make_shared<RecordingEmbedding>();
   model_a->replies = {{1, 2}};
   model_b->replies = {{8, 9}};
-  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder_a", model_a,
-                                              "same_revision"));
-  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder_b", model_b,
-                                              "same_revision"));
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder_a", model_a));
+  ASSERT_TRUE(test_support::RegisterNodeModel(session, "encoder_b", model_b));
   test_support::NodeProbe first, second;
   ASSERT_TRUE(first.Init("text_embedding", {{"bind_model", "encoder_a"}},
                          session, {{"text", "input", "session"}},
@@ -165,6 +154,49 @@ TEST(TextEmbeddingNodeTest,
     EXPECT_EQ(output_b->front().data, (std::vector<float>{8, 9}));
     EXPECT_EQ(model_a->calls.size(), 1u);
     EXPECT_EQ(model_b->calls.size(), 1u);
+  }
+}
+
+TEST(TextEmbeddingNodeTest,
+     SessionsPartitionCachesWithIdenticalModelNamesAndInputs) {
+  SessionContext first_session, second_session;
+  auto first_model = std::make_shared<RecordingEmbedding>();
+  auto second_model = std::make_shared<RecordingEmbedding>();
+  first_model->replies = {{1, 2}};
+  second_model->replies = {{8, 9}};
+  ASSERT_TRUE(
+      test_support::RegisterNodeModel(first_session, "encoder", first_model));
+  ASSERT_TRUE(
+      test_support::RegisterNodeModel(second_session, "encoder", second_model));
+  test_support::NodeProbe first, second;
+  ASSERT_TRUE(first.Init("text_embedding", {{"bind_model", "encoder"}},
+                         first_session, {{"text", "input", "session"}},
+                         {{"embedding", "output", ""}}));
+  ASSERT_TRUE(second.Init("text_embedding", {{"bind_model", "encoder"}},
+                          second_session, {{"text", "input", "session"}},
+                          {{"embedding", "output", ""}}));
+  const TextBatch input{{17, 5, "identical corpus"}};
+  for (int repeat = 0; repeat < 2; ++repeat) {
+    SCOPED_TRACE(repeat);
+    AlgContext first_context, second_context;
+    ASSERT_TRUE(first_context.Publish("input", input));
+    ASSERT_TRUE(second_context.Publish("input", input));
+    ASSERT_EQ(first.node->Process(&first_context), 0);
+    ASSERT_EQ(second.node->Process(&second_context), 0);
+    const auto* first_output = first_context.Read<EmbeddingBatch>("output");
+    const auto* second_output = second_context.Read<EmbeddingBatch>("output");
+    ASSERT_NE(first_output, nullptr);
+    ASSERT_NE(second_output, nullptr);
+    ASSERT_EQ(first_output->size(), 1u);
+    ASSERT_EQ(second_output->size(), 1u);
+    EXPECT_EQ(first_output->front().data, (std::vector<float>{1, 2}));
+    EXPECT_EQ(second_output->front().data, (std::vector<float>{8, 9}));
+    EXPECT_EQ(first_output->front().req_id, 17u);
+    EXPECT_EQ(first_output->front().sub_id, 5u);
+    EXPECT_EQ(second_output->front().req_id, 17u);
+    EXPECT_EQ(second_output->front().sub_id, 5u);
+    EXPECT_EQ(first_model->calls.size(), 1u);
+    EXPECT_EQ(second_model->calls.size(), 1u);
   }
 }
 

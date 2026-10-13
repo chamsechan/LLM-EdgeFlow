@@ -404,7 +404,6 @@ TEST(AuthorNodeTest, InitCopiesResolvedKeysParametersFactsAndModelBinding) {
   ModelRegistration registration;
   registration.model_name = "resolved_model";
   registration.model = model;
-  registration.revision = "revision-1";
   ASSERT_TRUE(session.GetModelManager().RegisterBatch({registration}));
   int model_validations = 0;
   std::string seen_model, seen_slot, seen_lifetime;

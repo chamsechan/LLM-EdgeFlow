@@ -25,14 +25,11 @@ void AppendUint64Le(std::string& buf, uint64_t value) {
 }
 
 std::string ConstructSessionCacheKey(const std::string& model_name,
-                                     const std::string& revision,
                                      const TextBatch& items) {
   std::string key;
   key.append("SEM1", 4);
   AppendUint64Le(key, model_name.size());
   key.append(model_name.data(), model_name.size());
-  AppendUint64Le(key, revision.size());
-  key.append(revision.data(), revision.size());
   AppendUint64Le(key, items.size());
   for (const auto& item : items) {
     AppendUint64Le(key, item.req_id);
@@ -50,9 +47,8 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
   if (text.empty()) return NodeResult<EmbeddingBatch>::Success({});
   if (!params.cache) return models.encoder.Embed(text);
 
-  SessionResourceKey<EmbeddingBatch> key(ConstructSessionCacheKey(
-      models.encoder.ModelName(),
-      resources.GetModelRevision(models.encoder.ModelName()), text));
+  SessionResourceKey<EmbeddingBatch> key(
+      ConstructSessionCacheKey(models.encoder.ModelName(), text));
   auto cached = resources.GetOrCreateResult<EmbeddingBatch>(
       key, [&]() { return models.encoder.Embed(text); });
   if (!cached.ok())

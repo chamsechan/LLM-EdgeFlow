@@ -17,10 +17,6 @@ class SessionResources {
   SessionResources() = default;
   explicit SessionResources(SessionContext& session) : session_(&session) {}
 
-  std::string GetModelRevision(const std::string& model_name) const {
-    return Session().GetModelManager().GetModelRevision(model_name);
-  }
-
   // 普通工厂返回值或 NodeFailure。现有的会话 single-flight 机制会把失败共享给
   // 等待者，并允许下次调用重试。其他异常仍会到达 Node 运行时的异常屏障。
   template <typename T, typename Factory>

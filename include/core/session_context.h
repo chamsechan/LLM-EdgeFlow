@@ -49,12 +49,7 @@ struct ModelRegistration {
   std::string model_name;
   std::string impl_name;
   std::string model_type;
-  std::string backend_type;
-  std::string revision;
   std::shared_ptr<IModel> model;
-  std::string model_file;
-  nlohmann::json model_params = nlohmann::json::object();
-  nlohmann::json backend_params = nlohmann::json::object();
 };
 
 /**
@@ -83,20 +78,7 @@ class ModelManager {
           item.model->ModelType() != item.model_type) {
         return false;
       }
-      std::string rev = item.revision;
-      if (rev.empty()) {
-        if (item.impl_name.empty() || item.backend_type.empty() ||
-            item.model_file.empty() || !item.model_params.is_object() ||
-            !item.backend_params.is_object()) {
-          return false;
-        }
-        rev = item.impl_name + "\n" + item.backend_type + "\n" +
-              item.model_file + "\n" + item.model_params.dump() + "\n" +
-              item.backend_params.dump();
-      }
-      ModelRegistration reg = item;
-      reg.revision = std::move(rev);
-      staged_registrations.push_back(std::move(reg));
+      staged_registrations.push_back(item);
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -133,29 +115,12 @@ class ModelManager {
     return registrations_.find(model_name) != registrations_.end();
   }
 
-  std::string GetModelRevision(const std::string& model_name) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registrations_.find(model_name);
-    return it == registrations_.end() ? std::string() : it->second.revision;
-  }
-
   std::optional<ModelRegistration> GetModelRegistration(
       const std::string& model_name) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = registrations_.find(model_name);
     if (it == registrations_.end()) return std::nullopt;
     return it->second;
-  }
-
-  bool UpdateModelRevision(const std::string& model_name,
-                           std::string revision) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = registrations_.find(model_name);
-    if (revision.empty() || it == registrations_.end()) {
-      return false;
-    }
-    it->second.revision = std::move(revision);
-    return true;
   }
 
   std::unordered_map<std::string, std::shared_ptr<IModel>> GetAllModels()
