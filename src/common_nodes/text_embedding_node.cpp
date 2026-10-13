@@ -59,7 +59,6 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
     return NodeResult<EmbeddingBatch>::Failure(cached.failure());
   if (!cached.value()) {
     return NodeResult<EmbeddingBatch>::Failure(
-        NodeErrorKind::kModelCallError,
         "text_embedding: single-flight inference failed",
         node_error::text_embedding::kSessionInferenceFailed);
   }

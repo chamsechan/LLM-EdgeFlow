@@ -155,7 +155,6 @@ NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
     if (!ok) {
       if (options.failure_policy_ == "fail") {
         return NodeResult<StructuredDocumentBatch>::Failure(
-            NodeErrorKind::kBusinessError,
             "JSON parse failed for sample: " + diag,
             node_error::structured_json_parse::kParseFailed);
       } else if (options.failure_policy_ == "emit_diagnostic") {

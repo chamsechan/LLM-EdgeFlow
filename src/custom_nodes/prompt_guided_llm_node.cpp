@@ -85,8 +85,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
   if (inputs.input->empty()) return NodeResult<TextBatch>::Success({});
   if (params.uses_context && !inputs.context) {
     return NodeResult<TextBatch>::Failure(
-        NodeErrorKind::kInputError, "missing prompt context",
-        node_error::author_node::kMissingInput);
+        "missing prompt context", node_error::author_node::kMissingInput);
   }
   TextBatch prompts;
   prompts.reserve(inputs.input->size());

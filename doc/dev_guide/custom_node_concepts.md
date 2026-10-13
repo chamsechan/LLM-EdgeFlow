@@ -331,8 +331,8 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，
 拒绝临时批次；使用期间输入必须存活且不修改、不移动。视图仅用于本次请求内的同步算法，
 不能保存到 Node/Session 或异步任务。`Materialize`、Scatter 和 Split 的输出拥有数据。
-错误在 AuthorNode 边界统一写入诊断，保留回调错误码、内容及完整来源 key；普通算法不提前
-写 Context。工具要求完整 key 唯一，不改变未使用这些工具的逐项处理/模型重复 key 行为。
+错误在 AuthorNode 边界统一写入诊断。`NodeResult<T>::Failure(message, cause_code)` 保留原始消息与错误码；
+批次工具把来源保存为 `BatchFailureDetail`，在输出诊断时格式化一次，不提前拼接来源或写 Context。工具要求完整 key 唯一，不改变未使用这些工具的逐项处理/模型重复 key 行为。
 
 先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号；“每个问题
 取前三个候选”要按请求分组并声明排名来源，不能用整个 batch 的前三项代替。

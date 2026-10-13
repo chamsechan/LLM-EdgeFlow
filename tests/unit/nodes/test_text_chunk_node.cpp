@@ -151,6 +151,13 @@ TEST_F(TextChunkNodeTest, InvalidUtf8AfterValidParentPublishesNeitherOutput) {
   EXPECT_NE(
       context.GetErrorMessage().find("invalid UTF-8 input at byte offset 2"),
       std::string::npos);
+  const auto& diagnostic = context.GetErrorMessage();
+  const std::string source =
+      "SplitPayloads callback_failed for req_id=12, sub_id=4";
+  EXPECT_EQ(diagnostic.find(source), 0u);
+  EXPECT_EQ(diagnostic.find("SplitPayloads", source.size()), std::string::npos);
+  EXPECT_EQ(diagnostic.find("req_id=12, sub_id=4", source.size()),
+            std::string::npos);
   EXPECT_EQ(context.Read(kChunks), nullptr);
   EXPECT_EQ(context.Read(kCounts), nullptr);
 }

@@ -25,7 +25,7 @@ void Add(ValidationReport* report, DiagnosticCode code, std::string path,
          std::vector<std::string> related = {},
          std::vector<std::string> suggestions = {}) {
   report->diagnostics.push_back({code, std::move(path), std::move(message),
-                                 "error", std::move(node_name), std::move(port),
+                                 std::move(node_name), std::move(port),
                                  std::move(related), std::move(suggestions),
                                  nlohmann::json::object()});
 }
@@ -225,7 +225,6 @@ bool ValidateAndNormalizeConfig(
           diag.code = DiagnosticCode::kConfigFieldEnum;
           break;
       }
-      diag.severity = "error";
       diagnostics->push_back(std::move(diag));
     }
   }
@@ -949,10 +948,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 }  // namespace
 
 nlohmann::json ValidationDiagnostic::ToJson() const {
-  nlohmann::json item = {{"code", DiagnosticCodeName(code)},
-                         {"path", path},
-                         {"message", message},
-                         {"severity", severity}};
+  nlohmann::json item = {
+      {"code", DiagnosticCodeName(code)}, {"path", path}, {"message", message}};
   if (!node_name.empty()) item["node_name"] = node_name;
   if (!port.empty()) item["port"] = port;
   if (!related_nodes.empty()) item["related_nodes"] = related_nodes;

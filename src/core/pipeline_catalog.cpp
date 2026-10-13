@@ -26,8 +26,7 @@ nlohmann::json ControlCommandJson(const ControlCommandDefinition& cmd) {
   return {{"cmd_id", cmd.cmd_id},
           {"name", cmd.name},
           {"description", cmd.description},
-          {"payload_schema", cmd.payload_schema},
-          {"supports_hot_swap", cmd.supports_hot_swap}};
+          {"payload_schema", cmd.payload_schema}};
 }
 
 }  // namespace

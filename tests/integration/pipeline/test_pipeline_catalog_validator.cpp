@@ -87,7 +87,7 @@ TEST(PipelineCatalogTest, NativeSnapshotExportsTheRegisteredTypedSpec) {
       "model_dependencies": [{"name": "generator", "model_type": "llm",
                               "config_field": "bind_generator"}],
       "control_commands": [{"cmd_id": 201, "name": "replace_limit",
-        "description": "replace_limit", "supports_hot_swap": true,
+        "description": "replace_limit",
         "payload_schema": {"type": "object", "minProperties": 1,
           "additionalProperties": false,
           "properties": {"limit": {"type": "integer", "default": 7,
@@ -178,6 +178,11 @@ TEST(PipelineCatalogTest,
       EXPECT_EQ(diagnostic.path, "/pipeline/0/params");
       EXPECT_EQ(diagnostic.node_name, "native");
       EXPECT_EQ(diagnostic.message, row.second);
+      const auto serialized = diagnostic.ToJson();
+      EXPECT_EQ(serialized.at("code"), "INVALID_COMBINATION");
+      EXPECT_EQ(serialized.at("path"), diagnostic.path);
+      EXPECT_EQ(serialized.at("message"), row.second);
+      EXPECT_EQ(serialized.at("node_name"), "native");
     }
   }
   EXPECT_EQ(prepared_limits, (std::vector<int>{7, 7, 7}));
