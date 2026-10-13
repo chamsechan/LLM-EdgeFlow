@@ -9,7 +9,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 结构化适配器状态与字段路径诊断 (ADP-001, ADP-005)
+ * @brief 结构化适配器状态与字段路径诊断
  */
 class AdapterStatus {
  public:

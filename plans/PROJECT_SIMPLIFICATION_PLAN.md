@@ -1,10 +1,10 @@
 # 项目精简审查与实施计划
 
-> 状态：第一部分正在本地分支 `refactor/project-simplification` 分阶段实施，验收状态见 1.2。第二、三部分不纳入本轮。
+> 状态：第一部分 29 项已在本地分支 `refactor/project-simplification` 按 S1—S9 完成实施与验收，各阶段独立提交，尚未远程交付或合入。第二、三部分保留，不纳入本轮。
 >
 > 代码基线：`main@9cfba93b`；审查日期：2026-10-13。
 >
-> 本文件是跨阶段工作计划。现行规则仍以 [CONTRIBUTING](../CONTRIBUTING.md)、[架构与开发指南](../doc/README.md) 为准。实施中形成的规则随代码写回所属指南；最后一个阶段完成后，按仓库约定删除本计划。
+> 本文件是跨阶段工作计划。现行规则仍以 [CONTRIBUTING](../CONTRIBUTING.md)、[架构与开发指南](../doc/README.md) 为准。实施中形成的规则随代码写回所属指南；最后一个阶段合入后，按仓库约定删除本计划。
 
 ## 阅读与实施方式
 
@@ -74,7 +74,7 @@
 | S6 删除模型 revision | P23 | 会话内不可变模型不再维护无用版本链路 | S5 验收通过；身份和缓存隔离测试保留 | 已验收 |
 | S7 收敛部署诊断和输出池内部计算 | P20—P21、P25 | 同义映射集中，消除一个内部重复校验，错误码可读 | S6 验收通过 | 已验收 |
 | S8 复用路径处理原语 | P29 | 共用机制，保留三类策略差异 | S7 验收通过；已有路径行为矩阵 | 已验收 |
-| S9 收敛守卫并完成文档整理 | P08、P28 | 一处维护相同规则，文档描述当前能力 | S8 验收通过；先证明新守卫覆盖 | 未开始 |
+| S9 收敛守卫并完成文档整理 | P08、P28 | 一处维护相同规则，文档描述当前能力 | S8 验收通过；先证明新守卫覆盖 | 已验收 |
 
 ### 1.3 各阶段实施步骤与验收
 
@@ -292,6 +292,23 @@
 **聚焦验证：** G2 的文件参数/配置安全用例及 G4 的部署 CLI 用例；完成后运行统一交付门禁。
 
 #### S9：收敛守卫并完成文档整理
+
+已完成最终本地验收：统一门禁 401 项，400 通过、1 项因未提供 GGUF 权重跳过；独立复核无阻塞项。最终 Catalog 与 S4 已验收版本一致。再次按 G8 启用真实模型测试及 Whisper，成功编译并链接 `test_real_models_e2e`，验证后续接口精简未破坏非默认消费者；仅编译，未执行真实模型推理。可选浏览器交互未因默认 Studio 测试通过而视为已验收。
+
+P28 的覆盖关系已先用真实 source/target 夹具验证，再删除 shell 重复规则；未修改 Python 核心判定。守卫自测 10 项通过，文档检查器的正常、缺资产、版本漂移三个场景通过。
+
+| 原规则 | 唯一维护位置 | 保留的证据 |
+| --- | --- | --- |
+| Node → Integration、下层 → Adapter、Converter → Engine/Node、框架 → custom Nodes、Demo → 内部头 | `check_layer_dependencies.py::forbidden` | `test_layer_guard_contract.py` 的层间允许/禁止矩阵、相对/绝对/续行写法与注释反例 |
+| Kite / Whisper / llama / ONNX vendor 头归属 | `check_layer_dependencies.py::vendor_owners` | 每种合法 Backend 与 Model、其他 Backend、Core、Node、Adapter、Demo 禁止样例 |
+| node_base 不依赖完整 Validator | Python 的 Node/Core 契约规则 | node_base → validated_node_plan 允许，→ pipeline_validator 拒绝，实际 include view 编译 |
+| 源码目标归属、C11、llama 语义及 Qwen 协议 | shell 原检查 | CMake 归属破坏反例、C11 编译和现有语义检查保留 |
+| 文档资产和版本一致性 | `check_architecture_docs.sh` | 缺资产/版本漂移反例；删除无独立契约价值的关键词要求 |
+
+普通 include 的保障是解析后的真实依赖与编译结果，不声称与旧 grep 对不存在头名的匹配逐字符等价。Qwen 的 `kitellm_edgeflow_adapter.h` 独有检查、实际目标头视图和编译正反例继续保留。
+
+收尾核对：附件中 51 个 A/B 编号均映射至现有 P、R、D 或 3.2 保留结论；29 个 P 项按九阶段实施。B30 仍在 D25，R01/R02 与全部未决/不采纳范围保留，未混入本轮。旧计划未按“无索引”推定完成或删除。
+
 
 **修改范围：** `scripts/check_*`、相关架构测试、`doc/` 中涉及的现行指南和索引。未完成的旧 plans 不在自动删除范围。
 

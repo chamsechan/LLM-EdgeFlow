@@ -304,7 +304,10 @@ Adapter 与装配入口不会因此获得 vendor 编译依赖。
 CMake 与 LayerGuard 共用此清单。新增契约或改变依赖方向需同步设计与规则。
 
 include 搜索范围不是编译器访问权限。`scripts/check_layer_dependencies.py` 继续按
-解析后的 include 路径检查相对路径、共享辅助头及具体 Backend 的 vendor 头。
+解析后的 include 路径检查相对路径、共享辅助头及具体 Backend 的 vendor 头，统一维护
+Node、Converter、Demo 与 custom Node 的依赖规则。shell 入口负责调用该检查器，并保留
+源码目标归属、C11 编译和运行时语义检查。普通 include 必须解析到仓库文件才检查其归属；
+缺失头文件由编译门禁拒绝，vendor 头则另外按名称检查所属 Backend。
 LayerGuard 既注入反向依赖验证静态规则，也使用实际目标的 include 和编译宏执行正反编译
 探针，确认正常下层 API 可用、普通反向 include、越层私有头和 Backend 外的 vendor 头无法编译。
 

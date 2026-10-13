@@ -81,7 +81,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
    `operator_types.h`，函数入口统一为 `edgeflow/operator/interface.h`。公开结构体变更须先完成
    [契约设计评审](../CONTRIBUTING.md#3-design-and-current-contracts)。
 2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
-   `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
+   `DecodeRequestRows` 等 helper 处理批次与发布；平台指针和长度校验由 binding 负责，
+   转换器负责业务字段语义。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
 4. 用 `(type, name)` 登记一个宿主槽与 typed 逻辑端口；配置选择输入/输出登记，接入准备组合
    明确边界交给 Core。批次上限为 `min(max_frame_depth, 64)`；带业务成员的非 common 登记须声明期望值。

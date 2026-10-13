@@ -272,7 +272,7 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
     diagnostic->Clear();
   }
 
-  // R1-ACC-002: 一次性构建状态检查
+  // 一次性构建状态检查
   if (state_ != State::kEmpty) {
     if (diagnostic) {
       diagnostic->code = DiagnosticCode::kInvalidBuildState;
@@ -378,7 +378,7 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
 }
 
 int Pipeline::Execute(AlgContext* req_ctx) {
-  // R1-ACC-002: 仅允许在 Ready 状态下执行
+  // 仅允许在 Ready 状态下执行
   if (state_ != State::kReady || !req_ctx) {
     return -1;
   }

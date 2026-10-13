@@ -37,7 +37,8 @@ typedef struct CompanyOperatorOutput {
 
 `result_json` 承载完整业务响应 JSON，`name` 决定字段契约；状态只在结构的 `status_code` 中。
 对应中立值为 `JsonOutputValue`，包含 `std::string result_json` 与 `int32_t status_code`。
-统一输出容量参数为 `result_json_max_bytes`，默认 8191 字节，范围 1–65536。
+统一输出使用 [`JsonOutputParameters()`](../../include/adapter/json_output_parameters.h) 声明
+`result_json_max_bytes`，默认 8191 字节，范围 1–65536。
 未来新增其他结构时，每个字符串仍用整数参数 `<field>_max_bytes`，最小值为 1；默认值只在转换器的
 `Parameters<P>` / `MaxBytes` 中声明。平台 `OutputCapacityFieldConfig` 只持有最大容量。
 Catalog/schema 从平台登记补齐 maximum；创建时在 `Prepare` 后读取声明成员的生效尺寸，
@@ -229,14 +230,14 @@ facade 不解析平台 key，不读取具体成员。本次沿用原有 `int` �
 
 ## 宿主调用与生命周期
 
-本节写给直接调用 SDK 的宿主程序。转换器作者需要的批次上限与输出容量配置见
-[业务接入指南](business_onboarding.md#6-输出容量)。
+本节写给直接调用 SDK 的宿主程序。输出容量见本页[转换器与参数](#选择转换器与参数)，
+业务转换实现见[接入指南](business_onboarding.md)。
 
 **调用前提。** `Process` 的输入、输出批次必须非空且帧数相等，单次批次不超过有效上限，
 超出时直接失败，不会在门面中自动拆批。每帧按所选转换器提供必需的输入槽和输出槽，可选槽按契约省略。
 提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
 宿主类型、业务值和必需性可通过公开 `ResolveOperatorConfigIo` 预检；它与 Create 使用同一准备链路，
-不加载模型。批次有效上限为 `min(max_frame_depth, 64)`。
+不加载模型。批次有效上限为 `min(max_frame_depth, 64)`；池深 0 使用默认 25，硬上限为 1024。
 
 **借用输入与输出租约。** `CompanyString` 按显式长度保存文本。
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回；库不跨调用保存输入指针。
