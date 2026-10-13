@@ -195,35 +195,16 @@ bool ValidateAndNormalizeConfig(
                       ? base_pointer
                       : base_pointer + err.path;
       diag.message = err.message;
-      switch (err.kind) {
-        case ConfigFieldErrorKind::kNotAnObject:
-          diag.code = DiagnosticCode::kConfigFieldType;
-          break;
-        case ConfigFieldErrorKind::kUnknownField: {
-          diag.code = DiagnosticCode::kUnknownConfigField;
-          const nlohmann::json::json_pointer pointer(err.path);
-          if (const auto* fields =
-                  FindConfigObjectFields(schema, pointer.parent_pointer())) {
-            for (const auto& field : *fields)
-              diag.suggestions.push_back(field.name);
-          }
-          diag.suggestions =
-              RankByEditDistance(pointer.back(), std::move(diag.suggestions));
-          break;
+      diag.code = ConfigFieldDiagnosticCode(err.kind);
+      if (err.kind == ConfigFieldErrorKind::kUnknownField) {
+        const nlohmann::json::json_pointer pointer(err.path);
+        if (const auto* fields =
+                FindConfigObjectFields(schema, pointer.parent_pointer())) {
+          for (const auto& field : *fields)
+            diag.suggestions.push_back(field.name);
         }
-        case ConfigFieldErrorKind::kMissingField:
-          diag.code = DiagnosticCode::kMissingConfigField;
-          break;
-        case ConfigFieldErrorKind::kTypeMismatch:
-          diag.code = DiagnosticCode::kConfigFieldType;
-          break;
-        case ConfigFieldErrorKind::kOutOfRange:
-        case ConfigFieldErrorKind::kNonFinite:
-          diag.code = DiagnosticCode::kConfigFieldRange;
-          break;
-        case ConfigFieldErrorKind::kInvalidEnum:
-          diag.code = DiagnosticCode::kConfigFieldEnum;
-          break;
+        diag.suggestions =
+            RankByEditDistance(pointer.back(), std::move(diag.suggestions));
       }
       diagnostics->push_back(std::move(diag));
     }

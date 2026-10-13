@@ -87,7 +87,9 @@ int SharedAlgorithmRuntime::ResolveIoPlan(
     std::unique_ptr<ValidatedIoPlan>* out_plan,
     std::string* out_error) noexcept {
   try {
-    if (!out_plan) return Fail(-2, out_error, "Null plan destination");
+    if (!out_plan)
+      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
+                  "Null plan destination");
     out_plan->reset();
     ResolvedOperatorConfig config;
     const int result = OperatorConfigResolver::Resolve(
@@ -95,11 +97,12 @@ int SharedAlgorithmRuntime::ResolveIoPlan(
         out_error, options.output_pool_depth);
     if (result != 0) return result;
     *out_plan = std::move(config.io_plan);
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    return Fail(-99, out_error, e.what());
+    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
   } catch (...) {
-    return Fail(-100, out_error, "Unknown exception resolving runtime plan");
+    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+                "Unknown exception resolving runtime plan");
   }
 }
 
@@ -117,9 +120,10 @@ int SharedAlgorithmRuntime::Create(
     return CreateFromIoPlan(std::move(plan), options, out_runtime, out_error,
                             failure_stage);
   } catch (const std::exception& e) {
-    return Fail(-99, out_error, e.what());
+    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
   } catch (...) {
-    return Fail(-100, out_error, "Unknown exception in runtime creation");
+    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+                "Unknown exception in runtime creation");
   }
 }
 
@@ -134,14 +138,16 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     out_runtime->reset();
     if (!io_plan || io_plan->inputs.empty() || io_plan->outputs.empty() ||
         !io_plan->pipeline_plan)
-      return Fail(-2, out_error, "Invalid or incomplete ValidatedIoPlan");
+      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
+                  "Invalid or incomplete ValidatedIoPlan");
     const uint32_t depth = options.output_pool_depth > 0
                                ? options.output_pool_depth
                                : kDefaultOutputPoolDepth;
     if (options.device_id < 0 || depth > kMaxOutputPoolDepth)
-      return Fail(-2, out_error, "Invalid runtime device or output pool depth");
+      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
+                  "Invalid runtime device or output pool depth");
     if (depth != io_plan->output_pool_depth)
-      return Fail(-2, out_error,
+      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
                   "Output pool depth differs from the validated plan budget");
 
     auto runtime = std::make_unique<SharedAlgorithmRuntime>();
@@ -183,11 +189,12 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     runtime->io_plan_ = std::move(io_plan);
     runtime->pipeline_ = std::move(pipeline);
     *out_runtime = std::move(runtime);
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    return Fail(-99, out_error, e.what());
+    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
   } catch (...) {
-    return Fail(-100, out_error, "Unknown exception in runtime creation");
+    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+                "Unknown exception in runtime creation");
   }
 }
 
@@ -201,22 +208,23 @@ int SharedAlgorithmRuntime::Process(
       return Fail(-1, out_error, "Runtime is closed or uninitialized");
     const auto& plan = *io_plan_;
     if (inputs.count > process_batch_limit_)
-      return Fail(-3, out_error,
+      return Fail(COMPANY_ALG_ERR_INVALID_INPUT, out_error,
                   "Input batch size " + std::to_string(inputs.count) +
                       " exceeds effective batch limit " +
                       std::to_string(process_batch_limit_));
     if (!inputs.count || inputs.views.size() != plan.inputs.size())
-      return Fail(-3, out_error,
+      return Fail(COMPANY_ALG_ERR_INVALID_INPUT, out_error,
                   "Invalid input batch size or converter view count");
     if (!outputs || outputs->rows.size() != inputs.count)
-      return Fail(-4, out_error, "Output row count must equal input row count");
+      return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
+                  "Output row count must equal input row count");
     for (size_t index = 0; index < inputs.views.size(); ++index) {
       const auto& view = inputs.views[index];
       const auto& binding = plan.inputs[index].host_binding;
       if (view.count != inputs.count || !view.binding ||
           view.binding->value_type != binding.value_type ||
           view.binding->external_c_type_name != binding.external_c_type_name)
-        return Fail(-3, out_error,
+        return Fail(COMPANY_ALG_ERR_INVALID_INPUT, out_error,
                     "Input view does not match validated selection");
     }
     for (const auto& row : outputs->rows) {
@@ -224,13 +232,13 @@ int SharedAlgorithmRuntime::Process(
       for (const auto& slot : row) {
         if (slot.output_index >= seen.size() || seen[slot.output_index] ||
             slot.value)
-          return Fail(-4, out_error,
+          return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
                       "Invalid, duplicate or occupied output slot");
         seen[slot.output_index] = true;
       }
       for (size_t index = 0; index < seen.size(); ++index)
         if (plan.outputs[index].converter->slot.required && !seen[index])
-          return Fail(-4, out_error,
+          return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
                       "Missing required output " +
                           plan.outputs[index].converter->Label());
     }
@@ -302,17 +310,18 @@ int SharedAlgorithmRuntime::Process(
                     "EncodeOutput failed for " + def.Label() + ": " +
                         status.ToString());
       if (written != requested_count)
-        return Fail(-4, out_error,
+        return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
                     "EncodeOutput for " + def.Label() + " wrote " +
                         std::to_string(written) + " rows; expected " +
                         std::to_string(requested_count));
     }
     PublishRuntimeOutputs(acquired, outputs, &guard);
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    return Fail(-99, out_error, e.what());
+    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
   } catch (...) {
-    return Fail(-100, out_error, "Unknown exception in runtime processing");
+    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+                "Unknown exception in runtime processing");
   }
 }
 
@@ -328,10 +337,11 @@ int SharedAlgorithmRuntime::ExecuteControl(
                               failure_stage);
   } catch (const std::exception& e) {
     if (failure_stage) *failure_stage = ControlFailureStage::kNone;
-    return Fail(-99, out_error, e.what());
+    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
   } catch (...) {
     if (failure_stage) *failure_stage = ControlFailureStage::kNone;
-    return Fail(-100, out_error, "Unknown exception in runtime control");
+    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+                "Unknown exception in runtime control");
   }
 }
 
@@ -351,11 +361,12 @@ int SharedAlgorithmRuntime::Close(std::string* out_error) noexcept {
       return Fail(-1, out_error,
                   "Runtime closed with " + std::to_string(outstanding) +
                       " unreturned output blocks still checked out");
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    return Fail(-99, out_error, e.what());
+    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
   } catch (...) {
-    return Fail(-100, out_error, "Unknown exception closing runtime");
+    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+                "Unknown exception closing runtime");
   }
 }
 

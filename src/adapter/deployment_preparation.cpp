@@ -24,22 +24,6 @@ bool Fail(DeploymentDiagnostic* diagnostic, const std::string& code,
   return false;
 }
 
-const char* ParameterErrorCode(ConfigFieldErrorKind kind) {
-  switch (kind) {
-    case ConfigFieldErrorKind::kUnknownField:
-      return "UNKNOWN_CONFIG_FIELD";
-    case ConfigFieldErrorKind::kMissingField:
-      return "MISSING_CONFIG_FIELD";
-    case ConfigFieldErrorKind::kOutOfRange:
-    case ConfigFieldErrorKind::kNonFinite:
-      return "CONFIG_FIELD_RANGE";
-    case ConfigFieldErrorKind::kInvalidEnum:
-      return "CONFIG_FIELD_ENUM";
-    default:
-      return "CONFIG_FIELD_TYPE";
-  }
-}
-
 bool ParseParameters(const ParameterSet& declaration,
                      const std::vector<ConfigFieldDefinition>& fields,
                      const IoEntryConfig& entry, const std::string& path,
@@ -49,7 +33,8 @@ bool ParseParameters(const ParameterSet& declaration,
   std::vector<ConfigFieldValidationError> errors;
   if (!ValidateAndNormalizeFields(fields, entry.params, &normalized, &errors)) {
     const auto& error = errors.front();
-    return Fail(diagnostic, ParameterErrorCode(error.kind),
+    return Fail(diagnostic,
+                DiagnosticCodeName(ConfigFieldDiagnosticCode(error.kind)),
                 path + "/params" + error.path, error.message);
   }
   std::string error;
