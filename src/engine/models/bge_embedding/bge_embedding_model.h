@@ -45,13 +45,6 @@ class BgeEmbeddingModel final
   int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override;
 
-  const BertWordPieceTokenizer& Tokenizer() const noexcept {
-    return tokenizer_;
-  }
-  size_t EmbeddingDim() const noexcept { return embedding_dim_; }
-  size_t MaxTokens() const noexcept { return max_tokens_; }
-  const std::string& Pooling() const noexcept { return pooling_; }
-
  private:
   int RawEmbedSlice(const TextBatch& all_inputs, const BatchSlice& slice,
                     std::vector<std::vector<float>>* batch_embeddings,

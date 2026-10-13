@@ -188,20 +188,6 @@ std::unique_ptr<INode> NodeRegistry::Create(
   return creator();
 }
 
-bool NodeRegistry::Has(const std::string& node_type) const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return entries_.find(node_type) != entries_.end();
-}
-
-std::vector<std::string> NodeRegistry::ListTypes() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<std::string> result;
-  result.reserve(entries_.size());
-  for (const auto& item : entries_) result.push_back(item.first);
-  std::sort(result.begin(), result.end());
-  return result;
-}
-
 bool NodeRegistry::HasConflict() const {
   return has_conflict_.load(std::memory_order_acquire);
 }

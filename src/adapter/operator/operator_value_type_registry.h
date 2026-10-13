@@ -68,11 +68,6 @@ bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
                                    uint32_t depth, size_t* out_bytes,
                                    std::string* err) noexcept;
 
-bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
-                                   const ResolvedOutputPoolSpec& spec,
-                                   uint32_t depth, size_t* out_bytes,
-                                   std::string* err) noexcept;
-
 /**
  * @brief Operator 全局值类型表 (SSOT)
  */

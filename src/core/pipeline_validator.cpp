@@ -991,9 +991,4 @@ ValidatedPipelinePlan PipelineValidator::ValidateParsedAndPlan(
   return ValidateAndPlanInternal(std::move(config), catalog, io_boundary);
 }
 
-ValidationReport PipelineValidator::Validate(
-    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
-  return ValidateAndPlan(root, io_boundary).report;
-}
-
 }  // namespace llm_edgeflow

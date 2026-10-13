@@ -97,7 +97,7 @@ class RealModelExecutionTest : public ::testing::Test {
 
 TEST_F(RealModelExecutionTest,
        GgufTranslationTraversesPublicOperatorWithActualWeights) {
-  if (!BackendRegistry::Instance().Has("llama_cpp")) {
+  if (!BackendRegistry::Instance().Find("llama_cpp")) {
     RecordProperty("optional_runtime_asset", "selected build lacks llama_cpp");
     GTEST_SKIP() << "Selected build does not register llama_cpp";
   }
@@ -132,7 +132,7 @@ TEST_F(RealModelExecutionTest,
 
 TEST_F(RealModelExecutionTest,
        WhisperSpeechTraversesPublicOperatorWithActualPcm) {
-  if (!BackendRegistry::Instance().Has("whisper_cpp")) {
+  if (!BackendRegistry::Instance().Find("whisper_cpp")) {
     RecordProperty("optional_runtime_asset",
                    "selected build lacks whisper_cpp");
     GTEST_SKIP() << "Selected build does not register whisper_cpp";

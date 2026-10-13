@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Backend 的 CPU 平台使用 `cpu`（大小写归一），设备编号限制保持不变。
+
 移除没有生产 Node 接收的阈值更新命令及其参数结构；规则更新、提示词切换和 JSON 控制入口保留原编号。
 转换器批次视图按单槽契约直接持有载荷和池规格，保留类型检查、可选输出行位置及失败租约回收。
 图像和问题输入复用逐行解码；Node 共用模板 token 渲染与选择结果处理。
@@ -299,8 +301,7 @@ Catalog、Binding 端口映射和 Studio 的 `$ingress` 不发布请求编号端
 启动，参数不变。C++ 命令行工具源码由 `src/tools/` 改名为 `src/cli/`，可执行文件仍输出到
 `build/`。架构图源文件改名为 `doc/architecture_classes.puml` 与 `doc/architecture_flow.puml`。
 
-业务标识统一：每个业务的配置与 Demo 文件名和 `biz_name`（`<词根>`，不带版本号）使用同一词根，
-中文名统一使用 BizDefinition 的显示名。
+业务标识统一：每个业务的配置与 Demo 文件名和 `biz_name`（`<词根>`，不带版本号）使用同一词根。
 `biz_name` 变更为 `keyword_match`、`entity_extract`、`translate`、`doc_qa`、`cross_rerank`、
 `dialogue_audit`、`ocr_invoice_qa`、`audio_asr_intent`；OCR 与语音方案的配置、Demo、数据集和 Profile 改用 `ocr_invoice_qa`、`audio_asr_intent` 词根。
 Demo 结果目录随 `biz_name` 变化。正式上线前不保留旧名别名。

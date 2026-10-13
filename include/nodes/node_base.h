@@ -27,23 +27,10 @@ enum class NodeRuntimeCode : int {
 template <typename T>
 class BoundInput {
  public:
-  explicit BoundInput(std::string logical_name, std::string default_key = {})
+  explicit BoundInput(std::string logical_name)
       : logical_name_(std::move(logical_name)),
-        actual_key_(default_key.empty() ? logical_name_
-                                        : std::move(default_key)),
+        actual_key_(logical_name_),
         type_id_(BlackboardTypeTraits<T>::TypeName()) {}
-
-  explicit BoundInput(const BlackboardKey<T>& key)
-      : logical_name_(key.name),
-        actual_key_(key.name),
-        type_id_(key.type_id ? key.type_id
-                             : BlackboardTypeTraits<T>::TypeName()) {
-    if (key.type_id &&
-        std::string_view(key.type_id) != BlackboardTypeTraits<T>::TypeName()) {
-      throw std::invalid_argument(
-          "BlackboardKey type_id does not match BlackboardTypeTraits<T>");
-    }
-  }
 
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {
@@ -70,26 +57,6 @@ class BoundInput {
     return !actual_key_.empty() && ctx.Has(actual_key_);
   }
 
-  const T* Require(AlgContext& ctx, int error_code,
-                   std::string_view semantic = {}) const {
-    const bool key_exists = ctx.Has(actual_key_);
-    const T* val = ctx.Read<T>(actual_key_);
-    if (!val) {
-      std::string msg = (key_exists ? "Type mismatch for input port '"
-                                    : "Missing required input port '") +
-                        logical_name_ + "' (bound key: '" + actual_key_ + "')";
-      if (!type_id_.empty()) {
-        msg += " expected type: " + type_id_;
-      }
-      if (!semantic.empty()) {
-        msg += " for " + std::string(semantic);
-      }
-      ctx.SetError(error_code, std::move(msg));
-      return nullptr;
-    }
-    return val;
-  }
-
  private:
   std::string logical_name_;
   std::string actual_key_;
@@ -100,22 +67,9 @@ class BoundInput {
 template <typename T>
 class BoundOutput {
  public:
-  explicit BoundOutput(std::string logical_name, std::string default_key = {})
+  explicit BoundOutput(std::string logical_name)
       : logical_name_(std::move(logical_name)),
-        actual_key_(std::move(default_key)),
         type_id_(BlackboardTypeTraits<T>::TypeName()) {}
-
-  explicit BoundOutput(const BlackboardKey<T>& key)
-      : logical_name_(key.name),
-        actual_key_(),
-        type_id_(key.type_id ? key.type_id
-                             : BlackboardTypeTraits<T>::TypeName()) {
-    if (key.type_id &&
-        std::string_view(key.type_id) != BlackboardTypeTraits<T>::TypeName()) {
-      throw std::invalid_argument(
-          "BlackboardKey type_id does not match BlackboardTypeTraits<T>");
-    }
-  }
 
   void Resolve(std::string actual_key) {
     actual_key_ = std::move(actual_key);

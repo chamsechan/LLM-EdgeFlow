@@ -100,10 +100,10 @@ TEST(TextConverterTest, TranslationResponseContainsOnlyTranslatedText) {
             nlohmann::json::parse(R"({"translated":"Bonjour \"世界\"\n"})"));
 }
 
-TEST(TextConverterTest, EntityResponsePreservesDocumentBytesAndAcceptsRepairs) {
+TEST(TextConverterTest,
+     EntityResponsePreservesDocumentBytesAndAcceptsMarkdownExtraction) {
   for (const auto parse_status :
-       {JsonParseStatus::kOk, JsonParseStatus::kExtractedFromMarkdown,
-        JsonParseStatus::kAutoClosed}) {
+       {JsonParseStatus::kOk, JsonParseStatus::kExtractedFromMarkdown}) {
     AlgContext context;
     const std::string payload = "{ \"entities\" : [\"北京\"], \"n\" : 1 }";
     ASSERT_TRUE(context.Publish(

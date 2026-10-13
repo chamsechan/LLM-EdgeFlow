@@ -183,32 +183,6 @@ bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
   }
 }
 
-bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
-                                   const ResolvedOutputPoolSpec& spec,
-                                   uint32_t depth, size_t* out_bytes,
-                                   std::string* err) noexcept {
-  try {
-    const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetOutputBinding(suffix,
-                                                               spec.allocator);
-    if (!binding || binding->canonical_suffix != suffix) {
-      if (out_bytes) *out_bytes = 0;
-      if (err) {
-        *err = "Unknown or non-canonical output suffix '" + suffix + "'";
-      }
-      return false;
-    }
-    return ComputeOutputPoolPayloadBytes(*binding, spec, depth, out_bytes, err);
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return false;
-  } catch (...) {
-    SetDiagnosticNoexcept(err,
-                          "Unknown exception in ComputeOutputPoolPayloadBytes");
-    return false;
-  }
-}
-
 OperatorValueTypeRegistry& OperatorValueTypeRegistry::Instance() {
   static OperatorValueTypeRegistry instance;
   return instance;

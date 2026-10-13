@@ -129,7 +129,6 @@ TEST(WhisperCppBackendTest, SuppliedModelRunsThroughNeutralAudioProtocol) {
 #else
 TEST(WhisperCppBackendTest,
      DisabledBackendHasNoRegistrationOrCreatableProvider) {
-  EXPECT_FALSE(BackendRegistry::Instance().Has("whisper_cpp"));
   EXPECT_FALSE(BackendRegistry::Instance().Find("whisper_cpp"));
   EXPECT_EQ(BackendRegistry::Instance().Create("whisper_cpp"), nullptr);
   char name[] = "/tmp/edgeflow-disabled-whisper-XXXXXX";

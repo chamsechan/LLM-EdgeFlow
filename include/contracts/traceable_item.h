@@ -24,12 +24,6 @@ struct TraceableItem {
 
   TraceableItem(uint32_t r_id, uint32_t s_id, T d)
       : req_id(r_id), sub_id(s_id), data(std::move(d)) {}
-
-  // 便捷转换构造
-  template <typename U>
-  TraceableItem<U> Map(U new_data) const {
-    return TraceableItem<U>(req_id, sub_id, std::move(new_data));
-  }
 };
 
 }  // namespace llm_edgeflow

@@ -57,7 +57,6 @@ DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAudioInput,
                              "CompanyOperatorAudioInput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorRerankInput,
                              "CompanyOperatorRerankInput");
-DECLARE_EXTERNAL_TYPE_TRAITS(int, "int");
 
 bool ValidatePlatformMetadata(uint32_t count, int32_t type_id) noexcept;
 

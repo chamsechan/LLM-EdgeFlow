@@ -554,7 +554,6 @@ TEST_F(RuntimeFacadeTest,
   EXPECT_EQ(runtime->Close(&error), -1);
   EXPECT_NE(error.find("2 unreturned output blocks"), std::string::npos);
   EXPECT_EQ(runtime->GetIoPlan(), nullptr);
-  EXPECT_EQ(runtime->GetPipeline(), nullptr);
   EXPECT_EQ(trace->live, 0);
   EXPECT_EQ(trace->nodes_destroyed, 1);
   EXPECT_EQ(runtime->Close(), 0);

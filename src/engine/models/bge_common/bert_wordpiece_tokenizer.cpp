@@ -113,17 +113,9 @@ bool BertWordPieceTokenizer::Load(const std::string& vocab_file_path,
   return InitializeVocab(lines, diagnostic);
 }
 
-bool BertWordPieceTokenizer::LoadFromTokens(
-    const std::vector<std::string>& tokens, bool do_lower_case,
-    std::string* diagnostic) {
-  do_lower_case_ = do_lower_case;
-  return InitializeVocab(tokens, diagnostic);
-}
-
 bool BertWordPieceTokenizer::InitializeVocab(
     const std::vector<std::string>& lines, std::string* diagnostic) {
   vocab_.clear();
-  inv_vocab_.clear();
   is_loaded_ = false;
 
   if (lines.empty()) {
@@ -140,11 +132,9 @@ bool BertWordPieceTokenizer::InitializeVocab(
                       ": " + token;
       }
       vocab_.clear();
-      inv_vocab_.clear();
       return false;
     }
     vocab_[token] = static_cast<int64_t>(i);
-    inv_vocab_.push_back(token);
   }
 
   auto it_pad = vocab_.find("[PAD]");
@@ -160,7 +150,6 @@ bool BertWordPieceTokenizer::InitializeVocab(
           "[CLS], [SEP])";
     }
     vocab_.clear();
-    inv_vocab_.clear();
     return false;
   }
 

@@ -74,9 +74,6 @@ class PipelineValidator {
   // JSON.
   static ValidatedPipelinePlan ValidateParsedAndPlan(
       ParsedPipelineConfig config, const PipelineIoBoundary& io_boundary);
-
-  static ValidationReport Validate(const nlohmann::json& root,
-                                   const PipelineIoBoundary& io_boundary);
 };
 
 /**
