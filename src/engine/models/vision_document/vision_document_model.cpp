@@ -1,6 +1,7 @@
 #include "engine/models/vision_document/vision_document_model.h"
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
@@ -88,12 +89,12 @@ int VisionDocumentModel::Recognize(const ImageFrameBatch& images,
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
     SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   outputs->clear();
   if (!session_) {
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
-    return -1;
+    return error::kInvalidState;
   }
   return FixedBatchExecutor::ExecuteItems<ImageFrame, OcrDocumentItem>(
       images, session_->GetBatchPolicy(),
@@ -103,21 +104,18 @@ int VisionDocumentModel::Recognize(const ImageFrameBatch& images,
         std::string reason;
         if (!PrepareDocumentImage(image.data, patch_size_, max_pixels_,
                                   &request, &reason)) {
-          ALG_LOG_ERROR("[VisionDocumentModel] %s\n", reason.c_str());
           SetDiagnosticNoexcept(diagnostic, reason);
-          return -1;
+          return error::kInvalidInput;
         }
         request.prompt = prompt_;
         OcrDocumentItem document;
         const int result = session_->Generate(request, options_,
                                               &document.combined_text, &reason);
         if (result != 0 || document.combined_text.empty()) {
-          ALG_LOG_ERROR("[VisionDocumentModel] Generation failed: %s\n",
-                        reason.c_str());
           SetDiagnosticNoexcept(
               diagnostic,
               reason.empty() ? "Image generation returned empty text" : reason);
-          return -1;
+          return result != 0 ? result : error::kInvalidOutput;
         }
         // 生成式识别没有实测的框或置信度。
         *output = std::move(document);

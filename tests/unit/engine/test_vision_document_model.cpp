@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/models/vision_document/vision_document_model.h"
 #include "tests/support/model_probe.h"
 
@@ -92,7 +93,7 @@ TEST(VisionDocumentModelTest, PixelLimitIncludesWhitePatchPadding) {
   OcrDocumentBatch output;
   EXPECT_EQ(model->Recognize({{0, 0, TwoPixelsWithRowPadding()}}, &output,
                              &diagnostic),
-            -1);
+            error::kInvalidInput);
   EXPECT_EQ(diagnostic, "Padded image exceeds max_pixels");
   EXPECT_EQ(session->calls, 0);
   EXPECT_TRUE(output.empty());
@@ -119,7 +120,8 @@ TEST(VisionDocumentModelTest, MalformedRgbFramesAreRejectedBeforeGeneration) {
         session, {{"patch_size", 2}, {"max_pixels", 4}}, &diagnostic);
     ASSERT_NE(model, nullptr) << diagnostic;
     OcrDocumentBatch output;
-    EXPECT_EQ(model->Recognize({{0, 0, test.frame}}, &output, &diagnostic), -1);
+    EXPECT_EQ(model->Recognize({{0, 0, test.frame}}, &output, &diagnostic),
+              error::kInvalidInput);
     EXPECT_EQ(session->calls, 0);
     EXPECT_EQ(diagnostic, "Invalid RGB8 frame or preprocessing limits");
     EXPECT_TRUE(output.empty());
@@ -150,7 +152,7 @@ TEST(VisionDocumentModelTest, EmptyTextAndBackendErrorAreRecognitionFailures) {
     OcrDocumentBatch output;
     EXPECT_EQ(model->Recognize({{0, 0, TwoPixelsWithRowPadding()}}, &output,
                                &diagnostic),
-              -1);
+              test.code != 0 ? test.code : error::kInvalidOutput);
     EXPECT_EQ(diagnostic, test.expected);
     EXPECT_TRUE(output.empty());
   }

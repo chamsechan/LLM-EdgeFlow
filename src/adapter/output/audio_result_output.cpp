@@ -10,6 +10,7 @@
 #include "adapter/json_output_parameters.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
@@ -36,11 +37,11 @@ int EncodeOperatorAudioResult(AlgContext* context,
 
   const auto* transcripts =
       ReadOutputValue(*context, kTranscribedText, options, status);
-  if (!transcripts) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!transcripts) return error::kInvalidInput;
 
   const auto* intent_slots =
       ReadOutputValue(*context, kIntentSlot, options, status);
-  if (!intent_slots) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!intent_slots) return error::kInvalidInput;
 
   size_t count = transcripts->size();
   if (!destination || destination->count < count) {
@@ -52,12 +53,12 @@ int EncodeOperatorAudioResult(AlgContext* context,
   std::vector<const TextBatch::value_type*> transcripts_by_request;
   if (!IndexResults(transcripts, destination->count, &transcripts_by_request,
                     "transcripts", options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
   std::vector<const RuleMatchBatch::value_type*> intent_slots_by_request;
   if (!IndexResults(intent_slots, destination->count, &intent_slots_by_request,
                     "intent_slots", options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   size_t written = 0;
@@ -75,13 +76,13 @@ int EncodeOperatorAudioResult(AlgContext* context,
                                             intent_slots_by_request[i]->data)}})
             .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return status ? status->Code() : error::kInvalidOutput;
     }
     ++written;
   }
 
   if (written_count) *written_count = written;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {

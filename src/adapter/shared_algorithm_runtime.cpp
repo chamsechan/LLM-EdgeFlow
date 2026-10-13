@@ -11,8 +11,8 @@
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
-#include "core/diagnostic_code.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
@@ -61,23 +61,21 @@ int SharedAlgorithmRuntime::GlobalInit(std::string* diagnostic) noexcept {
         errors.push_back("Converter audit: " + std::move(error));
     if (!errors.empty()) {
       std::string message;
-      ALG_LOG_ERROR("[SharedAlgorithmRuntime] GlobalInit failed:\n");
       for (const auto& error : errors) {
-        ALG_LOG_ERROR("  - %s\n", error.c_str());
         if (!message.empty()) message += "; ";
         message += error;
       }
-      return Fail(COMPANY_ALG_ERR_REGISTRY_CONFLICT, diagnostic, message);
+      return Fail(error::kRegistryConflict, diagnostic, message);
     }
     const int result = OperatorValueTypeRegistry::Instance().GlobalInit();
     if (result != 0)
       return Fail(result, diagnostic,
                   "Value type registry initialization failed");
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, diagnostic, e.what());
+    return Fail(error::kInternalException, diagnostic, e.what());
   } catch (...) {
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, diagnostic,
+    return Fail(error::kUnknownException, diagnostic,
                 "Unknown exception in GlobalInit");
   }
 }
@@ -88,8 +86,7 @@ int SharedAlgorithmRuntime::ResolveIoPlan(
     std::string* out_error) noexcept {
   try {
     if (!out_plan)
-      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
-                  "Null plan destination");
+      return Fail(error::kInvalidArgument, out_error, "Null plan destination");
     out_plan->reset();
     ResolvedOperatorConfig config;
     const int result = OperatorConfigResolver::Resolve(
@@ -97,11 +94,11 @@ int SharedAlgorithmRuntime::ResolveIoPlan(
         out_error, options.output_pool_depth);
     if (result != 0) return result;
     *out_plan = std::move(config.io_plan);
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
+    return Fail(error::kInternalException, out_error, e.what());
   } catch (...) {
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+    return Fail(error::kUnknownException, out_error,
                 "Unknown exception resolving runtime plan");
   }
 }
@@ -112,7 +109,9 @@ int SharedAlgorithmRuntime::Create(
     std::string* out_error, RuntimeFailureStage* failure_stage) noexcept {
   if (failure_stage) *failure_stage = RuntimeFailureStage::kPreparation;
   try {
-    if (!out_runtime) return Fail(-1, out_error, "Null runtime destination");
+    if (!out_runtime)
+      return Fail(error::kInvalidArgument, out_error,
+                  "Null runtime destination");
     out_runtime->reset();
     std::unique_ptr<ValidatedIoPlan> plan;
     const int result = ResolveIoPlan(options, &plan, out_error);
@@ -120,9 +119,9 @@ int SharedAlgorithmRuntime::Create(
     return CreateFromIoPlan(std::move(plan), options, out_runtime, out_error,
                             failure_stage);
   } catch (const std::exception& e) {
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
+    return Fail(error::kInternalException, out_error, e.what());
   } catch (...) {
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+    return Fail(error::kUnknownException, out_error,
                 "Unknown exception in runtime creation");
   }
 }
@@ -134,20 +133,22 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     std::string* out_error, RuntimeFailureStage* failure_stage) noexcept {
   if (failure_stage) *failure_stage = RuntimeFailureStage::kPreparation;
   try {
-    if (!out_runtime) return Fail(-1, out_error, "Null runtime destination");
+    if (!out_runtime)
+      return Fail(error::kInvalidArgument, out_error,
+                  "Null runtime destination");
     out_runtime->reset();
     if (!io_plan || io_plan->inputs.empty() || io_plan->outputs.empty() ||
         !io_plan->pipeline_plan)
-      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
+      return Fail(error::kInvalidArgument, out_error,
                   "Invalid or incomplete ValidatedIoPlan");
     const uint32_t depth = options.output_pool_depth > 0
                                ? options.output_pool_depth
                                : kDefaultOutputPoolDepth;
     if (options.device_id < 0 || depth > kMaxOutputPoolDepth)
-      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
+      return Fail(error::kInvalidArgument, out_error,
                   "Invalid runtime device or output pool depth");
     if (depth != io_plan->output_pool_depth)
-      return Fail(COMPANY_ALG_ERR_INVALID_PARAM, out_error,
+      return Fail(error::kInvalidArgument, out_error,
                   "Output pool depth differs from the validated plan budget");
 
     auto runtime = std::make_unique<SharedAlgorithmRuntime>();
@@ -160,17 +161,14 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     PipelineDiagnostic diagnostic;
     if (!pipeline->BuildFromPlan(std::move(io_plan->pipeline_plan),
                                  &diagnostic)) {
-      const int code = diagnostic.code == DiagnosticCode::kRegistryConflict
-                           ? COMPANY_ALG_ERR_REGISTRY_CONFLICT
-                           : COMPANY_ALG_ERR_INVALID_INPUT;
-      return Fail(
-          code, out_error,
-          "Failed to build pipeline from plan: " + diagnostic.message +
-              " (code: " + std::string(DiagnosticCodeName(diagnostic.code)) +
-              ", path: " + diagnostic.path + ")");
+      const int code = diagnostic.code;
+      return Fail(code, out_error,
+                  "Failed to build pipeline from plan: " + diagnostic.message +
+                      " (code: " + std::string(ErrorCodeName(diagnostic.code)) +
+                      ", path: " + diagnostic.path + ")");
     }
-    // 输出池错误保留原有返回码；协议壳仅将配置解析和构建失败
-    // 按 Create 准备阶段的规则映射。
+    // 输出池失败仍使用框架码；协议壳按运行时分配失败映射，
+    // 与前面的配置准备失败区分。
     if (failure_stage) *failure_stage = RuntimeFailureStage::kNone;
     for (const auto& selected : io_plan->outputs) {
       std::shared_ptr<OutputPoolState> pool;
@@ -179,7 +177,7 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
           selected.converter->type, depth, selected.pool_spec,
           &selected.allocator_binding, &pool, &error);
       if (result != 0 || !pool)
-        return Fail(result ? result : -4, out_error,
+        return Fail(result ? result : error::kAllocationFailed, out_error,
                     "Failed to create output pool for " +
                         selected.converter->Label() + ": " + error);
       runtime->output_pools_.push_back(std::move(pool));
@@ -189,11 +187,11 @@ int SharedAlgorithmRuntime::CreateFromIoPlan(
     runtime->io_plan_ = std::move(io_plan);
     runtime->pipeline_ = std::move(pipeline);
     *out_runtime = std::move(runtime);
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
+    return Fail(error::kInternalException, out_error, e.what());
   } catch (...) {
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+    return Fail(error::kUnknownException, out_error,
                 "Unknown exception in runtime creation");
   }
 }
@@ -205,18 +203,19 @@ int SharedAlgorithmRuntime::Process(
   try {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!pipeline_ || !io_plan_)
-      return Fail(-1, out_error, "Runtime is closed or uninitialized");
+      return Fail(error::kInvalidState, out_error,
+                  "Runtime is closed or uninitialized");
     const auto& plan = *io_plan_;
     if (inputs.count > process_batch_limit_)
-      return Fail(COMPANY_ALG_ERR_INVALID_INPUT, out_error,
+      return Fail(error::kInvalidInput, out_error,
                   "Input batch size " + std::to_string(inputs.count) +
                       " exceeds effective batch limit " +
                       std::to_string(process_batch_limit_));
     if (!inputs.count || inputs.views.size() != plan.inputs.size())
-      return Fail(COMPANY_ALG_ERR_INVALID_INPUT, out_error,
+      return Fail(error::kInvalidInput, out_error,
                   "Invalid input batch size or converter view count");
     if (!outputs || outputs->rows.size() != inputs.count)
-      return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
+      return Fail(error::kInvalidOutput, out_error,
                   "Output row count must equal input row count");
     for (size_t index = 0; index < inputs.views.size(); ++index) {
       const auto& view = inputs.views[index];
@@ -224,7 +223,7 @@ int SharedAlgorithmRuntime::Process(
       if (view.count != inputs.count || !view.binding ||
           view.binding->value_type != binding.value_type ||
           view.binding->external_c_type_name != binding.external_c_type_name)
-        return Fail(COMPANY_ALG_ERR_INVALID_INPUT, out_error,
+        return Fail(error::kInvalidInput, out_error,
                     "Input view does not match validated selection");
     }
     for (const auto& row : outputs->rows) {
@@ -232,13 +231,13 @@ int SharedAlgorithmRuntime::Process(
       for (const auto& slot : row) {
         if (slot.output_index >= seen.size() || seen[slot.output_index] ||
             slot.value)
-          return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
+          return Fail(error::kInvalidOutput, out_error,
                       "Invalid, duplicate or occupied output slot");
         seen[slot.output_index] = true;
       }
       for (size_t index = 0; index < seen.size(); ++index)
         if (plan.outputs[index].converter->slot.required && !seen[index])
-          return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
+          return Fail(error::kInvalidOutput, out_error,
                       "Missing required output " +
                           plan.outputs[index].converter->Label());
     }
@@ -310,17 +309,17 @@ int SharedAlgorithmRuntime::Process(
                     "EncodeOutput failed for " + def.Label() + ": " +
                         status.ToString());
       if (written != requested_count)
-        return Fail(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, out_error,
+        return Fail(error::kInvalidOutput, out_error,
                     "EncodeOutput for " + def.Label() + " wrote " +
                         std::to_string(written) + " rows; expected " +
                         std::to_string(requested_count));
     }
     PublishRuntimeOutputs(acquired, outputs, &guard);
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
+    return Fail(error::kInternalException, out_error, e.what());
   } catch (...) {
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+    return Fail(error::kUnknownException, out_error,
                 "Unknown exception in runtime processing");
   }
 }
@@ -332,15 +331,16 @@ int SharedAlgorithmRuntime::ExecuteControl(
   try {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!pipeline_)
-      return Fail(-1, out_error, "Runtime is closed or uninitialized");
+      return Fail(error::kInvalidState, out_error,
+                  "Runtime is closed or uninitialized");
     return pipeline_->Control(request.command, request.json, out_error,
                               failure_stage);
   } catch (const std::exception& e) {
     if (failure_stage) *failure_stage = ControlFailureStage::kNone;
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
+    return Fail(error::kInternalException, out_error, e.what());
   } catch (...) {
     if (failure_stage) *failure_stage = ControlFailureStage::kNone;
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+    return Fail(error::kUnknownException, out_error,
                 "Unknown exception in runtime control");
   }
 }
@@ -358,14 +358,14 @@ int SharedAlgorithmRuntime::Close(std::string* out_error) noexcept {
     pipeline_.reset();
     io_plan_.reset();
     if (outstanding)
-      return Fail(-1, out_error,
+      return Fail(error::kInvalidState, out_error,
                   "Runtime closed with " + std::to_string(outstanding) +
                       " unreturned output blocks still checked out");
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
-    return Fail(COMPANY_ALG_ERR_EXCEPTION, out_error, e.what());
+    return Fail(error::kInternalException, out_error, e.what());
   } catch (...) {
-    return Fail(COMPANY_ALG_ERR_UNKNOWN, out_error,
+    return Fail(error::kUnknownException, out_error,
                 "Unknown exception closing runtime");
   }
 }

@@ -10,4 +10,3 @@ pipeline_config.h
 pipeline_diagnostic.h
 session_context.h
 validated_node_plan.h
-diagnostic_code.h

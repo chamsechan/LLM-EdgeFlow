@@ -11,6 +11,7 @@
 
 #include "contracts/config_schema.h"
 #include "contracts/config_schema_validation.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "contracts/traceable_item.h"
 #include "core/node_definition.h"
@@ -24,7 +25,6 @@
 #include "nodes/model_binding.h"
 #include "nodes/model_calls.h"
 #include "nodes/node_base.h"
-#include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 #include "nodes/session_resources.h"
 #include "nodes/traceable_algorithms.h"
@@ -486,11 +486,11 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
     if (result.error == TraceableAlignmentError::kCountMismatch)
       return NodeFailure{
           "Output port '" + port_.LogicalName() + "' count mismatch",
-          node_error::author_node::kOutputCountMismatch};
+          error::kOutputCountMismatch};
     if (result.error == TraceableAlignmentError::kProvenanceMismatch)
       return NodeFailure{
           "Output port '" + port_.LogicalName() + "' provenance mismatch",
-          node_error::author_node::kOutputProvenanceMismatch};
+          error::kOutputProvenanceMismatch};
     return std::nullopt;
   }
   bool ConflictsWithMember(const OutputBinding<ValueT>& other) const override {
@@ -1133,7 +1133,7 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       InputsT inputs{};
       std::string err;
       if (!spec_.Inputs().PopulateInputs(req_ctx, &inputs, &err)) {
-        return this->Fail(req_ctx, node_error::author_node::kMissingInput,
+        return this->Fail(req_ctx, error::kMissingInput,
                           err.empty() ? "Failed to populate inputs" : err);
       }
 
@@ -1142,7 +1142,7 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       if (spec_.HasControls()) {
         snapshot_guard = snapshot_.Read();
         if (!snapshot_guard) {
-          return this->Fail(req_ctx, node_error::author_node::kInternalError,
+          return this->Fail(req_ctx, error::kInternalException,
                             this->Name() + ": snapshot not initialized");
         }
         params_ptr = snapshot_guard.get();
@@ -1154,9 +1154,8 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
                                    models_, resources_);
       if (!res.ok()) {
         auto failure = std::move(res).ExtractFailure();
-        int code = failure.cause_code != 0
-                       ? failure.cause_code
-                       : node_error::author_node::kBusinessError;
+        int code = failure.cause_code != 0 ? failure.cause_code
+                                           : error::kBusinessError;
         return this->Fail(
             req_ctx, code,
             failure.FormatDiagnostic(this->Name() + " process failed"));
@@ -1173,7 +1172,7 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       return 0;
     } else {
       // 合法程序中不可达；避免引发连锁模板错误。
-      return this->Fail(req_ctx, node_error::author_node::kInternalError,
+      return this->Fail(req_ctx, error::kInternalException,
                         "Invalid Node Run signature");
     }
   }

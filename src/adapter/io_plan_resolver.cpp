@@ -10,7 +10,7 @@
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
-#include "core/diagnostic_code.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -21,14 +21,16 @@ int IoPlanResolver::ResolveFromFile(const std::string& config_path,
                                     std::string* out_error,
                                     DeploymentDiagnostic* out_diagnostic,
                                     uint32_t output_pool_depth) {
-  if (out_diagnostic) out_diagnostic->Clear();
+  DeploymentDiagnostic local_diagnostic;
+  if (!out_diagnostic) out_diagnostic = &local_diagnostic;
+  out_diagnostic->Clear();
 
   DeploymentIoConfig config;
   std::string err;
   if (!DeploymentIoConfig::ReadFromFile(config_path, &config, &err,
                                         out_diagnostic)) {
     if (out_error) *out_error = err;
-    return -2;
+    return out_diagnostic->code;
   }
   return ResolveFromConfig(config, out_plan, out_error, out_diagnostic,
                            output_pool_depth);
@@ -38,16 +40,16 @@ int IoPlanResolver::ResolveFromConfig(
     const DeploymentIoConfig& config,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
     DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
-  if (out_diagnostic) out_diagnostic->Clear();
+  DeploymentDiagnostic local_diagnostic;
+  if (!out_diagnostic) out_diagnostic = &local_diagnostic;
+  out_diagnostic->Clear();
 
   if (!out_plan) {
     if (out_error) *out_error = "Null out_plan pointer";
-    if (out_diagnostic) {
-      out_diagnostic->code = "DEPLOYMENT_ERROR";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = "Null out_plan pointer";
-    }
-    return -1;
+    out_diagnostic->code = error::kInvalidArgument;
+    out_diagnostic->path = "/";
+    out_diagnostic->message = "Null out_plan pointer";
+    return error::kInvalidArgument;
   }
   *out_plan = nullptr;
 
@@ -56,12 +58,10 @@ int IoPlanResolver::ResolveFromConfig(
     std::string msg =
         "Failed to open pipeline file: " + config.resolved_pipe_path;
     if (out_error) *out_error = msg;
-    if (out_diagnostic) {
-      out_diagnostic->code = "CONFIG_FILE_OPEN";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = msg;
-    }
-    return -2;
+    out_diagnostic->code = error::kConfigFileOpen;
+    out_diagnostic->path = "/";
+    out_diagnostic->message = msg;
+    return out_diagnostic->code;
   }
   nlohmann::json raw_pipe_json;
   try {
@@ -71,12 +71,10 @@ int IoPlanResolver::ResolveFromConfig(
         "JSON parse exception in pipeline file: " + config.resolved_pipe_path +
         ": " + e.what();
     if (out_error) *out_error = msg;
-    if (out_diagnostic) {
-      out_diagnostic->code = "JSON_PARSE";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = msg;
-    }
-    return -2;
+    out_diagnostic->code = error::kJsonParse;
+    out_diagnostic->path = "/";
+    out_diagnostic->message = msg;
+    return out_diagnostic->code;
   }
 
   return ResolveFromPipelineJson(
@@ -88,16 +86,16 @@ int IoPlanResolver::ResolveFromPipelineJson(
     const nlohmann::json& pipeline_json, const std::string& pipeline_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
     DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
-  if (out_diagnostic) out_diagnostic->Clear();
+  DeploymentDiagnostic local_diagnostic;
+  if (!out_diagnostic) out_diagnostic = &local_diagnostic;
+  out_diagnostic->Clear();
 
   if (!out_plan) {
     if (out_error) *out_error = "Null out_plan pointer";
-    if (out_diagnostic) {
-      out_diagnostic->code = "DEPLOYMENT_ERROR";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = "Null out_plan pointer";
-    }
-    return -1;
+    out_diagnostic->code = error::kInvalidArgument;
+    out_diagnostic->path = "/";
+    out_diagnostic->message = "Null out_plan pointer";
+    return error::kInvalidArgument;
   }
   *out_plan = nullptr;
 
@@ -110,22 +108,20 @@ int IoPlanResolver::ResolveFromPipelineJson(
   if (!PrepareDeploymentDocument(pipeline_json, options, &prepared,
                                  &prep_diag)) {
     if (out_error)
-      *out_error =
-          prep_diag.code + " at " + prep_diag.path + ": " + prep_diag.message;
-    if (out_diagnostic) *out_diagnostic = prep_diag;
-    return prep_diag.pipeline_diagnostic ? -3 : -2;
+      *out_error = std::string(ErrorCodeName(prep_diag.code)) + " at " +
+                   prep_diag.path + ": " + prep_diag.message;
+    *out_diagnostic = prep_diag;
+    return prep_diag.code;
   }
 
   output_pool_depth =
       output_pool_depth ? output_pool_depth : kDefaultOutputPoolDepth;
   if (output_pool_depth > kMaxOutputPoolDepth) {
     if (out_error) *out_error = "output_pool_depth exceeds hard limit";
-    if (out_diagnostic) {
-      out_diagnostic->code = "DEPLOYMENT_ERROR";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = "output_pool_depth exceeds hard limit";
-    }
-    return -2;
+    out_diagnostic->code = error::kInvalidOutputAllocation;
+    out_diagnostic->path = "/";
+    out_diagnostic->message = "output_pool_depth exceeds hard limit";
+    return out_diagnostic->code;
   }
 
   // 按本次有效深度检查句柄池总预算
@@ -140,23 +136,19 @@ int IoPlanResolver::ResolveFromPipelineJson(
                                        &budget_err)) {
       std::string msg = "Output pool budget calculation failed: " + budget_err;
       if (out_error) *out_error = msg;
-      if (out_diagnostic) {
-        out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path = "/io/output/" + std::to_string(index);
-        out_diagnostic->message = msg;
-      }
-      return -2;
+      out_diagnostic->code = error::kInvalidOutputAllocation;
+      out_diagnostic->path = "/io/output/" + std::to_string(index);
+      out_diagnostic->message = msg;
+      return out_diagnostic->code;
     }
     if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
                     &total_handle_pool_bytes)) {
       std::string msg = "Handle pool budget addition overflowed";
       if (out_error) *out_error = msg;
-      if (out_diagnostic) {
-        out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path = "/io/output";
-        out_diagnostic->message = msg;
-      }
-      return -2;
+      out_diagnostic->code = error::kInvalidOutputAllocation;
+      out_diagnostic->path = "/io/output";
+      out_diagnostic->message = msg;
+      return out_diagnostic->code;
     }
   }
   if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
@@ -165,12 +157,10 @@ int IoPlanResolver::ResolveFromPipelineJson(
                       " bytes) exceeds per-handle payload budget (" +
                       std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
     if (out_error) *out_error = msg;
-    if (out_diagnostic) {
-      out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-      out_diagnostic->path = "/io/output";
-      out_diagnostic->message = msg;
-    }
-    return -2;
+    out_diagnostic->code = error::kInvalidOutputAllocation;
+    out_diagnostic->path = "/io/output";
+    out_diagnostic->message = msg;
+    return out_diagnostic->code;
   }
 
   // Core 校验准备阶段解析得到的配置。
@@ -182,27 +172,23 @@ int IoPlanResolver::ResolveFromPipelineJson(
     if (!plan->report.diagnostics.empty()) {
       const auto& d = plan->report.diagnostics.front();
       std::string msg =
-          "Validation failed: " + std::string(DiagnosticCodeName(d.code)) +
-          " at " + d.path + ": " + d.message;
+          "Validation failed: " + std::string(ErrorCodeName(d.code)) + " at " +
+          d.path + ": " + d.message;
       if (out_error) *out_error = msg;
-      if (out_diagnostic) {
-        out_diagnostic->code = DiagnosticCodeName(d.code);
-        out_diagnostic->path = d.path;
-        out_diagnostic->message = d.message;
+      out_diagnostic->code = d.code;
+      out_diagnostic->path = d.path;
+      out_diagnostic->message = d.message;
 
-        out_diagnostic->pipeline_diagnostic =
-            PipelineDiagnostic{d.code, d.path, d.message};
-      }
+      out_diagnostic->pipeline_diagnostic =
+          PipelineDiagnostic{d.code, d.path, d.message};
     } else {
       std::string msg = "Validation failed without diagnostics";
       if (out_error) *out_error = msg;
-      if (out_diagnostic) {
-        out_diagnostic->code = "VALIDATION_FAILED";
-        out_diagnostic->path = "/";
-        out_diagnostic->message = msg;
-      }
+      out_diagnostic->code = error::kValidationFailed;
+      out_diagnostic->path = "/";
+      out_diagnostic->message = msg;
     }
-    return -3;
+    return out_diagnostic->code;
   }
 
   for (auto& selected : prepared.inputs) {
@@ -255,7 +241,7 @@ int IoPlanResolver::ResolveFromPipelineJson(
   io_plan->pipeline_plan = std::move(plan);
 
   *out_plan = std::move(io_plan);
-  return 0;
+  return error::kOk;
 }
 
 }  // namespace llm_edgeflow

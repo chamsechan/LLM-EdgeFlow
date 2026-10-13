@@ -10,9 +10,8 @@ namespace llm_edgeflow {
 
 namespace fs = std::filesystem;
 
-static void SetConfigDiag(DeploymentDiagnostic* out_diag,
-                          const std::string& code, const std::string& path,
-                          const std::string& message) {
+static void SetConfigDiag(DeploymentDiagnostic* out_diag, int code,
+                          const std::string& path, const std::string& message) {
   if (out_diag) {
     out_diag->code = code;
     out_diag->path = path;
@@ -30,7 +29,8 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
 
   if (config_path.empty()) {
     if (out_error) *out_error = "Empty config_path";
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/", "Empty config_path");
+    SetConfigDiag(out_diagnostic, error::kDeploymentError, "/",
+                  "Empty config_path");
     return false;
   }
 
@@ -38,7 +38,7 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
   if (!ifs.is_open()) {
     std::string msg = "Failed to open config file: " + config_path;
     if (out_error) *out_error = msg;
-    SetConfigDiag(out_diagnostic, "CONFIG_FILE_OPEN", "/", msg);
+    SetConfigDiag(out_diagnostic, error::kConfigFileOpen, "/", msg);
     return false;
   }
 
@@ -49,7 +49,7 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
     std::string msg =
         "JSON parse exception in " + config_path + ": " + e.what();
     if (out_error) *out_error = msg;
-    SetConfigDiag(out_diagnostic, "JSON_PARSE", "/", msg);
+    SetConfigDiag(out_diagnostic, error::kJsonParse, "/", msg);
     return false;
   }
 
@@ -84,14 +84,14 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
 
   if (!out_config) {
     if (out_error) *out_error = "Null out_config pointer";
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/",
+    SetConfigDiag(out_diagnostic, error::kInvalidArgument, "/",
                   "Null out_config pointer");
     return false;
   }
 
   if (!root.is_object()) {
     if (out_error) *out_error = "Root configuration must be a JSON object";
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/",
+    SetConfigDiag(out_diagnostic, error::kDeploymentError, "/",
                   "Root configuration must be a JSON object");
     return false;
   }
@@ -103,7 +103,8 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
       std::string msg = "Unknown field at /: '" + it.key() +
                         "' (only 'pipe_path' is allowed)";
       if (out_error) *out_error = msg;
-      SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/" + escaped_key, msg);
+      SetConfigDiag(out_diagnostic, error::kDeploymentError, "/" + escaped_key,
+                    msg);
       return false;
     }
   }
@@ -111,7 +112,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   if (!root.contains("pipe_path") || !root["pipe_path"].is_string() ||
       root["pipe_path"].get<std::string>().empty()) {
     if (out_error) *out_error = "Missing or empty 'pipe_path'";
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/pipe_path",
+    SetConfigDiag(out_diagnostic, error::kDeploymentError, "/pipe_path",
                   "Missing or empty 'pipe_path'");
     return false;
   }
@@ -133,7 +134,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     std::string msg =
         "pipe_path escapes config directory: " + out_config->pipe_path;
     if (out_error) *out_error = msg;
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/pipe_path", msg);
+    SetConfigDiag(out_diagnostic, error::kDeploymentError, "/pipe_path", msg);
     return false;
   }
 
@@ -141,7 +142,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     std::string msg =
         "Pipeline file does not exist: " + canonical_pipe.string();
     if (out_error) *out_error = msg;
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/pipe_path", msg);
+    SetConfigDiag(out_diagnostic, error::kDeploymentError, "/pipe_path", msg);
     return false;
   }
 
@@ -151,7 +152,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     std::string msg =
         "pipe_path escapes config directory: " + out_config->pipe_path;
     if (out_error) *out_error = msg;
-    SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/pipe_path", msg);
+    SetConfigDiag(out_diagnostic, error::kDeploymentError, "/pipe_path", msg);
     return false;
   }
 

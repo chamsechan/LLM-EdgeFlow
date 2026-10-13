@@ -98,7 +98,7 @@ std::optional<ParameterContext> FindParameterContext(
 }
 
 struct DiagnosticIdentity {
-  DiagnosticCode code;
+  int code;
   std::string node_name;
   std::string port;
   std::string subpath;
@@ -114,7 +114,7 @@ DiagnosticIdentity GetDiagnosticIdentity(const ValidationDiagnostic& d) {
   id.code = d.code;
   id.node_name = d.node_name;
   id.port = d.port;
-  if (d.code == DiagnosticCode::kDuplicateDependency) {
+  if (d.code == error::kDuplicateDependency) {
     if (!d.related_nodes.empty()) {
       id.subpath = "/depends_on/" + d.related_nodes.front();
     } else {
@@ -149,10 +149,10 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
   if (!diag || diag->remediation.has_value()) return;
   if (!root.is_object()) return;
 
-  if (diag->code == DiagnosticCode::kUnknownNodeType ||
-      diag->code == DiagnosticCode::kUnknownModelType ||
-      diag->code == DiagnosticCode::kUnknownBackend ||
-      diag->code == DiagnosticCode::kBackendProtocolMismatch) {
+  if (diag->code == error::kUnknownNodeType ||
+      diag->code == error::kUnknownModelType ||
+      diag->code == error::kUnknownBackend ||
+      diag->code == error::kBackendProtocolMismatch) {
     const nlohmann::json::json_pointer pointer(diag->path);
     if (!root.contains(pointer) || !root.at(pointer).is_string()) return;
     const auto item_path = diag->path.rfind("/models/", 0) == 0
@@ -164,7 +164,7 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
     std::vector<std::string> names;
     std::string candidates_key;
     std::string next_step;
-    if (diag->code == DiagnosticCode::kUnknownNodeType) {
+    if (diag->code == error::kUnknownNodeType) {
       rem.cause = RemediationCause::kUnknownNodeType;
       rem.facts["node_type"] = name;
       candidates_key = "candidate_node_types";
@@ -173,7 +173,7 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
     } else {
       const std::string model_name = item.value("name", "");
       rem.facts["model_name"] = model_name;
-      if (diag->code == DiagnosticCode::kUnknownModelType) {
+      if (diag->code == error::kUnknownModelType) {
         rem.cause = RemediationCause::kUnknownModelType;
         rem.facts["model_type"] = name;
         candidates_key = "candidate_model_types";
@@ -184,8 +184,7 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
         rem.facts["registered_model_types"] = names;
         rem.summary = "模型 '" + model_name + "' 的 type '" + name;
       } else {
-        const bool mismatch =
-            diag->code == DiagnosticCode::kBackendProtocolMismatch;
+        const bool mismatch = diag->code == error::kBackendProtocolMismatch;
         rem.cause = mismatch ? RemediationCause::kBackendProtocolMismatch
                              : RemediationCause::kUnknownBackend;
         rem.facts["model_type"] = item.value("type", "");
@@ -218,12 +217,11 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
     return;
   }
 
-  const bool config_diagnostic =
-      diag->code == DiagnosticCode::kUnknownConfigField ||
-      diag->code == DiagnosticCode::kMissingConfigField ||
-      diag->code == DiagnosticCode::kConfigFieldType ||
-      diag->code == DiagnosticCode::kConfigFieldRange ||
-      diag->code == DiagnosticCode::kConfigFieldEnum;
+  const bool config_diagnostic = diag->code == error::kUnknownConfigField ||
+                                 diag->code == error::kMissingConfigField ||
+                                 diag->code == error::kConfigFieldType ||
+                                 diag->code == error::kConfigFieldRange ||
+                                 diag->code == error::kConfigFieldEnum;
   if (config_diagnostic) {
     const auto context = FindParameterContext(root, diag->path, catalog);
     if (!context) return;
@@ -238,7 +236,7 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
     rem.summary = std::string(node_parameter ? "节点 '" : "模型 '") +
                   owner.value("name", "") + "' 的参数 '" +
                   relative.to_string().substr(1) + "' ";
-    if (diag->code == DiagnosticCode::kUnknownConfigField) {
+    if (diag->code == error::kUnknownConfigField) {
       rem.cause = RemediationCause::kUnknownConfigField;
       rem.summary += "未声明。";
       std::vector<std::string> names;
@@ -249,7 +247,7 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
       rem.facts["candidate_fields"] =
           RankByEditDistance(field_name, std::move(names));
     } else {
-      const bool missing = diag->code == DiagnosticCode::kMissingConfigField;
+      const bool missing = diag->code == error::kMissingConfigField;
       rem.cause = missing ? RemediationCause::kMissingConfigField
                           : RemediationCause::kInvalidConfigValue;
       rem.summary += missing ? "未提供。" : "值不合法。";
@@ -262,8 +260,8 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
     }
     diag->remediation = std::move(rem);
     return;
-  } else if (diag->code == DiagnosticCode::kUnknownModelReference ||
-             diag->code == DiagnosticCode::kModelTypeMismatch) {
+  } else if (diag->code == error::kUnknownModelReference ||
+             diag->code == error::kModelTypeMismatch) {
     const auto entry = FindDocumentEntry(root, diag->path, "/pipeline/");
     if (!entry) return;
     const auto* definition = catalog.FindNode(entry->value->value("type", ""));
@@ -278,7 +276,7 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
               ? root.at(pointer).get<std::string>()
               : "";
       ValidationRemediation rem;
-      rem.cause = diag->code == DiagnosticCode::kUnknownModelReference
+      rem.cause = diag->code == error::kUnknownModelReference
                       ? RemediationCause::kUnknownModelReference
                       : RemediationCause::kModelTypeMismatch;
       rem.facts["model_name"] = model_name;
@@ -299,11 +297,11 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
       diag->remediation = std::move(rem);
       break;
     }
-  } else if (diag->code == DiagnosticCode::kMissingInputProducer ||
-             diag->code == DiagnosticCode::kMissingOutputProducer ||
-             diag->code == DiagnosticCode::kUnknownNodeReference ||
-             diag->code == DiagnosticCode::kUnknownPortReference ||
-             diag->code == DiagnosticCode::kPortTypeMismatch) {
+  } else if (diag->code == error::kMissingInputProducer ||
+             diag->code == error::kMissingOutputProducer ||
+             diag->code == error::kUnknownNodeReference ||
+             diag->code == error::kUnknownPortReference ||
+             diag->code == error::kPortTypeMismatch) {
     std::string bound_key;
     std::string expected_type;
     const nlohmann::json::json_pointer pointer(diag->path);
@@ -342,18 +340,18 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
     rem.summary = diag->message;
     const auto dot = bound_key.find('.');
     const auto producer_name = bound_key.substr(0, dot);
-    if (diag->code == DiagnosticCode::kUnknownNodeReference) {
+    if (diag->code == error::kUnknownNodeReference) {
       rem.cause = RemediationCause::kUnknownNodeReference;
       rem.facts["producer_name"] = producer_name;
       rem.facts["candidate_node_names"] = diag->suggestions;
-    } else if (diag->code == DiagnosticCode::kUnknownPortReference) {
+    } else if (diag->code == error::kUnknownPortReference) {
       rem.cause = RemediationCause::kUnknownPortReference;
       rem.facts["producer_name"] = producer_name;
       rem.facts["candidate_ports"] = diag->suggestions;
     } else {
-      rem.cause = diag->code == DiagnosticCode::kPortTypeMismatch
+      rem.cause = diag->code == error::kPortTypeMismatch
                       ? RemediationCause::kPortTypeMismatch
-                  : diag->code == DiagnosticCode::kMissingOutputProducer
+                  : diag->code == error::kMissingOutputProducer
                       ? RemediationCause::kMissingOutputProducer
                       : RemediationCause::kNoCompatibleInputSource;
       std::vector<std::string> candidates;
@@ -384,11 +382,11 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
       rem.facts["candidate_sources"] = std::move(candidates);
     }
     diag->remediation = std::move(rem);
-  } else if (diag->code == DiagnosticCode::kDuplicateDependency ||
-             diag->code == DiagnosticCode::kInvalidDependency) {
+  } else if (diag->code == error::kDuplicateDependency ||
+             diag->code == error::kInvalidDependency) {
     if (diag->related_nodes.empty()) return;
     const auto& dependency = diag->related_nodes.front();
-    const bool duplicate = diag->code == DiagnosticCode::kDuplicateDependency;
+    const bool duplicate = diag->code == error::kDuplicateDependency;
     ValidationRemediation rem;
     rem.cause = duplicate ? RemediationCause::kDuplicateDependency
                           : RemediationCause::kUnknownDependency;
@@ -406,9 +404,9 @@ void PopulateBasicRemediation(ToolValidationDiagnostic* diag,
           RankByEditDistance(dependency, std::move(names));
     }
     diag->remediation = std::move(rem);
-  } else if (diag->code == DiagnosticCode::kPortCardinalityMismatch ||
-             diag->code == DiagnosticCode::kPortProvenanceMismatch ||
-             diag->code == DiagnosticCode::kPortLifetimeMismatch) {
+  } else if (diag->code == error::kPortCardinalityMismatch ||
+             diag->code == error::kPortProvenanceMismatch ||
+             diag->code == error::kPortLifetimeMismatch) {
     // 方向、有效契约和传递形状由 Validator 负责。
     // 路径可指向 Node 输入、其输出或 IO 边界。
     if (diag->facts.empty()) return;

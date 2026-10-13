@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"
 
@@ -111,7 +112,8 @@ TEST(OnnxRuntimeBackendTest, RunRejectsGraphInputMismatchAndClearsPriorOutput) {
   const auto check = [&](TensorMap inputs, const std::string& expected) {
     TensorMap outputs{{"previous", Ints({1}, {8})}};
     diagnostic.clear();
-    EXPECT_EQ(session->Run(inputs, &outputs, &diagnostic), -1);
+    EXPECT_EQ(session->Run(inputs, &outputs, &diagnostic),
+              error::kInvalidInput);
     EXPECT_TRUE(outputs.empty());
     EXPECT_NE(diagnostic.find(expected), std::string::npos) << diagnostic;
   };
@@ -134,7 +136,8 @@ TEST(OnnxRuntimeBackendTest, RunRejectsGraphInputMismatchAndClearsPriorOutput) {
   auto incompatible_sequence = RerankInputs();
   incompatible_sequence["attention_mask"] = Ints({2, 2}, {1, 1, 1, 1});
   check(std::move(incompatible_sequence), "static dimension 1 mismatch");
-  EXPECT_EQ(session->Run(RerankInputs(), nullptr, &diagnostic), -1);
+  EXPECT_EQ(session->Run(RerankInputs(), nullptr, &diagnostic),
+            error::kInvalidArgument);
   EXPECT_NE(diagnostic.find("pointer is null"), std::string::npos);
   TensorMap recovered;
   EXPECT_EQ(session->Run(RerankInputs(), &recovered, &diagnostic), 0)

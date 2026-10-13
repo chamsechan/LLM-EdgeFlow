@@ -36,6 +36,11 @@ def owner(path):
 
 def forbidden(source, target):
     src, dst = owner(source), owner(target)
+    if target == "include/platform_mock/error_codes.h" and source not in {
+        "src/adapter/operator/mock/operator_adapter.cpp",
+        "src/adapter/operator/mock/operator_error_mapping.cpp",
+    }:
+        return True
     if source.startswith(("src/adapter/input/", "src/adapter/output/")) and target in {
         "include/adapter/operator/mock/platform_value_binding.h",
         "include/platform_mock/operator_data_types.h",

@@ -210,7 +210,7 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
   // TODO: 实现声明的转换和来源策略。
   // 不要把默认 payload 当作成功的业务结果发布。
   return NodeResult<{out_type}>::Failure(
-      "domain transformation is not implemented", -8102);'''
+      "domain transformation is not implemented", error::kBusinessError);'''
     return f'''#include "nodes/authoring.h"
 
 namespace llm_edgeflow {{
@@ -303,7 +303,7 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
 {language}  int {method}(const {model_input}& inputs{options}, {model_output}* outputs,
                std::string*) noexcept override {{
     ++calls;
-    if (!outputs || inputs.size() != 1) return -1;
+    if (!outputs || inputs.size() != 1) return error::kInvalidArgument;
     req_id = inputs.front().req_id;
     sub_id = inputs.front().sub_id;
     try {{
@@ -312,7 +312,7 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
       return 0;
     }} catch (...) {{
       outputs->clear();
-      return -1;
+      return error::kInferenceFailed;
     }}
   }}
   int calls = 0;
@@ -340,7 +340,7 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
   {payload_checks}
 '''
     else:
-        execution = '''  EXPECT_EQ(probe.node->Process(&context), -8102);
+        execution = '''  EXPECT_EQ(probe.node->Process(&context), error::kBusinessError);
   EXPECT_FALSE(context.Has("result"));
 '''
     if kind == "model":

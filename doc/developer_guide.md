@@ -218,7 +218,8 @@ Catalog 中非必填且无默认值。BGE 的维度和编码长度通过
 逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
 `TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，
 任一项失败或抛异常就清空整批输出。回调可捕获本次调用的 options 和 diagnostic，不能保存请求引用。
-默认异常码为 `-4`；已有模型可指定其原异常码，例如 Qwen 使用 `-1`。
+标准异常和未知异常分别返回框架 `INTERNAL_EXCEPTION`、`UNKNOWN_EXCEPTION`；不再接受模型自定义异常码。
+主动失败保留框架原因码，详见[错误码与日志](dev_guide/error_handling.md)。
 模型仍负责资源准备、协议检查、输入输出语义与必要的整批预检，例如 Whisper 在首次推理前检查全部音频。
 固定 Tensor 路径继续使用 `FixedBatchExecutor::Execute` 显式准备补齐批次；`ExecuteItems` 拒绝固定批策略。
 参考 Qwen 的 `GenerateOne` 和 VisionDocument 的逐项回调，无需为普通循环新增模型基类。

@@ -5,6 +5,7 @@
 #include <tuple>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/fixed_batch_executor.h"
 #include "tests/support/scoped_allocation_failure.h"
 
@@ -55,12 +56,12 @@ TEST(FixedBatchExecutorTest, ValidatesPolicyBeforeCallingBackend) {
   std::string diagnostic;
   EXPECT_EQ((FixedBatchExecutor::Execute<int, int>(kInputs, {3, 0}, run,
                                                    nullptr, &diagnostic)),
-            -1);
+            error::kInvalidArgument);
   for (const BatchPolicy policy : {BatchPolicy{0, 0}, BatchPolicy{3, 2}}) {
     Items outputs{{0, 0, -1}};
     EXPECT_EQ((FixedBatchExecutor::Execute<int, int>(kInputs, policy, run,
                                                      &outputs, &diagnostic)),
-              -2);
+              error::kInvalidBatchPolicy);
     EXPECT_TRUE(outputs.empty());
     EXPECT_FALSE(diagnostic.empty());
   }
@@ -74,10 +75,17 @@ TEST(FixedBatchExecutorTest, ValidatesPolicyBeforeCallingBackend) {
 }
 
 TEST(FixedBatchExecutorTest, AnyLaterFailureRollsBackTheSuccessfulPrefix) {
-  enum class Failure { kCount, kCode, kDetail, kStandard, kUnknown };
+  enum class Failure {
+    kCount,
+    kCode,
+    kDetail,
+    kStaleDetail,
+    kStandard,
+    kUnknown
+  };
   for (const Failure failure :
-       {Failure::kCount, Failure::kCode, Failure::kDetail, Failure::kStandard,
-        Failure::kUnknown}) {
+       {Failure::kCount, Failure::kCode, Failure::kDetail,
+        Failure::kStaleDetail, Failure::kStandard, Failure::kUnknown}) {
     SCOPED_TRACE(static_cast<int>(failure));
     Items outputs;
     std::string diagnostic;
@@ -88,6 +96,8 @@ TEST(FixedBatchExecutorTest, AnyLaterFailureRollsBackTheSuccessfulPrefix) {
           ++calls;
           if (slice.offset == 0) {
             *batch = {1, 2, 3};
+            if (failure == Failure::kStaleDetail)
+              diagnostic = "previous slice detail";
             return 0;
           }
           switch (failure) {
@@ -99,6 +109,8 @@ TEST(FixedBatchExecutorTest, AnyLaterFailureRollsBackTheSuccessfulPrefix) {
             case Failure::kDetail:
               diagnostic = "device refused row";
               return -37;
+            case Failure::kStaleDetail:
+              return error::kInferenceFailed;
             case Failure::kStandard:
               throw std::runtime_error("backend exception");
             case Failure::kUnknown:
@@ -107,17 +119,19 @@ TEST(FixedBatchExecutorTest, AnyLaterFailureRollsBackTheSuccessfulPrefix) {
           return 0;
         },
         &outputs, &diagnostic);
-    EXPECT_EQ(code, failure == Failure::kCount ? -3
+    EXPECT_EQ(code, failure == Failure::kCount ? error::kOutputCountMismatch
                     : failure == Failure::kCode || failure == Failure::kDetail
                         ? -37
-                        : -4);
+                    : failure == Failure::kStaleDetail ? error::kInferenceFailed
+                    : failure == Failure::kStandard ? error::kInternalException
+                                                    : error::kUnknownException);
     EXPECT_EQ(calls, 2);
     EXPECT_TRUE(outputs.empty());
     EXPECT_FALSE(diagnostic.empty());
     if (failure == Failure::kDetail) {
       EXPECT_EQ(diagnostic, "device refused row");
     }
-    if (failure == Failure::kCode) {
+    if (failure == Failure::kCode || failure == Failure::kStaleDetail) {
       EXPECT_EQ(diagnostic, "Batch execution failed");
     }
     if (failure == Failure::kStandard) {
@@ -126,7 +140,7 @@ TEST(FixedBatchExecutorTest, AnyLaterFailureRollsBackTheSuccessfulPrefix) {
   }
 }
 
-TEST(FixedBatchExecutorTest, ItemAdapterPreservesValuesAndCustomExceptionCode) {
+TEST(FixedBatchExecutorTest, ItemAdapterPreservesValuesAndMapsExceptions) {
   Items outputs;
   std::vector<std::tuple<uint32_t, uint32_t, int>> observed;
   const auto run = [&](const TraceableItem<int>& item, int* output) {
@@ -146,7 +160,7 @@ TEST(FixedBatchExecutorTest, ItemAdapterPreservesValuesAndCustomExceptionCode) {
   observed.clear();
   EXPECT_EQ((FixedBatchExecutor::ExecuteItems<int, int>(kInputs, {3, 3}, run,
                                                         &outputs)),
-            -2);
+            error::kInvalidBatchPolicy);
   EXPECT_TRUE(outputs.empty());
   EXPECT_TRUE(observed.empty());
   std::string diagnostic;
@@ -157,8 +171,8 @@ TEST(FixedBatchExecutorTest, ItemAdapterPreservesValuesAndCustomExceptionCode) {
         *output = item.data;
         return 0;
       },
-      &outputs, &diagnostic, -71);
-  EXPECT_EQ(code, -71);
+      &outputs, &diagnostic);
+  EXPECT_EQ(code, error::kInternalException);
   EXPECT_EQ(diagnostic, "item failure");
   EXPECT_TRUE(outputs.empty());
 }
@@ -176,7 +190,7 @@ TEST(FixedBatchExecutorTest, DynamicTailRejectsExtraResultsAndRollsBackPrefix) {
         return 0;
       },
       &outputs, &diagnostic);
-  EXPECT_EQ(code, -3);
+  EXPECT_EQ(code, error::kOutputCountMismatch);
   EXPECT_EQ(calls, 2);
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(diagnostic, "Batch output count mismatch");
@@ -199,7 +213,7 @@ TEST(FixedBatchExecutorTest, OutputAllocationFailureIsContained) {
     injected = fault.Triggered();
   }
   EXPECT_TRUE(injected);
-  EXPECT_EQ(code, -5);
+  EXPECT_EQ(code, error::kInternalException);
   EXPECT_EQ(calls, 0);
   EXPECT_TRUE(outputs.empty());
   EXPECT_FALSE(diagnostic.empty());

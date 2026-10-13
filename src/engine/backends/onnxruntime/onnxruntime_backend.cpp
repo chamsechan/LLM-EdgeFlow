@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 
@@ -416,14 +417,14 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
     try {
       if (!outputs) {
         SetDiagnosticNoexcept(diagnostic, "Output TensorMap pointer is null");
-        return -1;
+        return error::kInvalidArgument;
       }
       outputs->clear();
 
       if (!session_) {
         SetDiagnosticNoexcept(diagnostic,
                               "ONNX Runtime session is not initialized");
-        return -1;
+        return error::kInvalidState;
       }
 
       Ort::MemoryInfo mem_info =
@@ -442,14 +443,14 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
             *diagnostic = "Missing required input tensor: " + spec.name;
           }
           outputs->clear();
-          return -1;
+          return error::kInvalidInput;
         }
 
         const Tensor& tensor = it->second;
         if (!onnxruntime_detail::ValidateInputTensor(tensor, spec, policy_,
                                                      diagnostic)) {
           outputs->clear();
-          return -1;
+          return error::kInvalidInput;
         }
         const size_t input_batch =
             static_cast<size_t>(tensor.desc.shape.front());
@@ -460,7 +461,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
             *diagnostic = "Input tensor batch dimensions are inconsistent";
           }
           outputs->clear();
-          return -1;
+          return error::kInvalidInput;
         }
 
         ONNXTensorElementDataType onnx_type =
@@ -490,7 +491,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
           *diagnostic = "ONNX Runtime returned unexpected output count";
         }
         outputs->clear();
-        return -1;
+        return error::kOutputCountMismatch;
       }
 
       for (size_t i = 0; i < outputs_.size(); ++i) {
@@ -502,7 +503,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
             *diagnostic = "Output is not a tensor: " + spec.name;
           }
           outputs->clear();
-          return -1;
+          return error::kInvalidOutput;
         }
 
         auto type_info = ort_out.GetTensorTypeAndShapeInfo();
@@ -513,7 +514,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
                 "Output tensor has unsupported element type for: " + spec.name;
           }
           outputs->clear();
-          return -1;
+          return error::kInvalidOutput;
         }
 
         auto shape = type_info.GetShape();
@@ -521,7 +522,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
                 *elem_type_opt, shape, type_info.GetElementCount(), spec,
                 expected_batch, diagnostic)) {
           outputs->clear();
-          return -1;
+          return error::kInvalidOutput;
         }
 
         TensorDesc out_desc;
@@ -531,7 +532,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
         Tensor host_tensor;
         if (!CreateHostTensor(out_desc, &host_tensor, diagnostic)) {
           outputs->clear();
-          return -1;
+          return error::kAllocationFailed;
         }
 
         const void* src_data = ort_out.GetTensorData<void>();
@@ -541,7 +542,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
             *diagnostic = "Output tensor data is null for: " + spec.name;
           }
           outputs->clear();
-          return -1;
+          return error::kInvalidOutput;
         }
         if (host_tensor.buffer->ByteSize() > 0) {
           std::memcpy(host_tensor.buffer->MutableData(), src_data,
@@ -555,16 +556,16 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
     } catch (const Ort::Exception& e) {
       SetDiagnosticNoexcept(diagnostic, e.what());
       if (outputs) outputs->clear();
-      return -1;
+      return error::kInferenceFailed;
     } catch (const std::exception& e) {
       SetDiagnosticNoexcept(diagnostic, e.what());
       if (outputs) outputs->clear();
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       SetDiagnosticNoexcept(diagnostic,
                             "Unknown error during ONNX Runtime execution");
       if (outputs) outputs->clear();
-      return -1;
+      return error::kUnknownException;
     }
   }
 

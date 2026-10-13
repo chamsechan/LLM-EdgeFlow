@@ -2,6 +2,7 @@
 
 #include <limits>
 
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "tests/support/node_probe.h"
@@ -104,7 +105,7 @@ TEST(VectorTopKNodeTest,
   ASSERT_TRUE(invalid.Publish("query", EmbeddingBatch{{12, 4, {1, 0}}}));
   ASSERT_TRUE(invalid.Publish("vectors", EmbeddingBatch{{12, 0, {1, 0}}}));
   ASSERT_TRUE(invalid.Publish("texts", TextBatch{{12, 0, "not shared"}}));
-  EXPECT_NE(node.node->Process(&invalid), 0);
+  EXPECT_EQ(node.node->Process(&invalid), error::kInvalidInput);
   EXPECT_FALSE(invalid.Has("result"));
 }
 
@@ -148,7 +149,7 @@ TEST(VectorTopKNodeTest,
     ASSERT_TRUE(context.Publish("query", example.queries));
     ASSERT_TRUE(context.Publish("vectors", example.candidates));
     ASSERT_TRUE(context.Publish("texts", example.texts));
-    EXPECT_NE(node.node->Process(&context), 0);
+    EXPECT_EQ(node.node->Process(&context), error::kInvalidInput);
     EXPECT_FALSE(context.Has("result"));
   }
 }

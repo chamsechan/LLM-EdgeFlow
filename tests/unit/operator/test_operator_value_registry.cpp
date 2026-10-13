@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "adapter/operator/operator_output_pool.h"
+#include "contracts/error_codes.h"
 #include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
@@ -99,12 +100,12 @@ TEST(
   EXPECT_EQ(registry.GetBindingBySuffix("registry_input")->external_c_type_name,
             "CompanyString");
   EXPECT_EQ(registry.GetBindingBySuffix("invalid_root"), nullptr);
-  EXPECT_EQ(registry.GlobalInit(), -6);
+  EXPECT_EQ(registry.GlobalInit(), error::kRegistryConflict);
   OperatorValueTypeRegistry incomplete;
   auto output = NativeOutput();
   output.allocate_external = {};
   ASSERT_TRUE(incomplete.RegisterBinding(output));
-  EXPECT_EQ(incomplete.GlobalInit(), -6);
+  EXPECT_EQ(incomplete.GlobalInit(), error::kRegistryConflict);
   EXPECT_TRUE(incomplete.HasConflict());
 }
 
@@ -188,7 +189,7 @@ TEST(OperatorValueRegistryTest,
     std::shared_ptr<OutputPoolState> pool;
     EXPECT_EQ(OutputPoolState::Create(binding.canonical_suffix, 2, invalid[i],
                                       &binding, &pool, &error),
-              -2);
+              error::kInvalidOutputAllocation);
     EXPECT_EQ(pool, nullptr);
   }
 }
@@ -225,7 +226,7 @@ TEST(
     std::shared_ptr<OutputPoolState> pool;
     EXPECT_EQ(OutputPoolState::Create(invalid.canonical_suffix, 2, spec,
                                       &invalid, &pool, &error),
-              -2);
+              error::kInvalidOutputAllocation);
     EXPECT_EQ(pool, nullptr);
     EXPECT_NE(error.find(expected), std::string::npos) << error;
   };

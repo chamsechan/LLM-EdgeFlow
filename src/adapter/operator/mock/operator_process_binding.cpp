@@ -3,6 +3,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/error_codes.h"
+
 namespace llm_edgeflow {
 namespace {
 using NamedIo = llm_edgeflow::operator_api::NamedIo;
@@ -47,7 +49,7 @@ int ValidateAndExtractOperatorInputs(
     std::vector<ExternalInputBatchView>* out_views, std::string* error) {
   if (!out_views) {
     if (error) *error = "Null input extraction destination";
-    return -3;
+    return error::kInvalidInput;
   }
   out_views->clear();
   out_views->resize(selected.size());
@@ -67,20 +69,20 @@ int ValidateAndExtractOperatorInputs(
       std::string key;
       if (!FindSlotKey(inputs[frame], def.type, def.name,
                        RepeatedType(selected, def.type), frame, &key, error))
-        return -3;
+        return error::kInvalidInput;
       if (key.empty()) {
         if (def.slot.required) {
           if (error)
             *error = "Missing required input " + def.Label() + " in frame " +
                      std::to_string(frame);
-          return -3;
+          return error::kInvalidInput;
         }
         continue;
       }
       const auto& payload = inputs[frame].at(key);
       if (!payload) {
         if (error) *error = "Null input shared_ptr for key: " + key;
-        return -3;
+        return error::kInvalidInput;
       }
       std::string validation_error;
       const int result =
@@ -97,7 +99,7 @@ int ValidateAndExtractOperatorInputs(
                    std::to_string(frame) + " has service_type " +
                    std::to_string(binding->read_service_type(payload.get())) +
                    "; expected " + std::to_string(*service);
-        return -3;
+        return error::kInvalidInput;
       }
       recognized[frame].insert(key);
       payloads[frame] = payload;
@@ -108,7 +110,7 @@ int ValidateAndExtractOperatorInputs(
       if (error)
         *error = "Unknown extra input keys present in frame " +
                  std::to_string(frame);
-      return -3;
+      return error::kInvalidInput;
     }
   }
   return 0;
@@ -121,7 +123,7 @@ int ResolveOperatorOutputs(
     std::string* error) {
   if (!frame_bindings) {
     if (error) *error = "Null frame_bindings pointer";
-    return -4;
+    return error::kInvalidOutput;
   }
   frame_bindings->clear();
   frame_bindings->resize(outputs.size());
@@ -132,13 +134,13 @@ int ResolveOperatorOutputs(
       std::string key;
       if (!FindSlotKey(outputs[frame], def.type, def.name,
                        RepeatedType(selected, def.type), frame, &key, error))
-        return -4;
+        return error::kInvalidOutput;
       if (key.empty()) {
         if (def.slot.required) {
           if (error)
             *error = "Missing required output " + def.Label() + " in frame " +
                      std::to_string(frame);
-          return -4;
+          return error::kInvalidOutput;
         }
         continue;
       }
@@ -146,7 +148,7 @@ int ResolveOperatorOutputs(
         if (error)
           *error = "Output shared_ptr must be null for key " + key +
                    " in frame " + std::to_string(frame);
-        return -4;
+        return error::kInvalidOutput;
       }
       recognized.insert(key);
       (*frame_bindings)[frame].push_back({key, index});
@@ -155,7 +157,7 @@ int ResolveOperatorOutputs(
       if (error)
         *error = "Unknown extra output keys present in frame " +
                  std::to_string(frame);
-      return -4;
+      return error::kInvalidOutput;
     }
   }
   return 0;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "contracts/parameters.h"
 #include "contracts/traceable_item.h"
@@ -8,7 +9,6 @@
 #include "nodes/function_node.h"
 #include "nodes/generate_parameters.h"
 #include "nodes/model_calls.h"
-#include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 #include "nodes/traceable_algorithms.h"
 #include "nodes/traceable_batch_operations.h"

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "adapter/operator/operator_output_pool.h"
+#include "contracts/error_codes.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
@@ -194,7 +195,7 @@ TEST_F(OperatorOutputPoolTest,
   std::string diagnostic;
   EXPECT_EQ(OutputPoolState::Create("pool_contract", 3, spec, &binding, &pool,
                                     &diagnostic),
-            -4);
+            error::kAllocationFailed);
   EXPECT_TRUE(injected);
   EXPECT_EQ(pool, nullptr);
   EXPECT_FALSE(diagnostic.empty());
@@ -267,7 +268,7 @@ TEST_F(OperatorOutputPoolTest, CloseWakesBlockedAcquireWithClosedCode) {
   ASSERT_TRUE(ready);
   const auto acquired = result.get();
   EXPECT_EQ(outstanding, 1U);
-  EXPECT_EQ(acquired.code, -9);
+  EXPECT_EQ(acquired.code, error::kPoolClosed);
   EXPECT_EQ(acquired.block, nullptr);
   pool->DestroyBlocks();
   EXPECT_EQ(trace->roots_destroyed, 1);
@@ -355,7 +356,7 @@ TEST_F(OperatorOutputPoolTest,
   ASSERT_EQ(pool->Acquire(&outstanding), 0);
   EXPECT_EQ(pool->CloseAndDrain(), 1U);
   void* refused = outstanding;
-  EXPECT_EQ(pool->Acquire(&refused), -9);
+  EXPECT_EQ(pool->Acquire(&refused), error::kPoolClosed);
   EXPECT_EQ(refused, nullptr);
   pool->ReturnBlock(outstanding);
   EXPECT_EQ(trace->resets, 0);

@@ -3,8 +3,8 @@
 #include <string>
 #include <utility>
 
+#include "contracts/error_codes.h"
 #include "nodes/authoring.h"
-#include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -56,7 +56,7 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
   if (!cached.value()) {
     return NodeResult<EmbeddingBatch>::Failure(
         "text_embedding: single-flight inference failed",
-        node_error::text_embedding::kSessionInferenceFailed);
+        error::kInferenceFailed);
   }
   // 模型 facade 已校验缓存结果；PreservedOutput 在为本请求发布前
   // 会再次检查返回的副本。

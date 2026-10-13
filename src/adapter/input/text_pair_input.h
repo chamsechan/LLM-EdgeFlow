@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "adapter/converter_authoring.h"
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 
 namespace llm_edgeflow {
@@ -18,7 +19,7 @@ int DecodeTextPair(const ExternalInputBatchView& source,
                    const BlackboardKey<TextBatch>& second_key,
                    std::string Value::*second) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   TextBatch first_texts;
@@ -28,7 +29,7 @@ int DecodeTextPair(const ExternalInputBatchView& source,
 
   for (size_t i = 0; i < source.count; ++i) {
     auto input = ReadInputSlot<Value>(source, slot, i, options, status);
-    if (!input) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (!input) return error::kInvalidInput;
 
     std::string first_text = (*input).*first;
     std::string second_text = (*input).*second;
@@ -44,10 +45,10 @@ int DecodeTextPair(const ExternalInputBatchView& source,
       !AdapterValidationHelper::PublishContextValue(
           *context, options.Port(second_key.name), std::move(second_texts),
           options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 }  // namespace llm_edgeflow

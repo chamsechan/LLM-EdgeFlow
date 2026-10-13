@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "contracts/control_payload.h"
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
 
@@ -15,12 +16,12 @@ int OperatorControlRegistry::ResolveControlParam(
   try {
     if (!out_cmd_id || !out_json_str) {
       if (error_msg) *error_msg = "Null output pointer for control resolution";
-      return -2;
+      return error::kInvalidArgument;
     }
 
     if (!control_param) {
       if (error_msg) *error_msg = "Null control_param pointer";
-      return -2;
+      return error::kInvalidArgument;
     }
 
     constexpr size_t kMaxStringLength = 65536;
@@ -39,7 +40,7 @@ int OperatorControlRegistry::ResolveControlParam(
           if (cmd <= 0) {
             if (error_msg)
               *error_msg = "ControlJsonParam::cmd_id must be positive";
-            return -2;
+            return error::kInvalidArgument;
           }
         } else {
           payload =
@@ -52,7 +53,7 @@ int OperatorControlRegistry::ResolveControlParam(
           if (error_msg) {
             *error_msg = "Control JSON payload is null";
           }
-          return -2;
+          return error::kInvalidArgument;
         }
         size_t len = strnlen(payload, kMaxStringLength);
         if (len == 0 || len >= kMaxStringLength) {
@@ -61,12 +62,12 @@ int OperatorControlRegistry::ResolveControlParam(
                 "Control JSON payload length invalid (empty "
                 "or exceeds 64KB)";
           }
-          return -2;
+          return error::kInvalidArgument;
         }
         nlohmann::json parsed;
         if (!ParseControlPayload(std::string(payload, len),
                                  {{"type", "object"}}, &parsed, error_msg))
-          return -2;
+          return error::kInvalidArgument;
         *out_cmd_id = cmd;
         *out_json_str = parsed.dump();
         return 0;
@@ -81,7 +82,7 @@ int OperatorControlRegistry::ResolveControlParam(
             *error_msg =
                 "ControlSwitchPromptParam::prompt_template_str is null";
           }
-          return -2;
+          return error::kInvalidArgument;
         }
         size_t len = strnlen(param->prompt_template_str, kMaxStringLength);
         if (len == 0 || len >= kMaxStringLength) {
@@ -90,7 +91,7 @@ int OperatorControlRegistry::ResolveControlParam(
                 "ControlSwitchPromptParam::prompt_template_str length invalid "
                 "(empty or exceeds 64KB)";
           }
-          return -2;
+          return error::kInvalidArgument;
         }
         nlohmann::json j;
         j["template"] = param->prompt_template_str;
@@ -104,15 +105,15 @@ int OperatorControlRegistry::ResolveControlParam(
           *error_msg = "Unsupported or unknown ControlCommand: " +
                        std::to_string(static_cast<int>(command));
         }
-        return -2;
+        return error::kInvalidArgument;
       }
     }
   } catch (const std::exception& e) {
     if (error_msg) *error_msg = std::string("Exception: ") + e.what();
-    return -99;
+    return error::kInternalException;
   } catch (...) {
     if (error_msg) *error_msg = "Unknown exception in ResolveControlParam";
-    return -100;
+    return error::kUnknownException;
   }
 }
 

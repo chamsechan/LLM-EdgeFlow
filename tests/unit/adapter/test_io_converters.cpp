@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "adapter/io_values.h"
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 #include "tests/support/converter_probe.h"
 
@@ -130,7 +131,7 @@ TEST(IoConverterTest, AudioRejectsRatesOutsideConverterRange) {
     AdapterStatus status;
     EXPECT_EQ(DecodeConverter<AudioInputValue>("audio_in", "audio_asr_intent",
                                                {row}, &context, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(status.FieldPath(), "audio_in.sample_rate");
     EXPECT_EQ(status.Message(), "sample_rate out of range");
     EXPECT_FALSE(context.Has("decoded.audio"));
@@ -180,7 +181,7 @@ TEST(IoConverterTest, RerankRequiresCandidateListAndBoundsEachPassage) {
     AdapterStatus status;
     EXPECT_EQ(DecodeConverter<RerankInputValue>("rerank_in", "cross_rerank",
                                                 {row}, &context, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(status.FieldPath(), "rerank_in.candidate_passages");
     EXPECT_EQ(status.Message(),
               candidates.empty() ? "At least one candidate passage is required"
@@ -211,7 +212,7 @@ TEST(IoConverterTest, DocumentAnswerUsesIntentStatusAndChunkCount) {
   ASSERT_TRUE(
       missing_count.Publish("result.intent", RuleMatchBatch{{0, 0, intent}}));
   EXPECT_EQ(EncodeJsonConverter("doc_qa", &missing_count, &rows, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+            error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "chunk_count");
 }
 
@@ -242,7 +243,7 @@ TEST(IoConverterTest, AudioResponseNestsIntentWithoutKeywordIsHitField) {
                                      TextBatch{{0, 0, "text"}}));
   EXPECT_EQ(
       EncodeJsonConverter("audio_asr_intent", &missing_intent, &rows, &status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+      error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "intent_slot");
 }
 
@@ -269,7 +270,7 @@ TEST(IoConverterTest, InvoiceResponseNestsParsedResultAndCountsDetectedBoxes) {
       "result.result", StructuredDocumentBatch{{0, 0, invoice}}));
   EXPECT_EQ(
       EncodeJsonConverter("ocr_invoice_qa", &missing_document, &rows, &status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+      error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "document");
 }
 
@@ -284,7 +285,7 @@ TEST(IoConverterTest, InvoiceRejectsFallbackEvenWithValidJson) {
   std::vector<JsonOutputValue> rows(1);
   AdapterStatus status;
   EXPECT_EQ(EncodeJsonConverter("ocr_invoice_qa", &context, &rows, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+            error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "invoice_jsons");
   EXPECT_EQ(status.Message(), "Structured result failed or used fallback");
 }
@@ -315,7 +316,7 @@ TEST(IoConverterTest, AuditResponseUsesStructuredRiskAndOriginalVerdictJson) {
                                      StructuredDocumentBatch{{0, 0, verdict}}));
   EXPECT_EQ(
       EncodeJsonConverter("dialogue_audit", &missing_policy, &rows, &status),
-      COMPANY_ALG_ERR_INVALID_INPUT);
+      error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "matched_policy");
 }
 
@@ -362,7 +363,7 @@ TEST(IoConverterTest, AuditRejectsInvalidRiskSchemaRangeAndPolicyRank) {
     std::vector<JsonOutputValue> rows(1);
     AdapterStatus status;
     EXPECT_EQ(EncodeJsonConverter("dialogue_audit", &context, &rows, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(status.FieldPath(), "structured_verdicts");
     EXPECT_NE(status.Message().find(test.detail), std::string::npos);
   }
@@ -398,7 +399,7 @@ TEST(IoConverterTest, RerankRequiresRanksStartingAtOneWithoutGapsOrDuplicates) {
     std::vector<JsonOutputValue> rows(1);
     AdapterStatus status;
     EXPECT_EQ(EncodeJsonConverter("cross_rerank", &context, &rows, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(status.FieldPath(), "ranked_results");
     EXPECT_EQ(status.Message(), "Invalid ranked result");
   }

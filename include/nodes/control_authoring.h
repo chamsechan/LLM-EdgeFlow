@@ -11,11 +11,11 @@
 #include <vector>
 
 #include "contracts/control_payload.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "nodes/configuration_snapshot.h"
-#include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 
 namespace llm_edgeflow {
@@ -79,8 +79,7 @@ class FieldControlCommand {
       auto cmd_def = ToCommandDefinition(params);
       if (!ParseControlPayload(json_param, cmd_def.payload_schema, &payload,
                                &err)) {
-        return NodeControlResult::Failed(node_error::control::kInvalidRequest,
-                                         err);
+        return NodeControlResult::Failed(error::kInvalidArgument, err);
       }
       return snapshot.Update(
           [&](const ParamsT& current) -> NodeResult<ParamsT> {
@@ -90,8 +89,8 @@ class FieldControlCommand {
               std::string assign_err;
               if (!params.AssignField(field_name, payload[field_name], &next,
                                       &assign_err)) {
-                return NodeResult<ParamsT>::Failure(
-                    assign_err, node_error::control::kInvalidRequest);
+                return NodeResult<ParamsT>::Failure(assign_err,
+                                                    error::kInvalidArgument);
               }
             }
             std::string val_err;
@@ -100,7 +99,7 @@ class FieldControlCommand {
                   val_err.empty()
                       ? "Parameter validation failed after control update"
                       : val_err,
-                  node_error::control::kInvalidRequest);
+                  error::kInvalidArgument);
             }
             return NodeResult<ParamsT>::Success(std::move(next));
           });

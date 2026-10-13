@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/models/whisper_asr/whisper_asr_model.h"
 #include "tests/support/model_probe.h"
 
@@ -103,7 +104,8 @@ TEST(WhisperAsrModelTest, AudioValidationCoversDurationRateAndFiniteAmplitude) {
     AudioPcmPayload audio(std::vector<float>(test.samples, test.amplitude),
                           test.rate);
     TextBatch output;
-    EXPECT_EQ(model->Transcribe({{0, 0, audio}}, {}, &output, &diagnostic), -1);
+    EXPECT_EQ(model->Transcribe({{0, 0, audio}}, {}, &output, &diagnostic),
+              error::kInvalidInput);
     EXPECT_EQ(session->calls, 0);
     EXPECT_TRUE(output.empty());
     EXPECT_NE(diagnostic.find(test.detail), std::string::npos) << diagnostic;
@@ -122,7 +124,8 @@ TEST(WhisperAsrModelTest, EntireBatchIsValidatedBeforeFirstInference) {
   };
   audio[1].data.pcm_data.back() = 1.25f;
   TextBatch output;
-  EXPECT_EQ(model->Transcribe(audio, {}, &output, &diagnostic), -1);
+  EXPECT_EQ(model->Transcribe(audio, {}, &output, &diagnostic),
+            error::kInvalidInput);
   EXPECT_EQ(session->calls, 0);
   EXPECT_NE(diagnostic.find("within [-1, 1]"), std::string::npos);
 }
@@ -163,11 +166,11 @@ TEST(WhisperAsrModelTest,
     const char* expected;
   };
   const std::vector<Case> cases = {
-      {"six byte text exceeds five", " \t你好\r\n", 5, -1,
-       "Transcription exceeds max_output_bytes"},
-      {"incomplete UTF8", std::string("A\xe4\xb8", 3), 6, -1,
+      {"six byte text exceeds five", " \t你好\r\n", 5, error::kInvalidOutput,
+       "Transcription exceeds max_output_bytes: 6 > 5"},
+      {"incomplete UTF8", std::string("A\xe4\xb8", 3), 6, error::kInvalidUtf8,
        "Transcription is not valid UTF-8"},
-      {"embedded NUL", std::string("a\0b", 3), 6, -1,
+      {"embedded NUL", std::string("a\0b", 3), 6, error::kInvalidOutput,
        "Transcription contains embedded NUL byte"},
       {"ASCII whitespace only", " \t\r\n", 1, 0, ""},
       {"Unicode whitespace retained", "　", 3, 0, "　"},
@@ -195,7 +198,7 @@ TEST(WhisperAsrModelTest,
   }
 }
 
-TEST(WhisperAsrModelTest, SessionFailureKeepsDetailAndReturnsModelFailureCode) {
+TEST(WhisperAsrModelTest, SessionFailureKeepsDetailAndCode) {
   auto session = std::make_shared<AudioSession>();
   session->code = -719;
   session->reason = "acoustic decoder failed";
@@ -206,7 +209,7 @@ TEST(WhisperAsrModelTest, SessionFailureKeepsDetailAndReturnsModelFailureCode) {
   TextBatch output;
   EXPECT_EQ(model->Transcribe({{0, 0, {std::vector<float>(1600, 0), 16000}}},
                               {}, &output, &diagnostic),
-            -1);
+            -719);
   EXPECT_EQ(diagnostic, "acoustic decoder failed");
   EXPECT_TRUE(output.empty());
 }

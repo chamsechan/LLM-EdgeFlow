@@ -16,6 +16,7 @@
 #include "adapter/io_plan_resolver.h"
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "contracts/error_codes.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "tests/support/registry_test_access.h"
@@ -190,7 +191,7 @@ class RuntimeFacadeTest : public ::testing::Test {
                                          std::string* error) {
       if (static_cast<const InputCarrier*>(value)->text == "decode_fail") {
         *error = "input carrier rejected";
-        return -3;
+        return error::kInvalidInput;
       }
       return 0;
     };
@@ -324,7 +325,7 @@ TEST_F(RuntimeFacadeTest, CreationCommitsOnlyAfterNodesAndPoolsSucceed) {
   RuntimeFailureStage stage;
   EXPECT_EQ(SharedAlgorithmRuntime::CreateFromIoPlan(std::move(plan), options,
                                                      &runtime, &error, &stage),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+            error::kNodeInitFailed);
   EXPECT_EQ(runtime, nullptr);
   EXPECT_EQ(stage, RuntimeFailureStage::kPreparation);
   EXPECT_EQ(trace->allocated, 0);
@@ -377,7 +378,7 @@ TEST_F(RuntimeFacadeTest,
   caller_binding.validate_external = [&](const void*, const InputLimits&,
                                          std::string*) {
     ++caller_callbacks;
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   };
   caller_binding.read_value = [&](const void*) -> std::any {
     ++caller_callbacks;
@@ -417,10 +418,10 @@ TEST_F(RuntimeFacadeTest, BatchAndViewBoundsFailBeforeExecutionOrAcquisition) {
     size_t rows;
     int code;
   };
-  const std::vector<Case> cases = {{0, false, 0, -3},
-                                   {3, false, 3, -3},
-                                   {2, true, 2, -3},
-                                   {2, false, 1, -4}};
+  const std::vector<Case> cases = {{0, false, 0, error::kInvalidInput},
+                                   {3, false, 3, error::kInvalidInput},
+                                   {2, true, 2, error::kInvalidInput},
+                                   {2, false, 1, error::kInvalidOutput}};
   for (const auto& test : cases) {
     auto input = Input({"A", "B"});
     input.count = test.count;
@@ -447,10 +448,10 @@ TEST_F(RuntimeFacadeTest,
     int resets;
   };
   const std::vector<Case> cases = {
-      {"decode", "decode_fail", 0, false, 64, -3, 0},
+      {"decode", "decode_fail", 0, false, 64, error::kInvalidInput, 0},
       {"execution", "B", -72, false, 64, -72, 2},
-      {"encode", "B", 0, true, 64, COMPANY_ALG_ERR_INVALID_INPUT, 2},
-      {"capacity", "long", 0, false, 1, COMPANY_ALG_ERR_BUFFER_TOO_SMALL, 2}};
+      {"encode", "B", 0, true, 64, error::kInvalidInput, 2},
+      {"capacity", "long", 0, false, 1, error::kInvalidOutput, 2}};
   for (const auto& test : cases) {
     SCOPED_TRACE(test.name);
     trace->execution_code = test.execution;
@@ -485,7 +486,7 @@ TEST_F(RuntimeFacadeTest,
     output.rows[0].clear();
     std::string error;
     EXPECT_EQ(runtime->Process(Input({"A", "B"}), &output, &error),
-              misreport ? -4 : 0);
+              misreport ? error::kInvalidOutput : error::kOk);
     EXPECT_TRUE(output.rows[0].empty());
     if (misreport) {
       EXPECT_EQ(output.rows[1][0].value, nullptr);
@@ -551,7 +552,7 @@ TEST_F(RuntimeFacadeTest,
   auto output = Output();
   std::string error;
   ASSERT_EQ(runtime->Process(Input({"A", "B"}), &output, &error), 0);
-  EXPECT_EQ(runtime->Close(&error), -1);
+  EXPECT_EQ(runtime->Close(&error), error::kInvalidState);
   EXPECT_NE(error.find("2 unreturned output blocks"), std::string::npos);
   EXPECT_EQ(runtime->GetIoPlan(), nullptr);
   EXPECT_EQ(trace->live, 0);
@@ -560,8 +561,9 @@ TEST_F(RuntimeFacadeTest,
   output.rows[0][0].value.reset();
   output.rows[1][0].value.reset();
   EXPECT_EQ(trace->resets, 0);
-  EXPECT_EQ(runtime->Process(Input({"A", "B"}), &output), -1);
-  EXPECT_EQ(runtime->ExecuteControl({kProbeCommand, "{}"}), -1);
+  EXPECT_EQ(runtime->Process(Input({"A", "B"}), &output), error::kInvalidState);
+  EXPECT_EQ(runtime->ExecuteControl({kProbeCommand, "{}"}),
+            error::kInvalidState);
 }
 
 struct PublishAllocationObserver {
