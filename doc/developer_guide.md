@@ -46,7 +46,7 @@ C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistr
 一份登记拥有一个宿主槽；注册审计检查全部转换器的端口、平台结构和参数声明。
 
 `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
-转义的 NUL 可在解包后保留。输出按显式长度复制，二进制内容使用 `CompanyBuffer`。
+转义的 NUL 可在解包后保留。输出按显式长度复制。
 外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期；
 销毁和释放顺序见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 

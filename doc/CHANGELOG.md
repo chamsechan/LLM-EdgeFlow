@@ -164,10 +164,10 @@ remediation、`edit` 请求与响应、Pipeline Studio 接口、Demo 的 Profile
 对话合规审核的输出 Converter 直接使用业务出口键 `matched_policy`，删除只为改名存在的
 `kMatchedPolicies`（`matched_policies`）及其 Binding 端口映射；Pipeline 配置与外部契约不变。
 
-Converter 定义精简（不涉及 Operator ABI、Pipeline JSON 与 `.conf`）：删除没有运行时作用的
-`schema_version`、`external_type`、输出 `cardinality` 与 `capacity_policy`，以及槽位的 `value_type` 与
-`capacity_fields`。输出槽容量字段只由 ValueType 决定，`ExternalInputSlot` / `ExternalOutputSlot`
-只接受槽名。Catalog 的 Converter 不再导出上述元数据，`external_type` 改由槽位类型推导。
+Converter 用 `type` 选择 binding，`ExternalInputSlot<Value>()` / `ExternalOutputSlot<Value>()`
+只声明中立值类型；Catalog 保留登记的 `type`，槽位不再重复导出 `type_suffix`。
+八类 JSON 输出共享容量参数声明。mock 提示词控制仅传模板；输入登记保留有可用读取回调的载体，
+frame 的 Any metadata 校验与输出 metadata 分配继续生效。
 
 开发工具修复：Markdown 链接检查支持单引号与圆括号标题、带空格的尖括号目标及平衡或转义的
 目标圆括号；生产版 `alg_pipeline_tool edit` 根据 `validation.diagnostics` 提示构建变体与测试工具。

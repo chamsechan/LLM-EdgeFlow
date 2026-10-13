@@ -28,12 +28,6 @@ int ValidateCompanyString(const CompanyString* str, size_t max_bytes,
                           const char* field_name, std::string* err) noexcept;
 
 /**
- * @brief 校验 CompanyBuffer 合法性
- */
-int ValidateCompanyBuffer(const CompanyBuffer* buf, size_t max_bytes,
-                          const char* field_name, std::string* err) noexcept;
-
-/**
  * @brief 校验 CompanyAny 合法性 (受类型白名单与尺寸乘法方程校验)
  */
 int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
@@ -41,8 +35,6 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
                               std::string* err) noexcept;
 
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyString, "CompanyString");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyBuffer, "CompanyBuffer");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAny, "CompanyAny");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyFrame, "CompanyFrame");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorOutput, "CompanyOperatorOutput");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOperatorAuditInput,

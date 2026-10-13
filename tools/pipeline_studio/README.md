@@ -76,7 +76,7 @@ HTTP 请求以 `revision` 传入修订版本，以 `filename` 指定方案文件
 5. 执行当前草稿并核对业务结果：第一条命中 `FIRST_RUN`，第二条未命中。
 
 运行页“接入契约”展示有序输入、输出 `(type, name)`、Converter 和宿主类型。
-Catalog 中的 `slot` 给出类型、必需性、分配器及固定布局元数据，`logical_ports` 是内部端口，
+Catalog 的 `type` 选择宿主 binding；`slot` 给出宿主结构类型、必需性、分配器及固定布局元数据，`logical_ports` 是内部端口，
 `config_fields` 是参数声明。完整外部请求/响应仍以 Converter 契约为准，内部端口不定义 JSON 载荷。
 
 缺失算法时使用[第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，

@@ -98,7 +98,7 @@ inline constexpr char kCommonIoName[] = "common";
 
 using IoPortBindings = std::unordered_map<std::string, std::string>;
 
-struct InputDecodeOptions {
+struct IoConverterOptions {
   std::string type;
   std::string name;
   const ParameterValues* params = nullptr;
@@ -112,33 +112,16 @@ struct InputDecodeOptions {
   }
   template <typename P>
   const P& Params() const {
-    if (!params) throw std::logic_error("Missing parsed input parameters");
+    if (!params) throw std::logic_error("Missing parsed converter parameters");
     return params->Get<P>();
   }
 };
 
-struct OutputEncodeOptions {
-  std::string type;
-  std::string name;
-  const ParameterValues* params = nullptr;
-  const IoPortBindings* ports = nullptr;
-
-  std::string Label() const { return type + "/" + name; }
-  std::string Port(const std::string& logical_port) const {
-    if (!ports) return {};
-    const auto it = ports->find(logical_port);
-    return it == ports->end() ? std::string{} : it->second;
-  }
-  template <typename P>
-  const P& Params() const {
-    if (!params) throw std::logic_error("Missing parsed output parameters");
-    return params->Get<P>();
-  }
-};
+struct InputDecodeOptions : IoConverterOptions {};
+struct OutputEncodeOptions : IoConverterOptions {};
 
 struct ExternalSlotDefinition {
   std::type_index value_type{typeid(void)};
-  std::string type_suffix;
   bool required = true;
   std::string allocator;
   std::string allocator_params;
@@ -154,24 +137,21 @@ using EncodeOutputFn = int (*)(AlgContext* context,
                                ExternalOutputBatchView* destination,
                                size_t* written_count, AdapterStatus* status);
 
-struct InputConverterDefinition {
+struct IoConverterDefinition {
   std::string type;
   std::string name;
   ExternalSlotDefinition slot;
   std::vector<NodePortDefinition> logical_ports;
   ParameterSet params;
-  DecodeInputFn decode_fn = nullptr;
   std::string Label() const { return type + "/" + name; }
 };
 
-struct OutputConverterDefinition {
-  std::string type;
-  std::string name;
-  ExternalSlotDefinition slot;
-  std::vector<NodePortDefinition> logical_ports;
-  ParameterSet params;
+struct InputConverterDefinition : IoConverterDefinition {
+  DecodeInputFn decode_fn = nullptr;
+};
+
+struct OutputConverterDefinition : IoConverterDefinition {
   EncodeOutputFn encode_fn = nullptr;
-  std::string Label() const { return type + "/" + name; }
 };
 
 }  // namespace llm_edgeflow

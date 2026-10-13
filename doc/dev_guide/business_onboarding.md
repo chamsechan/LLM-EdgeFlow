@@ -139,15 +139,16 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    Converter 保留业务状态检查和完整 JSON 响应组装。定义 `OutputConverterDefinition`
    并用 `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **声明选择、参数与逻辑端口。**
-   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主槽，`slot.type_suffix == type`。
-   用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中立类型，审计要求与 binding
+   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主槽；`type` 选择宿主 binding。
+   用 `ExternalInputSlot<Value>()` / `ExternalOutputSlot<Value>()` 声明中立类型，审计要求与 binding
    的 `value_type` 一致。`name` 是中性业务名；结构带业务成员时，binding 的 `services` 显式
    映射非 common 名称到平台枚举，Converter 不包含枚举。`common` 和无该成员的结构没有期望业务值。
    逻辑端口是 typed Blackboard key，接入准备将所选端口组合为 Core 必传边界。
    每个输入发布不同端口；多个输入槽按同一批内行号配对，载体无需请求 ID 字段。
    声明参数使用普通 `Params` 与 `Parameters<Params>`，每个字段有默认值或 Required；
    无默认的 optional 可省略。Create 校验、赋值、Prepare、Validate 一次，Process 只读共享值。
-   输出的每个字符串字段使用 `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
+   当前 `json_out` 直接用 `JsonOutputParameters()` 共享容量声明；其他输出的每个字符串字段使用
+   `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
 
 ## 4. 需要新的宿主类型时
 

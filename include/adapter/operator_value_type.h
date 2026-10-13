@@ -36,7 +36,6 @@ struct InputLimits {
   size_t max_audio_pcm_bytes = input_limits::kMaxAudioPcmBytes;  // 10 MiB
   int32_t min_sample_rate = input_limits::kMinSampleRate;
   int32_t max_sample_rate = input_limits::kMaxSampleRate;
-  size_t max_buffer_bytes = input_limits::kMaxBufferBytes;
   size_t max_any_bytes = input_limits::kMaxAnyBytes;
 };
 

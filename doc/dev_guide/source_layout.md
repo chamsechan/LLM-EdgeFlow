@@ -120,8 +120,8 @@ src/adapter/
 批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
 每个转换器登记一个宿主槽、typed 逻辑端口与共享参数声明；Pipeline 根 `io` 选择这些登记。
 端口 Definition 与回调共用同一 typed 端口常量，端口名即业务键名，
-绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>` /
-`ExternalOutputSlot<T>` 推导类型和默认同名后缀，输出容量字段由已注册 ValueType 决定；
+绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>()` /
+`ExternalOutputSlot<T>()` 声明中立值类型；登记的 `type` 选择 binding，输出容量字段由已注册 ValueType 决定；
 特殊布局仍使用完整定义。
 业务专属实现可按修改关联同文件组织，共享 converter 保留独立引用；不要求为每个业务创建聚合宏或新注册表。
 宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理

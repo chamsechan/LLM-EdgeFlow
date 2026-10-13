@@ -50,7 +50,6 @@ struct ControlUpdateRulesParam {
  * @brief kSwitchPrompt 对应强类型参数结构体
  */
 struct ControlSwitchPromptParam {
-  const char* prompt_id = nullptr;  // 提示词标识符 (可选)
   const char* prompt_template_str =
       nullptr;  // 提示词模板字符串 (包含 {{context}}/{{query}} 等占位符)
 };
