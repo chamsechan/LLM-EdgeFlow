@@ -36,12 +36,6 @@ class BertWordPieceTokenizer {
             std::string* diagnostic = nullptr);
 
   /**
-   * @brief 从内存中的 token 列表加载 (供测试使用)
-   */
-  bool LoadFromTokens(const std::vector<std::string>& tokens,
-                      bool do_lower_case, std::string* diagnostic = nullptr);
-
-  /**
    * @brief 对输入文本进行分词、截断并填充至 max_tokens
    * @param text 输入文本
    * @param max_tokens 目标序列长度
@@ -67,14 +61,6 @@ class BertWordPieceTokenizer {
                   std::vector<int64_t>* token_type_ids,
                   std::string* diagnostic = nullptr) const;
 
-  int64_t PadTokenId() const noexcept { return pad_token_id_; }
-  int64_t UnkTokenId() const noexcept { return unk_token_id_; }
-  int64_t ClsTokenId() const noexcept { return cls_token_id_; }
-  int64_t SepTokenId() const noexcept { return sep_token_id_; }
-  size_t VocabSize() const noexcept { return vocab_.size(); }
-  bool IsLoaded() const noexcept { return is_loaded_; }
-  bool DoLowerCase() const noexcept { return do_lower_case_; }
-
  private:
   bool InitializeVocab(const std::vector<std::string>& lines,
                        std::string* diagnostic);
@@ -85,7 +71,6 @@ class BertWordPieceTokenizer {
       const std::vector<std::string>& words) const;
 
   std::unordered_map<std::string, int64_t> vocab_;
-  std::vector<std::string> inv_vocab_;
   bool do_lower_case_ = true;
   bool is_loaded_ = false;
 

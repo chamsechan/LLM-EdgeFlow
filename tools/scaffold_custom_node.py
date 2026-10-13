@@ -265,7 +265,7 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
         "EmbeddingBatch": "EXPECT_TRUE(item.data.empty());",
         "ScoreBatch": "EXPECT_FLOAT_EQ(item.data, 0.0f);",
         "OcrDocumentBatch": "EXPECT_TRUE(item.data.combined_text.empty());\n  EXPECT_TRUE(item.data.boxes.empty());",
-        "RankedTextBatch": "EXPECT_TRUE(item.data.text.empty());\n  EXPECT_FLOAT_EQ(item.data.score, 0.0f);\n  EXPECT_EQ(item.data.rank, 0);\n  EXPECT_EQ(item.data.original_sub_id, 0u);\n  EXPECT_EQ(item.data.metadata, nlohmann::json::object());",
+        "RankedTextBatch": "EXPECT_TRUE(item.data.text.empty());\n  EXPECT_FLOAT_EQ(item.data.score, 0.0f);\n  EXPECT_EQ(item.data.rank, 0);\n  EXPECT_EQ(item.data.original_sub_id, 0u);",
         "RuleMatchBatch": "EXPECT_EQ(item.data.is_hit, 0);\n  EXPECT_EQ(item.data.status_code, 0);\n  EXPECT_TRUE(item.data.category.empty());\n  EXPECT_TRUE(item.data.matches.empty());\n  EXPECT_EQ(item.data.slots, nlohmann::json::object());",
         "StructuredDocumentBatch": "EXPECT_TRUE(item.data.json_payload.empty());\n  EXPECT_EQ(item.data.structured_data, nlohmann::json::object());\n  EXPECT_FALSE(item.data.is_valid);\n  EXPECT_EQ(item.data.parse_status, JsonParseStatus::kOk);\n  EXPECT_TRUE(item.data.diagnostic.empty());",
     }

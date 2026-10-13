@@ -159,14 +159,6 @@ std::shared_ptr<IModel> ModelRegistry::Create(
   }
 }
 
-bool ModelRegistry::Has(const std::string& impl_name) const noexcept {
-  return registry_support::HasType(mutex_, entries_, impl_name);
-}
-
-std::vector<std::string> ModelRegistry::ListImplNames() const {
-  return registry_support::ListTypes(mutex_, entries_);
-}
-
 std::vector<ModelDefinition> ModelRegistry::ListDefinitions() const {
   return registry_support::ListDefinitions<ModelDefinition>(
       mutex_, entries_, [](const auto& lhs, const auto& rhs) {

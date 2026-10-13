@@ -71,7 +71,7 @@ def forbidden(source, target):
         or source.startswith(("src/common_nodes/", "include/nodes/"))
     ):
         return True
-    if source.startswith("src/adapter/biz/") and dst in {"Model Execution", "Capability Nodes"}:
+    if source.startswith(("src/adapter/input/", "src/adapter/output/")) and dst in {"Model Execution", "Capability Nodes"}:
         return True
     if src == "Demo" and target.startswith(("src/", "include/adapter/", "include/core/", "include/nodes/", "include/engine/", "include/contracts/")):
         return True

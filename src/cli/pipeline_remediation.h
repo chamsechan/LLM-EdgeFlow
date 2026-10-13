@@ -57,14 +57,8 @@ ToolValidationReport AttachRemediation(const nlohmann::json& root,
                                        ValidationReport report,
                                        const PipelineIoBoundary& io_boundary);
 
-ToolValidationReport ValidateWithRemediation(
-    const nlohmann::json& root, const PipelineIoBoundary& io_boundary);
-
-// 每条诊断另外最多保留三个已验证的修复。
-ToolValidationReport ExplainPipeline(const nlohmann::json& root,
-                                     const PipelineIoBoundary& io_boundary);
-
 // 文档入口在每次补丁后重新准备 I/O 和文件路径；重校验只消费 Core 报告。
+// 每条诊断另外最多保留三个已验证的修复。
 ToolValidationReport ExplainPipeline(
     const nlohmann::json& document, ToolValidationReport report,
     const std::function<ValidationReport(const nlohmann::json&)>& revalidate);

@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <nlohmann/json.hpp>
 #include <sstream>
 
@@ -265,25 +264,6 @@ bool ReadAudioDataset(const std::string& manifest_path,
     return false;
   }
   return true;
-}
-
-void PrintBanner(const std::string& title, const std::string& subtitle) {
-  std::cout
-      << "\n=================================================================="
-      << std::endl;
-  std::cout << "  " << title << std::endl;
-  if (!subtitle.empty()) {
-    std::cout << "  " << subtitle << std::endl;
-  }
-  std::cout
-      << "=================================================================="
-      << std::endl;
-}
-
-void PrintDivider() {
-  std::cout
-      << "------------------------------------------------------------------"
-      << std::endl;
 }
 
 }  // namespace alg_demo

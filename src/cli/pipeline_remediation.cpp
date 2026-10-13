@@ -506,21 +506,6 @@ ToolValidationReport AttachRemediation(const nlohmann::json& root,
   return report;
 }
 
-ToolValidationReport ValidateWithRemediation(
-    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
-  return AttachRemediation(root, PipelineValidator::Validate(root, io_boundary),
-                           io_boundary);
-}
-
-ToolValidationReport ExplainPipeline(const nlohmann::json& root,
-                                     const PipelineIoBoundary& io_boundary) {
-  return ExplainPipeline(root, ValidateWithRemediation(root, io_boundary),
-                         [&](const auto& patched) {
-                           return PipelineValidator::Validate(patched,
-                                                              io_boundary);
-                         });
-}
-
 ToolValidationReport ExplainPipeline(
     const nlohmann::json& root, ToolValidationReport report,
     const std::function<ValidationReport(const nlohmann::json&)>& revalidate) {

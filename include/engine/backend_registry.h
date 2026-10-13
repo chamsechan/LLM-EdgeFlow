@@ -34,10 +34,6 @@ class BackendRegistry {
       const std::string& backend_type,
       std::string* diagnostic = nullptr) const noexcept;
 
-  bool Has(const std::string& backend_type) const noexcept;
-
-  std::vector<std::string> ListTypes() const;
-
   std::vector<BackendDefinition> ListDefinitions() const;
 
   bool HasConflict() const noexcept;

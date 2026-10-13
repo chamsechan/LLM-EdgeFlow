@@ -1,6 +1,6 @@
 # 项目精简审查与实施计划
 
-> 状态：审查与计划已定稿，代码精简尚未实施。本文件汇总双方意见及逐条复核后的最终实施范围；不代表下列修改已经落地。
+> 状态：第一部分正在本地分支 `refactor/project-simplification` 分阶段实施，验收状态见 1.2。第二、三部分不纳入本轮。
 >
 > 代码基线：`main@9cfba93b`；审查日期：2026-10-13。
 >
@@ -18,7 +18,7 @@
 
 “来源”统一从用户视角标注为“本助手”“你的同事”“双方”。附件中 A 项主要来自本助手、B 项主要来自你的同事；“双方”表示两份意见都支持该问题或方向，**不表示双方已逐字确认本文件的全部实施细节**。最终执行范围以本次复核后的表述为准。
 
-“未上线、不需要兼容”意味着：批准收窄的接口直接修改，并一次更新调用、文档和测试，不添加旧字段别名或迁移适配层。它不意味着所有现行契约都应删除。A1、A11、A12、B9、B11a、P24 等包含接口或接受范围的变化，不能统称“契约不变”。原 D13 已并入 P24，不再单列为待决策项；其余编号保持稳定。
+“未上线、不需要兼容”意味着：批准收窄的接口直接修改，并一次更新调用、文档和测试，不添加旧字段别名或迁移适配层，也不为已删除的字段、别名或平台值编写“仍被拒绝/不再出现”的测试。它不意味着所有现行契约都应删除。A1、A11、A12、B9、B11a、P24 等包含接口或接受范围的变化，不能统称“契约不变”。原 D13 已并入 P24，不再单列为待决策项；其余编号保持稳定。
 
 ## 第一部分：优先实施项
 
@@ -45,7 +45,7 @@
 | P15 / A9、B25 部分 | 精简 NodeFailure 无消费者字段，并集中格式化来源信息。 | [node_result.h](../include/nodes/node_result.h) 删除无运行时消费者的 `kind/stage/model_slot/source_location` 等作者层负担；`req_id/sub_id` 等来源保存在 `BatchFailureDetail`，最终格式化一次，删除文本扫描去重。**业务、模型和异常的原始 message 保留**。 | 中 / S4 | 双方；A9 由本助手提出，B25 由你的同事提出 |
 | P16 / A11 | 删除没有执行效果的 mock `prompt_id`。 | `ControlSwitchPromptParam::prompt_id` 只验证长度，未转发给节点。同步 [operator_control_registry.cpp](../src/adapter/operator/mock/operator_control_registry.cpp)、mock 公共头、测试和指南；模板切换仍工作。不据此推断真实内网 SDK 结构。 | 中 / S3 | 双方；由本助手提出 |
 | P17 / A12 | 删除不可用的 `buffer/any` 输入 binding 注册及专用死代码。 | [operator_builtin_value_types.cpp](../src/adapter/operator/mock/operator_builtin_value_types.cpp) 的相应 binding 没有读取回调，不能通过 Converter 审计。保留 frame metadata 使用的 Any 校验；输出 allocator/metadata 另见 D18。 | 中 / S3 | 双方 |
-| P18 / B11a | 删除 `CPU_GENERIC` 平台别名。 | 四个 Backend 接受它，但当前生产路径不产生它。[test_kite_backend.cpp](../tests/unit/engine/test_kite_backend.cpp) 的 `cpu_generic` 用例位于 `HAVE_KITELLM` 条件编译之外，默认门禁会执行。删除接受分支，同步默认测试并验证大小写两种旧别名均被拒绝；保留现有 `cpu` 归一及设备编号检查。大小写契约另见 D06。 | 低 / S1 | 你的同事，本助手认可并确认默认覆盖 |
+| P18 / B11a | 删除 `CPU_GENERIC` 平台别名。 | 四个 Backend 接受它，但当前生产路径不产生它。[test_kite_backend.cpp](../tests/unit/engine/test_kite_backend.cpp) 的 `cpu_generic` 用例位于 `HAVE_KITELLM` 条件编译之外，默认门禁会执行。删除接受分支，默认测试改用规范拼写；保留现有 `cpu` 归一及设备编号检查。大小写契约另见 D06。 | 低 / S1 | 你的同事，本助手认可并确认默认覆盖 |
 | P19 / B12 部分 | 将 `IsNodeResult` / `IsNodeResultType` 收敛为一份 trait。 | 两者表达相同类型判定，更新使用方，删除另一份定义。不同输入抽象的对齐校验另见 D11，不在该机械修改中强行合并。 | 低 / S4 | 你的同事，本助手认可并拆分 |
 | P20 / B15a | 共享字段校验错误到 Core 诊断码的映射。 | [deployment_preparation.cpp](../src/adapter/deployment_preparation.cpp) 与 [pipeline_validator.cpp](../src/core/pipeline_validator.cpp) 重复映射 `ConfigFieldErrorKind`。共享返回现有 Core 诊断枚举的函数；各层继续负责自己的路径、建议和文本。Integration 专属码不搬进 Core。 | 低 / S7 | 你的同事，本助手认可 |
 | P21 / B17 | 去掉输出池内部已完成校验后的重复校验。 | [operator_output_pool.cpp](../src/adapter/operator/operator_output_pool.cpp) 已得到有效 spec 后，使用私有计算函数，避免公共预算函数再校验一次。`ResolveOutputPoolSpec` 主要是校验和复制，并非四次 JSON 解析。所有独立 API 的入参校验、实际深度一致性及两级预算仍保留。 | 低—中 / S7 | 你的同事，本助手认可并收窄 |
@@ -66,7 +66,7 @@
 
 | 阶段 | 覆盖项 | 主要结果 | 开始条件 | 状态 |
 | --- | --- | --- | --- | --- |
-| S1 清理确定废弃的声明与入口 | P01—P07、P18 | 旧概念不再进入构建，死 API 删除，现有消费者使用保留接口 | 记录实施基线，确认无新的生产消费者 | 未开始 |
+| S1 清理确定废弃的声明与入口 | P01—P07、P18 | 旧概念不再进入构建，死 API 删除，现有消费者使用保留接口 | 记录实施基线，确认无新的生产消费者 | 已验收 |
 | S2 精简 Studio / Demo 开发入口 | P09、P14、P27 | 单一请求字段和 Demo 入口，文本输入步骤复用 | S1 验收通过 | 未开始 |
 | S3 精简 Adapter 声明与载体辅助逻辑 | P11—P13、P16—P17 | 公共参数/声明复用，mock 与 Catalog 移除选定冗余 | S2 验收通过；明确表内协议修改面 | 未开始 |
 | S4 收敛 Node 作者层和诊断 | P10、P15、P19、P24 | 减少模板分支和无效字段，删除选定工具 JSON 字段 | S3 验收通过；先明确 D09 在本轮保留还是删除 | 未开始 |
@@ -80,19 +80,21 @@
 
 #### S1：清理确定废弃的声明与入口
 
+已完成本地验收：P01—P07、P18 全部落地；守卫自测 7 项通过；G8 在启用 Whisper 的独立构建中成功链接 `test_real_models_e2e`（未运行真实模型）。统一门禁 395 项，394 通过、1 项因未提供 GGUF 跳过；两轮独立只读复核无阻塞项。
+
 **修改范围：** `cmake_ext/node_core_contracts.txt`、`scripts/check_layer_isolation.sh`、`scripts/check_layer_dependencies.py` 和守卫自测，相关 `include/` 头、`src/engine/models/`、`src/engine/backends/`、`src/cli/pipeline_remediation.*`，以及直接消费者和测试。
 
 1. 对 P02—P07 的每个符号检查源码、测试、示例、脚手架、隐藏配置和真实模型测试。没有生产调用不等于没有需要同步修改的作者示例。
 2. 修正头视图清单；Python Converter 规则从退役的 `src/adapter/biz/` 迁至 `src/adapter/input/`、`output/`。自测补齐 input/output 分别依赖 Engine/Node 的四个禁止样例及允许依赖样例；现有 platform_mock 反例仍保留。
 3. shell 规则 1 仅移除 `company_alg_interface.h` 和 `edgeflow/c_api.h/.hpp` 的旧匹配，保留当前 Integration 路径；删除规则 3 对退役 `biz/business` 路径的检查，保留负责现行 `custom_nodes` 边界的规则 3b。两者不是正则等价覆盖。规则 8 仅删 `biz/`、`business/`，保留 `adapter/core/engine/src`；规则 2 的 Converter 依赖检查仍保留。然后重新运行 CMake 配置，确认旧头文件不会进入新生成的视图。
-4. 删除已确认的死声明、实现及其专用测试；仍有价值的测试改用保留接口证明相同能力。删除 `CPU_GENERIC` 的接受分支；将 Kite 默认用例中的 `{1, "cpu_generic"}` 改用 `{1, "cpu"}`，继续验证 CPU 设备编号约束，再增加 `CPU_GENERIC/cpu_generic` 被拒绝的断言。此项不依赖启用 Kite SDK，也不改变 D06 尚未决定的大小写归一契约。
+4. 删除已确认的死声明、实现及其专用测试；仍有价值的测试改用保留接口证明相同能力。删除 `CPU_GENERIC` 的接受分支；将 Kite 默认用例中的 `{1, "cpu_generic"}` 改用 `{1, "cpu"}`，继续验证 CPU 设备编号约束。此项不依赖启用 Kite SDK，也不改变 D06 尚未决定的大小写归一契约。
 5. 更新受影响的源码作者示例，不保留旧类型别名或转发包装；按 G8 在独立目录启用真实模型测试目标并完成只编译验证。
 
 **验收条件：**
 
 - 当前 Converter 中故意引入 Engine/Node 依赖时，守卫能拒绝；允许依赖不被误判。
 - BGE 编码结果与模型语义测试通过；反向词表不再存储，不用估算内存数字代替证据。
-- 默认 G1 中的 `KiteBackendTest.UnsupportedProtocolAndNonCpuTargetFailBeforeResources` 继续执行；合法拼写下的设备编号校验保留，两个旧别名均被拒绝。P18 的默认测试覆盖不能替代 P05 所需的 G8 非默认消费者编译。
+- 默认 G1 中的 `KiteBackendTest.UnsupportedProtocolAndNonCpuTargetFailBeforeResources` 继续执行；合法拼写下的设备编号校验保留。P18 的默认测试覆盖不能替代 P05 所需的 G8 非默认消费者编译。
 - Registry 的排序、冲突、重入及注册失败测试仍有对应覆盖；G8 成功编译 `test_real_models_e2e`，并覆盖开启 Whisper 的分支。默认门禁不开此目标，不能代替这项证据；只编译不要求模型权重，也不等于真实模型运行通过。
 - `ValidateAndPlan` / `ValidateParsedAndPlan` 和 CLI 验证仍工作；`CreateFromIoPlan` 保留。
 - 对已删除符号全仓搜索无活动引用；计划中的文字记录不算残留实现。
@@ -136,6 +138,8 @@
 **聚焦验证：** G2、G4；完成后运行统一交付门禁。
 
 #### S4：收敛 Node 作者层和诊断
+
+本轮决定：D09 的 Join/Group/Select/Scatter 保留；P15 同步迁移其 Failure 签名与来源格式化，不执行第三部分的 API 删除。
 
 **修改范围：** `include/nodes/configuration_snapshot.h`、`node_result.h`、相关 trait 定义、Node 调用方、`tools/scaffold_custom_node.py` 及作者示例；另含 `include/core/node_definition.h`、`pipeline_validator.h`、Control 作者声明、诊断/Catalog 的五处 JSON 输出和相应测试。
 

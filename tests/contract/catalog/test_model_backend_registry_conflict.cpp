@@ -64,12 +64,17 @@ TEST(ModelExecutionRegistryTest, DefinitionsAreIndependentSortedSnapshots) {
             (std::vector<std::string>{"registry_backend"}));
   EXPECT_EQ(backends.Find("registry_zeta")->supported_protocols,
             (std::vector<ExecutionProtocol>{ExecutionProtocol::kFixture}));
-  const auto names = models.ListImplNames();
-  const auto types = backends.ListTypes();
-  EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
-  EXPECT_TRUE(std::is_sorted(types.begin(), types.end()));
-  EXPECT_TRUE(models.Has("registry_zeta"));
-  EXPECT_TRUE(backends.Has("registry_zeta"));
+  const auto model_definitions = models.ListDefinitions();
+  const auto backend_definitions = backends.ListDefinitions();
+  EXPECT_TRUE(std::is_sorted(model_definitions.begin(), model_definitions.end(),
+                             [](const auto& lhs, const auto& rhs) {
+                               return lhs.impl_name < rhs.impl_name;
+                             }));
+  EXPECT_TRUE(std::is_sorted(backend_definitions.begin(),
+                             backend_definitions.end(),
+                             [](const auto& lhs, const auto& rhs) {
+                               return lhs.backend_type < rhs.backend_type;
+                             }));
 }
 
 TEST(ModelExecutionRegistryTest,
@@ -114,7 +119,7 @@ TEST(ModelExecutionRegistryTest,
           }
           auto& registry = ModelRegistry::Instance();
           Check(!registry.Register(definition, creator));
-          Check(!registry.Has("invalid_model"));
+          Check(!registry.Find("invalid_model").has_value());
           Check(registry.HasConflict());
           Check(!registry.GetConflictErrors().empty());
           std::_Exit(0);
@@ -151,7 +156,7 @@ TEST(ModelExecutionRegistryTest,
                   }
                   auto& registry = BackendRegistry::Instance();
                   Check(!registry.Register(definition, creator));
-                  Check(!registry.Has("invalid_backend"));
+                  Check(!registry.Find("invalid_backend").has_value());
                   Check(registry.HasConflict());
                   Check(!registry.GetConflictErrors().empty());
                   std::_Exit(0);

@@ -51,10 +51,6 @@ class ModelRegistry {
       const std::string& impl_name, const ModelCreateContext& context,
       std::string* diagnostic = nullptr) const noexcept;
 
-  bool Has(const std::string& impl_name) const noexcept;
-
-  std::vector<std::string> ListImplNames() const;
-
   std::vector<ModelDefinition> ListDefinitions() const;
   std::vector<ModelDefinition> FindImplementation(
       const std::string& model_type, const std::string& backend_type) const;

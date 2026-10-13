@@ -42,6 +42,18 @@ class IncludeOwnershipContractTest(SourceTreeTest):
         self.assertIn('Resolved include ownership and vendor boundaries passed.', result.stdout)
         self.assertEqual(result.stderr, '')
 
+    def test_converters_can_use_adapter_values_and_neutral_contracts(self):
+        self.write('include/adapter/io_values.h')
+        self.write('include/core/common_contracts.h')
+        for direction in ('input', 'output'):
+            with self.subTest(direction=direction):
+                source = self.write(f'src/adapter/{direction}/convert.cpp',
+                                    '#include "adapter/io_values.h"\n'
+                                    '#include "core/common_contracts.h"\n')
+                result = self.check_includes()
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                source.unlink()
+
     def test_upward_and_private_dependencies_report_exact_source_and_target(self):
         cases = (
             ('src/engine/models/embedding/probe.cpp', 'nodes/node_interface.h',
@@ -56,6 +68,14 @@ class IncludeOwnershipContractTest(SourceTreeTest):
              'src/custom_nodes/domain.h', 'Capability Nodes -> Capability Nodes'),
             ('src/adapter/input/parse.cpp', 'platform_mock/operator_data_types.h',
              'include/platform_mock/operator_data_types.h', 'Integration -> Integration'),
+            ('src/adapter/input/parse.cpp', 'engine/model_interface.h',
+             'include/engine/model_interface.h', 'Integration -> Model Execution'),
+            ('src/adapter/output/write.cpp', 'engine/model_interface.h',
+             'include/engine/model_interface.h', 'Integration -> Model Execution'),
+            ('src/adapter/input/parse.cpp', 'nodes/node_base.h',
+             'include/nodes/node_base.h', 'Integration -> Capability Nodes'),
+            ('src/adapter/output/write.cpp', 'nodes/node_base.h',
+             'include/nodes/node_base.h', 'Integration -> Capability Nodes'),
             ('demo/request.cpp', 'engine/model_interface.h',
              'include/engine/model_interface.h', 'Demo -> Model Execution'),
         )

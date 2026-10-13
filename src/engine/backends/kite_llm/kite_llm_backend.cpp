@@ -30,9 +30,7 @@ namespace llm_edgeflow {
 
 namespace {
 
-bool IsCpuPlatform(const std::string& platform) {
-  return platform == "CPU" || platform == "CPU_GENERIC";
-}
+bool IsCpuPlatform(const std::string& platform) { return platform == "CPU"; }
 
 bool ValidateExecutionTarget(const ExecutionTarget& target,
                              std::string* diagnostic) {

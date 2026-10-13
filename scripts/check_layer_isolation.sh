@@ -21,7 +21,7 @@ for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
   fi
 done
 VIOLATIONS_NODES_INTEGRATION=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(company_alg_interface\.h[">]|edgeflow/(c_api\.(h|hpp)[">]|operator/)|(adapter|operator|platform_mock)/)' \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(edgeflow/operator/|(adapter|operator|platform_mock)/)' \
   "${NODE_SOURCE_PATHS[@]}" || true)
 
 if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
@@ -49,16 +49,6 @@ if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Zero Integration -> Model Execution illegal engine include violations."
-
-# 规则 3：通用 Node (src/common_nodes/) 绝不能依赖业务专属 Node
-VIOLATIONS_COMMON_BIZ=$(grep -rnE '#include\s*["<](biz/|src/biz/|business/|src/business/)' "$REPO_ROOT/src/common_nodes" || true)
-
-if [ -n "$VIOLATIONS_COMMON_BIZ" ]; then
-  echo "❌ [LayerGuard ERROR] Found Common Node -> Biz Node dependency violations:"
-  echo "$VIOLATIONS_COMMON_BIZ"
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Zero Common Node -> Biz Node reverse include violations."
 
 # 规则 3b：框架代码不得依赖自定义 Node 实现。
 VIOLATIONS_CUSTOM_DEPENDENCY=$(grep -rnE \
@@ -200,8 +190,8 @@ else
 fi
 
 # 规则 8：Demo 层 (demo/) 绝不能直接 include SDK 内部头文件
-# (adapter/、core/、biz/、business/、engine/、src/)
-VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|business/|engine/|src/)' "$REPO_ROOT/demo" || true)
+# (adapter/、core/、engine/、src/)
+VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|engine/|src/)' "$REPO_ROOT/demo" || true)
 
 if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
   echo "❌ [LayerGuard ERROR] Found Demo -> SDK internal header violations:"

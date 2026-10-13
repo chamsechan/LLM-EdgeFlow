@@ -139,7 +139,7 @@ include/core/                     编排契约与 Node 注册接口
   pipeline.h                      按校验计划执行
   alg_context.h / blackboard_key.h / session_context.h
   node_interface.h / node_definition.h / node_registry.h / port_definition.h
-  biz_definition.h / pipeline_catalog.h
+  pipeline_catalog.h
 src/core/                         上述接口的实现；pipeline_config_structure.cpp/.h 等私有头相邻放置
 ```
 

@@ -30,7 +30,7 @@ TEST(KiteBackendTest, UnsupportedProtocolAndNonCpuTargetFailBeforeResources) {
   spec.execution_target = {-2, "CPU"};
   EXPECT_EQ(provider.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("device_id must be >= -1"), std::string::npos);
-  spec.execution_target = {1, "cpu_generic"};
+  spec.execution_target = {1, "cpu"};
   EXPECT_EQ(provider.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("only accepts device_id 0"), std::string::npos);
 }
@@ -139,7 +139,6 @@ TEST(KiteBackendTest,
 #else
 TEST(KiteBackendTest,
      DisabledBackendHasNoRegistrationForAnyAdvertisedProtocol) {
-  EXPECT_FALSE(BackendRegistry::Instance().Has("kite_llm"));
   EXPECT_FALSE(BackendRegistry::Instance().Find("kite_llm"));
   EXPECT_EQ(BackendRegistry::Instance().Create("kite_llm"), nullptr);
   KiteLlmBackend provider;

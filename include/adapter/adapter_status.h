@@ -43,12 +43,6 @@ class AdapterStatus {
                          std::move(adapter_name));
   }
 
-  static AdapterStatus UnsupportedBiz(std::string message,
-                                      std::string adapter_name = "") {
-    return AdapterStatus(COMPANY_ALG_ERR_UNSUPPORTED_BIZ, std::move(message),
-                         "", -1, std::move(adapter_name));
-  }
-
   bool IsOk() const { return code_ == COMPANY_ALG_SUCCESS; }
   int Code() const { return code_; }
   const std::string& Message() const { return message_; }

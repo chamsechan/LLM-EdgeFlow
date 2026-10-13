@@ -385,7 +385,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     const std::string platform =
         NormalizePlatform(spec.execution_target.platform);
     if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
-        platform != "CPU_GENERIC" && platform != "CUDA") {
+        platform != "CUDA") {
       SetDiagnosticNoexcept(
           diagnostic,
           "llama.cpp backend does not support requested platform: " +
@@ -398,7 +398,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
                             "llama.cpp device_id must be non-negative");
       return nullptr;
     }
-    if ((platform == "CPU" || platform == "CPU_GENERIC") && device_id != 0) {
+    if (platform == "CPU" && device_id != 0) {
       SetDiagnosticNoexcept(
           diagnostic,
           "llama.cpp CPU execution only accepts device_id 0; got: " +
@@ -436,8 +436,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
           diagnostic, "llama.cpp CUDA execution requires n_gpu_layers > 0");
       return nullptr;
     }
-    if (p.n_gpu_layers > 0 &&
-        (platform == "CPU" || platform == "CPU_GENERIC")) {
+    if (p.n_gpu_layers > 0 && platform == "CPU") {
       SetDiagnosticNoexcept(
           diagnostic,
           "llama.cpp n_gpu_layers requires a GPU execution platform");

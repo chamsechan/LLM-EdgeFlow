@@ -143,14 +143,6 @@ std::unique_ptr<IInferenceBackend> BackendRegistry::Create(
   }
 }
 
-bool BackendRegistry::Has(const std::string& backend_type) const noexcept {
-  return registry_support::HasType(mutex_, entries_, backend_type);
-}
-
-std::vector<std::string> BackendRegistry::ListTypes() const {
-  return registry_support::ListTypes(mutex_, entries_);
-}
-
 std::vector<BackendDefinition> BackendRegistry::ListDefinitions() const {
   return registry_support::ListDefinitions<BackendDefinition>(
       mutex_, entries_, [](const auto& lhs, const auto& rhs) {
