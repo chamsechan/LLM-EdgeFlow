@@ -113,10 +113,10 @@ TEST(OperatorValueRegistryTest,
   auto armed = std::make_shared<bool>(false);
   OperatorValueTypeRegistry registry;
   auto input = NativeInput();
-  input.validate_external = ThrowingCopy(armed);
   ASSERT_TRUE(registry.RegisterBinding(input));
   auto next = NativeInput();
   next.canonical_suffix = "next_input";
+  next.validate_external = ThrowingCopy(armed);
   const auto* original = registry.GetBindingBySuffix("registry_input");
   *armed = true;
   EXPECT_FALSE(registry.RegisterBinding(next));
@@ -129,19 +129,19 @@ TEST(OperatorValueRegistryTest,
   OperatorValueTypeRegistry allocators;
   auto output = NativeOutput();
   ASSERT_TRUE(allocators.RegisterBinding(output));
-  auto first = output;
-  first.allocate_external = ThrowingCopy(armed);
-  ASSERT_TRUE(allocators.RegisterOutputAllocator("first", first));
+  ASSERT_TRUE(allocators.RegisterOutputAllocator("first", output));
+  auto second = output;
+  second.allocate_external = ThrowingCopy(armed);
   const auto* original_allocator =
       allocators.GetOutputBinding("registry_output", "first");
   *armed = true;
-  EXPECT_FALSE(allocators.RegisterOutputAllocator("second", output));
+  EXPECT_FALSE(allocators.RegisterOutputAllocator("second", second));
   EXPECT_EQ(allocators.GetOutputBinding("registry_output", "second"), nullptr);
   EXPECT_EQ(allocators.GetOutputBinding("registry_output", "first"),
             original_allocator);
   EXPECT_FALSE(allocators.HasConflict());
   *armed = false;
-  EXPECT_TRUE(allocators.RegisterOutputAllocator("second", output));
+  EXPECT_TRUE(allocators.RegisterOutputAllocator("second", second));
 }
 
 TEST(OperatorValueRegistryTest,

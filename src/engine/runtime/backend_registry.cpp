@@ -118,27 +118,17 @@ std::unique_ptr<IInferenceBackend> BackendRegistry::Create(
       creator = it->second.creator;
     }
 
-    try {
-      return creator();
-    } catch (const std::exception& error) {
-      SetDiagnosticNoexcept(diagnostic, "Exception creating backend " +
-                                            backend_type + ": " + error.what());
-      return nullptr;
-    } catch (...) {
-      SetDiagnosticNoexcept(
-          diagnostic, "Unknown exception creating backend " + backend_type);
-      return nullptr;
-    }
+    return creator();
   } catch (const std::exception& error) {
     try {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing backend " +
+      SetDiagnosticNoexcept(diagnostic, "Exception creating backend " +
                                             backend_type + ": " + error.what());
     } catch (...) {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing backend");
+      SetDiagnosticNoexcept(diagnostic, "Exception creating backend");
     }
     return nullptr;
   } catch (...) {
-    SetDiagnosticNoexcept(diagnostic, "Unknown exception preparing backend");
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception creating backend");
     return nullptr;
   }
 }

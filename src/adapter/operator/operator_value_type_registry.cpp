@@ -288,15 +288,12 @@ bool OperatorValueTypeRegistry::RegisterBinding(
     return false;
   }
 
-  // 原子预检通过后，通过 Copy-and-Swap 一次性提交
   try {
-    auto temp_bindings = bindings_by_canonical_;
-
-    temp_bindings[binding.canonical_suffix] = binding;
-
-    bindings_by_canonical_.swap(temp_bindings);
+    auto candidate = binding;
+    bindings_by_canonical_.emplace(binding.canonical_suffix,
+                                   std::move(candidate));
   } catch (...) {
-    // 资源分配或复制异常不污染契约冲突状态，原快照保持不变
+    // 资源分配或复制异常不污染契约冲突状态，已有记录保持不变。
     return false;
   }
   return true;
@@ -316,9 +313,7 @@ bool OperatorValueTypeRegistry::RegisterOutputAllocator(
   try {
     auto candidate = binding;
     candidate.allocation_name = name;
-    auto snapshot = output_allocators_;
-    snapshot.emplace(name, std::move(candidate));
-    output_allocators_.swap(snapshot);
+    output_allocators_.emplace(name, std::move(candidate));
   } catch (...) {
     return false;
   }

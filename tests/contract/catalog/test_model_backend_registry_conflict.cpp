@@ -237,6 +237,53 @@ TEST(ModelExecutionRegistryTest,
       ::testing::ExitedWithCode(0), "");
 }
 
+struct CopyFailureCreator {
+  std::shared_ptr<int> failure;
+  explicit CopyFailureCreator(std::shared_ptr<int> value)
+      : failure(std::move(value)) {}
+  CopyFailureCreator(const CopyFailureCreator& other) : failure(other.failure) {
+    if (*failure == 1) throw std::runtime_error("creator copy failure");
+    if (*failure == 2) throw 42;
+  }
+  std::shared_ptr<IModel> operator()(const ModelCreateContext&,
+                                     std::string*) const {
+    return nullptr;
+  }
+  std::unique_ptr<IInferenceBackend> operator()() const { return nullptr; }
+};
+
+TEST(ModelExecutionRegistryTest, CreatorCopyFailuresLeaveRegistrationsUsable) {
+  EXPECT_EXIT(([&] {
+                auto failure = std::make_shared<int>(0);
+                auto& models = ModelRegistry::Instance();
+                auto& backends = BackendRegistry::Instance();
+                Check(models.Register(ModelDefinitionFor("copy_model"),
+                                      CopyFailureCreator(failure)));
+                Check(backends.Register(BackendDefinitionFor("copy_backend"),
+                                        CopyFailureCreator(failure)));
+                for (int mode : {1, 2}) {
+                  *failure = mode;
+                  std::string model_error, backend_error;
+                  Check(!models.Create("copy_model", {}, &model_error));
+                  Check(!backends.Create("copy_backend", &backend_error));
+                  const auto expected =
+                      mode == 1 ? "creator copy failure" : "Unknown exception";
+                  Check(model_error.find(expected) != std::string::npos);
+                  Check(backend_error.find(expected) != std::string::npos);
+                  Check(!models.HasConflict() && !backends.HasConflict());
+                  Check(models.Find("copy_model").has_value());
+                  Check(backends.Find("copy_backend").has_value());
+                }
+                *failure = 0;
+                std::string model_error, backend_error;
+                Check(!models.Create("copy_model", {}, &model_error));
+                Check(!backends.Create("copy_backend", &backend_error));
+                Check(model_error.empty() && backend_error.empty());
+                std::_Exit(0);
+              }()),
+              ::testing::ExitedWithCode(0), "");
+}
+
 TEST(ModelExecutionRegistryTest,
      CreatorInvocationCanReenterAndExceptionsBecomeDiagnostics) {
   EXPECT_EXIT(([&] {
