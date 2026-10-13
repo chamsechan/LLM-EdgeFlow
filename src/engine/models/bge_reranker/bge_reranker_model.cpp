@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
@@ -168,7 +169,7 @@ int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
     SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   outputs->clear();
 
@@ -178,7 +179,7 @@ int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
 
   if (!session_) {
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
-    return -1;
+    return error::kInvalidState;
   }
 
   const BatchPolicy policy = session_->GetBatchPolicy();
@@ -196,7 +197,7 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
                                     const BatchSlice& slice,
                                     std::vector<float>* batch_scores,
                                     std::string* diagnostic) noexcept {
-  if (!batch_scores) return -1;
+  if (!batch_scores) return error::kInvalidArgument;
   batch_scores->clear();
 
   size_t exec_count = slice.execution_count;
@@ -209,10 +210,8 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
         HasTensorInput(session_->Inputs(), "token_type_ids");
     if (!input_tensors.Create(exec_count, max_tokens_, include_token_type_ids,
                               &diag)) {
-      ALG_LOG_ERROR("[BgeRerankerModel] Failed to create input tensors: %s\n",
-                    diag.c_str());
       SetDiagnosticNoexcept(diagnostic, diag);
-      return -1;
+      return error::kAllocationFailed;
     }
     int64_t* ids_ptr = input_tensors.ids;
     int64_t* mask_ptr = input_tensors.mask;
@@ -228,21 +227,17 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
         if (!tokenizer_.EncodePair(pair.query, pair.candidate, max_tokens_,
                                    &sample_ids, &sample_mask, &sample_type,
                                    &diag)) {
-          ALG_LOG_ERROR("[BgeRerankerModel] Tokenizer EncodePair error: %s\n",
-                        diag.c_str());
           SetDiagnosticNoexcept(diagnostic, diag);
           batch_scores->clear();
-          return -1;
+          return error::kInvalidInput;
         }
       } else {
         // 填充用的空条目
         if (!tokenizer_.EncodePair("", "", max_tokens_, &sample_ids,
                                    &sample_mask, &sample_type, &diag)) {
-          ALG_LOG_ERROR("[BgeRerankerModel] Dummy EncodePair error: %s\n",
-                        diag.c_str());
           SetDiagnosticNoexcept(diagnostic, diag);
           batch_scores->clear();
-          return -1;
+          return error::kInvalidState;
         }
       }
 
@@ -261,8 +256,6 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
     TensorMap output_map;
     int ret = session_->Run(input_map, &output_map, &diag);
     if (ret != 0) {
-      ALG_LOG_ERROR("[BgeRerankerModel] session_->Run failed: %s\n",
-                    diag.c_str());
       SetDiagnosticNoexcept(diagnostic, diag);
       batch_scores->clear();
       return ret;
@@ -270,34 +263,28 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
 
     auto it_out = output_map.find(output_name_);
     if (it_out == output_map.end()) {
-      ALG_LOG_ERROR(
-          "[BgeRerankerModel] Expected output tensor '%s' not found in session "
-          "outputs\n",
-          output_name_.c_str());
-      SetDiagnosticNoexcept(diagnostic, "Expected output tensor is missing");
+      SetDiagnosticNoexcept(
+          diagnostic, "Expected output tensor is missing: " + output_name_);
       batch_scores->clear();
-      return -1;
+      return error::kInvalidOutput;
     }
 
     const float* data = nullptr;
     if (!ValidateRerankOutput(it_out->second, exec_count, &data, &diag)) {
-      ALG_LOG_ERROR("[BgeRerankerModel] ValidateRerankOutput failed: %s\n",
-                    diag.c_str());
       SetDiagnosticNoexcept(diagnostic, diag);
       batch_scores->clear();
-      return -1;
+      return error::kInvalidOutput;
     }
 
     batch_scores->resize(exec_count);
     for (size_t b = 0; b < exec_count; ++b) {
       float logit = data[b];
       if (!std::isfinite(logit)) {
-        ALG_LOG_ERROR(
-            "[BgeRerankerModel] Output score is NaN or Inf at index %zu\n", b);
         SetDiagnosticNoexcept(diagnostic,
-                              "Reranker output score is NaN or Inf");
+                              "Reranker output score is NaN or Inf at index " +
+                                  std::to_string(b));
         batch_scores->clear();
-        return -1;
+        return error::kInvalidOutput;
       }
       if (score_activation_ == "sigmoid") {
         if (logit >= 0.0f) {
@@ -313,15 +300,13 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
 
     return 0;
   } catch (const std::exception& e) {
-    ALG_LOG_ERROR("[BgeRerankerModel] RawScoreSlice exception: %s\n", e.what());
     SetDiagnosticNoexcept(diagnostic, e.what());
     batch_scores->clear();
-    return -1;
+    return error::kInternalException;
   } catch (...) {
-    ALG_LOG_ERROR("[BgeRerankerModel] RawScoreSlice unknown exception\n");
     SetDiagnosticNoexcept(diagnostic, "Unknown model execution exception");
     batch_scores->clear();
-    return -1;
+    return error::kUnknownException;
   }
 }
 

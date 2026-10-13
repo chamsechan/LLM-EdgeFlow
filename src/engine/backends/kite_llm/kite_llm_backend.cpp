@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "contracts/path_utils.h"
 #include "engine/backend_registry.h"
@@ -253,25 +254,25 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
                std::string* output, std::string* diagnostic) noexcept override {
     if (!output) {
       SetDiagnosticNoexcept(diagnostic, "kiteLLM output pointer is null");
-      return -1;
+      return error::kInvalidArgument;
     }
     output->clear();
     if (!handle_) {
       SetDiagnosticNoexcept(diagnostic, "kiteLLM handle is not initialized");
-      return -1;
+      return error::kInvalidState;
     }
     if (seed.has_value()) {
       SetDiagnosticNoexcept(
           diagnostic,
           "kiteLLM does not support a fixed random seed per request");
-      return -1;
+      return error::kUnsupported;
     }
     if (formatted_prompt.empty()) {
       SetDiagnosticNoexcept(diagnostic, "Formatted prompt is empty");
-      return -1;
+      return error::kInvalidInput;
     }
     if (!text_generation::ValidateGenerateOptions(options, diagnostic)) {
-      return -1;
+      return error::kInvalidArgument;
     }
 
     try {
@@ -279,7 +280,7 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
           static_cast<size_t>(std::numeric_limits<int>::max())) {
         SetDiagnosticNoexcept(diagnostic,
                               "kiteLLM prompt exceeds tokenizer length limit");
-        return -1;
+        return error::kInvalidInput;
       }
       std::lock_guard<std::mutex> lock(session_mutex_);
       auto input = PreparePrompt(formatted_prompt, add_bos);
@@ -288,11 +289,11 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
     } catch (const std::exception& e) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic, "Unknown kiteLLM generation exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 };
@@ -311,7 +312,7 @@ class KiteGeneratedTokenEmbeddingSession final
     if (!output) {
       SetDiagnosticNoexcept(diagnostic,
                             "kiteLLM embedding output pointer is null");
-      return -1;
+      return error::kInvalidArgument;
     }
     *output = {};
     try {
@@ -356,10 +357,10 @@ class KiteGeneratedTokenEmbeddingSession final
       return 0;
     } catch (const std::exception& e) {
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       SetDiagnosticNoexcept(diagnostic, "Unknown kiteLLM embedding exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 };
@@ -375,7 +376,7 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
                std::string* output, std::string* diagnostic) noexcept override {
     if (!output) {
       SetDiagnosticNoexcept(diagnostic, "kiteLLM output pointer is null");
-      return -1;
+      return error::kInvalidArgument;
     }
     output->clear();
     try {
@@ -390,10 +391,10 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
         SetDiagnosticNoexcept(
             diagnostic,
             "Invalid image-text input dimensions, RGB planes or prompt");
-        return -1;
+        return error::kInvalidInput;
       }
       if (!text_generation::ValidateGenerateOptions(options, diagnostic))
-        return -1;
+        return error::kInvalidArgument;
       std::lock_guard<std::mutex> lock(session_mutex_);
       KiteInputPtr input(kiteLLM_TaskInput_Allocate());
       if (!input) throw std::runtime_error("kiteLLM task allocation failed");
@@ -419,12 +420,12 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
     } catch (const std::exception& e) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic,
                             "Unknown kiteLLM image generation exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 };

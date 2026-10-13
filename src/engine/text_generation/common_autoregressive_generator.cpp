@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "engine/text/utf8.h"
 
 namespace llm_edgeflow {
@@ -185,38 +186,37 @@ int CommonAutoregressiveGenerator::Generate(
     std::string* output, std::string* diagnostic) noexcept {
   if (!output) {
     SetDiagnosticNoexcept(diagnostic, "Text generation output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   output->clear();
-  if (formatted_prompt.empty() ||
-      !ValidateGenerateOptions(options, diagnostic)) {
-    if (formatted_prompt.empty()) {
-      SetDiagnosticNoexcept(diagnostic, "Formatted prompt is empty");
-    }
-    return -1;
+  if (formatted_prompt.empty()) {
+    SetDiagnosticNoexcept(diagnostic, "Formatted prompt is empty");
+    return error::kInvalidInput;
+  }
+  if (!ValidateGenerateOptions(options, diagnostic)) {
+    return error::kInvalidArgument;
   }
 
   try {
     std::vector<int32_t> prompt_tokens;
-    if (decoder.Encode(formatted_prompt, add_bos, &prompt_tokens, diagnostic) !=
-            0 ||
-        prompt_tokens.empty()) {
-      output->clear();
-      return -1;
+    int code =
+        decoder.Encode(formatted_prompt, add_bos, &prompt_tokens, diagnostic);
+    if (code != 0) return code;
+    if (prompt_tokens.empty()) {
+      SetDiagnosticNoexcept(diagnostic, "Tokenizer returned no prompt tokens");
+      return error::kInvalidOutput;
     }
     const size_t max_context = decoder.MaxContextTokens();
     if (max_context < 2 || prompt_tokens.size() >= max_context) {
       SetDiagnosticNoexcept(diagnostic,
                             "Prompt exceeds text generation context");
-      return -1;
+      return error::kInvalidInput;
     }
 
     std::vector<float> logits;
-    if (decoder.Evaluate(prompt_tokens, &logits, diagnostic) != 0 ||
-        !ValidateLogits(logits, diagnostic)) {
-      output->clear();
-      return -1;
-    }
+    code = decoder.Evaluate(prompt_tokens, &logits, diagnostic);
+    if (code != 0) return code;
+    if (!ValidateLogits(logits, diagnostic)) return error::kInvalidOutput;
 
     uint64_t actual_seed = 0;
     if (seed.has_value()) {
@@ -237,14 +237,15 @@ int CommonAutoregressiveGenerator::Generate(
       if (!SampleToken(logits, history, options, &rng, &token, diagnostic) ||
           token < 0 || static_cast<size_t>(token) >= logits.size()) {
         output->clear();
-        return -1;
+        return error::kInvalidOutput;
       }
       if (decoder.IsEndToken(token)) break;
 
       std::string piece;
-      if (decoder.DecodeToken(token, &piece, diagnostic) != 0) {
+      code = decoder.DecodeToken(token, &piece, diagnostic);
+      if (code != 0) {
         output->clear();
-        return -1;
+        return code;
       }
       output->append(piece);
       history.push_back(token);
@@ -253,11 +254,16 @@ int CommonAutoregressiveGenerator::Generate(
         output->resize(stop_position);
         break;
       }
-      if (step + 1 < steps &&
-          (decoder.Evaluate({token}, &logits, diagnostic) != 0 ||
-           !ValidateLogits(logits, diagnostic))) {
-        output->clear();
-        return -1;
+      if (step + 1 < steps) {
+        code = decoder.Evaluate({token}, &logits, diagnostic);
+        if (code != 0) {
+          output->clear();
+          return code;
+        }
+        if (!ValidateLogits(logits, diagnostic)) {
+          output->clear();
+          return error::kInvalidOutput;
+        }
       }
     }
     utf8::StripIncompleteSuffix(output);
@@ -266,11 +272,11 @@ int CommonAutoregressiveGenerator::Generate(
     output->clear();
     SetDiagnosticNoexcept(
         diagnostic, std::string("Text generation exception: ") + e.what());
-    return -1;
+    return error::kInternalException;
   } catch (...) {
     output->clear();
     SetDiagnosticNoexcept(diagnostic, "Unknown text generation exception");
-    return -1;
+    return error::kUnknownException;
   }
 }
 

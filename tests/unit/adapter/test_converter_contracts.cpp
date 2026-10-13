@@ -7,6 +7,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/operator/mock/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "contracts/error_codes.h"
 #include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
@@ -27,7 +28,7 @@ class ConverterRowsTest : public ::testing::Test {
                                          std::string* error) {
       if (!static_cast<const RowCarrier*>(raw)->valid) {
         *error = "carrier rejected";
-        return COMPANY_ALG_ERR_INVALID_INPUT;
+        return error::kInvalidInput;
       }
       return 0;
     };
@@ -98,14 +99,12 @@ TEST_F(ConverterRowsTest, DecodeRequiresContextAndAtLeastOneRequest) {
   AdapterStatus status;
   int calls = 0;
   auto source = Input({std::make_shared<RowCarrier>(RowCarrier{"A"})});
-  EXPECT_EQ(Decode(source, nullptr, &status, &calls),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(Decode(source, nullptr, &status, &calls), error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "context");
   EXPECT_EQ(calls, 0);
   AlgContext context;
   source.count = 0;
-  EXPECT_EQ(Decode(source, &context, &status, &calls),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(Decode(source, &context, &status, &calls), error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "slots");
   EXPECT_EQ(calls, 0);
   EXPECT_FALSE(context.Has("bound.rows"));
@@ -144,7 +143,7 @@ TEST_F(ConverterRowsTest, OutputViewRequiresMatchingBindingAndPoolBeforeWrite) {
   destination.binding = &output_binding;
   destination.pool_spec = nullptr;
   const auto missing_pool = destination.Write("out", 0, value);
-  EXPECT_EQ(missing_pool.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(missing_pool.Code(), error::kInvalidOutput);
   EXPECT_EQ(missing_pool.Message(), "Missing output capacity specification");
   EXPECT_EQ(rows[0].text, "untouched");
   destination.pool_spec = &pool;
@@ -196,8 +195,7 @@ TEST_F(ConverterRowsTest, LaterNullInvalidOrRejectedRowPublishesNothing) {
     AlgContext context;
     AdapterStatus status;
     int calls = 0;
-    EXPECT_EQ(Decode(source, &context, &status, &calls),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(Decode(source, &context, &status, &calls), error::kInvalidInput);
     EXPECT_EQ(calls, test.calls);
     EXPECT_FALSE(context.Has("bound.rows"));
     EXPECT_EQ(status.SampleIndex(), 1);
@@ -224,12 +222,12 @@ TEST_F(ConverterRowsTest, EncodeRequiresContextAndConnectedResult) {
   size_t written = 99;
   int calls = 0;
   EXPECT_EQ(Encode(nullptr, &destination, &written, &status, &calls),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+            error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "context");
   EXPECT_EQ(written, 0U);
   AlgContext context;
   EXPECT_EQ(Encode(&context, &destination, &written, &status, &calls),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+            error::kInvalidInput);
   EXPECT_EQ(status.FieldPath(), "res");
   EXPECT_EQ(calls, 0);
   EXPECT_EQ(written, 0U);
@@ -273,7 +271,7 @@ TEST_F(ConverterRowsTest, EncodeRejectsInvalidProvenanceBeforeAnyRowWrite) {
     size_t written = 99;
     int calls = 0;
     EXPECT_EQ(Encode(&context, &destination, &written, &status, &calls),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(written, 0U);
     EXPECT_EQ(calls, 0);
     EXPECT_EQ(rows[0].text, "untouched A");
@@ -434,7 +432,7 @@ TEST_F(ConverterRoutingTest,
       operator_api::MakeBorrowedOperatorInput(&translate.value);
   EXPECT_EQ(
       ValidateAndExtractOperatorInputs(input, selected, {}, &views, &error),
-      -3);
+      error::kInvalidInput);
   EXPECT_NE(error.find("Missing required input entity_in/translate"),
             std::string::npos);
 }
@@ -470,7 +468,7 @@ TEST_F(ConverterRoutingTest,
     std::string error;
     EXPECT_EQ(ValidateAndExtractOperatorInputs({test.row}, entity_inputs, {},
                                                &views, &error),
-              -3);
+              error::kInvalidInput);
     EXPECT_NE(error.find(test.detail), std::string::npos) << error;
   }
 }
@@ -489,7 +487,7 @@ TEST_F(ConverterRoutingTest,
   EXPECT_EQ(views[0].values[0], nullptr);
   EXPECT_EQ(ValidateAndExtractOperatorInputs({{{"x.entity_in", nullptr}}},
                                              entity_inputs, {}, &views, &error),
-            -3);
+            error::kInvalidInput);
 }
 
 TEST_F(ConverterRoutingTest, OutputsRequireEmptyDeclaredSlotsAndRejectExtras) {
@@ -518,7 +516,7 @@ TEST_F(ConverterRoutingTest, OutputsRequireEmptyDeclaredSlotsAndRejectExtras) {
     std::string error;
     EXPECT_EQ(ResolveOperatorOutputs({test.row}, translation_outputs, &bindings,
                                      &error),
-              -4);
+              error::kInvalidOutput);
     EXPECT_NE(error.find(test.detail), std::string::npos) << error;
   }
 }
@@ -565,7 +563,7 @@ TEST_F(ConverterRoutingTest,
       ResolveOperatorOutputs({{{"arbitrary.json_out", nullptr},
                                {"entity_extract.json_out", nullptr}}},
                              {output_selection, second}, &bindings, &error),
-      -4);
+      error::kInvalidOutput);
   EXPECT_NE(error.find("Missing required output json_out/translate"),
             std::string::npos);
 }

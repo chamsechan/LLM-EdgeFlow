@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-#include "platform_mock/error_codes.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -13,7 +13,7 @@ namespace llm_edgeflow {
  */
 class AdapterStatus {
  public:
-  AdapterStatus() : code_(COMPANY_ALG_SUCCESS), sample_index_(-1) {}
+  AdapterStatus() : code_(error::kOk), sample_index_(-1) {}
 
   AdapterStatus(int code, std::string message, std::string field_path = "",
                 int sample_index = -1, std::string adapter_name = "")
@@ -29,7 +29,7 @@ class AdapterStatus {
                                     std::string field_path = "",
                                     int sample_index = -1,
                                     std::string adapter_name = "") {
-    return AdapterStatus(COMPANY_ALG_ERR_INVALID_INPUT, std::move(message),
+    return AdapterStatus(error::kInvalidInput, std::move(message),
                          std::move(field_path), sample_index,
                          std::move(adapter_name));
   }
@@ -38,12 +38,12 @@ class AdapterStatus {
                                       std::string field_path = "",
                                       int sample_index = -1,
                                       std::string adapter_name = "") {
-    return AdapterStatus(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, std::move(message),
+    return AdapterStatus(error::kInvalidOutput, std::move(message),
                          std::move(field_path), sample_index,
                          std::move(adapter_name));
   }
 
-  bool IsOk() const { return code_ == COMPANY_ALG_SUCCESS; }
+  bool IsOk() const { return code_ == error::kOk; }
   int Code() const { return code_; }
   const std::string& Message() const { return message_; }
   const std::string& FieldPath() const { return field_path_; }

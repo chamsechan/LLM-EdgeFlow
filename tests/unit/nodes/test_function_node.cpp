@@ -133,7 +133,7 @@ TEST(AuthorNodeTest, PopulationDistinguishesConnectionsFromRequestValues) {
     publish(row.connect_extra ? "request.extra" : "extra", row.extra);
     publish(row.connect_fallback ? "request.fallback" : "fallback",
             row.fallback);
-    EXPECT_EQ(node.Process(&context), row.succeeds ? 0 : -8001);
+    EXPECT_EQ(node.Process(&context), row.succeeds ? 0 : error::kMissingInput);
     EXPECT_EQ(calls, row.succeeds ? 1 : 0);
     if (row.succeeds) {
       EXPECT_EQ(extra, row.seen_extra);
@@ -197,12 +197,14 @@ TEST(AuthorNodeTest, AllDeclaredOutputsAreValidatedBeforeAnyPublication) {
   const std::vector<Case> cases{
       {"both outputs valid", Fault::kNone, true, 0},
       {"unreferenced output stays unpublished", Fault::kNone, false, 0},
-      {"Run failure", Fault::kFailure, true, -8002},
+      {"Run failure", Fault::kFailure, true, error::kBusinessError},
       {"Run preserves cause code", Fault::kExplicitCode, true, -7341},
-      {"count", Fault::kCount, true, -8004},
-      {"request provenance", Fault::kRequest, true, -8005},
-      {"sub provenance", Fault::kSubId, true, -8005},
-      {"unreferenced output still validated", Fault::kCount, false, -8004},
+      {"count", Fault::kCount, true, error::kOutputCountMismatch},
+      {"request provenance", Fault::kRequest, true,
+       error::kOutputProvenanceMismatch},
+      {"sub provenance", Fault::kSubId, true, error::kOutputProvenanceMismatch},
+      {"unreferenced output still validated", Fault::kCount, false,
+       error::kOutputCountMismatch},
   };
   for (const auto& row : cases) {
     SCOPED_TRACE(row.name);
@@ -278,7 +280,7 @@ TEST(AuthorNodeTest, RuntimeBoundariesContainStandardAndUnknownExceptions) {
   SessionContext session;
   auto plan = TextPlan();
   RuntimeBoundaryProbe node;
-  EXPECT_EQ(node.Process(nullptr), -2901);
+  EXPECT_EQ(node.Process(nullptr), error::kInvalidArgument);
   for (int fault : {1, 2}) {
     SCOPED_TRACE(fault);
     std::string diagnostic;
@@ -291,15 +293,17 @@ TEST(AuthorNodeTest, RuntimeBoundariesContainStandardAndUnknownExceptions) {
     ASSERT_TRUE(node.Init({&plan, &session, nullptr}));
     AlgContext context;
     node.run_fault = fault;
-    EXPECT_EQ(node.Process(&context), -2902);
-    EXPECT_EQ(context.GetErrorCode(), -2902);
+    const int expected =
+        fault == 1 ? error::kInternalException : error::kUnknownException;
+    EXPECT_EQ(node.Process(&context), expected);
+    EXPECT_EQ(context.GetErrorCode(), expected);
     EXPECT_NE(context.GetErrorMessage().find(
                   fault == 1 ? "literal boundary exception" : "unknown"),
               std::string::npos);
     node.control_fault = fault;
     const auto result = node.Control(17, "{}");
     EXPECT_EQ(result.status, NodeControlStatus::kFailed);
-    EXPECT_EQ(result.code, -1);
+    EXPECT_EQ(result.code, expected);
     EXPECT_NE(result.message.find(fault == 1 ? "literal boundary exception"
                                              : "Unknown control"),
               std::string::npos);
@@ -355,16 +359,16 @@ TEST(ModelCallTest, SharedAlignedInvocationOwnsEmptyErrorAndProvenanceRules) {
   const std::vector<Case> cases{
       {"empty bound", true, true, RecordingLlm::Reply::kValid, 0, ""},
       {"empty unbound", true, false, RecordingLlm::Reply::kValid, 0, ""},
-      {"unbound nonempty", false, false, RecordingLlm::Reply::kValid, -8003,
-       "model is null"},
+      {"unbound nonempty", false, false, RecordingLlm::Reply::kValid,
+       error::kModelCallFailed, "model is null"},
       {"model error", false, true, RecordingLlm::Reply::kError, -771,
        "literal model failure"},
-      {"count", false, true, RecordingLlm::Reply::kCount, -8004,
-       "count mismatch"},
-      {"request", false, true, RecordingLlm::Reply::kRequest, -8005,
-       "provenance mismatch"},
-      {"sub", false, true, RecordingLlm::Reply::kSubId, -8005,
-       "provenance mismatch"},
+      {"count", false, true, RecordingLlm::Reply::kCount,
+       error::kOutputCountMismatch, "count mismatch"},
+      {"request", false, true, RecordingLlm::Reply::kRequest,
+       error::kOutputProvenanceMismatch, "provenance mismatch"},
+      {"sub", false, true, RecordingLlm::Reply::kSubId,
+       error::kOutputProvenanceMismatch, "provenance mismatch"},
       {"valid", false, true, RecordingLlm::Reply::kValid, 0, ""},
   };
   for (const auto& row : cases) {
@@ -582,7 +586,8 @@ TEST(AuthorNodeTest,
     SCOPED_TRACE(row.first);
     const auto control = node.Control(17, row.first);
     EXPECT_EQ(control.status, NodeControlStatus::kFailed);
-    EXPECT_EQ(control.code, -1);
+    // ValidateState contains hook exceptions and reports a rejected state.
+    EXPECT_EQ(control.code, error::kInvalidArgument);
     EXPECT_FALSE(control.message.empty());
     if (!row.second.empty()) {
       EXPECT_NE(control.message.find(row.second), std::string::npos);
@@ -667,7 +672,7 @@ TEST(ConfigurationSnapshotTest, UpdateRequiresValueInitialization) {
   });
   EXPECT_FALSE(built);
   EXPECT_EQ(result.status, NodeControlStatus::kFailed);
-  EXPECT_EQ(result.code, -1);
+  EXPECT_EQ(result.code, error::kInvalidState);
   EXPECT_EQ(result.message, "ConfigurationSnapshot is not initialized");
   ASSERT_TRUE(snapshot.Initialize(10));
   auto reader = snapshot.Read();
@@ -688,7 +693,9 @@ TEST(ConfigurationSnapshotTest,
       throw 42;
     });
     EXPECT_EQ(result.status, NodeControlStatus::kFailed);
-    EXPECT_EQ(result.code, fault == 0 ? -742 : -1);
+    EXPECT_EQ(result.code, fault == 0   ? -742
+                           : fault == 1 ? error::kInternalException
+                                        : error::kUnknownException);
     EXPECT_EQ(result.message,
               fault == 0   ? "literal candidate rejection"
               : fault == 1 ? "literal candidate exception"

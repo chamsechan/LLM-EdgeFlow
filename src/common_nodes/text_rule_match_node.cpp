@@ -7,10 +7,10 @@
 #include <vector>
 
 #include "common_nodes/support/compiled_text_regex.h"
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 #include "edgeflow/log.h"
 #include "nodes/authoring.h"
-#include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -133,14 +133,10 @@ NodeResult<RuleMatchBatch> Run(const Inputs& inputs, const Params& state) {
                                       sentence, &rule_captures, &diagnostic)
                                 : TextRegexSearchStatus::kNotMatched;
         if (status == TextRegexSearchStatus::kError) {
-          ALG_LOG_ERROR(
-              "[text_rule_match] Regex execution failed for rule '%s': "
-              "%s\n",
-              rule.id.c_str(), diagnostic.c_str());
           return NodeResult<RuleMatchBatch>::Failure(
               "Regex execution failed for rule '" + rule.id +
                   "': " + diagnostic,
-              node_error::text_rule_match::kRegexExecutionFailed);
+              error::kRegexExecutionFailed);
         }
         rule_matched = status == TextRegexSearchStatus::kMatched;
       } else if (rule.strategy == "exact") {

@@ -15,7 +15,7 @@ enum class OperatorFailureStage {
   kControlRequest,      // Control 信封、目标或 payload 被拒绝
   kControlUnsupported,  // 没有 Node 声明或处理该命令
   kControlExecution,    // Node 拒绝或未能应用更新
-  kControlRuntime,      // 无就绪运行时，或触发了异常屏障
+  kRuntime,             // 无就绪运行时，或触发了异常屏障
 };
 
 OperatorFailureStage ControlFailureToOperatorStage(

@@ -7,10 +7,10 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "core/node_interface.h"
 #include "core/validated_node_plan.h"
-#include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 
 namespace llm_edgeflow {
@@ -74,16 +74,14 @@ class ConfigurationSnapshot {
         std::atomic_load_explicit(&state_, std::memory_order_acquire);
     if (!current) {
       return NodeControlResult::Failed(
-          node_error::control::kInvalidRequest,
-          "ConfigurationSnapshot is not initialized");
+          error::kInvalidState, "ConfigurationSnapshot is not initialized");
     }
     try {
       NodeResult<State> res = build_next(*current);
       if (!res.ok()) {
         const auto& failure = res.failure();
-        int code = failure.cause_code != 0
-                       ? failure.cause_code
-                       : node_error::control::kInvalidRequest;
+        int code = failure.cause_code != 0 ? failure.cause_code
+                                           : error::kInvalidArgument;
         return NodeControlResult::Failed(
             code, failure.message.empty() ? "Configuration update failed"
                                           : failure.message);
@@ -95,11 +93,10 @@ class ConfigurationSnapshot {
                                  std::memory_order_release);
       return success_res;
     } catch (const std::exception& e) {
-      return NodeControlResult::Failed(node_error::control::kInvalidRequest,
-                                       e.what());
+      return NodeControlResult::Failed(error::kInternalException, e.what());
     } catch (...) {
       return NodeControlResult::Failed(
-          node_error::control::kInvalidRequest,
+          error::kUnknownException,
           "Unknown exception during configuration update");
     }
   }

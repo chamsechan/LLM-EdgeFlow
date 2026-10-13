@@ -1,5 +1,6 @@
 #include "adapter/operator/mock/operator_error_mapping.h"
 
+#include "contracts/error_codes.h"
 #include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
@@ -18,10 +19,10 @@ const char* StageName(OperatorFailureStage stage) noexcept {
       return "Control command";
     case OperatorFailureStage::kControlExecution:
       return "Control node update";
-    case OperatorFailureStage::kControlRuntime:
+    case OperatorFailureStage::kRuntime:
       break;
   }
-  return "Control runtime";
+  return "Runtime";
 }
 
 }  // namespace
@@ -38,19 +39,22 @@ OperatorFailureStage ControlFailureToOperatorStage(
     case ControlFailureStage::kNone:
       break;
   }
-  return OperatorFailureStage::kControlRuntime;
+  return OperatorFailureStage::kRuntime;
 }
 
 int PublicFailureCode(OperatorFailureStage stage, int internal_code) noexcept {
+  if (internal_code == error::kOk) return COMPANY_ALG_SUCCESS;
   switch (stage) {
     case OperatorFailureStage::kCreatePreparation:
-      // Adapter 自有类别保持原义；其余准备阶段失败均视为非法的创建参数或配置。
       switch (internal_code) {
-        case COMPANY_ALG_ERR_UNSUPPORTED_BIZ:
-        case COMPANY_ALG_ERR_REGISTRY_CONFLICT:
-        case COMPANY_ALG_ERR_EXCEPTION:
-        case COMPANY_ALG_ERR_UNKNOWN:
-          return internal_code;
+        case error::kUnsupported:
+          return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;
+        case error::kRegistryConflict:
+          return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
+        case error::kInternalException:
+          return COMPANY_ALG_ERR_EXCEPTION;
+        case error::kUnknownException:
+          return COMPANY_ALG_ERR_UNKNOWN;
         default:
           return COMPANY_ALG_ERR_INVALID_PARAM;
       }
@@ -61,18 +65,46 @@ int PublicFailureCode(OperatorFailureStage stage, int internal_code) noexcept {
       return COMPANY_ALG_ERR_INVALID_PARAM;
     case OperatorFailureStage::kControlUnsupported:
       return COMPANY_ALG_ERR_UNSUPPORTED_CONTROL;
-    case OperatorFailureStage::kControlRuntime:
+    case OperatorFailureStage::kRuntime:
       break;
   }
-  // 运行时守卫和异常屏障已返回公开错误码。
-  return internal_code;
+  switch (internal_code) {
+    case error::kInvalidState:
+      return COMPANY_ALG_ERR_INVALID_HANDLE;
+    case error::kInvalidArgument:
+    case error::kInvalidOutputAllocation:
+      return COMPANY_ALG_ERR_INVALID_PARAM;
+    case error::kInvalidInput:
+    case error::kMissingInput:
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    case error::kInvalidOutput:
+    case error::kOutputCountMismatch:
+    case error::kOutputProvenanceMismatch:
+    case error::kAllocationFailed:
+    case error::kPoolMissing:
+    case error::kPoolClosed:
+    case error::kPoolCorrupt:
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    case error::kUnsupported:
+    case error::kUnknownConverter:
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;
+    case error::kRegistryConflict:
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
+    case error::kUnsupportedControl:
+      return COMPANY_ALG_ERR_UNSUPPORTED_CONTROL;
+    case error::kInternalException:
+      return COMPANY_ALG_ERR_EXCEPTION;
+    default:
+      return COMPANY_ALG_ERR_UNKNOWN;
+  }
 }
 
 std::string DescribeOperatorFailure(OperatorFailureStage stage,
                                     int internal_code,
                                     std::string_view detail) {
   return std::string(StageName(stage)) + " failed with internal code " +
-         std::to_string(internal_code) + ": " + std::string(detail);
+         std::to_string(internal_code) + " (" + ErrorCodeName(internal_code) +
+         "): " + std::string(detail);
 }
 
 }  // namespace llm_edgeflow

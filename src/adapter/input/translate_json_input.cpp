@@ -7,6 +7,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_values.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
@@ -22,7 +23,7 @@ int ParseTranslateQuery(const std::string& raw_text, std::string* out_query) {
   const auto req_json = nlohmann::json::parse(raw_text, nullptr, false);
   if (!req_json.is_object() || !req_json.contains("query") ||
       !req_json["query"].is_string()) {
-    return -1;
+    return error::kInvalidInput;
   }
   if (out_query) {
     *out_query = req_json["query"].get<std::string>();

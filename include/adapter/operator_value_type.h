@@ -17,6 +17,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/input_limits.h"
 #include "adapter/operator_io_contracts.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -257,7 +258,7 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
                                          std::string* err) -> int {
     if (!ptr) {
       if (err) *err = std::string(HostTypeName<T>()) + " pointer is null";
-      return -3;
+      return error::kInvalidInput;
     }
     return validate(*static_cast<const T*>(ptr), limits, err);
   };

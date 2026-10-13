@@ -38,6 +38,8 @@
 
 ## 进阶与参考
 
+- [错误码与日志](dev_guide/error_handling.md)：框架码、平台映射、诊断上下文与六级日志。
+
 | 资料 | 职责 |
 | --- | --- |
 | [Node 作者的五个概念](dev_guide/custom_node_concepts.md) | 按需理解端口、来源、模型绑定、Definition 和并发 |

@@ -24,8 +24,9 @@ DocumentValidationResult ValidatePipelineDocument(
       result.ok = false;
       result.core_report = std::nullopt;
 
-      nlohmann::json diag_item = {
-          {"code", diag.code}, {"path", diag.path}, {"message", diag.message}};
+      nlohmann::json diag_item = {{"code", ErrorCodeName(diag.code)},
+                                  {"path", diag.path},
+                                  {"message", diag.message}};
       nlohmann::json resp = {
           {"ok", false}, {"diagnostics", nlohmann::json::array({diag_item})}};
       if (mode == DocumentValidationMode::kPlan) {
@@ -50,7 +51,7 @@ DocumentValidationResult ValidatePipelineDocument(
           if (validation.core_report) return std::move(*validation.core_report);
           ValidationReport failed;
           ValidationDiagnostic diagnostic;
-          diagnostic.code = DiagnosticCode::kInvalidCombination;
+          diagnostic.code = error::kInvalidCombination;
           const auto& error = validation.response.at("diagnostics").at(0);
           diagnostic.path = error.at("path").template get<std::string>();
           diagnostic.message = error.at("message").template get<std::string>();

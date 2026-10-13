@@ -2,9 +2,9 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/text/utf8.h"
 #include "nodes/authoring.h"
-#include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -32,7 +32,7 @@ NodeResult<std::vector<std::string>> SplitText(const std::string& str,
     return NodeResult<std::vector<std::string>>::Failure(
         "text_chunk invalid UTF-8 input at byte offset " +
             std::to_string(invalid_offset),
-        node_error::text_chunk::kInvalidUtf8);
+        error::kInvalidUtf8);
   }
 
   const size_t code_point_count = boundaries.size() - 1;

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/models/qwen_causal_lm/qwen_causal_lm_model.h"
 #include "tests/support/model_probe.h"
 
@@ -137,7 +138,8 @@ TEST(QwenCausalLmModelTest, EmptyPromptIsRejectedAndBackendFailureIsPreserved) {
   QwenCausalLmModel model(session, false);
   TextBatch output;
   std::string diagnostic;
-  EXPECT_EQ(model.Generate({{0, 0, ""}}, {}, &output, &diagnostic), -1);
+  EXPECT_EQ(model.Generate({{0, 0, ""}}, {}, &output, &diagnostic),
+            error::kInvalidInput);
   EXPECT_EQ(session->calls, 0);
   EXPECT_NE(diagnostic.find("non-empty prompt"), std::string::npos);
   session->code = -719;

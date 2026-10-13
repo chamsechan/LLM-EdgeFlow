@@ -90,7 +90,8 @@ TEST_F(IoParametersTest,
               8191u);
   }
   ResolvedOperatorConfig invalid;
-  EXPECT_EQ(Resolve("conf/deploy.conf", 1025, &invalid), -2);
+  EXPECT_EQ(Resolve("conf/deploy.conf", 1025, &invalid),
+            error::kInvalidOutputAllocation);
   EXPECT_EQ(invalid.io_plan, nullptr);
   EXPECT_NE(error_.find("exceeds hard limit"), std::string::npos);
   operator_api::OperatorIoContract contract;
@@ -106,6 +107,27 @@ TEST_F(IoParametersTest,
   EXPECT_EQ(contract.outputs[0].type, "json_out");
   EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorOutput");
   EXPECT_EQ(contract.outputs[0].service_type, kMockServiceKeywordMatch);
+}
+
+TEST_F(IoParametersTest, ResolutionReturnsSpecificCodeWithoutDiagnosticOutput) {
+  std::ofstream(config_ / "deploy.conf") << "{invalid";
+  ResolvedOperatorConfig result;
+  DeploymentDiagnostic diagnostic;
+  EXPECT_EQ(Resolve("conf/deploy.conf", 2, &result, &diagnostic),
+            error::kJsonParse);
+  EXPECT_EQ(diagnostic.code, error::kJsonParse);
+  EXPECT_EQ(Resolve("conf/deploy.conf", 2, &result), error::kJsonParse);
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  EXPECT_EQ(IoPlanResolver::ResolveFromFile((config_ / "deploy.conf").string(),
+                                            &plan, &error_),
+            error::kJsonParse);
+  EXPECT_EQ(IoPlanResolver::ResolveFromFile((config_ / "missing.conf").string(),
+                                            &plan, &error_),
+            error::kConfigFileOpen);
+  EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(
+                KeywordDeployment(65537), config_.string(), &plan, &error_),
+            error::kConfigFieldRange);
 }
 
 TEST_F(IoParametersTest,
@@ -132,7 +154,7 @@ TEST_F(IoParametersTest,
         std::string("linked.conf")}) {
     SCOPED_TRACE(file);
     ResolvedOperatorConfig rejected;
-    EXPECT_EQ(Resolve(file, 2, &rejected), -2);
+    EXPECT_EQ(Resolve(file, 2, &rejected), error::kDeploymentError);
     EXPECT_EQ(rejected.io_plan, nullptr);
   }
   std::filesystem::create_symlink(outside / "pipeline.json",
@@ -144,7 +166,8 @@ TEST_F(IoParametersTest,
     WriteConfig(pipe);
     DeploymentDiagnostic diagnostic;
     ResolvedOperatorConfig rejected;
-    EXPECT_EQ(Resolve("conf/deploy.conf", 2, &rejected, &diagnostic), -2);
+    EXPECT_EQ(Resolve("conf/deploy.conf", 2, &rejected, &diagnostic),
+              error::kDeploymentError);
     EXPECT_EQ(rejected.io_plan, nullptr);
     EXPECT_EQ(diagnostic.path, "/pipe_path");
   }
@@ -163,7 +186,7 @@ TEST_F(IoParametersTest,
   ASSERT_EQ(Resolve("linked.conf", 2, &result, &diagnostic), 0) << error_;
   EXPECT_EQ(result.conf_path, config_ / "deploy.conf");
   EXPECT_EQ(result.pipeline_path, config_ / "pipeline.json");
-  EXPECT_TRUE(diagnostic.code.empty());
+  EXPECT_EQ(diagnostic.code, error::kOk);
 }
 
 TEST_F(IoParametersTest,
@@ -178,9 +201,10 @@ TEST_F(IoParametersTest,
 
   DeploymentDiagnostic diagnostic;
   ResolvedOperatorConfig rejected_config;
-  EXPECT_EQ(Resolve("linked.conf", 2, &rejected_config, &diagnostic), -2);
+  EXPECT_EQ(Resolve("linked.conf", 2, &rejected_config, &diagnostic),
+            error::kDeploymentError);
   EXPECT_EQ(rejected_config.io_plan, nullptr);
-  EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
+  EXPECT_EQ(diagnostic.code, error::kDeploymentError);
   EXPECT_EQ(diagnostic.path, "/");
   EXPECT_NE(error_.find("symlink escapes model_path"), std::string::npos);
 
@@ -191,9 +215,9 @@ TEST_F(IoParametersTest,
 
   ResolvedOperatorConfig rejected_pipeline;
   EXPECT_EQ(Resolve("conf/deploy.conf", 2, &rejected_pipeline, &diagnostic),
-            -2);
+            error::kDeploymentError);
   EXPECT_EQ(rejected_pipeline.io_plan, nullptr);
-  EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
+  EXPECT_EQ(diagnostic.code, error::kDeploymentError);
   EXPECT_EQ(diagnostic.path, "/pipe_path");
   EXPECT_NE(error_.find("pipe_path escapes config directory"),
             std::string::npos);
@@ -223,32 +247,32 @@ TEST_F(IoParametersTest,
   struct InvalidSelection {
     const char* label;
     Json document;
-    const char* code;
+    int code;
     const char* path;
   };
   std::vector<InvalidSelection> cases;
   auto unknown = KeywordDeployment();
   unknown["io"]["input"][0]["name"] = "not_keyword_match";
   cases.push_back(
-      {"unknown pair", unknown, "UNKNOWN_CONVERTER", "/io/input/0"});
+      {"unknown pair", unknown, error::kUnknownConverter, "/io/input/0"});
   auto duplicate = KeywordDeployment();
   duplicate["io"]["input"].push_back(duplicate["io"]["input"][0]);
-  cases.push_back(
-      {"duplicate selection", duplicate, "DUPLICATE_IO_ENTRY", "/io/input/1"});
+  cases.push_back({"duplicate selection", duplicate, error::kDuplicateIoEntry,
+                   "/io/input/1"});
   auto port_collision = KeywordDeployment();
   port_collision["io"]["input"].push_back(
       {{"type", "entity_in"}, {"name", "entity_extract"}});
   cases.push_back({"duplicate producer", port_collision,
-                   "DUPLICATE_PORT_PRODUCER", "/io/input/1"});
+                   error::kDuplicatePortProducer, "/io/input/1"});
   auto unknown_egress = KeywordDeployment();
   unknown_egress["io"]["output"][0]["inputs"] = {{"wrong", "rules.matches"}};
-  cases.push_back({"unknown egress", unknown_egress, "UNKNOWN_FIELD",
+  cases.push_back({"unknown egress", unknown_egress, error::kUnknownField,
                    "/io/output/0/inputs/wrong"});
   auto duplicate_output = KeywordDeployment();
   duplicate_output["io"]["output"].push_back(
       duplicate_output["io"]["output"][0]);
-  cases.push_back({"duplicate output", duplicate_output, "DUPLICATE_IO_ENTRY",
-                   "/io/output/1"});
+  cases.push_back({"duplicate output", duplicate_output,
+                   error::kDuplicateIoEntry, "/io/output/1"});
   for (const auto& invalid : cases) {
     SCOPED_TRACE(invalid.label);
     PreparedDeployment prepared;
@@ -277,9 +301,9 @@ TEST_F(
   EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(65537),
                                                     config_.string(), &plan,
                                                     &error_, &diagnostic, 2),
-            -2);
+            error::kConfigFieldRange);
   EXPECT_EQ(plan, nullptr);
-  EXPECT_EQ(diagnostic.code, "CONFIG_FIELD_RANGE");
+  EXPECT_EQ(diagnostic.code, error::kConfigFieldRange);
   EXPECT_EQ(diagnostic.path, "/io/output/0/params/result_json_max_bytes");
   ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(),
                                                     config_.string(), &plan,
@@ -318,9 +342,9 @@ TEST_F(IoParametersTest,
        {"inputs", {{"primary", "input.sentence_text"}}}});
   EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(
                 source, config_.string(), &plan, &error_, &diagnostic, 1024),
-            -2);
+            error::kInvalidOutputAllocation);
   EXPECT_EQ(plan, nullptr);
-  EXPECT_EQ(diagnostic.code, "INVALID_OUTPUT_ALLOCATION");
+  EXPECT_EQ(diagnostic.code, error::kInvalidOutputAllocation);
   EXPECT_EQ(diagnostic.path, "/io/output");
   EXPECT_NE(error_.find("per-handle payload budget"), std::string::npos);
   ASSERT_EQ(IoPlanResolver::ResolveFromPipelineJson(
@@ -333,7 +357,7 @@ TEST_F(IoParametersTest,
   EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(65536),
                                                     config_.string(), &plan,
                                                     &error_, &diagnostic, 1024),
-            -2);
+            error::kInvalidOutputAllocation);
   EXPECT_EQ(diagnostic.path, "/io/output/0");
 }
 

@@ -5,11 +5,11 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
-#include "nodes/node_error_codes.h"
 #include "tests/support/node_probe.h"
 
 namespace llm_edgeflow {
@@ -147,7 +147,7 @@ TEST_F(TextChunkNodeTest, InvalidUtf8AfterValidParentPublishesNeitherOutput) {
   // Two bytes of an unfinished four-byte code point after an ASCII prefix.
   const std::string invalid = std::string("no") + "\xF0\x9F";
   context.Publish(kText, TextBatch{{73, 9, "abcdef"}, {12, 4, invalid}});
-  EXPECT_EQ(node.node->Process(&context), node_error::text_chunk::kInvalidUtf8);
+  EXPECT_EQ(node.node->Process(&context), error::kInvalidUtf8);
   EXPECT_NE(
       context.GetErrorMessage().find("invalid UTF-8 input at byte offset 2"),
       std::string::npos);

@@ -5,6 +5,7 @@
 
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow::operator_value_detail {
 
@@ -107,7 +108,7 @@ int CopyToOperatorString(std::string_view src, CompanyString* dest,
       if (err)
         *err = std::string(field_name ? field_name : "string") +
                " in destination pool block is null";
-      return -4;
+      return error::kInvalidOutput;
     }
     const size_t len = src.size();
     if (len > capacity ||
@@ -116,7 +117,7 @@ int CopyToOperatorString(std::string_view src, CompanyString* dest,
         *err = std::string(field_name ? field_name : "string") +
                " output length (" + std::to_string(len) +
                ") exceeds pool capacity (" + std::to_string(capacity) + ")";
-      return -4;
+      return error::kInvalidOutput;
     }
     if (len != 0) std::memcpy(dest->data, src.data(), len);
     dest->data[len] = '\0';
@@ -124,10 +125,10 @@ int CopyToOperatorString(std::string_view src, CompanyString* dest,
     return 0;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(err, e.what());
-    return -4;
+    return error::kInvalidOutput;
   } catch (...) {
     SetDiagnosticNoexcept(err, "Unknown exception in CopyToOperatorString");
-    return -4;
+    return error::kInvalidOutput;
   }
 }
 
@@ -169,26 +170,26 @@ int ValidateCompanyString(const CompanyString* str, size_t max_bytes,
     const char* name = field_name ? field_name : "string";
     if (!str) {
       if (err) *err = std::string(name) + " pointer is null";
-      return -3;
+      return error::kInvalidInput;
     }
     if (str->length < 0) {
       if (err)
         *err = std::string(name) + " has negative length " +
                std::to_string(str->length);
-      return -3;
+      return error::kInvalidInput;
     }
     if (static_cast<size_t>(str->length) > max_bytes) {
       if (err)
         *err = std::string(name) + " length " + std::to_string(str->length) +
                " exceeds max limit " + std::to_string(max_bytes);
-      return -3;
+      return error::kInvalidInput;
     }
     if (str->length > 0) {
       if (!str->data) {
         if (err)
           *err = std::string(name) + " length is " +
                  std::to_string(str->length) + " but data pointer is null";
-        return -3;
+        return error::kInvalidInput;
       }
       for (int32_t i = 0; i < str->length; ++i) {
         if (str->data[i] == '\0') {
@@ -196,17 +197,17 @@ int ValidateCompanyString(const CompanyString* str, size_t max_bytes,
             *err = std::string(name) +
                    " contains forbidden embedded NUL at byte offset " +
                    std::to_string(i);
-          return -3;
+          return error::kInvalidInput;
         }
       }
     }
     return 0;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(err, e.what());
-    return -3;
+    return error::kInvalidInput;
   } catch (...) {
     SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyString");
-    return -3;
+    return error::kInvalidInput;
   }
 }
 
@@ -217,7 +218,7 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
     const char* name = field_name ? field_name : "any";
     if (!any) {
       if (err) *err = std::string(name) + " pointer is null";
-      return -3;
+      return error::kInvalidInput;
     }
     if (any->element_count < 0 || any->byte_length < 0) {
       if (err) {
@@ -225,7 +226,7 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
                std::to_string(any->element_count) +
                ", length=" + std::to_string(any->byte_length);
       }
-      return -3;
+      return error::kInvalidInput;
     }
     if (static_cast<size_t>(any->byte_length) > max_any_bytes) {
       if (err) {
@@ -233,14 +234,14 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
                std::to_string(any->byte_length) + " exceeds max limit " +
                std::to_string(max_any_bytes);
       }
-      return -3;
+      return error::kInvalidInput;
     }
     if (any->type_id == 0) {
       if (any->element_count != 0 || any->byte_length != 0) {
         if (err) {
           *err = std::string(name) + " has type_id=0 but non-zero count/length";
         }
-        return -3;
+        return error::kInvalidInput;
       }
       return 0;
     }
@@ -251,7 +252,7 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
         *err = std::string(name) + " has unknown or unwhitelisted type_id " +
                std::to_string(any->type_id);
       }
-      return -3;
+      return error::kInvalidInput;
     }
 
     size_t expected_bytes = 0;
@@ -260,7 +261,7 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
       if (err) {
         *err = std::string(name) + " element_count multiplication overflowed";
       }
-      return -3;
+      return error::kInvalidInput;
     }
     if (expected_bytes != static_cast<size_t>(any->byte_length)) {
       if (err) {
@@ -270,22 +271,22 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
                desc->debug_name + ", but byte_length is " +
                std::to_string(any->byte_length);
       }
-      return -3;
+      return error::kInvalidInput;
     }
     if (any->byte_length > 0 && !any->data) {
       if (err) {
         *err = std::string(name) + " non-empty payload has null data";
       }
-      return -3;
+      return error::kInvalidInput;
     }
     return 0;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(err, e.what());
-    return -3;
+    return error::kInvalidInput;
   } catch (...) {
     SetDiagnosticNoexcept(err,
                           "Unknown exception in ValidateCompanyAnyPayload");
-    return -3;
+    return error::kInvalidInput;
   }
 }
 

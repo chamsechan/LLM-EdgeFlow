@@ -51,7 +51,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
       return NodeResult<RankedTextBatch>::Failure(
           "vector_top_k requires one query per request; duplicate req_id=" +
               std::to_string(query.req_id),
-          -3102);
+          error::kInvalidInput);
     }
   }
   // 索引候选文本 (根据 req_id 和 sub_id)
@@ -71,7 +71,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   if (is_shared_candidates && !candidates->empty() &&
       (req_candidate_indices.size() != 1 || !req_candidate_indices.count(0))) {
     return NodeResult<RankedTextBatch>::Failure(
-        "Shared candidates must use req_id 0", -3102);
+        "Shared candidates must use req_id 0", error::kInvalidInput);
   }
 
   RankedTextBatch ranked_batch;
@@ -107,7 +107,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
           !std::all_of(c_item.data.begin(), c_item.data.end(),
                        [](float v) { return std::isfinite(v); })) {
         return NodeResult<RankedTextBatch>::Failure(
-            "Invalid or mismatched embedding dimensions", -3102);
+            "Invalid or mismatched embedding dimensions", error::kInvalidInput);
       }
       float score = (params.metric == "dot_product")
                         ? DotProduct(q_vec, c_item.data)
@@ -120,7 +120,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
           text = text_map[text_key];
         } else {
           return NodeResult<RankedTextBatch>::Failure(
-              "Candidate text provenance is missing", -3102);
+              "Candidate text provenance is missing", error::kInvalidInput);
         }
         scored_list.push_back({c_item.sub_id, score, std::move(text)});
       }

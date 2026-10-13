@@ -6,6 +6,8 @@
 #include <cstring>
 #include <mutex>
 
+#include "contracts/error_codes.h"
+
 namespace {
 
 std::atomic<int>& GlobalLogLevel() {
@@ -35,7 +37,8 @@ extern "C" int AlgBase_setLogLevelByName(const char* name, int level) noexcept {
   (void)name;
   if (level < E_ALG_BASE_LOG_LEVEL_FATAL ||
       level > E_ALG_BASE_LOG_LEVEL_VERBOSE) {
-    return -1;
+    ALG_LOG_WARNING("[Log] Invalid log level %d; expected 0..5\n", level);
+    return llm_edgeflow::error::kInvalidArgument;
   }
   GlobalLogLevel().store(level, std::memory_order_release);
   return 0;

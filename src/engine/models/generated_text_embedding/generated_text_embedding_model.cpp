@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
@@ -98,12 +99,12 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
     SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   outputs->clear();
   if (!session_) {
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
-    return -1;
+    return error::kInvalidState;
   }
   return FixedBatchExecutor::ExecuteItems<std::string, std::vector<float>>(
       inputs, session_->GetBatchPolicy(),
@@ -112,7 +113,7 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         const auto& text = input.data;
         if (text.empty()) {
           SetDiagnosticNoexcept(diagnostic, "Embedding text is empty");
-          return -1;
+          return error::kInvalidInput;
         }
         GeneratedTokenEmbeddings tokens;
         std::string reason;
@@ -120,38 +121,33 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
             prompt_prefix_ + text + prompt_suffix_, add_bos_, max_tokens_,
             &tokens, &reason);
         if (result != 0) {
-          ALG_LOG_ERROR("[GeneratedTextEmbeddingModel] %s\n", reason.c_str());
           SetDiagnosticNoexcept(diagnostic, reason);
           return result;
         }
         if (tokens.values.empty() ||
             tokens.values.size() > static_cast<size_t>(max_tokens_) ||
             tokens.token_ids.size() != tokens.values.size()) {
-          ALG_LOG_ERROR(
-              "[GeneratedTextEmbeddingModel] Missing or invalid generated "
-              "token vectors (including immediate EOS)\n");
           SetDiagnosticNoexcept(diagnostic,
                                 "Missing or invalid generated token vectors "
                                 "(including immediate EOS)");
-          return -1;
+          return error::kInvalidOutput;
         }
         std::vector<double> pooled(static_cast<size_t>(embedding_dim_), 0.0);
         for (size_t row = 0; row < tokens.values.size(); ++row) {
           const auto& values = tokens.values[row];
           if (values.size() != pooled.size()) {
-            ALG_LOG_ERROR(
-                "[GeneratedTextEmbeddingModel] Expected dimension %d, received "
-                "%zu; check params.embedding_dim\n",
-                embedding_dim_, values.size());
             SetDiagnosticNoexcept(
-                diagnostic, "Generated token embedding dimension mismatch");
-            return -1;
+                diagnostic,
+                "Generated token embedding dimension mismatch: expected " +
+                    std::to_string(embedding_dim_) + ", received " +
+                    std::to_string(values.size()));
+            return error::kInvalidOutput;
           }
           for (size_t col = 0; col < values.size(); ++col) {
             if (!std::isfinite(values[col])) {
               SetDiagnosticNoexcept(diagnostic,
                                     "Generated embedding contains NaN or Inf");
-              return -1;
+              return error::kInvalidOutput;
             }
             if (pooling_ == "mean")
               pooled[col] += values[col];
@@ -166,7 +162,7 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
                                                         output)) {
           SetDiagnosticNoexcept(diagnostic,
                                 "Embedding pooling or normalization failed");
-          return -1;
+          return error::kInvalidOutput;
         }
         return 0;
       },

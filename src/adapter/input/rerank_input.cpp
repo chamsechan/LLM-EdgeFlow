@@ -8,6 +8,7 @@
 #include "adapter/input_limits.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_values.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 
@@ -27,7 +28,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               AlgContext* context, AdapterStatus* status) {
   if (!ValidateDecodeRequest(source, options, context, status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   TextBatch queries;
@@ -38,7 +39,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
   for (size_t i = 0; i < source.count; ++i) {
     auto in =
         ReadInputSlot<RerankInputValue>(source, kInputSlot, i, options, status);
-    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (!in) return error::kInvalidInput;
 
     if (in->candidate_passages.empty()) {
       return AdapterValidationHelper::ReturnInvalidInput(
@@ -72,10 +73,10 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
       !AdapterValidationHelper::PublishContextValue(
           *context, options.Port(kCandidates.name), std::move(candidates),
           options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 InputConverterDefinition MakeOperatorRerankInputConverter() {

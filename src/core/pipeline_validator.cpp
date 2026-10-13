@@ -20,7 +20,7 @@
 namespace llm_edgeflow {
 namespace {
 
-void Add(ValidationReport* report, DiagnosticCode code, std::string path,
+void Add(ValidationReport* report, int code, std::string path,
          std::string message, std::string node_name = {}, std::string port = {},
          std::vector<std::string> related = {},
          std::vector<std::string> suggestions = {}) {
@@ -38,7 +38,7 @@ nlohmann::json PortContractFacts(const PortContract& port) {
 }
 
 void AddPortFlowDiagnostic(
-    ValidationReport* report, DiagnosticCode code, const std::string& path,
+    ValidationReport* report, int code, const std::string& path,
     std::string message, const std::string& producer_name,
     const std::string& consumer_name, PortDirection location,
     const std::string& logical_port, const std::string& bound_key,
@@ -124,7 +124,7 @@ void ValidateBoundaryShape(
     const std::string& bound_key, ValidationReport* report) {
   if (consumer.cardinality != "1:1" || produced.kind != KeyShape::Kind::kMulti)
     return;
-  AddPortFlowDiagnostic(report, DiagnosticCode::kPortCardinalityMismatch, path,
+  AddPortFlowDiagnostic(report, error::kPortCardinalityMismatch, path,
                         "Port cardinality mismatch: '" + bound_key +
                             "' requires one item per request but receives " +
                             DescribeShape(produced),
@@ -160,7 +160,7 @@ void ValidatePortFlowContract(
     ValidationReport* report) {
   if (!ProvenanceCompatible(producer.provenance_policy,
                             consumer.provenance_policy)) {
-    AddPortFlowDiagnostic(report, DiagnosticCode::kPortProvenanceMismatch, path,
+    AddPortFlowDiagnostic(report, error::kPortProvenanceMismatch, path,
                           "Port provenance mismatch: producer policy '" +
                               producer.provenance_policy +
                               "' cannot satisfy consumer policy '" +
@@ -170,7 +170,7 @@ void ValidatePortFlowContract(
   }
   if (!LifetimeCompatible(producer.lifetime, consumer.lifetime)) {
     AddPortFlowDiagnostic(
-        report, DiagnosticCode::kPortLifetimeMismatch, path,
+        report, error::kPortLifetimeMismatch, path,
         "Port lifetime mismatch: producer lifetime '" + producer.lifetime +
             "' is shorter than consumer lifetime '" + consumer.lifetime + "'",
         producer_name, consumer_name, location, logical_port, bound_key,
@@ -195,7 +195,7 @@ bool ValidateAndNormalizeConfig(
                       ? base_pointer
                       : base_pointer + err.path;
       diag.message = err.message;
-      diag.code = ConfigFieldDiagnosticCode(err.kind);
+      diag.code = ConfigFieldErrorCode(err.kind);
       if (err.kind == ConfigFieldErrorKind::kUnknownField) {
         const nlohmann::json::json_pointer pointer(err.path);
         if (const auto* fields =
@@ -270,16 +270,16 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
       std::string path = "/pipeline/" + std::to_string(node.source_index) +
                          "/depends_on/" + std::to_string(d);
       if (dep == node.name) {
-        Add(report, DiagnosticCode::kDagCycle, path,
-            "Node cannot depend on itself", node.name, {}, {dep});
+        Add(report, error::kDagCycle, path, "Node cannot depend on itself",
+            node.name, {}, {dep});
         invalid_reference = true;
       } else if (index.find(dep) == index.end()) {
-        Add(report, DiagnosticCode::kInvalidDependency, path,
+        Add(report, error::kInvalidDependency, path,
             "Dependency references an unknown node: " + dep, node.name, {},
             {dep});
         invalid_reference = true;
       } else if (unique_dependencies && !seen.insert(dep).second) {
-        Add(report, DiagnosticCode::kDuplicateDependency, path,
+        Add(report, error::kDuplicateDependency, path,
             "Dependency is declared more than once: " + dep, node.name, {},
             {dep});
         invalid_reference = true;
@@ -307,7 +307,7 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
     current = std::move(next);
   }
   if (resolved != nodes.size()) {
-    Add(report, DiagnosticCode::kDagCycle, "/pipeline",
+    Add(report, error::kDagCycle, "/pipeline",
         "Cyclic dependency detected in pipeline");
     return false;
   }
@@ -331,24 +331,21 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     for (const auto& error : catalog.node_registry_errors) {
       message += ": " + error;
     }
-    Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
-        std::move(message));
+    Add(&report, error::kRegistryConflict, "/pipeline", std::move(message));
   }
   if (ModelRegistry::Instance().HasConflict()) {
     std::string message = "Model registry contains registration conflicts";
     for (const auto& error : ModelRegistry::Instance().GetConflictErrors()) {
       message += ": " + error;
     }
-    Add(&report, DiagnosticCode::kRegistryConflict, "/models",
-        std::move(message));
+    Add(&report, error::kRegistryConflict, "/models", std::move(message));
   }
   if (BackendRegistry::Instance().HasConflict()) {
     std::string message = "Backend registry contains registration conflicts";
     for (const auto& error : BackendRegistry::Instance().GetConflictErrors()) {
       message += ": " + error;
     }
-    Add(&report, DiagnosticCode::kRegistryConflict, "/models",
-        std::move(message));
+    Add(&report, error::kRegistryConflict, "/models", std::move(message));
   }
 
   std::unordered_set<std::string> unresolved_model_names;
@@ -362,7 +359,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     const auto at = "/models/" + std::to_string(model.source_index);
     if (!registered_model_types.count(model.model_type)) {
       unresolved_model_names.insert(model.model_name);
-      Add(&report, DiagnosticCode::kUnknownModelType, at + "/type",
+      Add(&report, error::kUnknownModelType, at + "/type",
           "Unknown model type: " + model.model_type, {}, {}, {},
           RankByEditDistance(model.model_type, {registered_model_types.begin(),
                                                 registered_model_types.end()}));
@@ -378,7 +375,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         compatible_backends.push_back(backend.backend_type);
     auto backend = BackendRegistry::Instance().Find(model.backend_type);
     if (!backend) {
-      Add(&report, DiagnosticCode::kUnknownBackend, at + "/backend/type",
+      Add(&report, error::kUnknownBackend, at + "/backend/type",
           "Unknown backend: " + model.backend_type, {}, {}, {},
           RankByEditDistance(model.backend_type,
                              std::move(compatible_backends)));
@@ -387,8 +384,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     const auto selected =
         model_registry.FindImplementation(model.model_type, model.backend_type);
     if (selected.empty()) {
-      Add(&report, DiagnosticCode::kBackendProtocolMismatch,
-          at + "/backend/type",
+      Add(&report, error::kBackendProtocolMismatch, at + "/backend/type",
           "No implementation for " + model.model_type + "/" +
               model.backend_type,
           {}, {}, {}, std::move(compatible_backends));
@@ -399,7 +395,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                             "/" + model.backend_type + ":";
       for (const auto& definition : selected)
         message += " " + definition.impl_name;
-      Add(&report, DiagnosticCode::kRegistryConflict, at + "/backend/type",
+      Add(&report, error::kRegistryConflict, at + "/backend/type",
           std::move(message));
       continue;
     }
@@ -416,7 +412,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
             std::shared_ptr<const ParameterValues> values;
             std::string error;
             if (!declaration.Parse(*normalized, &values, &error))
-              Add(&report, DiagnosticCode::kInvalidCombination, path,
+              Add(&report, error::kInvalidCombination, path,
                   error.empty() ? "Invalid parameter combination" : error);
           }
         };
@@ -455,7 +451,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       has_unknown_nodes = true;
       std::vector<std::string> node_types;
       for (const auto& def : catalog.nodes) node_types.push_back(def.node_type);
-      Add(&report, DiagnosticCode::kUnknownNodeType,
+      Add(&report, error::kUnknownNodeType,
           "/pipeline/" + std::to_string(node.source_index) + "/type",
           "Unknown node_type or missing catalog definition: " + node.node_type,
           node.name, {}, {},
@@ -484,12 +480,12 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                          "/params/" + EscapeJsonPointer(dep.config_field);
       if (model_name.empty() || model_type == model_types.end()) {
         if (!unresolved_model_names.count(model_name)) {
-          Add(&report, DiagnosticCode::kUnknownModelReference, path,
+          Add(&report, error::kUnknownModelReference, path,
               "Node references an unknown model_name: " + model_name,
               node.name);
         }
       } else if (model_type->second != dep.model_type) {
-        Add(&report, DiagnosticCode::kModelTypeMismatch, path,
+        Add(&report, error::kModelTypeMismatch, path,
             "Node requires model type '" + dep.model_type +
                 "' but model provides '" + model_type->second + "'",
             node.name);
@@ -500,7 +496,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   if (!has_unknown_nodes) {
     for (const auto& model : parsed.models)
       if (!used_models.count(model.model_name))
-        Add(&report, DiagnosticCode::kUnusedModel,
+        Add(&report, error::kUnusedModel,
             "/models/" + std::to_string(model.source_index) + "/name",
             "Model is not bound by any node: " + model.model_name);
   }
@@ -508,7 +504,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   std::unordered_map<std::string, IoPortDefinition> ingress;
   for (const auto& port : io_boundary.input_published_ports) {
     if (!ingress.emplace(port.blackboard_key, port).second) {
-      Add(&report, DiagnosticCode::kDuplicatePortProducer, "/io/input",
+      Add(&report, error::kDuplicatePortProducer, "/io/input",
           "Input items publish the same logical port: " + port.blackboard_key,
           "input", port.blackboard_key);
     }
@@ -540,7 +536,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     const auto dot = key.find('.');
     if (dot == std::string::npos || dot == 0 || dot + 1 == key.size() ||
         key.find('.', dot + 1) != std::string::npos) {
-      Add(&report, DiagnosticCode::kFieldType, path,
+      Add(&report, error::kFieldType, path,
           "Input source must have exactly one '.' in name.port form", consumer,
           port);
       return nullptr;
@@ -549,7 +545,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     if (name != "input" && !node_by_name.count(name)) {
       std::vector<std::string> names{"input"};
       for (const auto& node : nodes) names.push_back(node.name);
-      Add(&report, DiagnosticCode::kUnknownNodeReference, path,
+      Add(&report, error::kUnknownNodeReference, path,
           "Unknown source node: " + name, consumer, port, {},
           NearestNames(name, std::move(names)));
       return nullptr;
@@ -566,7 +562,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         for (const auto& output : def_by_name.at(name)->outputs)
           ports.push_back(output.logical_name);
       }
-      Add(&report, DiagnosticCode::kUnknownPortReference, path,
+      Add(&report, error::kUnknownPortReference, path,
           "Unknown source port: " + key, consumer, port, {name},
           std::move(ports));
       return nullptr;
@@ -582,7 +578,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           def->second->inputs.begin(), def->second->inputs.end(),
           [&](const auto& input) { return input.logical_name == port; });
       if (declared == def->second->inputs.end()) {
-        Add(&report, DiagnosticCode::kUnknownField,
+        Add(&report, error::kUnknownField,
             "/pipeline/" + std::to_string(node.source_index) + "/inputs/" +
                 EscapeJsonPointer(port),
             "Unknown logical input port: " + port, node.name, port);
@@ -595,7 +591,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         continue;
       const auto producer = source_name(source);
       if (producer == node.name) {
-        Add(&report, DiagnosticCode::kDagCycle, "/pipeline",
+        Add(&report, error::kDagCycle, "/pipeline",
             "Node input cannot consume its own output", node.name, port,
             {node.name});
         continue;
@@ -610,7 +606,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     const auto path = consumer.path.empty() ? "/io/output" : consumer.path;
     if (consumer.blackboard_key.empty() && !consumer.has_binding) {
       if (consumer.required)
-        Add(&report, DiagnosticCode::kMissingOutputProducer, path,
+        Add(&report, error::kMissingOutputProducer, path,
             "Required output converter port must be connected: " +
                 consumer.logical_name,
             "output", consumer.logical_name);
@@ -678,7 +674,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       auto port_it = node.ports.inputs.find(input.logical_name);
       if (port_it == node.ports.inputs.end()) {
         if (input.required) {
-          Add(&report, DiagnosticCode::kMissingInputProducer,
+          Add(&report, error::kMissingInputProducer,
               "/pipeline/" + std::to_string(node.source_index) + "/inputs",
               "Required input port must be explicitly connected: " +
                   input.logical_name,
@@ -693,13 +689,13 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           source_contract_ptr && source_contract_ptr->type_id == input.type_id;
       const auto source_id = source_name(actual_key);
       if (source_contract_ptr && !found) {
-        AddPortFlowDiagnostic(
-            &report, DiagnosticCode::kPortTypeMismatch, input_path,
-            "Port type mismatch: source provides '" +
-                source_contract_ptr->type_id + "', input requires '" +
-                input.type_id + "'",
-            source_id, id, PortDirection::kInput, input.logical_name,
-            actual_key, *source_contract_ptr, input);
+        AddPortFlowDiagnostic(&report, error::kPortTypeMismatch, input_path,
+                              "Port type mismatch: source provides '" +
+                                  source_contract_ptr->type_id +
+                                  "', input requires '" + input.type_id + "'",
+                              source_id, id, PortDirection::kInput,
+                              input.logical_name, actual_key,
+                              *source_contract_ptr, input);
       }
       if (found) {
         node_plan.ports.push_back(
@@ -720,7 +716,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         } else if (item_shape.Known() && shape.Known() &&
                    !(item_shape == shape)) {
           AddPortFlowDiagnostic(
-              &report, DiagnosticCode::kPortCardinalityMismatch, input_path,
+              &report, error::kPortCardinalityMismatch, input_path,
               "Port cardinality mismatch: item-wise input '" +
                   input.logical_name + "' receives " + DescribeShape(shape) +
                   ", but item-wise input '" + item_shape_port + "' receives " +
@@ -806,7 +802,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                               ? ("Port constraint violation for node '" +
                                  definition.node_type + "'")
                               : constraint.message;
-        Add(&report, DiagnosticCode::kInvalidCombination,
+        Add(&report, error::kInvalidCombination,
             "/pipeline/" + std::to_string(node.source_index), msg, id);
       }
     }
@@ -823,12 +819,12 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       try {
         if (!definition.validate_config(normalized_params, facts, &diagnostic,
                                         &field_path))
-          Add(&report, DiagnosticCode::kInvalidCombination, path + field_path,
+          Add(&report, error::kInvalidCombination, path + field_path,
               diagnostic.empty() ? "Invalid node parameters" : diagnostic, id);
       } catch (const std::exception& e) {
-        Add(&report, DiagnosticCode::kInvalidCombination, path, e.what(), id);
+        Add(&report, error::kInvalidCombination, path, e.what(), id);
       } catch (...) {
-        Add(&report, DiagnosticCode::kInvalidCombination, path,
+        Add(&report, error::kInvalidCombination, path,
             "Node parameter validator threw an unknown exception", id);
       }
     }
@@ -859,7 +855,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                       "/" + EscapeJsonPointer(consumer.logical_name);
     if (producer->type_id != consumer.type_id) {
       AddPortFlowDiagnostic(
-          &report, DiagnosticCode::kPortTypeMismatch, path,
+          &report, error::kPortTypeMismatch, path,
           "Port type mismatch: source provides '" + producer->type_id +
               "', output converter requires '" + consumer.type_id + "'",
           name, "output", PortDirection::kOutput, consumer.logical_name,
@@ -930,7 +926,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
 nlohmann::json ValidationDiagnostic::ToJson() const {
   nlohmann::json item = {
-      {"code", DiagnosticCodeName(code)}, {"path", path}, {"message", message}};
+      {"code", ErrorCodeName(code)}, {"path", path}, {"message", message}};
   if (!node_name.empty()) item["node_name"] = node_name;
   if (!port.empty()) item["port"] = port;
   if (!related_nodes.empty()) item["related_nodes"] = related_nodes;

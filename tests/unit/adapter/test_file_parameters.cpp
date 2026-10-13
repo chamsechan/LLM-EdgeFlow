@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "adapter/model_file_resolver.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
@@ -106,7 +107,7 @@ TEST_F(
   EXPECT_EQ(source, FileDocument());
   EXPECT_EQ(resolved["models"][0]["params"]["note"], "../opaque prompt");
   EXPECT_FALSE(std::filesystem::exists(root_ / "weights/model.bin"));
-  EXPECT_TRUE(diagnostic.code.empty());
+  EXPECT_EQ(diagnostic.code, error::kOk);
 }
 
 TEST_F(FileParametersTest, NoDirectoryStillEnforcesPortableRelativeSpelling) {
@@ -148,7 +149,7 @@ TEST_F(
                                    &diagnostic));
     EXPECT_TRUE(resolved.is_null());
     EXPECT_EQ(source, original);
-    EXPECT_EQ(diagnostic.code, "INVALID_FILE_PATH");
+    EXPECT_EQ(diagnostic.code, error::kInvalidFilePath);
     EXPECT_EQ(diagnostic.path, "/models/0/file");
     EXPECT_FALSE(error.empty());
   }
@@ -174,7 +175,7 @@ TEST_F(FileParametersTest,
     EXPECT_FALSE(ResolveModelFiles(source, root_.string(), &resolved, &error,
                                    &diagnostic));
     EXPECT_TRUE(resolved.is_null());
-    EXPECT_EQ(diagnostic.code, "INVALID_FILE_PATH");
+    EXPECT_EQ(diagnostic.code, error::kInvalidFilePath);
     EXPECT_EQ(diagnostic.path, field.expected_path);
     EXPECT_EQ(source["models"][0]["file"], "weights/model.bin");
   }
