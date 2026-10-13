@@ -3,6 +3,8 @@
 ## Unreleased
 
 Backend 的 CPU 平台使用 `cpu`（大小写归一），设备编号限制保持不变。
+Studio HTTP 请求统一使用 `revision`、`filename`、`conf_name`；Demo 套件直接通过
+`alg_demo --suite smoke|real|all` 运行。
 
 移除没有生产 Node 接收的阈值更新命令及其参数结构；规则更新、提示词切换和 JSON 控制入口保留原编号。
 转换器批次视图按单槽契约直接持有载荷和池规格，保留类型检查、可选输出行位置及失败租约回收。
