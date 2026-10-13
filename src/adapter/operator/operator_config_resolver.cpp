@@ -66,8 +66,6 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
       return -2;
     }
 
-    std::filesystem::path canon_p;
-
     if (!std::filesystem::exists(combined, ec) || ec) {
       if (error_msg) {
         *error_msg = std::string(field_name) +
@@ -75,7 +73,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
       }
       return -2;
     }
-    canon_p = std::filesystem::canonical(combined, ec);
+    const auto canon_p = std::filesystem::canonical(combined, ec);
     if (ec) {
       if (error_msg) {
         *error_msg = "Failed to canonicalize " + std::string(field_name) +
