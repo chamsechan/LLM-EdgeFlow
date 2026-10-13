@@ -8,25 +8,11 @@
 
 namespace llm_edgeflow {
 
-namespace detail {
-
-template <typename T>
-struct IsNodeResultType : std::false_type {
-  using ValueType = T;
-};
-
-template <typename T>
-struct IsNodeResultType<NodeResult<T>> : std::true_type {
-  using ValueType = T;
-};
-
-}  // namespace detail
-
 template <typename InT, typename MapFn>
 auto MapPayloads(const std::vector<TraceableItem<InT>>& input, MapFn&& fn) {
   using RawResult = decltype(fn(std::declval<const InT&>()));
-  if constexpr (detail::IsNodeResultType<RawResult>::value) {
-    using OutPayload = typename detail::IsNodeResultType<RawResult>::ValueType;
+  if constexpr (IsNodeResult<RawResult>::value) {
+    using OutPayload = typename IsNodeResult<RawResult>::ValueType;
     using OutBatch = std::vector<TraceableItem<OutPayload>>;
     OutBatch outputs;
     outputs.reserve(input.size());

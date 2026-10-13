@@ -27,15 +27,22 @@ void ExpectBatch(const std::vector<TraceableItem<Payload>>& actual,
 }
 
 void ExpectDetail(const NodeFailure& failure, const char* operation,
-                  BatchFailureReason reason, TraceableItemKey key,
-                  NodeErrorKind kind = NodeErrorKind::kInputError) {
-  EXPECT_EQ(failure.kind, kind);
+                  BatchFailureReason reason, TraceableItemKey key) {
   ASSERT_TRUE(failure.batch_detail.has_value());
   EXPECT_EQ(failure.batch_detail->operation, operation);
   EXPECT_EQ(failure.batch_detail->reason, reason);
   ASSERT_TRUE(failure.batch_detail->key.has_value());
   EXPECT_EQ(failure.batch_detail->key->req_id, key.req_id);
   EXPECT_EQ(failure.batch_detail->key->sub_id, key.sub_id);
+  const std::string diagnostic = failure.FormatDiagnostic();
+  EXPECT_EQ(diagnostic.find(operation), 0u);
+  EXPECT_EQ(diagnostic.find(operation, std::string(operation).size()),
+            std::string::npos);
+  const std::string item = "req_id=" + std::to_string(key.req_id) +
+                           ", sub_id=" + std::to_string(key.sub_id);
+  const auto position = diagnostic.find(item);
+  ASSERT_NE(position, std::string::npos);
+  EXPECT_EQ(diagnostic.find(item, position + item.size()), std::string::npos);
 }
 
 struct AcceptPayload {
@@ -316,8 +323,7 @@ TEST(TraceableBatchOperationsTest, SelectionPrefersPayloadWhenBothAreCallable) {
     }
     NodeResult<bool> operator()(const TraceableItem<std::string>&) {
       ++item_calls;
-      return NodeResult<bool>::Failure(NodeErrorKind::kBusinessError,
-                                       "item overload must not run");
+      return NodeResult<bool>::Failure("item overload must not run");
     }
   } predicate;
   const TextBatch anchor{{30, 9, "keep"}, {10, 2, "selected"}};
@@ -349,7 +355,7 @@ TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
             throw std::runtime_error("literal predicate exception");
           if (row.fault == 2) throw 42;
           return NodeResult<bool>::Failure(
-              NodeErrorKind::kBusinessError, "literal predicate failure",
+              "literal predicate failure",
               BatchFailureDetail{"previous operation",
                                  BatchFailureReason::kMissing,
                                  TraceableItemKey{88, 4}},
@@ -358,10 +364,12 @@ TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(calls, 2);
     ExpectDetail(result.failure(), "SelectBatch",
-                 BatchFailureReason::kCallbackFailed, {10, 2},
-                 NodeErrorKind::kBusinessError);
+                 BatchFailureReason::kCallbackFailed, {10, 2});
     EXPECT_EQ(result.failure().cause_code, row.fault == 0 ? -932 : 0);
     EXPECT_NE(result.failure().message.find(row.message), std::string::npos);
+    if (row.fault == 0) {
+      EXPECT_EQ(result.failure().message, row.message);
+    }
   }
   auto item_predicate =
       SelectBatch(anchor, [](const TraceableItem<std::string>& item) {
@@ -377,7 +385,7 @@ TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
         ++item_calls;
         if (item.req_id != 10) return NodeResult<bool>::Success(true);
         return NodeResult<bool>::Failure(
-            NodeErrorKind::kInputError, "item predicate failed",
+            "item predicate failed",
             BatchFailureDetail{"previous operation",
                                BatchFailureReason::kMissing,
                                TraceableItemKey{88, 4}},
@@ -386,8 +394,7 @@ TEST(TraceableBatchOperationsTest, SelectionFailureIdentifiesTheActualItem) {
   ASSERT_FALSE(failed_item.ok());
   EXPECT_EQ(item_calls, 2);
   ExpectDetail(failed_item.failure(), "SelectBatch",
-               BatchFailureReason::kCallbackFailed, {10, 2},
-               NodeErrorKind::kInputError);
+               BatchFailureReason::kCallbackFailed, {10, 2});
   EXPECT_EQ(failed_item.failure().cause_code, -933);
   EXPECT_EQ(failed_item.failure().message, "item predicate failed");
 }
@@ -459,23 +466,20 @@ TEST(TraceableBatchOperationsTest,
             throw std::runtime_error("literal split exception");
           if (row.fault == 2) throw 42;
           return NodeResult<std::vector<int>>::Failure(
-              NodeErrorKind::kModelCallError, "literal split failure",
+              "literal split failure",
               BatchFailureDetail{"previous operation",
                                  BatchFailureReason::kMissing,
                                  TraceableItemKey{88, 4}},
-              -933, "literal stage", "literal slot");
+              -933);
         });
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(calls, 2);
     ExpectDetail(result.failure(), "SplitPayloads",
-                 BatchFailureReason::kCallbackFailed, {10, 2},
-                 row.fault == 0 ? NodeErrorKind::kModelCallError
-                                : NodeErrorKind::kBusinessError);
+                 BatchFailureReason::kCallbackFailed, {10, 2});
     EXPECT_EQ(result.failure().cause_code, row.fault == 0 ? -933 : 0);
     EXPECT_NE(result.failure().message.find(row.message), std::string::npos);
     if (row.fault == 0) {
-      EXPECT_EQ(result.failure().stage, "literal stage");
-      EXPECT_EQ(result.failure().model_slot, "literal slot");
+      EXPECT_EQ(result.failure().message, row.message);
     }
   }
 }
@@ -493,8 +497,7 @@ TEST(TraceableBatchOperationsTest, SplitChecksCountAndSubIdAtNarrowBoundaries) {
   auto overflow = detail::CheckedSplitCount(max_count + 1, parent);
   ASSERT_FALSE(overflow.ok());
   ExpectDetail(overflow.failure(), "SplitPayloads",
-               BatchFailureReason::kCountOverflow, parent,
-               NodeErrorKind::kBusinessError);
+               BatchFailureReason::kCountOverflow, parent);
   const TextBatch input{{30, 9, "parent"}};
   constexpr uint32_t max_sub = std::numeric_limits<uint32_t>::max();
   auto last_valid = detail::SplitPayloadsInternal(
@@ -511,8 +514,7 @@ TEST(TraceableBatchOperationsTest, SplitChecksCountAndSubIdAtNarrowBoundaries) {
       {{30, max_sub}});
   ASSERT_FALSE(exhausted.ok());
   ExpectDetail(exhausted.failure(), "SplitPayloads",
-               BatchFailureReason::kSubIdOverflow, parent,
-               NodeErrorKind::kBusinessError);
+               BatchFailureReason::kSubIdOverflow, parent);
 }
 
 TEST(TraceableBatchOperationsTest,
@@ -555,9 +557,7 @@ TEST(TraceableBatchOperationsTest,
     auto result = MapPayloads(input, [&](int32_t value) {
       ++calls;
       if (value != 22) return NodeResult<int32_t>::Success(value + 1);
-      NodeFailure failure{NodeErrorKind::kModelCallError, "literal map failure",
-                          -934, "literal stage", "literal slot"};
-      failure.source_location = "literal source";
+      NodeFailure failure{"literal map failure", -934};
       if (supplied_detail)
         failure.batch_detail = BatchFailureDetail{"original operation",
                                                   BatchFailureReason::kMissing,
@@ -568,16 +568,12 @@ TEST(TraceableBatchOperationsTest,
     EXPECT_EQ(calls, 2);
     EXPECT_EQ(result.failure().cause_code, -934);
     EXPECT_EQ(result.failure().message, "literal map failure");
-    EXPECT_EQ(result.failure().stage, "literal stage");
-    EXPECT_EQ(result.failure().model_slot, "literal slot");
-    EXPECT_EQ(result.failure().source_location, "literal source");
     ExpectDetail(
         result.failure(),
         supplied_detail ? "original operation" : "MapPayloads",
         supplied_detail ? BatchFailureReason::kMissing
                         : BatchFailureReason::kCallbackFailed,
-        supplied_detail ? TraceableItemKey{99, 7} : TraceableItemKey{10, 2},
-        NodeErrorKind::kModelCallError);
+        supplied_detail ? TraceableItemKey{99, 7} : TraceableItemKey{10, 2});
   }
 }
 

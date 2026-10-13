@@ -47,17 +47,14 @@ struct ControlCommandDefinition {
   std::string name;
   std::string description;
   nlohmann::json payload_schema = nlohmann::json::object();
-  bool supports_hot_swap = false;
 
   ControlCommandDefinition() = default;
   ControlCommandDefinition(int id, std::string n, std::string desc = {},
-                           nlohmann::json schema = nlohmann::json::object(),
-                           bool hot_swap = false)
+                           nlohmann::json schema = nlohmann::json::object())
       : cmd_id(id),
         name(std::move(n)),
         description(std::move(desc)),
-        payload_schema(std::move(schema)),
-        supports_hot_swap(hot_swap) {}
+        payload_schema(std::move(schema)) {}
 };
 
 // 后两个输出分别是原因与相对参数路径；跨字段语义错误的路径为空。

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Node 失败信息保留原始消息、错误码和批次来源；配置更新使用值结果并保留原子快照及失败回滚。
+工具诊断 JSON 使用 code/path/message/facts，Control Catalog 保留命令及其 payload schema。
+
 Backend 的 CPU 平台使用 `cpu`（大小写归一），设备编号限制保持不变。
 Studio HTTP 请求统一使用 `revision`、`filename`、`conf_name`；Demo 套件直接通过
 `alg_demo --suite smoke|real|all` 运行。

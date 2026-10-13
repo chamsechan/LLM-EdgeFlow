@@ -210,7 +210,7 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
   // TODO: 实现声明的转换和来源策略。
   // 不要把默认 payload 当作成功的业务结果发布。
   return NodeResult<{out_type}>::Failure(
-      NodeErrorKind::kBusinessError, "domain transformation is not implemented", -8102);'''
+      "domain transformation is not implemented", -8102);'''
     return f'''#include "nodes/authoring.h"
 
 namespace llm_edgeflow {{

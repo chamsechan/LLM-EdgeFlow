@@ -138,7 +138,6 @@ NodeResult<RuleMatchBatch> Run(const Inputs& inputs, const Params& state) {
               "%s\n",
               rule.id.c_str(), diagnostic.c_str());
           return NodeResult<RuleMatchBatch>::Failure(
-              NodeErrorKind::kBusinessError,
               "Regex execution failed for rule '" + rule.id +
                   "': " + diagnostic,
               node_error::text_rule_match::kRegexExecutionFailed);

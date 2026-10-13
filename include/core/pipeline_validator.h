@@ -17,7 +17,6 @@ struct ValidationDiagnostic {
   DiagnosticCode code = DiagnosticCode::kOk;
   std::string path;
   std::string message;
-  std::string severity = "error";
   std::string node_name;
   std::string port;
   std::vector<std::string> related_nodes;

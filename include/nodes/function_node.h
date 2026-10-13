@@ -32,16 +32,6 @@
 
 namespace llm_edgeflow {
 
-template <typename T>
-struct IsNodeResult : std::false_type {
-  using ValueType = T;
-};
-
-template <typename T>
-struct IsNodeResult<NodeResult<T>> : std::true_type {
-  using ValueType = T;
-};
-
 namespace detail {
 
 template <typename ParamsT>
@@ -495,12 +485,10 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
     auto result = check(anchor_, reader);
     if (result.error == TraceableAlignmentError::kCountMismatch)
       return NodeFailure{
-          NodeErrorKind::kOutputCountMismatch,
           "Output port '" + port_.LogicalName() + "' count mismatch",
           node_error::author_node::kOutputCountMismatch};
     if (result.error == TraceableAlignmentError::kProvenanceMismatch)
       return NodeFailure{
-          NodeErrorKind::kOutputProvenanceMismatch,
           "Output port '" + port_.LogicalName() + "' provenance mismatch",
           node_error::author_node::kOutputProvenanceMismatch};
     return std::nullopt;
