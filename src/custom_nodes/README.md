@@ -112,7 +112,7 @@ LLM 生成参数复用 [`GenerateParameters()`](../../include/nodes/generate_par
 可以是空数组。生成参数的 `Include` 参考 [prompt_guided_llm](prompt_guided_llm_node.cpp)。
 
 会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResult<T>`
-调用返回 `NodeResult<T>` 的工厂，通过 `GetModelRevision` 取得缓存身份所需的模型版本；参考
+调用返回 `NodeResult<T>` 的工厂。模型在会话内不可替换，缓存 key 纳入模型名、输入和语义参数；参考
 [text_embedding](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
 
 ## 完整参考样例

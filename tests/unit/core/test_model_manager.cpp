@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 
 #include "core/session_context.h"
-#include "nodes/session_resources.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -27,8 +26,6 @@ ModelRegistration Registration(std::string name,
   value.model = std::move(model);
   value.impl_name = "identity_impl";
   value.model_type = "identity_type";
-  value.backend_type = "neutral";
-  value.revision = "r1";
   return value;
 }
 
@@ -44,16 +41,13 @@ TEST(ModelManagerOwnershipTest, InvalidBatchesDoNotCommitTheirValidPrefix) {
   wrong_impl.impl_name = "different";
   auto wrong_type = Registration("new", model);
   wrong_type.model_type = "different";
-  auto missing_revision = Registration("new", model);
-  missing_revision.revision.clear();
   const Case cases[] = {
       {"existing name", Registration("existing", model)},
       {"duplicate staged name", Registration("prefix", model)},
       {"missing model", Registration("new", nullptr)},
       {"missing instance name", Registration("", model)},
       {"implementation identity", wrong_impl},
-      {"category identity", wrong_type},
-      {"incomplete revision metadata", missing_revision}};
+      {"category identity", wrong_type}};
   for (const auto& item : cases) {
     SCOPED_TRACE(item.name);
     EXPECT_FALSE(
@@ -68,33 +62,24 @@ TEST(ModelManagerOwnershipTest, InvalidBatchesDoNotCommitTheirValidPrefix) {
   EXPECT_EQ(manager.GetModel<ILlmModel>("new"), nullptr);
 }
 
-TEST(ModelManagerOwnershipTest, RevisionAndMetadataAreOwnedSessionSnapshots) {
+TEST(ModelManagerOwnershipTest,
+     RegistrationIdentityAndLifetimeAreOwnedSnapshots) {
   SessionContext session;
   auto model = std::make_shared<RegisteredIdentity>();
   std::weak_ptr<IModel> lifetime = model;
   auto registration = Registration("model", model);
-  registration.revision.clear();
-  registration.model_file = "weights.bin";
-  registration.model_params = {{"size", 2}};
-  registration.backend_params = {{"device", 0}};
   ASSERT_TRUE(session.GetModelManager().RegisterBatch({registration}));
-  auto before = session.GetModelManager().GetModelRegistration("model");
-  ASSERT_TRUE(before);
-  EXPECT_EQ(
-      before->revision,
-      "identity_impl\nneutral\nweights.bin\n{\"size\":2}\n{\"device\":0}");
-  registration.model_params["size"] = 99;
-  EXPECT_EQ(before->model_params, (nlohmann::json{{"size", 2}}));
-  EXPECT_EQ(
-      session.GetModelManager().GetModelRegistration("model")->model_params,
-      (nlohmann::json{{"size", 2}}));
-  SessionResources resources(session);
-  ASSERT_TRUE(session.GetModelManager().UpdateModelRevision("model", "r2"));
-  EXPECT_EQ(resources.GetModelRevision("model"), "r2");
-  EXPECT_NE(before->revision, "r2");
-  EXPECT_FALSE(session.GetModelManager().UpdateModelRevision("model", ""));
-  EXPECT_FALSE(session.GetModelManager().UpdateModelRevision("missing", "r3"));
-  before.reset();
+  registration.impl_name = "changed caller";
+  auto snapshot = session.GetModelManager().GetModelRegistration("model");
+  ASSERT_TRUE(snapshot);
+  EXPECT_EQ(snapshot->impl_name, "identity_impl");
+  snapshot->model_type = "changed snapshot";
+  EXPECT_EQ(session.GetModelManager().GetModelRegistration("model")->model_type,
+            "identity_type");
+  EXPECT_FALSE(session.GetModelManager().GetModelRegistration("missing"));
+  EXPECT_FALSE(
+      session.GetModelManager().RegisterBatch({Registration("model", model)}));
+  snapshot.reset();
   registration.model.reset();
   model.reset();
   EXPECT_FALSE(lifetime.expired());

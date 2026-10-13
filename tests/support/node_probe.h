@@ -91,14 +91,11 @@ struct NodeProbe {
 };
 
 inline bool RegisterNodeModel(SessionContext& session, std::string name,
-                              std::shared_ptr<IModel> model,
-                              std::string revision = "v1") {
+                              std::shared_ptr<IModel> model) {
   ModelRegistration registration;
   registration.model_name = std::move(name);
   registration.impl_name = model->ImplName();
   registration.model_type = model->ModelType();
-  registration.backend_type = "node_probe";
-  registration.revision = std::move(revision);
   registration.model = std::move(model);
   return session.GetModelManager().RegisterBatch({std::move(registration)});
 }

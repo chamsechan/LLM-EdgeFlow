@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+会话模型注册保留实现/类别身份校验及批量原子安装；会话缓存使用模型名与输入，不维护模型 revision。
+
 Node 失败信息保留原始消息、错误码和批次来源；配置更新使用值结果并保留原子快照及失败回滚。
 工具诊断 JSON 使用 code/path/message/facts，Control Catalog 保留命令及其 payload schema。
 

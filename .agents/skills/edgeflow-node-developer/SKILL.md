@@ -66,7 +66,7 @@ LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自�
 字段，只替换提供的字段；数组和映射整体替换，更新后重跑 `Prepare` / `Validate`，失败保持旧快照。
 受控参数的 schema 来自字段声明，`bind_model` 不能受控。模板编译与规则编译也通过 `Prepare`
 在初始配置和更新时复用；见 [Control 指南](../../../doc/dev_guide/first_control.md)。缓存使用
-`SessionResources::GetOrCreateResult`，key 显式纳入语义参数、输入和模型 revision。
+`SessionResources::GetOrCreateResult`，key 显式纳入语义参数、输入和模型名；模型注册后在会话内不可替换。
 借用视图只在本次同步调用中使用。只有可证明线程安全时设置 `.ParallelSafe(true)`。
 
 ## 验证与接入

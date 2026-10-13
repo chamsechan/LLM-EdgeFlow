@@ -39,10 +39,10 @@ Use this reference for production Node implementation. Start first-time LLM auth
    `system_prompt`, `random_seed` and `language` are call options; embedding normalization
    belongs to the shared model parameters. Domain post-processing remains in the node.
 8. Keep request data local. A `Run` needing session resources explicitly accepts
-   `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary
+   `const SessionResources&`; the facade exposes cache access, not arbitrary
    model lookup or request Blackboard access. text_embedding is the compiled cache example.
    Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
-   for single-flight waiters without caching them. Resource keys and model revision remain explicit.
+   for single-flight waiters without caching them. Resource keys include model names and all semantic inputs; registered models are immutable within a session.
 9. Use `WithControls` / `ReplaceFields` for parameter updates; the framework derives the payload
    schema from the field declarations. `ReplaceFields` requires at least one controlled field in
    its payload and replaces only the supplied fields. Arrays and maps are replaced as complete values; field
