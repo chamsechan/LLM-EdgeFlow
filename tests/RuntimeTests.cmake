@@ -215,8 +215,6 @@ add_test(NAME LayerGuardSelfTest
 add_test(NAME SpecSignatureDiagnosticsTest
   COMMAND ${CMAKE_COMMAND}
           "-DLAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
-          "-DFUNCTION_NODE_HEADER=${PROJECT_SOURCE_DIR}/include/nodes/function_node.h"
-          "-DCONCEPTS_DOC=${PROJECT_SOURCE_DIR}/doc/dev_guide/custom_node_concepts.md"
           -P "${PROJECT_SOURCE_DIR}/tests/contract/authoring/test_spec_signature_diagnostics.cmake")
 add_test(NAME ArchitectureDocsDriftTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_architecture_docs.sh)

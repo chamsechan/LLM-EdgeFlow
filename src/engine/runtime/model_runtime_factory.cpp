@@ -154,7 +154,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    // 8. 创建模型语义实例
+    // 7. 创建模型语义实例
     ModelCreateContext create_ctx;
     create_ctx.backend_session = session;
     create_ctx.params = std::move(model_params);
@@ -172,7 +172,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    // 9. 校验模型身份、能力与并发模型一致性
+    // 8. 校验模型身份、能力与并发模型一致性
     if (model->ImplName() != spec.impl_name) {
       if (diagnostic) {
         *diagnostic = "Model identity mismatch: expected " + spec.impl_name +

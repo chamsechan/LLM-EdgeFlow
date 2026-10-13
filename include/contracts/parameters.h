@@ -812,7 +812,7 @@ class Parameters {
     } catch (const std::exception& e) {
       const std::string_view reason = e.what();
       SetDiagnosticNoexcept(err, reason);
-      // 保留原创建工厂在一次临时诊断分配失败后仍能报告原因的行为。
+      // 临时诊断分配失败后，仍尝试报告原始原因。
       if (err && err->empty() && !reason.empty()) {
         SetDiagnosticNoexcept(err, reason);
       }

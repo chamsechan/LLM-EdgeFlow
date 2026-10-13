@@ -12,110 +12,19 @@ echo "======================================================================"
 echo " [LayerGuard] Checking Integration / Orchestration / Capability Nodes / Model Execution Boundaries..."
 echo "======================================================================"
 
-# 规则 1：所有能力节点都须把平台结构及其转换留在接入适配层。
-NODE_SOURCE_PATHS=("$REPO_ROOT/src/common_nodes" "$REPO_ROOT/src/custom_nodes")
-for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
-  if [ ! -d "$NODE_SOURCE_PATH" ]; then
-    echo "❌ [LayerGuard ERROR] ${NODE_SOURCE_PATH#"$REPO_ROOT/"} directory not found!"
+# 先确认必需目录存在，依赖规则由解析器统一维护。
+for SOURCE_DIRECTORY in \
+  "$REPO_ROOT/src/common_nodes" "$REPO_ROOT/src/custom_nodes" \
+  "$REPO_ROOT/src/adapter/input" "$REPO_ROOT/src/adapter/output"; do
+  if [ ! -d "$SOURCE_DIRECTORY" ]; then
+    echo "❌ [LayerGuard ERROR] ${SOURCE_DIRECTORY#"$REPO_ROOT/"} directory not found!"
     exit 1
   fi
 done
-VIOLATIONS_NODES_INTEGRATION=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(edgeflow/operator/|(adapter|operator|platform_mock)/)' \
-  "${NODE_SOURCE_PATHS[@]}" || true)
 
-if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
-  echo "❌ [LayerGuard ERROR] Found Capability Nodes -> Integration reverse dependency violations:"
-  echo "$VIOLATIONS_NODES_INTEGRATION"
-  echo "Directive: All capability nodes must communicate via internal values and AlgContext."
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Zero Capability Nodes -> Integration reverse include violations."
+python3 "$(dirname "${BASH_SOURCE[0]}")/check_layer_dependencies.py" --root "${REPO_ROOT}"
 
-# 规则 2：输入/输出转换器只能经流程与能力节点取得模型结果。
-CONVERTER_SOURCE_PATHS=("$REPO_ROOT/src/adapter/input" "$REPO_ROOT/src/adapter/output")
-for CONVERTER_SOURCE_PATH in "${CONVERTER_SOURCE_PATHS[@]}"; do
-  if [ ! -d "$CONVERTER_SOURCE_PATH" ]; then
-    echo "❌ [LayerGuard ERROR] ${CONVERTER_SOURCE_PATH#"$REPO_ROOT/"} directory not found!"
-    exit 1
-  fi
-done
-VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "${CONVERTER_SOURCE_PATHS[@]}" || true)
-
-if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
-  echo "❌ [LayerGuard ERROR] Found Integration -> Model Execution illegal bypass dependency violations:"
-  echo "$VIOLATIONS_INTEGRATION_EXECUTION"
-  echo "Directive: Integration adapters must only convert C structs to/from biz DTOs, not bypass Capability Nodes."
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Zero Integration -> Model Execution illegal engine include violations."
-
-# 规则 3b：框架代码不得依赖自定义 Node 实现。
-VIOLATIONS_CUSTOM_DEPENDENCY=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?custom_nodes/' \
-  "$REPO_ROOT/src/common_nodes" "$REPO_ROOT/include/nodes" \
-  "$REPO_ROOT/src/core" "$REPO_ROOT/include/core" \
-  "$REPO_ROOT/src/engine" "$REPO_ROOT/include/engine" 2>/dev/null || true)
-if [ -n "$VIOLATIONS_CUSTOM_DEPENDENCY" ]; then
-  echo "❌ [LayerGuard ERROR] Found framework dependency on custom Node implementations:"
-  echo "$VIOLATIONS_CUSTOM_DEPENDENCY"
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Framework code does not depend on custom Node implementations."
-
-# 规则 4：下层只能依赖中性契约和已解析的逻辑端口，不能包含接入适配层头文件。
-LOWER_LAYER_PATHS=(
-  "$REPO_ROOT/include/core" "$REPO_ROOT/src/core"
-  "$REPO_ROOT/include/nodes" "${NODE_SOURCE_PATHS[@]}"
-  "$REPO_ROOT/include/engine" "$REPO_ROOT/src/engine"
-)
-VIOLATIONS_ADAPTER_HEADERS=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?adapter/[^">]+[">]' \
-  "${LOWER_LAYER_PATHS[@]}" 2>/dev/null || true)
-if [ -n "$VIOLATIONS_ADAPTER_HEADERS" ]; then
-  echo "❌ [LayerGuard ERROR] Found lower-layer dependency on Integration headers:"
-  echo "$VIOLATIONS_ADAPTER_HEADERS"
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Lower layers do not depend on Integration headers."
-
-# 规则 4b：Kite SDK 只能直接出现在其具体 Backend 中。在构建相关的守卫之前
-# 检查，使隔离自测无需 SDK 或构建。
-KITE_VENDOR_OUTSIDE_BACKEND=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?kiteLLM\.h[">]' \
-  "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" 2>/dev/null | \
-  grep -vF "$REPO_ROOT/src/engine/backends/kite_llm/" || true)
-if [ -n "$KITE_VENDOR_OUTSIDE_BACKEND" ]; then
-  echo "❌ [LayerGuard ERROR] kiteLLM vendor header may only be included inside its concrete Backend:"
-  echo "$KITE_VENDOR_OUTSIDE_BACKEND"
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] The kiteLLM vendor header stays inside its concrete Backend."
-
-# 规则 4c：whisper.h 头文件只能直接出现在其具体 Backend 中。
-WHISPER_VENDOR_OUTSIDE_BACKEND=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?whisper\.h[">]' \
-  "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" 2>/dev/null | \
-  grep -vF "$REPO_ROOT/src/engine/backends/whisper_cpp/" || true)
-if [ -n "$WHISPER_VENDOR_OUTSIDE_BACKEND" ]; then
-  echo "❌ [LayerGuard ERROR] whisper.h vendor header may only be included inside its concrete Backend:"
-  echo "$WHISPER_VENDOR_OUTSIDE_BACKEND"
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] The whisper.h vendor header stays inside its concrete Backend."
-
-# 规则 5：Node 支持代码只消费抽取出的已校验 Node 计划，
-# 而不是完整的编排层 Validator 实现契约。
-NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_base.h"
-if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
-   ! grep -q 'core/validated_node_plan.h' "$NODE_SUPPORT_HEADER" || \
-   grep -q 'core/pipeline_validator.h' "$NODE_SUPPORT_HEADER"; then
-  echo "❌ [LayerGuard ERROR] node_base.h must depend only on validated_node_plan.h."
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
-
-# 规则 6：CMake 中的源码归属必须保持四个编译期分层和显式的组合根。
+# CMake 中的源码归属必须保持四个编译期分层和显式的组合根。
 for OWNERSHIP in \
   "src/engine/CMakeLists.txt:edgeflow_model_execution_objects" \
   "src/common_nodes/CMakeLists.txt:edgeflow_capability_nodes_objects" \
@@ -148,7 +57,7 @@ if ! grep -q 'target_sources(edgeflow_composition_objects' \
 fi
 echo "✅ [LayerGuard PASS] CMake source ownership preserves all four layers and the composition root."
 
-# 规则 7：用标准 C 编译器检查纯 C11 语法与 ABI 合规性
+# 用标准 C 编译器检查纯 C11 语法与 ABI 合规性
 GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
 cleanup_generated_version() {
   rm -rf "${GENERATED_VERSION_INCLUDE}"
@@ -189,28 +98,7 @@ else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
 
-# 规则 8：Demo 层 (demo/) 绝不能直接 include SDK 内部头文件
-# (adapter/、core/、engine/、src/)
-VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|engine/|src/)' "$REPO_ROOT/demo" || true)
-
-if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
-  echo "❌ [LayerGuard ERROR] Found Demo -> SDK internal header violations:"
-  echo "$VIOLATIONS_DEMO_INTERNAL"
-  echo "Directive: Demo may include public edgeflow/ interfaces and platform_mock/ declarations."
-  exit 1
-fi
-echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
-
-# 规则 9：LLM 厂商运行时与模型语义边界。
-LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
-  "$REPO_ROOT/include" "$REPO_ROOT/src" \
-  --exclude-dir=backends 2>/dev/null || true)
-if [ -n "$LLAMA_VENDOR_OUTSIDE_BACKEND" ]; then
-  echo "❌ [LayerGuard ERROR] llama.h may only be included by the llama.cpp backend implementation:"
-  echo "$LLAMA_VENDOR_OUTSIDE_BACKEND"
-  exit 1
-fi
-
+# LLM 厂商运行时与模型语义边界。
 LLAMA_BACKEND_SEMANTICS=$(grep -rnE 'ChatML|<\|im_start\|>|top_p|stop_words|AlgContext|Pipeline' \
   "$REPO_ROOT/src/engine/backends/llama_cpp" 2>/dev/null || true)
 if [ -n "$LLAMA_BACKEND_SEMANTICS" ]; then
@@ -220,7 +108,7 @@ if [ -n "$LLAMA_BACKEND_SEMANTICS" ]; then
 fi
 
 QWEN_VENDOR_INCLUDE=$(grep -rnE \
-  '#include\s*["<](llama\.h|onnxruntime_cxx_api\.h|kiteLLM\.h|kitellm_edgeflow_adapter\.h)[">]' \
+  '#include\s*["<]kitellm_edgeflow_adapter\.h[">]' \
   "$REPO_ROOT/src/engine/models/qwen_causal_lm" 2>/dev/null || true)
 if [ -n "$QWEN_VENDOR_INCLUDE" ]; then
   echo "❌ [LayerGuard ERROR] Qwen model must not include Backend vendor headers:"
@@ -244,8 +132,6 @@ if ! grep -rq 'ITextGenerationSession' \
 fi
 
 echo "✅ [LayerGuard PASS] Backend vendor resources and Qwen generation semantics are isolated."
-
-python3 "$(dirname "${BASH_SOURCE[0]}")/check_layer_dependencies.py" --root "${REPO_ROOT}"
 
 if [[ -n "${LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST:-}" ]]; then
   cmake "-DLAYER_COMPILE_MANIFEST=${LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST}" \

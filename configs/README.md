@@ -67,7 +67,7 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 当前八类业务统一使用 `json_out` 输出类型与 `CompanyOperatorOutput` C 结构，
 `name` 选择各业务的 JSON 响应契约；完整结果放在 `result_json`，状态放在 `status_code`。
 可选 `params` 只填写必要覆盖，未写字段用代码声明的默认值。统一输出只有
-`result_json_max_bytes` 容量参数，默认 8191 字节，范围 1–65536，例如
+`result_json_max_bytes` 容量参数，默认值与上限见[输出容量声明](../doc/dev_guide/operator_output_allocation.md#选择转换器与参数)，例如
 `"params":{"result_json_max_bytes":16383}`。分配器、布局参数和 metadata 固定在登记，不由配置选择。
 参数在 Create 中解析、Prepare、Validate，生效值来自 Prepare 后的声明成员。
 可选输出也总是有池；宿主可按行省略 key。重复载体 type 的项使用 `name.type` 宿主 key，
