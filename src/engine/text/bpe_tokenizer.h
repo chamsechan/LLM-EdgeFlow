@@ -17,8 +17,9 @@ inline constexpr size_t kMaxEncodeBytes = size_t{1} << 20;
 // 分词流程中的规范化、预分词、字节回退、合并优先级和解码器由文件头的参数选择，
 // 与具体模型无关；文件格式见 doc/dev_guide/bpe_tokenizer_format.md。
 //
-// 实例加载后只读，多个线程可同时调用同一实例。所有方法成功返回 0，失败返回 -1
-// 并写入 diagnostic（可为空指针），不抛出异常。
+// 实例加载后只读，多个线程可同时调用同一实例。返回 int 的方法成功返回
+// error::kOk，失败返回 contracts/error_codes.h 中的框架错误码并写入
+// diagnostic（可为空指针），不抛出异常。
 class BpeTokenizer final {
  public:
   ~BpeTokenizer();
