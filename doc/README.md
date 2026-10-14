@@ -48,6 +48,7 @@
 | [架构设计](architecture.md) | 四层职责、编译依赖与运行时数据流 |
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
 | [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |
+| [BPE 分词器文件格式](dev_guide/bpe_tokenizer_format.md) | `.eftok` 分词器文件的参数、数据区、合并与解码规则和完整性校验 |
 | [公共日志 API](logging.md) | C/C++ 日志接入、等级与 Demo 环境变量 |
 | [源码布局与命名](dev_guide/source_layout.md) | 仓库顶层目录、四层源码目录、公开/扩展/内部头文件边界与命名约定 |
 | [kiteLLM 接入](kitellm.md) | 可选 Backend 的构建、部署示例与验证限制 |

@@ -61,6 +61,14 @@ lib/
 configs/vocab.txt
 configs/*_vocab.txt
 
+# BPE 分词器的第三方源文件与生成的 .eftok 文件由 scripts/fetch_real_test_models.sh --onnx-llm
+# 在本地准备，不提交
+configs/*-tokenizer.json
+configs/*-tokenizer.model
+configs/*-generation_config.json
+configs/unicode-*
+configs/*.eftok
+
 # ------------------------------------------------------------------------------
 # 4. 测试报告与运行日志 (Test Reports, GTest Outputs & Logs)
 # ------------------------------------------------------------------------------
