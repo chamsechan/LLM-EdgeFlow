@@ -15,7 +15,7 @@
 | `data/` | Demo Profile 使用的示例数据集 |
 | `dev_support/` | 测试用 Model/Backend 替身、Node 起步模板和可选基准，不链接进生产 SDK |
 | `tests/` | 按 `unit/`、`integration/`、`contract/`、`e2e/` 分类的测试，见[测试指南](../../tests/README.md) |
-| `tools/` | 开发者直接运行的工具：Pipeline Studio、Node 脚手架、开发 Recipe 与模型选择检查 |
+| `tools/` | 开发者直接运行的工具：Pipeline Studio、Node 脚手架、开发 Recipe、模型选择检查与 BPE 分词器生成工具（构建时只调用其 `fixture` 子命令生成测试用合成文件） |
 | `scripts/` | 构建、门禁、测试、格式化、架构图渲染与交付脚本 |
 | `cmake_ext/` | 见[构建扩展目录](#构建扩展目录) |
 | `doc/` | 架构、开发指南与参考文档，入口见[文档目录](../README.md) |

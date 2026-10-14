@@ -143,5 +143,25 @@ Git 忽略；资源清单及 [kite_text_run.json](kite_text_run.json)、
 ./scripts/fetch_real_test_models.sh --whisper
 ```
 
+### 分词器资产（onnx-llm）
+
+```bash
+./scripts/fetch_real_test_models.sh --onnx-llm
+```
+
+下载 Qwen2.5-0.5B-Instruct 与 Gemma3-270M 的分词器源文件（`<模型>-tokenizer.json`、Gemma 的
+`<模型>-tokenizer.model`、`<模型>-generation_config.json`）和 Unicode 9.0.0 `UnicodeData.txt`，
+校验哈希后运行 [prepare_bpe_tokenizer.py](../tools/prepare_bpe_tokenizer.py) 的 `compile` 生成
+`qwen2.5-0.5b-instruct.eftok`、`gemma3-270m.eftok`，并核对资源清单中记录的 SHA-256。
+这些文件都被 Git 忽略。目录里有 `tokenizer.model` 时工具用其中的分数合并，否则用 merges 的排名。
+
+生成阶段需要 `tokenizers==0.23.3`；用 `EDGEFLOW_TOKENIZER_PYTHON` 指定已安装它的 Python
+（默认 `python3`），版本不符时工具拒绝输出。文件格式见
+[BPE 分词器文件格式](../doc/dev_guide/bpe_tokenizer_format.md)。
+
+设置 `EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 指向本目录后，`edgeflow_test_core_runner` 会用真实资产
+对照 `tests/fixtures/bpe_tokenizer/*.golden.json` 中的 Hugging Face 编码结果；
+默认门禁只使用构建时生成的合成 fixture。
+
 构建预设、sidecar 校验和数据集验收记录见
 [可验证选型](../doc/VERIFIABLE_SELECTION.md)。
