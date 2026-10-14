@@ -41,6 +41,42 @@ add_executable(edgeflow_test_core_runner
 edgeflow_enable_aligned_allocation_failure(edgeflow_test_core_runner)
 edgeflow_configure_gtest_target(edgeflow_test_core_runner)
 target_link_libraries(edgeflow_test_core_runner PRIVATE edgeflow_test_allocation_failure)
+
+# BPE 分词器的合成 fixture：确定性生成，只依赖 Python 标准库，不需要下载。
+set(EDGEFLOW_BPE_TOKENIZER_FIXTURE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/bpe_tokenizer")
+set(EDGEFLOW_BPE_METASPACE_FIXTURE
+    "${EDGEFLOW_BPE_TOKENIZER_FIXTURE_DIR}/metaspace_fixture.eftok")
+set(EDGEFLOW_BPE_BYTE_LEVEL_FIXTURE
+    "${EDGEFLOW_BPE_TOKENIZER_FIXTURE_DIR}/byte_level_fixture.eftok")
+add_custom_command(
+  OUTPUT
+    "${EDGEFLOW_BPE_METASPACE_FIXTURE}"
+    "${EDGEFLOW_BPE_BYTE_LEVEL_FIXTURE}"
+  COMMAND "${Python3_EXECUTABLE}"
+          "${PROJECT_SOURCE_DIR}/tools/prepare_bpe_tokenizer.py"
+          fixture metaspace --output "${EDGEFLOW_BPE_METASPACE_FIXTURE}"
+  COMMAND "${Python3_EXECUTABLE}"
+          "${PROJECT_SOURCE_DIR}/tools/prepare_bpe_tokenizer.py"
+          fixture byte_level --output "${EDGEFLOW_BPE_BYTE_LEVEL_FIXTURE}"
+  DEPENDS "${PROJECT_SOURCE_DIR}/tools/prepare_bpe_tokenizer.py"
+  COMMENT "Generating synthetic BPE tokenizer fixtures"
+  VERBATIM)
+add_custom_target(edgeflow_bpe_tokenizer_fixtures
+  DEPENDS
+    "${EDGEFLOW_BPE_METASPACE_FIXTURE}"
+    "${EDGEFLOW_BPE_BYTE_LEVEL_FIXTURE}")
+add_dependencies(edgeflow_test_core_runner edgeflow_bpe_tokenizer_fixtures)
+target_compile_definitions(edgeflow_test_core_runner PRIVATE
+  EDGEFLOW_BPE_METASPACE_FIXTURE="${EDGEFLOW_BPE_METASPACE_FIXTURE}"
+  EDGEFLOW_BPE_BYTE_LEVEL_FIXTURE="${EDGEFLOW_BPE_BYTE_LEVEL_FIXTURE}"
+  EDGEFLOW_BPE_TOKENIZER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/bpe_tokenizer")
+
+# tools/prepare_bpe_tokenizer.py verify 调用的驱动，不是 CTest 用例。
+add_executable(edgeflow_bpe_tokenizer_driver
+  "${PROJECT_SOURCE_DIR}/tests/support/bpe_tokenizer_driver.cpp")
+target_link_libraries(edgeflow_bpe_tokenizer_driver PRIVATE
+  llm_edgeflow::internal_runtime)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   set(EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/models")
@@ -255,6 +291,10 @@ add_test(NAME CustomNodeScaffoldTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/tooling/test_scaffold_custom_node.py)
 
+add_test(NAME BpeTokenizerToolTest
+  COMMAND ${Python3_EXECUTABLE}
+          ${PROJECT_SOURCE_DIR}/tests/tooling/test_prepare_bpe_tokenizer.py)
+
 add_test(NAME DevRecipeTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/tooling/test_dev_recipe.py)
@@ -306,7 +346,7 @@ add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
   --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
   --repo ${PROJECT_SOURCE_DIR})
 set_tests_properties(
-  PipelineStudioServerTest CustomNodeScaffoldTest DevRecipeTest
+  PipelineStudioServerTest CustomNodeScaffoldTest BpeTokenizerToolTest DevRecipeTest
   PipelineToolCatalogTest PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
@@ -317,7 +357,7 @@ add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show
   test_cpp_operator_sdk
   test_registry_conflict test_model_backend_registry_conflict
-  test_catalog_contract_ssot edgeflow_test_core_runner
+  test_catalog_contract_ssot edgeflow_bpe_tokenizer_driver edgeflow_test_core_runner
   edgeflow_test_nodes_runner edgeflow_test_adapter_runner
   edgeflow_test_tooling_runner)
 

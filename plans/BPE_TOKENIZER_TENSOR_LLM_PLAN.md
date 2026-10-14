@@ -42,7 +42,7 @@ Unicode 表生成、NFC、Qwen 预分词、文件映射和对比 HF 的验证方
 | # | 决策 | 理由 |
 |---|---|---|
 | D1 | 分词器只有一个 BPE 实现。规范化、预分词、字节回退和解码器这四个环节的差别，以及合并优先级的来源（D2），都作为文件头里的参数；参数由工具从 `tokenizer.json` 读出，与模型名无关 | 两个目标模型在 HF 中都是 `"type": "BPE"`，都是逐对合并相邻片段，差别只在前后处理环节和合并优先级的来源（见 4.1）。这样合并核心、特殊 token 识别和文件读取只需写一份；新模型只要用到的是已支持的组件，就不用改代码 |
-| D2 | 合并时统一用“拼接后查词表”找到合成的 token；优先级来源是文件参数 `merge_priority`，二选一：`rank` 表示每个 token 带着自己的合并规则（切分位置和排名），`score` 表示每个 token 带一个分数。工具为每个模型挑选适合的一种；查找路径和合并循环只写一份 | 代码通用的是这两种算法做法，与具体模型无关；每个模型各有一个文件，其中的合并数据只属于这个模型。`rank` 对任何 BPE 都与 HF 完全一致；`score` 更省内存，但只适用于 SentencePiece 转换来的词表。已核实：Gemma 的 514,906 条合并规则，正好就是“两段都在词表中、拼起来也在词表中”的全部切分。各方案的数据量见 4.3 |
+| D2 | 合并时统一用“拼接后查词表”找到合成的 token；优先级来源是文件参数 `merge_priority`，二选一：`rank` 表示每个 token 带着自己的合并规则（切分位置和排名）；`score` 表示每个 token 只带一个分数，优先级由“分数、左右两段的字符数、合成 token 的 ID”在运行时组合得出。工具为每个模型挑选适合的一种，并保证候选合并的先后顺序与 HF 的排名完全相同；查找路径和合并循环只写一份 | 代码通用的是这两种算法做法，与具体模型无关；每个模型各有一个文件，其中的合并数据只属于这个模型。`rank` 对任何 BPE 都与 HF 一致；`score` 更省内存，只适用于 SentencePiece 转换来的词表，并且生成时要证明顺序等价（见 4.1）。各方案的数据量见 4.3 |
 | D3 | 分词器代码放在 `src/engine/text/`，生成工具放在 `tools/` | 分词器需要 Model 和 Backend 都能引用，而 Node 引用不到。生成工具由开发者手动运行。构建时只调用它的 `fixture` 子命令生成合成文件，这样不必在两处各维护一份文件格式写入代码 |
 | D4 | 第三方源文件和生成的分词器文件都不进 git 仓库 | 它们由 `fetch_real_test_models.sh --onnx-llm` 下载或生成，`.gitignore` 覆盖；仓库里只保留 SHA 记录，以及只含文本和 ID 的测试样例 |
 | D5 | 文本生成由 Model 负责分词和生成循环，跑在 `tensor_graph` 上 | 分词属于预处理，与 BGE 的做法一致；按“类别 + 协议”选择实现时，`llm` + `tensor_graph` 只对应这一个 Model，与 `qwen_causal_lm`（`text_generation`）不冲突 |
@@ -92,9 +92,18 @@ text::BpeTokenizer::Encode：
 
 Gemma 的 `fuse_unk` 为 true，但同时开启了字节回退，`<unk>` 不会被产生，所以接受。
 
-`score` 只在调用时提供了 `tokenizer.model` 才使用。此时工具先检查：merges 的集合必须与“两段都在词表中、拼起来也在词表中”的全部切分完全相同，
-不满足就报错，不会悄悄改用 `rank`。没有提供 `tokenizer.model` 时一律用 `rank`；`rank` 对任何 BPE 都成立，是新模型的默认选择。
-分数不能从 merges 的排名推算出来：已核实 Gemma 中同一个 token 的多条合并规则在排名里并不相邻，所以必须读取原始分数。
+`score` 只在调用时提供了 `tokenizer.model` 才使用。此时工具检查两项，任一不满足就报错，不会悄悄改用 `rank`：
+
+1. merges 的集合与“两段都在词表中、拼起来也在词表中”的全部切分完全相同；
+2. 把 merges 按 **（分数从高到低，左段字符数从多到少，右段字符数从多到少，合成 token 的 ID 从小到大）** 排序后，
+   与 HF 的 merges 顺序逐条相同，并且没有并列。
+
+运行时 `score` 模式按同一个组合键比较候选合并（字符数是 Unicode 码点个数，随合并累加），
+因此候选合并的先后顺序与 HF 的排名完全相同；同一合并规则出现在多处时，两者都取最左。等价性在生成时被证明，不依赖测试语料。
+已核实 Gemma 满足这两项：514,906 条规则零冲突、零并列。只看分数会有 278,657 处并列；用字节数代替字符数会有 465 处冲突。
+分数本身不能从 merges 的排名推算出来，所以必须读取 `tokenizer.model`。
+
+没有提供 `tokenizer.model` 时一律用 `rank`；`rank` 对任何 BPE 都成立，是新模型的默认选择。
 
 ### 4.2 `text::BpeTokenizer`
 
@@ -324,9 +333,9 @@ Gemma 只需换文件名，并写 `"chat_template": "gemma"`。后端参数（�
 
 - **做法**：写一段临时代码，直接调用 `OnnxRuntimeBackend::Load`（`tensor_graph` 协议）加载 Qwen2.5 int8 模型，本地临时打上 4.6 节的零字节张量补丁，使用固定的 token ID。
   先预填充，使 KV 长度分别达到 **128、1024、2048**；然后在每个长度下连续解码 32 步，把每步的 `present.*` 移交为下一步的 `past_key_values.*`。
-- **测量**：每个长度下单步 `Run` 的总耗时、其中输出 memcpy 的耗时（在 `Run` 内临时计时），以及进程的峰值 RSS。
+- **测量**：每个长度下，`ITensorGraphSession::Run` 的总耗时，以及其中 `Ort::Session::Run` 本身的耗时（在 `Run` 内临时计时）。两者之差就是封装层的全部开销：输入包装、输出缓冲的分配和清零、memcpy。同时记录进程的峰值 RSS。
   按估算，Qwen 每个 token 的 KV 约 24 KiB，长度 2048 时每步要复制约 48 MiB。
-- **判据**（预先确定）：长度 2048 时，memcpy 占单步耗时不超过 20%，就进入 S2；超过就暂停，重新讨论是否改为新增 Backend。
+- **判据**（预先确定）：长度 2048 时，封装层开销占单步总耗时不超过 20%，就进入 S2；超过就暂停，重新讨论是否改为新增 Backend。
 - **产出**：三个长度的数据写进 S2 的 PR 描述，原型代码不提交。Gemma 能否在 ORT 1.17.3 上运行尚不确定（见 9.1），S0 不测 Gemma。
 
 ### S1：BPE 分词器与生成工具
@@ -340,7 +349,8 @@ Gemma 只需换文件名，并写 `"chat_template": "gemma"`。后端参数（�
   - `tests/RuntimeTests.cmake`：构建时调用 `fixture` 子命令生成两份合成文件，并添加驱动程序目标；
   - `configs/asset_manifest.json`、`scripts/fetch_real_test_models.sh`、`.gitignore`：见 4.4；
   - `configs/README.md`、`doc/README.md`、`tests/README.md` 的相应说明；
-  - `source_layout.md`：见 4.6。
+  - `source_layout.md`：见 4.6；
+  - `doc/CHANGELOG.md`：新增 BPE 分词器组件和生成工具。
 - **默认门禁内的测试**，两种合成文件都要覆盖：
   - **加载失败**：文件不存在、被截断、magic 不对、CRC 不对、数据区越界、枚举参数取值未知；
   - **合并顺序**：两种合并优先级都要测。优先级高的先合并（`rank` 看排名，`score` 看分数）；同一优先级出现在多处时，先合并最左边的；
@@ -353,8 +363,15 @@ Gemma 只需换文件名，并写 `"chat_template": "gemma"`。后端参数（�
   - **解码**，分两组：
     - 只由有效 UTF-8 字节组成的序列：逐个 `AppendTokenBytes` 拼起来，等于 `Decode` 的结果；
     - 含非法字节的序列：`Decode` 按各自解码器的 HF 规则输出 U+FFFD，`AppendTokenBytes` 输出原始字节，两者按设计不相等；
-  - **其他**：ID 越界报错；特殊 token 解码为空串；`IsEndToken` 与合成文件一致；多个线程同时 `Encode` 同一实例，结果一致。
-- **工具测试**：`compile` 对每一种不支持的组件或字段都报错（用手工构造的小 `tokenizer.json`）；提供 `tokenizer.model`、但 merges 不等于全部切分时报错；`fixture` 两次输出的文件逐字节相同。
+  - **NFC 长输入**：例如 `a` 后接 N 个 U+0301 和 N 个 U+0323，接近 `kMaxEncodeBytes` 时仍在线性对数时间内完成；
+  - **其他**：ID 越界报错；特殊 token 解码为空串；`IsEndToken` 与合成文件一致；多个线程同时 `Encode` 同一实例，结果一致；
+    每个用例使用自己的临时文件，`ctest -j` 并行运行时互不干扰。
+- **工具测试**：
+  - `compile` 对每一种不支持的组件或字段都报错（用手工构造的小 `tokenizer.json`）；
+  - 提供了 `tokenizer.model`，但 merges 不等于全部切分，或排序与 HF 顺序不一致时，报错。要包含 `abc` 反例：HF 编码为 `ab,c`，而只按分数会得到 `a,bc`；
+  - 字节回退 token 只出现在 `added_tokens`、不在 BPE 基础词表中时，报错；
+  - `verify` 在驱动缺行、多行或输出 `ERR` 时失败，不会报告零差异；
+  - `fixture` 两次输出的文件逐字节相同。
 - **真实资产测试**：设置 `EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 时运行，否则 `GTEST_SKIP`。要求与样例 ID 完全一致，并检查词表大小和结束 token。
 - **验收**：
   1. 两个模型都用 `verify` 与 HF 比对，编码和解码零差异。语料包括随机 Unicode、最长 64 KiB 的文本、ChatML 和 Gemma 模板文本，以及随机 ID 序列；
@@ -421,7 +438,7 @@ Gemma 只需换文件名，并写 `"chat_template": "gemma"`。后端参数（�
 | [doc/developer_guide.md](../doc/developer_guide.md) | 新 Model 的参数；在 `tensor_graph` 上由 Model 负责分词和生成循环；修改关于生成器的那句话 | S2 |
 | [Model Execution 参考](../.agents/skills/llm-edgeflow-developer-guide/references/model-execution.md) | 把新 Model 列为参考实现 | S2 |
 | [doc/VERIFIABLE_SELECTION.md](../doc/VERIFIABLE_SELECTION.md) | 新的 selection、真实模型的验证方法、Gemma 的验证状态 | S3 |
-| [doc/CHANGELOG.md](../doc/CHANGELOG.md) | 新增 Model 和分词器组件 | S3 |
+| [doc/CHANGELOG.md](../doc/CHANGELOG.md) | 每个阶段交付时各写一条：S1 分词器组件和生成工具；S2 新 Model；S3 端到端配置 | S1–S3 |
 
 ## 9. 风险与待决事项
 
@@ -436,7 +453,7 @@ onnx-community 的 Gemma 导出，所有变体都使用 `com.microsoft:GroupQuer
 | 项目 | 处理方式 |
 |---|---|
 | KV 每一步都要复制 | S0 实测，判据见 S0 |
-| `score` 与 HF 在同分情况下是否一致 | `score` 遵循 SentencePiece 的规则：同分取最左；HF 则按 merges 的排名决定。原项目用同样的分数规则，与 HF 比对时零差异，S1 的 `verify` 会再次确认。如果出现差异，Gemma 改用 `rank`：结果一定正确，文件约 8.5 MiB |
+| `score` 与 HF 是否等价 | 生成时检查 4.1 的两项条件，从而证明顺序等价；`verify` 只作为补充确认。新模型不满足条件时，工具报错，改用 `rank` |
 | 分词器与模型配错 | 加载时只能检查 ID 范围，发现不了所有错配；由 manifest 的 selection 保证资产配对 |
 | 输出中间的非法 UTF-8 | 与现有 llama.cpp 路径一致；修复属于共享生成器的改动，另行决定 |
 | Unicode 数据许可 | 分词器文件不进仓库，在本地生成，因此 `THIRD_PARTY_NOTICES.md` 不变；以后如果要分发生成的文件，需要补上 Unicode 许可 |

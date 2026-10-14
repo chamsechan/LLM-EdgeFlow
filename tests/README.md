@@ -71,7 +71,8 @@ ELF 的 `posix_memalign` 故障包装仅在 Tensor 测试链接时启用。
 
 默认构建执行 ONNX Runtime 小图和 llama.cpp 的实际加载失败路径。没有 GGUF 时，物理生成
 用例明确跳过；`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
-Backend 资产。可选 E2E 用 `ENABLE_REAL_MODEL_TESTS=ON` 开启，并使用仓库固定权重和 PCM。
+Backend 资产；`EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 指向含 `.eftok` 文件的目录（见[配置说明](../configs/README.md#分词器资产onnx-llm)）时，
+BPE 分词器测试额外对照 Hugging Face 的样例 ID。可选 E2E 用 `ENABLE_REAL_MODEL_TESTS=ON` 开启，并使用仓库固定权重和 PCM。
 Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `STUDIO_CHROMIUM_PATH`。
 缺少该依赖时只跳过物理浏览器，其必需 HTTP/JS/文件事务仍执行。
 
