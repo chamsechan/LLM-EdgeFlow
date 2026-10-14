@@ -4,8 +4,8 @@
 #include <utility>
 
 #include "adapter/adapter_status.h"
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
-#include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -21,7 +21,7 @@ class AdapterValidationHelper {
           std::move(message), std::move(field_path), sample_index,
           adapter_name ? adapter_name : "");
     }
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   static int ReturnBufferTooSmall(AdapterStatus* out_status,
@@ -33,7 +33,7 @@ class AdapterValidationHelper {
           std::move(message), std::move(field_path), sample_index,
           adapter_name ? adapter_name : "");
     }
-    return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    return error::kInvalidOutput;
   }
 
   template <typename T>

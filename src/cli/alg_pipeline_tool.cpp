@@ -13,11 +13,12 @@
 #include "adapter/io_plan_resolver.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "cli/pipeline_authoring.h"
+#include "contracts/error_codes.h"
 #include "contracts/json_pointer.h"
-#include "core/diagnostic_code.h"
 #include "core/pipeline_catalog.h"
 #include "demo/common/demo_profile_defaults.h"
 #include "demo/common/demo_profile_fields.h"
+#include "edgeflow/log.h"
 #include "edgeflow/operator/interface.h"
 #include "engine/model_registry.h"
 #include "nlohmann/json.hpp"
@@ -27,23 +28,34 @@
 namespace {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
-using llm_edgeflow::DiagnosticCode;
-using llm_edgeflow::DiagnosticCodeName;
+namespace error = llm_edgeflow::error;
+using llm_edgeflow::ErrorCodeName;
 using llm_edgeflow::PipelineCatalog;
 
-Json ToolError(const std::string& code, const std::string& message,
+Json ToolError(int code, const std::string& message,
                const std::string& path = "/") {
-  return {
-      {"ok", false},
-      {"diagnostics",
-       Json::array({{{"code", code}, {"path", path}, {"message", message}}})}};
-}
-
-Json PipelineError(DiagnosticCode code, const std::string& message) {
-  return ToolError(DiagnosticCodeName(code), message);
+  return {{"ok", false},
+          {"diagnostics", Json::array({{{"code", ErrorCodeName(code)},
+                                        {"path", path},
+                                        {"message", message}}})}};
 }
 
 int Print(const Json& result) {
+  if (!result.value("ok", false) && result.contains("diagnostics")) {
+    for (const auto& diagnostic : result["diagnostics"]) {
+      const auto code = diagnostic.value("code", "");
+      const auto path = diagnostic.value("path", "/");
+      const auto message = diagnostic.value("message", "");
+      if (code == ErrorCodeName(llm_edgeflow::error::kInternalException) ||
+          code == ErrorCodeName(llm_edgeflow::error::kUnknownException)) {
+        ALG_LOG_ERROR("[PipelineTool] %s at %s: %s\n", code.c_str(),
+                      path.c_str(), message.c_str());
+      } else {
+        ALG_LOG_WARNING("[PipelineTool] %s at %s: %s\n", code.c_str(),
+                        path.c_str(), message.c_str());
+      }
+    }
+  }
   std::cout << result.dump(2) << std::endl;
   return result.value("ok", false) ? 0 : 1;
 }
@@ -57,7 +69,8 @@ void PrintRegistrationHint(const nlohmann::json& response,
   (void)source_code;
 #else
   auto unknown_registration = [](const std::string& code) {
-    return code == "UNKNOWN_MODEL_TYPE" || code == "UNKNOWN_BACKEND";
+    return code == ErrorCodeName(error::kUnknownModelType) ||
+           code == ErrorCodeName(error::kUnknownBackend);
   };
   auto has_unknown_registration = [&](const nlohmann::json& report) {
     auto diagnostics = report.find("diagnostics");
@@ -224,8 +237,8 @@ Json ResolveConf(const std::string& file, const std::string& root,
   if (OperatorConfigResolver::Resolve(root.c_str(),
                                       relative_file.string().c_str(), &resolved,
                                       &error, depth, &diagnostic) != 0) {
-    *source_code = diagnostic.code;
-    return ToolError("DEPLOYMENT_CONFIG",
+    *source_code = ErrorCodeName(diagnostic.code);
+    return ToolError(error::kDeploymentConfig,
                      error.empty() ? diagnostic.message : error,
                      diagnostic.path.empty() ? "/" : diagnostic.path);
   }
@@ -324,8 +337,8 @@ int Run(int argc, char* argv[]) {
     guard.ops = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
     if (guard.ops.Init && guard.ops.Init() != 0)
       return Print(
-          PipelineError(DiagnosticCode::kRegistryConflict,
-                        llm_edgeflow::operator_api::GetOperatorLastError()));
+          ToolError(error::kRegistryConflict,
+                    llm_edgeflow::operator_api::GetOperatorLastError()));
     guard.initialized = guard.ops.Init != nullptr;
   }
   if (command == "catalog" || command == "export-schema") {
@@ -335,9 +348,8 @@ int Run(int argc, char* argv[]) {
     }
     const auto snapshot = PipelineCatalog::Snapshot();
     if (snapshot.node_registry_has_conflict)
-      return Print(
-          PipelineError(DiagnosticCode::kRegistryConflict,
-                        "Node registry contains registration conflicts"));
+      return Print(ToolError(error::kRegistryConflict,
+                             "Node registry contains registration conflicts"));
     if (command == "export-schema") {
       std::cout << llm_edgeflow::BuildPipelineJsonSchema().dump(2) << std::endl;
       return 0;
@@ -345,7 +357,7 @@ int Run(int argc, char* argv[]) {
     auto result = llm_edgeflow::IoCatalog::ToJson(snapshot);
     std::string error;
     result["profiles"] = ProfilesJson(&error);
-    if (!error.empty()) return Print(ToolError("INVALID_PROFILE", error));
+    if (!error.empty()) return Print(ToolError(error::kInvalidProfile, error));
     result["ok"] = true;
     return Print(result);
   }
@@ -355,8 +367,7 @@ int Run(int argc, char* argv[]) {
       return 2;
     }
     const auto definition = PipelineCatalog::FindNode(argv[2]);
-    if (!definition)
-      return Print(PipelineError(DiagnosticCode::kUnknownNodeType, argv[2]));
+    if (!definition) return Print(ToolError(error::kUnknownNodeType, argv[2]));
     auto result = PipelineCatalog::NodeToJson(*definition);
     result["ok"] = true;
     return Print(result);
@@ -370,19 +381,18 @@ int Run(int argc, char* argv[]) {
         llm_edgeflow::ModelRegistry::Instance().FindImplementation(argv[2],
                                                                    argv[3]);
     if (definitions.size() != 1) {
-      const auto code = definitions.empty()
-                            ? DiagnosticCode::kBackendProtocolMismatch
-                            : DiagnosticCode::kRegistryConflict;
-      auto error = PipelineError(code, "No unique implementation for '" +
-                                           std::string(argv[2]) + "' / '" +
-                                           argv[3] + "'");
+      const auto code = definitions.empty() ? error::kBackendProtocolMismatch
+                                            : error::kRegistryConflict;
+      auto error =
+          ToolError(code, "No unique implementation for '" +
+                              std::string(argv[2]) + "' / '" + argv[3] + "'");
       if (!PipelineCatalog::FindBackend(argv[3]))
-        error = PipelineError(DiagnosticCode::kUnknownBackend, argv[3]);
+        error = ToolError(error::kUnknownBackend, argv[3]);
       const auto models = PipelineCatalog::Models();
       if (std::none_of(models.begin(), models.end(), [&](const auto& model) {
             return model.model_type == argv[2];
           }))
-        error = PipelineError(DiagnosticCode::kUnknownModelType, argv[2]);
+        error = ToolError(error::kUnknownModelType, argv[2]);
       PrintRegistrationHint(error);
       return Print(error);
     }
@@ -397,8 +407,7 @@ int Run(int argc, char* argv[]) {
     }
     const auto definition = PipelineCatalog::FindBackend(argv[2]);
     if (!definition) {
-      const auto error =
-          PipelineError(DiagnosticCode::kUnknownBackend, argv[2]);
+      const auto error = ToolError(error::kUnknownBackend, argv[2]);
       PrintRegistrationHint(error);
       return Print(error);
     }
@@ -439,7 +448,7 @@ int Run(int argc, char* argv[]) {
         const auto& registry = llm_edgeflow::IoConverterRegistry::Instance();
         if (option == "--input" ? !registry.FindInputConverter(type, name)
                                 : !registry.FindOutputConverter(type, name))
-          return Print(ToolError("UNKNOWN_CONVERTER", value));
+          return Print(ToolError(error::kUnknownConverter, value));
         pipeline["io"][option == "--input" ? "input" : "output"].push_back(
             {{"type", type}, {"name", name}});
       } else {
@@ -457,14 +466,14 @@ int Run(int argc, char* argv[]) {
       std::string error;
       if (!ReadJson("demo/profiles.json", &profiles, &error) ||
           !profiles.at("profiles").contains(profile))
-        return Print(ToolError("UNKNOWN_PROFILE", profile));
+        return Print(ToolError(error::kUnknownProfile, profile));
       const auto& selected = profiles["profiles"][profile];
       if (!alg_demo::ValidateProfileFields(selected, &error))
-        return Print(ToolError("INVALID_PROFILE", error));
+        return Print(ToolError(error::kInvalidProfile, error));
       const auto path = ProfilePipeline(selected);
       if (!path || !ReadJson(path->string(), &pipeline, &error))
         return Print(
-            ToolError("UNKNOWN_PROFILE", error.empty() ? profile : error));
+            ToolError(error::kUnknownProfile, error.empty() ? profile : error));
     } else if (io["input"].empty() || io["output"].empty()) {
       Usage();
       return 2;
@@ -500,7 +509,7 @@ int Run(int argc, char* argv[]) {
     Json document;
     std::string error;
     if (!ReadJson(file, &document, &error))
-      return Print(ToolError("JSON_READ", error));
+      return Print(ToolError(error::kJsonRead, error));
     using llm_edgeflow::DocumentValidationMode;
     const auto mode = command == "plan" ? DocumentValidationMode::kPlan
                       : explain         ? DocumentValidationMode::kExplain
@@ -527,9 +536,9 @@ int Run(int argc, char* argv[]) {
                                                       &diagnostic) != 0 ||
         !plan) {
       const auto response = ToolError(
-          "IO_VALIDATION_ERROR", error.empty() ? diagnostic.message : error,
+          error::kIoValidationError, error.empty() ? diagnostic.message : error,
           diagnostic.path.empty() ? "/" : diagnostic.path);
-      PrintRegistrationHint(response, diagnostic.code);
+      PrintRegistrationHint(response, ErrorCodeName(diagnostic.code));
       return Print(response);
     }
     return Print({{"ok", true},
@@ -582,14 +591,14 @@ int Run(int argc, char* argv[]) {
       input.append(buffer, std::cin.gcount());
       if (input.size() > 4 * 1024 * 1024)
         return Print(
-            ToolError("AUTHORING_ERROR",
+            ToolError(error::kAuthoringError,
                       "REQUEST_TOO_LARGE: 请求输入大小超过单次上限 4 MiB"));
     }
     Json request;
     try {
       request = Json::parse(input);
     } catch (const std::exception& error) {
-      return Print(ToolError("JSON_READ", error.what()));
+      return Print(ToolError(error::kJsonRead, error.what()));
     }
     const auto result = llm_edgeflow::PipelineAuthoring::ApplyRequest(request);
     const auto response = result.ToJson();
@@ -605,8 +614,9 @@ int main(int argc, char* argv[]) {
   try {
     return Run(argc, argv);
   } catch (const std::exception& error) {
-    return Print(ToolError("INTERNAL_EXCEPTION", error.what()));
+    return Print(ToolError(error::kInternalException, error.what()));
   } catch (...) {
-    return Print(ToolError("INTERNAL_EXCEPTION", "Unknown internal exception"));
+    return Print(
+        ToolError(error::kUnknownException, "Unknown internal exception"));
   }
 }

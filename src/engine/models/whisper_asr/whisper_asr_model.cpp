@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
@@ -79,12 +80,12 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
     SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   outputs->clear();
   if (!session_) {
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
-    return -1;
+    return error::kInvalidState;
   }
   if (audio.empty()) return 0;
 
@@ -95,38 +96,34 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
     const size_t max_samples = static_cast<size_t>(max_audio_seconds_) * 16000;
     for (const auto& item : audio) {
       if (item.data.sample_rate != 16000) {
-        ALG_LOG_ERROR("[WhisperAsrModel] Audio sample rate %d != 16000\n",
-                      item.data.sample_rate);
-        SetDiagnosticNoexcept(diagnostic, "Audio sample rate must be 16000 Hz");
-        return -1;
+        SetDiagnosticNoexcept(diagnostic,
+                              "Audio sample rate must be 16000 Hz, received " +
+                                  std::to_string(item.data.sample_rate));
+        return error::kInvalidInput;
       }
       const size_t n_samples = item.data.pcm_data.size();
       if (n_samples == 0) {
         continue;
       }
       if (n_samples < 1600) {  // 100 毫秒
-        ALG_LOG_ERROR(
-            "[WhisperAsrModel] Audio sample count %zu < 1600 (100 ms)\n",
-            n_samples);
         SetDiagnosticNoexcept(
-            diagnostic, "Audio must contain at least 1600 samples (100 ms)");
-        return -1;
+            diagnostic,
+            "Audio must contain at least 1600 samples (100 ms), received " +
+                std::to_string(n_samples));
+        return error::kInvalidInput;
       }
       if (n_samples > max_samples) {
-        ALG_LOG_ERROR(
-            "[WhisperAsrModel] Audio sample count %zu > max allowed %zu\n",
-            n_samples, max_samples);
-        SetDiagnosticNoexcept(diagnostic, "Audio exceeds model duration limit");
-        return -1;
+        SetDiagnosticNoexcept(
+            diagnostic,
+            "Audio exceeds model duration limit: " + std::to_string(n_samples) +
+                " samples, maximum " + std::to_string(max_samples));
+        return error::kInvalidInput;
       }
       for (float s : item.data.pcm_data) {
         if (!std::isfinite(s) || s < -1.0f || s > 1.0f) {
-          ALG_LOG_ERROR(
-              "[WhisperAsrModel] Invalid audio sample amplitude (not finite or "
-              "out of [-1, 1])\n");
           SetDiagnosticNoexcept(
               diagnostic, "Audio amplitude must be finite and within [-1, 1]");
-          return -1;
+          return error::kInvalidInput;
         }
       }
     }
@@ -145,48 +142,40 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
           const int ret =
               session_->Transcribe(item, session_options, &raw_output, &reason);
           if (ret != 0) {
-            ALG_LOG_ERROR("[WhisperAsrModel] Transcription failed: %s\n",
-                          reason.c_str());
             SetDiagnosticNoexcept(diagnostic, reason);
-            return -1;
+            return ret;
           }
           if (raw_output.find('\0') != std::string::npos) {
-            ALG_LOG_ERROR(
-                "[WhisperAsrModel] Output contains embedded NUL byte\n");
             SetDiagnosticNoexcept(diagnostic,
                                   "Transcription contains embedded NUL byte");
-            return -1;
+            return error::kInvalidOutput;
           }
           std::vector<size_t> boundaries;
           if (!utf8::BuildCodePointBoundaries(raw_output, &boundaries)) {
-            ALG_LOG_ERROR("[WhisperAsrModel] Output is not valid UTF-8\n");
             SetDiagnosticNoexcept(diagnostic,
                                   "Transcription is not valid UTF-8");
-            return -1;
+            return error::kInvalidUtf8;
           }
           std::string trimmed = TrimAscii(raw_output);
           if (trimmed.size() > max_output_bytes_) {
-            ALG_LOG_ERROR(
-                "[WhisperAsrModel] Output size %zu > max_output_bytes %zu\n",
-                trimmed.size(), max_output_bytes_);
             SetDiagnosticNoexcept(diagnostic,
-                                  "Transcription exceeds max_output_bytes");
-            return -1;
+                                  "Transcription exceeds max_output_bytes: " +
+                                      std::to_string(trimmed.size()) + " > " +
+                                      std::to_string(max_output_bytes_));
+            return error::kInvalidOutput;
           }
           *output = std::move(trimmed);
           return 0;
         },
         outputs, diagnostic);
   } catch (const std::exception& e) {
-    ALG_LOG_ERROR("[WhisperAsrModel] Exception in Transcribe: %s\n", e.what());
     SetDiagnosticNoexcept(diagnostic, e.what());
     outputs->clear();
-    return -1;
+    return error::kInternalException;
   } catch (...) {
-    ALG_LOG_ERROR("[WhisperAsrModel] Unknown exception in Transcribe\n");
     SetDiagnosticNoexcept(diagnostic, "Unknown transcription exception");
     outputs->clear();
-    return -1;
+    return error::kUnknownException;
   }
 }
 

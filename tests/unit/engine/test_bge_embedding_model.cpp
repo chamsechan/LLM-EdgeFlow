@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "tests/support/model_probe.h"
 #include "tests/support/tensor_graph_probe.h"
@@ -166,7 +167,8 @@ TEST_F(BgeEmbeddingModelTest, ModelSpecificOutputFailuresIncludeMaskedPadding) {
         session, parameters, &diagnostic);
     ASSERT_NE(model, nullptr) << diagnostic;
     EmbeddingBatch output;
-    EXPECT_EQ(model->Embed({{0, 0, "hello"}}, &output, &diagnostic), -1);
+    EXPECT_EQ(model->Embed({{0, 0, "hello"}}, &output, &diagnostic),
+              error::kInvalidOutput);
     EXPECT_TRUE(output.empty());
     EXPECT_NE(diagnostic.find(test.detail), std::string::npos) << diagnostic;
   }

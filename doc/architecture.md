@@ -157,7 +157,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 `RuntimeCreateOptions` 提供自有路径、设备和平台名称；`RuntimeInputBatch` 使用类型擦除输入视图，
 `RuntimeOutputBatch` 按原始行和输出选择索引申请、接收租约；`ControlRequest` 提供内部命令和 JSON。
 部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipeline 执行和池生命周期归 facade。
-本次保留既有 `int` 返回值与诊断字符串，错误码中立化后置；协议壳沿用原有错误映射。
+内部 `int` 返回值统一引用中立框架码，协议壳映射为平台码；见[错误码与日志](dev_guide/error_handling.md)。
 
 协议壳解析具体 Create/Control 结构及输入输出 key，binding 负责载体校验、像素/字符串复制、
 布局分配、容量、重置与释放。facade 只调用类型擦除接口，不解释平台字段或所有权细节。
@@ -228,9 +228,9 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
    真实公共头可以位于 `include/api/` 或目标 SDK 的其他目录，不要求同路径或同名替换。
    移植时由真实协议壳包含这些公共头，并按真实类型、容量和所有权实现自己的 binding；
    不能把包含 `.cpp` 的适配实现目录当作公共头目录整体替换，也不能直接将 mock binding 当作生产路径。
-6. **错误码中立化另行处理。** 当前保留既有 `int` 返回值、诊断字符串及外壳错误映射，
-   允许既有错误码定义依赖继续存在。不得借此次边界拆分新增错误体系或改变对外返回语义；
-   后续中立化须独立明确映射和兼容范围。
+6. **框架码与平台码分离。** 内部统一引用 `contracts/error_codes.h`，平台错误码仅由协议壳
+   使用。相同整数只能表示一种框架错误；对外映射依据调用阶段和错误含义。具体规则见
+   [错误码与日志](dev_guide/error_handling.md)。
 
 改变上述原则属于契约或架构变更，应按 [CONTRIBUTING](../CONTRIBUTING.md#3-design-and-current-contracts)
 说明原因、影响和替代契约，并同步相关文档及行为测试。不得仅为复用某个平台载体而撤销这些边界。

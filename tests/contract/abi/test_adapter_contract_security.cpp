@@ -10,6 +10,7 @@
 
 #include "adapter/io_values.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "contracts/error_codes.h"
 #include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
@@ -24,7 +25,8 @@ const OperatorValueTypeBinding& Native(const char* suffix) {
 void Reject(const OperatorValueTypeBinding& binding, const void* carrier,
             const InputLimits& limits, const char* field) {
   std::string error;
-  EXPECT_EQ(binding.validate_external(carrier, limits, &error), -3);
+  EXPECT_EQ(binding.validate_external(carrier, limits, &error),
+            error::kInvalidInput);
   EXPECT_NE(error.find(field), std::string::npos) << error;
 }
 

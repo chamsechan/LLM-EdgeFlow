@@ -8,6 +8,7 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_values.h"
 #include "adapter/result_validation.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -115,12 +116,12 @@ int DecodeRequestRows(
     const BlackboardKey<std::vector<TraceableItem<Payload>>>& payload_port,
     Decode&& decode) {
   if (!ValidateDecodeRequest(source, options, context, status))
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   std::vector<TraceableItem<Payload>> payloads;
   payloads.reserve(source.count);
   for (size_t i = 0; i < source.count; ++i) {
     auto input = ReadInputSlot<Value>(source, slot, i, options, status);
-    if (!input) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (!input) return error::kInvalidInput;
     Payload payload{};
     const auto result = decode(*input, &payload);
     if (!result.IsOk())
@@ -130,8 +131,8 @@ int DecodeRequestRows(
   if (!AdapterValidationHelper::PublishContextValue(
           *context, options.Port(payload_port.name), std::move(payloads),
           options.Label().c_str(), status))
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  return COMPANY_ALG_SUCCESS;
+    return error::kInvalidInput;
+  return error::kOk;
 }
 
 // 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架按 req_id 恢复输出行，
@@ -150,7 +151,7 @@ int EncodeResultRows(
         options.Label().c_str());
   const auto* results =
       ReadOutputValue(*context, result_port, options, status, "res");
-  if (!results) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!results) return error::kInvalidInput;
   if (!destination || destination->count < results->size())
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Destination item count is less than output count",
@@ -158,7 +159,7 @@ int EncodeResultRows(
   std::vector<const TraceableItem<Payload>*> ordered;
   if (!IndexResults(results, destination->count, &ordered, "res",
                     options.Label().c_str(), status))
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   size_t written = 0;
   for (size_t i = 0; i < ordered.size(); ++i) {
     if (!destination->HasSlot(slot, i) && !destination->required) continue;
@@ -167,11 +168,11 @@ int EncodeResultRows(
     if (!result.IsOk())
       return ReturnRowStatus(result, options.Label(), i, status);
     if (!WriteOutputValue(*destination, slot, i, output, options, status))
-      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return status ? status->Code() : error::kInvalidOutput;
     ++written;
   }
   if (written_count) *written_count = written;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 #define EDGEFLOW_CONCAT_IMPL(s1, s2) s1##s2

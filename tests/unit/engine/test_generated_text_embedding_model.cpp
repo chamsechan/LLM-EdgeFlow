@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/models/generated_text_embedding/generated_text_embedding_model.h"
 #include "tests/support/model_probe.h"
 
@@ -130,7 +131,8 @@ TEST(GeneratedTextEmbeddingModelTest,
         &diagnostic);
     ASSERT_NE(model, nullptr) << diagnostic;
     EmbeddingBatch output;
-    EXPECT_EQ(model->Embed({{0, 0, "Hi"}}, &output, &diagnostic), -1);
+    EXPECT_EQ(model->Embed({{0, 0, "Hi"}}, &output, &diagnostic),
+              error::kInvalidOutput);
     EXPECT_EQ(session->calls, 1);
     EXPECT_TRUE(output.empty());
     EXPECT_NE(diagnostic.find(test.detail), std::string::npos) << diagnostic;
@@ -145,7 +147,8 @@ TEST(GeneratedTextEmbeddingModelTest,
       session, {{"embedding_dim", 2}, {"max_tokens", 2}}, &diagnostic);
   ASSERT_NE(model, nullptr) << diagnostic;
   EmbeddingBatch output;
-  EXPECT_EQ(model->Embed({{0, 0, ""}}, &output, &diagnostic), -1);
+  EXPECT_EQ(model->Embed({{0, 0, ""}}, &output, &diagnostic),
+            error::kInvalidInput);
   EXPECT_EQ(session->calls, 0);
   EXPECT_EQ(diagnostic, "Embedding text is empty");
   session->code = -719;

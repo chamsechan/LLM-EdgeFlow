@@ -9,6 +9,7 @@
 #include "adapter/io_plan_resolver.h"
 #include "adapter/pipeline_document.h"
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
@@ -21,10 +22,10 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
                                  std::filesystem::path* resolved,
                                  std::string* error_msg) noexcept {
   try {
-    if (!resolved) return -2;
+    if (!resolved) return error::kInvalidArgument;
     if (relative_value.empty()) {
       if (error_msg) *error_msg = std::string(field_name) + " path is empty";
-      return -2;
+      return error::kDeploymentError;
     }
     // 拒绝 POSIX / Windows / UNC 绝对路径与盘符
     if (relative_value[0] == '/' || relative_value[0] == '\\') {
@@ -32,7 +33,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg = std::string(field_name) +
                      " must be relative, got absolute: " + relative_value;
       }
-      return -2;
+      return error::kDeploymentError;
     }
     if (relative_value.size() >= 2 &&
         ((relative_value[0] >= 'a' && relative_value[0] <= 'z') ||
@@ -42,7 +43,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg = std::string(field_name) +
                      " contains Windows drive letter: " + relative_value;
       }
-      return -2;
+      return error::kDeploymentError;
     }
 
     std::filesystem::path rel_path(relative_value);
@@ -52,7 +53,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg =
             std::string(field_name) + " has absolute root: " + relative_value;
       }
-      return -2;
+      return error::kDeploymentError;
     }
 
     std::error_code ec;
@@ -63,7 +64,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg =
             std::string(field_name) + " escapes model_path: " + relative_value;
       }
-      return -2;
+      return error::kDeploymentError;
     }
 
     if (!std::filesystem::exists(combined, ec) || ec) {
@@ -71,7 +72,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg = std::string(field_name) +
                      " file does not exist: " + combined.string();
       }
-      return -2;
+      return error::kDeploymentError;
     }
     const auto canon_p = std::filesystem::canonical(combined, ec);
     if (ec) {
@@ -79,7 +80,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg = "Failed to canonicalize " + std::string(field_name) +
                      ": " + combined.string();
       }
-      return -2;
+      return error::kDeploymentError;
     }
 
     if (!IsPathWithinRoot(canonical_root, canon_p)) {
@@ -87,24 +88,24 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
         *error_msg = std::string(field_name) +
                      " symlink escapes model_path: " + canon_p.string();
       }
-      return -2;
+      return error::kDeploymentError;
     }
 
     if (!std::filesystem::is_regular_file(canon_p, ec) || ec) {
       if (error_msg)
         *error_msg = std::string(field_name) +
                      " must be a regular file: " + canon_p.string();
-      return -2;
+      return error::kDeploymentError;
     }
 
     *resolved = canon_p;
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
-    return -2;
+    return error::kInternalException;
   } catch (...) {
     SetDiagnosticNoexcept(error_msg, "Unknown exception");
-    return -2;
+    return error::kUnknownException;
   }
 }
 
@@ -114,34 +115,34 @@ int OperatorConfigResolver::Resolve(
     const char* model_path, const char* cfg_file_name,
     ResolvedOperatorConfig* result, std::string* error_msg,
     uint32_t max_frame_depth, DeploymentDiagnostic* out_diagnostic) noexcept {
-  auto set_diag = [&](const std::string& code, const std::string& path,
+  DeploymentDiagnostic local_diagnostic;
+  if (!out_diagnostic) out_diagnostic = &local_diagnostic;
+  auto set_diag = [&](int code, const std::string& path,
                       const std::string& message) {
     if (error_msg) *error_msg = message;
-    if (out_diagnostic) {
-      out_diagnostic->code = code;
-      out_diagnostic->path = path;
-      out_diagnostic->message = message;
+    out_diagnostic->code = code;
+    out_diagnostic->path = path;
+    out_diagnostic->message = message;
 
-      out_diagnostic->pipeline_diagnostic.reset();
-    }
+    out_diagnostic->pipeline_diagnostic.reset();
   };
 
   try {
-    if (out_diagnostic) out_diagnostic->Clear();
+    out_diagnostic->Clear();
 
     if (!result) {
-      set_diag("DEPLOYMENT_ERROR", "/", "Null output result pointer");
-      return -2;
+      set_diag(error::kInvalidArgument, "/", "Null output result pointer");
+      return error::kInvalidArgument;
     }
 
     if (!model_path || model_path[0] == '\0') {
-      set_diag("DEPLOYMENT_ERROR", "/", "Null or empty model_path");
-      return -2;
+      set_diag(error::kDeploymentError, "/", "Null or empty model_path");
+      return error::kDeploymentError;
     }
 
     if (!cfg_file_name || cfg_file_name[0] == '\0') {
-      set_diag("DEPLOYMENT_ERROR", "/", "Null or empty cfg_file_name");
-      return -2;
+      set_diag(error::kDeploymentError, "/", "Null or empty cfg_file_name");
+      return error::kDeploymentError;
     }
 
     uint32_t effective_depth =
@@ -150,8 +151,8 @@ int OperatorConfigResolver::Resolve(
       std::string msg = "max_frame_depth (" + std::to_string(effective_depth) +
                         ") exceeds hard limit " +
                         std::to_string(kMaxOutputPoolDepth);
-      set_diag("DEPLOYMENT_ERROR", "/", msg);
-      return -2;
+      set_diag(error::kInvalidOutputAllocation, "/", msg);
+      return error::kInvalidOutputAllocation;
     }
 
     std::filesystem::path raw_root(model_path);
@@ -160,16 +161,16 @@ int OperatorConfigResolver::Resolve(
         !std::filesystem::is_directory(raw_root, ec)) {
       std::string msg =
           "model_path directory does not exist: " + raw_root.string();
-      set_diag("DEPLOYMENT_ERROR", "/", msg);
-      return -2;
+      set_diag(error::kDeploymentError, "/", msg);
+      return error::kDeploymentError;
     }
 
     std::filesystem::path canon_root = std::filesystem::canonical(raw_root, ec);
     if (ec) {
       std::string msg =
           "Failed to canonicalize model_path: " + raw_root.string();
-      set_diag("DEPLOYMENT_ERROR", "/", msg);
-      return -2;
+      set_diag(error::kDeploymentError, "/", msg);
+      return error::kDeploymentError;
     }
 
     // 沙箱解析 cfg_file_name
@@ -177,12 +178,10 @@ int OperatorConfigResolver::Resolve(
     int ret = ResolveRequiredFileUnderRoot(
         canon_root, cfg_file_name, "cfg_file_name", &full_cfg, error_msg);
     if (ret != 0) {
-      if (out_diagnostic) {
-        out_diagnostic->code = "DEPLOYMENT_ERROR";
-        out_diagnostic->path = "/";
-        out_diagnostic->message =
-            error_msg ? *error_msg : "Failed to resolve cfg_file_name";
-      }
+      out_diagnostic->code = ret;
+      out_diagnostic->path = "/";
+      out_diagnostic->message =
+          error_msg ? *error_msg : "Failed to resolve cfg_file_name";
       return ret;
     }
 
@@ -192,7 +191,7 @@ int OperatorConfigResolver::Resolve(
     if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), &dep_config,
                                           &dep_err, out_diagnostic)) {
       if (error_msg) *error_msg = dep_err;
-      return -2;
+      return out_diagnostic->code;
     }
 
     // 解析接入计划
@@ -213,23 +212,19 @@ int OperatorConfigResolver::Resolve(
 
     result->io_plan = std::move(io_plan);
 
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
-    if (out_diagnostic) {
-      out_diagnostic->code = "INTERNAL_EXCEPTION";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = e.what();
-    }
-    return -2;
+    out_diagnostic->code = error::kInternalException;
+    SetDiagnosticNoexcept(&out_diagnostic->path, "/");
+    SetDiagnosticNoexcept(&out_diagnostic->message, e.what());
+    return error::kInternalException;
   } catch (...) {
     SetDiagnosticNoexcept(error_msg, "Unknown exception");
-    if (out_diagnostic) {
-      out_diagnostic->code = "INTERNAL_EXCEPTION";
-      out_diagnostic->path = "/";
-      out_diagnostic->message = "Unknown exception";
-    }
-    return -2;
+    out_diagnostic->code = error::kUnknownException;
+    SetDiagnosticNoexcept(&out_diagnostic->path, "/");
+    SetDiagnosticNoexcept(&out_diagnostic->message, "Unknown exception");
+    return error::kUnknownException;
   }
 }
 

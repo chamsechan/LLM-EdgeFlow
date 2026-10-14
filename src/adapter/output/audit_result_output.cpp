@@ -10,6 +10,7 @@
 #include "adapter/io_values.h"
 #include "adapter/json_output_parameters.h"
 #include "adapter/result_validation.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
@@ -36,11 +37,11 @@ int EncodeOperatorAuditResult(AlgContext* context,
 
   const auto* verdicts =
       ReadOutputValue(*context, kVerdict, options, status, "verdicts");
-  if (!verdicts) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!verdicts) return error::kInvalidInput;
 
   const auto* matched_policy =
       ReadOutputValue(*context, kMatchedPolicy, options, status);
-  if (!matched_policy) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!matched_policy) return error::kInvalidInput;
 
   size_t count = verdicts->size();
   if (!destination || destination->count < count) {
@@ -58,14 +59,14 @@ int EncodeOperatorAuditResult(AlgContext* context,
   std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
   if (!IndexResults(verdicts, destination->count, &verdicts_by_request,
                     "verdicts", options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   std::vector<const RankedTextBatch::value_type*> matched_policy_by_request;
   if (!IndexResults(matched_policy, destination->count,
                     &matched_policy_by_request, "matched_policy",
                     options.Label().c_str(), status, true)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   size_t written = 0;
@@ -110,13 +111,13 @@ int EncodeOperatorAuditResult(AlgContext* context,
                         {"audit_verdict", nlohmann::json::parse(verdict_json)}})
             .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return status ? status->Code() : error::kInvalidOutput;
     }
     ++written;
   }
 
   if (written_count) *written_count = written;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {

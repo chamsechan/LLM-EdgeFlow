@@ -5,10 +5,10 @@
 #include <string_view>
 #include <utility>
 
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "contracts/traceable_item.h"
 #include "engine/model_interface.h"
-#include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 #include "nodes/traceable_batch_validation.h"
 
@@ -22,14 +22,13 @@ inline NodeResult<OutputBatchT> ConvertAlignedOutputs(
     const std::string& label) {
   auto alignment = ValidatePreservedTraceableAlignment(inputs, outputs);
   if (alignment.error == TraceableAlignmentError::kCountMismatch) {
-    return NodeResult<OutputBatchT>::Failure(
-        label + " output count mismatch",
-        node_error::author_node::kOutputCountMismatch);
+    return NodeResult<OutputBatchT>::Failure(label + " output count mismatch",
+                                             error::kOutputCountMismatch);
   }
   if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
     return NodeResult<OutputBatchT>::Failure(
         label + " output provenance mismatch",
-        node_error::author_node::kOutputProvenanceMismatch);
+        error::kOutputProvenanceMismatch);
   }
   return NodeResult<OutputBatchT>::Success(std::forward<OutputBatchT>(outputs));
 }
@@ -41,8 +40,8 @@ NodeResult<OutputBatchT> InvokeAlignedModel(
     const std::string& label, const std::string& operation, InvokeT invoke) {
   if (inputs.empty()) return NodeResult<OutputBatchT>::Success({});
   if (!model) {
-    return NodeResult<OutputBatchT>::Failure(
-        label + " model is null", node_error::author_node::kModelCallFailed);
+    return NodeResult<OutputBatchT>::Failure(label + " model is null",
+                                             error::kModelCallFailed);
   }
   OutputBatchT outputs;
   std::string diagnostic;

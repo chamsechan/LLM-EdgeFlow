@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/traceable_item.h"
 #include "engine/inference_definition.h"
 
@@ -34,40 +35,30 @@ class FixedBatchExecutor {
  public:
   // 动态会话上的单条目模型语义。张量/固定批模型仍使用 Execute，并显式准备
   // 填充后的批。回调只负责一个输入 -> 一个输出；Execute 负责来源追踪和
-  // 回滚。exception_code 保留模型既有的异常映射。
+  // 回滚；异常由 Execute 统一映射。
   template <typename TIn, typename TOut, typename RunItem>
   static int ExecuteItems(const std::vector<TraceableItem<TIn>>& inputs,
                           const BatchPolicy& policy, RunItem&& run_item,
                           std::vector<TraceableItem<TOut>>* outputs,
-                          std::string* diagnostic = nullptr,
-                          int exception_code = -4) noexcept {
+                          std::string* diagnostic = nullptr) noexcept {
     if (outputs && !inputs.empty() && policy.fixed_batch_size != 0) {
       outputs->clear();
       SetDiagnosticNoexcept(diagnostic,
                             "Item execution requires a non-fixed batch policy");
-      return -2;
+      return error::kInvalidBatchPolicy;
     }
     return Execute<TIn, TOut>(
         inputs, policy,
         [&](const BatchSlice& slice, std::vector<TOut>* batch) {
-          try {
-            batch->reserve(slice.valid_count);
-            for (size_t i = 0; i < slice.valid_count; ++i) {
-              TOut output{};
-              if (diagnostic) diagnostic->clear();
-              const int code = run_item(inputs[slice.offset + i], &output);
-              if (code != 0) return code;
-              batch->push_back(std::move(output));
-            }
-            return 0;
-          } catch (const std::exception& error) {
-            SetDiagnosticNoexcept(diagnostic, error.what());
-            return exception_code;
-          } catch (...) {
-            SetDiagnosticNoexcept(diagnostic,
-                                  "Unknown item execution exception");
-            return exception_code;
+          batch->reserve(slice.valid_count);
+          for (size_t i = 0; i < slice.valid_count; ++i) {
+            TOut output{};
+            if (diagnostic) diagnostic->clear();
+            const int code = run_item(inputs[slice.offset + i], &output);
+            if (code != 0) return code;
+            batch->push_back(std::move(output));
           }
+          return 0;
         },
         outputs, diagnostic);
   }
@@ -83,18 +74,18 @@ class FixedBatchExecutor {
     if (diagnostic) diagnostic->clear();
     if (!outputs) {
       SetDiagnosticNoexcept(diagnostic, "Batch output pointer is null");
-      return -1;
+      return error::kInvalidArgument;
     }
     outputs->clear();
     if (inputs.empty()) return 0;
     if (policy.max_batch_size == 0) {
       SetDiagnosticNoexcept(diagnostic, "Batch max size must be positive");
-      return -2;
+      return error::kInvalidBatchPolicy;
     }
     if (policy.fixed_batch_size != 0 &&
         policy.fixed_batch_size != policy.max_batch_size) {
       SetDiagnosticNoexcept(diagnostic, "Fixed batch size must equal max size");
-      return -2;
+      return error::kInvalidBatchPolicy;
     }
 
     try {
@@ -111,20 +102,8 @@ class FixedBatchExecutor {
         BatchSlice slice{offset, valid_count, exec_count};
         std::vector<TOut> batch_outputs;
 
-        int ret = 0;
-        try {
-          if (diagnostic) diagnostic->clear();
-          ret = run_batch(slice, &batch_outputs);
-        } catch (const std::exception& error) {
-          SetDiagnosticNoexcept(diagnostic, error.what());
-          outputs->clear();
-          return -4;
-        } catch (...) {
-          SetDiagnosticNoexcept(diagnostic,
-                                "Unknown batch execution exception");
-          outputs->clear();
-          return -4;
-        }
+        if (diagnostic) diagnostic->clear();
+        const int ret = run_batch(slice, &batch_outputs);
 
         if (ret != 0) {
           if (diagnostic && diagnostic->empty()) {
@@ -141,7 +120,7 @@ class FixedBatchExecutor {
         if (batch_outputs.size() != expected_count) {
           SetDiagnosticNoexcept(diagnostic, "Batch output count mismatch");
           outputs->clear();
-          return -3;
+          return error::kOutputCountMismatch;
         }
 
         for (size_t i = 0; i < valid_count; ++i) {
@@ -152,14 +131,14 @@ class FixedBatchExecutor {
       }
       if (diagnostic) diagnostic->clear();
       return 0;
-    } catch (const std::exception& error) {
-      SetDiagnosticNoexcept(diagnostic, error.what());
+    } catch (const std::exception& e) {
+      SetDiagnosticNoexcept(diagnostic, e.what());
       outputs->clear();
-      return -5;
+      return error::kInternalException;
     } catch (...) {
-      SetDiagnosticNoexcept(diagnostic, "Unknown batch allocation exception");
+      SetDiagnosticNoexcept(diagnostic, "Unknown batch execution exception");
       outputs->clear();
-      return -5;
+      return error::kUnknownException;
     }
   }
 };

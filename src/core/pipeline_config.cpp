@@ -14,8 +14,8 @@ namespace shape = json_structure;
 
 namespace {
 
-void SetDiag(PipelineDiagnostic* diag, DiagnosticCode code,
-             const std::string& path, const std::string& message) {
+void SetDiag(PipelineDiagnostic* diag, int code, const std::string& path,
+             const std::string& message) {
   if (diag) {
     diag->code = code;
     diag->path = path;
@@ -32,7 +32,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     diagnostic->Clear();
   }
   if (!output) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/", "Null output pointer");
+    SetDiag(diagnostic, error::kFieldType, "/", "Null output pointer");
     return false;
   }
 
@@ -44,7 +44,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   // 1. 根节点必须是 JSON Object
   if (!shape::HasType(root, structure)) {
-    SetDiag(diagnostic, DiagnosticCode::kRootType, "/",
+    SetDiag(diagnostic, error::kRootType, "/",
             "Pipeline configuration root must be a JSON object");
     return false;
   }
@@ -52,7 +52,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   // 2. 拒绝根节点未知字段
   for (auto it = root.begin(); it != root.end(); ++it) {
     if (!shape::AllowsProperty(structure, it.key())) {
-      SetDiag(diagnostic, DiagnosticCode::kUnknownField, "/" + it.key(),
+      SetDiag(diagnostic, error::kUnknownField, "/" + it.key(),
               "Unknown root field: " + it.key());
       return false;
     }
@@ -61,7 +61,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   // comment (可选字符串)
   if (root.contains("comment") &&
       !shape::HasType(root["comment"], shape::Property(structure, "comment"))) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/comment",
+    SetDiag(diagnostic, error::kFieldType, "/comment",
             "Field 'comment' must be a string");
     return false;
   }
@@ -72,7 +72,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   if (root.contains("max_parallel_workers")) {
     if (!shape::HasType(root["max_parallel_workers"],
                         shape::Property(structure, "max_parallel_workers"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType, "/max_parallel_workers",
+      SetDiag(diagnostic, error::kFieldType, "/max_parallel_workers",
               "Field 'max_parallel_workers' must be an integer");
       return false;
     }
@@ -81,7 +81,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
             workers, shape::Property(structure, "max_parallel_workers")) ||
         shape::AboveMaximum(
             workers, shape::Property(structure, "max_parallel_workers"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/max_parallel_workers",
+      SetDiag(diagnostic, error::kFieldRange, "/max_parallel_workers",
               "Field 'max_parallel_workers' must be between 1 and 64");
       return false;
     }
@@ -93,12 +93,12 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   // 6. 解析 models: 可选数组，最多 64 个模型定义
   if (root.contains("models")) {
     if (!shape::HasType(root["models"], shape::Property(structure, "models"))) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType, "/models",
+      SetDiag(diagnostic, error::kFieldType, "/models",
               "Field 'models' must be an array");
       return false;
     }
     if (shape::TooLong(root["models"], models_shape)) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/models",
+      SetDiag(diagnostic, error::kFieldRange, "/models",
               "Model count exceeds maximum limit of 64");
       return false;
     }
@@ -112,13 +112,12 @@ bool ParsePipelineConfig(const nlohmann::json& root,
                                     const nlohmann::json& declaration,
                                     const std::string& path) {
         if (!object.is_object()) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldType, path,
-                  "Expected an object");
+          SetDiag(diagnostic, error::kFieldType, path, "Expected an object");
           return false;
         }
         for (const auto& [key, value] : object.items()) {
           if (!shape::AllowsProperty(declaration, key)) {
-            SetDiag(diagnostic, DiagnosticCode::kUnknownField,
+            SetDiag(diagnostic, error::kUnknownField,
                     path + "/" + EscapeJsonPointer(key),
                     "Unknown field: " + key);
             return false;
@@ -127,8 +126,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         for (const auto& key : declaration.at("required")) {
           const auto field = key.get<std::string>();
           if (!object.contains(field)) {
-            SetDiag(diagnostic, DiagnosticCode::kMissingField,
-                    path + "/" + field,
+            SetDiag(diagnostic, error::kMissingField, path + "/" + field,
                     "Missing required field '" + field + "'");
             return false;
           }
@@ -136,23 +134,22 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         return true;
       };
       if (!check_object(item, model_shape, at)) return false;
-      const auto read_string = [&](const nlohmann::json& object,
-                                   const std::string& field,
-                                   const std::string& path,
-                                   std::string* value) {
-        if (!object[field].is_string()) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldType, path + "/" + field,
-                  "Field '" + field + "' must be a string");
-          return false;
-        }
-        *value = object[field].get<std::string>();
-        if (value->empty()) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldRange, path + "/" + field,
-                  "Field '" + field + "' cannot be empty");
-          return false;
-        }
-        return true;
-      };
+      const auto read_string =
+          [&](const nlohmann::json& object, const std::string& field,
+              const std::string& path, std::string* value) {
+            if (!object[field].is_string()) {
+              SetDiag(diagnostic, error::kFieldType, path + "/" + field,
+                      "Field '" + field + "' must be a string");
+              return false;
+            }
+            *value = object[field].get<std::string>();
+            if (value->empty()) {
+              SetDiag(diagnostic, error::kFieldRange, path + "/" + field,
+                      "Field '" + field + "' cannot be empty");
+              return false;
+            }
+            return true;
+          };
       ParsedModelConfig model;
       model.source_index = i;
       if (!read_string(item, "type", at, &model.model_type) ||
@@ -163,7 +160,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
                        &model.backend_type))
         return false;
       if (!seen_model_names.insert(model.model_name).second) {
-        SetDiag(diagnostic, DiagnosticCode::kDuplicateModelName, at + "/name",
+        SetDiag(diagnostic, error::kDuplicateModelName, at + "/name",
                 "Duplicate model name: " + model.model_name);
         return false;
       }
@@ -173,7 +170,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
             {&item["backend"], at + "/backend", &model.backend_params}}) {
         if (object->contains("params")) {
           if (!(*object)["params"].is_object()) {
-            SetDiag(diagnostic, DiagnosticCode::kFieldType, path + "/params",
+            SetDiag(diagnostic, error::kFieldType, path + "/params",
                     "Field 'params' must be an object");
             return false;
           }
@@ -186,23 +183,23 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   // 7. 解析 pipeline: 必填非空数组，最多 256 个节点定义
   if (shape::MissingRequired(root, structure, "pipeline")) {
-    SetDiag(diagnostic, DiagnosticCode::kMissingField, "/pipeline",
+    SetDiag(diagnostic, error::kMissingField, "/pipeline",
             "Missing required field 'pipeline'");
     return false;
   }
   if (!shape::HasType(root["pipeline"],
                       shape::Property(structure, "pipeline"))) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/pipeline",
+    SetDiag(diagnostic, error::kFieldType, "/pipeline",
             "Field 'pipeline' must be an array");
     return false;
   }
   if (shape::TooShort(root["pipeline"], nodes_shape)) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/pipeline",
+    SetDiag(diagnostic, error::kFieldRange, "/pipeline",
             "Pipeline cannot be empty");
     return false;
   }
   if (shape::TooLong(root["pipeline"], nodes_shape)) {
-    SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/pipeline",
+    SetDiag(diagnostic, error::kFieldRange, "/pipeline",
             "Pipeline node count exceeds maximum limit of 256");
     return false;
   }
@@ -214,7 +211,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     std::string node_path_prefix = "/pipeline/" + std::to_string(i);
 
     if (!shape::HasType(node_elem, node_shape)) {
-      SetDiag(diagnostic, DiagnosticCode::kFieldType, node_path_prefix,
+      SetDiag(diagnostic, error::kFieldType, node_path_prefix,
               "Node item must be an object");
       return false;
     }
@@ -222,7 +219,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     // 拒绝 node 内部未知字段
     for (auto it = node_elem.begin(); it != node_elem.end(); ++it) {
       if (!shape::AllowsProperty(node_shape, it.key())) {
-        SetDiag(diagnostic, DiagnosticCode::kUnknownField,
+        SetDiag(diagnostic, error::kUnknownField,
                 node_path_prefix + "/" + it.key(),
                 "Unknown field in node: " + it.key());
         return false;
@@ -234,19 +231,19 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     for (const auto* field : {"type", "name"}) {
       const auto at = node_path_prefix + "/" + field;
       if (shape::MissingRequired(node_elem, node_shape, field)) {
-        SetDiag(diagnostic, DiagnosticCode::kMissingField, at,
+        SetDiag(diagnostic, error::kMissingField, at,
                 std::string("Missing required field '") + field + "'");
         return false;
       }
       if (!shape::HasType(node_elem[field],
                           shape::Property(node_shape, field))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType, at,
+        SetDiag(diagnostic, error::kFieldType, at,
                 std::string("Field '") + field + "' must be a string");
         return false;
       }
       if (shape::TooShort(node_elem[field],
                           shape::Property(node_shape, field))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldRange, at,
+        SetDiag(diagnostic, error::kFieldRange, at,
                 std::string("Field '") + field + "' cannot be empty");
         return false;
       }
@@ -255,21 +252,18 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     node_cfg.name = node_elem["name"].get<std::string>();
     if (node_cfg.name == "input" || node_cfg.name == "output" ||
         node_cfg.name.find('.') != std::string::npos) {
-      SetDiag(diagnostic, DiagnosticCode::kInvalidNodeName,
-              node_path_prefix + "/name",
+      SetDiag(diagnostic, error::kInvalidNodeName, node_path_prefix + "/name",
               "Node name cannot be reserved or contain '.': " + node_cfg.name);
       return false;
     }
     if (!seen_node_names.insert(node_cfg.name).second) {
-      SetDiag(diagnostic, DiagnosticCode::kDuplicateNodeName,
-              node_path_prefix + "/name",
+      SetDiag(diagnostic, error::kDuplicateNodeName, node_path_prefix + "/name",
               "Duplicate node name: " + node_cfg.name);
       return false;
     }
     if (node_elem.contains("params")) {
       if (!node_elem["params"].is_object()) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                node_path_prefix + "/params",
+        SetDiag(diagnostic, error::kFieldType, node_path_prefix + "/params",
                 "Field 'params' must be an object");
         return false;
       }
@@ -278,14 +272,13 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     if (node_elem.contains("inputs")) {
       const auto& inputs = node_elem["inputs"];
       if (!inputs.is_object()) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                node_path_prefix + "/inputs",
+        SetDiag(diagnostic, error::kFieldType, node_path_prefix + "/inputs",
                 "Field 'inputs' must be an object");
         return false;
       }
       for (const auto& [port, source] : inputs.items()) {
         if (!source.is_string()) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldType,
+          SetDiag(diagnostic, error::kFieldType,
                   node_path_prefix + "/inputs/" + EscapeJsonPointer(port),
                   "Input source must be a string in name.port form");
           return false;
@@ -299,14 +292,13 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     if (node_elem.contains("depends_on")) {
       if (!shape::HasType(node_elem["depends_on"],
                           shape::Property(node_shape, "depends_on"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldType,
-                node_path_prefix + "/depends_on",
+        SetDiag(diagnostic, error::kFieldType, node_path_prefix + "/depends_on",
                 "Field 'depends_on' must be an array");
         return false;
       }
       if (shape::TooLong(node_elem["depends_on"],
                          shape::Property(node_shape, "depends_on"))) {
-        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
+        SetDiag(diagnostic, error::kFieldRange,
                 node_path_prefix + "/depends_on",
                 "Node dependencies exceed limit of 256");
         return false;
@@ -320,7 +312,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         if (!shape::HasType(
                 dep_item,
                 shape::Property(node_shape, "depends_on").at("items"))) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldType, dep_path,
+          SetDiag(diagnostic, error::kFieldType, dep_path,
                   "Dependency item must be a string");
           return false;
         }
@@ -328,7 +320,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         if (shape::TooShort(
                 dep_item,
                 shape::Property(node_shape, "depends_on").at("items"))) {
-          SetDiag(diagnostic, DiagnosticCode::kFieldRange, dep_path,
+          SetDiag(diagnostic, error::kFieldRange, dep_path,
                   "Dependency item cannot be empty");
           return false;
         }

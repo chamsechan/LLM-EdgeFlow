@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "engine/backend_registry.h"
 
@@ -91,14 +92,14 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
     try {
       if (!output) {
         SetDiagnosticNoexcept(diagnostic, "Output pointer is null");
-        return -1;
+        return error::kInvalidArgument;
       }
       output->clear();
 
       if (audio.sample_rate != 16000) {
         SetDiagnosticNoexcept(diagnostic,
                               "whisper_cpp requires 16000 Hz audio");
-        return -1;
+        return error::kInvalidInput;
       }
 
       if (audio.pcm_data.empty()) {
@@ -109,27 +110,27 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
       if (n_samples < 1600) {
         SetDiagnosticNoexcept(
             diagnostic, "Audio duration too short (< 100ms / 1600 samples)");
-        return -1;
+        return error::kInvalidInput;
       }
       if (n_samples > 960000) {  // 60 秒
         SetDiagnosticNoexcept(diagnostic, "Audio duration exceeds 60s limit");
-        return -1;
+        return error::kInvalidInput;
       }
       if (n_samples > static_cast<size_t>(std::numeric_limits<int>::max())) {
         SetDiagnosticNoexcept(diagnostic, "Audio duration exceeds int limit");
-        return -1;
+        return error::kInvalidInput;
       }
 
       std::lock_guard<std::mutex> lock(mutex_);
       if (!ctx_) {
         SetDiagnosticNoexcept(diagnostic, "whisper context is null");
-        return -1;
+        return error::kInvalidState;
       }
 
       whisper_state* state = whisper_init_state(ctx_);
       if (!state) {
         SetDiagnosticNoexcept(diagnostic, "Failed to initialize whisper_state");
-        return -1;
+        return error::kAllocationFailed;
       }
 
       struct StateGuard {
@@ -171,7 +172,7 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
         SetDiagnosticNoexcept(
             diagnostic,
             "whisper_full_with_state failed with code: " + std::to_string(ret));
-        return -1;
+        return error::kInferenceFailed;
       }
 
       int n_segments = whisper_full_n_segments_from_state(state);
@@ -186,7 +187,7 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
                 diagnostic, "Accumulated output exceeds max_output_bytes: " +
                                 std::to_string(options.max_output_bytes));
             output->clear();
-            return -1;
+            return error::kInvalidOutput;
           }
         }
       }
@@ -201,12 +202,12 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
       } catch (...) {
         SetDiagnosticNoexcept(diagnostic, "Exception during whisper inference");
       }
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       if (output) output->clear();
       SetDiagnosticNoexcept(diagnostic,
                             "Unknown exception during whisper inference");
-      return -1;
+      return error::kUnknownException;
     }
   }
 

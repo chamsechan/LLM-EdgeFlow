@@ -3,7 +3,7 @@
 #include <optional>
 #include <string>
 
-#include "core/diagnostic_code.h"
+#include "contracts/error_codes.h"
 #include "core/pipeline_diagnostic.h"
 
 namespace llm_edgeflow {
@@ -15,13 +15,13 @@ namespace llm_edgeflow {
  * message).
  */
 struct DeploymentDiagnostic {
-  std::string code;  // Integration 错误码，或 DiagnosticCodeName 的结果
-  std::string path;  // 原始完整文档的 RFC 6901 JSON Pointer
+  int code = error::kOk;  // 框架统一错误码
+  std::string path;       // 原始完整文档的 RFC 6901 JSON Pointer
   std::string message;
   std::optional<PipelineDiagnostic> pipeline_diagnostic;
 
   void Clear() {
-    code.clear();
+    code = error::kOk;
     path.clear();
     message.clear();
     pipeline_diagnostic.reset();

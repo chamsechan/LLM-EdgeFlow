@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/models/bge_reranker/bge_reranker_model.h"
 #include "tests/support/model_probe.h"
 #include "tests/support/tensor_graph_probe.h"
@@ -177,7 +178,8 @@ TEST_F(BgeRerankerModelTest, ScoresMustHaveOneColumnAndBeFinite) {
         session, Parameters(), &diagnostic);
     ASSERT_NE(model, nullptr) << diagnostic;
     ScoreBatch output;
-    EXPECT_EQ(model->Score(test.input, &output, &diagnostic), -1);
+    EXPECT_EQ(model->Score(test.input, &output, &diagnostic),
+              error::kInvalidOutput);
     EXPECT_TRUE(output.empty());
     EXPECT_NE(diagnostic.find(test.detail), std::string::npos) << diagnostic;
   }

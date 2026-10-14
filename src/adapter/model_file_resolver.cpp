@@ -11,7 +11,7 @@ bool ResolveModelFiles(const nlohmann::json& pipeline_json,
                        const std::string& pipeline_dir,
                        nlohmann::json* resolved_pipeline_json,
                        std::string* error, DeploymentDiagnostic* diagnostic) {
-  const auto fail = [&](const std::string& code, const std::string& path,
+  const auto fail = [&](int code, const std::string& path,
                         const std::string& message) {
     SetDiagnosticNoexcept(error, message);
     if (diagnostic) {
@@ -25,7 +25,7 @@ bool ResolveModelFiles(const nlohmann::json& pipeline_json,
     if (error) error->clear();
     if (diagnostic) diagnostic->Clear();
     if (!resolved_pipeline_json)
-      return fail("DEPLOYMENT_ERROR", "/", "File resolver output is null");
+      return fail(error::kDeploymentError, "/", "File resolver output is null");
     *resolved_pipeline_json = nlohmann::json();
     auto resolved = pipeline_json;
     if (!resolved.is_object() || !resolved.contains("models") ||
@@ -40,7 +40,7 @@ bool ResolveModelFiles(const nlohmann::json& pipeline_json,
       std::string message;
       if (!ResolveFileUnderDirectory(pipeline_dir, value.get<std::string>(),
                                      &file, &message))
-        return fail("INVALID_FILE_PATH", path, message);
+        return fail(error::kInvalidFilePath, path, message);
       value = file.string();
       return true;
     };
@@ -85,9 +85,10 @@ bool ResolveModelFiles(const nlohmann::json& pipeline_json,
     *resolved_pipeline_json = std::move(resolved);
     return true;
   } catch (const std::exception& exception) {
-    return fail("INTERNAL_EXCEPTION", "/", exception.what());
+    return fail(error::kInternalException, "/", exception.what());
   } catch (...) {
-    return fail("INTERNAL_EXCEPTION", "/", "Unknown file resolution exception");
+    return fail(error::kUnknownException, "/",
+                "Unknown file resolution exception");
   }
 }
 }  // namespace llm_edgeflow

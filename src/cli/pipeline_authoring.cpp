@@ -375,7 +375,9 @@ nlohmann::json AuthoringResult::ToJson() const {
     j["diagnostics"] = nlohmann::json::array();
     for (const auto& d : diagnostics) {
       j["diagnostics"].push_back(
-          {{"code", "AUTHORING_ERROR"}, {"path", "/"}, {"message", d}});
+          {{"code", ErrorCodeName(error::kAuthoringError)},
+           {"path", "/"},
+           {"message", d}});
     }
   }
   if (failed_operation_index.has_value()) {
@@ -407,7 +409,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
           std::find_if(validation.core_report->diagnostics.begin(),
                        validation.core_report->diagnostics.end(),
                        [](const auto& diagnostic) {
-                         return diagnostic.code == DiagnosticCode::kDagCycle;
+                         return diagnostic.code == error::kDagCycle;
                        });
       if (cycle != validation.core_report->diagnostics.end()) {
         if (error) *error = "DAG_CYCLE: " + cycle->message;

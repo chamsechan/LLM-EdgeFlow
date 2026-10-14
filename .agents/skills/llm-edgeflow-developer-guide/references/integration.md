@@ -36,8 +36,8 @@ and displays or copies the result. Reusing a host struct does not imply compatib
 The Operator entrypoints are protocol shells. `SharedAlgorithmRuntime` owns deployment
 resolution, validated plans, Converter scheduling, Pipeline execution, pool leases and atomic
 publication. Its `RuntimeCreateOptions`, `RuntimeInputBatch`, `RuntimeOutputBatch`,
-and `ControlRequest` contain no platform ABI types. Existing integer return codes and
-diagnostics are retained; error-code normalization is deferred.
+and `ControlRequest` contain no platform ABI types. Internal integer codes come from `contracts/error_codes.h`; only the Operator shell maps
+them to platform codes. Diagnostics retain the failure reason and location.
 Platform bindings own concrete layout/ownership callbacks; the runtime uses only type-erased
 interfaces. The shell translates carrier keys and platform service values, retaining the
 existing error mapping. Mock Create/Control parsing and concrete binding implementations

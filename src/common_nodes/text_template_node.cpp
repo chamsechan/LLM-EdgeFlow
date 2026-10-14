@@ -9,10 +9,10 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 #include "engine/text/utf8.h"
 #include "nodes/authoring.h"
-#include "nodes/node_error_codes.h"
 #include "nodes/text_template.h"
 
 namespace llm_edgeflow {
@@ -186,7 +186,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
         return NodeResult<TextBatch>::Failure(
             "Rendered prompt exceeds max_length of " +
                 std::to_string(state.max_length),
-            node_error::text_template::kRenderedOutputTooLong);
+            error::kRenderedOutputTooLong);
       }
       std::vector<size_t> boundaries;
       size_t invalid_offset = 0;
@@ -195,7 +195,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
         return NodeResult<TextBatch>::Failure(
             "Rendered prompt contains invalid UTF-8 at byte offset " +
                 std::to_string(invalid_offset),
-            node_error::text_template::kInvalidUtf8);
+            error::kInvalidUtf8);
       }
       const auto boundary =
           std::upper_bound(boundaries.begin(), boundaries.end(), max_length);

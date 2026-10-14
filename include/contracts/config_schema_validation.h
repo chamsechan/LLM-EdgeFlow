@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "contracts/config_schema.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -21,6 +22,24 @@ enum class ConfigFieldErrorKind {
   kInvalidEnum,
   kNonFinite,
 };
+
+inline int ConfigFieldErrorCode(ConfigFieldErrorKind kind) noexcept {
+  switch (kind) {
+    case ConfigFieldErrorKind::kUnknownField:
+      return error::kUnknownConfigField;
+    case ConfigFieldErrorKind::kMissingField:
+      return error::kMissingConfigField;
+    case ConfigFieldErrorKind::kOutOfRange:
+    case ConfigFieldErrorKind::kNonFinite:
+      return error::kConfigFieldRange;
+    case ConfigFieldErrorKind::kInvalidEnum:
+      return error::kConfigFieldEnum;
+    case ConfigFieldErrorKind::kNotAnObject:
+    case ConfigFieldErrorKind::kTypeMismatch:
+      return error::kConfigFieldType;
+  }
+  return error::kConfigFieldType;
+}
 
 struct ConfigFieldValidationError {
   std::string path;

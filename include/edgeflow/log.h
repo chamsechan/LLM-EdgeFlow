@@ -35,7 +35,7 @@ typedef enum {
  * @brief 设置进程级日志级别。
  * @param name 为兼容 AlgBase 日志契约保留的名称。
  * @param level 整数日志级别，闭区间 [0, 5]。
- * @return 成功返回 0；level 超出 [0, 5] 时返回 -1。
+ * @return 成功返回 0；level 超出 [0, 5] 时返回 -1 并保留原阈值。
  */
 COMPANY_ALG_API int AlgBase_setLogLevelByName(const char* name,
                                               int level) ALG_LOG_NOEXCEPT;

@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/common_contracts.h"
@@ -18,11 +19,6 @@
 #include "edgeflow/log.h"
 
 namespace llm_edgeflow {
-
-enum class NodeRuntimeCode : int {
-  kInvalidContext = -2901,
-  kUnhandledException = -2902,
-};
 
 template <typename T>
 class BoundInput {
@@ -138,28 +134,24 @@ class NodeBase : public INode {
       return InitNode(init_ctx, init_ctx.plan->normalized_params,
                       *init_ctx.session_ctx);
     } catch (const std::exception& e) {
-      ALG_LOG_ERROR("[NodeBase] Exception in InitNode for %s: %s\n",
-                    node_name_.c_str(), e.what());
       return init_ctx.Fail(e.what());
     } catch (...) {
-      ALG_LOG_ERROR("[NodeBase] Unknown exception in InitNode for %s\n",
-                    node_name_.c_str());
       return init_ctx.Fail("Unknown exception in InitNode");
     }
   }
 
   int Process(AlgContext* req_ctx) noexcept final {
     if (!req_ctx) {
-      return static_cast<int>(NodeRuntimeCode::kInvalidContext);
+      return error::kInvalidArgument;
     }
     try {
       return ProcessNode(*req_ctx);
     } catch (const std::exception& e) {
-      SetUnhandledErrorNoexcept(*req_ctx, e.what());
-      return static_cast<int>(NodeRuntimeCode::kUnhandledException);
+      SetUnhandledErrorNoexcept(*req_ctx, error::kInternalException, e.what());
+      return error::kInternalException;
     } catch (...) {
-      SetUnhandledErrorNoexcept(*req_ctx, nullptr);
-      return static_cast<int>(NodeRuntimeCode::kUnhandledException);
+      SetUnhandledErrorNoexcept(*req_ctx, error::kUnknownException, nullptr);
+      return error::kUnknownException;
     }
   }
 
@@ -167,9 +159,10 @@ class NodeBase : public INode {
     try {
       return ControlNode(cmd, json_param);
     } catch (const std::exception& e) {
-      return NodeControlResult::Failed(-1, e.what());
+      return NodeControlResult::Failed(error::kInternalException, e.what());
     } catch (...) {
-      return NodeControlResult::Failed(-1, "Unknown control exception");
+      return NodeControlResult::Failed(error::kUnknownException,
+                                       "Unknown control exception");
     }
   }
 
@@ -204,7 +197,7 @@ class NodeBase : public INode {
   }
 
  private:
-  void SetUnhandledErrorNoexcept(AlgContext& ctx,
+  void SetUnhandledErrorNoexcept(AlgContext& ctx, int code,
                                  const char* detail) const noexcept {
     try {
       std::string message = node_name_;
@@ -214,8 +207,7 @@ class NodeBase : public INode {
       } else {
         message += " unknown unhandled exception";
       }
-      ctx.SetError(static_cast<int>(NodeRuntimeCode::kUnhandledException),
-                   std::move(message));
+      ctx.SetError(code, std::move(message));
     } catch (...) {
     }
   }

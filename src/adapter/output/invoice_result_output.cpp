@@ -9,6 +9,7 @@
 #include "adapter/io_values.h"
 #include "adapter/json_output_parameters.h"
 #include "adapter/result_validation.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
@@ -34,10 +35,10 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
 
   const auto* invoice_jsons =
       ReadOutputValue(*context, kResult, options, status);
-  if (!invoice_jsons) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!invoice_jsons) return error::kInvalidInput;
 
   const auto* ocr_docs = ReadOutputValue(*context, kDocument, options, status);
-  if (!ocr_docs) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!ocr_docs) return error::kInvalidInput;
 
   size_t count = invoice_jsons->size();
   if (!destination || destination->count < count) {
@@ -51,12 +52,12 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
   if (!IndexResults(invoice_jsons, destination->count,
                     &invoice_jsons_by_request, "invoice_jsons",
                     options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
   std::vector<const OcrDocumentBatch::value_type*> ocr_docs_by_request;
   if (!IndexResults(ocr_docs, destination->count, &ocr_docs_by_request,
                     "ocr_docs", options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   size_t written = 0;
@@ -80,13 +81,13 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
                             invoice_jsons_by_request[i]->data.json_payload)}})
             .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return status ? status->Code() : error::kInvalidOutput;
     }
     ++written;
   }
 
   if (written_count) *written_count = written;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {

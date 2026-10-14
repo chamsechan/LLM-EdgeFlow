@@ -9,6 +9,7 @@
 #include "adapter/io_values.h"
 #include "adapter/json_output_parameters.h"
 #include "adapter/result_validation.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
@@ -35,15 +36,15 @@ int EncodeOperatorDocAnswer(AlgContext* context,
 
   const auto* answers =
       ReadOutputValue(*context, kAnswerText, options, status, "answers");
-  if (!answers) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!answers) return error::kInvalidInput;
 
   const auto* intent_matches =
       ReadOutputValue(*context, kIntent, options, status);
-  if (!intent_matches) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!intent_matches) return error::kInvalidInput;
 
   const auto* chunk_counts =
       ReadOutputValue(*context, kChunkCount, options, status);
-  if (!chunk_counts) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!chunk_counts) return error::kInvalidInput;
 
   size_t count = answers->size();
   if (!destination || destination->count < count) {
@@ -62,7 +63,7 @@ int EncodeOperatorDocAnswer(AlgContext* context,
                     "intent_matches", options.Label().c_str(), status) ||
       !IndexResults(chunk_counts, destination->count, &chunks_by_req,
                     "doc_chunk_counts", options.Label().c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   size_t written = 0;
@@ -80,13 +81,13 @@ int EncodeOperatorDocAnswer(AlgContext* context,
                                       {"chunk_count", chunks_by_req[i]->data}})
                           .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return status ? status->Code() : error::kInvalidOutput;
     }
     ++written;
   }
 
   if (written_count) *written_count = written;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {

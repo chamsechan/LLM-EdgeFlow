@@ -478,7 +478,7 @@ TEST_F(ModelRuntimeFactoryTest,
   auto* original_plan = &pipeline.GetPlan();
   PipelineDiagnostic diagnostic;
   EXPECT_FALSE(pipeline.BuildFromPlan(std::move(plan), &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kModelMaterializationFailed);
+  EXPECT_EQ(diagnostic.code, error::kModelMaterializationFailed);
   EXPECT_EQ(diagnostic.path, "/models/1");
   EXPECT_EQ(current->files,
             (std::vector<std::string>{"first.bin", "second.bin"}));
