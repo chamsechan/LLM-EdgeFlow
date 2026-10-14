@@ -18,6 +18,7 @@
 #include <thread>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/text/bpe_tokenizer.h"
 
 // 两份合成分词器文件由 tools/prepare_bpe_tokenizer.py fixture 在构建时生成。
@@ -364,16 +365,16 @@ TEST(BpeTokenizerTest, RejectsInvalidInputAndBadArguments) {
           std::string_view("\xF4\x90\x80\x80"), std::string_view("ok\x80")}) {
       Ids ids{1, 2, 3};
       std::string diagnostic;
-      EXPECT_EQ(t->Encode(text, &ids, &diagnostic), -1);
+      EXPECT_EQ(t->Encode(text, &ids, &diagnostic), error::kInvalidUtf8);
       EXPECT_TRUE(ids.empty());
       EXPECT_NE(diagnostic.find("UTF-8"), std::string::npos) << diagnostic;
     }
     std::string diagnostic;
-    EXPECT_EQ(t->Encode("a", nullptr, &diagnostic), -1);
+    EXPECT_EQ(t->Encode("a", nullptr, &diagnostic), error::kInvalidArgument);
     EXPECT_FALSE(diagnostic.empty());
     Ids ids;
-    EXPECT_EQ(t->Encode("a", &ids), 0);  // diagnostic 可以为空指针
-    EXPECT_EQ(t->Encode("\xFF", &ids), -1);
+    EXPECT_EQ(t->Encode("a", &ids), error::kOk);  // diagnostic 可以为空指针
+    EXPECT_EQ(t->Encode("\xFF", &ids), error::kInvalidUtf8);
   }
 }
 
@@ -390,7 +391,8 @@ void ExpectExactMaximumInput(const BpeTokenizer& tokenizer, int32_t filler_id) {
                           [filler_id](int32_t id) { return id == filler_id; }));
 
   const std::string too_long(kMaxEncodeBytes + 1, 'x');
-  EXPECT_EQ(tokenizer.Encode(too_long, &ids, &diagnostic), -1);
+  EXPECT_EQ(tokenizer.Encode(too_long, &ids, &diagnostic),
+            error::kInvalidInput);
   EXPECT_TRUE(ids.empty());
   EXPECT_NE(diagnostic.find("size limit"), std::string::npos) << diagnostic;
 }
@@ -756,22 +758,25 @@ TEST(BpeTokenizerTest, DecodingRejectsOutOfRangeIdsAndNullOutputs) {
       SCOPED_TRACE(bad);
       std::string diagnostic;
       std::string bytes = "x";
-      EXPECT_EQ(t->AppendTokenBytes(bad, &bytes, &diagnostic), -1);
+      EXPECT_EQ(t->AppendTokenBytes(bad, &bytes, &diagnostic),
+                error::kInvalidInput);
       EXPECT_NE(diagnostic.find("out of range"), std::string::npos);
       EXPECT_EQ(bytes, "x");
       diagnostic.clear();
       std::string text = "y";
       EXPECT_EQ(t->Decode({static_cast<int32_t>(0), bad}, &text, &diagnostic),
-                -1);
+                error::kInvalidInput);
       EXPECT_TRUE(text.empty());
       EXPECT_NE(diagnostic.find("out of range"), std::string::npos);
     }
     std::string diagnostic;
-    EXPECT_EQ(t->AppendTokenBytes(0, nullptr, &diagnostic), -1);
+    EXPECT_EQ(t->AppendTokenBytes(0, nullptr, &diagnostic),
+              error::kInvalidArgument);
     EXPECT_FALSE(diagnostic.empty());
-    EXPECT_EQ(t->Decode({}, nullptr, &diagnostic), -1);
+    EXPECT_EQ(t->Decode({}, nullptr, &diagnostic), error::kInvalidArgument);
     std::string bytes;
-    EXPECT_EQ(t->AppendTokenBytes(-1, &bytes), -1);  // diagnostic 可以为空指针
+    // diagnostic 可以为空指针
+    EXPECT_EQ(t->AppendTokenBytes(-1, &bytes), error::kInvalidInput);
   }
 }
 
