@@ -16,6 +16,10 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本为 **11.0.0**，表示当�
   缓存按会话、模型名和输入隔离。见[Node 作者指南](dev_guide/custom_node_concepts.md)。
 - 当前业务响应使用统一 JSON 输出载体；共享容量声明，保留按行关联、池预算和失败不发布输出。
   新类型与命名布局通过登记扩展。见[输出池与生命周期](dev_guide/operator_output_allocation.md)。
+- 模型执行层提供通用 BPE 分词器 `text::BpeTokenizer`：读取开发者用 `tools/prepare_bpe_tokenizer.py`
+  从 Hugging Face `tokenizer.json` 离线生成的 `.eftok` 文件，规范化、预分词、字节回退、合并优先级和解码器由文件头参数选择，
+  与具体模型无关；工具对不支持的组件明确报错，`score` 优先级只在能证明与 HF 合并顺序等价时生成。
+  见[BPE 分词器文件格式](dev_guide/bpe_tokenizer_format.md)。
 - 原生 CLI 提供 Catalog、配置校验、计划与部署解析；Studio 使用同一构建的能力声明。
   HTTP 请求字段使用 `revision`、`filename`、`conf_name`。Demo 套件使用 `alg_demo --suite`。
   见[Studio](../tools/pipeline_studio/README.md)和[统一 Demo](dev_guide/business_onboarding.md#5-统一-demo-接入)。
