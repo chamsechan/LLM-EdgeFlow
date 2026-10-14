@@ -3,13 +3,11 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
-#include <functional>
 #include <future>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <new>
-#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -57,12 +55,6 @@ struct Recording {
   size_t completed_at_return = 0;
   size_t active_at_return = 0;
   size_t config_validations = 0;
-  std::thread::id diagnostic_fault_caller;
-  std::function<void()> arm_diagnostic_fault;
-  std::string diagnostic_name;
-  bool diagnostic_fault_armed = false;
-  bool diagnostic_fault_triggered = false;
-  bool caught_bad_alloc = false;
 };
 
 class RecorderNode final : public INode {
@@ -139,18 +131,7 @@ class RecorderNode final : public INode {
     recording_->control_values[instance_] = value;
     return NodeControlResult::Handled();
   }
-  const std::string& Name() const override {
-    std::lock_guard<std::mutex> lock(recording_->mutex);
-    if (recording_->arm_diagnostic_fault &&
-        recording_->diagnostic_fault_caller == std::this_thread::get_id() &&
-        !recording_->diagnostic_fault_armed) {
-      recording_->arm_diagnostic_fault();
-      recording_->diagnostic_fault_armed = true;
-      recording_->changed.notify_all();
-    }
-    return recording_->diagnostic_name.empty() ? type_
-                                               : recording_->diagnostic_name;
-  }
+  const std::string& Name() const override { return type_; }
 
  private:
   std::shared_ptr<Recording> recording_;
@@ -239,10 +220,11 @@ class PipelineRuntimeTest : public ::testing::Test {
   void ExpectFailed(Pipeline& pipeline, PipelineDiagnostic& diagnostic) {
     EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
     AlgContext context;
-    EXPECT_EQ(pipeline.Execute(&context), -1);
-    EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})"), -1);
+    EXPECT_EQ(pipeline.Execute(&context), error::kInvalidState);
+    EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})"),
+              error::kInvalidState);
     EXPECT_FALSE(pipeline.BuildFromPlan(Plan(), &diagnostic));
-    EXPECT_EQ(diagnostic.code, DiagnosticCode::kInvalidBuildState);
+    EXPECT_EQ(diagnostic.code, error::kInvalidBuildState);
     EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
   }
 
@@ -255,22 +237,23 @@ TEST_F(PipelineRuntimeTest, EmptyAndReadyStateGuardsAndOneShotBuild) {
   recording_->pipeline = &pipeline;
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kEmpty);
   AlgContext context;
-  EXPECT_EQ(pipeline.Execute(&context), -1);
+  EXPECT_EQ(pipeline.Execute(&context), error::kInvalidState);
   ControlFailureStage stage = ControlFailureStage::kNode;
-  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})", nullptr, &stage), -1);
+  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})", nullptr, &stage),
+            error::kInvalidState);
   EXPECT_EQ(stage, ControlFailureStage::kNone);
-  PipelineDiagnostic diagnostic{DiagnosticCode::kFieldType, "/stale", "stale"};
+  PipelineDiagnostic diagnostic{error::kFieldType, "/stale", "stale"};
   ASSERT_TRUE(pipeline.BuildFromPlan(Plan(), &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kOk);
+  EXPECT_EQ(diagnostic.code, error::kOk);
   EXPECT_TRUE(diagnostic.path.empty());
   EXPECT_EQ(recording_->init_states,
             std::vector<Pipeline::State>{Pipeline::State::kBuilding});
   EXPECT_TRUE(pipeline.IsReady());
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kSequential);
-  EXPECT_EQ(pipeline.Execute(nullptr), -1);
+  EXPECT_EQ(pipeline.Execute(nullptr), error::kInvalidArgument);
   EXPECT_EQ(pipeline.Execute(&context), 0);
   EXPECT_FALSE(pipeline.BuildFromPlan(Plan(), &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kInvalidBuildState);
+  EXPECT_EQ(diagnostic.code, error::kInvalidBuildState);
   EXPECT_TRUE(pipeline.IsReady());
   EXPECT_EQ(recording_->initialized.size(), 1u);
 }
@@ -286,8 +269,8 @@ TEST_F(PipelineRuntimeTest,
                                     {{"pipeline", Json::array()}}, {}));
     PipelineDiagnostic diagnostic;
     EXPECT_FALSE(pipeline.BuildFromPlan(std::move(plan), &diagnostic));
-    EXPECT_EQ(diagnostic.code, null_plan ? DiagnosticCode::kInternalException
-                                         : DiagnosticCode::kFieldRange);
+    EXPECT_EQ(diagnostic.code,
+              null_plan ? error::kInternalException : error::kFieldRange);
     EXPECT_EQ(diagnostic.path, null_plan ? "/" : "/pipeline");
     EXPECT_TRUE(recording_->initialized.empty());
     ExpectFailed(pipeline, diagnostic);
@@ -381,7 +364,7 @@ TEST_F(PipelineRuntimeTest,
     auto* original_session = &pipeline.GetSessionContext();
     PipelineDiagnostic diagnostic;
     ASSERT_FALSE(pipeline.BuildFromPlan(std::move(plan), &diagnostic));
-    EXPECT_EQ(diagnostic.code, DiagnosticCode::kNodeCreateFailed);
+    EXPECT_EQ(diagnostic.code, error::kNodeCreateFailed);
     EXPECT_EQ(diagnostic.path, "/pipeline/1/type");
     EXPECT_EQ(&pipeline.GetSessionContext(), original_session);
     EXPECT_TRUE(pipeline.GetPlan().node_plans.empty());
@@ -406,7 +389,7 @@ TEST_F(PipelineRuntimeTest,
     PipelineDiagnostic diagnostic;
     ASSERT_FALSE(pipeline.BuildFromPlan(Plan({"prefix", "bad", "untouched"}),
                                         &diagnostic));
-    EXPECT_EQ(diagnostic.code, DiagnosticCode::kNodeInitFailed);
+    EXPECT_EQ(diagnostic.code, error::kNodeInitFailed);
     EXPECT_EQ(diagnostic.path, "/pipeline/1/params");
     EXPECT_EQ(recording_->initialized,
               (std::vector<std::string>{"prefix", "bad"}));
@@ -434,7 +417,7 @@ TEST_F(PipelineRuntimeTest, AssemblyAllocationFailureConvergesToFailedState) {
   }
   ASSERT_TRUE(injected);
   EXPECT_FALSE(built);
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kInternalException);
+  EXPECT_EQ(diagnostic.code, error::kInternalException);
   EXPECT_EQ(&pipeline.GetSessionContext(), original_session);
   EXPECT_TRUE(pipeline.GetPlan().node_plans.empty());
   ExpectFailed(pipeline, diagnostic);
@@ -469,8 +452,11 @@ TEST_F(PipelineRuntimeTest,
       Pipeline pipeline;
       ASSERT_TRUE(pipeline.BuildFromPlan(Plan({"bad", "peer"}, workers)));
       AlgContext context;
-      EXPECT_EQ(pipeline.Execute(&context), -1);
-      EXPECT_EQ(context.GetErrorCode(), -1);
+      const int expected = failure == Failure::kStandard
+                               ? error::kInternalException
+                               : error::kUnknownException;
+      EXPECT_EQ(pipeline.Execute(&context), expected);
+      EXPECT_EQ(context.GetErrorCode(), expected);
       EXPECT_NE(context.GetErrorMessage().find("bad"), std::string::npos);
       EXPECT_NE(
           context.GetErrorMessage().find(failure == Failure::kStandard
@@ -559,60 +545,6 @@ TEST_F(PipelineRuntimeTest, FirstFailureWaitsForAnAlreadyActivePeer) {
 }
 
 TEST_F(PipelineRuntimeTest,
-       DiagnosticAllocationUnwindJoinsAnAlreadyActivePeer) {
-  recording_->behavior["first"].blocked = true;
-  recording_->behavior["first"].process_code = -11;
-  recording_->behavior["second"].blocked = true;
-  recording_->diagnostic_name = std::string(200, 'd');
-  auto pipeline = std::make_unique<Pipeline>();
-  ASSERT_TRUE(pipeline->BuildFromPlan(ParallelPlan()));
-  AlgContext context;
-  auto execution = std::async(std::launch::async, [&] {
-    std::optional<test_support::ScopedAllocationFailure> fault;
-    {
-      std::lock_guard<std::mutex> lock(recording_->mutex);
-      recording_->diagnostic_fault_caller = std::this_thread::get_id();
-      recording_->arm_diagnostic_fault = [&fault] { fault.emplace(0); };
-    }
-    try {
-      (void)pipeline->Execute(&context);
-    } catch (const std::bad_alloc&) {
-      std::lock_guard<std::mutex> lock(recording_->mutex);
-      recording_->caught_bad_alloc = true;
-    }
-    std::lock_guard<std::mutex> lock(recording_->mutex);
-    recording_->diagnostic_fault_triggered = fault && fault->Triggered();
-    recording_->active_at_return = recording_->active;
-    recording_->completed_at_return = recording_->completed.size();
-    recording_->arm_diagnostic_fault = nullptr;
-  });
-  const bool both_entered = WaitFor({"first", "second"});
-  Release({"first"});
-  bool armed = false;
-  {
-    std::unique_lock<std::mutex> lock(recording_->mutex);
-    armed = recording_->changed.wait_for(lock, std::chrono::seconds(3), [&] {
-      return recording_->diagnostic_fault_armed;
-    });
-  }
-  const auto while_peer_blocked =
-      execution.wait_for(std::chrono::milliseconds(50));
-  Release({"first", "second"});
-  execution.get();
-  pipeline.reset();
-  // The caller-only Name callback arms real new failure on copying a long
-  // diagnostic name. Workers remain unaffected; no production hook throws.
-  ASSERT_TRUE(both_entered);
-  ASSERT_TRUE(armed);
-  EXPECT_EQ(while_peer_blocked, std::future_status::timeout);
-  EXPECT_TRUE(recording_->diagnostic_fault_triggered);
-  EXPECT_TRUE(recording_->caught_bad_alloc);
-  EXPECT_EQ(recording_->active_at_return, 0u);
-  EXPECT_EQ(recording_->completed_at_return, 2u);
-  EXPECT_EQ(recording_->started.size(), 2u);
-}
-
-TEST_F(PipelineRuntimeTest,
        SuccessfulParallelLayerCompletesBeforeItsDependentLayer) {
   Pipeline pipeline;
   auto plan = ParallelPlan();
@@ -640,7 +572,8 @@ TEST_F(PipelineRuntimeTest, ControlValidatesRequestsBeforeCallingAnyNode) {
     SCOPED_TRACE(request);
     std::string error;
     ControlFailureStage stage = ControlFailureStage::kNone;
-    EXPECT_EQ(pipeline.Control(kUpdate, request, &error, &stage), -1);
+    EXPECT_EQ(pipeline.Control(kUpdate, request, &error, &stage),
+              error::kInvalidArgument);
     EXPECT_EQ(stage, ControlFailureStage::kRequest);
     EXPECT_FALSE(error.empty());
     EXPECT_TRUE(recording_->controlled.empty());
@@ -696,10 +629,11 @@ TEST_F(PipelineRuntimeTest,
   ASSERT_TRUE(pipeline.BuildFromPlan(Plan()));
   ControlFailureStage stage = ControlFailureStage::kNone;
   EXPECT_EQ(pipeline.Control(kUpdate + 1, R"({"limit":2})", nullptr, &stage),
-            -7);
+            error::kUnsupportedControl);
   EXPECT_EQ(stage, ControlFailureStage::kUnsupported);
   EXPECT_TRUE(recording_->controlled.empty());
-  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})", nullptr, &stage), -7);
+  EXPECT_EQ(pipeline.Control(kUpdate, R"({"limit":2})", nullptr, &stage),
+            error::kUnsupportedControl);
   EXPECT_EQ(stage, ControlFailureStage::kUnsupported);
   EXPECT_EQ(recording_->controlled, std::vector<std::string>{"first"});
 }

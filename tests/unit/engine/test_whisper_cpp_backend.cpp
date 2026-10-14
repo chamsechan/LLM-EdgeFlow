@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/whisper_cpp/whisper_cpp_backend.h"
 
@@ -113,7 +114,7 @@ TEST(WhisperCppBackendTest, SuppliedModelRunsThroughNeutralAudioProtocol) {
   EXPECT_TRUE(output.empty());
   EXPECT_EQ(session->Transcribe(AudioPcmPayload({}, 8000), options, &output,
                                 &diagnostic),
-            -1);
+            error::kInvalidInput);
   EXPECT_NE(diagnostic.find("16000 Hz"), std::string::npos);
   EXPECT_EQ(session->Transcribe(AudioPcmPayload(std::vector<float>(1600, 0.0f)),
                                 options, &output, &diagnostic),
@@ -124,7 +125,7 @@ TEST(WhisperCppBackendTest, SuppliedModelRunsThroughNeutralAudioProtocol) {
   EXPECT_LE(output.size(), options.max_output_bytes);
   EXPECT_EQ(session->Transcribe(AudioPcmPayload({}, 16000), options, nullptr,
                                 &diagnostic),
-            -1);
+            error::kInvalidArgument);
 }
 #else
 TEST(WhisperCppBackendTest,

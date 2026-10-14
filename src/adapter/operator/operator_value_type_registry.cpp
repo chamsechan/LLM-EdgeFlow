@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -135,10 +136,10 @@ bool OperatorValueTypeRegistry::HasConflict() const {
 int OperatorValueTypeRegistry::GlobalInit() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
-    return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
+    return error::kRegistryConflict;
   }
   if (audited_) {
-    return COMPANY_ALG_SUCCESS;
+    return error::kOk;
   }
   const auto valid_binding = [](const OperatorValueTypeBinding& binding) {
     if (binding.canonical_suffix.empty() ||
@@ -169,7 +170,7 @@ int OperatorValueTypeRegistry::GlobalInit() {
   for (const auto& [suffix, binding] : bindings_by_canonical_) {
     if (!valid_binding(binding)) {
       has_conflict_ = true;
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
+      return error::kRegistryConflict;
     }
   }
   for (const auto& [name, binding] : output_allocators_) {
@@ -178,11 +179,11 @@ int OperatorValueTypeRegistry::GlobalInit() {
         root->second.direction != IoDirection::kOutput ||
         root->second.external_c_type_name != binding.external_c_type_name) {
       has_conflict_ = true;
-      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;
+      return error::kRegistryConflict;
     }
   }
   audited_ = true;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 bool OperatorValueTypeRegistry::RegisterBinding(

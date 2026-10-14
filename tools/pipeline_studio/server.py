@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 from contextlib import contextmanager
+from enum import IntEnum
 import hashlib
 import http.server
 import importlib.util
@@ -28,6 +29,14 @@ import webbrowser
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Share the native framework's names and values without a second Studio code table.
+ErrorCode = IntEnum("ErrorCode", {
+    name: int(value)
+    for value, name in re.findall(
+        r'X\(k\w+,\s*(-?\d+),\s*"([A-Z][A-Z0-9_]*)"\)',
+        (PROJECT_ROOT / "include/contracts/error_codes.h").read_text(encoding="utf-8"),
+    )
+})
 WEB_ROOT = PROJECT_ROOT / "tools" / "pipeline_studio" / "web"
 CONFIG_ROOT = PROJECT_ROOT / "configs"
 PROFILE_FILE = PROJECT_ROOT / "demo" / "profiles.json"
@@ -56,9 +65,9 @@ _AUTHORING_UNSET = object()
 
 
 class StudioError(RuntimeError):
-    def __init__(self, code: str, message: str, status: int = 400):
+    def __init__(self, code: ErrorCode, message: str, status: int = 400):
         super().__init__(message)
-        self.code = code
+        self.code = code.name
         self.status = status
 
 
@@ -219,23 +228,23 @@ class WorkbenchService:
     def managed_path(self, requested: str, must_exist: bool = False) -> Path:
         path = Path(requested)
         if path.is_absolute() or len(path.parts) not in (1, 2):
-            raise StudioError("INVALID_PIPELINE_PATH", "只允许 configs 下的方案文件")
+            raise StudioError(ErrorCode.INVALID_PIPELINE_PATH, "只允许 configs 下的方案文件")
         if len(path.parts) == 2 and path.parts[0] != "configs":
-            raise StudioError("INVALID_PIPELINE_PATH", "路径必须位于 configs 目录")
+            raise StudioError(ErrorCode.INVALID_PIPELINE_PATH, "路径必须位于 configs 目录")
         filename = path.name
         if not MANAGED_NAME.fullmatch(filename):
             raise StudioError(
-                "INVALID_PIPELINE_NAME",
+                ErrorCode.INVALID_PIPELINE_NAME,
                 "文件名必须匹配 pipeline_[a-z0-9_]+.json",
             )
         candidate = self.config_root / filename
         if candidate.exists() or candidate.is_symlink():
             if candidate.is_symlink():
-                raise StudioError("SYMLINK_REJECTED", "拒绝读写符号链接方案")
+                raise StudioError(ErrorCode.SYMLINK_REJECTED, "拒绝读写符号链接方案")
             if candidate.resolve().parent != self.config_root:
-                raise StudioError("PATH_ESCAPE", "方案路径逃逸 configs 目录")
+                raise StudioError(ErrorCode.PATH_ESCAPE, "方案路径逃逸 configs 目录")
         elif must_exist:
-            raise StudioError("PIPELINE_NOT_FOUND", filename, 404)
+            raise StudioError(ErrorCode.PIPELINE_NOT_FOUND, filename, 404)
         return candidate
 
     def pipelines(self) -> dict[str, Any]:
@@ -304,7 +313,7 @@ class WorkbenchService:
         try:
             pipeline = json.loads(raw)
         except json.JSONDecodeError as error:
-            raise StudioError("INVALID_JSON", str(error)) from error
+            raise StudioError(ErrorCode.JSON_PARSE, str(error)) from error
         return json_result(
             True,
             filename=path.name,
@@ -325,7 +334,7 @@ class WorkbenchService:
         self, command: list[str], pipeline: Any | None = None
     ) -> dict[str, Any]:
         if not PIPELINE_TOOL.is_file():
-            raise StudioError("TOOL_NOT_BUILT", "请先构建 build/alg_pipeline_tool", 503)
+            raise StudioError(ErrorCode.TOOL_NOT_BUILT, "请先构建 build/alg_pipeline_tool", 503)
         process = subprocess.run(
             [str(PIPELINE_TOOL), *command],
             input=None if pipeline is None else json.dumps(pipeline),
@@ -339,7 +348,7 @@ class WorkbenchService:
             return json.loads(process.stdout)
         except json.JSONDecodeError as error:
             raise StudioError(
-                "TOOL_PROTOCOL_ERROR",
+                ErrorCode.TOOL_PROTOCOL_ERROR,
                 f"alg_pipeline_tool 未返回 JSON: {process.stderr[-500:]}",
                 500,
             ) from error
@@ -359,7 +368,7 @@ class WorkbenchService:
             return SELECTION.inspect_selection(
                 pipeline, PIPELINE_TOOL, pipeline_dir, variant=variant or None)
         except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
-            raise StudioError("SELECTION_CHECK_FAILED", str(error)) from error
+            raise StudioError(ErrorCode.SELECTION_CHECK_FAILED, str(error)) from error
 
     def profiles(self) -> dict[str, Any]:
         root = read_json(PROFILE_FILE)
@@ -368,7 +377,7 @@ class WorkbenchService:
             try:
                 DEMO_PROFILE.validate_profile_fields(profile)
             except ValueError as error:
-                raise StudioError("INVALID_PROFILE", f"Profile '{name}': {error}") from error
+                raise StudioError(ErrorCode.INVALID_PROFILE, f"Profile '{name}': {error}") from error
             item = dict(profile)
             item["name"] = name
             profiles.append(item)
@@ -385,7 +394,7 @@ class WorkbenchService:
         report = self.invoke_tool(args, pipeline)
         if explain and isinstance(report, dict):
             if fingerprint != self.get_tool_fingerprint():
-                raise StudioError("TOOL_OUTDATED", "校验期间工具已更新，请重新校验", 409)
+                raise StudioError(ErrorCode.TOOL_OUTDATED, "校验期间工具已更新，请重新校验", 409)
             report["tool_fingerprint"] = fingerprint
             raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
             report["revision"] = revision_for(raw)
@@ -399,23 +408,23 @@ class WorkbenchService:
         tool_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         if not expected_revision:
-            raise StudioError("REVISION_CONFLICT", "必须指定预期修订版本，草稿可能已变更", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "必须指定预期修订版本，草稿可能已变更", 409)
         raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
         current_rev = revision_for(raw)
         if current_rev != expected_revision:
-            raise StudioError("REVISION_CONFLICT", "草稿已变更，候选失效", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "草稿已变更，候选失效", 409)
         current_fp = self.get_tool_fingerprint()
         if not tool_fingerprint or current_fp != tool_fingerprint:
-            raise StudioError("TOOL_OUTDATED", "底层校验工具已重建或更新，候选失效", 409)
+            raise StudioError(ErrorCode.TOOL_OUTDATED, "底层校验工具已重建或更新，候选失效", 409)
         try:
             patched = apply_json_patch(pipeline, patch)
         except Exception as error:
             raise StudioError(
-                "PATCH_APPLICATION_FAILED", f"补丁应用失败: {error}"
+                ErrorCode.PATCH_APPLICATION_FAILED, f"补丁应用失败: {error}"
             ) from error
         report = self.validate(patched, explain=True)
         if current_fp != self.get_tool_fingerprint():
-            raise StudioError("TOOL_OUTDATED", "修复预览期间工具已更新，请重新校验", 409)
+            raise StudioError(ErrorCode.TOOL_OUTDATED, "修复预览期间工具已更新，请重新校验", 409)
         return json_result(
             True,
             patched=patched,
@@ -436,13 +445,13 @@ class WorkbenchService:
         tool_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         if not expected_revision:
-            raise StudioError("REVISION_CONFLICT", "必须指定预期修订版本，草稿可能已变更", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "必须指定预期修订版本，草稿可能已变更", 409)
         raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
         if revision_for(raw) != expected_revision:
-            raise StudioError("REVISION_CONFLICT", "草稿已变更，操作失效", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "草稿已变更，操作失效", 409)
         current_fp = self.get_tool_fingerprint()
         if not tool_fingerprint or current_fp != tool_fingerprint:
-            raise StudioError("TOOL_OUTDATED", "操作期间工具已更新，请重新加载", 409)
+            raise StudioError(ErrorCode.TOOL_OUTDATED, "操作期间工具已更新，请重新加载", 409)
 
         req: dict[str, Any] = {
             "pipeline": pipeline,
@@ -455,7 +464,7 @@ class WorkbenchService:
 
         res = self.invoke_tool(["edit", "--stdin"], req)
         if self.get_tool_fingerprint() != current_fp:
-            raise StudioError("TOOL_OUTDATED", "操作期间工具已更新，请重新加载", 409)
+            raise StudioError(ErrorCode.TOOL_OUTDATED, "操作期间工具已更新，请重新加载", 409)
         if isinstance(res, dict):
             res["tool_fingerprint"] = current_fp
             if res.get("pipeline"):
@@ -472,18 +481,18 @@ class WorkbenchService:
         args = ["init"]
         if profile:
             if inputs is not None or outputs is not None:
-                raise StudioError("INVALID_INIT_REQUEST", "Profile 不能与输入输出项同时指定")
+                raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "Profile 不能与输入输出项同时指定")
             args.extend(["--profile", profile])
         else:
             for option, entries in (("--input", inputs), ("--output", outputs)):
                 entries = [] if entries is None else entries
                 if not isinstance(entries, list):
-                    raise StudioError("INVALID_INIT_REQUEST", "输入和输出项必须是列表")
+                    raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "输入和输出项必须是列表")
                 for entry in entries:
                     if (not isinstance(entry, dict) or set(entry) != {"type", "name"}
                             or any(not isinstance(entry[field], str) or not entry[field]
                                    for field in ("type", "name"))):
-                        raise StudioError("INVALID_INIT_REQUEST", "输入输出项必须指定 type 和 name")
+                        raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "输入输出项必须指定 type 和 name")
                     args.extend([option, entry["type"] + "/" + entry["name"]])
         return self.invoke_tool(args)
 
@@ -500,17 +509,17 @@ class WorkbenchService:
             return self.update_solution(path, pipeline, expected_revision, profile_name)
         report = self.validate(pipeline)
         if not report.get("ok"):
-            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+            raise StudioError(ErrorCode.VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
         if path.exists() and not save_as:
             current = revision_for(path.read_bytes())
             if not expected_revision or current != expected_revision:
                 raise StudioError(
-                    "REVISION_CONFLICT",
+                    ErrorCode.REVISION_CONFLICT,
                     "文件已被 IDE 或 Git 修改，请重新加载或另存",
                     409,
                 )
         if save_as and path.exists():
-            raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
+            raise StudioError(ErrorCode.FILE_EXISTS, "另存目标已存在", 409)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         self.config_root.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(
@@ -523,13 +532,13 @@ class WorkbenchService:
                 os.fsync(stream.fileno())
             report = self.invoke_tool(["validate", temporary])
             if not report.get("ok"):
-                raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+                raise StudioError(ErrorCode.VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
             self.managed_path(path.name)
             if path.exists():
                 if save_as:
-                    raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
+                    raise StudioError(ErrorCode.FILE_EXISTS, "另存目标已存在", 409)
                 if not expected_revision or revision_for(path.read_bytes()) != expected_revision:
-                    raise StudioError("REVISION_CONFLICT", "校验期间方案已被修改，请重新加载", 409)
+                    raise StudioError(ErrorCode.REVISION_CONFLICT, "校验期间方案已被修改，请重新加载", 409)
             os.replace(temporary, path)
         finally:
             if os.path.exists(temporary):
@@ -551,10 +560,10 @@ class WorkbenchService:
 
             def check_revisions() -> tuple[bytes, bytes]:
                 if path.is_symlink() or conf_path.is_symlink() or not path.is_file() or not conf_path.is_file():
-                    raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被替换或删除，请重新检查文件", 409)
+                    raise StudioError(ErrorCode.REVISION_CONFLICT, "配套 JSON 或 .conf 已被替换或删除，请重新检查文件", 409)
                 raw, conf_raw = path.read_bytes(), conf_path.read_bytes()
                 if revision_for(raw) != expected_revision or revision_for(conf_raw) != managed["conf_revision"]:
-                    raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新检查文件", 409)
+                    raise StudioError(ErrorCode.REVISION_CONFLICT, "配套 JSON 或 .conf 已被其他编辑器修改，请重新检查文件", 409)
                 return raw, conf_raw
 
             old_json, _ = check_revisions()
@@ -562,7 +571,7 @@ class WorkbenchService:
                 pipeline, profile_name, path.name)
             report = self.validate(pipeline)
             if not report.get("ok"):
-                raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+                raise StudioError(ErrorCode.VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
             encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
             conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
             staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
@@ -586,7 +595,7 @@ class WorkbenchService:
                             os.replace(backup_json, path)
                         except OSError as rollback_error:
                             preserve_backup = True
-                            raise StudioError("SAVE_ROLLBACK_FAILED", f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
+                            raise StudioError(ErrorCode.SAVE_ROLLBACK_FAILED, f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
                         raise
                     managed["conf_revision"] = revision_for(conf_encoded)
                     managed["pipeline_revision"] = revision_for(encoded)
@@ -595,7 +604,7 @@ class WorkbenchService:
             except StudioError:
                 raise
             except Exception as error:
-                raise StudioError("SAVE_FAILED", str(error), 500) from error
+                raise StudioError(ErrorCode.SAVE_FAILED, str(error), 500) from error
             finally:
                 if not preserve_backup:
                     shutil.rmtree(staging)
@@ -603,17 +612,17 @@ class WorkbenchService:
     def profile_inputs(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
         profiles = read_json(PROFILE_FILE).get("profiles", {})
         if profile_name not in profiles:
-            raise StudioError("UNKNOWN_PROFILE", profile_name)
+            raise StudioError(ErrorCode.UNKNOWN_PROFILE, profile_name)
         profile = profiles[profile_name]
         try:
             DEMO_PROFILE.validate_profile_fields(profile)
         except ValueError as error:
-            raise StudioError("INVALID_PROFILE", f"Profile '{profile_name}': {error}") from error
+            raise StudioError(ErrorCode.INVALID_PROFILE, f"Profile '{profile_name}': {error}") from error
         profile_conf = PROJECT_ROOT / profile["config"]
         configuration = self.resolve_run_conf(profile_conf, profile)
         original = read_json(Path(configuration["pipeline_path"]))
         if self.io_pairs(original) != self.io_pairs(pipeline):
-            raise StudioError("PROFILE_MISMATCH", "Profile 与 I/O 契约不匹配")
+            raise StudioError(ErrorCode.PROFILE_MISMATCH, "Profile 与 I/O 契约不匹配")
         return copy.deepcopy(profile)
 
     def deployment_candidate(
@@ -626,25 +635,25 @@ class WorkbenchService:
                 matches = [name for name, info in self.generated_solutions.items()
                            if info["conf_path"] == requested_conf]
                 if len(matches) != 1:
-                    raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "请先明确关联当前方案与部署配置")
+                    raise StudioError(ErrorCode.DEPLOYMENT_NOT_ASSOCIATED, "请先明确关联当前方案与部署配置")
                 filename = matches[0]
         path = self.managed_path(filename) if filename else None
         managed = self.generated_solutions.get(path.name) if path else None
         if conf_name and (not managed or managed["conf_path"] != requested_conf):
-            raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "部署配置未关联到当前方案")
+            raise StudioError(ErrorCode.DEPLOYMENT_NOT_ASSOCIATED, "部署配置未关联到当前方案")
         if not managed:
             profile = self.profile_inputs(pipeline, profile_name)
             return profile, {"pipe_path": path.name if path else "pipeline.json"}
         conf_path = managed["conf_path"]
         if (path.is_symlink() or conf_path.is_symlink()
                 or not path.is_file() or not conf_path.is_file()):
-            raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被替换或删除，请重新关联", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "配套 JSON 或 .conf 已被替换或删除，请重新关联", 409)
         raw, conf_raw = path.read_bytes(), conf_path.read_bytes()
         if (revision_for(raw) != managed["pipeline_revision"]
                 or revision_for(conf_raw) != managed["conf_revision"]):
-            raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新关联", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "配套 JSON 或 .conf 已被其他编辑器修改，请重新关联", 409)
         if self.io_pairs(json.loads(raw)) != self.io_pairs(pipeline):
-            raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变 I/O 契约，请另存方案")
+            raise StudioError(ErrorCode.DEPLOYMENT_MISMATCH, "已关联方案不能改变 I/O 契约，请另存方案")
         profile = self.profile_inputs(pipeline, profile_name) if profile_name else copy.deepcopy(managed["profile"])
         return profile, {"pipe_path": path.name}
 
@@ -653,7 +662,7 @@ class WorkbenchService:
         report = self.invoke_tool(["resolve-conf", conf_path.name, "--root",
                                    str(conf_path.parent.resolve()), "--depth", str(depth)])
         if not report.get("ok"):
-            raise StudioError("DEPLOYMENT_VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+            raise StudioError(ErrorCode.DEPLOYMENT_VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
         return report["configuration"]
 
     @staticmethod
@@ -667,7 +676,7 @@ class WorkbenchService:
         output_dir.mkdir(parents=True, exist_ok=True)
         profile_path = output_dir / "demo-profile.json"
         if profile_path.is_symlink():
-            raise StudioError("SYMLINK_REJECTED", "拒绝覆盖符号链接运行 Profile", 409)
+            raise StudioError(ErrorCode.SYMLINK_REJECTED, "拒绝覆盖符号链接运行 Profile", 409)
         profile_path.write_text(json.dumps({"profiles": {name: run_profile}},
                                           ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return [
@@ -678,14 +687,14 @@ class WorkbenchService:
     def save_solution(self, requested: str, pipeline: Any, profile_name: str) -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
-            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+            raise StudioError(ErrorCode.VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
         path = self.managed_path(requested)
         conf_path = path.with_suffix(".conf")
         for target in (path, conf_path):
             if target.is_symlink():
-                raise StudioError("SYMLINK_REJECTED", "拒绝写入符号链接方案")
+                raise StudioError(ErrorCode.SYMLINK_REJECTED, "拒绝写入符号链接方案")
             if target.exists():
-                raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
+                raise StudioError(ErrorCode.FILE_EXISTS, f"另存目标已存在：{target.name}", 409)
         profile, conf = self.deployment_candidate(pipeline, profile_name, path.name)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
@@ -704,10 +713,10 @@ class WorkbenchService:
             for target in created:
                 target.unlink(missing_ok=True)
             if isinstance(error, FileExistsError):
-                raise StudioError("FILE_EXISTS", "另存目标已存在", 409) from error
+                raise StudioError(ErrorCode.FILE_EXISTS, "另存目标已存在", 409) from error
             if isinstance(error, StudioError):
                 raise
-            raise StudioError("SAVE_FAILED", str(error), 500) from error
+            raise StudioError(ErrorCode.SAVE_FAILED, str(error), 500) from error
         self.generated_solutions[path.name] = {
             "profile": profile,
             "conf_path": conf_path,
@@ -733,23 +742,23 @@ class WorkbenchService:
     def managed_conf_path(self, requested: str, must_exist: bool = False) -> Path:
         path = Path(requested)
         if path.is_absolute() or len(path.parts) not in (1, 2):
-            raise StudioError("INVALID_DEPLOYMENT_PATH", "只允许 configs 下的部署配置")
+            raise StudioError(ErrorCode.INVALID_DEPLOYMENT_PATH, "只允许 configs 下的部署配置")
         if len(path.parts) == 2 and path.parts[0] != "configs":
-            raise StudioError("INVALID_DEPLOYMENT_PATH", "路径必须位于 configs 目录")
+            raise StudioError(ErrorCode.INVALID_DEPLOYMENT_PATH, "路径必须位于 configs 目录")
         filename = path.name
         if not re.fullmatch(r"^pipeline_[a-z0-9_]+\.conf$", filename):
             raise StudioError(
-                "INVALID_DEPLOYMENT_NAME",
+                ErrorCode.INVALID_DEPLOYMENT_NAME,
                 "文件名必须匹配 pipeline_[a-z0-9_]+.conf",
             )
         candidate = self.config_root / filename
         if candidate.exists() or candidate.is_symlink():
             if candidate.is_symlink():
-                raise StudioError("SYMLINK_REJECTED", "拒绝读写符号链接部署配置")
+                raise StudioError(ErrorCode.SYMLINK_REJECTED, "拒绝读写符号链接部署配置")
             if candidate.resolve().parent != self.config_root:
-                raise StudioError("PATH_ESCAPE", "部署配置路径逃逸 configs 目录")
+                raise StudioError(ErrorCode.PATH_ESCAPE, "部署配置路径逃逸 configs 目录")
         elif must_exist:
-            raise StudioError("DEPLOYMENT_NOT_FOUND", filename, 404)
+            raise StudioError(ErrorCode.DEPLOYMENT_NOT_FOUND, filename, 404)
         return candidate
 
     def associate_deployment(
@@ -765,10 +774,10 @@ class WorkbenchService:
             pipeline = json.loads(pipe_raw)
             conf = json.loads(conf_raw)
         except json.JSONDecodeError as error:
-            raise StudioError("INVALID_JSON", str(error)) from error
+            raise StudioError(ErrorCode.JSON_PARSE, str(error)) from error
 
         if not isinstance(conf, dict) or "pipe_path" not in conf or not isinstance(conf["pipe_path"], str):
-            raise StudioError("INVALID_DEPLOYMENT_CONFIG", "部署配置缺少 pipe_path")
+            raise StudioError(ErrorCode.INVALID_DEPLOYMENT_CONFIG, "部署配置缺少 pipe_path")
 
         report = self.invoke_tool([
             "resolve-conf",
@@ -777,13 +786,13 @@ class WorkbenchService:
             str(conf_path.parent),
         ])
         if not report.get("ok"):
-            raise StudioError("DEPLOYMENT_VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+            raise StudioError(ErrorCode.DEPLOYMENT_VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
 
         configuration = report.get("configuration", {})
         resolved_pipe = Path(configuration.get("pipeline_path", "")).resolve()
         if resolved_pipe != pipe_path.resolve():
             raise StudioError(
-                "DEPLOYMENT_MISMATCH",
+                ErrorCode.DEPLOYMENT_MISMATCH,
                 f"部署配置指向 {resolved_pipe.name}，与当前方案 {pipe_path.name} 不符",
                 400,
             )
@@ -797,13 +806,13 @@ class WorkbenchService:
                     prof = self.profile_inputs(pipeline, name)
                     break
                 except StudioError as error:
-                    if error.code != "PROFILE_MISMATCH":
+                    if error.code != ErrorCode.PROFILE_MISMATCH.name:
                         raise
             if prof is None:
-                raise StudioError("PROFILE_MISMATCH", "没有与该 I/O 契约匹配的运行 Profile")
+                raise StudioError(ErrorCode.PROFILE_MISMATCH, "没有与该 I/O 契约匹配的运行 Profile")
         configuration = self.resolve_run_conf(conf_path, prof)
         if pipe_path.read_bytes() != pipe_raw or conf_path.read_bytes() != conf_raw:
-            raise StudioError("REVISION_CONFLICT", "关联期间文件已改变，请重新关联", 409)
+            raise StudioError(ErrorCode.REVISION_CONFLICT, "关联期间文件已改变，请重新关联", 409)
 
         with self.solution_lock:
             self.generated_solutions[pipe_path.name] = {
@@ -893,12 +902,12 @@ class WorkbenchService:
                   filename: str = "", conf_name: str = "") -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
-            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+            raise StudioError(ErrorCode.VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
         profile, conf = self.deployment_candidate(
             pipeline, profile_name, filename, conf_name)
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
-                raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)
+                raise StudioError(ErrorCode.RUN_BUSY, "同一工作台最多运行一个任务", 409)
             job_id = uuid.uuid4().hex[:16]
             self.jobs[job_id] = {
                 "id": job_id,
@@ -943,7 +952,7 @@ class WorkbenchService:
                     job["status"] = "running"
                     job["started_at"] = time.time()
                 if not DEMO_BINARY.is_file():
-                    raise StudioError("DEMO_NOT_BUILT", "请先构建 build/alg_demo", 503)
+                    raise StudioError(ErrorCode.DEMO_NOT_BUILT, "请先构建 build/alg_demo", 503)
                 process = subprocess.Popen(
                     args,
                     cwd=PROJECT_ROOT,
@@ -959,7 +968,7 @@ class WorkbenchService:
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGTERM)
                     stdout, stderr = process.communicate(timeout=5)
-                    raise StudioError("RUN_TIMEOUT", f"运行超过 {timeout} 秒", 408)
+                    raise StudioError(ErrorCode.RUN_TIMEOUT, f"运行超过 {timeout} 秒", 408)
                 combined = (stdout + b"\n" + stderr)[-MAX_LOG_BYTES:]
                 result_files: dict[str, Any] = {}
                 for name in ("summary.json", "results.jsonl"):
@@ -991,7 +1000,7 @@ class WorkbenchService:
                 job = self.jobs[job_id]
                 job["status"] = "cancelled" if job["cancel_requested"] else "failed"
                 job["error"] = {
-                    "code": getattr(error, "code", "RUN_FAILED"),
+                    "code": getattr(error, "code", ErrorCode.INTERNAL_EXCEPTION.name),
                     "message": str(error),
                 }
                 job["finished_at"] = time.time()
@@ -1004,7 +1013,7 @@ class WorkbenchService:
         with self.job_lock:
             job = self.jobs.get(job_id)
             if not job:
-                raise StudioError("RUN_NOT_FOUND", job_id, 404)
+                raise StudioError(ErrorCode.RUN_NOT_FOUND, job_id, 404)
             public = {key: value for key, value in job.items() if key != "process"}
         return json_result(True, job=public)
 
@@ -1012,7 +1021,7 @@ class WorkbenchService:
         with self.job_lock:
             job = self.jobs.get(job_id)
             if not job:
-                raise StudioError("RUN_NOT_FOUND", job_id, 404)
+                raise StudioError(ErrorCode.RUN_NOT_FOUND, job_id, 404)
             job["cancel_requested"] = True
             process = job.get("process")
             if job["status"] == "queued":
@@ -1042,11 +1051,11 @@ def make_handler(service: WorkbenchService):
         def _body(self) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0"))
             if length > 4 * 1024 * 1024:
-                raise StudioError("BODY_TOO_LARGE", "请求体超过 4 MiB", 413)
+                raise StudioError(ErrorCode.BODY_TOO_LARGE, "请求体超过 4 MiB", 413)
             try:
                 return json.loads(self.rfile.read(length) or b"{}")
             except json.JSONDecodeError as error:
-                raise StudioError("INVALID_JSON", str(error)) from error
+                raise StudioError(ErrorCode.JSON_PARSE, str(error)) from error
 
         def _dispatch(self, method: str) -> None:
             parsed = urlparse(self.path)
@@ -1087,7 +1096,7 @@ def make_handler(service: WorkbenchService):
                            "revision", "tool_fingerprint"}
                 unknown = set(body) - allowed
                 if unknown:
-                    raise StudioError("INVALID_AUTHORING_REQUEST", "未知编排请求字段：" + ", ".join(sorted(unknown)))
+                    raise StudioError(ErrorCode.INVALID_AUTHORING_REQUEST, "未知编排请求字段：" + ", ".join(sorted(unknown)))
                 payload = service.preview_authoring(
                     body.get("pipeline"),
                     operation=body.get("operation", _AUTHORING_UNSET),
@@ -1138,7 +1147,7 @@ def make_handler(service: WorkbenchService):
             elif method == "DELETE" and path.startswith("/api/runs/"):
                 payload = service.cancel_run(path.rsplit("/", 1)[-1])
             else:
-                raise StudioError("NOT_FOUND", path, 404)
+                raise StudioError(ErrorCode.NOT_FOUND, path, 404)
             self._send(200, payload)
 
         def do_GET(self) -> None:
@@ -1161,7 +1170,7 @@ def make_handler(service: WorkbenchService):
                 self._dispatch(method)
             except StudioError as error:
                 detail: Any = str(error)
-                if error.code == "VALIDATION_FAILED":
+                if error.code == ErrorCode.VALIDATION_FAILED.name:
                     try:
                         detail = json.loads(str(error))
                     except json.JSONDecodeError:
@@ -1175,7 +1184,7 @@ def make_handler(service: WorkbenchService):
                     500,
                     json_result(
                         False,
-                        error={"code": "INTERNAL_ERROR", "message": str(error)},
+                        error={"code": ErrorCode.INTERNAL_EXCEPTION.name, "message": str(error)},
                     ),
                 )
 
@@ -1203,19 +1212,19 @@ def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
 
 def read_pipeline_file(path: Path) -> dict[str, Any]:
     if path.suffix.lower() != ".json" or not path.is_file():
-        raise StudioError("INVALID_PIPELINE_FILE", "请选择一个 Pipeline JSON 文件")
+        raise StudioError(ErrorCode.INVALID_PIPELINE_FILE, "请选择一个 Pipeline JSON 文件")
     try:
         with path.open("rb") as stream:
             raw = stream.read(MAX_DOCUMENT_BYTES + 1)
         if len(raw) > MAX_DOCUMENT_BYTES:
-            raise StudioError("DOCUMENT_TOO_LARGE", "方案文件超过 4 MiB")
+            raise StudioError(ErrorCode.DOCUMENT_TOO_LARGE, "方案文件超过 4 MiB")
         pipeline = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise StudioError("INVALID_JSON", f"无法解析 JSON：{error}") from error
+        raise StudioError(ErrorCode.JSON_PARSE, f"无法解析 JSON：{error}") from error
     except OSError as error:
-        raise StudioError("PIPELINE_READ_FAILED", f"无法读取方案文件：{error}") from error
+        raise StudioError(ErrorCode.PIPELINE_READ_FAILED, f"无法读取方案文件：{error}") from error
     if not isinstance(pipeline, dict) or not isinstance(pipeline.get("pipeline"), list):
-        raise StudioError("INVALID_PIPELINE_DOCUMENT", "方案必须是包含 pipeline 数组的 JSON 对象")
+        raise StudioError(ErrorCode.INVALID_PIPELINE_DOCUMENT, "方案必须是包含 pipeline 数组的 JSON 对象")
     return pipeline
 
 

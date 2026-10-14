@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "core/diagnostic_code.h"
+#include "contracts/error_codes.h"
 #include "core/pipeline_config.h"
 #include "core/port_definition.h"
 #include "core/validated_node_plan.h"
@@ -14,7 +14,7 @@
 namespace llm_edgeflow {
 
 struct ValidationDiagnostic {
-  DiagnosticCode code = DiagnosticCode::kOk;
+  int code = error::kOk;
   std::string path;
   std::string message;
   std::string node_name;

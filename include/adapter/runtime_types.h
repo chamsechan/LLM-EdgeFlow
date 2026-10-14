@@ -10,7 +10,7 @@
 
 namespace llm_edgeflow {
 
-// 仅传递失败所在阶段，供协议壳沿用原有错误映射；错误码中立化后置。
+// 仅传递失败所在阶段，供协议壳将框架错误码映射为平台返回码。
 enum class RuntimeFailureStage { kNone, kPreparation, kExecution };
 
 struct RuntimeCreateOptions {

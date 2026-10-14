@@ -3,6 +3,7 @@
 #include "adapter/io_values.h"
 #include "adapter/operator/mock/platform_value_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -68,16 +69,16 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
               *err =
                   "CompanyFrame requires positive dimensions and RGB8 stride "
                   ">= width * 3";
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           if (!in.data) {
             if (err) *err = "CompanyFrame.data is null";
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           if (static_cast<uint64_t>(in.stride) * in.height >
               limits.max_image_bytes) {
             if (err) *err = "CompanyFrame pixels exceed max_image_bytes";
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           int ret = 0;
           if (in.metadata) {
@@ -216,7 +217,7 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
                      std::to_string(limits.min_sample_rate) + ", " +
                      std::to_string(limits.max_sample_rate) + "]";
             }
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           if (in.pcm_length < 0 ||
               in.pcm_length > limits.max_audio_pcm_samples ||
@@ -226,11 +227,11 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
               *err = "pcm_length " + std::to_string(in.pcm_length) +
                      " invalid or exceeds limit " +
                      std::to_string(limits.max_audio_pcm_samples);
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           if (in.pcm_length > 0 && !in.pcm_buffer) {
             if (err) *err = "pcm_buffer pointer is null";
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           return 0;
         });
@@ -264,13 +265,13 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
                      std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) +
                      "]";
             }
-            return COMPANY_ALG_ERR_INVALID_INPUT;
+            return error::kInvalidInput;
           }
           for (int i = 0; i < in.candidate_count; ++i) {
             if (!in.candidate_passages[i]) {
               if (err)
                 *err = "candidate_passages[" + std::to_string(i) + "] is null";
-              return COMPANY_ALG_ERR_INVALID_INPUT;
+              return error::kInvalidInput;
             }
             ret = ValidateCompanyString(
                 in.candidate_passages[i], limits.max_doc_text_bytes,

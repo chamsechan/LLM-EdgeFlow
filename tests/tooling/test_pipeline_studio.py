@@ -208,11 +208,19 @@ class StudioHttpContractTest(unittest.TestCase):
             self.assertEqual(response.status, 400)
             payload = json.loads(response.read())
         self.assertFalse(payload["ok"])
-        self.assertEqual(payload["error"]["code"], "INVALID_JSON")
+        self.assertEqual(studio.ErrorCode.JSON_PARSE.value, -2002)
+        self.assertEqual(payload["error"]["code"], studio.ErrorCode.JSON_PARSE.name)
         status, rejected = self.request("POST", "/api/init", {
             "profile": "keyword_match_rules", "input": []})
         self.assertEqual(status, 400)
         self.assertEqual(rejected["error"]["code"], "INVALID_INIT_REQUEST")
+        with mock.patch.object(self.service, "initial_pipeline", side_effect=RuntimeError("injected failure")):
+            status, failed = self.request("GET", "/api/initial")
+        self.assertEqual(status, 500)
+        self.assertEqual(failed["error"], {
+            "code": studio.ErrorCode.INTERNAL_EXCEPTION.name,
+            "message": "injected failure",
+        })
 
     def test_external_revision_conflict_and_replace_failure_preserve_original_file(self):
         saved = self.save()
@@ -317,17 +325,30 @@ class StudioHttpContractTest(unittest.TestCase):
             if conf_path.name == "pipeline_failed.conf":
                 self.assertTrue((self.configs / "pipeline_failed.json").exists())
                 self.assertTrue(conf_path.exists())
-                raise studio.StudioError("TEST_PREFLIGHT", "preflight failed")
+                raise studio.StudioError(studio.ErrorCode.DEPLOYMENT_VALIDATION_FAILED, "preflight failed")
             return resolve(conf_path, profile)
 
         with mock.patch.object(self.service, "resolve_run_conf", side_effect=fail_final_preflight):
             status, failed = self.request("POST", "/api/solutions", {
                 "filename": "pipeline_failed.json", "pipeline": self.base, "profile": "keyword_match_rules"})
         self.assertEqual(status, 400)
-        self.assertEqual(failed["error"]["code"], "TEST_PREFLIGHT")
+        self.assertEqual(failed["error"]["code"], "DEPLOYMENT_VALIDATION_FAILED")
         self.assertFalse((self.configs / "pipeline_failed.json").exists())
         self.assertFalse((self.configs / "pipeline_failed.conf").exists())
         self.assertTrue((self.configs / "pipeline_keyword_match_rules.json").exists())
+
+    def test_background_failure_uses_shared_codes_and_keeps_reason(self):
+        for failure, expected in (
+            (RuntimeError("worker failure"), "INTERNAL_EXCEPTION"),
+            (studio.StudioError(studio.ErrorCode.RUN_TIMEOUT, "worker timeout"), "RUN_TIMEOUT"),
+        ):
+            with self.subTest(code=expected):
+                self.service.jobs["failed-job"] = {"cancel_requested": False}
+                with mock.patch.object(self.service, "resolve_run_conf", side_effect=failure):
+                    self.service._run_job("failed-job", self.base, self.profile, {})
+                job = self.service.run_status("failed-job")["job"]
+                self.assertEqual(job["status"], "failed")
+                self.assertEqual(job["error"], {"code": expected, "message": str(failure)})
 
     def test_javascript_library_and_fix_consumers(self):
         for script in ("studio_editor_test.mjs", "studio_graph_test.mjs",

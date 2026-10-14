@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "engine/backend_registry.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
@@ -123,18 +124,18 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
     try {
       if (!tokens) {
         SetDiagnosticNoexcept(diagnostic, "Token output pointer is null");
-        return -1;
+        return error::kInvalidArgument;
       }
       tokens->clear();
       if (!vocab_) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp vocabulary is null");
-        return -1;
+        return error::kInvalidState;
       }
       if (text.size() >
           static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
         SetDiagnosticNoexcept(diagnostic,
                               "Text is too large for llama.cpp tokenizer");
-        return -1;
+        return error::kInvalidInput;
       }
 
       int32_t capacity = static_cast<int32_t>(std::min<size_t>(
@@ -155,7 +156,7 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
       }
       if (count < 0) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp tokenization failed");
-        return -1;
+        return error::kInferenceFailed;
       }
       vendor_tokens.resize(static_cast<size_t>(count));
       tokens->assign(vendor_tokens.begin(), vendor_tokens.end());
@@ -163,12 +164,12 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
     } catch (const std::exception& e) {
       if (tokens) tokens->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       if (tokens) tokens->clear();
       SetDiagnosticNoexcept(diagnostic,
                             "Unknown llama.cpp tokenization exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 
@@ -177,12 +178,12 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
     try {
       if (!piece) {
         SetDiagnosticNoexcept(diagnostic, "Decoded piece pointer is null");
-        return -1;
+        return error::kInvalidArgument;
       }
       piece->clear();
       if (!vocab_) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp vocabulary is null");
-        return -1;
+        return error::kInvalidState;
       }
 
       std::vector<char> buffer(128);
@@ -197,19 +198,19 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
       }
       if (count < 0) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp token decode failed");
-        return -1;
+        return error::kInferenceFailed;
       }
       piece->assign(buffer.data(), static_cast<size_t>(count));
       return 0;
     } catch (const std::exception& e) {
       if (piece) piece->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       if (piece) piece->clear();
       SetDiagnosticNoexcept(diagnostic,
                             "Unknown llama.cpp token decode exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 
@@ -223,24 +224,24 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
                std::string* diagnostic) noexcept override {
     if (!logits) {
       SetDiagnosticNoexcept(diagnostic, "Logits output pointer is null");
-      return -1;
+      return error::kInvalidArgument;
     }
     logits->clear();
     if (!model_ || !context_ || !vocab_) {
       SetDiagnosticNoexcept(diagnostic, "llama.cpp decoder is not initialized");
-      return -1;
+      return error::kInvalidState;
     }
     if (tokens.empty()) {
       SetDiagnosticNoexcept(diagnostic,
                             "Decoder Evaluate tokens cannot be empty");
-      return -1;
+      return error::kInvalidInput;
     }
     try {
       if (tokens.size() >
           context_size_ - std::min(context_size_, token_count_)) {
         SetDiagnosticNoexcept(diagnostic,
                               "llama.cpp context token limit exceeded");
-        return -1;
+        return error::kInvalidInput;
       }
       std::vector<llama_token> vendor_tokens(tokens.begin(), tokens.end());
       for (size_t offset = 0; offset < vendor_tokens.size();
@@ -254,7 +255,7 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
           SetDiagnosticNoexcept(
               diagnostic,
               "llama.cpp decode failed with code " + std::to_string(result));
-          return -1;
+          return error::kInferenceFailed;
         }
       }
 
@@ -262,7 +263,7 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
       const int32_t vocab_size = llama_vocab_n_tokens(vocab_);
       if (!vendor_logits || vocab_size <= 0) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp returned invalid logits");
-        return -1;
+        return error::kInvalidOutput;
       }
       logits->assign(vendor_logits, vendor_logits + vocab_size);
       token_count_ += tokens.size();
@@ -270,11 +271,11 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
     } catch (const std::exception& e) {
       logits->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       logits->clear();
       SetDiagnosticNoexcept(diagnostic, "Unknown llama.cpp Evaluate exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 
@@ -320,12 +321,12 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
       if (!output) {
         SetDiagnosticNoexcept(diagnostic,
                               "Text generation output pointer is null");
-        return -1;
+        return error::kInvalidArgument;
       }
       output->clear();
       if (!model_) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp model is null");
-        return -1;
+        return error::kInvalidState;
       }
 
       std::lock_guard<std::mutex> lock(generate_mutex_);
@@ -340,7 +341,7 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
       LlamaContextPtr context(llama_init_from_model(model_.get(), params));
       if (!context) {
         SetDiagnosticNoexcept(diagnostic, "llama.cpp context creation failed");
-        return -1;
+        return error::kAllocationFailed;
       }
       LlamaCppDecoder decoder(model_, std::move(context), context_size_,
                               decode_batch_size_);
@@ -350,12 +351,12 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
     } catch (const std::exception& e) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
-      return -1;
+      return error::kInternalException;
     } catch (...) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic,
                             "Unknown llama.cpp generation exception");
-      return -1;
+      return error::kUnknownException;
     }
   }
 

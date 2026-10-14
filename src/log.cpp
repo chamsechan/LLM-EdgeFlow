@@ -35,7 +35,8 @@ extern "C" int AlgBase_setLogLevelByName(const char* name, int level) noexcept {
   (void)name;
   if (level < E_ALG_BASE_LOG_LEVEL_FATAL ||
       level > E_ALG_BASE_LOG_LEVEL_VERBOSE) {
-    return -1;
+    ALG_LOG_WARNING("[Log] Invalid log level %d; expected 0..5\n", level);
+    return -1;  // 公开 C 接口沿用 doc/logging.md 约定，不返回框架码
   }
   GlobalLogLevel().store(level, std::memory_order_release);
   return 0;

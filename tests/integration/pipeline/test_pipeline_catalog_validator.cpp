@@ -174,7 +174,7 @@ TEST(PipelineCatalogTest,
     } else {
       ASSERT_EQ(plan.report.diagnostics.size(), 1U);
       const auto& diagnostic = plan.report.diagnostics[0];
-      EXPECT_EQ(diagnostic.code, DiagnosticCode::kInvalidCombination);
+      EXPECT_EQ(diagnostic.code, error::kInvalidCombination);
       EXPECT_EQ(diagnostic.path, "/pipeline/0/params");
       EXPECT_EQ(diagnostic.node_name, "native");
       EXPECT_EQ(diagnostic.message, row.second);

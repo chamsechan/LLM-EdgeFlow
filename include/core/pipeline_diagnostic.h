@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "core/diagnostic_code.h"
+#include "contracts/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -10,14 +10,14 @@ namespace llm_edgeflow {
  * @brief 轻量级结构化诊断信息 (PipelineDiagnostic)
  */
 struct PipelineDiagnostic {
-  DiagnosticCode code = DiagnosticCode::kOk;
+  int code = error::kOk;
   std::string path;
   std::string message;
 
-  bool IsOk() const { return code == DiagnosticCode::kOk; }
+  bool IsOk() const { return code == error::kOk; }
 
   void Clear() {
-    code = DiagnosticCode::kOk;
+    code = error::kOk;
     path.clear();
     message.clear();
   }

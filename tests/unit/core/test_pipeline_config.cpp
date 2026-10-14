@@ -32,7 +32,7 @@ TEST(PipelineParsingTest, PreservesExplicitValuesAndDefaultsWithSourceIndices) {
   PipelineDiagnostic diagnostic;
   const auto root = ParsingExample();
   ASSERT_TRUE(ParsePipelineConfig(root, &parsed, &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kOk);
+  EXPECT_EQ(diagnostic.code, error::kOk);
   EXPECT_EQ(parsed.max_parallel_workers, 1u);
   ASSERT_EQ(parsed.models.size(), 1u);
   const auto& model = parsed.models.front();
@@ -61,7 +61,7 @@ TEST(PipelineParsingTest, SuccessfulParseReplacesTheWholePreviousResult) {
   ParsedPipelineConfig parsed;
   PipelineDiagnostic diagnostic;
   ASSERT_TRUE(ParsePipelineConfig(ParsingExample(), &parsed, &diagnostic));
-  diagnostic = {DiagnosticCode::kFieldRange, "/stale", "stale"};
+  diagnostic = {error::kFieldRange, "/stale", "stale"};
   ASSERT_TRUE(ParsePipelineConfig(
       {{"max_parallel_workers", 64},
        {"pipeline", {{{"type", "source"}, {"name", "replacement"}}}}},
@@ -71,7 +71,7 @@ TEST(PipelineParsingTest, SuccessfulParseReplacesTheWholePreviousResult) {
   ASSERT_EQ(parsed.nodes.size(), 1u);
   EXPECT_EQ(parsed.nodes[0].name, "replacement");
   EXPECT_TRUE(parsed.nodes[0].ports.inputs.empty());
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kOk);
+  EXPECT_EQ(diagnostic.code, error::kOk);
   EXPECT_TRUE(diagnostic.path.empty());
   EXPECT_TRUE(diagnostic.message.empty());
 }
@@ -81,96 +81,93 @@ struct InvalidStructure {
   const char* operation;
   const char* changed_path;
   Json value;
-  DiagnosticCode code;
+  int code;
   const char* path;
 };
 
 TEST(PipelineParsingTest, NamedStructuralChangesFailAtTheirOwnedField) {
   const std::vector<InvalidStructure> cases = {
-      {"root is array", "replace", "", Json::array(), DiagnosticCode::kRootType,
-       "/"},
-      {"unknown root field", "add", "/legacy", true,
-       DiagnosticCode::kUnknownField, "/legacy"},
-      {"comment type", "replace", "/comment", 1, DiagnosticCode::kFieldType,
-       "/comment"},
-      {"worker type", "add", "/max_parallel_workers", 1.5,
-       DiagnosticCode::kFieldType, "/max_parallel_workers"},
+      {"root is array", "replace", "", Json::array(), error::kRootType, "/"},
+      {"unknown root field", "add", "/legacy", true, error::kUnknownField,
+       "/legacy"},
+      {"comment type", "replace", "/comment", 1, error::kFieldType, "/comment"},
+      {"worker type", "add", "/max_parallel_workers", 1.5, error::kFieldType,
+       "/max_parallel_workers"},
       {"worker below minimum", "add", "/max_parallel_workers", 0,
-       DiagnosticCode::kFieldRange, "/max_parallel_workers"},
+       error::kFieldRange, "/max_parallel_workers"},
       {"worker above maximum", "add", "/max_parallel_workers", 65,
-       DiagnosticCode::kFieldRange, "/max_parallel_workers"},
+       error::kFieldRange, "/max_parallel_workers"},
       {"models container", "replace", "/models", Json::object(),
-       DiagnosticCode::kFieldType, "/models"},
-      {"model item", "replace", "/models/0", 1, DiagnosticCode::kFieldType,
-       "/models/0"},
+       error::kFieldType, "/models"},
+      {"model item", "replace", "/models/0", 1, error::kFieldType, "/models/0"},
       {"unknown model field", "add", "/models/0/legacy", true,
-       DiagnosticCode::kUnknownField, "/models/0/legacy"},
+       error::kUnknownField, "/models/0/legacy"},
       {"missing model category", "remove", "/models/0/type", nullptr,
-       DiagnosticCode::kMissingField, "/models/0/type"},
+       error::kMissingField, "/models/0/type"},
       {"missing model name", "remove", "/models/0/name", nullptr,
-       DiagnosticCode::kMissingField, "/models/0/name"},
+       error::kMissingField, "/models/0/name"},
       {"missing model file", "remove", "/models/0/file", nullptr,
-       DiagnosticCode::kMissingField, "/models/0/file"},
-      {"empty model file", "replace", "/models/0/file", "",
-       DiagnosticCode::kFieldRange, "/models/0/file"},
-      {"model file type", "replace", "/models/0/file", false,
-       DiagnosticCode::kFieldType, "/models/0/file"},
-      {"empty model name", "replace", "/models/0/name", "",
-       DiagnosticCode::kFieldRange, "/models/0/name"},
+       error::kMissingField, "/models/0/file"},
+      {"empty model file", "replace", "/models/0/file", "", error::kFieldRange,
+       "/models/0/file"},
+      {"model file type", "replace", "/models/0/file", false, error::kFieldType,
+       "/models/0/file"},
+      {"empty model name", "replace", "/models/0/name", "", error::kFieldRange,
+       "/models/0/name"},
       {"missing backend", "remove", "/models/0/backend", nullptr,
-       DiagnosticCode::kMissingField, "/models/0/backend"},
+       error::kMissingField, "/models/0/backend"},
       {"backend container", "replace", "/models/0/backend", Json::array(),
-       DiagnosticCode::kFieldType, "/models/0/backend"},
+       error::kFieldType, "/models/0/backend"},
       {"missing backend type", "remove", "/models/0/backend/type", nullptr,
-       DiagnosticCode::kMissingField, "/models/0/backend/type"},
+       error::kMissingField, "/models/0/backend/type"},
       {"empty backend type", "replace", "/models/0/backend/type", "",
-       DiagnosticCode::kFieldRange, "/models/0/backend/type"},
+       error::kFieldRange, "/models/0/backend/type"},
       {"unknown backend field", "add", "/models/0/backend/legacy", 1,
-       DiagnosticCode::kUnknownField, "/models/0/backend/legacy"},
+       error::kUnknownField, "/models/0/backend/legacy"},
       {"model params container", "add", "/models/0/params", Json::array(),
-       DiagnosticCode::kFieldType, "/models/0/params"},
+       error::kFieldType, "/models/0/params"},
       {"backend params container", "add", "/models/0/backend/params", 2,
-       DiagnosticCode::kFieldType, "/models/0/backend/params"},
-      {"missing pipeline", "remove", "/pipeline", nullptr,
-       DiagnosticCode::kMissingField, "/pipeline"},
+       error::kFieldType, "/models/0/backend/params"},
+      {"missing pipeline", "remove", "/pipeline", nullptr, error::kMissingField,
+       "/pipeline"},
       {"pipeline container", "replace", "/pipeline", Json::object(),
-       DiagnosticCode::kFieldType, "/pipeline"},
+       error::kFieldType, "/pipeline"},
       {"empty pipeline", "replace", "/pipeline", Json::array(),
-       DiagnosticCode::kFieldRange, "/pipeline"},
-      {"node item", "replace", "/pipeline/1", "node",
-       DiagnosticCode::kFieldType, "/pipeline/1"},
+       error::kFieldRange, "/pipeline"},
+      {"node item", "replace", "/pipeline/1", "node", error::kFieldType,
+       "/pipeline/1"},
       {"unknown node field", "add", "/pipeline/1/outputs", Json::object(),
-       DiagnosticCode::kUnknownField, "/pipeline/1/outputs"},
+       error::kUnknownField, "/pipeline/1/outputs"},
       {"missing node name", "remove", "/pipeline/1/name", nullptr,
-       DiagnosticCode::kMissingField, "/pipeline/1/name"},
+       error::kMissingField, "/pipeline/1/name"},
       {"missing node type", "remove", "/pipeline/1/type", nullptr,
-       DiagnosticCode::kMissingField, "/pipeline/1/type"},
-      {"empty node type", "replace", "/pipeline/1/type", "",
-       DiagnosticCode::kFieldRange, "/pipeline/1/type"},
-      {"node name type", "replace", "/pipeline/1/name", 3,
-       DiagnosticCode::kFieldType, "/pipeline/1/name"},
-      {"empty node name", "replace", "/pipeline/1/name", "",
-       DiagnosticCode::kFieldRange, "/pipeline/1/name"},
+       error::kMissingField, "/pipeline/1/type"},
+      {"empty node type", "replace", "/pipeline/1/type", "", error::kFieldRange,
+       "/pipeline/1/type"},
+      {"node name type", "replace", "/pipeline/1/name", 3, error::kFieldType,
+       "/pipeline/1/name"},
+      {"empty node name", "replace", "/pipeline/1/name", "", error::kFieldRange,
+       "/pipeline/1/name"},
       {"reserved input name", "replace", "/pipeline/1/name", "input",
-       DiagnosticCode::kInvalidNodeName, "/pipeline/1/name"},
+       error::kInvalidNodeName, "/pipeline/1/name"},
       {"reserved output name", "replace", "/pipeline/1/name", "output",
-       DiagnosticCode::kInvalidNodeName, "/pipeline/1/name"},
+       error::kInvalidNodeName, "/pipeline/1/name"},
       {"dotted node name", "replace", "/pipeline/1/name", "a.b",
-       DiagnosticCode::kInvalidNodeName, "/pipeline/1/name"},
+       error::kInvalidNodeName, "/pipeline/1/name"},
       {"duplicate node name", "replace", "/pipeline/1/name", "first",
-       DiagnosticCode::kDuplicateNodeName, "/pipeline/1/name"},
+       error::kDuplicateNodeName, "/pipeline/1/name"},
       {"node params container", "replace", "/pipeline/1/params", false,
-       DiagnosticCode::kFieldType, "/pipeline/1/params"},
+       error::kFieldType, "/pipeline/1/params"},
       {"inputs container", "replace", "/pipeline/1/inputs", Json::array(),
-       DiagnosticCode::kFieldType, "/pipeline/1/inputs"},
+       error::kFieldType, "/pipeline/1/inputs"},
       {"input reference type", "replace", "/pipeline/1/inputs/text", 4,
-       DiagnosticCode::kFieldType, "/pipeline/1/inputs/text"},
+       error::kFieldType, "/pipeline/1/inputs/text"},
       {"dependencies container", "replace", "/pipeline/1/depends_on", "first",
-       DiagnosticCode::kFieldType, "/pipeline/1/depends_on"},
+       error::kFieldType, "/pipeline/1/depends_on"},
       {"dependency item type", "replace", "/pipeline/1/depends_on/0", 5,
-       DiagnosticCode::kFieldType, "/pipeline/1/depends_on/0"},
+       error::kFieldType, "/pipeline/1/depends_on/0"},
       {"empty dependency", "replace", "/pipeline/1/depends_on/0", "",
-       DiagnosticCode::kFieldRange, "/pipeline/1/depends_on/0"},
+       error::kFieldRange, "/pipeline/1/depends_on/0"},
   };
   for (const auto& example : cases) {
     SCOPED_TRACE(example.name);
@@ -224,7 +221,7 @@ TEST(PipelineParsingTest, AcceptsMaximumArraySizesAndRejectsTheNextEntry) {
     array.push_back(array.back());
     PipelineDiagnostic diagnostic;
     EXPECT_FALSE(ParsePipelineConfig(oversized, &parsed, &diagnostic));
-    EXPECT_EQ(diagnostic.code, DiagnosticCode::kFieldRange);
+    EXPECT_EQ(diagnostic.code, error::kFieldRange);
     EXPECT_EQ(diagnostic.path, array_path);
     EXPECT_EQ(parsed.models.size(), 64u);
     EXPECT_EQ(parsed.nodes.size(), 256u);
@@ -243,7 +240,7 @@ TEST(PipelineParsingTest,
   root["pipeline"][1]["depends_on"] = {false};
   PipelineDiagnostic diagnostic;
   ASSERT_FALSE(ParsePipelineConfig(root, &parsed, &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kFieldType);
+  EXPECT_EQ(diagnostic.code, error::kFieldType);
   EXPECT_EQ(diagnostic.path, "/pipeline/1/depends_on/0");
   EXPECT_EQ(parsed.max_parallel_workers, 1u);
   ASSERT_EQ(parsed.models.size(), 1u);
@@ -260,7 +257,7 @@ TEST(PipelineParsingTest, RejectsDuplicateModelInstanceNames) {
   ParsedPipelineConfig parsed;
   PipelineDiagnostic diagnostic;
   EXPECT_FALSE(ParsePipelineConfig(root, &parsed, &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kDuplicateModelName);
+  EXPECT_EQ(diagnostic.code, error::kDuplicateModelName);
   EXPECT_EQ(diagnostic.path, "/models/1/name");
 }
 
@@ -280,7 +277,7 @@ TEST(PipelineParsingTest, PreservesOpaqueParametersAndUnresolvedFiles) {
 TEST(PipelineParsingTest, ReportsNullDestinationAndAllowsNoDiagnostic) {
   PipelineDiagnostic diagnostic;
   EXPECT_FALSE(ParsePipelineConfig(ParsingExample(), nullptr, &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kFieldType);
+  EXPECT_EQ(diagnostic.code, error::kFieldType);
   EXPECT_EQ(diagnostic.path, "/");
   ParsedPipelineConfig parsed;
   EXPECT_FALSE(ParsePipelineConfig(Json::array(), &parsed));

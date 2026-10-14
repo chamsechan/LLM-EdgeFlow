@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 #include "nodes/authoring.h"
-#include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -155,8 +155,7 @@ NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
     if (!ok) {
       if (options.failure_policy_ == "fail") {
         return NodeResult<StructuredDocumentBatch>::Failure(
-            "JSON parse failed for sample: " + diag,
-            node_error::structured_json_parse::kParseFailed);
+            "JSON parse failed for sample: " + diag, error::kJsonParse);
       } else if (options.failure_policy_ == "emit_diagnostic") {
         output_docs.emplace_back(
             item.req_id, item.sub_id,

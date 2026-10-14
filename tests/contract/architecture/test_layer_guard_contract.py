@@ -36,6 +36,8 @@ class IncludeOwnershipContractTest(SourceTreeTest):
 
     def test_allowed_contracts_and_public_consumers(self):
         cases = (
+            ('src/adapter/operator/mock/operator_adapter.cpp', 'platform_mock/error_codes.h', 'include/platform_mock/error_codes.h'),
+            ('src/adapter/operator/mock/operator_error_mapping.cpp', 'platform_mock/error_codes.h', 'include/platform_mock/error_codes.h'),
             ('src/custom_nodes/normalize.cpp', 'core/alg_context.h', 'include/core/alg_context.h'),
             ('include/nodes/node_base.h', 'core/validated_node_plan.h', 'include/core/validated_node_plan.h'),
             ('src/common_nodes/infer.cpp', 'engine/model_interface.h', 'include/engine/model_interface.h'),
@@ -70,6 +72,10 @@ class IncludeOwnershipContractTest(SourceTreeTest):
 
     def test_upward_and_private_dependencies_report_exact_source_and_target(self):
         cases = (
+            ('src/adapter/shared_algorithm_runtime.cpp', 'platform_mock/error_codes.h',
+             'include/platform_mock/error_codes.h', 'Integration -> Integration'),
+            ('include/adapter/adapter_status.h', 'platform_mock/error_codes.h',
+             'include/platform_mock/error_codes.h', 'Integration -> Integration'),
             ('src/engine/models/embedding/probe.cpp', 'nodes/node_interface.h',
              'include/nodes/node_interface.h', 'Model Execution -> Capability Nodes'),
             ('src/engine/models/embedding/probe.cpp', 'core/alg_context.h',

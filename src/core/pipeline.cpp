@@ -50,14 +50,14 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 
     if (!model) {
       if (diagnostic) {
-        diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
+        diagnostic->code = error::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
             "ModelRuntimeFactory failed to load model: " +
             model_plan.model_name +
             (factory_diag.empty() ? "" : (" (" + factory_diag + ")"));
       }
-      ALG_LOG_ERROR("[Pipeline] Failed to load model [%s]: %s\n",
+      ALG_LOG_DEBUG("[Pipeline] Failed to load model [%s]: %s\n",
                     model_plan.model_name.c_str(), factory_diag.c_str());
       return false;
     }
@@ -72,7 +72,7 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 
   if (!session->GetModelManager().RegisterBatch(staged_models)) {
     if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kDuplicateModelName;
+      diagnostic->code = error::kDuplicateModelName;
       diagnostic->path = "/models";
       diagnostic->message =
           "Failed to atomically register batch models in ModelManager";
@@ -109,7 +109,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       auto plan_it = plan.node_plans.find(node_name);
       if (plan_it == plan.node_plans.end()) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kInternalException;
+          diagnostic->code = error::kInternalException;
           diagnostic->path = "/pipeline";
           diagnostic->message =
               "Validated plan is missing node materialization data: " +
@@ -125,7 +125,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         node = NodeRegistry::Instance().Create(node_config.node_type);
       } catch (const std::exception& e) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kNodeCreateFailed;
+          diagnostic->code = error::kNodeCreateFailed;
           diagnostic->path =
               "/pipeline/" + std::to_string(node_config.source_index) + "/type";
           diagnostic->message = "Exception creating node '" +
@@ -134,7 +134,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         return false;
       } catch (...) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kNodeCreateFailed;
+          diagnostic->code = error::kNodeCreateFailed;
           diagnostic->path =
               "/pipeline/" + std::to_string(node_config.source_index) + "/type";
           diagnostic->message =
@@ -145,13 +145,13 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
       if (!node) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kNodeCreateFailed;
+          diagnostic->code = error::kNodeCreateFailed;
           diagnostic->path =
               "/pipeline/" + std::to_string(node_config.source_index) + "/type";
           diagnostic->message = "NodeRegistry returned null for node_type: " +
                                 node_config.node_type;
         }
-        ALG_LOG_ERROR("[Pipeline] Failed to create node: %s\n",
+        ALG_LOG_DEBUG("[Pipeline] Failed to create node: %s\n",
                       node_config.node_type.c_str());
         return false;
       }
@@ -166,7 +166,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         init_ok = node->Init(init_ctx);
       } catch (const std::exception& e) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kNodeInitFailed;
+          diagnostic->code = error::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/params";
@@ -176,7 +176,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         return false;
       } catch (...) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kNodeInitFailed;
+          diagnostic->code = error::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/params";
@@ -188,7 +188,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
       if (!init_ok) {
         if (diagnostic) {
-          diagnostic->code = DiagnosticCode::kNodeInitFailed;
+          diagnostic->code = error::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/params";
@@ -197,7 +197,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
                                 "' (name: " + node_config.name + ")";
           if (!init_error.empty()) diagnostic->message += ": " + init_error;
         }
-        ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (name: %s)\n",
+        ALG_LOG_DEBUG("[Pipeline] Failed to initialize node: %s (name: %s)\n",
                       node_config.node_type.c_str(), node_config.name.c_str());
         return false;
       }
@@ -232,8 +232,10 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
 Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(
     INode* node, AlgContext* req_ctx, std::string_view node_name) {
-  if (!node) return {-1, "Null node pointer in pipeline execution"};
-  if (!req_ctx) return {-1, "Null context in pipeline execution"};
+  if (!node)
+    return {error::kInvalidState, "Null node pointer in pipeline execution"};
+  if (!req_ctx)
+    return {error::kInvalidArgument, "Null context in pipeline execution"};
   const auto failure = [&](int code, const std::string& message) {
     return NodeExecutionResult{code, "Node '" + std::string(node_name) + "' (" +
                                          node->Name() + "): " + message};
@@ -253,10 +255,11 @@ Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(
     return failure(code, msg);
   } catch (const std::exception& e) {
     (void)req_ctx->TakeCurrentThreadError();
-    return failure(-1, std::string("Unhandled Process exception: ") + e.what());
+    return failure(error::kInternalException,
+                   std::string("Unhandled Process exception: ") + e.what());
   } catch (...) {
     (void)req_ctx->TakeCurrentThreadError();
-    return failure(-1, "Unknown Process exception");
+    return failure(error::kUnknownException, "Unknown Process exception");
   }
 }
 
@@ -275,13 +278,13 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
   // 一次性构建状态检查
   if (state_ != State::kEmpty) {
     if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInvalidBuildState;
+      diagnostic->code = error::kInvalidBuildState;
       diagnostic->path = "/";
       diagnostic->message =
           "Pipeline build can only be attempted once on an empty Pipeline "
           "instance";
     }
-    ALG_LOG_ERROR(
+    ALG_LOG_DEBUG(
         "[Pipeline] Build attempted on non-empty Pipeline (state: %d)\n",
         static_cast<int>(state_));
     return false;
@@ -303,7 +306,7 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
   try {
     if (!plan) {
       if (diagnostic) {
-        diagnostic->code = DiagnosticCode::kInternalException;
+        diagnostic->code = error::kInternalException;
         diagnostic->path = "/";
         diagnostic->message = "Null plan pointer provided to BuildFromPlan";
       }
@@ -313,16 +316,16 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
     if (!plan->report.ok) {
       if (!plan->report.diagnostics.empty()) {
         const auto& item = plan->report.diagnostics.front();
-        const char* code_str = DiagnosticCodeName(item.code);
+        const char* code_str = ErrorCodeName(item.code);
         if (diagnostic) {
           diagnostic->code = item.code;
           diagnostic->path = item.path;
           diagnostic->message = item.message;
         }
-        ALG_LOG_ERROR("[Pipeline] Validation failed: %s at %s: %s\n", code_str,
+        ALG_LOG_DEBUG("[Pipeline] Validation failed: %s at %s: %s\n", code_str,
                       item.path.c_str(), item.message.c_str());
       } else if (diagnostic) {
-        diagnostic->code = DiagnosticCode::kInternalException;
+        diagnostic->code = error::kInternalException;
         diagnostic->path = "/";
         diagnostic->message = "Validation failed without diagnostics";
       }
@@ -353,22 +356,22 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
   } catch (const std::exception& e) {
     success = false;
     if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInternalException;
+      diagnostic->code = error::kInternalException;
       diagnostic->path = "/";
       diagnostic->message =
           std::string("Internal exception during pipeline build: ") + e.what();
     }
-    ALG_LOG_ERROR(
+    ALG_LOG_DEBUG(
         "[Pipeline] Unhandled internal exception during pipeline build: %s\n",
         e.what());
   } catch (...) {
     success = false;
     if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInternalException;
+      diagnostic->code = error::kUnknownException;
       diagnostic->path = "/";
       diagnostic->message = "Unknown internal exception during pipeline build";
     }
-    ALG_LOG_ERROR(
+    ALG_LOG_DEBUG(
         "[Pipeline] Unknown internal exception during pipeline build\n");
   }
 
@@ -379,8 +382,11 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
 
 int Pipeline::Execute(AlgContext* req_ctx) {
   // 仅允许在 Ready 状态下执行
-  if (state_ != State::kReady || !req_ctx) {
-    return -1;
+  if (!req_ctx) return error::kInvalidArgument;
+  if (state_ != State::kReady) {
+    req_ctx->SetError(error::kInvalidState,
+                      "Execute requires a Ready Pipeline");
+    return error::kInvalidState;
   }
 
   for (size_t layer_idx = 0; layer_idx < node_layers_.size(); ++layer_idx) {
@@ -396,9 +402,6 @@ int Pipeline::Execute(AlgContext* req_ctx) {
             node, req_ctx, plan_->report.topological_layers[layer_idx][i]);
         if (result.code != 0) {
           req_ctx->SetError(result.code, result.message);
-          ALG_LOG_ERROR(
-              "[Pipeline] Node [%s] failed with error code: %d, msg: %s\n",
-              node->Name().c_str(), result.code, result.message.c_str());
           return result.code;
         }
       }
@@ -418,7 +421,7 @@ int Pipeline::Execute(AlgContext* req_ctx) {
         }
       } submitted_nodes_guard{futures};
 
-      std::string submission_error;
+      NodeExecutionResult submission_error;
       for (size_t i = 0; i < layer.size(); ++i) {
         auto* node = layer[i];
         try {
@@ -428,29 +431,30 @@ int Pipeline::Execute(AlgContext* req_ctx) {
             return ExecuteNodeSafely(node, req_ctx, node_name);
           }));
         } catch (const std::exception& e) {
-          submission_error = "Failed to submit parallel node '" + node->Name() +
-                             "': " + e.what();
+          submission_error = {error::kInternalException,
+                              "Failed to submit parallel node '" +
+                                  node->Name() + "': " + e.what()};
           break;
         } catch (...) {
-          submission_error = "Failed to submit parallel node '" + node->Name() +
-                             "': unknown exception";
+          submission_error = {error::kUnknownException,
+                              "Failed to submit parallel node '" +
+                                  node->Name() + "': unknown exception"};
           break;
         }
       }
 
       int first_error = 0;
       std::string first_error_message;
-      std::string first_error_node;
       for (size_t i = 0; i < futures.size(); ++i) {
         NodeExecutionResult result;
         try {
           result = futures[i].get();
         } catch (const std::exception& e) {
-          result = {-1,
+          result = {error::kInternalException,
                     std::string("Failed to collect parallel node result: ") +
                         e.what()};
         } catch (...) {
-          result = {-1,
+          result = {error::kUnknownException,
                     "Failed to collect parallel node result: unknown "
                     "exception"};
         }
@@ -458,24 +462,18 @@ int Pipeline::Execute(AlgContext* req_ctx) {
         if (result.code != 0 && first_error == 0) {
           first_error = result.code;
           first_error_message = std::move(result.message);
-          first_error_node = layer[i]->Name();
         }
       }
 
-      if (first_error == 0 && !submission_error.empty()) {
-        first_error = -1;
-        first_error_message = std::move(submission_error);
-        first_error_node = "executor";
+      if (first_error == 0 && submission_error.code != 0) {
+        first_error = submission_error.code;
+        first_error_message = std::move(submission_error.message);
       }
       if (first_error != 0) {
         if (first_error_message.empty()) {
           first_error_message = "Parallel node execution failed";
         }
         req_ctx->SetError(first_error, first_error_message);
-        ALG_LOG_ERROR(
-            "[Pipeline] Parallel Node [%s] failed with error code: %d, "
-            "msg: %s\n",
-            first_error_node.c_str(), first_error, first_error_message.c_str());
         return first_error;
       }
     }
@@ -492,14 +490,13 @@ int Pipeline::Control(int cmd, const std::string& json_param,
                            const std::string& message) {
     if (error) *error = message;
     if (failure_stage) *failure_stage = stage;
-    ALG_LOG_ERROR("[Pipeline] %s\n", message.c_str());
     return code;
   };
   const auto fail = [&](int code, const std::string& message) {
     return fail_at(ControlFailureStage::kRequest, code, message);
   };
   if (state_ != State::kReady) {
-    return fail_at(ControlFailureStage::kNone, -1,
+    return fail_at(ControlFailureStage::kNone, error::kInvalidState,
                    "Control requires a Ready Pipeline");
   }
 
@@ -523,10 +520,12 @@ int Pipeline::Control(int cmd, const std::string& json_param,
           {"payload", {{"type", "object"}}}}}};
     std::string detail;
     if (!ValidateControlPayload(payload, envelope_schema, &detail))
-      return fail(-1, "Invalid targeted Control envelope: " + detail);
+      return fail(error::kInvalidArgument,
+                  "Invalid targeted Control envelope: " + detail);
     target_id = payload["node"].get<std::string>();
     if (target_id.empty())
-      return fail(-1, "Targeted Control node must not be empty");
+      return fail(error::kInvalidArgument,
+                  "Targeted Control node must not be empty");
     auto business_payload = payload["payload"];
     payload = std::move(business_payload);
     node_param = payload.dump();
@@ -557,18 +556,19 @@ int Pipeline::Control(int cmd, const std::string& json_param,
                                             &detail)
                    : ParseControlPayload(node_param, command->payload_schema,
                                          &payload, &detail);
-        if (!valid) return fail(-1, context + detail);
+        if (!valid) return fail(error::kInvalidArgument, context + detail);
         parsed = true;
       }
       targets.push_back({node, context});
     }
   }
   if (!target_id.empty() && !target_found) {
-    return fail(-1, "Unknown Control target node: '" + target_id + "'");
+    return fail(error::kInvalidArgument,
+                "Unknown Control target node: '" + target_id + "'");
   }
   if (targets.empty()) {
     return fail_at(
-        ControlFailureStage::kUnsupported, -7,
+        ControlFailureStage::kUnsupported, error::kUnsupportedControl,
         "Unsupported control command: " + std::to_string(cmd) +
             (target_id.empty() ? "" : " for node '" + target_id + "'"));
   }
@@ -581,7 +581,8 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   for (const auto& target : targets) {
     const auto result = target.node->Control(cmd, node_param);
     if (result.status == NodeControlStatus::kFailed) {
-      if (first_failure == 0) first_failure = result.code ? result.code : -1;
+      if (first_failure == 0)
+        first_failure = result.code ? result.code : error::kInternalException;
       if (!failures.empty()) failures += "; ";
       failures +=
           target.context + (result.message.empty() ? "Node rejected the update"
@@ -595,7 +596,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   }
   if (handled) return 0;
   return fail_at(
-      ControlFailureStage::kUnsupported, -7,
+      ControlFailureStage::kUnsupported, error::kUnsupportedControl,
       "Declared control command was not handled: " + std::to_string(cmd));
 }
 

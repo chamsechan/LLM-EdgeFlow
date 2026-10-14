@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
@@ -100,20 +101,20 @@ int QwenCausalLmModel::Generate(const TextBatch& prompts,
   if (diagnostic) diagnostic->clear();
   if (!outputs) {
     SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   outputs->clear();
   if (prompts.empty()) return 0;
   if (!session_) {
     SetDiagnosticNoexcept(diagnostic, "Model session is null");
-    return -1;
+    return error::kInvalidState;
   }
 
   const BatchPolicy policy = session_->GetBatchPolicy();
   if (policy.max_batch_size == 0 || policy.fixed_batch_size != 0) {
     SetDiagnosticNoexcept(diagnostic,
                           "Text generation requires a non-fixed batch policy");
-    return -1;
+    return error::kInvalidBatchPolicy;
   }
   return FixedBatchExecutor::ExecuteItems<std::string, std::string>(
       prompts, policy,
@@ -121,19 +122,26 @@ int QwenCausalLmModel::Generate(const TextBatch& prompts,
                                    std::string* output) {
         return GenerateOne(prompt, options, output, diagnostic);
       },
-      outputs, diagnostic, -1);
+      outputs, diagnostic);
 }
 
 int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
                                    const GenerateOptions& options,
                                    std::string* output,
                                    std::string* diagnostic) noexcept {
-  if (!output) return -1;
+  if (!output) {
+    SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
+    return error::kInvalidArgument;
+  }
   output->clear();
-  if (!session_ || prompt.data.empty()) {
-    SetDiagnosticNoexcept(
-        diagnostic, "Text generation requires a session and non-empty prompt");
-    return -1;
+  if (!session_) {
+    SetDiagnosticNoexcept(diagnostic, "Model session is null");
+    return error::kInvalidState;
+  }
+  if (prompt.data.empty()) {
+    SetDiagnosticNoexcept(diagnostic,
+                          "Text generation requires a non-empty prompt");
+    return error::kInvalidInput;
   }
 
   try {
@@ -149,22 +157,18 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
     if (result != 0) {
       SetDiagnosticNoexcept(diagnostic, reason);
       output->clear();
-      ALG_LOG_ERROR("[QwenCausalLmModel] Generate failed: %s\n",
-                    reason.c_str());
       return result;
     }
     utf8::StripIncompleteSuffix(output);
     return 0;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(diagnostic, e.what());
-    ALG_LOG_ERROR("[QwenCausalLmModel] Generate exception: %s\n", e.what());
     output->clear();
-    return -1;
+    return error::kInternalException;
   } catch (...) {
     SetDiagnosticNoexcept(diagnostic, "Unknown text generation exception");
-    ALG_LOG_ERROR("[QwenCausalLmModel] Unknown Generate exception\n");
     output->clear();
-    return -1;
+    return error::kUnknownException;
   }
 }
 

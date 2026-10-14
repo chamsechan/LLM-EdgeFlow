@@ -11,6 +11,7 @@
 #include "adapter/io_values.h"
 #include "adapter/json_output_parameters.h"
 #include "adapter/result_validation.h"
+#include "contracts/error_codes.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
@@ -34,7 +35,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
   }
 
   const auto* res = ReadOutputValue(*context, kRanked, options, status);
-  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
+  if (!res) return error::kInvalidInput;
 
   if (!destination) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
@@ -46,7 +47,7 @@ int EncodeOperatorRerankResult(AlgContext* context,
   std::vector<const RankedTextBatch::value_type*> first;
   if (!IndexResults(res, destination->count, &first, "ranked_results",
                     options.Label().c_str(), status, true)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
+    return error::kInvalidInput;
   }
 
   std::unordered_map<uint32_t, std::vector<RankedCandidate>> req_map;
@@ -87,13 +88,13 @@ int EncodeOperatorRerankResult(AlgContext* context,
                                       {"count", cand_list.size()}})
                           .dump();
     if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return status ? status->Code() : error::kInvalidOutput;
     }
     ++written;
   }
 
   if (written_count) *written_count = written;
-  return COMPANY_ALG_SUCCESS;
+  return error::kOk;
 }
 
 OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "adapter/io_values.h"
+#include "contracts/error_codes.h"
 #include "core/common_contracts.h"
 #include "tests/support/converter_probe.h"
 
@@ -80,7 +81,7 @@ TEST(TextConverterTest, TranslationRejectsMalformedOrNonStringQuery) {
     AdapterStatus status;
     EXPECT_EQ(DecodeConverter<TextInputValue>("entity_in", "translate", {row},
                                               &context, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(status.FieldPath(), "json");
     EXPECT_NE(status.Message().find("string field query"), std::string::npos);
     EXPECT_FALSE(context.Has("decoded.query"));
@@ -137,7 +138,7 @@ TEST(TextConverterTest,
     std::vector<JsonOutputValue> rows(1);
     AdapterStatus status;
     EXPECT_EQ(EncodeJsonConverter("entity_extract", &context, &rows, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+              error::kInvalidInput);
     EXPECT_EQ(status.Message(), "Structured result failed or used fallback");
     EXPECT_TRUE(rows[0].result_json.empty());
   }

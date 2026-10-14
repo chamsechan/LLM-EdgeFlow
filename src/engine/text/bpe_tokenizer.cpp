@@ -14,6 +14,7 @@
 #include <limits>
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
 #include "engine/text/byte_level_pretokenizer.h"
 #include "engine/text/unicode_tables.h"
 #include "engine/text/utf8.h"
@@ -442,10 +443,11 @@ class BpeTokenizer::Impl final {
   bool MakeCandidate(const char* word_data, const std::vector<Symbol>& symbols,
                      uint32_t left, uint32_t right,
                      Candidate* candidate) const noexcept;
-  bool EncodeSegment(std::string_view segment, std::vector<int32_t>* ids,
-                     const char** reason) const;
-  bool MergeWord(std::string_view word, std::vector<int32_t>* ids,
-                 const char** reason) const;
+  // 成功返回 0，失败返回框架错误码并写入 reason。
+  int EncodeSegment(std::string_view segment, std::vector<int32_t>* ids,
+                    const char** reason) const;
+  int MergeWord(std::string_view word, std::vector<int32_t>* ids,
+                const char** reason) const;
 
   std::unique_ptr<MappedFile> file_;
 
@@ -831,10 +833,10 @@ bool BpeTokenizer::Impl::MakeCandidate(const char* word_data,
   return true;
 }
 
-bool BpeTokenizer::Impl::MergeWord(std::string_view word,
-                                   std::vector<int32_t>* ids,
-                                   const char** reason) const {
-  if (word.empty()) return true;
+int BpeTokenizer::Impl::MergeWord(std::string_view word,
+                                  std::vector<int32_t>* ids,
+                                  const char** reason) const {
+  if (word.empty()) return error::kOk;
   // 符号数不超过字节数：先按字节数分配，填完后再收缩。逐个 push_back
   // 的临时对象在 带 AddressSanitizer 的构建里很慢，所以这里直接按下标写入。
   std::vector<Symbol> symbols(word.size());
@@ -864,7 +866,7 @@ bool BpeTokenizer::Impl::MergeWord(std::string_view word,
                                      word.size() - position, &code_point);
         if (size == 0) {
           *reason = "Tokenizer input is not valid UTF-8";
-          return false;
+          return error::kInvalidUtf8;
         }
       }
       // 在有序的 (码点, ID) 表里二分查找。
@@ -883,7 +885,7 @@ bool BpeTokenizer::Impl::MergeWord(std::string_view word,
         id = static_cast<int32_t>(units_[low * 2 + 1]);
       } else if (!byte_fallback_) {
         *reason = "Character is not in the tokenizer vocabulary";
-        return false;
+        return error::kInvalidInput;
       }
       set_symbol(count++, position, size, id);
       position += size;
@@ -939,13 +941,13 @@ bool BpeTokenizer::Impl::MergeWord(std::string_view word,
       }
     }
   }
-  return true;
+  return error::kOk;
 }
 
-bool BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
-                                       std::vector<int32_t>* ids,
-                                       const char** reason) const {
-  if (segment.empty()) return true;
+int BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
+                                      std::vector<int32_t>* ids,
+                                      const char** reason) const {
+  if (segment.empty()) return error::kOk;
   std::string scratch;
   std::string_view normalized = segment;
   if (normalizer_ == kNormalizerReplaceSpaceMetaspace) {
@@ -953,7 +955,7 @@ bool BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
     size_t capacity = 0;
     if (!MultiplyChecked(segment.size(), kMetaspaceBytes, &capacity)) {
       *reason = "Tokenizer input is too large";
-      return false;
+      return error::kInvalidInput;
     }
     scratch.reserve(capacity);
     for (char c : segment) {
@@ -970,7 +972,7 @@ bool BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
     size_t capacity = 0;
     if (!MultiplyChecked(code_points.size(), 4, &capacity)) {
       *reason = "Tokenizer input is too large";
-      return false;
+      return error::kInvalidInput;
     }
     scratch.reserve(capacity);
     for (uint32_t code_point : code_points)
@@ -979,7 +981,7 @@ bool BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
   }
   if (normalized.size() > std::numeric_limits<uint32_t>::max()) {
     *reason = "Tokenizer input is too large";
-    return false;
+    return error::kInvalidInput;
   }
 
   if (pre_tokenizer_ == kPreTokenizerNone) {
@@ -988,31 +990,30 @@ bool BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
   std::vector<std::pair<size_t, size_t>> words;
   if (!SplitByteLevelQwen2(unicode_, normalized, &words)) {
     *reason = "Unhandled pre-tokenizer character";
-    return false;
+    return error::kInvalidState;
   }
   for (const auto& word : words) {
-    if (!MergeWord(normalized.substr(word.first, word.second - word.first), ids,
-                   reason)) {
-      return false;
-    }
+    const int code = MergeWord(
+        normalized.substr(word.first, word.second - word.first), ids, reason);
+    if (code != error::kOk) return code;
   }
-  return true;
+  return error::kOk;
 }
 
 int BpeTokenizer::Impl::Encode(std::string_view text, std::vector<int32_t>* ids,
                                std::string* diagnostic) const {
   if (!ids) {
     SetDiagnosticNoexcept(diagnostic, "Token output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   ids->clear();
   if (text.size() > kMaxEncodeBytes) {
     SetDiagnosticNoexcept(diagnostic, "Tokenizer input exceeds the size limit");
-    return -1;
+    return error::kInvalidInput;
   }
   if (!IsValidUtf8(text)) {
     SetDiagnosticNoexcept(diagnostic, "Tokenizer input is not valid UTF-8");
-    return -1;
+    return error::kInvalidUtf8;
   }
   const char* reason = nullptr;
   // 先在原始文本上按最左、最长规则切出特殊 token，其余片段各自走完整流程。
@@ -1031,36 +1032,38 @@ int BpeTokenizer::Impl::Encode(std::string_view text, std::vector<int32_t>* ids,
       ++i;
       continue;
     }
-    if (!EncodeSegment(text.substr(begin, i - begin), ids, &reason)) {
+    const int code = EncodeSegment(text.substr(begin, i - begin), ids, &reason);
+    if (code != error::kOk) {
       ids->clear();
       SetDiagnosticNoexcept(diagnostic, reason);
-      return -1;
+      return code;
     }
     ids->push_back(id);
     i += length;
     begin = i;
   }
-  if (!EncodeSegment(text.substr(begin), ids, &reason)) {
+  const int code = EncodeSegment(text.substr(begin), ids, &reason);
+  if (code != error::kOk) {
     ids->clear();
     SetDiagnosticNoexcept(diagnostic, reason);
-    return -1;
+    return code;
   }
-  return 0;
+  return error::kOk;
 }
 
 int BpeTokenizer::Impl::AppendTokenBytes(int32_t id, std::string* bytes,
                                          std::string* diagnostic) const {
   if (!bytes) {
     SetDiagnosticNoexcept(diagnostic, "Token bytes output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   if (id < 0 || static_cast<uint32_t>(id) >= token_count_) {
     SetDiagnosticNoexcept(diagnostic, "Token id is out of range");
-    return -1;
+    return error::kInvalidInput;
   }
   const uint32_t token = static_cast<uint32_t>(id);
   const uint8_t kind = Kind(token);
-  if (kind == kKindSpecial) return 0;
+  if (kind == kKindSpecial) return error::kOk;
   if (decoder_ == kDecoderMetaspaceByteFallback) {
     if (kind == kKindByteFallback) {
       bytes->push_back(ByteValue(token));
@@ -1070,7 +1073,7 @@ int BpeTokenizer::Impl::AppendTokenBytes(int32_t id, std::string* bytes,
   } else {
     bytes->append(PieceData(token), PieceSize(token));
   }
-  return 0;
+  return error::kOk;
 }
 
 int BpeTokenizer::Impl::Decode(const std::vector<int32_t>& ids,
@@ -1078,14 +1081,14 @@ int BpeTokenizer::Impl::Decode(const std::vector<int32_t>& ids,
                                std::string* diagnostic) const {
   if (!text) {
     SetDiagnosticNoexcept(diagnostic, "Decoded text output pointer is null");
-    return -1;
+    return error::kInvalidArgument;
   }
   text->clear();
   for (int32_t id : ids) {
     if (id < 0 || static_cast<uint32_t>(id) >= token_count_) {
       text->clear();
       SetDiagnosticNoexcept(diagnostic, "Token id is out of range");
-      return -1;
+      return error::kInvalidInput;
     }
   }
   if (decoder_ == kDecoderByteLevel) {
@@ -1097,7 +1100,7 @@ int BpeTokenizer::Impl::Decode(const std::vector<int32_t>& ids,
         bytes.append(PieceData(token), PieceSize(token));
     }
     AppendLossyUtf8(bytes, text);
-    return 0;
+    return error::kOk;
   }
 
   // 连续的字节回退 token 凑成一段字节：整段是有效 UTF-8 时原样保留，否则每个
@@ -1127,7 +1130,7 @@ int BpeTokenizer::Impl::Decode(const std::vector<int32_t>& ids,
     }
   }
   flush_run();
-  return 0;
+  return error::kOk;
 }
 
 BpeTokenizer::BpeTokenizer(std::unique_ptr<const Impl> impl) noexcept
@@ -1157,8 +1160,8 @@ std::shared_ptr<const BpeTokenizer> BpeTokenizer::Load(
     }
     return std::shared_ptr<const BpeTokenizer>(
         new BpeTokenizer(std::move(impl)));
-  } catch (const std::exception& error) {
-    SetLoadDiagnostic(diagnostic, file, error.what());
+  } catch (const std::exception& e) {
+    SetLoadDiagnostic(diagnostic, file, e.what());
   } catch (...) {
     SetLoadDiagnostic(diagnostic, file,
                       "unknown exception while loading tokenizer");
@@ -1170,40 +1173,43 @@ int BpeTokenizer::Encode(std::string_view text, std::vector<int32_t>* ids,
                          std::string* diagnostic) const noexcept {
   try {
     return impl_->Encode(text, ids, diagnostic);
-  } catch (const std::exception& error) {
+  } catch (const std::exception& e) {
     if (ids) ids->clear();
-    SetDiagnosticNoexcept(diagnostic, error.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return error::kInternalException;
   } catch (...) {
     if (ids) ids->clear();
     SetDiagnosticNoexcept(diagnostic, "Unknown tokenizer exception");
+    return error::kUnknownException;
   }
-  return -1;
 }
 
 int BpeTokenizer::AppendTokenBytes(int32_t id, std::string* bytes,
                                    std::string* diagnostic) const noexcept {
   try {
     return impl_->AppendTokenBytes(id, bytes, diagnostic);
-  } catch (const std::exception& error) {
-    SetDiagnosticNoexcept(diagnostic, error.what());
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return error::kInternalException;
   } catch (...) {
     SetDiagnosticNoexcept(diagnostic, "Unknown token decode exception");
+    return error::kUnknownException;
   }
-  return -1;
 }
 
 int BpeTokenizer::Decode(const std::vector<int32_t>& ids, std::string* text,
                          std::string* diagnostic) const noexcept {
   try {
     return impl_->Decode(ids, text, diagnostic);
-  } catch (const std::exception& error) {
+  } catch (const std::exception& e) {
     if (text) text->clear();
-    SetDiagnosticNoexcept(diagnostic, error.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return error::kInternalException;
   } catch (...) {
     if (text) text->clear();
     SetDiagnosticNoexcept(diagnostic, "Unknown token decode exception");
+    return error::kUnknownException;
   }
-  return -1;
 }
 
 bool BpeTokenizer::IsEndToken(int32_t id) const noexcept {

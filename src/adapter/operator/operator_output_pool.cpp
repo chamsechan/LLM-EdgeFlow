@@ -1,6 +1,8 @@
 #include "adapter/operator/operator_output_pool.h"
 
 #include "contracts/diagnostic.h"
+#include "contracts/error_codes.h"
+#include "edgeflow/log.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -111,7 +113,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
   try {
     if (!out_pool) {
       if (err) *err = "Null output pool pointer";
-      return -2;
+      return error::kInvalidArgument;
     }
     *out_pool = nullptr;
 
@@ -119,7 +121,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
         binding->canonical_suffix != suffix || !binding->allocate_external ||
         !binding->reset_external || !binding->destroy_external) {
       if (err) *err = "Invalid or incomplete binding for suffix: " + suffix;
-      return -2;
+      return error::kInvalidOutputAllocation;
     }
 
     uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
@@ -128,18 +130,18 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
         *err = "Output pool depth " + std::to_string(effective_depth) +
                " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
       }
-      return -2;
+      return error::kInvalidOutputAllocation;
     }
 
     ResolvedOutputPoolSpec resolved_spec;
     if (!ResolveOutputPoolSpec(*binding, spec, &resolved_spec, err)) {
-      return -2;
+      return error::kInvalidOutputAllocation;
     }
 
     size_t estimated_bytes = 0;
     if (!ComputeValidatedOutputPoolPayloadBytes(
             *binding, resolved_spec, effective_depth, &estimated_bytes, err)) {
-      return -2;
+      return error::kInvalidOutputAllocation;
     }
 
     auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
@@ -162,7 +164,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
         if (err && err->empty()) {
           *err = "Failed allocating external block " + std::to_string(i);
         }
-        return ret != 0 ? ret : -4;
+        return ret != 0 ? ret : error::kAllocationFailed;
       }
 
       void* raw = block.raw_struct;
@@ -181,39 +183,39 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
   } catch (const std::exception& e) {
     if (out_pool) *out_pool = nullptr;
     SetDiagnosticNoexcept(err, e.what());
-    return -4;
+    return error::kAllocationFailed;
   } catch (...) {
     if (out_pool) *out_pool = nullptr;
     SetDiagnosticNoexcept(err, "Unknown exception");
-    return -4;
+    return error::kAllocationFailed;
   }
 }
 
 OutputPoolState::~OutputPoolState() { DestroyBlocks(); }
 
 int OutputPoolState::Acquire(void** out_block) {
-  if (!out_block) return -2;
+  if (!out_block) return error::kInvalidArgument;
   *out_block = nullptr;
 
   std::unique_lock<std::mutex> lock(mutex_);
   available_.wait(lock, [this]() { return closing_ || free_count_ > 0; });
 
   if (closing_) {
-    return -9;
+    return error::kPoolClosed;
   }
 
   if (free_count_ == 0 || free_ring_.empty()) {
-    return -8;
+    return error::kPoolCorrupt;
   }
 
   void* block = free_ring_[free_head_];
   if (!block) {
-    return -8;
+    return error::kPoolCorrupt;
   }
 
   auto it = block_states_.find(block);
   if (it == block_states_.end() || it->second != BlockState::kFree) {
-    return -8;
+    return error::kPoolCorrupt;
   }
 
   // 严格先通过全部校验，才推进环形队列与修改状态账本
@@ -251,7 +253,12 @@ void OutputPoolState::ReturnBlock(void* block) noexcept {
 
   try {
     type_binding_.reset_external(block, spec_);
+  } catch (const std::exception& e) {
+    ALG_LOG_WARNING("[OutputPool] reset failed for %s: %s\n",
+                    type_binding_.canonical_suffix.c_str(), e.what());
   } catch (...) {
+    ALG_LOG_WARNING("[OutputPool] reset failed for %s: unknown exception\n",
+                    type_binding_.canonical_suffix.c_str());
   }
 
   it->second = BlockState::kFree;
@@ -281,7 +288,12 @@ void OutputPoolState::DestroyBlocks() noexcept {
   for (auto& block : all_blocks_) {
     try {
       type_binding_.destroy_external(&block);
+    } catch (const std::exception& e) {
+      ALG_LOG_WARNING("[OutputPool] destroy failed for %s: %s\n",
+                      type_binding_.canonical_suffix.c_str(), e.what());
     } catch (...) {
+      ALG_LOG_WARNING("[OutputPool] destroy failed for %s: unknown exception\n",
+                      type_binding_.canonical_suffix.c_str());
     }
   }
   all_blocks_.clear();
@@ -299,7 +311,7 @@ int AcquireRuntimeOutputBlocks(
     std::vector<AcquiredOutputBlock>* acquired_blocks, std::string* error) {
   if (!lease_guard || !acquired_blocks) {
     if (error) *error = "Null destination in AcquireRuntimeOutputBlocks";
-    return -4;
+    return error::kInvalidArgument;
   }
   acquired_blocks->clear();
 
@@ -319,17 +331,19 @@ int AcquireRuntimeOutputBlocks(
           *error = "Missing output pool for slot " +
                    std::to_string(binding.output_index);
         }
-        return -5;
+        return error::kPoolMissing;
       }
       auto pool = output_pools[binding.output_index];
       void* block = nullptr;
       int acq_ret = pool->Acquire(&block);
       if (acq_ret != 0 || !block) {
+        const int code = acq_ret != 0 ? acq_ret : error::kPoolCorrupt;
         if (error) {
-          *error = "Output pool exhausted for slot " +
-                   std::to_string(binding.output_index);
+          *error = "Output pool acquisition failed for slot " +
+                   std::to_string(binding.output_index) + ": " +
+                   ErrorCodeName(code);
         }
-        return -4;
+        return code;
       }
       lease_guard->Track(pool, block);
       acquired_blocks->push_back({f, slot, pool, block, binding.output_index});

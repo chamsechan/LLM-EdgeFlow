@@ -8,11 +8,66 @@
 #include <string>
 #include <vector>
 
+#include "contracts/error_codes.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/llama_cpp/llama_cpp_backend.h"
+#include "engine/text_generation/common_autoregressive_generator.h"
 
 namespace llm_edgeflow {
 namespace {
+
+class FailingDecoder final : public text_generation::IAutoregressiveDecoder {
+ public:
+  explicit FailingDecoder(int failure_stage) : failure_stage_(failure_stage) {}
+  int Encode(const std::string&, bool, std::vector<int32_t>* tokens,
+             std::string* diagnostic) noexcept override {
+    *tokens = {1};
+    if (failure_stage_ != 0) return 0;
+    *diagnostic = "encode failed";
+    return error::kInferenceFailed;
+  }
+  int DecodeToken(int32_t, std::string* piece,
+                  std::string* diagnostic) noexcept override {
+    *piece = "prefix";
+    if (failure_stage_ != 2) return 0;
+    *diagnostic = "decode failed";
+    return error::kInferenceFailed;
+  }
+  bool IsEndToken(int32_t) const noexcept override { return false; }
+  size_t MaxContextTokens() const noexcept override { return 8; }
+  int Evaluate(const std::vector<int32_t>&, std::vector<float>* logits,
+               std::string* diagnostic) noexcept override {
+    ++evaluations_;
+    *logits = {0.0f, 1.0f};
+    if (failure_stage_ != 1 && !(failure_stage_ == 3 && evaluations_ == 2))
+      return 0;
+    *diagnostic = "evaluate failed";
+    return error::kInferenceFailed;
+  }
+
+ private:
+  int failure_stage_;
+  int evaluations_ = 0;
+};
+
+TEST(LlamaCppBackendTest,
+     GeneratorPreservesDecoderFailureAndClearsPartialText) {
+  const char* details[] = {"encode failed", "evaluate failed", "decode failed",
+                           "evaluate failed"};
+  for (int stage = 0; stage < 4; ++stage) {
+    SCOPED_TRACE(stage);
+    FailingDecoder decoder(stage);
+    GenerateOptions options;
+    options.max_tokens = 2;
+    options.temperature = 0.0f;
+    std::string output = "previous output", diagnostic;
+    EXPECT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                  decoder, "prompt", false, options, 0, &output, &diagnostic),
+              error::kInferenceFailed);
+    EXPECT_TRUE(output.empty());
+    EXPECT_EQ(diagnostic, details[stage]);
+  }
+}
 
 #ifdef HAVE_LLAMACPP
 class InvalidGguf {
@@ -146,7 +201,7 @@ TEST(LlamaCppBackendTest,
       << diagnostic;
   EXPECT_EQ(first, second);
   EXPECT_EQ(session->Generate("Hello", true, options, 17, nullptr, &diagnostic),
-            -1);
+            error::kInvalidArgument);
   const auto retained = first;
   provider.reset();
   base.reset();

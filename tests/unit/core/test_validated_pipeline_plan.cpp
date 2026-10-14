@@ -69,15 +69,14 @@ PipelineIoBoundary Boundary(const std::string& output = "relay.text") {
 }
 
 const ValidationDiagnostic* FindDiagnostic(const ValidationReport& report,
-                                           DiagnosticCode code,
-                                           const std::string& path) {
+                                           int code, const std::string& path) {
   const auto found = std::find_if(
       report.diagnostics.begin(), report.diagnostics.end(),
       [&](const auto& item) { return item.code == code && item.path == path; });
   return found == report.diagnostics.end() ? nullptr : &*found;
 }
 
-void ExpectError(const ValidatedPipelinePlan& plan, DiagnosticCode code,
+void ExpectError(const ValidatedPipelinePlan& plan, int code,
                  const std::string& path) {
   EXPECT_FALSE(plan.report.ok);
   EXPECT_NE(FindDiagnostic(plan.report, code, path), nullptr)
@@ -230,11 +229,9 @@ TEST_F(PipelinePlanningTest, PropagatesScalarFieldFailureAtNodeParameterPath) {
   auto root = Pipeline({Node("relay")});
   root["pipeline"][0]["params"] = {{"limit", 0}};
   const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
-  ExpectError(plan, DiagnosticCode::kConfigFieldRange,
-              "/pipeline/0/params/limit");
-  const auto* error =
-      FindDiagnostic(plan.report, DiagnosticCode::kConfigFieldRange,
-                     "/pipeline/0/params/limit");
+  ExpectError(plan, error::kConfigFieldRange, "/pipeline/0/params/limit");
+  const auto* error = FindDiagnostic(plan.report, error::kConfigFieldRange,
+                                     "/pipeline/0/params/limit");
   ASSERT_NE(error, nullptr);
   EXPECT_EQ(error->node_name, "relay");
 }
@@ -242,7 +239,7 @@ TEST_F(PipelinePlanningTest, PropagatesScalarFieldFailureAtNodeParameterPath) {
 TEST_F(PipelinePlanningTest, PropagatesParserFailureBeforeBuildingAnyPlan) {
   const auto plan = PipelineValidator::ValidateAndPlan(
       {{"pipeline", {{{"type", "planning_relay"}}}}}, Boundary());
-  ExpectError(plan, DiagnosticCode::kMissingField, "/pipeline/0/name");
+  ExpectError(plan, error::kMissingField, "/pipeline/0/name");
   EXPECT_TRUE(plan.node_plans.empty());
   EXPECT_TRUE(plan.models.empty());
   EXPECT_TRUE(plan.report.topological_order.empty());
@@ -254,20 +251,19 @@ TEST_F(PipelinePlanningTest,
     const char* name;
     const char* path;
     Json value;
-    DiagnosticCode code;
+    int code;
   };
   const std::vector<Case> cases = {
       {"unknown category", "/models/0/type", "absent_category",
-       DiagnosticCode::kUnknownModelType},
+       error::kUnknownModelType},
       {"unknown backend", "/models/0/backend/type", "absent_backend",
-       DiagnosticCode::kUnknownBackend},
+       error::kUnknownBackend},
       {"incompatible protocol", "/models/0/backend/type",
-       "planning_incompatible_backend",
-       DiagnosticCode::kBackendProtocolMismatch},
+       "planning_incompatible_backend", error::kBackendProtocolMismatch},
       {"unknown reference", "/pipeline/0/params/model", "absent_instance",
-       DiagnosticCode::kUnknownModelReference},
+       error::kUnknownModelReference},
       {"wrong capability", "/models/0/type", "planning_serial_model",
-       DiagnosticCode::kModelTypeMismatch},
+       error::kModelTypeMismatch},
   };
   for (const auto& example : cases) {
     SCOPED_TRACE(example.name);
@@ -275,7 +271,7 @@ TEST_F(PipelinePlanningTest,
     root[Json::json_pointer(example.path)] = example.value;
     const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
     ExpectError(plan, example.code,
-                example.code == DiagnosticCode::kModelTypeMismatch
+                example.code == error::kModelTypeMismatch
                     ? "/pipeline/0/params/model"
                     : example.path);
   }
@@ -283,8 +279,8 @@ TEST_F(PipelinePlanningTest,
   root["models"][0]["backend"]["type"] = "absent_backend";
   root["models"][0]["params"] = {{"unknown", 1}};
   const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
-  ExpectError(plan, DiagnosticCode::kUnknownBackend, "/models/0/backend/type");
-  EXPECT_EQ(FindDiagnostic(plan.report, DiagnosticCode::kUnknownConfigField,
+  ExpectError(plan, error::kUnknownBackend, "/models/0/backend/type");
+  EXPECT_EQ(FindDiagnostic(plan.report, error::kUnknownConfigField,
                            "/models/0/params/unknown"),
             nullptr);
 }
@@ -293,7 +289,7 @@ TEST_F(PipelinePlanningTest, ModelReferenceIsRequiredAtItsDeclaredConfigField) {
   auto root = ModelPipeline();
   root["pipeline"][0]["params"].erase("model");
   ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
-              DiagnosticCode::kMissingConfigField, "/pipeline/0/params/model");
+              error::kMissingConfigField, "/pipeline/0/params/model");
 }
 
 TEST_F(PipelinePlanningTest, NormalizesExplicitModelAndBackendValues) {
@@ -307,8 +303,7 @@ TEST_F(PipelinePlanningTest, NormalizesExplicitModelAndBackendValues) {
   EXPECT_EQ(plan.models[0].backend_params["limit"], 11);
   root["models"][0]["backend"]["params"] = {{"limit", "eleven"}};
   plan = PipelineValidator::ValidateAndPlan(root, Boundary());
-  ExpectError(plan, DiagnosticCode::kConfigFieldType,
-              "/models/0/backend/params/limit");
+  ExpectError(plan, error::kConfigFieldType, "/models/0/backend/params/limit");
 }
 
 TEST_F(PipelinePlanningTest,
@@ -316,12 +311,11 @@ TEST_F(PipelinePlanningTest,
   auto root = Pipeline({Node("relay")});
   root["models"] = Json::array({Model()});
   ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
-              DiagnosticCode::kUnusedModel, "/models/0/name");
+              error::kUnusedModel, "/models/0/name");
   root["pipeline"][0]["type"] = "absent_node";
   const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
-  ExpectError(plan, DiagnosticCode::kUnknownNodeType, "/pipeline/0/type");
-  EXPECT_EQ(FindDiagnostic(plan.report, DiagnosticCode::kUnusedModel,
-                           "/models/0/name"),
+  ExpectError(plan, error::kUnknownNodeType, "/pipeline/0/type");
+  EXPECT_EQ(FindDiagnostic(plan.report, error::kUnusedModel, "/models/0/name"),
             nullptr);
 }
 
@@ -342,8 +336,7 @@ TEST_F(PipelinePlanningTest,
         const auto plan =
             PipelineValidator::ValidateAndPlan(ModelPipeline(), Boundary());
         std::_Exit(!plan.report.ok &&
-                           FindDiagnostic(plan.report,
-                                          DiagnosticCode::kRegistryConflict,
+                           FindDiagnostic(plan.report, error::kRegistryConflict,
                                           "/models/0/backend/type")
                        ? 0
                        : 1);
@@ -391,21 +384,21 @@ TEST_F(PipelinePlanningTest, RejectsInvalidOrderingAndDataCycles) {
   struct Case {
     const char* name;
     Json dependencies;
-    DiagnosticCode code;
+    int code;
     const char* path;
   };
   const std::vector<Case> cases = {
       {"unknown dependency",
        {"absent"},
-       DiagnosticCode::kInvalidDependency,
+       error::kInvalidDependency,
        "/pipeline/0/depends_on/0"},
       {"self dependency",
        {"relay"},
-       DiagnosticCode::kDagCycle,
+       error::kDagCycle,
        "/pipeline/0/depends_on/0"},
       {"duplicate dependency",
        {"producer", "producer"},
-       DiagnosticCode::kDuplicateDependency,
+       error::kDuplicateDependency,
        "/pipeline/0/depends_on/1"},
   };
   for (const auto& example : cases) {
@@ -418,25 +411,25 @@ TEST_F(PipelinePlanningTest, RejectsInvalidOrderingAndDataCycles) {
   auto cycle = Pipeline({Node("relay", "planning_relay", "producer.text"),
                          Node("producer", "planning_relay", "relay.text")});
   ExpectError(PipelineValidator::ValidateAndPlan(cycle, Boundary()),
-              DiagnosticCode::kDagCycle, "/pipeline");
+              error::kDagCycle, "/pipeline");
   auto self = Pipeline({Node("relay", "planning_relay", "relay.text")});
   ExpectError(PipelineValidator::ValidateAndPlan(self, Boundary()),
-              DiagnosticCode::kDagCycle, "/pipeline");
+              error::kDagCycle, "/pipeline");
 }
 
 TEST_F(PipelinePlanningTest, RequiresExplicitInputAndStrictSourceReferences) {
   struct Case {
     const char* source;
-    DiagnosticCode code;
+    int code;
   };
-  for (const auto& example : std::vector<Case>{
-           {"", DiagnosticCode::kFieldType},
-           {"text", DiagnosticCode::kFieldType},
-           {".text", DiagnosticCode::kFieldType},
-           {"input.", DiagnosticCode::kFieldType},
-           {"input.text.more", DiagnosticCode::kFieldType},
-           {"missing.text", DiagnosticCode::kUnknownNodeReference},
-           {"input.missing", DiagnosticCode::kUnknownPortReference}}) {
+  for (const auto& example :
+       std::vector<Case>{{"", error::kFieldType},
+                         {"text", error::kFieldType},
+                         {".text", error::kFieldType},
+                         {"input.", error::kFieldType},
+                         {"input.text.more", error::kFieldType},
+                         {"missing.text", error::kUnknownNodeReference},
+                         {"input.missing", error::kUnknownPortReference}}) {
     SCOPED_TRACE(example.source);
     ExpectError(PipelineValidator::ValidateAndPlan(
                     Pipeline({Node("relay", "planning_relay", example.source)}),
@@ -446,14 +439,14 @@ TEST_F(PipelinePlanningTest, RequiresExplicitInputAndStrictSourceReferences) {
   auto root = Pipeline({Node("relay")});
   root["pipeline"][0].erase("inputs");
   ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
-              DiagnosticCode::kMissingInputProducer, "/pipeline/0/inputs");
+              error::kMissingInputProducer, "/pipeline/0/inputs");
   root["pipeline"][0]["inputs"] = {{"unknown", "input.text"}};
   ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
-              DiagnosticCode::kUnknownField, "/pipeline/0/inputs/unknown");
+              error::kUnknownField, "/pipeline/0/inputs/unknown");
   root = Pipeline(
       {Node("producer"), Node("relay", "planning_relay", "producer.missing")});
   ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
-              DiagnosticCode::kUnknownPortReference, "/pipeline/1/inputs/text");
+              error::kUnknownPortReference, "/pipeline/1/inputs/text");
 }
 
 TEST_F(PipelinePlanningTest, TypeMismatchCarriesConsumerAndProducerFacts) {
@@ -461,11 +454,9 @@ TEST_F(PipelinePlanningTest, TypeMismatchCarriesConsumerAndProducerFacts) {
   boundary.input_published_ports[0].type_id = "tokens";
   const auto plan =
       PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary);
-  ExpectError(plan, DiagnosticCode::kPortTypeMismatch,
-              "/pipeline/0/inputs/text");
-  const auto* error =
-      FindDiagnostic(plan.report, DiagnosticCode::kPortTypeMismatch,
-                     "/pipeline/0/inputs/text");
+  ExpectError(plan, error::kPortTypeMismatch, "/pipeline/0/inputs/text");
+  const auto* error = FindDiagnostic(plan.report, error::kPortTypeMismatch,
+                                     "/pipeline/0/inputs/text");
   ASSERT_NE(error, nullptr);
   EXPECT_EQ(error->node_name, "relay");
   EXPECT_EQ(error->port, "text");
@@ -480,11 +471,11 @@ TEST_F(PipelinePlanningTest, ChecksDuplicateIngressAndRequiredOutputClosure) {
   boundary.input_published_ports.push_back(boundary.input_published_ports[0]);
   ExpectError(
       PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
-      DiagnosticCode::kDuplicatePortProducer, "/io/input");
+      error::kDuplicatePortProducer, "/io/input");
   boundary = Boundary("");
   ExpectError(
       PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
-      DiagnosticCode::kMissingOutputProducer, "/io/output/0/inputs");
+      error::kMissingOutputProducer, "/io/output/0/inputs");
   boundary.output_consumed_ports[0].required = false;
   const auto optional =
       PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary);
@@ -494,7 +485,7 @@ TEST_F(PipelinePlanningTest, ChecksDuplicateIngressAndRequiredOutputClosure) {
   boundary.output_consumed_ports[0].type_id = "tokens";
   ExpectError(
       PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
-      DiagnosticCode::kPortTypeMismatch, "/io/output/0/inputs/result");
+      error::kPortTypeMismatch, "/io/output/0/inputs/result");
 }
 
 TEST_F(PipelinePlanningTest, OptionalInputsRemainAbsentFromResolvedPorts) {
@@ -560,7 +551,7 @@ TEST_F(PipelinePlanningTest, EnforcesEachPortGroupAgainstConnectedInputs) {
         if (valid)
           EXPECT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
         else
-          ExpectError(plan, DiagnosticCode::kInvalidCombination, "/pipeline/0");
+          ExpectError(plan, error::kInvalidCombination, "/pipeline/0");
       }
     }
   }
@@ -571,10 +562,10 @@ TEST_F(PipelinePlanningTest,
   auto root = Pipeline({Node("split", "planning_split"),
                         Node("relay", "planning_relay", "split.text")});
   auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
-  ExpectError(plan, DiagnosticCode::kPortCardinalityMismatch,
+  ExpectError(plan, error::kPortCardinalityMismatch,
               "/io/output/0/inputs/result");
   const auto* error =
-      FindDiagnostic(plan.report, DiagnosticCode::kPortCardinalityMismatch,
+      FindDiagnostic(plan.report, error::kPortCardinalityMismatch,
                      "/io/output/0/inputs/result");
   ASSERT_NE(error, nullptr);
   EXPECT_EQ(error->facts["actual_shape"],
@@ -603,11 +594,10 @@ TEST_F(PipelinePlanningTest, ItemWiseInputsMustShareTheSameFanoutOrigin) {
   ASSERT_TRUE(PipelineValidator::ValidateAndPlan(root, boundary).report.ok);
   root["pipeline"][1] = Node("relay", "planning_split", "split.text");
   const auto plan = PipelineValidator::ValidateAndPlan(root, boundary);
-  ExpectError(plan, DiagnosticCode::kPortCardinalityMismatch,
+  ExpectError(plan, error::kPortCardinalityMismatch,
               "/pipeline/2/inputs/right");
-  const auto* error =
-      FindDiagnostic(plan.report, DiagnosticCode::kPortCardinalityMismatch,
-                     "/pipeline/2/inputs/right");
+  const auto* error = FindDiagnostic(
+      plan.report, error::kPortCardinalityMismatch, "/pipeline/2/inputs/right");
   ASSERT_NE(error, nullptr);
   EXPECT_EQ(error->facts["actual_shape"]["origin"], "relay.text");
   EXPECT_EQ(error->facts["expected_shape"]["origin"], "split.text");
@@ -647,19 +637,18 @@ TEST_F(PipelinePlanningTest,
   Register(session);
   ExpectError(PipelineValidator::ValidateAndPlan(
                   Pipeline({Node("relay", session.node_type)}), Boundary()),
-              DiagnosticCode::kPortLifetimeMismatch, "/pipeline/0/inputs/text");
+              error::kPortLifetimeMismatch, "/pipeline/0/inputs/text");
   auto boundary = Boundary();
   boundary.output_consumed_ports[0].lifetime = "session";
   ExpectError(
       PipelineValidator::ValidateAndPlan(Pipeline({Node("relay")}), boundary),
-      DiagnosticCode::kPortLifetimeMismatch, "/io/output/0/inputs/result");
+      error::kPortLifetimeMismatch, "/io/output/0/inputs/result");
   auto provenance = RelayDefinition("planning_provenance");
   provenance.inputs[0].provenance_policy = "generate_sub_id";
   Register(provenance);
   ExpectError(PipelineValidator::ValidateAndPlan(
                   Pipeline({Node("relay", provenance.node_type)}), Boundary()),
-              DiagnosticCode::kPortProvenanceMismatch,
-              "/pipeline/0/inputs/text");
+              error::kPortProvenanceMismatch, "/pipeline/0/inputs/text");
 }
 
 TEST_F(PipelinePlanningTest,
