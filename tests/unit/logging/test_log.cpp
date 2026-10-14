@@ -2,7 +2,6 @@
 
 #include <string>
 
-#include "contracts/error_codes.h"
 #include "edgeflow/log.h"
 
 namespace {
@@ -23,10 +22,8 @@ TEST_F(LoggingRecordTest,
   const auto record = testing::internal::GetCapturedStderr();
   EXPECT_EQ(evaluations, 1);
   EXPECT_EQ(record, "[Warning][LLM_EDGEFLOW] visible 1");
-  EXPECT_EQ(AlgBase_setLogLevelByName("other", -1),
-            llm_edgeflow::error::kInvalidArgument);
-  EXPECT_EQ(AlgBase_setLogLevelByName("other", 6),
-            llm_edgeflow::error::kInvalidArgument);
+  EXPECT_EQ(AlgBase_setLogLevelByName("other", -1), -1);
+  EXPECT_EQ(AlgBase_setLogLevelByName("other", 6), -1);
   EXPECT_EQ(AlgBase_getLogLevelByName("other"), E_ALG_BASE_LOG_LEVEL_WARNING);
 }
 

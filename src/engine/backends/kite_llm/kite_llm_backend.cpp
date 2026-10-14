@@ -124,11 +124,24 @@ using KiteInputPtr =
 using KiteOutputPtr =
     std::unique_ptr<void, KiteDeleter<kiteLLM_TaskOutput_Deallocate>>;
 
+// Backend 私有异常：携带按失败语义确定的框架码，由会话入口的 catch 块返回，
+// 使分类不依赖抛出位置的实现方式。
+class KiteError final : public std::runtime_error {
+ public:
+  KiteError(int code, const std::string& message)
+      : std::runtime_error(message), code_(code) {}
+  int code() const noexcept { return code_; }
+
+ private:
+  int code_;
+};
+
+// 厂商调用返回非成功状态。
 void CheckKiteStatus(int status, const char* operation) {
   if (status != KLLM_OK) {
-    throw std::runtime_error(std::string(operation) +
-                             " failed with kiteLLM status " +
-                             std::to_string(status));
+    throw KiteError(error::kInferenceFailed,
+                    std::string(operation) + " failed with kiteLLM status " +
+                        std::to_string(status));
   }
 }
 
@@ -154,7 +167,7 @@ class KiteSession : public Interface {
   KiteInputPtr PreparePrompt(const std::string& prompt, bool add_bos) {
     if (prompt.empty() ||
         prompt.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
-      throw std::runtime_error("Invalid kiteLLM prompt length");
+      throw KiteError(error::kInvalidInput, "Invalid kiteLLM prompt length");
     }
     // 格式化归 Model 负责。使用 token 输入以保留特殊 token 和 BOS 策略，
     // 避免再套一层厂商 chat 模板。
@@ -164,7 +177,8 @@ class KiteSession : public Interface {
         0, &count, add_bos ? 1 : 0, 1);
     if (probe != KLLM_E_BUFFER_TOO_SMALL) CheckKiteStatus(probe, "Tokenize");
     if (count <= 0)
-      throw std::runtime_error("kiteLLM prompt produced no tokens");
+      throw KiteError(error::kInvalidOutput,
+                      "kiteLLM prompt produced no tokens");
     const int capacity = count;
     std::vector<int> tokens(static_cast<size_t>(capacity));
     CheckKiteStatus(
@@ -173,9 +187,12 @@ class KiteSession : public Interface {
                                  capacity, &count, add_bos ? 1 : 0, 1),
         "Tokenize");
     if (count <= 0 || count > capacity)
-      throw std::runtime_error("kiteLLM returned invalid input token count");
+      throw KiteError(error::kInvalidOutput,
+                      "kiteLLM returned invalid input token count");
     KiteInputPtr input(kiteLLM_TaskInput_Allocate());
-    if (!input) throw std::runtime_error("kiteLLM task allocation failed");
+    if (!input)
+      throw KiteError(error::kAllocationFailed,
+                      "kiteLLM task allocation failed");
     CheckKiteStatus(
         kiteLLM_TaskInput_SetPromptTokens(input.get(), tokens.data(), count),
         "SetPromptTokens");
@@ -199,7 +216,8 @@ class KiteSession : public Interface {
     KiteOutputPtr result(raw_output);
     CheckKiteStatus(status, "Run");
     if (!result)
-      throw std::runtime_error("kiteLLM returned a null task output");
+      throw KiteError(error::kInvalidOutput,
+                      "kiteLLM returned a null task output");
     return result;
   }
 
@@ -210,7 +228,8 @@ class KiteSession : public Interface {
     const int* output_tokens =
         kiteLLM_TaskOutput_GetResultTokens(result.get(), &output_token_count);
     if (output_token_count < 0 || (output_token_count > 0 && !output_tokens)) {
-      throw std::runtime_error("kiteLLM returned invalid output tokens");
+      throw KiteError(error::kInvalidOutput,
+                      "kiteLLM returned invalid output tokens");
     }
     if (output_token_count > 0) {
       int text_size = 0;
@@ -220,7 +239,8 @@ class KiteSession : public Interface {
       if (decode_probe != KLLM_E_BUFFER_TOO_SMALL)
         CheckKiteStatus(decode_probe, "Decode");
       if (text_size < 0 || text_size == std::numeric_limits<int>::max()) {
-        throw std::runtime_error("kiteLLM returned invalid output length");
+        throw KiteError(error::kInvalidOutput,
+                        "kiteLLM returned invalid output length");
       }
       std::string decoded(static_cast<size_t>(text_size) + 1, '\0');
       CheckKiteStatus(
@@ -286,6 +306,10 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
       auto input = PreparePrompt(formatted_prompt, add_bos);
       RunTask(input.get(), options, output);
       return 0;
+    } catch (const KiteError& e) {
+      output->clear();
+      SetDiagnosticNoexcept(diagnostic, e.what());
+      return e.code();
     } catch (const std::exception& e) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());
@@ -317,7 +341,8 @@ class KiteGeneratedTokenEmbeddingSession final
     *output = {};
     try {
       if (max_tokens < 1 || max_tokens > 64)
-        throw std::runtime_error("Embedding max_tokens must be in [1, 64]");
+        throw KiteError(error::kInvalidArgument,
+                        "Embedding max_tokens must be in [1, 64]");
       std::lock_guard<std::mutex> lock(session_mutex_);
       auto input = PreparePrompt(prompt, add_bos);
       CheckKiteStatus(kiteLLM_TaskInput_SetVerboseDataFlag(
@@ -338,23 +363,27 @@ class KiteGeneratedTokenEmbeddingSession final
       if (token_count < 0 || token_count > max_tokens || rows != token_count ||
           dim < 0 || dim > 65536 ||
           (rows > 0 && (!tokens || !values || dim == 0))) {
-        throw std::runtime_error(
-            "kiteLLM returned missing or invalid token embeddings");
+        throw KiteError(error::kInvalidOutput,
+                        "kiteLLM returned missing or invalid token embeddings");
       }
       GeneratedTokenEmbeddings staged;
       for (int r = 0; r < rows; ++r) {
         if (!values[r] || tokens[r] < 0)
-          throw std::runtime_error(
-              "kiteLLM returned an invalid embedding row or token");
+          throw KiteError(error::kInvalidOutput,
+                          "kiteLLM returned an invalid embedding row or token");
         std::vector<float> row(values[r], values[r] + dim);
         if (!std::all_of(row.begin(), row.end(),
                          [](float v) { return std::isfinite(v); }))
-          throw std::runtime_error("kiteLLM returned non-finite embeddings");
+          throw KiteError(error::kInvalidOutput,
+                          "kiteLLM returned non-finite embeddings");
         staged.token_ids.push_back(tokens[r]);
         staged.values.push_back(std::move(row));
       }
       *output = std::move(staged);
       return 0;
+    } catch (const KiteError& e) {
+      SetDiagnosticNoexcept(diagnostic, e.what());
+      return e.code();
     } catch (const std::exception& e) {
       SetDiagnosticNoexcept(diagnostic, e.what());
       return error::kInternalException;
@@ -397,7 +426,9 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
         return error::kInvalidArgument;
       std::lock_guard<std::mutex> lock(session_mutex_);
       KiteInputPtr input(kiteLLM_TaskInput_Allocate());
-      if (!input) throw std::runtime_error("kiteLLM task allocation failed");
+      if (!input)
+        throw KiteError(error::kAllocationFailed,
+                        "kiteLLM task allocation failed");
       kiteLLM_MultiModal_ChatContent content[2]{};
       content[0].type = "image";
       content[0].data = request.rgb_chw.data();
@@ -417,6 +448,10 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
           "SetMultiModalChatHistory");
       RunTask(input.get(), options, output);
       return 0;
+    } catch (const KiteError& e) {
+      output->clear();
+      SetDiagnosticNoexcept(diagnostic, e.what());
+      return e.code();
     } catch (const std::exception& e) {
       output->clear();
       SetDiagnosticNoexcept(diagnostic, e.what());

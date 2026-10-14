@@ -4,6 +4,8 @@
 定义在 `include/platform_mock/error_codes.h`。内部整数接口沿用 `int`；成功为 0，失败使用
 `llm_edgeflow::error::k...`，同一值只有一种含义。Core、Node、Model、Backend 和 Adapter
 内部使用框架码，不引用平台错误码。Operator 协议壳是唯一的平台错误映射边界。
+公开 C 接口（Operator 函数表和 AlgBase 日志接口）沿用各自的平台或文档化返回约定，
+不返回框架码；日志接口的约定由 [日志](../logging.md) 维护。
 
 框架码表同时提供 `ErrorCodeName`，供结构化诊断、CLI 和日志使用。诊断的字段路径、
 节点/模型名及原因继续单独传递；不得用统一分类代替具体原因。Studio 的错误名称引用

@@ -232,7 +232,8 @@ TEST_F(OperatorEntryTest,
                         std::to_string(error::kInvalidInput) + ")"),
             std::string::npos);
   EXPECT_NE(record.find("platform_code=-3"), std::string::npos);
-  EXPECT_NE(record.find("Empty inputs NamedIoBatch"), std::string::npos);
+  EXPECT_NE(record.find("stage=Runtime"), std::string::npos);
+  EXPECT_EQ(record.find("Empty inputs NamedIoBatch"), std::string::npos);
   const std::string diagnostic = api::GetOperatorLastError();
   EXPECT_NE(diagnostic.find("INVALID_INPUT"), std::string::npos);
   EXPECT_NE(diagnostic.find("Empty inputs NamedIoBatch"), std::string::npos);
@@ -291,8 +292,8 @@ TEST_F(OperatorEntryTest,
                         std::to_string(error::kRenderedOutputTooLong) + ")"),
             std::string::npos);
   EXPECT_NE(record.find("platform_code=-100"), std::string::npos);
-  EXPECT_NE(record.find("bounded"), std::string::npos);
-  EXPECT_NE(record.find("Rendered prompt exceeds max_length of 1"),
+  EXPECT_NE(record.find("stage=Pipeline execution"), std::string::npos);
+  EXPECT_EQ(record.find("Rendered prompt exceeds max_length of 1"),
             std::string::npos);
   const std::string diagnostic = api::GetOperatorLastError();
   EXPECT_NE(diagnostic.find("RENDERED_OUTPUT_TOO_LONG"), std::string::npos);
@@ -310,6 +311,31 @@ TEST_F(OperatorEntryTest,
   EXPECT_EQ(filtered_result, result);
   EXPECT_TRUE(filtered_record.empty());
   EXPECT_EQ(std::string(api::GetOperatorLastError()), diagnostic);
+}
+
+TEST_F(OperatorEntryTest, BoundaryLogsOmitRequestContentButDiagnosticKeepsIt) {
+  auto params = ValidCreate();
+  ASSERT_EQ(ops_.Create(&handle_, &params), 0) << api::GetOperatorLastError();
+  // 未闭合的 JSON 字符串：解析异常的 what() 会携带 "last read" 原文片段。
+  const std::string marker = "EF_SECRET_MARKER_7f3a";
+  const std::string payload =
+      "{\"categories\":{\"" + marker + "\":[\"" + marker;
+  api::ControlUpdateRulesParam malformed{payload.c_str()};
+  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_VERBOSE),
+            0);
+  testing::internal::CaptureStderr();
+  const int result = ops_.Control(
+      handle_, static_cast<int>(api::ControlCommand::kUpdateRules), &malformed);
+  const auto record = testing::internal::GetCapturedStderr();
+  EXPECT_NE(result, 0);
+  EXPECT_EQ(result, -2);
+  EXPECT_NE(record.find("operation=Operator_Control"), std::string::npos);
+  EXPECT_NE(record.find("platform_code=" + std::to_string(result)),
+            std::string::npos);
+  EXPECT_EQ(record.find(marker), std::string::npos) << record;
+  const std::string diagnostic = api::GetOperatorLastError();
+  EXPECT_NE(diagnostic.find("Invalid control JSON"), std::string::npos);
+  EXPECT_NE(diagnostic.find(marker), std::string::npos);
 }
 
 TEST(OperatorFailureMappingTest, PublicCategoriesRetainStageAndInternalCause) {
