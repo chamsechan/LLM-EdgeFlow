@@ -112,7 +112,8 @@ Pipeline 构建期间准备模型资源，作者包装在初始化时取得各�
 需要会话缓存时，`Run` 显式接收 `const SessionResources&`。普通工厂返回 `NodeResult<T>`，
 交给 `GetOrCreateResult<T>(key, factory)`，得到 `NodeResult<std::shared_ptr<T>>`；框架复用资源、
 向等待者保留完整失败信息，失败后允许重试。这是 Node 作者唯一的缓存创建入口。
-缓存 key 必须包含影响结果的输入、参数和通过 `GetModelRevision` 取得的模型版本；
+模型注册后在会话内不可替换；缓存 key 必须包含模型名及影响结果的输入、参数和来源信息，
+不同会话独立持有缓存；
 参考 [text_embedding](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
@@ -331,8 +332,8 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，
 拒绝临时批次；使用期间输入必须存活且不修改、不移动。视图仅用于本次请求内的同步算法，
 不能保存到 Node/Session 或异步任务。`Materialize`、Scatter 和 Split 的输出拥有数据。
-错误在 AuthorNode 边界统一写入诊断，保留回调错误码、内容及完整来源 key；普通算法不提前
-写 Context。工具要求完整 key 唯一，不改变未使用这些工具的逐项处理/模型重复 key 行为。
+错误在 AuthorNode 边界统一写入诊断。`NodeResult<T>::Failure(message, cause_code)` 保留原始消息与错误码；
+批次工具把来源保存为 `BatchFailureDetail`，在输出诊断时格式化一次，不提前拼接来源或写 Context。工具要求完整 key 唯一，不改变未使用这些工具的逐项处理/模型重复 key 行为。
 
 先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号；“每个问题
 取前三个候选”要按请求分组并声明排名来源，不能用整个 batch 的前三项代替。

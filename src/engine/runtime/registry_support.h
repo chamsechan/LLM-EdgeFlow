@@ -41,27 +41,6 @@ std::optional<Definition> FindDefinition(Mutex& mutex, const EntryMap& entries,
   }
 }
 
-template <typename Mutex, typename EntryMap>
-bool HasType(Mutex& mutex, const EntryMap& entries,
-             const std::string& type) noexcept {
-  try {
-    std::lock_guard<Mutex> lock(mutex);
-    return entries.find(type) != entries.end();
-  } catch (...) {
-    return false;
-  }
-}
-
-template <typename Mutex, typename EntryMap>
-std::vector<std::string> ListTypes(Mutex& mutex, const EntryMap& entries) {
-  std::lock_guard<Mutex> lock(mutex);
-  std::vector<std::string> result;
-  result.reserve(entries.size());
-  for (const auto& item : entries) result.push_back(item.first);
-  std::sort(result.begin(), result.end());
-  return result;
-}
-
 template <typename Definition, typename Mutex, typename EntryMap, typename Less>
 std::vector<Definition> ListDefinitions(Mutex& mutex, const EntryMap& entries,
                                         Less less) {

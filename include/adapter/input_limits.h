@@ -14,8 +14,7 @@ inline constexpr int32_t kMaxAudioPcmSamples = 16000 * 60;
 inline constexpr size_t kMaxAudioPcmBytes = 10 * 1024 * 1024;
 inline constexpr int32_t kMinSampleRate = 8000;
 inline constexpr int32_t kMaxSampleRate = 192000;
-// 通用载体，不含业务字段语义。
-inline constexpr size_t kMaxBufferBytes = 10 * 1024 * 1024;
+// 帧 metadata 的通用载荷上限。
 inline constexpr size_t kMaxAnyBytes = 10 * 1024 * 1024;
 
 }  // namespace llm_edgeflow::input_limits

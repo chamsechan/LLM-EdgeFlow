@@ -11,9 +11,8 @@
 | `include/` | 头文件，按[使用范围](#头文件的三种使用范围)分目录；`contracts/` 是各层共用的轻量运行时契约（`edgeflow_runtime_contracts`），`platform_mock/` 是平台公共定义替身 |
 | `src/` | 四层实现：`adapter/`、`core/`、`common_nodes/` 与 `custom_nodes/`、`engine/`；`cli/` 是随框架编译的命令行工具 `alg_pipeline_tool` 与 `alg_show` |
 | `demo/` | 统一 Demo 程序、Demo Profile 与 Mock 方案（`fixtures/mock/`） |
-| `configs/` | 示例方案的 Pipeline JSON 与部署 `.conf`，命名见[配置说明](../../configs/README.md) |
+| `configs/` | 示例方案、部署 `.conf` 与模型资产清单（权重不入库），命名见[配置说明](../../configs/README.md) |
 | `data/` | Demo Profile 使用的示例数据集 |
-| `models/` | 模型资产清单与说明；权重文件不入库 |
 | `dev_support/` | 测试用 Model/Backend 替身、Node 起步模板和可选基准，不链接进生产 SDK |
 | `tests/` | 按 `unit/`、`integration/`、`contract/`、`e2e/` 分类的测试，见[测试指南](../../tests/README.md) |
 | `tools/` | 开发者直接运行的工具：Pipeline Studio、Node 脚手架、开发 Recipe 与模型选择检查 |
@@ -100,7 +99,7 @@ include/adapter/                  源码扩展契约与辅助接口
   io_converter_registry.h
   operator_value_type.h             中性值与平台 binding 接口
   io_values.h                      Converter 内容值
-  platform_value_binding.h         当前模拟平台的布局 helper
+  operator/mock/platform_value_binding.h  当前模拟平台的布局 helper
 src/adapter/
   shared_algorithm_runtime.cpp/.h
   deployment_io_config.cpp/.h
@@ -109,9 +108,12 @@ src/adapter/
   output/                         各业务输出转换器
   operator/                       Operator 通用机制
     operator_config_resolver.cpp/.h
-    operator_process_binding.cpp/.h
-    operator_adapter.cpp
-    platform_value_binding.cpp   当前模拟平台的校验、分配、预算与重置
+    operator_output_pool.cpp/.h
+    operator_value_type_registry.cpp/.h
+    mock/                         本地模拟平台协议实现
+      operator_process_binding.cpp/.h
+      operator_adapter.cpp
+      platform_value_binding.cpp  当前模拟平台的校验、分配、预算与重置
 ```
 
 转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与
@@ -120,8 +122,8 @@ src/adapter/
 批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
 每个转换器登记一个宿主槽、typed 逻辑端口与共享参数声明；Pipeline 根 `io` 选择这些登记。
 端口 Definition 与回调共用同一 typed 端口常量，端口名即业务键名，
-绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>` /
-`ExternalOutputSlot<T>` 推导类型和默认同名后缀，输出容量字段由已注册 ValueType 决定；
+绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>()` /
+`ExternalOutputSlot<T>()` 声明中立值类型；登记的 `type` 选择 binding，输出容量字段由已注册 ValueType 决定；
 特殊布局仍使用完整定义。
 业务专属实现可按修改关联同文件组织，共享 converter 保留独立引用；不要求为每个业务创建聚合宏或新注册表。
 宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
@@ -139,7 +141,7 @@ include/core/                     编排契约与 Node 注册接口
   pipeline.h                      按校验计划执行
   alg_context.h / blackboard_key.h / session_context.h
   node_interface.h / node_definition.h / node_registry.h / port_definition.h
-  biz_definition.h / pipeline_catalog.h
+  pipeline_catalog.h
 src/core/                         上述接口的实现；pipeline_config_structure.cpp/.h 等私有头相邻放置
 ```
 
@@ -151,8 +153,8 @@ include/nodes/                    Node 作者接口，模板与内联实现，�
   function_node.h                 Spec 声明、AuthorNode 与 REGISTER_FUNCTION_NODE
   node_base.h                     Node 运行时基类 NodeBase
   model_binding.h / model_calls.h / control_authoring.h
-include/contracts/parameters.h    四层共享的参数声明与解析
   traceable_batch_operations.h    Join、Group 等批处理与来源追踪辅助
+include/contracts/parameters.h    四层共享的参数声明与解析
 src/common_nodes/                 框架维护的中性 Node，每个文件一个 *_node.cpp
   support/                        多个 Node 共用的私有辅助
 src/custom_nodes/                 领域算法 Node，按操作而非业务命名

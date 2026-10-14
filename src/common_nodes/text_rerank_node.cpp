@@ -31,9 +31,8 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
   for (const auto& q : *queries) {
     if (!query_map.emplace(q.req_id, q.data).second) {
       return NodeResult<RankedTextBatch>::Failure(
-          NodeErrorKind::kBusinessError,
           "text_rerank requires one query per request; duplicate req_id=" +
-              std::to_string(q.req_id));
+          std::to_string(q.req_id));
     }
   }
 
@@ -42,7 +41,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
     const auto query = query_map.find(c.req_id);
     if (query == query_map.end()) {
       return NodeResult<RankedTextBatch>::Failure(
-          NodeErrorKind::kBusinessError,
           "Candidate has no query for req_id=" + std::to_string(c.req_id));
     }
     std::string q = query->second;

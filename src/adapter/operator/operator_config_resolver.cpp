@@ -66,8 +66,6 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
       return -2;
     }
 
-    std::filesystem::path canon_p;
-
     if (!std::filesystem::exists(combined, ec) || ec) {
       if (error_msg) {
         *error_msg = std::string(field_name) +
@@ -75,7 +73,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
       }
       return -2;
     }
-    canon_p = std::filesystem::canonical(combined, ec);
+    const auto canon_p = std::filesystem::canonical(combined, ec);
     if (ec) {
       if (error_msg) {
         *error_msg = "Failed to canonicalize " + std::string(field_name) +
@@ -100,7 +98,7 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
     }
 
     *resolved = canon_p;
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
     return -2;
@@ -209,14 +207,13 @@ int OperatorConfigResolver::Resolve(
 
     result->conf_path = full_cfg;
     result->pipeline_path = dep_config.resolved_pipe_path;
-    result->model_root_path = canon_root;
     result->effective_frame_depth = effective_depth;
     result->effective_process_batch_limit = static_cast<uint32_t>(
         std::min<size_t>(effective_depth, kMaxProcessBatchSize));
 
     result->io_plan = std::move(io_plan);
 
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
     if (out_diagnostic) {

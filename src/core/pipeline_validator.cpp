@@ -25,7 +25,7 @@ void Add(ValidationReport* report, DiagnosticCode code, std::string path,
          std::vector<std::string> related = {},
          std::vector<std::string> suggestions = {}) {
   report->diagnostics.push_back({code, std::move(path), std::move(message),
-                                 "error", std::move(node_name), std::move(port),
+                                 std::move(node_name), std::move(port),
                                  std::move(related), std::move(suggestions),
                                  nlohmann::json::object()});
 }
@@ -195,37 +195,17 @@ bool ValidateAndNormalizeConfig(
                       ? base_pointer
                       : base_pointer + err.path;
       diag.message = err.message;
-      switch (err.kind) {
-        case ConfigFieldErrorKind::kNotAnObject:
-          diag.code = DiagnosticCode::kConfigFieldType;
-          break;
-        case ConfigFieldErrorKind::kUnknownField: {
-          diag.code = DiagnosticCode::kUnknownConfigField;
-          const nlohmann::json::json_pointer pointer(err.path);
-          if (const auto* fields =
-                  FindConfigObjectFields(schema, pointer.parent_pointer())) {
-            for (const auto& field : *fields)
-              diag.suggestions.push_back(field.name);
-          }
-          diag.suggestions =
-              RankByEditDistance(pointer.back(), std::move(diag.suggestions));
-          break;
+      diag.code = ConfigFieldDiagnosticCode(err.kind);
+      if (err.kind == ConfigFieldErrorKind::kUnknownField) {
+        const nlohmann::json::json_pointer pointer(err.path);
+        if (const auto* fields =
+                FindConfigObjectFields(schema, pointer.parent_pointer())) {
+          for (const auto& field : *fields)
+            diag.suggestions.push_back(field.name);
         }
-        case ConfigFieldErrorKind::kMissingField:
-          diag.code = DiagnosticCode::kMissingConfigField;
-          break;
-        case ConfigFieldErrorKind::kTypeMismatch:
-          diag.code = DiagnosticCode::kConfigFieldType;
-          break;
-        case ConfigFieldErrorKind::kOutOfRange:
-        case ConfigFieldErrorKind::kNonFinite:
-          diag.code = DiagnosticCode::kConfigFieldRange;
-          break;
-        case ConfigFieldErrorKind::kInvalidEnum:
-          diag.code = DiagnosticCode::kConfigFieldEnum;
-          break;
+        diag.suggestions =
+            RankByEditDistance(pointer.back(), std::move(diag.suggestions));
       }
-      diag.severity = "error";
       diagnostics->push_back(std::move(diag));
     }
   }
@@ -949,10 +929,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 }  // namespace
 
 nlohmann::json ValidationDiagnostic::ToJson() const {
-  nlohmann::json item = {{"code", DiagnosticCodeName(code)},
-                         {"path", path},
-                         {"message", message},
-                         {"severity", severity}};
+  nlohmann::json item = {
+      {"code", DiagnosticCodeName(code)}, {"path", path}, {"message", message}};
   if (!node_name.empty()) item["node_name"] = node_name;
   if (!port.empty()) item["port"] = port;
   if (!related_nodes.empty()) item["related_nodes"] = related_nodes;
@@ -989,11 +967,6 @@ ValidatedPipelinePlan PipelineValidator::ValidateParsedAndPlan(
     ParsedPipelineConfig config, const PipelineIoBoundary& io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
   return ValidateAndPlanInternal(std::move(config), catalog, io_boundary);
-}
-
-ValidationReport PipelineValidator::Validate(
-    const nlohmann::json& root, const PipelineIoBoundary& io_boundary) {
-  return ValidateAndPlan(root, io_boundary).report;
 }
 
 }  // namespace llm_edgeflow

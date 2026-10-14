@@ -118,37 +118,19 @@ std::unique_ptr<IInferenceBackend> BackendRegistry::Create(
       creator = it->second.creator;
     }
 
-    try {
-      return creator();
-    } catch (const std::exception& error) {
-      SetDiagnosticNoexcept(diagnostic, "Exception creating backend " +
-                                            backend_type + ": " + error.what());
-      return nullptr;
-    } catch (...) {
-      SetDiagnosticNoexcept(
-          diagnostic, "Unknown exception creating backend " + backend_type);
-      return nullptr;
-    }
+    return creator();
   } catch (const std::exception& error) {
     try {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing backend " +
+      SetDiagnosticNoexcept(diagnostic, "Exception creating backend " +
                                             backend_type + ": " + error.what());
     } catch (...) {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing backend");
+      SetDiagnosticNoexcept(diagnostic, "Exception creating backend");
     }
     return nullptr;
   } catch (...) {
-    SetDiagnosticNoexcept(diagnostic, "Unknown exception preparing backend");
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception creating backend");
     return nullptr;
   }
-}
-
-bool BackendRegistry::Has(const std::string& backend_type) const noexcept {
-  return registry_support::HasType(mutex_, entries_, backend_type);
-}
-
-std::vector<std::string> BackendRegistry::ListTypes() const {
-  return registry_support::ListTypes(mutex_, entries_);
 }
 
 std::vector<BackendDefinition> BackendRegistry::ListDefinitions() const {

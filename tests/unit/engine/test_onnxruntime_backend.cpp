@@ -201,14 +201,12 @@ TEST(OnnxRuntimeBackendTest, ProtocolAndBuildAvailabilityAreExplicit) {
   EXPECT_NE(diagnostic.find("does not support requested protocol"),
             std::string::npos);
 #ifdef HAVE_ONNXRUNTIME
-  ASSERT_TRUE(BackendRegistry::Instance().Has("onnxruntime"));
   const auto definition = BackendRegistry::Instance().Find("onnxruntime");
   ASSERT_TRUE(definition);
   EXPECT_EQ(definition->supported_protocols,
             (std::vector<ExecutionProtocol>{ExecutionProtocol::kTensorGraph}));
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kConcurrent);
 #else
-  EXPECT_FALSE(BackendRegistry::Instance().Has("onnxruntime"));
   EXPECT_FALSE(BackendRegistry::Instance().Find("onnxruntime"));
   EXPECT_EQ(BackendRegistry::Instance().Create("onnxruntime"), nullptr);
   BackendLoadSpec disabled(ExecutionProtocol::kTensorGraph);

@@ -46,7 +46,6 @@ class SharedAlgorithmRuntime {
   int Close(std::string* out_error = nullptr) noexcept;
 
   const ValidatedIoPlan* GetIoPlan() const { return io_plan_.get(); }
-  const Pipeline* GetPipeline() const { return pipeline_.get(); }
   size_t ProcessBatchLimit() const { return process_batch_limit_; }
 
  private:

@@ -7,6 +7,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_values.h"
+#include "adapter/json_output_parameters.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "core/common_contracts.h"
@@ -18,16 +19,6 @@ namespace {
 constexpr auto kMatches = MakeBlackboardKey<RuleMatchBatch>("matches");
 
 constexpr const char* kOutputSlot = "json_out";
-
-struct Params {
-  int64_t result_json_max_bytes = 0;
-};
-
-Parameters<Params> ParamSpec() {
-  return Parameters<Params>({
-      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
-  });
-}
 
 AdapterStatus EncodeKeyword(const RuleMatchItem& result,
                             JsonOutputValue* output) {
@@ -51,9 +42,9 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "keyword_match";
-  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>();
   def.logical_ports = {RequiredInputPort(kMatches)};
-  def.params = ParamSpec();
+  def.params = JsonOutputParameters();
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;
 }

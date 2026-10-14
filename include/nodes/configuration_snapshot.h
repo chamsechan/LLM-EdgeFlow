@@ -4,7 +4,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <type_traits>
 #include <unordered_set>
 #include <utility>
 
@@ -48,10 +47,6 @@ class ConfigurationSnapshot {
     Initialize(std::move(initial_state));
   }
 
-  explicit ConfigurationSnapshot(std::shared_ptr<const State> initial_state) {
-    Initialize(std::move(initial_state));
-  }
-
   ~ConfigurationSnapshot() = default;
 
   ConfigurationSnapshot(const ConfigurationSnapshot&) = delete;
@@ -66,19 +61,6 @@ class ConfigurationSnapshot {
                                std::shared_ptr<const State>(std::move(ptr)),
                                std::memory_order_release);
     return true;
-  }
-
-  bool Initialize(std::shared_ptr<const State> initial_state) {
-    if (!initial_state) return false;
-    std::lock_guard<std::mutex> lock(writer_mutex_);
-    std::atomic_store_explicit(&state_, std::move(initial_state),
-                               std::memory_order_release);
-    return true;
-  }
-
-  bool IsInitialized() const noexcept {
-    return std::atomic_load_explicit(&state_, std::memory_order_acquire) !=
-           nullptr;
   }
 
   std::shared_ptr<const State> Read() const noexcept {
@@ -96,14 +78,7 @@ class ConfigurationSnapshot {
           "ConfigurationSnapshot is not initialized");
     }
     try {
-      auto run_build = [&]() {
-        if constexpr (std::is_invocable_v<BuildNextFn, const State&>) {
-          return build_next(*current);
-        } else {
-          return build_next(current);
-        }
-      };
-      auto res = run_build();
+      NodeResult<State> res = build_next(*current);
       if (!res.ok()) {
         const auto& failure = res.failure();
         int code = failure.cause_code != 0
@@ -113,19 +88,8 @@ class ConfigurationSnapshot {
             code, failure.message.empty() ? "Configuration update failed"
                                           : failure.message);
       }
-      std::shared_ptr<const State> next_ptr;
-      using ResValType = std::decay_t<decltype(res.value())>;
-      if constexpr (std::is_same_v<ResValType, std::shared_ptr<const State>> ||
-                    std::is_same_v<ResValType, std::shared_ptr<State>>) {
-        next_ptr = std::move(res).value();
-      } else {
-        next_ptr = std::make_shared<State>(std::move(res).value());
-      }
-      if (!next_ptr) {
-        return NodeControlResult::Failed(
-            node_error::control::kInvalidRequest,
-            "Configuration update produced null state");
-      }
+      std::shared_ptr<const State> next_ptr =
+          std::make_shared<State>(std::move(res).value());
       auto success_res = NodeControlResult::Handled();
       std::atomic_store_explicit(&state_, std::move(next_ptr),
                                  std::memory_order_release);

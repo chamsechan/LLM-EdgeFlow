@@ -41,7 +41,7 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
   InputConverterDefinition def;
   def.type = kInputSlot;
   def.name = "audio_asr_intent";
-  def.slot = ExternalInputSlot<AudioInputValue>(kInputSlot);
+  def.slot = ExternalInputSlot<AudioInputValue>();
   def.logical_ports = {OutputPort(kAudio)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;

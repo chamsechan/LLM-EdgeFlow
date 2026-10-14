@@ -184,7 +184,6 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
     if (rendered.size() > max_length) {
       if (state.overflow_policy == "fail") {
         return NodeResult<TextBatch>::Failure(
-            NodeErrorKind::kBusinessError,
             "Rendered prompt exceeds max_length of " +
                 std::to_string(state.max_length),
             node_error::text_template::kRenderedOutputTooLong);
@@ -194,7 +193,6 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
       if (!utf8::BuildCodePointBoundaries(rendered, &boundaries,
                                           &invalid_offset)) {
         return NodeResult<TextBatch>::Failure(
-            NodeErrorKind::kBusinessError,
             "Rendered prompt contains invalid UTF-8 at byte offset " +
                 std::to_string(invalid_offset),
             node_error::text_template::kInvalidUtf8);

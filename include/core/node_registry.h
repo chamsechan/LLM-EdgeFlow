@@ -65,8 +65,6 @@ class NodeRegistry {
   }
 
   std::unique_ptr<INode> Create(const std::string& node_type) const;
-  bool Has(const std::string& node_type) const;
-  std::vector<std::string> ListTypes() const;
   bool HasConflict() const;
   std::vector<std::string> GetConflictErrors() const;
 

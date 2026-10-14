@@ -33,11 +33,10 @@ using llm_edgeflow::PipelineCatalog;
 
 Json ToolError(const std::string& code, const std::string& message,
                const std::string& path = "/") {
-  return {{"ok", false},
-          {"diagnostics", Json::array({{{"code", code},
-                                        {"path", path},
-                                        {"message", message},
-                                        {"severity", "error"}}})}};
+  return {
+      {"ok", false},
+      {"diagnostics",
+       Json::array({{{"code", code}, {"path", path}, {"message", message}}})}};
 }
 
 Json PipelineError(DiagnosticCode code, const std::string& message) {

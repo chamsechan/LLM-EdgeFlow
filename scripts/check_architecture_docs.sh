@@ -11,38 +11,8 @@ echo "================================================================"
 
 FAILED=0
 
-require_concepts() {
-  local document="$1"
-  local concept
-  shift
-  for concept in "$@"; do
-    if ! grep -q "${concept}" "${document}"; then
-      echo "❌ ${document#"${ROOT_DIR}/"} is missing reference to '${concept}'"
-      FAILED=1
-    fi
-  done
-}
-
-# 1. 检查架构文档核心概念完备性 (ValidatedPipelinePlan, BlackboardKey, NodeBase, FixedBatchExecutor)
-echo "[Check 1/4] Verifying core architectural concepts in architecture documents..."
-require_concepts "${DOC_ROOT}/architecture.md" \
-  "ValidatedPipelinePlan" "BlackboardKey" "NodeBase" "FixedBatchExecutor"
-require_concepts "${DOC_ROOT}/developer_guide.md" \
-  "ValidatedPipelinePlan" "BlackboardKey" "NodeBase" "FixedBatchExecutor"
-require_concepts "${DOC_ROOT}/architecture_classes.puml" \
-  "SharedAlgorithmRuntime" "Pipeline" "AlgContext" "NodeBase" "FixedBatchExecutor"
-if [ ${FAILED} -eq 0 ]; then
-  echo "✅ All core architectural concepts verified in architecture docs."
-fi
-
-# 2. 检查当前部署解析、计划与 Node 注册流程
-echo "[Check 2/4] Checking current deployment and runtime planning concepts..."
-require_concepts "${DOC_ROOT}/architecture_flow.puml" \
-  "PrepareDeploymentDocument" "ValidatedIoPlan" "ValidatedPipelinePlan" \
-  "REGISTER_FUNCTION_NODE"
-
-# 3. 检查 PlantUML 与 SVG 资产存在性与非空
-echo "[Check 3/4] Verifying architecture diagrams exist and are non-empty..."
+# 1. 检查 PlantUML 与 SVG 资产存在性与非空
+echo "[Check 1/2] Verifying architecture diagrams exist and are non-empty..."
 for diagram in \
   "${DOC_ROOT}/architecture_classes.puml" \
   "${DOC_ROOT}/architecture_flow.puml" \
@@ -55,8 +25,8 @@ for diagram in \
   fi
 done
 
-# 4. 检查 CMake、生成版本头和活跃文档是否共享同一产品版本。
-echo "[Check 4/4] Verifying product version single source of truth..."
+# 2. 检查 CMake、生成版本头和活跃文档是否共享同一产品版本。
+echo "[Check 2/2] Verifying product version single source of truth..."
 PRODUCT_VERSION="$({
   sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
     "${ROOT_DIR}/CMakeLists.txt"

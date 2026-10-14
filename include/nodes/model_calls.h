@@ -18,19 +18,18 @@ namespace detail {
 
 template <typename OutputBatchT, typename InputBatchT>
 inline NodeResult<OutputBatchT> ConvertAlignedOutputs(
-    const InputBatchT& inputs, OutputBatchT&& outputs, const std::string& label,
-    const std::string& slot_name) {
+    const InputBatchT& inputs, OutputBatchT&& outputs,
+    const std::string& label) {
   auto alignment = ValidatePreservedTraceableAlignment(inputs, outputs);
   if (alignment.error == TraceableAlignmentError::kCountMismatch) {
     return NodeResult<OutputBatchT>::Failure(
-        NodeErrorKind::kOutputCountMismatch, label + " output count mismatch",
-        node_error::author_node::kOutputCountMismatch, "align", slot_name);
+        label + " output count mismatch",
+        node_error::author_node::kOutputCountMismatch);
   }
   if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
     return NodeResult<OutputBatchT>::Failure(
-        NodeErrorKind::kOutputProvenanceMismatch,
         label + " output provenance mismatch",
-        node_error::author_node::kOutputProvenanceMismatch, "align", slot_name);
+        node_error::author_node::kOutputProvenanceMismatch);
   }
   return NodeResult<OutputBatchT>::Success(std::forward<OutputBatchT>(outputs));
 }
@@ -39,25 +38,22 @@ template <typename OutputBatchT, typename InputBatchT, typename ModelT,
           typename InvokeT>
 NodeResult<OutputBatchT> InvokeAlignedModel(
     const InputBatchT& inputs, const std::shared_ptr<ModelT>& model,
-    const std::string& label, const std::string& operation,
-    const std::string& slot_name, InvokeT invoke) {
+    const std::string& label, const std::string& operation, InvokeT invoke) {
   if (inputs.empty()) return NodeResult<OutputBatchT>::Success({});
   if (!model) {
     return NodeResult<OutputBatchT>::Failure(
-        NodeErrorKind::kModelCallError, label + " model is null",
-        node_error::author_node::kModelCallFailed, operation, slot_name);
+        label + " model is null", node_error::author_node::kModelCallFailed);
   }
   OutputBatchT outputs;
   std::string diagnostic;
   const int code = invoke(*model, &outputs, &diagnostic);
   if (code != 0) {
     return NodeResult<OutputBatchT>::Failure(
-        NodeErrorKind::kModelCallError,
         label + " " + operation + " failed with code " + std::to_string(code) +
             (diagnostic.empty() ? "" : ": " + diagnostic),
-        code, operation, slot_name);
+        code);
   }
-  return ConvertAlignedOutputs(inputs, std::move(outputs), label, slot_name);
+  return ConvertAlignedOutputs(inputs, std::move(outputs), label);
 }
 
 }  // namespace detail
@@ -93,7 +89,7 @@ class ModelCallBase {
   NodeResult<OutputBatchT> Invoke(const InputBatchT& inputs, const char* label,
                                   const char* operation, InvokeT invoke) const {
     return InvokeAlignedModel<OutputBatchT>(inputs, model_, label, operation,
-                                            slot_name_, std::move(invoke));
+                                            std::move(invoke));
   }
 
  private:

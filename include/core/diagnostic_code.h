@@ -54,4 +54,7 @@ enum class DiagnosticCode {
 
 const char* DiagnosticCodeName(DiagnosticCode code) noexcept;
 
+enum class ConfigFieldErrorKind;
+DiagnosticCode ConfigFieldDiagnosticCode(ConfigFieldErrorKind kind) noexcept;
+
 }  // namespace llm_edgeflow

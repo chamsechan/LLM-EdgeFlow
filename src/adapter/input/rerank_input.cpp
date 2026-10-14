@@ -82,7 +82,7 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
   InputConverterDefinition def;
   def.type = kInputSlot;
   def.name = "cross_rerank";
-  def.slot = ExternalInputSlot<RerankInputValue>(kInputSlot);
+  def.slot = ExternalInputSlot<RerankInputValue>();
   def.logical_ports = {OutputPort(kQueryText), OutputPort(kCandidates, "N:1")};
   def.decode_fn = &DecodeOperatorRerankInput;
   return def;

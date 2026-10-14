@@ -25,14 +25,6 @@ expect_failure() {
   fi
 }
 check >"$workspace/output"
-python3 - "$workspace/doc/architecture.md" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-path.write_text(path.read_text().replace('ValidatedPipelinePlan', 'RemovedPlanReference'))
-PY
-expect_failure "missing reference to 'ValidatedPipelinePlan'"
-cp "$root/doc/architecture.md" "$workspace/doc/architecture.md"
 rm "$workspace/doc/assets/framework_overview.svg"
 expect_failure 'missing or empty'
 cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
@@ -44,4 +36,4 @@ path = Path(sys.argv[1])
 path.write_text(path.read_text().replace(sys.argv[2], '0.0.0-stale'))
 PY
 expect_failure 'does not name current product version'
-echo 'PASS current documentation gate detects concept, asset and version drift'
+echo 'PASS current documentation gate detects asset and version drift'

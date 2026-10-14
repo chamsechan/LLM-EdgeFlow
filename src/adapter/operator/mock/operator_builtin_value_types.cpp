@@ -10,6 +10,22 @@ std::string ReadString(const CompanyString* value) {
   return !value || value->length == 0 ? std::string{}
                                       : std::string(value->data, value->length);
 }
+
+template <typename Host>
+OperatorValueTypeBinding MakeTextInputBinding(const char* suffix) {
+  auto binding = MakeTypedInputBinding<Host>(
+      suffix,
+      [](const Host& in, const InputLimits& limits, std::string* err) -> int {
+        return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
+                                     "sentence_text", err);
+      });
+  SetServiceTypeMember(&binding, &Host::service_type);
+  SetInputValue<Host, TextInputValue>(&binding, [](const Host& in) {
+    return TextInputValue{ReadString(in.sentence_text)};
+  });
+  return binding;
+}
+
 AdapterStatus WriteString(CompanyString* output, const std::string& text,
                           const char* field,
                           const ResolvedOutputPoolSpec& spec) {
@@ -36,30 +52,6 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
         });
     SetInputValue<CompanyString, std::string>(
         &binding, [](const CompanyString& in) { return ReadString(&in); });
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // buffer -> CompanyBuffer
-  {
-    auto binding = MakeTypedInputBinding<CompanyBuffer>(
-        "buffer",
-        [](const CompanyBuffer& in, const InputLimits& limits,
-           std::string* err) -> int {
-          return ValidateCompanyBuffer(&in, limits.max_buffer_bytes, "buffer",
-                                       err);
-        });
-    registry.RegisterBinding(std::move(binding));
-  }
-
-  // any -> CompanyAny
-  {
-    auto binding = MakeTypedInputBinding<CompanyAny>(
-        "any",
-        [](const CompanyAny& in, const InputLimits& limits,
-           std::string* err) -> int {
-          return ValidateCompanyAnyPayload(&in, limits.max_any_bytes, "any",
-                                           err);
-        });
     registry.RegisterBinding(std::move(binding));
   }
 
@@ -142,36 +134,16 @@ void RegisterMockOperatorBindings(OperatorValueTypeRegistry& registry) {
 
   // keyword_in -> CompanyOperatorKeywordInput
   {
-    auto binding = MakeTypedInputBinding<CompanyOperatorKeywordInput>(
-        "keyword_in",
-        [](const CompanyOperatorKeywordInput& in, const InputLimits& limits,
-           std::string* err) -> int {
-          return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
-                                       "sentence_text", err);
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorKeywordInput::service_type);
-    SetInputValue<CompanyOperatorKeywordInput, TextInputValue>(
-        &binding, [](const CompanyOperatorKeywordInput& in) {
-          return TextInputValue{ReadString(in.sentence_text)};
-        });
+    auto binding =
+        MakeTextInputBinding<CompanyOperatorKeywordInput>("keyword_in");
     binding.services = {{"keyword_match", kMockServiceKeywordMatch}};
     registry.RegisterBinding(std::move(binding));
   }
 
   // entity_in -> CompanyOperatorEntityInput
   {
-    auto binding = MakeTypedInputBinding<CompanyOperatorEntityInput>(
-        "entity_in",
-        [](const CompanyOperatorEntityInput& in, const InputLimits& limits,
-           std::string* err) -> int {
-          return ValidateCompanyString(in.sentence_text, limits.max_text_bytes,
-                                       "sentence_text", err);
-        });
-    SetServiceTypeMember(&binding, &CompanyOperatorEntityInput::service_type);
-    SetInputValue<CompanyOperatorEntityInput, TextInputValue>(
-        &binding, [](const CompanyOperatorEntityInput& in) {
-          return TextInputValue{ReadString(in.sentence_text)};
-        });
+    auto binding =
+        MakeTextInputBinding<CompanyOperatorEntityInput>("entity_in");
     binding.services = {{"entity_extract", kMockServiceEntityExtract},
                         {"translate", kMockServiceTranslate}};
     registry.RegisterBinding(std::move(binding));

@@ -17,7 +17,6 @@ namespace llm_edgeflow {
 struct ResolvedOperatorConfig {
   std::filesystem::path conf_path;
   std::filesystem::path pipeline_path;
-  std::filesystem::path model_root_path;
   std::unique_ptr<ValidatedIoPlan> io_plan;
   uint32_t effective_frame_depth = 0;  // 归一化后的输出池深度
   uint32_t effective_process_batch_limit =

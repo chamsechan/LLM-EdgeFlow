@@ -24,10 +24,8 @@ DocumentValidationResult ValidatePipelineDocument(
       result.ok = false;
       result.core_report = std::nullopt;
 
-      nlohmann::json diag_item = {{"code", diag.code},
-                                  {"path", diag.path},
-                                  {"message", diag.message},
-                                  {"severity", "error"}};
+      nlohmann::json diag_item = {
+          {"code", diag.code}, {"path", diag.path}, {"message", diag.message}};
       nlohmann::json resp = {
           {"ok", false}, {"diagnostics", nlohmann::json::array({diag_item})}};
       if (mode == DocumentValidationMode::kPlan) {

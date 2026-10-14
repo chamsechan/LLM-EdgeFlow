@@ -67,10 +67,4 @@ bool ReadAudioDataset(const std::string& manifest_path,
                       std::vector<AudioDatasetSample>* out_samples,
                       std::string* error_msg = nullptr);
 
-/**
- * @brief 终端高亮 Banner 与分割线排版
- */
-void PrintBanner(const std::string& title, const std::string& subtitle = "");
-void PrintDivider();
-
 }  // namespace alg_demo

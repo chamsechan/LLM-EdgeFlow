@@ -32,17 +32,11 @@ struct RankedCandidate {
   float score = 0.0f;
   int rank = 0;
   uint32_t original_sub_id = 0;
-  nlohmann::json metadata = nlohmann::json::object();
 
   RankedCandidate() = default;
   RankedCandidate(std::string t, float s = 0.0f, int r = 0,
-                  uint32_t orig_sub = 0,
-                  nlohmann::json meta = nlohmann::json::object())
-      : text(std::move(t)),
-        score(s),
-        rank(r),
-        original_sub_id(orig_sub),
-        metadata(std::move(meta)) {}
+                  uint32_t orig_sub = 0)
+      : text(std::move(t)), score(s), rank(r), original_sub_id(orig_sub) {}
 };
 
 /**
@@ -108,7 +102,6 @@ using RuleMatchBatch = std::vector<TraceableItem<RuleMatchItem>>;
 enum class JsonParseStatus {
   kOk = 0,
   kExtractedFromMarkdown = 1,
-  kAutoClosed = 2,
   kFallbackApplied = 3,
   kFailed = 4,
 };
@@ -192,11 +185,6 @@ struct BlackboardTypeTraits<ScoreBatch> {
 template <>
 struct BlackboardTypeTraits<ImageFrameBatch> {
   static constexpr const char* TypeName() { return "ImageFrameBatch"; }
-};
-
-template <>
-struct BlackboardTypeTraits<std::vector<uint64_t>> {
-  static constexpr const char* TypeName() { return "vector<uint64>"; }
 };
 
 using Int32Batch = std::vector<TraceableItem<int32_t>>;

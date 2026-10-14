@@ -151,6 +151,55 @@ TEST_F(IoParametersTest,
 }
 
 TEST_F(IoParametersTest,
+       ConfigAndPipelineSymlinksWithinTheirRootsResolveToTargets) {
+  std::filesystem::create_symlink(config_ / "deploy.conf",
+                                  root_ / "linked.conf");
+  std::filesystem::create_symlink(config_ / "pipeline.json",
+                                  config_ / "linked.json");
+  WriteConfig("linked.json");
+
+  ResolvedOperatorConfig result;
+  DeploymentDiagnostic diagnostic;
+  ASSERT_EQ(Resolve("linked.conf", 2, &result, &diagnostic), 0) << error_;
+  EXPECT_EQ(result.conf_path, config_ / "deploy.conf");
+  EXPECT_EQ(result.pipeline_path, config_ / "pipeline.json");
+  EXPECT_TRUE(diagnostic.code.empty());
+}
+
+TEST_F(IoParametersTest,
+       PathContainmentRejectsSiblingDirectoriesSharingRootPrefixes) {
+  const auto root_extra = directory_ / "root_extra";
+  std::filesystem::create_directory(root_extra);
+  std::ofstream(root_extra / "deploy.conf")
+      << Json{{"pipe_path", "pipeline.json"}}.dump();
+  std::ofstream(root_extra / "pipeline.json") << KeywordDeployment().dump();
+  std::filesystem::create_symlink(root_extra / "deploy.conf",
+                                  root_ / "linked.conf");
+
+  DeploymentDiagnostic diagnostic;
+  ResolvedOperatorConfig rejected_config;
+  EXPECT_EQ(Resolve("linked.conf", 2, &rejected_config, &diagnostic), -2);
+  EXPECT_EQ(rejected_config.io_plan, nullptr);
+  EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
+  EXPECT_EQ(diagnostic.path, "/");
+  EXPECT_NE(error_.find("symlink escapes model_path"), std::string::npos);
+
+  const auto conf_extra = root_ / "conf_extra";
+  std::filesystem::create_directory(conf_extra);
+  std::ofstream(conf_extra / "pipeline.json") << KeywordDeployment().dump();
+  WriteConfig((conf_extra / "pipeline.json").string());
+
+  ResolvedOperatorConfig rejected_pipeline;
+  EXPECT_EQ(Resolve("conf/deploy.conf", 2, &rejected_pipeline, &diagnostic),
+            -2);
+  EXPECT_EQ(rejected_pipeline.io_plan, nullptr);
+  EXPECT_EQ(diagnostic.code, "DEPLOYMENT_ERROR");
+  EXPECT_EQ(diagnostic.path, "/pipe_path");
+  EXPECT_NE(error_.find("pipe_path escapes config directory"),
+            std::string::npos);
+}
+
+TEST_F(IoParametersTest,
        DeploymentConfAcceptsOnlyPipePathAndDoesNotSearchForMissingPipelines) {
   DeploymentIoConfig config;
   DeploymentDiagnostic diagnostic;

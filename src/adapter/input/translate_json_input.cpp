@@ -51,7 +51,7 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   InputConverterDefinition def;
   def.type = kInputSlot;
   def.name = "translate";
-  def.slot = ExternalInputSlot<TextInputValue>(kInputSlot);
+  def.slot = ExternalInputSlot<TextInputValue>();
   def.logical_ports = {OutputPort(kQuery)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;

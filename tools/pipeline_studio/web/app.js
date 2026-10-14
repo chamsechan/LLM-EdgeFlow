@@ -351,7 +351,7 @@ function renderBizContract() {
       fields(container, [
         [`${label} Converter`, `${entry.type}/${entry.name}`],
         ["宿主类型", converter?.slot?.type_id],
-        ["类型注册后缀", converter?.slot?.type_suffix],
+        ["类型注册后缀", converter?.type],
       ]);
     }
   }

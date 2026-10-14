@@ -188,29 +188,23 @@ TEST(SessionResourcesTest, NullAndTypedFacadeFailuresAreNotCached) {
   SessionResources resources(session);
   const SessionResourceKey<int> typed("typed");
   NodeFailure failure;
-  failure.kind = NodeErrorKind::kInputError;
   failure.message = "typed failure";
   failure.cause_code = -77;
-  failure.stage = "hydrate";
-  failure.model_slot = "dictionary";
-  failure.source_location = "resource producer";
   failure.batch_detail =
       BatchFailureDetail{"resource factory", BatchFailureReason::kMissing,
                          TraceableItemKey{15, 9}};
   auto failed = resources.GetOrCreateResult<int>(
       typed, [&] { return NodeResult<int>::Failure(failure); });
   ASSERT_FALSE(failed.ok());
-  EXPECT_EQ(failed.failure().kind, NodeErrorKind::kInputError);
   EXPECT_EQ(failed.failure().cause_code, -77);
   EXPECT_EQ(failed.failure().message, "typed failure");
-  EXPECT_EQ(failed.failure().stage, "hydrate");
-  EXPECT_EQ(failed.failure().model_slot, "dictionary");
-  EXPECT_EQ(failed.failure().source_location, "resource producer");
   ASSERT_TRUE(failed.failure().batch_detail);
   EXPECT_EQ(failed.failure().batch_detail->operation, "resource factory");
   EXPECT_EQ(failed.failure().batch_detail->reason,
             BatchFailureReason::kMissing);
   EXPECT_EQ(failed.failure().batch_detail->key, (TraceableItemKey{15, 9}));
+  EXPECT_EQ(failed.failure().FormatDiagnostic(),
+            "resource factory missing for req_id=15, sub_id=9: typed failure");
   auto retry = resources.GetOrCreateResult<int>(
       typed, [] { return NodeResult<int>::Success(8); });
   ASSERT_TRUE(retry.ok());

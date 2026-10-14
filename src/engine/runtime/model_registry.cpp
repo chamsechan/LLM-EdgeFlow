@@ -134,37 +134,19 @@ std::shared_ptr<IModel> ModelRegistry::Create(
       creator = it->second.creator;
     }
 
-    try {
-      return creator(context, diagnostic);
-    } catch (const std::exception& error) {
-      SetDiagnosticNoexcept(diagnostic, "Exception creating model " +
-                                            impl_name + ": " + error.what());
-      return nullptr;
-    } catch (...) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "Unknown exception creating model " + impl_name);
-      return nullptr;
-    }
+    return creator(context, diagnostic);
   } catch (const std::exception& error) {
     try {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing model " +
+      SetDiagnosticNoexcept(diagnostic, "Exception creating model " +
                                             impl_name + ": " + error.what());
     } catch (...) {
-      SetDiagnosticNoexcept(diagnostic, "Exception preparing model");
+      SetDiagnosticNoexcept(diagnostic, "Exception creating model");
     }
     return nullptr;
   } catch (...) {
-    SetDiagnosticNoexcept(diagnostic, "Unknown exception preparing model");
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception creating model");
     return nullptr;
   }
-}
-
-bool ModelRegistry::Has(const std::string& impl_name) const noexcept {
-  return registry_support::HasType(mutex_, entries_, impl_name);
-}
-
-std::vector<std::string> ModelRegistry::ListImplNames() const {
-  return registry_support::ListTypes(mutex_, entries_);
 }
 
 std::vector<ModelDefinition> ModelRegistry::ListDefinitions() const {

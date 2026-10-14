@@ -57,32 +57,16 @@ TEST(PlatformCarrierContractsTest,
 }
 
 TEST(PlatformCarrierContractsTest,
-     GenericBufferAndAnyValidatePhysicalLengthAndWhitelistedSizeEquation) {
-  const auto& buffer_binding = Native("buffer");
-  std::array<uint8_t, 3> bytes{1, 0, 3};
-  CompanyBuffer buffer{3, bytes.data()};
-  InputLimits limits;
-  limits.max_buffer_bytes = 3;
-  std::string error;
-  EXPECT_EQ(buffer_binding.validate_external(&buffer, limits, &error), 0);
-  EXPECT_FALSE(
-      buffer_binding
-          .read_value);  // These generic carriers have validation only.
-  buffer.length = -1;
-  Reject(buffer_binding, &buffer, limits, "negative length");
-  buffer.length = 4;
-  Reject(buffer_binding, &buffer, limits, "exceeds max limit");
-  buffer = {1, nullptr};
-  Reject(buffer_binding, &buffer, limits, "data pointer is null");
-  buffer.length = 0;
-  EXPECT_EQ(buffer_binding.validate_external(&buffer, limits, &error), 0);
-
-  const auto& any_binding = Native("any");
+     FrameMetadataValidatesPhysicalLengthAndWhitelistedSizeEquation) {
+  const auto& binding = Native("frame");
+  std::array<uint8_t, 3> pixels{1, 0, 3};
   std::array<int32_t, 2> values{7, -2};
   CompanyAny any{2, 2, 8, values.data()};
+  CompanyFrame frame{kMockServiceOcrInvoiceQa, 1, 1, 3, pixels.data(), &any};
+  InputLimits limits;
   limits.max_any_bytes = 8;
-  EXPECT_EQ(any_binding.validate_external(&any, limits, &error), 0);
-  EXPECT_FALSE(any_binding.read_value);
+  std::string error;
+  EXPECT_EQ(binding.validate_external(&frame, limits, &error), 0);
   for (const auto invalid :
        {CompanyAny{999, 2, 8, values.data()},
         CompanyAny{2, -1, 8, values.data()},
@@ -90,10 +74,14 @@ TEST(PlatformCarrierContractsTest,
         CompanyAny{2, 3, 12, values.data()}, CompanyAny{2, 2, 8, nullptr},
         CompanyAny{0, 1, 0, nullptr}}) {
     SCOPED_TRACE(invalid.type_id);
-    Reject(any_binding, &invalid, limits, "any");
+    frame.metadata = &invalid;
+    Reject(binding, &frame, limits, "CompanyFrame.metadata");
   }
   CompanyAny empty{0, 0, 0, nullptr};
-  EXPECT_EQ(any_binding.validate_external(&empty, limits, &error), 0);
+  frame.metadata = &empty;
+  EXPECT_EQ(binding.validate_external(&frame, limits, &error), 0);
+  frame.metadata = nullptr;
+  EXPECT_EQ(binding.validate_external(&frame, limits, &error), 0);
 }
 
 TEST(PlatformCarrierContractsTest,

@@ -113,6 +113,18 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
 
 状态只在 C 结构的 `status_code` 中；JSON 对象和数组保持 JSON 类型，不再放在嵌套的字符串字段中。
 
+### 参考实现与测试
+
+平台载体读取见 [mock binding](../../src/adapter/operator/mock/platform_value_binding.cpp)，
+业务字段选择和响应组装见 [InputConverter](../../src/adapter/input/) 与
+[OutputConverter](../../src/adapter/output/)。平台结构只位于 `include/platform_mock/`；
+相同中立值类型可以承载不同业务语义。
+
+[平台载体契约测试](../../tests/contract/abi/test_adapter_contract_security.cpp) 执行实际 binding，
+覆盖字符串、嵌套字段、带行 padding 的 RGB、PCM 和候选数组的复制及边界。
+[Converter 公共机制测试](../../tests/unit/adapter/test_converter_contracts.cpp) 覆盖行关联和原子发布，
+[业务 Converter 测试](../../tests/unit/adapter/test_io_converters.cpp) 核对完整字段。
+
 ## 3. 实现并注册转换器
 
 先选择可复用的输入、输出转换器，并在配置中组合；只有缺少兼容转换器时才实现对应步骤。
@@ -139,15 +151,16 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    Converter 保留业务状态检查和完整 JSON 响应组装。定义 `OutputConverterDefinition`
    并用 `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **声明选择、参数与逻辑端口。**
-   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主槽，`slot.type_suffix == type`。
-   用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中立类型，审计要求与 binding
+   每个方向的 `(type, name)` 唯一，每份登记只有一个宿主槽；`type` 选择宿主 binding。
+   用 `ExternalInputSlot<Value>()` / `ExternalOutputSlot<Value>()` 声明中立类型，审计要求与 binding
    的 `value_type` 一致。`name` 是中性业务名；结构带业务成员时，binding 的 `services` 显式
    映射非 common 名称到平台枚举，Converter 不包含枚举。`common` 和无该成员的结构没有期望业务值。
    逻辑端口是 typed Blackboard key，接入准备将所选端口组合为 Core 必传边界。
    每个输入发布不同端口；多个输入槽按同一批内行号配对，载体无需请求 ID 字段。
    声明参数使用普通 `Params` 与 `Parameters<Params>`，每个字段有默认值或 Required；
    无默认的 optional 可省略。Create 校验、赋值、Prepare、Validate 一次，Process 只读共享值。
-   输出的每个字符串字段使用 `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
+   当前 `json_out` 直接用 `JsonOutputParameters()` 共享容量声明；其他输出的每个字符串字段使用
+   `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
 
 ## 4. 需要新的宿主类型时
 
@@ -207,14 +220,10 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 
 ## 6. 输出容量
 
-Process 有效批次上限为 `min(max_frame_depth, 64)`；超过时失败，不自动拆批。
-池深 0 使用默认 25，池深硬上限为 1024。输出池数量与业务响应字节容量是不同限制。
-
-当前统一输出只声明 `params.result_json_max_bytes`，默认 8191 字节，范围 1–65536，
-限制完整 JSON 响应的字节数。未来新增结构时，每个输出字符串字段仍对应
-`params.<field>_max_bytes`，最小值为 1，默认值只在转换器声明。
-平台布局只保留硬上限；框架在 Prepare 后读取生效参数，生成全部池容量并检查总载荷预算。
-例如翻译 `json_out/translate` 自带 `result_json_max_bytes = 8191`，不用在配置重复填写。
+输出池深控制可同时持有的输出数量，`params.result_json_max_bytes` 控制单份完整 JSON 响应的字节容量。
+默认值、硬上限和布局规则统一见[输出容量声明](operator_output_allocation.md#选择转换器与参数)，
+批次限制见[宿主调用约定](operator_output_allocation.md#宿主调用与生命周期)。
+普通业务不必重复填写默认容量；需要覆盖时，在所选输出项配置参数，例如：
 
 ```json
 {"type":"json_out", "name":"doc_qa", "params":{"result_json_max_bytes":16383}}

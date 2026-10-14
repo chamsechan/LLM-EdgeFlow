@@ -18,8 +18,8 @@ and displays or copies the result. Reusing a host struct does not imply compatib
    `ControlCommand` at entry. Callers pass the existing enum values as integers.
 4. Register ordinary input callbacks under `src/adapter/input/` and output callbacks under
    `src/adapter/output/`, using `REGISTER_INPUT_CONVERTER` / `REGISTER_OUTPUT_CONVERTER`.
-   Each direction identifies a registration by `(type, name)`. Its single slot has matching
-   `type_suffix` and neutral `value_type`; logical ports are typed internal Blackboard keys.
+   Each direction identifies a registration by `(type, name)`. `type` selects the platform binding;
+   its single slot declares the neutral `value_type`. Logical ports are typed internal Blackboard keys.
    `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` use owned values from
    `adapter/io_values.h`. Only binding files know platform types and their layouts.
 5. Pipeline root `io.input` / `io.output` are nonempty arrays selecting `{type, name, params?}`; outputs also declare `inputs`.

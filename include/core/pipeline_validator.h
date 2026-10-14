@@ -17,7 +17,6 @@ struct ValidationDiagnostic {
   DiagnosticCode code = DiagnosticCode::kOk;
   std::string path;
   std::string message;
-  std::string severity = "error";
   std::string node_name;
   std::string port;
   std::vector<std::string> related_nodes;
@@ -74,9 +73,6 @@ class PipelineValidator {
   // JSON.
   static ValidatedPipelinePlan ValidateParsedAndPlan(
       ParsedPipelineConfig config, const PipelineIoBoundary& io_boundary);
-
-  static ValidationReport Validate(const nlohmann::json& root,
-                                   const PipelineIoBoundary& io_boundary);
 };
 
 /**
