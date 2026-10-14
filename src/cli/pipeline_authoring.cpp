@@ -374,10 +374,8 @@ nlohmann::json AuthoringResult::ToJson() const {
   if (!diagnostics.empty()) {
     j["diagnostics"] = nlohmann::json::array();
     for (const auto& d : diagnostics) {
-      j["diagnostics"].push_back({{"code", "AUTHORING_ERROR"},
-                                  {"path", "/"},
-                                  {"message", d},
-                                  {"severity", "error"}});
+      j["diagnostics"].push_back(
+          {{"code", "AUTHORING_ERROR"}, {"path", "/"}, {"message", d}});
     }
   }
   if (failed_operation_index.has_value()) {

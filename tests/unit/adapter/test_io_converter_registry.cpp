@@ -8,6 +8,7 @@
 
 #include "adapter/converter_authoring.h"
 #include "adapter/deployment_preparation.h"
+#include "adapter/io_catalog.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_values.h"
 #include "adapter/operator/operator_value_type_registry.h"
@@ -42,7 +43,7 @@ InputConverterDefinition Input(const std::string& name) {
   InputConverterDefinition def;
   def.type = "string";
   def.name = name;
-  def.slot = ExternalInputSlot<std::string>("string");
+  def.slot = ExternalInputSlot<std::string>();
   def.logical_ports = {OutputPort(kValue)};
   def.params =
       Parameters<InputParams>{Field("gain", &InputParams::gain).Default(3)};
@@ -53,13 +54,45 @@ OutputConverterDefinition Output(const std::string& name) {
   OutputConverterDefinition def;
   def.type = "json_out";
   def.name = name;
-  def.slot = ExternalOutputSlot<JsonOutputValue>("json_out");
+  def.slot = ExternalOutputSlot<JsonOutputValue>();
   def.logical_ports = {RequiredInputPort(kAnswer)};
   def.params = Parameters<OutputParams>{
       MaxBytes("result_json", &OutputParams::result_json_max_bytes)
           .Default(31)};
   def.encode_fn = IgnoreOutput;
   return def;
+}
+
+TEST(IoConverterRegistryTest,
+     CatalogTypesResolveBindingsAndJsonCapacityLimits) {
+  const auto catalog = IoCatalog::ToJson();
+  auto& registry = IoConverterRegistry::Instance();
+  for (const auto* direction : {"input_converters", "output_converters"}) {
+    ASSERT_FALSE(catalog.at(direction).empty());
+    for (const auto& converter : catalog.at(direction)) {
+      const auto type = converter.at("type").get<std::string>();
+      const auto* binding =
+          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(type);
+      ASSERT_NE(binding, nullptr) << type;
+      EXPECT_EQ(converter.at("slot").at("type_id"),
+                binding->external_c_type_name);
+    }
+  }
+  for (const auto& converter : catalog.at("output_converters")) {
+    if (converter.at("type") != "json_out") continue;
+    SCOPED_TRACE(converter.at("name").get<std::string>());
+    const auto* definition = registry.FindOutputConverter(
+        "json_out", converter.at("name").get<std::string>());
+    ASSERT_NE(definition, nullptr);
+    std::shared_ptr<const ParameterValues> values;
+    ASSERT_TRUE(definition->params.Parse(Json::object(), &values));
+    EXPECT_EQ(values->Effective().at("result_json_max_bytes"), 8191);
+    const auto fields = OutputConverterParameterFields(*definition);
+    ASSERT_EQ(fields.size(), 1u);
+    EXPECT_EQ(fields.front().name, "result_json_max_bytes");
+    EXPECT_EQ(fields.front().minimum, 1);
+    EXPECT_EQ(fields.front().maximum, 65536);
+  }
 }
 
 TEST(IoConverterRegistryTest,
@@ -74,7 +107,7 @@ TEST(IoConverterRegistryTest,
         auto output = Output("common");
         ASSERT_TRUE(registry.RegisterOutputConverter(output));
         ASSERT_TRUE(registry.RegisterOutputConverter(Output("translate")));
-        input.slot.type_suffix = "changed";
+        input.type = "changed";
         input.logical_ports.clear();
         input.params = {};
         output.slot.required = false;
@@ -84,7 +117,7 @@ TEST(IoConverterRegistryTest,
         EXPECT_EQ(registry.FindInputConverter("other", "common"), nullptr);
         EXPECT_EQ(registry.FindOutputConverter("json_out", "unknown"), nullptr);
         const auto* owned = registry.FindInputConverter("string", "common");
-        EXPECT_EQ(owned->slot.type_suffix, "string");
+        EXPECT_EQ(owned->type, "string");
         ASSERT_EQ(owned->logical_ports.size(), 1u);
         std::shared_ptr<const ParameterValues> values;
         ASSERT_TRUE(owned->params.Parse(Json::object(), &values));
@@ -165,17 +198,16 @@ TEST(IoConverterRegistryTest,
           const char* error;
         };
         std::vector<InvalidAudit> cases;
-        auto suffix = Input("common");
-        suffix.slot.type_suffix = "wrong_suffix";
-        cases.push_back({"suffix", suffix, Output("common"),
-                         "Slot type_suffix must equal converter type"});
+        auto missing = Input("common");
+        missing.type = "unregistered";
+        cases.push_back({"missing binding", missing, Output("common"),
+                         "No registered platform binding for the slot"});
         auto value_type = Input("common");
         value_type.slot.value_type = typeid(int);
         cases.push_back({"value identity", value_type, Output("common"),
                          "Slot value type does not match"});
         auto direction = Input("common");
         direction.type = "json_out";
-        direction.slot.type_suffix = "json_out";
         cases.push_back({"direction", direction, Output("common"),
                          "No registered platform binding for the slot"});
         auto ports = Input("common");

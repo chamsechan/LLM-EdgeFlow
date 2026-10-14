@@ -7,6 +7,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_values.h"
+#include "adapter/json_output_parameters.h"
 #include "adapter/output/rule_match_response.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
@@ -21,16 +22,6 @@ constexpr auto kTranscribedText =
 constexpr auto kIntentSlot = MakeBlackboardKey<RuleMatchBatch>("intent_slot");
 
 constexpr const char* kOutputSlot = "json_out";
-
-struct Params {
-  int64_t result_json_max_bytes = 0;
-};
-
-Parameters<Params> ParamSpec() {
-  return Parameters<Params>({
-      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
-  });
-}
 
 int EncodeOperatorAudioResult(AlgContext* context,
                               const OutputEncodeOptions& options,
@@ -97,10 +88,10 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "audio_asr_intent";
-  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>();
   def.logical_ports = {RequiredInputPort(kTranscribedText),
                        RequiredInputPort(kIntentSlot)};
-  def.params = ParamSpec();
+  def.params = JsonOutputParameters();
   def.encode_fn = &EncodeOperatorAudioResult;
   return def;
 }

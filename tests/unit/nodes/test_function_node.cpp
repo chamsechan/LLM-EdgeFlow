@@ -214,7 +214,7 @@ TEST(AuthorNodeTest, AllDeclaredOutputsAreValidatedBeforeAnyPublication) {
         [&](const TextInputs& input) {
           if (row.fault == Fault::kFailure || row.fault == Fault::kExplicitCode)
             return NodeResult<Outputs>::Failure(
-                NodeErrorKind::kBusinessError, "literal Run failure",
+                "literal Run failure",
                 row.fault == Fault::kExplicitCode ? -7341 : 0);
           Outputs output{*input.text, *input.text};
           if (row.fault == Fault::kCount) output.shadow.pop_back();
@@ -350,29 +350,22 @@ TEST(ModelCallTest, SharedAlignedInvocationOwnsEmptyErrorAndProvenanceRules) {
     bool bound;
     RecordingLlm::Reply reply;
     int code;
-    NodeErrorKind kind;
-    const char* stage;
     const char* error;
   };
   const std::vector<Case> cases{
-      {"empty bound", true, true, RecordingLlm::Reply::kValid, 0,
-       NodeErrorKind::kBusinessError, "", ""},
-      {"empty unbound", true, false, RecordingLlm::Reply::kValid, 0,
-       NodeErrorKind::kBusinessError, "", ""},
+      {"empty bound", true, true, RecordingLlm::Reply::kValid, 0, ""},
+      {"empty unbound", true, false, RecordingLlm::Reply::kValid, 0, ""},
       {"unbound nonempty", false, false, RecordingLlm::Reply::kValid, -8003,
-       NodeErrorKind::kModelCallError, "generate", "model is null"},
+       "model is null"},
       {"model error", false, true, RecordingLlm::Reply::kError, -771,
-       NodeErrorKind::kModelCallError, "generate", "literal model failure"},
+       "literal model failure"},
       {"count", false, true, RecordingLlm::Reply::kCount, -8004,
-       NodeErrorKind::kOutputCountMismatch, "align", "count mismatch"},
+       "count mismatch"},
       {"request", false, true, RecordingLlm::Reply::kRequest, -8005,
-       NodeErrorKind::kOutputProvenanceMismatch, "align",
        "provenance mismatch"},
       {"sub", false, true, RecordingLlm::Reply::kSubId, -8005,
-       NodeErrorKind::kOutputProvenanceMismatch, "align",
        "provenance mismatch"},
-      {"valid", false, true, RecordingLlm::Reply::kValid, 0,
-       NodeErrorKind::kBusinessError, "", ""},
+      {"valid", false, true, RecordingLlm::Reply::kValid, 0, ""},
   };
   for (const auto& row : cases) {
     SCOPED_TRACE(row.name);
@@ -384,9 +377,6 @@ TEST(ModelCallTest, SharedAlignedInvocationOwnsEmptyErrorAndProvenanceRules) {
     if (row.code) {
       ASSERT_FALSE(result.ok());
       EXPECT_EQ(result.failure().cause_code, row.code);
-      EXPECT_EQ(result.failure().kind, row.kind);
-      EXPECT_EQ(result.failure().stage, row.stage);
-      EXPECT_EQ(result.failure().model_slot, "chosen_slot");
       EXPECT_NE(result.failure().message.find(row.error), std::string::npos);
     } else {
       ASSERT_TRUE(result.ok());
@@ -414,7 +404,6 @@ TEST(AuthorNodeTest, InitCopiesResolvedKeysParametersFactsAndModelBinding) {
   ModelRegistration registration;
   registration.model_name = "resolved_model";
   registration.model = model;
-  registration.revision = "revision-1";
   ASSERT_TRUE(session.GetModelManager().RegisterBatch({registration}));
   int model_validations = 0;
   std::string seen_model, seen_slot, seen_lifetime;
@@ -668,10 +657,8 @@ TEST(AuthorNodeTest, OneProcessHoldsOneSnapshotForItsWholeBatch) {
   EXPECT_EQ(new_output->at(1).data, "new/tail:session|blue");
 }
 
-TEST(ConfigurationSnapshotTest,
-     MissingAndNullInitializationCannotReplaceState) {
+TEST(ConfigurationSnapshotTest, UpdateRequiresValueInitialization) {
   ConfigurationSnapshot<int> snapshot;
-  EXPECT_FALSE(snapshot.IsInitialized());
   EXPECT_EQ(snapshot.Read(), nullptr);
   bool built = false;
   const auto result = snapshot.Update([&](const int& current) {
@@ -681,12 +668,10 @@ TEST(ConfigurationSnapshotTest,
   EXPECT_FALSE(built);
   EXPECT_EQ(result.status, NodeControlStatus::kFailed);
   EXPECT_EQ(result.code, -1);
-  EXPECT_FALSE(snapshot.Initialize(std::shared_ptr<const int>{}));
+  EXPECT_EQ(result.message, "ConfigurationSnapshot is not initialized");
   ASSERT_TRUE(snapshot.Initialize(10));
   auto reader = snapshot.Read();
   ASSERT_NE(reader, nullptr);
-  EXPECT_FALSE(snapshot.Initialize(std::shared_ptr<const int>{}));
-  EXPECT_EQ(snapshot.Read(), reader);
   EXPECT_EQ(*reader, 10);
 }
 
@@ -694,22 +679,20 @@ TEST(ConfigurationSnapshotTest,
      RejectedCandidatesPreserveOldReaderAndCurrentState) {
   ConfigurationSnapshot<int> snapshot(10);
   auto reader = snapshot.Read();
-  for (int fault : {0, 1, 2, 3}) {
+  for (int fault : {0, 1, 2}) {
     SCOPED_TRACE(fault);
-    const auto result = snapshot.Update(
-        [&](const int&) -> NodeResult<std::shared_ptr<const int>> {
-          if (fault == 0)
-            return NodeResult<std::shared_ptr<const int>>::Failure(
-                NodeErrorKind::kBusinessError, "literal candidate rejection",
-                -742);
-          if (fault == 1)
-            throw std::runtime_error("literal candidate exception");
-          if (fault == 2) throw 42;
-          return NodeResult<std::shared_ptr<const int>>::Success(nullptr);
-        });
+    const auto result = snapshot.Update([&](const int&) -> NodeResult<int> {
+      if (fault == 0)
+        return NodeResult<int>::Failure("literal candidate rejection", -742);
+      if (fault == 1) throw std::runtime_error("literal candidate exception");
+      throw 42;
+    });
     EXPECT_EQ(result.status, NodeControlStatus::kFailed);
     EXPECT_EQ(result.code, fault == 0 ? -742 : -1);
-    EXPECT_FALSE(result.message.empty());
+    EXPECT_EQ(result.message,
+              fault == 0   ? "literal candidate rejection"
+              : fault == 1 ? "literal candidate exception"
+                           : "Unknown exception during configuration update");
     EXPECT_EQ(snapshot.Read(), reader);
     EXPECT_EQ(*reader, 10);
   }
@@ -750,11 +733,10 @@ TEST(ConfigurationSnapshotTest,
   }
   gate.changed.notify_all();
   const auto first_result = first.get();
-  const auto second_result =
-      snapshot.Update([&](std::shared_ptr<const int> value) {
-        second_base = *value;
-        return NodeResult<int>::Success(*value + 1);
-      });
+  const auto second_result = snapshot.Update([&](const int& value) {
+    second_base = value;
+    return NodeResult<int>::Success(value + 1);
+  });
   EXPECT_TRUE(entered);
   EXPECT_EQ(unpublished, 10);
   EXPECT_EQ(*while_preparing, 10);

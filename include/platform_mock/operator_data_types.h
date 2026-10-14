@@ -33,14 +33,6 @@ typedef struct CompanyString {
 } CompanyString;
 
 /**
- * @brief Operator 二进制通用缓冲区镜像结构
- */
-typedef struct CompanyBuffer {
-  int32_t length;  // 有效字节数
-  uint8_t* data;   // 指向字节数据区
-} CompanyBuffer;
-
-/**
  * @brief Operator 白名单类型泛型载荷镜像结构
  */
 typedef struct CompanyAny {

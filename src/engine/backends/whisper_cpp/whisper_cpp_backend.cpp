@@ -245,8 +245,7 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
 
     const std::string platform =
         NormalizePlatform(spec.execution_target.platform);
-    if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
-        platform != "CPU_GENERIC") {
+    if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU") {
       SetDiagnosticNoexcept(
           diagnostic,
           "whisper_cpp backend only supports CPU execution targets, "

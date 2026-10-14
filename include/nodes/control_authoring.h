@@ -63,8 +63,7 @@ class FieldControlCommand {
       const Parameters<ParamsT>& params) const {
     return ControlCommandDefinition(cmd_id_, name_,
                                     description_.empty() ? name_ : description_,
-                                    GenerateSchema(params),
-                                    /*hot_swap=*/true);
+                                    GenerateSchema(params));
   }
 
   template <typename ParamsT>
@@ -92,14 +91,12 @@ class FieldControlCommand {
               if (!params.AssignField(field_name, payload[field_name], &next,
                                       &assign_err)) {
                 return NodeResult<ParamsT>::Failure(
-                    NodeErrorKind::kBusinessError, assign_err,
-                    node_error::control::kInvalidRequest);
+                    assign_err, node_error::control::kInvalidRequest);
               }
             }
             std::string val_err;
             if (!params.ValidateState(&next, facts, &val_err)) {
               return NodeResult<ParamsT>::Failure(
-                  NodeErrorKind::kBusinessError,
                   val_err.empty()
                       ? "Parameter validation failed after control update"
                       : val_err,

@@ -210,40 +210,6 @@ int ValidateCompanyString(const CompanyString* str, size_t max_bytes,
   }
 }
 
-int ValidateCompanyBuffer(const CompanyBuffer* buf, size_t max_bytes,
-                          const char* field_name, std::string* err) noexcept {
-  try {
-    const char* name = field_name ? field_name : "buffer";
-    if (!buf) {
-      if (err) *err = std::string(name) + " pointer is null";
-      return -3;
-    }
-    if (buf->length < 0) {
-      if (err)
-        *err = std::string(name) + " has negative length " +
-               std::to_string(buf->length);
-      return -3;
-    }
-    if (static_cast<size_t>(buf->length) > max_bytes) {
-      if (err)
-        *err = std::string(name) + " length exceeds max limit " +
-               std::to_string(max_bytes);
-      return -3;
-    }
-    if (buf->length > 0 && !buf->data) {
-      if (err) *err = std::string(name) + " data pointer is null";
-      return -3;
-    }
-    return 0;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(err, e.what());
-    return -3;
-  } catch (...) {
-    SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyBuffer");
-    return -3;
-  }
-}
-
 int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
                               const char* field_name,
                               std::string* err) noexcept {

@@ -28,9 +28,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Models& models) {
     const auto& question = (*inputs.questions)[i];
     const auto& embedding = embeddings.value()[i].data;
     if (embedding.empty()) {
-      return NodeResult<TextBatch>::Failure(NodeErrorKind::kBusinessError,
-                                            "Question embedding is empty", 0,
-                                            "prepare_prompt", "encoder");
+      return NodeResult<TextBatch>::Failure("Question embedding is empty");
     }
     prompts.emplace_back(question.req_id, question.sub_id,
                          question.data + "\nEmbedding dimensions: " +

@@ -58,22 +58,6 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
                            std::string* err) noexcept;
 
 /**
- * @brief 计算输出池预分配业务载荷的确定性字节数
- *
- * 由 binding 计入外层结构、嵌套布局及其数据区；
- * 不把 STL 容器、allocator、控制块等实现相关管理开销伪装成可精确计算的载荷。
- */
-bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
-                                   const ResolvedOutputPoolSpec& spec,
-                                   uint32_t depth, size_t* out_bytes,
-                                   std::string* err) noexcept;
-
-bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
-                                   const ResolvedOutputPoolSpec& spec,
-                                   uint32_t depth, size_t* out_bytes,
-                                   std::string* err) noexcept;
-
-/**
  * @brief Operator 全局值类型表 (SSOT)
  */
 class OperatorValueTypeRegistry {

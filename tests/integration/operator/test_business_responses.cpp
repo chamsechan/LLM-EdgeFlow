@@ -381,6 +381,49 @@ TEST_F(BusinessResponsesTest,
 }
 
 TEST_F(BusinessResponsesTest,
+       StronglyTypedPromptControlUpdatesResponsesAndRejectsInvalidTemplates) {
+  Create(Pipeline("translate", {"entity_in"}, {{"translation", "prompt.text"}},
+                  {Node("text_template", "prompt", {{"primary", "input.query"}},
+                        {{"template", "old={{primary}}"}})},
+                  Json::array()));
+  std::array<std::string, 2> raw{R"({"query":"hello"})",
+                                 R"({"query":"goodbye"})"};
+  std::array<CompanyString, 2> text{Borrow(raw[0]), Borrow(raw[1])};
+  std::array<CompanyOperatorEntityInput, 2> requests{
+      {{kMockServiceTranslate, &text[0]}, {kMockServiceTranslate, &text[1]}}};
+  api::NamedIoBatch inputs(2);
+  for (size_t i = 0; i < requests.size(); ++i)
+    inputs[i]["request.entity_in"] =
+        api::MakeBorrowedOperatorInput(&requests[i]);
+  Check(
+      inputs, kMockServiceTranslate,
+      {Json{{"translated", "old=hello"}}, Json{{"translated", "old=goodbye"}}});
+
+  const int command = static_cast<int>(api::ControlCommand::kSwitchPrompt);
+  api::ControlSwitchPromptParam update{"new \"{{primary}}\"\n"};
+  ASSERT_EQ(ops_.Control(handle_, command, &update), 0)
+      << api::GetOperatorLastError();
+  const std::array<Json, 2> updated{Json{{"translated", "new \"hello\"\n"}},
+                                    Json{{"translated", "new \"goodbye\"\n"}}};
+  Check(inputs, kMockServiceTranslate, updated);
+
+  const std::string oversized(65536, 'x');
+  for (const char* payload :
+       std::array<const char*, 3>{nullptr, "", oversized.c_str()}) {
+    api::ControlSwitchPromptParam invalid{payload};
+    EXPECT_EQ(ops_.Control(handle_, command, &invalid), -2);
+    EXPECT_NE(
+        std::string(api::GetOperatorLastError()).find("prompt_template_str"),
+        std::string::npos);
+    Check(inputs, kMockServiceTranslate, updated);
+  }
+
+  api::ControlSwitchPromptParam unbound_variable{"{{context}}"};
+  EXPECT_NE(ops_.Control(handle_, command, &unbound_variable), 0);
+  Check(inputs, kMockServiceTranslate, updated);
+}
+
+TEST_F(BusinessResponsesTest,
        EntityExtractionPublishesTheWholeStructuredDocumentForEachSentence) {
   Create(Pipeline(
       "entity_extract", {"entity_in"}, {{"entities", "parse.document"}},

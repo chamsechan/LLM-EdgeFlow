@@ -5,7 +5,8 @@
 当前八类业务都登记为 `json_out/<业务名>`，使用中立值 `JsonOutputValue`。
 转换器把完整结果序列化为 `result_json`，binding 写入统一 C 结构 `CompanyOperatorOutput`；
 状态保存在结构的 `status_code`。对象、数组和数值保持 JSON 类型。
-容量参数统一为 `result_json_max_bytes`，默认 8191 字节，硬上限 65536 字节。
+容量参数通过 `adapter/json_output_parameters.h` 的 `JsonOutputParameters()` 统一声明为
+`result_json_max_bytes`，默认 8191 字节，硬上限 65536 字节。
 新业务沿用此载体只需新增转换器与 binding 业务枚举映射；确需新结构时仍使用现有 ValueType 注册扩展点。
 
 ## 规范与契约

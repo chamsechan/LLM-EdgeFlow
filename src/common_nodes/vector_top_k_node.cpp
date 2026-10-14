@@ -49,7 +49,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   for (const auto& query : *queries) {
     if (!query_requests.insert(query.req_id).second) {
       return NodeResult<RankedTextBatch>::Failure(
-          NodeErrorKind::kBusinessError,
           "vector_top_k requires one query per request; duplicate req_id=" +
               std::to_string(query.req_id),
           -3102);
@@ -72,8 +71,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   if (is_shared_candidates && !candidates->empty() &&
       (req_candidate_indices.size() != 1 || !req_candidate_indices.count(0))) {
     return NodeResult<RankedTextBatch>::Failure(
-        NodeErrorKind::kBusinessError, "Shared candidates must use req_id 0",
-        -3102);
+        "Shared candidates must use req_id 0", -3102);
   }
 
   RankedTextBatch ranked_batch;
@@ -109,7 +107,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
           !std::all_of(c_item.data.begin(), c_item.data.end(),
                        [](float v) { return std::isfinite(v); })) {
         return NodeResult<RankedTextBatch>::Failure(
-            NodeErrorKind::kBusinessError,
             "Invalid or mismatched embedding dimensions", -3102);
       }
       float score = (params.metric == "dot_product")
@@ -123,7 +120,6 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
           text = text_map[text_key];
         } else {
           return NodeResult<RankedTextBatch>::Failure(
-              NodeErrorKind::kBusinessError,
               "Candidate text provenance is missing", -3102);
         }
         scored_list.push_back({c_item.sub_id, score, std::move(text)});

@@ -282,8 +282,7 @@ bool ValidateExecutionTarget(const ExecutionTarget& target,
                              std::string* diagnostic) noexcept {
   try {
     const std::string platform = NormalizePlatform(target.platform);
-    if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
-        platform != "CPU_GENERIC") {
+    if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU") {
       SetDiagnosticNoexcept(
           diagnostic,
           "ONNX Runtime backend only supports CPU execution in this "

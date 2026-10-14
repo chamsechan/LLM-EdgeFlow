@@ -164,7 +164,6 @@ TEST(LlamaCppBackendTest, ProtocolAndBuildAvailabilityAreExplicit) {
   EXPECT_NE(diagnostic.find("does not support requested protocol"),
             std::string::npos);
 #ifdef HAVE_LLAMACPP
-  ASSERT_TRUE(BackendRegistry::Instance().Has("llama_cpp"));
   const auto definition = BackendRegistry::Instance().Find("llama_cpp");
   ASSERT_TRUE(definition);
   EXPECT_EQ(
@@ -172,7 +171,6 @@ TEST(LlamaCppBackendTest, ProtocolAndBuildAvailabilityAreExplicit) {
       (std::vector<ExecutionProtocol>{ExecutionProtocol::kTextGeneration}));
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kSerialized);
 #else
-  EXPECT_FALSE(BackendRegistry::Instance().Has("llama_cpp"));
   EXPECT_FALSE(BackendRegistry::Instance().Find("llama_cpp"));
   EXPECT_EQ(BackendRegistry::Instance().Create("llama_cpp"), nullptr);
   BackendLoadSpec disabled(ExecutionProtocol::kTextGeneration);

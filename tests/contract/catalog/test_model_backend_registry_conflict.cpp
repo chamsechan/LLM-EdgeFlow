@@ -64,12 +64,17 @@ TEST(ModelExecutionRegistryTest, DefinitionsAreIndependentSortedSnapshots) {
             (std::vector<std::string>{"registry_backend"}));
   EXPECT_EQ(backends.Find("registry_zeta")->supported_protocols,
             (std::vector<ExecutionProtocol>{ExecutionProtocol::kFixture}));
-  const auto names = models.ListImplNames();
-  const auto types = backends.ListTypes();
-  EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
-  EXPECT_TRUE(std::is_sorted(types.begin(), types.end()));
-  EXPECT_TRUE(models.Has("registry_zeta"));
-  EXPECT_TRUE(backends.Has("registry_zeta"));
+  const auto model_definitions = models.ListDefinitions();
+  const auto backend_definitions = backends.ListDefinitions();
+  EXPECT_TRUE(std::is_sorted(model_definitions.begin(), model_definitions.end(),
+                             [](const auto& lhs, const auto& rhs) {
+                               return lhs.impl_name < rhs.impl_name;
+                             }));
+  EXPECT_TRUE(std::is_sorted(backend_definitions.begin(),
+                             backend_definitions.end(),
+                             [](const auto& lhs, const auto& rhs) {
+                               return lhs.backend_type < rhs.backend_type;
+                             }));
 }
 
 TEST(ModelExecutionRegistryTest,
@@ -114,7 +119,7 @@ TEST(ModelExecutionRegistryTest,
           }
           auto& registry = ModelRegistry::Instance();
           Check(!registry.Register(definition, creator));
-          Check(!registry.Has("invalid_model"));
+          Check(!registry.Find("invalid_model").has_value());
           Check(registry.HasConflict());
           Check(!registry.GetConflictErrors().empty());
           std::_Exit(0);
@@ -151,7 +156,7 @@ TEST(ModelExecutionRegistryTest,
                   }
                   auto& registry = BackendRegistry::Instance();
                   Check(!registry.Register(definition, creator));
-                  Check(!registry.Has("invalid_backend"));
+                  Check(!registry.Find("invalid_backend").has_value());
                   Check(registry.HasConflict());
                   Check(!registry.GetConflictErrors().empty());
                   std::_Exit(0);
@@ -230,6 +235,53 @@ TEST(ModelExecutionRegistryTest,
         std::_Exit(0);
       }()),
       ::testing::ExitedWithCode(0), "");
+}
+
+struct CopyFailureCreator {
+  std::shared_ptr<int> failure;
+  explicit CopyFailureCreator(std::shared_ptr<int> value)
+      : failure(std::move(value)) {}
+  CopyFailureCreator(const CopyFailureCreator& other) : failure(other.failure) {
+    if (*failure == 1) throw std::runtime_error("creator copy failure");
+    if (*failure == 2) throw 42;
+  }
+  std::shared_ptr<IModel> operator()(const ModelCreateContext&,
+                                     std::string*) const {
+    return nullptr;
+  }
+  std::unique_ptr<IInferenceBackend> operator()() const { return nullptr; }
+};
+
+TEST(ModelExecutionRegistryTest, CreatorCopyFailuresLeaveRegistrationsUsable) {
+  EXPECT_EXIT(([&] {
+                auto failure = std::make_shared<int>(0);
+                auto& models = ModelRegistry::Instance();
+                auto& backends = BackendRegistry::Instance();
+                Check(models.Register(ModelDefinitionFor("copy_model"),
+                                      CopyFailureCreator(failure)));
+                Check(backends.Register(BackendDefinitionFor("copy_backend"),
+                                        CopyFailureCreator(failure)));
+                for (int mode : {1, 2}) {
+                  *failure = mode;
+                  std::string model_error, backend_error;
+                  Check(!models.Create("copy_model", {}, &model_error));
+                  Check(!backends.Create("copy_backend", &backend_error));
+                  const auto expected =
+                      mode == 1 ? "creator copy failure" : "Unknown exception";
+                  Check(model_error.find(expected) != std::string::npos);
+                  Check(backend_error.find(expected) != std::string::npos);
+                  Check(!models.HasConflict() && !backends.HasConflict());
+                  Check(models.Find("copy_model").has_value());
+                  Check(backends.Find("copy_backend").has_value());
+                }
+                *failure = 0;
+                std::string model_error, backend_error;
+                Check(!models.Create("copy_model", {}, &model_error));
+                Check(!backends.Create("copy_backend", &backend_error));
+                Check(model_error.empty() && backend_error.empty());
+                std::_Exit(0);
+              }()),
+              ::testing::ExitedWithCode(0), "");
 }
 
 TEST(ModelExecutionRegistryTest,

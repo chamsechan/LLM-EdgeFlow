@@ -40,7 +40,7 @@ class Pipeline {
   enum class ExecutionMode { kSequential, kParallel };
 
   /**
-   * @brief Pipeline 实例状态机 (R1-ACC-002 一次性构建与就绪保护)
+   * @brief Pipeline 实例状态机：一次性构建与就绪保护
    */
   enum class State {
     kEmpty = 0,  ///< 新建空实例，允许发起且仅允许发起一次构建

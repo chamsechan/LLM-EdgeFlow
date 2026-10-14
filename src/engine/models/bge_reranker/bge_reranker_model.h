@@ -44,15 +44,6 @@ class BgeRerankerModel final
   int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override;
 
-  const BertWordPieceTokenizer& Tokenizer() const noexcept {
-    return tokenizer_;
-  }
-  size_t MaxTokens() const noexcept { return max_tokens_; }
-  const std::string& OutputName() const noexcept { return output_name_; }
-  const std::string& ScoreActivation() const noexcept {
-    return score_activation_;
-  }
-
  private:
   int RawScoreSlice(const QueryCandidatesBatch& all_inputs,
                     const BatchSlice& slice, std::vector<float>* batch_scores,

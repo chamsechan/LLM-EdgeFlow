@@ -7,6 +7,7 @@
 #include <string>
 
 #include "adapter/deployment_preparation.h"
+#include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
 #include "core/diagnostic_code.h"

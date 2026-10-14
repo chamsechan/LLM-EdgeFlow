@@ -167,7 +167,6 @@ TEST(IoConverterTest,
     EXPECT_EQ((*candidates)[i].data.rank, expected[i].data.rank);
     EXPECT_EQ((*candidates)[i].data.original_sub_id,
               expected[i].data.original_sub_id);
-    EXPECT_EQ((*candidates)[i].data.metadata, nlohmann::json::object());
   }
 }
 
@@ -372,10 +371,9 @@ TEST(IoConverterTest, AuditRejectsInvalidRiskSchemaRangeAndPolicyRank) {
 TEST(IoConverterTest, RerankResponseSortsByRankAndReportsOriginalIndicesOnly) {
   AlgContext context;
   ASSERT_TRUE(context.Publish(
-      "result.ranked",
-      RankedTextBatch{{0, 1, {"second", 0.25f, 2, 9, {{"ignored", true}}}},
-                      {0, 0, {"first", 0.75f, 1, 4}},
-                      {1, 0, {"other row", 0.5f, 1, 3}}}));
+      "result.ranked", RankedTextBatch{{0, 1, {"second", 0.25f, 2, 9}},
+                                       {0, 0, {"first", 0.75f, 1, 4}},
+                                       {1, 0, {"other row", 0.5f, 1, 3}}}));
   std::vector<JsonOutputValue> rows(2);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("cross_rerank", &context, &rows, &status), 0);

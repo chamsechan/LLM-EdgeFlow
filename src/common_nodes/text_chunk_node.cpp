@@ -30,7 +30,6 @@ NodeResult<std::vector<std::string>> SplitText(const std::string& str,
   size_t invalid_offset = 0;
   if (!utf8::BuildCodePointBoundaries(str, &boundaries, &invalid_offset)) {
     return NodeResult<std::vector<std::string>>::Failure(
-        NodeErrorKind::kBusinessError,
         "text_chunk invalid UTF-8 input at byte offset " +
             std::to_string(invalid_offset),
         node_error::text_chunk::kInvalidUtf8);

@@ -64,7 +64,10 @@ TEST_F(NodeRegistryTest,
   found->description = "mutated Find result";
   snapshot.definitions[1].description = "mutated Snapshot result";
   EXPECT_EQ(registry.Find("zeta")->description, "literal description");
-  EXPECT_EQ(registry.ListTypes(), (std::vector<std::string>{"alpha", "zeta"}));
+  const auto definitions = registry.ListDefinitions();
+  ASSERT_EQ(definitions.size(), 2U);
+  EXPECT_EQ(definitions[0].node_type, "alpha");
+  EXPECT_EQ(definitions[1].node_type, "zeta");
   EXPECT_EQ(registry.Create("unknown"), nullptr);
   EXPECT_NE(registry.Create("alpha"), nullptr);
 }
@@ -114,8 +117,8 @@ TEST_F(NodeRegistryTest, RejectedRegistrationLeavesEntriesAndStickyDiagnostic) {
     EXPECT_FALSE(registry.Register(
         type, std::move(creator),
         row.defect == Defect::kNullDefinition ? nullptr : &candidate));
-    EXPECT_TRUE(registry.Has("base"));
-    EXPECT_FALSE(registry.Has("candidate"));
+    EXPECT_TRUE(registry.Find("base").has_value());
+    EXPECT_FALSE(registry.Find("candidate").has_value());
     ASSERT_TRUE(registry.HasConflict());
     const auto errors = registry.GetConflictErrors();
     ASSERT_EQ(errors.size(), 1U);
@@ -141,7 +144,7 @@ TEST_F(NodeRegistryTest,
           if (standard) throw std::runtime_error("literal factory exception");
           throw 42;
         }));
-    EXPECT_FALSE(registry.Has("factory_probe"));
+    EXPECT_FALSE(registry.Find("factory_probe").has_value());
     EXPECT_TRUE(registry.HasConflict());
     const auto errors = registry.GetConflictErrors();
     ASSERT_EQ(errors.size(), 1U);
@@ -164,7 +167,8 @@ struct ReentryReads {
   void Observe(const char* stage) {
     auto read = std::async(std::launch::async, [] {
       auto& registry = NodeRegistry::Instance();
-      return registry.Has("reentry") && registry.Find("reentry").has_value() &&
+      return registry.Find("reentry").has_value() &&
+             registry.ListDefinitions().size() == 1 &&
              registry.Snapshot().definitions.size() == 1;
     });
     // Do not join while creator code is executing: a lock regression must

@@ -9,7 +9,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 结构化适配器状态与字段路径诊断 (ADP-001, ADP-005)
+ * @brief 结构化适配器状态与字段路径诊断
  */
 class AdapterStatus {
  public:
@@ -41,12 +41,6 @@ class AdapterStatus {
     return AdapterStatus(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, std::move(message),
                          std::move(field_path), sample_index,
                          std::move(adapter_name));
-  }
-
-  static AdapterStatus UnsupportedBiz(std::string message,
-                                      std::string adapter_name = "") {
-    return AdapterStatus(COMPANY_ALG_ERR_UNSUPPORTED_BIZ, std::move(message),
-                         "", -1, std::move(adapter_name));
   }
 
   bool IsOk() const { return code_ == COMPANY_ALG_SUCCESS; }

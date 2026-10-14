@@ -7,6 +7,7 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_values.h"
+#include "adapter/json_output_parameters.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
@@ -19,16 +20,6 @@ constexpr auto kResult = MakeBlackboardKey<StructuredDocumentBatch>("result");
 constexpr auto kDocument = MakeBlackboardKey<OcrDocumentBatch>("document");
 
 constexpr const char* kOutputSlot = "json_out";
-
-struct Params {
-  int64_t result_json_max_bytes = 0;
-};
-
-Parameters<Params> ParamSpec() {
-  return Parameters<Params>({
-      MaxBytes("result_json", &Params::result_json_max_bytes).Default(8191),
-  });
-}
 
 int EncodeOperatorInvoiceResult(AlgContext* context,
                                 const OutputEncodeOptions& options,
@@ -102,10 +93,10 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
   def.type = kOutputSlot;
   def.name = "ocr_invoice_qa";
-  def.slot = ExternalOutputSlot<JsonOutputValue>(kOutputSlot);
+  def.slot = ExternalOutputSlot<JsonOutputValue>();
   def.logical_ports = {RequiredInputPort(kResult),
                        RequiredInputPort(kDocument)};
-  def.params = ParamSpec();
+  def.params = JsonOutputParameters();
   def.encode_fn = &EncodeOperatorInvoiceResult;
   return def;
 }

@@ -11,17 +11,12 @@ struct Inputs {
   const TextBatch* context = nullptr;
 };
 
-struct Params {
-  bool retry_once = false;
-};
-
 struct Models {
   LlmCall generator;
 };
 
 // 所有请求值都只在这个普通业务函数内使用。
-NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
-                          const Models& models) {
+NodeResult<TextBatch> Run(const Inputs& inputs, const Models& models) {
   TextBatch prompts;
   prompts.reserve(inputs.questions->size());
   for (const auto& question : *inputs.questions) {
@@ -34,30 +29,21 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
     prompts.emplace_back(question.req_id, question.sub_id,
                          prompt + question.data);
   }
-  auto result = models.generator.Generate(prompts);
-  if (!result.ok() && params.retry_once &&
-      result.failure().kind == NodeErrorKind::kModelCallError) {
-    return models.generator.Generate(prompts);
-  }
-  return result;
+  return models.generator.Generate(prompts);
 }
 
 auto Spec() {
-  return MakeNodeSpec(
-             InputsOf<Inputs>({
-                 Required("questions", &Inputs::questions),
-                 Optional("context", &Inputs::context,
-                          InputFlow::AggregateByRequest),
-             }),
-             PreservedOutput<TextBatch>("output", "questions"),
-             Parameters<Params>({
-                 Field("retry_once", &Params::retry_once).Default(false),
-             }),
-             ModelsOf<Models>({
-                 Model("generator", "bind_model", &Models::generator),
-             }),
-             &Run)
-      .Description("Batch starter with optional request context and one retry");
+  return MakeNodeSpec(InputsOf<Inputs>({
+                          Required("questions", &Inputs::questions),
+                          Optional("context", &Inputs::context,
+                                   InputFlow::AggregateByRequest),
+                      }),
+                      PreservedOutput<TextBatch>("output", "questions"),
+                      ModelsOf<Models>({
+                          Model("generator", "bind_model", &Models::generator),
+                      }),
+                      &Run)
+      .Description("Batch starter with optional request context");
 }
 
 REGISTER_FUNCTION_NODE(starter_batch, Spec());

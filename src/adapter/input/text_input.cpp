@@ -43,7 +43,7 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
   def.type = kEntitySlot;
   def.name = "entity_extract";
-  def.slot = ExternalInputSlot<TextInputValue>(kEntitySlot);
+  def.slot = ExternalInputSlot<TextInputValue>();
   def.logical_ports = {OutputPort(kSentenceText)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
@@ -53,7 +53,7 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
   InputConverterDefinition def;
   def.type = kKeywordSlot;
   def.name = "keyword_match";
-  def.slot = ExternalInputSlot<TextInputValue>(kKeywordSlot);
+  def.slot = ExternalInputSlot<TextInputValue>();
   def.logical_ports = {OutputPort(kSentenceText)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;

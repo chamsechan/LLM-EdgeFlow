@@ -3,6 +3,99 @@
 #include "contracts/diagnostic.h"
 
 namespace llm_edgeflow {
+namespace {
+
+bool ComputeValidatedOutputPoolPayloadBytes(
+    const OperatorValueTypeBinding& binding, const ResolvedOutputPoolSpec& spec,
+    uint32_t effective_depth, size_t* out_bytes, std::string* err) noexcept {
+  try {
+    if (!binding.output_layout.compute_block_payload_bytes) {
+      if (err) {
+        *err = "Missing output block budget callback for suffix '" +
+               binding.canonical_suffix + "'";
+      }
+      return false;
+    }
+
+    size_t single_block_bytes = 0;
+    if (!binding.output_layout.compute_block_payload_bytes(
+            spec, &single_block_bytes, err)) {
+      return false;
+    }
+    if (single_block_bytes == 0) {
+      if (err) {
+        *err = "Output block payload is zero for suffix '" +
+               binding.canonical_suffix + "'";
+      }
+      return false;
+    }
+
+    size_t total_pool_bytes = 0;
+    if (!CheckedMultiply(effective_depth, single_block_bytes,
+                         &total_pool_bytes)) {
+      if (err) *err = "Total pool payload calculation overflowed";
+      return false;
+    }
+
+    if (total_pool_bytes > kMaxHandlePoolPayloadBytes) {
+      if (err) {
+        *err = "Total pool payload (" + std::to_string(total_pool_bytes) +
+               " bytes) exceeds maximum allowed payload budget " +
+               std::to_string(kMaxHandlePoolPayloadBytes) + " bytes (64 MiB)";
+      }
+      return false;
+    }
+
+    *out_bytes = total_pool_bytes;
+    return true;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return false;
+  } catch (...) {
+    SetDiagnosticNoexcept(
+        err, "Unknown exception computing output pool payload bytes");
+    return false;
+  }
+}
+
+}  // namespace
+
+bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
+                                   const ResolvedOutputPoolSpec& spec,
+                                   uint32_t depth, size_t* out_bytes,
+                                   std::string* err) noexcept {
+  try {
+    if (!out_bytes) {
+      if (err) *err = "Null out_bytes pointer";
+      return false;
+    }
+    *out_bytes = 0;
+
+    ResolvedOutputPoolSpec resolved;
+    if (!ResolveOutputPoolSpec(binding, spec, &resolved, err)) {
+      return false;
+    }
+
+    uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
+    if (effective_depth > kMaxOutputPoolDepth) {
+      if (err) {
+        *err = "Output pool depth " + std::to_string(effective_depth) +
+               " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
+      }
+      return false;
+    }
+
+    return ComputeValidatedOutputPoolPayloadBytes(
+        binding, resolved, effective_depth, out_bytes, err);
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return false;
+  } catch (...) {
+    SetDiagnosticNoexcept(
+        err, "Unknown exception computing output pool payload bytes");
+    return false;
+  }
+}
 
 void OutputPoolDeleter::operator()(void*) const noexcept {
   if (auto pool = weak_pool.lock()) {
@@ -44,8 +137,8 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     }
 
     size_t estimated_bytes = 0;
-    if (!ComputeOutputPoolPayloadBytes(*binding, resolved_spec, depth,
-                                       &estimated_bytes, err)) {
+    if (!ComputeValidatedOutputPoolPayloadBytes(
+            *binding, resolved_spec, effective_depth, &estimated_bytes, err)) {
       return -2;
     }
 

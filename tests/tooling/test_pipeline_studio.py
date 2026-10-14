@@ -132,6 +132,55 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(conflict["error"]["code"], "FILE_EXISTS")
         self.assertEqual(path.read_bytes(), raw)
 
+    def test_preview_checks_revision_and_tool_fingerprint(self):
+        status, validated = self.request("POST", "/api/validate", {
+            "pipeline": self.base, "explain": True})
+        self.assertEqual(status, 200, validated)
+        for endpoint, operation in (
+            ("/api/fixes/preview", {"patch": [{"op": "add", "path": "/comment", "value": "preview"}]}),
+            ("/api/authoring/preview", {"operation": {
+                "kind": "rename_node", "node": "match_keywords", "new_name": "renamed"}}),
+        ):
+            with self.subTest(endpoint=endpoint):
+                body = {"pipeline": self.base, "revision": validated["revision"],
+                        "tool_fingerprint": validated["tool_fingerprint"], **operation}
+                for field, code in (("revision", "REVISION_CONFLICT"),
+                                    ("tool_fingerprint", "TOOL_OUTDATED")):
+                    with self.subTest(field=field):
+                        status, rejected = self.request("POST", endpoint, {**body, field: "outdated"})
+                        self.assertEqual(status, 409, rejected)
+                        self.assertEqual(rejected["error"]["code"], code)
+                status, previewed = self.request("POST", endpoint, body)
+                self.assertEqual(status, 200, previewed)
+                self.assertTrue(previewed["ok"])
+                if endpoint == "/api/fixes/preview":
+                    self.assertEqual(previewed["patched"]["comment"], "preview")
+                else:
+                    self.assertEqual(previewed["pipeline"]["pipeline"][0]["name"], "renamed")
+
+    def test_deployment_association_preflight_and_save_use_canonical_fields(self):
+        filename = "pipeline_keyword_match_rules.json"
+        conf_name = "pipeline_keyword_match_rules.conf"
+        status, associated = self.request("POST", "/api/deployment/associate", {
+            "filename": filename, "conf_name": conf_name})
+        self.assertEqual(status, 200, associated)
+        self.assertTrue(associated["ok"])
+        self.assertEqual(associated["save_targets"], [filename, conf_name])
+
+        status, ready = self.request("POST", "/api/preflight", {
+            "pipeline": self.base, "conf_name": conf_name})
+        self.assertEqual(status, 200, ready)
+        self.assertEqual(ready["summary"]["status"], "ready")
+        self.assertEqual(ready["summary"]["conf_path"], conf_name)
+
+        status, opened = self.request("GET", "/api/pipeline?filename=" + filename)
+        self.assertEqual(status, 200, opened)
+        updated = {**self.base, "comment": "saved after canonical association"}
+        status, saved = self.request("PUT", "/api/pipeline", {
+            "filename": filename, "pipeline": updated, "revision": opened["revision"]})
+        self.assertEqual(status, 200, saved)
+        self.assertEqual(json.loads((self.configs / filename).read_text()), updated)
+
     def test_native_validation_failure_rejects_save_before_any_file_publication(self):
         invalid = copy.deepcopy(self.base)
         invalid["pipeline"][0]["type"] = "unregistered"

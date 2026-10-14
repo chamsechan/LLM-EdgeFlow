@@ -1079,37 +1079,34 @@ def make_handler(service: WorkbenchService):
                 payload = service.preview_fix(
                     body.get("pipeline"),
                     body.get("patch", []),
-                    body.get("revision") or body.get("expected_revision"),
+                    body.get("revision"),
                     body.get("tool_fingerprint"),
                 )
             elif method == "POST" and path == "/api/authoring/preview":
                 allowed = {"pipeline", "operation", "operations", "require_valid",
-                           "revision", "expected_revision", "tool_fingerprint"}
+                           "revision", "tool_fingerprint"}
                 unknown = set(body) - allowed
                 if unknown:
                     raise StudioError("INVALID_AUTHORING_REQUEST", "未知编排请求字段：" + ", ".join(sorted(unknown)))
-                if ("revision" in body and "expected_revision" in body
-                        and body["revision"] != body["expected_revision"]):
-                    raise StudioError("REVISION_CONFLICT", "请求包含不同的预期修订版本", 409)
                 payload = service.preview_authoring(
                     body.get("pipeline"),
                     operation=body.get("operation", _AUTHORING_UNSET),
                     operations=body.get("operations", _AUTHORING_UNSET),
                     require_valid=body.get("require_valid", False),
-                    expected_revision=body.get("revision") or body.get("expected_revision"),
+                    expected_revision=body.get("revision"),
                     tool_fingerprint=body.get("tool_fingerprint"),
                 )
             elif method == "POST" and path == "/api/preflight":
                 payload = service.preflight(
                     body.get("pipeline"),
                     profile_name=body.get("profile", ""),
-                    conf_name=body.get("conf_path", "") or body.get("conf_name", ""),
+                    conf_name=body.get("conf_name", ""),
                     filename=body.get("filename", ""),
                 )
             elif method == "POST" and path == "/api/deployment/associate":
                 payload = service.associate_deployment(
-                    body.get("pipeline_name", "") or body.get("filename", ""),
-                    body.get("conf_name", "") or body.get("conf_path", ""),
+                    body.get("filename", ""),
+                    body.get("conf_name", ""),
                     profile_name=body.get("profile", ""),
                 )
             elif method == "POST" and path == "/api/init":

@@ -127,10 +127,7 @@ NodeResult<ItemJoinView<LeftPayload, RightPayload>> JoinByItem(
     TraceableItemKey key{left[i].req_id, left[i].sub_id};
     if (!left_key_to_idx.emplace(key, i).second) {
       return NodeResult<ItemJoinView<LeftPayload, RightPayload>>::Failure(
-          NodeErrorKind::kInputError,
-          "JoinByItem left batch contains duplicate key: req_id=" +
-              std::to_string(key.req_id) +
-              ", sub_id=" + std::to_string(key.sub_id),
+          "left batch contains duplicate key",
           BatchFailureDetail{"JoinByItem", BatchFailureReason::kDuplicate,
                              key});
     }
@@ -143,10 +140,7 @@ NodeResult<ItemJoinView<LeftPayload, RightPayload>> JoinByItem(
     TraceableItemKey key{right[j].req_id, right[j].sub_id};
     if (!right_key_to_ptr.emplace(key, &right[j]).second) {
       return NodeResult<ItemJoinView<LeftPayload, RightPayload>>::Failure(
-          NodeErrorKind::kInputError,
-          "JoinByItem right batch contains duplicate key: req_id=" +
-              std::to_string(key.req_id) +
-              ", sub_id=" + std::to_string(key.sub_id),
+          "right batch contains duplicate key",
           BatchFailureDetail{"JoinByItem", BatchFailureReason::kDuplicate,
                              key});
     }
@@ -157,10 +151,7 @@ NodeResult<ItemJoinView<LeftPayload, RightPayload>> JoinByItem(
     TraceableItemKey r_key{r_item.req_id, r_item.sub_id};
     if (left_key_to_idx.find(r_key) == left_key_to_idx.end()) {
       return NodeResult<ItemJoinView<LeftPayload, RightPayload>>::Failure(
-          NodeErrorKind::kInputError,
-          "JoinByItem right batch contains unknown key not in left: req_id=" +
-              std::to_string(r_key.req_id) +
-              ", sub_id=" + std::to_string(r_key.sub_id),
+          "right batch contains unknown key not in left",
           BatchFailureDetail{"JoinByItem", BatchFailureReason::kUnknown,
                              r_key});
     }
@@ -174,10 +165,7 @@ NodeResult<ItemJoinView<LeftPayload, RightPayload>> JoinByItem(
     if (it == right_key_to_ptr.end()) {
       if (mode == JoinMode::kExact) {
         return NodeResult<ItemJoinView<LeftPayload, RightPayload>>::Failure(
-            NodeErrorKind::kInputError,
-            "JoinByItem right batch missing key present in left: req_id=" +
-                std::to_string(key.req_id) +
-                ", sub_id=" + std::to_string(key.sub_id),
+            "right batch missing key present in left",
             BatchFailureDetail{"JoinByItem", BatchFailureReason::kMissing,
                                key});
       }
@@ -392,10 +380,7 @@ NodeResult<RequestGroupView<AnchorPayload, MemberPayload>> GroupByRequest(
     TraceableItemKey key{item.req_id, item.sub_id};
     if (!anchor_keys.insert(key).second) {
       return NodeResult<RequestGroupView<AnchorPayload, MemberPayload>>::
-          Failure(NodeErrorKind::kInputError,
-                  "GroupByRequest anchor contains duplicate key: req_id=" +
-                      std::to_string(key.req_id) +
-                      ", sub_id=" + std::to_string(key.sub_id),
+          Failure("anchor contains duplicate key",
                   BatchFailureDetail{"GroupByRequest",
                                      BatchFailureReason::kDuplicate, key});
     }
@@ -418,10 +403,7 @@ NodeResult<RequestGroupView<AnchorPayload, MemberPayload>> GroupByRequest(
     TraceableItemKey key{item.req_id, item.sub_id};
     if (!member_keys.insert(key).second) {
       return NodeResult<RequestGroupView<AnchorPayload, MemberPayload>>::
-          Failure(NodeErrorKind::kInputError,
-                  "GroupByRequest members contains duplicate key: req_id=" +
-                      std::to_string(key.req_id) +
-                      ", sub_id=" + std::to_string(key.sub_id),
+          Failure("members contains duplicate key",
                   BatchFailureDetail{"GroupByRequest",
                                      BatchFailureReason::kDuplicate, key});
     }
@@ -429,9 +411,7 @@ NodeResult<RequestGroupView<AnchorPayload, MemberPayload>> GroupByRequest(
     auto it = req_id_to_group_index.find(item.req_id);
     if (it == req_id_to_group_index.end()) {
       return NodeResult<RequestGroupView<AnchorPayload, MemberPayload>>::
-          Failure(NodeErrorKind::kInputError,
-                  "GroupByRequest member contains unknown req_id=" +
-                      std::to_string(item.req_id) + " not present in anchor",
+          Failure("member request is not present in anchor",
                   BatchFailureDetail{"GroupByRequest",
                                      BatchFailureReason::kUnknown, key});
     }
@@ -594,10 +574,7 @@ NodeResult<Selection<Payload>> SelectBatch(
     TraceableItemKey key{item.req_id, item.sub_id};
     if (!seen_keys.insert(key).second) {
       return NodeResult<Selection<Payload>>::Failure(
-          NodeErrorKind::kInputError,
-          "SelectBatch anchor contains duplicate key: req_id=" +
-              std::to_string(key.req_id) +
-              ", sub_id=" + std::to_string(key.sub_id),
+          "anchor contains duplicate key",
           BatchFailureDetail{"SelectBatch", BatchFailureReason::kDuplicate,
                              key});
     }
@@ -628,14 +605,12 @@ NodeResult<Selection<Payload>> SelectBatch(
       }
     } catch (const std::exception& e) {
       return NodeResult<Selection<Payload>>::Failure(
-          NodeErrorKind::kBusinessError,
-          std::string("SelectBatch predicate threw exception: ") + e.what(),
+          std::string("predicate threw exception: ") + e.what(),
           BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
                              TraceableItemKey{item.req_id, item.sub_id}});
     } catch (...) {
       return NodeResult<Selection<Payload>>::Failure(
-          NodeErrorKind::kBusinessError,
-          "SelectBatch predicate threw unknown exception",
+          "predicate threw unknown exception",
           BatchFailureDetail{"SelectBatch", BatchFailureReason::kCallbackFailed,
                              TraceableItemKey{item.req_id, item.sub_id}});
     }
@@ -662,10 +637,7 @@ NodeResult<std::vector<TraceableItem<Payload>>> ScatterReplace(
     TraceableItemKey key{item.req_id, item.sub_id};
     if (!repl_map.emplace(key, &item).second) {
       return NodeResult<std::vector<TraceableItem<Payload>>>::Failure(
-          NodeErrorKind::kInputError,
-          "ScatterReplace replacements contains duplicate key: req_id=" +
-              std::to_string(key.req_id) +
-              ", sub_id=" + std::to_string(key.sub_id),
+          "replacements contains duplicate key",
           BatchFailureDetail{"ScatterReplace", BatchFailureReason::kDuplicate,
                              key});
     }
@@ -682,11 +654,7 @@ NodeResult<std::vector<TraceableItem<Payload>>> ScatterReplace(
     TraceableItemKey key{item.req_id, item.sub_id};
     if (selected_keys.find(key) == selected_keys.end()) {
       return NodeResult<std::vector<TraceableItem<Payload>>>::Failure(
-          NodeErrorKind::kInputError,
-          "ScatterReplace replacement contains unselected or unknown key: "
-          "req_id=" +
-              std::to_string(key.req_id) +
-              ", sub_id=" + std::to_string(key.sub_id),
+          "replacement contains unselected or unknown key",
           BatchFailureDetail{"ScatterReplace", BatchFailureReason::kUnknown,
                              key});
     }
@@ -696,10 +664,7 @@ NodeResult<std::vector<TraceableItem<Payload>>> ScatterReplace(
     TraceableItemKey sel_key{anchor[idx].req_id, anchor[idx].sub_id};
     if (repl_map.find(sel_key) == repl_map.end()) {
       return NodeResult<std::vector<TraceableItem<Payload>>>::Failure(
-          NodeErrorKind::kInputError,
-          "ScatterReplace replacement missing selected key: req_id=" +
-              std::to_string(sel_key.req_id) +
-              ", sub_id=" + std::to_string(sel_key.sub_id),
+          "replacement missing selected key",
           BatchFailureDetail{"ScatterReplace", BatchFailureReason::kMissing,
                              sel_key});
     }
@@ -732,10 +697,7 @@ inline NodeResult<int32_t> CheckedSplitCount(size_t count,
                                              TraceableItemKey parent) {
   if (count > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
     return NodeResult<int32_t>::Failure(
-        NodeErrorKind::kBusinessError,
-        "SplitPayloads chunk count exceeds Int32 capacity for req_id=" +
-            std::to_string(parent.req_id) +
-            ", sub_id=" + std::to_string(parent.sub_id),
+        "chunk count exceeds Int32 capacity",
         BatchFailureDetail{"SplitPayloads", BatchFailureReason::kCountOverflow,
                            parent});
   }
@@ -745,10 +707,11 @@ inline NodeResult<int32_t> CheckedSplitCount(size_t count,
 template <typename Fn, typename InPayload>
 struct SplitResultTraits {
   using RawResult = std::invoke_result_t<Fn, const InPayload&>;
-  static constexpr bool kReturnsNodeResult = IsNodeResultType<RawResult>::value;
-  using ValueType = typename std::conditional_t<
-      kReturnsNodeResult, typename IsNodeResultType<RawResult>::ValueType,
-      RawResult>;
+  static constexpr bool kReturnsNodeResult = IsNodeResult<RawResult>::value;
+  using ValueType =
+      typename std::conditional_t<kReturnsNodeResult,
+                                  typename IsNodeResult<RawResult>::ValueType,
+                                  RawResult>;
   using OutputPayload = typename ValueType::value_type;
 };
 
@@ -765,10 +728,7 @@ auto SplitPayloadsInternal(
     TraceableItemKey key{item.req_id, item.sub_id};
     if (!seen_keys.insert(key).second) {
       return NodeResult<ResultType>::Failure(
-          NodeErrorKind::kInputError,
-          "SplitPayloads duplicate input item for req_id=" +
-              std::to_string(key.req_id) +
-              ", sub_id=" + std::to_string(key.sub_id),
+          "duplicate input item",
           BatchFailureDetail{"SplitPayloads", BatchFailureReason::kDuplicate,
                              key});
     }
@@ -798,15 +758,13 @@ auto SplitPayloadsInternal(
       }
     } catch (const std::exception& e) {
       return NodeResult<ResultType>::Failure(
-          NodeErrorKind::kBusinessError,
-          std::string("SplitPayloads split_one threw exception: ") + e.what(),
+          std::string("split_one threw exception: ") + e.what(),
           BatchFailureDetail{"SplitPayloads",
                              BatchFailureReason::kCallbackFailed,
                              TraceableItemKey{parent.req_id, parent.sub_id}});
     } catch (...) {
       return NodeResult<ResultType>::Failure(
-          NodeErrorKind::kBusinessError,
-          "SplitPayloads split_one threw unknown exception",
+          "split_one threw unknown exception",
           BatchFailureDetail{"SplitPayloads",
                              BatchFailureReason::kCallbackFailed,
                              TraceableItemKey{parent.req_id, parent.sub_id}});
@@ -823,9 +781,7 @@ auto SplitPayloadsInternal(
       if (next_sub_id >
           static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
         return NodeResult<ResultType>::Failure(
-            NodeErrorKind::kBusinessError,
-            "SplitPayloads sub_id overflow for req_id=" +
-                std::to_string(parent.req_id),
+            "sub_id overflow",
             BatchFailureDetail{"SplitPayloads",
                                BatchFailureReason::kSubIdOverflow,
                                TraceableItemKey{parent.req_id, parent.sub_id}});
