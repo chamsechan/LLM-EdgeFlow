@@ -18,6 +18,9 @@ enum class OperatorFailureStage {
   kRuntime,             // 无就绪运行时，或触发了异常屏障
 };
 
+// 失败阶段的固定名称，不含请求内容，可用于日志。
+const char* OperatorFailureStageName(OperatorFailureStage stage) noexcept;
+
 OperatorFailureStage ControlFailureToOperatorStage(
     ControlFailureStage stage) noexcept;
 

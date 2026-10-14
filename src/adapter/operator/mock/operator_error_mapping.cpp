@@ -5,9 +5,7 @@
 
 namespace llm_edgeflow {
 
-namespace {
-
-const char* StageName(OperatorFailureStage stage) noexcept {
+const char* OperatorFailureStageName(OperatorFailureStage stage) noexcept {
   switch (stage) {
     case OperatorFailureStage::kCreatePreparation:
       return "Create preparation";
@@ -24,8 +22,6 @@ const char* StageName(OperatorFailureStage stage) noexcept {
   }
   return "Runtime";
 }
-
-}  // namespace
 
 OperatorFailureStage ControlFailureToOperatorStage(
     ControlFailureStage stage) noexcept {
@@ -102,9 +98,9 @@ int PublicFailureCode(OperatorFailureStage stage, int internal_code) noexcept {
 std::string DescribeOperatorFailure(OperatorFailureStage stage,
                                     int internal_code,
                                     std::string_view detail) {
-  return std::string(StageName(stage)) + " failed with internal code " +
-         std::to_string(internal_code) + " (" + ErrorCodeName(internal_code) +
-         "): " + std::string(detail);
+  return std::string(OperatorFailureStageName(stage)) +
+         " failed with internal code " + std::to_string(internal_code) + " (" +
+         ErrorCodeName(internal_code) + "): " + std::string(detail);
 }
 
 }  // namespace llm_edgeflow

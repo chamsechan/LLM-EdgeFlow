@@ -41,16 +41,19 @@ int Fail(const char* operation, int code, std::string_view detail,
       code != error::kPoolMissing &&
       code != error::kModelMaterializationFailed &&
       code != error::kNodeCreateFailed && code != error::kNodeInitFailed;
+  // 边界日志只记录操作、码名/码值、平台码和失败阶段；detail 可能携带请求内容
+  // （如 JSON 解析错误中的原文片段），只写入调用者可读的
+  // GetOperatorLastError()。
   if (rejected) {
     ALG_LOG_WARNING(
-        "[Operator] operation=%s code=%s(%d) platform_code=%d: %.*s\n",
-        operation, ErrorCodeName(code), code, public_code,
-        static_cast<int>(detail.size()), detail.data());
+        "[Operator] operation=%s stage=%s code=%s(%d) platform_code=%d\n",
+        operation, OperatorFailureStageName(stage), ErrorCodeName(code), code,
+        public_code);
   } else {
     ALG_LOG_ERROR(
-        "[Operator] operation=%s code=%s(%d) platform_code=%d: %.*s\n",
-        operation, ErrorCodeName(code), code, public_code,
-        static_cast<int>(detail.size()), detail.data());
+        "[Operator] operation=%s stage=%s code=%s(%d) platform_code=%d\n",
+        operation, OperatorFailureStageName(stage), ErrorCodeName(code), code,
+        public_code);
   }
   return public_code;
 }
