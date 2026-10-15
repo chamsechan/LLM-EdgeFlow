@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="overview-title overview-description">
   <title id="overview-title">LLM-EdgeFlow：从方案配置到算法结果</title>
-  <desc id="overview-description">通过 Pipeline JSON 或 Pipeline Studio 定义方案，deployment 声明接入与部署配置，经统一校验形成执行计划。宿主输入由唯一公开算法接口 C++ Operator SDK 接入，InputConverter 解码完整请求，Pipeline 组织并调度通用节点与自定义节点，OutputConverter 组装完整响应并返回宿主。需要推理的节点通过 Model 调用 Backend。箭头表示构建与调用关系，不表示编译依赖。</desc>
+  <desc id="overview-description">通过 Pipeline JSON 或 Pipeline Studio 定义方案，Pipeline 根 io 选择输入输出转换器，部署 conf 通过 pipe_path 定位方案，经统一校验形成执行计划。宿主输入由唯一公开算法接口 C++ Operator SDK 接入，InputConverter 解码完整请求，Pipeline 组织并调度通用节点与自定义节点，OutputConverter 组装完整响应并返回宿主。需要推理的节点通过 Model 调用 Backend。箭头表示构建与调用关系，不表示编译依赖。</desc>
   <!-- Maintained directly as SVG source. The detailed architecture diagrams
        are generated separately by scripts/render_architecture_diagrams.sh. -->
   <defs>

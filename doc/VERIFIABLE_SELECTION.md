@@ -37,7 +37,7 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 
 ## 资产清单
 
-[configs/asset_manifest.json](../configs/asset_manifest.json) 包含 11 个权重/sidecar 条目的 SHA-256 与 8 个现有资产组合。权重、tokenizer、Kite 运行配置与视觉 projector 均纳入检查。
+[configs/asset_manifest.json](../configs/asset_manifest.json) 维护权重及配套文件的 SHA-256 与可选资产组合。权重、tokenizer、Kite 运行配置与视觉 projector 均纳入检查。
 
 - 下载命令为 `./scripts/fetch_real_test_models.sh --all`、`--kite`、`--whisper`、`--gguf-only` 或仅供 Whisper 真实模型测试使用的 `--whisper-e2e`，精确 URL 和 SHA 统一从清单读取。
 - 清单中的 Model/Backend 配置是可选择的起点；兼容性仍由当前执行文件的 Catalog 校验。
@@ -160,7 +160,8 @@ python3 tools/verify_selection.py check \
 
 效果规范以 `output: {type, name}` 选择输出 Converter，并包括相对规范文件的 dataset 路径、按输入顺序排列的 `samples`、需要比较的输出 JSON Pointer 和最低通过率；结果与标注逐行对应，不使用请求 ID。参考 [关键词规范](../tests/fixtures/effects/keyword_exact.json)。其他业务可以使用已有 Demo 支持的输入数据集格式，并为相关结构化字段编写标注。
 
-结果按 request ID 比较；重复、缺失、额外请求或非零状态都会失败。指标是 **selected_fields_exact_match**，仅表示指定数据集上所选字段的精确匹配率，不代表通用模型准确率，也不包含语义等价、召回率或复杂生成质量评测。
+结果数量必须与标注一致；非零状态或字段不匹配计为该样本失败，整体按最低通过率判定。
+Demo 进程执行失败则直接终止验收。指标是 **selected_fields_exact_match**，仅表示指定数据集上所选字段的精确匹配率，不代表通用模型准确率，也不包含语义等价、召回率或复杂生成质量评测。
 
 验收记录包含实际样本输出、模型资产散列、完整 Pipeline、构建工具、Demo/SDK 文件、部署容量、数据集及评价规范指纹。任何一个被记录输入变化，旧记录都会失效。检查会从记录重新计算指标，避免直接相信手填的汇总分数。指纹用于过期检测；这些本地记录并非经过签名的审计证明，也不覆盖目标硬件和所有系统动态依赖。
 

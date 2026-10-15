@@ -37,8 +37,8 @@ package "创建期：接入准备与统一校验" {
 }
 
 package "运行期：C++ Operator SDK" {
-  component "OperatorFunc\nInit / Create / Control / Process / Destroy / DeInit\n命名槽位校验 / 输出租约 / 异常屏障" as Operator
-  component "SharedAlgorithmRuntime" as Runtime
+  component "OperatorFunc\nInit / Create / Control / Process / Destroy / DeInit\n命名槽位校验 / 宿主输出交付 / 异常屏障" as Operator
+  component "SharedAlgorithmRuntime\nProcess 串行化 / 输出池与租约\n解码 → 执行 → 编码" as Runtime
   component "InputConverterDefinition::decode_fn\n完整请求 → 中性输入与元信息" as Decode
   component "OutputConverterDefinition::encode_fn\n内部结果 → 完整响应与容量检查" as Encode
   component "Pipeline\nBuildFromPlan / Execute / Control\n消费已验证计划" as Pipeline
@@ -75,16 +75,18 @@ Pipeline --> Factory : 创建期物化模型
 Factory --> Model
 Factory --> Backend
 Session o-- Model
-Operator --> Decode : Process 校验输入
+Operator --> Runtime : Process 校验并转换宿主槽位
+Runtime --> Decode : 解码完整请求
 Decode --> Context : 发布
-Operator --> Pipeline : Execute
+Runtime --> Pipeline : 租用输出后 Execute
 Pipeline --> Nodes : 依拓扑执行
 Nodes --> Context : 读取 / 发布
 Nodes --> Model : 调用声明能力
 Model --> Backend : 推理
 Model --> Batch : 固定批次执行
-Operator --> Encode : 执行成功后编码
+Runtime --> Encode : 执行成功后编码
 Context --> Encode : 读取结果与元信息
-Encode --> Operator : 编码完成 / written_count
+Encode --> Runtime : 编码完成 / written_count
+Runtime --> Operator : 校验数量后交付中立输出
 Operator --> Caller : 发布输出池租约
 @enduml

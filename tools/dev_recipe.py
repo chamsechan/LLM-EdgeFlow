@@ -347,6 +347,28 @@ def prepare_text_llm_node(name, profile_name, tool_path, build_dir, pipeline_tar
                    effects_path, manifest_path)
 
 
+def verify_focused_tests(runner, name, root):
+    prefix = f"ScaffoldGeneratedNodeTest.{name}_"
+    filter_arg = f"--gtest_filter={prefix}*"
+    discovery = subprocess.run([str(runner), filter_arg, "--gtest_list_tests"], cwd=root,
+                               capture_output=True, text=True, check=False)
+    # The shared runner lists every compiled case for CTest discovery, even with
+    # an explicit filter. Count only this recipe's cases before comparing results.
+    suite, count = "", 0
+    for line in discovery.stdout.splitlines():
+        entry = line.split("#", 1)[0].strip()
+        if not line.startswith(" ") and entry.endswith("."):
+            suite = entry
+        elif line.startswith("  ") and (suite + entry).startswith(prefix):
+            count += 1
+    if discovery.returncode or count == 0:
+        raise RecipeError("Focused filter matched zero tests or discovery failed:\n" + discovery.stdout + discovery.stderr)
+    proc = subprocess.run([str(runner), filter_arg], cwd=root, capture_output=True, text=True, check=False)
+    passed = re.search(r"\[\s*PASSED\s*\]\s*(\d+)\s+test", proc.stdout)
+    if proc.returncode or not passed or int(passed[1]) != count:
+        raise RecipeError("Focused tests failed or skipped required cases:\n" + proc.stdout + proc.stderr)
+
+
 def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path,
                   name=None, demo_path=None, manifest_path=None, root=ROOT):
     root = root.resolve()
@@ -409,17 +431,7 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path,
         completed.append(step)
         if recipe == "text-llm-node":
             step = "focused_test"
-            runner = build / "edgeflow_test_nodes_runner"
-            filter_arg = f"--gtest_filter=ScaffoldGeneratedNodeTest.{name}_*"
-            discovery = subprocess.run([str(runner), filter_arg, "--gtest_list_tests"], cwd=root,
-                                       capture_output=True, text=True, check=False)
-            count = sum(bool(re.match(r"^  [A-Za-z_][A-Za-z0-9_]*(?:\s|$)", line)) for line in discovery.stdout.splitlines())
-            if discovery.returncode or count == 0:
-                raise RecipeError("Focused filter matched zero tests or discovery failed:\n" + discovery.stdout + discovery.stderr)
-            proc = subprocess.run([str(runner), filter_arg], cwd=root, capture_output=True, text=True, check=False)
-            passed = re.search(r"\[\s*PASSED\s*\]\s*(\d+)\s+test", proc.stdout)
-            if proc.returncode or not passed or int(passed[1]) != count:
-                raise RecipeError("Focused tests failed or skipped required cases:\n" + proc.stdout + proc.stderr)
+            verify_focused_tests(build / "edgeflow_test_nodes_runner", name, root)
             completed.append(step)
         step = "evaluate"
         selection = VERIFY_SELECTION.inspect_selection(pipeline, tool, pipeline_path.parent, manifest)

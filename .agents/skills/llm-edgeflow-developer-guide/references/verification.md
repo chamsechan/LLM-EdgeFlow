@@ -31,7 +31,7 @@ do not mix a variant Catalog with default binaries.
    does not verify a new JSON file.
 5. Run focused tests during development. Extend an existing source/suite where it owns the contract.
    New `test_*.cpp` files in the directories matched by `tests/RuntimeTests.cmake` are
-   automatically included in the owning runner; a new suite also needs a CTest filter.
+   automatically included in the owning runner; GoogleTest discovery generates the CTest entries.
    Keep process-isolated and opt-in tests explicitly registered. Generated custom Node
    tests are collected from `tests/unit/nodes/` and use the existing `ScaffoldGeneratedNodeTest`
    filter. Confirm the actual cases run, not just that the runner builds.
