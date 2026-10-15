@@ -1,10 +1,16 @@
 # 自定义 Node：常用写法与按需参考
 
-每个 Node 使用同一结构：`Inputs` 声明输入，可选的 `Params` 与 `Models` 声明配置和模型，
-`Run` 写全部处理逻辑，`Spec` 用 `MakeNodeSpec` 把它们登记给框架，再用
-`REGISTER_FUNCTION_NODE` 注册。逐项处理在 `Run` 中调用 `MapPayloads`，数量、顺序与来源编号由它保持。
+所有 Node 使用同一结构：
 
-先完成[第一个自定义 Node](first_custom_node.md)。下面前三节解释常用声明；仅在改变数据关系、
+- `Inputs` 声明输入。
+- `Params` 和 `Models` 分别声明参数和模型，按需添加。
+- `Run` 实现业务算法。
+- `Spec` 用 `MakeNodeSpec` 组合上述声明。
+- `REGISTER_FUNCTION_NODE` 注册节点。
+
+逐项处理使用 `MapPayloads`。该函数保留数量、顺序和来源编号。
+
+先完成[第一个自定义 Node](first_custom_node.md)。下面前三节解释常用声明。仅在改变数据关系、
 增加共享资源或启用并行执行时，阅读后面的对应部分。
 
 ## 结构与签名速查
@@ -41,18 +47,18 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 
 ## 1. 类型端口：这个操作接收什么、产生什么
 
-把一个 Node 看作批量处理函数。输入端口是函数参数，输出端口是返回值；`TextBatch`
-表示一组带来源编号的文本，而不是任意可以强制转换的内存。
+Node 是批量处理函数。输入端口对应参数，输出端口对应返回值。
+`TextBatch` 表示一组带来源编号的文本。
 
 在[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Required("input", &Inputs::input)`
 和 `PreservedOutput<TextBatch>("output", "input")` 声明逻辑名字和类型。Spec 同时生成运行时绑定与 Definition，
 业务函数不直接读写 Blackboard。多输入使用 `InputsOf` 绑定普通输入结构，
-多输出使用 `OutputsOf` / `Produced` 绑定普通结果结构；类型和逻辑端口只声明一次。
-`Optional` 允许不连接端口；如果连接后当前请求仍可缺值，显式使用 `OptionalValue`，
-由算法处理这个状态。保序输出已确定数量与来源，不重复填写 `PortFlow`；
+多输出使用 `OutputsOf` / `Produced` 绑定普通结果结构。类型和逻辑端口只声明一次。
+`Optional` 允许不连接端口。如果连接后当前请求仍可缺值，显式使用 `OptionalValue`，
+由算法处理这个状态。保序输出已确定数量与来源，不重复填写 `PortFlow`。
 只有非默认关系才声明它。可选性独立于数量关系，不另建 flow preset。
 
-有三个名字容易混淆：
+以下三个名称分别标识类型、实例和端口：
 
 | 名字 | 练习中的例子 | 谁决定它 |
 | --- | --- | --- |
@@ -69,27 +75,34 @@ Pipeline 的 `inputs` 直接引用来源。例如：
  "inputs":{"input":"input.sentence_text"}}
 ```
 
-输出引用为 `generate_entities.output`；回包在所选输出 converter 的 `inputs` 中连接最终结果的来源。
-Validator 由引用推导依赖；只有额外执行顺序需要 `depends_on`。必需输入显式连接，可选输入省略即未连接。
+输出引用为 `generate_entities.output`。响应在所选输出转换器的 `inputs` 中连接最终结果的来源。
+Validator 由引用推导依赖。只有额外执行顺序需要 `depends_on`。必需输入显式连接，可选输入省略即未连接。
 内部 Blackboard 数据名就是引用本身，未被引用的输出不发布。换方案时只改引用，逻辑端口保持稳定。
 
-框架将值放在当前请求的 `AlgContext` 中，可以理解成“这次处理的数据工作区”。
-Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时记录错误；`OptionalValue` 只允许缺值，
+`AlgContext` 保存当前请求的数据。
+Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时记录错误。`OptionalValue` 只允许缺值，
 不允许错误类型。算法成功后发布返回值，同一个数据名不能重复写入。
 需要修改文本时创建新值，不原地修改已经发布的输入，也不直接调用另一个 Node 绕过 Pipeline。
 
 **第一次开发只需要做：** 选择正确的批类型、保持逻辑端口稳定，在 Pipeline 中连线。
-已有 `TextBatch` 等类型不需要你编写类型注册；新增内部类型时再了解 `BlackboardTypeTraits`。
+已有 `TextBatch` 等类型不需要你编写类型注册。新增内部类型时再了解 `BlackboardTypeTraits`。
 平台结构、指针和字符串容量属于 Adapter，不是节点端口的类型。
 
 ## 2. 模型绑定：拿到一个已经准备好的模型能力
 
-你需要的是“生成文本”的能力。`ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
-`AsrCall`、`OcrCall`、`RerankCall` 分别提供 `Generate`、`Embed`、`Transcribe`、`Recognize`、`Score`。
-绑定写作 `Model("generator", "bind_model", &Models::generator)`，只接收三个参数；框架按
-成员能力生成引用 `models[].name` 的说明。它们处理空批次、模型错误诊断及返回数量和
-来源检查，结果统一为 `NodeResult`。
-模型失败直接传播；宿主收到的返回码由接入适配层按失败阶段映射，
+在 `ModelsOf` 中用 `Model` 声明模型能力。成员类型决定调用方法：
+
+| 成员类型 | 方法 |
+| --- | --- |
+| `LlmCall` | `Generate` |
+| `EmbeddingCall` | `Embed` |
+| `AsrCall` | `Transcribe` |
+| `OcrCall` | `Recognize` |
+| `RerankCall` | `Score` |
+
+绑定写作 `Model("generator", "bind_model", &Models::generator)`。框架根据成员能力生成模型引用说明。
+上述调用接口处理空批次和模型错误，并检查结果数量和来源。返回类型统一为 `NodeResult`。
+模型失败直接传播。宿主收到的返回码由接入适配层按失败阶段映射，
 内部码保留在诊断中。Node 不加载模型文件或创建厂商运行时。
 
 下面几个字段承担不同职责：
@@ -105,21 +118,21 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 模型类型和后端名称只是这个练习的已注册配置，其他环境以 Catalog 为准。
 模型类别由条目 `type` 指定，C++ 实现名是 Definition 的 `impl_name`。
 `Model` 声明的引用字段必须显式填写，不能依靠约定模型名或候选模型数量自动选择。
-模型和后端的组合需要通过协议校验；路径是否可加载、资源是否充足，还要在构建运行时确认。
+模型和后端的组合需要通过协议校验。路径是否可加载、资源是否充足，还要在构建运行时确认。
 
 Pipeline 构建期间准备模型资源，作者包装在初始化时取得各槽绑定的能力句柄。
 资源属于会话，当前输入输出属于请求。本次提示词、回答、临时向量留在函数局部。
 需要会话缓存时，`Run` 显式接收 `const SessionResources&`。普通工厂返回 `NodeResult<T>`，
-交给 `GetOrCreateResult<T>(key, factory)`，得到 `NodeResult<std::shared_ptr<T>>`；框架复用资源、
+交给 `GetOrCreateResult<T>(key, factory)`，得到 `NodeResult<std::shared_ptr<T>>`。框架复用资源、
 向等待者保留完整失败信息，失败后允许重试。这是 Node 作者唯一的缓存创建入口。
-模型注册后在会话内不可替换；缓存 key 必须包含模型名及影响结果的输入、参数和来源信息，
-不同会话独立持有缓存；
+模型注册后在会话内不可替换。缓存 key 必须包含模型名及影响结果的输入、参数和来源信息，
+不同会话独立持有缓存。
 参考 [text_embedding](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。LLM 模板用
 [`GenerateParameters()`](../../include/nodes/generate_parameters.h) 声明 `max_tokens`、`temperature`
-等生成参数，默认值来自 `GenerateOptions`，所有节点默认 `max_tokens = 128`；节点配置可以覆盖。
+等生成参数，默认值来自 `GenerateOptions`，所有节点默认 `max_tokens = 128`。节点配置可以覆盖。
 还需要自有配置时，把生成参数放进自己的
 `Params`，自有字段照常用 `Field` 声明，并把 Spec 中的 `GenerateParameters()` 换成：
 
@@ -133,7 +146,7 @@ Parameters<Params>{Field("prefix", &Params::prefix).Default("")}
     .Include(&Params::generation, GenerateParameters())
 ```
 
-`Include` 把生成字段平铺在同一层 JSON 中，值写入 `generation`；重名在构造声明时拒绝。
+`Include` 把生成字段平铺在同一层 JSON 中，值写入 `generation`。重名在构造声明时拒绝。
 被并入组的 `Prepare` / `Validate` 先于本组执行。生成字段也是普通 `Field`，可加入 `WithControls`。
 `Run` 的参数改为 `const Params& params`，调用模型时传 `params.generation`。自有字段需要
 进一步转换时（例如把模板解析成片段），用 `Prepare`，参考
@@ -141,8 +154,7 @@ Parameters<Params>{Field("prefix", &Params::prefix).Default("")}
 
 ## 3. Definition：让连线工具和运行器看懂你的操作
 
-编译后的 C++ 函数无法直接告诉 Studio“我需要文本输入，输出还是文本，并且要绑定一个
-LLM”。`NodeDefinition` 就是把这些要求写成框架能读取的接口说明。
+`NodeDefinition` 描述节点的端口、参数和模型要求。Catalog、Validator 和 Studio 读取这些声明。
 
 它主要回答：
 
@@ -154,29 +166,28 @@ LLM”。`NodeDefinition` 就是把这些要求写成框架能读取的接口说
 | `model_dependencies` | 需要哪些模型能力槽位、哪个字段引用各模型实例 |
 
 LLM 模板声明必填的 `bind_model` 和生成参数。复制完整样例的配置时，需要移除
-`prompt_template`、`strip_markdown` 等它没有声明的字段。未知字段被拒绝，能尽早发现
-“代码根本没有使用这个配置”的问题。
+`prompt_template`、`strip_markdown` 等它没有声明的字段。Validator 拒绝未声明的字段。
 
-所有 Node 用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明；`NodeBase` 仅是框架内部运行机制。构建之后，Catalog、
+所有 Node 用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明。`NodeBase` 仅是框架内部运行机制。构建之后，Catalog、
 Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点列表。
 
-**什么时候需要改 Definition？** 只改提示词构造或输出文本格式、接口保持不变时，通常
-不用改。增加端口、参数、输出类型或改变数量关系时，必须一起更新声明和实现。
+如果接口保持不变，只修改业务函数即可。
+如果增加端口、参数、输出类型或改变数量关系，同时更新声明和实现。
 
-`Parameters<T>` 将字段声明、默认值和结构成员绑定在一处；语义校验用
+`Parameters<T>` 将字段声明、默认值和结构成员绑定在一处。语义校验用
 `Validate` / `ValidateBindings`，由预检与初始化共用。参考
 [多输入 starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
 
 Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。
 Validator 根据 Definition 字段列表一次性校验未知字段、类型、范围和枚举，并填入默认值。
 执行包装在初始化时消费 `ValidatedNodePlan` 的归一化配置与解析端口，缺少 Plan 时失败。
-业务函数收到普通输入、参数和模型，返回 `NodeResult`；包装统一写入错误码与诊断。
+业务函数收到普通输入、参数和模型，返回 `NodeResult`。包装统一写入错误码与诊断。
 跨字段及连线语义分别用 `Validate` / `ValidateBindings`，初始化与预检使用同一规则。
 Control 更新单独归一化参数、构造下一状态后发布。
 
 非可选 `Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，
 也不从结构体初值推断配置默认值。`std::optional<T>` 标量不声明这两项，省略时为空。
-数组和映射分别使用 `std::vector<T>`、`std::map<std::string, T>`，可以嵌套；结构体元素
+数组和映射分别使用 `std::vector<T>`、`std::map<std::string, T>`，可以嵌套。结构体元素
 使用 `.Items(Parameters<Element>{...})`，元素字段照常声明必填项、默认值和约束：
 
 ```cpp
@@ -195,11 +206,11 @@ Parameters<Params>{
     Field("fallback", &Params::fallback).Default(nlohmann::json::object())}
 ```
 
-容器上的 `Range` / `Enum` 约束标量叶子，元素类型由成员类型推导；结构体的字段说明由
+容器上的 `Range` / `Enum` 约束标量叶子，元素类型由成员类型推导。结构体的字段说明由
 `Items` 提供。错误路径继续到元素下标或映射键，例如 `/pipeline/0/params/rules/1/score`、
 `/pipeline/0/params/categories/topic/0`。`nlohmann::json` 字段接受任意非 null JSON 值。
 
-字段赋值后，`Prepare` 构建依赖参数的派生状态，例如模板片段和编译后的正则；随后执行
+字段赋值后，`Prepare` 构建依赖参数的派生状态，例如模板片段和编译后的正则。随后执行
 `Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。结构体元素也按自己的声明补齐
 默认值、赋值，再运行元素的 `Prepare` / `Validate`。参数更新会复用这些规则重建并校验候选状态。
 
@@ -208,7 +219,7 @@ Parameters<Params>{
 
 ## 改变数量或顺序时：来源编号
 
-用 `MapPayloads` 逐项处理时这些编号自动保持；过滤、拆分、聚合、重排和多路合并时才需要了解来源关系。
+`MapPayloads` 自动保留来源编号。过滤、拆分、聚合、重排和合并需要算法显式处理来源关系。
 
 `TextBatch` 中每一项是 `TraceableItem<std::string>`，包含三部分：
 
@@ -220,7 +231,7 @@ Parameters<Params>{
 
 例如输入是 `(101, 0, 张三的材料)` 和 `(202, 0, 李四的材料)`，输出中的张三结果仍应
 标记 `(101, 0)`。循环下标 `0`、`1` 只代表本批中的位置，不能拿来替换请求编号。
-一个请求拆成多个片段时，可能出现 `(101, 0)`、`(101, 1)`；它们仍属于同一个请求。
+一个请求拆成多个片段时，可能出现 `(101, 0)`、`(101, 1)`。它们仍属于同一个请求。
 
 `MapPayloads` 与 `PreservedOutput` 对应 `1:1` / `preserve` 关系：**输入一项，输出一项，顺序与两个编号都保持一致**。
 在一般的批处理代码中，构造输出的写法是：
@@ -229,12 +240,12 @@ Parameters<Params>{
 outputs.emplace_back(item.req_id, item.sub_id, new_value);
 ```
 
-模型可能在内部切批或补齐批次，框架的模型执行路径负责处理这些细节。模型调用门面负责验证
-返回数量与来源，因为“模型调用返回成功”不能证明每条回答都对应正确请求。
+模型执行层负责切分和补齐批次。模型调用接口检查返回数量和来源。
+调用成功只表示模型完成执行，结果还必须与输入对应。
 
 LLM 模板中的 `BuildPrompt` 和 `FormatAnswer` 只接收文本，不接收编号，因此常规业务修改可以
-集中在载荷上。需要过滤、拆分或聚合时，在 `Run` 中按算法构造输出，并同步声明数量和来源规则；
-不能让保序输出悄悄丢掉一条输入。
+集中在载荷上。需要过滤、拆分或聚合时，在 `Run` 中按算法构造输出，并同步声明数量和来源规则。
+保序输出必须保留每条输入的对应结果。
 
 ### 数量关系声明与 Validator 检查
 
@@ -251,29 +262,26 @@ LLM 模板中的 `BuildPrompt` 和 `FormatAnswer` 只接收文本，不接收编
 Validator 沿 DAG 推导每个数据名在一个请求内有几项：每请求一项、由某个拆分输出产生的多项，
 或未知。只在两处报告 `PORT_CARDINALITY_MISMATCH`：
 
-- 业务或 IO 边界声明 `1:1`（每个请求恰好一项）却收到拆分产生的多项；边界的其他声明表示
+- 业务或 IO 边界声明 `1:1`（每个请求恰好一项）却收到拆分产生的多项。边界的其他声明表示
   属于该请求的一组条目。
 - 同一节点的多个逐项输入数量不同，例如一个每请求一项、另一个来自片段拆分，或来自两个不同的
   拆分，无法逐项配对。经逐项节点传递的同一拆分结果仍可配对。
 
-`N:M` 输出的静态数量未知，派生数量与来源关系由算法及其测试保证；下游仅执行自身声明的检查。
+`N:M` 输出的静态数量未知，派生数量与来源关系由算法及其测试保证。下游仅执行自身声明的检查。
 不要为了绕过上述检查而声明 `N:M`。
 来源规则 (provenance) 与存活期 (lifetime) 独立检查。
-输入计划记录生产者的实际生命周期。`BindingFacts::InputLifetime("text")` 可在 `Prepare` 中派生缓存行为；
+输入计划记录生产者的实际生命周期。`BindingFacts::InputLifetime("text")` 可在 `Prepare` 中派生缓存行为。
 `PortFlow{"1:1", "preserve", FollowLifetime("text")}` 声明输出跟随该输入，无需配置生命周期参数。
 
-流契约诊断的 `facts` 给出生产者、消费者、实际数据名及有效端口声明；数量错误还给出
+流契约诊断的 `facts` 给出生产者、消费者、实际数据名及有效端口声明。数量错误还给出
 `actual_shape` / `expected_shape`，并在多项形状中保留拆分来源。`actual` / `expected` 的
 cardinality 是端口自身的声明，沿拆分传递的逐项输出仍可能声明 `1:1`，实际形状须看
 `actual_shape`。CLI 使用这些中性事实生成说明，不重复推导数量关系。
 
 ## 启用并行或共享资源时：并发声明
 
-假设两个调用同时使用相同的节点逻辑。函数局部的提示词和结果各自独立；如果把上次
-输入放到成员 `last_input_`，另一次调用可能读取或覆盖它。即使暂时只串行执行，保存上次
-请求也可能让后续请求携带旧数据。
-
-所以 Node 的基本规则始终是：**不在节点成员里保存请求数据**。
+**请求数据只保存在处理函数的局部变量中。**
+如果将输入保存在节点成员中，后续请求可能读取或覆盖该输入。串行执行也存在此问题。
 
 | 可以作为成员 | 应当留在处理函数局部 |
 | --- | --- |
@@ -282,31 +290,30 @@ cardinality 是端口自身的声明，沿拆分传递的逐项输出仍可能�
 | 经设计和验证可安全共享的资源句柄 | 当前请求的 Context 指针、临时请求缓存 |
 
 “无请求状态”允许节点持有配置。在线更新时先校验新值，失败保留旧值，每次处理读取
-一致快照。参数更新使用 `WithControls` / `ReplaceFields`，payload 至少提供一个受控字段；
+一致快照。参数更新使用 `WithControls` / `ReplaceFields`，payload 至少提供一个受控字段。
 只替换提供的字段，数组和映射整体替换，随后重跑 `Prepare` / `Validate`，失败保持旧快照。
-payload schema 由受控字段声明生成，框架串行处理更新并发布。模板编译与规则编译放在
+参数格式由受控字段声明生成，框架串行处理更新并发布。模板编译与规则编译放在
 `Prepare` 中，初始配置和更新共用同一实现。见 [Control 练习](first_control.md)。
 
-默认顺序执行不要求作者填写并发声明；`parallel_safe=false` 是框架的保守默认。Pipeline 的
-`max_parallel_workers` 大于 1 时，框架把它放到单独的层顺序执行，不会自动加锁；声明
+默认顺序执行不要求作者填写并发声明。`parallel_safe=false` 是框架的保守默认。Pipeline 的
+`max_parallel_workers` 大于 1 时，框架将不支持并行的节点放到单独的层。框架不会自动为节点加锁。声明
 `.ParallelSafe(true)` 后才可能与同层节点并行。共享串行模型的节点也按同样方式分层。
-`max_parallel_workers` 范围为 1–64，默认 1；本练习沿用默认串行执行。
+`max_parallel_workers` 范围为 1–64，默认 1。本练习沿用默认串行执行。
 
 每个原始层先执行可并行且不共享串行模型的节点，再按原层内顺序逐个执行拆出的节点。
 `plan` 的 `layers` 和 `topological_order` 反映这个执行顺序。原始层的重复端口写入仍会被拒绝。
 
-准备设为 `true` 时，检查你的业务函数、调用的辅助对象和所有节点自有共享状态。
-`true` 只说明节点自身可以按该契约并行执行；所绑定模型及 Backend 的并发约束仍由
-框架独立检查，并不是这个布尔值能解除的限制。
+设置 `.ParallelSafe(true)` 前，检查业务函数、辅助对象和节点共享状态。
+该声明只表示节点自身支持并行。框架仍检查所绑定模型和 Backend 的并发限制。
 
 并行安全需要检查实际共享资源，不能仅凭节点是否保存请求状态判断。
 
 ## 复杂算法仍按普通 C++ 函数组织
 
 多个输入、条件二次推理或复杂后处理都组织在普通 `Run` 函数中。保序输出用
-`PreservedOutput` 声明 anchor，框架检查等长、同序和同来源；局部选择后需要回填完整批次。
-拆分、排名或源输出用 `ProducedBatch` 和真实 `PortFlow`；多输出用 `OutputsOf` / `Produced`。
-每个输出端口必须绑定独立的结果成员；重复绑定同一成员会在声明时被拒绝，避免发布时重复移动。
+`PreservedOutput` 声明 anchor，框架检查等长、同序和同来源。局部选择后需要回填完整批次。
+拆分、排名或源输出用 `ProducedBatch` 和真实 `PortFlow`。多输出用 `OutputsOf` / `Produced`。
+每个输出端口必须绑定独立的结果成员。重复绑定同一成员会在声明时被拒绝，避免发布时重复移动。
 框架在发布前检查全部带 anchor 的输出，派生输出的编号和数量正确性由算法及测试保证。
 
 所有生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、
@@ -330,30 +337,30 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，
-拒绝临时批次；使用期间输入必须存活且不修改、不移动。视图仅用于本次请求内的同步算法，
+拒绝临时批次。使用期间输入必须存活且不修改、不移动。视图仅用于本次请求内的同步算法，
 不能保存到 Node/Session 或异步任务。`Materialize`、Scatter 和 Split 的输出拥有数据。
-错误在 AuthorNode 边界统一写入诊断。`NodeResult<T>::Failure(message, cause_code)` 保留原始消息与错误码；
+错误在 AuthorNode 边界统一写入诊断。`NodeResult<T>::Failure(message, cause_code)` 保留原始消息与错误码。
 批次工具把来源保存为 `BatchFailureDetail`，在输出诊断时格式化一次，不提前拼接来源或写 Context。工具要求完整 key 唯一，不改变未使用这些工具的逐项处理/模型重复 key 行为。
 
-先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号；“每个问题
+先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号。“每个问题
 取前三个候选”要按请求分组并声明排名来源，不能用整个 batch 的前三项代替。
 多输入不能仅凭数组下标配对：一对一数据用两个编号关联，片段聚合按声明的请求关系处理。
 空批次、某个请求没有候选、模型少返回一项，都应在算法测试中有明确预期。
 
-把输出构造在局部变量中，全部成功后返回 `NodeResult::Success`；失败返回
+把输出构造在局部变量中，全部成功后返回 `NodeResult::Success`。失败返回
 `NodeResult::Failure`，原因写明字段或来源。执行包装统一处理诊断和发布，普通算法不保存
-Context 指针。配置更新由包装提供一致快照；含外部资源的更新仍需明确资源生命周期。
+Context 指针。配置更新由包装提供一致快照。含外部资源的更新仍需明确资源生命周期。
 
 第一次测试可复用 [NodeProbe](../../tests/support/node_probe.h)，将断言加入现有
-Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
+Node 套件。命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
 先用两个不同请求、非零 `sub_id` 验证不会串结果，再检查算法自己的正常和失败输出。
-无需为了组织一个复杂 Node 再增加继承层、配置语言或专用测试执行器。
+
 
 ## 从一次运行看这些概念如何配合
 
-1. **构建时**：注册提供 Definition；Validator 检查连线、配置和模型引用，产生执行计划。
+1. **构建时**：注册提供 Definition。Validator 检查连线、配置和模型引用，产生执行计划。
 2. **初始化时**：Spec 包装按计划绑定端口、解析参数、取得声明的模型能力。
-3. **处理时**：包装读取输入和一致参数；业务函数处理 `.data`，返回结果；检查保序输出后发布。
+3. **处理时**：包装读取输入和一致参数。业务函数处理 `.data`，返回结果。检查保序输出后发布。
 4. **返回时**：Adapter 读取方案的最终输出，按平台契约完成转换与拷贝。
 
 常见问题可按下面的顺序定位：
@@ -368,6 +375,6 @@ Node 套件；命令见[本地快速验证](../../src/custom_nodes/README.md#本
 | 并行计划被拆层 | 节点声明以及同层所使用模型的并发能力 |
 
 需要核对精确接口时，再查阅 [Node 作者接口](../../include/nodes/authoring.h)、
-[模型调用门面](../../include/nodes/model_calls.h)、
+[模型调用接口](../../include/nodes/model_calls.h)、
 [模型能力接口](../../include/engine/model_interface.h)和
 [Definition 声明](../../include/core/pipeline_catalog.h)。
