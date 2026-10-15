@@ -8,25 +8,25 @@
 
 LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语音识别组织为可复用的算法节点，用 JSON 描述它们的连接关系，再通过统一的 C++ Operator SDK 供宿主程序调用。
 
-框架面向算法方案开发者：已有能力通过配置组合，领域算法在自定义 Node 中实现，平台输入输出由 Adapter 转换。模型语义与推理后端分别扩展，便于在不同方案中复用同一套算法代码。
-
 项目目前处于实际业务接入前的开发与验证阶段。仓库提供可运行示例和自动化测试；模型效果、性能及目标设备适配需按具体场景验收。
 
 [快速开始](#快速开始) · [架构与扩展](#架构与扩展) · [示例方案](#示例方案) · [开发文档](#开发文档)
+
+## 按任务开始
+
+首次使用先完成下面的快速开始，再按要修改的内容选择入口；同一方案可以组合使用。
+
+| 你要做什么 | 主要修改 | 入口 |
+| :--- | :--- | :--- |
+| 拉方案：组合已有能力 | Pipeline 配置、规则、提示词与连线 | [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排) · [修改提示词](doc/dev_guide/recipe_prompt_config.md) |
+| 开发 Node：补充业务算法 | 普通 C++ 函数、端口声明和测试 | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) |
+| 增加 Adapter：接入请求与响应 | 输入/输出转换器，优先复用现有载体 | [业务接入指南](doc/dev_guide/business_onboarding.md) |
 
 <p align="center">
   <a href="doc/assets/framework_overview.svg">
     <img src="doc/assets/framework_overview.svg" alt="LLM-EdgeFlow 工作原理：配置经校验后由 Pipeline 调度通用与自定义节点，处理宿主输入并返回结果，需要推理时通过 Model 调用 Backend。" width="100%"/>
   </a>
 </p>
-
-## 框架提供什么
-
-- **组合算法流程**：Pipeline 以有向无环图（DAG）描述节点依赖，可组合规则、检索、模型调用和结果处理。执行前统一检查端口类型、依赖关系、生命周期和并行安全。
-- **复用算法实现**：通用 Node 与自定义 Node 使用相同的类型端口和注册机制；单个节点可用于多个 Pipeline。
-- **管理模型执行**：Model 负责模型预后处理与输出语义，Backend 负责推理运行时。节点通过模型能力接口调用推理。
-- **对接宿主程序**：C++ Operator SDK 统一对接宿主程序，集中处理数据转换、资源生命周期和异常隔离。
-- **验证运行结果**：命令行工具与 Web 工作台共用 Catalog 和 Validator；统一 Demo 输出逐条结果与运行摘要，并保留请求来源编号。
 
 ## 快速开始
 
@@ -42,10 +42,8 @@ cmake --preset=minimal -B build
 cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --parallel 4
 ```
 
-首次练习只构建规则、模板、数据处理与工具，不启用推理后端或构建全部测试。后续真实模型
-按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)选择 Backend；若沿用 `build/`，重新
-执行 `cmake --preset=<变体> -B build` 并重建即可。交付前仍执行完整默认门禁，
-它会应用 `dev-gate` 预设。构建参数统一维护在 `CMakePresets.json`。主要产物如下：
+此构建可运行无需模型的示例；使用真实模型时按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
+启用对应 Backend。主要产物如下：
 
 | 产物 | 用途 |
 | :--- | :--- |
@@ -56,7 +54,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 
 ### 2. 运行第一个方案
 
-从无需模型权重的关键词匹配开始。下面使用仓库自带的四条测试文本，执行配置中定义的规则：
+从无需模型权重的关键词匹配开始。下面使用仓库自带的三条测试文本，执行配置中定义的规则：
 
 ```bash
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
@@ -65,7 +63,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
   --output-dir results/quickstart
 ```
 
-预期四条输入均处理成功，前两条命中 `SYSTEM_INIT`，后两条未命中。结果位于：
+预期三条输入均处理成功，第一、三条命中 `SYSTEM_INIT`，第二条未命中。结果位于：
 
 - `results/quickstart/keyword_match_rules/results.jsonl`：逐条请求的状态与匹配结果。
 - `results/quickstart/keyword_match_rules/summary.json`：样本数、成功数、失败数与耗时。
@@ -124,10 +122,6 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 
 以下配置展示已有能力的组合方式。涉及模型的方案需要匹配的 Backend、权重及运行资源；实际可用的节点、模型和后端以目标构建的 `alg_pipeline_tool catalog` 为准。
 
-当前八类业务统一通过 `json_out` 输出类型返回 C 结构 `CompanyOperatorOutput`：
-`result_json` 承载完整业务 JSON，`status_code` 保存状态，不同 `name` 选择业务响应契约。
-以后需要新增其他结构时，沿用 [ValueType 与 binding 注册接口](doc/dev_guide/operator_output_allocation.md#实现与注册)。
-
 | 场景 | 处理方式 | 配置与运行条件 |
 | :--- | :--- | :--- |
 | 关注词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match_rules.json)；无需模型权重 |
@@ -152,15 +146,7 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 ## 开发文档
 
-从需要改变的部分选择入口；同一个方案可以组合使用这三条路径。
-
-| 路径 | 何时使用 | 入口 |
-| :--- | :--- | :--- |
-| 已有能力编排 | 外部契约不变，调整规则、提示词、模型或连线 | [Pipeline Studio](tools/pipeline_studio/README.md#第一次编排) · [提示词 Recipe](doc/dev_guide/recipe_prompt_config.md) |
-| 新增自定义 Node | 已有节点无法实现所需算法 | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) |
-| 新增外部业务契约 | 请求或响应的字段、格式、语义发生变化 | [业务接入指南](doc/dev_guide/business_onboarding.md) |
-
-### 进阶与参考
+日常业务开发从[按任务开始](#按任务开始)选择教程；遇到具体问题时再查阅以下参考。
 
 | 目标 | 入口 |
 | :--- | :--- |
@@ -179,14 +165,9 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 ./scripts/run_all_tests.sh
 ```
 
-已授权的 PR 交付由交付脚本执行同一门禁，无需预先单独运行。
-
 该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18、架构图检查所需的 Java 17+，以及 Schema 测试所需的 Python `jsonschema`（Debian/Ubuntu 安装包为 `python3-jsonschema`）；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
 
-`jsonschema` 必须安装在 CMake 选中的 Python 环境中。使用已有解释器时，可先执行
-`./scripts/configure_build.sh "$PWD" "$PWD/build" dev-gate -DPython3_EXECUTABLE=/path/to/python3`，再运行门禁。
-
-项目尚未正式发布；当前产品版本标识为 **v11.0.0**。接口边界见[架构设计](doc/architecture.md)，当前基线见 [Changelog](doc/CHANGELOG.md)。
+`jsonschema` 需安装在 CMake 选中的 Python 环境中。当前版本 **v11.0.0**，尚未正式发布；变更见 [Changelog](doc/CHANGELOG.md)。
 
 ## 许可证
 

@@ -57,7 +57,7 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 | 名字 | 练习中的例子 | 谁决定它 |
 | --- | --- | --- |
 | 节点类型 `type` | `my_business_llm` | C++ 注册；说明“这是什么操作” |
-| 节点实例 `name` | `custom_prompt` | Pipeline；说明“这次使用这个操作的位置” |
+| 节点实例 `name` | `generate_entities` | Pipeline；说明“这次使用这个操作的位置” |
 | 逻辑端口 | `input`、`output` | Node；说明“操作接收、返回哪些值” |
 
 同一个类型可以在一个方案出现多次，只需使用不同的 `name`。
@@ -65,11 +65,11 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 Pipeline 的 `inputs` 直接引用来源。例如：
 
 ```json
-{"type":"my_business_llm", "name":"custom_prompt", "params":{"bind_model":"llm_model"},
+{"type":"my_business_llm", "name":"generate_entities", "params":{"bind_model":"entity_llm"},
  "inputs":{"input":"input.sentence_text"}}
 ```
 
-输出引用为 `custom_prompt.output`；回包在所选输出 converter 的 `inputs` 中连接这个来源。
+输出引用为 `generate_entities.output`；回包在所选输出 converter 的 `inputs` 中连接最终结果的来源。
 Validator 由引用推导依赖；只有额外执行顺序需要 `depends_on`。必需输入显式连接，可选输入省略即未连接。
 内部 Blackboard 数据名就是引用本身，未被引用的输出不发布。换方案时只改引用，逻辑端口保持稳定。
 
@@ -89,7 +89,7 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 绑定写作 `Model("generator", "bind_model", &Models::generator)`，只接收三个参数；框架按
 成员能力生成引用 `models[].name` 的说明。它们处理空批次、模型错误诊断及返回数量和
 来源检查，结果统一为 `NodeResult`。
-模型失败直接传播，不为旧节点错误码再做一层映射；宿主收到的返回码由接入适配层按失败阶段映射，
+模型失败直接传播；宿主收到的返回码由接入适配层按失败阶段映射，
 内部码保留在诊断中。Node 不加载模型文件或创建厂商运行时。
 
 下面几个字段承担不同职责：
@@ -196,8 +196,8 @@ Parameters<Params>{
 ```
 
 容器上的 `Range` / `Enum` 约束标量叶子，元素类型由成员类型推导；结构体的字段说明由
-`Items` 提供。错误路径继续到元素下标或映射键，例如 `/pipeline/0/config/rules/1/score`、
-`/pipeline/0/config/categories/topic/0`。`nlohmann::json` 字段接受任意非 null JSON 值。
+`Items` 提供。错误路径继续到元素下标或映射键，例如 `/pipeline/0/params/rules/1/score`、
+`/pipeline/0/params/categories/topic/0`。`nlohmann::json` 字段接受任意非 null JSON 值。
 
 字段赋值后，`Prepare` 构建依赖参数的派生状态，例如模板片段和编译后的正则；随后执行
 `Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。结构体元素也按自己的声明补齐
@@ -256,7 +256,8 @@ Validator 沿 DAG 推导每个数据名在一个请求内有几项：每请求�
 - 同一节点的多个逐项输入数量不同，例如一个每请求一项、另一个来自片段拆分，或来自两个不同的
   拆分，无法逐项配对。经逐项节点传递的同一拆分结果仍可配对。
 
-`N:M` 输出不参与静态推导，由运行时的数量与来源检查兜底；不要为了绕过上述检查而声明 `N:M`。
+`N:M` 输出的静态数量未知，派生数量与来源关系由算法及其测试保证；下游仅执行自身声明的检查。
+不要为了绕过上述检查而声明 `N:M`。
 来源规则 (provenance) 与存活期 (lifetime) 独立检查。
 输入计划记录生产者的实际生命周期。`BindingFacts::InputLifetime("text")` 可在 `Prepare` 中派生缓存行为；
 `PortFlow{"1:1", "preserve", FollowLifetime("text")}` 声明输出跟随该输入，无需配置生命周期参数。
@@ -298,8 +299,7 @@ payload schema 由受控字段声明生成，框架串行处理更新并发布�
 `true` 只说明节点自身可以按该契约并行执行；所绑定模型及 Backend 的并发约束仍由
 框架独立检查，并不是这个布尔值能解除的限制。
 
-无请求状态不等于线程安全，有共享状态也不必然不安全。继续使用这一项并行安全声明，
-不再增加 `stateless` 或 `uses_shared_state` 标签。
+并行安全需要检查实际共享资源，不能仅凭节点是否保存请求状态判断。
 
 ## 复杂算法仍按普通 C++ 函数组织
 
