@@ -22,15 +22,16 @@
 | `plans/` | 跨多个 PR、仍在进行中的工作计划；不是现行规则，最后一个阶段合入后删除，见[工作计划](../../plans/README.md) |
 | `.agents/skills/` | 项目开发 Skills，用法见[文档目录](../README.md#使用开发-skills) |
 
-新增工具按调用方选择目录：开发者在编排或编写组件时手动运行的放 `tools/`；构建、门禁
-与 CI 调用的放 `scripts/`；需要链接框架运行时的 C++ 命令行程序放 `src/cli/`，可执行文件
-仍输出到 `build/`。
+新增工具时，按用途选择目录：
+
+- 开发者手动运行的工具放在 `tools/`。
+- 构建、门禁和 CI 脚本放在 `scripts/`。
+- 需要链接框架运行时的 C++ 命令行程序放在 `src/cli/`。可执行文件输出到 `build/`。
 
 ## 构建扩展目录
 
-本项目维护的 CMake 模块、生成模板和 Node 契约清单统一放在仓库根目录的
-`cmake_ext/`，由顶层 `CMakeLists.txt` 和相应测试引用。根目录的 `cmake/` 留给公司
-内部构建系统使用；本仓库不在该位置保留转发目录或符号链接。
+本项目的 CMake 模块、生成模板和 Node 契约清单位于 `cmake_ext/`。
+顶层 `CMakeLists.txt` 和测试引用这些文件。根目录的 `cmake/` 留给公司内部构建系统。
 `cmake` 命令、`CMakeLists.txt` 文件名，以及第三方安装包的 `lib/cmake/` 路径保持原约定。
 
 根 `CMakeLists.txt` 只负责禁止源码内构建、声明项目和按顺序加载模块：
@@ -46,9 +47,9 @@
 开源引擎分别由 `engines/OnnxRuntime.cmake`、`engines/LlamaCpp.cmake` 和
 `engines/WhisperCpp.cmake` 维护，缓存指纹由 `ThirdPartyCacheMetadata.cmake` 共用。
 Whisper 复用 llama.cpp 的 GGML，因此依赖聚合中先加载 llama.cpp。
-测试依赖 GoogleTest 在测试入口按需加载。中立模块不加载公司模块；根文件负责装配。
+测试依赖 GoogleTest 在测试入口按需加载。中立模块不加载公司模块。根文件负责装配。
 
-当前构建使用 CMake 3.19、预设和现有依赖来源；尚未接入公司 `platform` / `sdk`、
+当前构建使用 CMake 3.19、预设和现有依赖来源。尚未接入公司 `platform` / `sdk`、
 toolchain、`DH_*` 或镜像规则。公司构建上下文应归 `company/`，不能由中立模块推定。
 仅检查组织边界和模块引用可运行：
 
@@ -56,16 +57,16 @@ toolchain、`DH_*` 或镜像规则。公司构建上下文应归 `company/`，�
 cmake -P tests/contract/architecture/test_cmake_structure.cmake
 ```
 
-该检查无需编译器、网络或 SDK，不证明真实编译、链接和公司 SDK 布局正确；
+该检查无需编译器、网络或 SDK，不证明真实编译、链接和公司 SDK 布局正确。
 完整构建与测试仍使用 `./scripts/run_all_tests.sh`。
 
 `src/` 各层实现目录、`src/cli/` 与 `demo/` 使用 `GLOB_RECURSE CONFIGURE_DEPENDS`
-递归收集 `.cpp`，普通实现文件增删无需修改 CMake，下次构建自动更新。
-Engine 的 `backends/` 单独归 Backend 目标；Adapter 的 `shared_algorithm_runtime.cpp`
+递归收集 `.cpp`，增删普通实现文件后，下次构建自动更新文件列表。
+Engine 的 `backends/` 单独归 Backend 目标。Adapter 的 `shared_algorithm_runtime.cpp`
 与 `src/log.cpp` 显式归组合根。CLI 的两个可执行入口及 Demo 的 `main.cpp` 从公共实现中排除，
 分别归自己的可执行目标。新增独立目标时仍须声明其入口和归属，不能混入已有目标。
-测试按 `tests/RuntimeTests.cmake` 的目录和命名规则收集；跨 runner、进程隔离、生成源码及
-可选 E2E 目标保留显式登记；常规 GoogleTest 用例自动发现并生成 CTest 入口。
+测试按 `tests/RuntimeTests.cmake` 的目录和命名规则收集。跨 runner、进程隔离、生成源码及
+可选 E2E 目标保留显式登记。常规 GoogleTest 用例自动发现并生成 CTest 入口。
 
 ## 头文件的三种使用范围
 
@@ -76,7 +77,7 @@ Engine 的 `backends/` 单独归 Backend 目标；Adapter 的 `shared_algorithm_
 | 模块实现与仓库测试 | `src/` 中与 `.cpp` 相邻；`edgeflow_internal_headers` | 运行时装配、配置解析、注册表内部及输出池等实现 |
 
 运行时四层仍使用各自受限的 include view，不链接覆盖整个仓库的内部头目标。
-模板、内联函数和扩展基类可以直接实现在头文件中；是否需要头文件由使用范围决定。
+模板、内联函数和扩展基类可以直接实现在头文件中。是否需要头文件由使用范围决定。
 多个 `.cpp` 或测试需要引用一个声明，不意味着它应成为公开 SDK 接口。
 
 使用范围之外，还要区分定义的来源：`include/platform_mock/` 存放当前外网环境使用的
@@ -116,19 +117,20 @@ src/adapter/
       platform_value_binding.cpp  当前模拟平台的校验、分配、预算与重置
 ```
 
-转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与
-`OutputConverter` 函数回调及各自的 Definition，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
+编写转换器时，包含 `adapter/io_converter.h` 和 `adapter/converter_authoring.h`。
+实现 InputConverter 或 OutputConverter 回调后，声明对应 Definition。
+用 `REGISTER_INPUT_CONVERTER` 或 `REGISTER_OUTPUT_CONVERTER` 注册转换器。
 常见单槽、每请求一行的回调使用 `DecodeRequestRows` / `EncodeResultRows` 调用普通业务函数，
-批次与绑定归辅助层；多槽、展开和汇聚保留显式算法。
-每个转换器登记一个宿主槽、typed 逻辑端口与共享参数声明；Pipeline 根 `io` 选择这些登记。
-端口 Definition 与回调共用同一 typed 端口常量，端口名即业务键名，
+批次与绑定归辅助层。多槽、展开和汇聚保留显式算法。
+每个转换器登记一个宿主槽、类型端口与共享参数声明。Pipeline 根 `io` 选择这些登记。
+端口 Definition 与回调共用同一类型端口常量，端口名即业务键名，
 绑定不做改名。常见必需槽可用 `ExternalInputSlot<T>()` /
-`ExternalOutputSlot<T>()` 声明中立值类型；登记的 `type` 选择 binding，输出容量字段由已注册 ValueType 决定；
+`ExternalOutputSlot<T>()` 声明中立值类型。登记的 `type` 选择 binding，输出容量字段由已注册 ValueType 决定。
 特殊布局仍使用完整定义。
-业务专属实现可按修改关联同文件组织，共享 converter 保留独立引用；不要求为每个业务创建聚合宏或新注册表。
-宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
+业务专属实现可按修改关联同文件组织，共享转换器保留独立引用。不要求为每个业务创建聚合宏或新注册表。
+宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记。实现只管理
 单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。常见类型直接使用
-`MakeTypedInputBinding<T>` 与 `MakePooledOutputBinding<T>`；模板保留在扩展头中，
+`MakeTypedInputBinding<T>` 与 `MakePooledOutputBinding<T>`。模板保留在扩展头中，
 非模板分配实现归 `src/adapter/operator/`，不按业务复制池机制。
 完整步骤见[业务接入](business_onboarding.md)。
 
@@ -184,12 +186,12 @@ src/engine/
 
 配置在根 `io.input` / `io.output` 的每项填写 `type`、`name` 和可选 `params`。
 框架按方向和这一对标识查找登记，由所选端口组成 Core 边界。
-同一方向复用载体 type 时，宿主 key 使用 `name.type`；唯一 type 接受任意非空前缀。
+同一方向复用载体 type 时，宿主 key 使用 `name.type`。唯一 type 接受任意非空前缀。
 业务 name 使用 `snake_case`，描述外部请求/响应的语义，例如 `ocr_invoice_qa`。
-方案、数据集与 Profile 可以沿用对应词根和部署变体；它们不定义新载体类型或转换器身份。
+方案、数据集与 Profile 可以沿用对应词根和部署变体。它们不定义新载体类型或转换器身份。
 
 Demo 按宿主载体组织在 `demo/input/`、`demo/output/`，文件名描述载体及展示，
-由 `REGISTER_DEMO_INPUT` / `REGISTER_DEMO_OUTPUT` 登记；同一载体上的业务共享这些代码。
+由 `REGISTER_DEMO_INPUT` / `REGISTER_DEMO_OUTPUT` 登记。同一载体上的业务共享这些代码。
 
 转换器由宿主后缀和业务名配对标识，不带版本号：发布前直接改名，发布后的不兼容变化见
 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
@@ -200,11 +202,11 @@ Node 与 Converter 的本地逻辑端口共用 `NodePortDefinition`，通过
 `RequiredInputPort`、`OptionalInputPort`、`OutputPort` 声明。接入准备将选中端口与实际引用
 组合成 `IoPortDefinition` 边界，交给 Core 验证。
 Catalog JSON 的 Node 与 Converter 端口 `key` 都是本地逻辑端口名。
-配置中的实际来源写为 `input.端口名` 或 `节点名.端口名`，由 Validator 形成 typed 黑板绑定。
+配置中的实际来源写为 `input.端口名` 或 `节点名.端口名`，由 Validator 形成类型化黑板绑定。
 
-`core/port_definition.h`、`core/node_definition.h` 分别维护端口与 Node 元数据；
+`core/port_definition.h`、`core/node_definition.h` 分别维护端口与 Node 元数据。
 Converter 定义位于 `adapter/io_converter.h`，Catalog 查询位于 `core/pipeline_catalog.h` 和接入层 `IoCatalog`。
-`engine/inference_definition.h` 维护 Model/Backend 元数据；张量与 Host 内存辅助接口
+`engine/inference_definition.h` 维护 Model/Backend 元数据。张量与 Host 内存辅助接口
 在 `engine/tensor.h`。`node_registry.h` 的主要类型是 `NodeRegistry`。
 
 ## 公共头与统一入口
@@ -224,7 +226,7 @@ SDK 调用代码使用以下 `edgeflow/` 前缀入口：
 
 `edgeflow/operator/types.h` 仅转发 `platform_mock/operator_data_types.h` 中的 `Company*`
 数据 DTO。计算平台、Control 参数、命名 I/O 与函数表类型定义在
-`platform_mock/operator_types.h`，由 `edgeflow/operator/interface.h` 引入；错误码来自
+`platform_mock/operator_types.h`，由 `edgeflow/operator/interface.h` 引入。错误码来自
 `platform_mock/error_codes.h`。
 真实公司公共头需要在授权内网单独核对和接入。
 
