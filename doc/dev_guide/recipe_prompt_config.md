@@ -1,12 +1,10 @@
 # 任务：修改提示词并核对业务结果
 
-`prompt-config` 从所选原生工具的 Catalog/Profile 创建独立的 Pipeline、部署 conf 和效果样例。
-修改生成的配置后，使用 prepare 打印的 verify 命令验证同一份产物。
+`prompt-config` 从已有 Demo Profile 生成独立方案和效果样例，方便修改提示词后核对结果。
 
 ## 准备
 
-先配置并构建工具。确定性 mock Profile 使用测试工具；生产方案使用生产工具。
-工具和 Demo 必须属于同一 `--build-dir`，该目录的 CMake 源码根必须是当前项目。
+先按 [README](../../README.md#快速开始)完成构建。本例使用测试工具和固定回答的 mock 模型。
 
 ```bash
 cmake --build build --target alg_pipeline_tool_test alg_demo
@@ -16,20 +14,31 @@ python3 tools/dev_recipe.py prepare prompt-config \
   --pipeline demo/fixtures/mock/pipeline_entity_prompt_task.json --json
 ```
 
-生成三份文件：`pipeline_entity_prompt_task.json`、同名 `.conf` 和 `_effects.json`。
-现有文件不会被覆盖。Pipeline 保留源 Profile 的 `io` 选择、输出项 `params` 和显式端口引用，
-并由原生 Resolver 检查；Recipe 只支持一个输出 Converter，多输出在写入或构建前被拒绝。
-目标 Pipeline 必须放在已有资源目录中：模型文件和文件参数都相对该目录，不能通过复制 JSON 改变路径基准。
+生成 `pipeline_entity_prompt_task.json`、同名 `.conf` 和 `_effects.json`，不会覆盖已有文件。
+目标 Pipeline 放在原资源目录中，保证相对路径仍能找到模型与配套文件。
 
 ## 修改与验收
 
-在生成的 Pipeline 中修改提示词。效果文件包含可定位到真实数据集的路径、完整数据集行号 和
-独立的 `/output/...` 业务期望；有意改变业务结果时，应按需求修改期望，不能从本次运行结果
-自动回填期望。只检查 `/status` 不足以通过 recipe 的前置检查。
+打开生成的 `pipeline_entity_prompt_task.json`，找到 `name` 为 `generate_entities` 的节点，
+将其 `params.prompt_template` 字段改为：
 
-直接执行 `next_commands[].argv` 或其中的完整 command。verify 会检查配置、执行计划、部署
-实际指向、资产及 Demo 输出；任何缺失、样本不一致或运行失败都会返回非零状态及失败阶段。
-JSON 中只有真正完成的步骤会进入 `completed_steps`，效果结果保留在 `metrics` 中。
+```json
+"你是实体与名词抽取助手。请只返回 JSON，不添加解释。\n输入：{{input}}"
+```
+
+保留短语 `实体与名词抽取助手`，测试模型会返回固定的 `{"nouns":["mock entity"]}`。
+本例验证修改与运行流程；提示词效果需使用真实模型评估。
+
+效果文件按输入顺序记录 `/output/...` 的业务期望。有意改变输出时按需求修改期望，
+不要从运行结果自动回填；只检查 `/status` 不足以验收业务结果。
+
+执行 prepare 输出的完整 verify 命令。它校验配置与资产，运行方案并核对输出；
+本例应通过一条样本，结果包含 `nouns: ["mock entity"]`。失败时报告阶段并返回非零状态。
+
+## 其他方案与自动化
+
+Recipe 支持单个输出 Converter；工具和 Demo 必须来自当前项目的同一构建目录。
+自动化调用可使用输出中的 `next_commands[].argv`。
 
 以下 Profile 提供仓库维护的确定性样例：
 
@@ -39,9 +48,6 @@ JSON 中只有真正完成的步骤会进入 `completed_steps`，效果结果保
 | entity_extract_mock | tests/fixtures/effects/entity_mock_exact.json | demo/fixtures/mock；tests/fixtures/asset_manifest_test.json |
 | entity_extract_custom_mock | 同上 | 同上 |
 
-其他 Profile 必须在 prepare 提供 `--effects`，自有资产清单通过 `--manifest` 指定。
-清单资产、主模型和声明的文件参数都相对目标 Pipeline 目录；视觉 projector 相对运行配置目录。
-这些路径会被带入生成的 verify 命令。效果样例使用其自身 dataset，不会被 Profile 的 dataset 替换。
-
-mock 使用仓库自有的中性文本 fixture，结果仅证明任务与验收工具正确工作。真实模型质量与设备
-性能按[模型、构建与效果验收指南](../VERIFIABLE_SELECTION.md)另行验证。
+其他 Profile 在 prepare 时提供 `--effects`；自有资产清单使用 `--manifest`。
+模型及文件参数相对 Pipeline 目录，视觉 projector 相对运行配置目录。
+效果样例使用自身的 dataset，详见[效果验收指南](../VERIFIABLE_SELECTION.md)。

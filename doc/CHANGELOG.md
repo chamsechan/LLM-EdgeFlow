@@ -18,6 +18,8 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本为 **11.0.0**，表示当�
 - 通用和自定义 Node 使用统一的函数与 Spec。失败保留原始原因、错误码及批次来源；
   参数更新使用原子快照，失败保持原值。会话模型注册保留身份校验和批量安装事务，
   缓存按会话、模型名和输入隔离。见[Node 作者指南](dev_guide/custom_node_concepts.md)。
+- [文本 LLM Recipe](dev_guide/recipe_text_llm_node.md) 从 runner 的完整发现列表中筛选本节点用例，
+  校验实际通过数；空筛选、测试失败或跳过不会被视为验证成功。
 - 当前业务响应使用统一 JSON 输出载体；共享容量声明，保留按行关联、池预算和失败不发布输出。
   新类型与命名布局通过登记扩展。见[输出池与生命周期](dev_guide/operator_output_allocation.md)。
 - 模型执行层提供通用 BPE 分词器 `text::BpeTokenizer`：读取开发者用 `tools/prepare_bpe_tokenizer.py`

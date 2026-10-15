@@ -17,7 +17,9 @@
 
 文档、工具诊断和构建目标使用上述职责名称。源码目录按 Adapter、Core、Nodes、Engine 等组件组织。
 
-下图展示组件职责与调用关系；编译依赖由下文的构建边界约束。`include/core/` 中的中性运行时契约通过独立的 `edgeflow_runtime_contracts` 提供给实现层，不能将目录名称直接等同于完整编译依赖。
+下图用于按组件查阅实现；业务开发可先看 [README 的工作原理图](../README.md#按任务开始)。
+编译依赖由下文的构建边界约束。`include/contracts/` 中的共享运行时契约通过独立的
+`edgeflow_runtime_contracts` 提供给实现层，不能将目录名称直接等同于完整编译依赖。
 
 ```mermaid
 graph TD
@@ -42,11 +44,11 @@ graph TD
     subgraph Orchestration["流程编排层（Orchestration）"]
         PipeCore["Pipeline 核心调度器 (pipeline.cpp)<br>• 消费 ValidatedPipelinePlan<br>• 算子波前执行与错误熔断"]
         
-        subgraph StateMgr["三级状态与注册管理器"]
+        subgraph StateMgr["上下文与节点注册"]
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• SessionResourceKey&lt;T&gt; 类型安全缓存"]
             R_Ctx["AlgContext (请求级瞬态黑板)<br>• Read / Publish 不可变快照<br>• 只读视图随请求生命周期稳定"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
-            Factory["NodeRegistry / ModelRegistry / BackendRegistry<br>• 函数式 Node Spec 与 Model / Backend Definition"]
+            Factory["NodeRegistry<br>• 函数式 Node Spec 与 Definition"]
         end
     end
 
@@ -109,8 +111,8 @@ graph TD
     NodeBase --> ModelNode
     ModelNode -.-> CommonNodes
     ModelNode -.-> CustomNodes
-    CommonNodes & CustomNodes -->|读写特征与溯源数据| R_Ctx
-    CommonNodes & CustomNodes -->|从 ModelManager 获取模型| S_Ctx
+    ModelNode -->|执行时读取输入与发布输出| R_Ctx
+    ModelNode -->|初始化时绑定模型能力| S_Ctx
     CommonNodes & CustomNodes -->|调用强类型模型能力| LlmIntf & EmbedIntf
     LlmIntf & EmbedIntf --> ModelSemantics
     ModelSemantics -->|仅依赖中性协议| BackendBase
@@ -208,21 +210,17 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 1. **图像以像素帧进入框架。** 宿主提供宽、高、步长和数据指针，未必存在可供 SDK 读取的文件。
    协议 binding 须先校验尺寸、步长、指针及容量，再将像素复制为拥有数据所有权的中立
    `ImageFrame` / `ImageFrameBatch`，避免内部执行依赖宿主内存的后续变化或平台结构体布局。
-   Model 负责将中立帧预处理为现有 `ImageTextInput`。不得为适配 mock 恢复路径输入或文件解码依赖；
-   Demo 从文件构造像素帧属于调用方准备输入的行为。
+   Model 将中立帧预处理为 `ImageTextInput`；Demo 从文件构造宿主像素帧。
 2. **批次行位置就是请求对应关系。** `input.size() == output.size()`，`input[i]` 与 `output[i]`
-   表示同一请求；缺省可选输出不能压缩行。通用 Operator 不得要求载体含有 `request_id`，
-   也不恢复外部请求编号表。图像的 `index` 是帧序号，不能替代当前 Process 批次的请求行号。
+   表示同一请求；缺省可选输出不能压缩行。图像的 `index` 是帧序号，不能替代请求行号。
    内部 `req_id/sub_id` 仅用于拆分、聚合和输出回填，不构成外部业务 ID 契约。
 3. **外部 ABI 的解释止于协议壳。** `Create` 的 `void*` 参数须由外壳依据真实公共头解释，
    不能作为不透明字节块交给 facade。外壳将其转换为 `RuntimeCreateOptions`，将外部 Control
    命令和参数转换为 `ControlRequest`；函数表、导出入口、异常屏障及具体载体布局也归外壳。
    facade 不接收外部 Create 参数指针，不包含具体平台载体头，不读取平台字段。
-4. **Runtime 拆分必须迁移职责。** 仅增加一层转发包装仍会使更换 ABI 时重写运行逻辑。
-   部署校验、已验证计划、Converter 调度、Pipeline 构建与执行、输出池和租约统一归
+4. **Runtime 管理执行与资源。** 部署校验、已验证计划、Converter 调度、Pipeline 构建与执行、输出池和租约统一归
    `SharedAlgorithmRuntime`；具体 binding 通过中立接口提供布局与内存操作。
-   Core、Node、Model、Backend 不感知外部框架。输出继续两阶段发布，失败不得暴露部分结果；
-   拆分不改变既有输出释放及关闭顺序。
+   Core、Node、Model、Backend 不感知外部框架。输出两阶段发布，失败不得暴露部分结果。
 5. **mock 是开发替身，不是第二份生产契约。** `include/platform_mock/` 保存模拟类型声明，
    `src/adapter/operator/mock/` 保存针对这些声明的协议适配实现，通用注册表不隐式登记 mock。
    真实公共头可以位于 `include/api/` 或目标 SDK 的其他目录，不要求同路径或同名替换。
@@ -298,7 +296,7 @@ Adapter 与装配入口不会因此获得 vendor 编译依赖。
 其名称和布局不是对公司内部 SDK 的声明，Core、Nodes、Models 和 Backends 不依赖这些头。
 各层 OBJECT target 使用构建目录中的独立 include view，保留原有头文件写法，
 只暴露本层实现头、所需的下层 API 与共享契约；`root/`、`src/` 和完整 `include/`
-搜索路径仅由仓库工具、Demo 和测试显式使用，不再经运行时依赖传播。view 中的链接
+搜索路径仅由仓库工具、Demo 和测试显式使用。view 中的链接
 跟随源码编辑，新增或移除头文件会触发 CMake 重新生成。Model/Backend 私有头不向
 上层传播；Node 可引用的 Core 契约由 `cmake_ext/node_core_contracts.txt` 唯一列举，
 CMake 与 LayerGuard 共用此清单。新增契约或改变依赖方向需同步设计与规则。
@@ -320,6 +318,9 @@ Core、Nodes、Engine 不包含接入适配层头文件。
 
 ## 3. 数据流转与调用时序 (Runtime Sequence)
 
+下图展示成功路径，接入适配包含 Operator、Runtime 与 Converter。同层符合并行条件的节点可并行执行；
+端口和模型在初始化时绑定，每次请求读取输入后执行业务函数。
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -330,7 +331,7 @@ sequenceDiagram
     participant Node as AuthorNode (Capability Nodes)
     participant Model as 强类型模型能力 (Model Execution)
     participant Backend as 中性协议 Backend 会话 (Model Execution)
-    participant HW as 底层硬件 NPU/GPU
+    participant HW as 底层硬件 CPU/GPU/NPU
 
     App->>Adapter: OperatorFunc::Process(handle, inputs, outputs)
     Adapter->>Adapter: 校验 NamedIoBatch，借用输入
@@ -340,8 +341,9 @@ sequenceDiagram
     
     loop 依次执行各拓扑层算子节点
         Pipe->>Node: Process(ctx)
-        Node->>Ctx: AuthorNode 按 Spec 绑定读取上游 typed ports
-        opt 需要模型推理
+        Node->>Ctx: AuthorNode 读取已绑定输入
+        Node->>Node: 调用 Run，执行业务前处理
+        opt Run 内需要模型推理
             Node->>Model: Embed / Score / Generate / Recognize / Transcribe
             Model->>Model: 按 BatchPolicy 调度（固定批次时补齐）
             Model->>Backend: 通过声明的中性协议执行
@@ -351,7 +353,7 @@ sequenceDiagram
             Model->>Model: 固定批次时剥离 Pad，保留 (req_id, sub_id)
             Model-->>Node: 返回强类型对齐输出
         end
-        Node->>Node: 执行 Spec 的普通算法函数与结果校验
+        Node->>Node: Run 完成后处理并返回，AuthorNode 校验输出
         Node->>Ctx: Publish 写回中间特征或最终结果
     end
 

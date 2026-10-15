@@ -16,9 +16,8 @@
 ## 使用开发 Skills
 
 项目技能位于 `.agents/skills/`，可以用 `$技能名` 调用，或让 Agent 按任务选择。
-业务描述还没有落到组件时，先用 `$edgeflow-solution-planner`，提供完整请求/响应样例和
-业务规则；它会检查当前 Catalog，给出复用/新增部件、实现位置、带类型端口的 DAG 和验收步骤。
-已明确修改部件时直接使用对应技能，不必先跑一遍规划。
+尚未确定方案时，给 `$edgeflow-solution-planner` 提供请求/响应样例与业务规则；
+已明确修改部件时直接选择对应技能。
 
 | 开发任务 | Skill |
 | --- | --- |
@@ -31,18 +30,13 @@
 | Backend：运行时与厂商资源 | [edgeflow-backend-developer](../.agents/skills/edgeflow-backend-developer/SKILL.md) |
 | Core、Demo 与跨组件开发 | [llm-edgeflow-developer-guide](../.agents/skills/llm-edgeflow-developer-guide/SKILL.md) |
 
-所有 Node 使用同一种写法（`MakeNodeSpec`）。`common/custom` 按中性操作或领域算法
-选择代码归属；Embedding、ASR、OCR、Rerank 复用同一套能力声明，不各自维护生命周期。
-例如：“用 `$edgeflow-solution-planner` 分析此请求和响应，列出需要新增的部件与 DAG”；
-或“用 `$edgeflow-adapter-developer` 为现有算法补齐新的 JSON 输入输出契约”。
-
 ## 进阶与参考
 
 - [错误码与日志](dev_guide/error_handling.md)：框架码、平台映射、诊断上下文与六级日志。
 
 | 资料 | 职责 |
 | --- | --- |
-| [Node 作者的五个概念](dev_guide/custom_node_concepts.md) | 按需理解端口、来源、模型绑定、Definition 和并发 |
+| [Node 常用写法与按需参考](dev_guide/custom_node_concepts.md) | 按需理解端口、来源、模型绑定、Definition 和并发 |
 | [第一个 Control](dev_guide/first_control.md) | 给节点增加运行时控制 |
 | [Adapter 参考实现](dev_guide/business_onboarding.md#参考实现与测试) | 按输入输出形态查阅已有转换实现 |
 | [Operator 宿主类型、输出池与生命周期](dev_guide/operator_output_allocation.md) | 新宿主类型、特殊输出布局与宿主调用规则 |
@@ -69,7 +63,6 @@
 ./scripts/render_architecture_diagrams.sh --check
 ```
 
-`dev_guide/` 维护操作步骤，架构和参考文档维护当前规则；
-[模型、构建与效果验收](VERIFIABLE_SELECTION.md#验收范围与发布准备)说明已验证范围和实际部署需要的证据。
-文档维护遵循 [CONTRIBUTING](../CONTRIBUTING.md#5-update-durable-documentation-proportionally)，
-同一教程或规则在一个入口维护，其他位置链接引用。
+该检查验证可渲染性、源文件指纹与关键名称；成员归属和调用时序仍需对照实现核对。
+
+文档维护遵循 [CONTRIBUTING](../CONTRIBUTING.md#5-update-durable-documentation-proportionally)。

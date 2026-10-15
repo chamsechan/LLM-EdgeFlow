@@ -152,5 +152,18 @@ class RecipeConsumerTest(unittest.TestCase):
         self.assertFalse(self.pipeline.exists())
 
 
+class FocusedRecipeTest(unittest.TestCase):
+    def setUp(self):
+        self.runner = TOOL.parent / 'edgeflow_test_nodes_runner'
+        self.assertTrue(self.runner.is_file(), f'Build the Node test runner: {self.runner}')
+
+    def test_full_runner_discovery_does_not_inflate_selected_node_test_count(self):
+        recipe.verify_focused_tests(self.runner, 'scaffold_llm_call', ROOT)
+
+    def test_other_compiled_nodes_do_not_satisfy_an_empty_recipe_filter(self):
+        with self.assertRaisesRegex(recipe.RecipeError, 'matched zero tests'):
+            recipe.verify_focused_tests(self.runner, 'missing_recipe_node', ROOT)
+
+
 if __name__ == '__main__':
     unittest.main()
