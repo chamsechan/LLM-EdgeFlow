@@ -1,7 +1,7 @@
 # 测试职责与维护
 
-测试从当前生产契约设计。公共规则由一处负责，组件保留独有语义；调用层验证接线、
-错误转发和完整外部响应。预期使用独立字面量，不调用被测代码计算自己的答案。
+根据当前接口和行为编写测试。公共规则集中测试，组件测试覆盖自身算法。
+调用层测试检查连接、错误转发和完整响应。使用独立预期值，不用被测代码计算预期值。
 
 | 责任 | 归属 |
 | --- | --- |
@@ -9,7 +9,7 @@
 | AuthorNode 输入、输出、来源、生命周期、快照与模型调用 | `unit/nodes/test_function_node.cpp` |
 | Join、Group、Select、Scatter 与固定批执行 | `unit/nodes/test_traceable_batch_operations.cpp`、`unit/engine/test_batch_executor.cpp` |
 | Blackboard、注册、模型所有权与 Session 单次并发创建 | `unit/core/` 对应机制文件 |
-| 解析、Validator 计划、Pipeline 调度与失败收敛 | `unit/core/test_pipeline_config.cpp`、`test_validated_pipeline_plan.cpp`、`test_dag_pipeline.cpp` |
+| 解析、Validator 计划、Pipeline 调度与失败处理 | `unit/core/test_pipeline_config.cpp`、`test_validated_pipeline_plan.cpp`、`test_dag_pipeline.cpp` |
 | 十二种真实 Node 的算法与业务参数 | `unit/nodes/test_*_node.cpp` |
 | 六种真实 Model 的输入构造、数值与输出解释 | `unit/engine/test_*_model.cpp` |
 | Backend 协议、加载、真实小图执行与可选权重 | `unit/engine/test_*_backend.cpp` |
@@ -21,12 +21,12 @@
 | 真实权重的物理执行 | `e2e/real_models/`，显式开启 |
 
 同一普通载体上的不同业务分别验证字段含义。完整业务从 Operator 到最终响应，实际执行
-Converter、Validator、Pipeline 和 Node；仅替换模型边界。Demo/Python 保留完整请求和 SDK
+Converter、Validator、Pipeline 和 Node。仅替换模型边界。Demo/Python 保留完整请求和 SDK
 输出，不代替 Adapter 选择字段或组装业务响应。
 
 `support/` 只保存多个真实使用方需要的薄 helper：Node 初始化、Model 参数解析、Converter
 调用、注册表状态恢复、线程局部分配故障。它们不计算业务预期。`dev_support/inference/`
-提供 Demo 的确定性 mock 能力，用 `kFixture` 和显式 Backend 白名单隔离；它们不进入 SDK
+提供 Demo 的确定性 mock 能力，用 `kFixture` 和显式 Backend 白名单隔离。它们不进入 SDK
 或生产 CLI，也不作为实际 Model/Backend 推理证据。
 
 ## 开发与收集
@@ -40,18 +40,19 @@ cmake --build build --target edgeflow_test_nodes_runner -j4
 ```
 
 四个 runner 的源码目录在 `RuntimeTests.cmake` 中定义。GoogleTest 从编译出的用例生成 CTest
-入口，包含脚手架的原样生成测试；新 suite 不需要加入历史名称清单。`TestLabelsContractTest`
+入口，包括脚手架生成的测试。新测试套件无需手动注册名称。`TestLabelsContractTest`
 把实际用例与 CTest 过滤器对照，拒绝空匹配、漏执行、重复执行及不明确的 tier，
 同时拒绝禁用的 CTest 条目和仅列举 GoogleTest 用例的命令。
 独立 registry/SDK 目标保持进程和公开依赖隔离。
 
 测试 main 拒绝零执行和必需测试跳过，重复执行中任何一轮的必需跳过都会失败。可选资产
 用例在跳过前记录非空 `optional_runtime_asset`。单个全可选跳过返回 77，CTest 仅以此状态
-记录跳过；其默认输出匹配跳过规则被移除，以免覆盖实际失败。
+记录跳过。测试输出中的文本不会覆盖进程失败状态。
 
-修改共享规则时更新其唯一矩阵，调用层只补独特接入风险；修改算法时补正常结果及特有
-边界。并发测试使用测试侧屏障、调用发起信号和完成状态验证阻塞及解除后的结果，
-故障只注入承担分配或提交责任的操作。
+修改共享规则时，更新负责该规则的测试。修改算法时，补充正常结果和边界用例。
+调用层只增加特有的接入测试。
+并发测试用屏障、调用发起信号和完成状态检查阻塞及解除后的结果。
+只向负责分配或提交的操作注入故障。
 不要为每个业务复制通用空指针、类型和异常矩阵。脚手架生成一条最小业务契约测试，
 修改算法后填写独立预期。
 
@@ -59,30 +60,30 @@ cmake --build build --target edgeflow_test_nodes_runner -j4
 
 唯一完整门禁为 `LLM_EDGEFLOW_JOBS=4 ./scripts/run_all_tests.sh`。所有权和并发改动使用
 现有 `scripts/run_sanitizers.sh` 入口。分配故障只在测试可执行文件替换 `new/delete`，不跟踪
-其他线程或 `malloc`；资源归还由实际池账本和对象生命周期断言证明，sanitizer 补充检查。
+其他线程或 `malloc`。资源归还由实际池账本和对象生命周期断言证明，sanitizer 补充检查。
 ELF 的 `posix_memalign` 故障包装仅在 Tensor 测试链接时启用。
-注册表清理与状态恢复实现只在 `tests/support/`；三个注册表保留状态隔离所需的友元。
-输出池、会话资源和运行时串行化测试只调用正常接口；生产代码不含等待计数、锁观测
+注册表清理与状态恢复实现只在 `tests/support/`。三个注册表保留状态隔离所需的友元。
+输出池、会话资源和运行时串行化测试只调用正常接口。生产代码不含等待计数、锁观测
 友元或加载测试钩子，测试也不拦截标准库等待函数。会话工厂在测试屏障处暂停，检查
-并发调用的工厂次数、共享对象及失败后重试；运行时屏障只暂停第一个 Node/Control，
+并发调用的工厂次数、共享对象及失败后重试。运行时屏障只暂停第一个 Node/Control，
 避免第二个操作被测试屏障挡住而掩盖串行化失效。
-调用发起信号和超时断言表明观察期间操作未完成，不证明线程已到达某个内部等待位置；
+调用发起信号和超时断言表明观察期间操作未完成，不证明线程已到达某个内部等待位置。
 这些断言验证观察窗口内的外部行为，不依赖内部 waiter 数。
 
 默认构建执行 ONNX Runtime 小图和 llama.cpp 的实际加载失败路径。没有 GGUF 时，物理生成
-用例明确跳过；`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
-Backend 资产；`EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 指向含 `.eftok` 文件的目录（见[配置说明](../configs/README.md#分词器资产onnx-llm)）时，
+用例明确跳过。`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
+Backend 资产。`EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 指向含 `.eftok` 文件的目录（见[配置说明](../configs/README.md#分词器资产onnx-llm)）时，
 BPE 分词器测试额外对照 Hugging Face 的样例 ID。可选 E2E 用 `ENABLE_REAL_MODEL_TESTS=ON` 开启，并使用仓库固定权重和 PCM。
-Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `STUDIO_CHROMIUM_PATH`。
+Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright。可另设 `STUDIO_CHROMIUM_PATH`。
 缺少该依赖时只跳过物理浏览器，其必需 HTTP/JS/文件事务仍执行。
 
-这些证据不代表真实权重效果、速度、内部 SDK 或目标硬件验收；范围见
+这些证据不代表真实权重效果、速度、内部 SDK 或目标硬件验收。范围见
 [验证与选择指南](../doc/VERIFIABLE_SELECTION.md)。
 
 ## 维护成本
 
-当前人工维护范围为 **22,465 行**，包含注释和空行，同一文件只计一次。
-第三方、构建产物、生成输出和二进制资产不计；生成器及手写模板计入。
+人工维护范围的统计值为 **22,465 行**，包含注释和空行，同一文件只计一次。
+第三方、构建产物、生成输出和二进制资产不计。生成器及手写模板计入。
 这仍比设计预算上沿 20,200 行多 **2,265 行**，规模验收尚未达标。
 
 | 范围 | 行数 |
@@ -96,7 +97,7 @@ Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright；可另设 `ST
 | 门禁、专项执行、资产获取脚本、sanitizer 配置与 CI | 901 |
 | **合计** | **22,465** |
 
-`tests/`、`dev_support/` 和 `demo/fixtures/mock/` 的人工代码与文本配置全部计入；
+`tests/`、`dev_support/` 和 `demo/fixtures/mock/` 的人工代码与文本配置全部计入。
 脚本计入 `generate_test_onnx_model.py`、`run_all_tests.sh`、`run_sanitizers.sh`、
 `run_real_model_e2e.sh`、`fetch_real_test_models.sh` 以及完整 `ci.yml`。
 另计 `ubsan_suppressions.txt` 4 行、`GoogleTest.cmake` 75 行、

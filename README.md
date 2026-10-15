@@ -6,15 +6,15 @@
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](CMakeLists.txt)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语音识别组织为可复用的算法节点，用 JSON 描述它们的连接关系，再通过统一的 C++ Operator SDK 供宿主程序调用。
+LLM-EdgeFlow 用算法节点处理规则、检索、文本、图像和语音。Pipeline JSON 描述节点之间的连接。宿主程序通过 C++ Operator SDK 调用方案。
 
-项目目前处于实际业务接入前的开发与验证阶段。仓库提供可运行示例和自动化测试；模型效果、性能及目标设备适配需按具体场景验收。
+项目目前处于实际业务接入前的开发与验证阶段。仓库提供可运行示例和自动化测试。模型效果、性能及目标设备适配需按具体场景验收。
 
 [快速开始](#快速开始) · [架构与扩展](#架构与扩展) · [示例方案](#示例方案) · [开发文档](#开发文档)
 
 ## 按任务开始
 
-首次使用先完成下面的快速开始，再按要修改的内容选择入口；同一方案可以组合使用。
+首次使用时，先完成快速开始。然后按任务选择教程。同一方案可使用多份教程。
 
 | 你要做什么 | 主要修改 | 入口 |
 | :--- | :--- | :--- |
@@ -30,7 +30,9 @@ LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语�
 
 ## 快速开始
 
-以下以 Linux CPU 环境为例，所有命令均在仓库根目录执行。需要支持 C++17 的编译器、CMake 3.19+（构建预设和脚本使用 Presets）、Ninja、Python 3 和 Git。首次构建需联网获取固定版本的第三方依赖；模型权重另行准备。
+本例使用 Linux CPU 环境。在仓库根目录执行所有命令。
+构建需要 C++17 编译器、CMake 3.19+、Ninja、Python 3 和 Git。
+首次构建需要联网下载固定版本的依赖。模型权重需单独准备。
 
 ### 1. 获取并构建
 
@@ -42,7 +44,7 @@ cmake --preset=minimal -B build
 cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --parallel 4
 ```
 
-此构建可运行无需模型的示例；使用真实模型时按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
+此构建可运行无需模型的示例。使用真实模型时按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
 启用对应 Backend。主要产物如下：
 
 | 产物 | 用途 |
@@ -68,7 +70,8 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 - `results/quickstart/keyword_match_rules/results.jsonl`：逐条请求的状态与匹配结果。
 - `results/quickstart/keyword_match_rules/summary.json`：样本数、成功数、失败数与耗时。
 
-`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；体验显式规则热更新时运行 `./build/alg_demo --profile keyword_match_control`。
+`keyword_match_rules` 是 Demo 运行预设。Demo 使用 Pipeline 中的规则。
+如需练习运行时更新规则，执行 `./build/alg_demo --profile keyword_match_control`。
 
 ### 3. 查看与编辑流程
 
@@ -84,7 +87,8 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 ./tools/pipeline_studio/server.py configs/pipeline_keyword_match_rules.json --web
 ```
 
-工作台绑定 `127.0.0.1`，支持节点连线、参数编辑、配置校验和草稿运行。下一步可跟随 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则，并用 Demo 验证自己的方案。
+工作台监听 `127.0.0.1`，支持连线、参数编辑、校验和运行。
+接下来，按 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则。用 Demo 验证修改后的方案。
 
 ## 架构与扩展
 
@@ -106,21 +110,22 @@ flowchart TD
 | 能力节点层 | 增加领域算法、数据处理或模型调用组合 | `src/custom_nodes/`；通用操作位于 `src/common_nodes/` |
 | 模型执行层 | 增加模型语义或接入新的推理运行时 | `src/engine/models/`、`src/engine/backends/` |
 
-完整职责、编译依赖和运行时数据流见[架构设计](doc/architecture.md)；首次编写算法见[自定义 Node 入门](doc/dev_guide/first_custom_node.md)。
+完整职责、编译依赖和运行时数据流见[架构设计](doc/architecture.md)。首次编写算法见[自定义 Node 入门](doc/dev_guide/first_custom_node.md)。
 
 ## 一个方案由哪些文件组成
 
 | 文件 | 负责什么 | 示例 |
 | :--- | :--- | :--- |
-| Pipeline JSON | 节点、依赖、类型端口、模型路径与算法参数；根 `io.input` / `io.output` 声明转换器、回包来源与输出容量 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
+| Pipeline JSON | 节点、依赖、类型端口、模型路径与算法参数；根 `io.input` / `io.output` 声明转换器、响应来源与输出容量 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
 | 部署 `.conf` | 仅用 `pipe_path` 指向 Pipeline JSON | [pipeline_keyword_match_rules.conf](configs/pipeline_keyword_match_rules.conf) |
 | Demo Profile（可选） | 运行预设：业务、配置、数据集和批大小等 | [demo/profiles.json](demo/profiles.json) |
 
-Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定配置和数据集。保存新的 Pipeline 后，需要让 `.conf` 指向它；具体步骤见[运行当前方案](tools/pipeline_studio/README.md#运行当前方案)。
+Profile 保存运行预设。Demo 参数也可直接指定配置和数据集。
+保存新 Pipeline 后，将 `.conf` 指向新文件。步骤见[运行当前方案](tools/pipeline_studio/README.md#运行当前方案)。
 
 ## 示例方案
 
-以下配置展示已有能力的组合方式。涉及模型的方案需要匹配的 Backend、权重及运行资源；实际可用的节点、模型和后端以目标构建的 `alg_pipeline_tool catalog` 为准。
+以下配置展示已有能力的组合方式。涉及模型的方案需要匹配的 Backend、权重及运行资源。实际可用的节点、模型和后端以目标构建的 `alg_pipeline_tool catalog` 为准。
 
 | 场景 | 处理方式 | 配置与运行条件 |
 | :--- | :--- | :--- |
@@ -133,7 +138,7 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 | 语音识别与意图槽位 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_intent_cpu.json)；启用 whisper.cpp 并准备语音模型 |
 | 翻译 | 完整 JSON 请求中的 `query` 翻译为中文 | [配置](configs/pipeline_translate_cpu.json)；llama.cpp 与语言模型 |
 
-Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置；参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
+Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置。参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
 
 查看全部 Demo 预设，或运行无需真实模型的 Smoke 套件：
 
@@ -142,11 +147,11 @@ Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisp
 ./build/alg_demo --suite smoke
 ```
 
-Smoke 验证执行链路；真实模型的业务效果需使用目标数据集另行验证，方法见[效果验收](doc/VERIFIABLE_SELECTION.md#业务效果验收)。
+Smoke 验证执行链路。真实模型的业务效果需使用目标数据集另行验证，方法见[效果验收](doc/VERIFIABLE_SELECTION.md#业务效果验收)。
 
 ## 开发文档
 
-日常业务开发从[按任务开始](#按任务开始)选择教程；遇到具体问题时再查阅以下参考。
+日常业务开发从[按任务开始](#按任务开始)选择教程。遇到具体问题时再查阅以下参考。
 
 | 目标 | 入口 |
 | :--- | :--- |
@@ -165,12 +170,15 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 ./scripts/run_all_tests.sh
 ```
 
-该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18、架构图检查所需的 Java 17+，以及 Schema 测试所需的 Python `jsonschema`（Debian/Ubuntu 安装包为 `python3-jsonschema`）；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
+该命令执行格式检查、静态检查、构建和 CTest 测试。
+环境需要 clang-format 18、Java 17+ 和 Python `jsonschema`。
+Debian/Ubuntu 的对应 Python 包为 `python3-jsonschema`。
+开发流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试说明见 [tests/README.md](tests/README.md)，Agent 规则见 [AGENTS.md](AGENTS.md)。
 
-`jsonschema` 需安装在 CMake 选中的 Python 环境中。当前版本 **v11.0.0**，尚未正式发布；变更见 [Changelog](doc/CHANGELOG.md)。
+`jsonschema` 需安装在 CMake 选中的 Python 环境中。当前版本 **v11.0.0**，尚未正式发布。变更见 [Changelog](doc/CHANGELOG.md)。
 
 ## 许可证
 
 项目采用 [MIT License](LICENSE)。第三方组件及其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-仓库目录、源码头文件和命名约定见[源码布局与命名](doc/dev_guide/source_layout.md)；示例配置和 Profile 的组织见[配置目录](configs/README.md)。
+仓库目录、源码头文件和命名约定见[源码布局与命名](doc/dev_guide/source_layout.md)。示例配置和 Profile 的组织见[配置目录](configs/README.md)。

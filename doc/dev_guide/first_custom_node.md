@@ -1,11 +1,11 @@
 # 第一个自定义 Node：先写两段文本处理，再接入方案
 
-本练习实现“输入处理 → 调用模型 → 输出处理”，并通过 Demo 运行。
+本练习创建一个文本 LLM Node。节点依次处理输入、调用模型、处理输出。
 先按 [README](../../README.md#快速开始)完成构建，所有命令在仓库根目录执行。
 本例使用固定回答的测试模型，无需下载权重。
 
-已有节点能满足需求时直接配置 Pipeline。需要写代码时，可按本文逐步接入；
-希望自动生成方案与验证命令，可使用[文本 LLM Recipe](recipe_text_llm_node.md)。
+如果已有节点能满足需求，直接配置 Pipeline。
+如果需要编写算法，按本文操作。如需自动生成方案和验证命令，使用[文本 LLM Recipe](recipe_text_llm_node.md)。
 纯计算 Node 使用[普通脚手架](../../src/custom_nodes/README.md#通用开发步骤速查)。
 
 ## 1. 先认清今天要改的范围
@@ -19,7 +19,7 @@
 | `demo/fixtures/mock/pipeline_first_node.json` | 在复制的方案中选用新节点 |
 | `demo/fixtures/mock/pipeline_first_node.conf` | 用 `pipe_path` 指向新方案 |
 
-先关注 `BuildPrompt` 和 `FormatAnswer` 两个文本函数。框架负责模型加载、调度和数据传递；
+先关注 `BuildPrompt` 和 `FormatAnswer` 两个文本函数。框架负责模型加载、调度和数据传递。
 外部请求与响应由 Adapter 转换。
 
 ## 2. 生成自己的节点
@@ -57,10 +57,11 @@ while (!answer.empty() && answer.back() == '\n') answer.pop_back();
 return answer;
 ```
 
-你只处理 `text`；框架自动保留每条输入与回答的对应关系，无需在业务函数中传递或填写来源编号。前处理从只读输入构造新文本，不修改其他节点共享的输入。
+业务函数只处理 `text`。框架保留输入与回答的对应关系。
+需要修改输入时，构造新文本。不要修改共享的只读输入。
 
-本练习的测试模型通过短语 `实体与名词抽取助手` 返回固定 JSON；保留该短语才能接到后续
-JSON 解析节点。它验证接入流程，真实提示词的效果需换用真实模型评估。
+保留短语 `实体与名词抽取助手`。测试模型据此返回后续节点需要的 JSON。
+该结果用于验证接入流程。提示词效果需要真实模型验证。
 
 在生成的测试文件中，将 `RecordingModel` 返回的 `"fixture text"` 改为 `"fixture text\n"`，
 输出断言仍保留 `"fixture text"`，用于检查刚添加的末尾换行清理。
@@ -80,8 +81,7 @@ Catalog 应显示 `my_business_llm`，输入输出为 `TextBatch`。
 
 ## 5. 复用已有方案和 Adapter
 
-复制这两份已存在的配置，避免从空白文件猜业务输入输出：
-如果已有同名练习文件，继续编辑它们即可，不必重新复制。
+如果练习文件尚不存在，复制以下配置。已有同名文件时，继续编辑该文件。
 
 ```bash
 cp demo/fixtures/mock/pipeline_entity_extract_custom.json demo/fixtures/mock/pipeline_first_node.json
@@ -91,8 +91,7 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
 编辑 `pipeline_first_node.json` 中 `name` 为 `generate_entities` 的节点，做两处修改：
 
 - `type` 改成 `my_business_llm`。
-- 将整个 `params` 对象替换为下面的内容。新节点声明了模型绑定和 `max_tokens`、`temperature`
-  等生成参数（不写时使用默认值），不接受完整样例的模板和清洗字段。
+- 将整个 `params` 对象替换为以下内容。其余生成参数使用默认值。
 
 ```json
 {"bind_model": "entity_llm"}
@@ -112,7 +111,7 @@ flowchart LR
 ```
 
 `"inputs":{"input":"input.sentence_text"}` 将节点的 `input` 端口连接到输入转换器。
-后续节点通过 `generate_entities.output` 读取结果；`io.output` 选择最终回包来源。
+后续节点通过 `generate_entities.output` 读取结果。`io.output` 选择最终响应来源。
 
 ## 6. 校验并运行同一个 Demo
 
@@ -127,14 +126,14 @@ flowchart LR
 
 查看 `results/first-node/pipeline_first_node/results.jsonl`：第一条记录应有 `status: 0`，
 以及 `output.nouns: ["mock entity"]`。`summary.json` 应显示一条成功、
-零条失败。这里验证节点、编排与 Adapter 的完整路径，回答来自确定性测试模型。
+零条失败。回答来自测试模型。
 
 替换真实模型时，按目标构建的 Catalog 更新 `models` 和资产路径，节点的 `bind_model`
 引用相应 `name`。再用自己的输入与期望结果验收，不能把测试模型回答作为效果指标。
 
 ## 7. 从练习进入真实开发
 
-在生成的测试中补充自己的业务预期，检查提示词、结果与来源；参考
+在生成的测试中补充自己的业务预期，检查提示词、结果与来源。参考
 [LLM Node 测试](../../tests/unit/nodes/test_llm_generate_node.cpp)。
 交付前执行 `./scripts/run_all_tests.sh`，流程见 [CONTRIBUTING](../../CONTRIBUTING.md)。
 
@@ -147,5 +146,4 @@ flowchart LR
 | 需要接入全新的平台结构 | [业务接入指南](business_onboarding.md) |
 | 需要新增模型语义或硬件后端 | [开发者扩展指南](../developer_guide.md) |
 
-练习生成的节点与配置就是普通源码扩展。真正接入时用操作语义命名，例如“识别实体”或
-“核对条件”，避免把项目名固化进节点或为每个业务再建目录。
+按操作命名节点，例如“识别实体”或“核对条件”。不同方案可复用同一节点。
