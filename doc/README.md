@@ -1,11 +1,11 @@
 # LLM-EdgeFlow 文档目录
 
-首次使用从仓库 [README](../README.md#快速开始) 开始。日常开发按下面的任务选择入口；
+首次使用从仓库 [README](../README.md#快速开始) 开始。日常开发按下面的任务选择入口。
 可用节点、端口、模型、Backend 和业务契约以目标构建的 `alg_pipeline_tool catalog` 为准。
 
 ## 按任务开始
 
-先判断外部契约是否变化、现有节点是否足够，再选择需要的路径；同一方案可以组合使用。
+先检查请求和响应格式是否变化。再检查已有节点能否完成算法。按下表选择教程。
 
 | 路径 | 何时使用 | 阅读入口 |
 | --- | --- | --- |
@@ -16,8 +16,8 @@
 ## 使用开发 Skills
 
 项目技能位于 `.agents/skills/`，可以用 `$技能名` 调用，或让 Agent 按任务选择。
-尚未确定方案时，给 `$edgeflow-solution-planner` 提供请求/响应样例与业务规则；
-已明确修改部件时直接选择对应技能。
+如果尚未确定方案，向 `$edgeflow-solution-planner` 提供请求/响应样例和业务规则。
+如果已确定修改部件，直接选择对应技能。
 
 | 开发任务 | Skill |
 | --- | --- |
@@ -53,7 +53,7 @@
 架构图按用途区分：
 
 - 当前实现类图：[PlantUML 源文件](architecture_classes.puml) · [SVG](assets/architecture_class_diagram.svg)。
-- 当前配置与运行流程图：[PlantUML 源文件](architecture_flow.puml) · [SVG](assets/architecture_flow.svg)；区分创建期的准备与校验、请求期的解码与执行。
+- 当前配置与运行流程图：[PlantUML 源文件](architecture_flow.puml) · [SVG](assets/architecture_flow.svg)。区分创建期的准备与校验、请求期的解码与执行。
 - 首页工作原理图：[framework_overview.svg](assets/framework_overview.svg)，直接维护 SVG 源码。
 
 前两张 SVG 由 PlantUML `1.2024.7` 生成。修改对应源文件后运行：
@@ -63,6 +63,8 @@
 ./scripts/render_architecture_diagrams.sh --check
 ```
 
-该检查验证可渲染性、源文件指纹与关键名称；成员归属和调用时序仍需对照实现核对。
+该检查验证可渲染性、源文件指纹与关键名称。成员归属和调用时序仍需对照实现核对。
 
 文档维护遵循 [CONTRIBUTING](../CONTRIBUTING.md#5-update-durable-documentation-proportionally)。
+中文写法参考 [ASD-STE100 Issue 9](https://www.asd-ste100.org/)，采用一致术语、短句、明确主语和单步指令。
+该标准面向英语。中文采用其写作原则，不使用英语词表或英语词数限制判定合规。

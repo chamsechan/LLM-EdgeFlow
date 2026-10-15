@@ -1,6 +1,6 @@
 # 公共日志 API
 
-LLM-EdgeFlow 在 `include/edgeflow/log.h` 中提供纯 C11 兼容的公共日志接口。它不暴露 STL 或第三方日志类型，可以由 C 或 C++ 调用。
+`include/edgeflow/log.h` 提供兼容 C11 的日志接口。C 和 C++ 均可调用。接口不暴露 STL 或第三方日志类型。
 
 ## 基本使用
 
@@ -30,7 +30,9 @@ ALG_LOG_DEBUG("hello[%d], reasoning[%d]\n", session_id, reasoning);
 | 4 | `DEBUG` | 调试细节 |
 | 5 | `VERBOSE` | 高频诊断信息 |
 
-日志阈值是线程安全的进程级状态。`AlgBase_setLogLevelByName` 接受 `0..5`，成功返回 `0`；非法值返回 `-1` 并保留原阈值。日志写入 `stderr`，接口不会自动追加换行。
+日志阈值对整个进程生效，支持线程安全访问。`AlgBase_setLogLevelByName` 接受 `0..5`。
+设置成功时返回 `0`。值非法时返回 `-1`，并保留原阈值。
+日志写入 `stderr`。接口不自动添加换行。
 
 ## Demo 环境变量
 
@@ -44,9 +46,9 @@ LLMEDGEFLOW_LEVEL=4 ./build/alg_demo --suite smoke
 
 ## 接口约束
 
-- 公共日志函数遵循 C ABI；C++ 声明带有 `noexcept`。
+- 公共日志函数遵循 C ABI。C++ 声明带有 `noexcept`。
 - `FATAL` 仅表达严重程度，不调用 `abort` 或 `exit`。
-- `name` 参数为兼容性命名字段，日志阈值仍是进程级而非按名称隔离。
+- `name` 参数不用于隔离日志阈值。所有名称共用进程级阈值。
 - 头文件会拒绝与已有 `ALG_LOG_*` 宏发生静默冲突。
 
 接口定义以 [`edgeflow/log.h`](../include/edgeflow/log.h) 为准。
