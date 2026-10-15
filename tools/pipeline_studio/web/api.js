@@ -1,6 +1,3 @@
-const fragment = new URLSearchParams(location.hash.slice(1));
-export const initialPipeline = fragment.get("pipeline") || "";
-
 export async function api(path, options = {}) {
   const { allowFalse = false, ...fetchOptions } = options;
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };

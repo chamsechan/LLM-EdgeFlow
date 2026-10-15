@@ -13,7 +13,7 @@
         <select id="pipelineSelect" aria-label="选择方案" title="选择已有方案"></select>
         <button id="newEntryButton">新建</button>
         <button id="openButton">打开</button>
-        <button id="browseButton" title="选择一个 JSON 文件进行浏览">浏览文件…</button>
+        <button id="browseButton" title="选择一个 JSON 文件，导入后查看和编辑">导入文件…</button>
         <input id="pipelineFile" type="file" accept=".json,application/json" hidden>
       </div>
       <div class="toolbar">
@@ -25,17 +25,19 @@
     </header>
 
     <main>
-      <aside class="operators panel" aria-label="算子与新建方案">
+      <aside class="operators panel" aria-label="节点库与新建方案">
         <details class="create-panel">
           <summary>新建方案</summary>
           <div class="create-fields">
-            <div id="createIo"><p class="field-heading">输入项</p><div id="createInputs"></div><p class="field-heading">输出项</p><div id="createOutputs"></div></div>
-            <label>初始内容<select id="cloneProfile" title="从 Profile 克隆"><option value="">空图</option></select></label>
-            <button id="newButton" class="full">新建方案</button>
+            <label>创建方式<select id="createMode"><option value="template">从示例开始</option><option value="blank">从空白开始</option></select></label>
+            <label id="templateChoice">示例方案<select id="cloneProfile"><option value="">请选择示例方案</option></select></label>
+            <div id="createIo" hidden><p class="field-heading">输入项</p><div id="createInputs"></div><p class="field-heading">输出项</p><div id="createOutputs"></div></div>
+            <p id="createHint" class="field-help">复制示例的节点、连接和参数，再按需要修改。</p>
+            <button id="newButton" class="primary full">创建方案</button>
           </div>
         </details>
-        <div class="panel-heading"><div class="panel-title">能力节点</div><span class="panel-caption">点击添加</span></div>
-        <input id="operatorSearch" type="search" aria-label="搜索算子" placeholder="搜索名称或用途">
+        <div class="panel-heading"><div class="panel-title">节点库</div><span class="panel-caption">点击添加</span></div>
+        <input id="operatorSearch" type="search" aria-label="搜索节点" placeholder="搜索名称或用途">
         <div id="operatorList" class="scroll"></div>
       </aside>
 
@@ -47,10 +49,10 @@
           </div>
           <div class="canvas-actions">
             <div class="control-group panel-controls">
-              <button id="operatorsToggle" class="edit-control" aria-pressed="true" title="显示或收起算子面板">算子</button>
+              <button id="operatorsToggle" class="edit-control" aria-pressed="true" title="显示或收起节点库">节点库</button>
               <button id="inspectorToggle" aria-pressed="false" title="显示或收起详情面板">详情</button>
               <button id="quickValidateButton">校验</button>
-              <button id="openRunButton">运行</button>
+              <button id="openRunButton" title="选择示例数据并运行当前方案">运行…</button>
             </div>
             <div class="control-group history-controls edit-control" aria-label="编辑历史">
               <button id="undoButton" class="icon-button" disabled aria-label="撤销" title="撤销（Ctrl / ⌘ + Z）">↶</button>
@@ -61,7 +63,8 @@
               <button id="actualSizeButton" title="恢复至 100% 大小" aria-label="恢复至 100% 大小"><span id="zoomLabel">100%</span></button>
               <button id="zoomInButton" class="icon-button" aria-label="放大" title="放大">+</button>
             </div>
-            <button id="fitButton" title="将整个流程图放入画布">适应画布</button>
+            <button id="fitButton" title="将整个流程图放入画布">查看全图</button>
+            <button id="focusNodeButton" title="将选中节点放大到 100%，便于阅读" disabled>放大选中节点</button>
             <button id="layoutButton" title="重新排列节点并适应画布">自动布局</button>
           </div>
         </div>
@@ -69,19 +72,32 @@
           <span id="edgeSelectionLabel">已选择连线</span>
           <button id="deleteEdgeButton" class="danger" disabled>删除连线</button>
         </div>
-        <svg id="graph" tabindex="0" aria-label="Pipeline 流程图。拖动空白处平移，滚轮缩放。">
-          <defs>
-            <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z"></path>
-            </marker>
-            <marker id="arrow-hover" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z" fill="#60c8f0"></path>
-            </marker>
-          </defs>
-          <g id="viewport"><g id="edges"></g><g id="nodes"></g><path id="draftEdge"></path></g>
-        </svg>
+        <div class="graph-stage">
+          <svg id="graph" tabindex="0" aria-label="方案流程图。拖动空白处平移，滚轮缩放。">
+            <defs>
+              <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z"></path>
+              </marker>
+              <marker id="arrow-hover" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#60c8f0"></path>
+              </marker>
+            </defs>
+            <g id="viewport"><g id="edges"></g><g id="nodes"></g><path id="draftEdge"></path></g>
+          </svg>
+          <div id="welcomePanel" class="welcome-panel">
+            <div class="welcome-card">
+              <h1>从一个方案开始</h1>
+              <p>新建示例方案，或打开已有文件，查看、调整并运行流程。</p>
+              <div class="welcome-actions">
+                <button id="welcomeCreate" class="primary">新建方案</button>
+                <button id="welcomeBrowse">导入文件…</button>
+              </div>
+              <p class="field-help">已有方案可从顶部列表选择并打开。</p>
+            </div>
+          </div>
+        </div>
         <div class="canvas-footer">
-          <span id="canvasHint">拖动空白处平移 · 滚轮缩放 · 双击节点放大阅读</span>
+          <div class="canvas-guidance"><span id="canvasHint">拖动空白处平移 · 滚轮缩放 · 双击节点放大阅读</span><span id="zoomHint" hidden></span></div>
           <div class="graph-legend" aria-label="连线图例"><span><i class="legend-line"></i>数据流</span><span><i class="legend-line dependency"></i>额外顺序</span></div>
         </div>
       </section>
@@ -108,21 +124,21 @@
           <button data-tab="run" role="tab" aria-selected="false" aria-controls="runTab">运行</button>
         </div>
         <section id="propertiesTab" class="tab scroll" role="tabpanel" aria-label="节点属性">
-          <details id="ioSettings" hidden><summary>I/O 设置</summary>
+          <details id="ioSettings" hidden><summary>输入与输出</summary>
             <form id="ioForm">
               <p class="field-heading">输入项</p><div id="ioInputs"></div>
               <p class="field-heading">输出项</p><div id="ioOutputs"></div>
-              <p id="ioDraftHint" class="draft-hint" role="status" hidden>I/O 设置已修改，应用后更新方案。</p>
-              <div class="row form-actions"><button id="applyIo" type="submit" class="primary">应用 I/O</button><button id="discardIo" type="button" disabled>放弃修改</button></div>
+              <p id="ioDraftHint" class="draft-hint" role="status" hidden>输入输出已修改。应用到当前方案后，点击保存写入文件。</p>
+              <div class="row form-actions"><button id="applyIo" type="submit" class="primary">应用输入输出</button><button id="discardIo" type="button" disabled>放弃修改</button></div>
             </form>
           </details>
-          <div id="emptyInspector" class="empty"><span class="empty-symbol" aria-hidden="true">◇</span>选择一个节点<span class="empty-description">在这里查看和编辑它的配置</span></div>
+          <div id="emptyInspector" class="empty"><span class="empty-symbol" aria-hidden="true">◇</span><span id="emptyInspectorTitle">选择一个节点</span><span id="emptyInspectorDescription" class="empty-description">在这里查看和编辑它的配置</span></div>
           <form id="nodeForm" hidden>
             <label>节点名<input id="nodeName" autocomplete="off"></label>
             <div id="nodeType" class="node-type"></div>
             <div id="configFields"></div>
             <details><summary>额外执行顺序</summary><div id="nodeBindings"></div></details>
-            <p id="nodeDraftHint" class="draft-hint" role="status" hidden>节点属性已修改，应用后更新方案。</p>
+            <p id="nodeDraftHint" class="draft-hint" role="status" hidden>节点属性已修改。应用到当前方案后，点击保存写入文件。</p>
             <div class="row form-actions"><button id="applyNode" type="submit" class="primary">应用</button><button id="discardNode" type="button" disabled>放弃修改</button><button id="deleteNode" type="button" class="danger">删除节点</button></div>
           </form>
         </section>
@@ -131,15 +147,15 @@
           <button id="newModel" type="button" class="full">新增模型实例</button>
           <form id="modelForm">
             <label>模型名<input id="modelName" required autocomplete="off"></label>
-            <label>资产组合<select id="assetSelect"><option value="">手动配置</option></select></label>
+            <label>预设模型配置<select id="assetSelect"><option value="">手动配置</option></select></label>
             <label>模型类别<select id="modelType" required></select></label>
-            <label>Backend<select id="modelBackend" required></select></label>
+            <label>运行后端（Backend）<select id="modelBackend" required></select></label>
             <p id="modelImplementation" class="field-help"></p>
             <p id="modelAvailability" class="draft-hint" role="status" hidden></p>
             <label>模型文件<input id="modelFile" required placeholder="相对方案所在目录，例如 model.onnx"></label>
-            <p class="field-heading">Model 参数</p><div id="modelConfigFields"></div>
+            <p class="field-heading">模型参数</p><div id="modelConfigFields"></div>
             <details id="backendAdvanced"><summary>部署高级设置（Backend 参数）</summary><div id="backendConfigFields"></div></details>
-            <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改，应用后更新方案。</p>
+            <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改。应用到当前方案后，点击保存写入文件。</p>
             <div class="row form-actions"><button id="applyModel" type="submit" class="primary">应用模型</button><button id="discardModel" type="button" disabled>放弃修改</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
           </form>
           <label>预期构建变体<select id="buildVariant"><option value="">按当前 Catalog 检查</option></select></label>
@@ -147,7 +163,7 @@
           <pre id="selectionReport" class="result">资产尚未校验；业务效果尚未验收。</pre>
         </section>
         <section id="jsonTab" class="tab json-tab" role="tabpanel" aria-label="原始 JSON" hidden>
-          <p id="rawJsonHint" class="draft-hint" role="status" hidden>JSON 已修改，应用后更新流程图。</p>
+          <p id="rawJsonHint" class="draft-hint" role="status" hidden>JSON 已修改。应用到当前方案后，点击保存写入文件。</p>
           <textarea id="rawJson" class="code" spellcheck="false" aria-label="方案原始 JSON"></textarea>
           <div class="row"><button id="applyJson" class="primary">应用 JSON</button><button id="discardJson" disabled>放弃修改</button></div>
         </section>
@@ -159,25 +175,26 @@
         </section>
         <section id="runTab" class="tab scroll" role="tabpanel" aria-label="运行方案" hidden>
           <details id="bizContract" class="contract-details" hidden>
-            <summary>接入契约</summary>
+            <summary>输入输出说明</summary>
             <div id="bizContractFields"></div>
           </details>
-          <label>运行 Profile<select id="runProfile"></select></label>
-          <p class="tab-description">模型与文件参数相对方案所在目录解析。</p>
-          <button id="preflightButton" type="button" class="full">检查运行条件（无执行预检）</button>
+          <label>示例数据<select id="runProfile"></select></label>
+          <p class="tab-description">所选示例提供测试数据和运行设置。</p>
+          <p id="runProfileHint" class="field-help" role="status"></p>
+          <button id="preflightButton" type="button" class="full">检查运行条件</button>
           <div id="preflightSummary" class="preflight-summary" hidden></div>
+          <div class="row"><button id="runButton" class="primary">运行当前方案</button><button id="cancelButton" class="danger" disabled>取消</button></div>
+          <button id="saveSolutionButton" class="full">另存为可运行方案（JSON + .conf）</button>
+          <p id="runContext" class="field-help" role="status">尚未运行</p>
+          <p id="runFreshness" class="draft-hint" role="status" hidden></p>
+          <div id="runSummary" class="run-summary" role="status"></div>
+          <div id="runSamples"></div>
           <details class="associate-deployment-panel"><summary>关联部署配置（.conf）</summary>
             <div class="create-fields">
               <label>选择部署配置<select id="associateConfSelect"></select></label>
               <button id="associateDeploymentButton" type="button" class="full">关联此配置</button>
             </div>
           </details>
-          <div class="row"><button id="runButton" class="primary">运行草稿</button><button id="cancelButton" class="danger" disabled>取消</button></div>
-          <button id="saveSolutionButton" class="full">另存为可运行方案（JSON + .conf）</button>
-          <p id="runContext" class="field-help" role="status">尚未运行</p>
-          <p id="runFreshness" class="draft-hint" role="status" hidden></p>
-          <div id="runSummary" class="run-summary" role="status"></div>
-          <div id="runSamples"></div>
           <details id="savedDeployment" hidden><summary>已保存方案的命令与部署配置</summary><pre id="savedCommand" class="result"></pre><pre id="savedConfig" class="result"></pre></details>
           <details><summary>本次运行的部署解析结果</summary><pre id="resolvedConfig" class="result">运行后显示模型路径与生效参数</pre></details>
           <details><summary>运行日志</summary><pre id="runLog" class="log">尚未运行</pre></details>
