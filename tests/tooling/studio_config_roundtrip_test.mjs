@@ -17,25 +17,19 @@ await assert.rejects(workbench.readPipelineFile(file('{broken')), SyntaxError);
 assert.throws(() => workbench.assertBrowsablePipeline({pipeline: [{depends_on: 'bad'}]}), /depends_on/);
 assert.doesNotThrow(() => workbench.assertBrowsablePipeline({pipeline: [{name: '', inputs: {text: 'malformed'}}]}));
 
-const nested = {name: 'options', default: {values: [1, false]}};
-const defaults = workbench.schemaDefaults([nested, {name: 'missing'}, {name: 'null', default: null}]);
-defaults.options.values.push(2);
-assert.deepEqual(nested.default, {values: [1, false]});
-assert.deepEqual(defaults.null, null);
-assert.equal('missing' in defaults, false);
 const catalog = {
   nodes: [{node_type: 'generate', model_dependencies: [{config_field: 'encoder', model_type: 'llm'}]}],
   models: [{model_type: 'llm', backends: ['runtime']}, {model_type: 'embedding', backends: ['runtime']}],
   backends: [{backend_type: 'runtime'}, {backend_type: 'other'}],
 };
-const original = {name: 'old', type: 'llm', file: 'weights.bin', backend: {type: 'runtime', config: {}}};
+const original = {name: 'old', type: 'llm', file: 'weights.bin', backend: {type: 'runtime', params: {}}};
 const pipeline = {
   models: [structuredClone(original)],
   pipeline: [{name: 'consumer', type: 'generate', params: {encoder: 'old', literal: 'old'}},
     {name: 'unknown', type: 'custom_missing', params: {encoder: 'old'}}],
 };
 assert.deepEqual([...workbench.modelBoundNodeIds(pipeline.pipeline, catalog.nodes)], ['consumer']);
-assert.deepEqual(workbench.compatibleModels([original, {type: 'embedding'}], catalog.models, catalog.nodes[0]), [original]);
+assert.deepEqual(workbench.compatibleModels([original, {type: 'embedding'}], 'llm'), [original]);
 assert.deepEqual(workbench.compatibleBackends(catalog.backends, catalog.models[0]), [{backend_type: 'runtime'}]);
 assert.equal(workbench.modelAvailability([], catalog.models[0]).available, false);
 const renamed = {...original, name: 'new'};
@@ -51,35 +45,19 @@ assert.deepEqual(pipeline, beforeFailure);
 pipeline.pipeline[0].params.encoder = '';
 workbench.removeModel(pipeline, catalog, 'new');
 assert.deepEqual(pipeline.models, []);
-const asset = {model: {...original, backend: {type: 'runtime', config: {'a/b': {'~file': 'old'}}}},
-  paths: {'/file': '/resolved/weights', '/backend/config/a~1b/~0file': '/resolved/nested'}};
+const asset = {model: {...original, backend: {type: 'runtime', params: {'a/b': {'~file': 'old'}}}},
+  paths: {'/file': 'assets/weights', '/backend/params/a~1b/~0file': 'assets/nested'}};
 const resolved = workbench.assetModel(asset);
-assert.equal(resolved.file, '/resolved/weights');
-assert.equal(resolved.backend.config['a/b']['~file'], '/resolved/nested');
+assert.equal(resolved.file, 'assets/weights');
+assert.equal(resolved.backend.params['a/b']['~file'], 'assets/nested');
 assert.equal(asset.model.file, 'weights.bin');
 const io = {io: {input: [{type: 'a', name: 'b', params: {keep: 1}}], output: [{type: 'c', name: 'd', inputs: {x: 'n.y'}}]}};
 assert.deepEqual(workbench.pipelineIo(io), {input: [{type: 'a', name: 'b'}], output: [{type: 'c', name: 'd'}]});
 assert.equal(workbench.ioLabel(workbench.pipelineIo(io)), 'a/b → c/d');
 
-// The async gate owns replacement of frontend state, including stale errors.
-const gate = workbench.createLatestRequestGate();
-let completeOld, committed;
-const old = gate.run(() => new Promise(resolve => completeOld = resolve), value => committed = value);
-assert.equal(await gate.run(async () => 'current', value => committed = value), true);
-completeOld('stale');
-assert.equal(await old, false);
-assert.equal(committed, 'current');
-let rejectOld;
-const obsoleteError = gate.run(() => new Promise((_, reject) => rejectOld = reject), () => assert.fail('stale commit'));
-gate.invalidate();
-rejectOld(new Error('old failed'));
-assert.equal(await obsoleteError, false);
-await assert.rejects(gate.run(async () => { throw new Error('current failed'); }, () => {}), /current failed/);
-
 // Execute the actual API transport with proxy prefixes and native HTTP responses.
-globalThis.location = {href: `${base || 'http://localhost'}/proxy/index.html`, hash: '#pipeline=external.json'};
-const {api, write, initialPipeline} = await load('api.js');
-assert.equal(initialPipeline, 'external.json');
+globalThis.location = {href: `${base || 'http://localhost'}/proxy/index.html`, hash: ''};
+const {api, write} = await load('api.js');
 const nativeFetch = globalThis.fetch;
 let requested;
 globalThis.fetch = async (url, options) => {

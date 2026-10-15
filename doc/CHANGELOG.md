@@ -28,6 +28,13 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本为 **11.0.0**，表示当�
   见[BPE 分词器文件格式](dev_guide/bpe_tokenizer_format.md)。
 - 原生 CLI 提供 Catalog、配置校验、计划与部署解析；Studio 使用同一构建的能力声明。
   HTTP 请求字段使用 `revision`、`filename`、`conf_name`。Demo 套件使用 `alg_demo --suite`。
+  Studio 提供空态新建/导入入口，先选示例再创建，空白编排单独选择；可直接放大选中节点、
+  查看输入输出设置及示例数据来源。运行入口与实际执行分开，应用修改和保存文件的状态明确；
+  编辑 I/O 时保留当前构建未注册 Converter 的已有参数。
+  Catalog 仅在页面启动时加载；编排直接调用原生 edit，删除重复 Profile 接口、旧路径入口和多份状态。
+  保存操作串行核对 revision 并只替换 JSON；已关联 .conf 保持原文，删除双文件回滚流程。
+  运行命令附件失败单独提示已保存状态。
+  取消和超时由运行线程终止并回收进程组，异常日志保留末尾 2 MiB；自动 Profile 匹配跳过无关 I/O。
   见[Studio](../tools/pipeline_studio/README.md)和[统一 Demo](dev_guide/business_onboarding.md#5-统一-demo-接入)。
 
 验证范围：默认开发门禁覆盖编译、契约与行为测试、SDK/Demo smoke、CLI/Studio 工具和架构守卫。

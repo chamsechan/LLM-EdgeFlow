@@ -2,6 +2,7 @@
 """Actual Studio HTTP, local-file transactions and frontend consumers."""
 
 import copy
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import hashlib
 import http.client
 import importlib.util
@@ -9,9 +10,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -105,13 +108,19 @@ class StudioHttpContractTest(unittest.TestCase):
         status, valid = self.request("POST", "/api/validate", {"pipeline": self.base, "explain": True})
         self.assertEqual(status, 200)
         status, edited = self.request("POST", "/api/authoring/preview", {
-            "pipeline": self.base, "revision": valid["revision"],
-            "tool_fingerprint": valid["tool_fingerprint"], "require_valid": True,
+            "pipeline": self.base, "require_valid": True,
             "operation": {"kind": "rename_node", "node": "match_keywords", "new_name": "renamed"}})
         self.assertEqual(status, 200, edited)
         self.assertTrue(edited["ok"])
+        self.assertTrue(edited["validation"]["revision"])
+        self.assertEqual(edited["validation"]["tool_fingerprint"], valid["tool_fingerprint"])
         self.assertEqual(edited["pipeline"]["io"]["output"][0]["inputs"]["matches"], "renamed.matches")
         self.assertFalse((self.configs / "pipeline_preview.json").exists())
+        status, rejected = self.request("POST", "/api/authoring/preview", {
+            "pipeline": self.base, "operation": {}, "operations": []})
+        self.assertEqual(status, 200, rejected)
+        self.assertFalse(rejected["ok"])
+        self.assertIn("互斥", " ".join(item["message"] for item in rejected["diagnostics"]))
 
     def test_save_and_open_roundtrip_complete_unicode_document_and_revision(self):
         document = copy.deepcopy(self.base)
@@ -126,7 +135,7 @@ class StudioHttpContractTest(unittest.TestCase):
         status, opened = self.request("GET", "/api/pipeline?filename=pipeline_edit.json")
         self.assertEqual(status, 200)
         self.assertEqual(opened["pipeline"], document)
-        self.assertEqual(opened["save_targets"], ["pipeline_edit.json"])
+        self.assertIsNone(opened["deployment"])
         status, conflict = self.request("POST", "/api/pipelines", {"filename": path.name, "pipeline": document})
         self.assertEqual(status, 409)
         self.assertEqual(conflict["error"]["code"], "FILE_EXISTS")
@@ -136,27 +145,17 @@ class StudioHttpContractTest(unittest.TestCase):
         status, validated = self.request("POST", "/api/validate", {
             "pipeline": self.base, "explain": True})
         self.assertEqual(status, 200, validated)
-        for endpoint, operation in (
-            ("/api/fixes/preview", {"patch": [{"op": "add", "path": "/comment", "value": "preview"}]}),
-            ("/api/authoring/preview", {"operation": {
-                "kind": "rename_node", "node": "match_keywords", "new_name": "renamed"}}),
-        ):
-            with self.subTest(endpoint=endpoint):
-                body = {"pipeline": self.base, "revision": validated["revision"],
-                        "tool_fingerprint": validated["tool_fingerprint"], **operation}
-                for field, code in (("revision", "REVISION_CONFLICT"),
-                                    ("tool_fingerprint", "TOOL_OUTDATED")):
-                    with self.subTest(field=field):
-                        status, rejected = self.request("POST", endpoint, {**body, field: "outdated"})
-                        self.assertEqual(status, 409, rejected)
-                        self.assertEqual(rejected["error"]["code"], code)
-                status, previewed = self.request("POST", endpoint, body)
-                self.assertEqual(status, 200, previewed)
-                self.assertTrue(previewed["ok"])
-                if endpoint == "/api/fixes/preview":
-                    self.assertEqual(previewed["patched"]["comment"], "preview")
-                else:
-                    self.assertEqual(previewed["pipeline"]["pipeline"][0]["name"], "renamed")
+        body = {"pipeline": self.base, "revision": validated["revision"],
+                "tool_fingerprint": validated["tool_fingerprint"],
+                "patch": [{"op": "add", "path": "/comment", "value": "preview"}]}
+        for field, code in (("revision", "REVISION_CONFLICT"), ("tool_fingerprint", "TOOL_OUTDATED")):
+            with self.subTest(field=field):
+                status, rejected = self.request("POST", "/api/fixes/preview", {**body, field: "outdated"})
+                self.assertEqual(status, 409, rejected)
+                self.assertEqual(rejected["error"]["code"], code)
+        status, previewed = self.request("POST", "/api/fixes/preview", body)
+        self.assertEqual(status, 200, previewed)
+        self.assertEqual(previewed["patched"]["comment"], "preview")
 
     def test_deployment_association_preflight_and_save_use_canonical_fields(self):
         filename = "pipeline_keyword_match_rules.json"
@@ -165,10 +164,10 @@ class StudioHttpContractTest(unittest.TestCase):
             "filename": filename, "conf_name": conf_name})
         self.assertEqual(status, 200, associated)
         self.assertTrue(associated["ok"])
-        self.assertEqual(associated["save_targets"], [filename, conf_name])
+        self.assertEqual(associated["deployment"]["conf_name"], conf_name)
 
         status, ready = self.request("POST", "/api/preflight", {
-            "pipeline": self.base, "conf_name": conf_name})
+            "pipeline": self.base, "filename": filename})
         self.assertEqual(status, 200, ready)
         self.assertEqual(ready["summary"]["status"], "ready")
         self.assertEqual(ready["summary"]["conf_path"], conf_name)
@@ -263,6 +262,98 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(path.read_bytes(), external_bytes)
         self.assertFalse(list(self.configs.glob(".pipeline_edit.*")))
 
+    def test_concurrent_saves_have_one_winner_and_one_conflict(self):
+        for creating in (False, True):
+            with self.subTest(creating=creating):
+                name = "pipeline_create_race.json" if creating else "pipeline_update_race.json"
+                saved = None if creating else self.save(name)
+                path = self.configs / name
+                entered, release = threading.Event(), threading.Event()
+                replace = studio.os.replace
+
+                def paused_replace(source, target):
+                    if Path(target) == path and not entered.is_set():
+                        entered.set()
+                        if not release.wait(5):
+                            raise RuntimeError("save test did not release the first writer")
+                    return replace(source, target)
+
+                def submit(comment):
+                    return self.request("POST" if creating else "PUT",
+                                        "/api/pipelines" if creating else "/api/pipeline", {
+                                            "filename": name, "pipeline": {**self.base, "comment": comment},
+                                            "revision": saved["revision"] if saved else None})
+
+                with mock.patch.object(studio.os, "replace", side_effect=paused_replace), ThreadPoolExecutor(2) as pool:
+                    first = pool.submit(submit, "first")
+                    try:
+                        self.assertTrue(entered.wait(5))
+                        second = pool.submit(submit, "second")
+                        # Give the competing HTTP request time to reach the held commit.
+                        try:
+                            second.result(timeout=1)
+                        except FutureTimeout:
+                            pass
+                    finally:
+                        release.set()
+                    results = [first.result(timeout=5), second.result(timeout=5)]
+                self.assertEqual(sorted(status for status, _ in results), [200, 409], results)
+                winner = next(result for status, result in results if status == 200)
+                loser = next(result for status, result in results if status == 409)
+                self.assertEqual(loser["error"]["code"], "FILE_EXISTS" if creating else "REVISION_CONFLICT")
+                self.assertEqual(json.loads(path.read_bytes()), winner["pipeline"])
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), winner["revision"])
+
+    def test_command_attachment_failure_reports_committed_files_and_allows_update(self):
+        (self.root / "output").write_text("not a directory")
+        status, saved = self.request("POST", "/api/solutions", {
+            "filename": "pipeline_command.json", "pipeline": self.base, "profile": "keyword_match_rules"})
+        self.assertEqual(status, 200, saved)
+        self.assertTrue(saved["ok"])
+        self.assertEqual(saved["command"], "")
+        self.assertIn("已保存", saved["command_warning"])
+        for recovering in (False, True):
+            if recovering:
+                (self.root / "output").unlink()
+            updated = {**self.base, "comment": f"update {recovering}"}
+            status, saved = self.request("PUT", "/api/pipeline", {
+                "filename": saved["filename"], "pipeline": updated, "revision": saved["revision"]})
+            self.assertEqual(status, 200, saved)
+            path = self.configs / saved["filename"]
+            self.assertEqual(json.loads(path.read_bytes()), updated)
+            self.assertEqual(saved["revision"], hashlib.sha256(path.read_bytes()).hexdigest())
+            self.assertEqual(json.loads(path.with_suffix(".conf").read_text()), {"pipe_path": path.name})
+            self.assertEqual(bool(saved["command_warning"]), not recovering)
+            self.assertEqual(bool(saved["command"]), recovering)
+
+    def test_automatic_profile_selection_ignores_unavailable_models(self):
+        # Matching and unrelated mock Profiles must not block usable production Profiles.
+        profiles = json.loads((ROOT / "demo/profiles.json").read_text())["profiles"]
+        production_tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
+        with mock.patch.object(studio, "PROJECT_ROOT", ROOT), \
+                mock.patch.object(studio, "PROFILE_FILE", ROOT / "demo/profiles.json"), \
+                mock.patch.object(studio, "PIPELINE_TOOL", production_tool):
+            for name in ("keyword_match_rules", "entity_extract_cpu", "doc_qa_cpu"):
+                with self.subTest(profile=name):
+                    filename, conf_name = f"pipeline_{name}.json", f"pipeline_{name}.conf"
+                    for path in (filename, conf_name):
+                        shutil.copy(ROOT / "configs" / path, self.configs)
+                    status, result = self.request("POST", "/api/deployment/associate", {
+                        "filename": filename, "conf_name": conf_name})
+                    self.assertEqual(status, 200, result)
+                    self.assertEqual(self.service.generated_solutions[filename]["profile"], profiles[name])
+
+            # If every matching candidate fails, retain its concrete deployment error.
+            unavailable_profiles = self.root / "demo/profiles.json"
+            unavailable_profiles.write_text(json.dumps({"profiles": {
+                "entity_extract_mock": profiles["entity_extract_mock"]}}))
+            with mock.patch.object(studio, "PROFILE_FILE", unavailable_profiles):
+                status, result = self.request("POST", "/api/deployment/associate", {
+                    "filename": "pipeline_entity_extract_cpu.json", "conf_name": "pipeline_entity_extract_cpu.conf"})
+            self.assertEqual(status, 400, result)
+            self.assertEqual(result["error"]["code"], "DEPLOYMENT_VALIDATION_FAILED")
+            self.assertIn("test_causal_lm_backend", result["error"]["message"])
+
     def test_managed_paths_reject_escape_and_symlinks_while_import_is_read_only(self):
         outside = self.root / "pipeline_import.json"
         outside.write_text('{"pipeline":[],"comment":"browsable draft"}')
@@ -272,6 +363,7 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(imported["pipeline"]["comment"], "browsable draft")
         (self.configs / "pipeline_link.json").symlink_to(outside)
         for requested, code in (("../pipeline_import.json", "INVALID_PIPELINE_PATH"),
+                                ("configs/pipeline_keyword_match_rules.json", "INVALID_PIPELINE_PATH"),
                                 ("pipeline_link.json", "SYMLINK_REJECTED")):
             with self.subTest(requested=requested):
                 with self.assertRaises(studio.StudioError) as caught:
@@ -289,34 +381,54 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(response.status, 413)
         self.assertEqual(json.loads(response.read())["error"]["code"], "BODY_TOO_LARGE")
 
-    def test_paired_solution_rollback_preserves_both_artifacts_and_session_ownership(self):
+    def test_associated_save_only_replaces_json_and_preserves_conf(self):
         status, saved = self.request("POST", "/api/solutions", {
             "filename": "pipeline_pair.json", "pipeline": self.base, "profile": "keyword_match_rules"})
         self.assertEqual(status, 200, saved)
         path, conf = self.configs / saved["filename"], self.configs / saved["conf_filename"]
         previous = (path.read_bytes(), conf.read_bytes())
         self.assertEqual(json.loads(previous[1]), {"pipe_path": path.name})
-        self.assertEqual(saved["save_targets"], [path.name, conf.name])
+        self.assertEqual(saved["deployment"]["conf_name"], conf.name)
         self.assertIn("demo-profile.json", saved["command"])
         replace = studio.os.replace
 
-        def fail_conf_install(source, target):
-            if Path(target) == conf:
-                raise OSError("conf installation failed")
+        def fail_json_install(source, target):
+            if Path(target) == path:
+                raise OSError("JSON installation failed")
             return replace(source, target)
 
         updated = copy.deepcopy(self.base)
         updated["comment"] = "new version"
-        with mock.patch.object(studio.os, "replace", side_effect=fail_conf_install):
+        with mock.patch.object(studio.os, "replace", side_effect=fail_json_install):
             status, failed = self.request("PUT", "/api/pipeline", {
                 "filename": path.name, "pipeline": updated, "revision": saved["revision"],
                 "profile": "keyword_match_rules"})
         self.assertEqual(status, 500)
         self.assertEqual(failed["error"]["code"], "SAVE_FAILED")
         self.assertEqual((path.read_bytes(), conf.read_bytes()), previous)
-        self.assertFalse(list(self.configs.glob(".studio-save-*")))
+        self.assertFalse(list(self.configs.glob(".pipeline_pair.*")))
+        with mock.patch.object(self.service, "resolve_run_conf", side_effect=studio.StudioError(
+                studio.ErrorCode.DEPLOYMENT_VALIDATION_FAILED, "preflight failed")):
+            status, rejected = self.request("PUT", "/api/pipeline", {
+                "filename": path.name, "pipeline": updated, "revision": saved["revision"]})
+        self.assertEqual(status, 400, rejected)
+        self.assertEqual((path.read_bytes(), conf.read_bytes()), previous)
+        # Keep a noncanonical but valid conf spelling and formatting byte-for-byte.
+        conf.write_text('{ "pipe_path": "./pipeline_pair.json" }\n')
+        status, associated = self.request("POST", "/api/deployment/associate", {
+            "filename": path.name, "conf_name": conf.name, "profile": "keyword_match_rules"})
+        self.assertEqual(status, 200, associated)
+        conf_raw = conf.read_bytes()
+        with mock.patch.object(studio.os, "replace", wraps=replace) as commit:
+            status, saved = self.request("PUT", "/api/pipeline", {
+                "filename": path.name, "pipeline": updated, "revision": saved["revision"]})
+        self.assertEqual(status, 200, saved)
+        self.assertEqual([call.args[1] for call in commit.call_args_list], [path])
+        self.assertEqual(json.loads(path.read_bytes()), updated)
+        self.assertEqual(conf.read_bytes(), conf_raw)
+        self.assertEqual(saved["deployment"]["conf_revision"], associated["deployment"]["conf_revision"])
         restarted = studio.WorkbenchService(self.configs)
-        self.assertEqual(restarted.open_pipeline(path.name)["save_targets"], [path.name])
+        self.assertIsNone(restarted.open_pipeline(path.name)["deployment"])
 
     def test_pair_creation_preflight_failure_removes_only_its_own_new_files(self):
         resolve = self.service.resolve_run_conf
@@ -345,10 +457,89 @@ class StudioHttpContractTest(unittest.TestCase):
             with self.subTest(code=expected):
                 self.service.jobs["failed-job"] = {"cancel_requested": False}
                 with mock.patch.object(self.service, "resolve_run_conf", side_effect=failure):
-                    self.service._run_job("failed-job", self.base, self.profile, {})
+                    self.service._run_job("failed-job", self.base, self.profile)
                 job = self.service.run_status("failed-job")["job"]
                 self.assertEqual(job["status"], "failed")
                 self.assertEqual(job["error"], {"code": expected, "message": str(failure)})
+
+    def test_cancel_and_timeout_reap_stubborn_process_and_preserve_log_tail(self):
+        for mode in ("cancel", "startup", "timeout"):
+            with self.subTest(mode=mode):
+                ready = self.root / f"ready-{mode}"
+                demo = self.root / f"stubborn-{mode}"
+                demo.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import os, signal, time\n"
+                    "from pathlib import Path\n"
+                    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                    "print('x' * 4096, flush=True)\n"
+                    "print('ready-for-stop', flush=True)\n"
+                    f"Path({str(ready)!r}).write_text(str(os.getpid()))\n"
+                    "time.sleep(30)\n")
+                demo.chmod(0o700)
+                spawned, release, cancelling = threading.Event(), threading.Event(), threading.Event()
+                processes = []
+                popen, cancel = studio.subprocess.Popen, self.service.cancel_run
+
+                def launch(args, *values, **options):
+                    process = popen(args, *values, **options)
+                    if args[0] == str(demo):
+                        processes.append(process)
+                        spawned.set()
+                        if mode == "startup" and not release.wait(5):
+                            raise RuntimeError("startup test did not release Popen")
+                    return process
+
+                def request_cancel(job_id):
+                    cancelling.set()
+                    return cancel(job_id)
+
+                with mock.patch.object(studio, "DEMO_BINARY", demo), \
+                        mock.patch.object(studio, "SMOKE_RUN_TIMEOUT_SECONDS", .5 if mode == "timeout" else 10), \
+                        mock.patch.object(studio, "PROCESS_STOP_TIMEOUT_SECONDS", .1), \
+                        mock.patch.object(studio, "MAX_LOG_BYTES", 128), \
+                        mock.patch.object(studio.subprocess, "Popen", side_effect=launch), \
+                        mock.patch.object(self.service, "cancel_run", side_effect=request_cancel):
+                    try:
+                        status, run = self.request("POST", "/api/runs", {
+                            "pipeline": self.base, "profile": "keyword_match_rules"})
+                        self.assertEqual(status, 200, run)
+                        self.assertTrue(spawned.wait(5))
+                        deadline = time.monotonic() + 5
+                        while not ready.exists() and time.monotonic() < deadline:
+                            time.sleep(.01)
+                        self.assertTrue(ready.exists(), "child did not install its signal handler")
+                        if mode == "startup":
+                            with ThreadPoolExecutor(1) as pool:
+                                pending = pool.submit(self.request, "DELETE", f"/api/runs/{run['job_id']}", {})
+                                try:
+                                    self.assertTrue(cancelling.wait(5))
+                                finally:
+                                    release.set()
+                                self.assertEqual(pending.result(timeout=5)[0], 200)
+                        elif mode == "cancel":
+                            self.assertEqual(self.request("DELETE", f"/api/runs/{run['job_id']}", {})[0], 200)
+                        deadline = time.monotonic() + 8
+                        while time.monotonic() < deadline:
+                            job = self.service.run_status(run["job_id"])["job"]
+                            if job["status"] in ("cancelled", "failed", "completed"):
+                                break
+                            time.sleep(.01)
+                        self.assertEqual(job["status"], "failed" if mode == "timeout" else "cancelled", job)
+                        self.assertEqual(processes[0].poll(), -signal.SIGKILL)
+                        with self.assertRaises(ProcessLookupError):
+                            os.kill(processes[0].pid, 0)
+                        self.assertIn("ready-for-stop", job["logs"])
+                        self.assertLessEqual(len(job["logs"].encode()), 128)
+                        if mode == "timeout":
+                            self.assertEqual(job["error"]["code"], "RUN_TIMEOUT")
+                        self.assertIsNone(self.service.jobs[run["job_id"]]["process"])
+                    finally:
+                        release.set()
+                        for process in processes:
+                            if process.poll() is None:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            process.wait(timeout=5)
 
     def test_javascript_library_and_fix_consumers(self):
         for script in ("studio_editor_test.mjs", "studio_graph_test.mjs",
@@ -361,6 +552,8 @@ class StudioHttpContractTest(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("STUDIO_PLAYWRIGHT_MODULE"), "Optional real browser requires STUDIO_PLAYWRIGHT_MODULE")
     def test_real_browser_consumer(self):
+        # Exercise a successful JSON/.conf save whose optional command attachment cannot be written.
+        (self.root / "output").write_text("not a directory")
         result = subprocess.run(["node", str(ROOT / "tests/tooling/studio_browser_test.mjs"), self.url],
                                 cwd=ROOT, capture_output=True, text=True, timeout=180)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
