@@ -71,8 +71,8 @@ LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自�
 
 ## 验证与接入
 
-优先扩展现有测试；`tests/unit/nodes/test_*.cpp` 自动收集到节点 runner，新套件还需纳入
-CTest filter；脚手架 `--write-test` 沿用 `ScaffoldGeneratedNodeTest`。聚焦测试执行真实 `Run`，
+优先扩展现有测试；`tests/unit/nodes/test_*.cpp` 自动收集到节点 runner，GoogleTest 自动发现
+用例并生成 CTest 入口；脚手架 `--write-test` 沿用 `ScaffoldGeneratedNodeTest`。聚焦测试执行真实 `Run`，
 检查实际业务输出、空/缺失输入、多个请求及非零 `sub_id`、数量与来源、模型失败不发布结果；
 Control/缓存改动补回滚与并发测试。仅创建成功或检查 Catalog 不证明算法正确。
 

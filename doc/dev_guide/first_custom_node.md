@@ -1,16 +1,12 @@
 # 第一个自定义 Node：先写两段文本处理，再接入方案
 
-这篇练习面向会写 C++、希望实现“输入处理 → 调用模型 → 输出处理”的方案开发者。
-完成后，你会得到一个能通过统一 Demo 运行的节点，并知道下一次应该修改哪些文件。
+本练习实现“输入处理 → 调用模型 → 输出处理”，并通过 Demo 运行。
+先按 [README](../../README.md#快速开始)完成构建，所有命令在仓库根目录执行。
+本例使用固定回答的测试模型，无需下载权重。
 
-先确认是否需要写代码：已有节点能通过连线或配置完成的需求，直接用 Pipeline。
-下面用实体抽取指令做教学练习；这个任务本身也能用已有通用节点完成。
-
-需要新增文本 LLM Node 时，优先使用[文本 LLM Recipe](recipe_text_llm_node.md)：它会生成源码、
-测试和可运行方案，并给出验证命令。该路径要求单输出部署，源方案中恰好有一个
-兼容的单输入、单输出 `TextBatch` LLM 节点，数量与来源规则为 `1:1` / `preserve`。
-普通计算 Node 使用[自定义 Node 开发步骤](../../src/custom_nodes/README.md#通用开发步骤速查)中的
-`--kind compute` 脚手架；希望逐步理解文本 Node 的文件与连线时，继续下面的练习。
+已有节点能满足需求时直接配置 Pipeline。需要写代码时，可按本文逐步接入；
+希望自动生成方案与验证命令，可使用[文本 LLM Recipe](recipe_text_llm_node.md)。
+纯计算 Node 使用[普通脚手架](../../src/custom_nodes/README.md#通用开发步骤速查)。
 
 ## 1. 先认清今天要改的范围
 
@@ -19,32 +15,16 @@
 | 文件 | 你要做什么 |
 | --- | --- |
 | `src/custom_nodes/my_business_llm_node.cpp` | 脚手架生成后，填写两个文本函数 |
+| `tests/unit/nodes/test_my_business_llm_node.cpp` | 核对业务输出，并补充修改后的行为断言 |
 | `demo/fixtures/mock/pipeline_first_node.json` | 在复制的方案中选用新节点 |
-| `demo/fixtures/mock/pipeline_first_node.conf` | 指向新方案，复用已有模型路径和输出容量 |
+| `demo/fixtures/mock/pipeline_first_node.conf` | 用 `pipe_path` 指向新方案 |
 
-调度、模型加载和平台数据拷贝继续由框架承担。Node 返回内部文本，Adapter 在方案执行
-完成后将最终值转换到平台结构。你不用在 Node 中操作平台指针或输出池。
-
-[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)由两个文本函数和所有 Node
-共用的统一结构（`Inputs`、`Models`、`Run`、`Spec`、注册宏）组成，默认做文本透传和模型调用。
-脚手架直接使用这份文件，
-生成的源码会进入现有测试 runner 编译。
-先关注 `BuildPrompt` 和 `FormatAnswer` 两个普通函数；其余部分可结合
-[按需参考](custom_node_concepts.md)逐步阅读。
+先关注 `BuildPrompt` 和 `FormatAnswer` 两个文本函数。框架负责模型加载、调度和数据传递；
+外部请求与响应由 Adapter 转换。
 
 ## 2. 生成自己的节点
 
-以下命令都从仓库根目录执行。前提是已经按根目录 [README](../../README.md#快速开始)
-完成快速开始构建；本练习使用确定性测试模型，不需要下载真实模型。
-
-先查询当前构建，确认要复用的业务和节点：
-
-```bash
-./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool describe-node structured_json_parse
-```
-
-再生成源码：
+生成源码与测试：
 
 ```bash
 ./tools/scaffold_custom_node.py my_business_llm --kind model -m llm --write-test
@@ -59,16 +39,13 @@
 | `Spec` | 用 `MakeNodeSpec` 声明输入输出、生成参数和模型 |
 | `REGISTER_FUNCTION_NODE` | 从同一 Spec 注册构造方法和 Definition |
 
-两个文本函数是源文件内的普通函数，不需要继承节点类。你可以根据业务继续拆分小函数。
-源文件按操作放在 `custom_nodes`，另一个方案复用时直接引用同一个节点类型。
-
 ## 3. 只修改两个函数体
 
 在 `BuildPrompt` 中，将默认的 `return text;` 换成下面这行，给模型输入加上任务指令：
 
 <!-- starter-example:BuildPrompt -->
 ```cpp
-return "实体抽取：\n" + text;
+return "你是实体与名词抽取助手。请返回 JSON。\n" + text;
 ```
 
 在 `FormatAnswer` 中，将默认的 `return text;` 换成下面几行，去掉回答末尾的换行：
@@ -82,25 +59,24 @@ return answer;
 
 你只处理 `text`；框架自动保留每条输入与回答的对应关系，无需在业务函数中传递或填写来源编号。前处理从只读输入构造新文本，不修改其他节点共享的输入。
 
-这里没有模板语言、参数解析或 Markdown 解析器；需要时再使用已有通用节点。
-需要多个输入、条件二次推理、多种模型能力或拆分聚合时，仍在同一结构里修改 `Inputs`、`Models`
-和 `Run`：签名规则与常见编译错误见[结构与签名速查](custom_node_concepts.md#结构与签名速查)，
-第 7 节列出了对应的示例。
-外部请求的字段选择与响应组装属于 Adapter，见[输入输出边界](business_onboarding.md#输入输出以-operator-接口为边界)。
+本练习的测试模型通过短语 `实体与名词抽取助手` 返回固定 JSON；保留该短语才能接到后续
+JSON 解析节点。它验证接入流程，真实提示词的效果需换用真实模型评估。
+
+在生成的测试文件中，将 `RecordingModel` 返回的 `"fixture text"` 改为 `"fixture text\n"`，
+输出断言仍保留 `"fixture text"`，用于检查刚添加的末尾换行清理。
 
 ## 4. 编译，让工具能够找到新节点
 
-修改 C++ 后需安装 clang-format 18，并确保 `clang-format` 命令指向该版本；
-下面的格式脚本会检查版本。这是源码开发步骤，单纯配置方案不需要它。
+源码格式化需要 clang-format 18。
 
 ```bash
 ./scripts/format.sh
-cmake --build build --target alg_sdk alg_pipeline_tool alg_pipeline_tool_test alg_demo -j 4
+cmake --build build --target alg_sdk alg_pipeline_tool alg_pipeline_tool_test alg_demo edgeflow_test_nodes_runner -j 4
+./build/edgeflow_test_nodes_runner --gtest_filter='ScaffoldGeneratedNodeTest.my_business_llm_*'
 ./build/alg_pipeline_tool describe-node my_business_llm
 ```
 
-看到类型为 `my_business_llm`、输入输出为 `TextBatch`，说明构建和注册已完成。
-新文件在下次构建时自动编入，重新编译后才会进入 Catalog。
+Catalog 应显示 `my_business_llm`，输入输出为 `TextBatch`。
 
 ## 5. 复用已有方案和 Adapter
 
@@ -112,7 +88,7 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.json demo/fixtures/mock/pip
 cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pipeline_first_node.conf
 ```
 
-编辑 `pipeline_first_node.json` 中 `name` 为 `custom_prompt` 的节点，做两处修改：
+编辑 `pipeline_first_node.json` 中 `name` 为 `generate_entities` 的节点，做两处修改：
 
 - `type` 改成 `my_business_llm`。
 - 将整个 `params` 对象替换为下面的内容。新节点声明了模型绑定和 `max_tokens`、`temperature`
@@ -122,11 +98,8 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
 {"bind_model": "entity_llm"}
 ```
 
-保留该节点的 `inputs`，以及其他模型、JSON 解析节点和 `io` 输出连线。
-Validator 根据 `节点名.端口名` 引用推导执行依赖，无需重复填写 `depends_on`；
-该字段仅用于没有数据连接的额外执行顺序。模型引用必须显式填写，不使用约定实例名作为默认值。
-在 `pipeline_first_node.conf` 中，将 `pipe_path` 改为
-`pipeline_first_node.json`（`.conf` 仅包含该定位字段；接入选择、输出连线与容量参数沿用 JSON 根 `io`）。
+保留 `inputs`、模型、JSON 解析节点和 `io` 连线。
+将 `pipeline_first_node.conf` 的 `pipe_path` 改为 `pipeline_first_node.json`。
 
 此时数据经过：
 
@@ -138,10 +111,8 @@ flowchart LR
     D --> E[已有 Adapter 打包实体结果]
 ```
 
-节点的 `input` 是操作的输入端口。`"inputs":{"input":"input.sentence_text"}` 将它连接到
-输入转换器发布的 `sentence_text`；后续节点通过 `custom_prompt.output` 读取本节点的输出。
-节点条目只声明输入引用，输出名称来自 Spec。`io.output` 的 `inputs` 明确最终回包的来源，
-例如实体输出的 `entities` 连接 JSON 解析节点的 `document`。更换方案时修改引用即可复用节点代码。
+`"inputs":{"input":"input.sentence_text"}` 将节点的 `input` 端口连接到输入转换器。
+后续节点通过 `generate_entities.output` 读取结果；`io.output` 选择最终回包来源。
 
 ## 6. 校验并运行同一个 Demo
 
@@ -154,8 +125,8 @@ flowchart LR
 这些配置使用测试模型，校验要用带测试注册的 `alg_pipeline_tool_test`。
 `alg_pipeline_tool` 用于查看生产注册，也能发现刚编译的自定义节点。
 
-查看 `results/first-node/entity_extract/results.jsonl`：第一条记录应有 `status: 0`，
-以及 mock 标识的实体列表。`summary.json` 应显示一条成功、
+查看 `results/first-node/pipeline_first_node/results.jsonl`：第一条记录应有 `status: 0`，
+以及 `output.nouns: ["mock entity"]`。`summary.json` 应显示一条成功、
 零条失败。这里验证节点、编排与 Adapter 的完整路径，回答来自确定性测试模型。
 
 替换真实模型时，按目标构建的 Catalog 更新 `models` 和资产路径，节点的 `bind_model`
@@ -163,14 +134,9 @@ flowchart LR
 
 ## 7. 从练习进入真实开发
 
-首次运行只需要两个业务函数。准备交付时，把独立算法预期加入业务测试；实际示例见
+在生成的测试中补充自己的业务预期，检查提示词、结果与来源；参考
 [LLM Node 测试](../../tests/unit/nodes/test_llm_generate_node.cpp)。
-
-本练习的 `--write-test` 创建最小真实测试，由节点 runner 收集并执行；使用
-[NodeProbe](../../tests/support/node_probe.h) 初始化实际 Node，再注入最小模型能力。
-修改算法后填写自己的业务预期，检查提示词、结果与来源。公共输入、发布和模型错误规则
-由 AuthorNode 测试统一负责。交付执行 `./scripts/run_all_tests.sh`，流程见
-[CONTRIBUTING](../../CONTRIBUTING.md)。
+交付前执行 `./scripts/run_all_tests.sh`，流程见 [CONTRIBUTING](../../CONTRIBUTING.md)。
 
 | 接下来遇到的问题 | 去哪里看 |
 | --- | --- |

@@ -41,8 +41,9 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 ### Operator 镜像结构与输出池扩展指南
 
 C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistry` 注册
-外部类型、规范后缀及校验/分配生命周期；`InputConverter` 负责读取和深拷贝完整请求，
-`OutputConverter` 使用 Create 期输出池组装完整响应。每个方向按 `(type, name)` 登记，
+外部类型、规范后缀及校验/分配生命周期；binding 负责平台载体的读取、复制和容量检查，
+`InputConverter` 解析请求自有值，`OutputConverter` 组装完整响应后交给 binding 写入。
+Runtime 管理 Create 期输出池及 Process 期租约。每个方向按 `(type, name)` 登记，
 一份登记拥有一个宿主槽；注册审计检查全部转换器的端口、平台结构和参数声明。
 
 `CompanyString` 按 `length` 表达文本；Operator 输入校验拒绝原始嵌入 NUL，JSON 中
@@ -69,12 +70,12 @@ Core 静态计划和有效配置快照。SDK 与 CLI 共用这条准备路径，
 
 ### Adapter 实施检查表
 
-`InputConverter` 负责业务字段校验及深拷贝；批次预检不能替代字段校验。
+`InputConverter` 负责业务字段校验和选择；批次预检不能替代字段校验。
 共享 [`input_limits.h`](../include/adapter/input_limits.h) 的渠道和音频限制，
 显式部署限制可更严格。
 
 输出转换器的逻辑端口描述 Adapter 消费的内部值。普通一对一出口仍要求 `1:1 / preserve`；
-CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
+`cross_rerank` 的排名数组和 `dialogue_audit` 的首项选择使用 `N:1 / aggregate`。
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
 1. 当前环境的模拟平台枚举和数据结构放在 `platform_mock/operator_data_types.h` 与
@@ -83,7 +84,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
    `DecodeRequestRows` 等 helper 处理批次与发布；平台指针和长度校验由 binding 负责，
    转换器负责业务字段语义。
-3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
+3. 在 `src/adapter/output/` 实现 `OutputConverter`，组装完整响应为中立值，通过 binding 写入已租用输出。
 4. 用 `(type, name)` 登记一个宿主槽与 typed 逻辑端口；配置选择输入/输出登记，接入准备组合
    明确边界交给 Core。批次上限为 `min(max_frame_depth, 64)`；带业务成员的非 common 登记须声明期望值。
 
@@ -96,7 +97,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 - **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点 `inputs` 的 `节点名.端口名` 引用推导依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
-  `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
+  `Publish`。聚合行为由专用 Node 读取上游端口并
   发布新的输出 key，不原地修改已经发布的值。
 - **`SessionResourceKey<T>`**：会话级共享资源必须使用带静态类型的 key；动态资源名也要先
   构造 typed key。相同名称只能绑定同一种 `T`，类型不匹配会抛出 `std::logic_error`，
@@ -218,7 +219,7 @@ Catalog 中非必填且无默认值。BGE 的维度和编码长度通过
 逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
 `TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，
 任一项失败或抛异常就清空整批输出。回调可捕获本次调用的 options 和 diagnostic，不能保存请求引用。
-标准异常和未知异常分别返回框架 `INTERNAL_EXCEPTION`、`UNKNOWN_EXCEPTION`；不再接受模型自定义异常码。
+标准异常和未知异常分别返回框架 `INTERNAL_EXCEPTION`、`UNKNOWN_EXCEPTION`。
 主动失败保留框架原因码，详见[错误码与日志](dev_guide/error_handling.md)。
 模型仍负责资源准备、协议检查、输入输出语义与必要的整批预检，例如 Whisper 在首次推理前检查全部音频。
 固定 Tensor 路径继续使用 `FixedBatchExecutor::Execute` 显式准备补齐批次；`ExecuteItems` 拒绝固定批策略。

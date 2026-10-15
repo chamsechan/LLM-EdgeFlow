@@ -94,7 +94,7 @@ stdout 每行输出一个完整响应 JSON；日志路径写 stderr。包装层�
 flowchart LR
     A[完整请求 JSON] --> B[Operator API]
     B --> C[InputConverter：解析并读取 query]
-    C --> E[llm_generate：一次生成，只返回译文]
+    C --> E[llm_generate：按提示词生成译文]
     E --> G[OutputConverter：序列化 translated 响应]
     G --> H[完整响应 JSON]
 ```

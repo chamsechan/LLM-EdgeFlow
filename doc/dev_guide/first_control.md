@@ -126,7 +126,7 @@ Pipeline 的根 `io` 中，输出项的 `inputs` 指定回包来源。Demo 与�
 ./build/alg_demo --config build/control_tutorial/pipeline.conf --dataset build/control_tutorial/input.txt --control-cmd 1001 --control-file build/control_tutorial/control.json --output-dir build/control_tutorial/updated
 ```
 
-查看 `build/control_tutorial/updated/keyword_match/results.jsonl`：应有 `status: 0`、
+查看 `build/control_tutorial/updated/pipeline/results.jsonl`：应有 `status: 0`、
 `is_hit: 1`，匹配类别为 `PREFIX_APPLIED`。去掉 `--control-cmd` 与 `--control-file` 后
 使用另一个输出目录运行，应得到 `is_hit: 0`。这证明新增命令在节点中实际生效。
 

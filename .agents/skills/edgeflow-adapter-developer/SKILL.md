@@ -21,7 +21,7 @@ description: 新增或修改 LLM-EdgeFlow Adapter 的业务输入输出、InputC
 | 需要的部件 | 位置与操作 |
 | --- | --- |
 | 请求校验、字段选择与内部 payload | `src/adapter/input/`，`InputConverterDefinition` + `REGISTER_INPUT_CONVERTER` |
-| 完整响应组装、序列化和拷贝 | `src/adapter/output/`，`OutputConverterDefinition` + `REGISTER_OUTPUT_CONVERTER` |
+| 完整响应组装与序列化 | `src/adapter/output/`，`OutputConverterDefinition` + `REGISTER_OUTPUT_CONVERTER` |
 | 接入选择与边界 | Pipeline 根 `io.input` / `io.output` 以 `(type, name)` 选择登记；每个登记拥有一个宿主槽，转换器 typed 逻辑端口组合成 Core 的明确边界，输出项 `inputs` 指定每个必填端口的来源 |
 | 确需新的宿主值类型/分配方式 | `include/adapter/operator_value_type.h`，按 [输出分配指南](../../../doc/dev_guide/operator_output_allocation.md) 注册 |
 

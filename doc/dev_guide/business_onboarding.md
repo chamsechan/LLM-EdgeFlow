@@ -1,46 +1,35 @@
 # 新业务接入：从平台结构到统一 Demo
 
-本指南写给新增或调整外部业务契约的转换器作者。新宿主类型、输出池实现，以及宿主程序如何
-调用 SDK，见 [Operator 宿主类型、输出池与生命周期](operator_output_allocation.md)。
-先按根目录 [README](../../README.md#快速开始)完成快速开始构建；以下命令都从仓库根目录执行。
-公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)
-明确契约与设计，再开始实现。
+Adapter 负责把完整业务请求转为 Pipeline 输入，并将算法结果组装为完整响应。
+先按 [README](../../README.md#快速开始)完成构建；以下命令在仓库根目录执行。
 
-第一次接触 Adapter，可以先运行[无需模型的关键词样例](#2-用一个现有业务看清文件关系)，
-观察完整请求与响应，再按实际缺口查阅下文。新契约不要求重新实现所有接入组件。
+常见接入只需三步：
+
+1. 写清完整请求与响应，例如 `{"query":"hello"}` → `{"translated":"你好"}`。
+2. 补充缺失的输入/输出转换器，在 Pipeline 的 `io` 中选择它们；见[实现转换器](#3-实现并注册转换器)。
+3. 通过 Operator 测试完整业务字段，再用自己的配置与数据运行 Demo；见[最小验证](#7-最小验证)。
+
+已有载体够用时，复用 binding、输出池和 Demo。新宿主类型或特殊输出布局再查第 4、6 节。
+公共协议变更遵循 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
 
 ## 输入输出以 Operator 接口为边界
 
-本项目业务需求中的“输入、输出”指 `OperatorFunc::Process` 边界上的完整请求和完整响应。
-字段名、字段类型、序列化格式及忽略字段的约定都属于外部业务契约。
-例如输入是 `{"query":"hello","src_lan":"en"}` 时，Operator 输入结构的字符串字段应
-承载整个对象；不能由 Demo 先提取 `hello` 再声称完成该输入契约。
+完整请求与响应以 `OperatorFunc::Process` 为边界。例如输入 `{"query":"hello"}`，
+由输入转换器解析对象并选择 `query`；宿主直接调用 SDK 就能获得约定的完整响应。
 
-| 位置 | 负责的工作 |
+| 部件 | 职责 |
 | --- | --- |
-| Demo / 调用方 | 读取样例、构造 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
-| `OperatorValueTypeBinding` | 校验平台指针、长度和 metadata，读取与写入中立 I/O 值及业务枚举，管理输出布局与内存 |
-| `InputConverterDefinition::decode_fn` | 接收自有中立值，解析完整请求、校验并选择业务字段，发布至 `AlgContext` |
-| Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
-| `OutputConverterDefinition::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应为中立值，经 binding 写入已租用输出池 |
-| Pipeline 根 `io` | 按方向与 `(type, name)` 选择转换器，所选 typed 端口组成 Core 明确边界 |
+| Demo / 调用方 | 构造并持有输入载体，调用 SDK，复制和展示返回值 |
+| binding | 校验平台指针和长度，复制数据，处理输出布局与容量 |
+| InputConverter / OutputConverter | 校验业务字段、选择输入，组装并序列化完整响应 |
+| Pipeline / Node | 处理内部端口数据，执行业务算法 |
+| Pipeline 根 `io` | 按 `(type, name)` 选择转换器并连接内部端口 |
 
-Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
-字段改名、响应组装或默认成功结果。宿主程序直接调用 Operator SDK 就应获得约定响应。
-Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口，不能当成外部请求格式。
-按数据形态选择下文的真实业务示例；相同载体可以承载不同协议。
+Catalog 的端口描述内部数据；外部格式以转换器契约为准。
 
 ## 1. 先确定要走哪条路径
 
-先运行 `./build/alg_pipeline_tool catalog`，核对已有业务契约、操作和模型能力。
-
-已知类型名称时可以直接查询，输出复用当前构建的 Catalog：
-
-```bash
-./build/alg_pipeline_tool describe-node text_rule_match
-./build/alg_pipeline_tool describe-model qwen_causal_lm
-./build/alg_pipeline_tool describe-backend llama_cpp
-```
+先运行 `./build/alg_pipeline_tool catalog` 核对已有能力，再选择修改范围：
 
 | 需求 | 修改范围与下一步 |
 | --- | --- |
@@ -49,17 +38,8 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 | 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 为新契约选择或登记 `(type, name)` 转换器；分别复用符合输入、输出语义的转换器，只新增缺失的一侧；已有载体与 ValueType 继续复用 |
 | 修复已有业务的转换逻辑 | 修改对应输入/输出转换器并运行相关契约测试；仅影响该路径时，无需另建 Demo |
 
-这些路径可以组合：新契约可以继续编排已有 Nodes，也可以只补充一个缺失算法。
-输入和输出分别判断是否需要新转换器；仅改变输出时，输入转换器通常可以原样复用。
-已有宿主载体、ValueType 和 Demo 运行代码能表达完整请求、响应及数据集格式时优先复用；
-需要通过统一 Demo 运行的新载体组合还需匹配的 Demo 注册。Profile 只在需要保存运行预设时添加。
-
-“结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
-JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
-
-Operator 初始化会审计**全部已注册的转换器**，包括未被当前方案选中的登记。
-槽后缀、中立值类型、binding 业务映射、回调、typed 端口和参数声明必须一致；任一登记不合格，Init 返回 -6。
-配置按 `(type, name)` 精确查找，未登记时报 `UNKNOWN_CONVERTER`，没有默认回退。
+输入和输出分别选择转换器，只补充缺失的一侧。同一个字符串载体可以承载纯文本或完整 JSON，
+选择时要核对业务含义。配置按 `(type, name)` 查找，未登记时报 `UNKNOWN_CONVERTER`。
 
 ## 2. 用一个现有业务看清文件关系
 
@@ -74,9 +54,10 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 ./build/alg_demo --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
 ```
 
-查看 `results/business-onboarding/keyword_match/results.jsonl`：四条记录按输入顺序排列，
-四条 `status` 均为 0，前两条 `output.is_hit` 为 1 且类别为 `SYSTEM_INIT`，后两条
-为 0。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
+查看 `results/business-onboarding/pipeline_keyword_match_rules/results.jsonl`：三条记录按输入顺序排列，
+三条 `status` 均为 0，第一、三条 `output.is_hit` 为 1 且类别为 `SYSTEM_INIT`，第二条
+为 0。`summary.json` 应有三条成功、零条失败。未使用 Profile 时，结果子目录取 `.conf` 文件名去掉后缀。
+这一步用于认识已有接入链路；
 新业务仍须换成自己的配置和输入验证。
 
 按下表核对需要补齐的部分；表中的名称都是这个已注册样例的名称，无需逐项复制。
@@ -96,22 +77,8 @@ Operator 初始化会审计**全部已注册的转换器**，包括未被当前�
 关键词例子分别为 `keyword_in/keyword_match` 与 `json_out/keyword_match`。
 Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应构造和展示代码。
 
-当前八类业务的输出都复用 `json_out` 与 `CompanyOperatorOutput` C 结构。
-结构的 `result_json` 保存完整 JSON 响应，`service_type` 标识业务，`status_code` 保存状态。
-转换器使用中立值 `JsonOutputValue`，各业务 `name` 对应以下 JSON 内容：
-
-| `name` | `result_json` 内容 |
-| --- | --- |
-| `keyword_match` | 规则匹配对象及整数 `is_hit`（1 命中、0 未命中） |
-| `entity_extract` | 实体抽取 payload |
-| `translate` | `translated` 字符串 |
-| `doc_qa` | `intent_name`、`confidence`、`answer_text`、`chunk_count` |
-| `dialogue_audit` | `risk_level`、`risk_score`、`matched_policy_clause`、`audit_verdict` JSON 对象 |
-| `ocr_invoice_qa` | `detected_box_count`、`result` JSON 对象 |
-| `audio_asr_intent` | `transcribed_text`、`intent_slot` 规则匹配对象 |
-| `cross_rerank` | 排名顺序的 `scores`、原候选索引 `sorted_indices`、`count` |
-
-状态只在 C 结构的 `status_code` 中；JSON 对象和数组保持 JSON 类型，不再放在嵌套的字符串字段中。
+现有业务输出复用 `json_out`：`CompanyOperatorOutput.result_json` 保存完整 JSON，
+`status_code` 保存状态；具体字段见对应输出转换器。
 
 ### 参考实现与测试
 
@@ -128,7 +95,9 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
 ## 3. 实现并注册转换器
 
 先选择可复用的输入、输出转换器，并在配置中组合；只有缺少兼容转换器时才实现对应步骤。
-参照关键词或实体抽取的实现，按需要完成：
+文本 JSON 业务可参照[翻译输入的 Decode](../../src/adapter/input/translate_json_input.cpp)与
+[翻译输出的 Encode](../../src/adapter/output/translation_json_output.cpp)：前者解析完整对象并选择 `query`，
+后者将结果序列化为含 `translated` 的完整响应。按需要完成：
 
 1. **实现输入转换器（`src/adapter/input/`）。**
    单槽且每请求生成一个载荷时，写普通函数
@@ -171,52 +140,27 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
 文件，核对真实头文件与内存所有权。Converter、Node、Model 和 Backend 不识别宿主结构。
 新增具有相同内容语义的布局应复用中立值及 Converter；业务协议变化仍由 Converter 处理。
 
-图像输入使用 RGB8 像素帧：平台 mock `CompanyFrame` 提供 `height`、`width`、字节步长
-`stride` 和 `data` 指针；调用方保证 `height * stride` 字节可读且在 `Process` 返回前不修改。
-binding 检查正尺寸、`stride >= width * 3`、非空指针及总字节数不超过 48 MiB（含行填充），
-随后复制到请求自有 `ImageInputValue.frame`。中立 `ImageFrame` 持有宽高、字节步长和
-`std::vector<uint8_t>`，`ImageFrameBatch` 逐项保留来源；Converter 与 Node 不解码图像。
-`vision_document` 接收中立帧，检查数据长度和 `max_pixels`（包括补齐后的像素数），
-按步长读取 RGB8，白色补齐到 `patch_size` 整数倍，再转为现有 `ImageTextInput.rgb_chw`。
-SDK / Model 不接收文件路径；Demo 的 `[IMAGE]` 文件仅用来构造宿主像素帧。
-当前布局是外网 mock，真实 DHPIPE SDK 的字段与像素格式映射仍须在内网 binding 中核对。
-
+图像由调用方提供 RGB8 像素帧，binding 校验尺寸、步长和容量后复制为中立 `ImageFrame`。
+Demo 可从文件构造像素帧，Model 负责预处理。真实 SDK 的字段与格式须在授权内网核对，
+遵循[仓库边界](../../AGENTS.md#repository-guardrails)。
 
 ## 5. 统一 Demo 接入
 
-Demo 调用 SDK 的 `ResolveOperatorConfigIo` 做只读预检，取得有序的输入、输出载体条目；
-请求构造按输入结构名组合分派，结果展示按输出结构名分派。同一宿主结构承载不同业务时共用 Demo，
-例如实体抽取与翻译共用实体输入结构，八类业务共用 `CompanyOperatorOutput` 输出结构。
-统一展示解析 `result_json` 为 JSON 值并复制状态。业务字段校验、选择和完整响应组装仍由 SDK 的转换器负责；
-Demo 从数据集构造载体并显示结果，不把完整请求预先拆成内部端口。
+已有载体可直接复用 Demo；准备 Pipeline、`.conf` 和数据集，按第 2 节运行即可。
+`.conf` 的 `pipe_path` 相对其所在目录；模型及文件参数相对 Pipeline 目录。
+详细操作见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
-1. 复用已有输入构造；需要新载体组合时，在 `demo/input/` 新建 `.cpp`，
-   实现 `BuildRequestsFn` 并用 `REGISTER_DEMO_INPUT` 登记。组合键按预检返回的输入顺序拼接
-   结构名，例如 `CompanyFrame,CompanyString`。`DemoRequestBatch.storage` 必须持有字符串、
-   数组与宿主结构，覆盖整个运行过程；请求键取自契约的 `demo.<type>`。
-2. 复用已有输出展示；新输出结构在 `demo/output/` 实现 `ShowResultFn`，
-   用 `REGISTER_DEMO_OUTPUT` 登记结构名。复制实际 `status_code` 和输出字段；Demo runner 按输入顺序写出结果，
-   不生成请求 ID 字段；
-   请求信息只是可选的显示辅助，缺失时应能降级。两个目录的 `.cpp` 自动编入。
-3. 公共 `RunOperatorDemo` 统一预检、创建句柄、Control、分批 Process、显示和落盘。
-   每批先把输出复制为 JSON，再归还所有输出租约。单个输出原样保留完整 JSON，包括顶层数组、标量和 `null`。
-   多个输出均为对象时，同名字段以 `type` 加前缀；同方向重复 type 时以 `name.type` 加前缀。
-   多个输出含数组等非对象值时，以各自的 `name.type` 为键保留完整值，避免改变 JSON 类型或覆盖内容。
-   Process 成功表示调用完成，逐条状态仍需检查 `results.jsonl` 和 `summary.json`。
-4. 准备数据、Pipeline 和 `.conf`，用 `--config`、`--dataset` 运行；可重复调用的预设可加入
-   `demo/profiles.json`。`--list` 列出 Profile 与支持的载体。只修改已有载体上的业务契约时无需新增 Demo。
+新增载体时：
 
-运行中修改参数必须显式提供 `--control-file` 和正整数 `--control-cmd`，也可写进 Profile；
-缺少任一项返回 3。规则更新示例为 `--profile keyword_match_control`，payload 来自
-[`keyword_match_control.json`](../../data/keyword_match_control.json)。该 Profile 不加入 smoke，独立执行验收。
-音频输入是否要求真实数据集按 Profile 的 `suite == "real"` 判断；`--suite all` 只选择 Profile 集合。
-结果记录使用 Profile 名，无 Profile 时使用配置文件名的词根；不写入业务身份。
+1. 在 `demo/input/` 实现 `BuildRequestsFn`，用 `REGISTER_DEMO_INPUT` 登记输入结构组合。
+   组合顺序来自 SDK 的 `ResolveOperatorConfigIo` 预检；`DemoRequestBatch.storage` 持有运行期间所需缓冲区。
+2. 在 `demo/output/` 实现 `ShowResultFn`，用 `REGISTER_DEMO_OUTPUT` 登记输出结构。
+   复制 SDK 的实际状态和结果，业务字段选择与响应组装由转换器完成。
+3. 公共 runner 负责调用、输出复制和租约归还。两个目录的 `.cpp` 自动编入；
+   运行后检查 `results.jsonl` 中的逐条状态及 `summary.json`。
 
-`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时核对 Pipeline JSON 中的 `models[].file` 与所选输出项 `params` 的容量。模型 `file` 和声明为文件的参数以 Pipeline JSON 所在目录为基准，拒绝绝对路径、父目录分量和符号链接越界。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
-
-Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读取；对应 CLI
-选项已删除。使用 `--profiles-file <path> --profile <name>` 选择自有配置。未选 Profile
-或未提供字段时使用 `cpu`、`0`、`1`、`1`。配置路径、数据集等其他 CLI 覆盖仍有效。
+需要保存运行预设时加入 `demo/profiles.json`。设备、批大小和池深通过 Profile 的
+`chip`、`device_id`、`batch_size`、`depth` 设置。运行时控制见 [Control 入门](first_control.md)。
 
 ## 6. 输出容量
 
@@ -228,11 +172,6 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 ```json
 {"type":"json_out", "name":"doc_qa", "params":{"result_json_max_bytes":16383}}
 ```
-
-分配器、布局参数和 metadata 固定在槽声明中；另选布局需要另一个登记。
-业务参数只在 Create 解析；布局参数在注册审计归一化一次，所有分配共享不可变结果。
-可选输出也始终有池，宿主可以按行省略 key，其他行保持原来的索引。
-同方向多项复用同一种载体时，使用 `name.type` 宿主 key；唯一 type 可以保留任意非空前缀。
 
 单份响应超过实际字段容量时返回 -4；本批租约全部归还，所有输出保持未发布状态。
 需要更大容量时覆盖所选项 params 并重新创建 handle。容量以实际字节数计算，不能直接从 token 数推断。
@@ -247,37 +186,17 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ./build/alg_pipeline_tool catalog
 ```
 
-确认 Catalog 中出现所选 `(type, name)`，平台槽、业务值、typed 端口与参数声明一致；随后对**本次新增或
-修改的 Pipeline** 执行 `validate`、`plan`，运行对应 Demo 并核对行位置、状态及业务字段。
-第 2 节的关键词命令是可运行参照，实际验证时替换为新业务、配置和数据集。
-有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#工具选择)
-构建并使用 `alg_pipeline_tool_test`。
+对本次新增或修改的 Pipeline 执行 `validate`、`plan`，运行 Demo 并核对行顺序、状态和业务字段。
+使用测试模型时，改用[测试工具](../../tools/pipeline_studio/README.md#工具选择) `alg_pipeline_tool_test`。
 
-把断言加入相应现有套件：
-
-| 验证范围 | 必须观察到的行为 | 参考测试 |
-| --- | --- | --- |
-| 转换器与契约安全 | 非法指针和长度被拒绝；结果乱序仍按来源返回，重复/缺失来源与失败结果被拒绝；输出容量越界严格拦截 | [Adapter 契约测试](../../tests/contract/abi/test_adapter_contract_security.cpp)、[Operator 安全测试](../../tests/contract/abi/test_operator_safety.cpp) |
-| Operator SDK | 初始化接受完整注册；在池容量内时输出完整，超池容量时无部分发布且后续请求可继续使用输出池 | [Operator 基础测试](../../tests/integration/operator/test_operator_api.cpp)、[公开 SDK 消费者测试](../../tests/contract/abi/test_cpp_operator_sdk.cpp) |
-| Pipeline / Demo | 新业务通过校验和计划，样例结果及错误路径符合预期 | [Catalog/Validator 测试](../../tests/integration/pipeline/test_pipeline_catalog_validator.cpp)、[Demo 测试](../../tests/integration/demo/test_demo_runner.cpp) |
-
-载体测试通过 `AdapterHarness` 绑定实际平台 reader/writer，并核对输入输出行位置。
-直接调用 Converter 的测试用 `DecodeForTest` / `EncodeForTest` 挂接 binding；输出视图的
-`count` 必须为原始批次行数（包括省略可选输出的行）。自定义视图必须具备匹配 binding、槽类型及池规格。测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量
-（数组大小减去结尾 NUL 的一字节），或用 `TestOutputBatchView::SetCapacity` 描述实际存储；
-`CompanyString.length` 是内容长度，不能作为容量。
-
-开发过程中只构建并运行相关的测试 runner，把过滤器换成实际修改的套件；
-runner 的源码归属见 [tests/RuntimeTests.cmake](../../tests/RuntimeTests.cmake)：
-
-| 修改内容 | 构建目标 | 常用 GoogleTest 过滤器 |
-| --- | --- | --- |
-| 转换器、协议拷贝或 Operator 绑定 | `edgeflow_test_adapter_runner` | `IoConverterRegistryTest.*` / `OperatorEntryTest.*` |
-| Demo 结果转换或 Pipeline 集成 | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
+把业务断言加入[业务响应测试](../../tests/integration/operator/test_business_responses.cpp)：
+直接调用 Operator，检查完整字段、逐行对应关系和无效输入。
+修改 binding 或输出容量时，还需覆盖[Adapter 契约](../../tests/contract/abi/test_adapter_contract_security.cpp)
+与 [Operator 安全](../../tests/contract/abi/test_operator_safety.cpp)。开发中只运行相关用例，例如：
 
 ```bash
 cmake --build build --target edgeflow_test_adapter_runner -j 4
-./build/edgeflow_test_adapter_runner --gtest_filter='IoConverterRegistryTest.*'
+./build/edgeflow_test_adapter_runner --gtest_filter='BusinessResponsesTest.TranslateSelectsQueryFromCompleteJsonAndPairsTranslatedRows'
 ```
 
 交付前执行 `./scripts/run_all_tests.sh`。真实模型效果与目标平台验收按

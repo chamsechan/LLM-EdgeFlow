@@ -25,8 +25,8 @@ CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤
 `KITELLM_GITHUB_TOKEN`。新建凭据只需选择 kiteLLM 仓库并授予 Contents 读取权限。
 
 `kiteLLM Private Release & Real GGUF` 独立任务在 Linux x64 上下载校验发布包，构建
-kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆盖真实文本、视觉、
-生成向量与部署示例。缺少或失效的凭据会使任务明确失败，结果写入验收记录。
+kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest；随后通过 Demo 分别执行
+真实文本、生成向量问答与视觉方案。缺少或失效的凭据会使任务明确失败，结果写入验收记录。
 外部 fork PR 和 Dependabot 跳过此私有任务，
 其余默认 CI 保持执行；跳过状态在验收记录中保留。私有库、头文件和链接产物不上传为
 公开 artifact，也不进入 Actions cache；模型缓存包含公开 GGUF、ONNX 权重和 tokenizer。
@@ -64,16 +64,12 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest，覆�
 ## 验证
 
 ```bash
-LLM_EDGEFLOW_TEST_KITELLM_MODEL=/absolute/path/model.gguf \
-  sh -c 'cd build/variants/kite-cpu && ctest -R "^(LlamaCppBackendTest|DemoRunnerTest)$" --output-on-failure'
-(cd build/variants/kite-cpu && ctest --output-on-failure -j8)
+(cd build/variants/kite-cpu && ctest -L kite --output-on-failure --no-tests=error)
 ```
 
-沿用现有 engine 测试套件名称。未设置真实模型路径时，真实模型用例会明确跳过。
-该套件检查错误加载、配置路径、生成参数、固定 seed 拒绝、stop words、并发串行化和
-多会话生命周期，以及原生显式设备选择、平台/运行配置冲突。DemoRunnerTest 在提供真实
-模型时复用实体抽取 DAG，通过既有 Demo → Operator 路径验证非空结构化结果；解析失败
-直接报错，不使用 JSON fallback。默认完整交付门禁仍为 `./scripts/run_all_tests.sh`。
+该标签包含 Backend 参数与协议拒绝、Catalog 注册和共享 Demo 调用测试；不证明真实模型推理效果。
+CTest 按 `Suite.Case` 发现用例，`--no-tests=error` 避免筛选为空时误报成功。
+真实模型执行使用下文的[真实能力门禁](#真实能力门禁)。默认完整交付门禁仍为 `./scripts/run_all_tests.sh`。
 
 已有实体抽取、文档问答等配置中的 `llama_cpp` 不会自动变成 Kite。切换时应使用
 模型类别 `llm` + `backend.type: kite_llm`，只在 `backend.params` 写必要运行参数，
@@ -146,15 +142,23 @@ vision.mmproj，路径相对运行 JSON 所在目录，只允许其目录内的�
 
 ### 真实能力门禁
 
+完成 `kite-cpu` 构建并准备模型后，分别运行与 CI 相同的三条实际方案：
+
 ```bash
-LLM_EDGEFLOW_TEST_KITELLM_MODEL="$PWD/configs/qwen2.5-0.5b-instruct-q4_k_m.gguf" \
-LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL="$PWD/configs/SmolVLM-256M-Instruct-Q8_0.gguf" \
-LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG="$PWD/configs/kite_vision_run.json" \
-LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 \
-  sh -c 'cd build/variants/kite-cpu && ctest --output-on-failure -j4'
+./scripts/fetch_real_test_models.sh --kite
+./build/variants/kite-cpu/alg_demo \
+  --config configs/pipeline_entity_extract_kite.conf \
+  --dataset data/corpus_entity_extract.txt --output-dir results/kite-real
+./build/variants/kite-cpu/alg_demo \
+  --config configs/pipeline_doc_qa_kite_generated_embeddings.conf \
+  --dataset data/corpus_doc_qa.txt --output-dir results/kite-real
+./build/variants/kite-cpu/alg_demo \
+  --config configs/pipeline_ocr_invoice_qa_kite.conf \
+  --dataset data/corpus_ocr_invoice_qa_kite.txt --output-dir results/kite-real
 ```
 
-视觉测试验证真实红色图像的推理结果、错误图像和投影配置；模型单测验证补边、RGB
-排列、尺寸限制、请求溯源和失败回滚。Demo 测试运行上述独立部署套件。未设置真实
-模型环境变量的跳过不算真实能力验收。具体业务与设备的验收要求见
+检查每条命令的退出码，以及 `results/kite-real/<配置文件名去掉 .conf>/` 下的
+`results.jsonl` 和 `summary.json`，确认请求成功并核对实际输出。这些运行验证真实模型链路，
+业务质量仍需目标数据集与独立期望；并发、多会话等行为需要相应专项证据。
+缺少模型或未执行 Demo 时，不能将单元测试通过视为真实能力验收。具体业务与设备的验收要求见
 [模型、构建与效果验收](VERIFIABLE_SELECTION.md#验收范围与发布准备)。

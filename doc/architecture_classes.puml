@@ -29,13 +29,14 @@ package "接入适配层 / Integration" {
   }
   class OperatorHandle {
     runtime: owns SharedAlgorithmRuntime
-    output_pools: pool state per slot
-    mutex: serializes Process / Control
   }
   class SharedAlgorithmRuntime {
     io_plan_: unique_ptr<ValidatedIoPlan>
     pipeline_: unique_ptr<Pipeline>
+    output_pools_: pool state per slot
+    mutex_: serializes Process / Control
     CreateFromIoPlan(): int
+    Process(): int
     ExecuteControl(): int
   }
   class ValidatedIoPlan {
@@ -74,7 +75,7 @@ package "流程编排层 / Orchestration" {
     ValidateAndPlan(): ValidatedPipelinePlan
     refs + depends_on: derive DAG
     bind ports / derive lifetime
-    Validate(): ValidationReport
+    ValidateParsedAndPlan(): ValidatedPipelinePlan
   }
   class ValidatedPipelinePlan {
     config: ParsedPipelineConfig
@@ -171,8 +172,9 @@ IoPlanResolver ..> PipelineValidator : 中性文档与 I/O 边界
 IoPlanResolver ..> ValidatedIoPlan : 组装
 IoConverterRegistry o-- InputConverterDefinition
 IoConverterRegistry o-- OutputConverterDefinition
-Operator ..> InputConverterDefinition : decode_fn
-Operator ..> OutputConverterDefinition : encode_fn
+Operator ..> SharedAlgorithmRuntime : Process / Control
+SharedAlgorithmRuntime ..> InputConverterDefinition : decode_fn
+SharedAlgorithmRuntime ..> OutputConverterDefinition : encode_fn
 InputConverterDefinition ..> AlgContext : 发布输入与请求元信息
 OutputConverterDefinition ..> AlgContext : 读取结果并组装响应
 PipelineValidator ..> PipelineCatalog : 注册 Definition
