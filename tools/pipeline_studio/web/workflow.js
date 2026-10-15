@@ -30,7 +30,8 @@ export function renderSamples(container, result) {
   for (const [index, record] of records.slice(0, 50).entries()) {
     const card = document.createElement("details"); card.className = "run-sample"; card.open = index === 0;
     const heading = document.createElement("summary");
-    heading.textContent = `行 ${index} · 状态 ${record.status ?? "未知"}`;
+    const status = record.status === 0 ? "成功" : record.status == null ? "状态未知" : `失败（状态 ${record.status}）`;
+    heading.textContent = `第 ${index + 1} 条 · ${status}`;
     card.append(heading);
     const fields = document.createElement("dl");
     const output = record.output;

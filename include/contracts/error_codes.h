@@ -74,7 +74,6 @@
   X(kBodyTooLarge, -3069, "BODY_TOO_LARGE")                             \
   X(kDemoNotBuilt, -3070, "DEMO_NOT_BUILT")                             \
   X(kDeploymentMismatch, -3071, "DEPLOYMENT_MISMATCH")                  \
-  X(kDeploymentNotAssociated, -3072, "DEPLOYMENT_NOT_ASSOCIATED")       \
   X(kDeploymentNotFound, -3073, "DEPLOYMENT_NOT_FOUND")                 \
   X(kDeploymentValidationFailed, -3074, "DEPLOYMENT_VALIDATION_FAILED") \
   X(kDocumentTooLarge, -3075, "DOCUMENT_TOO_LARGE")                     \
@@ -100,7 +99,6 @@
   X(kRunNotFound, -3096, "RUN_NOT_FOUND")                               \
   X(kRunTimeout, -3097, "RUN_TIMEOUT")                                  \
   X(kSaveFailed, -3098, "SAVE_FAILED")                                  \
-  X(kSaveRollbackFailed, -3099, "SAVE_ROLLBACK_FAILED")                 \
   X(kSelectionCheckFailed, -3100, "SELECTION_CHECK_FAILED")             \
   X(kSymlinkRejected, -3101, "SYMLINK_REJECTED")                        \
   X(kToolNotBuilt, -3102, "TOOL_NOT_BUILT")                             \

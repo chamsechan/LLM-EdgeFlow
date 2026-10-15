@@ -64,7 +64,7 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
           const btn = document.createElement("button");
           btn.type = "button";
           btn.className = "fix-apply-btn";
-          btn.textContent = "预览并应用";
+          btn.textContent = "查看修复方案";
           btn.style.marginLeft = "8px";
           btn.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -133,7 +133,7 @@ export function appendConfigField(container, field, values, modelChoices = null)
     input.rows = Math.min(4, input.value.split("\n").length);
   }
   label.append(input);
-  if (field.file || (field.semantic && field.semantic !== "model_ref")) {
+  if (field.file || field.semantic) {
     const help = document.createElement("small"); help.className = "field-help";
     help.textContent = field.file ? "相对方案所在目录的文件名" : field.semantic; label.append(help);
   }

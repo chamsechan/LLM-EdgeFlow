@@ -54,4 +54,10 @@ assert.ok(nativeFix, 'native remediation connects the required logical input');
 const nativePreview = await write('/fixes/preview', 'POST', {...body, patch: nativeFix.patch});
 assert.equal(nativePreview.report.ok, true);
 assert.deepEqual(nativePreview.patched, beforeFile);
+const moved = await write('/fixes/preview', 'POST', {...body, patch: [
+  {op: 'test', path: '/pipeline/0/name', value: draft.pipeline[0].name},
+  {op: 'move', from: '/pipeline/0/name', path: '/comment'},
+]});
+assert.equal(moved.patched.comment, draft.pipeline[0].name);
+assert.equal('name' in moved.patched.pipeline[0], false);
 console.log('PASS Studio native fix preview, revisions, fingerprint and one-step history');

@@ -1,6 +1,5 @@
-export function compatibleModels(models = [], modelDefinitions = [], target = null) {
-  const modelType = typeof target === "string" ? target : target?.model_type || target?.model_dependencies?.[0]?.model_type;
-  return modelType ? models.filter(model => model.type === modelType) : [...models];
+export function compatibleModels(models = [], modelType) {
+  return models.filter(model => model.type === modelType);
 }
 
 export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
@@ -11,25 +10,6 @@ export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
     if ((definition?.model_dependencies || []).some(dependency => typeof node.params?.[dependency.config_field] === "string" && node.params[dependency.config_field].length > 0)) result.add(node.name);
   }
   return result;
-}
-
-export function createLatestRequestGate() {
-  let generation = 0;
-  return {
-    invalidate() { generation += 1; },
-    async run(load, commit) {
-      const requestGeneration = ++generation;
-      try {
-        const value = await load();
-        if (requestGeneration !== generation) return false;
-        commit(value);
-        return true;
-      } catch (error) {
-        if (requestGeneration !== generation) return false;
-        throw error;
-      }
-    },
-  };
 }
 
 export const INGRESS = "input";
@@ -106,10 +86,6 @@ export async function readPipelineFile(file) {
   const pipeline = JSON.parse((await file.text()).replace(/^\uFEFF/, ""));
   assertBrowsablePipeline(pipeline);
   return { pipeline, filename: file.name, revision: "", imported: true };
-}
-
-export function schemaDefaults(fields = []) {
-  return Object.fromEntries(fields.filter(field => field.default !== undefined).map(field => [field.name, structuredClone(field.default)]));
 }
 
 export function upsertModel(pipeline, catalog, previousName, model) {
