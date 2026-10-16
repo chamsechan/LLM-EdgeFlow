@@ -338,6 +338,10 @@ TEST_F(OperatorEntryTest, BoundaryLogsOmitRequestContentButDiagnosticKeepsIt) {
   EXPECT_NE(diagnostic.find(marker), std::string::npos);
 }
 
+int PublicFailureCode(OperatorFailureStage stage, int code) {
+  return PlatformFailureCode(ClassifyOperatorFailure(stage, code));
+}
+
 TEST(OperatorFailureMappingTest, PublicCategoriesRetainStageAndInternalCause) {
   struct Case {
     OperatorFailureStage stage;
