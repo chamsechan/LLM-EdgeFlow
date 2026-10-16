@@ -78,7 +78,7 @@ Catalog 的端口描述内部数据。外部格式以转换器契约为准。
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 完整请求业务校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、完整响应组装及 `REGISTER_OUTPUT_CONVERTER` |
 | 平台 binding | [operator_builtin_value_types.cpp](../../src/adapter/operator/mock/operator_builtin_value_types.cpp)、[platform_value_binding.h](../../include/adapter/operator/mock/platform_value_binding.h) | 模拟平台的类型、traits、布局读写及内存管理；其他平台使用自己的 binding 文件，复用 Converter 的中立值，见[实现与注册](operator_output_allocation.md#实现与注册) |
-| Demo 载体与展示 | [keyword_input.cpp](../../demo/input/keyword_input.cpp)、[json_output.cpp](../../demo/output/json_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
+| Demo 载体与展示 | [keyword_input.cpp](../../demo/operator_shell/mock/input/keyword_input.cpp)、[json_output.cpp](../../demo/operator_shell/mock/output/json_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
 配置作者在根 `io.input` / `io.output` 填写所选载体 `type` 和业务 `name`。
@@ -95,7 +95,7 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
 [OutputConverter](../../src/adapter/output/)。平台结构只位于 `include/platform_mock/`。
 相同中立值类型可以承载不同业务语义。
 
-[平台载体契约测试](../../tests/contract/abi/test_adapter_contract_security.cpp) 执行实际 binding，
+[平台载体契约测试](../../tests/unit/operator/operator_shell/mock/test_platform_carrier_contracts.cpp) 执行实际 binding，
 覆盖字符串、嵌套字段、带行 padding 的 RGB、PCM 和候选数组的复制及边界。
 [Converter 公共机制测试](../../tests/unit/adapter/test_converter_contracts.cpp) 覆盖行关联和原子发布，
 [业务 Converter 测试](../../tests/unit/adapter/test_io_converters.cpp) 核对完整字段。
@@ -161,9 +161,9 @@ Demo 可从文件构造像素帧，Model 负责预处理。真实 SDK 的字段�
 
 新增载体时：
 
-1. 在 `demo/input/` 实现 `BuildRequestsFn`，用 `REGISTER_DEMO_INPUT` 登记输入结构组合。
+1. 在所选壳夹具的 `demo/operator_shell/<shell>/input/` 实现 `BuildRequestsFn`，用 `REGISTER_DEMO_INPUT` 登记输入结构组合。
    组合顺序来自 SDK 的 `ResolveOperatorConfigIo` 预检。`DemoRequestBatch.storage` 持有运行期间所需缓冲区。
-2. 在 `demo/output/` 实现 `ShowResultFn`，用 `REGISTER_DEMO_OUTPUT` 登记输出结构。
+2. 在同一夹具的 `output/` 实现 `ShowResultFn`，用 `REGISTER_DEMO_OUTPUT` 登记输出结构。
    复制 SDK 的实际状态和结果，业务字段选择与响应组装由转换器完成。
 3. 公共 runner 负责调用、输出复制和租约归还。两个目录的 `.cpp` 自动编入。
    运行后检查 `results.jsonl` 中的逐条状态及 `summary.json`。
@@ -203,10 +203,10 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 
 使用测试模型时，改用[测试工具](../../tools/pipeline_studio/README.md#工具选择) `alg_pipeline_tool_test`。
 
-把业务断言加入[业务响应测试](../../tests/integration/operator/test_business_responses.cpp)：
+把业务断言加入[业务响应测试](../../tests/integration/operator/operator_shell/mock/test_business_responses.cpp)：
 直接调用 Operator，检查完整字段、逐行对应关系和无效输入。
-修改 binding 或输出容量时，还需覆盖[Adapter 契约](../../tests/contract/abi/test_adapter_contract_security.cpp)
-与 [Operator 安全](../../tests/contract/abi/test_operator_safety.cpp)。开发中只运行相关用例，例如：
+修改 binding 或输出容量时，还需覆盖[平台载体契约](../../tests/unit/operator/operator_shell/mock/test_platform_carrier_contracts.cpp)、
+[输出发布](../../tests/unit/operator/operator_shell/mock/test_operator_publication.cpp)与[壳无关一致性套件](../../tests/contract/operator_shell/)。开发中只运行相关用例，例如：
 
 ```bash
 cmake --build build --target edgeflow_test_adapter_runner -j 4

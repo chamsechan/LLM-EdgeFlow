@@ -1,7 +1,7 @@
 #include <vector>
 
 #include "demo/common/demo_io_registry.h"
-#include "demo/common/text_requests.h"
+#include "demo/operator_shell/mock/text_requests.h"
 #include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {

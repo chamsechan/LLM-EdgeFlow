@@ -52,8 +52,8 @@ Converter 不声明平台枚举。Operator 输入输出 vector 按同一行关�
 
 ## 验证新增路径
 
-复用 `tests/unit/adapter/` 与 `tests/contract/abi/` 的相关套件，使用
-`tests/support/converter_probe.h` 薄调用辅助；完整业务参考 `tests/integration/operator/test_business_responses.cpp`。至少覆盖正常完整对象、
+复用 `tests/unit/adapter/`、`tests/contract/operator_shell/` 与所选壳 `operator_shell/<shell>/` 夹具中的相关套件，使用
+`tests/support/converter_probe.h` 薄调用辅助；完整业务参考 `tests/integration/operator/operator_shell/mock/test_business_responses.cpp`。至少覆盖正常完整对象、
 契约要求的无效输入、输出容量不足、批次限额、逐行对应关系/状态及失败无残留输出。
 借用内存和多槽修改再补生命周期/释放断言。
 

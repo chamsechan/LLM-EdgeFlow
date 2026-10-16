@@ -128,15 +128,19 @@ add_executable(edgeflow_test_nodes_runner
 edgeflow_configure_gtest_target(edgeflow_test_nodes_runner)
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE edgeflow_test_allocation_failure)
 
+# 壳无关一致性套件位于 contract/operator_shell/；具体壳的驱动、清单及依赖其
+# 载体的测试位于各 runner 目录下的 operator_shell/<shell>/，只收集选中的壳。
+set(EDGEFLOW_TEST_SHELL "operator_shell/${EDGEFLOW_OPERATOR_SHELL}")
 file(GLOB EDGEFLOW_TEST_ADAPTER_SRCS CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/adapter/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/operator/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/operator/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/contract/operator_shell/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/contract/${EDGEFLOW_TEST_SHELL}/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/unit/operator/${EDGEFLOW_TEST_SHELL}/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/operator/${EDGEFLOW_TEST_SHELL}/test_*.cpp"
 )
-list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/contract/abi/test_operator_safety.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/contract/abi/test_adapter_contract_security.cpp"
-  "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
+list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
 )
@@ -144,7 +148,8 @@ edgeflow_configure_gtest_target(edgeflow_test_adapter_runner)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE edgeflow_test_allocation_failure)
 
 file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp")
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/${EDGEFLOW_TEST_SHELL}/test_*.cpp")
 list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_catalog_validator.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_authoring.cpp"
@@ -241,6 +246,29 @@ add_test(NAME CMakeStructureTest
   COMMAND ${CMAKE_COMMAND}
           -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
           -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_cmake_structure.cmake)
+# 记录各目标实际源码，供壳选择检查确认生产目标不含测试驱动与清单。
+set(_edgeflow_shell_manifest "set(operator_shell [==[${EDGEFLOW_OPERATOR_SHELL}]==])\n")
+set(_edgeflow_shell_production_targets
+  edgeflow_model_execution_objects edgeflow_model_execution_backends_objects
+  edgeflow_capability_nodes_objects edgeflow_orchestration_objects
+  edgeflow_integration_objects edgeflow_composition_objects
+  edgeflow_demo_objects edgeflow_pipeline_tooling)
+set(_edgeflow_shell_test_targets
+  edgeflow_test_adapter_runner edgeflow_test_tooling_runner)
+string(APPEND _edgeflow_shell_manifest
+  "set(production_targets [==[${_edgeflow_shell_production_targets}]==])\n"
+  "set(test_targets [==[${_edgeflow_shell_test_targets}]==])\n")
+foreach(target IN LISTS _edgeflow_shell_production_targets _edgeflow_shell_test_targets)
+  string(APPEND _edgeflow_shell_manifest
+    "set(${target}_sources [==[$<TARGET_PROPERTY:${target},SOURCES>]==])\n")
+endforeach()
+file(GENERATE OUTPUT "${PROJECT_BINARY_DIR}/operator_shell_sources_$<CONFIG>.cmake"
+     CONTENT "${_edgeflow_shell_manifest}")
+add_test(NAME OperatorShellSelectionTest
+  COMMAND ${CMAKE_COMMAND}
+          -DTEST_ROOT=${PROJECT_BINARY_DIR}/operator_shell_selection_test
+          "-DSOURCE_MANIFEST=${PROJECT_BINARY_DIR}/operator_shell_sources_$<CONFIG>.cmake"
+          -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_operator_shell_selection.cmake)
 add_test(NAME LayerGuardTest
   COMMAND ${CMAKE_COMMAND} -E env
           "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
@@ -271,6 +299,7 @@ add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
 set_tests_properties(
   CMakeStructureTest ThirdPartyCacheMetadataTest SpecSignatureDiagnosticsTest
+  OperatorShellSelectionTest
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
   DocLinksTest DocLinksSelfTest ScriptGeneratorDetectionTest
