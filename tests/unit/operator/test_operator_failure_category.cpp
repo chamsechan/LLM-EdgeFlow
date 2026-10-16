@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "adapter/operator/operator_failure_category.h"
@@ -143,11 +144,25 @@ TEST(OperatorFailureCategoryTest, ControlStagesAndDiagnosticsKeepTheCause) {
             Stage::kControlExecution);
   EXPECT_EQ(ControlFailureToOperatorStage(ControlFailureStage::kNone),
             Stage::kRuntime);
-  EXPECT_EQ(DescribeOperatorFailure(Stage::kControlExecution,
-                                    error::kInvalidInput, "literal cause"),
-            "Control node update failed with internal code " +
-                std::to_string(error::kInvalidInput) +
-                " (INVALID_INPUT): literal cause");
+  const std::pair<Stage, const char*> names[] = {
+      {Stage::kCreatePreparation, "Create preparation"},
+      {Stage::kProcessExecution, "Pipeline execution"},
+      {Stage::kControlRequest, "Control request"},
+      {Stage::kControlUnsupported, "Control command"},
+      {Stage::kControlExecution, "Control node update"},
+      {Stage::kRuntime, "Runtime"}};
+  for (const auto& [stage, name] : names) {
+    SCOPED_TRACE(name);
+    EXPECT_STREQ(OperatorFailureStageName(stage), name);
+    EXPECT_EQ(
+        DescribeOperatorFailure(stage, error::kInvalidInput, "literal cause"),
+        std::string(name) + " failed with internal code " +
+            std::to_string(error::kInvalidInput) +
+            " (INVALID_INPUT): literal cause");
+  }
+  EXPECT_NE(DescribeOperatorFailure(Stage::kRuntime, kUndeclared, "cause")
+                .find("internal code -35 (UNRECOGNIZED_ERROR)"),
+            std::string::npos);
 }
 
 }  // namespace

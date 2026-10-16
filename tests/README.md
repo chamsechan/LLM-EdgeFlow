@@ -14,9 +14,12 @@
 | 六种真实 Model 的输入构造、数值与输出解释 | `unit/engine/test_*_model.cpp` |
 | Backend 协议、加载、真实小图执行与可选权重 | `unit/engine/test_*_backend.cpp` |
 | 部署路径、Converter、行关联与槽位 | `unit/adapter/`、`integration/operator/test_io_parameters.cpp` |
-| 输出池、租约、发布、异常屏障与句柄 | `unit/operator/`、`contract/abi/test_operator_safety.cpp`、`integration/operator/test_operator_api.cpp` |
-| 平台 mock 载体的实际读取与边界检查 | `contract/abi/test_adapter_contract_security.cpp` |
-| 八种业务的完整请求及响应 | `integration/operator/test_keyword_response.cpp`、`test_business_responses.cpp` |
+| Operator 失败阶段与类别判定 | `unit/operator/test_operator_failure_category.cpp` |
+| 输出池与租约 | `unit/operator/` |
+| 六个公共入口与 `ResolveOperatorConfigIo` 的壳无关行为、错误码镜像清单与违约自测 | `contract/operator_shell/`；驱动与清单在 `contract/operator_shell/<shell>/` |
+| 所选壳的载体读取、路由、发布与原生 binding | `unit/operator/operator_shell/<shell>/` |
+| 八种业务的完整请求及响应 | `integration/operator/operator_shell/<shell>/` |
+| Demo 载体构造与展示 | `integration/demo/operator_shell/<shell>/` |
 | SDK 消费者、CLI、Studio、Demo、脚手架与工程契约 | `contract/`、`tooling/`、`integration/demo/`、`integration/pipeline/` |
 | 真实权重的物理执行 | `e2e/real_models/`，显式开启 |
 
@@ -44,6 +47,10 @@ cmake --build build --target edgeflow_test_nodes_runner -j4
 把实际用例与 CTest 过滤器对照，拒绝空匹配、漏执行、重复执行及不明确的 tier，
 同时拒绝禁用的 CTest 条目和仅列举 GoogleTest 用例的命令。
 独立 registry/SDK 目标保持进程和公开依赖隔离。
+runner 只收集 `EDGEFLOW_OPERATOR_SHELL` 选中壳的 `operator_shell/<shell>/` 目录，规则见
+[Operator 壳选择](../doc/dev_guide/source_layout.md#operator-壳选择)。一致性场景通过驱动调用
+公共入口，不直接使用平台结构或数字错误码；场景检查返回 `::testing::AssertionResult`，
+正式测试断言成功，违约自测包装函数表后断言失败。
 
 测试 main 拒绝零执行和必需测试跳过，重复执行中任何一轮的必需跳过都会失败。可选资产
 用例在跳过前记录非空 `optional_runtime_asset`。单个全可选跳过返回 77，CTest 仅以此状态
