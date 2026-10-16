@@ -12,7 +12,6 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_values.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "platform_mock/operator_data_types.h"
 #include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
@@ -319,14 +318,16 @@ TEST(IoConverterRegistryTest,
         auto replacement =
             *OperatorValueTypeRegistry::Instance().CopyBindingBySuffix(
                 "json_out");
+        const auto translate = replacement.ServiceType("translate");
+        ASSERT_TRUE(translate);
         replacement.services["translate"] = 1234;
         test_support::RegistryTestAccess::SetValueBinding(
             std::move(replacement));
         EXPECT_EQ(prepared.outputs[0].host_binding.ServiceType("translate"),
-                  kMockServiceTranslate);
+                  translate);
         EXPECT_EQ(
             prepared.outputs[0].allocator_binding.ServiceType("translate"),
-            kMockServiceTranslate);
+            translate);
         _exit(::testing::Test::HasFailure() ? 1 : 0);
       }()),
       ::testing::ExitedWithCode(0), ".*");

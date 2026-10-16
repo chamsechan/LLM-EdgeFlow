@@ -1,32 +1,10 @@
 #pragma once
 
-#include <string>
-#include <string_view>
-
-#include "core/pipeline.h"
+#include "adapter/operator/operator_failure_category.h"
 
 namespace llm_edgeflow {
 
-// 源于 Operator facade 之下的失败。其内部 Pipeline、Node 和 Model 错误码
-// 只通过 GetOperatorLastError() 报告；宿主收到的是失败阶段的公开错误码。
-enum class OperatorFailureStage {
-  kCreatePreparation,   // 配置、部署、模型和 Backend 加载
-  kProcessExecution,    // Pipeline::Execute 中 Node 或 Model 失败
-  kControlRequest,      // Control 信封、目标或 payload 被拒绝
-  kControlUnsupported,  // 没有 Node 声明或处理该命令
-  kControlExecution,    // Node 拒绝或未能应用更新
-  kRuntime,             // 无就绪运行时，或触发了异常屏障
-};
-
-// 失败阶段的固定名称，不含请求内容，可用于日志。
-const char* OperatorFailureStageName(OperatorFailureStage stage) noexcept;
-
-OperatorFailureStage ControlFailureToOperatorStage(
-    ControlFailureStage stage) noexcept;
-
-int PublicFailureCode(OperatorFailureStage stage, int internal_code) noexcept;
-
-std::string DescribeOperatorFailure(OperatorFailureStage stage,
-                                    int internal_code, std::string_view detail);
+// 本壳的平台返回码表：每个框架失败类别对应一个平台码。
+int PlatformFailureCode(OperatorFailureCategory category) noexcept;
 
 }  // namespace llm_edgeflow
