@@ -72,6 +72,9 @@ TEST(CatalogPublicationTest,
 #if EDGEFLOW_EXPECT_KITELLM
   expected.insert("kite_llm");
 #endif
+#if EDGEFLOW_EXPECT_INFERLET
+  expected.insert("inferlet");
+#endif
   const auto backends = PipelineCatalog::Backends();
   std::set<std::string> actual;
   for (const auto& backend : backends) {

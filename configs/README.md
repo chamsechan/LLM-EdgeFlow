@@ -14,6 +14,7 @@ Pipeline Studio 可查看、编辑和保存方案。能力与参数以配置文�
 - `default`：保留原始方案参数。
 - `cpu`：使用开源 Backend 的 CPU 配置。ASR 需要启用 whisper.cpp。
 - `kite`：使用 Kite Backend。部分方案同时使用 ONNX Runtime。
+- `inferlet`：使用 Inferlet Backend，在 Linux CPU 上执行真实模型验证。
 - `rules`：只运行规则节点。
 
 这些名字不表示效果或生产验收已经通过。
@@ -108,7 +109,7 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 
 ## 权重与资源
 
-方案 JSON 与所需权重、词表和 Kite run config 放在同一目录。`models[].file`、
+方案 JSON 与所需权重、词表和运行配置放在同一目录。`models[].file`、
 模型的 `tokenizer_file` 和后端的 `run_config_file` 都相对 Pipeline JSON 所在目录解析。
 可以包含子目录，但不能使用绝对路径或 `..` 分量。路径规范化后（包括符号链接目标）
 必须留在方案目录内。预检允许资源尚未部署，模型或后端在实际 Create 时检查文件。
@@ -117,7 +118,8 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 本目录中的 [asset_manifest.json](asset_manifest.json) 保存下载文件名、上游版本与 SHA-256。
 下载脚本读取其中的 `artifacts`，校验哈希通过后才发布文件。权重和 tokenizer 词表保持
 Git 忽略。资源清单及 [kite_text_run.json](kite_text_run.json)、
-[kite_vision_run.json](kite_vision_run.json) 两份 run config 随仓库维护。
+[kite_vision_run.json](kite_vision_run.json)、[inferlet_text_run.json](inferlet_text_run.json)
+等运行配置随仓库维护。
 
 准备默认 CPU real Profile 的固定版本资源：
 

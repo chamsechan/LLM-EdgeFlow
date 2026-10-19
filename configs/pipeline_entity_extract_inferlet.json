@@ -1,0 +1,69 @@
+{
+  "io": {
+    "input": [
+      {
+        "type": "entity_in",
+        "name": "entity_extract"
+      }
+    ],
+    "output": [
+      {
+        "type": "json_out",
+        "name": "entity_extract",
+        "inputs": {
+          "entities": "parse_entities.document"
+        }
+      }
+    ]
+  },
+  "models": [
+    {
+      "type": "llm",
+      "name": "entity_llm",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "backend": {
+        "type": "inferlet",
+        "params": {
+          "run_config_file": "inferlet_text_run.json"
+        }
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "type": "text_template",
+      "name": "build_prompt",
+      "params": {
+        "template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{{primary}}\n提取结果："
+      },
+      "inputs": {
+        "primary": "input.sentence_text"
+      }
+    },
+    {
+      "type": "llm_generate",
+      "name": "generate_entities",
+      "params": {
+        "bind_model": "entity_llm",
+        "max_tokens": 256,
+        "temperature": 0.0,
+        "endpoints": {
+          "entities": {}
+        }
+      },
+      "inputs": {
+        "input": "build_prompt.text"
+      }
+    },
+    {
+      "type": "structured_json_parse",
+      "name": "parse_entities",
+      "params": {
+        "failure_policy": "fail"
+      },
+      "inputs": {
+        "text": "generate_entities.text"
+      }
+    }
+  ]
+}
