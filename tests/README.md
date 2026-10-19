@@ -17,7 +17,7 @@
 | Operator 失败阶段与类别判定 | `unit/operator/test_operator_failure_category.cpp` |
 | 输出池与租约 | `unit/operator/` |
 | 六个公共入口与 `ResolveOperatorConfigIo` 的壳无关行为、错误码镜像清单与违约自测 | `contract/operator_shell/`；驱动与清单在 `contract/operator_shell/<shell>/` |
-| 所选壳的载体读取、路由、发布与原生 binding | `unit/operator/operator_shell/<shell>/` |
+| 所选壳的载体读取、路由、发布、原生 binding、边界日志格式与诊断文字 | `unit/operator/operator_shell/<shell>/` |
 | 八种业务的完整请求及响应 | `integration/operator/operator_shell/<shell>/` |
 | Demo 载体构造与展示 | `integration/demo/operator_shell/<shell>/` |
 | SDK 消费者、CLI、Studio、Demo、脚手架与工程契约 | `contract/`、`tooling/`、`integration/demo/`、`integration/pipeline/` |

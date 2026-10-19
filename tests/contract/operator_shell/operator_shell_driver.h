@@ -117,7 +117,8 @@ class OperatorShellDriver {
   // 壳内映射表查询，只用于独立核验镜像清单。
   virtual int PlatformCode(Category category) const = 0;
 
-  // 输出写入故障；须在 Create 之前设置。计数从设置时清零。
+  // 输出写入故障。首次设置须在 Init 与 Create 之前，用于安装故障注入；
+  // 之后可在已有句柄上切换故障类型。计数从每次设置时清零。
   virtual void SetOutputWriteFault(OutputWriteFault fault) = 0;
   virtual size_t OutputWrites() const = 0;
   virtual size_t ReturnedOutputLeases() const = 0;
