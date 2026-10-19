@@ -71,6 +71,12 @@ edgeflow_header_view(orchestration ${core_headers} ${model_api_headers})
 
 edgeflow_collect_headers(integration_headers "${PROJECT_SOURCE_DIR}/include/adapter"
     "${PROJECT_SOURCE_DIR}/include/edgeflow/operator" "${PROJECT_SOURCE_DIR}/src/adapter")
+# 集成层只看到选中的 Operator 壳私有头。
+edgeflow_exclude_operator_shells(integration_headers)
+edgeflow_collect_headers(selected_shell_headers
+    "${PROJECT_SOURCE_DIR}/include/adapter/operator/${EDGEFLOW_OPERATOR_SHELL}"
+    "${PROJECT_SOURCE_DIR}/src/adapter/operator/${EDGEFLOW_OPERATOR_SHELL}")
+list(APPEND integration_headers ${selected_shell_headers})
 edgeflow_header_view(integration ${integration_headers} ${core_headers}
     ${model_api_headers} ${platform_mock_headers})
 

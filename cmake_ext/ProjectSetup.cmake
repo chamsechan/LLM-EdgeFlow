@@ -46,6 +46,7 @@ configure_file(
   "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}"
   @ONLY)
 
+include(cmake_ext/OperatorShell.cmake)
 include(cmake_ext/LayerHeaderViews.cmake)
 add_library(edgeflow_public_headers INTERFACE)
 target_include_directories(edgeflow_public_headers INTERFACE

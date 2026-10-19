@@ -228,12 +228,15 @@ Runtime 负责部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipel
    Core、Node、Model、Backend 不感知外部框架。输出两阶段发布，失败不得暴露部分结果。
 5. **mock 是开发替身，不是第二份生产契约。** `include/platform_mock/` 保存模拟类型声明，
    `src/adapter/operator/mock/` 保存针对这些声明的协议适配实现，通用注册表不隐式登记 mock。
+   每个构建由 `EDGEFLOW_OPERATOR_SHELL`（默认 `mock`）选择一套壳及其测试驱动、错误码镜像清单和
+   Demo 载体夹具，未选中的壳不参与编译，见[Operator 壳选择](dev_guide/source_layout.md#operator-壳选择)。
    真实公共头可以位于 `include/api/` 或目标 SDK 的其他目录，不要求同路径或同名替换。
    移植时由真实协议壳包含这些公共头，并按真实类型、容量和所有权实现自己的 binding。
    不能把包含 `.cpp` 的适配实现目录当作公共头目录整体替换，也不能直接将 mock binding 当作生产路径。
 6. **框架码与平台码分离。** 内部统一引用 `contracts/error_codes.h`，平台错误码仅由协议壳
-   使用。相同整数只能表示一种框架错误。对外映射依据调用阶段和错误含义。具体规则见
-   [错误码与日志](dev_guide/error_handling.md)。
+   使用。相同整数只能表示一种框架错误。接入层共享代码依据调用阶段和错误含义判定 10 个失败类别，
+   协议壳只把类别映射为平台码。壳无关一致性套件按类别和镜像清单验证公共入口。具体规则见
+   [错误码与日志](dev_guide/error_handling.md#operator-失败分类)。
 
 改变上述原则属于契约或架构变更，应按 [CONTRIBUTING](../CONTRIBUTING.md#3-design-and-current-contracts)
 说明原因、影响和替代契约，并同步相关文档及行为测试。不得仅为复用某个平台载体而撤销这些边界。

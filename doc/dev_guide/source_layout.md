@@ -38,7 +38,7 @@
 
 | 模块 | 职责 |
 | :--- | :--- |
-| `ProjectSetup.cmake` | 编译标准、警告、PIC、sanitizer、生成头与版本脚本，以及 public/extension/internal 头目标 |
+| `ProjectSetup.cmake` | 编译标准、警告、PIC、sanitizer、生成头与版本脚本，Operator 壳选择，以及 public/extension/internal 头目标 |
 | `Dependencies.cmake` | 聚合中立依赖；每个依赖独立维护 |
 | `company/KiteLlm.cmake` | 当前 Kite 发布包选择、校验与编译链接探针，提供 Backend 编译定义和链接库 |
 | `RuntimeGraph.cmake` | 各层依赖与 OBJECT 目标、Backend 能力接线，加载 `src/` |
@@ -107,15 +107,35 @@ src/adapter/
   io_plan_resolver.cpp/.h
   input/                          各业务输入转换器
   output/                         各业务输出转换器
-  operator/                       Operator 通用机制
+  operator/                       Operator 通用机制；子目录只存放具体协议壳
     operator_config_resolver.cpp/.h
+    operator_failure_category.cpp/.h  失败阶段与类别判定，不含平台头
     operator_output_pool.cpp/.h
     operator_value_type_registry.cpp/.h
     mock/                         本地模拟平台协议实现
       operator_process_binding.cpp/.h
       operator_adapter.cpp
+      operator_error_mapping.cpp/.h  类别到平台码的映射表
       platform_value_binding.cpp  当前模拟平台的校验、分配、预算与重置
 ```
+
+### Operator 壳选择
+
+CMake 缓存变量 `EDGEFLOW_OPERATOR_SHELL`（默认 `mock`）为每个构建选择一套协议壳及其配套
+夹具，由 `cmake_ext/OperatorShell.cmake` 统一处理：
+
+| 内容 | 位置 |
+| --- | --- |
+| 壳源码 | `src/adapter/operator/<shell>/`，以及可选的 `include/adapter/operator/<shell>/` |
+| 测试驱动与错误码镜像清单 | `tests/contract/operator_shell/<shell>/`，只进入测试目标 |
+| Demo 载体构造 | `demo/operator_shell/<shell>/` |
+| 依赖该壳载体的测试 | 所属测试目录下的 `operator_shell/<shell>/` |
+
+以上三个必需目录缺一时配置失败。Adapter、Demo、测试 runner 和集成层头视图的通配收集
+先排除全部具体壳及 `operator_shell/<shell>/` 夹具目录，再加入选中项。壳无关一致性套件位于
+`tests/contract/operator_shell/` 本层。公共头视图和平台声明仍使用当前来源；该机制只隔离源码与
+夹具，不表示已经可以切换真实平台头。`OperatorShellSelectionTest` 检查默认选择、缺失目录失败、
+未选中壳的排除，以及生产目标不含测试驱动和清单。
 
 编写转换器时，包含 `adapter/io_converter.h` 和 `adapter/converter_authoring.h`。
 实现 InputConverter 或 OutputConverter 回调后，声明对应 Definition。
@@ -190,8 +210,9 @@ src/engine/
 业务 name 使用 `snake_case`，描述外部请求/响应的语义，例如 `ocr_invoice_qa`。
 方案、数据集与 Profile 可以沿用对应词根和部署变体。它们不定义新载体类型或转换器身份。
 
-Demo 按宿主载体组织在 `demo/input/`、`demo/output/`，文件名描述载体及展示，
-由 `REGISTER_DEMO_INPUT` / `REGISTER_DEMO_OUTPUT` 登记。同一载体上的业务共享这些代码。
+Demo 按宿主载体组织在所选壳夹具的 `demo/operator_shell/<shell>/input/`、`output/`，
+文件名描述载体及展示，由 `REGISTER_DEMO_INPUT` / `REGISTER_DEMO_OUTPUT` 登记。
+同一载体上的业务共享这些代码；与载体无关的运行、数据集读取和结果写入留在 `demo/common/`。
 
 转换器由宿主后缀和业务名配对标识，不带版本号：发布前直接改名，发布后的不兼容变化见
 [CONTRIBUTING](../../CONTRIBUTING.md#3-design-and-current-contracts)。
