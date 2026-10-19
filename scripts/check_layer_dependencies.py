@@ -93,6 +93,8 @@ def vendor_owners(include):
         return {"whisper_cpp"}
     if name == "kiteLLM.h":
         return {"kite_llm"}
+    if name == "inferlet.h":
+        return {"inferlet"}
     if name.startswith("ggml") and name.endswith(".h"):
         return {"llama_cpp", "whisper_cpp"}
     return None

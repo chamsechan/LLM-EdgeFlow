@@ -183,7 +183,8 @@ class IncludeOwnershipContractTest(SourceTreeTest):
         for backend, header in (('onnxruntime', 'onnxruntime_cxx_api.h'),
                                 ('llama_cpp', 'llama.h'),
                                 ('whisper_cpp', 'whisper.h'),
-                                ('kite_llm', 'kiteLLM.h')):
+                                ('kite_llm', 'kiteLLM.h'),
+                                ('inferlet', 'inferlet.h')):
             with self.subTest(backend=backend):
                 # Empty resolved headers prove ownership without using any SDK.
                 target = f'src/engine/backends/{backend}/vendor/{header}'
