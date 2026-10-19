@@ -36,12 +36,19 @@ and displays or copies the result. Reusing a host struct does not imply compatib
 The Operator entrypoints are protocol shells. `SharedAlgorithmRuntime` owns deployment
 resolution, validated plans, Converter scheduling, Pipeline execution, pool leases and atomic
 publication. Its `RuntimeCreateOptions`, `RuntimeInputBatch`, `RuntimeOutputBatch`,
-and `ControlRequest` contain no platform ABI types. Internal integer codes come from `contracts/error_codes.h`; only the Operator shell maps
-them to platform codes. Diagnostics retain the failure reason and location.
+and `ControlRequest` contain no platform ABI types. Internal integer codes come from `contracts/error_codes.h`. Shared
+`adapter/operator/operator_failure_category` classifies stage + internal code into one of 10
+categories without platform headers; each shell only maps category -> platform code with platform
+symbols. Diagnostics retain the failure reason and location; internal codes are never returned.
 Platform bindings own concrete layout/ownership callbacks; the runtime uses only type-erased
 interfaces. The shell translates carrier keys and platform service values, retaining the
 existing error mapping. Mock Create/Control parsing and concrete binding implementations
-live under `src/adapter/operator/mock/`.
+live under `src/adapter/operator/mock/`. `EDGEFLOW_OPERATOR_SHELL` (default `mock`) selects one
+shell per build together with `tests/contract/operator_shell/<shell>/` (test driver and error-code
+mirror manifest), `demo/operator_shell/<shell>/` and carrier-dependent tests in
+`operator_shell/<shell>/` subdirectories; every unselected shell and fixture is excluded.
+The shell-neutral consistency suite in `tests/contract/operator_shell/` fixes the expected category
+per scenario and reads the expected code from the manifest; mock entries are external placeholders.
 The common value registry starts empty; a linked platform binding unit registers its own types.
 Mock bindings are development substitutes, not a second production contract. Keep row pairing
 and internal provenance; do not add an external request ID table.
@@ -84,8 +91,8 @@ Declare actual service members with
 `REGISTER_OPERATOR_OUTPUT_ALLOCATOR` and their own allocation/reset/budget implementation.
 See the output allocation guide for ownership and actual-platform acceptance limits.
 
-Use the existing Adapter/Operator/ABI tests, including converter contract tests and golden Operator
-results. Cross-layer changes also read `orchestration.md`; new Nodes read `capability-nodes.md`.
+Use the existing Adapter/Operator/ABI tests, including converter contract tests, golden Operator
+results and the shell consistency suite. Cross-layer changes also read `orchestration.md`; new Nodes read `capability-nodes.md`.
 
 Converter ports are local logical names. Output entries connect every required port to
 `node.port` or `input.port`; callbacks read/write via `options.Port(logical_name)`. The immutable

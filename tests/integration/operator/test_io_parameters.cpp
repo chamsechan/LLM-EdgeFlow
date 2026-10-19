@@ -13,7 +13,6 @@
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/runtime_types.h"
 #include "adapter/shared_algorithm_runtime.h"
-#include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -69,8 +68,7 @@ class IoParametersTest : public ::testing::Test {
   std::string error_;
 };
 
-TEST_F(IoParametersTest,
-       ReadOnlyResolutionNormalizesDepthAndReturnsNativeHostContract) {
+TEST_F(IoParametersTest, ReadOnlyResolutionNormalizesDepthAndOutputCapacity) {
   struct Depth {
     uint32_t requested, pool, process;
   };
@@ -94,19 +92,6 @@ TEST_F(IoParametersTest,
             error::kInvalidOutputAllocation);
   EXPECT_EQ(invalid.io_plan, nullptr);
   EXPECT_NE(error_.find("exceeds hard limit"), std::string::npos);
-  operator_api::OperatorIoContract contract;
-  ASSERT_EQ(operator_api::ResolveOperatorConfigIo(
-                root_.c_str(), "conf/deploy.conf", &contract),
-            0);
-  ASSERT_EQ(contract.inputs.size(), 1u);
-  ASSERT_EQ(contract.outputs.size(), 1u);
-  EXPECT_EQ(contract.inputs[0].type, "keyword_in");
-  EXPECT_EQ(contract.inputs[0].name, "keyword_match");
-  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorKeywordInput");
-  EXPECT_EQ(contract.inputs[0].service_type, kMockServiceKeywordMatch);
-  EXPECT_EQ(contract.outputs[0].type, "json_out");
-  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorOutput");
-  EXPECT_EQ(contract.outputs[0].service_type, kMockServiceKeywordMatch);
 }
 
 TEST_F(IoParametersTest, ResolutionReturnsSpecificCodeWithoutDiagnosticOutput) {

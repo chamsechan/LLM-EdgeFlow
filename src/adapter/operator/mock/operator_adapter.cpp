@@ -24,23 +24,14 @@ thread_local std::string g_last_operator_error;
 
 int Fail(const char* operation, int code, std::string_view detail,
          OperatorFailureStage stage = OperatorFailureStage::kRuntime) noexcept {
-  const int public_code = PublicFailureCode(stage, code);
+  const auto category = ClassifyOperatorFailure(stage, code);
+  const int public_code = PlatformFailureCode(category);
   try {
     g_last_operator_error = DescribeOperatorFailure(stage, code, detail);
   } catch (...) {
     SetDiagnosticNoexcept(&g_last_operator_error, detail);
   }
-  const bool rejected =
-      (public_code == COMPANY_ALG_ERR_INVALID_HANDLE ||
-       public_code == COMPANY_ALG_ERR_INVALID_PARAM ||
-       public_code == COMPANY_ALG_ERR_INVALID_INPUT ||
-       public_code == COMPANY_ALG_ERR_BUFFER_TOO_SMALL ||
-       public_code == COMPANY_ALG_ERR_UNSUPPORTED_BIZ ||
-       public_code == COMPANY_ALG_ERR_UNSUPPORTED_CONTROL) &&
-      code != error::kAllocationFailed && code != error::kPoolCorrupt &&
-      code != error::kPoolMissing &&
-      code != error::kModelMaterializationFailed &&
-      code != error::kNodeCreateFailed && code != error::kNodeInitFailed;
+  const bool rejected = IsRejectedOperatorRequest(category, code);
   // 边界日志只记录操作、码名/码值、平台码和失败阶段；detail 可能携带请求内容
   // （如 JSON 解析错误中的原文片段），只写入调用者可读的
   // GetOperatorLastError()。

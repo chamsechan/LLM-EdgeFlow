@@ -10,6 +10,11 @@ LLM-EdgeFlow 尚未正式发布。当前产品版本为 **11.0.0**，表示当�
 - 错误码收敛为中立框架码和平台对外码两套；内部取消裸码与旧异常码兼容参数，
   Studio/CLI 使用同一错误名称表。Operator 在失败出口记录分级日志与内外码，
   中间层保留具体诊断。见[错误码与日志](dev_guide/error_handling.md)。
+- Operator 失败先在接入层共享代码按阶段和内部码判定 10 个类别，协议壳只把类别映射为平台码。
+  `EDGEFLOW_OPERATOR_SHELL`（默认 `mock`）为每个构建选择一套壳及其测试驱动、错误码镜像清单和
+  Demo 载体夹具。壳无关一致性套件按类别和清单验证六个入口与 `ResolveOperatorConfigIo`，
+  并用违约自测证明检查有效；公共返回码、日志与业务结果不变。见
+  [Operator 失败分类](dev_guide/error_handling.md#operator-失败分类)。
 
 - 四层架构采用单向依赖，C++ Operator 是宿主调用入口。协议壳和平台 binding 负责载体与内存布局，
   Converter 负责完整请求和响应；内部类型不承担外部协议。见[架构与接入边界](architecture.md)。
