@@ -84,6 +84,7 @@ edgeflow_header_view(integration ${integration_headers} ${core_headers}
 # 以便现有 LayerGuard 门禁发现意外放宽。
 function(edgeflow_generate_layer_compile_manifest)
   set(content "set(layer_cxx [==[${CMAKE_CXX_COMPILER}]==])\n")
+  string(APPEND content "set(layer_has_inferlet [==[${LLM_EDGEFLOW_HAS_INFERLET}]==])\n")
   set(layer_cxx_flags "")
   foreach(directory IN LISTS edgeflow_cxx_system_include_dirs)
     list(APPEND layer_cxx_flags -isystem "${directory}")

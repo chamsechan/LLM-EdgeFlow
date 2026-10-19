@@ -12,6 +12,7 @@
         "ENABLE_LLAMACPP": "OFF",
         "ENABLE_WHISPERCPP": "OFF",
         "ENABLE_KITELLM": "OFF",
+        "ENABLE_INFERLET": "OFF",
         "CMAKE_BUILD_TYPE": "Release",
         "ENABLE_REAL_MODEL_TESTS": "OFF",
         "ENABLE_SANITIZERS": "OFF",
@@ -59,6 +60,19 @@
             "onnxruntime",
             "kite_llm"
           ]
+        }
+      }
+    },
+    {
+      "name": "inferlet-cpu",
+      "inherits": "base",
+      "cacheVariables": {
+        "ENABLE_ONNXRUNTIME": "ON",
+        "ENABLE_INFERLET": "ON"
+      },
+      "vendor": {
+        "llm-edgeflow/selection": {
+          "backends": ["onnxruntime", "inferlet"]
         }
       }
     },

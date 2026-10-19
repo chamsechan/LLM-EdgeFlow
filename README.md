@@ -45,7 +45,8 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 ```
 
 此构建可运行无需模型的示例。使用真实模型时按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
-启用对应 Backend。主要产物如下：
+启用对应 Backend；使用 Inferlet 在 CPU 上验证时见 [Inferlet 接入](doc/VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
+主要产物如下：
 
 | 产物 | 用途 |
 | :--- | :--- |

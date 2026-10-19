@@ -175,6 +175,9 @@ endif()
 if(LLM_EDGEFLOW_HAS_KITELLM)
   target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_KITELLM=1)
 endif()
+if(LLM_EDGEFLOW_HAS_INFERLET)
+  target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_INFERLET=1)
+endif()
 
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   foreach(target
@@ -207,7 +210,7 @@ add_executable(test_catalog_contract_ssot
   "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_catalog_contract_ssot.cpp")
 edgeflow_configure_gtest_target(test_catalog_contract_ssot)
 target_link_libraries(test_catalog_contract_ssot PRIVATE edgeflow_pipeline_tooling)
-foreach(backend ONNXRUNTIME LLAMACPP WHISPERCPP KITELLM)
+foreach(backend ONNXRUNTIME LLAMACPP WHISPERCPP KITELLM INFERLET)
   target_compile_definitions(test_catalog_contract_ssot PRIVATE
     EDGEFLOW_EXPECT_${backend}=$<BOOL:${LLM_EDGEFLOW_HAS_${backend}}>)
 endforeach()

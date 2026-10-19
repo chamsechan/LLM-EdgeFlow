@@ -88,10 +88,11 @@ schema 1。编译使用 `cmake --build <目录>`，不使用 3.20 才支持的 b
 | `dev-gate` | ONNX Runtime、llama.cpp | `run_all_tests.sh` 的完整默认开发门禁 |
 | `default-cpu` | ONNX Runtime、llama.cpp、whisper.cpp | 常规文本、向量和语音能力 |
 | `kite-cpu` | ONNX Runtime、Kite | Kite 文本、视觉及生成向量能力 |
+| `inferlet-cpu` | ONNX Runtime、Inferlet | Linux CPU 上的文本、视觉及生成向量验证 |
 | `minimal` | 无推理 Backend | 规则、模板及纯数据处理方案 |
 
 `base` 是隐藏的共享默认值。`dev-gate` 是开发门禁入口。资产选择界面和 `--variant`
-仅列出带 selection 元数据的 `default-cpu`、`kite-cpu`、`minimal`，不把开发入口作为部署选择。
+仅列出带 selection 元数据的部署预设，不把开发入口作为部署选择。
 
 默认目录按用途集中在 `build/` 下：
 
@@ -122,6 +123,39 @@ python3 tools/verify_selection.py check \
 
 构建变体检查不等于目标硬件或真实业务效果验收通过。这些结论需要对应环境的执行记录。
 
+### Inferlet CPU 验证
+
+`inferlet-cpu` 使用固定版本 Inferlet v0.1.0 CPU 静态包，支持 Linux x86_64/aarch64。
+依赖的 URL、SHA-256 和编译隔离由 [Inferlet 构建模块](../cmake_ext/engines/Inferlet.cmake)
+维护。首次配置自动下载；离线环境可预置同一发布归档到
+`3rdparty/inferlet/v0.1.0/x64/inferlet-x64.tar.gz` 或对应的 `arm/inferlet-arm.tar.gz`，
+仍须通过同一 SHA 校验。该包包含自己的 llama.cpp/ggml，不能与 `ENABLE_LLAMACPP`、
+`ENABLE_WHISPERCPP` 或 `ENABLE_KITELLM` 同时启用。
+
+复用现有实体抽取 I/O、节点和 Model，新增样例只选择 Inferlet 及其运行配置：
+
+```bash
+cmake --preset=inferlet-cpu
+cmake --build build/variants/inferlet-cpu --target alg_sdk alg_pipeline_tool alg_demo edgeflow_test_core_runner --parallel 4
+./scripts/fetch_real_test_models.sh --gguf-only
+./build/variants/inferlet-cpu/alg_pipeline_tool describe-backend inferlet
+./build/variants/inferlet-cpu/alg_pipeline_tool validate configs/pipeline_entity_extract_inferlet.json
+./build/variants/inferlet-cpu/alg_pipeline_tool plan configs/pipeline_entity_extract_inferlet.json
+./build/variants/inferlet-cpu/alg_demo --profile entity_extract_cpu \
+  --config configs/pipeline_entity_extract_inferlet.conf \
+  --output-dir results/inferlet
+```
+
+`--profile` 复用载体和执行参数，`--config` 显式覆盖 Pipeline。Backend 单测通过
+`EDGEFLOW_INFERLET_TEST_MODEL` 指定文本 GGUF；视觉测试另外需要
+`EDGEFLOW_INFERLET_TEST_VISION_MODEL` 和 `EDGEFLOW_INFERLET_TEST_VISION_CONFIG`。
+使用绝对路径，并运行该目录下的 `edgeflow_test_core_runner --gtest_filter='InferletBackendTest.*'`。
+未提供对应资产时会明确跳过真实推理测试。生成向量测试使用文本模型，返回生成 token
+的隐藏状态，不等同于编码器句向量。图像测试需要匹配的 projector 和运行配置。
+
+Inferlet 的执行结果用于验证其自身及框架业务链路，不替代内网 kiteLLM、目标硬件或业务数据集验收。
+本样例尚未登记独立的业务效果证据，不能据此宣称 `ready_for_biz=true`。
+
 ### Whisper 音频与运行限制
 
 类别 `asr` 的 `whisper_asr` 实现与 `whisper_cpp` Backend 接收整段单声道 float32 PCM，采样率必须为 16 kHz，
@@ -133,7 +167,7 @@ python3 tools/verify_selection.py check \
 
 当前 [Whisper Backend](../src/engine/backends/whisper_cpp/whisper_cpp_backend.cpp) 支持 CPU，
 设备 ID 为 0 或省略。启用 `ENABLE_WHISPERCPP` 还需启用 `ENABLE_LLAMACPP` 复用 GGML，
-并关闭 `ENABLE_KITELLM`。共享 GGML 的要求由 [Whisper 模块](../cmake_ext/engines/WhisperCpp.cmake)
+并关闭 `ENABLE_KITELLM`、`ENABLE_INFERLET`。共享 GGML 的要求由 [Whisper 模块](../cmake_ext/engines/WhisperCpp.cmake)
 执行，Kite 互斥约束由 [公司接入模块](../cmake_ext/company/KiteLlm.cmake)执行。
 权重准备见[模型资产说明](../configs/README.md)。默认构建通过、测试替身通过或单条真实音频通过，
 均不能代替目标语料的识别效果和目标设备性能验收。
