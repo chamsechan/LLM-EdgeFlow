@@ -5,7 +5,7 @@ if(NOT ENABLE_KITELLM)
   return()
 endif()
 
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
 set(_kite_release "v0.1.0")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND

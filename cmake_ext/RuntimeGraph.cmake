@@ -11,18 +11,15 @@ target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
 
 add_library(edgeflow_capability_nodes_dependencies INTERFACE)
 target_link_libraries(edgeflow_capability_nodes_dependencies INTERFACE
-    edgeflow_runtime_contracts
     edgeflow_model_execution_dependencies
     edgeflow_pcre2)
 
 add_library(edgeflow_orchestration_dependencies INTERFACE)
 target_link_libraries(edgeflow_orchestration_dependencies INTERFACE
-    edgeflow_runtime_contracts
     edgeflow_capability_nodes_dependencies)
 
 add_library(edgeflow_integration_dependencies INTERFACE)
 target_link_libraries(edgeflow_integration_dependencies INTERFACE
-    edgeflow_runtime_contracts
     edgeflow_orchestration_dependencies)
 
 add_library(edgeflow_runtime_dependencies INTERFACE)

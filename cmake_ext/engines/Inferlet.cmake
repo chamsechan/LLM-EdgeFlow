@@ -14,7 +14,7 @@ else()
   message(FATAL_ERROR "Inferlet integration supports Linux x86_64/aarch64 only")
 endif()
 
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 set(_inferlet_version "v0.1.0")
 set(_inferlet_asset "inferlet-${_inferlet_platform}.tar.gz")
 set(_inferlet_cache "${CMAKE_SOURCE_DIR}/3rdparty/inferlet/${_inferlet_version}/${_inferlet_platform}")

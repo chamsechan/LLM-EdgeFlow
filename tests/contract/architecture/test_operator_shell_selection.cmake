@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.19)
 # 确认生产目标不含测试驱动和清单，各目标只含选中壳的源码与夹具。
 
 get_filename_component(repo "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
-set(module "${repo}/cmake_ext/OperatorShell.cmake")
+set(module "${repo}/cmake_ext/support/OperatorShell.cmake")
 
 # 把 root 下的绝对路径改写为 prefix 加相对路径；其余项原样保留。
 function(relative_to_root list_var root prefix)

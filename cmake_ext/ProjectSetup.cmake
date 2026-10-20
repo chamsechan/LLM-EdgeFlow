@@ -9,8 +9,8 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 # 编译与链接加速配置
-include(cmake_ext/BuildAcceleration.cmake)
-add_compile_options(-Wall -Wextra -fPIC)
+include(cmake_ext/support/BuildAcceleration.cmake)
+add_compile_options(-Wall -Wextra)
 
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 set(LLM_EDGEFLOW_SANITIZERS "address,undefined" CACHE STRING
@@ -34,12 +34,12 @@ endif()
 set(LLM_EDGEFLOW_SDK_VERSION_SCRIPT
     "${PROJECT_BINARY_DIR}/edgeflow_sdk.map")
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake_ext/edgeflow_sdk.map.in"
+  "${PROJECT_SOURCE_DIR}/cmake_ext/templates/edgeflow_sdk.map.in"
   "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}"
   @ONLY)
 
-include(cmake_ext/OperatorShell.cmake)
-include(cmake_ext/LayerHeaderViews.cmake)
+include(cmake_ext/support/OperatorShell.cmake)
+include(cmake_ext/support/LayerHeaderViews.cmake)
 add_library(edgeflow_public_headers INTERFACE)
 target_include_directories(edgeflow_public_headers INTERFACE
     $<BUILD_INTERFACE:${edgeflow_public_include_dir}>)
@@ -58,7 +58,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 file(READ "${PROJECT_SOURCE_DIR}/demo/common/profile_fields.json"
     LLM_EDGEFLOW_DEMO_PROFILE_FIELDS)
 configure_file(
-    "${PROJECT_SOURCE_DIR}/cmake_ext/demo_profile_fields.h.in"
+    "${PROJECT_SOURCE_DIR}/cmake_ext/templates/demo_profile_fields.h.in"
     "${PROJECT_BINARY_DIR}/generated/internal/demo/common/demo_profile_fields.h"
     @ONLY)
 target_include_directories(edgeflow_internal_headers INTERFACE

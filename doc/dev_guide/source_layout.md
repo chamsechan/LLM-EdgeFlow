@@ -44,6 +44,15 @@
 | `RuntimeGraph.cmake` | 各层依赖与 OBJECT 目标、Backend 能力接线，加载 `src/` |
 | `ProductTargets.cmake` | SDK 产物与版本脚本、输出路径、Demo、CLI 和测试入口 |
 
+`cmake_ext/` 根目录只保留上述五个入口，其余文件按职责归类：
+
+| 子目录 | 内容 |
+| :--- | :--- |
+| `engines/` | 推理运行时的依赖接入模块 |
+| `third_party/` | JSON、PCRE2、stb_image、GoogleTest 等通用依赖，以及引擎和通用依赖共用的缓存元数据工具 |
+| `support/` | 构建加速、Operator 壳选择、分层头文件视图，以及与视图模块一起维护的 Node 契约清单 |
+| `templates/` | SDK 导出符号脚本、Demo Profile 字段头等生成文件的输入模板 |
+
 SDK 产物基名统一由 `LLM_EDGEFLOW_SDK_OUTPUT_NAME` 指定，默认 `llm_edgeflow_sdk`。
 迁移到宿主构建时可传入 `-DLLM_EDGEFLOW_SDK_OUTPUT_NAME=host_algorithm`；填写基名，
 不包含目录或平台的 `lib` 前缀、`.so` / `.dylib` / `.dll` 后缀。
@@ -52,7 +61,7 @@ CMake 链接方继续使用 `llm_edgeflow::sdk`，脚本和测试通过目标路
 
 推理引擎的依赖接入统一放在 `engines/`，包括 ONNX Runtime、llama.cpp、Whisper、Inferlet 和 Kite。
 目录按运行时职责划分，不按作者、仓库公开性或接口来源划分；各模块维护包获取、固定版本、
-校验及编译链接探针，缓存指纹由 `ThirdPartyCacheMetadata.cmake` 共用。
+校验及编译链接探针，缓存指纹由 `third_party/ThirdPartyCacheMetadata.cmake` 共用。
 Whisper 复用 llama.cpp 的 GGML，因此依赖聚合中先加载 llama.cpp。
 测试依赖 GoogleTest 在测试入口按需加载。根文件负责装配。
 
@@ -129,7 +138,7 @@ src/adapter/
 ### Operator 壳选择
 
 CMake 缓存变量 `EDGEFLOW_OPERATOR_SHELL`（默认 `mock`）为每个构建选择一套协议壳及其配套
-夹具，由 `cmake_ext/OperatorShell.cmake` 统一处理：
+夹具，由 `cmake_ext/support/OperatorShell.cmake` 统一处理：
 
 | 内容 | 位置 |
 | --- | --- |

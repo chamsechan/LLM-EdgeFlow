@@ -1,5 +1,5 @@
 include(FetchContent)
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
 # whisper.cpp 开源语音转写引擎配置 (用于 float32 16kHz PCM 音频转写)
 
@@ -13,7 +13,6 @@ endif()
 message(STATUS "[Model Execution] Enabling whisper.cpp Backend support...")
 
 set(WHISPER_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/whisper_cpp")
-set(_WHISPER_FOUND OFF)
 set(LLM_EDGEFLOW_WHISPERCPP_COMMIT "371b5a7561823ab2bb32142d2751e35e7534727b")
 set(_WHISPER_SOURCE_SHA256 "89051d8fca516a3ad1f5c2f8f9d2fccb089afbaec338fca3f8731999babc6f81")
 
@@ -31,7 +30,6 @@ if(_WHISPER_CACHE_VALID AND
    EXISTS "${WHISPER_3RDPARTY_DIR}/lib/libwhisper.a" AND
    EXISTS "${WHISPER_3RDPARTY_DIR}/include/whisper.h" AND
    NOT WHISPER_CPP_FORCE_REBUILD)
-  set(_WHISPER_FOUND ON)
   message(STATUS "[Model Execution] Using prebuilt whisper.cpp from 3rdparty: ${WHISPER_3RDPARTY_DIR} (skipping compilation)")
 
   if(NOT TARGET whisper)

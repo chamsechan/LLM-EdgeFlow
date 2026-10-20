@@ -9,7 +9,7 @@ import re
 # 有意与 Node 共享的纯头文件运行时及编写契约。
 # 新增条目需要明确的归属决定，而不是按目录整体豁免。
 NODE_CORE_CONTRACTS = set(
-    (Path(__file__).resolve().parents[1] / "cmake_ext/node_core_contracts.txt")
+    (Path(__file__).resolve().parents[1] / "cmake_ext/support/node_core_contracts.txt")
     .read_text(encoding="utf-8").splitlines())
 NODE_CORE_PATHS = {"include/core/" + name for name in NODE_CORE_CONTRACTS}
 SOURCE_SUFFIXES = {".h", ".hpp", ".c", ".cc", ".cpp"}

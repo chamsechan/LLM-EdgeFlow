@@ -1,5 +1,5 @@
 include(FetchContent)
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
 option(LLAMA_CPP_FORCE_REBUILD "Force rebuilding llama.cpp from source even if cached in 3rdparty" OFF)
 option(LLM_EDGEFLOW_LLAMACPP_METAL
@@ -10,7 +10,6 @@ if(ENABLE_LLAMACPP)
   message(STATUS "[Model Execution] Enabling llama.cpp Backend support...")
 
   set(LLAMA_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/llama_cpp")
-  set(_LLAMA_FOUND OFF)
   set(LLM_EDGEFLOW_LLAMACPP_COMMIT
       "70adb1b4cea5ee39f867792c78dc59320921eda7")
   set(_LLAMA_SOURCE_SHA256
@@ -56,7 +55,6 @@ if(ENABLE_LLAMACPP)
      EXISTS "${LLAMA_3RDPARTY_DIR}/lib/libllama.a" AND
      EXISTS "${LLAMA_3RDPARTY_DIR}/include/llama.h" AND
      NOT LLAMA_CPP_FORCE_REBUILD)
-    set(_LLAMA_FOUND ON)
     message(STATUS "[Model Execution] Using prebuilt llama.cpp from 3rdparty: ${LLAMA_3RDPARTY_DIR} (skipping compilation)")
 
     find_package(Threads REQUIRED)

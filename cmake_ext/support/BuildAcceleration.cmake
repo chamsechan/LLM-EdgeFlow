@@ -14,11 +14,9 @@ endif()
 function(edgeflow_probe_linker linker_name linker_flag output_variable)
   string(TOUPPER "${linker_name}" linker_name_upper)
   set(probe_variable "LLM_EDGEFLOW_${linker_name_upper}_LINKER_WORKS")
-  set(saved_required_link_options "${CMAKE_REQUIRED_LINK_OPTIONS}")
   set(CMAKE_REQUIRED_LINK_OPTIONS "${linker_flag}")
   include(CheckCXXSourceCompiles)
   check_cxx_source_compiles("int main() { return 0; }" ${probe_variable})
-  set(CMAKE_REQUIRED_LINK_OPTIONS "${saved_required_link_options}")
   set(${output_variable} "${${probe_variable}}" PARENT_SCOPE)
 endfunction()
 
@@ -29,40 +27,25 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   find_program(LLM_EDGEFLOW_MOLD_EXECUTABLE mold)
   find_program(LLM_EDGEFLOW_LLD_EXECUTABLE ld.lld)
 
-  if(LLM_EDGEFLOW_LINKER STREQUAL "auto" OR
-     LLM_EDGEFLOW_LINKER STREQUAL "mold")
-    if(LLM_EDGEFLOW_MOLD_EXECUTABLE)
-      edgeflow_probe_linker(mold "-fuse-ld=mold" _edgeflow_mold_works)
-      if(_edgeflow_mold_works)
-        set(_edgeflow_selected_linker mold)
-        set(_edgeflow_linker_flag "-fuse-ld=mold")
+  foreach(linker mold lld)
+    if(LLM_EDGEFLOW_LINKER STREQUAL "auto" OR
+       LLM_EDGEFLOW_LINKER STREQUAL linker)
+      string(TOUPPER "${linker}" linker_upper)
+      if(LLM_EDGEFLOW_${linker_upper}_EXECUTABLE)
+        edgeflow_probe_linker(${linker} "-fuse-ld=${linker}" linker_works)
+        if(linker_works)
+          set(_edgeflow_selected_linker "${linker}")
+          set(_edgeflow_linker_flag "-fuse-ld=${linker}")
+          break()
+        endif()
+      endif()
+      if(LLM_EDGEFLOW_LINKER STREQUAL linker)
+        message(FATAL_ERROR
+          "LLM_EDGEFLOW_LINKER=${linker} was requested, but ${linker} is unavailable or "
+          "the compiler-driver link probe failed.")
       endif()
     endif()
-    if(LLM_EDGEFLOW_LINKER STREQUAL "mold" AND
-       NOT _edgeflow_selected_linker STREQUAL "mold")
-      message(FATAL_ERROR
-        "LLM_EDGEFLOW_LINKER=mold was requested, but mold is unavailable or "
-        "the compiler-driver link probe failed.")
-    endif()
-  endif()
-
-  if(_edgeflow_selected_linker STREQUAL "system" AND
-     (LLM_EDGEFLOW_LINKER STREQUAL "auto" OR
-      LLM_EDGEFLOW_LINKER STREQUAL "lld"))
-    if(LLM_EDGEFLOW_LLD_EXECUTABLE)
-      edgeflow_probe_linker(lld "-fuse-ld=lld" _edgeflow_lld_works)
-      if(_edgeflow_lld_works)
-        set(_edgeflow_selected_linker lld)
-        set(_edgeflow_linker_flag "-fuse-ld=lld")
-      endif()
-    endif()
-    if(LLM_EDGEFLOW_LINKER STREQUAL "lld" AND
-       NOT _edgeflow_selected_linker STREQUAL "lld")
-      message(FATAL_ERROR
-        "LLM_EDGEFLOW_LINKER=lld was requested, but lld is unavailable or "
-        "the compiler-driver link probe failed.")
-    endif()
-  endif()
+  endforeach()
 elseif(NOT LLM_EDGEFLOW_LINKER STREQUAL "auto" AND
        NOT LLM_EDGEFLOW_LINKER STREQUAL "system")
   message(FATAL_ERROR

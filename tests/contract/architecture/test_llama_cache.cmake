@@ -4,7 +4,7 @@ if(NOT PROJECT_SOURCE_DIR OR NOT TEST_ROOT)
 endif()
 set(fixture "${TEST_ROOT}/llama")
 file(MAKE_DIRECTORY "${fixture}/cmake_ext/engines" "${fixture}/neutral/include" "${fixture}/neutral/ggml/include")
-foreach(module ThirdPartyCacheMetadata engines/LlamaCpp)
+foreach(module third_party/ThirdPartyCacheMetadata engines/LlamaCpp)
   configure_file("${PROJECT_SOURCE_DIR}/cmake_ext/${module}.cmake"
                  "${fixture}/cmake_ext/${module}.cmake" COPYONLY)
 endforeach()

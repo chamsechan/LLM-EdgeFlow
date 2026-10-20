@@ -35,6 +35,6 @@ add_subdirectory(src/cli)
 
 include(CTest)
 if(BUILD_TESTING)
-  include(cmake_ext/GoogleTest.cmake)
+  include(cmake_ext/third_party/GoogleTest.cmake)
   add_subdirectory(tests)
 endif()

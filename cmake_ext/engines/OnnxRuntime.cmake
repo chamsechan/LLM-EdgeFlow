@@ -1,5 +1,5 @@
 include(FetchContent)
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
 set(LLM_EDGEFLOW_HAS_ONNXRUNTIME OFF)
 
