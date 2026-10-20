@@ -56,11 +56,11 @@ Qwen2.5 0.5B Q4_K_M / llama.cpp CPU 的一次运行结果如下。具体措辞�
 
 ## Demo
 
-本方案需要 llama.cpp。根 README 的 `minimal` 快速开始未启用推理 Backend。
-在仓库根目录切换到 `dev-gate` 并重建，使下面命令使用的 `build/` 包含该后端：
+本方案需要 llama.cpp。默认 Inferlet 构建未启用 llama.cpp。
+在仓库根目录显式启用 llama.cpp 并重建，使下面命令使用的 `build/` 包含该后端：
 
 ```bash
-cmake --preset=dev-gate -B build
+cmake --preset=minimal -B build -DENABLE_LLAMACPP=ON
 cmake --build build --target alg_sdk alg_pipeline_tool alg_demo --parallel 4
 ```
 

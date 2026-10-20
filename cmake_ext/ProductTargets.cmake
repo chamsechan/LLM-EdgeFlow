@@ -2,6 +2,12 @@
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # 对外交付的动态算法库。
+set(LLM_EDGEFLOW_SDK_OUTPUT_NAME "llm_edgeflow_sdk" CACHE STRING
+    "SDK library base name, without platform prefix or extension")
+if(NOT LLM_EDGEFLOW_SDK_OUTPUT_NAME MATCHES "^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+  message(FATAL_ERROR
+      "LLM_EDGEFLOW_SDK_OUTPUT_NAME must be a nonempty library base name, not a path")
+endif()
 add_library(alg_sdk SHARED
     $<TARGET_OBJECTS:edgeflow_model_execution_objects>
     $<TARGET_OBJECTS:edgeflow_model_execution_backends_objects>
@@ -20,7 +26,7 @@ if(UNIX AND NOT APPLE)
       LINK_DEPENDS "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}")
 endif()
 set_target_properties(alg_sdk PROPERTIES
-    OUTPUT_NAME "company_alg_sdk"
+    OUTPUT_NAME "${LLM_EDGEFLOW_SDK_OUTPUT_NAME}"
 )
 
 add_subdirectory(dev_support)

@@ -193,7 +193,7 @@ Runtime 负责部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipel
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池。deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、转换器注册表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
-- 目标共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0。共享库不带 SOVERSION，
+- 目标共享库为 `libllm_edgeflow_sdk.so`。共享库不带 SOVERSION，
   导出符号不带版本节点。
 - Operator 函数表顺序固定为 `Init, Create, Control, Process, Destroy, DeInit`。
   `Create(void**, const void*)` 的参数指向 `CreateParam`，入口按 `const CreateParam*` 读取。

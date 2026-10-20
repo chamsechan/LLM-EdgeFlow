@@ -31,14 +31,6 @@ if(ENABLE_SANITIZERS)
       "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=${LLM_EDGEFLOW_SANITIZERS}")
 endif()
 
-# 产品版本由 CMake 生成，公共 C 头不再维护副本。
-set(LLM_EDGEFLOW_GENERATED_INCLUDE_DIR
-    "${PROJECT_BINARY_DIR}/generated/include")
-file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow")
-configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake_ext/edgeflow_version.h.in"
-  "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow/version.h"
-  @ONLY)
 set(LLM_EDGEFLOW_SDK_VERSION_SCRIPT
     "${PROJECT_BINARY_DIR}/edgeflow_sdk.map")
 configure_file(
@@ -50,7 +42,6 @@ include(cmake_ext/OperatorShell.cmake)
 include(cmake_ext/LayerHeaderViews.cmake)
 add_library(edgeflow_public_headers INTERFACE)
 target_include_directories(edgeflow_public_headers INTERFACE
-    $<BUILD_INTERFACE:${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${edgeflow_public_include_dir}>)
 
 # 源码扩展使用编写契约，不属于动态 SDK ABI。

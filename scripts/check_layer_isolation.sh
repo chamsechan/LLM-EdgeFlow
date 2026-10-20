@@ -58,25 +58,6 @@ fi
 echo "✅ [LayerGuard PASS] CMake source ownership preserves all four layers and the composition root."
 
 # 用标准 C 编译器检查纯 C11 语法与 ABI 合规性
-GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
-cleanup_generated_version() {
-  rm -rf "${GENERATED_VERSION_INCLUDE}"
-}
-trap cleanup_generated_version EXIT INT TERM
-mkdir -p "${GENERATED_VERSION_INCLUDE}/edgeflow"
-PRODUCT_VERSION="$(
-  sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
-    "${REPO_ROOT}/CMakeLists.txt" | head -n 1
-)"
-if [[ -z "${PRODUCT_VERSION}" ]]; then
-  echo "❌ [LayerGuard ERROR] Unable to derive public version header values from CMakeLists.txt"
-  exit 1
-fi
-sed \
-  -e "s/@PROJECT_VERSION@/${PRODUCT_VERSION}/g" \
-  "${REPO_ROOT}/cmake_ext/edgeflow_version.h.in" > \
-  "${GENERATED_VERSION_INCLUDE}/edgeflow/version.h"
-
 C11_COMPILER=""
 if command -v gcc >/dev/null 2>&1; then
   C11_COMPILER=gcc
@@ -91,7 +72,7 @@ if [[ -n "${C11_COMPILER}" ]]; then
     # 纯宏头文件也合法；为 -pedantic 提供一个翻译单元。
     printf '#include "%s"\nint main(void) { return 0; }\n' "${C11_HEADER}" | \
       "${C11_COMPILER}" -std=c11 -pedantic-errors -fsyntax-only -x c \
-        -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" -
+        -I"$REPO_ROOT/include" -
   done
   echo "✅ [LayerGuard PASS] ${C11_COMPILER} pure C11 strict syntax and ABI verification passed."
 else

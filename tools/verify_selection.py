@@ -254,10 +254,9 @@ def effect_inputs(spec_path, conf_path, demo, pipeline_dir):
     effect_output(pipe_doc, spec)
     inputs, outputs = pipeline_io(pipe_doc)
     demo = Path(demo).resolve()
-    sdk = demo.parent / "libcompany_alg_sdk.so"
     identity = {"spec": spec, "dataset_sha256": file_digest(dataset), "outputs": outputs,
                 "pipeline": pipe_doc, "pipeline_dir": str(pipeline_dir), "inputs": inputs,
-                "demo_sha256": file_digest(demo), "sdk": {sdk.name: file_digest(sdk)} if sdk.is_file() else {},
+                "demo_sha256": file_digest(demo),
                 "chip": "cpu", "device_id": 0}
     return spec, dataset, outputs, identity
 

@@ -2,8 +2,6 @@ include(FetchContent)
 include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 
 set(LLM_EDGEFLOW_HAS_ONNXRUNTIME OFF)
-option(ENABLE_ONNXRUNTIME
-       "Enable ONNX Runtime engine (auto-download official release or reuse 3rdparty)" OFF)
 
 if(ENABLE_ONNXRUNTIME)
   message(STATUS "[Model Execution] Enabling ONNX Runtime Backend support...")

@@ -1,7 +1,6 @@
 include(FetchContent)
 include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 
-option(ENABLE_LLAMACPP "Enable llama.cpp LLM engine (auto-download or reuse 3rdparty)" ON)
 option(LLAMA_CPP_FORCE_REBUILD "Force rebuilding llama.cpp from source even if cached in 3rdparty" OFF)
 option(LLM_EDGEFLOW_LLAMACPP_METAL
        "Enable llama.cpp Metal backend (requires a usable Metal device)" OFF)

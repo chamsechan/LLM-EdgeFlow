@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 || ! -f "$1" ]]; then
-  echo "Usage: $0 /path/to/libcompany_alg_sdk.so" >&2
+  echo "Usage: $0 <SDK shared-library path>" >&2
   exit 2
 fi
 

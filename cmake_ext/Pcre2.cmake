@@ -70,7 +70,7 @@ else()
     add_library(edgeflow_pcre2 INTERFACE)
     if(APPLE)
       # Apple ld 可能把从静态归档拉入的符号全部设为私有。按名称链接该归档，
-      # 让 -hidden-l 作用于整个 PCRE2 目标文件集，而不是经由 company_alg_sdk.dylib 导出。
+      # 让 -hidden-l 作用于整个 PCRE2 目标文件集，而不是经由 SDK 动态库导出。
       add_dependencies(edgeflow_pcre2 pcre2-8-static)
       target_include_directories(
           edgeflow_pcre2 SYSTEM INTERFACE "${pcre2_BINARY_DIR}/interface")

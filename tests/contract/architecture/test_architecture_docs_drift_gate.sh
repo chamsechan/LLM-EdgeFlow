@@ -4,7 +4,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 workspace=$(mktemp -d "${TMPDIR:-/tmp}/architecture-docs-consumer.XXXXXX")
 trap 'rm -rf "$workspace"' EXIT
 mkdir -p "$workspace/doc/assets"
-for document in architecture.md developer_guide.md CHANGELOG.md architecture_classes.puml architecture_flow.puml; do
+for document in architecture_classes.puml architecture_flow.puml; do
   cp "$root/doc/$document" "$workspace/doc/$document"
 done
 cp "$root/doc/assets/architecture_class_diagram.svg" "$workspace/doc/assets/"
@@ -28,12 +28,4 @@ check >"$workspace/output"
 rm "$workspace/doc/assets/framework_overview.svg"
 expect_failure 'missing or empty'
 cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
-version=$(sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' "$root/CMakeLists.txt")
-python3 - "$workspace/doc/CHANGELOG.md" "$version" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-path.write_text(path.read_text().replace(sys.argv[2], '0.0.0-stale'))
-PY
-expect_failure 'does not name current product version'
-echo 'PASS current documentation gate detects asset and version drift'
+echo 'PASS documentation gate detects missing assets'

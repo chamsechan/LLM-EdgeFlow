@@ -18,9 +18,9 @@ endforeach()
 # 检查模块装配顺序，不绑定目标定义的行号或具体格式。
 string(REGEX MATCHALL "cmake_ext/[A-Za-z0-9_./]+\\.cmake" modules "${root}")
 set(expected_modules
+    cmake_ext/BackendOptions.cmake
     cmake_ext/ProjectSetup.cmake
     cmake_ext/Dependencies.cmake
-    cmake_ext/company/KiteLlm.cmake
     cmake_ext/RuntimeGraph.cmake
     cmake_ext/ProductTargets.cmake)
 if(NOT modules STREQUAL expected_modules)
@@ -31,13 +31,8 @@ file(GLOB_RECURSE modules "${PROJECT_SOURCE_DIR}/cmake_ext/*.cmake")
 foreach(module IN LISTS modules)
   file(READ "${module}" content)
   string(REGEX REPLACE "#[^\n]*" "" content "${content}")
-  if(NOT module MATCHES "/cmake_ext/company/")
-    if(content MATCHES "kiteLLM|KITELLM|DH_[A-Za-z_]+|\\$\\{(platform|sdk)\\}|cmake/(utils|common)\\.cmake")
-      message(FATAL_ERROR "Company build context must stay in company/: ${module}")
-    endif()
-    if(content MATCHES "include[ \t\n]*\\([^)]*cmake_ext/company/")
-      message(FATAL_ERROR "Neutral modules must not load company modules: ${module}")
-    endif()
+  if(content MATCHES "DH_[A-Za-z_]+|\\$\\{(platform|sdk)\\}|cmake/(utils|common)\\.cmake")
+    message(FATAL_ERROR "Project modules must not infer internal host build context: ${module}")
   endif()
 endforeach()
 
@@ -67,4 +62,4 @@ string(STRIP "${dependencies}" dependencies)
 if(dependencies)
   message(FATAL_ERROR "Dependencies.cmake must only aggregate dependency modules")
 endif()
-message(STATUS "PASS CMake shell, company boundary and module references")
+message(STATUS "PASS CMake assembly and module references")

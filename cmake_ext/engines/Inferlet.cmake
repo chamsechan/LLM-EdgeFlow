@@ -1,12 +1,6 @@
-option(ENABLE_INFERLET "Enable the pinned Inferlet CPU release (Linux x86_64/aarch64)" OFF)
 set(LLM_EDGEFLOW_HAS_INFERLET OFF)
 if(NOT ENABLE_INFERLET)
   return()
-endif()
-if(ENABLE_LLAMACPP OR ENABLE_WHISPERCPP)
-  message(FATAL_ERROR
-    "Inferlet bundles llama.cpp/ggml. Use ENABLE_LLAMACPP=OFF and "
-    "ENABLE_WHISPERCPP=OFF to avoid symbol collisions.")
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
    CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")

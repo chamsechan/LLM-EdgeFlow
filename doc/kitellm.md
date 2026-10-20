@@ -11,10 +11,13 @@
 ```bash
 gh auth login
 gh repo view chamsechan/kiteLLM
-cmake --preset=kite-cpu
+cmake --preset=kite-cpu -DENABLE_ONNXRUNTIME=ON
 cmake --build build/variants/kite-cpu -j8
 ./build/variants/kite-cpu/alg_pipeline_tool catalog
 ```
+
+`kite-cpu` 仅启用 Kite。上述命令显式增加 ONNX Runtime，以运行下文依赖 BGE/Rerank 的完整方案套件；
+只运行 Kite 文本、视觉和生成向量方案时可省略该开关。
 
 CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤将其注入为
 `GH_TOKEN`，无需交互登录。凭据必须能读取 `chamsechan/kiteLLM`。当前工程的默认
@@ -32,7 +35,7 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest。随�
 公开 artifact，也不进入 Actions cache。模型缓存包含公开 GGUF、ONNX 权重和 tokenizer。
 
 支持 Linux x86_64 与 aarch64。版本、平台包和 SHA-256 固定在
-[`cmake_ext/company/KiteLlm.cmake`](../cmake_ext/company/KiteLlm.cmake)。上游 v0.1.0 对应提交
+[`cmake_ext/engines/KiteLlm.cmake`](../cmake_ext/engines/KiteLlm.cmake)。上游 v0.1.0 对应提交
 `5e58820f39919fce2046e2fd703c62601a5df59b`。修改发布包后即使 tag 不变，校验也会拒绝。
 
 归档缓存位于 `3rdparty/kite_llm/v0.1.0/<x64|arm>/`，每次配置都校验归档 SHA-256，

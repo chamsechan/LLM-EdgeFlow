@@ -27,9 +27,9 @@ if [[ $# -eq 1 ]]; then
 fi
 
 BUILD_DIR="${PROJECT_ROOT}/build/real-models/${MODE}"
-PRESET=dev-gate
+CMAKE_BACKEND_ARGS=(-DENABLE_LLAMACPP=ON)
 if [[ "${MODE}" == "whisper" || "${MODE}" == "all" ]]; then
-  PRESET=default-cpu
+  CMAKE_BACKEND_ARGS+=(-DENABLE_WHISPERCPP=ON)
 fi
 
 echo "=================================================================="
@@ -48,7 +48,7 @@ fi
 
 # 2. 编译独立物理测试套件
 echo ">>> 正在编译 test_real_models_e2e..."
-"${PROJECT_ROOT}/scripts/configure_build.sh" "${PROJECT_ROOT}" "${BUILD_DIR}" "${PRESET}" \
+"${PROJECT_ROOT}/scripts/configure_build.sh" "${PROJECT_ROOT}" "${BUILD_DIR}" minimal "${CMAKE_BACKEND_ARGS[@]}" \
   -DENABLE_REAL_MODEL_TESTS=ON \
   -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 cmake --build "${BUILD_DIR}" --target test_real_models_e2e alg_demo \

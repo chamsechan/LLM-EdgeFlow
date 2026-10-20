@@ -57,19 +57,19 @@ Studio 的“另存为可运行方案”和“运行当前方案”共用配置�
 资产检查示例（先准备上文模型资产）：
 
 ```bash
-cmake --preset=default-cpu
-cmake --build build/variants/default-cpu --target alg_pipeline_tool alg_demo
+cmake --preset=full-cpu
+cmake --build build/variants/full-cpu --target alg_pipeline_tool alg_demo
 python3 tools/verify_selection.py check \
   --pipeline configs/pipeline_doc_qa_default.json \
-  --tool build/variants/default-cpu/alg_pipeline_tool \
-  --variant default-cpu \
+  --tool build/variants/full-cpu/alg_pipeline_tool \
+  --variant full-cpu \
   --output results/docqa-selection.json
 ```
 
 资源目录取 `--pipeline` 文件的父目录。自有清单用 `--manifest` 指定。
 清单资产和 Model/Backend 中声明的文件都基于这个目录，工具不会搬移文件或改写模型路径。
 
-`default-cpu` preset 包含 whisper.cpp。日常完整门禁使用 `dev-gate`，其 `build/` 关闭它，不能直接作为
+`full-cpu` preset 包含 whisper.cpp。日常完整门禁使用 `dev-gate`，其 `build/` 只启用 Inferlet，不能直接作为
 该 preset 的匹配产物。`--variant` 只校验 Backend 集合，不选择可执行文件。使用 preset
 时需显式传入对应目录的 `--tool`，执行效果验收时还需指定同目录的 `--demo`。
 
@@ -85,13 +85,27 @@ schema 1。编译使用 `cmake --build <目录>`，不使用 3.20 才支持的 b
 
 | 变体 | 启用 Backend | 目的 |
 | --- | --- | --- |
-| `dev-gate` | ONNX Runtime、llama.cpp | `run_all_tests.sh` 的完整默认开发门禁 |
-| `default-cpu` | ONNX Runtime、llama.cpp、whisper.cpp | 常规文本、向量和语音能力 |
-| `kite-cpu` | ONNX Runtime、Kite | Kite 文本、视觉及生成向量能力 |
-| `inferlet-cpu` | ONNX Runtime、Inferlet | Linux CPU 上的文本、视觉及生成向量验证 |
+| `dev-gate` | Inferlet | `run_all_tests.sh` 的完整默认开发门禁 |
+| `full-cpu` | ONNX Runtime、llama.cpp、whisper.cpp | 常规文本、向量和语音能力 |
+| `kite-cpu` | Kite | Kite 文本、视觉及生成向量能力 |
+| `inferlet-cpu` | Inferlet | Linux CPU 上的文本、视觉及生成向量验证 |
 | `minimal` | 无推理 Backend | 规则、模板及纯数据处理方案 |
 
-`base` 是隐藏的共享默认值。`dev-gate` 是开发门禁入口。资产选择界面和 `--variant`
+普通 `cmake -S . -B build` 默认只启用 Inferlet；所有 `ENABLE_*` Backend 开关及互斥检查
+集中在 [BackendOptions.cmake](../cmake_ext/BackendOptions.cmake)。其他引擎仅在显式启用后加载依赖。
+例如额外启用 ONNX Runtime，或切换为独立 llama.cpp：
+
+```bash
+cmake --preset=inferlet-cpu -DENABLE_ONNXRUNTIME=ON
+cmake --preset=minimal -DENABLE_LLAMACPP=ON
+```
+
+Inferlet、Kite 与独立 llama.cpp/Whisper 的运行时互斥；直接使用 `-D` 切换时先指定
+`-DENABLE_INFERLET=OFF`，Whisper 还须显式启用 llama.cpp。未指定的 CMake 缓存值会被保留；
+切换已有构建目录时使用 preset 重置引擎集合，或显式更新全部相关开关。
+自定义组合与 preset 的声明集合不一致时，效果检查应省略 `--variant`，以实际 Catalog 为准。
+
+`base` 是隐藏的全关闭基线，防止 preset 继承旧构建缓存。`dev-gate` 是开发门禁入口。资产选择界面和 `--variant`
 仅列出带 selection 元数据的部署预设，不把开发入口作为部署选择。
 
 默认目录按用途集中在 `build/` 下：
@@ -99,13 +113,14 @@ schema 1。编译使用 `cmake --build <目录>`，不使用 3.20 才支持的 b
 | 用途 | 目录 |
 | --- | --- |
 | 日常完整门禁 | `build/` |
-| 三个部署变体 | `build/variants/<变体>/` |
+| 部署变体 | `build/variants/<变体>/` |
 | sanitizer | `build/sanitizers/<sanitizer组合>-<模式>/` |
 | 真实模型 E2E | `build/real-models/<模式>/` |
 
 sanitizer 的 `--fast` 复用 `minimal`，`--full` / `--ci-runtime` 复用 `dev-gate`，
 再覆盖 Debug 和 sanitizer 选项。`LLM_EDGEFLOW_SANITIZER_BUILD_DIR` 仍可指定已有目录。
-真实模型脚本按模式复用 `dev-gate` 或含语音能力的 `default-cpu`，显式启用真实模型测试。
+现有 llama.cpp/Whisper 真实模型脚本复用 `minimal`，按模式显式启用 llama.cpp 和 Whisper，
+同时开启真实模型测试。
 这些入口不会依赖另一次构建遗留的 Backend 开关。
 
 CMake 缓存包含绝对路径。如果更换构建目录，在新目录重新配置。
@@ -167,8 +182,8 @@ Inferlet 的执行结果用于验证其自身及框架业务链路，不替代�
 
 当前 [Whisper Backend](../src/engine/backends/whisper_cpp/whisper_cpp_backend.cpp) 支持 CPU，
 设备 ID 为 0 或省略。启用 `ENABLE_WHISPERCPP` 还需启用 `ENABLE_LLAMACPP` 复用 GGML，
-并关闭 `ENABLE_KITELLM`、`ENABLE_INFERLET`。共享 GGML 的要求由 [Whisper 模块](../cmake_ext/engines/WhisperCpp.cmake)
-执行，Kite 互斥约束由 [公司接入模块](../cmake_ext/company/KiteLlm.cmake)执行。
+并关闭 `ENABLE_KITELLM`、`ENABLE_INFERLET`。共享 GGML 的要求与引擎互斥检查
+统一由 [Backend 开关](../cmake_ext/BackendOptions.cmake)执行。
 权重准备见[模型资产说明](../configs/README.md)。默认构建通过、测试替身通过或单条真实音频通过，
 均不能代替目标语料的识别效果和目标设备性能验收。
 
@@ -186,16 +201,16 @@ Inferlet 的执行结果用于验证其自身及框架业务链路，不替代�
 
 ```bash
 python3 tools/verify_selection.py evaluate \
-  --pipeline configs/pipeline_keyword_match_rules.json --variant default-cpu \
-  --tool build/variants/default-cpu/alg_pipeline_tool \
-  --demo build/variants/default-cpu/alg_demo \
+  --pipeline configs/pipeline_keyword_match_rules.json --variant full-cpu \
+  --tool build/variants/full-cpu/alg_pipeline_tool \
+  --demo build/variants/full-cpu/alg_demo \
   --effects tests/fixtures/effects/keyword_exact.json \
   --output results/keyword-effects.json
 
 python3 tools/verify_selection.py check \
-  --pipeline configs/pipeline_keyword_match_rules.json --variant default-cpu \
-  --tool build/variants/default-cpu/alg_pipeline_tool \
-  --demo build/variants/default-cpu/alg_demo \
+  --pipeline configs/pipeline_keyword_match_rules.json --variant full-cpu \
+  --tool build/variants/full-cpu/alg_pipeline_tool \
+  --demo build/variants/full-cpu/alg_demo \
   --effects tests/fixtures/effects/keyword_exact.json \
   --evidence results/keyword-effects.json --require-effects
 ```
@@ -213,7 +228,7 @@ python3 tools/verify_selection.py check \
 结果数量必须与标注一致。非零状态或字段不匹配计为该样本失败，整体按最低通过率判定。
 Demo 进程执行失败则直接终止验收。指标是 **selected_fields_exact_match**，仅表示指定数据集上所选字段的精确匹配率，不代表通用模型准确率，也不包含语义等价、召回率或复杂生成质量评测。
 
-验收记录包含实际样本输出、模型资产散列、完整 Pipeline、构建工具、Demo/SDK 文件、部署容量、数据集及评价规范指纹。任何一个被记录输入变化，旧记录都会失效。检查会从记录重新计算指标，避免直接相信手填的汇总分数。指纹用于过期检测。这些本地记录并非经过签名的审计证明，也不覆盖目标硬件和所有系统动态依赖。
+验收记录包含实际样本输出、模型资产散列、完整 Pipeline、构建工具、实际执行的 Demo 文件、部署容量、数据集及评价规范指纹。任何一个被记录输入变化，旧记录都会失效。检查会从记录重新计算指标，避免直接相信手填的汇总分数。指纹用于过期检测。Demo 直接链接内部运行时对象，不加载交付 SDK 动态库，因此 SDK 文件不参与效果指纹；SDK ABI 由独立契约测试验证。这些本地记录并非经过签名的审计证明，也不覆盖目标硬件和所有系统动态依赖。
 
 当前仓库已提供并实际运行的业务标注集只有关键词 3 条样本。其他模型组合仍需各自的数据集与验收记录，不能因为资产或构建检查通过就标记效果合格。
 

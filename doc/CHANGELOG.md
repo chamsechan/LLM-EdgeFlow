@@ -2,12 +2,21 @@
 
 ## Unreleased
 
-LLM-EdgeFlow 尚未正式发布。当前产品版本为 **11.0.0**，表示当前构建与接口基线。
+LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](../CMakeLists.txt) 的 `project(VERSION)` 中。
 研发过程和迁移历史通过 Git 追溯；正式发布后按版本记录用户可感知的能力与契约变化。
 
 当前能力：
 
-- 新增可选 `inferlet` Backend 和 `inferlet-cpu` 构建，复用现有文本、图像生成和
+- 移除无运行时消费者的生成版本头和产品版本宏，取消多份文档的版本号同步检查；
+  依赖版本校验及 SDK 导出符号白名单继续保留。
+
+- SDK 默认产物基名改为 `llm_edgeflow_sdk`，通过 `LLM_EDGEFLOW_SDK_OUTPUT_NAME` 集中配置；
+  效果验证移除未被 Demo 加载的 SDK 文件指纹，继续记录实际执行的 Demo 指纹。见
+  [构建扩展目录](dev_guide/source_layout.md#构建扩展目录)。
+
+- 默认构建与开发门禁只启用 Inferlet；其他 Backend 通过开关或部署 preset 显式启用。
+  引擎选择与互斥检查集中在 `BackendOptions.cmake`，原多引擎预设改名 `full-cpu`。
+- `inferlet` Backend 和 `inferlet-cpu` 构建复用现有文本、图像生成和
   生成 token 向量协议；提供 [Inferlet 实体抽取样例](../configs/pipeline_entity_extract_inferlet.json)。
   依赖固定为 Inferlet v0.1.0 Linux CPU 静态包，现有 Kite 接入保持不变。
 - 错误码收敛为中立框架码和平台对外码两套；内部取消裸码与旧异常码兼容参数，
