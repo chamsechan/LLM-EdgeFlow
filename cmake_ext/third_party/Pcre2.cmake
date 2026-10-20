@@ -1,9 +1,9 @@
-# cmake_ext/Pcre2.cmake
+# cmake_ext/third_party/Pcre2.cmake
 # PCRE2 智能缓存与预编译复用配置
 
 set(PCRE2_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/pcre2")
 option(PCRE2_FORCE_REBUILD "Force rebuilding pcre2 even if cached in 3rdparty" OFF)
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME pcre2
   VERSION 10.47
@@ -14,27 +14,27 @@ edgeflow_prepare_third_party_cache(
   OUT_VALID _PCRE2_CACHE_VALID
   OUT_MARKER _PCRE2_CACHE_MARKER)
 
+add_library(edgeflow_pcre2 INTERFACE)
+target_compile_definitions(edgeflow_pcre2 INTERFACE PCRE2_STATIC)
+if(APPLE)
+  # 按名称隐藏整个静态归档的符号；两条路径分别提供其库目录。
+  target_link_libraries(edgeflow_pcre2 INTERFACE "-Wl,-hidden-lpcre2-8")
+elseif(UNIX AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  target_link_options(edgeflow_pcre2 INTERFACE "LINKER:--exclude-libs,libpcre2-8.a")
+endif()
+
 if(_PCRE2_CACHE_VALID AND
    EXISTS "${PCRE2_3RDPARTY_DIR}/lib/libpcre2-8.a" AND
    EXISTS "${PCRE2_3RDPARTY_DIR}/include/pcre2.h" AND
    NOT PCRE2_FORCE_REBUILD)
   message(STATUS "[3rdparty] Using cached PCRE2 from ${PCRE2_3RDPARTY_DIR}")
 
-  if(NOT TARGET edgeflow_pcre2)
-    add_library(edgeflow_pcre2 INTERFACE)
-    target_include_directories(
-        edgeflow_pcre2 SYSTEM INTERFACE "${PCRE2_3RDPARTY_DIR}/include")
-    target_compile_definitions(edgeflow_pcre2 INTERFACE PCRE2_STATIC)
-    if(APPLE)
-      target_link_directories(edgeflow_pcre2 INTERFACE "${PCRE2_3RDPARTY_DIR}/lib")
-      target_link_libraries(edgeflow_pcre2 INTERFACE "-Wl,-hidden-lpcre2-8")
-    else()
-      target_link_libraries(edgeflow_pcre2 INTERFACE "${PCRE2_3RDPARTY_DIR}/lib/libpcre2-8.a")
-      if(UNIX AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        target_link_options(
-            edgeflow_pcre2 INTERFACE "LINKER:--exclude-libs,libpcre2-8.a")
-      endif()
-    endif()
+  target_include_directories(
+      edgeflow_pcre2 SYSTEM INTERFACE "${PCRE2_3RDPARTY_DIR}/include")
+  if(APPLE)
+    target_link_directories(edgeflow_pcre2 INTERFACE "${PCRE2_3RDPARTY_DIR}/lib")
+  else()
+    target_link_libraries(edgeflow_pcre2 INTERFACE "${PCRE2_3RDPARTY_DIR}/lib/libpcre2-8.a")
   endif()
 else()
   include(FetchContent)
@@ -66,24 +66,13 @@ else()
     target_compile_options(pcre2-8-static PRIVATE -fvisibility=hidden)
   endif()
 
-  if(NOT TARGET edgeflow_pcre2)
-    add_library(edgeflow_pcre2 INTERFACE)
-    if(APPLE)
-      # Apple ld 可能把从静态归档拉入的符号全部设为私有。按名称链接该归档，
-      # 让 -hidden-l 作用于整个 PCRE2 目标文件集，而不是经由 company_alg_sdk.dylib 导出。
-      add_dependencies(edgeflow_pcre2 pcre2-8-static)
-      target_include_directories(
-          edgeflow_pcre2 SYSTEM INTERFACE "${pcre2_BINARY_DIR}/interface")
-      target_compile_definitions(edgeflow_pcre2 INTERFACE PCRE2_STATIC)
-      target_link_directories(edgeflow_pcre2 INTERFACE "${pcre2_BINARY_DIR}")
-      target_link_libraries(edgeflow_pcre2 INTERFACE "-Wl,-hidden-lpcre2-8")
-    else()
-      target_link_libraries(edgeflow_pcre2 INTERFACE pcre2-8)
-      if(UNIX AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        target_link_options(
-            edgeflow_pcre2 INTERFACE "LINKER:--exclude-libs,libpcre2-8.a")
-      endif()
-    endif()
+  if(APPLE)
+    add_dependencies(edgeflow_pcre2 pcre2-8-static)
+    target_include_directories(
+        edgeflow_pcre2 SYSTEM INTERFACE "${pcre2_BINARY_DIR}/interface")
+    target_link_directories(edgeflow_pcre2 INTERFACE "${pcre2_BINARY_DIR}")
+  else()
+    target_link_libraries(edgeflow_pcre2 INTERFACE pcre2-8)
   endif()
 
   # 自动归档 PCRE2 静态库与头文件到 3rdparty/pcre2

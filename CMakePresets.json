@@ -21,20 +21,17 @@
     },
     {
       "name": "dev-gate",
-      "displayName": "Default development gate (ONNX Runtime + llama.cpp)",
-      "inherits": "base",
-      "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {
-        "ENABLE_ONNXRUNTIME": "ON",
-        "ENABLE_LLAMACPP": "ON"
-      }
+      "displayName": "Default development gate (Inferlet)",
+      "inherits": "inferlet-cpu",
+      "binaryDir": "${sourceDir}/build"
     },
     {
-      "name": "default-cpu",
-      "displayName": "Full CPU capabilities (including Whisper)",
-      "inherits": "dev-gate",
-      "binaryDir": "${sourceDir}/build/variants/${presetName}",
+      "name": "full-cpu",
+      "displayName": "Explicit ONNX Runtime + llama.cpp + Whisper build",
+      "inherits": "base",
       "cacheVariables": {
+        "ENABLE_ONNXRUNTIME": "ON",
+        "ENABLE_LLAMACPP": "ON",
         "ENABLE_WHISPERCPP": "ON"
       },
       "vendor": {
@@ -51,13 +48,11 @@
       "name": "kite-cpu",
       "inherits": "base",
       "cacheVariables": {
-        "ENABLE_ONNXRUNTIME": "ON",
         "ENABLE_KITELLM": "ON"
       },
       "vendor": {
         "llm-edgeflow/selection": {
           "backends": [
-            "onnxruntime",
             "kite_llm"
           ]
         }
@@ -67,12 +62,13 @@
       "name": "inferlet-cpu",
       "inherits": "base",
       "cacheVariables": {
-        "ENABLE_ONNXRUNTIME": "ON",
         "ENABLE_INFERLET": "ON"
       },
       "vendor": {
         "llm-edgeflow/selection": {
-          "backends": ["onnxruntime", "inferlet"]
+          "backends": [
+            "inferlet"
+          ]
         }
       }
     },

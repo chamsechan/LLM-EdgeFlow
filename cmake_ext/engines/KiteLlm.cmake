@@ -1,18 +1,11 @@
 # 经用户授权的私有 GitHub 依赖。认证信息保留在 gh 凭据存储或 GH_TOKEN 中；
 # 绝不能把 token 写入 CMake 文件或缓存。
-option(ENABLE_KITELLM "Download and link the pinned kiteLLM static release" OFF)
 set(LLM_EDGEFLOW_HAS_KITELLM OFF)
 if(NOT ENABLE_KITELLM)
   return()
 endif()
-if(ENABLE_LLAMACPP OR ENABLE_WHISPERCPP)
-  message(FATAL_ERROR
-    "kiteLLM embeds a different llama.cpp/ggml version. Use "
-    "-DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF -DENABLE_WHISPERCPP=OFF "
-    "to avoid symbol collisions.")
-endif()
 
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
 set(_kite_release "v0.1.0")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND

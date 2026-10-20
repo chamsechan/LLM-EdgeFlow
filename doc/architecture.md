@@ -193,7 +193,7 @@ Runtime 负责部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipel
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池。deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、转换器注册表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
-- 目标共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0。共享库不带 SOVERSION，
+- 目标共享库为 `libllm_edgeflow_sdk.so`。共享库不带 SOVERSION，
   导出符号不带版本节点。
 - Operator 函数表顺序固定为 `Init, Create, Control, Process, Destroy, DeInit`。
   `Create(void**, const void*)` 的参数指向 `CreateParam`，入口按 `const CreateParam*` 读取。
@@ -318,7 +318,7 @@ Adapter 与装配入口不会因此获得 vendor 编译依赖。
 只暴露本层实现头、所需的下层 API 与共享契约。`root/`、`src/` 和完整 `include/`
 搜索路径仅由仓库工具、Demo 和测试显式使用。view 中的链接
 跟随源码编辑，新增或移除头文件会触发 CMake 重新生成。Model/Backend 私有头不向
-上层传播。Node 可引用的 Core 契约由 `cmake_ext/node_core_contracts.txt` 唯一列举，
+上层传播。Node 可引用的 Core 契约由 `cmake_ext/support/node_core_contracts.txt` 唯一列举，
 CMake 与 LayerGuard 共用此清单。新增契约或改变依赖方向需同步设计与规则。
 
 include 搜索范围不是编译器访问权限。`scripts/check_layer_dependencies.py` 继续按

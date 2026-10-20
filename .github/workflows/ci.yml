@@ -59,8 +59,7 @@ jobs:
           path: |
             3rdparty/googletest
             3rdparty/pcre2
-            3rdparty/llama_cpp
-            3rdparty/onnxruntime
+            3rdparty/inferlet
             3rdparty/nlohmann_json
             3rdparty/stb_image
           key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
@@ -125,7 +124,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            3rdparty/onnxruntime
+            3rdparty/inferlet
             3rdparty/nlohmann_json
             3rdparty/stb_image
           key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
@@ -390,7 +389,7 @@ jobs:
             echo "::error::Set KITELLM_GITHUB_TOKEN with read access to chamsechan/kiteLLM."
             exit 1
           fi
-          cmake --preset=kite-cpu \
+          cmake --preset=kite-cpu -DENABLE_ONNXRUNTIME=ON \
             -DLLM_EDGEFLOW_LINKER=mold \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache

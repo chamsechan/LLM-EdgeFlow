@@ -40,17 +40,17 @@ LLM-EdgeFlow 用算法节点处理规则、检索、文本、图像和语音。P
 git clone https://github.com/chamsechan/LLM-EdgeFlow.git
 cd LLM-EdgeFlow
 
-cmake --preset=minimal -B build
+cmake --preset=inferlet-cpu -B build
 cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --parallel 4
 ```
 
-此构建可运行无需模型的示例。使用真实模型时按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
-启用对应 Backend；使用 Inferlet 在 CPU 上验证时见 [Inferlet 接入](doc/VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
+默认构建只启用 Inferlet，也可运行无需模型的示例。其他 Backend 须按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
+显式启用；使用 Inferlet 在 CPU 上验证时见 [Inferlet 接入](doc/VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
 主要产物如下：
 
 | 产物 | 用途 |
 | :--- | :--- |
-| `build/libcompany_alg_sdk.so` | 集成到宿主程序的算法共享库 |
+| `build/libllm_edgeflow_sdk.so` | 集成到宿主程序的算法共享库 |
 | `build/alg_demo` | 使用统一入口运行示例方案 |
 | `build/alg_pipeline_tool` | 查询能力、校验 Pipeline、查看执行计划 |
 | `build/alg_show` | 在终端查看 Pipeline 的节点与连线 |
@@ -176,7 +176,7 @@ Smoke 验证执行链路。真实模型的业务效果需使用目标数据集�
 Debian/Ubuntu 的对应 Python 包为 `python3-jsonschema`。
 开发流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试说明见 [tests/README.md](tests/README.md)，Agent 规则见 [AGENTS.md](AGENTS.md)。
 
-`jsonschema` 需安装在 CMake 选中的 Python 环境中。当前版本 **v11.0.0**，尚未正式发布。变更见 [Changelog](doc/CHANGELOG.md)。
+`jsonschema` 需安装在 CMake 选中的 Python 环境中。项目尚未正式发布。变更见 [Changelog](doc/CHANGELOG.md)。
 
 ## 许可证
 

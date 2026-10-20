@@ -2,6 +2,7 @@
 """Canonical gate failure propagation and the real GoogleTest delivery guard."""
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,62 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 HARNESS = None
+
+
+class BackendSelectionContractTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='backend-selection-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        shutil.copy2(ROOT / 'CMakePresets.json', self.root)
+        shutil.copy2(ROOT / 'cmake_ext/BackendOptions.cmake', self.root)
+        (self.root / 'CMakeLists.txt').write_text(
+            'cmake_minimum_required(VERSION 3.19)\nproject(BackendSelection NONE)\n'
+            'include(BackendOptions.cmake)\n')
+
+    def configure(self, *arguments, expected=None):
+        result = subprocess.run(
+            ['cmake', '-S', str(self.root), '-B', str(self.root / 'build'), *arguments],
+            cwd=self.root, capture_output=True, text=True, timeout=30)
+        if expected is None:
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        else:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            enabled = {line.split(':')[0] for line in (self.root / 'build/CMakeCache.txt').read_text().splitlines()
+                       if line.startswith('ENABLE_') and line.endswith(':BOOL=ON')}
+            self.assertEqual(enabled, set(expected))
+        return result.stdout + result.stderr
+
+    def test_plain_defaults_and_explicit_opt_in(self):
+        self.configure(expected={'ENABLE_INFERLET'})
+        self.configure('-DENABLE_ONNXRUNTIME=ON', expected={'ENABLE_INFERLET', 'ENABLE_ONNXRUNTIME'})
+        self.configure('-DENABLE_INFERLET=OFF', '-DENABLE_ONNXRUNTIME=OFF', expected=set())
+        self.configure('-DENABLE_LLAMACPP=ON', expected={'ENABLE_LLAMACPP'})
+        self.configure('-DENABLE_WHISPERCPP=ON', expected={'ENABLE_LLAMACPP', 'ENABLE_WHISPERCPP'})
+
+    def test_presets_reset_cached_engines_and_match_selection_metadata(self):
+        backends = {'inferlet': 'INFERLET', 'onnxruntime': 'ONNXRUNTIME',
+                    'llama_cpp': 'LLAMACPP', 'whisper_cpp': 'WHISPERCPP', 'kite_llm': 'KITELLM'}
+        presets = json.loads((self.root / 'CMakePresets.json').read_text())['configurePresets']
+        # 先启用全部独立引擎，再复用目录，确保默认门禁不会继承旧 ONNX/llama/Whisper。
+        self.configure('--preset=full-cpu', expected={'ENABLE_ONNXRUNTIME', 'ENABLE_LLAMACPP', 'ENABLE_WHISPERCPP'})
+        self.configure('--preset=dev-gate', expected={'ENABLE_INFERLET'})
+        for preset in presets:
+            selection = preset.get('vendor', {}).get('llm-edgeflow/selection')
+            if selection is not None:
+                with self.subTest(preset=preset['name']):
+                    self.configure('--preset=' + preset['name'],
+                                   expected={'ENABLE_' + backends[name] for name in selection['backends']})
+
+    def test_conflicts_fail_before_dependency_acquisition(self):
+        for first, second in [('INFERLET', 'KITELLM'), ('INFERLET', 'LLAMACPP'),
+                              ('INFERLET', 'WHISPERCPP'), ('KITELLM', 'LLAMACPP'),
+                              ('KITELLM', 'WHISPERCPP')]:
+            with self.subTest(first=first, second=second):
+                output = self.configure('--preset=minimal', f'-DENABLE_{first}=ON', f'-DENABLE_{second}=ON')
+                self.assertIn('conflicting runtimes', ' '.join(output.split()))
+        output = self.configure('--preset=minimal', '-DENABLE_WHISPERCPP=ON')
+        self.assertIn('requires ENABLE_LLAMACPP=ON', output)
 
 
 class DeliveryGateConsumerTest(unittest.TestCase):

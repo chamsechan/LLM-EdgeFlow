@@ -28,7 +28,7 @@
 
 | 编号 / 原编号 | 优先实施的具体内容 | 证据与范围边界 | 风险 / 阶段 | 来源 |
 | --- | --- | --- | --- | --- |
-| P01 / B1 | 清除旧 BizDefinition 清单和 shell/Python 守卫残留，恢复当前 Converter 的依赖检查。 | [node_core_contracts.txt](../cmake_ext/node_core_contracts.txt) 仍列已删除头文件。Python 规则迁至 `src/adapter/input/`、`output/`；shell 清理规则 1 的旧头名、规则 3 的退役路径检查、规则 8 的 `biz/business` token，精确范围见 S1。补当前 Converter→Engine/Node 正反例。不是删除所有 `biz` 命名；悬空头视图在 CMake 配置时生成。 | 低—中 / S1 | 你的同事，本助手认可并收窄 |
+| P01 / B1 | 清除旧 BizDefinition 清单和 shell/Python 守卫残留，恢复当前 Converter 的依赖检查。 | [node_core_contracts.txt](../cmake_ext/support/node_core_contracts.txt) 仍列已删除头文件。Python 规则迁至 `src/adapter/input/`、`output/`；shell 清理规则 1 的旧头名、规则 3 的退役路径检查、规则 8 的 `biz/business` token，精确范围见 S1。补当前 Converter→Engine/Node 正反例。不是删除所有 `biz` 命名；悬空头视图在 CMake 配置时生成。 | 低—中 / S1 | 你的同事，本助手认可并收窄 |
 | P02 / B2 | 删除已弃用的枚举、字段和类型登记。 | 删除 `kAutoClosed`、`RankedCandidate::metadata`、无消费者的 `vector<uint64_t>` 登记、空 `text_rerank` 命名空间、无对应 binding 的 `DECLARE_EXTERNAL_TYPE_TRAITS(int)`。同步测试、脚手架及文档引用。 | 低 / S1 | 你的同事，本助手认可 |
 | P03 / A2、B3 部分 | 删除 tokenizer 反向词表与零调用接口，以及 BGE 模型无用访问器。 | [bert_wordpiece_tokenizer.h](../src/engine/models/bge_common/bert_wordpiece_tokenizer.h) 的 `inv_vocab_` 只写不读；清除无调用的访问器、`LoadFromTokens` 及相应实现。保留真实编码流程、正向词表和运行时需要的状态。 | 低 / S1 | 双方；反向词表由本助手发现 |
 | P04 / A3 | 删除旧验证包装入口。 | [pipeline_remediation.cpp](../src/cli/pipeline_remediation.cpp) 中两参数 `ExplainPipeline`、其专用 `ValidateWithRemediation`，以及只被这些包装调用的 `PipelineValidator::Validate`。保留 `ValidateAndPlan`、`ValidateParsedAndPlan` 及其现有行为。 | 低 / S1 | 双方；连带范围由你的同事补充 |
@@ -82,7 +82,7 @@
 
 已完成本地验收：P01—P07、P18 全部落地；守卫自测 7 项通过；G8 在启用 Whisper 的独立构建中成功链接 `test_real_models_e2e`（未运行真实模型）。统一门禁 395 项，394 通过、1 项因未提供 GGUF 跳过；两轮独立只读复核无阻塞项。
 
-**修改范围：** `cmake_ext/node_core_contracts.txt`、`scripts/check_layer_isolation.sh`、`scripts/check_layer_dependencies.py` 和守卫自测，相关 `include/` 头、`src/engine/models/`、`src/engine/backends/`、`src/cli/pipeline_remediation.*`，以及直接消费者和测试。
+**修改范围：** `cmake_ext/support/node_core_contracts.txt`、`scripts/check_layer_isolation.sh`、`scripts/check_layer_dependencies.py` 和守卫自测，相关 `include/` 头、`src/engine/models/`、`src/engine/backends/`、`src/cli/pipeline_remediation.*`，以及直接消费者和测试。
 
 1. 对 P02—P07 的每个符号检查源码、测试、示例、脚手架、隐藏配置和真实模型测试。没有生产调用不等于没有需要同步修改的作者示例。
 2. 修正头视图清单；Python Converter 规则从退役的 `src/adapter/biz/` 迁至 `src/adapter/input/`、`output/`。自测补齐 input/output 分别依赖 Engine/Node 的四个禁止样例及允许依赖样例；现有 platform_mock 反例仍保留。

@@ -26,6 +26,31 @@ studio = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(studio)
 
 
+class SelectionEffectIdentityTest(unittest.TestCase):
+    def test_fingerprint_tracks_executed_demo_without_sdk_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = {"type": "json_out", "name": "keyword_match"}
+            (root / "spec.json").write_text(json.dumps({"dataset": "data.txt", "output": output}))
+            (root / "data.txt").write_text("sample")
+            (root / "pipeline.json").write_text(json.dumps({"io": {"output": [output]}}))
+            (root / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
+            demo = root / "alg_demo"
+            demo.write_bytes(b"first executable")
+
+            def fingerprint():
+                identity = studio.SELECTION.effect_inputs(
+                    root / "spec.json", root / "pipeline.conf", demo, root)[3]
+                self.assertNotIn("sdk", identity)
+                return studio.SELECTION.digest(identity)
+
+            before = fingerprint()
+            (root / "libllm_edgeflow_sdk.so").write_bytes(b"unrelated SDK")
+            self.assertEqual(fingerprint(), before)
+            demo.write_bytes(b"rebuilt executable")
+            self.assertNotEqual(fingerprint(), before)
+
+
 class StudioHttpContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -327,29 +352,34 @@ class StudioHttpContractTest(unittest.TestCase):
             self.assertEqual(bool(saved["command"]), recovering)
 
     def test_automatic_profile_selection_ignores_unavailable_models(self):
-        # Matching and unrelated mock Profiles must not block usable production Profiles.
+        # Exercise candidate failures without requiring any optional production Backend.
         profiles = json.loads((ROOT / "demo/profiles.json").read_text())["profiles"]
+        unavailable = copy.deepcopy(self.base)
+        unavailable["models"] = [{"type": "llm", "name": "unavailable", "file": "missing.fixture",
+                                  "backend": {"type": "test_causal_lm_backend"}}]
+        (self.configs / "unavailable.json").write_text(json.dumps(unavailable))
+        unavailable_conf = self.configs / "unavailable.conf"
+        unavailable_conf.write_text(json.dumps({"pipe_path": "unavailable.json"}))
+        candidates = {
+            "entity_extract_mock": profiles["entity_extract_mock"],
+            "keyword_match_control": {**profiles["keyword_match_control"], "config": str(unavailable_conf)},
+            "keyword_match_rules": profiles["keyword_match_rules"],
+        }
+        profile_file = self.root / "demo/profiles.json"
+        profile_file.write_text(json.dumps({"profiles": candidates}))
         production_tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
         with mock.patch.object(studio, "PROJECT_ROOT", ROOT), \
-                mock.patch.object(studio, "PROFILE_FILE", ROOT / "demo/profiles.json"), \
                 mock.patch.object(studio, "PIPELINE_TOOL", production_tool):
-            for name in ("keyword_match_rules", "entity_extract_cpu", "doc_qa_cpu"):
-                with self.subTest(profile=name):
-                    filename, conf_name = f"pipeline_{name}.json", f"pipeline_{name}.conf"
-                    for path in (filename, conf_name):
-                        shutil.copy(ROOT / "configs" / path, self.configs)
-                    status, result = self.request("POST", "/api/deployment/associate", {
-                        "filename": filename, "conf_name": conf_name})
-                    self.assertEqual(status, 200, result)
-                    self.assertEqual(self.service.generated_solutions[filename]["profile"], profiles[name])
+            request = {"filename": "pipeline_keyword_match_rules.json", "conf_name": "pipeline_keyword_match_rules.conf"}
+            status, result = self.request("POST", "/api/deployment/associate", request)
+            self.assertEqual(status, 200, result)
+            self.assertEqual(self.service.generated_solutions[request["filename"]]["profile"],
+                             profiles["keyword_match_rules"])
 
-            # If every matching candidate fails, retain its concrete deployment error.
-            unavailable_profiles = self.root / "demo/profiles.json"
-            unavailable_profiles.write_text(json.dumps({"profiles": {
-                "entity_extract_mock": profiles["entity_extract_mock"]}}))
-            with mock.patch.object(studio, "PROFILE_FILE", unavailable_profiles):
-                status, result = self.request("POST", "/api/deployment/associate", {
-                    "filename": "pipeline_entity_extract_cpu.json", "conf_name": "pipeline_entity_extract_cpu.conf"})
+            # All matching candidates fail: preserve the concrete native validation error.
+            del candidates["keyword_match_rules"]
+            profile_file.write_text(json.dumps({"profiles": candidates}))
+            status, result = self.request("POST", "/api/deployment/associate", request)
             self.assertEqual(status, 400, result)
             self.assertEqual(result["error"]["code"], "DEPLOYMENT_VALIDATION_FAILED")
             self.assertIn("test_causal_lm_backend", result["error"]["message"])

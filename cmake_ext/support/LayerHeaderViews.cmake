@@ -53,7 +53,7 @@ edgeflow_collect_headers(model_private_headers "${PROJECT_SOURCE_DIR}/src/engine
 edgeflow_header_view(model_execution ${model_api_headers} ${model_private_headers})
 
 # 共享的 Node 编写契约只有一份清单，供 CMake 和 LayerGuard 共用。
-set(node_contract_manifest "${PROJECT_SOURCE_DIR}/cmake_ext/node_core_contracts.txt")
+set(node_contract_manifest "${PROJECT_SOURCE_DIR}/cmake_ext/support/node_core_contracts.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${node_contract_manifest}")
 file(STRINGS "${node_contract_manifest}" node_core_contracts)
 set(node_core_headers)

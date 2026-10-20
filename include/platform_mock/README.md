@@ -32,7 +32,7 @@ SDK 调用方包含 `edgeflow/operator/interface.h`，获得函数入口以及 `
 
 以下内容有各自的真实实现职责，不属于平台公共定义模拟：
 
-- `edgeflow/log.h`、`export.h`、生成的版本头：本项目日志、符号导出和版本接口。
+- `edgeflow/log.h`、`export.h`：本项目日志和符号导出接口。
 - 业务 Blackboard keys、`operator_io_contracts.h`：业务端口和池容量契约。
 - `contracts/`、`core/`、`engine/` 中的中性类型：框架与模型执行协议。
 - `demo/common/dataset_reader.h`、`result_writer.h`：Demo 数据集读取、输出记录和统计结构。

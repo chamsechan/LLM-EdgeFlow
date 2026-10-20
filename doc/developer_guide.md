@@ -51,7 +51,7 @@ Runtime 管理 Create 期输出池及 Process 期租约。每个方向按 `(type
 外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期。
 销毁和释放顺序见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 
-目标交付共享库为 `libcompany_alg_sdk.so`，产品版本为 11.0.0。共享库不带 SOVERSION，
+目标交付共享库为 `libllm_edgeflow_sdk.so`。共享库不带 SOVERSION，
 导出符号不带版本节点。
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口。
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。

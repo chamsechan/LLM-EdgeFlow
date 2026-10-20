@@ -1,8 +1,7 @@
 # 轻量运行时契约位于所有实现层下方；各层依赖 interface 只向下传播。
 add_library(edgeflow_runtime_contracts INTERFACE)
 target_include_directories(edgeflow_runtime_contracts INTERFACE
-    "${edgeflow_contracts_include_dir}"
-    "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}")
+    "${edgeflow_contracts_include_dir}")
 target_link_libraries(edgeflow_runtime_contracts INTERFACE
     nlohmann_json::nlohmann_json)
 
@@ -12,18 +11,15 @@ target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
 
 add_library(edgeflow_capability_nodes_dependencies INTERFACE)
 target_link_libraries(edgeflow_capability_nodes_dependencies INTERFACE
-    edgeflow_runtime_contracts
     edgeflow_model_execution_dependencies
     edgeflow_pcre2)
 
 add_library(edgeflow_orchestration_dependencies INTERFACE)
 target_link_libraries(edgeflow_orchestration_dependencies INTERFACE
-    edgeflow_runtime_contracts
     edgeflow_capability_nodes_dependencies)
 
 add_library(edgeflow_integration_dependencies INTERFACE)
 target_link_libraries(edgeflow_integration_dependencies INTERFACE
-    edgeflow_runtime_contracts
     edgeflow_orchestration_dependencies)
 
 add_library(edgeflow_runtime_dependencies INTERFACE)

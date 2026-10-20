@@ -38,19 +38,35 @@
 
 | 模块 | 职责 |
 | :--- | :--- |
-| `ProjectSetup.cmake` | 编译标准、警告、PIC、sanitizer、生成头与版本脚本，Operator 壳选择，以及 public/extension/internal 头目标 |
-| `Dependencies.cmake` | 聚合中立依赖；每个依赖独立维护 |
-| `company/KiteLlm.cmake` | 当前 Kite 发布包选择、校验与编译链接探针，提供 Backend 编译定义和链接库 |
+| `BackendOptions.cmake` | Backend 开关与互斥检查；默认 Inferlet，其他引擎显式启用，在依赖获取前校验 |
+| `ProjectSetup.cmake` | 编译标准、警告、PIC、sanitizer、内部生成头与导出符号脚本，Operator 壳选择，以及 public/extension/internal 头目标 |
+| `Dependencies.cmake` | 聚合项目依赖；每个依赖独立维护 |
 | `RuntimeGraph.cmake` | 各层依赖与 OBJECT 目标、Backend 能力接线，加载 `src/` |
 | `ProductTargets.cmake` | SDK 产物与版本脚本、输出路径、Demo、CLI 和测试入口 |
 
-开源引擎分别由 `engines/OnnxRuntime.cmake`、`engines/LlamaCpp.cmake` 和
-`engines/WhisperCpp.cmake` 维护，缓存指纹由 `ThirdPartyCacheMetadata.cmake` 共用。
+`cmake_ext/` 根目录只保留上述五个入口，其余文件按职责归类：
+
+| 子目录 | 内容 |
+| :--- | :--- |
+| `engines/` | 推理运行时的依赖接入模块 |
+| `third_party/` | JSON、PCRE2、stb_image、GoogleTest 等通用依赖，以及引擎和通用依赖共用的缓存元数据工具 |
+| `support/` | 构建加速、Operator 壳选择、分层头文件视图，以及与视图模块一起维护的 Node 契约清单 |
+| `templates/` | SDK 导出符号脚本、Demo Profile 字段头等生成文件的输入模板 |
+
+SDK 产物基名统一由 `LLM_EDGEFLOW_SDK_OUTPUT_NAME` 指定，默认 `llm_edgeflow_sdk`。
+迁移到宿主构建时可传入 `-DLLM_EDGEFLOW_SDK_OUTPUT_NAME=host_algorithm`；填写基名，
+不包含目录或平台的 `lib` 前缀、`.so` / `.dylib` / `.dll` 后缀。
+CMake 链接方继续使用 `llm_edgeflow::sdk`，脚本和测试通过目标路径定位产物。
+修改名称后应重新构建并更新宿主的加载路径；旧构建目录中遗留的旧名库不会自动删除。
+
+推理引擎的依赖接入统一放在 `engines/`，包括 ONNX Runtime、llama.cpp、Whisper、Inferlet 和 Kite。
+目录按运行时职责划分，不按作者、仓库公开性或接口来源划分；各模块维护包获取、固定版本、
+校验及编译链接探针，缓存指纹由 `third_party/ThirdPartyCacheMetadata.cmake` 共用。
 Whisper 复用 llama.cpp 的 GGML，因此依赖聚合中先加载 llama.cpp。
-测试依赖 GoogleTest 在测试入口按需加载。中立模块不加载公司模块。根文件负责装配。
+测试依赖 GoogleTest 在测试入口按需加载。根文件负责装配。
 
 当前构建使用 CMake 3.19、预设和现有依赖来源。尚未接入公司 `platform` / `sdk`、
-toolchain、`DH_*` 或镜像规则。公司构建上下文应归 `company/`，不能由中立模块推定。
+toolchain、`DH_*` 或镜像规则；这些宿主构建约定须在授权内网确认，不能由引擎模块推定。
 仅检查组织边界和模块引用可运行：
 
 ```bash
@@ -72,7 +88,7 @@ Engine 的 `backends/` 单独归 Backend 目标。Adapter 的 `shared_algorithm_
 
 | 使用者 | 位置与构建目标 | 约定 |
 | --- | --- | --- |
-| SDK 调用方 | `include/edgeflow/`；`edgeflow_public_headers` | Operator、日志及生成的版本头；只有明确列举的调用头向 SDK 消费方传播 |
+| SDK 调用方 | `include/edgeflow/`；`edgeflow_public_headers` | Operator 和日志接口；只有明确列举的调用头向 SDK 消费方传播 |
 | 源码扩展开发者 | `include/adapter/`、`include/core/`、`include/nodes/`、`include/engine/`、`include/contracts/`；`edgeflow_extension_headers` | Adapter、Node、Model、Backend 的源码接口与共享契约，需要随框架重新编译，不承诺内部 C++ 动态 ABI |
 | 模块实现与仓库测试 | `src/` 中与 `.cpp` 相邻；`edgeflow_internal_headers` | 运行时装配、配置解析、注册表内部及输出池等实现 |
 
@@ -122,7 +138,7 @@ src/adapter/
 ### Operator 壳选择
 
 CMake 缓存变量 `EDGEFLOW_OPERATOR_SHELL`（默认 `mock`）为每个构建选择一套协议壳及其配套
-夹具，由 `cmake_ext/OperatorShell.cmake` 统一处理：
+夹具，由 `cmake_ext/support/OperatorShell.cmake` 统一处理：
 
 | 内容 | 位置 |
 | --- | --- |
@@ -238,12 +254,11 @@ SDK 调用代码使用以下 `edgeflow/` 前缀入口：
 | --- | --- |
 | `edgeflow/export.h` | 符号可见性宏 |
 | `edgeflow/log.h` | 统一日志入口 |
-| `edgeflow/version.h` | 版本头（由 CMake 生成） |
 | `edgeflow/operator/interface.h` | C++ Operator 接口及函数表 |
 | `edgeflow/operator/types.h` | `Company*` 数据 DTO 门面（转发至 `platform_mock/operator_data_types.h`） |
 
-`Company*`、公共宏、C++ Operator 公开函数签名、结构布局及 `libcompany_alg_sdk`
-名称属于调用契约。内部扩展统一使用 `NodeRegistry`。
+`Company*`、公共宏、C++ Operator 公开函数签名、结构布局及所选 SDK 产物名称
+属于调用契约。内部扩展统一使用 `NodeRegistry`。
 
 `edgeflow/operator/types.h` 仅转发 `platform_mock/operator_data_types.h` 中的 `Company*`
 数据 DTO。计算平台、Control 参数、命名 I/O 与函数表类型定义在

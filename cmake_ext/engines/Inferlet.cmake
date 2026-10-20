@@ -1,27 +1,21 @@
-option(ENABLE_INFERLET "Enable the pinned Inferlet CPU release (Linux x86_64/aarch64)" OFF)
 set(LLM_EDGEFLOW_HAS_INFERLET OFF)
 if(NOT ENABLE_INFERLET)
   return()
 endif()
-if(ENABLE_LLAMACPP OR ENABLE_WHISPERCPP)
-  message(FATAL_ERROR
-    "Inferlet bundles llama.cpp/ggml. Use ENABLE_LLAMACPP=OFF and "
-    "ENABLE_WHISPERCPP=OFF to avoid symbol collisions.")
-endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
    CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
   set(_inferlet_platform "x64")
-  set(_inferlet_sha256 "7dd915e4289c608580cbda927a80834cb0fbae56f0e420c450d034660b125701")
+  set(_inferlet_sha256 "3c5e09b43053cc0bddc9ff4c9353be59e810ecf0a41ccd0bb0fed1ddfa77d807")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
        CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
   set(_inferlet_platform "arm")
-  set(_inferlet_sha256 "e5c735c36629d425e89e7086c910fa1af75965b55f5fcfc88df6794202437247")
+  set(_inferlet_sha256 "de7aa0078191e5c4450c057de89206dcb164f5d01892f3b13e6aac83633bf841")
 else()
   message(FATAL_ERROR "Inferlet integration supports Linux x86_64/aarch64 only")
 endif()
 
-include(cmake_ext/ThirdPartyCacheMetadata.cmake)
-set(_inferlet_version "v0.1.0")
+include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
+set(_inferlet_version "v0.1.1")
 set(_inferlet_asset "inferlet-${_inferlet_platform}.tar.gz")
 set(_inferlet_cache "${CMAKE_SOURCE_DIR}/3rdparty/inferlet/${_inferlet_version}/${_inferlet_platform}")
 set(_inferlet_archive "${_inferlet_cache}/${_inferlet_asset}")
@@ -65,7 +59,7 @@ configure_file("${_inferlet_marker}" "${_inferlet_cache}/.edgeflow-cache-fingerp
 set(_inferlet_root "${_inferlet_extract}/inferlet-${_inferlet_platform}")
 unset(Inferlet_DIR CACHE)
 set(Inferlet_DIR "${_inferlet_root}/lib/cmake/Inferlet")
-find_package(Inferlet 0.1.0 EXACT CONFIG REQUIRED
+find_package(Inferlet 0.1.1 EXACT CONFIG REQUIRED
   PATHS "${Inferlet_DIR}" NO_DEFAULT_PATH)
 get_target_property(_inferlet_library Inferlet::Inferlet IMPORTED_LOCATION_RELEASE)
 if(NOT _inferlet_library STREQUAL "${_inferlet_root}/lib/libinferlet.a")

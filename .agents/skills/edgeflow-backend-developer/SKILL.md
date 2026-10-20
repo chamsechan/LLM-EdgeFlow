@@ -45,7 +45,7 @@ BatchPolicy 决定；测试后端仅支持 `kFixture`，`fixed_batch_size=0` 使
   只以 `PRIVATE` 提供给 Backend OBJECT。最终 SDK/内部运行时通过 `LINK_ONLY` 保留
   必要传递链接，不把 vendor include 或宏扩散到上层。
 - 新增 vendor 时同步 `scripts/check_layer_dependencies.py` 的所属 Backend 规则、
-  `cmake_ext/LayerHeaderViews.cmake` 与相应编译探针；沿用现有构建开关和启用/关闭注册规则。
+  `cmake_ext/support/LayerHeaderViews.cmake` 与相应编译探针；沿用现有构建开关和启用/关闭注册规则。
   测试确需宏时仅向相关测试 target 显式 PRIVATE 提供。
 
 ## 验证可执行边界
