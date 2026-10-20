@@ -36,42 +36,44 @@ class DemoCarrierTest : public ::testing::Test {
 TEST_F(DemoCarrierTest, CarrierStorageRetainsTrimmedUtf8AcrossBatchMoves) {
   DemoOptions options;
   options.dataset_path = dataset.string();
-  auto builder =
-      DemoIoRegistry::Instance().FindInput("CompanyOperatorKeywordInput");
+  auto builder = DemoIoRegistry::Instance().FindInput("MockInput");
   ASSERT_NE(builder, nullptr);
   llm_edgeflow::operator_api::OperatorIoEntry input;
   input.type = "keyword_in";
-  input.service_type = 123;
+  input.name = "keyword_match";
   DemoRequestBatch batch;
   ASSERT_EQ(builder(options, {input}, &batch), 0);
   ASSERT_EQ(batch.requests.size(), 3u);
   auto moved = std::move(batch);
   ASSERT_NE(moved.storage, nullptr);
-  const auto* first = static_cast<const CompanyOperatorKeywordInput*>(
-      moved.requests[0].at("demo.keyword_in").get());
-  ASSERT_NE(first, nullptr);
-  EXPECT_EQ(first->service_type, 123);
-  EXPECT_EQ(
-      std::string(first->sentence_text->data, first->sentence_text->length),
-      "初始化完成");
-  const auto* second = static_cast<const CompanyOperatorKeywordInput*>(
-      moved.requests[1].at("demo.keyword_in").get());
-  EXPECT_EQ(
-      std::string(second->sentence_text->data, second->sentence_text->length),
-      "ordinary text");
+  const auto text = [&](size_t row) {
+    const auto* root = static_cast<const MockInput*>(
+        moved.requests[row].at("demo.keyword_in").get());
+    EXPECT_EQ(root->byte_size, static_cast<int32_t>(sizeof(MockInput)));
+    EXPECT_EQ(root->type, kMockInputMultidata);
+    EXPECT_EQ(root->num_frame, 1);
+    EXPECT_EQ(root->data_pool->byte_size,
+              static_cast<int32_t>(sizeof(MockDataPool)));
+    EXPECT_EQ(root->data_pool->data_type, kMockDataText);
+    const auto* leaf =
+        static_cast<const MockTextInput*>(root->data_pool->data_ptr);
+    EXPECT_EQ(leaf->byte_size, static_cast<int32_t>(sizeof(MockTextInput)));
+    return std::string(leaf->value, leaf->length);
+  };
+  EXPECT_EQ(text(0), "初始化完成");
+  EXPECT_EQ(text(1), "ordinary text");
 }
 
 TEST_F(DemoCarrierTest, JsonDisplayCopiesExactSdkDocumentBeforeCarrierReuse) {
-  auto show = DemoIoRegistry::Instance().FindOutput("CompanyOperatorOutput");
+  auto show = DemoIoRegistry::Instance().FindOutput("MockOutput");
   ASSERT_NE(show, nullptr);
   std::string bytes =
       R"({"unknown":[false,0,{"unicode":"中文"}],"text":"  keep\n  "})";
-  CompanyString text{static_cast<int32_t>(bytes.size()), bytes.data()};
-  CompanyOperatorOutput carrier{0, &text, -17};
+  MockTextOutput text{sizeof(MockTextOutput), bytes.data(),
+                      static_cast<int32_t>(bytes.size())};
+  MockOutput carrier{sizeof(MockOutput), kMockOutputOc, 0, &text};
   Json copied;
-  int32_t status = 0;
-  show(&carrier, Json::object(), &status, &copied);
-  EXPECT_EQ(status, -17);
+  show(&carrier, Json::object(), &copied);
   EXPECT_EQ(copied, Json::parse(bytes));
   bytes.assign(bytes.size(), 'x');
   EXPECT_EQ(copied["unknown"][2]["unicode"], "中文");

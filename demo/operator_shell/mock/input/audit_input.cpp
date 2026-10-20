@@ -31,9 +31,9 @@ int BuildAuditRequests(
   struct Storage {
     std::vector<std::string> channels;
     std::vector<std::string> dialogues;
-    std::vector<CompanyString> channel_strs;
-    std::vector<CompanyString> dialogue_strs;
-    std::vector<CompanyOperatorAuditInput> carriers;
+    std::vector<MockString> channel_strs;
+    std::vector<MockString> dialogue_strs;
+    std::vector<MockAuditInput> carriers;
   };
   auto storage = std::make_shared<Storage>();
   storage->channels = sections["CHANNEL"];
@@ -89,7 +89,7 @@ int BuildAuditRequests(
   return 0;
 }
 
-REGISTER_DEMO_INPUT("CompanyOperatorAuditInput", BuildAuditRequests);
+REGISTER_DEMO_INPUT("MockAuditInput", BuildAuditRequests);
 
 }  // namespace
 }  // namespace alg_demo

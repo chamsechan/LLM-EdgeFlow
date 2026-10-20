@@ -71,14 +71,14 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 }
 ```
 
-当前八类业务统一使用 `json_out` 输出类型与 `CompanyOperatorOutput` C 结构，
-`name` 选择各业务的 JSON 响应契约。完整结果放在 `result_json`，状态放在 `status_code`。
+当前八类业务统一使用 `json_out` 输出类型与 `MockOutput` C 结构，
+`name` 选择各业务的 JSON 响应契约。完整结果放在嵌套的 `MockTextOutput`，输出结构不暴露状态码。
 可选 `params` 只填写必要覆盖，未写字段用代码声明的默认值。统一输出只有
 `result_json_max_bytes` 容量参数，默认值与上限见[输出容量声明](../doc/dev_guide/operator_output_allocation.md#选择转换器与参数)，例如
 `"params":{"result_json_max_bytes":16383}`。分配器、布局参数和 metadata 固定在登记，不由配置选择。
 参数在 Create 中解析、Prepare、Validate，生效值来自 Prepare 后的声明成员。
-可选输出也总是有池。宿主可按行省略 key。重复载体 type 的项使用 `name.type` 宿主 key，
-唯一 type 继续接受任意非空前缀。有效 Process 批次上限为 `min(max_frame_depth, 64)`。
+可选输出也总是有池。宿主可按行省略 key。宿主 key 固定为 `<prefix>.<type>`，prefix 由宿主生成、
+非空且不含 `.`；同一方向内每种 type 至多选用一次。有效 Process 批次上限为 `min(max_frame_depth, 64)`。
 
 `validate` / `plan` 与 Operator 共用接入准备和 Core 校验入口。
 读取 `FILE` 时，模型文件以该文件的父目录解析。`--stdin` 没有相对模型文件的目录基准。

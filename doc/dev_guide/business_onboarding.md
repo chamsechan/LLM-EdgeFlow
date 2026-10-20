@@ -78,15 +78,15 @@ Catalog 的端口描述内部数据。外部格式以转换器契约为准。
 | 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 完整请求业务校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
 | 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、完整响应组装及 `REGISTER_OUTPUT_CONVERTER` |
 | 平台 binding | [operator_builtin_value_types.cpp](../../src/adapter/operator/mock/operator_builtin_value_types.cpp)、[platform_value_binding.h](../../include/adapter/operator/mock/platform_value_binding.h) | 模拟平台的类型、traits、布局读写及内存管理；其他平台使用自己的 binding 文件，复用 Converter 的中立值，见[实现与注册](operator_output_allocation.md#实现与注册) |
-| Demo 载体与展示 | [keyword_input.cpp](../../demo/operator_shell/mock/input/keyword_input.cpp)、[json_output.cpp](../../demo/operator_shell/mock/output/json_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
+| Demo 载体与展示 | [text_input.cpp](../../demo/operator_shell/mock/input/text_input.cpp)、[json_output.cpp](../../demo/operator_shell/mock/output/json_output.cpp) | 复用同一宿主结构的构造与展示；新载体组合才补输入登记，新输出结构才补展示登记 |
 | 构建与部署 | [Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 新增 `.cpp` 自动编入；编排业务端口，配置路径和输出容量 |
 
 配置作者在根 `io.input` / `io.output` 填写所选载体 `type` 和业务 `name`。
 关键词例子分别为 `keyword_in/keyword_match` 与 `json_out/keyword_match`。
 Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应构造和展示代码。
 
-现有业务输出复用 `json_out`：`CompanyOperatorOutput.result_json` 保存完整 JSON，
-`status_code` 保存状态。具体字段见对应输出转换器。
+现有业务输出复用 `json_out`：`MockOutput.text` 指向的池化 `MockTextOutput` 保存完整 JSON，
+输出结构不暴露状态码。具体字段见对应输出转换器。
 
 ### 参考实现与测试
 
@@ -164,7 +164,7 @@ Demo 可从文件构造像素帧，Model 负责预处理。真实 SDK 的字段�
 1. 在所选壳夹具的 `demo/operator_shell/<shell>/input/` 实现 `BuildRequestsFn`，用 `REGISTER_DEMO_INPUT` 登记输入结构组合。
    组合顺序来自 SDK 的 `ResolveOperatorConfigIo` 预检。`DemoRequestBatch.storage` 持有运行期间所需缓冲区。
 2. 在同一夹具的 `output/` 实现 `ShowResultFn`，用 `REGISTER_DEMO_OUTPUT` 登记输出结构。
-   复制 SDK 的实际状态和结果，业务字段选择与响应组装由转换器完成。
+   复制 SDK 输出结构中的结果，业务字段选择与响应组装由转换器完成。
 3. 公共 runner 负责调用、输出复制和租约归还。两个目录的 `.cpp` 自动编入。
    运行后检查 `results.jsonl` 中的逐条状态及 `summary.json`。
 

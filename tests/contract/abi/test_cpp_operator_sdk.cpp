@@ -42,10 +42,10 @@ bool Check(bool condition, const char* operation) {
 
 bool CopyResult(ConsumerSession& session, const api::OperatorIoContract& io,
                 const std::string& text, std::string* copied) {
-  CompanyString bytes{static_cast<int32_t>(text.size()),
-                      const_cast<char*>(text.data())};
-  CompanyOperatorKeywordInput carrier{
-      io.inputs.front().service_type.value_or(0), &bytes};
+  MockTextInput leaf{sizeof(MockTextInput), text.data(),
+                     static_cast<int32_t>(text.size())};
+  MockDataPool pool{sizeof(MockDataPool), kMockDataText, &leaf};
+  MockInput carrier{sizeof(MockInput), kMockInputMultidata, 1, &pool};
   api::NamedIoBatch inputs(1), outputs(1);
   inputs[0]["client.keyword_in"] = api::MakeBorrowedOperatorInput(&carrier);
   outputs[0]["client.json_out"] = {};
@@ -54,12 +54,12 @@ bool CopyResult(ConsumerSession& session, const api::OperatorIoContract& io,
     return false;
   const auto& slot = outputs[0].at("client.json_out");
   if (!Check(static_cast<bool>(slot), "published output")) return false;
-  const auto* result = static_cast<const CompanyOperatorOutput*>(slot.get());
-  if (!Check(result->status_code == 0 && result->result_json &&
-                 result->result_json->data && result->result_json->length > 0,
+  const auto* result = static_cast<const MockOutput*>(slot.get());
+  if (!Check(result->type == kMockOutputOc && result->text &&
+                 result->text->value && result->text->length > 0,
              "complete response carrier"))
     return false;
-  copied->assign(result->result_json->data, result->result_json->length);
+  copied->assign(result->text->value, result->text->length);
   // The host copies bytes before returning the pool lease, then destroys
   // safely.
   outputs.clear();

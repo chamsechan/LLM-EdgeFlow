@@ -39,8 +39,8 @@ int BuildImageQueryRequests(
     std::string image;
     std::string prompt;
     std::vector<uint8_t> pixels;
-    CompanyFrame frame{};
-    CompanyString prompt_str{};
+    MockFrameInput frame{};
+    MockString prompt_str{};
   };
   auto storage = std::make_shared<Storage>();
   if (!sections["IMAGE"].empty()) storage->image = sections["IMAGE"][0];
@@ -116,7 +116,7 @@ int BuildImageQueryRequests(
   return 0;
 }
 
-REGISTER_DEMO_INPUT("CompanyFrame,CompanyString", BuildImageQueryRequests);
+REGISTER_DEMO_INPUT("MockFrameInput,MockString", BuildImageQueryRequests);
 
 }  // namespace
 }  // namespace alg_demo

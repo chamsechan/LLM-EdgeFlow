@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -16,6 +17,7 @@
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
+#include "tests/support/mock_text_carrier.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -283,7 +285,7 @@ Json Pipeline(const char* business, Json inputs, Json outputs, Json nodes,
           {"pipeline", std::move(nodes)},
           {"models", std::move(models)}};
 }
-CompanyString Borrow(std::string& value) {
+MockString Borrow(std::string& value) {
   return {static_cast<int32_t>(value.size()), value.data()};
 }
 
@@ -311,7 +313,7 @@ class BusinessResponsesTest : public ::testing::Test {
       EXPECT_FALSE(error) << error.message();
     }
   }
-  void Create(Json pipeline) {
+  void Create(Json pipeline, uint32_t depth = 2) {
     std::ofstream(directory_ / "pipeline.json") << pipeline.dump(2);
     std::ofstream(directory_ / "deploy.conf")
         << R"({"pipe_path":"pipeline.json"})";
@@ -321,7 +323,7 @@ class BusinessResponsesTest : public ::testing::Test {
     create.model_path = model_root.c_str();
     create.cfg_file_name = "deploy.conf";
     create.compute_platform = api::ComputePlatform::kCpu;
-    create.max_frame_depth = 2;
+    create.max_frame_depth = depth;
     ASSERT_EQ(ops_.Create(&handle_, &create), 0) << api::GetOperatorLastError();
     ASSERT_NE(handle_, nullptr);
   }
@@ -338,16 +340,12 @@ class BusinessResponsesTest : public ::testing::Test {
       SCOPED_TRACE(i);
       ASSERT_EQ(outputs_[i].size(), 1u);
       const auto* response =
-          static_cast<const CompanyOperatorOutput*>(outputs_[i].at(key).get());
+          static_cast<const MockOutput*>(outputs_[i].at(key).get());
       ASSERT_NE(response, nullptr);
       EXPECT_EQ(response->service_type, service);
-      EXPECT_EQ(response->status_code, 0);
-      ASSERT_NE(response->result_json, nullptr);
-      ASSERT_NE(response->result_json->data, nullptr);
-      ASSERT_GT(response->result_json->length, 0);
-      EXPECT_EQ(Json::parse(std::string(response->result_json->data,
-                                        response->result_json->length)),
-                expected[i]);
+      const auto text = test_support::MockOutputText(response);
+      ASSERT_FALSE(text.empty());
+      EXPECT_EQ(Json::parse(text), expected[i]);
     }
     outputs_.clear();
   }
@@ -369,15 +367,62 @@ TEST_F(BusinessResponsesTest,
                       {{"译:hello", "你好"}, {"译:goodbye", "再见"}}}})}));
   std::array<std::string, 2> raw{R"({"query":"hello","unused":"goodbye"})",
                                  R"({"query":"goodbye","unused":"hello"})"};
-  std::array<CompanyString, 2> text{Borrow(raw[0]), Borrow(raw[1])};
-  std::array<CompanyOperatorEntityInput, 2> requests{
-      {{kMockServiceTranslate, &text[0]}, {kMockServiceTranslate, &text[1]}}};
+  test_support::MockTextCarrier requests[]{
+      test_support::MockTextCarrier(raw[0]),
+      test_support::MockTextCarrier(raw[1])};
   api::NamedIoBatch inputs(2);
-  for (size_t i = 0; i < requests.size(); ++i)
+  for (size_t i = 0; i < std::size(requests); ++i)
     inputs[i]["request.entity_in"] =
-        api::MakeBorrowedOperatorInput(&requests[i]);
+        api::MakeBorrowedOperatorInput(&requests[i].root);
   Check(inputs, kMockServiceTranslate,
         {Json{{"translated", "你好"}}, Json{{"translated", "再见"}}});
+}
+
+TEST_F(BusinessResponsesTest,
+       CapacityOverflowInAnyRowPublishesNoOutputAndReturnsAllLeases) {
+  auto pipeline =
+      Pipeline("translate", {"entity_in"}, {{"translation", "prompt.text"}},
+               {Node("text_template", "prompt", {{"primary", "input.query"}},
+                     {{"template", "{{primary}}"}})},
+               Json::array());
+  // {"translated":"xx"} 为 19 字节；第 3 行的结果超过容量。
+  pipeline["io"]["output"][0]["params"] = {{"result_json_max_bytes", 20}};
+  Create(std::move(pipeline), 3);
+  std::array<std::string, 3> raw{R"({"query":"a"})", R"({"query":"b"})",
+                                 R"({"query":"too long"})"};
+  test_support::MockTextCarrier requests[]{
+      test_support::MockTextCarrier(raw[0]),
+      test_support::MockTextCarrier(raw[1]),
+      test_support::MockTextCarrier(raw[2])};
+  api::NamedIoBatch inputs(3);
+  for (size_t i = 0; i < std::size(requests); ++i)
+    inputs[i]["host_0.entity_in"] =
+        api::MakeBorrowedOperatorInput(&requests[i].root);
+  const std::string key = "host_0.json_out";
+  outputs_ = api::NamedIoBatch(3);
+  for (auto& row : outputs_) row[key] = nullptr;
+  EXPECT_NE(ops_.Process(handle_, inputs, outputs_), 0);
+  ASSERT_EQ(outputs_.size(), 3u);
+  for (size_t i = 0; i < outputs_.size(); ++i) {
+    SCOPED_TRACE(i);
+    ASSERT_EQ(outputs_[i].size(), 1u);
+    EXPECT_EQ(outputs_[i].at(key), nullptr);
+  }
+
+  // 全部租约已回滚：同一深度下三行可再次成功写满，且旧内容已清空。
+  test_support::MockTextCarrier retry(R"({"query":"c"})");
+  inputs[2]["host_0.entity_in"] = api::MakeBorrowedOperatorInput(&retry.root);
+  for (auto& row : outputs_) row[key] = nullptr;
+  ASSERT_EQ(ops_.Process(handle_, inputs, outputs_), 0)
+      << api::GetOperatorLastError();
+  const char* expected[] = {"a", "b", "c"};
+  for (size_t i = 0; i < outputs_.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_EQ(
+        Json::parse(test_support::MockOutputText(outputs_[i].at(key).get())),
+        (Json{{"translated", expected[i]}}));
+  }
+  outputs_.clear();
 }
 
 TEST_F(BusinessResponsesTest,
@@ -388,13 +433,13 @@ TEST_F(BusinessResponsesTest,
                   Json::array()));
   std::array<std::string, 2> raw{R"({"query":"hello"})",
                                  R"({"query":"goodbye"})"};
-  std::array<CompanyString, 2> text{Borrow(raw[0]), Borrow(raw[1])};
-  std::array<CompanyOperatorEntityInput, 2> requests{
-      {{kMockServiceTranslate, &text[0]}, {kMockServiceTranslate, &text[1]}}};
+  test_support::MockTextCarrier requests[]{
+      test_support::MockTextCarrier(raw[0]),
+      test_support::MockTextCarrier(raw[1])};
   api::NamedIoBatch inputs(2);
-  for (size_t i = 0; i < requests.size(); ++i)
+  for (size_t i = 0; i < std::size(requests); ++i)
     inputs[i]["request.entity_in"] =
-        api::MakeBorrowedOperatorInput(&requests[i]);
+        api::MakeBorrowedOperatorInput(&requests[i].root);
   Check(
       inputs, kMockServiceTranslate,
       {Json{{"translated", "old=hello"}}, Json{{"translated", "old=goodbye"}}});
@@ -439,14 +484,13 @@ TEST_F(BusinessResponsesTest,
              {"实体:上海公司",
               R"({"entities":[{"name":"上海","type":"place"}],"source":"company"})"}}}})}));
   std::array<std::string, 2> raw{"张三在北京", "上海公司"};
-  std::array<CompanyString, 2> text{Borrow(raw[0]), Borrow(raw[1])};
-  std::array<CompanyOperatorEntityInput, 2> requests{
-      {{kMockServiceEntityExtract, &text[0]},
-       {kMockServiceEntityExtract, &text[1]}}};
+  test_support::MockTextCarrier requests[]{
+      test_support::MockTextCarrier(raw[0]),
+      test_support::MockTextCarrier(raw[1])};
   api::NamedIoBatch inputs(2);
-  for (size_t i = 0; i < requests.size(); ++i)
+  for (size_t i = 0; i < std::size(requests); ++i)
     inputs[i]["request.entity_in"] =
-        api::MakeBorrowedOperatorInput(&requests[i]);
+        api::MakeBorrowedOperatorInput(&requests[i].root);
   Check(
       inputs, kMockServiceEntityExtract,
       {Json::parse(
@@ -489,10 +533,9 @@ TEST_F(BusinessResponsesTest,
                R"({"risk_level":"HIGH_RISK","risk_score":0.75,"verdict":"禁止索取密码"})"}}}})}));
   std::array<std::string, 2> raw{"退款", "密码"};
   std::array<std::string, 2> channels{"web", "phone"};
-  std::array<CompanyString, 2> text{Borrow(raw[0]), Borrow(raw[1])};
-  std::array<CompanyString, 2> channel{Borrow(channels[0]),
-                                       Borrow(channels[1])};
-  std::array<CompanyOperatorAuditInput, 2> requests{
+  std::array<MockString, 2> text{Borrow(raw[0]), Borrow(raw[1])};
+  std::array<MockString, 2> channel{Borrow(channels[0]), Borrow(channels[1])};
+  std::array<MockAuditInput, 2> requests{
       {{kMockServiceDialogueAudit, &text[0], &channel[0]},
        {kMockServiceDialogueAudit, &text[1], &channel[1]}}};
   api::NamedIoBatch inputs(2);
@@ -536,9 +579,9 @@ TEST_F(BusinessResponsesTest,
                                            {"文档:BBBB|BBBB", "乙答案"}}}})}));
   std::array<std::string, 2> docs{"AAAA", "BBBBCCCC"};
   std::array<std::string, 2> queries{"AAAA", "BBBB"};
-  std::array<CompanyString, 2> doc{Borrow(docs[0]), Borrow(docs[1])};
-  std::array<CompanyString, 2> query{Borrow(queries[0]), Borrow(queries[1])};
-  std::array<CompanyOperatorDocInput, 2> requests{
+  std::array<MockString, 2> doc{Borrow(docs[0]), Borrow(docs[1])};
+  std::array<MockString, 2> query{Borrow(queries[0]), Borrow(queries[1])};
+  std::array<MockDocInput, 2> requests{
       {{kMockServiceDocQa, &doc[0], &query[0]},
        {kMockServiceDocQa, &doc[1], &query[1]}}};
   api::NamedIoBatch inputs(2);
@@ -574,12 +617,11 @@ TEST_F(BusinessResponsesTest,
                        {"发票:问乙|编号22",
                         R"({"invoice_number":"22","amount":25.0})"}}}})}));
   std::array<std::array<uint8_t, 3>, 2> pixels{{{11, 1, 2}, {22, 3, 4}}};
-  std::array<CompanyFrame, 2> frames{
+  std::array<MockFrameInput, 2> frames{
       {{kMockServiceOcrInvoiceQa, 1, 1, 3, pixels[0].data(), nullptr},
        {kMockServiceOcrInvoiceQa, 1, 1, 3, pixels[1].data(), nullptr}}};
   std::array<std::string, 2> questions{"问甲", "问乙"};
-  std::array<CompanyString, 2> query{Borrow(questions[0]),
-                                     Borrow(questions[1])};
+  std::array<MockString, 2> query{Borrow(questions[0]), Borrow(questions[1])};
   api::NamedIoBatch inputs(2);
   for (size_t i = 0; i < frames.size(); ++i) {
     inputs[i]["request.frame"] = api::MakeBorrowedOperatorInput(&frames[i]);
@@ -611,7 +653,7 @@ TEST_F(BusinessResponsesTest,
       {Model("asr")}));
   std::array<std::vector<float>, 2> pcm{std::vector<float>(1600, 0.25f),
                                         std::vector<float>(1600, 0.5f)};
-  std::array<CompanyOperatorAudioInput, 2> requests{
+  std::array<MockAudioInput, 2> requests{
       {{kMockServiceAudioAsrIntent, pcm[0].data(), 1600, 16000},
        {kMockServiceAudioAsrIntent, pcm[1].data(), 1600, 16000}}};
   api::NamedIoBatch inputs(2);
@@ -637,11 +679,11 @@ TEST_F(BusinessResponsesTest,
   std::array<std::string, 2> queries{"甲", "乙"};
   std::array<std::array<std::string, 2>, 2> candidates{
       {{"无关", "甲说明"}, {"乙说明", "无关"}}};
-  std::array<CompanyString, 2> query{Borrow(queries[0]), Borrow(queries[1])};
-  std::array<std::array<CompanyString, 2>, 2> passages{
+  std::array<MockString, 2> query{Borrow(queries[0]), Borrow(queries[1])};
+  std::array<std::array<MockString, 2>, 2> passages{
       {{Borrow(candidates[0][0]), Borrow(candidates[0][1])},
        {Borrow(candidates[1][0]), Borrow(candidates[1][1])}}};
-  std::array<CompanyOperatorRerankInput, 2> requests{};
+  std::array<MockRerankInput, 2> requests{};
   api::NamedIoBatch inputs(2);
   for (size_t i = 0; i < requests.size(); ++i) {
     requests[i].service_type = kMockServiceCrossRerank;

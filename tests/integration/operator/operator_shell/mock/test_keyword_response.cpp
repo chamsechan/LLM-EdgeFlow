@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <deque>
 #include <nlohmann/json.hpp>
 #include <string>
 
 #include "edgeflow/operator/interface.h"
+#include "tests/support/mock_text_carrier.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -36,14 +38,11 @@ TEST_F(KeywordResponseTest, CompleteRowsAndUpdatedRulesUseTheRealPipeline) {
   ASSERT_NE(handle_, nullptr);
 
   std::array<std::string, 3> texts{"执行初始化", "普通查询", "先自检再初始化"};
-  std::array<CompanyString, 3> strings;
-  std::array<CompanyOperatorKeywordInput, 3> requests;
+  std::deque<test_support::MockTextCarrier> requests;
   api::NamedIoBatch inputs(3);
   for (size_t i = 0; i < texts.size(); ++i) {
-    strings[i] = {static_cast<int32_t>(texts[i].size()), texts[i].data()};
-    requests[i] = {kMockServiceKeywordMatch, &strings[i]};
     inputs[i]["keyword.keyword_in"] =
-        api::MakeBorrowedOperatorInput(&requests[i]);
+        api::MakeBorrowedOperatorInput(&requests.emplace_back(texts[i]).root);
   }
   const std::array<Json, 3> expected = {
       Json{{"is_hit", 1},
@@ -75,15 +74,11 @@ TEST_F(KeywordResponseTest, CompleteRowsAndUpdatedRulesUseTheRealPipeline) {
     ASSERT_EQ(outputs_.size(), expected.size());
     for (size_t i = 0; i < expected.size(); ++i) {
       SCOPED_TRACE(i);
-      const auto* value = static_cast<const CompanyOperatorOutput*>(
+      const auto* value = static_cast<const MockOutput*>(
           outputs_[i].at("keyword.json_out").get());
       ASSERT_NE(value, nullptr);
       EXPECT_EQ(value->service_type, kMockServiceKeywordMatch);
-      EXPECT_EQ(value->status_code, 0);
-      ASSERT_NE(value->result_json, nullptr);
-      EXPECT_EQ(Json::parse(std::string(value->result_json->data,
-                                        value->result_json->length)),
-                expected[i]);
+      EXPECT_EQ(Json::parse(test_support::MockOutputText(value)), expected[i]);
     }
     outputs_.clear();
   }
@@ -97,12 +92,10 @@ TEST_F(KeywordResponseTest, CompleteRowsAndUpdatedRulesUseTheRealPipeline) {
   for (auto& row : outputs_) row["keyword.json_out"] = nullptr;
   ASSERT_EQ(ops_.Process(handle_, inputs, outputs_), 0)
       << api::GetOperatorLastError();
-  const auto* changed = static_cast<const CompanyOperatorOutput*>(
-      outputs_[2].at("keyword.json_out").get());
-  ASSERT_NE(changed, nullptr);
-  ASSERT_NE(changed->result_json, nullptr);
-  EXPECT_EQ(Json::parse(std::string(changed->result_json->data,
-                                    changed->result_json->length)),
+  const auto changed =
+      test_support::MockOutputText(outputs_[2].at("keyword.json_out").get());
+  ASSERT_FALSE(changed.empty());
+  EXPECT_EQ(Json::parse(changed),
             (Json{{"is_hit", 1},
                   {"intent", "UPDATED"},
                   {"confidence", 1.0},

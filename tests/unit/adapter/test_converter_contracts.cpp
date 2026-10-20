@@ -321,16 +321,17 @@ TEST(ConverterIndexTest, RankedResultsAllowUniqueChildrenAndRequireEachAnchor) {
   }
 }
 
-TEST(ConverterKeyTest, LastDotSeparatesSuffixFromNonemptyNamespace) {
+TEST(ConverterKeyTest, KeyIsExactlyNonemptyPrefixDotType) {
   std::string prefix;
   std::string suffix;
-  ASSERT_TRUE(OperatorValueTypeRegistry::ParseKey("tenant.camera.entity_in",
-                                                  &prefix, &suffix));
-  EXPECT_EQ(prefix, "tenant.camera");
+  ASSERT_TRUE(OperatorValueTypeRegistry::ParseKey("host_0.entity_in", &prefix,
+                                                  &suffix));
+  EXPECT_EQ(prefix, "host_0");
   EXPECT_EQ(suffix, "entity_in");
   for (const std::string& key :
        {std::string(), std::string("entity_in"), std::string(".entity_in"),
-        std::string("tenant.")}) {
+        std::string("tenant."), std::string("tenant.camera.entity_in"),
+        std::string("host_0..entity_in")}) {
     EXPECT_FALSE(OperatorValueTypeRegistry::ParseKey(key, &prefix, &suffix));
   }
 }

@@ -25,18 +25,27 @@ Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。输入项只
 ```
 
 `.conf` 只包含 `{"pipe_path":"pipeline.json"}`。普通业务复用已登记的结构和转换器，仅覆盖必要参数。
-当前八类业务使用同一 `json_out` 类型，绑定到 `CompanyOperatorOutput` C 结构：
+当前八类业务使用同一 `json_out` 类型，绑定到 `MockOutput` C 结构：
 
 ```c
-typedef struct CompanyOperatorOutput {
+typedef struct MockTextOutput {
+  int32_t byte_size;
+  char* value;
+  int32_t length;
+} MockTextOutput;
+
+typedef struct MockOutput {
+  int32_t byte_size;
+  int32_t type;  // kMockOutputOc
   int32_t service_type;
-  CompanyString* result_json;
-  int32_t status_code;
-} CompanyOperatorOutput;
+  MockTextOutput* text;
+} MockOutput;
 ```
 
-`result_json` 承载完整业务响应 JSON，`name` 决定字段契约。状态只在结构的 `status_code` 中。
-对应中立值为 `JsonOutputValue`，包含 `std::string result_json` 与 `int32_t status_code`。
+`text` 承载完整业务响应 JSON，`name` 决定字段契约。对应中立值为 `JsonOutputValue`；其中
+`status_code` 只是内部中立值，不写入外部输出结构。每个池化 block 同时持有 root、嵌套
+`MockTextOutput` 和 `result_json_max_bytes + 1` 字节的字符缓冲区，容量不出现在结构中。
+复用前清空 `length` 与首字节；写入前校验 root/嵌套布局，结果超过容量直接失败，不写入部分内容。
 统一输出使用 [`JsonOutputParameters()`](../../include/adapter/json_output_parameters.h) 声明
 `result_json_max_bytes`，默认 8191 字节，范围 1–65536。
 如果新增输出结构，用整数参数 `<field>_max_bytes` 声明每个字符串的容量。最小值为 1。
@@ -63,15 +72,17 @@ Pipeline 配置。另一种布局或固定参数需要另一份转换器登记�
 
 ## 宿主 key 和多项配对
 
-同一方向只有一项使用某个 `type` 时，key 可以采用任意非空前缀，例如 `camera.doc_in`。
-多项复用同一种载体时，key 必须为 `name.type`，例如 `entity_extract.json_out` 和
-`translate.json_out`。初始为空的输出指针因此也有明确对应关系。
+key 是宿主路由协议，固定为 `<prefix>.<type>`，例如 `host_0.entity_in`、`host_0.json_out`。
+prefix 由宿主生成，非空且不含 `.`；Runtime 只校验格式，不解读也不合成 prefix。
+同一方向内每种 `type` 至多选用一次，重复 type（即使 `name` 不同）在 Prepare 中以
+`DUPLICATE_IO_ENTRY` 拒绝，因此初始为空的输出指针只按 type 即可唯一路由。
 
 `Process` 要求 `inputs.size() == outputs.size()`。各输入槽按批内行号配对，结果写回
 同一 `outputs[i]`。载体不需要请求 ID 字段。图像 `index` 是帧序号，不用于请求关联。
 内部 `TraceableItem.req_id` 仍为批内行号，`sub_id` 标记拆分结果。输出按此来源还原行序，
-重复、缺失和越界来源仍会被拒绝。binding 的 `services` 将非 common 业务名映射到该结构的实际枚举，
-Process 在解码前核对 `service_type`，不一致整批失败，诊断包含结构名、行号与期望值。
+重复、缺失和越界来源仍会被拒绝。binding 的 `services` 将非 common 业务名映射到该结构的实际枚举。声明了 `service_type`
+成员的载体由 Process 在解码前核对，不一致整批失败，诊断包含结构名、行号与期望值；
+文本 envelope `MockInput` 不带该成员，也不声明 `services`。
 图片和问题可以分别由两份登记发布不同逻辑端口，无需共同的 ID 字段。
 
 ## 实现与注册
@@ -82,8 +93,8 @@ Process 在解码前核对 `service_type`，不一致整批失败，诊断包含
 平台 binding 与转换器登记，Operator 中央分发无需新增业务或结构分支。
 
 当前模拟平台的结构在
-[`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)，traits、字符串和
-metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/operator/mock/platform_value_binding.h)，
+[`operator_data_types.h`](../../include/platform_mock/operator_data_types.h)，traits、文本输入校验、
+池化文本和 metadata 布局 helper 在 [`platform_value_binding.h`](../../include/adapter/operator/mock/platform_value_binding.h)，
 binding 在 [`operator_builtin_value_types.cpp`](../../src/adapter/operator/mock/operator_builtin_value_types.cpp)。
 其他平台使用自己的 binding 文件：核对真实类型、成员、长度单位、枚举与所有权，并连接
 [`io_values.h`](../../include/adapter/io_values.h) 中内容语义相同的自有值。平台类型和成员访问只存在于
@@ -99,8 +110,8 @@ binding 实现。Converter 不包含平台头文件，不把宿主指针转成�
 Converter 用 `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` 声明中立 `value_type`，
 Init 检查该类型与 binding 是否一致。宿主结构名由 binding 提供。
 
-以下以当前模拟平台的池化字符串 helper 为例。假设宿主 `SummaryOutput` 有
-`CompanyString* summary` 和标量 `status`，在平台 binding 的声明处写：
+以下以当前模拟平台的池化文本 helper 为例。假设宿主 `SummaryOutput` 有
+`MockTextOutput* summary` 和标量 `status`，在平台 binding 的声明处写：
 
 ```cpp
 DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
@@ -127,7 +138,7 @@ SetOutputValue<SummaryOutput, SummaryOutputValue>(
     &binding, [](SummaryOutput& output, const SummaryOutputValue& value,
                  const ResolvedOutputPoolSpec& spec) {
       std::string error;
-      const int code = CopyToOperatorString(
+      const int code = CopyToMockTextOutput(
           value.summary, output.summary, spec.capacities.at("summary"),
           "summary", &error);
       if (code != 0) return AdapterStatus(code, std::move(error), "summary");
@@ -137,8 +148,9 @@ SetOutputValue<SummaryOutput, SummaryOutputValue>(
 RegisterOperatorValueType(binding);
 ```
 
-`CopyToOperatorString` 和 `MakePooledOutputBinding` 是当前模拟平台的 helper，真实平台按自己的
-字符串表示及分配接口实现相同 binding 回调。Converter 只为 `SummaryOutputValue::summary`
+`CopyToMockTextOutput` 和 `MakePooledOutputBinding` 是当前模拟平台的 helper，真实平台按自己的
+字符串表示及分配接口实现相同 binding 回调。`CopyToMockTextOutput` 先校验嵌套布局并清空旧值，
+超容量直接失败，成功才复制并设置 `length`。Converter 只为 `SummaryOutputValue::summary`
 赋值，调用 `EncodeResultRows<SummaryOutputValue>` 或 `WriteOutputValue`。
 容量结构只声明硬最大值。默认尺寸在 Converter 中用
 `MaxBytes("summary", &Params::summary_max_bytes).Default(4096)` 声明。
@@ -179,7 +191,7 @@ RegisterOperatorValueType(binding);
 统一来自宿主 ValueType 登记，命名方案使用自己的中立值写入回调。更换布局不改变业务语义。
 命名方案拥有自己的参数校验、布局、
 预算和生命周期回调。注册必须在 Operator Init 前完成，重复标识、类型不兼容和缺失
-必要回调会被拒绝。默认的 `CompanyAny` 数值类型表不会因此自动获得任意指针树能力。
+必要回调会被拒绝。默认的 `MockAny` 数值类型表不会因此自动获得任意指针树能力。
 
 部署计划持有所选绑定的值副本，输出池也拥有生命周期回调，后续使用无需重新查表。
 回调捕获的数据应按值持有或显式共享。引用捕获的对象仍须覆盖所有计划和输出池的使用期。
@@ -239,7 +251,7 @@ Runtime 关闭后拒绝执行。`Close` 不能与执行并发。
 宿主类型、业务值和必需性可通过公开 `ResolveOperatorConfigIo` 预检。它与 Create 使用同一准备链路，
 不加载模型。批次有效上限为 `min(max_frame_depth, 64)`。池深 0 使用默认 25，硬上限为 1024。
 
-**借用输入与输出租约。** `CompanyString` 按显式长度保存文本。
+**借用输入与输出租约。** 文本载体（`MockTextInput`、`MockString`）按显式长度保存文本。
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。库不跨调用保存输入指针。
 输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
 需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。

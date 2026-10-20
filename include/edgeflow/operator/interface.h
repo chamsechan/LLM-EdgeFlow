@@ -59,8 +59,9 @@ COMPANY_ALG_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
  */
 COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
 
-// Within a direction, repeated types use name.type as the host key.
-// A unique type accepts any nonempty key namespace.
+// Host keys are `<prefix>.<type>`; the host-generated prefix is nonempty,
+// dot-free and opaque to the runtime. Each type appears at most once per
+// direction.
 struct OperatorIoEntry {
   std::string type;
   std::string name;

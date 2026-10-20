@@ -1,4 +1,5 @@
 #include <array>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -10,6 +11,7 @@
 #include "contracts/error_codes.h"
 #include "edgeflow/operator/interface.h"
 #include "tests/contract/operator_shell/operator_shell_driver.h"
+#include "tests/support/mock_text_carrier.h"
 #include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow::operator_shell_test {
@@ -90,17 +92,14 @@ class MockOperatorShellDriver final : public OperatorShellDriver {
 
   int Process(void* handle, const ProcessRequest& request) override {
     const size_t rows = request.texts.size();
-    texts_ = request.texts;
-    strings_.assign(rows, {});
-    carriers_.assign(rows, {});
+    carriers_.clear();
     inputs_.assign(rows, {});
     for (size_t i = 0; i < rows; ++i) {
-      strings_[i] = {static_cast<int32_t>(texts_[i].size()), texts_[i].data()};
-      carriers_[i] = {kMockServiceKeywordMatch, &strings_[i]};
-      inputs_[i][kInputKey] = api::MakeBorrowedOperatorInput(&carriers_[i]);
+      auto& carrier = carriers_.emplace_back(request.texts[i]);
+      inputs_[i][kInputKey] = api::MakeBorrowedOperatorInput(&carrier.root);
     }
     if (request.invalid_last_input && rows > 0) {
-      carriers_.back().sentence_text = nullptr;
+      carriers_.back().pool.data_ptr = nullptr;
     }
     outputs_.assign(request.output_rows, {{kOutputKey, nullptr}});
     sentinel_.reset();
@@ -152,12 +151,8 @@ class MockOperatorShellDriver final : public OperatorShellDriver {
   }
 
   std::string OutputJson(size_t row) const override {
-    const auto* output = static_cast<const CompanyOperatorOutput*>(
-        outputs_.at(row).at(kOutputKey).get());
-    if (!output || !output->result_json || !output->result_json->data)
-      return {};
-    return {output->result_json->data,
-            static_cast<size_t>(output->result_json->length)};
+    return std::string(
+        test_support::MockOutputText(outputs_.at(row).at(kOutputKey).get()));
   }
 
   void ReleaseOutputs() override {
@@ -218,9 +213,7 @@ class MockOperatorShellDriver final : public OperatorShellDriver {
   }
 
   api::OperatorFunc ops_ = api::Get_LLM_EDGEFLOW_OperatorTable();
-  std::vector<std::string> texts_;
-  std::vector<CompanyString> strings_;
-  std::vector<CompanyOperatorKeywordInput> carriers_;
+  std::deque<test_support::MockTextCarrier> carriers_;
   api::NamedIoBatch inputs_;
   api::NamedIoBatch outputs_;
   std::shared_ptr<int> sentinel_;

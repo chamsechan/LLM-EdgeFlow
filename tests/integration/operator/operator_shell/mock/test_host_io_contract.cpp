@@ -15,10 +15,11 @@ TEST(MockHostIoContractTest, ResolutionReturnsNativeHostTypesAndServices) {
   ASSERT_EQ(contract.outputs.size(), 1u);
   EXPECT_EQ(contract.inputs[0].type, "keyword_in");
   EXPECT_EQ(contract.inputs[0].name, "keyword_match");
-  EXPECT_EQ(contract.inputs[0].type_name, "CompanyOperatorKeywordInput");
-  EXPECT_EQ(contract.inputs[0].service_type, kMockServiceKeywordMatch);
+  EXPECT_EQ(contract.inputs[0].type_name, "MockInput");
+  // 文本 envelope 不带 service_type。
+  EXPECT_FALSE(contract.inputs[0].service_type);
   EXPECT_EQ(contract.outputs[0].type, "json_out");
-  EXPECT_EQ(contract.outputs[0].type_name, "CompanyOperatorOutput");
+  EXPECT_EQ(contract.outputs[0].type_name, "MockOutput");
   EXPECT_EQ(contract.outputs[0].service_type, kMockServiceKeywordMatch);
 }
 

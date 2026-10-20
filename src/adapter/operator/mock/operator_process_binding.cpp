@@ -9,37 +9,28 @@ namespace llm_edgeflow {
 namespace {
 using NamedIo = llm_edgeflow::operator_api::NamedIo;
 
-// 同一载体类型被多次选用时使用 name.type；仅选用一次时接受任意前缀。
-bool FindSlotKey(const NamedIo& row, const std::string& type,
-                 const std::string& name, bool repeated_type, size_t frame,
+// prefix 由宿主生成，Runtime 只按 type 路由；配置保证每方向 type 唯一。
+bool FindSlotKey(const NamedIo& row, const std::string& type, size_t frame,
                  std::string* found, std::string* error) {
   found->clear();
   for (const auto& [key, value] : row) {
-    std::string prefix, suffix;
-    if (!OperatorValueTypeRegistry::ParseKey(key, &prefix, &suffix)) {
+    std::string suffix;
+    if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
       if (error)
         *error =
             "Invalid key format in frame " + std::to_string(frame) + ": " + key;
       return false;
     }
-    if (suffix != type || (repeated_type && prefix != name)) continue;
+    if (suffix != type) continue;
     if (!found->empty()) {
       if (error)
-        *error = "Duplicate slot mapping for " + type + "/" + name +
-                 " in frame " + std::to_string(frame);
+        *error = "Duplicate slot mapping for " + type + " in frame " +
+                 std::to_string(frame);
       return false;
     }
     *found = key;
   }
   return true;
-}
-
-template <typename Selected>
-bool RepeatedType(const std::vector<Selected>& selected,
-                  const std::string& type) {
-  size_t count = 0;
-  for (const auto& entry : selected) count += entry.converter->type == type;
-  return count > 1;
 }
 }  // namespace
 
@@ -67,8 +58,7 @@ int ValidateAndExtractOperatorInputs(
     payloads.resize(inputs.size());
     for (size_t frame = 0; frame < inputs.size(); ++frame) {
       std::string key;
-      if (!FindSlotKey(inputs[frame], def.type, def.name,
-                       RepeatedType(selected, def.type), frame, &key, error))
+      if (!FindSlotKey(inputs[frame], def.type, frame, &key, error))
         return error::kInvalidInput;
       if (key.empty()) {
         if (def.slot.required) {
@@ -132,8 +122,7 @@ int ResolveOperatorOutputs(
     for (size_t index = 0; index < selected.size(); ++index) {
       const auto& def = *selected[index].converter;
       std::string key;
-      if (!FindSlotKey(outputs[frame], def.type, def.name,
-                       RepeatedType(selected, def.type), frame, &key, error))
+      if (!FindSlotKey(outputs[frame], def.type, frame, &key, error))
         return error::kInvalidOutput;
       if (key.empty()) {
         if (def.slot.required) {

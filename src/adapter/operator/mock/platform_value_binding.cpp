@@ -9,36 +9,37 @@
 
 namespace llm_edgeflow::operator_value_detail {
 
-CompanyString* AllocateNestedCompanyString(uint32_t capacity,
-                                           OwnedExternalBlock* block) {
-  auto value = std::make_unique<CompanyString>();
-  value->data = block->OwnArray(
+MockTextOutput* AllocateNestedTextOutput(uint32_t capacity,
+                                         OwnedExternalBlock* block) {
+  auto value = std::make_unique<MockTextOutput>();
+  value->byte_size = static_cast<int32_t>(sizeof(MockTextOutput));
+  value->value = block->OwnArray(
       std::make_unique<char[]>(static_cast<size_t>(capacity) + 1));
   return block->Own(std::move(value));
 }
 
-CompanyAny* AllocateNestedCompanyAny(uint32_t count, int32_t type_id,
-                                     OwnedExternalBlock* block) {
+MockAny* AllocateNestedMockAny(uint32_t count, int32_t type_id,
+                               OwnedExternalBlock* block) {
   if (count == 0 || type_id == 0) return nullptr;
-  const auto* descriptor = FindCompanyAnyType(type_id);
+  const auto* descriptor = FindMockAnyType(type_id);
   size_t bytes = 0;
   if (!descriptor || descriptor->element_size == 0 ||
       !CheckedMultiply(count, descriptor->element_size, &bytes)) {
     throw std::invalid_argument("Invalid pooled metadata layout");
   }
-  auto value = std::make_unique<CompanyAny>();
+  auto value = std::make_unique<MockAny>();
   value->type_id = type_id;
   value->data = block->OwnArray(std::make_unique<uint8_t[]>(bytes));
   return block->Own(std::move(value));
 }
 
-void ResetNestedCompanyString(CompanyString* value) noexcept {
+void ResetNestedTextOutput(MockTextOutput* value) noexcept {
   if (!value) return;
   value->length = 0;
-  if (value->data) value->data[0] = '\0';
+  if (value->value) value->value[0] = '\0';
 }
 
-void ResetNestedCompanyAny(CompanyAny* value) noexcept {
+void ResetNestedMockAny(MockAny* value) noexcept {
   if (!value) return;
   value->element_count = 0;
   value->byte_length = 0;
@@ -59,7 +60,7 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_struct_bytes,
     for (const auto& [field, capacity] : spec.capacities) {
       size_t string_bytes = 0;
       if (!CheckedAdd(static_cast<size_t>(capacity), 1, &string_bytes) ||
-          !CheckedAdd(string_bytes, sizeof(CompanyString), &string_bytes) ||
+          !CheckedAdd(string_bytes, sizeof(MockTextOutput), &string_bytes) ||
           !CheckedAdd(block_bytes, string_bytes, &block_bytes)) {
         if (err) {
           *err = spec.type + " capacity calculation overflowed for field '" +
@@ -70,7 +71,7 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_struct_bytes,
     }
 
     if (spec.meta_num > 0) {
-      const auto* metadata_desc = FindCompanyAnyType(spec.metadata_type_id);
+      const auto* metadata_desc = FindMockAnyType(spec.metadata_type_id);
       if (!metadata_desc || metadata_desc->element_size == 0) {
         if (err) *err = "Metadata type is not registered";
         return false;
@@ -79,7 +80,7 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_struct_bytes,
       size_t metadata_bytes = 0;
       if (!CheckedMultiply(spec.meta_num, metadata_desc->element_size,
                            &metadata_payload) ||
-          !CheckedAdd(metadata_payload, sizeof(CompanyAny), &metadata_bytes) ||
+          !CheckedAdd(metadata_payload, sizeof(MockAny), &metadata_bytes) ||
           !CheckedAdd(block_bytes, metadata_bytes, &block_bytes)) {
         if (err) *err = spec.type + " metadata calculation overflowed";
         return false;
@@ -100,34 +101,38 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_struct_bytes,
 }  // namespace llm_edgeflow::operator_value_detail
 
 namespace llm_edgeflow {
-int CopyToOperatorString(std::string_view src, CompanyString* dest,
+int CopyToMockTextOutput(std::string_view src, MockTextOutput* dest,
                          uint32_t capacity, const char* field_name,
                          std::string* err) noexcept {
   try {
-    if (!dest || !dest->data) {
+    const char* name = field_name ? field_name : "text";
+    if (!dest || !dest->value ||
+        dest->byte_size != static_cast<int32_t>(sizeof(MockTextOutput))) {
       if (err)
-        *err = std::string(field_name ? field_name : "string") +
-               " in destination pool block is null";
+        *err = std::string(name) +
+               " in destination pool block has invalid "
+               "layout";
       return error::kInvalidOutput;
     }
+    dest->length = 0;
+    dest->value[0] = '\0';
     const size_t len = src.size();
     if (len > capacity ||
         len > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
       if (err)
-        *err = std::string(field_name ? field_name : "string") +
-               " output length (" + std::to_string(len) +
+        *err = std::string(name) + " output length (" + std::to_string(len) +
                ") exceeds pool capacity (" + std::to_string(capacity) + ")";
       return error::kInvalidOutput;
     }
-    if (len != 0) std::memcpy(dest->data, src.data(), len);
-    dest->data[len] = '\0';
+    if (len != 0) std::memcpy(dest->value, src.data(), len);
+    dest->value[len] = '\0';
     dest->length = static_cast<int32_t>(len);
     return 0;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(err, e.what());
     return error::kInvalidOutput;
   } catch (...) {
-    SetDiagnosticNoexcept(err, "Unknown exception in CopyToOperatorString");
+    SetDiagnosticNoexcept(err, "Unknown exception in CopyToMockTextOutput");
     return error::kInvalidOutput;
   }
 }
@@ -136,15 +141,14 @@ int CopyToOperatorString(std::string_view src, CompanyString* dest,
 
 namespace llm_edgeflow {
 bool ValidatePlatformMetadata(uint32_t count, int32_t type_id) noexcept {
-  return count == 0 ? type_id == 0
-                    : type_id != 0 && FindCompanyAnyType(type_id);
+  return count == 0 ? type_id == 0 : type_id != 0 && FindMockAnyType(type_id);
 }
 }  // namespace llm_edgeflow
 
 namespace llm_edgeflow {
 namespace {
 
-const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
+const MockAnyTypeDescriptor kBuiltinAnyTypes[] = {
     {0, 0, 1, "none"},
     {1, sizeof(float), alignof(float), "float32"},
     {2, sizeof(int32_t), alignof(int32_t), "int32"},
@@ -155,7 +159,7 @@ const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
 
 }  // namespace
 
-const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
+const MockAnyTypeDescriptor* FindMockAnyType(int32_t type_id) noexcept {
   for (const auto& item : kBuiltinAnyTypes) {
     if (item.type_id == type_id) {
       return &item;
@@ -164,56 +168,112 @@ const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
   return nullptr;
 }
 
-int ValidateCompanyString(const CompanyString* str, size_t max_bytes,
+namespace {
+template <typename T>
+bool HasByteSize(int32_t byte_size) {
+  return byte_size == static_cast<int32_t>(sizeof(T));
+}
+
+int CheckTextBytes(const char* data, int32_t length, size_t max_bytes,
+                   const std::string& name, std::string* err) {
+  if (length < 0) {
+    if (err) *err = name + " has negative length " + std::to_string(length);
+    return error::kInvalidInput;
+  }
+  if (static_cast<size_t>(length) > max_bytes) {
+    if (err)
+      *err = name + " length " + std::to_string(length) +
+             " exceeds max limit " + std::to_string(max_bytes);
+    return error::kInvalidInput;
+  }
+  if (length == 0) return 0;
+  if (!data) {
+    if (err)
+      *err = name + " length is " + std::to_string(length) +
+             " but data pointer is null";
+    return error::kInvalidInput;
+  }
+  if (const void* nul = std::memchr(data, '\0', static_cast<size_t>(length))) {
+    if (err)
+      *err = name + " contains forbidden embedded NUL at byte offset " +
+             std::to_string(static_cast<const char*>(nul) - data);
+    return error::kInvalidInput;
+  }
+  return 0;
+}
+}  // namespace
+
+int ValidateMockInputText(const MockInput& input, size_t max_bytes,
                           const char* field_name, std::string* err) noexcept {
   try {
-    const char* name = field_name ? field_name : "string";
-    if (!str) {
-      if (err) *err = std::string(name) + " pointer is null";
-      return error::kInvalidInput;
-    }
-    if (str->length < 0) {
+    const std::string name = field_name ? field_name : "MockInput";
+    if (!HasByteSize<MockInput>(input.byte_size)) {
       if (err)
-        *err = std::string(name) + " has negative length " +
-               std::to_string(str->length);
+        *err = name + ".byte_size " + std::to_string(input.byte_size) +
+               " does not match MockInput layout";
       return error::kInvalidInput;
     }
-    if (static_cast<size_t>(str->length) > max_bytes) {
+    if (input.type != kMockInputMultidata || input.num_frame != 1) {
       if (err)
-        *err = std::string(name) + " length " + std::to_string(str->length) +
-               " exceeds max limit " + std::to_string(max_bytes);
+        *err = name + " requires type kMockInputMultidata and num_frame 1";
       return error::kInvalidInput;
     }
-    if (str->length > 0) {
-      if (!str->data) {
-        if (err)
-          *err = std::string(name) + " length is " +
-                 std::to_string(str->length) + " but data pointer is null";
-        return error::kInvalidInput;
-      }
-      for (int32_t i = 0; i < str->length; ++i) {
-        if (str->data[i] == '\0') {
-          if (err)
-            *err = std::string(name) +
-                   " contains forbidden embedded NUL at byte offset " +
-                   std::to_string(i);
-          return error::kInvalidInput;
-        }
-      }
+    const MockDataPool* pool = input.data_pool;
+    if (!pool || !HasByteSize<MockDataPool>(pool->byte_size)) {
+      if (err) *err = name + ".data_pool is null or has invalid byte_size";
+      return error::kInvalidInput;
     }
-    return 0;
+    if (pool->data_type != kMockDataText) {
+      if (err)
+        *err = name + ".data_pool.data_type " +
+               std::to_string(pool->data_type) + " is not kMockDataText";
+      return error::kInvalidInput;
+    }
+    const auto* text = static_cast<const MockTextInput*>(pool->data_ptr);
+    if (!text || !HasByteSize<MockTextInput>(text->byte_size)) {
+      if (err)
+        *err = name + ".data_pool.data_ptr is null or has invalid byte_size";
+      return error::kInvalidInput;
+    }
+    return CheckTextBytes(text->value, text->length, max_bytes, name + ".text",
+                          err);
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(err, e.what());
     return error::kInvalidInput;
   } catch (...) {
-    SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyString");
+    SetDiagnosticNoexcept(err, "Unknown exception in ValidateMockInputText");
     return error::kInvalidInput;
   }
 }
 
-int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
-                              const char* field_name,
-                              std::string* err) noexcept {
+std::string_view MockInputText(const MockInput& input) noexcept {
+  const auto* text =
+      static_cast<const MockTextInput*>(input.data_pool->data_ptr);
+  return text->length == 0
+             ? std::string_view{}
+             : std::string_view(text->value, static_cast<size_t>(text->length));
+}
+
+int ValidateMockString(const MockString* str, size_t max_bytes,
+                       const char* field_name, std::string* err) noexcept {
+  try {
+    const std::string name = field_name ? field_name : "string";
+    if (!str) {
+      if (err) *err = name + " pointer is null";
+      return error::kInvalidInput;
+    }
+    return CheckTextBytes(str->data, str->length, max_bytes, name, err);
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return error::kInvalidInput;
+  } catch (...) {
+    SetDiagnosticNoexcept(err, "Unknown exception in ValidateMockString");
+    return error::kInvalidInput;
+  }
+}
+
+int ValidateMockAnyPayload(const MockAny* any, size_t max_any_bytes,
+                           const char* field_name, std::string* err) noexcept {
   try {
     const char* name = field_name ? field_name : "any";
     if (!any) {
@@ -246,7 +306,7 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
       return 0;
     }
 
-    const auto* desc = FindCompanyAnyType(any->type_id);
+    const auto* desc = FindMockAnyType(any->type_id);
     if (!desc) {
       if (err) {
         *err = std::string(name) + " has unknown or unwhitelisted type_id " +
@@ -284,8 +344,7 @@ int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_any_bytes,
     SetDiagnosticNoexcept(err, e.what());
     return error::kInvalidInput;
   } catch (...) {
-    SetDiagnosticNoexcept(err,
-                          "Unknown exception in ValidateCompanyAnyPayload");
+    SetDiagnosticNoexcept(err, "Unknown exception in ValidateMockAnyPayload");
     return error::kInvalidInput;
   }
 }

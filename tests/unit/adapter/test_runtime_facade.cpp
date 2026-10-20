@@ -113,7 +113,6 @@ class RecordingNode final : public INode {
 
 struct InputCarrier {
   std::string text;
-  int32_t service = 2;
 };
 struct OutputCarrier {
   explicit OutputCarrier(std::shared_ptr<Trace> trace, size_t capacity)
@@ -186,7 +185,6 @@ class RuntimeFacadeTest : public ::testing::Test {
     ASSERT_TRUE(original_output.has_value());
     input_binding = *original_input;
     input_binding.external_c_type_name = "InputCarrier";
-    SetServiceTypeMember<InputCarrier>(&input_binding, &InputCarrier::service);
     input_binding.validate_external = [](const void* value, const InputLimits&,
                                          std::string* error) {
       if (static_cast<const InputCarrier*>(value)->text == "decode_fail") {

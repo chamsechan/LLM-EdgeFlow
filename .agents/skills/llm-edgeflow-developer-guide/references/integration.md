@@ -58,9 +58,10 @@ directory before Core validation. Reject empty names, absolute/drive/UNC paths, 
 component and symlink escape; allow missing files. Without a directory, check only the relative
 spelling. Resource existence is checked by the Model or Backend when it opens the file.
 
-A unique carrier type accepts any nonempty host-key namespace. Repeated types within one direction
-require `name.type` keys, so empty output pointers can be routed uniquely. Inputs additionally
-validate service values before decoding. The batch bound is `min(max_frame_depth, 64)`.
+Host keys are exactly `<prefix>.<type>`: the host-generated prefix is nonempty, dot-free and opaque
+to the runtime, which neither interprets nor synthesizes it. Each type appears at most once per
+direction (Prepare rejects repeats), so routing uses the type alone. Carriers that declare a
+service member additionally validate it before decoding. The batch bound is `min(max_frame_depth, 64)`.
 
 For one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows` from
 `converter_authoring.h`. Multiple logical streams and aggregations retain explicit algorithms.
