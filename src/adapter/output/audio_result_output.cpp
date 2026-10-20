@@ -68,8 +68,6 @@ int EncodeOperatorAudioResult(AlgContext* context,
     }
     JsonOutputValue out;
 
-    out.status_code = intent_slots_by_request[i]->data.status_code;
-
     out.result_json =
         nlohmann::json({{"transcribed_text", transcripts_by_request[i]->data},
                         {"intent_slot", BuildRuleMatchResponse(

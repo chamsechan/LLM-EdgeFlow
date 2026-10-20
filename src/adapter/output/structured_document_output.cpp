@@ -25,7 +25,6 @@ AdapterStatus EncodeDocument(const JsonDocumentItem& result,
     return AdapterStatus::InvalidInput(
         "Structured result failed or used fallback", "res");
   }
-  output->status_code = 0;
   output->result_json = result.json_payload;
   return AdapterStatus::Ok();
 }

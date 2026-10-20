@@ -22,7 +22,6 @@ constexpr const char* kOutputSlot = "json_out";
 
 AdapterStatus EncodeTranslation(const std::string& result,
                                 JsonOutputValue* output) {
-  output->status_code = 0;
   const nlohmann::json response = {{"translated", result}};
   output->result_json = response.dump();
   return AdapterStatus::Ok();

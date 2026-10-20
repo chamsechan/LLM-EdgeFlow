@@ -4,7 +4,7 @@
 
 当前八类业务都登记为 `json_out/<业务名>`，使用中立值 `JsonOutputValue`。
 转换器把完整结果序列化为 `result_json`，binding 写入统一 C 结构 `MockOutput` 的嵌套文本。
-`JsonOutputValue.status_code` 只是内部中立值，不写入外部输出结构。对象、数组和数值保持 JSON 类型。
+`JsonOutputValue` 只承载完整 JSON 文本；对象、数组和数值保持 JSON 类型。
 容量参数通过 `adapter/json_output_parameters.h` 的 `JsonOutputParameters()` 统一声明为
 `result_json_max_bytes`，默认 8191 字节，硬上限 65536 字节。
 如果新业务复用该载体，新增转换器和 binding 业务枚举映射。

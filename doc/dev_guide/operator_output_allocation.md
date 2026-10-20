@@ -42,8 +42,8 @@ typedef struct MockOutput {
 } MockOutput;
 ```
 
-`text` 承载完整业务响应 JSON，`name` 决定字段契约。对应中立值为 `JsonOutputValue`；其中
-`status_code` 只是内部中立值，不写入外部输出结构。每个池化 block 同时持有 root、嵌套
+`text` 承载完整业务响应 JSON，`name` 决定字段契约。对应中立值 `JsonOutputValue` 只保存
+完整 JSON 文本。每个池化 block 同时持有 root、嵌套
 `MockTextOutput` 和 `result_json_max_bytes + 1` 字节的字符缓冲区，容量不出现在结构中。
 复用前清空 `length` 与首字节；写入前校验 root/嵌套布局，结果超过容量直接失败，不写入部分内容。
 统一输出使用 [`JsonOutputParameters()`](../../include/adapter/json_output_parameters.h) 声明

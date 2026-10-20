@@ -74,7 +74,6 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     JsonOutputValue out;
 
     const auto& match = intents_by_req[i]->data;
-    out.status_code = match.status_code;
     out.result_json = nlohmann::json({{"intent_name", match.category},
                                       {"confidence", match.score},
                                       {"answer_text", answers_by_req[i]->data},

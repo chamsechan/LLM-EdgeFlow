@@ -103,7 +103,6 @@ int EncodeOperatorAuditResult(AlgContext* context,
     const std::string& verdict_json = verdict_item.json_payload;
     std::string policy_clause = matched_policy_by_request[i]->data.text;
 
-    out.status_code = 0;
     out.result_json =
         nlohmann::json({{"risk_level", risk_level},
                         {"risk_score", risk_score},

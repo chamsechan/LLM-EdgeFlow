@@ -33,6 +33,5 @@ struct RerankInputValue {
 };
 struct JsonOutputValue {
   std::string result_json;
-  int32_t status_code = 0;
 };
 }  // namespace llm_edgeflow

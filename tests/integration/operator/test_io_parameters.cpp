@@ -245,6 +245,12 @@ TEST_F(IoParametersTest,
   duplicate["io"]["input"].push_back(duplicate["io"]["input"][0]);
   cases.push_back({"duplicate selection", duplicate, error::kDuplicateIoEntry,
                    "/io/input/1"});
+  auto repeated_input_type = KeywordDeployment();
+  repeated_input_type["io"]["input"] =
+      Json::array({{{"type", "entity_in"}, {"name", "entity_extract"}},
+                   {{"type", "entity_in"}, {"name", "translate"}}});
+  cases.push_back({"repeated input type", repeated_input_type,
+                   error::kDuplicateIoEntry, "/io/input/1"});
   auto port_collision = KeywordDeployment();
   port_collision["io"]["input"].push_back(
       {{"type", "entity_in"}, {"name", "entity_extract"}});

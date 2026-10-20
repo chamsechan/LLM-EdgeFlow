@@ -149,11 +149,10 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(out->text->byte_size, static_cast<int32_t>(sizeof(MockTextOutput)));
   ASSERT_NE(out->text->value, nullptr);
 
-  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"{}", 0}, spec).IsOk());
+  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"{}"}, spec).IsOk());
   EXPECT_EQ(std::string(out->text->value, out->text->length), "{}");
   // 刚好等于容量时成功，并保留结尾 NUL。
-  ASSERT_TRUE(
-      binding.write_value(out, JsonOutputValue{"[12]", 0}, spec).IsOk());
+  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"[12]"}, spec).IsOk());
   EXPECT_EQ(out->text->length, 4);
   EXPECT_EQ(out->text->value[4], '\0');
 
@@ -163,19 +162,18 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(out->byte_size, static_cast<int32_t>(sizeof(MockOutput)));
   EXPECT_EQ(out->type, kMockOutputOc);
 
-  ASSERT_TRUE(
-      binding.write_value(out, JsonOutputValue{"[12]", 0}, spec).IsOk());
+  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"[12]"}, spec).IsOk());
   const auto overflow =
-      binding.write_value(out, JsonOutputValue{"[123]", 0}, spec);
+      binding.write_value(out, JsonOutputValue{"[123]"}, spec);
   EXPECT_EQ(overflow.Code(), error::kInvalidOutput);
   EXPECT_EQ(out->text->length, 0);
   EXPECT_EQ(out->text->value[0], '\0');
 
   out->text->byte_size = 0;
-  EXPECT_FALSE(binding.write_value(out, JsonOutputValue{"{}", 0}, spec).IsOk());
+  EXPECT_FALSE(binding.write_value(out, JsonOutputValue{"{}"}, spec).IsOk());
   out->text->byte_size = sizeof(MockTextOutput);
   out->type = 0;
-  EXPECT_FALSE(binding.write_value(out, JsonOutputValue{"{}", 0}, spec).IsOk());
+  EXPECT_FALSE(binding.write_value(out, JsonOutputValue{"{}"}, spec).IsOk());
 }
 
 }  // namespace
