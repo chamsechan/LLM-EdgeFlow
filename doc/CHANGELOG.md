@@ -18,7 +18,7 @@ LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](.
   引擎选择与互斥检查集中在 `BackendOptions.cmake`，原多引擎预设改名 `full-cpu`。
 - `inferlet` Backend 和 `inferlet-cpu` 构建复用现有文本、图像生成和
   生成 token 向量协议；提供 [Inferlet 实体抽取样例](../configs/pipeline_entity_extract_inferlet.json)。
-  依赖固定为 Inferlet v0.1.0 Linux CPU 静态包，现有 Kite 接入保持不变。
+  依赖固定为 Inferlet v0.1.1 Linux CPU 静态包，现有 Kite 接入保持不变。
 - 错误码收敛为中立框架码和平台对外码两套；内部取消裸码与旧异常码兼容参数，
   Studio/CLI 使用同一错误名称表。Operator 在失败出口记录分级日志与内外码，
   中间层保留具体诊断。见[错误码与日志](dev_guide/error_handling.md)。

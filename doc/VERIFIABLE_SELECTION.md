@@ -140,10 +140,10 @@ python3 tools/verify_selection.py check \
 
 ### Inferlet CPU 验证
 
-`inferlet-cpu` 使用固定版本 Inferlet v0.1.0 CPU 静态包，支持 Linux x86_64/aarch64。
+`inferlet-cpu` 使用固定版本 Inferlet v0.1.1 CPU 静态包，支持 Linux x86_64/aarch64。
 依赖的 URL、SHA-256 和编译隔离由 [Inferlet 构建模块](../cmake_ext/engines/Inferlet.cmake)
 维护。首次配置自动下载；离线环境可预置同一发布归档到
-`3rdparty/inferlet/v0.1.0/x64/inferlet-x64.tar.gz` 或对应的 `arm/inferlet-arm.tar.gz`，
+`3rdparty/inferlet/v0.1.1/x64/inferlet-x64.tar.gz` 或对应的 `arm/inferlet-arm.tar.gz`，
 仍须通过同一 SHA 校验。该包包含自己的 llama.cpp/ggml，不能与 `ENABLE_LLAMACPP`、
 `ENABLE_WHISPERCPP` 或 `ENABLE_KITELLM` 同时启用。
 
