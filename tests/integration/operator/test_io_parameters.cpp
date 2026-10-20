@@ -13,6 +13,7 @@
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/runtime_types.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -244,6 +245,12 @@ TEST_F(IoParametersTest,
   duplicate["io"]["input"].push_back(duplicate["io"]["input"][0]);
   cases.push_back({"duplicate selection", duplicate, error::kDuplicateIoEntry,
                    "/io/input/1"});
+  auto repeated_input_type = KeywordDeployment();
+  repeated_input_type["io"]["input"] =
+      Json::array({{{"type", "entity_in"}, {"name", "entity_extract"}},
+                   {{"type", "entity_in"}, {"name", "translate"}}});
+  cases.push_back({"repeated input type", repeated_input_type,
+                   error::kDuplicateIoEntry, "/io/input/1"});
   auto port_collision = KeywordDeployment();
   port_collision["io"]["input"].push_back(
       {{"type", "entity_in"}, {"name", "entity_extract"}});
@@ -257,6 +264,14 @@ TEST_F(IoParametersTest,
   duplicate_output["io"]["output"].push_back(
       duplicate_output["io"]["output"][0]);
   cases.push_back({"duplicate output", duplicate_output,
+                   error::kDuplicateIoEntry, "/io/output/1"});
+  // 宿主 key 只按 type 路由，同 type 不同 name 也是重复。
+  auto repeated_type = KeywordDeployment();
+  repeated_type["io"]["output"].push_back(
+      {{"type", "json_out"},
+       {"name", "translate"},
+       {"inputs", {{"translation", "rules.matches"}}}});
+  cases.push_back({"repeated output type", repeated_type,
                    error::kDuplicateIoEntry, "/io/output/1"});
   for (const auto& invalid : cases) {
     SCOPED_TRACE(invalid.label);
@@ -316,8 +331,32 @@ TEST_F(IoParametersTest,
       << error_;
   ASSERT_NE(plan, nullptr);
   EXPECT_EQ(plan->output_pool_depth, 1024u);
+  // 每方向 type 唯一，聚合预算用测试注入的第二种输出 type 覆盖。
+  test_support::RegistryTestAccess::ScopedValueTypeState value_types;
+  auto& converters = IoConverterRegistry::Instance();
+  const auto restore = converters.AllOutputConverters();
+  const auto inputs = converters.AllInputConverters();
+  struct RestoreConverters {
+    const std::vector<InputConverterDefinition>& inputs;
+    const std::vector<OutputConverterDefinition>& outputs;
+    ~RestoreConverters() {
+      test_support::RegistryTestAccess::ResetConverters();
+      for (const auto& def : inputs)
+        IoConverterRegistry::Instance().RegisterInputConverter(def);
+      for (const auto& def : outputs)
+        IoConverterRegistry::Instance().RegisterOutputConverter(def);
+    }
+  } restore_converters{inputs, restore};
+  auto aux_binding =
+      OperatorValueTypeRegistry::Instance().CopyBindingBySuffix("json_out");
+  ASSERT_TRUE(aux_binding);
+  aux_binding->canonical_suffix = "aux_json";
+  test_support::RegistryTestAccess::SetValueBinding(*aux_binding);
+  auto aux = *converters.FindOutputConverter("json_out", "translate");
+  aux.type = "aux_json";
+  ASSERT_TRUE(converters.RegisterOutputConverter(aux));
   source["io"]["output"].push_back(
-      {{"type", "json_out"},
+      {{"type", "aux_json"},
        {"name", "translate"},
        {"params", {{"result_json_max_bytes", 40000}}},
        {"inputs", {{"translation", "render.text"}}}});

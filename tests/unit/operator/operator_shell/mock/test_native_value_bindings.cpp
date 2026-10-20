@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "adapter/io_values.h"
 #include "adapter/operator/operator_output_pool.h"
 #include "platform_mock/operator_data_types.h"
 
@@ -37,7 +38,7 @@ TEST(OperatorValueRegistryTest,
   output.services["translate"] = 1234;
   const auto copied_input = registry.CopyBindingBySuffix("registry_input");
   ASSERT_TRUE(copied_input);
-  EXPECT_EQ(copied_input->external_c_type_name, "CompanyString");
+  EXPECT_EQ(copied_input->external_c_type_name, "MockString");
   EXPECT_EQ(copied_input->value_type, typeid(std::string));
   auto copied_output =
       registry.CopyOutputBinding("registry_output", "native_layout");
@@ -47,10 +48,11 @@ TEST(OperatorValueRegistryTest,
   EXPECT_FALSE(copied_output->ServiceType("unknown"));
   EXPECT_EQ(registry.GetOutputBinding("wrong_suffix", "native_layout"),
             nullptr);
-  CompanyOperatorOutput carrier{kMockServiceKeywordMatch, nullptr, 7};
+  MockOutput carrier{sizeof(MockOutput), kMockOutputOc,
+                     kMockServiceKeywordMatch, nullptr};
   copied_output->write_service_type(&carrier, kMockServiceTranslate);
   EXPECT_EQ(carrier.service_type, kMockServiceTranslate);
-  EXPECT_EQ(carrier.status_code, 7);
+  EXPECT_EQ(carrier.type, kMockOutputOc);
   EXPECT_EQ(copied_output->read_service_type(&carrier), kMockServiceTranslate);
   copied_output->services.clear();
   EXPECT_EQ(registry.GetOutputBinding("registry_output", "native_layout")
@@ -74,8 +76,7 @@ TEST(
   ResolvedOutputPoolSpec spec;
   spec.type = "registry_output";
   spec.capacities = {{"result_json", 9}};
-  const size_t block_bytes =
-      sizeof(CompanyOperatorOutput) + sizeof(CompanyString) + 10;
+  const size_t block_bytes = sizeof(MockOutput) + sizeof(MockTextOutput) + 10;
   size_t bytes = 0;
   std::string error;
   ASSERT_TRUE(ComputeOutputPoolPayloadBytes(binding, spec, 3, &bytes, &error))
@@ -129,6 +130,50 @@ TEST(
   EXPECT_FALSE(ComputeOutputPoolPayloadBytes(binding, spec, 2, &bytes, &error));
   EXPECT_EQ(bytes, 0u);
   EXPECT_NE(error.find("64 MiB"), std::string::npos);
+}
+
+TEST(OperatorValueRegistryTest,
+     JsonOutputBlockClearsOnResetAndRejectsOverflowWithoutPartialWrite) {
+  const auto binding = NativeOutput();
+  ResolvedOutputPoolSpec spec;
+  spec.type = "registry_output";
+  spec.capacities = {{"result_json", 4}};
+  OwnedExternalBlock block;
+  std::string error;
+  ASSERT_EQ(binding.allocate_external(spec, &block, &error), 0) << error;
+  auto* out = static_cast<MockOutput*>(block.raw_struct);
+  ASSERT_NE(out, nullptr);
+  EXPECT_EQ(out->byte_size, static_cast<int32_t>(sizeof(MockOutput)));
+  EXPECT_EQ(out->type, kMockOutputOc);
+  ASSERT_NE(out->text, nullptr);
+  EXPECT_EQ(out->text->byte_size, static_cast<int32_t>(sizeof(MockTextOutput)));
+  ASSERT_NE(out->text->value, nullptr);
+
+  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"{}"}, spec).IsOk());
+  EXPECT_EQ(std::string(out->text->value, out->text->length), "{}");
+  // 刚好等于容量时成功，并保留结尾 NUL。
+  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"[12]"}, spec).IsOk());
+  EXPECT_EQ(out->text->length, 4);
+  EXPECT_EQ(out->text->value[4], '\0');
+
+  binding.reset_external(out, spec);
+  EXPECT_EQ(out->text->length, 0);
+  EXPECT_EQ(out->text->value[0], '\0');
+  EXPECT_EQ(out->byte_size, static_cast<int32_t>(sizeof(MockOutput)));
+  EXPECT_EQ(out->type, kMockOutputOc);
+
+  ASSERT_TRUE(binding.write_value(out, JsonOutputValue{"[12]"}, spec).IsOk());
+  const auto overflow =
+      binding.write_value(out, JsonOutputValue{"[123]"}, spec);
+  EXPECT_EQ(overflow.Code(), error::kInvalidOutput);
+  EXPECT_EQ(out->text->length, 0);
+  EXPECT_EQ(out->text->value[0], '\0');
+
+  out->text->byte_size = 0;
+  EXPECT_FALSE(binding.write_value(out, JsonOutputValue{"{}"}, spec).IsOk());
+  out->text->byte_size = sizeof(MockTextOutput);
+  out->type = 0;
+  EXPECT_FALSE(binding.write_value(out, JsonOutputValue{"{}"}, spec).IsOk());
 }
 
 }  // namespace

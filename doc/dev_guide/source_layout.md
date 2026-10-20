@@ -222,7 +222,7 @@ src/engine/
 
 配置在根 `io.input` / `io.output` 的每项填写 `type`、`name` 和可选 `params`。
 框架按方向和这一对标识查找登记，由所选端口组成 Core 边界。
-同一方向复用载体 type 时，宿主 key 使用 `name.type`。唯一 type 接受任意非空前缀。
+宿主 key 固定为 `<prefix>.<type>`，prefix 由宿主生成、非空且不含 `.`；同一方向内每种 type 至多选用一次。
 业务 name 使用 `snake_case`，描述外部请求/响应的语义，例如 `ocr_invoice_qa`。
 方案、数据集与 Profile 可以沿用对应词根和部署变体。它们不定义新载体类型或转换器身份。
 

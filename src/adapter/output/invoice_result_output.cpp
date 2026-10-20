@@ -72,7 +72,6 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
           status, "Structured result failed or used fallback", "invoice_jsons",
           options.Label().c_str(), static_cast<int>(i));
     }
-    out.status_code = 0;
 
     out.result_json =
         nlohmann::json(

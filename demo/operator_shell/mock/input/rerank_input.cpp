@@ -31,9 +31,9 @@ int BuildRerankRequests(
   struct Storage {
     std::string query;
     std::vector<std::string> passages;
-    CompanyString query_cs{};
-    std::vector<CompanyString> passage_cs;
-    CompanyOperatorRerankInput carrier{};
+    MockString query_cs{};
+    std::vector<MockString> passage_cs;
+    MockRerankInput carrier{};
   };
   auto storage = std::make_shared<Storage>();
   if (!sections["QUERY"].empty()) storage->query = sections["QUERY"][0];
@@ -60,7 +60,7 @@ int BuildRerankRequests(
   storage->query_cs = {static_cast<int32_t>(storage->query.size()),
                        const_cast<char*>(storage->query.data())};
   const int cand_count = std::min(static_cast<int>(storage->passages.size()),
-                                  COMPANY_OPERATOR_MAX_RERANK_CANDIDATES);
+                                  MOCK_MAX_RERANK_CANDIDATES);
   storage->passage_cs.reserve(cand_count);
   storage->carrier.service_type = inputs[0].service_type.value_or(0);
   storage->carrier.query_text = &storage->query_cs;
@@ -83,7 +83,7 @@ int BuildRerankRequests(
   return 0;
 }
 
-REGISTER_DEMO_INPUT("CompanyOperatorRerankInput", BuildRerankRequests);
+REGISTER_DEMO_INPUT("MockRerankInput", BuildRerankRequests);
 
 }  // namespace
 }  // namespace alg_demo

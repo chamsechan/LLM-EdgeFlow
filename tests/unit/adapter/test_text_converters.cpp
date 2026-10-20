@@ -96,7 +96,6 @@ TEST(TextConverterTest, TranslationResponseContainsOnlyTranslatedText) {
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("translate", &context, &rows, &status), 0)
       << status.ToString();
-  EXPECT_EQ(rows[0].status_code, 0);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"({"translated":"Bonjour \"世界\"\n"})"));
 }
@@ -115,7 +114,6 @@ TEST(TextConverterTest,
     AdapterStatus status;
     ASSERT_EQ(EncodeJsonConverter("entity_extract", &context, &rows, &status),
               0);
-    EXPECT_EQ(rows[0].status_code, 0);
     EXPECT_EQ(rows[0].result_json, payload);
   }
 }
@@ -146,7 +144,6 @@ TEST(TextConverterTest,
 
 TEST(TextConverterTest, KeywordResponseDistinguishesRuleAndKeywordHitFields) {
   RuleMatchItem match(1, "BOOK", "book", 0.75f, "r1");
-  match.status_code = 7;
   match.slots = {{"quantity", 2}, {"confirmed", true}};
   match.matches = {{RuleMatchSource::kKeyword, "BOOK", "ignored", "book", 0.5f},
                    {RuleMatchSource::kRule, "BOOK", "r1", "book (.+)", 0.75f}};
@@ -155,7 +152,6 @@ TEST(TextConverterTest, KeywordResponseDistinguishesRuleAndKeywordHitFields) {
   std::vector<JsonOutputValue> rows(1);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("keyword_match", &context, &rows, &status), 0);
-  EXPECT_EQ(rows[0].status_code, 7);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"json({
     "is_hit":1,"intent":"BOOK","matched_word":"book","confidence":0.75,
@@ -167,7 +163,6 @@ TEST(TextConverterTest, KeywordResponseDistinguishesRuleAndKeywordHitFields) {
 
 TEST(TextConverterTest, KeywordNoHitOmitsIntentAndSlots) {
   RuleMatchItem match;
-  match.status_code = 9;
   match.category = "ignored";
   match.slots = {{"ignored", true}};
   AlgContext context;
@@ -175,7 +170,6 @@ TEST(TextConverterTest, KeywordNoHitOmitsIntentAndSlots) {
   std::vector<JsonOutputValue> rows(1);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("keyword_match", &context, &rows, &status), 0);
-  EXPECT_EQ(rows[0].status_code, 9);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"({"is_hit":0,"matches":[]})"));
 }

@@ -12,6 +12,7 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/error_codes.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/support/mock_text_carrier.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -35,7 +36,7 @@ TEST(PlatformCarrierContractsTest,
   const auto& binding = Native("string");
   std::array<char, 2> bytes{'h',
                             'i'};  // No terminator is required by this carrier.
-  CompanyString text{2, bytes.data()};
+  MockString text{2, bytes.data()};
   InputLimits limits;
   limits.max_text_bytes = 2;
   std::string error;
@@ -45,7 +46,7 @@ TEST(PlatformCarrierContractsTest,
   bytes[0] = 'X';
   EXPECT_EQ(copied, "hi");
   Reject(binding, nullptr, limits, "pointer is null");
-  CompanyString invalid{-1, bytes.data()};
+  MockString invalid{-1, bytes.data()};
   Reject(binding, &invalid, limits, "negative length");
   invalid = {3, bytes.data()};
   Reject(binding, &invalid, limits, "exceeds max limit");
@@ -53,7 +54,7 @@ TEST(PlatformCarrierContractsTest,
   Reject(binding, &invalid, limits, "data pointer is null");
   bytes[1] = '\0';
   Reject(binding, &text, limits, "embedded NUL at byte offset 1");
-  CompanyString empty{0, nullptr};
+  MockString empty{0, nullptr};
   ASSERT_EQ(binding.validate_external(&empty, limits, &error), 0);
   EXPECT_TRUE(std::any_cast<std::string>(binding.read_value(&empty)).empty());
 }
@@ -63,23 +64,22 @@ TEST(PlatformCarrierContractsTest,
   const auto& binding = Native("frame");
   std::array<uint8_t, 3> pixels{1, 0, 3};
   std::array<int32_t, 2> values{7, -2};
-  CompanyAny any{2, 2, 8, values.data()};
-  CompanyFrame frame{kMockServiceOcrInvoiceQa, 1, 1, 3, pixels.data(), &any};
+  MockAny any{2, 2, 8, values.data()};
+  MockFrameInput frame{kMockServiceOcrInvoiceQa, 1, 1, 3, pixels.data(), &any};
   InputLimits limits;
   limits.max_any_bytes = 8;
   std::string error;
   EXPECT_EQ(binding.validate_external(&frame, limits, &error), 0);
   for (const auto invalid :
-       {CompanyAny{999, 2, 8, values.data()},
-        CompanyAny{2, -1, 8, values.data()},
-        CompanyAny{2, 2, -1, values.data()}, CompanyAny{2, 2, 4, values.data()},
-        CompanyAny{2, 3, 12, values.data()}, CompanyAny{2, 2, 8, nullptr},
-        CompanyAny{0, 1, 0, nullptr}}) {
+       {MockAny{999, 2, 8, values.data()}, MockAny{2, -1, 8, values.data()},
+        MockAny{2, 2, -1, values.data()}, MockAny{2, 2, 4, values.data()},
+        MockAny{2, 3, 12, values.data()}, MockAny{2, 2, 8, nullptr},
+        MockAny{0, 1, 0, nullptr}}) {
     SCOPED_TRACE(invalid.type_id);
     frame.metadata = &invalid;
-    Reject(binding, &frame, limits, "CompanyFrame.metadata");
+    Reject(binding, &frame, limits, "MockFrameInput.metadata");
   }
-  CompanyAny empty{0, 0, 0, nullptr};
+  MockAny empty{0, 0, 0, nullptr};
   frame.metadata = &empty;
   EXPECT_EQ(binding.validate_external(&frame, limits, &error), 0);
   frame.metadata = nullptr;
@@ -87,33 +87,71 @@ TEST(PlatformCarrierContractsTest,
 }
 
 TEST(PlatformCarrierContractsTest,
-     KeywordAndEntityCarriersRequireNestedTextAndExposeActualServiceMappings) {
+     KeywordAndEntityShareTextEnvelopeWithoutInputServiceType) {
   const auto& keyword_binding = Native("keyword_in");
   const auto& entity_binding = Native("entity_in");
-  std::string content = "shared carrier text";
-  CompanyString text{static_cast<int32_t>(content.size()), content.data()};
-  CompanyOperatorKeywordInput keyword{kMockServiceKeywordMatch, &text};
-  CompanyOperatorEntityInput entity{kMockServiceEntityExtract, &text};
+  test_support::MockTextCarrier carrier("shared carrier text");
   std::string error;
-  ASSERT_EQ(keyword_binding.validate_external(&keyword, {}, &error), 0);
-  ASSERT_EQ(entity_binding.validate_external(&entity, {}, &error), 0);
-  const auto first =
-      std::any_cast<TextInputValue>(keyword_binding.read_value(&keyword));
-  const auto second =
-      std::any_cast<TextInputValue>(entity_binding.read_value(&entity));
-  EXPECT_EQ(keyword_binding.read_service_type(&keyword),
-            kMockServiceKeywordMatch);
-  EXPECT_EQ(entity_binding.read_service_type(&entity),
-            kMockServiceEntityExtract);
-  EXPECT_EQ(entity_binding.ServiceType("translate"), kMockServiceTranslate);
-  EXPECT_FALSE(keyword_binding.ServiceType("translate"));
-  content.assign(content.size(), 'X');
-  EXPECT_EQ(first.sentence_text, "shared carrier text");
-  EXPECT_EQ(second.sentence_text, "shared carrier text");
-  keyword.sentence_text = nullptr;
-  entity.sentence_text = nullptr;
-  Reject(keyword_binding, &keyword, {}, "sentence_text");
-  Reject(entity_binding, &entity, {}, "sentence_text");
+  ASSERT_EQ(keyword_binding.validate_external(&carrier.root, {}, &error), 0)
+      << error;
+  ASSERT_EQ(entity_binding.validate_external(&carrier.root, {}, &error), 0);
+  EXPECT_EQ(keyword_binding.external_c_type_name, "MockInput");
+  EXPECT_EQ(entity_binding.external_c_type_name, "MockInput");
+  EXPECT_FALSE(keyword_binding.read_service_type);
+  EXPECT_FALSE(entity_binding.read_service_type);
+  EXPECT_TRUE(keyword_binding.services.empty());
+  EXPECT_TRUE(entity_binding.services.empty());
+  const auto copied =
+      std::any_cast<TextInputValue>(keyword_binding.read_value(&carrier.root));
+  carrier.text.assign(carrier.text.size(), 'X');
+  EXPECT_EQ(copied.sentence_text, "shared carrier text");
+}
+
+TEST(PlatformCarrierContractsTest,
+     TextEnvelopeValidatesRootThenDataPoolThenTextBeforeReading) {
+  const auto& binding = Native("keyword_in");
+  InputLimits limits;
+  limits.max_text_bytes = 5;
+  struct Case {
+    const char* label;
+    void (*corrupt)(test_support::MockTextCarrier*);
+    const char* field;
+  };
+  const Case cases[] = {
+      {"root byte_size",
+       [](auto* c) { c->root.byte_size = sizeof(MockInput) + 1; },
+       "MockInput.byte_size"},
+      {"root type", [](auto* c) { c->root.type = 0; }, "kMockInputMultidata"},
+      {"frame count", [](auto* c) { c->root.num_frame = 2; }, "num_frame 1"},
+      {"null pool", [](auto* c) { c->root.data_pool = nullptr; },
+       "MockInput.data_pool"},
+      {"pool byte_size", [](auto* c) { c->pool.byte_size = 0; },
+       "MockInput.data_pool"},
+      {"data type", [](auto* c) { c->pool.data_type = 2; }, "kMockDataText"},
+      {"null text", [](auto* c) { c->pool.data_ptr = nullptr; }, "data_ptr"},
+      {"text byte_size", [](auto* c) { c->leaf.byte_size = 4; }, "data_ptr"},
+      {"negative length", [](auto* c) { c->leaf.length = -1; },
+       "negative length"},
+      {"over limit", [](auto* c) { c->leaf.length = 6; }, "exceeds max limit"},
+      {"null value", [](auto* c) { c->leaf.value = nullptr; },
+       "data pointer is null"},
+      {"embedded NUL", [](auto* c) { c->text[1] = '\0'; },
+       "embedded NUL at byte offset 1"},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.label);
+    test_support::MockTextCarrier carrier("hello");
+    std::string error;
+    ASSERT_EQ(binding.validate_external(&carrier.root, limits, &error), 0);
+    test.corrupt(&carrier);
+    Reject(binding, &carrier.root, limits, test.field);
+  }
+  test_support::MockTextCarrier empty;
+  empty.leaf.value = nullptr;
+  std::string error;
+  ASSERT_EQ(binding.validate_external(&empty.root, limits, &error), 0);
+  EXPECT_TRUE(std::any_cast<TextInputValue>(binding.read_value(&empty.root))
+                  .sentence_text.empty());
 }
 
 TEST(PlatformCarrierContractsTest,
@@ -121,8 +159,8 @@ TEST(PlatformCarrierContractsTest,
   const auto& binding = Native("doc_in");
   std::string document = "longdoc!";
   std::string question = "ask";
-  CompanyString doc{8, document.data()}, query{3, question.data()};
-  CompanyOperatorDocInput request{kMockServiceDocQa, &doc, &query};
+  MockString doc{8, document.data()}, query{3, question.data()};
+  MockDocInput request{kMockServiceDocQa, &doc, &query};
   InputLimits limits;
   limits.max_text_bytes = 3;
   limits.max_doc_text_bytes = 8;
@@ -154,8 +192,8 @@ TEST(PlatformCarrierContractsTest,
      AuditRequiresUserTextAndOptionalChannelHasItsOwnFixedLimit) {
   const auto& binding = Native("audit_in");
   std::string user = "question", channel = "phone";
-  CompanyString text{8, user.data()}, name{5, channel.data()};
-  CompanyOperatorAuditInput request{kMockServiceDialogueAudit, &text, &name};
+  MockString text{8, user.data()}, name{5, channel.data()};
+  MockAuditInput request{kMockServiceDialogueAudit, &text, &name};
   std::string error;
   ASSERT_EQ(binding.validate_external(&request, {}, &error), 0);
   const auto copied =
@@ -185,8 +223,8 @@ TEST(PlatformCarrierContractsTest,
   const auto& binding = Native("frame");
   std::array<uint8_t, 8> pixels{1, 2, 3, 99, 4, 5, 6, 98};
   std::array<int32_t, 1> metadata_value{7};
-  CompanyAny metadata{2, 1, 4, metadata_value.data()};
-  CompanyFrame frame{
+  MockAny metadata{2, 1, 4, metadata_value.data()};
+  MockFrameInput frame{
       kMockServiceOcrInvoiceQa, 2, 1, 4, pixels.data(), &metadata};
   InputLimits limits;
   limits.max_image_bytes = 8;
@@ -225,7 +263,7 @@ TEST(PlatformCarrierContractsTest,
   invalid.data = nullptr;
   Reject(binding, &invalid, limits, "data is null");
   metadata.type_id = 999;
-  Reject(binding, &frame, limits, "CompanyFrame.metadata");
+  Reject(binding, &frame, limits, "MockFrameInput.metadata");
   // The host has no byte-length field; validation cannot inspect allocation
   // size.
 }
@@ -234,8 +272,7 @@ TEST(PlatformCarrierContractsTest,
      AudioCopiesSamplesAndChecksRateSampleCountAndByteBudgetIndependently) {
   const auto& binding = Native("audio_in");
   std::array<float, 2> pcm{0.25f, -0.5f};
-  CompanyOperatorAudioInput audio{kMockServiceAudioAsrIntent, pcm.data(), 2,
-                                  16000};
+  MockAudioInput audio{kMockServiceAudioAsrIntent, pcm.data(), 2, 16000};
   InputLimits limits;
   limits.max_audio_pcm_samples = 2;
   limits.max_audio_pcm_bytes = 8;
@@ -276,9 +313,8 @@ TEST(PlatformCarrierContractsTest,
      RerankOwnsQueryAndCandidatesAndChecksCountBeforeNestedArrayAccess) {
   const auto& binding = Native("rerank_in");
   std::string query = "q", first = "first", second = "second";
-  CompanyString question{1, query.data()}, a{5, first.data()},
-      b{6, second.data()};
-  CompanyOperatorRerankInput request{};
+  MockString question{1, query.data()}, a{5, first.data()}, b{6, second.data()};
+  MockRerankInput request{};
   request.service_type = kMockServiceCrossRerank;
   request.query_text = &question;
   request.candidate_count = 2;

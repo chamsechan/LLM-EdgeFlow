@@ -98,15 +98,15 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   // Audit guarantees the selected host and allocator bindings exist.
 
   PreparedDeployment prepared;
-  std::set<std::pair<std::string, std::string>> seen;
+  // 宿主 key 为 <prefix>.<type>，只按 type 路由，故每方向 type 唯一。
+  std::set<std::string> seen;
   std::set<std::string> input_ports;
   for (size_t i = 0; i < split.inputs.size(); ++i) {
     const auto& entry = split.inputs[i];
     const auto at = "/io/input/" + std::to_string(i);
-    if (!seen.emplace(entry.type, entry.name).second)
-      return Fail(
-          diagnostic, error::kDuplicateIoEntry, at,
-          "Duplicate input converter: " + entry.type + "/" + entry.name);
+    if (!seen.insert(entry.type).second)
+      return Fail(diagnostic, error::kDuplicateIoEntry, at,
+                  "Duplicate input type: " + entry.type);
     const auto* def = converters.FindInputConverter(entry.type, entry.name);
     if (!def)
       return Fail(diagnostic, error::kUnknownConverter, at,
@@ -136,10 +136,9 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   for (size_t i = 0; i < split.outputs.size(); ++i) {
     const auto& entry = split.outputs[i];
     const auto at = "/io/output/" + std::to_string(i);
-    if (!seen.emplace(entry.type, entry.name).second)
-      return Fail(
-          diagnostic, error::kDuplicateIoEntry, at,
-          "Duplicate output converter: " + entry.type + "/" + entry.name);
+    if (!seen.insert(entry.type).second)
+      return Fail(diagnostic, error::kDuplicateIoEntry, at,
+                  "Duplicate output type: " + entry.type);
     const auto* def = converters.FindOutputConverter(entry.type, entry.name);
     if (!def)
       return Fail(diagnostic, error::kUnknownConverter, at,

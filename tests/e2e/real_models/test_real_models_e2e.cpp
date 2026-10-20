@@ -12,6 +12,7 @@
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
+#include "tests/support/mock_text_carrier.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -66,13 +67,12 @@ class RealModelExecutionTest : public ::testing::Test {
   fs::path root = LLM_EDGEFLOW_PROJECT_SOURCE_DIR;
 
   static Json CopyResponse(const api::NamedIoBatch& outputs) {
-    const auto* output = static_cast<const CompanyOperatorOutput*>(
-        outputs.at(0).at("real.json_out").get());
+    const auto* output =
+        static_cast<const MockOutput*>(outputs.at(0).at("real.json_out").get());
     EXPECT_NE(output, nullptr);
-    if (!output || !output->result_json) return Json();
-    EXPECT_EQ(output->status_code, 0);
-    return Json::parse(output->result_json->data,
-                       output->result_json->data + output->result_json->length);
+    if (!output || !output->text || !output->text->value) return Json();
+    return Json::parse(output->text->value,
+                       output->text->value + output->text->length);
   }
 
   static std::vector<float> ReadPcm(const fs::path& path) {
@@ -112,10 +112,9 @@ TEST_F(RealModelExecutionTest,
   ASSERT_EQ(instance.Open("configs/pipeline_translate_cpu.conf", root), 0)
       << api::GetOperatorLastError();
   std::string request = R"({"query":"Hello world."})";
-  CompanyString text{static_cast<int32_t>(request.size()), request.data()};
-  CompanyOperatorEntityInput carrier{kMockServiceTranslate, &text};
+  test_support::MockTextCarrier carrier(request);
   api::NamedIoBatch inputs(1), outputs(1);
-  inputs[0]["real.entity_in"] = api::MakeBorrowedOperatorInput(&carrier);
+  inputs[0]["real.entity_in"] = api::MakeBorrowedOperatorInput(&carrier.root);
   outputs[0]["real.json_out"] = {};
   ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), 0)
       << api::GetOperatorLastError();
@@ -151,8 +150,8 @@ TEST_F(RealModelExecutionTest,
   ASSERT_EQ(instance.Open("configs/pipeline_audio_asr_intent_cpu.conf", root),
             0)
       << api::GetOperatorLastError();
-  CompanyOperatorAudioInput carrier{kMockServiceAudioAsrIntent, pcm.data(),
-                                    static_cast<int32_t>(pcm.size()), 16000};
+  MockAudioInput carrier{kMockServiceAudioAsrIntent, pcm.data(),
+                         static_cast<int32_t>(pcm.size()), 16000};
   api::NamedIoBatch inputs(1), outputs(1);
   inputs[0]["real.audio_in"] = api::MakeBorrowedOperatorInput(&carrier);
   outputs[0]["real.json_out"] = {};

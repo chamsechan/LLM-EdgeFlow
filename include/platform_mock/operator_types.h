@@ -86,6 +86,11 @@ struct CreateParam {
  * 到调用方持有的值，再清空输出容器；不得在 Destroy 后访问输出指针。
  */
 using OpaqueData = std::shared_ptr<void>;
+// key 是宿主路由协议，格式固定为 `<prefix>.<type>`：prefix 由宿主生成，
+// 非空且不含 '.'，Runtime 只校验格式，不解读也不合成；type 为部署 I/O
+// 声明的类型（如 keyword_in、json_out），同一方向内每种 type 至多一个槽位。
+// 输出行由宿主预先放入全部 key 且值为 nullptr；Process 成功后统一发布，
+// 失败时所有输出保持 nullptr。
 using NamedIo = std::unordered_map<std::string, OpaqueData>;
 // Process requires equal input/output sizes; inputs[i] pairs with outputs[i].
 // Carrier request IDs and image frame indices do not determine this pairing.

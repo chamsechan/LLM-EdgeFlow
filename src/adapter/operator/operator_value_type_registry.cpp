@@ -111,9 +111,11 @@ bool OperatorValueTypeRegistry::ParseKey(const std::string& key,
                                          std::string* out_suffix) noexcept {
   try {
     if (key.empty()) return false;
-    size_t last_dot = key.rfind('.');
+    // 宿主路由 key 固定为 <prefix>.<type>，两段均非空且只有一个 '.'。
+    const size_t last_dot = key.find('.');
     if (last_dot == std::string::npos || last_dot == 0 ||
-        last_dot == key.size() - 1) {
+        last_dot == key.size() - 1 ||
+        key.find('.', last_dot + 1) != std::string::npos) {
       return false;
     }
     if (out_namespace) {

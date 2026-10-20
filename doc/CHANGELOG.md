@@ -7,6 +7,12 @@ LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](.
 
 当前能力：
 
+- Mock 文本输入统一使用 `MockInput` → `MockDataPool` → `MockTextInput`，逐层校验
+  结构大小、类型和文本长度；业务 JSON 输出使用池持有的 `MockOutput` / `MockTextOutput`，
+  容量由 `result_json_max_bytes` 声明，失败不发布部分结果。其余模拟载体统一采用 `Mock*`
+  命名。宿主 key 固定为 `<prefix>.<type>`，前缀由宿主生成且不含点，同一方向禁止重复
+  选择同一 type。见[模拟平台契约](../include/platform_mock/README.md)。
+
 - 移除无运行时消费者的生成版本头和产品版本宏，取消多份文档的版本号同步检查；
   依赖版本校验及 SDK 导出符号白名单继续保留。
 

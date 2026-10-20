@@ -3,8 +3,8 @@
 本目录的输出转换器读取 Pipeline 结果，并组装完整业务响应。
 
 当前八类业务都登记为 `json_out/<业务名>`，使用中立值 `JsonOutputValue`。
-转换器把完整结果序列化为 `result_json`，binding 写入统一 C 结构 `CompanyOperatorOutput`。
-状态保存在结构的 `status_code`。对象、数组和数值保持 JSON 类型。
+转换器把完整结果序列化为 `result_json`，binding 写入统一 C 结构 `MockOutput` 的嵌套文本。
+`JsonOutputValue` 只承载完整 JSON 文本；对象、数组和数值保持 JSON 类型。
 容量参数通过 `adapter/json_output_parameters.h` 的 `JsonOutputParameters()` 统一声明为
 `result_json_max_bytes`，默认 8191 字节，硬上限 65536 字节。
 如果新业务复用该载体，新增转换器和 binding 业务枚举映射。

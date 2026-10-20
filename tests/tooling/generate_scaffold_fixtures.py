@@ -33,6 +33,7 @@ def generate(output):
     requests = [
         ("scaffold_text_identity", ["--in-port", "sentences:TextBatch", "--out-port", "answers:TextBatch"]),
         ("scaffold_audio_identity", ["--in-port", "samples:AudioPcmBatch", "--out-port", "copy:AudioPcmBatch"]),
+        ("scaffold_rule_match_identity", ["--in-port", "matches:RuleMatchBatch", "--out-port", "copy:RuleMatchBatch"]),
         ("scaffold_conversion_pending", ["--in-port", "input:TextBatch", "--out-port", "output:Int32Batch"]),
         ("scaffold_llm_call", ["--kind", "model", "--model-capability", "llm"]),
         ("scaffold_embedding_call", ["--kind", "model", "--model-capability", "embedding"]),

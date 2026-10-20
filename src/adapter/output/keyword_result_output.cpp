@@ -22,7 +22,6 @@ constexpr const char* kOutputSlot = "json_out";
 
 AdapterStatus EncodeKeyword(const RuleMatchItem& result,
                             JsonOutputValue* output) {
-  output->status_code = result.status_code;
   auto response = BuildRuleMatchResponse(result);
   response["is_hit"] = result.is_hit;
   output->result_json = response.dump();

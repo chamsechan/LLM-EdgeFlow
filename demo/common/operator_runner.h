@@ -221,16 +221,11 @@ inline int RunOperatorDemo(const DemoOptions& options) {
   }
   const auto build = registry.FindInput(input_types);
   std::vector<ShowResultFn> displays;
-  std::map<std::string, size_t> output_type_counts;
+  std::vector<std::string> output_keys;
   for (const auto& entry : contract.outputs) {
     displays.push_back(registry.FindOutput(entry.type_name));
-    ++output_type_counts[entry.type];
+    output_keys.push_back("demo." + entry.type);
   }
-  std::vector<std::string> output_keys;
-  for (const auto& entry : contract.outputs)
-    output_keys.push_back(output_type_counts[entry.type] > 1
-                              ? entry.name + "." + entry.type
-                              : "demo." + entry.type);
   if (!build ||
       std::find(displays.begin(), displays.end(), nullptr) != displays.end()) {
     std::cerr << "[OperatorRunner ERROR] Unsupported I/O carriers: "
@@ -301,9 +296,7 @@ inline int RunOperatorDemo(const DemoOptions& options) {
                     << std::endl;
           return 5;
         }
-        int32_t status = 0;
-        displays[j](found->second.get(), info, &status, &parts[j]);
-        if (status != 0 && sample.status == 0) sample.status = status;
+        displays[j](found->second.get(), info, &parts[j]);
         for (const auto& field : parts[j].items()) ++field_counts[field.key()];
       }
       const bool all_objects =
@@ -319,12 +312,9 @@ inline int RunOperatorDemo(const DemoOptions& options) {
       } else {
         for (size_t j = 0; j < parts.size(); ++j) {
           const auto& entry = contract.outputs[j];
-          const auto prefix = output_type_counts[entry.type] > 1
-                                  ? entry.name + "." + entry.type
-                                  : entry.type;
           for (const auto& field : parts[j].items()) {
             const auto key = field_counts[field.key()] > 1
-                                 ? prefix + "." + field.key()
+                                 ? entry.type + "." + field.key()
                                  : field.key();
             sample.output[key] = field.value();
           }

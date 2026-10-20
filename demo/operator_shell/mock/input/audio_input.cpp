@@ -21,7 +21,7 @@ int BuildAudioRequests(
   struct Storage {
     std::vector<AudioDatasetSample> dataset_samples;
     std::vector<std::vector<float>> fallback_buffers;
-    std::vector<CompanyOperatorAudioInput> carriers;
+    std::vector<MockAudioInput> carriers;
   };
   auto storage = std::make_shared<Storage>();
   const bool is_real_profile = options.suite == "real";
@@ -101,7 +101,7 @@ int BuildAudioRequests(
   return 0;
 }
 
-REGISTER_DEMO_INPUT("CompanyOperatorAudioInput", BuildAudioRequests);
+REGISTER_DEMO_INPUT("MockAudioInput", BuildAudioRequests);
 
 }  // namespace
 }  // namespace alg_demo

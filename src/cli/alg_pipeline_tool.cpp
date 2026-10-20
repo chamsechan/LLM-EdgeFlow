@@ -196,19 +196,12 @@ Json OutputPoolsJson(const llm_edgeflow::ValidatedIoPlan& plan) {
   for (const auto& entry : plan.outputs) {
     const auto& definition = *entry.converter;
     const auto& pool = entry.pool_spec;
-    const auto repeated =
-        std::count_if(plan.outputs.begin(), plan.outputs.end(),
-                      [&](const auto& selected) {
-                        return selected.converter->type == definition.type;
-                      }) > 1;
-    const auto slot =
-        repeated ? definition.name + "." + definition.type : definition.type;
-    result[slot] = {{"type", pool.type},
-                    {"allocator", pool.allocator},
-                    {"params", entry.params->Effective().dump()},
-                    {"meta_num", pool.meta_num},
-                    {"metadata_type_id", pool.metadata_type_id},
-                    {"capacities", pool.capacities}};
+    result[definition.type] = {{"type", pool.type},
+                               {"allocator", pool.allocator},
+                               {"params", entry.params->Effective().dump()},
+                               {"meta_num", pool.meta_num},
+                               {"metadata_type_id", pool.metadata_type_id},
+                               {"capacities", pool.capacities}};
   }
   return result;
 }

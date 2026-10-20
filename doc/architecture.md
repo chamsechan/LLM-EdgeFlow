@@ -177,17 +177,18 @@ Runtime 负责部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipel
   调用 `DeInit` 前，对所有实例执行相同的停止、等待和释放步骤。
   完整规则见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
 - Pipeline 根 `io.input` / `io.output` 按 `(type, name)` 选择单槽转换器。`type` 是宿主 key 后缀，
-  `name` 对应结构体业务值。唯一 type 接受任意前缀，重复 type 使用 `name.type`。
-  平台登记显式声明业务成员。Process 逐行检查服务值，按输入输出 vector 的同一行关联请求，
+  `name` 对应结构体业务值。宿主 key 固定为 `<prefix>.<type>`，prefix 由宿主生成、非空且不含 `.`，
+  Runtime 不解读也不合成；同一方向内每种 type 至多选用一次。
+  平台登记显式声明业务成员。声明了服务成员的载体由 Process 逐行检查服务值，按输入输出 vector 的同一行关联请求，
   不要求载体提供请求 ID。
   转换器类型端口组合成 Core 的必传 I/O 边界，见[输出分配方案](dev_guide/operator_output_allocation.md)。
 - 组件调用关系：`外部调用方 → Operator 协议壳 → SharedAlgorithmRuntime → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成。支持多槽位解绑。
-- 当前八类业务统一使用 `json_out` 与 `CompanyOperatorOutput` C 结构，完整结果存于
-  `result_json`、状态存于 `status_code`，各业务 `name` 选择响应契约。新增其他载体继续使用
+- 当前八类业务统一使用 `json_out` 与 `MockOutput` C 结构，完整结果存于嵌套的池化
+  `MockTextOutput`，输出结构不暴露状态码，各业务 `name` 选择响应契约。新增其他载体继续使用
   ValueType/binding 与转换器注册接口，不向 Operator 中央分发添加业务分支。
-- `CompanyString` 按 `length` 表达文本。Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。
+- 文本载体（`MockTextInput`、`MockString`）按 `length` 表达文本。Operator 输入校验拒绝原始嵌入 NUL，转换器和输出按显式长度处理，不静默截断。
 - 输入存储由调用方保持有效。Process 在同步调用内保留输入 shared_ptr 视图并复制所需中立值，不跨调用保存输入指针或引用。
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配。Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池。deleter 只捕获池状态的

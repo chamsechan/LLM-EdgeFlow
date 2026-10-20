@@ -31,9 +31,9 @@ int BuildDocRequests(
   struct Storage {
     std::vector<std::string> docs;
     std::vector<std::string> queries;
-    std::vector<CompanyString> doc_strs;
-    std::vector<CompanyString> query_strs;
-    std::vector<CompanyOperatorDocInput> carriers;
+    std::vector<MockString> doc_strs;
+    std::vector<MockString> query_strs;
+    std::vector<MockDocInput> carriers;
   };
   auto storage = std::make_shared<Storage>();
   storage->docs = sections["DOC"];
@@ -85,7 +85,7 @@ int BuildDocRequests(
   return 0;
 }
 
-REGISTER_DEMO_INPUT("CompanyOperatorDocInput", BuildDocRequests);
+REGISTER_DEMO_INPUT("MockDocInput", BuildDocRequests);
 
 }  // namespace
 }  // namespace alg_demo

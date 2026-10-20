@@ -10,7 +10,8 @@ OutputConverter 将模型文本写入 `translated` 字符串，并返回完整 J
 部署配置为 `configs/pipeline_translate_cpu.conf`，指向同名 Pipeline JSON。
 该 Pipeline 在 `io` 中选择输入 `entity_in/translate` 和输出 `json_out/translate`。
 输出默认容量为 8191 字节。
-输入复用实体输入载体的 `sentence_text` 字段。输出使用统一 C 结构 `CompanyOperatorOutput` 的 `result_json` 字段。
+输入复用实体输入的文本 envelope（`MockInput` → `MockDataPool` → `MockTextInput`），转换后进入
+`sentence_text` 字段。输出使用统一 C 结构 `MockOutput` 的嵌套文本 `text`。
 传入的是完整对象文本，不是 `query` 子串，也不是双重 JSON 编码后的字符串：
 
 ```cpp
@@ -27,8 +28,10 @@ op.Create(&handle, &create);
 
 std::string req_json = "{\"version\":\"0.0.1\",\"endpoint\":\"translate\","
                        "\"query\":\"hello,what is your name\",\"src_lan\":\"en\"}";
-CompanyString cs{static_cast<int32_t>(req_json.size()), const_cast<char*>(req_json.data())};
-CompanyOperatorEntityInput input{1, &cs};
+MockTextInput text{sizeof(MockTextInput), req_json.data(),
+                   static_cast<int32_t>(req_json.size())};
+MockDataPool pool{sizeof(MockDataPool), kMockDataText, &text};
+MockInput input{sizeof(MockInput), kMockInputMultidata, 1, &pool};
 
 llm_edgeflow::operator_api::NamedIoBatch inputs(1);
 inputs[0]["trans.entity_in"] = llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&input);
@@ -37,12 +40,13 @@ llm_edgeflow::operator_api::NamedIoBatch outputs(1);
 outputs[0]["trans.json_out"] = nullptr;
 
 int ret = op.Process(handle, inputs, outputs);
-/* ret == 0 时，outputs[0]["trans.json_out"] 指向 CompanyOperatorOutput，
-   其 result_json 是完整的 {"translated":"..."}，status_code 保存状态。
+/* ret == 0 时，outputs[0]["trans.json_out"] 指向 MockOutput，
+   其 text->value / text->length 是完整的 {"translated":"..."}。
+   ret != 0 时所有输出保持 nullptr。
    复制需要的值，重置 outputs/租约后，调用 op.Destroy(handle)、op.DeInit()。 */
 ```
 
-`input.sentence_text` 的实际内容是：
+`text.value` 的实际内容是：
 
 ```json
 {"version":"0.0.1","endpoint":"translate","query":"hello,what is your name","src_lan":"en"}
@@ -134,7 +138,7 @@ Operator 的 JSON 输出池在本配置中为 8191 字节。当前上下文为 2
 该测试不作为翻译质量证据。Python 测试验证完整对象转发和完整 SDK 响应转发。
 真实模型验证使用同一份生产 Pipeline，执行三条样例的 Operator Demo。
 
-运行后，检查 `ret`。再核对输入输出的行对应关系和每条响应的 `status_code`。
+运行后，检查 `ret`。再核对输入输出的行对应关系和每条响应的 JSON 内容。
 最后，用业务数据检查译文。
 示例译文不代表其他权重或输入的效果。同句柄输入 `{"query":""}` 应返回错误而非成功响应。
 

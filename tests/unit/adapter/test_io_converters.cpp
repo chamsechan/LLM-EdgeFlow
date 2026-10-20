@@ -190,10 +190,9 @@ TEST(IoConverterTest, RerankRequiresCandidateListAndBoundsEachPassage) {
   }
 }
 
-TEST(IoConverterTest, DocumentAnswerUsesIntentStatusAndChunkCount) {
+TEST(IoConverterTest, DocumentAnswerUsesIntentAndChunkCount) {
   AlgContext context;
   RuleMatchItem intent(1, "REFUND", "refund", 0.75f);
-  intent.status_code = 9;
   ASSERT_TRUE(
       context.Publish("result.answer_text", TextBatch{{0, 0, "退款说明"}}));
   ASSERT_TRUE(context.Publish("result.intent", RuleMatchBatch{{0, 0, intent}}));
@@ -201,7 +200,6 @@ TEST(IoConverterTest, DocumentAnswerUsesIntentStatusAndChunkCount) {
   std::vector<JsonOutputValue> rows(1);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("doc_qa", &context, &rows, &status), 0);
-  EXPECT_EQ(rows[0].status_code, 9);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"({
     "intent_name":"REFUND","confidence":0.75,"answer_text":"退款说明","chunk_count":3
@@ -218,7 +216,6 @@ TEST(IoConverterTest, DocumentAnswerUsesIntentStatusAndChunkCount) {
 
 TEST(IoConverterTest, AudioResponseNestsIntentWithoutKeywordIsHitField) {
   RuleMatchItem intent(1, "PLAY", "play", 0.5f, "play_rule");
-  intent.status_code = 5;
   intent.slots = {{"song", "夜曲"}};
   intent.matches = {
       {RuleMatchSource::kRule, "PLAY", "play_rule", "play song", 0.5f}};
@@ -231,7 +228,6 @@ TEST(IoConverterTest, AudioResponseNestsIntentWithoutKeywordIsHitField) {
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("audio_asr_intent", &context, &rows, &status),
             0);
-  EXPECT_EQ(rows[0].status_code, 5);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"({
     "transcribed_text":"播放夜曲","intent_slot":{"intent":"PLAY","matched_word":"play",
@@ -260,7 +256,6 @@ TEST(IoConverterTest, InvoiceResponseNestsParsedResultAndCountsDetectedBoxes) {
   std::vector<JsonOutputValue> rows(1);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("ocr_invoice_qa", &context, &rows, &status), 0);
-  EXPECT_EQ(rows[0].status_code, 0);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"({
     "detected_box_count":2,"result":{"invoice_no":"I7","total":12}
@@ -305,7 +300,6 @@ TEST(IoConverterTest, AuditResponseUsesStructuredRiskAndOriginalVerdictJson) {
   std::vector<JsonOutputValue> rows(1);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("dialogue_audit", &context, &rows, &status), 0);
-  EXPECT_EQ(rows[0].status_code, 0);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(R"({
     "risk_level":"SAFE","risk_score":0.25,"matched_policy_clause":"clause A",
@@ -378,8 +372,6 @@ TEST(IoConverterTest, RerankResponseSortsByRankAndReportsOriginalIndicesOnly) {
   std::vector<JsonOutputValue> rows(2);
   AdapterStatus status;
   ASSERT_EQ(EncodeJsonConverter("cross_rerank", &context, &rows, &status), 0);
-  EXPECT_EQ(rows[0].status_code, 0);
-  EXPECT_EQ(rows[1].status_code, 0);
   EXPECT_EQ(nlohmann::json::parse(rows[0].result_json),
             nlohmann::json::parse(
                 R"({"scores":[0.75,0.25],"sorted_indices":[4,9],"count":2})"));

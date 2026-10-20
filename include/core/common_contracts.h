@@ -72,7 +72,6 @@ struct RuleMatchHit {
  */
 struct RuleMatchItem {
   int is_hit = 0;
-  int status_code = 0;
   std::string category;
   std::string rule_id;
   std::string matched_word;
@@ -84,7 +83,6 @@ struct RuleMatchItem {
   RuleMatchItem(int hit, std::string cat, std::string word, float sc = 0.0f,
                 std::string rid = {})
       : is_hit(hit),
-        status_code(0),
         category(std::move(cat)),
         rule_id(std::move(rid)),
         matched_word(std::move(word)),

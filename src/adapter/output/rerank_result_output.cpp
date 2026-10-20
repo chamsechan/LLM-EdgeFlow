@@ -76,7 +76,6 @@ int EncodeOperatorRerankResult(AlgContext* context,
     JsonOutputValue out;
 
     const auto& cand_list = req_map[static_cast<uint32_t>(i)];
-    out.status_code = 0;
     auto scores = nlohmann::json::array();
     auto indices = nlohmann::json::array();
     for (const auto& candidate : cand_list) {
