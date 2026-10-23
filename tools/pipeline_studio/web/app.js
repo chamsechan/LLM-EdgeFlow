@@ -520,8 +520,8 @@ async function openPipeline(filename) {
   return openDocument(() => api(`/pipeline?filename=${encodeURIComponent(filename)}`));
 }
 
-async function openDocument(load) {
-  if ((state.dirty || drafts.pending) && !confirm("当前修改尚未保存，确认丢弃并打开其他方案？")) return;
+async function openDocument(load, { creating = false, profile = "" } = {}) {
+  if ((state.dirty || drafts.pending) && !confirm(`当前修改尚未保存，确认丢弃并${creating ? "新建" : "打开其他方案"}？`)) return;
   const request = ++documentRequest;
   state.loading = true; graph.editable = false; updateEditorStatus();
   try {
@@ -529,16 +529,23 @@ async function openDocument(load) {
     if (request !== documentRequest) return;
     assertBrowsablePipeline(result.pipeline);
     state.pipeline = result.pipeline;
-    state.filename = result.imported ? "" : result.filename;
-    state.sourceName = result.imported ? result.filename : "";
-    state.deployment = result.deployment || null;
-    state.revision = result.revision; state.selected = "";
-    $("#pipelineSelect").value = state.filename;
+    state.filename = creating || result.imported ? "" : result.filename;
+    state.sourceName = !creating && result.imported ? result.filename : "";
+    state.deployment = creating ? null : result.deployment || null;
+    state.revision = creating ? "" : result.revision; state.selected = "";
+    if (!creating) $("#pipelineSelect").value = state.filename;
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
     resetDocumentFeedback();
-    state.savedPipeline = JSON.stringify(state.pipeline); history.reset(snapshot());
+    state.savedPipeline = creating ? "" : JSON.stringify(state.pipeline); history.reset(snapshot());
     state.pipelineVersion += 1;
-    restorePositions(); clearValidation(); setDirty(false);
+    restorePositions(); clearValidation(); setDirty(creating);
+    if (creating) {
+      filterProfiles();
+      if (profile) $("#runProfile").value = profile;
+      $(".create-panel").open = false;
+      switchTab("properties");
+      operationFeedback(profile ? "示例方案已创建。点击节点调整参数，再检查或运行；保存后才会写入文件。" : "空白方案已创建。从节点库添加节点，再连接输入和输出。完成后检查并保存。");
+    }
   } finally {
     if (request === documentRequest) { state.loading = false; graph.editable = state.editing; renderAll(); }
   }
@@ -547,26 +554,7 @@ async function openDocument(load) {
 async function createPipeline() {
   const profile = $("#createMode").value === "template" ? $("#cloneProfile").value : "";
   if (!state.catalogReady || state.loading || state.authoringBusy || ($("#createMode").value === "template" && !profile)) return;
-  if ((state.dirty || drafts.pending) && !confirm("当前修改尚未保存，确认丢弃并新建？")) return;
-  const request = ++documentRequest;
-  state.loading = true; graph.editable = false; updateEditorStatus();
-  try {
-    const result = await write("/init", "POST", profile ? {profile} : structuredClone(createIo));
-    if (request !== documentRequest) return;
-    state.deployment = null;
-    state.pipeline = result.pipeline; state.filename = ""; state.sourceName = ""; state.revision = ""; state.selected = "";
-    drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
-    resetDocumentFeedback();
-    state.savedPipeline = ""; history.reset(snapshot());
-    state.pipelineVersion += 1;
-    restorePositions(); clearValidation(); setDirty(true); filterProfiles();
-    if (profile) $("#runProfile").value = profile;
-    $(".create-panel").open = false;
-    switchTab("properties");
-    operationFeedback(profile ? "示例方案已创建。点击节点调整参数，再检查或运行；保存后才会写入文件。" : "空白方案已创建。从节点库添加节点，再连接输入和输出。完成后检查并保存。");
-  } finally {
-    if (request === documentRequest) { state.loading = false; graph.editable = state.editing; renderAll(); }
-  }
+  return openDocument(() => write("/init", "POST", profile ? {profile} : structuredClone(createIo)), { creating: true, profile });
 }
 
 async function save(saveAs, runnable = false) {
@@ -715,8 +703,11 @@ async function handleApplyReviewedFix() {
     if (!checked.ok || JSON.stringify(checked.patched) !== JSON.stringify(review.res.patched)) throw new Error("修复候选已改变，请重新预览");
     state.pipeline = checked.patched;
     markPipelineChanged();
+    state.validationReport = checked.report;
+    showValidation(checked.report);
+    switchTab("validation");
     operationFeedback(`已应用修复：${review.fix.title}（可撤销）`);
-    await validate(); return true;
+    return true;
   } catch (error) { operationFeedback(error.message, true); return false; }
   finally { if (button) button.disabled = false; }
 }

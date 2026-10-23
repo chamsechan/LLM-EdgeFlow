@@ -38,7 +38,6 @@ ErrorCode = IntEnum("ErrorCode", {
 })
 WEB_ROOT = PROJECT_ROOT / "tools" / "pipeline_studio" / "web"
 CONFIG_ROOT = PROJECT_ROOT / "configs"
-PROFILE_FILE = PROJECT_ROOT / "demo" / "profiles.json"
 PIPELINE_TOOL = Path(
     os.environ.get(
         "LLM_EDGEFLOW_PIPELINE_TOOL",
@@ -53,9 +52,6 @@ DEMO_BINARY = Path(
 _SELECTION_SPEC = importlib.util.spec_from_file_location("edgeflow_selection", PROJECT_ROOT / "tools/verify_selection.py")
 SELECTION = importlib.util.module_from_spec(_SELECTION_SPEC)
 _SELECTION_SPEC.loader.exec_module(SELECTION)
-_PROFILE_SPEC = importlib.util.spec_from_file_location("edgeflow_demo_profile", PROJECT_ROOT / "demo/common/demo_profile.py")
-DEMO_PROFILE = importlib.util.module_from_spec(_PROFILE_SPEC)
-_PROFILE_SPEC.loader.exec_module(DEMO_PROFILE)
 
 MAX_LOG_BYTES = 2 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
@@ -87,51 +83,6 @@ def json_result(ok: bool, **values: Any) -> dict[str, Any]:
 
 def revision_for(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
-
-def apply_json_patch(doc: Any, patch: list[dict[str, Any]]) -> Any:
-    """Apply the test/add/remove/replace/move operations emitted by native fixes."""
-    doc = copy.deepcopy(doc)
-
-    def parent(pointer: str) -> tuple[Any, str | int]:
-        if not pointer.startswith("/"):
-            raise ValueError(f"Invalid JSON Pointer: {pointer}")
-        parts = [part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")]
-        target = doc
-        for part in parts[:-1]:
-            target = target[int(part)] if isinstance(target, list) else target[part]
-        key = parts[-1]
-        return target, int(key) if isinstance(target, list) and key != "-" else key
-
-    for step in patch:
-        op = step["op"]
-        if op not in ("test", "add", "remove", "replace", "move"):
-            raise ValueError(f"Unsupported fix operation: {op}")
-        target, key = parent(step["path"])
-        if op == "test":
-            if target[key] != step["value"]:
-                raise ValueError(f"Patch test failed at {step['path']}")
-        elif op == "remove":
-            del target[key]
-        else:
-            if op == "move":
-                source, source_key = parent(step["from"])
-                value = source.pop(source_key)
-                target, key = parent(step["path"])
-            else:
-                value = copy.deepcopy(step["value"])
-            if isinstance(target, list) and op in ("add", "move"):
-                target.insert(len(target) if key == "-" else key, value)
-            else:
-                if op == "replace":
-                    target[key]  # Replacing an absent field is not a valid fix.
-                target[key] = value
-    return doc
-
-
-def read_json(path: Path) -> Any:
-    with path.open("r", encoding="utf-8") as stream:
-        return json.load(stream)
 
 
 def get_tool_fingerprint() -> str:
@@ -333,31 +284,24 @@ class WorkbenchService:
         current_fp = get_tool_fingerprint()
         if not tool_fingerprint or current_fp != tool_fingerprint:
             raise StudioError(ErrorCode.TOOL_OUTDATED, "底层校验工具已重建或更新，候选失效", 409)
-        try:
-            patched = apply_json_patch(pipeline, patch)
-        except Exception as error:
-            raise StudioError(
-                ErrorCode.PATCH_APPLICATION_FAILED, f"补丁应用失败: {error}"
-            ) from error
-        report = self.validate(patched, explain=True)
-        if current_fp != get_tool_fingerprint():
+        result = self.preview_authoring({
+            "pipeline": pipeline, "operation": {"kind": "apply_patch", "patch": patch},
+        })
+        if not result.get("ok"):
+            raise StudioError(ErrorCode.PATCH_APPLICATION_FAILED,
+                              json.dumps(result.get("diagnostics", []), ensure_ascii=False))
+        report = result["validation"]
+        if current_fp != report["tool_fingerprint"]:
             raise StudioError(ErrorCode.TOOL_OUTDATED, "修复预览期间工具已更新，请重新校验", 409)
-        return json_result(
-            True,
-            patched=patched,
-            report=report,
-            revision=revision_for(
-                json.dumps(patched, sort_keys=True).encode("utf-8")
-            ),
-            tool_fingerprint=current_fp,
-        )
+        return json_result(True, patched=result["pipeline"], report=report,
+                           revision=report["revision"], tool_fingerprint=current_fp)
 
     def preview_authoring(self, request: dict[str, Any]) -> dict[str, Any]:
         fingerprint = get_tool_fingerprint()
         result = self.invoke_tool(["edit", "--stdin"], request)
         if get_tool_fingerprint() != fingerprint:
             raise StudioError(ErrorCode.TOOL_OUTDATED, "操作期间工具已更新，请重新加载", 409)
-        if result.get("pipeline") is not None:
+        if "pipeline" in result:
             result["validation"]["tool_fingerprint"] = fingerprint
             result["validation"]["revision"] = revision_for(
                 json.dumps(result["pipeline"], sort_keys=True).encode("utf-8"))
@@ -431,21 +375,19 @@ class WorkbenchService:
             return json_result(True, filename=path.name, revision=revision_for(encoded),
                                pipeline=pipeline, deployment=None)
 
-    def profile_inputs(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
-        profiles = read_json(PROFILE_FILE).get("profiles", {})
-        if profile_name not in profiles:
-            raise StudioError(ErrorCode.UNKNOWN_PROFILE, profile_name)
-        profile = profiles[profile_name]
-        try:
-            DEMO_PROFILE.validate_profile_fields(profile)
-        except ValueError as error:
-            raise StudioError(ErrorCode.INVALID_PROFILE, f"Profile '{profile_name}': {error}") from error
-        profile_conf = PROJECT_ROOT / profile["config"]
-        configuration = self.resolve_run_conf(profile_conf, profile)
-        original = read_json(Path(configuration["pipeline_path"]))
-        if self.io_pairs(original) != self.io_pairs(pipeline):
-            raise StudioError(ErrorCode.PROFILE_MISMATCH, "Profile 与 I/O 契约不匹配")
-        return profile
+    def profile_inputs(self, pipeline: Any, profile_name: str | None) -> dict[str, Any]:
+        catalog = self.catalog()
+        if not catalog.get("ok"):
+            raise StudioError(ErrorCode.INVALID_PROFILE, json.dumps(catalog, ensure_ascii=False))
+        profiles = catalog["profiles"]
+        if profile_name is not None:
+            profiles = [profile for profile in profiles if profile["name"] == profile_name]
+            if not profiles:
+                raise StudioError(ErrorCode.UNKNOWN_PROFILE, profile_name)
+        for profile in profiles:
+            if profile["io"] == self.io_pairs(pipeline):
+                return {key: value for key, value in profile.items() if key not in ("name", "io")}
+        raise StudioError(ErrorCode.PROFILE_MISMATCH, "没有与该 I/O 契约匹配的运行 Profile")
 
     def deployment_profile(
         self, pipeline: Any, profile_name: str = "", filename: str = "",
@@ -454,7 +396,7 @@ class WorkbenchService:
         path = self.managed_path(filename) if filename else None
         managed = self.generated_solutions.get(path.name) if path else None
         if not managed:
-            return self.profile_inputs(pipeline, profile_name)
+            return self.profile_inputs(pipeline, profile_name or "")
         conf_path = managed["conf_path"]
         if (path.is_symlink() or conf_path.is_symlink()
                 or not path.is_file() or not conf_path.is_file()):
@@ -575,28 +517,7 @@ class WorkbenchService:
                     400,
                 )
 
-            if profile_name:
-                prof = self.profile_inputs(pipeline, profile_name)
-            else:
-                prof = None
-                candidate_error = None
-                matching = {candidate["name"] for candidate in self.catalog().get("profiles", [])
-                            if candidate.get("io") == self.io_pairs(pipeline)}
-                for name in read_json(PROFILE_FILE).get("profiles", {}):
-                    if name not in matching:
-                        continue
-                    try:
-                        prof = self.profile_inputs(pipeline, name)
-                    except StudioError as error:
-                        if error.code != ErrorCode.DEPLOYMENT_VALIDATION_FAILED.name:
-                            raise
-                        candidate_error = error
-                        continue
-                    break
-                if prof is None:
-                    if candidate_error is not None:
-                        raise candidate_error
-                    raise StudioError(ErrorCode.PROFILE_MISMATCH, "没有与该 I/O 契约匹配的运行 Profile")
+            prof = self.profile_inputs(pipeline, profile_name or None)
             configuration = self.resolve_run_conf(conf_path, prof)
             if pipe_path.read_bytes() != pipe_raw or conf_path.read_bytes() != conf_raw:
                 raise StudioError(ErrorCode.REVISION_CONFLICT, "关联期间文件已改变，请重新关联", 409)

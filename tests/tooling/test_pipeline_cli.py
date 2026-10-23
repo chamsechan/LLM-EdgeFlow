@@ -108,6 +108,28 @@ class PipelineCliContractTest(unittest.TestCase):
         self.assertNotIn("pipeline", failed)
         self.assertEqual(self.base["pipeline"][0]["name"], "match_keywords")
 
+    def test_patch_uses_native_semantics_and_keeps_batch_failure_atomic(self):
+        patch = {"kind": "apply_patch", "patch": [
+            {"op": "test", "path": "/pipeline/0/name", "value": "match_keywords"},
+            {"op": "copy", "from": "/pipeline/0/name", "path": "/comment"},
+        ]}
+        result = self.call("edit", "--stdin", document={
+            "pipeline": self.base, "operation": patch, "require_valid": True})
+        self.assertTrue(result["validation"]["ok"])
+        self.assertEqual(result["pipeline"]["comment"], "match_keywords")
+        for invalid in (
+            {"op": "add", "path": "/pipeline/99", "value": {}},
+            {"op": "remove", "path": "/pipeline/-1"},
+            {"op": "replace", "path": "/absent", "value": "missing"},
+        ):
+            with self.subTest(patch=invalid):
+                failed = self.call("edit", "--stdin", document={
+                    "pipeline": self.base, "operations": [patch, {"kind": "apply_patch", "patch": [invalid]}],
+                }, expected=1)
+                self.assertEqual(failed["failed_operation_index"], 1)
+                self.assertNotIn("pipeline", failed)
+        self.assertNotIn("comment", self.base)
+
     def test_deployment_resolution_reports_the_selected_file_and_effective_io(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)

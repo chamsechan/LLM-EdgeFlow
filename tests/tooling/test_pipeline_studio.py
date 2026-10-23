@@ -72,11 +72,8 @@ class StudioHttpContractTest(unittest.TestCase):
         shutil.copy(ROOT / "configs/pipeline_keyword_match_rules.conf", self.configs)
         shutil.copy(ROOT / "data/corpus_keyword_match.txt", self.root / "data")
         self.root_patch = mock.patch.object(studio, "PROJECT_ROOT", self.root)
-        self.profile_patch = mock.patch.object(studio, "PROFILE_FILE", self.root / "demo/profiles.json")
         self.root_patch.start()
-        self.profile_patch.start()
         self.addCleanup(self.root_patch.stop)
-        self.addCleanup(self.profile_patch.stop)
         self.service = studio.WorkbenchService(self.configs)
         self.server = studio.StudioHttpServer(("127.0.0.1", 0), studio.make_handler(self.service))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -181,6 +178,18 @@ class StudioHttpContractTest(unittest.TestCase):
         status, previewed = self.request("POST", "/api/fixes/preview", body)
         self.assertEqual(status, 200, previewed)
         self.assertEqual(previewed["patched"]["comment"], "preview")
+        self.assertEqual(previewed["report"]["revision"], previewed["revision"])
+        status, invalid = self.request("POST", "/api/fixes/preview", {
+            **body, "patch": [{"op": "replace", "path": "", "value": None}]})
+        self.assertEqual(status, 200, invalid)
+        self.assertIsNone(invalid["patched"])
+        self.assertFalse(invalid["report"]["ok"])
+        self.assertEqual(invalid["revision"], invalid["report"]["revision"])
+        for path in ("/pipeline/-1", "/pipeline/99"):
+            status, rejected = self.request("POST", "/api/fixes/preview", {
+                **body, "patch": [{"op": "add", "path": path, "value": {}}]})
+            self.assertEqual(status, 400, rejected)
+            self.assertEqual(rejected["error"]["code"], "PATCH_APPLICATION_FAILED")
 
     def test_deployment_association_preflight_and_save_use_canonical_fields(self):
         filename = "pipeline_keyword_match_rules.json"
@@ -351,38 +360,45 @@ class StudioHttpContractTest(unittest.TestCase):
             self.assertEqual(bool(saved["command_warning"]), not recovering)
             self.assertEqual(bool(saved["command"]), recovering)
 
-    def test_automatic_profile_selection_ignores_unavailable_models(self):
-        # Exercise candidate failures without requiring any optional production Backend.
-        profiles = json.loads((ROOT / "demo/profiles.json").read_text())["profiles"]
-        unavailable = copy.deepcopy(self.base)
-        unavailable["models"] = [{"type": "llm", "name": "unavailable", "file": "missing.fixture",
-                                  "backend": {"type": "test_causal_lm_backend"}}]
-        (self.configs / "unavailable.json").write_text(json.dumps(unavailable))
-        unavailable_conf = self.configs / "unavailable.conf"
-        unavailable_conf.write_text(json.dumps({"pipe_path": "unavailable.json"}))
-        candidates = {
-            "entity_extract_mock": profiles["entity_extract_mock"],
-            "keyword_match_control": {**profiles["keyword_match_control"], "config": str(unavailable_conf)},
-            "keyword_match_rules": profiles["keyword_match_rules"],
-        }
-        profile_file = self.root / "demo/profiles.json"
-        profile_file.write_text(json.dumps({"profiles": candidates}))
-        production_tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
-        with mock.patch.object(studio, "PROJECT_ROOT", ROOT), \
-                mock.patch.object(studio, "PIPELINE_TOOL", production_tool):
-            request = {"filename": "pipeline_keyword_match_rules.json", "conf_name": "pipeline_keyword_match_rules.conf"}
-            status, result = self.request("POST", "/api/deployment/associate", request)
-            self.assertEqual(status, 200, result)
-            self.assertEqual(self.service.generated_solutions[request["filename"]]["profile"],
-                             profiles["keyword_match_rules"])
-
-            # All matching candidates fail: preserve the concrete native validation error.
-            del candidates["keyword_match_rules"]
-            profile_file.write_text(json.dumps({"profiles": candidates}))
-            status, result = self.request("POST", "/api/deployment/associate", request)
-            self.assertEqual(status, 400, result)
-            self.assertEqual(result["error"]["code"], "DEPLOYMENT_VALIDATION_FAILED")
-            self.assertIn("test_causal_lm_backend", result["error"]["message"])
+    def test_profiles_reuse_catalog_settings_without_validating_the_example(self):
+        example = copy.deepcopy(self.base)
+        example["models"] = [{"type": "llm", "name": "unavailable", "file": "missing.fixture",
+                              "backend": {"type": "unavailable_backend"}}]
+        (self.configs / "example.json").write_text(json.dumps(example))
+        (self.configs / "example.conf").write_text('{"pipe_path":"example.json"}')
+        profile = {**self.profile, "config": "configs/example.conf", "depth": 3,
+                   "control_cmd": 1, "control_file": "data/control.json"}
+        shutil.copy(ROOT / "data/keyword_match_control.json", self.root / "data/control.json")
+        (self.root / "demo/profiles.json").write_text(json.dumps({"profiles": {
+            "z_example": profile, "a_example": {**profile, "depth": 1},
+        }}))
+        status, catalog = self.request("GET", "/api/catalog")
+        self.assertEqual(status, 200, catalog)
+        self.assertEqual([entry["name"] for entry in catalog["profiles"]], ["z_example", "a_example"])
+        self.assertEqual({key: value for key, value in catalog["profiles"][0].items()
+                          if key not in ("name", "io")}, profile)
+        request = {"filename": "pipeline_keyword_match_rules.json", "conf_name": "pipeline_keyword_match_rules.conf"}
+        status, result = self.request("POST", "/api/deployment/associate", request)
+        self.assertEqual(status, 200, result)
+        self.assertEqual(self.service.generated_solutions[request["filename"]]["profile"], profile)
+        self.service.demo_command(profile, self.configs / request["conf_name"], self.root / "run")
+        exported = json.loads((self.root / "run/demo-profile.json").read_text())["profiles"]["pipeline_keyword_match_rules"]
+        self.assertEqual(exported["control_cmd"], profile["control_cmd"])
+        self.assertEqual(exported["control_file"], str(self.root / profile["control_file"]))
+        self.assertEqual(exported["depth"], profile["depth"])
+        for fields in ({}, {"profile": None}):
+            status, missing = self.request("POST", "/api/runs", {"pipeline": self.base, **fields})
+            self.assertEqual(status, 400, missing)
+            self.assertEqual(missing["error"]["code"], "UNKNOWN_PROFILE")
+        status, ready = self.request("POST", "/api/preflight", {"pipeline": self.base, "profile": "z_example"})
+        self.assertEqual(status, 200, ready)
+        self.assertEqual(ready["summary"]["status"], "ready")
+        self.assertEqual(ready["configuration"]["effective_frame_depth"], 3)
+        changed = copy.deepcopy(self.base)
+        changed["io"]["output"][0]["name"] = "different_contract"
+        with self.assertRaises(studio.StudioError) as mismatch:
+            self.service.profile_inputs(changed, "z_example")
+        self.assertEqual(mismatch.exception.code, "PROFILE_MISMATCH")
 
     def test_managed_paths_reject_escape_and_symlinks_while_import_is_read_only(self):
         outside = self.root / "pipeline_import.json"

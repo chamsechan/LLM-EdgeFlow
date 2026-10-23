@@ -146,7 +146,7 @@ Json ProfilesJson(std::string* error) {
   std::ifstream stream("demo/profiles.json");
   if (!stream.is_open()) return result;
   try {
-    const auto root = Json::parse(stream);
+    const auto root = nlohmann::ordered_json::parse(stream);
     for (const auto& [name, profile] : root.at("profiles").items()) {
       std::string fields_error;
       if (!alg_demo::ValidateProfileFields(profile, &fields_error)) {
@@ -157,16 +157,10 @@ Json ProfilesJson(std::string* error) {
       Json pipeline;
       std::string read_error;
       if (!path || !ReadJson(path->string(), &pipeline, &read_error)) continue;
-      result.push_back(
-          {{"name", name},
-           {"io", IoPairs(pipeline)},
-           {"config", profile.at("config")},
-           {"dataset", profile.value("dataset", "")},
-           {"suite", profile.value("suite", "smoke")},
-           {"batch_size",
-            profile.value("batch_size", alg_demo::kDemoBatchSize)},
-           {"device_id", profile.value("device_id", alg_demo::kDemoDeviceId)},
-           {"chip", profile.value("chip", std::string(alg_demo::kDemoChip))}});
+      Json item = profile;
+      item["name"] = name;
+      item["io"] = IoPairs(pipeline);
+      result.push_back(std::move(item));
     }
   } catch (const std::exception& exception) {
     *error = exception.what();
