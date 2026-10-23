@@ -15,7 +15,7 @@ ALG_LOG_DEBUG("hello[%d], reasoning[%d]\n", session_id, reasoning);
 `ALG_LOG_*` 默认使用 `LLM_EDGEFLOW` 作为日志名称。如需为接入方设置不同名称，必须在包含头文件前定义：
 
 ```c
-#define COMPANY_ALG_LOG_NAME "MY_ALGORITHM"
+#define EDGEFLOW_LOG_NAME "MY_ALGORITHM"
 #include "edgeflow/log.h"
 ```
 

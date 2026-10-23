@@ -1,18 +1,18 @@
-#ifndef COMPANY_ALG_EXPORT_H_
-#define COMPANY_ALG_EXPORT_H_
+#ifndef EDGEFLOW_EXPORT_H_
+#define EDGEFLOW_EXPORT_H_
 
-#if defined(COMPANY_ALG_STATIC_LINK)
-#define COMPANY_ALG_API
+#if defined(EDGEFLOW_STATIC_LINK)
+#define EDGEFLOW_API
 #elif defined(_WIN32)
-#if defined(COMPANY_ALG_BUILDING_SDK)
-#define COMPANY_ALG_API __declspec(dllexport)
+#if defined(EDGEFLOW_BUILDING_SDK)
+#define EDGEFLOW_API __declspec(dllexport)
 #else
-#define COMPANY_ALG_API __declspec(dllimport)
+#define EDGEFLOW_API __declspec(dllimport)
 #endif
 #elif defined(__GNUC__) || defined(__clang__)
-#define COMPANY_ALG_API __attribute__((visibility("default")))
+#define EDGEFLOW_API __attribute__((visibility("default")))
 #else
-#define COMPANY_ALG_API
+#define EDGEFLOW_API
 #endif
 
-#endif  // COMPANY_ALG_EXPORT_H_
+#endif  // EDGEFLOW_EXPORT_H_

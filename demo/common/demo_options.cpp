@@ -50,7 +50,7 @@ void ConfigureLogLevelFromEnvironment() noexcept {
     return;
   }
   const int parsed_level = value[0] - '0';
-  (void)AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME, parsed_level);
+  (void)AlgBase_setLogLevelByName(EDGEFLOW_LOG_NAME, parsed_level);
 }
 
 bool ParseComputePlatform(const std::string& chip_str,

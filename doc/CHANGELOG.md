@@ -7,6 +7,10 @@ LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](.
 
 当前能力：
 
+- SDK 符号导出与构建控制宏统一使用 `EDGEFLOW_API`、`EDGEFLOW_BUILDING_SDK` 和
+  `EDGEFLOW_STATIC_LINK`；日志名称通过 `EDGEFLOW_LOG_NAME` 覆盖，默认仍为
+  `LLM_EDGEFLOW`。见[公共日志 API](logging.md)。
+
 - Mock 文本输入统一使用 `MockInput` → `MockDataPool` → `MockTextInput`，逐层校验
   结构大小、类型和文本长度；业务 JSON 输出使用池持有的 `MockOutput` / `MockTextOutput`，
   容量由 `result_json_max_bytes` 声明，失败不发布部分结果。其余模拟载体统一采用 `Mock*`

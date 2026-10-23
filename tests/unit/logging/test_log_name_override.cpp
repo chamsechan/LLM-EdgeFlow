@@ -1,4 +1,4 @@
-#define COMPANY_ALG_LOG_NAME "HOST_COMPONENT"
+#define EDGEFLOW_LOG_NAME "HOST_COMPONENT"
 #include <gtest/gtest.h>
 
 #include "edgeflow/log.h"
