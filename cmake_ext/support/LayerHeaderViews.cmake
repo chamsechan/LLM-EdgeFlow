@@ -35,6 +35,7 @@ function(edgeflow_collect_headers output_var)
 endfunction()
 
 set(platform_mock_headers
+    include/platform_mock/log.h
     include/platform_mock/error_codes.h
     include/platform_mock/operator_data_types.h include/platform_mock/operator_types.h)
 
@@ -45,7 +46,8 @@ set(public_headers
 edgeflow_header_view(public ${public_headers})
 
 edgeflow_collect_headers(contract_headers "${PROJECT_SOURCE_DIR}/include/contracts")
-list(APPEND contract_headers include/edgeflow/log.h include/edgeflow/export.h)
+list(APPEND contract_headers include/edgeflow/log.h include/edgeflow/export.h
+    include/platform_mock/log.h)
 edgeflow_header_view(contracts ${contract_headers})
 
 edgeflow_collect_headers(model_api_headers "${PROJECT_SOURCE_DIR}/include/engine")

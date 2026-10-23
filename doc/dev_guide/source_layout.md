@@ -79,7 +79,7 @@ cmake -P tests/contract/architecture/test_cmake_structure.cmake
 `src/` 各层实现目录、`src/cli/` 与 `demo/` 使用 `GLOB_RECURSE CONFIGURE_DEPENDS`
 递归收集 `.cpp`，增删普通实现文件后，下次构建自动更新文件列表。
 Engine 的 `backends/` 单独归 Backend 目标。Adapter 的 `shared_algorithm_runtime.cpp`
-与 `src/log.cpp` 显式归组合根。CLI 的两个可执行入口及 Demo 的 `main.cpp` 从公共实现中排除，
+与本地日志等级实现 `src/log.cpp` 显式归组合根。CLI 的两个可执行入口及 Demo 的 `main.cpp` 从公共实现中排除，
 分别归自己的可执行目标。新增独立目标时仍须声明其入口和归属，不能混入已有目标。
 测试按 `tests/RuntimeTests.cmake` 的目录和命名规则收集。跨 runner、进程隔离、生成源码及
 可选 E2E 目标保留显式登记。常规 GoogleTest 用例自动发现并生成 CTest 入口。
@@ -109,6 +109,7 @@ include/edgeflow/                 SDK 调用接口
   operator/interface.h
   operator/types.h                Company* 数据 DTO 门面
 include/platform_mock/            本地平台公共定义模拟
+  log.h                          日志等级与简化打印宏，由 edgeflow/log.h 转发
   error_codes.h
   operator_data_types.h / operator_types.h
 include/adapter/                  源码扩展契约与辅助接口
@@ -253,7 +254,7 @@ SDK 调用代码使用以下 `edgeflow/` 前缀入口：
 | 规范入口 | 说明 |
 | --- | --- |
 | `edgeflow/export.h` | 符号可见性宏 |
-| `edgeflow/log.h` | 统一日志入口 |
+| `edgeflow/log.h` | 统一日志转发入口，当前使用 `platform_mock/log.h` 开发替身 |
 | `edgeflow/operator/interface.h` | C++ Operator 接口及函数表 |
 | `edgeflow/operator/types.h` | `Company*` 数据 DTO 门面（转发至 `platform_mock/operator_data_types.h`） |
 

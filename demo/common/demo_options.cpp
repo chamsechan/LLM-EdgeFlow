@@ -46,10 +46,14 @@ bool ParseStrictInt64(const std::string& str, int64_t* out_val) {
 
 void ConfigureLogLevelFromEnvironment() noexcept {
   const char* value = std::getenv("LLMEDGEFLOW_LEVEL");
-  if (!value || value[0] < '0' || value[0] > '5' || value[1] != '\0') {
+  if (!value || value[0] < '0' || value[0] > '9' || value[1] != '\0') {
     return;
   }
   const int parsed_level = value[0] - '0';
+  if (parsed_level < E_ALG_BASE_LOG_LEVEL_SILENT ||
+      parsed_level > E_ALG_BASE_LOG_LEVEL_VERBOSE) {
+    return;
+  }
   (void)AlgBase_setLogLevelByName(EDGEFLOW_LOG_NAME, parsed_level);
 }
 
