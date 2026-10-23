@@ -1,41 +1,34 @@
 #include <gtest/gtest.h>
 
-#include <string>
+#include <limits>
 
 #include "edgeflow/log.h"
 
 namespace {
-class LoggingRecordTest : public ::testing::Test {
+class MockLogLevelTest : public ::testing::Test {
  protected:
-  void SetUp() override { saved = AlgBase_getLogLevelByName(nullptr); }
-  void TearDown() override { AlgBase_setLogLevelByName(nullptr, saved); }
-  int saved = 0;
+  void SetUp() override { saved_ = AlgBase_getLogLevelByName(nullptr); }
+  void TearDown() override { AlgBase_setLogLevelByName(nullptr, saved_); }
+  int saved_ = 0;
 };
 
-TEST_F(LoggingRecordTest,
-       ThresholdSuppressesFormattingArgumentsAndInvalidLevelsPreserveIt) {
-  ASSERT_EQ(AlgBase_setLogLevelByName("host", E_ALG_BASE_LOG_LEVEL_WARNING), 0);
-  int evaluations = 0;
-  testing::internal::CaptureStderr();
-  ALG_LOG_INFO("hidden %d", ++evaluations);
-  ALG_LOG_WARNING("visible %d", ++evaluations);
-  const auto record = testing::internal::GetCapturedStderr();
-  EXPECT_EQ(evaluations, 1);
-  EXPECT_EQ(record, "[Warning][LLM_EDGEFLOW] visible 1");
-  EXPECT_EQ(AlgBase_setLogLevelByName("other", -1), -1);
-  EXPECT_EQ(AlgBase_setLogLevelByName("other", 6), -1);
-  EXPECT_EQ(AlgBase_getLogLevelByName("other"), E_ALG_BASE_LOG_LEVEL_WARNING);
+TEST_F(MockLogLevelTest, SetterReturnsSuccessAndGetterReturnsTheLevel) {
+  for (int level = E_ALG_BASE_LOG_LEVEL_SILENT;
+       level <= E_ALG_BASE_LOG_LEVEL_VERBOSE; ++level) {
+    SCOPED_TRACE(level);
+    EXPECT_EQ(AlgBase_setLogLevelByName("host", level), 0);
+    EXPECT_EQ(AlgBase_getLogLevelByName("host"), level);
+  }
 }
 
-TEST_F(LoggingRecordTest,
-       DirectRecordUsesNullFallbacksAndFatalFlushDoesNotTerminate) {
-  testing::internal::CaptureStderr();
-  AlgBase_logPrint(nullptr, nullptr, "literal %s:%d", "中文", 7);
-  AlgBase_logPrint("Fatal", "", ";last");
-  AlgBase_logPrint("Info", "ignored", nullptr);
-  const auto records = testing::internal::GetCapturedStderr();
-  EXPECT_EQ(
-      records,
-      "[Unknown][LLM_EDGEFLOW] literal 中文:7[Fatal][LLM_EDGEFLOW] ;last");
+TEST_F(MockLogLevelTest, InvalidLevelReturnsFailureAndPreservesTheLevel) {
+  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_WARNING),
+            0);
+  for (int level : {std::numeric_limits<int>::min(), -1, 7,
+                    std::numeric_limits<int>::max()}) {
+    SCOPED_TRACE(level);
+    EXPECT_EQ(AlgBase_setLogLevelByName(nullptr, level), -1);
+    EXPECT_EQ(AlgBase_getLogLevelByName(nullptr), E_ALG_BASE_LOG_LEVEL_WARNING);
+  }
 }
 }  // namespace

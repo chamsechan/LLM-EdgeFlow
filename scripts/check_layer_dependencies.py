@@ -18,7 +18,8 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*["<]([^">]+)[">]', re.MULTILINE)
 
 def owner(path):
     if path.startswith("include/contracts/") or path in {
-        "include/edgeflow/log.h", "include/edgeflow/export.h"
+        "include/edgeflow/log.h", "include/edgeflow/export.h",
+        "include/platform_mock/log.h"
     }:
         return "Contracts"
     if path.startswith(("include/adapter/", "include/edgeflow/operator/", "include/platform_mock/", "src/adapter/")):
@@ -36,6 +37,8 @@ def owner(path):
 
 def forbidden(source, target):
     src, dst = owner(source), owner(target)
+    if target == "include/platform_mock/log.h" and source != "include/edgeflow/log.h":
+        return True
     if target == "include/platform_mock/error_codes.h" and source not in {
         "src/adapter/operator/mock/operator_adapter.cpp",
         "src/adapter/operator/mock/operator_error_mapping.cpp",

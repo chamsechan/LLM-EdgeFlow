@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -12,11 +11,21 @@
 #include "edgeflow/operator/interface.h"
 #include "tests/contract/operator_shell/operator_shell_checks.h"
 
-// mock 壳的边界日志格式与诊断文字。其他壳的日志格式由各自的测试覆盖，
-// 返回类别仍由壳无关一致性套件验证。
+// 用日志替身的阈值观察框架选择的等级，只检查框架消息和诊断文字。
+// 平台输出前缀、换行和打印实现不属于这里的契约。
 namespace llm_edgeflow::operator_shell_test {
 namespace {
 namespace api = operator_api;
+
+size_t CountOperationRecords(const std::string& text, const char* operation) {
+  const std::string marker = std::string("operation=") + operation;
+  size_t count = 0;
+  for (size_t offset = text.find(marker); offset != std::string::npos;
+       offset = text.find(marker, offset + marker.size())) {
+    ++count;
+  }
+  return count;
+}
 
 class MockBoundaryLogTest : public ::testing::Test {
  protected:
@@ -58,10 +67,7 @@ TEST_F(MockBoundaryLogTest,
   const int result = driver_->Process(handle_, {{}, 1});
   const auto record = testing::internal::GetCapturedStderr();
   EXPECT_TRUE(ReturnsCategory(result, Category::kInvalidInput));
-  EXPECT_NE(record.find("[Warning]"), std::string::npos);
-  EXPECT_EQ(record.find("[Error]"), std::string::npos);
-  EXPECT_EQ(std::count(record.begin(), record.end(), '\n'), 1);
-  EXPECT_NE(record.find("operation=Operator_Process"), std::string::npos);
+  EXPECT_EQ(CountOperationRecords(record, "Operator_Process"), 1u);
   EXPECT_NE(record.find("code=INVALID_INPUT(" +
                         std::to_string(error::kInvalidInput) + ")"),
             std::string::npos);
@@ -75,7 +81,8 @@ TEST_F(MockBoundaryLogTest,
   EXPECT_NE(diagnostic.find("Empty inputs NamedIoBatch"), std::string::npos);
   EXPECT_EQ(driver_->PublishedOutputs(), 0u);
 
-  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_FATAL), 0);
+  // WARNING 可见而 ERROR 不可见，确认框架选择了 WARNING。
+  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_ERROR), 0);
   testing::internal::CaptureStderr();
   const int filtered_result = driver_->Process(handle_, {{}, 1});
   const auto filtered_record = testing::internal::GetCapturedStderr();
@@ -112,17 +119,12 @@ TEST_F(MockBoundaryLogTest,
   request.model_path = directory;
   request.config = "deployment.conf";
   CreateHandle(request);
-  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_VERBOSE),
-            0);
+  ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_ERROR), 0);
   testing::internal::CaptureStderr();
   const int result = driver_->Process(handle_, {{"初始化"}, 1});
   const auto record = testing::internal::GetCapturedStderr();
   EXPECT_TRUE(ReturnsCategory(result, Category::kUnknown));
-  const auto error_record = record.find("[Error]");
-  ASSERT_NE(error_record, std::string::npos);
-  EXPECT_EQ(record.find("[Error]", error_record + 1), std::string::npos);
-  EXPECT_EQ(record.find("[Warning]"), std::string::npos);
-  EXPECT_NE(record.find("operation=Operator_Process"), std::string::npos);
+  EXPECT_EQ(CountOperationRecords(record, "Operator_Process"), 1u);
   EXPECT_NE(record.find("code=RENDERED_OUTPUT_TOO_LONG(" +
                         std::to_string(error::kRenderedOutputTooLong) + ")"),
             std::string::npos);
@@ -141,6 +143,7 @@ TEST_F(MockBoundaryLogTest,
             std::string::npos);
   EXPECT_EQ(driver_->PublishedOutputs(), 0u);
 
+  // ERROR 可见而 FATAL 不可见，确认框架选择了 ERROR。
   ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_FATAL), 0);
   testing::internal::CaptureStderr();
   const int filtered_result = driver_->Process(handle_, {{"初始化"}, 1});

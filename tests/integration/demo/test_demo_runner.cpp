@@ -11,14 +11,45 @@
 #include <vector>
 
 #include "demo/common/demo_io_registry.h"
+#include "demo/common/demo_options.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "edgeflow/log.h"
 #include "nlohmann/json.hpp"
 
 namespace alg_demo {
 namespace {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
+
+TEST(DemoLoggingTest, EnvironmentAcceptsAllLevelsAndRejectsMalformedValues) {
+  const int saved_level = AlgBase_getLogLevelByName(nullptr);
+  const char* saved_value = std::getenv("LLMEDGEFLOW_LEVEL");
+  const bool had_value = saved_value != nullptr;
+  const std::string saved_environment = saved_value ? saved_value : "";
+  for (int level = E_ALG_BASE_LOG_LEVEL_SILENT;
+       level <= E_ALG_BASE_LOG_LEVEL_VERBOSE; ++level) {
+    SCOPED_TRACE(level);
+    EXPECT_EQ(setenv("LLMEDGEFLOW_LEVEL", std::to_string(level).c_str(), 1), 0);
+    ConfigureLogLevelFromEnvironment();
+    EXPECT_EQ(AlgBase_getLogLevelByName(nullptr), level);
+  }
+  EXPECT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_WARNING),
+            0);
+  for (const char* invalid : {"", "-1", "7", "10", "debug", "5x", " 5", "+5"}) {
+    SCOPED_TRACE(invalid);
+    EXPECT_EQ(setenv("LLMEDGEFLOW_LEVEL", invalid, 1), 0);
+    ConfigureLogLevelFromEnvironment();
+    EXPECT_EQ(AlgBase_getLogLevelByName(nullptr), E_ALG_BASE_LOG_LEVEL_WARNING);
+  }
+  EXPECT_EQ(unsetenv("LLMEDGEFLOW_LEVEL"), 0);
+  ConfigureLogLevelFromEnvironment();
+  EXPECT_EQ(AlgBase_getLogLevelByName(nullptr), E_ALG_BASE_LOG_LEVEL_WARNING);
+  if (had_value) {
+    EXPECT_EQ(setenv("LLMEDGEFLOW_LEVEL", saved_environment.c_str(), 1), 0);
+  }
+  EXPECT_EQ(AlgBase_setLogLevelByName(nullptr, saved_level), 0);
+}
 
 class SharedDemoConsumerTest : public ::testing::Test {
  protected:

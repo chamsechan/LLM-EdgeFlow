@@ -7,6 +7,12 @@ LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](.
 
 当前能力：
 
+- 日志等级统一为 `SILENT=0` 至 `VERBOSE=6`，枚举映射到 `ALG_BASE_LOG_LEVEL_*`
+  数值宏；默认 `WARNING=3`，Demo 环境变量同步接受 `0..6`。
+  SDK 日志函数仅保留等级设置与查询；统一入口转发 `platform_mock/log.h` 的简化打印替身，
+  正式打印宏由平台提供。测试聚焦本地等级接口、Demo 配置与框架日志调用，
+  不重复验证平台打印实现。见[公共日志 API](logging.md)。
+
 - SDK 符号导出与构建控制宏统一使用 `EDGEFLOW_API`、`EDGEFLOW_BUILDING_SDK` 和
   `EDGEFLOW_STATIC_LINK`；日志名称通过 `EDGEFLOW_LOG_NAME` 覆盖，默认仍为
   `LLM_EDGEFLOW`。见[公共日志 API](logging.md)。

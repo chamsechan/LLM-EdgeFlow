@@ -135,7 +135,7 @@ graph TD
 - **代码位置**：`include/edgeflow/operator/`，`include/adapter/`，`src/adapter/`
 - **核心职责**：
   1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ResolveOperatorConfigIo()`。
-  2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`。
+  2. 当前外网构建导出日志等级 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`；`edgeflow/log.h` 转发本地平台日志替身，正式日志宏由平台提供。
   3. 函数表指针不带 `noexcept`，实现保留 `noexcept` 和异常捕获屏障，防止 C++ 异常跨越动态库边界。
   4. 由注册的 Input/Output Converter 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中立值之间的转换。
   5. 管理有界输出池与租约生命周期，执行同句柄 Process/Control 串行化。
@@ -170,7 +170,7 @@ Runtime 负责部署校验、`ValidatedIoPlan` 构建、Converter 调度、Pipel
 通用值类型注册表默认不含平台登记。当前 mock binding 翻译单元自行注册，只有链接该协议实现的
 开发构建才提供 mock 载体。更换协议壳和 binding 不需要修改 Core、Node、Model 或 Backend。
 
-- 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
+- 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口。当前外网构建导出 5 个符号（3 个 Operator API 函数与 2 个 AlgBase 日志等级函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 handle 的 `Process` 与 `Control` 串行执行，不同 handle 可并行。
   调用 `Destroy` 前，停止新调用。等待该 handle 的全部调用返回，再释放全部输出引用。
   `Destroy` 返回后，handle 永久失效。`DeInit` 清理全局注册的全部 handle。

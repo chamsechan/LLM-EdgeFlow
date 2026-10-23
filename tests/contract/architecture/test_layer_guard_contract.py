@@ -36,6 +36,9 @@ class IncludeOwnershipContractTest(SourceTreeTest):
 
     def test_allowed_contracts_and_public_consumers(self):
         cases = (
+            ('include/edgeflow/log.h', 'platform_mock/log.h', 'include/platform_mock/log.h'),
+            ('include/platform_mock/log.h', 'edgeflow/export.h', 'include/edgeflow/export.h'),
+            ('src/engine/models/probe.cpp', 'edgeflow/log.h', 'include/edgeflow/log.h'),
             ('src/adapter/operator/mock/operator_adapter.cpp', 'platform_mock/error_codes.h', 'include/platform_mock/error_codes.h'),
             ('src/adapter/operator/mock/operator_error_mapping.cpp', 'platform_mock/error_codes.h', 'include/platform_mock/error_codes.h'),
             ('src/custom_nodes/normalize.cpp', 'core/alg_context.h', 'include/core/alg_context.h'),
@@ -72,6 +75,8 @@ class IncludeOwnershipContractTest(SourceTreeTest):
 
     def test_upward_and_private_dependencies_report_exact_source_and_target(self):
         cases = (
+            ('src/engine/models/probe.cpp', 'platform_mock/log.h',
+             'include/platform_mock/log.h', 'Model Execution -> Contracts'),
             ('src/adapter/shared_algorithm_runtime.cpp', 'platform_mock/error_codes.h',
              'include/platform_mock/error_codes.h', 'Integration -> Integration'),
             ('include/adapter/adapter_status.h', 'platform_mock/error_codes.h',

@@ -15,7 +15,6 @@ fi
 EXPECTED_SYMBOLS=$(
   printf '%s\n' \
     AlgBase_getLogLevelByName \
-    AlgBase_logPrint \
     AlgBase_setLogLevelByName \
     _ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv \
     _ZN12llm_edgeflow12operator_api23ResolveOperatorConfigIoEPKcS2_PNS0_18OperatorIoContractEPcm \
@@ -32,10 +31,10 @@ ACTUAL_SYMBOLS=$(
 )
 
 if [[ "${ACTUAL_SYMBOLS}" != "${EXPECTED_SYMBOLS}" ]]; then
-  echo "SDK export surface differs from the 6-symbol allowlist:" >&2
+  echo "SDK export surface differs from the 5-symbol allowlist:" >&2
   diff -u <(printf '%s\n' "${EXPECTED_SYMBOLS}") \
           <(printf '%s\n' "${ACTUAL_SYMBOLS}") >&2 || true
   exit 1
 fi
 
-echo "SDK export surface is restricted to 6 supported symbols."
+echo "SDK export surface is restricted to 5 supported symbols."
