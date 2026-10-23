@@ -79,6 +79,10 @@ void CheckOperation(const nlohmann::json& operation) {
     CheckFields(operation, {"kind", "node", "depends_on"});
     RequireString(operation, "node");
     RequireString(operation, "depends_on");
+  } else if (kind == "apply_patch") {
+    CheckFields(operation, {"kind", "patch"});
+    if (!operation.at("patch").is_array())
+      throw std::invalid_argument("patch 必须是 JSON Patch 数组");
   } else {
     throw std::invalid_argument("UNKNOWN_OPERATION_KIND: " + kind);
   }
@@ -232,6 +236,11 @@ std::vector<std::string> RewriteReferences(
 bool ApplyMutation(nlohmann::json* pipeline, const nlohmann::json& operation,
                    std::vector<AuthoringChange>* changes, std::string* error) {
   const auto kind = operation["kind"].get<std::string>();
+  if (kind == "apply_patch") {
+    *pipeline = pipeline->patch(operation["patch"]);
+    changes->push_back({kind, "", "", {}, "应用 JSON Patch"});
+    return true;
+  }
   if (kind == "add_node") {
     const auto type = operation["type"].get<std::string>();
     if (!PipelineCatalog::FindNode(type))

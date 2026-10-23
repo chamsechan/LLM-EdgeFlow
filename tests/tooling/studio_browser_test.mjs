@@ -161,8 +161,10 @@ try {
   await page.locator('#applyReviewedFix').waitFor();
   assert.deepEqual(await jsonValue(), invalid, 'review does not apply the candidate');
   assert.deepEqual(await savedDocument('pipeline_browser.json'), complete);
+  const validationsBeforeApply = requests.filter(path => path === '/api/validate').length;
   await page.locator('#applyReviewedFix').click();
   await page.waitForFunction(() => document.querySelector('#validationOutput .diagnostic.ok'));
+  assert.equal(requests.filter(path => path === '/api/validate').length, validationsBeforeApply);
   assert.deepEqual(await jsonValue(), complete);
   await page.locator('#undoButton').click();
   assert.deepEqual(await jsonValue(), invalid);

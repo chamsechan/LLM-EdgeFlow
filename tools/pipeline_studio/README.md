@@ -118,6 +118,8 @@ Catalog 的模型条目包含 `model_type`（类别）、`impl_name`（实现）
 克隆使用 `init --profile NAME`，直接保存 JSON 时加 `--raw`。新建空草稿使用可重复的
 `--input TYPE/NAME --output TYPE/NAME`。只填 I/O 选择，`models`、`pipeline` 是空数组，待补齐后校验。
 Profile 的 `io` 摘要只包含有序 `(type, name)`。容量覆盖不改变外部契约匹配。
+Catalog 的 Profile 条目保留全部显式运行设置（包括 `depth`、`control_cmd` 与 `control_file`），
+并附加 `name` 和 `io`；未设置的运行默认值由 Demo 处理，不写入条目。
 
 `validate` / `plan` 接受 FILE 或 `--stdin`。FILE 按自身目录解析资源。stdin 没有文件位置，
 仅校验路径写法。Model 的 `file` 与声明的文件参数相对 Pipeline JSON 目录，拒绝绝对路径、
@@ -135,6 +137,7 @@ Profile 的 `io` 摘要只包含有序 `(type, name)`。容量覆盖不改变外
 | `rename_node` | `node`、`new_name` |
 | `connect` / `disconnect` | `source`、`target`，各含 `node`、`port` |
 | `add_dependency` / `remove_dependency` | `node`、`depends_on` |
+| `apply_patch` | `patch`：JSON Patch 数组，使用原生 JSON 库执行 |
 
 伪节点 `input` / `output` 代表 I/O 边界。节点名非空、不得含点、不得占用这两个名称。
 目标 `output` 的逻辑端口若匹配多个选中 Converter，返回 `AMBIGUOUS_OUTPUT_PORT` 并列出候选，
@@ -143,6 +146,8 @@ Profile 的 `io` 摘要只包含有序 `(type, name)`。容量覆盖不改变外
 批量动作作用于文档副本。任一动作或严格校验失败不返回候选，动作错误给出
 `failed_operation_index`。成功的 `ok` 表示编辑成功，不完整草稿仍须检查 `validation.ok`。
 命令只输出 JSON。接口见 [PipelineAuthoring](../../src/cli/pipeline_authoring.h)。
+修复预览也使用 `edit` 的 `apply_patch` 操作，共用候选校验。浏览器应用前重新核对文档与工具版本，
+直接展示该次预览的报告，不重复校验同一候选。
 
 <a id="校验工具选择"></a>
 ### 工具选择
@@ -176,7 +181,8 @@ Profile 提供数据集和运行参数，按有序 I/O 配对。所有模型文�
 同一服务的保存操作串行提交：多个页签使用同一 revision 保存时，后续请求报告冲突。
 若 JSON 与 `.conf` 已保存，但生成命令所需的 `demo-profile.json` 写入失败，API 仍返回保存成功及实际 revision，并通过 `command_warning` 说明原因。页面明确提示文件已保存、运行命令未生成。
 修正输出目录后再次保存即可重新生成命令。
-自动关联先按 Catalog 中的有序 I/O 选择匹配 Profile，不解析无关的模型配置。匹配项的部署配置校验失败时继续尝试后续候选，全部失败则保留具体错误。
+自动关联按 Profile 文件的定义顺序选择首个 I/O 匹配项，并复用其完整运行设置。
+原示例仅提供 I/O 摘要和数据集，不校验其模型或节点参数；部署校验针对实际要运行或保存的方案。
 
 也可手动创建 `configs/pipeline_first_solution.conf`。
 写入 `{"pipe_path":"pipeline_first_solution.json"}` 后，执行以下命令：
