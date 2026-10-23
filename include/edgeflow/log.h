@@ -1,5 +1,5 @@
-#ifndef COMPANY_ALG_LOG_H_
-#define COMPANY_ALG_LOG_H_
+#ifndef EDGEFLOW_LOG_H_
+#define EDGEFLOW_LOG_H_
 
 #include "edgeflow/export.h"
 
@@ -37,15 +37,14 @@ typedef enum {
  * @param level 整数日志级别，闭区间 [0, 5]。
  * @return 成功返回 0；level 超出 [0, 5] 时返回 -1 并保留原阈值。
  */
-COMPANY_ALG_API int AlgBase_setLogLevelByName(const char* name,
-                                              int level) ALG_LOG_NOEXCEPT;
+EDGEFLOW_API int AlgBase_setLogLevelByName(const char* name,
+                                           int level) ALG_LOG_NOEXCEPT;
 
 /**
  * @brief 返回当前进程级日志级别。
  * @param name 为兼容 AlgBase 日志契约保留的名称。
  */
-COMPANY_ALG_API int AlgBase_getLogLevelByName(const char* name)
-    ALG_LOG_NOEXCEPT;
+EDGEFLOW_API int AlgBase_getLogLevelByName(const char* name) ALG_LOG_NOEXCEPT;
 
 /**
  * @brief 向 stderr 写入一条格式化日志。
@@ -53,15 +52,15 @@ COMPANY_ALG_API int AlgBase_getLogLevelByName(const char* name)
  * 原样保留 fmt，不追加换行符。
  */
 ALG_LOG_PRINTF_ATTRIBUTE(3, 4)
-COMPANY_ALG_API void AlgBase_logPrint(const char* level_label, const char* name,
-                                      const char* fmt, ...) ALG_LOG_NOEXCEPT;
+EDGEFLOW_API void AlgBase_logPrint(const char* level_label, const char* name,
+                                   const char* fmt, ...) ALG_LOG_NOEXCEPT;
 
 #ifdef __cplusplus
 }
 #endif
 
-#ifndef COMPANY_ALG_LOG_NAME
-#define COMPANY_ALG_LOG_NAME "LLM_EDGEFLOW"
+#ifndef EDGEFLOW_LOG_NAME
+#define EDGEFLOW_LOG_NAME "LLM_EDGEFLOW"
 #endif
 
 #if defined(ALG_BASE_LOG_PRINT) || defined(ALG_BASE_LOG_FATAL) ||   \
@@ -97,13 +96,13 @@ COMPANY_ALG_API void AlgBase_logPrint(const char* level_label, const char* name,
 #define ALG_BASE_LOG_VERBOSE(name, ...) \
   ALG_BASE_LOG_IMPL(E_ALG_BASE_LOG_LEVEL_VERBOSE, "Verbose", name, __VA_ARGS__)
 
-#define ALG_LOG_FATAL(...) ALG_BASE_LOG_FATAL(COMPANY_ALG_LOG_NAME, __VA_ARGS__)
-#define ALG_LOG_ERROR(...) ALG_BASE_LOG_ERROR(COMPANY_ALG_LOG_NAME, __VA_ARGS__)
+#define ALG_LOG_FATAL(...) ALG_BASE_LOG_FATAL(EDGEFLOW_LOG_NAME, __VA_ARGS__)
+#define ALG_LOG_ERROR(...) ALG_BASE_LOG_ERROR(EDGEFLOW_LOG_NAME, __VA_ARGS__)
 #define ALG_LOG_WARNING(...) \
-  ALG_BASE_LOG_WARNING(COMPANY_ALG_LOG_NAME, __VA_ARGS__)
-#define ALG_LOG_INFO(...) ALG_BASE_LOG_INFO(COMPANY_ALG_LOG_NAME, __VA_ARGS__)
-#define ALG_LOG_DEBUG(...) ALG_BASE_LOG_DEBUG(COMPANY_ALG_LOG_NAME, __VA_ARGS__)
+  ALG_BASE_LOG_WARNING(EDGEFLOW_LOG_NAME, __VA_ARGS__)
+#define ALG_LOG_INFO(...) ALG_BASE_LOG_INFO(EDGEFLOW_LOG_NAME, __VA_ARGS__)
+#define ALG_LOG_DEBUG(...) ALG_BASE_LOG_DEBUG(EDGEFLOW_LOG_NAME, __VA_ARGS__)
 #define ALG_LOG_VERBOSE(...) \
-  ALG_BASE_LOG_VERBOSE(COMPANY_ALG_LOG_NAME, __VA_ARGS__)
+  ALG_BASE_LOG_VERBOSE(EDGEFLOW_LOG_NAME, __VA_ARGS__)
 
-#endif  // COMPANY_ALG_LOG_H_
+#endif  // EDGEFLOW_LOG_H_

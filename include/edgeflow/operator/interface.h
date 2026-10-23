@@ -52,12 +52,12 @@ inline std::shared_ptr<void> MakeBorrowedOperatorInput(const T* ptr) {
 /**
  * @brief 获取 Operator 函数表入口
  */
-COMPANY_ALG_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
+EDGEFLOW_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
 
 /**
  * @brief 获取当前线程最近一次 Operator 门面结构化诊断错误信息
  */
-COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
+EDGEFLOW_API const char* GetOperatorLastError() noexcept;
 
 // Host keys are `<prefix>.<type>`; the host-generated prefix is nonempty,
 // dot-free and opaque to the runtime. Each type appears at most once per
@@ -80,10 +80,10 @@ struct OperatorIoContract {
  * @param out 必需的结果指针；失败时清空两侧条目。
  * @return 0 成功，-2 参数/配置错误，其他负值为验证或内部异常。
  */
-COMPANY_ALG_API int ResolveOperatorConfigIo(const char* model_path,
-                                            const char* cfg_file_name,
-                                            OperatorIoContract* out,
-                                            char* out_error_msg = nullptr,
-                                            size_t error_buf_size = 0) noexcept;
+EDGEFLOW_API int ResolveOperatorConfigIo(const char* model_path,
+                                         const char* cfg_file_name,
+                                         OperatorIoContract* out,
+                                         char* out_error_msg = nullptr,
+                                         size_t error_buf_size = 0) noexcept;
 
 }  // namespace llm_edgeflow::operator_api

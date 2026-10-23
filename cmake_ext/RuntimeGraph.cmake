@@ -30,9 +30,9 @@ function(edgeflow_add_runtime_object_target target_name dependency_target)
   add_library(${target_name} OBJECT)
   target_link_libraries(${target_name} PUBLIC ${dependency_target})
   target_compile_definitions(${target_name} PRIVATE
-      COMPANY_ALG_BUILDING_SDK=1)
+      EDGEFLOW_BUILDING_SDK=1)
   target_compile_definitions(${target_name} INTERFACE
-      COMPANY_ALG_STATIC_LINK=1)
+      EDGEFLOW_STATIC_LINK=1)
   set_target_properties(${target_name} PROPERTIES
       C_VISIBILITY_PRESET hidden
       CXX_VISIBILITY_PRESET hidden
@@ -71,7 +71,7 @@ add_library(llm_edgeflow::internal_runtime ALIAS edgeflow_runtime_objects)
 target_link_libraries(edgeflow_runtime_objects INTERFACE
     edgeflow_runtime_dependencies)
 target_compile_definitions(edgeflow_runtime_objects INTERFACE
-    COMPANY_ALG_STATIC_LINK=1)
+    EDGEFLOW_STATIC_LINK=1)
 
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   target_include_directories(edgeflow_model_execution_backends_objects SYSTEM PRIVATE
