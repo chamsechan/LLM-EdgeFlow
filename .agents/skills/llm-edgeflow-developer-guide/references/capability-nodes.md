@@ -35,7 +35,8 @@ Use this reference for production Node implementation. Start first-time LLM auth
    instance name. Propagate `NodeResult` failures without remapping shared
    errors to old node-specific codes. Keep domain failure codes where they describe actual algorithms.
    `ValidateModels` receives parsed parameters and bound models once during Create. Use it to
-   reject unsupported explicit options, such as ASR language or a fixed LLM random seed.
+   reject unsupported explicit options, such as ASR language. LLM `random_seed` is not checked
+   there: the text Model warns and ignores it when the Backend cannot honor it.
    `system_prompt`, `random_seed` and `language` are call options; embedding normalization
    belongs to the shared model parameters. Domain post-processing remains in the node.
 8. Keep request data local. A `Run` needing session resources explicitly accepts

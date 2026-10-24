@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -239,18 +240,26 @@ Json ResolveConf(const std::string& file, const std::string& root,
   for (const auto& model : plan.models) {
     auto& item = effective["models"][model.source_index];
     item["file"] = model.model_file;
-    item["params"] = model.model_params;
-    item["backend"]["params"] = model.backend_params;
     const auto path = "/models/" + std::to_string(model.source_index);
     files.push_back({{"model", model.model_name},
                      {"path", path + "/file"},
                      {"resolved", model.model_file}});
     const auto definition = PipelineCatalog::FindModel(model.impl_name);
     const auto backend = PipelineCatalog::FindBackend(model.backend_type);
-    AddParameterFiles(&files, model.model_params, definition->params.Fields(),
+    std::shared_ptr<const ParameterValues> model_values, backend_values;
+    if (!definition->params.Parse(model.model_params, &model_values, &error))
+      return ToolError(error::kInvalidCombination, error, path + "/params");
+    if (!backend->params.Parse(model.backend_params, &backend_values, &error))
+      return ToolError(error::kInvalidCombination, error,
+                       path + "/backend/params");
+    // Show prepared values, including defaults that depend on other fields.
+    item["params"] = model_values->Effective();
+    item["backend"]["params"] = backend_values->Effective();
+    AddParameterFiles(&files, item["params"], definition->params.Fields(),
                       model.model_name, path + "/params");
-    AddParameterFiles(&files, model.backend_params, backend->params.Fields(),
-                      model.model_name, path + "/backend/params");
+    AddParameterFiles(&files, item["backend"]["params"],
+                      backend->params.Fields(), model.model_name,
+                      path + "/backend/params");
   }
   return {{"ok", true},
           {"configuration",

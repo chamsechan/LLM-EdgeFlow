@@ -195,7 +195,6 @@ class TestBizLlmModel final : public FixtureModel<TestBizLlmModel, ILlmModel> {
  public:
   inline static constexpr char kImplName[] = "test_biz_llm";
   using FixtureModel::FixtureModel;
-  bool SupportsRandomSeed() const noexcept override { return true; }
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic) {
     if (!RequireFixtureSession(context, diagnostic)) return nullptr;

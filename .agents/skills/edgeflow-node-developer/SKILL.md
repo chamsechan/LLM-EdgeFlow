@@ -60,6 +60,7 @@ LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自�
 生成字段也是普通 `Field`，可以加入 `WithControls`。
 `system_prompt`、`random_seed` 逐次传入 LLM，`language` 逐次传入 ASR；
 `ValidateModels` 在参数解析和模型绑定之后、Create 阶段只执行一次，检查模型能否满足明确要求。
+`random_seed` 不在此检查：后端不支持时由文本 Model 记录 warning 并忽略。
 向量归一化属于模型参数，同一模型的节点共享该选择。业务后处理留在节点算法中。
 
 只在有需求时加入 Control 或缓存。`WithControls` 的 `ReplaceFields` payload 至少提供一个受控

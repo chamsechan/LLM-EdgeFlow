@@ -57,8 +57,8 @@ inline Parameters<GenerateOptions> GenerateParameters() {
        Field("random_seed", &GenerateOptions::random_seed)
            .Default(defaults.random_seed)
            .Range(-1, std::numeric_limits<int32_t>::max())
-           .Description(
-               "生成随机种子；-1 使用随机种子，非负值指定基础种子。")});
+           .Description("生成随机种子；-1 使用随机种子，非负值指定基础种子；"
+                        "后端不支持时记录 warning 并忽略。")});
   params.Validate(&RejectEmptyStopWords);
   return params;
 }

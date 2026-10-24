@@ -108,10 +108,6 @@ class LlmCall : public detail::ModelCallBase<ILlmModel> {
       : ModelCallBase(std::move(model), std::move(slot_name),
                       std::move(model_name)) {}
 
-  bool SupportsRandomSeed() const noexcept {
-    return BoundModel() && BoundModel()->SupportsRandomSeed();
-  }
-
   NodeResult<TextBatch> Generate(
       const TextBatch& inputs,
       const GenerateOptions& options = GenerateOptions{}) const {
