@@ -35,6 +35,10 @@ class IAutoregressiveDecoder {
 bool ValidateGenerateOptions(const GenerateOptions& options,
                              std::string* diagnostic = nullptr) noexcept;
 
+// Returns std::string::npos when no stop word occurs in text.
+size_t FindFirstStop(const std::string& text,
+                     const std::vector<std::string>& stop_words) noexcept;
+
 class CommonAutoregressiveGenerator final {
  public:
   static int Generate(IAutoregressiveDecoder& decoder,
