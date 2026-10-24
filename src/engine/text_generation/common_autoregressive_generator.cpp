@@ -142,6 +142,8 @@ bool SampleToken(const std::vector<float>& source_logits,
   return true;
 }
 
+}  // namespace
+
 size_t FindFirstStop(const std::string& text,
                      const std::vector<std::string>& stop_words) noexcept {
   size_t first = std::string::npos;
@@ -154,8 +156,6 @@ size_t FindFirstStop(const std::string& text,
   }
   return first;
 }
-
-}  // namespace
 
 bool ValidateGenerateOptions(const GenerateOptions& options,
                              std::string* diagnostic) noexcept {

@@ -69,6 +69,36 @@ TEST(LlamaCppBackendTest,
   }
 }
 
+TEST(LlamaCppBackendTest, StopWordLookupUsesEarliestMatchRegardlessOfOrder) {
+  EXPECT_EQ(text_generation::FindFirstStop("before<end>after<stop>",
+                                           {"<stop>", "missing", "<end>"}),
+            6u);
+  EXPECT_EQ(text_generation::FindFirstStop("<end>after", {"<end>"}), 0u);
+  EXPECT_EQ(text_generation::FindFirstStop("text", {"missing"}),
+            std::string::npos);
+  EXPECT_EQ(text_generation::FindFirstStop("text", {}), std::string::npos);
+}
+
+TEST(LlamaCppBackendTest, GeneratorStopsOnWordSpanningDecodedPieces) {
+  // The decoder emits "prefix" on every step; "fixpre" spans two steps.
+  FailingDecoder decoder(-1);
+  GenerateOptions options;
+  options.max_tokens = 3;
+  options.temperature = 0.0f;
+  options.stop_words = {"missing", "fixpre"};
+  std::string output, diagnostic;
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                decoder, "prompt", false, options, 0, &output, &diagnostic),
+            error::kOk);
+  EXPECT_EQ(output, "pre");
+
+  options.stop_words.clear();
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                decoder, "prompt", false, options, 0, &output, &diagnostic),
+            error::kOk);
+  EXPECT_EQ(output, "prefixprefixprefix");
+}
+
 #ifdef HAVE_LLAMACPP
 class InvalidGguf {
  public:

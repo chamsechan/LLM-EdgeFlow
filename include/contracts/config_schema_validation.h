@@ -10,6 +10,7 @@
 
 #include "contracts/config_schema.h"
 #include "contracts/error_codes.h"
+#include "contracts/json_pointer.h"
 
 namespace llm_edgeflow {
 
@@ -208,19 +209,6 @@ inline bool ValidateConfigFieldDefinitions(
 
 namespace detail {
 
-inline std::string ConfigPointerToken(const std::string& value) {
-  std::string escaped;
-  for (char c : value) {
-    if (c == '~')
-      escaped += "~0";
-    else if (c == '/')
-      escaped += "~1";
-    else
-      escaped += c;
-  }
-  return escaped;
-}
-
 inline bool ConfigError(std::vector<ConfigFieldValidationError>* errors,
                         const std::string& path, ConfigFieldErrorKind kind,
                         std::string message) {
@@ -242,14 +230,14 @@ inline bool NormalizeConfigObject(
         std::find_if(fields.begin(), fields.end(),
                      [&](const auto& f) { return f.name == it.key(); });
     if (found == fields.end()) {
-      ConfigError(errors, path + "/" + ConfigPointerToken(it.key()),
+      ConfigError(errors, path + "/" + EscapeJsonPointer(it.key()),
                   ConfigFieldErrorKind::kUnknownField,
                   "Unknown config field: " + it.key());
       ok = false;
     }
   }
   for (const auto& field : fields) {
-    const auto field_path = path + "/" + ConfigPointerToken(field.name);
+    const auto field_path = path + "/" + EscapeJsonPointer(field.name);
     const auto entry = input.find(field.name);
     if (entry == input.end() && field.required) {
       ConfigError(errors, field_path, ConfigFieldErrorKind::kMissingField,
@@ -334,7 +322,7 @@ inline bool NormalizeConfigValue(
     bool ok = true;
     for (auto it = value.begin(); it != value.end(); ++it) {
       const auto key = value.is_array() ? std::to_string(it - value.begin())
-                                        : ConfigPointerToken(it.key());
+                                        : EscapeJsonPointer(it.key());
       nlohmann::json next;
       if (!NormalizeConfigValue(*field.items, *it, &next, errors,
                                 path + "/" + key)) {

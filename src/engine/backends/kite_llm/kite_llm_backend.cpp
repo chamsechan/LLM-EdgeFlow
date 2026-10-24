@@ -249,11 +249,9 @@ class KiteSession : public Interface {
               static_cast<int>(decoded.size()), &text_size, 0),
           "Decode");
       decoded.resize(static_cast<size_t>(text_size));
-      size_t stop_position = decoded.size();
-      for (const auto& word : options.stop_words) {
-        stop_position = std::min(stop_position, decoded.find(word));
-      }
-      decoded.resize(stop_position);
+      const auto stop_position =
+          text_generation::FindFirstStop(decoded, options.stop_words);
+      if (stop_position != std::string::npos) decoded.resize(stop_position);
       *output = std::move(decoded);
     }
     utf8::StripIncompleteSuffix(output);

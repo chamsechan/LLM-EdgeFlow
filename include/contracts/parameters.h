@@ -876,8 +876,8 @@ class Parameters {
       ParamsT params{};
       for (const auto& binding : bindings_) {
         if (!binding->Assign(normalized, &params, error)) {
-          SetDiagnosticNoexcept(
-              field_path, "/" + detail::ConfigPointerToken(binding->Name()));
+          SetDiagnosticNoexcept(field_path,
+                                "/" + EscapeJsonPointer(binding->Name()));
           return std::nullopt;
         }
       }
