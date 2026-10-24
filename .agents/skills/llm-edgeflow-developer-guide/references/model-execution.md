@@ -22,6 +22,8 @@ vendor runtime integration, or batch scheduling behavior.
   once before Backend provider creation or `Load`. `Create` and `Load` consume immutable values
   and check sessions/resources without repeating pure parameter validation. Direct-call tests
   first use the Definition's `params.Parse`.
+- Fill defaults that depend on other fields in `ParamSpec().Prepare`, which runs before `Validate`;
+  llama.cpp `decode_batch_size` defaults to `min(512, context_size)`. `resolve-conf` shows prepared values.
 - Optional scalar members have no default and cannot use `Required()` or `Default()`.
   [ResolveFromModel](../../../../src/engine/models/common/from_model.h) selects a configured value,
   fixed model fact, or fallback; conflicting configured/fixed values fail. BGE reads fixed output
@@ -35,7 +37,9 @@ vendor runtime integration, or batch scheduling behavior.
   directory before Core validation; Models/Backends receive resolved paths and check resources
   when opening them. Kite projector paths use the run-config directory.
 - LLM system prompts/seeds and ASR language are per-call options. Nodes check explicit unsupported
-  requirements once in `ValidateModels`. Vector normalization and pooling are model parameters.
+  requirements, such as ASR language, once in `ValidateModels`. A text Model whose Backend session
+  cannot honor `random_seed` logs a warning per nonempty `Generate` call and passes no seed.
+  Vector normalization and pooling are model parameters.
 - QwenCausalLmModel selects ChatML through its model type; there is no configurable template selector.
 - Fixed-batch Model paths call `FixedBatchExecutor::Execute` so padding, dummy removal, and `(req_id, sub_id)` provenance remain consistent.
 - Ordinary per-item Model paths use `FixedBatchExecutor::ExecuteItems` with a single input/output callback; it owns the loop, provenance and whole-batch rollback. Keep model-specific whole-batch prevalidation before this call, and propagate framework codes. Standard/unknown exceptions use the shared exception codes; do not retain model-specific exception mappings. It rejects nonempty fixed batches; do not replace tensor batching with repeated item calls.

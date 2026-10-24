@@ -7,6 +7,12 @@ LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](.
 
 当前能力：
 
+- llama.cpp 的 `decode_batch_size` 未配置时取 `min(512, context_size)`；`resolve-conf`
+  展示 Model/Backend 参数经 `Prepare` 补齐后的生效值。见[后端参数](developer_guide.md)。
+
+- 后端不支持固定 `random_seed` 时，文本 Model 每次非空调用记录一条 warning 并忽略种子，
+  LLM 节点初始化不检查种子支持。见[Model 调用选项](developer_guide.md)。
+
 - 日志等级统一为 `SILENT=0` 至 `VERBOSE=6`，枚举映射到 `ALG_BASE_LOG_LEVEL_*`
   数值宏；默认 `WARNING=3`，Demo 环境变量同步接受 `0..6`。
   SDK 日志函数仅保留等级设置与查询；统一入口转发 `platform_mock/log.h` 的简化打印替身，

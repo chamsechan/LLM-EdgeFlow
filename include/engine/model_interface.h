@@ -52,7 +52,6 @@ class IRerankModel : public IModel {
  */
 class ILlmModel : public IModel {
  public:
-  virtual bool SupportsRandomSeed() const noexcept { return false; }
   virtual int Generate(const TextBatch& prompts, const GenerateOptions& options,
                        TextBatch* outputs,
                        std::string* diagnostic = nullptr) noexcept = 0;

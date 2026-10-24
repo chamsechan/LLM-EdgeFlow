@@ -15,10 +15,6 @@ class RecordingLlm final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  bool SupportsRandomSeed() const noexcept override {
-    ++seed_checks;
-    return supports_seed;
-  }
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* output, std::string* diagnostic) noexcept override {
     if (diagnostic) diagnostic->clear();
@@ -35,8 +31,6 @@ class RecordingLlm final : public ILlmModel {
     return 0;
   }
   std::string impl = "node_recording_llm", type = "llm";
-  bool supports_seed = true;
-  mutable int seed_checks = 0;
   size_t fail_call = 0;
   std::vector<std::vector<std::string>> responses;
   std::vector<TextBatch> calls;
@@ -103,7 +97,6 @@ TEST(LlmGenerateNodeTest,
                          {"random_seed", 7}},
                         session, {{"input", "input", ""}},
                         {{"text", "text", ""}, {"document", "docs", ""}}));
-  EXPECT_EQ(model->seed_checks, 1);
   AlgContext context;
   ASSERT_TRUE(
       context.Publish("input", TextBatch{{9, 4, "one"}, {2, 7, "two"}}));
@@ -123,7 +116,6 @@ TEST(LlmGenerateNodeTest,
     EXPECT_EQ(options.stop_words, std::vector<std::string>{"<end>"});
     EXPECT_EQ(options.random_seed, 7);
   }
-  EXPECT_EQ(model->seed_checks, 1);
   const auto* text = context.Read<TextBatch>("text");
   const auto* docs = context.Read<StructuredDocumentBatch>("docs");
   ASSERT_NE(text, nullptr);
@@ -228,24 +220,6 @@ TEST(LlmGenerateNodeTest,
   EXPECT_EQ(model->call_options[1].system_prompt, "second system");
   EXPECT_EQ(model->call_options[1].max_tokens, 22);
   EXPECT_EQ(model->call_options[1].random_seed, 202);
-  EXPECT_EQ(model->seed_checks, 2);
-}
-
-TEST(LlmGenerateNodeTest, UnsupportedExplicitSeedFailsOnlyAtInitialization) {
-  SessionContext session;
-  auto model = std::make_shared<RecordingLlm>();
-  model->supports_seed = false;
-  ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
-  test_support::NodeProbe node;
-  EXPECT_FALSE(node.Init("llm_generate",
-                         {{"bind_model", "writer"},
-                          {"random_seed", 3},
-                          {"endpoints", {{"answer", Json::object()}}}},
-                         session, {{"input", "input", ""}},
-                         {{"text", "text", ""}}));
-  EXPECT_EQ(model->seed_checks, 1);
-  EXPECT_TRUE(model->calls.empty());
-  EXPECT_NE(node.diagnostic.find("random_seed"), std::string::npos);
 }
 }  // namespace
 }  // namespace llm_edgeflow

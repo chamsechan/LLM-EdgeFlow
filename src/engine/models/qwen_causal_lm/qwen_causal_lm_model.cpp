@@ -116,6 +116,13 @@ int QwenCausalLmModel::Generate(const TextBatch& prompts,
                           "Text generation requires a non-fixed batch policy");
     return error::kInvalidBatchPolicy;
   }
+  if (options.random_seed >= 0 && !session_->SupportsRandomSeed()) {
+    ALG_LOG_WARNING(
+        "[QwenCausalLmModel] Backend '%s' does not support random_seed=%lld; "
+        "the seed is ignored.\n",
+        session_->BackendType().c_str(),
+        static_cast<long long>(options.random_seed));
+  }
   return FixedBatchExecutor::ExecuteItems<std::string, std::string>(
       prompts, policy,
       [this, &options, diagnostic](const TraceableItem<std::string>& prompt,
@@ -146,7 +153,7 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
 
   try {
     std::optional<uint64_t> seed;
-    if (options.random_seed >= 0) {
+    if (options.random_seed >= 0 && session_->SupportsRandomSeed()) {
       seed = MixSeed(static_cast<uint64_t>(options.random_seed), prompt.req_id,
                      prompt.sub_id);
     }

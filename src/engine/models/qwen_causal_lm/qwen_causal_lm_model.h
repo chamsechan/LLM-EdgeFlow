@@ -14,7 +14,7 @@ namespace llm_edgeflow {
 /**
  * @brief 基于中性文本生成会话的 Qwen ChatML 语义。
  *
- * 本 Model 只负责 prompt 格式化和来源追踪。分词、采样、生成循环和厂商
+ * 本 Model 只负责 prompt 格式化、种子处理和来源追踪。分词、采样、生成循环和厂商
  * 资源都位于统一的 ITextGenerationSession 边界之下。
  */
 class QwenCausalLmModel final
@@ -30,10 +30,6 @@ class QwenCausalLmModel final
   QwenCausalLmModel(std::shared_ptr<ITextGenerationSession> session,
                     bool add_bos);
   ~QwenCausalLmModel() override = default;
-
-  bool SupportsRandomSeed() const noexcept override {
-    return session_ && session_->SupportsRandomSeed();
-  }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs,

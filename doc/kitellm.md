@@ -62,7 +62,8 @@ kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest。随�
   格式仍由 Kite 校验。本项目不添加平台 setter 或静默忽略平台要求。
 - Backend 接收 Model 已格式化的 prompt，通过 tokenizer 与 token 输入保留 BOS 和
   特殊 token 语义。任务输入、输出、参数、模型和全局初始化均配对释放。
-- 固定随机种子不受支持，节点显式配置时在 Create 报错。需要时可在上游 run-config 中配置其 seed。
+- 不支持每请求固定随机种子；节点配置时文本 Model 记录 warning 并忽略。需要时可在上游
+  run-config 中配置其 seed。
 - `stop_words` 在返回结果中截断。上游 C API 没有对应 setter，因此不提前停止同步推理。
 
 ## 验证

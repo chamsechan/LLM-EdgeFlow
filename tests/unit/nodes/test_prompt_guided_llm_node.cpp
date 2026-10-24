@@ -14,10 +14,6 @@ class RecordingPromptLlm final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  bool SupportsRandomSeed() const noexcept override {
-    ++seed_checks;
-    return true;
-  }
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* output, std::string* diagnostic) noexcept override {
     if (diagnostic) diagnostic->clear();
@@ -29,7 +25,6 @@ class RecordingPromptLlm final : public ILlmModel {
     return 0;
   }
   std::string impl = "node_recording_prompt_llm", type = "llm";
-  mutable int seed_checks = 0;
   std::vector<std::string> replies;
   std::vector<TextBatch> calls;
   std::vector<GenerateOptions> call_options;
@@ -83,7 +78,6 @@ TEST(PromptGuidedLlmNodeTest,
   EXPECT_FLOAT_EQ(options.repetition_penalty, 1.3f);
   EXPECT_EQ(options.stop_words, std::vector<std::string>{"stop"});
   EXPECT_EQ(options.random_seed, 2);
-  EXPECT_EQ(model->seed_checks, 1);
   const auto* output = context.Read<TextBatch>("output");
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 3u);
@@ -113,7 +107,6 @@ TEST(PromptGuidedLlmNodeTest,
             "{literal} Q {{context}} {\"key\":1}");
   EXPECT_EQ(context.Read<TextBatch>("output")->front().data,
             "  ```text\nraw\n```  ");
-  EXPECT_EQ(model->seed_checks, 0);
 }
 
 TEST(PromptGuidedLlmNodeTest,

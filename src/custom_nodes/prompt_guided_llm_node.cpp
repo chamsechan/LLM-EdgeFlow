@@ -144,14 +144,6 @@ auto Spec() {
              ModelsOf<Models>{
                  Model("generator", "bind_model", &Models::generator)},
              &Run)
-      .ValidateModels(
-          [](const Params& params, const Models& models, std::string* error) {
-            if (params.generation.random_seed < 0 ||
-                models.generator.SupportsRandomSeed())
-              return true;
-            if (error) *error = "Bound llm model does not support random_seed";
-            return false;
-          })
       .Category("custom")
       .ParallelSafe(true)
       .Description(
