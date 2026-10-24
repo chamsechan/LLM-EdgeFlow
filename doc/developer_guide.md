@@ -259,7 +259,9 @@ Kite 和 Inferlet 的 `vision.mmproj` 相对 run config 所在目录使用相同
 运行配置和设备约束在 Backend 加载时核对。构建和运行方法见 [Inferlet 验证](VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
 
 后端跨字段约束同样用 `ParamSpec().Validate`，例如 llama.cpp 的 `decode_batch_size` 不得大于
-`context_size`。环境、设备和资产可用性仍由实际加载路径检查。
+`context_size`。依赖其他字段的默认值在先于 `Validate` 执行的 `ParamSpec().Prepare` 中补齐，
+例如 `decode_batch_size` 未配置时取 `min(512, context_size)`；`resolve-conf` 展示补齐后的生效值。
+环境、设备和资产可用性仍由实际加载路径检查。
 
 其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的
 `Concurrency()` 声明具体运行时资源能力，Pipeline 以二者更严格的值调度。

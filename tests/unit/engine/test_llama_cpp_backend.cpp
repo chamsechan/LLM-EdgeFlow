@@ -97,9 +97,10 @@ BackendLoadSpec LlamaSpec(
   const auto definition = BackendRegistry::Instance().Find("llama_cpp");
   EXPECT_TRUE(definition.has_value());
   std::string diagnostic;
-  if (definition)
+  if (definition) {
     EXPECT_TRUE(definition->params.Parse(params, &spec.params, &diagnostic))
         << diagnostic;
+  }
   spec.model_file = file;
   spec.execution_target = {0, "CPU"};
   return spec;
@@ -162,6 +163,19 @@ TEST(LlamaCppBackendTest,
                                                  {"n_threads_batch", 0},
                                                  {"n_gpu_layers", 0},
                                                  {"check_tensors", false}}));
+  struct Case {
+    nlohmann::json config;
+    int64_t decode_batch_size;
+  };
+  for (const auto& item :
+       {Case{{{"context_size", 128}}, 128},
+        Case{{{"context_size", 1048576}}, 512},
+        Case{{{"context_size", 128}, {"decode_batch_size", 64}}, 64}}) {
+    SCOPED_TRACE(item.config.dump());
+    ASSERT_TRUE(definition->params.Parse(item.config, &params, &diagnostic))
+        << diagnostic;
+    EXPECT_EQ(params->Integer("decode_batch_size"), item.decode_batch_size);
+  }
 }
 
 TEST(LlamaCppBackendTest,

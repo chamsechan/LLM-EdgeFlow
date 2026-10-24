@@ -22,6 +22,8 @@ vendor runtime integration, or batch scheduling behavior.
   once before Backend provider creation or `Load`. `Create` and `Load` consume immutable values
   and check sessions/resources without repeating pure parameter validation. Direct-call tests
   first use the Definition's `params.Parse`.
+- Fill defaults that depend on other fields in `ParamSpec().Prepare`, which runs before `Validate`;
+  llama.cpp `decode_batch_size` defaults to `min(512, context_size)`. `resolve-conf` shows prepared values.
 - Optional scalar members have no default and cannot use `Required()` or `Default()`.
   [ResolveFromModel](../../../../src/engine/models/common/from_model.h) selects a configured value,
   fixed model fact, or fallback; conflicting configured/fixed values fail. BGE reads fixed output

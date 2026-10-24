@@ -144,6 +144,28 @@ class PipelineCliContractTest(unittest.TestCase):
             self.assertEqual(configuration["io"]["output"][0]["name"], "keyword_match")
             self.assertEqual(configuration["effective_frame_depth"], 2)
 
+    def test_resolve_reports_the_effective_decode_batch_size(self):
+        catalog = self.call("catalog")
+        if not any(backend["backend_type"] == "llama_cpp" for backend in catalog["backends"]):
+            self.skipTest("llama_cpp is not enabled in this build")
+        pipeline = json.loads((ROOT / "configs/pipeline_translate_cpu.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            (directory / "pipeline.conf").write_text('{"pipe_path":"pipeline.json"}', encoding="utf-8")
+            for params, expected in (
+                ({}, 512),
+                ({"context_size": 128}, 128),
+                ({"context_size": 128, "decode_batch_size": 64}, 64),
+            ):
+                with self.subTest(params=params):
+                    pipeline["models"][0]["backend"]["params"] = params
+                    (directory / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+                    result = self.call("resolve-conf", str(directory / "pipeline.conf"),
+                                       "--root", str(directory))
+                    effective = result["configuration"]["effective_pipeline"]
+                    self.assertEqual(effective["models"][0]["backend"]["params"]["decode_batch_size"],
+                                     expected)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

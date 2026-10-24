@@ -7,6 +7,9 @@ LLM-EdgeFlow 尚未正式发布。项目版本统一记录在 [CMakeLists.txt](.
 
 当前能力：
 
+- llama.cpp 的 `decode_batch_size` 未配置时取 `min(512, context_size)`；`resolve-conf`
+  展示 Model/Backend 参数经 `Prepare` 补齐后的生效值。见[后端参数](developer_guide.md)。
+
 - 后端不支持固定 `random_seed` 时，文本 Model 每次非空调用记录一条 warning 并忽略种子，
   LLM 节点初始化不检查种子支持。见[Model 调用选项](developer_guide.md)。
 

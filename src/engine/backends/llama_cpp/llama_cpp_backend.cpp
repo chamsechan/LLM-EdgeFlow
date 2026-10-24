@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,7 +34,7 @@ std::string NormalizePlatform(std::string platform) {
 #ifdef HAVE_LLAMACPP
 struct Params {
   int64_t context_size;
-  int64_t decode_batch_size;
+  std::optional<int64_t> decode_batch_size;
   int n_threads;
   int n_threads_batch;
   int n_gpu_layers;
@@ -48,10 +49,9 @@ Parameters<Params> ParamSpec() {
           .Description("每次生成的上下文容量，单位为 "
                        "token，输入提示词与已生成文本共同占用。"),
       Field("decode_batch_size", &Params::decode_batch_size)
-          .Default(512)
           .Range(1, 1048576)
-          .Description("单次 llama_decode 提交的 token 数上限；必须不大于 "
-                       "context_size。"),
+          .Description("单次 llama_decode 提交的 token 数上限；未配置时取 "
+                       "min(512, context_size)，必须不大于 context_size。"),
       Field("n_threads", &Params::n_threads)
           .Default(0)
           .Range(0, 1024)
@@ -71,8 +71,13 @@ Parameters<Params> ParamSpec() {
           .Default(false)
           .Description("加载权重时启用 llama.cpp 的张量数据检查。"),
   });
+  spec.Prepare([](Params* p, std::string*) {
+    if (!p->decode_batch_size)
+      p->decode_batch_size = std::min<int64_t>(512, p->context_size);
+    return true;
+  });
   spec.Validate([](const Params& p, std::string* diagnostic) {
-    if (p.decode_batch_size <= p.context_size) return true;
+    if (*p.decode_batch_size <= p.context_size) return true;
     SetDiagnosticNoexcept(diagnostic,
                           "decode_batch_size must not exceed context_size");
     return false;
@@ -466,7 +471,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
                                               LlamaModelDeleter{});
     return std::make_shared<LlamaCppTextGenerationSession>(
         std::move(shared_model), static_cast<size_t>(p.context_size),
-        static_cast<size_t>(p.decode_batch_size), p.n_threads,
+        static_cast<size_t>(*p.decode_batch_size), p.n_threads,
         p.n_threads_batch);
 #endif
   } catch (const std::exception& e) {
