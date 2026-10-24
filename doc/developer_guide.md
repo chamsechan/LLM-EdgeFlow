@@ -242,7 +242,8 @@ Tensor 协议的共享 buffer 必须覆盖执行和结果解码的生命周期�
 Embedding 的 `normalize` 是模型参数（默认 true）。同一模型的全部消费节点共享该向量空间。
 `Embed` 不接收选项。生成的 `system_prompt`、`random_seed` 和转写的 `language` 是节点调用参数，
 通过 `GenerateOptions` / `TranscribeOptions` 传入模型。节点可用 `ValidateModels` 在绑定后核对要求，
-只在 Create 执行一次。不支持语言或显式固定种子时节点初始化失败。
+只在 Create 执行一次。不支持转写语言时节点初始化失败。后端不支持固定 `random_seed` 时，
+文本 Model 在每次非空 `Generate` 调用记录一条 warning，不向后端传递种子并继续生成。
 
 文件字段使用 `.File()`，只接受字符串或可选字符串。BGE 的 `tokenizer_file` 必填，
 Kite 和 Inferlet 的 `run_config_file` 不写时为空。接入层在 Core 校验前相对 Pipeline JSON 目录解析：
@@ -254,8 +255,8 @@ Kite 和 Inferlet 的 `vision.mmproj` 相对 run config 所在目录使用相同
 向量三个中性协议。会话按请求串行执行，批策略为单输入、非固定批；模型和输出资源由
 会话及调用内 RAII 持有，输出在释放厂商对象前复制。文本走 token 输入以保留 Model
 已格式化的提示词；框架 `top_k=0` 映射为不截断候选，不使用 Inferlet 的默认 top-k。
-当前不支持每请求固定随机种子。CPU 包仅接受自动选择或设备 0；运行配置和设备约束
-在 Backend 加载时核对。构建和运行方法见 [Inferlet 验证](VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
+当前不支持每请求固定随机种子（配置后告警并忽略）。CPU 包仅接受自动选择或设备 0；
+运行配置和设备约束在 Backend 加载时核对。构建和运行方法见 [Inferlet 验证](VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
 
 后端跨字段约束同样用 `ParamSpec().Validate`，例如 llama.cpp 的 `decode_batch_size` 不得大于
 `context_size`。环境、设备和资产可用性仍由实际加载路径检查。

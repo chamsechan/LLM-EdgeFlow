@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "contracts/error_codes.h"
+#include "edgeflow/log.h"
 #include "engine/models/qwen_causal_lm/qwen_causal_lm_model.h"
 #include "tests/support/model_probe.h"
 
@@ -102,9 +103,64 @@ TEST(QwenCausalLmModelTest, DefaultBosNegativeSeedAndOptionalSystemPrompt) {
             "<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\n");
   EXPECT_FALSE(session->observed_bos);
   EXPECT_FALSE(session->observed_seed.has_value());
-  EXPECT_TRUE(model->SupportsRandomSeed());
+}
+
+class QwenSeedWarningTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    saved_log_level_ = AlgBase_getLogLevelByName(nullptr);
+    ASSERT_EQ(AlgBase_setLogLevelByName(nullptr, E_ALG_BASE_LOG_LEVEL_WARNING),
+              0);
+  }
+  void TearDown() override {
+    AlgBase_setLogLevelByName(nullptr, saved_log_level_);
+  }
+  int saved_log_level_ = 0;
+};
+
+TEST_F(QwenSeedWarningTest, UnsupportedSeedWarnsOncePerBatchAndIsNotPassed) {
+  auto session = std::make_shared<TextSession>();
   session->supports_seed = false;
-  EXPECT_FALSE(model->SupportsRandomSeed());
+  QwenCausalLmModel model(session, false);
+  GenerateOptions options;
+  options.random_seed = 17;
+  TextBatch output;
+  std::string diagnostic;
+  testing::internal::CaptureStderr();
+  const int result = model.Generate({{3, 5, "Hi"}, {7, 9, "Hello"}}, options,
+                                    &output, &diagnostic);
+  const auto record = testing::internal::GetCapturedStderr();
+  ASSERT_EQ(result, 0) << diagnostic;
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_EQ(session->calls, 2);
+  EXPECT_FALSE(session->observed_seed.has_value());
+  EXPECT_EQ(output.size(), 2u);
+  EXPECT_NE(record.find(session->backend), std::string::npos);
+  const auto marker = record.find("random_seed=17");
+  ASSERT_NE(marker, std::string::npos);
+  EXPECT_EQ(record.find("random_seed=17", marker + 1), std::string::npos);
+}
+
+TEST_F(QwenSeedWarningTest, SupportedSeedsAndUnrequestedSeedsDoNotWarn) {
+  auto session = std::make_shared<TextSession>();
+  QwenCausalLmModel model(session, false);
+  for (const bool supports_seed : {true, false}) {
+    session->supports_seed = supports_seed;
+    for (const int64_t seed : {-1, -7, 0}) {
+      if (!supports_seed && seed >= 0) continue;
+      GenerateOptions options;
+      options.random_seed = seed;
+      TextBatch output;
+      std::string diagnostic;
+      testing::internal::CaptureStderr();
+      const int result =
+          model.Generate({{1, 2, "Hi"}}, options, &output, &diagnostic);
+      const auto record = testing::internal::GetCapturedStderr();
+      EXPECT_EQ(result, 0) << diagnostic;
+      EXPECT_TRUE(record.empty());
+      EXPECT_EQ(session->observed_seed.has_value(), seed >= 0);
+    }
+  }
 }
 
 TEST(QwenCausalLmModelTest, OnlyIncompleteUtf8SuffixIsRemoved) {
