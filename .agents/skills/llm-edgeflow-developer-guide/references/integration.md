@@ -67,8 +67,11 @@ For one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows`
 `converter_authoring.h`. Multiple logical streams and aggregations retain explicit algorithms.
 `SetInputValue<Host, Value>` copies validated carrier content into owned values; the input row
 callback receives `const Value&`, or `Value&` to move owned payloads. Output callbacks fill `Value*`,
-including ordinary `std::string` fields; `EncodeResultRows` or explicit `WriteOutputValue` calls
-the writer registered with `SetOutputValue<Host, Value>` using the leased pool specification.
+including ordinary `std::string` fields. After explicit validation and row alignment, multi-stream
+converters use `WriteOutputRows<Value>` with a row-index callback returning `AdapterStatus`.
+It preserves optional row positions and reports the written count only after all requested rows
+succeed. Both this helper and `EncodeResultRows` use `WriteOutputValue` to call the writer
+registered with `SetOutputValue<Host, Value>` using the leased pool specification.
 Bindings alone read/write platform members, string lengths, metadata and layouts.
 Internal `req_id` is the current Process batch row; `sub_id` tracks split items. Output views
 retain the original batch count, including absent optional slots; encoders restore row order

@@ -124,8 +124,10 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    `AdapterStatus Encode(const Payload& result, Value* output)`，设置业务标量并直接赋值
    `std::string` 或自有数组。`EncodeOutputFn` 调用 `EncodeResultRows<Value>`，框架检查
    每请求恰好一个 `sub_id=0` 的结果、恢复行顺序，再通过 binding 写入内容。
-   多路结果组合和排名显式使用 `ReadOutputValue` / `IndexResults`，组装中立值后调用
-   `WriteOutputValue`。`IndexResults` 用输出视图的 `count` 校验原始批内来源。
+   多路结果组合和排名显式使用 `ReadOutputValue` / `IndexResults`，完成校验和行对齐后调用
+   `WriteOutputRows<Value>`；回调接收原始行号与 `Value*`，返回 `AdapterStatus`。
+   helper 跳过未请求的可选行、调用 `WriteOutputValue` 并统计成功写入数量；业务组装仍由
+   Converter 负责。`IndexResults` 用输出视图的 `count` 校验原始批内来源。
    binding 按实际输出池容量复制字符串和数组。Converter 检查业务状态并组装完整 JSON。
    定义 `OutputConverterDefinition`。用 `REGISTER_OUTPUT_CONVERTER` 注册转换器。
 3. **声明选择、参数与逻辑端口。**

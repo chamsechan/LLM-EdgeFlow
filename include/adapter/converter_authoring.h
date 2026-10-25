@@ -107,6 +107,29 @@ bool WriteOutputValue(const ExternalOutputBatchView& destination,
   return true;
 }
 
+// 调用方先完成结果校验与行对齐；回调按原始请求行号组装中立输出值。
+// 只有全部请求的行写入成功才报告 written_count，输出发布仍由 Runtime 负责。
+template <typename Value, typename Encode>
+int WriteOutputRows(size_t count, const OutputEncodeOptions& options,
+                    const ExternalOutputBatchView& destination,
+                    size_t* written_count, AdapterStatus* status,
+                    const char* slot, Encode&& encode) {
+  if (written_count) *written_count = 0;
+  size_t written = 0;
+  for (size_t i = 0; i < count; ++i) {
+    if (!destination.HasSlot(slot, i) && !destination.required) continue;
+    Value output{};
+    const auto result = encode(i, &output);
+    if (!result.IsOk())
+      return ReturnRowStatus(result, options.Label(), i, status);
+    if (!WriteOutputValue(destination, slot, i, output, options, status))
+      return status ? status->Code() : error::kInvalidOutput;
+    ++written;
+  }
+  if (written_count) *written_count = written;
+  return error::kOk;
+}
+
 // 每个请求：binding 读取一个中性值，回调完成业务校验与 payload 转换。
 // 所有行通过后才发布请求自有数据。
 template <typename Value, typename Payload, typename Decode>
@@ -160,19 +183,11 @@ int EncodeResultRows(
   if (!IndexResults(results, destination->count, &ordered, "res",
                     options.Label().c_str(), status))
     return error::kInvalidInput;
-  size_t written = 0;
-  for (size_t i = 0; i < ordered.size(); ++i) {
-    if (!destination->HasSlot(slot, i) && !destination->required) continue;
-    Value output{};
-    const auto result = encode(ordered[i]->data, &output);
-    if (!result.IsOk())
-      return ReturnRowStatus(result, options.Label(), i, status);
-    if (!WriteOutputValue(*destination, slot, i, output, options, status))
-      return status ? status->Code() : error::kInvalidOutput;
-    ++written;
-  }
-  if (written_count) *written_count = written;
-  return error::kOk;
+  return WriteOutputRows<Value>(ordered.size(), options, *destination,
+                                written_count, status, slot,
+                                [&](size_t i, Value* output) {
+                                  return encode(ordered[i]->data, output);
+                                });
 }
 
 #define EDGEFLOW_CONCAT_IMPL(s1, s2) s1##s2

@@ -47,6 +47,29 @@ class ExternalBuffer final : public ITensorBuffer {
   bool null_;
 };
 
+class SplitViewBuffer final : public ITensorBuffer {
+ public:
+  SplitViewBuffer(const void* data, void* mutable_data, size_t size)
+      : data_(data), mutable_data_(mutable_data), size_(size) {}
+  const void* Data() const noexcept override {
+    ++data_calls;
+    return data_;
+  }
+  void* MutableData() noexcept override {
+    ++mutable_data_calls;
+    return mutable_data_;
+  }
+  size_t ByteSize() const noexcept override { return size_; }
+
+  mutable size_t data_calls = 0;
+  size_t mutable_data_calls = 0;
+
+ private:
+  const void* data_;
+  void* mutable_data_;
+  size_t size_;
+};
+
 TEST(TensorStorageTest, AllocatesZeroedAlignedStorageWithSharedOwnership) {
   Tensor tensor;
   ASSERT_TRUE(CreateHostTensor({ElementType::kFloat32, {2, 3}}, &tensor));
@@ -152,6 +175,65 @@ TEST(TensorStorageTest, BothAccessorsRejectMalformedExternalStorage) {
   ASSERT_NE(GetMutableTensorData<float>(&valid_external), nullptr);
   GetMutableTensorData<float>(&valid_external)[1] = 4.5F;
   EXPECT_EQ(GetTensorData<float>(valid_external)[1], 4.5F);
+}
+
+TEST(TensorStorageTest,
+     AccessorsUseDistinctViewsAndRejectTypeMismatchBeforeAccess) {
+  const std::array<float, 2> readable{1.0F, 2.0F};
+  std::array<float, 2> writable{3.0F, 4.0F};
+  auto buffer = std::make_shared<SplitViewBuffer>(
+      readable.data(), writable.data(), sizeof(readable));
+  Tensor tensor{{ElementType::kFloat32, {2}}, buffer};
+  std::string diagnostic;
+  EXPECT_EQ(GetTensorData<float>(tensor, &diagnostic), readable.data());
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_EQ(buffer->data_calls, 1U);
+  EXPECT_EQ(buffer->mutable_data_calls, 0U);
+  EXPECT_EQ(GetMutableTensorData<float>(&tensor, &diagnostic), writable.data());
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_EQ(buffer->data_calls, 1U);
+  EXPECT_EQ(buffer->mutable_data_calls, 1U);
+
+  tensor.desc.element_type = ElementType::kInt32;
+  EXPECT_EQ(GetTensorData<float>(tensor, &diagnostic), nullptr);
+  EXPECT_EQ(diagnostic, "Tensor element type mismatch");
+  diagnostic.clear();
+  EXPECT_EQ(GetMutableTensorData<float>(&tensor, &diagnostic), nullptr);
+  EXPECT_EQ(diagnostic, "Tensor element type mismatch");
+  EXPECT_EQ(buffer->data_calls, 1U);
+  EXPECT_EQ(buffer->mutable_data_calls, 1U);
+}
+
+TEST(TensorStorageTest, MissingViewDoesNotDisableOtherAccessor) {
+  std::array<float, 2> values{1.0F, 2.0F};
+  for (bool readable : {true, false}) {
+    SCOPED_TRACE(readable ? "read-only view" : "write-only view");
+    const float* data = readable ? values.data() : nullptr;
+    float* mutable_data = readable ? nullptr : values.data();
+    auto buffer =
+        std::make_shared<SplitViewBuffer>(data, mutable_data, sizeof(values));
+    Tensor tensor{{ElementType::kFloat32, {2}}, buffer};
+    std::string diagnostic;
+    EXPECT_EQ(GetTensorData<float>(tensor, &diagnostic), data);
+    EXPECT_EQ(diagnostic, readable ? "" : "Tensor buffer data is null");
+    diagnostic.clear();
+    EXPECT_EQ(GetMutableTensorData<float>(&tensor, &diagnostic), mutable_data);
+    EXPECT_EQ(diagnostic, readable ? "Tensor buffer mutable data is null" : "");
+    EXPECT_EQ(buffer->data_calls, 1U);
+    EXPECT_EQ(buffer->mutable_data_calls, 1U);
+  }
+}
+
+TEST(TensorStorageTest, EmptyTensorAcceptsNullReadAndWriteViews) {
+  auto buffer = std::make_shared<SplitViewBuffer>(nullptr, nullptr, 0);
+  Tensor tensor{{ElementType::kFloat32, {2, 0}}, buffer};
+  std::string diagnostic;
+  EXPECT_EQ(GetTensorData<float>(tensor, &diagnostic), nullptr);
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_EQ(GetMutableTensorData<float>(&tensor, &diagnostic), nullptr);
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_EQ(buffer->data_calls, 1U);
+  EXPECT_EQ(buffer->mutable_data_calls, 1U);
 }
 
 #ifdef LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN

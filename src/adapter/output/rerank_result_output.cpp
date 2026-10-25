@@ -68,32 +68,23 @@ int EncodeOperatorRerankResult(AlgContext* context,
     }
   }
 
-  size_t written = 0;
-  for (size_t i = 0; i < count; ++i) {
-    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
-      continue;
-    }
-    JsonOutputValue out;
-
-    const auto& cand_list = req_map[static_cast<uint32_t>(i)];
-    auto scores = nlohmann::json::array();
-    auto indices = nlohmann::json::array();
-    for (const auto& candidate : cand_list) {
-      scores.push_back(candidate.score);
-      indices.push_back(candidate.original_sub_id);
-    }
-    out.result_json = nlohmann::json({{"scores", std::move(scores)},
-                                      {"sorted_indices", std::move(indices)},
-                                      {"count", cand_list.size()}})
-                          .dump();
-    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : error::kInvalidOutput;
-    }
-    ++written;
-  }
-
-  if (written_count) *written_count = written;
-  return error::kOk;
+  return WriteOutputRows<JsonOutputValue>(
+      count, options, *destination, written_count, status, kOutputSlot,
+      [&](size_t i, JsonOutputValue* out) {
+        const auto& cand_list = req_map[static_cast<uint32_t>(i)];
+        auto scores = nlohmann::json::array();
+        auto indices = nlohmann::json::array();
+        for (const auto& candidate : cand_list) {
+          scores.push_back(candidate.score);
+          indices.push_back(candidate.original_sub_id);
+        }
+        out->result_json =
+            nlohmann::json({{"scores", std::move(scores)},
+                            {"sorted_indices", std::move(indices)},
+                            {"count", cand_list.size()}})
+                .dump();
+        return AdapterStatus::Ok();
+      });
 }
 
 OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
