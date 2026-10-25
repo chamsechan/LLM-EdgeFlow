@@ -69,54 +69,43 @@ int EncodeOperatorAuditResult(AlgContext* context,
     return error::kInvalidInput;
   }
 
-  size_t written = 0;
-  for (size_t i = 0; i < count; ++i) {
-    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
-      continue;
-    }
-    JsonOutputValue out;
+  return WriteOutputRows<JsonOutputValue>(
+      count, options, *destination, written_count, status, kOutputSlot,
+      [&](size_t i, JsonOutputValue* out) {
+        const auto& verdict_item = verdicts_by_request[i]->data;
+        if (matched_policy_by_request[i]->data.rank != 1 ||
+            !IsSuccessfulDocument(verdict_item) ||
+            !verdict_item.structured_data.contains("risk_level") ||
+            !verdict_item.structured_data.contains("risk_score") ||
+            !verdict_item.structured_data["risk_level"].is_string() ||
+            !verdict_item.structured_data["risk_score"].is_number()) {
+          return AdapterStatus::InvalidInput(
+              "structured_data missing or invalid risk_level/risk_score types",
+              "structured_verdicts");
+        }
 
-    const auto& verdict_item = verdicts_by_request[i]->data;
-    if (matched_policy_by_request[i]->data.rank != 1 ||
-        !IsSuccessfulDocument(verdict_item) ||
-        !verdict_item.structured_data.contains("risk_level") ||
-        !verdict_item.structured_data.contains("risk_score") ||
-        !verdict_item.structured_data["risk_level"].is_string() ||
-        !verdict_item.structured_data["risk_score"].is_number()) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status,
-          "structured_data missing or invalid risk_level/risk_score types",
-          "structured_verdicts", options.Label().c_str(), static_cast<int>(i));
-    }
+        std::string risk_level =
+            verdict_item.structured_data["risk_level"].get<std::string>();
+        float risk_score =
+            verdict_item.structured_data["risk_score"].get<float>();
+        if (!std::isfinite(risk_score) || risk_score < 0 || risk_score > 1 ||
+            (risk_level != "SAFE" && risk_level != "LOW_RISK" &&
+             risk_level != "MEDIUM_RISK" && risk_level != "HIGH_RISK")) {
+          return AdapterStatus::InvalidInput("Invalid risk level or score",
+                                             "structured_verdicts");
+        }
 
-    std::string risk_level =
-        verdict_item.structured_data["risk_level"].get<std::string>();
-    float risk_score = verdict_item.structured_data["risk_score"].get<float>();
-    if (!std::isfinite(risk_score) || risk_score < 0 || risk_score > 1 ||
-        (risk_level != "SAFE" && risk_level != "LOW_RISK" &&
-         risk_level != "MEDIUM_RISK" && risk_level != "HIGH_RISK")) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Invalid risk level or score", "structured_verdicts",
-          options.Label().c_str(), static_cast<int>(i));
-    }
-
-    const std::string& verdict_json = verdict_item.json_payload;
-    std::string policy_clause = matched_policy_by_request[i]->data.text;
-
-    out.result_json =
-        nlohmann::json({{"risk_level", risk_level},
-                        {"risk_score", risk_score},
-                        {"matched_policy_clause", policy_clause},
-                        {"audit_verdict", nlohmann::json::parse(verdict_json)}})
-            .dump();
-    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : error::kInvalidOutput;
-    }
-    ++written;
-  }
-
-  if (written_count) *written_count = written;
-  return error::kOk;
+        const std::string& verdict_json = verdict_item.json_payload;
+        std::string policy_clause = matched_policy_by_request[i]->data.text;
+        out->result_json =
+            nlohmann::json(
+                {{"risk_level", risk_level},
+                 {"risk_score", risk_score},
+                 {"matched_policy_clause", policy_clause},
+                 {"audit_verdict", nlohmann::json::parse(verdict_json)}})
+                .dump();
+        return AdapterStatus::Ok();
+      });
 }
 
 OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {

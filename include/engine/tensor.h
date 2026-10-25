@@ -202,6 +202,37 @@ inline bool ComputeTensorByteSize(const TensorDesc& desc, size_t element_size,
   }
 }
 
+// 入口已检查 buffer；先检查元素类型，再调用对应的只读或可写访问函数。
+template <typename T, typename Accessor>
+inline auto CheckedTensorData(const Tensor& tensor, Accessor accessor,
+                              const char* null_data_message,
+                              std::string* diagnostic)
+    -> decltype(std::invoke(accessor, *tensor.buffer)) {
+  if (tensor.desc.element_type != NativeTypeTraits<T>::kElementType) {
+    SetDiagnosticNoexcept(diagnostic, "Tensor element type mismatch");
+    return nullptr;
+  }
+  auto* raw_data = std::invoke(accessor, *tensor.buffer);
+  if (!raw_data && tensor.buffer->ByteSize() > 0) {
+    SetDiagnosticNoexcept(diagnostic, null_data_message);
+    return nullptr;
+  }
+  if (reinterpret_cast<uintptr_t>(raw_data) % alignof(T) != 0) {
+    SetDiagnosticNoexcept(diagnostic,
+                          "Tensor buffer is misaligned for requested type");
+    return nullptr;
+  }
+  size_t expected_bytes = 0;
+  if (!ComputeTensorByteSize(tensor.desc, sizeof(T), &expected_bytes,
+                             diagnostic))
+    return nullptr;
+  if (tensor.buffer->ByteSize() != expected_bytes) {
+    SetDiagnosticNoexcept(diagnostic, "Tensor buffer byte size mismatch");
+    return nullptr;
+  }
+  return raw_data;
+}
+
 }  // namespace inference_detail
 
 /**
@@ -264,30 +295,9 @@ inline const T* GetTensorData(const Tensor& tensor,
       SetDiagnosticNoexcept(diagnostic, "Tensor buffer is null");
       return nullptr;
     }
-    if (tensor.desc.element_type != NativeTypeTraits<T>::kElementType) {
-      SetDiagnosticNoexcept(diagnostic, "Tensor element type mismatch");
-      return nullptr;
-    }
-    const void* raw_data = tensor.buffer->Data();
-    if (!raw_data && tensor.buffer->ByteSize() > 0) {
-      SetDiagnosticNoexcept(diagnostic, "Tensor buffer data is null");
-      return nullptr;
-    }
-    if (reinterpret_cast<uintptr_t>(raw_data) % alignof(T) != 0) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "Tensor buffer is misaligned for requested type");
-      return nullptr;
-    }
-    size_t expected_bytes = 0;
-    if (!inference_detail::ComputeTensorByteSize(tensor.desc, sizeof(T),
-                                                 &expected_bytes, diagnostic)) {
-      return nullptr;
-    }
-    if (tensor.buffer->ByteSize() != expected_bytes) {
-      SetDiagnosticNoexcept(diagnostic, "Tensor buffer byte size mismatch");
-      return nullptr;
-    }
-    return static_cast<const T*>(raw_data);
+    return static_cast<const T*>(inference_detail::CheckedTensorData<T>(
+        tensor, &ITensorBuffer::Data, "Tensor buffer data is null",
+        diagnostic));
   } catch (...) {
     SetDiagnosticNoexcept(diagnostic, "Exception accessing tensor data");
     return nullptr;
@@ -307,30 +317,9 @@ inline T* GetMutableTensorData(Tensor* tensor,
       SetDiagnosticNoexcept(diagnostic, "Tensor or tensor buffer is null");
       return nullptr;
     }
-    if (tensor->desc.element_type != NativeTypeTraits<T>::kElementType) {
-      SetDiagnosticNoexcept(diagnostic, "Tensor element type mismatch");
-      return nullptr;
-    }
-    void* raw_data = tensor->buffer->MutableData();
-    if (!raw_data && tensor->buffer->ByteSize() > 0) {
-      SetDiagnosticNoexcept(diagnostic, "Tensor buffer mutable data is null");
-      return nullptr;
-    }
-    if (reinterpret_cast<uintptr_t>(raw_data) % alignof(T) != 0) {
-      SetDiagnosticNoexcept(diagnostic,
-                            "Tensor buffer is misaligned for requested type");
-      return nullptr;
-    }
-    size_t expected_bytes = 0;
-    if (!inference_detail::ComputeTensorByteSize(tensor->desc, sizeof(T),
-                                                 &expected_bytes, diagnostic)) {
-      return nullptr;
-    }
-    if (tensor->buffer->ByteSize() != expected_bytes) {
-      SetDiagnosticNoexcept(diagnostic, "Tensor buffer byte size mismatch");
-      return nullptr;
-    }
-    return static_cast<T*>(raw_data);
+    return static_cast<T*>(inference_detail::CheckedTensorData<T>(
+        *tensor, &ITensorBuffer::MutableData,
+        "Tensor buffer mutable data is null", diagnostic));
   } catch (...) {
     SetDiagnosticNoexcept(diagnostic,
                           "Exception accessing mutable tensor data");

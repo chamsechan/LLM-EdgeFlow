@@ -60,33 +60,23 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     return error::kInvalidInput;
   }
 
-  size_t written = 0;
-  for (size_t i = 0; i < count; ++i) {
-    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
-      continue;
-    }
-    JsonOutputValue out;
-
-    if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Structured result failed or used fallback", "invoice_jsons",
-          options.Label().c_str(), static_cast<int>(i));
-    }
-
-    out.result_json =
-        nlohmann::json(
-            {{"detected_box_count", ocr_docs_by_request[i]->data.boxes.size()},
-             {"result", nlohmann::json::parse(
-                            invoice_jsons_by_request[i]->data.json_payload)}})
-            .dump();
-    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : error::kInvalidOutput;
-    }
-    ++written;
-  }
-
-  if (written_count) *written_count = written;
-  return error::kOk;
+  return WriteOutputRows<JsonOutputValue>(
+      count, options, *destination, written_count, status, kOutputSlot,
+      [&](size_t i, JsonOutputValue* out) {
+        if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
+          return AdapterStatus::InvalidInput(
+              "Structured result failed or used fallback", "invoice_jsons");
+        }
+        out->result_json =
+            nlohmann::json(
+                {{"detected_box_count",
+                  ocr_docs_by_request[i]->data.boxes.size()},
+                 {"result",
+                  nlohmann::json::parse(
+                      invoice_jsons_by_request[i]->data.json_payload)}})
+                .dump();
+        return AdapterStatus::Ok();
+      });
 }
 
 OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {

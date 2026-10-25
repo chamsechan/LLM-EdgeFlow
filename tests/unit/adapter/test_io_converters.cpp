@@ -285,6 +285,101 @@ TEST(IoConverterTest, InvoiceRejectsFallbackEvenWithValidJson) {
   EXPECT_EQ(status.Message(), "Structured result failed or used fallback");
 }
 
+TEST(IoConverterTest, InvoiceOptionalRowsPreservePositionsAndFailureDetails) {
+  const auto* definition = IoConverterRegistry::Instance().FindOutputConverter(
+      "json_out", "ocr_invoice_qa");
+  ASSERT_NE(definition, nullptr);
+  enum class Failure { kNone, kBusiness, kWriter };
+  for (const auto failure :
+       {Failure::kNone, Failure::kBusiness, Failure::kWriter}) {
+    SCOPED_TRACE(static_cast<int>(failure));
+    for (bool report_status : {true, false}) {
+      SCOPED_TRACE(report_status);
+      JsonDocumentItem first(R"({"invoice_no":"I1"})");
+      JsonDocumentItem last(R"({"invoice_no":"I2"})");
+      JsonDocumentItem invalid;
+      invalid.is_valid = false;
+      if (failure == Failure::kBusiness) last.is_valid = false;
+      OcrDocumentItem first_document, last_document;
+      first_document.boxes.resize(1);
+      last_document.boxes.resize(2);
+      AlgContext context;
+      ASSERT_TRUE(context.Publish(
+          "result.invoice", StructuredDocumentBatch{
+                                {2, 0, last}, {0, 0, invalid}, {1, 0, first}}));
+      ASSERT_TRUE(context.Publish(
+          "result.ocr",
+          OcrDocumentBatch{
+              {1, 0, first_document}, {2, 0, last_document}, {0, 0, {}}}));
+      IoPortBindings ports{{"result", "result.invoice"},
+                           {"document", "result.ocr"}};
+      const OutputEncodeOptions options{"json_out", "ocr_invoice_qa", nullptr,
+                                        &ports};
+      int writes = 0;
+      OperatorValueTypeBinding binding;
+      binding.external_c_type_name = "JsonCarrier";
+      SetOutputValue<JsonOutputValue, JsonOutputValue>(
+          &binding, [&](JsonOutputValue& host, const JsonOutputValue& value,
+                        const ResolvedOutputPoolSpec&) {
+            ++writes;
+            if (failure == Failure::kWriter && writes == 2)
+              return AdapterStatus::BufferTooSmall("writer rejected row",
+                                                   "result_json");
+            host = value;
+            return AdapterStatus::Ok();
+          });
+      std::vector<JsonOutputValue> rows(3, JsonOutputValue{"untouched"});
+      ResolvedOutputPoolSpec pool;
+      ExternalOutputBatchView destination;
+      destination.count = rows.size();
+      destination.required = false;
+      destination.slot = "json_out";
+      destination.external_c_type_name = "JsonCarrier";
+      destination.binding = &binding;
+      destination.pool_spec = &pool;
+      // The invalid first result belongs to an omitted optional output row.
+      destination.leased_values = {nullptr, &rows[1], &rows[2]};
+      size_t written = 99;
+      AdapterStatus status;
+      const int code =
+          definition->encode_fn(&context, options, &destination, &written,
+                                report_status ? &status : nullptr);
+      EXPECT_EQ(rows[0].result_json, "untouched");
+      EXPECT_EQ(
+          nlohmann::json::parse(rows[1].result_json),
+          nlohmann::json::parse(
+              R"({"detected_box_count":1,"result":{"invoice_no":"I1"}})"));
+      if (failure == Failure::kNone) {
+        EXPECT_EQ(code, error::kOk);
+        EXPECT_EQ(written, 2U);
+        EXPECT_EQ(writes, 2);
+        EXPECT_EQ(
+            nlohmann::json::parse(rows[2].result_json),
+            nlohmann::json::parse(
+                R"({"detected_box_count":2,"result":{"invoice_no":"I2"}})"));
+      } else {
+        EXPECT_EQ(code, failure == Failure::kBusiness ? error::kInvalidInput
+                                                      : error::kInvalidOutput);
+        EXPECT_EQ(written, 0U);
+        EXPECT_EQ(writes, failure == Failure::kBusiness ? 1 : 2);
+        EXPECT_EQ(rows[2].result_json, "untouched");
+        if (report_status) {
+          EXPECT_EQ(status.Code(), code);
+          EXPECT_EQ(status.SampleIndex(), 2);
+          EXPECT_EQ(status.AdapterName(), "json_out/ocr_invoice_qa");
+          EXPECT_EQ(status.FieldPath(), failure == Failure::kBusiness
+                                            ? "invoice_jsons"
+                                            : "result_json");
+          EXPECT_EQ(status.Message(),
+                    failure == Failure::kBusiness
+                        ? "Structured result failed or used fallback"
+                        : "writer rejected row");
+        }
+      }
+    }
+  }
+}
+
 TEST(IoConverterTest, AuditResponseUsesStructuredRiskAndOriginalVerdictJson) {
   JsonDocumentItem verdict(
       R"({"risk_level":"SAFE","risk_score":0.25,"reason":"ok"})");

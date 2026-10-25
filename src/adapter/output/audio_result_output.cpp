@@ -61,26 +61,17 @@ int EncodeOperatorAudioResult(AlgContext* context,
     return error::kInvalidInput;
   }
 
-  size_t written = 0;
-  for (size_t i = 0; i < count; ++i) {
-    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
-      continue;
-    }
-    JsonOutputValue out;
-
-    out.result_json =
-        nlohmann::json({{"transcribed_text", transcripts_by_request[i]->data},
-                        {"intent_slot", BuildRuleMatchResponse(
-                                            intent_slots_by_request[i]->data)}})
-            .dump();
-    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : error::kInvalidOutput;
-    }
-    ++written;
-  }
-
-  if (written_count) *written_count = written;
-  return error::kOk;
+  return WriteOutputRows<JsonOutputValue>(
+      count, options, *destination, written_count, status, kOutputSlot,
+      [&](size_t i, JsonOutputValue* out) {
+        out->result_json =
+            nlohmann::json(
+                {{"transcribed_text", transcripts_by_request[i]->data},
+                 {"intent_slot",
+                  BuildRuleMatchResponse(intent_slots_by_request[i]->data)}})
+                .dump();
+        return AdapterStatus::Ok();
+      });
 }
 
 OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {

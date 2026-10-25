@@ -66,27 +66,18 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     return error::kInvalidInput;
   }
 
-  size_t written = 0;
-  for (size_t i = 0; i < count; ++i) {
-    if (!destination->HasSlot(kOutputSlot, i) && !destination->required) {
-      continue;
-    }
-    JsonOutputValue out;
-
-    const auto& match = intents_by_req[i]->data;
-    out.result_json = nlohmann::json({{"intent_name", match.category},
-                                      {"confidence", match.score},
-                                      {"answer_text", answers_by_req[i]->data},
-                                      {"chunk_count", chunks_by_req[i]->data}})
-                          .dump();
-    if (!WriteOutputValue(*destination, kOutputSlot, i, out, options, status)) {
-      return status ? status->Code() : error::kInvalidOutput;
-    }
-    ++written;
-  }
-
-  if (written_count) *written_count = written;
-  return error::kOk;
+  return WriteOutputRows<JsonOutputValue>(
+      count, options, *destination, written_count, status, kOutputSlot,
+      [&](size_t i, JsonOutputValue* out) {
+        const auto& match = intents_by_req[i]->data;
+        out->result_json =
+            nlohmann::json({{"intent_name", match.category},
+                            {"confidence", match.score},
+                            {"answer_text", answers_by_req[i]->data},
+                            {"chunk_count", chunks_by_req[i]->data}})
+                .dump();
+        return AdapterStatus::Ok();
+      });
 }
 
 OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
