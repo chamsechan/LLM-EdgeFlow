@@ -133,53 +133,44 @@ bool ParseOrExtractJson(const Params& options, const std::string& input,
   return false;
 }
 
-NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
-                                        const Params& options) {
-  const auto* text_items = inputs.text;
-  StructuredDocumentBatch output_docs;
-  output_docs.reserve(text_items->size());
+NodeResult<JsonDocumentItem> ParseDocument(const Params& options,
+                                           const std::string& text) {
+  std::string parsed_json_str;
+  nlohmann::json parsed_structured = nlohmann::json::object();
+  JsonParseStatus status = JsonParseStatus::kOk;
+  std::string diag;
 
-  for (const auto& item : *text_items) {
-    std::string parsed_json_str;
-    nlohmann::json parsed_structured = nlohmann::json::object();
-    JsonParseStatus status = JsonParseStatus::kOk;
-    std::string diag;
-
-    bool ok = ParseOrExtractJson(options, item.data, &parsed_json_str,
-                                 &parsed_structured, &status, &diag);
-    if (ok && !options.ValidateStructuredFields(parsed_structured, &diag)) {
-      ok = false;
-      status = JsonParseStatus::kFailed;
-    }
-
-    if (!ok) {
-      if (options.failure_policy_ == "fail") {
-        return NodeResult<StructuredDocumentBatch>::Failure(
-            "JSON parse failed for sample: " + diag, error::kJsonParse);
-      } else if (options.failure_policy_ == "emit_diagnostic") {
-        output_docs.emplace_back(
-            item.req_id, item.sub_id,
-            JsonDocumentItem(options.fallback_text_, false,
-                             JsonParseStatus::kFailed, diag,
-                             options.fallback_structured_));
-        continue;
-      } else {  // configured_fallback
-        output_docs.emplace_back(
-            item.req_id, item.sub_id,
-            JsonDocumentItem(options.fallback_text_, true,
-                             JsonParseStatus::kFallbackApplied, diag,
-                             options.fallback_structured_));
-        continue;
-      }
-    }
-
-    output_docs.emplace_back(
-        item.req_id, item.sub_id,
-        JsonDocumentItem(std::move(parsed_json_str), true, status, diag,
-                         std::move(parsed_structured)));
+  bool ok = ParseOrExtractJson(options, text, &parsed_json_str,
+                               &parsed_structured, &status, &diag);
+  if (ok && !options.ValidateStructuredFields(parsed_structured, &diag)) {
+    ok = false;
+    status = JsonParseStatus::kFailed;
   }
 
-  return NodeResult<StructuredDocumentBatch>::Success(std::move(output_docs));
+  if (!ok) {
+    if (options.failure_policy_ == "fail") {
+      return NodeResult<JsonDocumentItem>::Failure(
+          "JSON parse failed for sample: " + diag, error::kJsonParse);
+    } else if (options.failure_policy_ == "emit_diagnostic") {
+      return JsonDocumentItem(options.fallback_text_, false,
+                              JsonParseStatus::kFailed, diag,
+                              options.fallback_structured_);
+    } else {  // configured_fallback
+      return JsonDocumentItem(options.fallback_text_, true,
+                              JsonParseStatus::kFallbackApplied, diag,
+                              options.fallback_structured_);
+    }
+  }
+
+  return JsonDocumentItem(std::move(parsed_json_str), true, status, diag,
+                          std::move(parsed_structured));
+}
+
+NodeResult<StructuredDocumentBatch> Run(const Inputs& inputs,
+                                        const Params& options) {
+  return MapPayloads(*inputs.text, [&options](const std::string& text) {
+    return ParseDocument(options, text);
+  });
 }
 
 auto Spec() {

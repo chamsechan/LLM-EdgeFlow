@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "tests/support/node_probe.h"
@@ -109,8 +110,17 @@ TEST(StructuredJsonParseNodeTest,
   ASSERT_TRUE(failed.Publish("input",
                              TextBatch{{1, 0, R"({"name":"ok","score":1})"},
                                        {1, 1, R"({"name":false,"score":1})"}}));
-  EXPECT_NE(fail.node->Process(&failed), 0);
+  EXPECT_EQ(fail.node->Process(&failed), error::kJsonParse);
   EXPECT_FALSE(failed.Has("result"));
+  const std::string message = failed.GetErrorMessage();
+  EXPECT_NE(message.find("JSON parse failed for sample: Field 'name' type "
+                         "mismatch, expected string"),
+            std::string::npos)
+      << message;
+  const std::string source = "req_id=1, sub_id=1";
+  const auto first = message.find(source);
+  ASSERT_NE(first, std::string::npos) << message;
+  EXPECT_EQ(message.find(source, first + 1), std::string::npos) << message;
 }
 
 TEST(StructuredJsonParseNodeTest,
