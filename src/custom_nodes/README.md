@@ -50,9 +50,11 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 ./build/edgeflow_test_nodes_runner --gtest_filter='ScaffoldGeneratedNodeTest.*'
 ```
 
-[Node 测试辅助](../../tests/support/node_probe.h)用已校验的 Plan 和 Session 初始化注册的 Node。
-将请求输入放入新的 `AlgContext`。调用 Process 后，断言实际输出和 `(req_id, sub_id)`。
-带模型的节点用 [recording_models.h](../../tests/support/recording_models.h) 中的固定回答替身。
+[Node 测试辅助](../../tests/support/node_probe.h)的 `NodeUnderTest` 用已校验的 Plan 初始化注册的 Node，
+并管理 Session、内部数据名和请求上下文。测试按逻辑端口给出配置和输入，用 `Process` 的结果断言
+返回码、诊断、实际输出和 `(req_id, sub_id)`；失败时输出不发布。
+带模型的节点用 [recording_models.h](../../tests/support/recording_models.h) 中的固定回答替身，经 `AddModel` 注册。
+共享 Session、指定端口生命周期或在同一上下文串联多个节点时，直接使用底层 `NodeProbe`。
 还需覆盖空输入、非法输入和失败行为。脚手架的 `--write-test` 在
 `tests/unit/nodes/` 生成完整测试文件，节点 runner 自动收录，并通过 GoogleTest 原生发现生成 CTest 入口。发现检查核对实际编译用例都有执行归属。
 修改注册或 Definition 后重新构建 `alg_pipeline_tool`，再用同一构建检查组合后的方案。

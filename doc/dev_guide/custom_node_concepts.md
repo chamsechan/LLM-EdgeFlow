@@ -381,8 +381,8 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 `NodeResult::Failure`，原因写明字段或来源。执行包装统一处理诊断和发布，普通算法不保存
 Context 指针。配置更新由包装提供一致快照。含外部资源的更新仍需明确资源生命周期。
 
-第一次测试可复用 [NodeProbe](../../tests/support/node_probe.h)，将断言加入现有
-Node 套件。需要模型时使用 [recording_models.h](../../tests/support/recording_models.h)
+业务测试使用 [NodeUnderTest](../../tests/support/node_probe.h)，只写逻辑端口、配置、输入和断言；
+共享 Session 或串联多个节点的框架测试使用同一文件中的 `NodeProbe`。需要模型时使用 [recording_models.h](../../tests/support/recording_models.h)
 中的固定回答替身，它记录每次调用，也能让指定调用失败。命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
 先用两个不同请求、非零 `sub_id` 验证不会串结果，再检查算法自己的正常和失败输出。
 

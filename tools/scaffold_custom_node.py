@@ -241,7 +241,7 @@ MODEL_REPLIES = {
 
 
 def render_standalone_test(name, in_port, out_port, capability=None, control_id=None):
-    """生成的测试执行真实注册的 Node；端口声明由 Init 绑定和类型化读写检查。"""
+    """生成的测试执行真实注册的 Node；Session、内部 key 与请求 Context 由 NodeUnderTest 管理。"""
     in_name, in_type, _, _ = in_port
     out_name, out_type, _, _ = out_port
     input_payload = SAMPLE_INPUTS.get(in_type, f"{payload_type(in_type)}{{}}")
@@ -254,15 +254,17 @@ def render_standalone_test(name, in_port, out_port, capability=None, control_id=
         support = '#include "tests/support/recording_models.h"\n'
         setup = f'''  auto model = std::make_shared<test_support::Recording{capability.capitalize()}>();
   model->replies = {{{{{reply}}}}};
-  ASSERT_TRUE(test_support::RegisterNodeModel(session, "fixture", model));
+  ASSERT_TRUE(node.AddModel("fixture", model));
 '''
         params = 'nlohmann::json{{"bind_model", "fixture"}}'
     if control_id is not None:
         params = 'nlohmann::json{{"prefix", "before:"}}'
         payload_checks = 'EXPECT_EQ(item.data, "before:example");'
+    in_ref = cpp_string(in_name)
+    out_ref = cpp_string(out_name)
     if capability or (is_preserved(in_port, out_port) and in_type == out_type):
-        execution = f'''  ASSERT_EQ(probe.node->Process(&context), 0) << context.GetErrorMessage();
-  const auto* result = context.Read<{out_type}>("result");
+        execution = f'''  ASSERT_EQ(run.status, 0) << run.diagnostic;
+  const auto* result = run.Output<{out_type}>({out_ref});
   ASSERT_NE(result, nullptr);
   ASSERT_EQ(result->size(), 1u);
   const auto& item = result->front();
@@ -271,8 +273,8 @@ def render_standalone_test(name, in_port, out_port, capability=None, control_id=
   {payload_checks}
 '''
     else:
-        execution = '''  EXPECT_EQ(probe.node->Process(&context), error::kBusinessError);
-  EXPECT_FALSE(context.Has("result"));
+        execution = f'''  EXPECT_EQ(run.status, error::kBusinessError);
+  EXPECT_FALSE(run.Published({out_ref}));
 '''
     if capability:
         execution += '''  ASSERT_EQ(model->calls.size(), 1u);
@@ -280,13 +282,12 @@ def render_standalone_test(name, in_port, out_port, capability=None, control_id=
   EXPECT_EQ(model->calls.front().front().sub_id, 2u);
 '''
     if control_id is not None:
-        execution += f'''  ASSERT_EQ(probe.node->Control({control_id}, R"({{"prefix":"after:"}})").status,
+        execution += f'''  ASSERT_EQ(node.Control({control_id}, R"({{"prefix":"after:"}})").status,
             NodeControlStatus::kHandled);
   const auto verify_after = [&] {{
-    AlgContext next;
-    EXPECT_TRUE(next.Publish("input", inputs));
-    EXPECT_EQ(probe.node->Process(&next), 0);
-    const auto* updated = next.Read<{out_type}>("result");
+    const auto next = node.Process({{{{{in_ref}, inputs}}}});
+    EXPECT_EQ(next.status, 0) << next.diagnostic;
+    const auto* updated = next.Output<{out_type}>({out_ref});
     ASSERT_NE(updated, nullptr);
     ASSERT_EQ(updated->size(), 1u);
     EXPECT_EQ(updated->front().req_id, 7u);
@@ -295,7 +296,7 @@ def render_standalone_test(name, in_port, out_port, capability=None, control_id=
   }};
   verify_after();
   const auto invalid = nlohmann::json{{{{"prefix", std::string(65, 'x')}}}}.dump();
-  EXPECT_EQ(probe.node->Control({control_id}, invalid).status, NodeControlStatus::kFailed);
+  EXPECT_EQ(node.Control({control_id}, invalid).status, NodeControlStatus::kFailed);
   verify_after();
 '''
     return f'''#include <gtest/gtest.h>
@@ -304,21 +305,17 @@ def render_standalone_test(name, in_port, out_port, capability=None, control_id=
 #include <string>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "tests/support/node_probe.h"
 {support}
 namespace llm_edgeflow::scaffold_{name}_test {{
 TEST(ScaffoldGeneratedNodeTest, {name}_ExecutesDeclaredContract) {{
-  SessionContext session;
-{setup}  test_support::NodeProbe probe;
-  ASSERT_TRUE(probe.Init({cpp_string(name)}, {params}, session,
-                         {{{{{cpp_string(in_name)}, "input"}}}},
-                         {{{{{cpp_string(out_name)}, "result"}}}})) << probe.diagnostic;
+  test_support::NodeUnderTest node;
+{setup}  ASSERT_TRUE(node.Init({cpp_string(name)}, {params}, {{{in_ref}}}, {{{out_ref}}}))
+      << node.diagnostic;
   {in_type} inputs;
   inputs.emplace_back(7, 2, {input_payload});
-  AlgContext context;
-  ASSERT_TRUE(context.Publish("input", inputs));
+  const auto run = node.Process({{{{{in_ref}, inputs}}}});
 {execution}}}
 }}  // namespace llm_edgeflow::scaffold_{name}_test
 '''

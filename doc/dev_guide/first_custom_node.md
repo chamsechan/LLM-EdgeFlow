@@ -29,8 +29,12 @@
 得到 `src/custom_nodes/my_text_normalize_node.cpp` 和
 `tests/unit/nodes/test_my_text_normalize_node.cpp`。已有文件会被保留；如果已做过练习，继续编辑它们。
 
+教程中的每段代码都整体替换源码或测试中的同名定义；新增的结构体放在已有结构体之后。
+仓库测试会把这些代码应用到脚手架输出上，编译并运行三个阶段，教程与实际行为保持一致。
+
 在源码中把 `Transform` 替换为：
 
+<!-- tutorial-code: stage1 node -->
 ```cpp
 std::string Transform(const std::string& text) {
   const std::string from = "开机检查";
@@ -48,8 +52,29 @@ std::string Transform(const std::string& text) {
 `Spec` 声明 `input` 和 `output` 都是文本批次，输入一项就返回一项。
 修改文本时创建新值，不修改共享的只读输入。
 
-在生成的测试中，将输入 `"example"` 改成 `"请做一次开机检查"`，
-将 `item.data` 的期望值改成 `"请做一次自检"`。保留数量与来源编号的断言。
+在生成的测试文件中，保留开头的 `#include` 和命名空间，用下面的测试替换其中的 `TEST`：
+
+<!-- tutorial-code: stage1 test -->
+```cpp
+TEST(ScaffoldGeneratedNodeTest, my_text_normalize_ReplacesFixedPhrase) {
+  test_support::NodeUnderTest node;
+  ASSERT_TRUE(node.Init("my_text_normalize", nlohmann::json::object(),
+                        {"input"}, {"output"}))
+      << node.diagnostic;
+  const auto run =
+      node.Process({{"input", TextBatch{{7, 2, "请做一次开机检查"}}}});
+  ASSERT_EQ(run.status, 0) << run.diagnostic;
+  const auto* result = run.Output<TextBatch>("output");
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1u);
+  EXPECT_EQ(result->front().req_id, 7u);
+  EXPECT_EQ(result->front().sub_id, 2u);
+  EXPECT_EQ(result->front().data, "请做一次自检");
+}
+```
+
+`NodeUnderTest` 按逻辑端口 `input`、`output` 执行真实注册的节点；
+Session、内部数据名和请求上下文由它管理，测试只写配置、输入和期望结果。
 
 每完成一个阶段，都用下面的命令格式化、编译和运行这个测试：
 
@@ -65,21 +90,29 @@ cmake --build build --target edgeflow_test_nodes_runner alg_pipeline_tool -j 4
 
 ## 2. 为同一个节点增加普通配置
 
-现在希望不同方案能选择替换后的词语。在 `Inputs` 后添加：
+现在希望不同方案能选择替换后的词语。添加 `Params`，并让 `Transform` 从参数读取替换文本：
 
+<!-- tutorial-code: stage2 node -->
 ```cpp
 struct Params {
   std::string replacement;
 };
-```
 
-将 `Transform` 的签名改为
-`std::string Transform(const std::string& text, const Params& params)`，
-把函数体中的 `const std::string to = "自检";` 改成
-`const std::string& to = params.replacement;`。其余替换逻辑保持不变。
+std::string Transform(const std::string& text, const Params& params) {
+  const std::string from = "开机检查";
+  const std::string& to = params.replacement;
+  std::string result = text;
+  for (auto pos = result.find(from); pos != std::string::npos;
+       pos = result.find(from, pos + to.size())) {
+    result.replace(pos, from.size(), to);
+  }
+  return result;
+}
+```
 
 用下面的代码替换原来的 `Run` 和 `Spec`，保留原来的注册语句：
 
+<!-- tutorial-code: stage2 node -->
 ```cpp
 NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params) {
   return MapPayloads(*inputs.input, [&params](const std::string& text) {
@@ -102,9 +135,41 @@ auto Spec() {
 框架从 Pipeline 节点的 `params` 读取 `replacement`，未填写时使用 `自检`。
 这些配置在创建节点时生效。只有需要运行时更新，才添加 [Control](first_control.md)。
 
-先运行原来的测试，确认默认值仍然生效。再把测试中 `probe.Init` 的
-`nlohmann::json::object()` 改为 `nlohmann::json{{"replacement", "启动自检"}}`，
-将输出期望值改为 `"请做一次启动自检"`，重新运行测试。
+用下面两个测试替换上一阶段的测试，分别检查默认值和配置值：
+
+<!-- tutorial-code: stage2 test -->
+```cpp
+TEST(ScaffoldGeneratedNodeTest, my_text_normalize_UsesDefaultReplacement) {
+  test_support::NodeUnderTest node;
+  ASSERT_TRUE(node.Init("my_text_normalize", nlohmann::json::object(),
+                        {"input"}, {"output"}))
+      << node.diagnostic;
+  const auto run =
+      node.Process({{"input", TextBatch{{7, 2, "请做一次开机检查"}}}});
+  ASSERT_EQ(run.status, 0) << run.diagnostic;
+  const auto* result = run.Output<TextBatch>("output");
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1u);
+  EXPECT_EQ(result->front().data, "请做一次自检");
+}
+
+TEST(ScaffoldGeneratedNodeTest, my_text_normalize_UsesConfiguredReplacement) {
+  test_support::NodeUnderTest node;
+  ASSERT_TRUE(node.Init("my_text_normalize", {{"replacement", "启动自检"}},
+                        {"input"}, {"output"}))
+      << node.diagnostic;
+  const auto run =
+      node.Process({{"input", TextBatch{{7, 2, "请做一次开机检查"}}}});
+  ASSERT_EQ(run.status, 0) << run.diagnostic;
+  const auto* result = run.Output<TextBatch>("output");
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1u);
+  EXPECT_EQ(result->front().req_id, 7u);
+  EXPECT_EQ(result->front().sub_id, 2u);
+  EXPECT_EQ(result->front().data, "请做一次启动自检");
+}
+```
+
 Catalog 现在应显示节点说明和 `replacement`，仍无模型依赖。
 
 ## 3. 在同一个节点中调用 LLM
@@ -112,6 +177,7 @@ Catalog 现在应显示节点说明和 `replacement`，仍无模型依赖。
 继续编辑同一个文件。保留 `Inputs`、`Transform` 和注册语句。
 给现有 `Params` 增加生成参数，并在它后面添加 `Models`：
 
+<!-- tutorial-code: stage3 node -->
 ```cpp
 struct Params {
   std::string replacement;
@@ -125,6 +191,7 @@ struct Models {
 
 用下面的代码替换 `Run` 和 `Spec`。处理顺序是词语替换、构造提示词、调用模型、清理回答：
 
+<!-- tutorial-code: stage3 node -->
 ```cpp
 NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
                           const Models& models) {
@@ -161,36 +228,44 @@ auto Spec() {
 
 ### 更新已有测试
 
-继续修改同一个测试文件。加入头文件 `tests/support/recording_models.h`，
-在 `SessionContext session;` 后加入以下模型替身：
+在测试文件开头加入模型替身的头文件，并用下面的测试替换上一阶段的测试。
+`RecordingLlm` 返回固定回答，并记录每次调用的提示词和生成参数：
 
+<!-- tutorial-code: stage3 test -->
 ```cpp
-auto model = std::make_shared<test_support::RecordingLlm>();
-model->replies = {{"请执行启动自检\n"}};
-ASSERT_TRUE(test_support::RegisterNodeModel(session, "fixture", model));
+#include "tests/support/recording_models.h"
+
+TEST(ScaffoldGeneratedNodeTest, my_text_normalize_BuildsPromptAndCleansAnswer) {
+  test_support::NodeUnderTest node;
+  auto model = std::make_shared<test_support::RecordingLlm>();
+  model->replies = {{"请执行启动自检\n"}};
+  ASSERT_TRUE(node.AddModel("fixture", model));
+  ASSERT_TRUE(node.Init("my_text_normalize",
+                        {{"replacement", "启动自检"},
+                         {"bind_model", "fixture"},
+                         {"max_tokens", 32}},
+                        {"input"}, {"output"}))
+      << node.diagnostic;
+  const auto run =
+      node.Process({{"input", TextBatch{{7, 2, "请做一次开机检查"}}}});
+  ASSERT_EQ(run.status, 0) << run.diagnostic;
+  const auto* result = run.Output<TextBatch>("output");
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1u);
+  EXPECT_EQ(result->front().req_id, 7u);
+  EXPECT_EQ(result->front().sub_id, 2u);
+  EXPECT_EQ(result->front().data, "请执行启动自检");
+  ASSERT_EQ(model->calls.size(), 1u);
+  ASSERT_EQ(model->calls.front().size(), 1u);
+  EXPECT_EQ(model->calls.front().front().data,
+            "将下面的操作说明改写为简洁的规范指令，只输出改写结果：\n"
+            "请做一次启动自检");
+  EXPECT_EQ(model->call_options.front().max_tokens, 32);
+}
 ```
 
-将 `probe.Init` 的参数对象改为：
-
-```cpp
-nlohmann::json{{"replacement", "启动自检"},
-               {"bind_model", "fixture"},
-               {"max_tokens", 32}}
-```
-
-输入仍为 `"请做一次开机检查"`，将输出期望值改为 `"请执行启动自检"`，
-以确认回答末尾的换行已被清理。在原有结果断言之后补充：
-
-```cpp
-ASSERT_EQ(model->calls.size(), 1u);
-ASSERT_EQ(model->calls.front().size(), 1u);
-EXPECT_EQ(model->calls.front().front().data,
-          "将下面的操作说明改写为简洁的规范指令，只输出改写结果：\n请做一次启动自检");
-EXPECT_EQ(model->call_options.front().max_tokens, 32);
-```
-
-按第一节的命令重新编译和测试。现在测试验证了替换词、实际提示词、生成参数和回答清理；
-Catalog 应显示更新后的节点说明、`bind_model`、生成参数和一个 LLM 依赖。
+按第一节的命令重新编译和测试。现在测试验证了替换词、实际提示词、生成参数和回答清理，
+其中回答末尾的换行已被清理。Catalog 应显示更新后的节点说明、`bind_model`、生成参数和一个 LLM 依赖。
 模型替身只提供确定的回答，业务函数无需识别测试环境。
 
 ## 4. 把这个节点接入 Pipeline

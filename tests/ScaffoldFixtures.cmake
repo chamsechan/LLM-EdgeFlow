@@ -20,9 +20,8 @@ add_custom_command(
   DEPENDS
     "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_custom_node.md"
-    "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_control.md"
     "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
-  COMMENT "Generating custom Node snippets and standalone behavioral test fixtures"
+  COMMENT "Generating scaffold and first custom Node tutorial fixtures"
   VERBATIM)
 
 # 在测试 runner 中编译文档里的原样函数示例，绝不进入 SDK Catalog。
