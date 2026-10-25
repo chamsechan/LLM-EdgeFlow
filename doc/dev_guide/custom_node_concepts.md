@@ -50,7 +50,7 @@ REGISTER_FUNCTION_NODE(MyNode, Spec());
 Node 是批量处理函数。输入端口对应参数，输出端口对应返回值。
 `TextBatch` 表示一组带来源编号的文本。
 
-在[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Required("input", &Inputs::input)`
+在脚手架生成的源码中，`Required("input", &Inputs::input)`
 和 `PreservedOutput<TextBatch>("output", "input")` 声明逻辑名字和类型。Spec 同时生成运行时绑定与 Definition，
 业务函数不直接读写 Blackboard。多输入使用 `InputsOf` 绑定普通输入结构，
 多输出使用 `OutputsOf` / `Produced` 绑定普通结果结构。类型和逻辑端口只声明一次。
@@ -382,7 +382,8 @@ TextEmbedding 会话缓存，以及模板和规则的字段 Control。无需按�
 Context 指针。配置更新由包装提供一致快照。含外部资源的更新仍需明确资源生命周期。
 
 第一次测试可复用 [NodeProbe](../../tests/support/node_probe.h)，将断言加入现有
-Node 套件。命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
+Node 套件。需要模型时使用 [recording_models.h](../../tests/support/recording_models.h)
+中的固定回答替身，它记录每次调用，也能让指定调用失败。命令见[本地快速验证](../../src/custom_nodes/README.md#本地快速验证)。
 先用两个不同请求、非零 `sub_id` 验证不会串结果，再检查算法自己的正常和失败输出。
 
 

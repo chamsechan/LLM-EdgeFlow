@@ -28,12 +28,10 @@ class RecipeConsumerTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.build = self.root / 'build'
         self.build.mkdir()
-        # Exact production scripts/templates plus actual built binaries; no inferred Catalog.
+        # Exact production scripts plus actual built binaries; no inferred Catalog.
         files = [
             'tools/dev_recipe.py', 'tools/scaffold_custom_node.py', 'tools/verify_selection.py',
             'demo/common/demo_profile.py', 'demo/common/profile_fields.json', 'demo/profiles.json',
-            'dev_support/node_authoring/starter_llm_node.cpp',
-            'dev_support/node_authoring/starter_control_node.cpp',
             'configs/pipeline_keyword_match_rules.json', 'configs/pipeline_keyword_match_rules.conf',
             'demo/fixtures/mock/pipeline_entity_extract.json', 'demo/fixtures/mock/pipeline_entity_extract.conf',
             'demo/fixtures/mock/artifacts/neutral-llm.fixture',

@@ -29,17 +29,17 @@ def isolated_namespaces(content, namespace):
 
 
 def generate(output):
-    # Each entry selects a distinct production template or typed call signature.
+    # Each entry selects a distinct body of the single Node structure or typed call signature.
     requests = [
         ("scaffold_text_identity", ["--in-port", "sentences:TextBatch", "--out-port", "answers:TextBatch"]),
         ("scaffold_audio_identity", ["--in-port", "samples:AudioPcmBatch", "--out-port", "copy:AudioPcmBatch"]),
         ("scaffold_rule_match_identity", ["--in-port", "matches:RuleMatchBatch", "--out-port", "copy:RuleMatchBatch"]),
         ("scaffold_conversion_pending", ["--in-port", "input:TextBatch", "--out-port", "output:Int32Batch"]),
-        ("scaffold_llm_call", ["--kind", "model", "--model-capability", "llm"]),
-        ("scaffold_embedding_call", ["--kind", "model", "--model-capability", "embedding"]),
-        ("scaffold_asr_call", ["--kind", "model", "--model-capability", "asr"]),
-        ("scaffold_ocr_call", ["--kind", "model", "--model-capability", "ocr"]),
-        ("scaffold_rerank_call", ["--kind", "model", "--model-capability", "rerank"]),
+        ("scaffold_llm_call", ["--model-capability", "llm"]),
+        ("scaffold_embedding_call", ["--model-capability", "embedding"]),
+        ("scaffold_asr_call", ["--model-capability", "asr"]),
+        ("scaffold_ocr_call", ["--model-capability", "ocr"]),
+        ("scaffold_rerank_call", ["--model-capability", "rerank"]),
         ("scaffold_prefix_control", ["--control-id", "2000000042"]),
     ]
     sections = ["// Generated from public CLI source and --write-test artifacts.\n"]

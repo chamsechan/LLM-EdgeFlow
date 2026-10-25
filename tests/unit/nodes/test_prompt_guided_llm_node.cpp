@@ -2,40 +2,19 @@
 
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "engine/model_interface.h"
 #include "tests/support/node_probe.h"
+#include "tests/support/recording_models.h"
 
 namespace llm_edgeflow {
 namespace {
-class RecordingPromptLlm final : public ILlmModel {
- public:
-  const std::string& ImplName() const noexcept override { return impl; }
-  const std::string& ModelType() const noexcept override { return type; }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* output, std::string* diagnostic) noexcept override {
-    if (diagnostic) diagnostic->clear();
-    calls.push_back(prompts);
-    call_options.push_back(options);
-    output->clear();
-    for (size_t i = 0; i < prompts.size(); ++i)
-      output->emplace_back(prompts[i].req_id, prompts[i].sub_id, replies.at(i));
-    return 0;
-  }
-  std::string impl = "node_recording_prompt_llm", type = "llm";
-  std::vector<std::string> replies;
-  std::vector<TextBatch> calls;
-  std::vector<GenerateOptions> call_options;
-};
+using test_support::RecordingLlm;
 
 TEST(PromptGuidedLlmNodeTest,
      AggregatesContextsByRequestRendersPromptsAndStripsOuterFences) {
   SessionContext session;
-  auto model = std::make_shared<RecordingPromptLlm>();
-  model->replies = {" \n```json\n{\"ok\":1}\n```\t", " plain \t",
-                    "```text\nlast\n```"};
+  auto model = std::make_shared<RecordingLlm>();
+  model->replies = {
+      {" \n```json\n{\"ok\":1}\n```\t", " plain \t", "```text\nlast\n```"}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(node.Init("prompt_guided_llm",
@@ -91,8 +70,8 @@ TEST(PromptGuidedLlmNodeTest,
 TEST(PromptGuidedLlmNodeTest,
      DefaultPostprocessingPreservesRawResponseAndLiteralTemplateText) {
   SessionContext session;
-  auto model = std::make_shared<RecordingPromptLlm>();
-  model->replies = {"  ```text\nraw\n```  "};
+  auto model = std::make_shared<RecordingLlm>();
+  model->replies = {{"  ```text\nraw\n```  "}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(
@@ -112,7 +91,7 @@ TEST(PromptGuidedLlmNodeTest,
 TEST(PromptGuidedLlmNodeTest,
      UsedContextRequiresABindingAndARequestValueBeforeGeneration) {
   SessionContext session;
-  auto model = std::make_shared<RecordingPromptLlm>();
+  auto model = std::make_shared<RecordingLlm>();
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   const nlohmann::json params = {{"bind_model", "writer"},
                                  {"prompt_template", "{{input}}|{{context}}"}};
@@ -137,8 +116,8 @@ TEST(PromptGuidedLlmNodeTest,
 TEST(PromptGuidedLlmNodeTest,
      PresentContextWithoutMatchingRequestRendersAnEmptyContext) {
   SessionContext session;
-  auto model = std::make_shared<RecordingPromptLlm>();
-  model->replies = {"answer"};
+  auto model = std::make_shared<RecordingLlm>();
+  model->replies = {{"answer"}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(node.Init(

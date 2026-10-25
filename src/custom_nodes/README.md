@@ -16,13 +16,14 @@
 ## 通用开发步骤速查
 
 1. 运行 `build/alg_pipeline_tool catalog`，确认已有能力。用 `describe-node` 查看所需节点。
-2. 生成普通函数、Spec 和对应测试：
+2. 生成普通函数、Spec 和对应测试。所有节点结构相同；`-m` 只是多声明一个该能力的模型，
+   `--control-id` 只是多声明参数和 Control 命令：
 
    ```bash
-   ./tools/scaffold_custom_node.py CustomFilterNode --kind compute --write-test
-   ./tools/scaffold_custom_node.py DomainPromptNode --kind model -m llm --write-test
-   ./tools/scaffold_custom_node.py FastAudioNode --kind model -m asr --write-test
-   ./tools/scaffold_custom_node.py PrefixControlNode --control-id 1001 --write-test
+   ./tools/scaffold_custom_node.py custom_filter --write-test
+   ./tools/scaffold_custom_node.py domain_prompt -m llm --write-test
+   ./tools/scaffold_custom_node.py fast_audio -m asr --write-test
+   ./tools/scaffold_custom_node.py prefix_control --control-id 1001 --write-test
    ```
 
    如需预览生成内容，添加 `--dry-run`。脚手架拒绝覆盖已有文件。
@@ -50,6 +51,7 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 
 [Node 测试辅助](../../tests/support/node_probe.h)用已校验的 Plan 和 Session 初始化注册的 Node。
 将请求输入放入新的 `AlgContext`。调用 Process 后，断言实际输出和 `(req_id, sub_id)`。
+带模型的节点用 [recording_models.h](../../tests/support/recording_models.h) 中的固定回答替身。
 还需覆盖空输入、非法输入和失败行为。脚手架的 `--write-test` 在
 `tests/unit/nodes/` 生成完整测试文件，节点 runner 自动收录，并通过 GoogleTest 原生发现生成 CTest 入口。发现检查核对实际编译用例都有执行归属。
 修改注册或 Definition 后重新构建 `alg_pipeline_tool`，再用同一构建检查组合后的方案。

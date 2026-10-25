@@ -57,7 +57,7 @@ class IncludeOwnershipContractTest(SourceTreeTest):
                 self.addCleanup(path.unlink, missing_ok=True)
                 result = self.check_includes()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn('Resolved include ownership and vendor boundaries passed.', result.stdout)
+                self.assertIn('Resolved include ownership, vendor boundaries and Node mechanism passed.', result.stdout)
                 self.assertEqual(result.stderr, '')
                 path.unlink()
 
@@ -217,6 +217,52 @@ class IncludeOwnershipContractTest(SourceTreeTest):
                         path.unlink()
 
 
+class NodeMechanismContractTest(SourceTreeTest):
+    def check(self):
+        return subprocess.run(
+            [sys.executable, str(ROOT / 'scripts/check_layer_dependencies.py'),
+             '--root', str(self.root)],
+            capture_output=True, text=True, timeout=10)
+
+    def test_every_spelling_that_names_the_node_runtime_is_rejected(self):
+        cases = (
+            ('src/custom_nodes/qualified.cpp',
+             'class A final : public llm_edgeflow::NodeBase {};\n', 1, 'NodeBase'),
+            ('src/custom_nodes/multiline.cpp',
+             'class B final\n    : public\n      NodeBase {};\n', 3, 'NodeBase'),
+            ('src/custom_nodes/implicit.cpp', 'struct C : NodeBase {};\n', 1, 'NodeBase'),
+            ('src/common_nodes/runtime.h', 'class D : public INode {};\n', 1, 'INode'),
+            ('src/custom_nodes/alias.cpp',
+             '// helper\nusing Base = llm_edgeflow::NodeBase;\n', 2, 'NodeBase'),
+            ('src/custom_nodes/register.cpp',
+             'const bool ok = NodeRegistry::Instance().Register(d);\n', 1, 'NodeRegistry'),
+        )
+        for source, contents, line, name in cases:
+            with self.subTest(source=source):
+                path = self.write(source, contents)
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.splitlines(), [
+                    f'{source}:{line}: {name}: Nodes must use MakeNodeSpec and REGISTER_FUNCTION_NODE'])
+                self.assertEqual(result.stderr, '')
+                path.unlink()
+
+    def test_comments_literals_documents_and_framework_headers_are_not_node_code(self):
+        self.write('src/custom_nodes/normalize_node.cpp',
+                   '// Do not derive from public NodeBase.\n'
+                   '/* INode and\n   NodeRegistry are framework internals. */\n'
+                   'const char* a = "NodeBase";\n'
+                   'const char* b = R"x(public NodeBase)x";\n'
+                   "const char c = '\\'';\n"
+                   'int MyNodeBaseline = 1\'000;\n'
+                   'REGISTER_FUNCTION_NODE(normalize, Spec());\n')
+        self.write('src/custom_nodes/README.md', 'Never write `public NodeBase` in a Node.\n')
+        self.write('include/nodes/function_node.h', 'class AuthorNode : public NodeBase {};\n')
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, '')
+
+
 class LayerIsolationTransportTest(SourceTreeTest):
     def setUp(self):
         super().setUp()
@@ -273,7 +319,7 @@ class LayerIsolationTransportTest(SourceTreeTest):
                    'target_sources(edgeflow_orchestration_objects PRIVATE fixture.cpp)\n')
         result = self.check_transport()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn('Resolved include ownership and vendor boundaries passed.', result.stdout)
+        self.assertIn('Resolved include ownership, vendor boundaries and Node mechanism passed.', result.stdout)
         self.assertIn('src/custom_nodes/CMakeLists.txt does not assign sources to '
                       'edgeflow_capability_nodes_objects.', result.stdout)
         self.assertEqual(result.stdout.count('[LayerGuard ERROR]'), 1)

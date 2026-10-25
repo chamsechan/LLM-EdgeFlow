@@ -32,8 +32,8 @@
 发布后不复用。一个命令 ID 只属于一个节点类型，Catalog 会拒绝跨类型重号。
 同一节点类型的多个实例共用其命令声明，无需重复注册。
 
-脚手架根据[模板](../../dev_support/node_authoring/starter_control_node.cpp)生成 `src/custom_nodes/prefix_control_node.cpp`。
-该节点按一对一关系处理 `TextBatch`，保留来源编号。脚手架拒绝覆盖已有文件。
+脚手架生成 `src/custom_nodes/prefix_control_node.cpp`。它与[第一个自定义 Node](first_custom_node.md)
+的纯计算节点结构相同，只多了 `Params` 和 Control 命令。该节点按一对一关系处理 `TextBatch`，保留来源编号。脚手架拒绝覆盖已有文件。
 `--write-test` 同时生成测试文件，节点测试程序自动收集该文件。
 
 ## 3. 阅读受控参数声明
@@ -42,7 +42,7 @@
 | --- | --- |
 | `Params` / `Field("prefix", ...)` | 声明业务参数结构体，绑定初值默认空字符串、字段说明与 64 字节业务校验 |
 | `kUpdatePrefix` / `ReplaceFields(...)` | 声明具名命令 ID 与受控字段集合，自动投影 Control 参数格式 |
-| `Run(...)` | 业务处理函数，用 `MapPayloads` 逐条加前缀；接收普通数据与参数，无需接触锁或平台结构 |
+| `Transform(...)` / `Run(...)` | `Transform` 给一条文本加前缀；`Run` 用 `MapPayloads` 逐条调用它。两者接收普通数据与参数，无需接触锁或平台结构 |
 | `WithControls(...)` | 将受控命令挂载到 Spec，框架自动管理不可变快照与并发更新事务 |
 
 `WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架由 `Parameters`

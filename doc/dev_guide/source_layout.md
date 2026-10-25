@@ -199,8 +199,8 @@ src/common_nodes/                 框架维护的中性 Node，每个文件一�
 src/custom_nodes/                 领域算法 Node，按操作而非业务命名
 ```
 
-起步模板在 `dev_support/node_authoring/`，由 `tools/scaffold_custom_node.py` 生成到
-`src/custom_nodes/`，见[自定义 Node 源码指南](../../src/custom_nodes/README.md)。
+`tools/scaffold_custom_node.py` 按同一结构生成单输入单输出 Node 到 `src/custom_nodes/`；
+多输入、多模型和批次示例在 `dev_support/node_authoring/`。见[自定义 Node 源码指南](../../src/custom_nodes/README.md)。
 
 ## 模型执行层
 
