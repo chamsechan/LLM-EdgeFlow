@@ -59,6 +59,11 @@ class ScaffoldConsumerTest(unittest.TestCase):
         test_content = generated_test.read_text()
         self.assertIn('tests/support/node_probe.h', test_content)
         self.assertIn('consumer_named', test_content)
+        # 生成的测试按逻辑端口读写，Session、内部数据名与请求上下文由 NodeUnderTest 管理。
+        self.assertIn('node.Process({{"source", inputs}})', test_content)
+        self.assertIn('run.Output<TextBatch>("answer")', test_content)
+        for internal in ('SessionContext', 'AlgContext', 'NodeProbe', 'Publish(', 'Read<'):
+            self.assertNotIn(internal, test_content)
         self.assertNotIn('node_harness.h', test_content)
         self.assertNotIn('node_test_utils.h', test_content)
         self.assertTrue(source.exists() and generated_test.exists())
@@ -188,6 +193,54 @@ class ScaffoldConsumerTest(unittest.TestCase):
             plan.commit()
         self.assertEqual(target.read_text(), 'competing user creation')
         self.assertFalse(list(self.source_dir.glob('*.edgeflow-tmp')))
+
+
+FIXTURES_SCRIPT = ROOT / "tests/tooling/generate_scaffold_fixtures.py"
+FIXTURES_SPEC = importlib.util.spec_from_file_location("scaffold_fixtures_under_test", FIXTURES_SCRIPT)
+fixtures = importlib.util.module_from_spec(FIXTURES_SPEC)
+FIXTURES_SPEC.loader.exec_module(fixtures)
+
+
+class TutorialFixtureTest(unittest.TestCase):
+    """教程代码块经由脚手架输出进入编译 fixture；结构不符时生成失败。"""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="tutorial-fixture-")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.tutorial = fixtures.TUTORIAL.read_text(encoding="utf-8")
+
+    def generate(self, tutorial_text):
+        tutorial = self.root / "first_custom_node.md"
+        tutorial.write_text(tutorial_text, encoding="utf-8")
+        output = self.root / "fixture.cpp"
+        fixtures.generate(output, tutorial)
+        return output.read_text(encoding="utf-8")
+
+    def test_every_stage_replays_tutorial_blocks_on_scaffold_output(self):
+        content = self.generate(self.tutorial)
+        for stage in fixtures.TUTORIAL_CATALOG:
+            node_type = f"tutorial_{stage}_my_text_normalize"
+            self.assertIn(f"REGISTER_FUNCTION_NODE({node_type}, Spec());", content)
+            self.assertIn(f"TEST(FirstCustomNodeTutorialTest, {stage}_CatalogMatchesTutorial)", content)
+        self.assertIn('const std::string& to = params.replacement;', content)
+        self.assertIn('#include "tests/support/recording_models.h"', content)
+        # 教程测试替换脚手架生成的 TEST。
+        self.assertNotIn("tutorial_stage1_my_text_normalize_ExecutesDeclaredContract", content)
+
+    def test_edited_tutorial_code_reaches_the_compiled_fixture(self):
+        broken = self.tutorial.replace("  return result;", "  return missing_tutorial_value;", 1)
+        self.assertNotEqual(broken, self.tutorial)
+        self.assertIn("return missing_tutorial_value;", self.generate(broken))
+
+    def test_structural_tutorial_drift_is_rejected(self):
+        without_stage_test = self.tutorial.replace("<!-- tutorial-code: stage2 test -->\n", "", 1)
+        with self.assertRaisesRegex(RuntimeError, "exactly one test block"):
+            self.generate(without_stage_test)
+        unknown_function = self.tutorial.replace(
+            "std::string Transform(const std::string& text) {", "std::string Rewrite(const std::string& text) {", 1)
+        with self.assertRaisesRegex(RuntimeError, "unknown function Rewrite"):
+            self.generate(unknown_function)
 
 
 if __name__ == '__main__':
