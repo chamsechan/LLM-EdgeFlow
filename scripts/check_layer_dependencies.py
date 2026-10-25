@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check repository include ownership, independently of CMake search paths."""
+"""Check repository include ownership and the single Node mechanism, independently of CMake search paths."""
 
 import argparse
 from pathlib import Path
@@ -14,6 +14,22 @@ NODE_CORE_CONTRACTS = set(
 NODE_CORE_PATHS = {"include/core/" + name for name in NODE_CORE_CONTRACTS}
 SOURCE_SUFFIXES = {".h", ".hpp", ".c", ".cc", ".cpp"}
 INCLUDE = re.compile(r'^\s*#\s*include\s*["<]([^">]+)[">]', re.MULTILINE)
+# 业务 Node 只有一套机制：MakeNodeSpec + REGISTER_FUNCTION_NODE。新能力作为 Spec
+# 声明加入；业务源码不命名框架运行时类型，因此限定名、跨行继承和别名都无法绕过。
+NODE_SOURCE_DIRECTORIES = ("src/common_nodes/", "src/custom_nodes/")
+NODE_RUNTIME_NAME = re.compile(r"\b(NodeBase|INode|NodeRegistry)\b")
+# 注释与字符串、字符字面量不是代码；替换为空白并保留换行以维持行号。
+NON_CODE = re.compile(
+    r'R"([^()\\\s]{0,16})\(.*?\)\1"'
+    r"|/\*.*?\*/"
+    r"|//[^\n]*"
+    r'|"(?:\\.|[^"\\\n])*"'
+    r"|'(?:\\[^\n][^'\n]{0,9}|[^'\\\n])'",
+    re.DOTALL)
+
+
+def code_only(text):
+    return NON_CODE.sub(lambda match: re.sub(r"[^\n]", " ", match[0]), text)
 
 
 def owner(path):
@@ -116,7 +132,14 @@ def check(root):
             if not source.is_file() or source.suffix not in SOURCE_SUFFIXES:
                 continue
             relative = source.relative_to(root).as_posix()
-            text = source.read_text(encoding="utf-8").replace("\\\n", "")
+            original = source.read_text(encoding="utf-8")
+            if relative.startswith(NODE_SOURCE_DIRECTORIES):
+                code = code_only(original)
+                for match in NODE_RUNTIME_NAME.finditer(code):
+                    line = code.count("\n", 0, match.start()) + 1
+                    errors.append(f"{relative}:{line}: {match[1]}: Nodes must use "
+                                  "MakeNodeSpec and REGISTER_FUNCTION_NODE")
+            text = original.replace("\\\n", "")
             text = re.sub(r'/\*.*?\*/', lambda m: "\n" * m[0].count("\n"), text, flags=re.DOTALL)
             for match in INCLUDE.finditer(text):
                 include = match[1]
@@ -148,7 +171,7 @@ def main():
     for error in errors:
         print(error)
     if not errors:
-        print("Resolved include ownership and vendor boundaries passed.")
+        print("Resolved include ownership, vendor boundaries and Node mechanism passed.")
     return 1 if errors else 0
 
 

@@ -19,16 +19,16 @@ description: 新增或修改 LLM-EdgeFlow 的 common/custom Node。所有 Node �
 多输出时结果结构叫 `Outputs`。`Run` 的参数依次为 `const Inputs&`、`const Params&`、
 `const Models&`，只写 Spec 实际声明的部分；用到会话缓存时再追加 `const SessionResources&`。
 改处理逻辑只动 `Run`；增减输入、配置项、模型或改变数量关系时，同时改结构体和 Spec。
-不要继承 `NodeBase`、手工操作 Context，也不要为某个业务往通用 Node 加分支。
+不要继承 `NodeBase`、手工登记或操作 Context（`check_layer_isolation.sh` 会拦截），也不要为某个业务往通用 Node 加分支。
 
 ## 从模板开始
 
 | 实际需求 | 起点 |
 | --- | --- |
-| 逐项文本变换，数量与来源不变 | `tools/scaffold_custom_node.py <Name> --kind compute --write-test`；`Run` 用 `MapPayloads` 调用逐项函数 |
-| 文本前处理 → 一次 LLM → 文本后处理 | `--kind model -m llm`（[starter_llm_node](../../../dev_support/node_authoring/starter_llm_node.cpp)）；生成参数由 `GenerateParameters` 从配置读取 |
+| 逐项文本变换，数量与来源不变 | `tools/scaffold_custom_node.py <node_type> --write-test`；`Run` 用 `MapPayloads` 调用 `Transform` |
+| 文本前处理 → 一次 LLM → 文本后处理 | 同一命令加 `-m llm`：多出 `Models`、`BuildPrompt` / `FormatAnswer`；生成参数由 `GenerateParameters` 从配置读取 |
 | 同时生成可运行方案 | [text-llm-node Recipe](../../../doc/dev_guide/recipe_text_llm_node.md)，不要再单独运行脚手架 |
-| 1:1 的 Embedding/ASR/OCR/Rerank | `--kind model -m <capability>`；检查生成端口是否符合真实算法 |
+| 1:1 的 Embedding/ASR/OCR/Rerank | 同一命令加 `-m <capability>`；检查生成端口是否符合真实算法 |
 | 多输入、参数、条件生成 | [starter_batch_node](../../../dev_support/node_authoring/starter_batch_node.cpp) |
 | 多模型能力 | [starter_multi_model_node](../../../dev_support/node_authoring/starter_multi_model_node.cpp) |
 | 拆分且分配子编号/输出 counts | [text_chunk](../../../src/common_nodes/text_chunk_node.cpp) 的 `SplitPayloads` |
@@ -73,7 +73,7 @@ LLM 生成参数复用 `GenerateParameters()`，默认 `max_tokens = 128`；自�
 ## 验证与接入
 
 优先扩展现有测试；`tests/unit/nodes/test_*.cpp` 自动收集到节点 runner，GoogleTest 自动发现
-用例并生成 CTest 入口；脚手架 `--write-test` 沿用 `ScaffoldGeneratedNodeTest`。聚焦测试执行真实 `Run`，
+用例并生成 CTest 入口；脚手架 `--write-test` 沿用 `ScaffoldGeneratedNodeTest`，模型替身来自 `tests/support/recording_models.h`。聚焦测试执行真实 `Run`，
 检查实际业务输出、空/缺失输入、多个请求及非零 `sub_id`、数量与来源、模型失败不发布结果；
 Control/缓存改动补回滚与并发测试。仅创建成功或检查 Catalog 不证明算法正确。
 

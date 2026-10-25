@@ -2,46 +2,19 @@
 
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "engine/model_interface.h"
 #include "tests/support/node_probe.h"
+#include "tests/support/recording_models.h"
 
 namespace llm_edgeflow {
 namespace {
 using Json = nlohmann::json;
-class RecordingLlm final : public ILlmModel {
- public:
-  const std::string& ImplName() const noexcept override { return impl; }
-  const std::string& ModelType() const noexcept override { return type; }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* output, std::string* diagnostic) noexcept override {
-    if (diagnostic) diagnostic->clear();
-    calls.push_back(prompts);
-    call_options.push_back(options);
-    output->clear();
-    if (fail_call == calls.size()) {
-      if (diagnostic) *diagnostic = "endpoint generation failed";
-      return -61;
-    }
-    const auto& replies = responses.at(calls.size() - 1);
-    for (size_t i = 0; i < prompts.size(); ++i)
-      output->emplace_back(prompts[i].req_id, prompts[i].sub_id, replies.at(i));
-    return 0;
-  }
-  std::string impl = "node_recording_llm", type = "llm";
-  size_t fail_call = 0;
-  std::vector<std::vector<std::string>> responses;
-  std::vector<TextBatch> calls;
-  std::vector<GenerateOptions> call_options;
-};
+using test_support::RecordingLlm;
 
 TEST(LlmGenerateNodeTest,
      SingleEndpointKeepsRawTextAndWrapsItAsAStringInTheDocument) {
   SessionContext session;
   auto model = std::make_shared<RecordingLlm>();
-  model->responses = {{"  raw\n答案 ", "{\"number\":7}"}};
+  model->replies = {{"  raw\n答案 ", "{\"number\":7}"}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(
@@ -79,7 +52,7 @@ TEST(LlmGenerateNodeTest,
      MultipleEndpointsPublishCompleteJsonAndForwardEveryCallOption) {
   SessionContext session;
   auto model = std::make_shared<RecordingLlm>();
-  model->responses = {{"A猫", "A2"}, {"S9", "S2"}};
+  model->replies = {{"A猫", "A2"}, {"S9", "S2"}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(node.Init("llm_generate",
@@ -137,8 +110,9 @@ TEST(LlmGenerateNodeTest,
      SecondEndpointFailurePublishesNeitherPartiallyFilledOutput) {
   SessionContext session;
   auto model = std::make_shared<RecordingLlm>();
-  model->responses = {{"first answer"}};
+  model->replies = {{"first answer"}};
   model->fail_call = 2;
+  model->failure_code = -61;
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(node.Init("llm_generate",
@@ -163,7 +137,7 @@ TEST(LlmGenerateNodeTest,
   SessionContext session;
   auto model = std::make_shared<RecordingLlm>();
   const std::string invalid("\xff", 1);
-  model->responses = {{invalid}};
+  model->replies = {{invalid}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe node;
   ASSERT_TRUE(node.Init(
@@ -189,7 +163,7 @@ TEST(LlmGenerateNodeTest,
      SharedModelReceivesDifferentNodeOptionsWithoutSharedMutableSettings) {
   SessionContext session;
   auto model = std::make_shared<RecordingLlm>();
-  model->responses = {{"first"}, {"second"}};
+  model->replies = {{"first"}, {"second"}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "writer", model));
   test_support::NodeProbe first, second;
   const Json endpoints = {{"answer", Json::object()}};

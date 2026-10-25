@@ -7,9 +7,7 @@ add_custom_command(
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"
           test_control --control-id 2000000041 --force
           --output-dir "${_control_fixture_dir}"
-  DEPENDS
-    "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"
-    "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_control_node.cpp"
+  DEPENDS "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"
   COMMENT "Generating isolated Control authoring fixture"
   VERBATIM)
 set(EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
@@ -21,8 +19,6 @@ add_custom_command(
           "${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}"
   DEPENDS
     "${PROJECT_SOURCE_DIR}/tools/scaffold_custom_node.py"
-    "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_llm_node.cpp"
-    "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_control_node.cpp"
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_custom_node.md"
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_control.md"
     "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"

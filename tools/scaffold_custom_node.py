@@ -16,18 +16,6 @@ import sys
 import tempfile
 
 
-def find_template(rel_path):
-    if "LLM_EDGEFLOW_REPO_ROOT" in os.environ:
-        cand = Path(os.environ["LLM_EDGEFLOW_REPO_ROOT"]) / rel_path
-        if cand.exists():
-            return cand
-    return Path(__file__).resolve().parents[1] / rel_path
-
-
-STARTER_LLM_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node.cpp")
-STARTER_CONTROL_TEMPLATE = find_template("dev_support/node_authoring/starter_control_node.cpp")
-
-
 # 编译期能力签名；可用性仍以 Catalog 为准。
 CAPABILITY_MAP = {
     "llm": ("LlmCall", "TextBatch", "TextBatch", "Generate"),
@@ -61,275 +49,218 @@ def parse_port_spec(spec, default_role="input"):
     return name, batch, cardinality, provenance
 
 
-def get_item_type_for_batch(batch):
-    # 不维护 payload 名称的平行表，而是从实际批类型推导。
-    return f"decltype({batch}::value_type{{}}.data)"
+def payload_type(batch):
+    # 文本直接写出类型；其余从实际批类型推导，不维护 payload 名称的平行表。
+    return "std::string" if batch == "TextBatch" else f"decltype({batch}::value_type::data)"
 
 
-def render_map_node(name, description, in_port, out_port):
+def is_preserved(in_port, out_port):
+    return (in_port[2], in_port[3], out_port[2], out_port[3]) == ("1:1", "preserve", "1:1", "preserve")
+
+
+def check_request(in_port, out_port, capability, control_id):
+    in_type, out_type = in_port[1], out_port[1]
+    preserved = is_preserved(in_port, out_port)
+    if control_id is not None:
+        if not 1000 <= control_id <= 2147483647:
+            raise ValueError("--control-id must be an unused custom ID in 1000..2147483647")
+        if capability or not (preserved and in_type == out_type == "TextBatch"):
+            raise ValueError("--control-id requires TextBatch 1:1 preserve ports without "
+                             "--model-capability; copy its Control fragment for other Nodes")
+    if capability:
+        _, model_in, model_out, _ = CAPABILITY_MAP[capability]
+        if (in_type, out_type) != (model_in, model_out):
+            raise ValueError(f"{capability} requires {model_in} -> {model_out}; customize conversions in C++")
+        if not preserved:
+            raise ValueError("Model calls require 1:1 preserve ports; customize batch changes in C++")
+
+
+def render_node(name, description, in_port, out_port, capability=None, control_id=None):
+    """所有 Node 共用一个结构：Inputs、可选的 Params 与 Models、处理函数、Run、Spec。
+
+    带模型只是多声明 Models 并在 Run 中调用；Control 只是多声明 Params 与命令。
+    """
+    check_request(in_port, out_port, capability, control_id)
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
-    return f"""#include <string>
+    preserved = is_preserved(in_port, out_port)
+    declarations = [f"struct Inputs {{\n  const {in_type}* input = nullptr;\n}};\n"]
+    spec_extra = []
+    controls = ""
+    if capability == "llm":
+        declarations.append("struct Models {\n  LlmCall model;\n};\n")
+        logic = """// 从这里开始：调用模型前整理每条文本，调用后整理每条回答。
+std::string BuildPrompt(const std::string& text) { return text; }
 
-#include "nodes/authoring.h"
+std::string FormatAnswer(const std::string& text) { return text; }
 
-namespace llm_edgeflow {{
-namespace custom_nodes {{
-namespace {{
-// 逐条转换入门模板：每条输入得到一条输出，来源编号由框架保留。
-static std::string Transform(const std::string& input) {{
-  // TODO: 替换为你的领域逻辑。
-  return input;
+// 逐条构造提示词，整批调用一次模型，再逐条整理回答；来源编号由框架保留。
+// 生成参数（max_tokens、temperature 等）来自节点配置。
+NodeResult<TextBatch> Run(const Inputs& inputs, const GenerateOptions& options,
+                          const Models& models) {
+  auto answers =
+      models.model.Generate(MapPayloads(*inputs.input, &BuildPrompt), options);
+  if (!answers.ok()) return answers;
+  return MapPayloads(answers.value(), &FormatAnswer);
+}
+"""
+        spec_extra = ["GenerateParameters()",
+                      'ModelsOf<Models>{Model("model", "bind_model", &Models::model)}']
+    elif capability:
+        call, _, _, method = CAPABILITY_MAP[capability]
+        declarations.append(f"struct Models {{\n  {call} model;\n}};\n")
+        options = ", TranscribeOptions{}" if capability == "asr" else ""
+        logic = f"""// 整批调用一次模型，来源编号由框架保留；需要时在调用前后加入领域处理。
+NodeResult<{out_type}> Run(const Inputs& inputs, const Models& models) {{
+  return models.model.{method}(*inputs.input{options});
 }}
+"""
+        spec_extra = ['ModelsOf<Models>{Model("model", "bind_model", &Models::model)}']
+    elif control_id is not None:
+        declarations.append("struct Params {\n  std::string prefix;\n};\n")
+        declarations.append("// 根据当前 Catalog 选择一个稳定且未被占用的自定义 ID。\n"
+                            f"inline constexpr int kUpdatePrefix = {control_id};\n")
+        logic = """// 从这里开始：逐条处理。prefix 来自节点配置，Control 可在运行时替换它。
+std::string Transform(const std::string& text, const Params& params) {
+  return params.prefix + text;
+}
 
-struct Inputs {{
-  const {in_type}* input = nullptr;
-}};
+NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params) {
+  return MapPayloads(*inputs.input, [&params](const std::string& text) {
+    return Transform(text, params);
+  });
+}
+"""
+        spec_extra = ["""Parameters<Params>(
+                 {
+                     Field("prefix", &Params::prefix)
+                         .Default("")
+                         .Description(
+                             "Text prepended to each input; at most 64 UTF-8 "
+                             "bytes. Control replaces this initial value."),
+                 })
+                 .Validate([](const Params& params, std::string* diagnostic) {
+                   if (params.prefix.size() > 64) {
+                     if (diagnostic) {
+                       *diagnostic = "prefix exceeds 64 UTF-8 bytes";
+                     }
+                     return false;
+                   }
+                   return true;
+                 })"""]
+        controls = """
+      .WithControls({
+          ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"},
+                        "Replace the text prefix (at most 64 bytes)"),
+      })"""
+    elif preserved and in_type == out_type:
+        item, value = payload_type(in_type), "text"
+        if item != "std::string":
+            declarations.insert(0, f"using Item = {item};\n")
+            item, value = "Item", "item"
+        logic = f"""// 从这里开始：逐条处理。每条输入得到一条输出，来源编号由框架保留。
+{item} Transform(const {item}& {value}) {{ return {value}; }}
 
 NodeResult<{out_type}> Run(const Inputs& inputs) {{
   return MapPayloads(*inputs.input, &Transform);
 }}
-
-auto Spec() {{
-  return MakeNodeSpec(
-      InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::input)}},
-      PreservedOutput<{out_type}>({cpp_string(out_name)}, {cpp_string(in_name)}),
-      &Run)
-      .Description({cpp_string(description)});
-}}
-
-REGISTER_FUNCTION_NODE({name}, Spec());
-
-}}  // namespace
-}}  // namespace custom_nodes
-}}  // namespace llm_edgeflow
 """
-
-
-def render_llm_starter(name, description, in_name, out_name):
-    source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
-    source = source.replace("starter_llm", name)
-    literals = {
-        '"input"': cpp_string(in_name),
-        '"output"': cpp_string(out_name),
-        '"LLM authoring starter"': cpp_string(description),
-    }
-    return re.sub(r'"input"|"output"|"LLM authoring starter"',
-                  lambda match: literals[match.group()], source)
-
-
-def render_embedding_node(name, description, in_name, out_name):
-    return f"""#include "nodes/authoring.h"
-
-namespace llm_edgeflow {{
-namespace custom_nodes {{
-namespace {{
-struct Inputs {{
-  const TextBatch* texts = nullptr;
-}};
-
-struct Models {{
-  EmbeddingCall encoder;
-}};
-
-static NodeResult<EmbeddingBatch> Run(const Inputs& input, const Models& models) {{
-  // TODO: 按需添加领域预处理或后处理。
-  return models.encoder.Embed(*input.texts);
+    else:
+        logic = f"""// 从这里开始：实现声明的转换和来源策略。
+// 不要把默认 payload 当作成功的业务结果发布。
+NodeResult<{out_type}> Run(const Inputs& inputs) {{
+  (void)inputs;
+  return NodeResult<{out_type}>::Failure(
+      "domain transformation is not implemented", error::kBusinessError);
 }}
-
-auto Spec() {{
-  return MakeNodeSpec(
-      InputsOf<Inputs>({{Required({cpp_string(in_name)}, &Inputs::texts)}}),
-      PreservedOutput<EmbeddingBatch>({cpp_string(out_name)}, {cpp_string(in_name)}),
-      ModelsOf<Models>({{Model("encoder", "bind_model", &Models::encoder)}}),
-      &Run)
-      .Description({cpp_string(description)});
-}}
-
-REGISTER_FUNCTION_NODE({name}, Spec());
-
-}}  // namespace
-}}  // namespace custom_nodes
-}}  // namespace llm_edgeflow
 """
-
-
-def render_node(name, description, kind, capability, in_port, out_port, control_id=None):
-    in_name, in_type, in_card, in_prov = in_port
-    out_name, out_type, out_card, out_prov = out_port
-    preserved = (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve")
-    if control_id is not None:
-        if not 1000 <= control_id <= 2147483647:
-            raise ValueError("--control-id must be an unused custom ID in 1000..2147483647")
-        if (kind != "compute" or in_type != "TextBatch" or out_type != "TextBatch"
-                or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve")):
-            raise ValueError("Control starter requires --kind compute and TextBatch 1:1 preserve ports; copy its Control fragment for other Node kinds")
-        source = STARTER_CONTROL_TEMPLATE.read_text(encoding="utf-8")
-        source = source.replace("starter_control", name)
-        source = re.sub(r"kUpdatePrefix = \d+;", f"kUpdatePrefix = {control_id};", source)
-        literals = {'"input"': cpp_string(in_name), '"output"': cpp_string(out_name),
-                    '"Control authoring starter"': cpp_string(description)}
-        return re.sub(r'"input"|"output"|"Control authoring starter"',
-                      lambda match: literals[match.group()], source)
-    if kind == "model":
-        signature = CAPABILITY_MAP.get(capability)
-        if not signature:
-            raise ValueError("A model capability is required")
-        if (in_type, out_type) != signature[1:3]:
-            raise ValueError(f"{capability} requires {signature[1]} -> {signature[2]}; customize conversions in C++")
-        if not preserved:
-            raise ValueError("Model templates require 1:1 preserve ports; customize batch changes in C++")
-        if capability == "llm":
-            return render_llm_starter(name, description, in_name, out_name)
-        if capability == "embedding":
-            return render_embedding_node(name, description, in_name, out_name)
-    elif kind != "compute":
-        raise ValueError("kind must be compute or model")
-    elif preserved and in_type == out_type == "TextBatch":
-        return render_map_node(name, description, in_port, out_port)
-
     input_flow = ("" if (in_card, in_prov) == ("1:1", "preserve") else
                   f", PortFlow{{{cpp_string(in_card)}, {cpp_string(in_prov)}}}")
     output = (f"PreservedOutput<{out_type}>({cpp_string(out_name)}, {cpp_string(in_name)})"
               if preserved else
-              f"ProducedBatch<{out_type}>({cpp_string(out_name)}, PortFlow{{{cpp_string(out_card)}, {cpp_string(out_prov)}}})")
-    models = ""
-    run_models = ""
-    model_binding = ""
-    if kind == "model":
-        call, _, _, method = CAPABILITY_MAP[capability]
-        models = f"struct Models {{ {call} model; }};\n"
-        run_models = ", const Models& models"
-        model_binding = '\n      ModelsOf<Models>{Model("model", "bind_model", &Models::model)},'
-        options = ", TranscribeOptions{}" if capability == "asr" else ""
-        processing = f"  return models.model.{method}(*inputs.items{options});"
-    elif preserved and in_type == out_type:
-        processing = f"  return NodeResult<{out_type}>::Success(*inputs.items);"
+              f"ProducedBatch<{out_type}>({cpp_string(out_name)}, "
+              f"PortFlow{{{cpp_string(out_card)}, {cpp_string(out_prov)}}})")
+    spec_args = [f"InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::input{input_flow})}}",
+                 output, *spec_extra, "&Run"]
+    headers = "#include <string>\n\n" if "std::string" in logic else ""
+    structs = "\n".join(declarations)
+    if spec_extra:
+        arguments = "\n             " + ",\n             ".join(spec_args)
     else:
-        processing = f'''  (void)inputs;
-  // TODO: 实现声明的转换和来源策略。
-  // 不要把默认 payload 当作成功的业务结果发布。
-  return NodeResult<{out_type}>::Failure(
-      "domain transformation is not implemented", error::kBusinessError);'''
-    return f'''#include "nodes/authoring.h"
+        arguments = f"{spec_args[0]},\n                      {spec_args[1]}, &Run"
+    return f"""{headers}#include "nodes/authoring.h"
 
 namespace llm_edgeflow {{
 namespace custom_nodes {{
 namespace {{
-struct Inputs {{ const {in_type}* items = nullptr; }};
-{models}
-static NodeResult<{out_type}> Run(const Inputs& inputs{run_models}) {{
-{processing}
-}}
-
+{structs}
+{logic}
 auto Spec() {{
-  return MakeNodeSpec(
-      InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::items{input_flow})}},
-      {output},{model_binding}
-      &Run)
-      .Description({cpp_string(description)});
+  return MakeNodeSpec({arguments})
+      .Description({cpp_string(description)}){controls};
 }}
 
 REGISTER_FUNCTION_NODE({name}, Spec());
+
 }}  // namespace
 }}  // namespace custom_nodes
 }}  // namespace llm_edgeflow
-'''
+"""
 
 
-def render_model_node(name, description, capability, in_port, out_port):
-    return render_node(name, description, "model", capability, in_port, out_port)
+# 输入样例和对应的断言；未列出的类型使用默认构造的 payload。
+SAMPLE_INPUTS = {
+    "TextBatch": 'std::string("example")',
+    "AudioPcmBatch": "AudioPcmPayload({0.25f, -0.5f}, 16000)",
+    "ImageFrameBatch": "ImageFrame{1, 1, 3, {1, 2, 3}}",
+    "QueryCandidatesBatch": 'QueryCandidatePair{"query", "candidate"}',
+    "Int32Batch": "int32_t{-7}",
+}
+SAMPLE_CHECKS = {
+    "TextBatch": 'EXPECT_EQ(item.data, "example");',
+    "AudioPcmBatch": "EXPECT_EQ(item.data.pcm_data, (std::vector<float>{0.25f, -0.5f}));\n  EXPECT_EQ(item.data.sample_rate, 16000);",
+    "ImageFrameBatch": "EXPECT_EQ(item.data.width, 1);\n  EXPECT_EQ(item.data.height, 1);\n  EXPECT_EQ(item.data.stride, 3u);\n  EXPECT_EQ(item.data.data, (std::vector<uint8_t>{1, 2, 3}));",
+    "QueryCandidatesBatch": 'EXPECT_EQ(item.data.query, "query");\n  EXPECT_EQ(item.data.candidate, "candidate");',
+    "Int32Batch": "EXPECT_EQ(item.data, -7);",
+    "EmbeddingBatch": "EXPECT_TRUE(item.data.empty());",
+    "ScoreBatch": "EXPECT_FLOAT_EQ(item.data, 0.0f);",
+    "OcrDocumentBatch": "EXPECT_TRUE(item.data.combined_text.empty());\n  EXPECT_TRUE(item.data.boxes.empty());",
+    "RankedTextBatch": "EXPECT_TRUE(item.data.text.empty());\n  EXPECT_FLOAT_EQ(item.data.score, 0.0f);\n  EXPECT_EQ(item.data.rank, 0);\n  EXPECT_EQ(item.data.original_sub_id, 0u);",
+    "RuleMatchBatch": "EXPECT_EQ(item.data.is_hit, 0);\n  EXPECT_TRUE(item.data.category.empty());\n  EXPECT_TRUE(item.data.matches.empty());\n  EXPECT_EQ(item.data.slots, nlohmann::json::object());",
+    "StructuredDocumentBatch": "EXPECT_TRUE(item.data.json_payload.empty());\n  EXPECT_EQ(item.data.structured_data, nlohmann::json::object());\n  EXPECT_FALSE(item.data.is_valid);\n  EXPECT_EQ(item.data.parse_status, JsonParseStatus::kOk);\n  EXPECT_TRUE(item.data.diagnostic.empty());",
+}
+# tests/support/recording_models.h 中的替身返回这些固定回答。
+MODEL_REPLIES = {
+    "llm": ('std::string("fixture text")', 'EXPECT_EQ(item.data, "fixture text");'),
+    "embedding": ("std::vector<float>{3, 4}", "EXPECT_EQ(item.data, (std::vector<float>{3, 4}));"),
+    "asr": ('std::string("fixture audio")', 'EXPECT_EQ(item.data, "fixture audio");'),
+    "ocr": ('OcrDocumentItem{{}, "fixture ocr"}',
+            'EXPECT_EQ(item.data.combined_text, "fixture ocr");\n  EXPECT_TRUE(item.data.boxes.empty());'),
+    "rerank": ("0.75f", "EXPECT_FLOAT_EQ(item.data, 0.75f);"),
+}
 
 
-def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None):
-    in_name, in_type, in_card, in_prov = in_port
-    out_name, out_type, out_card, out_prov = out_port
-    preserved = (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve")
-    inputs = {
-        "TextBatch": 'std::string("example")',
-        "AudioPcmBatch": "AudioPcmPayload({0.25f, -0.5f}, 16000)",
-        "ImageFrameBatch": "ImageFrame{1, 1, 3, {1, 2, 3}}",
-        "QueryCandidatesBatch": 'QueryCandidatePair{"query", "candidate"}',
-        "Int32Batch": "int32_t{-7}",
-    }
-    input_payload = inputs.get(in_type, f"{get_item_type_for_batch(in_type)}{{}}")
-    fixture = ""
+def render_standalone_test(name, in_port, out_port, capability=None, control_id=None):
+    """生成的测试执行真实注册的 Node；端口声明由 Init 绑定和类型化读写检查。"""
+    in_name, in_type, _, _ = in_port
+    out_name, out_type, _, _ = out_port
+    input_payload = SAMPLE_INPUTS.get(in_type, f"{payload_type(in_type)}{{}}")
+    payload_checks = SAMPLE_CHECKS.get(out_type, "// Add domain payload assertions for this custom batch type.")
     setup = ""
     params = "nlohmann::json::object()"
-    checks = {
-        "TextBatch": 'EXPECT_EQ(item.data, "example");',
-        "AudioPcmBatch": "EXPECT_EQ(item.data.pcm_data, (std::vector<float>{0.25f, -0.5f}));\n  EXPECT_EQ(item.data.sample_rate, 16000);",
-        "ImageFrameBatch": "EXPECT_EQ(item.data.width, 1);\n  EXPECT_EQ(item.data.height, 1);\n  EXPECT_EQ(item.data.stride, 3u);\n  EXPECT_EQ(item.data.data, (std::vector<uint8_t>{1, 2, 3}));",
-        "QueryCandidatesBatch": 'EXPECT_EQ(item.data.query, "query");\n  EXPECT_EQ(item.data.candidate, "candidate");',
-        "Int32Batch": "EXPECT_EQ(item.data, -7);",
-        "EmbeddingBatch": "EXPECT_TRUE(item.data.empty());",
-        "ScoreBatch": "EXPECT_FLOAT_EQ(item.data, 0.0f);",
-        "OcrDocumentBatch": "EXPECT_TRUE(item.data.combined_text.empty());\n  EXPECT_TRUE(item.data.boxes.empty());",
-        "RankedTextBatch": "EXPECT_TRUE(item.data.text.empty());\n  EXPECT_FLOAT_EQ(item.data.score, 0.0f);\n  EXPECT_EQ(item.data.rank, 0);\n  EXPECT_EQ(item.data.original_sub_id, 0u);",
-        "RuleMatchBatch": "EXPECT_EQ(item.data.is_hit, 0);\n  EXPECT_TRUE(item.data.category.empty());\n  EXPECT_TRUE(item.data.matches.empty());\n  EXPECT_EQ(item.data.slots, nlohmann::json::object());",
-        "StructuredDocumentBatch": "EXPECT_TRUE(item.data.json_payload.empty());\n  EXPECT_EQ(item.data.structured_data, nlohmann::json::object());\n  EXPECT_FALSE(item.data.is_valid);\n  EXPECT_EQ(item.data.parse_status, JsonParseStatus::kOk);\n  EXPECT_TRUE(item.data.diagnostic.empty());",
-    }
-    payload_checks = checks.get(out_type, "// Add domain payload assertions for this custom batch type.")
-    if kind == "model":
-        _, model_input, model_output, method = CAPABILITY_MAP[capability]
-        interface = {"llm": "ILlmModel", "embedding": "IEmbeddingModel", "asr": "IAsrModel",
-                     "ocr": "IOcrModel", "rerank": "IRerankModel"}[capability]
-        options = {"llm": ", const GenerateOptions&", "asr": ", const TranscribeOptions&"}.get(capability, "")
-        language = ('  bool SupportsLanguage(std::string_view language) const noexcept override {\n'
-                    '    return language == "zh";\n  }\n') if capability == "asr" else ""
-        returned = {"llm": 'std::string("fixture text")', "embedding": "std::vector<float>{3, 4}",
-                    "asr": 'std::string("fixture audio")', "ocr": 'OcrDocumentItem{{}, "fixture ocr"}',
-                    "rerank": "0.75f"}[capability]
-        payload_checks = {
-            "llm": 'EXPECT_EQ(item.data, "fixture text");',
-            "embedding": "EXPECT_EQ(item.data, (std::vector<float>{3, 4}));",
-            "asr": 'EXPECT_EQ(item.data, "fixture audio");',
-            "ocr": 'EXPECT_EQ(item.data.combined_text, "fixture ocr");\n  EXPECT_TRUE(item.data.boxes.empty());',
-            "rerank": "EXPECT_FLOAT_EQ(item.data, 0.75f);",
-        }[capability]
-        fixture = f'''class RecordingModel final : public {interface} {{
- public:
-  const std::string& ImplName() const noexcept override {{
-    static const std::string value = {cpp_string("scaffold_" + name + "_fixture")};
-    return value;
-  }}
-  const std::string& ModelType() const noexcept override {{
-    static const std::string value = {cpp_string(capability)};
-    return value;
-  }}
-  InferenceConcurrency Concurrency() const noexcept override {{
-    return InferenceConcurrency::kConcurrent;
-  }}
-{language}  int {method}(const {model_input}& inputs{options}, {model_output}* outputs,
-               std::string*) noexcept override {{
-    ++calls;
-    if (!outputs || inputs.size() != 1) return error::kInvalidArgument;
-    req_id = inputs.front().req_id;
-    sub_id = inputs.front().sub_id;
-    try {{
-      outputs->clear();
-      outputs->emplace_back(req_id, sub_id, {returned});
-      return 0;
-    }} catch (...) {{
-      outputs->clear();
-      return error::kInferenceFailed;
-    }}
-  }}
-  int calls = 0;
-  uint32_t req_id = 0;
-  uint32_t sub_id = 0;
-}};
-
-'''
-        setup = '''  auto model = std::make_shared<RecordingModel>();
+    support = ""
+    if capability:
+        reply, payload_checks = MODEL_REPLIES[capability]
+        support = '#include "tests/support/recording_models.h"\n'
+        setup = f'''  auto model = std::make_shared<test_support::Recording{capability.capitalize()}>();
+  model->replies = {{{{{reply}}}}};
   ASSERT_TRUE(test_support::RegisterNodeModel(session, "fixture", model));
 '''
         params = 'nlohmann::json{{"bind_model", "fixture"}}'
     if control_id is not None:
         params = 'nlohmann::json{{"prefix", "before:"}}'
         payload_checks = 'EXPECT_EQ(item.data, "before:example");'
-    succeeds = kind == "model" or (preserved and in_type == out_type)
-    if succeeds:
+    if capability or (is_preserved(in_port, out_port) and in_type == out_type):
         execution = f'''  ASSERT_EQ(probe.node->Process(&context), 0) << context.GetErrorMessage();
   const auto* result = context.Read<{out_type}>("result");
   ASSERT_NE(result, nullptr);
@@ -343,10 +274,10 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
         execution = '''  EXPECT_EQ(probe.node->Process(&context), error::kBusinessError);
   EXPECT_FALSE(context.Has("result"));
 '''
-    if kind == "model":
-        execution += '''  EXPECT_EQ(model->calls, 1);
-  EXPECT_EQ(model->req_id, 7u);
-  EXPECT_EQ(model->sub_id, 2u);
+    if capability:
+        execution += '''  ASSERT_EQ(model->calls.size(), 1u);
+  EXPECT_EQ(model->calls.front().front().req_id, 7u);
+  EXPECT_EQ(model->calls.front().front().sub_id, 2u);
 '''
     if control_id is not None:
         execution += f'''  ASSERT_EQ(probe.node->Control({control_id}, R"({{"prefix":"after:"}})").status,
@@ -375,25 +306,10 @@ def render_standalone_test(name, description, kind, capability, in_port, out_por
 
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
-#include "engine/model_interface.h"
 #include "tests/support/node_probe.h"
-
+{support}
 namespace llm_edgeflow::scaffold_{name}_test {{
-{fixture}TEST(ScaffoldGeneratedNodeTest, {name}_ExecutesDeclaredContract) {{
-  const auto definition = NodeRegistry::Instance().Find({cpp_string(name)});
-  ASSERT_TRUE(definition);
-  EXPECT_EQ(definition->category, "custom");
-  EXPECT_EQ(definition->description, {cpp_string(description)});
-  ASSERT_EQ(definition->inputs.size(), 1u);
-  EXPECT_EQ(definition->inputs.front().logical_name, {cpp_string(in_name)});
-  EXPECT_EQ(definition->inputs.front().cardinality, {cpp_string(in_card)});
-  EXPECT_EQ(definition->inputs.front().provenance_policy, {cpp_string(in_prov)});
-  EXPECT_EQ(definition->inputs.front().type_id, MakeBlackboardKey<{in_type}>("input").type_id);
-  ASSERT_EQ(definition->outputs.size(), 1u);
-  EXPECT_EQ(definition->outputs.front().logical_name, {cpp_string(out_name)});
-  EXPECT_EQ(definition->outputs.front().cardinality, {cpp_string(out_card)});
-  EXPECT_EQ(definition->outputs.front().provenance_policy, {cpp_string(out_prov)});
-  EXPECT_EQ(definition->outputs.front().type_id, MakeBlackboardKey<{out_type}>("result").type_id);
+TEST(ScaffoldGeneratedNodeTest, {name}_ExecutesDeclaredContract) {{
   SessionContext session;
 {setup}  test_support::NodeProbe probe;
   ASSERT_TRUE(probe.Init({cpp_string(name)}, {params}, session,
@@ -558,8 +474,8 @@ class ChangePlan:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("node_name", nargs="?")
-    parser.add_argument("-k", "--kind", choices=["compute", "model"], default="compute")
-    parser.add_argument("-m", "--model-capability", choices=list(CAPABILITY_MAP))
+    parser.add_argument("-m", "--model-capability", choices=list(CAPABILITY_MAP),
+                        help="Declare one model of this capability; omit it for a Node without models")
     parser.add_argument("-d", "--description", default="")
     parser.add_argument("-i", "--in-port", help="name:Batch[:1:1[:preserve]]")
     parser.add_argument("-o", "--out-port", help="name:Batch[:1:1[:preserve]]")
@@ -583,15 +499,13 @@ def main():
         parser.error("--write-test requires the standard source directory src/custom_nodes")
 
     name = args.node_name
-    if args.kind == "compute" and args.model_capability:
-        parser.error("--model-capability requires --kind model")
-    capability = (args.model_capability or "llm") if args.kind != "compute" else None
+    capability = args.model_capability
     signature = CAPABILITY_MAP.get(capability, (None, "TextBatch", "TextBatch"))
     try:
         in_port = parse_port_spec(args.in_port or f"input:{signature[1]}", "input")
         out_port = parse_port_spec(args.out_port or f"output:{signature[2]}", "output")
         content = render_node(name, args.description or f"Custom algorithm node {name}.",
-                              args.kind, capability, in_port, out_port, args.control_id)
+                              in_port, out_port, capability, args.control_id)
 
         target = root / args.output_dir / (name + "_node.cpp")
         test_filename = f"test_{name}_node.cpp"
@@ -603,8 +517,7 @@ def main():
         else:
             plan.add_new_file(target, content)
         if args.write_test:
-            test_content = render_standalone_test(name, args.description or f"Custom algorithm node {name}.",
-                                                  args.kind, capability, in_port, out_port, args.control_id)
+            test_content = render_standalone_test(name, in_port, out_port, capability, args.control_id)
             plan.add_new_file(test_target, test_content)
 
         if args.dry_run:
@@ -634,10 +547,8 @@ def main():
             print("  Run command: (cd build && ctest -R ScaffoldGeneratedNodeTest)")
             print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"ScaffoldGeneratedNodeTest.{name}_*\")")
 
-        if args.control_id is not None:
-            print("Next: edit ApplyPrefix for business logic and Parameters/Field for config and Control validation. Walkthrough: doc/dev_guide/first_control.md")
-        if args.kind == "model" and capability == "llm":
-            print("Next: edit BuildPrompt and FormatAnswer. Walkthrough: doc/dev_guide/first_custom_node.md")
+        walkthrough = "first_control.md" if args.control_id is not None else "first_custom_node.md"
+        print(f"Next: implement the algorithm in Run and any helpers it calls. Walkthrough: doc/dev_guide/{walkthrough}")
 
     except (ValueError, OSError, RuntimeError) as error:
         parser.error(str(error))

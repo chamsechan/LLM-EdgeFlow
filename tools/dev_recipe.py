@@ -299,8 +299,8 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             test = root / "tests/unit/nodes" / ("test_" + name + "_node.cpp")
             in_port, out_port = ("input", "TextBatch", "1:1", "preserve"), ("output", "TextBatch", "1:1", "preserve")
             description = f"{name} custom LLM node"
-            plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port))
-            plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port))
+            plan.add_new_file(src, SCAFFOLD.render_node(name, description, in_port, out_port, "llm"))
+            plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, in_port, out_port, "llm"))
             generated = [src, test]
         conf = make_recipe_conf(pipeline, outputs, target, root)
         spec = copy.deepcopy(spec)

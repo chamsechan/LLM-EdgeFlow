@@ -88,12 +88,13 @@ class ScaffoldConsumerTest(unittest.TestCase):
     def test_invalid_public_arguments_are_rejected_before_creating_artifacts(self):
         cases = [
             (['BadName'], 'snake_case'),
-            (['consumer_bad', '--model-capability', 'asr'], '--kind model'),
+            (['consumer_bad', '--model-capability', 'llm', '--control-id', '1001'], '--control-id'),
+            (['consumer_bad', '--kind', 'model'], 'unrecognized arguments'),
             (['consumer_bad', '--in-port', 'x:TextBatch:1'], 'expected'),
             (['consumer_bad', '--in-port', 'x:TextBatch:2:N'], 'Cardinality'),
-            (['consumer_bad', '--kind', 'model', '--model-capability', 'embedding',
+            (['consumer_bad', '--model-capability', 'embedding',
               '--out-port', 'output:TextBatch'], 'EmbeddingBatch'),
-            (['consumer_bad', '--kind', 'model', '--in-port', 'input:TextBatch:1:N:split'], '1:1'),
+            (['consumer_bad', '--model-capability', 'llm', '--in-port', 'input:TextBatch:1:N:split'], '1:1'),
             (['consumer_bad', '--control-id', '999'], '1000'),
             (['consumer_bad', '--control-id', '190001', '--in-port', 'input:AudioPcmBatch'], 'TextBatch'),
             (['consumer_bad', '--write-test', '--output-dir', 'elsewhere'], 'standard source'),
@@ -105,13 +106,25 @@ class ScaffoldConsumerTest(unittest.TestCase):
                 self.assertFalse(self.source_dir.exists())
                 self.assertFalse(self.test_dir.exists())
 
-    def test_typed_model_and_control_templates_keep_actual_capability_and_public_ids(self):
-        self.call('consumer_encoder', '--kind', 'model', '--model-capability', 'embedding',
+    def test_models_and_controls_extend_the_same_node_structure(self):
+        plain = self.call('consumer_plain', '--dry-run').stdout
+        llm = self.call('consumer_plain', '--model-capability', 'llm', '--dry-run').stdout
+        for shared in ('struct Inputs {\n  const TextBatch* input = nullptr;\n};',
+                       'MapPayloads(*inputs.input, &', 'InputsOf<Inputs>{Required("input", &Inputs::input)}',
+                       'PreservedOutput<TextBatch>("output", "input")',
+                       'REGISTER_FUNCTION_NODE(consumer_plain, Spec());'):
+            self.assertIn(shared, plain)
+            self.assertIn(shared, llm)
+        self.assertNotIn('Models', plain)
+        self.assertIn('struct Models {\n  LlmCall model;\n};', llm)
+        self.assertIn('ModelsOf<Models>{Model("model", "bind_model", &Models::model)}', llm)
+        self.call('consumer_encoder', '--model-capability', 'embedding',
                   '--in-port', 'sentences:TextBatch', '--out-port', 'vectors:EmbeddingBatch')
         source = (self.source_dir / 'consumer_encoder_node.cpp').read_text()
-        self.assertIn('EmbeddingCall encoder;', source)
-        self.assertIn('models.encoder.Embed(*input.texts)', source)
-        self.assertIn('Model("encoder", "bind_model",', source)
+        self.assertIn('EmbeddingCall model;', source)
+        self.assertIn('models.model.Embed(*inputs.input)', source)
+        self.assertIn('Required("sentences", &Inputs::input)', source)
+        self.assertIn('PreservedOutput<EmbeddingBatch>("vectors", "sentences")', source)
         self.call('consumer_prefix', '--control-id', '190002')
         control = (self.source_dir / 'consumer_prefix_node.cpp').read_text()
         self.assertIn('kUpdatePrefix = 190002;', control)
