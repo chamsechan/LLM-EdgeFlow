@@ -10,7 +10,7 @@
 | 路径 | 何时使用 | 阅读入口 |
 | --- | --- | --- |
 | 已有能力编排 | 外部契约不变，调整配置与连线 | [Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排) → [运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)；提示词任务可用[现有 Recipe](dev_guide/recipe_prompt_config.md) |
-| 新增自定义 Node | 需要实现缺失算法 | [自定义 Node 入门](dev_guide/first_custom_node.md)，按任务选择 Recipe 或普通脚手架 |
+| 新增自定义 Node | 需要实现缺失算法 | [自定义 Node 入门](dev_guide/first_custom_node.md)：同一个节点从文本处理、普通配置到调用模型和接入 Pipeline |
 | 新增外部业务契约 | 请求或响应的字段、格式、语义变化 | [业务接入指南](dev_guide/business_onboarding.md)，先复用已有转换器、载体和 Demo 运行代码 |
 
 ## 使用开发 Skills

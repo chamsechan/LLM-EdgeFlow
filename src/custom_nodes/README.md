@@ -16,8 +16,9 @@
 ## 通用开发步骤速查
 
 1. 运行 `build/alg_pipeline_tool catalog`，确认已有能力。用 `describe-node` 查看所需节点。
-2. 生成普通函数、Spec 和对应测试。所有节点结构相同；`-m` 只是多声明一个该能力的模型，
-   `--control-id` 只是多声明参数和 Control 命令：
+2. 生成普通函数、Spec 和对应测试。所有节点结构相同；`-m` 多声明一个该能力的模型。
+   普通配置直接添加 `Params` 和字段声明，见[教程第 2 节](../../doc/dev_guide/first_custom_node.md#2-为同一个节点增加普通配置)。
+   需要运行时更新参数时，再用 `--control-id` 生成带 Control 命令的示例：
 
    ```bash
    ./tools/scaffold_custom_node.py custom_filter --write-test

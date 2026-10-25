@@ -26,6 +26,7 @@ description: 新增或修改 LLM-EdgeFlow 的 common/custom Node。所有 Node �
 | 实际需求 | 起点 |
 | --- | --- |
 | 逐项文本变换，数量与来源不变 | `tools/scaffold_custom_node.py <node_type> --write-test`；`Run` 用 `MapPayloads` 调用 `Transform` |
+| 给现有 Node 增加普通配置项 | [教程第 2 节](../../../doc/dev_guide/first_custom_node.md#2-为同一个节点增加普通配置)：添加 `Params` 与字段声明；需要运行时更新时再加 Control |
 | 文本前处理 → 一次 LLM → 文本后处理 | 同一命令加 `-m llm`：多出 `Models`、`BuildPrompt` / `FormatAnswer`；生成参数由 `GenerateParameters` 从配置读取 |
 | 同时生成可运行方案 | [text-llm-node Recipe](../../../doc/dev_guide/recipe_text_llm_node.md)，不要再单独运行脚手架 |
 | 1:1 的 Embedding/ASR/OCR/Rerank | 同一命令加 `-m <capability>`；检查生成端口是否符合真实算法 |

@@ -62,8 +62,8 @@ Node 是批量处理函数。输入端口对应参数，输出端口对应返回
 
 | 名字 | 练习中的例子 | 谁决定它 |
 | --- | --- | --- |
-| 节点类型 `type` | `my_business_llm` | C++ 注册；说明“这是什么操作” |
-| 节点实例 `name` | `generate_entities` | Pipeline；说明“这次使用这个操作的位置” |
+| 节点类型 `type` | `my_text_normalize` | C++ 注册；说明“这是什么操作” |
+| 节点实例 `name` | `normalize` | Pipeline；说明“这次使用这个操作的位置” |
 | 逻辑端口 | `input`、`output` | Node；说明“操作接收、返回哪些值” |
 
 同一个类型可以在一个方案出现多次，只需使用不同的 `name`。
@@ -71,11 +71,11 @@ Node 是批量处理函数。输入端口对应参数，输出端口对应返回
 Pipeline 的 `inputs` 直接引用来源。例如：
 
 ```json
-{"type":"my_business_llm", "name":"generate_entities", "params":{"bind_model":"entity_llm"},
- "inputs":{"input":"input.sentence_text"}}
+{"type":"my_text_normalize", "name":"normalize", "params":{"bind_model":"normalize_llm"},
+ "inputs":{"input":"input.query"}}
 ```
 
-输出引用为 `generate_entities.output`。响应在所选输出转换器的 `inputs` 中连接最终结果的来源。
+输出引用为 `normalize.output`。响应在所选输出转换器的 `inputs` 中连接最终结果的来源。
 Validator 由引用推导依赖。只有额外执行顺序需要 `depends_on`。必需输入显式连接，可选输入省略即未连接。
 内部 Blackboard 数据名就是引用本身，未被引用的输出不发布。换方案时只改引用，逻辑端口保持稳定。
 
@@ -111,8 +111,8 @@ Spec 包装读取只读输入，必需值缺失或已连接输入类型不符时
 | --- | --- | --- |
 | `type` | `llm` | 模型类别；实现由类别和后端唯一选出 |
 | `backend.type` | `test_causal_lm_backend` | 运行资源由哪一种后端实现提供；本例为测试后端 |
-| `name` | `entity_llm` | Pipeline 为这个模型实例起的名字 |
-| 节点配置 `bind_model` | `entity_llm` | 引用上面的模型实例，不是填写模型路径 |
+| `name` | `normalize_llm` | Pipeline 为这个模型实例起的名字 |
+| 节点配置 `bind_model` | `normalize_llm` | 引用上面的模型实例，不是填写模型路径 |
 | `ILlmModel` | C++ 接口 | 节点编译时依赖的能力约定 |
 
 模型类型和后端名称只是这个练习的已注册配置，其他环境以 Catalog 为准。

@@ -32,8 +32,9 @@
 发布后不复用。一个命令 ID 只属于一个节点类型，Catalog 会拒绝跨类型重号。
 同一节点类型的多个实例共用其命令声明，无需重复注册。
 
-脚手架生成 `src/custom_nodes/prefix_control_node.cpp`。它与[第一个自定义 Node](first_custom_node.md)
-的纯计算节点结构相同，只多了 `Params` 和 Control 命令。该节点按一对一关系处理 `TextBatch`，保留来源编号。脚手架拒绝覆盖已有文件。
+脚手架生成 `src/custom_nodes/prefix_control_node.cpp`。它沿用[第一个自定义 Node](first_custom_node.md)
+的参数声明方式，再增加 Control 命令。普通配置只需要 `Params`，运行时更新才需要 Control。
+该节点按一对一关系处理 `TextBatch`，保留来源编号。脚手架拒绝覆盖已有文件。
 `--write-test` 同时生成测试文件，节点测试程序自动收集该文件。
 
 ## 3. 阅读受控参数声明
