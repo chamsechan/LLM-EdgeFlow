@@ -91,4 +91,4 @@ cmake --build build --target edgeflow_test_nodes_runner alg_pipeline_tool -j 4
 `BindingFacts::InputLifetime` 在 `Prepare` 中提供实际输入生命周期，输出可用
 `PortFlow{"1:1", "preserve", FollowLifetime("text")}` 跟随输入。
 `llm_generate` 的 `endpoints` 必填且非空；prompt 默认 `{{input}}`，输出规则见
-[开发指南](../../../doc/developer_guide.md)。
+[Node 生成调用](../../../doc/dev_guide/custom_node_concepts.md#调用选项与通用文本生成)。

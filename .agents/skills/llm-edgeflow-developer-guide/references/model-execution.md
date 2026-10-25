@@ -1,51 +1,32 @@
 # Model Execution
 
-Use this reference for Model semantics/capabilities, a new Backend or neutral execution protocol,
-vendor runtime integration, or batch scheduling behavior.
+Use this reference for Model semantics, Backend resources or neutral execution protocols.
+The [Model/Backend extension guide](../../../../doc/developer_guide.md#4-模型执行层如何新增模型语义或推理-backend)
+owns parameter preparation, identity/registration, model selection, batch execution, Tensor ownership,
+call options and generation behavior. Build and asset acceptance limits belong to
+[verification and selection](../../../../doc/VERIFIABLE_SELECTION.md).
 
-- First separate the need: Model owns preprocessing, input/output interpretation, and capability semantics; Backend owns vendor runtime loading/resources and implements a neutral protocol. Do not reintroduce a combined `*Engine` abstraction.
-- Implement Models against `include/engine/model_interface.h` and neutral sessions from `backend_interface.h`. Put semantic implementations under `src/engine/models/<model>/` and register a complete `ModelDefinition` through `REGISTER_MODEL_WITH_DEFINITION`.
-- Implement Backends through `IInferenceBackend`, keep vendor headers/resources under `src/engine/backends/<backend>/`, and register a complete `BackendDefinition` through `REGISTER_BACKEND_WITH_DEFINITION`.
-- [The engine source list](../../../../src/engine/CMakeLists.txt) collects `.cpp` files under
-  `src/engine/backends/` into `edgeflow_model_execution_backends_objects` and under
-  the remaining `src/engine/` implementations into `edgeflow_model_execution_objects`, including
-  Models, runtime and shared helpers. Keep vendor include paths, `HAVE_*` definitions and imported-target compile requirements `PRIVATE`
-  to the Backend object target. Pass final runtime dependencies through `$<LINK_ONLY:...>` as in
-  [the root CMake configuration](../../../../CMakeLists.txt), so their compile requirements do not
-  propagate to Models or upper layers.
-- Definitions declare capability/protocol, concurrency, description, and every supported config field/default/range. PipelineValidator validates these typed fields before planning; a concrete Backend may additionally consume one explicitly declared vendor run-config field when its SDK owns that configuration format. Catalog visibility follows registration without Web or skill edits.
-- Author parameters with a `Params` struct, `ParamSpec()` returning `Parameters<Params>`,
-  `def.params = ParamSpec()`, and `ctx.Params<Params>()` / `spec.Params<Params>()` for consumption.
-  Put pure parameter rules in `ParamSpec().Validate`, with no resource loading or I/O.
-  `PipelineValidator` checks fields and parameter semantics while planning;
-  [ModelRuntimeFactory](../../../../src/engine/runtime/model_runtime_factory.cpp) parses each group
-  once before Backend provider creation or `Load`. `Create` and `Load` consume immutable values
-  and check sessions/resources without repeating pure parameter validation. Direct-call tests
-  first use the Definition's `params.Parse`.
-- Fill defaults that depend on other fields in `ParamSpec().Prepare`, which runs before `Validate`;
-  llama.cpp `decode_batch_size` defaults to `min(512, context_size)`. `resolve-conf` shows prepared values.
-- Optional scalar members have no default and cannot use `Required()` or `Default()`.
-  [ResolveFromModel](../../../../src/engine/models/common/from_model.h) selects a configured value,
-  fixed model fact, or fallback; conflicting configured/fixed values fail. BGE reads fixed output
-  dimensions and input sequence length, with 512 as the sequence fallback. A dynamic embedding
-  dimension must be configured. Catalog shows the declaration; creation logs the selected value.
-- BackendLoadSpec requires an explicit execution protocol; runtime session checks still verify the actual protocol. Batch policy belongs to the session, not IModel.
-- Model entries use `{type, name, file, params?, backend: {type, params?}}`. Category and
-  Backend protocol select one `impl_name`; GlobalInit audits uniqueness and Core rejects ambiguity.
-  Fixture models require `kFixture` and match only their declared `fixture_backends`.
-  Declare file parameters with `.File()`. Integration resolves them against the Pipeline JSON
-  directory before Core validation; Models/Backends receive resolved paths and check resources
-  when opening them. Kite projector paths use the run-config directory.
-- LLM system prompts/seeds and ASR language are per-call options. Nodes check explicit unsupported
-  requirements, such as ASR language, once in `ValidateModels`. A text Model whose Backend session
-  cannot honor `random_seed` logs a warning per nonempty `Generate` call and passes no seed.
-  Vector normalization and pooling are model parameters.
-- QwenCausalLmModel selects ChatML through its model type; there is no configurable template selector.
-- Fixed-batch Model paths call `FixedBatchExecutor::Execute` so padding, dummy removal, and `(req_id, sub_id)` provenance remain consistent.
-- Ordinary per-item Model paths use `FixedBatchExecutor::ExecuteItems` with a single input/output callback; it owns the loop, provenance and whole-batch rollback. Keep model-specific whole-batch prevalidation before this call, and propagate framework codes. Standard/unknown exceptions use the shared exception codes; do not retain model-specific exception mappings. It rejects nonempty fixed batches; do not replace tensor batching with repeated item calls.
-- Validate resource contents/configuration and translate exceptions into framework errors. Vendor types must not escape the concrete Backend.
-- Keep loaded Model/Backend sessions session-scoped and lifecycle-safe. Test failed construction/load, protocol and capability mismatch, concurrency compatibility, shape/batch boundaries, padding, and provenance.
+Implementation checklist:
 
-Use `src/engine/models/bge_embedding/`, `src/engine/models/qwen_causal_lm/`,
-`src/engine/backends/onnxruntime/`, `src/engine/backends/llama_cpp/`,
-`tests/unit/engine/test_model_runtime_factory.cpp`, and `tests/unit/engine/test_batch_executor.cpp` as live templates.
+1. Assign semantics and preprocessing to Model, vendor loading/resources to Backend.
+   Reuse an existing neutral Session protocol when it fits; keep vendor types out of Models and upper layers.
+2. Register complete Definitions and implement the declared capability/protocol and concurrency.
+   Keep pure parameter rules in `ParamSpec`; Create/Load check real resources and sessions.
+   Direct-call tests must obtain parsed parameters through the Definition.
+3. Follow [the engine targets](../../../../src/engine/CMakeLists.txt): vendor include paths,
+   `HAVE_*` definitions and imported compile requirements stay `PRIVATE` to the Backend object target.
+   Final runtime dependencies use `$<LINK_ONLY:...>` so compile requirements do not propagate upward.
+4. Use `FixedBatchExecutor::Execute` for fixed batches and `ExecuteItems` for ordinary item loops.
+   Preserve padding removal, provenance, business prevalidation and whole-batch failure cleanup.
+5. Keep shared Tensor buffers alive through execution and decoding. Translate vendor failures
+   at the Backend boundary, retaining the cause in framework diagnostics.
+6. Test construction/load failure, actual session protocol and capability, shapes, batch boundaries,
+   concurrency and lifetime as applicable. Real execution requires the selected build and assets;
+   passing fixture tests does not establish runtime or hardware acceptance.
+
+Current examples are [BGE](../../../../src/engine/models/bge_embedding/),
+[Qwen](../../../../src/engine/models/qwen_causal_lm/),
+[ONNX Runtime](../../../../src/engine/backends/onnxruntime/) and
+[llama.cpp](../../../../src/engine/backends/llama_cpp/), with tests under `tests/unit/engine/`.
+Use the [Model skill](../../edgeflow-model-developer/SKILL.md) or
+[Backend skill](../../edgeflow-backend-developer/SKILL.md) and finish with [verification](verification.md).

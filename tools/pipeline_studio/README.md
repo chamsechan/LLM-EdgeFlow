@@ -215,7 +215,7 @@ Demo 默认执行配置初值。热更新使用显式 `--control-cmd` / `--contr
 文件选择功能只读取用户选中的文件。服务不提供任意路径读取、目录浏览或账号鉴权。
 不要将服务开放到外部网络。
 
-[操作验收记录](acceptance.md) 描述主要任务与桌面布局。Python 套件覆盖 API 和 Web 模块。
+[操作验收标准](acceptance.md) 描述主要任务与桌面布局。Python 套件覆盖 API 和 Web 模块。
 提供已安装的 Playwright 可额外执行真实浏览器回归：
 
 ```bash

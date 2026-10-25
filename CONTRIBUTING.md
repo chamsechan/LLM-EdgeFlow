@@ -146,8 +146,9 @@ configuration and Profiles. Update current documentation and examples when renam
 ## 5. Update durable documentation proportionally
 
 - Keep active architecture and developer documentation aligned with the implementation.
-- Update `doc/CHANGELOG.md` for user-visible capabilities, public behavior, architecture, or major
-  developer-tool changes; do not add entries for typo-only or internal mechanical changes.
+- Use `doc/CHANGELOG.md` for user-visible release notes. Before the first release, update the
+  current owning guides directly; do not duplicate their capability lists or record internal
+  refactors, design discussions, or stage-by-stage test results in the changelog.
 - Update README only when the current overview, capability maturity, quick start, or navigation
   changes.
 - Keep current usage, contracts and verification limits in the working tree. Development

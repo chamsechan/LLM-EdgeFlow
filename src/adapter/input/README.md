@@ -1,18 +1,8 @@
-# Input Converters (输入转换器)
+# Input Converters（输入转换器）
 
-本目录的输入转换器解析完整业务请求，并将内部值发布到 Pipeline 端口。
+本目录解析完整业务请求，校验业务字段并发布 Pipeline 内部值。平台载体读取由 binding 负责。
 
-## 规范与契约
-
-- 通过 `REGISTER_INPUT_CONVERTER` 注册 `InputConverterDefinition`。Definition 与回调共用类型端口常量。
-- 槽用 `ExternalInputSlot<Value>` 声明 `adapter/io_values.h` 中的中立值类型。binding 校验平台载体并复制其内容，Converter 只接收自有字符串、数组与标量。
-- 如果每个请求只有一个槽和一个载荷，使用 `DecodeRequestRows<Value>`。
-  业务函数接收 `const Value&`，返回自有载荷和 `AdapterStatus`。
-  框架处理循环、来源编号、端口绑定和错误位置。
-- 候选展开等算法显式使用 `ValidateDecodeRequest` / `ReadInputSlot<Value>`，后者返回 `std::optional<Value>`。Converter 保留业务校验，例如 JSON 字段要求和 rerank 候选段落的 64 KiB 上限。
-- 平台类型、成员访问、字符串长度、metadata 和业务枚举映射由 binding 处理。Operator 核对输入输出批次大小并按行配对。Converter 为内部载荷写入批内行号，不读取宿主请求 ID 或图像帧序号。
-- 通过 `options.Port(逻辑端口)` 发布至 `AlgContext`。未引用端口返回空名并跳过发布。转换器无请求间共享状态，不保留宿主指针。
-- 输入校验失败时，框架立即终止处理。框架不租用输出块，也不执行 Pipeline。
-  输出池存储在 Create 阶段分配。
-
-平台 binding 的注册与所有权规则见[输出分配指南](../../../doc/dev_guide/operator_output_allocation.md)。
+- 编写与注册：[业务接入](../../../doc/dev_guide/business_onboarding.md#3-实现并注册转换器)。
+- 平台布局与所有权：[输出池与宿主接口](../../../doc/dev_guide/operator_output_allocation.md)。
+- 一请求一载荷参考 [text_input.cpp](text_input.cpp)；候选展开参考 [rerank_input.cpp](rerank_input.cpp)。
+- 完整 JSON 字段选择参考 [translate_json_input.cpp](translate_json_input.cpp)。

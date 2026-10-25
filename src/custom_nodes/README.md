@@ -56,65 +56,9 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 即使首次练习用的是 minimal 构建，最终门禁也会覆盖完整默认配置。交付按
 [CONTRIBUTING](../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate) 执行。
 
-### 端口与模型
-
-- 端口语法为 `name:Batch` 或 `name:Batch:1:1:preserve`。
-  `chunks:TextBatch:1:N:generate_sub_id` 完整表达拆分契约。
-- `InputsOf` 绑定普通输入结构的只读批次指针。`Required` 要求输入，`Optional` 允许不连接。
-  连接后仍允许当前请求缺值的业务，显式使用 `OptionalValue`。
-- `PreservedOutput` 声明 anchor，框架检查数量、顺序和来源。`ProducedBatch` 声明派生单输出，
-  `OutputsOf` / `Produced` 声明多输出。`PortFlow` 提供数量、来源、生命周期。`FollowLifetime("text")` 声明输出跟随实际输入生命周期。
-  拆分、聚合等派生输出的正确性由算法及测试保证，声明不会自动证明这些关系。
-- `ModelsOf` 中的 `Model` 根据成员类型绑定五种模型能力：`LlmCall`、`EmbeddingCall`、
-  `AsrCall`、`OcrCall`、`RerankCall`。调用接口处理空批次、模型错误及保序校验。
-  绑定写作 `Model("generator", "bind_model", &Models::generator)`，只传三个参数。框架按成员
-  能力生成引用 `models[].name` 的说明。模型骨架要求批类型匹配能力接口。包括 OCR 的 `ImageFrameBatch`。
-- 同类型、保序的 compute 骨架可透传。异类型或派生输出保留明确失败的待实现入口。
-  新内部批类型提供 `BlackboardTypeTraits`。平台 DTO 不进入 Node。
-
-## 自定义参数的最小约定
-
-在 `Parameters<Params>` 中用 `Field("name", &Params::member)` 声明成员，显式选择
-`.Required()` 或 `.Default(value)`，再写范围、枚举及说明。字段同时用于预检、初始化和 Catalog。
-业务函数收到普通参数结构，不再从 JSON 重复读取。跨字段检查用 `Validate`，连线约束用
-`ValidateBindings`。数组用 `std::vector<T>`，映射用 `std::map<std::string, T>`。结构体元素用
-`.Items(Parameters<Element>{...})`。`Range` / `Enum` 约束标量叶子，错误路径指出下标或映射键。
-`nlohmann::json` 参数接受非 null JSON 值。完整声明见
-[参数与 Definition](../../doc/dev_guide/custom_node_concepts.md#3-definition让连线工具和运行器看懂你的操作)。
-参数 Control 使用 `WithControls` / `ReplaceFields`：payload 至少提供一个受控字段，只替换
-提供的字段，容器整体替换。重跑 `Prepare` / `Validate`，失败保持旧快照。参考
-[Control 练习](../../doc/dev_guide/first_control.md)。
-
-LLM 生成参数复用 [`GenerateParameters()`](../../include/nodes/generate_parameters.h)，默认
-`max_tokens = 128`。有自有字段时用
-`Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`。生成字段
-在 JSON 中平铺，重名报错，被并入组的 `Prepare` / `Validate` 先执行。它们也是普通 `Field`，
-可以加入 `WithControls`。
-
-字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 的长度是 UTF-8 字节预算，
-生成的 `max_tokens` 是 token 数。类型、范围和字段组合错误应拒绝，不静默改用默认值。
-
-### 复杂参数与派生状态
-
-参数通过 `Field` 声明，结构体元素用 `Items`，共享参数组用 `Include`。
-字段赋值后在 `Prepare` 中构建持有自身数据的派生状态，再执行语义与连线校验。
-字段 Control 会复用同一流程重建并校验候选，失败保持旧值，每次请求读取一次一致快照。
-
-[text_template](../common_nodes/text_template_node.cpp) 在 `Prepare` 中编译模板，
-只允许已连接的 `primary`、`context`、`matches`、`document` 变量。未知变量或引用未连接端口
-在此拒绝。连接了端口但某请求没有数据时，该变量为空字符串。`update_prompt` 只替换 `template`。
-
-[text_rule_match](../common_nodes/text_rule_match_node.cpp) 用映射声明 `categories`，
-用 `Field("rules", ...).Items(...)` 声明规则字段，并在元素的 `Prepare` 中编译正则。
-`update_rules` 整体替换给出的 `categories` 或 `rules`，省略的项保持原值。
-[structured_json_parse](../common_nodes/structured_json_parse_node.cpp) 的 `fallback` 直接填写
-非 null JSON 值，例如 `{"fallback":{"category":"NONE"}}`。
-[text_corpus_source](../common_nodes/text_corpus_source_node.cpp) 没有输入端口，`corpus` 必填，
-可以是空数组。生成参数的 `Include` 参考 [prompt_guided_llm](prompt_guided_llm_node.cpp)。
-
-会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResult<T>`
-调用返回 `NodeResult<T>` 的工厂。模型在会话内不可替换，缓存 key 纳入模型名、输入和语义参数。参考
-[text_embedding](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
+脚手架端口写作 `name:Batch`，派生关系可写为 `chunks:TextBatch:1:N:generate_sub_id`。
+完整端口、模型、参数与 Control 契约统一见[Node 按需参考](../../doc/dev_guide/custom_node_concepts.md)，
+其中包含[复杂参数与派生状态](../../doc/dev_guide/custom_node_concepts.md#复杂参数与派生状态)的生产例子。
 
 ## 完整参考样例
 
@@ -168,10 +112,6 @@ TextTemplate 引用的变量必须对应已连接的输入端口。某请求没�
 
 ## 复用与边界
 
-- `custom` 表示代码归属，不限制复用。领域算法不必先泛化。
-- 跨节点组合使用 Pipeline 连线，不直接调用另一 Node 绕过调度。重复的纯计算可提取
-  小型辅助函数，确有多个使用方后再整理共享代码。
-- 平台结构、拷贝、容量和生命周期属于接入适配层，Node 使用内部值与逻辑端口。
-- Node 调用声明绑定的模型能力。模型语义与厂商运行时分别由 Model / Backend 管理。
-- 通用 Node、Core、Model / Backend 不依赖 custom 实现。经复用评审后可以提升到
-  `common_nodes`，迁移时保留类型名和端口契约。
+领域算法按操作组织，通过 Pipeline 组合，平台转换留在 Adapter。共享纯函数有实际多个使用方时
+再提取；通用 Node、Core 和 Engine 不依赖 custom 实现。职责与提升到通用 Node 的边界见
+[架构指南](../../doc/architecture.md#能力节点层capability-nodes)。

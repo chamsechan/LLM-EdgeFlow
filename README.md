@@ -106,7 +106,7 @@ flowchart TD
 
 | 职责 | 何时扩展 | 主要入口 |
 | :--- | :--- | :--- |
-| 接入适配层 | 宿主程序增加新的输入输出结构或调用约定 | `include/adapter/`、`include/edgeflow/operator/`、`src/adapter/` |
+| 接入适配层 | 请求/响应的字段、格式或含义变化，或新增宿主载体与调用约定 | `include/adapter/`、`include/edgeflow/operator/`、`src/adapter/` |
 | 流程编排层 | 现有校验、调度或上下文机制无法满足需求 | `include/core/`、`src/core/` |
 | 能力节点层 | 增加领域算法、数据处理或模型调用组合 | `src/custom_nodes/`；通用操作位于 `src/common_nodes/` |
 | 模型执行层 | 增加模型语义或接入新的推理运行时 | `src/engine/models/`、`src/engine/backends/` |
@@ -131,13 +131,13 @@ Profile 保存运行预设。Demo 参数也可直接指定配置和数据集。
 | 场景 | 处理方式 | 配置与运行条件 |
 | :--- | :--- | :--- |
 | 关注词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match_rules.json)；无需模型权重 |
-| 实体抽取 | LLM 生成与结构化结果解析 | [配置](configs/pipeline_entity_extract_cpu.json)；llama.cpp 与匹配的语言模型 |
-| 文档问答 | 文本分块、向量检索与 LLM 回答 | [配置](configs/pipeline_doc_qa_default.json)；ONNX Runtime、llama.cpp 与对应模型 |
-| 对话合规审核 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit_default.json)；向量、精排和语言模型 |
-| Cross-Encoder 精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank_cpu.json)；ONNX Runtime 与精排模型 |
+| 实体抽取 | LLM 生成与结构化结果解析 | [Inferlet 配置](configs/pipeline_entity_extract_inferlet.json)；默认构建与匹配的语言模型，见 [运行命令](doc/VERIFIABLE_SELECTION.md#inferlet-cpu-验证) |
+| 文档问答 | 文本分块、向量检索与 LLM 回答 | [配置](configs/pipeline_doc_qa_default.json)；`full-cpu`，ONNX Runtime、llama.cpp 与对应模型 |
+| 对话合规审核 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit_default.json)；`full-cpu`，向量、精排和语言模型 |
+| Cross-Encoder 精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank_cpu.json)；启用 ONNX Runtime 并准备精排模型 |
 | OCR 票据问答 | 票据图像转写后抽取字段并问答 | [配置](configs/pipeline_ocr_invoice_qa_kite.json)；Kite 与视觉、语言模型 |
-| 语音识别与意图槽位 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_intent_cpu.json)；启用 whisper.cpp 并准备语音模型 |
-| 翻译 | 完整 JSON 请求中的 `query` 翻译为中文 | [配置](configs/pipeline_translate_cpu.json)；llama.cpp 与语言模型 |
+| 语音识别与意图槽位 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_intent_cpu.json)；`full-cpu`，whisper.cpp 与语音模型 |
+| 翻译 | 完整 JSON 请求中的 `query` 翻译为中文 | [配置](configs/pipeline_translate_cpu.json)；`full-cpu`，llama.cpp 与语言模型 |
 
 Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置。参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
 
@@ -160,7 +160,7 @@ Smoke 验证执行链路。真实模型的业务效果需使用目标数据集�
 | 给节点增加运行时控制 | [Control 入门](doc/dev_guide/first_control.md) |
 | 扩展框架、模型或后端 | [开发者指南](doc/developer_guide.md) · [架构设计](doc/architecture.md) |
 | 准备模型并验证效果 | [模型、构建与效果验收](doc/VERIFIABLE_SELECTION.md) |
-| 查看当前未发布基线 | [Changelog](doc/CHANGELOG.md) |
+| 查看发布说明 | [发布记录](doc/CHANGELOG.md) |
 | 查阅全部文档 | [文档目录](doc/README.md) |
 
 ## 参与开发
@@ -176,7 +176,7 @@ Smoke 验证执行链路。真实模型的业务效果需使用目标数据集�
 Debian/Ubuntu 的对应 Python 包为 `python3-jsonschema`。
 开发流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试说明见 [tests/README.md](tests/README.md)，Agent 规则见 [AGENTS.md](AGENTS.md)。
 
-`jsonschema` 需安装在 CMake 选中的 Python 环境中。项目尚未正式发布。变更见 [Changelog](doc/CHANGELOG.md)。
+`jsonschema` 需安装在 CMake 选中的 Python 环境中。项目尚未正式发布。发布说明见[发布记录](doc/CHANGELOG.md)。
 
 ## 许可证
 

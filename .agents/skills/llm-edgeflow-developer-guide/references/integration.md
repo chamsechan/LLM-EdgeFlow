@@ -1,103 +1,37 @@
 # Integration
 
-Use this reference for public Operator structures, Converter behavior, I/O selection and parameters.
-Read the affected sections of [business onboarding](../../../../doc/dev_guide/business_onboarding.md)
-and [output allocation](../../../../doc/dev_guide/operator_output_allocation.md).
+Use this reference for Operator, Converter, I/O parameters, host layouts and output ownership.
+Read only the affected current contracts:
 
-The complete Operator request/response is the SDK contract. Input converters validate and select
-fields; output converters assemble and serialize responses. Demo holds carriers, invokes the SDK,
-and displays or copies the result. Reusing a host struct does not imply compatible payload semantics.
+| Work | Owning guide |
+| --- | --- |
+| Complete request/response semantics and converter authoring | [Business onboarding](../../../../doc/dev_guide/business_onboarding.md) |
+| Host keys, layouts, allocation, capacity and lifecycle | [Output allocation](../../../../doc/dev_guide/operator_output_allocation.md) |
+| Protocol shell, neutral Runtime and publication | [Integration architecture](../../../../doc/architecture.md#统一-operator-门面与运行时架构) |
+| Public headers and selected shell/fixtures | [Source layout](../../../../doc/dev_guide/source_layout.md#接入适配层) |
+| Deployment and model file resolution | [Configuration paths](../../../../configs/README.md#配置路径) |
+| Framework failures and platform mapping | [Error handling](../../../../doc/dev_guide/error_handling.md) |
 
-1. Settle external fields, ownership, cardinality, limits and failure behavior under CONTRIBUTING.
-2. The public API is `edgeflow/operator/interface.h`. Platform substitutes live only in
-   `include/platform_mock/`; they require actual-header verification in the authorized internal network.
-3. The function table order is `Init, Create, Control, Process, Destroy, DeInit`. Function pointer
-   types omit `noexcept`; implementations retain `noexcept`, with both `catch (const std::exception&)`
-   and `catch (...)` barriers in `operator_adapter.cpp`. `Create(void**, const void*)` reads its
-   argument as `const CreateParam*`; `Control(void*, int, void*)` converts the integer to
-   `ControlCommand` at entry. Callers pass the existing enum values as integers.
-4. Register ordinary input callbacks under `src/adapter/input/` and output callbacks under
-   `src/adapter/output/`, using `REGISTER_INPUT_CONVERTER` / `REGISTER_OUTPUT_CONVERTER`.
-   Each direction identifies a registration by `(type, name)`. `type` selects the platform binding;
-   its single slot declares the neutral `value_type`. Logical ports are typed internal Blackboard keys.
-   `ExternalInputSlot<Value>` / `ExternalOutputSlot<Value>` use owned values from
-   `adapter/io_values.h`. Only binding files know platform types and their layouts.
-5. Pipeline root `io.input` / `io.output` are nonempty arrays selecting `{type, name, params?}`; outputs also declare `inputs`.
-   Selected converter ports form the mandatory `PipelineIoBoundary` passed to Core validation.
-   Each input must publish distinct ports. Input/output vectors have the same size and pair by row;
-   carriers need no request ID field. Image frame indices are not batch row indices. Named services on structs with
-   a declared `service_type` require an explicit name-to-enum entry in binding `services`.
-   Converter Definitions do not declare platform enums. `common` or a struct without that
-   member has no expected service value. Lookup never falls back to `common`.
-6. Parameters use `Parameters<P>` and immutable `ParameterValues`. Parse, Prepare and Validate run
-   during creation; `options.Params<P>()` supplies the same typed values to all Process calls.
-   `Effective()` reads declared members after Prepare, and omits unset optional members.
+Implementation checklist:
 
-The Operator entrypoints are protocol shells. `SharedAlgorithmRuntime` owns deployment
-resolution, validated plans, Converter scheduling, Pipeline execution, pool leases and atomic
-publication. Its `RuntimeCreateOptions`, `RuntimeInputBatch`, `RuntimeOutputBatch`,
-and `ControlRequest` contain no platform ABI types. Internal integer codes come from `contracts/error_codes.h`. Shared
-`adapter/operator/operator_failure_category` classifies stage + internal code into one of 10
-categories without platform headers; each shell only maps category -> platform code with platform
-symbols. Diagnostics retain the failure reason and location; internal codes are never returned.
-Platform bindings own concrete layout/ownership callbacks; the runtime uses only type-erased
-interfaces. The shell translates carrier keys and platform service values, retaining the
-existing error mapping. Mock Create/Control parsing and concrete binding implementations
-live under `src/adapter/operator/mock/`. `EDGEFLOW_OPERATOR_SHELL` (default `mock`) selects one
-shell per build together with `tests/contract/operator_shell/<shell>/` (test driver and error-code
-mirror manifest), `demo/operator_shell/<shell>/` and carrier-dependent tests in
-`operator_shell/<shell>/` subdirectories; every unselected shell and fixture is excluded.
-The shell-neutral consistency suite in `tests/contract/operator_shell/` fixes the expected category
-per scenario and reads the expected code from the manifest; mock entries are external placeholders.
-The common value registry starts empty; a linked platform binding unit registers its own types.
-Mock bindings are development substitutes, not a second production contract. Keep row pairing
-and internal provenance; do not add an external request ID table.
+1. Define the complete external payload, cardinality, limits, failure behavior and ownership.
+   Reusing a host DTO does not establish compatible payload semantics. Demo must not select
+   business fields or assemble the SDK response.
+2. Keep platform types and layout access in the protocol shell/binding. Runtime receives neutral
+   options, inputs and outputs. Function table pointer types omit `noexcept`; entry implementations
+   retain `noexcept` and both standard and unknown exception barriers. Verify actual platform
+   declarations only in the authorized internal network under the root repository guardrails.
+3. Register each input/output converter with its typed ports, one host slot and immutable parameters.
+   The selected converter ports form Core's explicit boundary; avoid central business dispatch.
+4. Use the [row helpers](../../../../doc/dev_guide/business_onboarding.md#3-实现并注册转换器)
+   after the business-specific validation and alignment. Preserve original optional row positions,
+   diagnostics and whole-batch publication; do not retain host or request-local pointers.
+5. For a new layout, implement the binding's read/write, allocation, reset and budget callbacks
+   against actual capacity. Keep output leases and handle lifetime separate.
+6. Verify complete Operator responses, row association, invalid input and failure cleanup in the
+   existing Adapter/Operator suites. Layout or public entry changes also require ABI, ownership,
+   publication and shell-consistency evidence appropriate to the change.
 
-Integration resolves model `file` and `.File()` parameters relative to the Pipeline JSON
-directory before Core validation. Reject empty names, absolute/drive/UNC paths, every `..`
-component and symlink escape; allow missing files. Without a directory, check only the relative
-spelling. Resource existence is checked by the Model or Backend when it opens the file.
-
-Host keys are exactly `<prefix>.<type>`: the host-generated prefix is nonempty, dot-free and opaque
-to the runtime, which neither interprets nor synthesizes it. Each type appears at most once per
-direction (Prepare rejects repeats), so routing uses the type alone. Carriers that declare a
-service member additionally validate it before decoding. The batch bound is `min(max_frame_depth, 64)`.
-
-For one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows` from
-`converter_authoring.h`. Multiple logical streams and aggregations retain explicit algorithms.
-`SetInputValue<Host, Value>` copies validated carrier content into owned values; the input row
-callback receives `const Value&`, or `Value&` to move owned payloads. Output callbacks fill `Value*`,
-including ordinary `std::string` fields. After explicit validation and row alignment, multi-stream
-converters use `WriteOutputRows<Value>` with a row-index callback returning `AdapterStatus`.
-It preserves optional row positions and reports the written count only after all requested rows
-succeed. Both this helper and `EncodeResultRows` use `WriteOutputValue` to call the writer
-registered with `SetOutputValue<Host, Value>` using the leased pool specification.
-Bindings alone read/write platform members, string lengths, metadata and layouts.
-Internal `req_id` is the current Process batch row; `sub_id` tracks split items. Output views
-retain the original batch count, including absent optional slots; encoders restore row order
-from provenance and reject duplicate, missing or out-of-range results.
-Never retain host pointers across Process calls or store request-local pointers in pooled outputs.
-
-Every output string has an integer `<field>_max_bytes` parameter with minimum 1 and a valid default.
-Platform layouts declare only the hard maximum; Catalog/schema supplement the corresponding bound.
-Allocator name, allocator parameters and metadata count/type are fixed in the converter slot.
-`IoConverterRegistry::Audit()` checks all registrations and normalizes allocator parameters once,
-including unselected registrations. Create consumes those immutable results. Optional outputs
-always own pools and may omit host keys per row; their views retain batch row positions. All outputs
-are published together after successful encoding; failure returns all leases.
-
-The current mock platform has declarations in `include/platform_mock/`, traits and layout helpers
-in `adapter/operator/mock/platform_value_binding.h`, and bindings in `operator_builtin_value_types.cpp`.
-A different platform supplies its own binding files, reusing neutral Converter values when content
-semantics match. Register matching `value_type` through `SetInputValue` / `SetOutputValue`.
-Declare actual service members with
-`SetServiceTypeMember`; do not infer memory layouts. New nested layouts use
-`REGISTER_OPERATOR_OUTPUT_ALLOCATOR` and their own allocation/reset/budget implementation.
-See the output allocation guide for ownership and actual-platform acceptance limits.
-
-Use the existing Adapter/Operator/ABI tests, including converter contract tests, golden Operator
-results and the shell consistency suite. Cross-layer changes also read `orchestration.md`; new Nodes read `capability-nodes.md`.
-
-Converter ports are local logical names. Output entries connect every required port to
-`node.port` or `input.port`; callbacks read/write via `options.Port(logical_name)`. The immutable
-selection owns these mappings. Unreferenced input ports return an empty name and skip publication.
+Cross-layer work also reads [Orchestration](orchestration.md); new algorithms use the
+[Node skill](../../edgeflow-node-developer/SKILL.md). Verification follows
+[the shared workflow](verification.md), using the user's actual edited configuration.
