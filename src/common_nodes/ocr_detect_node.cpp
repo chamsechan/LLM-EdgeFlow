@@ -18,11 +18,9 @@ NodeResult<Outputs> Run(const Inputs& inputs, const Models& models) {
   if (!result.ok()) return NodeResult<Outputs>::Failure(result.failure());
   Outputs outputs;
   outputs.document = std::move(result).value();
-  outputs.text.reserve(outputs.document.size());
-  for (const auto& document : outputs.document) {
-    outputs.text.emplace_back(document.req_id, document.sub_id,
-                              document.data.combined_text);
-  }
+  outputs.text = MapPayloads(
+      outputs.document,
+      [](const OcrDocumentItem& document) { return document.combined_text; });
   return NodeResult<Outputs>::Success(std::move(outputs));
 }
 

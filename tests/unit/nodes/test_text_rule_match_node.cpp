@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "contracts/error_codes.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "tests/support/node_probe.h"
@@ -141,6 +142,32 @@ TEST(TextRuleMatchNodeTest,
   const auto* output = current.Read<RuleMatchBatch>("result");
   EXPECT_EQ((*output)[0].data.is_hit, 0);
   EXPECT_EQ((*output)[1].data.category, "new");
+}
+
+TEST(TextRuleMatchNodeTest,
+     RegexExecutionFailureAbortsBatchAndNamesFailedItemOnce) {
+  SessionContext session;
+  NodeProbe node;
+  ASSERT_TRUE(node.Init("text_rule_match",
+                        {{"rules",
+                          {{{"id", "limited"},
+                            {"strategy", "regex"},
+                            {"pattern", "(*LIMIT_MATCH=1)(?:a|b)+c"}}}}},
+                        session, {{"text", "input", ""}},
+                        {{"matches", "result", ""}}))
+      << node.diagnostic;
+  AlgContext context;
+  ASSERT_TRUE(
+      context.Publish("input", TextBatch{{4, 1, "plain"}, {4, 6, "ababdc"}}));
+  EXPECT_EQ(node.node->Process(&context), error::kRegexExecutionFailed);
+  EXPECT_FALSE(context.Has("result"));
+  const std::string message = context.GetErrorMessage();
+  EXPECT_NE(message.find("Regex execution failed for rule 'limited'"),
+            std::string::npos);
+  const std::string source = "req_id=4, sub_id=6";
+  const auto first = message.find(source);
+  ASSERT_NE(first, std::string::npos) << message;
+  EXPECT_EQ(message.find(source, first + 1), std::string::npos) << message;
 }
 }  // namespace
 }  // namespace llm_edgeflow

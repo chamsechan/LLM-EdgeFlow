@@ -90,83 +90,80 @@ struct Inputs {
   const TextBatch* text = nullptr;
 };
 
-NodeResult<RuleMatchBatch> Run(const Inputs& inputs, const Params& state) {
-  const auto* text_items = inputs.text;
-  RuleMatchBatch output_matches;
-  output_matches.reserve(text_items->size());
+NodeResult<RuleMatchItem> MatchSentence(const Params& state,
+                                        const std::string& sentence) {
+  RuleMatchItem result;
+  // 首个带类别的命中决定结果名称。
+  auto record_hit = [&](const std::string& category, const std::string& word,
+                        float score, const std::string& rule_id) {
+    result.is_hit = 1;
+    if (!result.category.empty()) return;
+    result.category = category;
+    result.matched_word = word;
+    result.score = score;
+    result.rule_id = rule_id;
+  };
 
-  for (const auto& item : *text_items) {
-    const std::string& sentence = item.data;
-    RuleMatchItem result;
-    // 首个带类别的命中决定结果名称。
-    auto record_hit = [&](const std::string& category, const std::string& word,
-                          float score, const std::string& rule_id) {
-      result.is_hit = 1;
-      if (!result.category.empty()) return;
-      result.category = category;
-      result.matched_word = word;
-      result.score = score;
-      result.rule_id = rule_id;
-    };
-
-    // 1. 匹配 categories (词表模式)
-    for (const auto& [category, words] : state.categories) {
-      for (const auto& w : words) {
-        if (w.empty()) continue;
-        if (sentence.find(w) != std::string::npos) {
-          record_hit(category, w, 1.0f, {});
-          result.matches.push_back(
-              {RuleMatchSource::kKeyword, category, {}, w, 1.0f});
-        }
+  // 1. 匹配 categories (词表模式)
+  for (const auto& [category, words] : state.categories) {
+    for (const auto& w : words) {
+      if (w.empty()) continue;
+      if (sentence.find(w) != std::string::npos) {
+        record_hit(category, w, 1.0f, {});
+        result.matches.push_back(
+            {RuleMatchSource::kKeyword, category, {}, w, 1.0f});
       }
     }
-
-    // 2. 匹配 rules (结构化规则模式，支持 regex, exact, contains)
-    for (const auto& rule : state.rules) {
-      bool rule_matched = false;
-      std::unordered_map<std::string, std::string> rule_captures;
-
-      if (rule.strategy == "regex") {
-        std::string diagnostic;
-        const TextRegexSearchStatus status =
-            rule.compiled_regex ? rule.compiled_regex->Search(
-                                      sentence, &rule_captures, &diagnostic)
-                                : TextRegexSearchStatus::kNotMatched;
-        if (status == TextRegexSearchStatus::kError) {
-          return NodeResult<RuleMatchBatch>::Failure(
-              "Regex execution failed for rule '" + rule.id +
-                  "': " + diagnostic,
-              error::kRegexExecutionFailed);
-        }
-        rule_matched = status == TextRegexSearchStatus::kMatched;
-      } else if (rule.strategy == "exact") {
-        if (sentence == rule.pattern) {
-          rule_matched = true;
-        }
-      } else {  // contains
-        if (sentence.find(rule.pattern) != std::string::npos) {
-          rule_matched = true;
-        }
-      }
-
-      if (rule_matched) {
-        record_hit(rule.category, rule.pattern, rule.score, rule.id);
-        for (const auto& [k, v] : rule_captures) result.slots[k] = v;
-        for (const auto& [k, v] : rule.constants) result.slots[k] = v;
-        result.matches.push_back({RuleMatchSource::kRule, rule.category,
-                                  rule.id, rule.pattern, rule.score});
-      }
-    }
-
-    if (!result.is_hit && !state.default_category.empty()) {
-      record_hit(state.default_category, "", state.default_score, {});
-      result.slots["raw_query"] = sentence;
-    }
-
-    output_matches.emplace_back(item.req_id, item.sub_id, std::move(result));
   }
 
-  return NodeResult<RuleMatchBatch>::Success(std::move(output_matches));
+  // 2. 匹配 rules (结构化规则模式，支持 regex, exact, contains)
+  for (const auto& rule : state.rules) {
+    bool rule_matched = false;
+    std::unordered_map<std::string, std::string> rule_captures;
+
+    if (rule.strategy == "regex") {
+      std::string diagnostic;
+      const TextRegexSearchStatus status =
+          rule.compiled_regex ? rule.compiled_regex->Search(
+                                    sentence, &rule_captures, &diagnostic)
+                              : TextRegexSearchStatus::kNotMatched;
+      if (status == TextRegexSearchStatus::kError) {
+        return NodeResult<RuleMatchItem>::Failure(
+            "Regex execution failed for rule '" + rule.id + "': " + diagnostic,
+            error::kRegexExecutionFailed);
+      }
+      rule_matched = status == TextRegexSearchStatus::kMatched;
+    } else if (rule.strategy == "exact") {
+      if (sentence == rule.pattern) {
+        rule_matched = true;
+      }
+    } else {  // contains
+      if (sentence.find(rule.pattern) != std::string::npos) {
+        rule_matched = true;
+      }
+    }
+
+    if (rule_matched) {
+      record_hit(rule.category, rule.pattern, rule.score, rule.id);
+      for (const auto& [k, v] : rule_captures) result.slots[k] = v;
+      for (const auto& [k, v] : rule.constants) result.slots[k] = v;
+      result.matches.push_back({RuleMatchSource::kRule, rule.category, rule.id,
+                                rule.pattern, rule.score});
+    }
+  }
+
+  if (!result.is_hit && !state.default_category.empty()) {
+    record_hit(state.default_category, "", state.default_score, {});
+    result.slots["raw_query"] = sentence;
+  }
+
+  return result;
+}
+
+NodeResult<RuleMatchBatch> Run(const Inputs& inputs, const Params& state) {
+  return MapPayloads(*inputs.text, [&state](const std::string& sentence) {
+    return MatchSentence(state, sentence);
+  });
 }
 
 auto Spec() {
