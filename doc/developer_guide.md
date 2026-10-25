@@ -1,94 +1,32 @@
 # LLM-EdgeFlow 开发者扩展指南
 
-本文说明各层的扩展接口。接口签名、Definition 和注册宏以头文件及现有实现为准。开发流程见
-[`CONTRIBUTING.md`](../CONTRIBUTING.md)，Agent 路由见 [`AGENTS.md`](../AGENTS.md)。
-
-先完成[Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排)。
-如果已有能力和外部契约满足需求，只需修改 Pipeline 和 `.conf`。Profile 可选。
-如果缺少业务算法，完成
-[自定义 Node 动手练习](dev_guide/first_custom_node.md)，按需查阅
-[Node 按需参考](dev_guide/custom_node_concepts.md)。初始参数与运行中调参见
-[Control 练习](dev_guide/first_control.md)，换模型后使用
-[原生部署解析](VERIFIABLE_SELECTION.md#替换模型后确认实际生效配置)检查实际路径与参数。平台结构转换见
-[业务接入指南](dev_guide/business_onboarding.md)，结果检查见
-[运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)。
-
-本页保留四层扩展边界与进阶接口查询。普通方案开发通常无需修改 Core、Model 或
-Backend。出现调度、模型语义或硬件能力缺口时，再查阅相应章节。
-
----
+按下表定位扩展责任。入门教程见[文档目录](README.md)，架构依赖见[架构指南](architecture.md)，
+开发与交付流程见 [CONTRIBUTING](../CONTRIBUTING.md)。接口签名以头文件和当前实现为准。
 
 ## 按职责选择扩展入口
 
 | 架构层 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
 | **接入适配层（Integration）** | 新增输入/输出结构、转换器与 I/O 参数 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER` |
-| **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
+| **流程编排层（Orchestration）** | 扩展配置校验、调度、类型黑板与会话资源 | `include/core/pipeline_validator.h`<br>`include/core/pipeline.h`<br>`include/core/alg_context.h`<br>`include/core/session_context.h` | `ValidatedPipelinePlan`<br>`AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
 | **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `MakeNodeSpec`<br>`REGISTER_FUNCTION_NODE(NodeName, spec)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
 
-## 1. 接入适配层：如何新增一个业务的 Operator 转换器
+## 1. 接入适配层：Operator 与业务转换
 
-分别注册 InputConverter 和 OutputConverter。不要在中央分发代码中增加业务分支。
+完整请求和响应由 Converter 处理；平台载体与内存布局由 binding 处理，Demo 负责调用和展示。
+按实际改动查阅对应指南：
 
-业务需求的输入输出以完整 Operator 请求/响应为准，由输入/输出转换器解包、转换和组装。
-即使复用同一个 DTO 结构，字符串内部协议变化仍可能需要转换器实现。不能用 Demo
-预处理或后处理补足 SDK 契约。职责划分与复用判断见
-[输入输出边界](dev_guide/business_onboarding.md)。
-
-### Operator 镜像结构与输出池扩展指南
-
-C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistry` 注册
-外部类型、规范后缀及校验/分配生命周期。binding 负责平台载体的读取、复制和容量检查，
-`InputConverter` 解析请求自有值，`OutputConverter` 组装完整响应后交给 binding 写入。
-Runtime 管理 Create 期输出池及 Process 期租约。每个方向按 `(type, name)` 登记，
-一份登记拥有一个宿主槽。注册审计检查全部转换器的端口、平台结构和参数声明。
-
-文本载体（`MockTextInput`、`MockString`）按 `length` 表达文本。Operator 输入校验拒绝原始嵌入 NUL，JSON 中
-转义的 NUL 可在解包后保留。输出按显式长度复制。
-外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期。
-销毁和释放顺序见[宿主调用与生命周期](dev_guide/operator_output_allocation.md#宿主调用与生命周期)。
-
-目标交付共享库为 `libllm_edgeflow_sdk.so`。共享库不带 SOVERSION，
-导出符号不带版本节点。
-其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口。
-仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
-Operator 的 Create 和配置预检都使用部署根 `model_path` 加相对
-`cfg_file_name`。每份 `.conf` 只含非空 `pipe_path`，解析结果留在该配置文件的目录内。
-Pipeline 根 `io.input` / `io.output` 以非空数组选择 `{type, name, params?}`。参数省略项使用转换器默认值。
-模型路径当前在 `models[].file` 中填写，主文件与声明的文件参数都以 Pipeline JSON 目录为基准，详见
-[配置路径](../configs/README.md#配置路径)。所选转换器的类型端口组成传给 Core 的明确边界。
-Demo 使用 `ResolveOperatorConfigIo` 查询载体与业务值，按结构名组合选择构造和展示。同一载体复用 Demo。
-每个输出字符串由转换器的 `MaxBytes` 参数声明默认容量，平台登记只保留硬上限。
-分配器、布局参数和 metadata 固定在槽声明中。审计归一化布局参数，Create 按 `Prepare` 后尺寸生成池规格。
-部署准备保留解析后的 Pipeline 与所选宿主/分配器绑定快照。计划解析复用这些结果，负责句柄预算、
-Core 静态计划和有效配置快照。SDK 与 CLI 共用这条准备路径，Process 直接使用已选绑定。
-可选输出也始终分配池。多项输出全部成功后发布，失败归还全部租约。
-完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
-
-### Adapter 实施检查表
-
-`InputConverter` 负责业务字段校验和选择。批次预检不能替代字段校验。
-共享 [`input_limits.h`](../include/adapter/input_limits.h) 的渠道和音频限制，
-显式部署限制可更严格。
-
-输出转换器的逻辑端口描述 Adapter 消费的内部值。普通一对一出口仍要求 `1:1 / preserve`。
-`cross_rerank` 的排名数组和 `dialogue_audit` 的首项选择使用 `N:1 / aggregate`。
-预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
-
-1. 当前环境的模拟平台枚举和数据结构放在 `platform_mock/operator_data_types.h` 与
-   `operator_types.h`，函数入口统一为 `edgeflow/operator/interface.h`。公开结构体变更须先完成
-   [契约设计评审](../CONTRIBUTING.md#3-design-and-current-contracts)。
-2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
-   `DecodeRequestRows` 等 helper 处理批次与发布。平台指针和长度校验由 binding 负责，
-   转换器负责业务字段语义。
-3. 在 `src/adapter/output/` 实现 `OutputConverter`，组装完整响应为中立值，通过 binding 写入已租用输出。
-4. 用 `(type, name)` 登记一个宿主槽与类型端口。配置选择输入/输出登记，接入准备组合
-   明确边界交给 Core。批次上限为 `min(max_frame_depth, 64)`。带业务成员的非 common 登记须声明期望值。
-
----
+| 修改内容 | 归属文档 |
+| --- | --- |
+| 新业务字段、InputConverter、OutputConverter 与 Demo 接入 | [业务接入](dev_guide/business_onboarding.md) |
+| 宿主类型、输出布局、容量与调用生命周期 | [输出池与宿主接口](dev_guide/operator_output_allocation.md) |
+| Runtime、协议壳与公开 ABI 边界 | [接入架构](architecture.md#统一-operator-门面与运行时架构) |
+| 公共头、内部头与构建组织 | [源码布局](dev_guide/source_layout.md) |
+| 部署及模型文件路径 | [配置路径](../configs/README.md#配置路径) |
+| 错误映射与日志 | [错误处理](dev_guide/error_handling.md) · [日志接口](logging.md) |
 
 ## 2. 流程编排层：Pipeline 与静态校验计划
 
@@ -126,59 +64,15 @@ Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64�
 
 ---
 
-## 3. 能力节点层：如何新增通用或自定义 Node
+## 3. 能力节点层：通用与自定义 Node
 
-先用 `alg_pipeline_tool catalog` 和 `describe-node` 查询能力。
-如果已有节点无法满足算法和端口要求，再新增 Node。编写 Node 时遵循以下规则：
+所有 Node 使用普通函数与同一 Spec 结构。领域算法放在 `src/custom_nodes/`，中立操作放在
+`src/common_nodes/`，均可跨方案复用。先查询目标构建的 Catalog，确认是否已有可用能力。
 
-- 通用操作放在 `src/common_nodes/`。领域算法与特定前后处理放在 `src/custom_nodes/`，
-  默认按操作命名文件，不按业务建目录。自定义 Node 同样可以被多个方案复用。
-- 通过统一 Spec 声明端口、参数和模型依赖，算法使用普通函数。`AuthorNode` 复用
-  `NodeBase` 的运行时异常屏障，不要求业务作者覆写生命周期。
-- 请求间通过各自的 `AlgContext` 隔离数据，临时值留在处理函数局部，不把请求数据保存为成员。
-  成员可持有配置和安全共享句柄。配置可初始化后固定，也可按
-  [Control 约定](dev_guide/first_control.md)安全更新，每次处理读取一致快照。
-- 使用 `REGISTER_FUNCTION_NODE`，由同一 Spec 生成完整 `NodeDefinition` 并注册。
-- 在 Catalog 可见，并覆盖非法配置、端口缺失/类型错误、输出、provenance 和并发声明。
-
-入门默认使用 [LLM 模板](../dev_support/node_authoring/starter_llm_node.cpp)：
-脚手架生成后，先编写 `BuildPrompt` 和 `FormatAnswer` 两个普通文本函数。端口、来源与生成参数
-处理保留在所有 Node 共用的统一结构中。完整步骤见[第一个自定义 Node](dev_guide/first_custom_node.md)。
-
-熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
-[`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
-LLM 采样参数复用 [`GenerateParameters()`](../include/nodes/generate_parameters.h)，默认值来自
-`GenerateOptions`，所有节点默认 `max_tokens = 128`。只有生成参数时直接用该声明。有自有字段时用
-`Parameters<Params>{Field(...)}.Include(&Params::generation, GenerateParameters())`。被并入字段
-在 JSON 中平铺，重名报错，其 `Prepare` / `Validate` 先于外层执行。生成字段是普通 `Field`，
-也可加入 `WithControls`。
-
-`llm_generate` 接收 `input`，要求非空 `endpoints` 映射。每个 endpoint 的 `prompt` 默认
-`{{input}}`，只允许这个变量。节点级生成选项由所有 endpoint 共用。`document` 始终为
-`{endpoint: 原文回答}`。单 endpoint 的 `text` 保留原文，多 endpoint 时为该对象的 JSON 文本。
-单 endpoint 的回答无法编码成 JSON（如非法 UTF-8）时，`text` 仍保留原始字节，`document`
-标记解析失败。多 endpoint 的 JSON 序列化失败时不发布输出。任何 endpoint 生成失败也不发布输出。
-输入生命周期来自计划。`FollowLifetime("text")` 声明
-输出跟随输入，`BindingFacts::InputLifetime` 用于派生缓存或共享候选行为。
-
-
-数组和映射参数使用 `std::vector<T>` / `std::map<std::string, T>`。结构体元素通过
-`.Items(Parameters<Element>{...})` 声明。`Range` / `Enum` 约束标量叶子，诊断路径包含元素
-下标或映射键。`nlohmann::json` 参数接受任意非 null JSON 值。字段赋值后，`Prepare` 构建
-模板片段或编译后的正则等派生状态，再执行语义和连线校验。
-
-模型槽写作 `Model("generator", "bind_model", &Models::generator)`，只有三个参数。引用
-`models[].name` 的说明由成员能力自动生成。字段控制命令 `ReplaceFields` 至少提供一个受控
-字段，只替换提供的字段。容器整体替换，重跑 `Prepare` / `Validate`，失败保持旧快照。
-所有参数更新用 `WithControls` 声明，参数格式从字段生成。模型引用不能受控。
-
-自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，与所有 Node 一样
-使用 `MakeNodeSpec`，无需新增专属基类。Spec 默认 `category = "custom"`。Node 不绑定特定业务。
-平台结构转换留在 Adapter，Core、Engine 和通用
-Node 不依赖自定义实现。编写、构建和复用步骤见
-[自定义 Node 接入指南](../src/custom_nodes/README.md)。
-
----
+- 首次实现：[自定义 Node 练习](dev_guide/first_custom_node.md)。
+- 端口、参数、模型、批次来源及并发：[Node 契约参考](dev_guide/custom_node_concepts.md)。
+- 运行中参数更新：[Control 练习](dev_guide/first_control.md)。
+- 源码收录、脚手架、快速测试和完整样例：[源码目录说明](../src/custom_nodes/README.md)。
 
 ## 4. 模型执行层：如何新增模型语义或推理 Backend
 
@@ -189,12 +83,11 @@ Node 不依赖自定义实现。编写、构建和复用步骤见
   `IGeneratedTokenEmbeddingSession` 等中立协议。
   `generated_text_embedding` 负责生成 token 向量的池化与归一化。Backend 只返回原始向量。
   `vision_document` 将 RGB8 像素帧预处理、补边和识别语义封装在 Model，Kite 类型仍只在 Backend 内出现。
-- **Backend** 封装 ONNX Runtime、llama.cpp、TensorRT 或 NPU SDK，加载后返回
+- **Backend** 封装 Inferlet、ONNX Runtime、llama.cpp、Kite、whisper.cpp 等运行时，加载后返回
   `IBackendSession`，不实现业务模型语义。
 
-如果只需切换硬件，新增 Backend。
-如果已有 Backend 协议支持新模型，只新增 Model。
-模型语义和厂商运行时分别保存在 Model 和 Backend。
+更换兼容权重、参数或已支持的设备，先调整配置。只有现有实现缺少所需模型语义时才新增 Model；
+只有需要接入新的厂商运行时或执行协议时才扩展 Backend。模型语义和厂商资源分别归属两者。
 
 Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议。Backend 实现
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整

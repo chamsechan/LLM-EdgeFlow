@@ -25,7 +25,7 @@ Pipeline 根 `io.input` / `io.output` 是至少含一项的数组。输入项只
 ```
 
 `.conf` 只包含 `{"pipe_path":"pipeline.json"}`。普通业务复用已登记的结构和转换器，仅覆盖必要参数。
-当前八类业务使用同一 `json_out` 类型，绑定到 `MockOutput` C 结构：
+现有业务使用同一 `json_out` 类型，绑定到 `MockOutput` C 结构：
 
 ```c
 typedef struct MockTextOutput {
@@ -245,6 +245,11 @@ Runtime 关闭后拒绝执行。`Close` 不能与执行并发。
 本节写给直接调用 SDK 的宿主程序。输出容量见本页[转换器与参数](#选择转换器与参数)，
 业务转换实现见[接入指南](business_onboarding.md)。
 
+函数表顺序为 `Init, Create, Control, Process, Destroy, DeInit`。
+`Create(void**, const void*)` 由协议壳按 `const CreateParam*` 读取参数；
+`Control(void*, int, void*)` 的整数对应 `ControlCommand`。具体声明见
+[`interface.h`](../../include/edgeflow/operator/interface.h)，宿主不要依赖内部 Runtime 类型。
+
 **调用前提。** `Process` 的输入、输出批次必须非空且帧数相等，单次批次不超过有效上限，
 超出时直接失败，Operator 不会自动拆批。每帧按所选转换器提供必需的输入槽和输出槽，可选槽按契约省略。
 提供的输出 key 预先存在且值为 null `shared_ptr`，不能传入上一批尚未释放的输出指针。
@@ -252,6 +257,7 @@ Runtime 关闭后拒绝执行。`Close` 不能与执行并发。
 不加载模型。批次有效上限为 `min(max_frame_depth, 64)`。池深 0 使用默认 25，硬上限为 1024。
 
 **借用输入与输出租约。** 文本载体（`MockTextInput`、`MockString`）按显式长度保存文本。
+输入校验拒绝原始嵌入 NUL；转换器和输出按显式长度处理，不静默截断。
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。库不跨调用保存输入指针。
 输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
 需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。

@@ -52,8 +52,8 @@
 
 架构图按用途区分：
 
-- 当前实现类图：[PlantUML 源文件](architecture_classes.puml) · [SVG](assets/architecture_class_diagram.svg)。
-- 当前配置与运行流程图：[PlantUML 源文件](architecture_flow.puml) · [SVG](assets/architecture_flow.svg)。区分创建期的准备与校验、请求期的解码与执行。
+- 主要类型与所有权：[PlantUML 源文件](architecture_classes.puml) · [SVG](assets/architecture_class_diagram.svg)。用于确认类型归属、持有关系和扩展边界。
+- 创建与请求时序：[PlantUML 源文件](architecture_flow.puml) · [SVG](assets/architecture_flow.svg)。用于区分创建时准备的资源和每次 Process 的执行步骤。
 - 首页工作原理图：[framework_overview.svg](assets/framework_overview.svg)，直接维护 SVG 源码。
 
 前两张 SVG 由 PlantUML `1.2024.7` 生成。修改对应源文件后运行：

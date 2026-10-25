@@ -1,14 +1,20 @@
 # 工作计划
 
-本目录只存放跨多个 PR、仍在进行中的工作计划，例如 RFC 和对应的详细设计。
+这里只保留尚未完成的工作及其验收要求。当前用法和契约见 [doc/](../doc/README.md)，
+设计讨论、已完成步骤和测试成绩通过 Git 与 PR 追溯。
 
-- [项目精简审查与实施计划](PROJECT_SIMPLIFICATION_PLAN.md)：汇总双方复核结论，按优先实施、补充建议、争议与待决策分组；优先项按九个阶段验收。
-- [测试体系重新设计与维护计划](TEST_SYSTEM_REDESIGN.md)：从当前生产职责重新确定必要测试，本地重新实施中。
-- [BPE 分词器与 Tensor Graph 文本生成 Model](BPE_TOKENIZER_TENSOR_LLM_PLAN.md)：通用 BPE 分词器（按组件参数区分，不按模型拆分）与 `tensor_causal_lm` Model，不新增 Backend；设计已定，未实施。
+| 未完成工作 | 范围 |
+| --- | --- |
+| [Tensor Graph 文本生成 Model](BPE_TOKENIZER_TENSOR_LLM_PLAN.md) | 复用已有 BPE 分词器，完成性能前置验证、Model 和端到端验收 |
+| [测试维护规模验收](TEST_SYSTEM_REDESIGN.md) | 按完整统计口径检查维护成本，在保持当前行为覆盖的前提下完成规模验收 |
 
-- **这里不是现行规则。** 现行的架构、契约和操作步骤以 [doc/](../doc/README.md) 及各自的指南为准。
-  计划中描述的状态，在对应 PR 合入之前都不成立。
-- **每份计划开头写明状态和基线。** 一个阶段完成后，把由此形成的规则写进对应的现行指南。
-- **最后一个阶段合入时，删除该计划。** 开发过程留在 Git 和 PR 记录中，不在这里归档。
-- **只涉及一个 PR 的设计，不在这里建文件。** 直接写在 PR 描述中，见
-  [CONTRIBUTING](../CONTRIBUTING.md#3-design-and-current-contracts)。
+待需求明确后再安排：
+
+- 多团队接入时确定 CODEOWNERS 与必需审查设置。
+- 根据开发者阅读需要决定是否将 CONTRIBUTING 改为中文，保持单一版本。
+- 开展真实开发者试用，方法见[验收范围与发布准备](../doc/VERIFIABLE_SELECTION.md#验收范围与发布准备)。
+- 出现真实跨请求状态业务时再设计状态接口、所有权和提交边界。
+
+计划只描述未交付工作，不构成现行能力承诺。恢复实施时先核对当前代码与约束。
+一个阶段完成后，将形成的规则写入所属指南；最后一个阶段合入后删除计划及本页入口。
+单个 PR 的设计直接写在变更说明中，流程见 [CONTRIBUTING](../CONTRIBUTING.md#3-design-and-current-contracts)。

@@ -152,6 +152,21 @@ Parameters<Params>{Field("prefix", &Params::prefix).Default("")}
 进一步转换时（例如把模板解析成片段），用 `Prepare`，参考
 [prompt_guided_llm](../../src/custom_nodes/prompt_guided_llm_node.cpp)。
 
+### 调用选项与通用文本生成
+
+`ValidateModels` 在参数解析、模型绑定后执行一次，用于检查显式选项，例如 ASR 的 `language`。
+LLM 的 `system_prompt`、`random_seed` 和 ASR 的 `language` 属于调用选项；Embedding 的
+归一化属于共享模型参数。文本 Backend 不支持固定种子时，由 Model 在每次非空调用告警并忽略，
+Node 不在 `ValidateModels` 中拒绝它。
+
+`llm_generate` 接收 `input`，要求非空 `endpoints` 映射。每个 endpoint 的 `prompt` 默认
+`{{input}}`，只允许这个变量。节点级生成选项由所有 endpoint 共用。`document` 始终为
+`{endpoint: 原文回答}`。单 endpoint 的 `text` 保留原文，多 endpoint 时为该对象的 JSON 文本。
+单 endpoint 的回答无法编码成 JSON（如非法 UTF-8）时，`text` 仍保留原始字节，`document`
+标记解析失败。多 endpoint 的 JSON 序列化失败时不发布输出。任何 endpoint 生成失败也不发布输出。
+输入生命周期来自计划。`FollowLifetime("text")` 声明
+输出跟随输入，`BindingFacts::InputLifetime` 用于派生缓存或共享候选行为。
+
 ## 3. Definition：让连线工具和运行器看懂你的操作
 
 `NodeDefinition` 描述节点的端口、参数和模型要求。Catalog、Validator 和 Studio 读取这些声明。
@@ -214,8 +229,23 @@ Parameters<Params>{
 `Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。结构体元素也按自己的声明补齐
 默认值、赋值，再运行元素的 `Prepare` / `Validate`。参数更新会复用这些规则重建并校验候选状态。
 
-复杂参数的完整例子见
-[复杂参数与派生状态](../../src/custom_nodes/README.md#复杂参数与派生状态)。
+### 复杂参数与派生状态
+
+字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 使用 UTF-8 字节预算，
+生成的 `max_tokens` 使用 token 数。字段 Control 复用 `Prepare` 构造候选，失败保持旧快照。
+模型引用字段不能受控。以下生产实现展示声明与派生状态的配合：
+
+[text_template](../../src/common_nodes/text_template_node.cpp) 在 `Prepare` 中编译模板，
+只允许已连接的 `primary`、`context`、`matches`、`document` 变量。未知变量或引用未连接端口
+在此拒绝。连接了端口但某请求没有数据时，该变量为空字符串。`update_prompt` 只替换 `template`。
+
+[text_rule_match](../../src/common_nodes/text_rule_match_node.cpp) 用映射声明 `categories`，
+用 `Field("rules", ...).Items(...)` 声明规则字段，并在元素的 `Prepare` 中编译正则。
+`update_rules` 整体替换给出的 `categories` 或 `rules`，省略的项保持原值。
+[structured_json_parse](../../src/common_nodes/structured_json_parse_node.cpp) 的 `fallback` 直接填写
+非 null JSON 值，例如 `{"fallback":{"category":"NONE"}}`。
+[text_corpus_source](../../src/common_nodes/text_corpus_source_node.cpp) 没有输入端口，`corpus` 必填，
+可以是空数组。生成参数的 `Include` 参考 [prompt_guided_llm](../../src/custom_nodes/prompt_guided_llm_node.cpp)。
 
 ## 改变数量或顺序时：来源编号
 

@@ -71,7 +71,7 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 }
 ```
 
-当前八类业务统一使用 `json_out` 输出类型与 `MockOutput` C 结构，
+现有业务统一使用 `json_out` 输出类型与 `MockOutput` C 结构，
 `name` 选择各业务的 JSON 响应契约。完整结果放在嵌套的 `MockTextOutput`，输出结构不暴露状态码。
 可选 `params` 只填写必要覆盖，未写字段用代码声明的默认值。统一输出只有
 `result_json_max_bytes` 容量参数，默认值与上限见[输出容量声明](../doc/dev_guide/operator_output_allocation.md#选择转换器与参数)，例如

@@ -142,6 +142,12 @@ Demo 从公开 SDK 预检获得载体、业务值与必需性，再选择对应�
    当前 `json_out` 直接用 `JsonOutputParameters()` 共享容量声明。其他输出的每个字符串字段使用
    `MaxBytes` 声明最小值 1 和默认尺寸，见第 6 节。
 
+转换器仍负责业务校验，批次预检不能替代字段校验。渠道和音频限额复用
+[`input_limits.h`](../../include/adapter/input_limits.h)，部署可设置更严格的限制。
+普通一对一输出声明 `1:1 / preserve`；rerank 排名数组和 audit 首项选择声明 `N:1 / aggregate`，
+打包时仍检查实际来源、排名和容量。回调通过 `options.Port(逻辑端口)` 读写，
+未引用的输入端口返回空名并跳过发布。
+
 ## 4. 需要新的宿主类型时
 
 多数业务复用已注册的宿主 binding 与中立 I/O 值，载荷协议变化只需修改 Converter。

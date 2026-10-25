@@ -10,15 +10,15 @@
 | Join、Group、Select、Scatter 与固定批执行 | `unit/nodes/test_traceable_batch_operations.cpp`、`unit/engine/test_batch_executor.cpp` |
 | Blackboard、注册、模型所有权与 Session 单次并发创建 | `unit/core/` 对应机制文件 |
 | 解析、Validator 计划、Pipeline 调度与失败处理 | `unit/core/test_pipeline_config.cpp`、`test_validated_pipeline_plan.cpp`、`test_dag_pipeline.cpp` |
-| 十二种真实 Node 的算法与业务参数 | `unit/nodes/test_*_node.cpp` |
-| 六种真实 Model 的输入构造、数值与输出解释 | `unit/engine/test_*_model.cpp` |
+| 真实 Node 的算法与业务参数 | `unit/nodes/test_*_node.cpp` |
+| 真实 Model 的输入构造、数值与输出解释 | `unit/engine/test_*_model.cpp` |
 | Backend 协议、加载、真实小图执行与可选权重 | `unit/engine/test_*_backend.cpp` |
 | 部署路径、Converter、行关联与槽位 | `unit/adapter/`、`integration/operator/test_io_parameters.cpp` |
 | Operator 失败阶段与类别判定 | `unit/operator/test_operator_failure_category.cpp` |
 | 输出池与租约 | `unit/operator/` |
 | 六个公共入口与 `ResolveOperatorConfigIo` 的壳无关行为、错误码镜像清单与违约自测 | `contract/operator_shell/`；驱动与清单在 `contract/operator_shell/<shell>/` |
 | 所选壳的载体读取、路由、发布、原生 binding、边界日志格式与诊断文字 | `unit/operator/operator_shell/<shell>/` |
-| 八种业务的完整请求及响应 | `integration/operator/operator_shell/<shell>/` |
+| 各业务的完整请求及响应 | `integration/operator/operator_shell/<shell>/` |
 | Demo 载体构造与展示 | `integration/demo/operator_shell/<shell>/` |
 | SDK 消费者、CLI、Studio、Demo、脚手架与工程契约 | `contract/`、`tooling/`、`integration/demo/`、`integration/pipeline/` |
 | 真实权重的物理执行 | `e2e/real_models/`，显式开启 |
@@ -77,8 +77,9 @@ ELF 的 `posix_memalign` 故障包装仅在 Tensor 测试链接时启用。
 调用发起信号和超时断言表明观察期间操作未完成，不证明线程已到达某个内部等待位置。
 这些断言验证观察窗口内的外部行为，不依赖内部 waiter 数。
 
-默认构建执行 ONNX Runtime 小图和 llama.cpp 的实际加载失败路径。没有 GGUF 时，物理生成
-用例明确跳过。`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
+默认开发门禁使用 `dev-gate`（Inferlet）。ONNX Runtime、llama.cpp 和 Whisper 由显式
+`full-cpu` 构建覆盖；构建选择见[构建变体](../doc/VERIFIABLE_SELECTION.md#构建变体)。
+没有所需权重时，可选物理生成用例明确跳过。`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
 Backend 资产。`EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 指向含 `.eftok` 文件的目录（见[配置说明](../configs/README.md#分词器资产onnx-llm)）时，
 BPE 分词器测试额外对照 Hugging Face 的样例 ID。可选 E2E 用 `ENABLE_REAL_MODEL_TESTS=ON` 开启，并使用仓库固定权重和 PCM。
 Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright。可另设 `STUDIO_CHROMIUM_PATH`。
@@ -89,27 +90,9 @@ Studio 浏览器用 `STUDIO_PLAYWRIGHT_MODULE` 指定 Playwright。可另设 `ST
 
 ## 维护成本
 
-人工维护范围的统计值为 **22,465 行**，包含注释和空行，同一文件只计一次。
-第三方、构建产物、生成输出和二进制资产不计。生成器及手写模板计入。
-这仍比设计预算上沿 20,200 行多 **2,265 行**，规模验收尚未达标。
+统计人工维护的测试源码、helper、假模型、文本场景、测试脚本、生成器、手写模板与构建配置，
+包括 `tests/` 之外的测试支持。计入注释和空行，同一代码只计一次；第三方、构建产物、生成输出
+和二进制资产不计入。通用生产工具只计测试专用部分。资产大小另列，不能通过搬目录、压缩
+预期数据或压行降低统计值。
 
-| 范围 | 行数 |
-| --- | ---: |
-| 单元测试与工程、SDK 契约 | 14,428 |
-| 集成与工具入口测试 | 3,490 |
-| 可选真实权重 E2E | 170 |
-| helper、文本夹具、测试构建/发现配置与测试访问声明 | 1,413 |
-| Demo mock 场景、dev_support 替身与作者模板 | 1,757 |
-| ONNX 生成器与脚手架测试模板 | 306 |
-| 门禁、专项执行、资产获取脚本、sanitizer 配置与 CI | 901 |
-| **合计** | **22,465** |
-
-`tests/`、`dev_support/` 和 `demo/fixtures/mock/` 的人工代码与文本配置全部计入。
-脚本计入 `generate_test_onnx_model.py`、`run_all_tests.sh`、`run_sanitizers.sh`、
-`run_real_model_e2e.sh`、`fetch_real_test_models.sh` 以及完整 `ci.yml`。
-另计 `ubsan_suppressions.txt` 4 行、`GoogleTest.cmake` 75 行、
-`LayerHeaderViews.cmake` 的测试编译清单生成函数及其说明 31 行、根 CMake 的测试接线
-6 行，以及生产源码中仅服务测试的注册表访问声明 16 行。
-通用生产工具只计其测试专用部分：`scaffold_custom_node.py` 中
-`render_standalone_test` 的完整函数，共 165 行。Markdown 使用指南属于文档。
-后续调整仍使用这一口径，不将 mock 场景、共享 helper 或模板移出统计范围。
+统计结果附当前提交和范围，放入该次变更说明；日常指南不维护固定行数和历史测试成绩。

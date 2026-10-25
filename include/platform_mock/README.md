@@ -25,7 +25,7 @@ mock 输入输出载体不包含请求 ID 字段。`Process` 以输入输出 vec
 root、data pool、文本长度，再复制到中立 `TextInputValue`。文本 envelope 不带 `service_type`，
 其他业务输入仍带 `service_type`。
 
-当前八类业务共用输出 `MockOutput{type=kMockOutputOc, service_type, text}`：`text` 指向
+现有业务共用输出 `MockOutput{type=kMockOutputOc, service_type, text}`：`text` 指向
 `MockTextOutput`，承载完整 JSON 响应。root、嵌套文本和 `result_json_max_bytes + 1` 字节缓冲区
 同属一个池化 block；容量只来自外部参数，不出现在结构中。复用前清空 `length` 与首字节，
 写入超容量即失败，不写入部分内容；一次 `Process` 的所有输出全部成功后统一发布，任一失败则全部

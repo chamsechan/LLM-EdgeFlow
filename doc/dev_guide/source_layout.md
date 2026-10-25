@@ -107,7 +107,7 @@ Engine 的 `backends/` 单独归 Backend 目标。Adapter 的 `shared_algorithm_
 include/edgeflow/                 SDK 调用接口
   export.h / log.h
   operator/interface.h
-  operator/types.h                Company* 数据 DTO 门面
+  operator/types.h                Mock* 数据 DTO 门面
 include/platform_mock/            本地平台公共定义模拟
   log.h                          日志等级与简化打印宏，由 edgeflow/log.h 转发
   error_codes.h
@@ -256,12 +256,12 @@ SDK 调用代码使用以下 `edgeflow/` 前缀入口：
 | `edgeflow/export.h` | 符号可见性宏 |
 | `edgeflow/log.h` | 统一日志转发入口，当前使用 `platform_mock/log.h` 开发替身 |
 | `edgeflow/operator/interface.h` | C++ Operator 接口及函数表 |
-| `edgeflow/operator/types.h` | `Company*` 数据 DTO 门面（转发至 `platform_mock/operator_data_types.h`） |
+| `edgeflow/operator/types.h` | `Mock*` 数据 DTO 门面（转发至 `platform_mock/operator_data_types.h`） |
 
-`Company*`、公共宏、C++ Operator 公开函数签名、结构布局及所选 SDK 产物名称
-属于调用契约。内部扩展统一使用 `NodeRegistry`。
+当前开发构建的 `Mock*` 类型、公共宏、C++ Operator 公开函数签名、结构布局及 SDK 产物名称
+共同构成该构建的调用契约，不代表真实公司 SDK 的定义。内部扩展统一使用 `NodeRegistry`。
 
-`edgeflow/operator/types.h` 仅转发 `platform_mock/operator_data_types.h` 中的 `Company*`
+`edgeflow/operator/types.h` 仅转发 `platform_mock/operator_data_types.h` 中的 `Mock*`
 数据 DTO。计算平台、Control 参数、命名 I/O 与函数表类型定义在
 `platform_mock/operator_types.h`，由 `edgeflow/operator/interface.h` 引入。错误码来自
 `platform_mock/error_codes.h`。
