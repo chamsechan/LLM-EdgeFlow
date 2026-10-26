@@ -8,26 +8,29 @@ if(NOT LLM_EDGEFLOW_SDK_OUTPUT_NAME MATCHES "^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
   message(FATAL_ERROR
       "LLM_EDGEFLOW_SDK_OUTPUT_NAME must be a nonempty library base name, not a path")
 endif()
-add_library(alg_sdk SHARED
-    $<TARGET_OBJECTS:edgeflow_model_execution_objects>
-    $<TARGET_OBJECTS:edgeflow_model_execution_backends_objects>
-    $<TARGET_OBJECTS:edgeflow_capability_nodes_objects>
-    $<TARGET_OBJECTS:edgeflow_orchestration_objects>
-    $<TARGET_OBJECTS:edgeflow_integration_objects>
-    $<TARGET_OBJECTS:edgeflow_composition_objects>)
+add_library(alg_sdk SHARED ${edgeflow_runtime_object_files})
 add_library(llm_edgeflow::sdk ALIAS alg_sdk)
 target_link_libraries(alg_sdk
     PUBLIC edgeflow_public_headers
     PRIVATE edgeflow_runtime_dependencies)
-if(UNIX AND NOT APPLE)
-  target_link_options(alg_sdk PRIVATE
-      "LINKER:--version-script=${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}")
-  set_target_properties(alg_sdk PROPERTIES
-      LINK_DEPENDS "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}")
-endif()
+target_link_options(alg_sdk PRIVATE ${LLM_EDGEFLOW_SDK_LINK_OPTIONS})
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "${LLM_EDGEFLOW_SDK_OUTPUT_NAME}"
+    LINK_DEPENDS "${LLM_EDGEFLOW_SDK_EXPORT_FILE}"
 )
+
+# Demo、CLI 和测试共享的 Profile 字段头。
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/demo/common/profile_fields.json")
+file(READ "${PROJECT_SOURCE_DIR}/demo/common/profile_fields.json"
+    LLM_EDGEFLOW_DEMO_PROFILE_FIELDS)
+configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake_ext/templates/demo_profile_fields.h.in"
+    "${PROJECT_BINARY_DIR}/generated/internal/demo/common/demo_profile_fields.h"
+    @ONLY)
+add_library(edgeflow_demo_profile_fields INTERFACE)
+target_include_directories(edgeflow_demo_profile_fields INTERFACE
+    "${PROJECT_BINARY_DIR}/generated/internal")
 
 add_subdirectory(dev_support)
 add_subdirectory(demo)

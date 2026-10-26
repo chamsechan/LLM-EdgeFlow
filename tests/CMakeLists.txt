@@ -12,26 +12,22 @@ add_library(edgeflow_test_allocation_failure OBJECT
 target_include_directories(edgeflow_test_allocation_failure PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/support")
 
-if(UNIX AND NOT APPLE)
-  add_test(
-    NAME SdkExportSurfaceTest
-    COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_sdk_exports.sh
-            $<TARGET_FILE:alg_sdk>)
-  set_tests_properties(SdkExportSurfaceTest PROPERTIES
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-    LABELS "tier2;static-gate;dev-fast;sanitizer-compatible")
-endif()
+add_test(
+  NAME SdkExportSurfaceTest
+  COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_sdk_exports.sh
+          $<TARGET_FILE:alg_sdk> ${LLM_EDGEFLOW_BINARY_FORMAT} ${CMAKE_NM})
+set_tests_properties(SdkExportSurfaceTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "tier2;static-gate;dev-fast;sanitizer-compatible")
 
 # 校验一致性测试使用确定性注册，不污染生产 CLI 或共享 SDK。
 add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/cli/alg_pipeline_tool.cpp
   $<TARGET_OBJECTS:edgeflow_demo_fixture_models>)
 target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime
-  edgeflow_pipeline_tooling)
+  edgeflow_pipeline_tooling edgeflow_demo_profile_fields)
 target_compile_definitions(alg_pipeline_tool_test PRIVATE
   LLM_EDGEFLOW_TOOL_HAS_TEST_REGISTRATIONS=1)
-target_include_directories(alg_pipeline_tool_test PRIVATE
-  "${PROJECT_BINARY_DIR}/generated/internal")
 
 # GNU 兼容的链接包装仅限于现有的模型测试 runner。
 function(edgeflow_enable_aligned_allocation_failure target_name)

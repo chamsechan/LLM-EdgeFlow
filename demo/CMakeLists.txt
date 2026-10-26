@@ -8,9 +8,8 @@ file(GLOB_RECURSE EDGEFLOW_DEMO_SHELL_SOURCES CONFIGURE_DEPENDS
 list(APPEND EDGEFLOW_DEMO_SOURCES ${EDGEFLOW_DEMO_SHELL_SOURCES})
 add_library(edgeflow_demo_objects OBJECT ${EDGEFLOW_DEMO_SOURCES})
 target_link_libraries(edgeflow_demo_objects PRIVATE
-  edgeflow_internal_headers llm_edgeflow::internal_runtime edgeflow_stb_image)
-target_include_directories(edgeflow_demo_objects PRIVATE
-  "${PROJECT_BINARY_DIR}/generated/internal")
+  edgeflow_internal_headers llm_edgeflow::internal_runtime edgeflow_stb_image
+  edgeflow_demo_profile_fields)
 
 add_executable(alg_demo
   main.cpp

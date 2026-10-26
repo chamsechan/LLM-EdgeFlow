@@ -31,6 +31,7 @@ LLM-EdgeFlow 用算法节点处理规则、检索、文本、图像和语音。P
 ## 快速开始
 
 本例使用 Linux CPU 环境。在仓库根目录执行所有命令。
+macOS Apple Silicon（含 M3）使用 `macos-arm64-cpu` 预设，见[跨平台构建](doc/VERIFIABLE_SELECTION.md#跨平台构建)。
 构建需要 C++17 编译器、CMake 3.19+、Ninja、Python 3 和 Git。
 首次构建需要联网下载固定版本的依赖。模型权重需单独准备。
 
@@ -44,7 +45,7 @@ cmake --preset=inferlet-cpu -B build
 cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --parallel 4
 ```
 
-默认构建只启用 Inferlet，也可运行无需模型的示例。其他 Backend 须按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
+Linux 默认构建只启用 Inferlet，也可运行无需模型的示例。其他 Backend 须按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)
 显式启用；使用 Inferlet 在 CPU 上验证时见 [Inferlet 接入](doc/VERIFIABLE_SELECTION.md#inferlet-cpu-验证)。
 主要产物如下：
 

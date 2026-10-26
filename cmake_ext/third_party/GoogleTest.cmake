@@ -1,49 +1,32 @@
-# cmake_ext/third_party/GoogleTest.cmake
 # Google Test (GTest) 智能缓存与预编译复用配置
 
-set(GTEST_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/googletest")
 option(GTEST_FORCE_REBUILD "Force rebuilding googletest even if cached in 3rdparty" OFF)
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME googletest
   VERSION 1.14.0
   SOURCE_SHA256 8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
-  CACHE_DIR "${GTEST_3RDPARTY_DIR}"
+  CACHE_DIR "${CMAKE_SOURCE_DIR}/3rdparty/googletest"
   KIND STATIC
-  ABI_OPTIONS BUILD_GMOCK=OFF GTEST_FORCE_SHARED_CRT=ON
+  ABI_OPTIONS BUILD_GMOCK=OFF
+  REQUIRED_FILES lib/libgtest.a lib/libgtest_main.a include/gtest/gtest.h
+  OUT_CACHE_DIR GTEST_3RDPARTY_DIR
   OUT_VALID _GTEST_CACHE_VALID
   OUT_MARKER _GTEST_CACHE_MARKER)
 
-if(_GTEST_CACHE_VALID AND
-   EXISTS "${GTEST_3RDPARTY_DIR}/lib/libgtest.a" AND
-   EXISTS "${GTEST_3RDPARTY_DIR}/lib/libgtest_main.a" AND
-   EXISTS "${GTEST_3RDPARTY_DIR}/include/gtest/gtest.h" AND
-   NOT GTEST_FORCE_REBUILD)
+if(_GTEST_CACHE_VALID AND NOT GTEST_FORCE_REBUILD)
   message(STATUS "[3rdparty] Using cached GoogleTest from ${GTEST_3RDPARTY_DIR}")
   find_package(Threads REQUIRED)
-
-  if(NOT TARGET GTest::gtest)
-    add_library(GTest::gtest STATIC IMPORTED GLOBAL)
-    set_target_properties(GTest::gtest PROPERTIES
-      IMPORTED_LOCATION "${GTEST_3RDPARTY_DIR}/lib/libgtest.a"
-      INTERFACE_INCLUDE_DIRECTORIES "${GTEST_3RDPARTY_DIR}/include"
-      INTERFACE_LINK_LIBRARIES "Threads::Threads"
-    )
-  endif()
-  if(NOT TARGET GTest::gtest_main)
-    add_library(GTest::gtest_main STATIC IMPORTED GLOBAL)
-    set_target_properties(GTest::gtest_main PROPERTIES
-      IMPORTED_LOCATION "${GTEST_3RDPARTY_DIR}/lib/libgtest_main.a"
-      INTERFACE_INCLUDE_DIRECTORIES "${GTEST_3RDPARTY_DIR}/include"
-      INTERFACE_LINK_LIBRARIES "GTest::gtest"
-    )
-  endif()
-  if(NOT TARGET gtest)
-    add_library(gtest ALIAS GTest::gtest)
-  endif()
-  if(NOT TARGET gtest_main)
-    add_library(gtest_main ALIAS GTest::gtest_main)
-  endif()
+  add_library(GTest::gtest STATIC IMPORTED GLOBAL)
+  set_target_properties(GTest::gtest PROPERTIES
+    IMPORTED_LOCATION "${GTEST_3RDPARTY_DIR}/lib/libgtest.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${GTEST_3RDPARTY_DIR}/include"
+    INTERFACE_LINK_LIBRARIES Threads::Threads)
+  add_library(GTest::gtest_main STATIC IMPORTED GLOBAL)
+  set_target_properties(GTest::gtest_main PROPERTIES
+    IMPORTED_LOCATION "${GTEST_3RDPARTY_DIR}/lib/libgtest_main.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${GTEST_3RDPARTY_DIR}/include"
+    INTERFACE_LINK_LIBRARIES GTest::gtest)
 else()
   include(FetchContent)
   FetchContent_Declare(
@@ -52,24 +35,15 @@ else()
     URL_HASH SHA256=8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
     ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
-
-  # 防止覆盖父项目的编译器/运行时设置
-  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
   set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-
   FetchContent_MakeAvailable(googletest)
 
-  # 自动归档构建出的 libgtest.a / libgtest_main.a 和头文件到 3rdparty/googletest
-  add_custom_target(archive_googletest_to_3rdparty ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${GTEST_3RDPARTY_DIR}/lib" "${GTEST_3RDPARTY_DIR}/include"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:gtest>" "${GTEST_3RDPARTY_DIR}/lib/"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:gtest_main>" "${GTEST_3RDPARTY_DIR}/lib/"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${googletest_SOURCE_DIR}/googletest/include/gtest" "${GTEST_3RDPARTY_DIR}/include/gtest"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_GTEST_CACHE_MARKER}" "${GTEST_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
+  edgeflow_publish_third_party_cache(googletest
+    CACHE_DIR "${GTEST_3RDPARTY_DIR}" MARKER "${_GTEST_CACHE_MARKER}"
     DEPENDS gtest gtest_main
-    COMMENT "[3rdparty] Archiving GoogleTest static libraries to ${GTEST_3RDPARTY_DIR}"
-  )
+    LIBRARIES "$<TARGET_FILE:gtest>" "$<TARGET_FILE:gtest_main>"
+    HEADER_DIRS "${googletest_SOURCE_DIR}/googletest/include")
 endif()
 
 include(GoogleTest)

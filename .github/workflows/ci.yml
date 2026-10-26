@@ -91,6 +91,79 @@ jobs:
           key: ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
           prefix: ccache-${{ runner.os }}-${{ github.ref }}-
 
+  macos-arm64:
+    name: macOS arm64 CPU SDK & Runtime
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      LLM_EDGEFLOW_BUILD_PRESET: macos-arm64-cpu
+      LLM_EDGEFLOW_LINKER: system
+      LLM_EDGEFLOW_JOBS: "3"
+      CLANG_FORMAT: clang-format
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up native Apple Silicon tools
+        run: |
+          test "$(uname -m)" = arm64
+          python -m pip install cmake==3.28.4 ninja==1.11.1.1 clang-format==18.1.8 jsonschema==4.23.0
+          xcrun --show-sdk-path
+      - name: Cache verified macOS dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/googletest
+            3rdparty/pcre2
+            3rdparty/llama_cpp
+            3rdparty/whisper_cpp
+            3rdparty/onnxruntime
+            3rdparty/nlohmann_json
+            3rdparty/stb_image
+          key: 3rdparty-macos-arm64-${{ hashFiles('cmake_ext/**/*.cmake', 'CMakePresets.json') }}
+      - name: Run the canonical gate including dylib exports
+        run: ./scripts/run_all_tests.sh
+      - name: Cache pinned GGUF
+        uses: actions/cache@v4
+        with:
+          path: configs/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          key: qwen2.5-0.5b-q4-k-m-configs-v1-74a4da8c9fdb
+      - name: Run real GGUF through the public Operator on arm64
+        run: |
+          ./scripts/fetch_real_test_models.sh --gguf-only
+          cmake --preset=macos-arm64-cpu -B build -DENABLE_REAL_MODEL_TESTS=ON
+          cmake --build build --target test_real_models_e2e --parallel 3
+          ./build/test_real_models_e2e --gtest_filter=RealModelExecutionTest.GgufTranslationTraversesPublicOperatorWithActualWeights
+
+  linux-arm64-cross:
+    name: Linux arm64 Cross Compilation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-build-env
+        with:
+          packages: build-essential cmake ninja-build:ninja gcc-aarch64-linux-gnu:aarch64-linux-gnu-gcc g++-aarch64-linux-gnu:aarch64-linux-gnu-g++
+      - name: Build and inspect the arm64 SDK without host execution
+        run: |
+          cmake --preset=linux-arm64-cross
+          cmake --build build/variants/linux-arm64-cross --target alg_sdk --parallel 4
+          aarch64-linux-gnu-readelf -h build/variants/linux-arm64-cross/libllm_edgeflow_sdk.so | grep 'Machine:.*AArch64'
+      - name: Verify the pinned Inferlet target package compiles and links
+        run: |
+          cmake --preset=linux-arm64-cross -B build/variants/linux-arm64-inferlet -DENABLE_INFERLET=ON
+          cmake --build build/variants/linux-arm64-inferlet --target alg_sdk --parallel 4
+          aarch64-linux-gnu-readelf -h build/variants/linux-arm64-inferlet/libllm_edgeflow_sdk.so | grep 'Machine:.*AArch64'
+
   sanitizer:
     name: Production Backends ASan & UBSan
     runs-on: ubuntu-latest
@@ -450,7 +523,7 @@ jobs:
   acceptance-evidence:
     name: Exact-SHA Acceptance Evidence
     if: always()
-    needs: [build-and-test, sanitizer, real-c-abi-and-profile, whisper-asr, kite-llm]
+    needs: [build-and-test, macos-arm64, linux-arm64-cross, sanitizer, real-c-abi-and-profile, whisper-asr, kite-llm]
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -462,6 +535,8 @@ jobs:
         env:
           WHISPER_GATE_RESULT: ${{ needs.whisper-asr.result }}
           KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}
+          MACOS_ARM64_GATE_RESULT: ${{ needs.macos-arm64.result }}
+          LINUX_ARM64_CROSS_GATE_RESULT: ${{ needs.linux-arm64-cross.result }}
         run: |
           git fetch origin main --quiet
           ./scripts/generate_acceptance_evidence.sh \
@@ -480,6 +555,8 @@ jobs:
       - name: Enforce Required Job Results
         if: >-
           needs.build-and-test.result != 'success' ||
+          needs.macos-arm64.result != 'success' ||
+          needs.linux-arm64-cross.result != 'success' ||
           needs.sanitizer.result != 'success' ||
           needs.real-c-abi-and-profile.result != 'success' ||
           needs.whisper-asr.result != 'success' ||

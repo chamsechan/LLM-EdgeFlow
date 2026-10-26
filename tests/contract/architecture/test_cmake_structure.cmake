@@ -18,6 +18,7 @@ endforeach()
 # 检查模块装配顺序，不绑定目标定义的行号或具体格式。
 string(REGEX MATCHALL "cmake_ext/[A-Za-z0-9_./]+\\.cmake" modules "${root}")
 set(expected_modules
+    cmake_ext/PlatformOptions.cmake
     cmake_ext/BackendOptions.cmake
     cmake_ext/ProjectSetup.cmake
     cmake_ext/Dependencies.cmake
@@ -33,6 +34,11 @@ foreach(module IN LISTS modules)
   string(REGEX REPLACE "#[^\n]*" "" content "${content}")
   if(content MATCHES "DH_[A-Za-z_]+|\\$\\{(platform|sdk)\\}|cmake/(utils|common)\\.cmake")
     message(FATAL_ERROR "Project modules must not infer internal host build context: ${module}")
+  endif()
+  # 静态依赖策略只在 ProjectSetup 确定，不能随前一个依赖是否命中缓存而变化。
+  if(NOT module MATCHES "/ProjectSetup\\.cmake$" AND
+     content MATCHES "set[ \t\n]*\\([ \t\n]*BUILD_SHARED_LIBS[ \t\n)]")
+    message(FATAL_ERROR "Only ProjectSetup.cmake may set BUILD_SHARED_LIBS: ${module}")
   endif()
 endforeach()
 

@@ -69,7 +69,7 @@ if [[ -d "${PROJECT_ROOT}/build/_deps/googletest-src" ]]; then
     -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="${PROJECT_ROOT}/build/_deps/googletest-src"
   )
 fi
-PRESET=dev-gate
+PRESET="${LLM_EDGEFLOW_BUILD_PRESET:-dev-gate}"
 if [[ "${MODE}" == "fast" ]]; then
   PRESET=minimal
 fi
@@ -133,8 +133,7 @@ else
   fi
 fi
 
-export LD_LIBRARY_PATH="${PROJECT_ROOT}/3rdparty/onnxruntime/lib:${BUILD_DIR}:${BUILD_DIR}/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
-export DYLD_LIBRARY_PATH="${PROJECT_ROOT}/3rdparty/onnxruntime/lib:${BUILD_DIR}:${BUILD_DIR}/_deps/onnxruntime_prebuilt-src/lib:${DYLD_LIBRARY_PATH:-}"
+# 目标链接携带实际选中依赖的 build RPATH，无需猜测缓存布局。
 export LLM_EDGEFLOW_PIPELINE_TOOL="${BUILD_DIR}/alg_pipeline_tool"
 export LLM_EDGEFLOW_DEMO_BINARY="${BUILD_DIR}/alg_demo"
 

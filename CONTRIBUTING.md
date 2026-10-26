@@ -168,6 +168,11 @@ Finish the intended changes and durable documentation, then choose the gate entr
 ./scripts/run_all_tests.sh
 ```
 
+On macOS Apple Silicon, select the native CPU preset through the same entrypoint:
+`LLM_EDGEFLOW_BUILD_PRESET=macos-arm64-cpu ./scripts/run_all_tests.sh`.
+The gate always enables tests; a cross-compilation preset cannot substitute
+for native execution. See [platform builds](doc/VERIFIABLE_SELECTION.md#跨平台构建).
+
 - When the user has authorized PR delivery or merge, use the delivery script in section 7.
   It runs this same gate before committing and pushing; do not run a separate full gate first.
 

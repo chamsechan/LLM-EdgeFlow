@@ -14,6 +14,4 @@ target_link_libraries(alg_show PRIVATE
 
 add_executable(alg_pipeline_tool alg_pipeline_tool.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE
-  edgeflow_pipeline_tooling)
-target_include_directories(alg_pipeline_tool PRIVATE
-  "${PROJECT_BINARY_DIR}/generated/internal")
+  edgeflow_pipeline_tooling edgeflow_demo_profile_fields)

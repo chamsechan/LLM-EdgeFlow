@@ -38,20 +38,32 @@
 
 | 模块 | 职责 |
 | :--- | :--- |
-| `BackendOptions.cmake` | Backend 开关与互斥检查；默认 Inferlet，其他引擎显式启用，在依赖获取前校验 |
-| `ProjectSetup.cmake` | 编译标准、警告、PIC、sanitizer、内部生成头与导出符号脚本，Operator 壳选择，以及 public/extension/internal 头目标 |
+| `PlatformOptions.cmake` | 解析目标 OS/架构，校验 preset 和交叉编译执行边界；在依赖获取之前拒绝不支持的组合 |
+| `BackendOptions.cmake` | Backend 开关、平台限制与互斥检查；Linux 默认 Inferlet，macOS 默认 llama.cpp CPU |
+| `ProjectSetup.cmake` | 集中编译选项、第三方静态依赖策略与 SDK 导出规则，选择 Operator 壳，创建分层头视图及 public/extension/internal 头目标 |
 | `Dependencies.cmake` | 聚合项目依赖；每个依赖独立维护 |
 | `RuntimeGraph.cmake` | 各层依赖与 OBJECT 目标、Backend 能力接线，加载 `src/` |
-| `ProductTargets.cmake` | SDK 产物与版本脚本、输出路径、Demo、CLI 和测试入口 |
+| `ProductTargets.cmake` | SDK 产物、输出路径、Demo Profile 字段头、Demo、CLI 和测试入口 |
 
-`cmake_ext/` 根目录只保留上述五个入口，其余文件按职责归类：
+`cmake_ext/` 根目录只保留上述六个入口，其余文件按职责归类：
 
 | 子目录 | 内容 |
 | :--- | :--- |
 | `engines/` | 推理运行时的依赖接入模块 |
-| `third_party/` | JSON、PCRE2、stb_image、GoogleTest 等通用依赖，以及引擎和通用依赖共用的缓存元数据工具 |
-| `support/` | 构建加速、Operator 壳选择、分层头文件视图，以及与视图模块一起维护的 Node 契约清单 |
+| `third_party/` | JSON、PCRE2、stb_image、GoogleTest 等通用依赖，以及引擎和通用依赖共用的校验下载、缓存身份与归档发布工具 |
+| `support/` | 构建加速、Operator 壳选择和分层头文件视图 |
+| `toolchains/` | 在 `project()` 之前生效的编译器、sysroot 和搜索规则；当前提供中性的 GNU/Linux arm64 示例 |
 | `templates/` | SDK 导出符号脚本、Demo Profile 字段头等生成文件的输入模板 |
+
+平台配置顺序是 **Preset/Toolchain → `project()` → 平台校验 → Backend 选择 → 编译策略 →
+依赖 → 组件目标**。Preset 选择场景，Toolchain 定义目标环境；`PlatformOptions.cmake` 只读取
+CMake 的目标信息，不根据宿主 CPU 猜测目标包。Apple 的显式 `CMAKE_OSX_ARCHITECTURES`
+优先于 `CMAKE_SYSTEM_PROCESSOR`，每个目录只构建一种架构。组件 `src/**/CMakeLists.txt`
+继续负责源码归属和依赖，新增平台应优先修改入口策略，避免向组件编译规则散布平台判断。
+
+ELF 和 Mach-O 的导出限制从同一份
+[`edgeflow_sdk.exports`](../../cmake_ext/templates/edgeflow_sdk.exports) 生成；导出检查保留独立的公开 ABI 预期。
+具体平台入口及验收范围见[跨平台构建](../VERIFIABLE_SELECTION.md#跨平台构建)。
 
 SDK 产物基名统一由 `LLM_EDGEFLOW_SDK_OUTPUT_NAME` 指定，默认 `llm_edgeflow_sdk`。
 迁移到宿主构建时可传入 `-DLLM_EDGEFLOW_SDK_OUTPUT_NAME=host_algorithm`；填写基名，
@@ -60,8 +72,11 @@ CMake 链接方继续使用 `llm_edgeflow::sdk`，脚本和测试通过目标路
 修改名称后应重新构建并更新宿主的加载路径；旧构建目录中遗留的旧名库不会自动删除。
 
 推理引擎的依赖接入统一放在 `engines/`，包括 ONNX Runtime、llama.cpp、Whisper、Inferlet 和 Kite。
-目录按运行时职责划分，不按作者、仓库公开性或接口来源划分；各模块维护包获取、固定版本、
-校验及编译链接探针，缓存指纹由 `third_party/ThirdPartyCacheMetadata.cmake` 共用。
+目录按运行时职责划分，不按作者、仓库公开性或接口来源划分；各模块只维护固定版本、上游选项
+和编译链接探针。校验下载、发布包导入、缓存身份与归档发布由
+`third_party/ThirdPartyCacheMetadata.cmake` 共用。引擎模块把 Backend 的 SYSTEM 头目录、编译定义和
+链接目标分别追加到 `LLM_EDGEFLOW_BACKEND_INCLUDE_DIRS`、`LLM_EDGEFLOW_BACKEND_COMPILE_DEFINITIONS`、
+`LLM_EDGEFLOW_BACKEND_LIBRARIES`，由 `RuntimeGraph.cmake` 统一接入 Backend 实现；新增 Backend 不修改它。
 Whisper 复用 llama.cpp 的 GGML，因此依赖聚合中先加载 llama.cpp。
 测试依赖 GoogleTest 在测试入口按需加载。根文件负责装配。
 

@@ -22,13 +22,21 @@ class BackendSelectionContractTest(unittest.TestCase):
         self.root = Path(temporary.name)
         shutil.copy2(ROOT / 'CMakePresets.json', self.root)
         shutil.copy2(ROOT / 'cmake_ext/BackendOptions.cmake', self.root)
+        shutil.copy2(ROOT / 'cmake_ext/PlatformOptions.cmake', self.root)
         (self.root / 'CMakeLists.txt').write_text(
             'cmake_minimum_required(VERSION 3.19)\nproject(BackendSelection NONE)\n'
-            'include(BackendOptions.cmake)\n')
+            'set(CMAKE_SYSTEM_NAME ${TEST_SYSTEM})\n'
+            'set(CMAKE_SYSTEM_PROCESSOR ${TEST_PROCESSOR})\n'
+            'set(CMAKE_HOST_SYSTEM_NAME ${TEST_HOST_SYSTEM})\n'
+            'set(CMAKE_HOST_SYSTEM_PROCESSOR ${TEST_HOST_PROCESSOR})\n'
+            'if(TEST_CROSS)\nset(CMAKE_CROSSCOMPILING TRUE)\nendif()\n'
+            'include(PlatformOptions.cmake)\ninclude(BackendOptions.cmake)\n')
 
     def configure(self, *arguments, expected=None):
         result = subprocess.run(
-            ['cmake', '-S', str(self.root), '-B', str(self.root / 'build'), *arguments],
+            ['cmake', '-S', str(self.root), '-B', str(self.root / 'build'),
+             '-DTEST_SYSTEM=Linux', '-DTEST_PROCESSOR=x86_64',
+             '-DTEST_HOST_SYSTEM=Linux', '-DTEST_HOST_PROCESSOR=x86_64', *arguments],
             cwd=self.root, capture_output=True, text=True, timeout=30)
         if expected is None:
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -57,8 +65,49 @@ class BackendSelectionContractTest(unittest.TestCase):
             selection = preset.get('vendor', {}).get('llm-edgeflow/selection')
             if selection is not None:
                 with self.subTest(preset=preset['name']):
+                    shutil.rmtree(self.root / 'build', ignore_errors=True)
                     self.configure('--preset=' + preset['name'],
+                                   *(['-DTEST_SYSTEM=Darwin', '-DTEST_HOST_SYSTEM=Darwin',
+                                      '-DTEST_HOST_PROCESSOR=arm64']
+                                     if preset['name'] == 'macos-arm64-cpu' else []),
                                    expected={'ENABLE_' + backends[name] for name in selection['backends']})
+
+    def test_target_platform_validation_and_apple_architecture_override(self):
+        self.configure('-DTEST_SYSTEM=Darwin', '-DCMAKE_OSX_ARCHITECTURES=arm64',
+                       '-DLLM_EDGEFLOW_EXPECTED_PLATFORM=macos-arm64', expected={'ENABLE_LLAMACPP'})
+        output = self.configure('-DTEST_SYSTEM=Darwin', '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64')
+        self.assertIn('one macOS architecture', output)
+        output = self.configure('-DTEST_SYSTEM=Darwin', '-DCMAKE_OSX_ARCHITECTURES=arm64',
+                                '-DENABLE_INFERLET=ON', '-DENABLE_LLAMACPP=OFF')
+        self.assertIn('support Linux', output)
+
+    def test_apple_host_architecture_mismatch_disables_native_tests(self):
+        for host_arch, target_arch in (('x86_64', 'arm64'), ('arm64', 'x86_64')):
+            with self.subTest(host=host_arch, target=target_arch):
+                shutil.rmtree(self.root / 'build', ignore_errors=True)
+                arguments = ['-DTEST_SYSTEM=Darwin', '-DTEST_HOST_SYSTEM=Darwin',
+                             '-DTEST_HOST_PROCESSOR=' + host_arch,
+                             '-DCMAKE_OSX_ARCHITECTURES=' + target_arch]
+                self.configure(*arguments, expected={'ENABLE_LLAMACPP'})
+                cache = (self.root / 'build/CMakeCache.txt').read_text()
+                self.assertIn('BUILD_TESTING:BOOL=OFF', cache)
+                output = self.configure(*arguments, '-DBUILD_TESTING=ON')
+                self.assertIn('BUILD_TESTING=OFF', output)
+        shutil.rmtree(self.root / 'build', ignore_errors=True)
+        self.configure('-DTEST_SYSTEM=Darwin', '-DTEST_HOST_SYSTEM=Darwin',
+                       '-DTEST_HOST_PROCESSOR=aarch64', '-DCMAKE_OSX_ARCHITECTURES=arm64',
+                       '-DBUILD_TESTING=ON', expected={'ENABLE_LLAMACPP'})
+
+    def test_unsupported_and_mismatched_platforms_fail_early(self):
+        for arguments, diagnostic in (
+                (['-DCMAKE_CONFIGURATION_TYPES=Debug;Release'], 'single-config'),
+                (['-DTEST_SYSTEM=Windows'], 'Unsupported target system'),
+                (['-DTEST_PROCESSOR=riscv64'], 'Unsupported target architecture'),
+                (['-DLLM_EDGEFLOW_EXPECTED_PLATFORM=macos-arm64'], 'Preset requires'),
+                (['-DTEST_CROSS=ON', '-DBUILD_TESTING=ON'], 'Cross builds compile target artifacts only')):
+            with self.subTest(arguments=arguments):
+                shutil.rmtree(self.root / 'build', ignore_errors=True)
+                self.assertIn(diagnostic, self.configure(*arguments))
 
     def test_conflicts_fail_before_dependency_acquisition(self):
         for first, second in [('INFERLET', 'KITELLM'), ('INFERLET', 'LLAMACPP'),
@@ -98,10 +147,10 @@ if [[ "${FAIL_AT:-}" == "$stage" ]]; then exit 23; fi
             target.write_text(stub)
             target.chmod(0o755)
 
-    def gate(self, failure=''):
+    def gate(self, failure='', preset='dev-gate'):
         return subprocess.run(['bash', str(self.root / 'scripts/run_all_tests.sh')], cwd=self.root,
                               env={**os.environ, 'PATH': str(self.root / 'bin') + os.pathsep + os.environ['PATH'],
-                                   'CALL_TRACE': str(self.trace), 'FAIL_AT': failure, 'LLM_EDGEFLOW_JOBS': '2'},
+                                   'CALL_TRACE': str(self.trace), 'FAIL_AT': failure, 'LLM_EDGEFLOW_BUILD_PRESET': preset, 'LLM_EDGEFLOW_JOBS': '2'},
                               capture_output=True, text=True, timeout=20)
 
     def test_canonical_gate_selects_one_build_and_all_ctest_cases(self):
@@ -115,6 +164,13 @@ if [[ "${FAIL_AT:-}" == "$stage" ]]; then exit 23; fi
         self.assertIn('--no-tests=error', calls[4])
         self.assertNotIn(' -R ', calls[4])
         self.assertIn('All required development gates passed', result.stdout)
+
+    def test_selected_preset_is_forwarded_without_disabling_gate_coverage(self):
+        result = self.gate(preset='macos-arm64-cpu')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        configure = self.trace.read_text().splitlines()[2]
+        self.assertIn('macos-arm64-cpu', configure)
+        self.assertIn('-DBUILD_TESTING=ON', configure)
 
     def test_each_failed_stage_stops_later_commands_and_success_reporting(self):
         for stage, final_command in (('format', 'format.sh'), ('git', 'git'),
@@ -131,6 +187,41 @@ if [[ "${FAIL_AT:-}" == "$stage" ]]; then exit 23; fi
         result = self.gate()
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.trace.exists())
+
+    def test_sdk_export_guard_rejects_expanded_or_replaced_public_symbols(self):
+        self.assertIsNotNone(HARNESS, 'CTest must supply the compiler')
+        symbols = [
+            'AlgBase_setLogLevelByName', 'AlgBase_getLogLevelByName',
+            '_ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv',
+            '_ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv',
+            '_ZN12llm_edgeflow12operator_api23ResolveOperatorConfigIoEPKcS2_PNS0_18OperatorIoContractEPcm',
+        ]
+        script = self.root / 'scripts/check_sdk_exports.sh'
+        shutil.copy2(ROOT / 'scripts/check_sdk_exports.sh', script)
+        manifest = self.root / 'cmake_ext/templates/edgeflow_sdk.exports'
+        manifest.parent.mkdir(parents=True)
+        binary_format = 'MachO' if sys.platform == 'darwin' else 'ELF'
+        nm = shutil.which('nm')
+        self.assertIsNotNone(nm)
+        for name, exports, expected in (
+                ('supported', symbols, 0),
+                ('expanded', symbols + ['UnexpectedSdkExport'], 1),
+                ('replaced', symbols[:-1] + ['UnexpectedSdkExport'], 1)):
+            with self.subTest(case=name):
+                # Also change the linker manifest: the independent public ABI
+                # guard must still reject a coordinated manifest/library drift.
+                manifest.write_text('\n'.join(exports) + '\n')
+                source = self.root / (name + '.cpp')
+                source.write_text('\n'.join('extern "C" void ' + symbol + '() {}' for symbol in exports))
+                library = self.root / (name + ('.dylib' if sys.platform == 'darwin' else '.so'))
+                compiled = subprocess.run(
+                    [HARNESS.cxx, '-dynamiclib' if sys.platform == 'darwin' else '-shared',
+                     '-fPIC', str(source), '-o', str(library)],
+                    capture_output=True, text=True, timeout=60)
+                self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
+                checked = subprocess.run(['bash', str(script), str(library), binary_format, nm],
+                                         capture_output=True, text=True, timeout=30)
+                self.assertEqual(checked.returncode, expected, checked.stdout + checked.stderr)
 
     def test_real_gtest_main_rejects_failures_required_skips_and_zero_selected_cases(self):
         self.assertIsNotNone(HARNESS, 'CTest must supply the real compiler/GTest/main arguments')

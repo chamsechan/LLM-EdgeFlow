@@ -79,6 +79,11 @@ ELF 的 `posix_memalign` 故障包装仅在 Tensor 测试链接时启用。
 
 默认开发门禁使用 `dev-gate`（Inferlet）。ONNX Runtime、llama.cpp 和 Whisper 由显式
 `full-cpu` 构建覆盖；构建选择见[构建变体](../doc/VERIFIABLE_SELECTION.md#构建变体)。
+
+macOS Apple Silicon 使用 `LLM_EDGEFLOW_BUILD_PRESET=macos-arm64-cpu ./scripts/run_all_tests.sh`。
+同一门禁覆盖 Mach-O 导出清单。平台选择和缓存身份的契约测试
+可以在宿主用模拟 CMake 目标事实执行，但不代表 macOS 编译成功；实际编译和运行由对应平台 CI 验证。
+交叉编译只产生目标产物，目标上的原生测试独立执行。
 没有所需权重时，可选物理生成用例明确跳过。`EDGEFLOW_TEST_LLAMA_GGUF` 和 `EDGEFLOW_TEST_WHISPER_MODEL` 可提供相应
 Backend 资产。`EDGEFLOW_TEST_BPE_TOKENIZER_DIR` 指向含 `.eftok` 文件的目录（见[配置说明](../configs/README.md#分词器资产onnx-llm)）时，
 BPE 分词器测试额外对照 Hugging Face 的样例 ID。可选 E2E 用 `ENABLE_REAL_MODEL_TESTS=ON` 开启，并使用仓库固定权重和 PCM。
