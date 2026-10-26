@@ -96,8 +96,10 @@ cmake -P tests/contract/architecture/test_cmake_structure.cmake
 Engine 的 `backends/` 单独归 Backend 目标。Adapter 的 `shared_algorithm_runtime.cpp`
 与本地日志等级实现 `src/log.cpp` 显式归组合根。CLI 的两个可执行入口及 Demo 的 `main.cpp` 从公共实现中排除，
 分别归自己的可执行目标。新增独立目标时仍须声明其入口和归属，不能混入已有目标。
-测试按 `tests/RuntimeTests.cmake` 的目录和命名规则收集。跨 runner、进程隔离、生成源码及
-可选 E2E 目标保留显式登记。常规 GoogleTest 用例自动发现并生成 CTest 入口。
+测试按 `tests/RuntimeTests.cmake` 的目录和命名规则递归收集；`dev_support/` 的示例和推理夹具
+也按所属目录递归收集。跨 runner、进程隔离、生成源码及可选 E2E 目标保留显式登记。
+常规 GoogleTest 用例和脚本测试自动生成 CTest 入口；命名、参数和新增文件的规则见
+[测试收集](../../tests/README.md#开发与收集)。
 
 ## 头文件的三种使用范围
 
@@ -166,7 +168,7 @@ CMake 缓存变量 `EDGEFLOW_OPERATOR_SHELL`（默认 `mock`）为每个构建�
 以上三个必需目录缺一时配置失败。Adapter、Demo、测试 runner 和集成层头视图的通配收集
 先排除全部具体壳及 `operator_shell/<shell>/` 夹具目录，再加入选中项。壳无关一致性套件位于
 `tests/contract/operator_shell/` 本层。公共头视图和平台声明仍使用当前来源；该机制只隔离源码与
-夹具，不表示已经可以切换真实平台头。`OperatorShellSelectionTest` 检查默认选择、缺失目录失败、
+夹具，不表示已经可以切换真实平台头。`contract/architecture/test_operator_shell_selection.cmake` 检查默认选择、缺失目录失败、
 未选中壳的排除，以及生产目标不含测试驱动和清单。
 
 编写转换器时，包含 `adapter/io_converter.h` 和 `adapter/converter_authoring.h`。

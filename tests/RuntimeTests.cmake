@@ -1,14 +1,24 @@
 # 分片的 Google Test runner 与按标签驱动的开发测试矩阵。
 
+# Collect each runner's owned directories, including nested tests. Concrete
+# Operator shells share a directory convention; only the selected shell is used.
+function(edgeflow_collect_test_files output_var)
+  file(GLOB_RECURSE sources CONFIGURE_DEPENDS ${ARGN})
+  set(selected)
+  foreach(source IN LISTS sources)
+    file(RELATIVE_PATH relative "${PROJECT_SOURCE_DIR}" "${source}")
+    if(relative MATCHES "/operator_shell/([^/]+)/" AND
+       NOT CMAKE_MATCH_1 STREQUAL EDGEFLOW_OPERATOR_SHELL)
+      continue()
+    endif()
+    list(APPEND selected "${source}")
+  endforeach()
+  set(${output_var} "${selected}" PARENT_SCOPE)
+endfunction()
+
 include(${CMAKE_CURRENT_LIST_DIR}/ScaffoldFixtures.cmake)
 
 option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" OFF)
-
-add_test(NAME ThirdPartyCacheMetadataTest
-  COMMAND ${CMAKE_COMMAND}
-          -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-          -DTEST_ROOT=${PROJECT_BINARY_DIR}/third_party_cache_metadata_test
-          -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_third_party_cache_metadata.cmake)
 
 # Runtime runners share only their test entrypoint, runtime link and optional PCH.
 # Fixture sources, allocation instrumentation and component libraries stay local.
@@ -31,7 +41,7 @@ endfunction()
 # 只扫描每个 runner 自有的测试目录。生成的源码、进程隔离的契约测试和
 # 需显式开启的 E2E 目标保持显式列出。CONFIGURE_DEPENDS 使增删文件在下次
 # 构建时触发重新生成 (CMake 3.19)。
-file(GLOB EDGEFLOW_TEST_CORE_SRCS CONFIGURE_DEPENDS
+edgeflow_collect_test_files(EDGEFLOW_TEST_CORE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/core/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/engine/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/logging/test_*.cpp")
@@ -118,7 +128,7 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     "{\"pipe_path\":\"pipeline_cross_rerank_missing_model.json\"}\n")
 endif()
 
-file(GLOB EDGEFLOW_TEST_NODE_SRCS CONFIGURE_DEPENDS
+edgeflow_collect_test_files(EDGEFLOW_TEST_NODE_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/nodes/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/contracts/test_*.cpp")
 add_executable(edgeflow_test_nodes_runner
@@ -130,16 +140,11 @@ target_link_libraries(edgeflow_test_nodes_runner PRIVATE edgeflow_test_allocatio
 
 # 壳无关一致性套件位于 contract/operator_shell/；具体壳的驱动、清单及依赖其
 # 载体的测试位于各 runner 目录下的 operator_shell/<shell>/，只收集选中的壳。
-set(EDGEFLOW_TEST_SHELL "operator_shell/${EDGEFLOW_OPERATOR_SHELL}")
-file(GLOB EDGEFLOW_TEST_ADAPTER_SRCS CONFIGURE_DEPENDS
+edgeflow_collect_test_files(EDGEFLOW_TEST_ADAPTER_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/adapter/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/unit/operator/test_*.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/operator/test_*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/contract/operator_shell/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/contract/${EDGEFLOW_TEST_SHELL}/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/unit/operator/${EDGEFLOW_TEST_SHELL}/test_*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/operator/${EDGEFLOW_TEST_SHELL}/test_*.cpp"
-)
+  "${CMAKE_CURRENT_SOURCE_DIR}/contract/operator_shell/*.cpp")
 list(APPEND EDGEFLOW_TEST_ADAPTER_SRCS "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
@@ -147,13 +152,10 @@ add_executable(edgeflow_test_adapter_runner
 edgeflow_configure_gtest_target(edgeflow_test_adapter_runner)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE edgeflow_test_allocation_failure)
 
-file(GLOB EDGEFLOW_TEST_TOOLING_SRCS CONFIGURE_DEPENDS
+edgeflow_collect_test_files(EDGEFLOW_TEST_TOOLING_SRCS
   "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/test_*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/demo/${EDGEFLOW_TEST_SHELL}/test_*.cpp")
-list(APPEND EDGEFLOW_TEST_TOOLING_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_catalog_validator.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_pipeline_authoring.cpp"
-  "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
+  "${CMAKE_CURRENT_SOURCE_DIR}/integration/pipeline/test_*.cpp")
+list(APPEND EDGEFLOW_TEST_TOOLING_SRCS "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
   $<TARGET_OBJECTS:edgeflow_demo_objects>
@@ -245,10 +247,6 @@ set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
 
 # 架构与源码治理门禁。
-add_test(NAME CMakeStructureTest
-  COMMAND ${CMAKE_COMMAND}
-          -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-          -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_cmake_structure.cmake)
 # 记录各目标实际源码，供壳选择检查确认生产目标不含测试驱动与清单。
 set(_edgeflow_shell_manifest "set(operator_shell [==[${EDGEFLOW_OPERATOR_SHELL}]==])\n")
 set(_edgeflow_shell_production_targets
@@ -267,72 +265,25 @@ foreach(target IN LISTS _edgeflow_shell_production_targets _edgeflow_shell_test_
 endforeach()
 file(GENERATE OUTPUT "${PROJECT_BINARY_DIR}/operator_shell_sources_$<CONFIG>.cmake"
      CONTENT "${_edgeflow_shell_manifest}")
-add_test(NAME OperatorShellSelectionTest
-  COMMAND ${CMAKE_COMMAND}
-          -DTEST_ROOT=${PROJECT_BINARY_DIR}/operator_shell_selection_test
-          "-DSOURCE_MANIFEST=${PROJECT_BINARY_DIR}/operator_shell_sources_$<CONFIG>.cmake"
-          -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_operator_shell_selection.cmake)
 add_test(NAME LayerGuardTest
   COMMAND ${CMAKE_COMMAND} -E env
           "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
           ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
-add_test(NAME LayerGuardSelfTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_layer_guard_contract.py)
-add_test(NAME SpecSignatureDiagnosticsTest
-  COMMAND ${CMAKE_COMMAND}
-          "-DLAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
-          -P "${PROJECT_SOURCE_DIR}/tests/contract/authoring/test_spec_signature_diagnostics.cmake")
 add_test(NAME ArchitectureDocsDriftTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
-add_test(NAME ArchitectureDocsDriftGateSelfTest
-  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_architecture_docs_drift_gate.sh)
 add_test(NAME GovernanceConsistencyTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_governance.sh)
 add_test(NAME DocLinksTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/check_doc_links.py)
-add_test(NAME DocLinksSelfTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_doc_links_contract.py)
 add_test(NAME DiagramAssetsCheckTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
-add_test(NAME DiagramRenderGateSelfTest
-  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_diagram_render_gate.sh)
-add_test(NAME ScriptGeneratorDetectionTest
-  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
 set_tests_properties(
-  CMakeStructureTest ThirdPartyCacheMetadataTest SpecSignatureDiagnosticsTest
-  OperatorShellSelectionTest
-  LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
-  ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
-  DocLinksTest DocLinksSelfTest ScriptGeneratorDetectionTest
+  LayerGuardTest ArchitectureDocsDriftTest GovernanceConsistencyTest DocLinksTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
-set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest
-  PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+set_tests_properties(DiagramAssetsCheckTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier4;tooling;static-gate;slow")
-
-add_test(NAME PipelineStudioServerTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/tooling/test_pipeline_studio.py)
-set_tests_properties(PipelineStudioServerTest PROPERTIES
-  ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>;LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
-
-add_test(NAME CustomNodeScaffoldTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/tooling/test_scaffold_custom_node.py)
-
-add_test(NAME BpeTokenizerToolTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/tooling/test_prepare_bpe_tokenizer.py)
-
-add_test(NAME DevRecipeTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/tooling/test_dev_recipe.py)
-set_tests_properties(DevRecipeTest PROPERTIES
-  ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 add_test(NAME DemoSmokeTest COMMAND $<TARGET_FILE:alg_demo> --suite smoke)
 set_tests_properties(DemoSmokeTest PROPERTIES
@@ -372,18 +323,9 @@ endif()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
   catalog)
-add_test(NAME PipelineToolValidateTest COMMAND ${Python3_EXECUTABLE}
-  ${CMAKE_CURRENT_SOURCE_DIR}/tooling/test_pipeline_cli.py
-  --tool $<TARGET_FILE:alg_pipeline_tool>
-  --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
-  --repo ${PROJECT_SOURCE_DIR})
-set_tests_properties(
-  PipelineStudioServerTest CustomNodeScaffoldTest BpeTokenizerToolTest DevRecipeTest
-  PipelineToolCatalogTest PipelineToolValidateTest
+set_tests_properties(PipelineToolCatalogTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
-set_tests_properties(PipelineToolValidateTest PROPERTIES
-  ENVIRONMENT "LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show

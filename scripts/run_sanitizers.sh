@@ -157,7 +157,7 @@ else
   echo ">>> Running full sanitized CTest suite with [${SANITIZERS}] <<<"
 fi
 if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
-  CTEST_ARGS+=( -E '^PipelineStudioServerTest$' )
+  CTEST_ARGS+=( -E '^tooling/test_pipeline_studio\.py$' )
 fi
 (
   cd "${BUILD_DIR}"

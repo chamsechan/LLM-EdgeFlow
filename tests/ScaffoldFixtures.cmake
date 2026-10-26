@@ -25,9 +25,6 @@ add_custom_command(
   VERBATIM)
 
 # 在测试 runner 中编译文档里的原样函数示例，绝不进入 SDK Catalog。
-list(APPEND EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_node.cpp"
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_multi_model_node.cpp"
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_join_node.cpp"
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_group_node.cpp"
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_select_scatter_node.cpp")
+file(GLOB_RECURSE EDGEFLOW_NODE_AUTHORING_SOURCES CONFIGURE_DEPENDS
+  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/*.cpp")
+list(APPEND EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE ${EDGEFLOW_NODE_AUTHORING_SOURCES})
