@@ -515,10 +515,12 @@ class StudioHttpContractTest(unittest.TestCase):
                             process.wait(timeout=5)
 
     def test_javascript_library_and_fix_consumers(self):
-        for script in ("studio_editor_test.mjs", "studio_graph_test.mjs",
-                       "studio_config_roundtrip_test.mjs", "studio_fix_workflow_test.mjs"):
+        scripts = sorted(path for path in (ROOT / "tests/tooling").rglob("studio_*_test.mjs")
+                         if path != ROOT / "tests/tooling/studio_browser_test.mjs")
+        self.assertTrue(scripts, "Studio JavaScript test discovery must not be empty")
+        for script in scripts:
             with self.subTest(script=script):
-                result = subprocess.run(["node", str(ROOT / "tests/tooling" / script), self.url],
+                result = subprocess.run(["node", str(script), self.url],
                                         cwd=ROOT, capture_output=True, text=True, timeout=45)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("PASS", result.stdout)

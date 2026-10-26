@@ -116,7 +116,7 @@ echo "✅ [LayerGuard PASS] Backend vendor resources and Qwen generation semanti
 
 if [[ -n "${LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST:-}" ]]; then
   cmake "-DLAYER_COMPILE_MANIFEST=${LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST}" \
-    -P "${REPO_ROOT}/tests/contract/architecture/test_layer_header_views.cmake"
+    -P "${REPO_ROOT}/tests/contract/architecture/layer_header_view_checks.cmake"
 fi
 
 echo "======================================================================"

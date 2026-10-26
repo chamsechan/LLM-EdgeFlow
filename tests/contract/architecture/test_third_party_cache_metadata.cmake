@@ -201,5 +201,5 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -P "${TEST_ROOT}/invalid.cmake"
 if(invalid_result EQUAL 0 OR NOT "${output}${error}" MATCHES "requires")
   message(FATAL_ERROR "Incomplete cache metadata request must fail")
 endif()
-include("${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_llama_cache.cmake")
+include("${PROJECT_SOURCE_DIR}/tests/contract/architecture/llama_cache_checks.cmake")
 message(STATUS "PASS cache identity, ABI invalidation and actual llama cache consumer")

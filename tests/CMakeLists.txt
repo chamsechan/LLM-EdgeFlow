@@ -40,41 +40,8 @@ endfunction()
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-set(_edgeflow_guard_platform_flags "")
-foreach(flag IN LISTS edgeflow_cxx_platform_flags)
-  list(APPEND _edgeflow_guard_platform_flags "--cxx-flag=${flag}")
-endforeach()
-set(_edgeflow_guard_sanitizers "")
-if(ENABLE_SANITIZERS)
-  list(APPEND _edgeflow_guard_sanitizers --sanitizers "${LLM_EDGEFLOW_SANITIZERS}")
-endif()
-add_test(NAME QualityGateScriptsContractTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.py
-          --cxx ${CMAKE_CXX_COMPILER}
-          ${_edgeflow_guard_platform_flags}
-          ${_edgeflow_guard_sanitizers}
-          --gtest-include $<TARGET_PROPERTY:GTest::gtest,INTERFACE_INCLUDE_DIRECTORIES>
-          --gtest-library $<TARGET_FILE:GTest::gtest>
-          --gtest-main ${PROJECT_SOURCE_DIR}/tests/support/gtest_main.cpp
-          --ctest-policy ${PROJECT_SOURCE_DIR}/tests/SafeGtestDiscovery.cmake)
-
 include(${CMAKE_CURRENT_LIST_DIR}/RuntimeTests.cmake)
-
-add_test(NAME JsonPromptDemoTest
-  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_json_prompt_demo.py)
-set_tests_properties(JsonPromptDemoTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier3;tooling;dev-fast;sanitizer-compatible"
-  ENVIRONMENT "LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
-
-add_test(NAME TestLabelsContractTest
-  COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_test_labels_contract.py
-          --build-dir ${PROJECT_BINARY_DIR})
-set_tests_properties(QualityGateScriptsContractTest TestLabelsContractTest PROPERTIES
-  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
+include(${CMAKE_CURRENT_LIST_DIR}/ScriptTests.cmake)
 
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)

@@ -43,10 +43,17 @@ cmake --build build --target edgeflow_test_nodes_runner -j4
 ```
 
 四个 runner 的源码目录在 `RuntimeTests.cmake` 中定义。GoogleTest 从编译出的用例生成 CTest
-入口，包括脚手架生成的测试。新测试套件无需手动注册名称。`TestLabelsContractTest`
+入口，包括脚手架生成的测试。新测试套件无需手动注册名称。`contract/architecture/test_test_labels_contract.py`
 把实际用例与 CTest 过滤器对照，拒绝空匹配、漏执行、重复执行及不明确的 tier，
 同时拒绝禁用的 CTest 条目和仅列举 GoogleTest 用例的命令。
-独立 registry/SDK 目标保持进程和公开依赖隔离。
+常规 `test_*.cpp` 和 `dev_support/` 所属目录中的 `.cpp` 递归收集，增删后在下次构建自动更新。
+独立 registry/SDK 目标保持进程和公开依赖隔离；生成源码和可选 E2E 仍显式声明。
+
+`contract/`、`tooling/` 下的 `test_*.py`、`test_*.sh`、`test_*.cmake` 自动注册，
+CTest 名称为相对 `tests/` 的路径。只有独立测试入口使用 `test_*` 前缀。
+特殊参数在 `ScriptTests.cmake` 中配置 `EDGEFLOW_TEST_ARGS`，环境和标签通过 `set_tests_properties` 配置。
+Studio 自动发现 `studio_*_test.mjs`；浏览器测试仍按 Playwright 环境变量启用。
+
 runner 只收集 `EDGEFLOW_OPERATOR_SHELL` 选中壳的 `operator_shell/<shell>/` 目录，规则见
 [Operator 壳选择](../doc/dev_guide/source_layout.md#operator-壳选择)。一致性场景通过驱动调用
 公共入口，不直接使用平台结构或数字错误码；场景检查返回 `::testing::AssertionResult`，
