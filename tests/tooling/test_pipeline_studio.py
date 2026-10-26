@@ -157,7 +157,7 @@ class StudioHttpContractTest(unittest.TestCase):
         status, opened = self.request("GET", "/api/pipeline?filename=pipeline_edit.json")
         self.assertEqual(status, 200)
         self.assertEqual(opened["pipeline"], document)
-        self.assertIsNone(opened["deployment"])
+        self.assertNotIn("deployment", opened)
         status, conflict = self.request("POST", "/api/pipelines", {"filename": path.name, "pipeline": document})
         self.assertEqual(status, 409)
         self.assertEqual(conflict["error"]["code"], "FILE_EXISTS")
@@ -191,46 +191,34 @@ class StudioHttpContractTest(unittest.TestCase):
             self.assertEqual(status, 400, rejected)
             self.assertEqual(rejected["error"]["code"], "PATCH_APPLICATION_FAILED")
 
-    def test_deployment_association_preflight_and_save_use_canonical_fields(self):
-        filename = "pipeline_keyword_match_rules.json"
-        conf_name = "pipeline_keyword_match_rules.conf"
-        status, associated = self.request("POST", "/api/deployment/associate", {
-            "filename": filename, "conf_name": conf_name})
-        self.assertEqual(status, 200, associated)
-        self.assertTrue(associated["ok"])
-        self.assertEqual(associated["deployment"]["conf_name"], conf_name)
-
+    def test_preflight_uses_selected_data_and_cleans_temporary_conf(self):
+        before = {path.name: path.read_bytes() for path in self.configs.iterdir()}
         status, ready = self.request("POST", "/api/preflight", {
-            "pipeline": self.base, "filename": filename})
+            "pipeline": self.base, "profile": "keyword_match_rules"})
         self.assertEqual(status, 200, ready)
         self.assertEqual(ready["summary"]["status"], "ready")
-        self.assertEqual(ready["summary"]["conf_path"], conf_name)
+        self.assertEqual({path.name: path.read_bytes() for path in self.configs.iterdir()}, before)
 
-        status, opened = self.request("GET", "/api/pipeline?filename=" + filename)
-        self.assertEqual(status, 200, opened)
-        updated = {**self.base, "comment": "saved after canonical association"}
-        status, saved = self.request("PUT", "/api/pipeline", {
-            "filename": filename, "pipeline": updated, "revision": opened["revision"]})
-        self.assertEqual(status, 200, saved)
-        self.assertEqual(json.loads((self.configs / filename).read_text()), updated)
-
-    def test_native_validation_failure_rejects_save_before_any_file_publication(self):
-        invalid = copy.deepcopy(self.base)
-        invalid["pipeline"][0]["type"] = "unregistered"
-        status, rejected = self.request("POST", "/api/pipelines", {
-            "filename": "pipeline_invalid.json", "pipeline": invalid})
-        self.assertEqual(status, 400)
+    def test_incomplete_document_saves_without_runtime_but_cannot_run(self):
+        incomplete = copy.deepcopy(self.base)
+        incomplete["pipeline"][0]["inputs"] = {}
+        incomplete["unknown"] = {"preserve": ["中文", False]}
+        with mock.patch.object(studio, "PIPELINE_TOOL", self.root / "missing_tool"):
+            saved = self.save("pipeline_incomplete.json", incomplete)
+            status, opened = self.request("GET", "/api/pipeline?filename=" + saved["filename"])
+            self.assertEqual(status, 200, opened)
+            self.assertEqual(opened["pipeline"], incomplete)
+        status, rejected = self.request("POST", "/api/runs", {
+            "pipeline": incomplete, "profile": "keyword_match_rules"})
+        self.assertEqual(status, 400, rejected)
         self.assertEqual(rejected["error"]["code"], "VALIDATION_FAILED")
+        for invalid in (None, [], {}, {"pipeline": [None]}, {"pipeline": [], "models": {}},
+                        {"pipeline": [], "io": {"input": [None]}}, {"pipeline": [{"depends_on": "bad"}]}):
+            status, rejected = self.request("POST", "/api/pipelines", {
+                "filename": "pipeline_invalid.json", "pipeline": invalid})
+            self.assertEqual(status, 400, rejected)
+            self.assertEqual(rejected["error"]["code"], "INVALID_PIPELINE_DOCUMENT")
         self.assertFalse((self.configs / "pipeline_invalid.json").exists())
-        saved = self.save()
-        path = self.configs / saved["filename"]
-        original = path.read_bytes()
-        status, rejected = self.request("PUT", "/api/pipeline", {
-            "filename": path.name, "pipeline": invalid, "revision": saved["revision"]})
-        self.assertEqual(status, 400)
-        self.assertEqual(rejected["error"]["code"], "VALIDATION_FAILED")
-        self.assertEqual(path.read_bytes(), original)
-        self.assertFalse(list(self.configs.glob(".pipeline_edit.*")))
 
     def test_http_body_parse_errors_have_their_own_status_and_json_envelope(self):
         request = urllib.request.Request(self.url + "/api/validate", data=b"{broken",
@@ -274,21 +262,17 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original)
         self.assertFalse(list(self.configs.glob(".pipeline_edit.*")))
 
-    def test_change_during_native_validation_is_detected_before_atomic_replace(self):
+    def test_change_during_staging_is_detected_before_atomic_replace(self):
         saved = self.save()
         path = self.configs / saved["filename"]
-        external = copy.deepcopy(self.base)
-        external["comment"] = "external edit"
-        external_bytes = json.dumps(external).encode()
-        invoke = self.service.invoke_tool
+        external_bytes = json.dumps({**self.base, "comment": "external edit"}).encode()
+        fsync = studio.os.fsync
 
-        def concurrent_edit(command, pipeline=None):
-            result = invoke(command, pipeline)
-            if command[0] == "validate" and command[1] != "--stdin":
-                path.write_bytes(external_bytes)
-            return result
+        def concurrent_edit(descriptor):
+            fsync(descriptor)
+            path.write_bytes(external_bytes)
 
-        with mock.patch.object(self.service, "invoke_tool", side_effect=concurrent_edit):
+        with mock.patch.object(studio.os, "fsync", side_effect=concurrent_edit):
             status, result = self.request("PUT", "/api/pipeline", {
                 "filename": path.name, "pipeline": self.base, "revision": saved["revision"]})
         self.assertEqual(status, 409)
@@ -303,14 +287,15 @@ class StudioHttpContractTest(unittest.TestCase):
                 saved = None if creating else self.save(name)
                 path = self.configs / name
                 entered, release = threading.Event(), threading.Event()
-                replace = studio.os.replace
+                publish_name = "link" if creating else "replace"
+                publish = getattr(studio.os, publish_name)
 
-                def paused_replace(source, target):
+                def paused_publish(source, target):
                     if Path(target) == path and not entered.is_set():
                         entered.set()
                         if not release.wait(5):
                             raise RuntimeError("save test did not release the first writer")
-                    return replace(source, target)
+                    return publish(source, target)
 
                 def submit(comment):
                     return self.request("POST" if creating else "PUT",
@@ -318,7 +303,7 @@ class StudioHttpContractTest(unittest.TestCase):
                                             "filename": name, "pipeline": {**self.base, "comment": comment},
                                             "revision": saved["revision"] if saved else None})
 
-                with mock.patch.object(studio.os, "replace", side_effect=paused_replace), ThreadPoolExecutor(2) as pool:
+                with mock.patch.object(studio.os, publish_name, side_effect=paused_publish), ThreadPoolExecutor(2) as pool:
                     first = pool.submit(submit, "first")
                     try:
                         self.assertTrue(entered.wait(5))
@@ -338,27 +323,38 @@ class StudioHttpContractTest(unittest.TestCase):
                 self.assertEqual(json.loads(path.read_bytes()), winner["pipeline"])
                 self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), winner["revision"])
 
-    def test_command_attachment_failure_reports_committed_files_and_allows_update(self):
-        (self.root / "output").write_text("not a directory")
-        status, saved = self.request("POST", "/api/solutions", {
-            "filename": "pipeline_command.json", "pipeline": self.base, "profile": "keyword_match_rules"})
-        self.assertEqual(status, 200, saved)
-        self.assertTrue(saved["ok"])
-        self.assertEqual(saved["command"], "")
-        self.assertIn("已保存", saved["command_warning"])
-        for recovering in (False, True):
-            if recovering:
-                (self.root / "output").unlink()
-            updated = {**self.base, "comment": f"update {recovering}"}
+    def test_save_as_never_overwrites_a_concurrently_created_file(self):
+        path = self.configs / "pipeline_concurrent.json"
+        external_bytes = b"created by another editor"
+        link = studio.os.link
+
+        def external_create(source, target):
+            Path(target).write_bytes(external_bytes)
+            return link(source, target)
+
+        with mock.patch.object(studio.os, "link", side_effect=external_create):
+            status, result = self.request("POST", "/api/pipelines", {
+                "filename": path.name, "pipeline": self.base})
+        self.assertEqual(status, 409)
+        self.assertEqual(result["error"]["code"], "FILE_EXISTS")
+        self.assertEqual(path.read_bytes(), external_bytes)
+        self.assertFalse(list(self.configs.glob(".pipeline_concurrent.*")))
+
+    def test_save_only_writes_json_and_ignores_conf_changes(self):
+        name = "pipeline_keyword_match_rules.json"
+        conf = self.configs / "pipeline_keyword_match_rules.conf"
+        conf.write_text("externally edited, irrelevant to document saving")
+        raw_conf = conf.read_bytes()
+        opened = self.service.open_pipeline(name)
+        updated = {**self.base, "comment": "JSON only"}
+        with mock.patch.object(self.service, "resolve_run_conf", side_effect=AssertionError("save must not run preflight")):
             status, saved = self.request("PUT", "/api/pipeline", {
-                "filename": saved["filename"], "pipeline": updated, "revision": saved["revision"]})
-            self.assertEqual(status, 200, saved)
-            path = self.configs / saved["filename"]
-            self.assertEqual(json.loads(path.read_bytes()), updated)
-            self.assertEqual(saved["revision"], hashlib.sha256(path.read_bytes()).hexdigest())
-            self.assertEqual(json.loads(path.with_suffix(".conf").read_text()), {"pipe_path": path.name})
-            self.assertEqual(bool(saved["command_warning"]), not recovering)
-            self.assertEqual(bool(saved["command"]), recovering)
+                "filename": name, "pipeline": updated, "revision": opened["revision"]})
+        self.assertEqual(status, 200, saved)
+        self.assertEqual(saved["pipeline"], updated)
+        self.assertEqual(conf.read_bytes(), raw_conf)
+        self.assertNotIn("deployment", saved)
+        self.assertFalse((self.root / "output").exists())
 
     def test_profiles_reuse_catalog_settings_without_validating_the_example(self):
         example = copy.deepcopy(self.base)
@@ -377,11 +373,8 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual([entry["name"] for entry in catalog["profiles"]], ["z_example", "a_example"])
         self.assertEqual({key: value for key, value in catalog["profiles"][0].items()
                           if key not in ("name", "io")}, profile)
-        request = {"filename": "pipeline_keyword_match_rules.json", "conf_name": "pipeline_keyword_match_rules.conf"}
-        status, result = self.request("POST", "/api/deployment/associate", request)
-        self.assertEqual(status, 200, result)
-        self.assertEqual(self.service.generated_solutions[request["filename"]]["profile"], profile)
-        self.service.demo_command(profile, self.configs / request["conf_name"], self.root / "run")
+        self.assertEqual(self.service.profile_inputs(self.base, "z_example"), profile)
+        self.service.demo_command(profile, self.configs / "pipeline_keyword_match_rules.conf", self.root / "run")
         exported = json.loads((self.root / "run/demo-profile.json").read_text())["profiles"]["pipeline_keyword_match_rules"]
         self.assertEqual(exported["control_cmd"], profile["control_cmd"])
         self.assertEqual(exported["control_file"], str(self.root / profile["control_file"]))
@@ -410,6 +403,8 @@ class StudioHttpContractTest(unittest.TestCase):
         (self.configs / "pipeline_link.json").symlink_to(outside)
         for requested, code in (("../pipeline_import.json", "INVALID_PIPELINE_PATH"),
                                 ("configs/pipeline_keyword_match_rules.json", "INVALID_PIPELINE_PATH"),
+                                ("我的方案.json", "INVALID_PIPELINE_NAME"),
+                                ("asset_manifest.json", "INVALID_PIPELINE_NAME"),
                                 ("pipeline_link.json", "SYMLINK_REJECTED")):
             with self.subTest(requested=requested):
                 with self.assertRaises(studio.StudioError) as caught:
@@ -426,74 +421,6 @@ class StudioHttpContractTest(unittest.TestCase):
         response = connection.getresponse()
         self.assertEqual(response.status, 413)
         self.assertEqual(json.loads(response.read())["error"]["code"], "BODY_TOO_LARGE")
-
-    def test_associated_save_only_replaces_json_and_preserves_conf(self):
-        status, saved = self.request("POST", "/api/solutions", {
-            "filename": "pipeline_pair.json", "pipeline": self.base, "profile": "keyword_match_rules"})
-        self.assertEqual(status, 200, saved)
-        path, conf = self.configs / saved["filename"], self.configs / saved["conf_filename"]
-        previous = (path.read_bytes(), conf.read_bytes())
-        self.assertEqual(json.loads(previous[1]), {"pipe_path": path.name})
-        self.assertEqual(saved["deployment"]["conf_name"], conf.name)
-        self.assertIn("demo-profile.json", saved["command"])
-        replace = studio.os.replace
-
-        def fail_json_install(source, target):
-            if Path(target) == path:
-                raise OSError("JSON installation failed")
-            return replace(source, target)
-
-        updated = copy.deepcopy(self.base)
-        updated["comment"] = "new version"
-        with mock.patch.object(studio.os, "replace", side_effect=fail_json_install):
-            status, failed = self.request("PUT", "/api/pipeline", {
-                "filename": path.name, "pipeline": updated, "revision": saved["revision"],
-                "profile": "keyword_match_rules"})
-        self.assertEqual(status, 500)
-        self.assertEqual(failed["error"]["code"], "SAVE_FAILED")
-        self.assertEqual((path.read_bytes(), conf.read_bytes()), previous)
-        self.assertFalse(list(self.configs.glob(".pipeline_pair.*")))
-        with mock.patch.object(self.service, "resolve_run_conf", side_effect=studio.StudioError(
-                studio.ErrorCode.DEPLOYMENT_VALIDATION_FAILED, "preflight failed")):
-            status, rejected = self.request("PUT", "/api/pipeline", {
-                "filename": path.name, "pipeline": updated, "revision": saved["revision"]})
-        self.assertEqual(status, 400, rejected)
-        self.assertEqual((path.read_bytes(), conf.read_bytes()), previous)
-        # Keep a noncanonical but valid conf spelling and formatting byte-for-byte.
-        conf.write_text('{ "pipe_path": "./pipeline_pair.json" }\n')
-        status, associated = self.request("POST", "/api/deployment/associate", {
-            "filename": path.name, "conf_name": conf.name, "profile": "keyword_match_rules"})
-        self.assertEqual(status, 200, associated)
-        conf_raw = conf.read_bytes()
-        with mock.patch.object(studio.os, "replace", wraps=replace) as commit:
-            status, saved = self.request("PUT", "/api/pipeline", {
-                "filename": path.name, "pipeline": updated, "revision": saved["revision"]})
-        self.assertEqual(status, 200, saved)
-        self.assertEqual([call.args[1] for call in commit.call_args_list], [path])
-        self.assertEqual(json.loads(path.read_bytes()), updated)
-        self.assertEqual(conf.read_bytes(), conf_raw)
-        self.assertEqual(saved["deployment"]["conf_revision"], associated["deployment"]["conf_revision"])
-        restarted = studio.WorkbenchService(self.configs)
-        self.assertIsNone(restarted.open_pipeline(path.name)["deployment"])
-
-    def test_pair_creation_preflight_failure_removes_only_its_own_new_files(self):
-        resolve = self.service.resolve_run_conf
-
-        def fail_final_preflight(conf_path, profile):
-            if conf_path.name == "pipeline_failed.conf":
-                self.assertTrue((self.configs / "pipeline_failed.json").exists())
-                self.assertTrue(conf_path.exists())
-                raise studio.StudioError(studio.ErrorCode.DEPLOYMENT_VALIDATION_FAILED, "preflight failed")
-            return resolve(conf_path, profile)
-
-        with mock.patch.object(self.service, "resolve_run_conf", side_effect=fail_final_preflight):
-            status, failed = self.request("POST", "/api/solutions", {
-                "filename": "pipeline_failed.json", "pipeline": self.base, "profile": "keyword_match_rules"})
-        self.assertEqual(status, 400)
-        self.assertEqual(failed["error"]["code"], "DEPLOYMENT_VALIDATION_FAILED")
-        self.assertFalse((self.configs / "pipeline_failed.json").exists())
-        self.assertFalse((self.configs / "pipeline_failed.conf").exists())
-        self.assertTrue((self.configs / "pipeline_keyword_match_rules.json").exists())
 
     def test_background_failure_uses_shared_codes_and_keeps_reason(self):
         for failure, expected in (
@@ -598,8 +525,6 @@ class StudioHttpContractTest(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("STUDIO_PLAYWRIGHT_MODULE"), "Optional real browser requires STUDIO_PLAYWRIGHT_MODULE")
     def test_real_browser_consumer(self):
-        # Exercise a successful JSON/.conf save whose optional command attachment cannot be written.
-        (self.root / "output").write_text("not a directory")
         result = subprocess.run(["node", str(ROOT / "tests/tooling/studio_browser_test.mjs"), self.url],
                                 cwd=ROOT, capture_output=True, text=True, timeout=180)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

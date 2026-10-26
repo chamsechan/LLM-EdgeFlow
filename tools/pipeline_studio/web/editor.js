@@ -1,4 +1,4 @@
-// 文档历史只保存已应用的编辑。表单缓冲在 Apply 之前独立存放，
+// 文档历史只保存完整的编辑。尚未完成的表单输入独立存放，
 // 因此选择、校验和重绘都不会丢弃用户输入。
 export function createHistory(limit = 50) {
   let entries = [], cursor = -1;
@@ -137,7 +137,101 @@ export function appendConfigField(container, field, values, modelChoices = null)
     const help = document.createElement("small"); help.className = "field-help";
     help.textContent = field.file ? "相对方案所在目录的文件名" : field.semantic; label.append(help);
   }
-  container.append(label);
+  const collection = collectionEditor(field, input);
+  if (collection) {
+    container.append(collection);
+    const details = document.createElement("details"), summary = document.createElement("summary");
+    summary.textContent = `${field.name} · 编辑 JSON`;
+    details.append(summary, label); container.append(details);
+  } else container.append(label);
+}
+
+// 只为两种常见集合形状提供表单，形状来自 Definition 的 items 声明；
+// 其他形状继续使用 JSON 编辑，不另建一套 schema 引擎。
+function collectionEditor(field, raw) {
+  const map = field.type === "map" && field.items?.type === "array" && field.items.items?.type === "string";
+  const array = field.type === "array" && field.items?.type === "object" && field.items.fields?.length;
+  if (!map && !array) return null;
+  const box = document.createElement("fieldset"); box.dataset.collection = field.name;
+  const legend = document.createElement("legend"); legend.textContent = field.name;
+  const rows = document.createElement("div"), add = document.createElement("button");
+  add.type = "button"; add.textContent = "＋ 添加一项";
+  box.append(legend, rows, add);
+  let emitting = false;
+  const emit = (complete = true) => {
+    emitting = true;
+    raw.dispatchEvent(new Event("input", {bubbles: true}));
+    if (complete) raw.dispatchEvent(new Event("change", {bubbles: true}));
+    emitting = false;
+  };
+  const read = () => JSON.parse(raw.value || raw.placeholder || (map ? "{}" : "[]"));
+  const render = () => {
+    let value;
+    try { value = read(); } catch { box.hidden = true; return; }
+    if (map ? !value || Array.isArray(value) || typeof value !== "object" || Object.values(value).some(words => !Array.isArray(words) || words.some(word => typeof word !== "string" || /[\r\n]/.test(word))) : !Array.isArray(value) || value.some(item => !item || typeof item !== "object" || Array.isArray(item))) {
+      box.hidden = true; return;
+    }
+    box.hidden = false; rows.replaceChildren();
+    for (const [key, item] of Object.entries(value)) {
+      const row = document.createElement("div"); row.className = "collection-row"; row.dataset.collectionRow = "true";
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "删除此项";
+      const commit = (complete = true) => { raw.value = JSON.stringify(value); emit(complete); };
+      if (map) {
+        let currentKey = key;
+        const name = document.createElement("input"), words = document.createElement("textarea");
+        name.value = key; name.setAttribute("aria-label", "键");
+        name.dataset.buffer = `${field.name}.${rows.children.length}.name`;
+        words.dataset.buffer = `${field.name}.${rows.children.length}.words`;
+        words.value = item.join("\n"); words.rows = Math.min(5, Math.max(2, item.length)); words.setAttribute("aria-label", "值，每行一个");
+        const hint = document.createElement("small"); hint.textContent = "值，每行一个";
+        const rename = (complete = false) => {
+          if (!name.value || name.value !== currentKey && Object.hasOwn(value, name.value)) {
+            name.setCustomValidity("键不能为空或重复"); if (complete) name.reportValidity(); return;
+          }
+          name.setCustomValidity("");
+          const entries = Object.entries(value).map(([k, v]) => [k === currentKey ? name.value : k, v]);
+          value = Object.fromEntries(entries); currentKey = name.value; commit(complete);
+        };
+        name.addEventListener("input", () => rename());
+        name.addEventListener("change", () => rename(true));
+        name.validateEditor = () => { name.setCustomValidity(!name.value || name.value !== currentKey && Object.hasOwn(value, name.value) ? "键不能为空或重复" : ""); };
+        words.addEventListener("change", () => { value[currentKey] = words.value === "" ? [] : words.value.split("\n"); commit(); });
+        words.addEventListener("input", () => { value[currentKey] = words.value === "" ? [] : words.value.split("\n"); commit(false); });
+        remove.addEventListener("click", () => { delete value[currentKey]; commit(); render(); });
+        row.append(name, hint, words);
+      } else {
+        const known = new Set(field.items.fields.map(child => child.name));
+        for (const child of field.items.fields) appendConfigField(row, child, item);
+        for (const input of row.querySelectorAll("[data-field]")) {
+          input.dataset.buffer = `${field.name}.${key}.${input.dataset.field}`;
+          input.validateEditor = () => { try { input.setCustomValidity(""); readConfigFields(row); } catch {} };
+        }
+        const update = event => {
+          if (event.target === remove) return;
+          event.target.setCustomValidity?.("");
+          try {
+            if ([...row.querySelectorAll("input, select, textarea")].some(input => !input.checkValidity())) return;
+            value[key] = {...Object.fromEntries(Object.entries(item).filter(([name]) => !known.has(name))), ...readConfigFields(row)};
+            commit(event.type === "change");
+          } catch { /* The field renderer retains and locates invalid input. */ }
+        };
+        row.addEventListener("input", update);
+        row.addEventListener("change", update);
+        remove.addEventListener("click", () => { value.splice(Number(key), 1); commit(); render(); });
+      }
+      row.append(remove); rows.append(row);
+    }
+  };
+  add.addEventListener("click", () => {
+    const value = read();
+    if (map) { let n = 1; while (Object.hasOwn(value, `key_${n}`)) n++; value[`key_${n}`] = []; }
+    else value.push(Object.fromEntries(field.items.fields.filter(child => child.required && child.type === "string").map(child => [child.name, ""])));
+    raw.value = JSON.stringify(value); emit(); render();
+  });
+  raw.refreshEditor = render;
+  raw.addEventListener("change", () => { if (!emitting) render(); });
+  render();
+  return box;
 }
 
 function parseField(input) {
@@ -153,9 +247,11 @@ function parseField(input) {
   return input.value === input.dataset.displayValue ? input.dataset.originalValue : input.value;
 }
 
-export function readConfigFields(container) {
-  const config = {};
-  for (const input of container.querySelectorAll("[data-field]")) {
+export function readConfigFields(container, original = {}) {
+  const fields = [...container.querySelectorAll("[data-field]")].filter(input => !input.closest?.("[data-collection-row]") || container.dataset?.collectionRow);
+  const known = new Set(fields.map(input => input.dataset.field));
+  const config = Object.fromEntries(Object.entries(original).filter(([name]) => !known.has(name)));
+  for (const input of fields) {
     if (input.dataset.unsetOption === "true" && input.value === "") continue;
     if (input.value === input.dataset.displayValue && input.dataset.originalValue === undefined) continue;
     try {
@@ -171,17 +267,23 @@ export function readConfigFields(container) {
 
 function bufferKey(input) {
   const scope = input.closest("[data-io-entry]")?.dataset.ioEntry || (input.closest("#backendConfigFields") ? "backend" : "config");
-  return input.id || `${scope}.${input.dataset.field}`;
+  return input.id || `${scope}.${input.dataset.buffer || input.dataset.field}`;
 }
 
 export function readFormBuffer(form) {
   return Object.fromEntries([...form.querySelectorAll("input, select, textarea")]
-    .filter(input => input.id || input.dataset.field)
+    .filter(input => input.dataset.buffer || (input.id || input.dataset.field) && !input.closest?.("[data-collection-row]"))
     .map(input => [bufferKey(input), input.value]));
 }
 
 export function restoreFormBuffer(form, buffer) {
   for (const input of form.querySelectorAll("input, select, textarea")) {
+    if (input.dataset.buffer) continue;
     if (Object.hasOwn(buffer, bufferKey(input))) input.value = buffer[bufferKey(input)];
+    input.refreshEditor?.();
   }
+  for (const input of form.querySelectorAll("input, select, textarea")) {
+    if (input.dataset.buffer && Object.hasOwn(buffer, bufferKey(input))) input.value = buffer[bufferKey(input)];
+  }
+  for (const input of form.querySelectorAll("input, select, textarea")) input.validateEditor?.();
 }

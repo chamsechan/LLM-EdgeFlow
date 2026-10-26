@@ -9,7 +9,6 @@ const $ = selector => document.querySelector(selector);
 const state = {
   pipeline: null,
   authoringBusy: false,
-  deployment: null,
   preflight: null,
   filename: "",
   sourceName: "",
@@ -25,30 +24,34 @@ const state = {
   documentVersion: 0,
   savedPipeline: "",
   selectedEdge: null,
-  editing: false,
   saving: false,
   loading: false,
-  enteredEditor: false,
 };
 const history = createHistory();
 const drafts = createDrafts();
 let documentRequest = 0;
-let pendingAction = null;
 let pendingFixReview = null;
 let preflightRequest = 0;
+let draftCommit = null;
 
 function snapshot() { return { pipeline: state.pipeline, selected: state.selected }; }
 
+function refreshDocumentView() {
+  if (!drafts.has("json")) $("#rawJson").value = JSON.stringify(state.pipeline, null, 2);
+  renderPreflightFreshness(); updateEditorStatus();
+}
+
 function updateEditorStatus() {
   const pending = drafts.pending;
+  // 保存、检查和试运行可以等待正在提交的表单；其他编排操作仍需完成后再开始。
+  const actionBusy = state.loading || (state.authoringBusy && !draftCommit);
   const badge = $("#dirtyBadge");
-  badge.textContent = (state.loading || state.authoringBusy) ? "加载中…" : !state.pipeline ? "未打开" : pending ? "有未应用修改" : state.dirty ? "未保存" : state.sourceName ? "已导入" : "已保存";
+  badge.textContent = (state.loading || state.authoringBusy) ? "加载中…" : !state.pipeline ? "未打开" : (pending || state.dirty) ? "未保存" : state.sourceName ? "已导入" : "已保存";
   badge.classList.toggle("dirty", pending || state.dirty);
   $("#undoButton").disabled = (state.loading || state.authoringBusy) || pending || !history.canUndo;
   $("#redoButton").disabled = (state.loading || state.authoringBusy) || pending || !history.canRedo;
-  $("#saveButton").disabled = (state.loading || state.authoringBusy) || state.saving || !state.pipeline;
-  $("#saveAsButton").disabled = (state.loading || state.authoringBusy) || state.saving || !state.pipeline;
-  $("#saveSolutionButton").disabled = (state.loading || state.authoringBusy) || state.saving || !state.pipeline || !$("#runProfile").value;
+  $("#saveButton").disabled = actionBusy || state.saving || !state.pipeline;
+  $("#saveAsButton").disabled = actionBusy || state.saving || !state.pipeline;
   $("#openButton").disabled = (state.loading || state.authoringBusy) || !$("#pipelineSelect").value;
   $("#browseButton").disabled = (state.loading || state.authoringBusy);
   updateCreateForm();
@@ -58,54 +61,46 @@ function updateEditorStatus() {
   $("#welcomePanel").hidden = Boolean(state.pipeline) || state.loading;
   $("#focusNodeButton").disabled = (state.loading || state.authoringBusy) || !state.selected || !graph.positions[state.selected];
   for (const button of $("#operatorList").querySelectorAll("button")) {
-    button.disabled = !state.pipeline || !state.editing || !state.catalogReady || state.loading || state.authoringBusy;
+    button.disabled = !state.pipeline || !state.catalogReady || state.loading || state.authoringBusy;
   }
-  $("#quickValidateButton").disabled = (state.loading || state.authoringBusy) || !state.pipeline || !state.catalogReady;
-  $("#quickValidateButton").textContent = pending ? "应用修改并校验" : "校验";
-  $("#openRunButton").disabled = (state.loading || state.authoringBusy) || !state.pipeline;
-  $("#validateButton").disabled = (state.loading || state.authoringBusy) || !state.pipeline || !state.catalogReady;
-  $("#validateButton").textContent = pending ? "应用修改并校验" : "校验方案";
-  $("#preflightButton").disabled = (state.loading || state.authoringBusy) || !state.pipeline;
-  $("#associateDeploymentButton").disabled = (state.loading || state.authoringBusy) || !state.pipeline || !state.filename;
-  $("#browseHint").hidden = state.editing;
+  $("#quickValidateButton").disabled = actionBusy || !state.pipeline || !state.catalogReady;
+  $("#quickValidateButton").textContent = "检查";
+  $("#openRunButton").disabled = actionBusy || !state.pipeline;
+  $("#validateButton").disabled = actionBusy || !state.pipeline || !state.catalogReady;
+  $("#validateButton").textContent = "检查方案";
+  $("#preflightButton").disabled = actionBusy || !state.pipeline;
   $("#saveScope").textContent = state.pipeline ? state.filename
-    ? `保存目标：${state.filename}（configs/）${state.deployment ? `；同时检查 ${state.deployment.conf_name} 的版本` : ""}`
-    : "保存将另存到 configs/；导入源文件保持原样。" : "";
+    ? `文件：${state.filename}`
+    : "尚未保存为文件。" : "";
   $("#saveButton").title = $("#saveScope").textContent;
   renderRunContext();
-  $("#rawJson").readOnly = !state.editing || (state.loading || state.authoringBusy) || drafts.pendingExcept("json").length > 0;
+  $("#rawJson").readOnly = (state.loading || state.authoringBusy) || drafts.pendingExcept("json").length > 0;
   for (const [kind, form] of [["node", "#nodeForm"], ["model", "#modelForm"], ["io", "#ioForm"]]) {
     for (const control of $(form).querySelectorAll("input, select, textarea, button")) {
-      control.disabled = !state.editing || (state.loading || state.authoringBusy) || !state.catalogReady || !state.pipeline || drafts.pendingExcept(kind).length > 0;
+      control.disabled = (state.loading || state.authoringBusy) || !state.catalogReady || !state.pipeline || drafts.pendingExcept(kind).length > 0;
     }
   }
   const modelDefinition = categoryDefinition($("#modelType").value);
   if (!modelAvailability(state.catalog.backends || [], modelDefinition).available) $("#applyModel").disabled = true;
-  $("#applyJson").disabled = !state.editing || (state.loading || state.authoringBusy) || drafts.pendingExcept("json").length > 0;
+  $("#applyJson").disabled = (state.loading || state.authoringBusy) || drafts.pendingExcept("json").length > 0;
   $("#modelSelect").disabled = (state.loading || state.authoringBusy) || !state.catalogReady || drafts.pending;
-  $("#newModel").disabled = !state.editing || (state.loading || state.authoringBusy) || !state.catalogReady || drafts.pending;
-  for (const [kind, hint, discard] of [["json", "rawJsonHint", "discardJson"], ["node", "nodeDraftHint", "discardNode"], ["model", "modelDraftHint", "discardModel"], ["io", "ioDraftHint", "discardIo"]]) {
+  $("#newModel").disabled = (state.loading || state.authoringBusy) || !state.catalogReady || drafts.pending;
+  for (const [kind, hint] of [["json", "rawJsonHint"], ["node", "nodeDraftHint"], ["model", "modelDraftHint"], ["io", "ioDraftHint"]]) {
     $(`#${hint}`).hidden = !drafts.has(kind);
-    $(`#${discard}`).disabled = !drafts.has(kind);
+  }
+  for (const kind of ["node", "io", "json", "model"]) {
+    $(`#discard${kind[0].toUpperCase() + kind.slice(1)}`).disabled = state.loading || state.authoringBusy || !drafts.has(kind);
   }
 }
 
-function requireApplied(except = "", continuation = null, action = "继续操作") {
+function requireApplied(except = "") {
   if (state.loading || state.authoringBusy) { toast("方案操作中，请稍候"); return false; }
   const pending = drafts.pendingExcept(except);
   if (!pending.length) return true;
   const labels = { json: "原始 JSON", node: "节点属性", model: "模型", io: "输入与输出" };
-  if (!continuation) toast(`请先应用或放弃${pending.map(kind => labels[kind]).join("、")}中的修改`);
+  toast(`请先完成或撤回${pending.map(kind => labels[kind]).join("、")}中的修改`);
   switchTab(["node", "io"].includes(pending[0]) ? "properties" : pending[0] === "model" ? "models" : "json");
-  pendingAction = continuation ? { continuation, documentVersion: state.documentVersion } : null;
-  $("#draftActions").hidden = !pendingAction;
-  $("#draftActionLabel").textContent = `有未应用修改，处理后${action}。`;
   return false;
-}
-
-function clearPendingAction() {
-  pendingAction = null;
-  $("#draftActions").hidden = true;
 }
 
 function operationFeedback(message, error = false) {
@@ -125,10 +120,8 @@ function showFailure(error) {
 }
 
 function resetDocumentFeedback() {
-  clearPendingAction(); operationFeedback("");
-  for (const id of ["savedCommand", "savedConfig"]) $(`#${id}`).textContent = "";
-  $("#savedDeployment").hidden = true;
-  setInspectorOpen(state.editing);
+  operationFeedback("");
+  setInspectorOpen(false);
   renderRun();
 }
 
@@ -162,6 +155,7 @@ function clearValidation(message = "") {
   state.validationReport = null;
   state.errorNodeIds = new Set();
   $("#validationOutput").textContent = message;
+  $("#validationBadge").textContent = state.pipeline ? "尚未检查" : "";
 }
 
 function markPipelineChanged(record = true) {
@@ -190,10 +184,10 @@ function savePositions(positions) {
   catch { /* 浏览器存储已满或被禁用时，不得中断编辑。 */ }
 }
 
-function selectNode(id) {
+async function selectNode(id) {
   if (state.loading) return;
   if (drafts.has("node") && state.selected !== id) {
-    requireApplied("", () => selectNode(id), "切换节点"); return;
+    return ensureAppliedOrAction(() => selectNode(id));
   }
   state.selected = id; state.selectedEdge = null; renderAll();
   switchTab("properties");
@@ -213,6 +207,7 @@ const graph = new GraphView($("#graph"), {
     state.selectedEdge = edge; renderAll();
   },
   positionsChanged: savePositions,
+  feedback: message => toast(message),
   viewChanged: ({ scale }) => {
     $("#zoomLabel").textContent = `${Math.round(scale * 100)}%`;
     $("#zoomHint").hidden = !state.pipeline || scale >= .65;
@@ -221,7 +216,7 @@ const graph = new GraphView($("#graph"), {
 });
 
 function renderAll() {
-  graph.editable = state.editing && !state.loading && !state.authoringBusy && state.catalogReady;
+  graph.editable = !state.loading && !state.authoringBusy && state.catalogReady;
   const nodes = effectiveNodes();
   const modelNames = modelBoundNodeIds(nodes, state.catalog.nodes);
   const document = graphDocument(state.pipeline, state.catalog);
@@ -230,7 +225,7 @@ function renderAll() {
   $("#graphSummary").textContent = state.pipeline ? `${nodes.length} 个节点 · ${document.edges.length} 条连线` : "打开方案，查看算法流程";
   $("#edgeSelection").hidden = !state.selectedEdge;
   $("#edgeSelectionLabel").textContent = state.selectedEdge ? state.selectedEdge.dependency ? "已选中额外顺序" : `${state.selectedEdge.sourcePort} → ${state.selectedEdge.targetPort}` : "";
-  $("#deleteEdgeButton").disabled = !state.editing || !state.selectedEdge;
+  $("#deleteEdgeButton").disabled = !state.selectedEdge;
   renderInspector(nodes.find(node => node.name === state.selected));
   renderIoForm();
   renderBizContract();
@@ -255,7 +250,7 @@ function readIoParameters() {
       if (!container) continue;
       const definition = state.catalog[`${direction}_converters`]?.find(item => item.type === entry.type && item.name === entry.name);
       if (!definition) continue;
-      const params = readConfigFields(container);
+      const params = readConfigFields(container, entry.params || {});
       if (Object.keys(params).length) entry.params = params; else delete entry.params;
     }
   }
@@ -265,12 +260,12 @@ function renderIoList(container, entries, direction, creating) {
   container.replaceChildren();
   const converters = state.catalog[`${direction}_converters`] || [];
   const mutate = change => {
-    if (!creating && (!state.editing || !requireApplied("io"))) return;
+    if (!creating && !requireApplied("io")) return;
     try {
       if (!creating) readIoParameters();
       change();
       if (creating) { renderCreateIo(); filterProfiles(); }
-      else { drafts.set("io", {}); renderIoForm(); rememberIo(); }
+      else { drafts.set("io", {}); renderIoForm(); rememberIo(); applyIo(); }
     } catch (error) { operationFeedback(error.message, true); }
   };
   for (const [index, entry] of entries.entries()) {
@@ -328,12 +323,13 @@ function renderIoForm() {
   if (drafts.has("io")) restoreFormBuffer($("#ioForm"), drafts.get("io"));
 }
 
-function applyIo() {
-  if (!state.editing || !requireApplied("io")) return false;
+function applyIo(redraw = true) {
+  if (!$("#ioForm").checkValidity()) return false;
+  if (!requireApplied("io")) return false;
   try {
     readIoParameters();
     state.pipeline.io = structuredClone(ioDraft);
-    drafts.clear("io"); markPipelineChanged(); renderAll();
+    drafts.clear("io"); markPipelineChanged(); if (redraw) renderAll(); else refreshDocumentView();
     return true;
   } catch (error) { operationFeedback(error.message, true); return false; }
 }
@@ -377,15 +373,20 @@ function renderInspector(node) {
   $("#emptyInspectorDescription").textContent = boundary ? "在上方查看或设置方案的输入与输出。" : "点击画布中的节点，在这里查看和调整参数。";
   if (!node) return;
   $("#nodeName").value = node.name;
-  $("#nodeType").textContent = node.type;
   const definition = state.catalog.nodes.find(item => item.node_type === node.type);
+  $("#nodeType").textContent = node.type;
+  $("#nodeType").title = definition?.description || "";
   const container = $("#configFields");
   container.replaceChildren();
+  const extra = document.createElement("details"), summary = document.createElement("summary");
+  summary.textContent = "更多参数"; extra.append(summary);
   for (const field of definition?.config_fields || []) {
     const dep = (definition?.model_dependencies || []).find(d => d.config_field === field.name);
     const choices = dep ? compatibleModels(state.pipeline.models, dep.model_type).map(model => model.name) : null;
-    appendConfigField(container, field, node.params || {}, choices);
+    const essential = field.required || Object.hasOwn(node.params || {}, field.name);
+    appendConfigField(essential ? container : extra, field, node.params || {}, choices);
   }
+  if (extra.children.length > 1) container.append(extra);
   renderBindings(node);
   if (drafts.has("node")) restoreFormBuffer($("#nodeForm"), drafts.get("node"));
 }
@@ -398,9 +399,10 @@ function renderOperators() {
     const name = document.createElement("strong"), description = document.createElement("small");
     name.textContent = node.node_type; description.textContent = node.description;
     button.append(name, description);
-    button.disabled = !state.pipeline || !state.editing || !state.catalogReady || state.loading || state.authoringBusy;
+    button.disabled = !state.pipeline || !state.catalogReady || state.loading || state.authoringBusy;
     button.addEventListener("click", () => addNode(node)); list.append(button);
   }
+  if (!list.children.length) list.textContent = "没有找到匹配的节点。";
 }
 
 async function addNode(definition) {
@@ -411,10 +413,11 @@ async function addNode(definition) {
 }
 
 async function applyAuthoring(operation, options = {}) {
-  if (!state.editing || !state.pipeline || !requireApplied(options.except || "")) return false;
+  if (!options.except && drafts.pending) return ensureAppliedOrAction(() => applyAuthoring(operation, options));
+  if (!state.pipeline || !requireApplied(options.except || "")) return false;
   const source = structuredClone(state.pipeline);
   const version = state.pipelineVersion, documentVersion = state.documentVersion;
-  const current = () => !state.loading && state.editing && version === state.pipelineVersion &&
+  const current = () => !state.loading && version === state.pipelineVersion &&
     documentVersion === state.documentVersion;
   state.authoringBusy = true; updateEditorStatus(); graph.editable = false;
   try {
@@ -458,7 +461,7 @@ function renderBindings(node) {
     const row = document.createElement("div"); row.className = "row";
     const text = document.createElement("span"); text.textContent = id;
     const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "删除依赖";
-    remove.disabled = !state.editing || state.authoringBusy;
+    remove.disabled = state.authoringBusy;
     remove.addEventListener("click", () => applyAuthoring({ kind: "remove_dependency", node: node.name, depends_on: id }));
     row.append(text, remove); container.append(row);
   }
@@ -466,7 +469,7 @@ function renderBindings(node) {
   select.add(new Option("选择前置节点", ""));
   for (const other of effectiveNodes()) if (other.name !== node.name && !(node.depends_on || []).includes(other.name)) select.add(new Option(other.name, other.name));
   const add = document.createElement("button"); add.type = "button"; add.id = "addDependencyButton"; add.textContent = "添加依赖";
-  add.disabled = !state.editing || state.authoringBusy;
+  add.disabled = state.authoringBusy;
   add.addEventListener("click", () => { if (select.value) applyAuthoring({ kind: "add_dependency", node: node.name, depends_on: select.value }); });
   container.append(select, add);
 }
@@ -479,9 +482,7 @@ async function refreshLists() {
   state.catalog = catalog;
   state.catalogReady = true;
   const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-  for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${ioLabel(item.io)}`, item.filename));
-  const confSelect = $("#associateConfSelect");
-  for (const conf of pipelines.deployments) confSelect.add(new Option(conf, conf));
+  for (const item of pipelines.pipelines) schemes.add(new Option(item.filename, item.filename));
   renderOperators();
   renderCreateIo(); filterProfiles();
 }
@@ -531,7 +532,6 @@ async function openDocument(load, { creating = false, profile = "" } = {}) {
     state.pipeline = result.pipeline;
     state.filename = creating || result.imported ? "" : result.filename;
     state.sourceName = !creating && result.imported ? result.filename : "";
-    state.deployment = creating ? null : result.deployment || null;
     state.revision = creating ? "" : result.revision; state.selected = "";
     if (!creating) $("#pipelineSelect").value = state.filename;
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
@@ -547,7 +547,7 @@ async function openDocument(load, { creating = false, profile = "" } = {}) {
       operationFeedback(profile ? "示例方案已创建。点击节点调整参数，再检查或运行；保存后才会写入文件。" : "空白方案已创建。从节点库添加节点，再连接输入和输出。完成后检查并保存。");
     }
   } finally {
-    if (request === documentRequest) { state.loading = false; graph.editable = state.editing; renderAll(); }
+    if (request === documentRequest) { state.loading = false; renderAll(); }
   }
 }
 
@@ -557,45 +557,43 @@ async function createPipeline() {
   return openDocument(() => write("/init", "POST", profile ? {profile} : structuredClone(createIo)), { creating: true, profile });
 }
 
-async function save(saveAs, runnable = false) {
+// 受控方案文件名为 pipeline_[a-z0-9_]+.json；这里只做大小写、空白和前后缀的规范化。
+function solutionName(value = "") {
+  return value.trim().toLowerCase().replace(/\.json$/, "").replace(/^pipeline_/, "").replace(/[\s-]+/g, "_");
+}
+
+async function save(saveAs) {
   if (!state.pipeline) return toast("没有可保存的方案", true);
-  if (state.saving || !requireApplied("", () => save(saveAs, runnable), "保存方案")) return;
-  if (runnable && !$("#runProfile").value) return toast("请先选择与当前输入输出匹配的示例数据", true);
+  if (state.saving || !requireApplied()) return;
   let filename = state.filename;
   if (saveAs || !filename) {
-    const suggested = /^pipeline_[a-z0-9_]+\.json$/.test(state.sourceName) ? state.sourceName : "pipeline_new_solution.json";
-    filename = prompt(`${runnable ? "创建 JSON 与配套 .conf" : "创建 JSON 文件；如需配套 .conf，请使用运行页的另存为可运行方案"}。\n另存到 configs：文件名（pipeline_[a-z0-9_]+.json）`, filename || suggested);
-    if (!filename) return;
+    const suggested = solutionName(filename || state.sourceName);
+    const entered = prompt("保存方案：请输入名称（小写字母、数字或下划线），保存为 configs/pipeline_<名称>.json",
+      /^[a-z0-9_]+$/.test(suggested) ? suggested : "my_solution");
+    if (entered === null) return;
+    const name = solutionName(entered);
+    if (!/^[a-z0-9_]+$/.test(name)) return toast("名称只能包含小写字母、数字和下划线，例如 my_solution", true);
+    filename = `pipeline_${name}.json`;
     saveAs = true;
   }
   const documentVersion = state.documentVersion;
   const pipeline = structuredClone(state.pipeline);
   state.saving = true; updateEditorStatus();
   try {
-    const result = await write(runnable ? "/solutions" : saveAs ? "/pipelines" : "/pipeline", saveAs ? "POST" : "PUT", {
+    const result = await write(saveAs ? "/pipelines" : "/pipeline", saveAs ? "POST" : "PUT", {
       filename, pipeline, revision: state.revision,
-      profile: $("#runProfile").value,
     });
     if (documentVersion !== state.documentVersion) return;
     state.filename = result.filename; state.sourceName = ""; state.revision = result.revision;
-    state.deployment = result.deployment || null;
     state.savedPipeline = JSON.stringify(pipeline);
     savePositions(graph.positions);
     setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
-    if (result.conf_filename) {
-      $("#savedCommand").textContent = result.command_warning || `方案：${result.filename}；部署配置：${result.conf_filename}。以下命令运行已保存版本：\n\n${result.command}`;
-      $("#savedConfig").textContent = JSON.stringify(result.configuration, null, 2);
-      $("#savedDeployment").hidden = false;
-    } else {
-      $("#savedDeployment").hidden = true;
-      $("#savedCommand").textContent = ""; $("#savedConfig").textContent = "";
-    }
-    const feedback = `已保存：configs/${result.filename}${runnable ? `；已创建配套 ${result.conf_filename}` : ""}${state.dirty || drafts.pending ? "；当前仍有新修改" : ""}${result.command_warning ? `。${result.command_warning}` : ""}`;
+    const feedback = `已保存：${result.filename}${state.dirty || drafts.pending ? "；当前仍有新修改" : ""}`;
     operationFeedback(feedback); toast(feedback);
     const pipelines = await api("/pipelines");
     if (documentVersion !== state.documentVersion) return;
     const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-    for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${ioLabel(item.io)}`, item.filename));
+    for (const item of pipelines.pipelines) schemes.add(new Option(item.filename, item.filename));
     $("#pipelineSelect").value = state.filename;
   } catch (error) { if (documentVersion === state.documentVersion) showFailure(error); }
   finally { state.saving = false; updateEditorStatus(); }
@@ -603,11 +601,12 @@ async function save(saveAs, runnable = false) {
 
 function showValidation(report) {
   const output = $("#validationOutput");
+  $("#validationBadge").textContent = report.ok ? "检查通过" : `${report.diagnostics?.length || 1} 处待完善`;
   output.replaceChildren();
   state.errorNodeIds = new Set();
   if (report.ok) {
     const block = document.createElement("div"); block.className = "diagnostic ok";
-    block.textContent = `校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前`;
+    block.textContent = "连接与配置检查通过。试运行还需要相应的模型资源。";
     output.append(block);
   }
   for (const item of report.diagnostics || []) {
@@ -714,10 +713,10 @@ async function handleApplyReviewedFix() {
 
 async function validate() {
   if (!state.catalogReady) {
-    toast("Catalog 暂不可用或版本不兼容，无法校验方案", true);
+    toast("校验工具暂不可用，请检查服务后重试", true);
     return false;
   }
-  if (!state.pipeline || !requireApplied("", validate, "校验方案")) return;
+  if (!state.pipeline || !requireApplied()) return;
   switchTab("validation"); operationFeedback("");
   const output = $("#validationOutput");
   const pipelineVersion = state.pipelineVersion;
@@ -743,21 +742,21 @@ function renderRunContext() {
   const run = state.run;
   const profileName = $("#runProfile").value;
   const profile = state.catalog.profiles?.find(item => item.name === profileName);
-  $("#runButton").disabled = state.loading || state.authoringBusy || !state.pipeline || Boolean(runBusy()) || !profileName;
-  $("#runButton").textContent = runBusy() ? "正在运行…" : drafts.pending ? "应用修改并运行" : "运行当前方案";
+  $("#runButton").disabled = state.loading || (state.authoringBusy && !draftCommit) || !state.pipeline || Boolean(runBusy()) || !profileName;
+  $("#runButton").textContent = runBusy() ? "正在运行…" : "试运行";
   $("#runProfileHint").textContent = !state.pipeline ? "打开或新建方案后，选择示例数据进行试运行。"
     : !state.catalogReady ? "示例数据列表尚未就绪，请确认工具可用后重新打开方案。"
-    : !profileName ? "没有与当前输入输出匹配的示例数据。可以继续编辑和保存；试运行前需在 demo/profiles.json 中配置匹配的 Profile。"
+    : !profileName ? "没有与当前输入输出匹配的测试样例，仍可编辑和保存。请由开发者补充对应的测试样例。"
     : `数据集：${profile?.dataset || profileName}。运行使用当前方案，修改无需先保存。`;
   $("#cancelButton").disabled = !runBusy() || !run?.id;
   const currentDocument = run?.documentVersion === state.documentVersion;
   $("#runContext").textContent = !run ? "尚未运行" : !currentDocument
     ? `其他方案：${run.filename} · ${runBusy() ? "运行中，可取消后运行当前方案" : "已结束；当前方案尚未运行"}`
     : `${run.filename} · ${new Date(run.startedAt).toLocaleString("zh-CN", { hour12: false })}\n示例数据：${run.profile}`;
-  const stale = currentDocument && ((run.deploymentSnapshot && run.deploymentSnapshot !== deploymentSnapshot()) || !runIsCurrent(run, {
+  const stale = currentDocument && !runIsCurrent(run, {
     documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
     profile: $("#runProfile").value,
-  }));
+  });
   $("#runFreshness").hidden = !stale;
   $("#runFreshness").textContent = "方案或运行设置已修改。以下结果属于提交时的版本，请重新运行验证当前修改。";
 }
@@ -774,14 +773,13 @@ function renderRun() {
 }
 
 async function runDraft() {
-  if (!state.pipeline || !$("#runProfile").value || runBusy() || !requireApplied("", runDraft, "运行方案")) return;
+  if (!state.pipeline || !$("#runProfile").value || runBusy() || !requireApplied()) return;
   switchTab("run"); operationFeedback("");
   const run = captureRun({ documentVersion: state.documentVersion, pipeline: state.pipeline,
     filename: state.filename || state.sourceName || "未命名方案", profile: $("#runProfile").value });
-  run.deploymentSnapshot = deploymentSnapshot();
   state.run = run; renderRun();
   try {
-    const result = await write("/runs", "POST", { pipeline: JSON.parse(run.pipeline), profile: run.profile, filename: state.filename });
+    const result = await write("/runs", "POST", { pipeline: JSON.parse(run.pipeline), profile: run.profile });
     if (state.run !== run) return;
     run.id = result.job_id; run.job = { status: result.status || "queued" }; renderRun(); pollRun(run);
   } catch (error) {
@@ -809,55 +807,56 @@ async function pollRun(run) {
 }
 
 async function ensureAppliedOrAction(action) {
+  if (state.loading) return false;
+  if (draftCommit && !await draftCommit) return false;
+  if (state.authoringBusy) return false;
   const pending = drafts.pendingExcept("");
   for (const kind of pending) {
     const ok = await applyDraft(kind);
-    if (!ok) return;
+    if (!ok) return false;
   }
-  clearPendingAction();
   return await action();
 }
 
-function deploymentSnapshot() {
+function runSettingsSnapshot() {
   return JSON.stringify({ documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
-    filename: state.filename, deployment: state.deployment, profile: $("#runProfile").value });
+    profile: $("#runProfile").value });
 }
 
 function renderPreflightFreshness() {
   const summary = $("#preflightSummary");
-  if (!state.preflight || state.preflight === deploymentSnapshot()) return;
+  if (!state.preflight || state.preflight === runSettingsSnapshot()) return;
   summary.hidden = false; summary.className = "preflight-summary stale";
-  summary.textContent = "预检已过期：方案、部署配置或运行设置已改变，请重新检查运行条件。";
+  summary.textContent = "预检已过期：方案或测试数据已改变，请重新检查运行条件。";
 }
 
 async function runPreflight() {
-  if (!state.pipeline || !requireApplied("", runPreflight, "运行预检")) return;
+  if (!state.pipeline || !requireApplied()) return;
   const summaryEl = $("#preflightSummary");
   const request = ++preflightRequest;
-  const snapshot = deploymentSnapshot();
+  const snapshot = runSettingsSnapshot();
   state.preflight = snapshot;
   summaryEl.hidden = false;
   summaryEl.className = "preflight-summary loading";
-  summaryEl.textContent = "正在执行独立部署预检（无 Demo 执行）…";
+  summaryEl.textContent = "正在检查运行所需的配置与资源…";
   try {
     const res = await write("/preflight", "POST", {
-      pipeline: state.pipeline, filename: state.filename,
-      profile: $("#runProfile").value,
+      pipeline: state.pipeline, profile: $("#runProfile").value,
     }, true);
-    if (request !== preflightRequest || snapshot !== deploymentSnapshot()) { renderPreflightFreshness(); return; }
+    if (request !== preflightRequest || snapshot !== runSettingsSnapshot()) { renderPreflightFreshness(); return; }
     summaryEl.className = "preflight-summary";
     const summary = res.summary || {};
     summaryEl.replaceChildren();
     const heading = document.createElement("div");
     heading.className = `preflight-status ${summary.status || "unknown"}`;
-    heading.textContent = summary.status === "ready" ? "✓ 部署预检通过（具备运行条件）"
+    heading.textContent = summary.status === "ready" ? "✓ 具备试运行条件"
       : summary.status === "attention_required" ? "⚠ 预检需关注：部分工具或模型资产未就绪"
-      : summary.status === "validation_failed" ? "✗ Pipeline 校验未通过"
-      : `预检状态：${summary.status || "未知"}`;
+      : summary.status === "validation_failed" ? "✗ 方案有待完善的配置"
+      : summary.status === "no_test_data" ? "请选择测试数据" : "运行条件尚未确认";
     summaryEl.append(heading);
 
     const desc = document.createElement("p");
-    desc.textContent = `I/O 契约：${ioLabel(summary.io)} · 项目根：${summary.project_root || "本地"}`;
+    desc.textContent = "试运行使用当前方案和所选测试数据。";
     summaryEl.append(desc);
 
     if (summary.tools) {
@@ -881,40 +880,11 @@ async function runPreflight() {
       summaryEl.append(nextP);
     }
   } catch (error) {
-    if (request !== preflightRequest || snapshot !== deploymentSnapshot()) { renderPreflightFreshness(); return; }
+    if (request !== preflightRequest || snapshot !== runSettingsSnapshot()) { renderPreflightFreshness(); return; }
     summaryEl.className = "preflight-summary error";
     summaryEl.textContent = `预检执行失败：${error.message}`;
   }
 }
-
-async function handleAssociateDeployment() {
-  if (!state.pipeline || !state.filename) {
-    toast("请先保存当前 Pipeline 到 configs/ 再关联部署配置", true);
-    return;
-  }
-  if (!requireApplied()) return;
-  const documentVersion = state.documentVersion;
-  const filename = state.filename;
-  const confName = $("#associateConfSelect").value;
-  if (!confName) {
-    toast("请选择要关联的部署配置", true);
-    return;
-  }
-  try {
-    operationFeedback(`正在关联部署配置：${confName}…`);
-    const res = await write("/deployment/associate", "POST", {
-      filename, profile: $("#runProfile").value,
-      conf_name: confName,
-    });
-    if (documentVersion !== state.documentVersion || filename !== state.filename) return;
-    state.deployment = res.deployment;
-    operationFeedback(`已关联部署配置：${confName}`);
-    renderAll();
-  } catch (error) {
-    operationFeedback(`关联部署配置失败：${error.message}`, true);
-  }
-}
-
 
 let editingModelName = "";
 let modelDocument = null;
@@ -1035,15 +1005,19 @@ $("#modelBackend").addEventListener("change", () => {
   catch (error) { operationFeedback(error.message, true); }
 });
 function applyModel() {
-  if (!state.editing || !$("#modelForm").reportValidity()) return false;
+  if (!$("#modelForm").checkValidity()) return false;
   if (!state.pipeline) return toast("请先新建或打开方案", true);
   if (!requireApplied("model")) return;
   try {
+    const previous = state.pipeline.models?.find(model => model.name === editingModelName && model.type === $("#modelType").value);
+    const previousBackend = previous?.backend?.type === $("#modelBackend").value ? previous.backend : {};
     const model = {
+      ...previous,
       name: $("#modelName").value.trim(), type: $("#modelType").value, file: $("#modelFile").value.trim(),
-      backend: {type: $("#modelBackend").value},
+      backend: {...previousBackend, type: $("#modelBackend").value},
     };
-    const params = readConfigFields($("#modelConfigFields")), backendParams = readConfigFields($("#backendConfigFields"));
+    delete model.params; delete model.backend.params;
+    const params = readConfigFields($("#modelConfigFields"), previous?.params || {}), backendParams = readConfigFields($("#backendConfigFields"), previousBackend.params || {});
     if (Object.keys(params).length) model.params = params;
     if (Object.keys(backendParams).length) model.backend.params = backendParams;
     state.pipeline.models ??= [];
@@ -1068,30 +1042,12 @@ function switchTab(name) {
     button.setAttribute("aria-selected", String(button.dataset.tab === name));
   });
   for (const tab of ["properties", "models", "json", "validation", "run"]) $(`#${tab}Tab`).hidden = tab !== name;
+  if (["models", "json"].includes(name)) $(".advanced-menu").open = true;
 }
 
 function setInspectorOpen(open) {
   document.body.classList.toggle("inspector-open", open);
   $("#inspectorToggle").setAttribute("aria-pressed", String(open));
-}
-
-function setEditing(editing) {
-  if (!editing && !requireApplied("", () => setEditing(false), "返回浏览")) return;
-  setInspectorOpen(editing);
-  state.editing = editing;
-  graph.editable = editing && !state.loading && state.catalogReady;
-  document.body.classList.toggle("editing", editing);
-  if (editing && !state.enteredEditor && state.pipeline) {
-    document.body.classList.add("operators-hidden");
-    $("#operatorsToggle").setAttribute("aria-pressed", "false");
-  }
-  if (editing) state.enteredEditor = true;
-  $("#editModeButton").textContent = editing ? "浏览流程" : "编辑方案";
-  $("#editModeButton").setAttribute("aria-pressed", String(editing));
-  $("#canvasHint").textContent = editing
-    ? "从输出端口拖到输入端口连线 · 选中连线后删除 · Ctrl/⌘ Z 撤销"
-    : "拖动画布平移 · 滚轮缩放 · 双击节点放大阅读";
-  renderAll();
 }
 
 function restoreHistory(direction) {
@@ -1105,14 +1061,32 @@ function restoreHistory(direction) {
 
 function deleteSelectedEdge() {
   const edge = state.selectedEdge;
-  if (!state.editing || !edge || !requireApplied()) return;
+  if (!edge || !requireApplied()) return;
   return applyAuthoring(edge.dependency
     ? { kind: "remove_dependency", node: edge.target, depends_on: edge.source }
     : { kind: "disconnect", source: { node: edge.source, port: edge.sourcePort }, target: { node: edge.target, port: edge.targetPort } });
 }
 
-$("#editModeButton").addEventListener("click", () => setEditing(!state.editing));
 $("#inspectorToggle").addEventListener("click", () => setInspectorOpen(!document.body.classList.contains("inspector-open")));
+const resizeHandle = $("#inspectorResize");
+const resizeInspector = width => {
+  width = Math.max(280, Math.min(600, innerWidth * .45, width));
+  $(".inspector").style.width = `${width}px`;
+  $(".inspector").style.flexBasis = `${width}px`;
+  resizeHandle.setAttribute("aria-valuenow", String(Math.round(width)));
+};
+let resizing = false;
+resizeHandle.addEventListener("pointerdown", event => {
+  if (event.button !== 0) return;
+  resizing = true; resizeHandle.setPointerCapture(event.pointerId); event.preventDefault();
+});
+resizeHandle.addEventListener("pointermove", event => { if (resizing) resizeInspector(innerWidth - event.clientX); });
+for (const type of ["pointerup", "pointercancel"]) resizeHandle.addEventListener(type, () => { resizing = false; });
+resizeHandle.addEventListener("keydown", event => {
+  if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+    event.preventDefault(); resizeInspector($(".inspector").getBoundingClientRect().width + (event.key === "ArrowLeft" ? 20 : -20));
+  }
+});
 for (const [id, name] of [["operatorsToggle", "operators-hidden"]]) {
   $("#" + id).addEventListener("click", () => {
     const hidden = document.body.classList.toggle(name);
@@ -1129,7 +1103,6 @@ $("#redoButton").addEventListener("click", () => restoreHistory("redo"));
 $("#deleteEdgeButton").addEventListener("click", deleteSelectedEdge);
 
 $("#rawJson").addEventListener("input", event => {
-  if (!state.editing) return;
   operationFeedback("");
   if (event.target.value === JSON.stringify(state.pipeline, null, 2)) drafts.clear("json");
   else drafts.set("json", event.target.value);
@@ -1139,25 +1112,36 @@ for (const [kind, selector] of [["node", "#nodeForm"], ["model", "#modelForm"], 
   const remember = event => {
     // 图控件提交的是编辑操作，而非 Node 参数草稿。
     if (event.target.closest?.("#nodeBindings")) return;
+    if (event.target.closest?.("[data-collection]")) {
+      if (event.type === "input") { drafts.set(kind, readFormBuffer($(selector))); updateEditorStatus(); }
+      return;
+    }
     event.target.setCustomValidity?.("");
-    if (!state.editing) return;
     operationFeedback("");
     drafts.set(kind, readFormBuffer($(selector))); updateEditorStatus();
+    if (event.type === "change" && kind !== "model") applyDraft(kind, false);
   };
   $(selector).addEventListener("input", remember);
   $(selector).addEventListener("change", remember);
 }
-$("#discardJson").addEventListener("click", () => { drafts.clear("json"); clearPendingAction(); renderAll(); });
-$("#discardNode").addEventListener("click", () => { drafts.clear("node"); clearPendingAction(); renderAll(); });
-$("#discardIo").addEventListener("click", () => { drafts.clear("io"); clearPendingAction(); renderAll(); });
-$("#discardModel").addEventListener("click", () => { drafts.clear("model"); clearPendingAction(); loadModelEditor(editingModelName); updateEditorStatus(); });
+for (const kind of ["node", "io", "json", "model"]) {
+  const button = $(`#discard${kind[0].toUpperCase() + kind.slice(1)}`);
+  // 点击撤回不先让输入框失焦提交，否则会撤回刚刚已经生效的编辑。
+  button.addEventListener("pointerdown", event => { if (event.button === 0) event.preventDefault(); });
+  button.addEventListener("click", () => {
+    if (state.loading || state.authoringBusy) return;
+    drafts.clear(kind); operationFeedback("");
+    if (kind === "model") loadModelEditor(editingModelName);
+    renderAll();
+  });
+}
 
 window.addEventListener("keydown", event => {
   const typing = event.target.closest?.("input, textarea, select, [contenteditable=true]");
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-    event.preventDefault(); if (state.editing) ensureAppliedOrAction(() => save(false)); return;
+    event.preventDefault(); ensureAppliedOrAction(() => save(false)); return;
   }
-  if (typing || !state.editing) return;
+  if (typing) return;
   if ((event.ctrlKey || event.metaKey) && ["z", "y"].includes(event.key.toLowerCase())) {
     event.preventDefault();
     restoreHistory(event.shiftKey || event.key.toLowerCase() === "y" ? "redo" : "undo");
@@ -1180,7 +1164,6 @@ $("#pipelineFile").addEventListener("change", async event => {
   catch (error) { toast(`打开文件失败：${error.message}`, true); }
 });
 $("#newEntryButton").addEventListener("click", () => {
-  setEditing(true);
   document.body.classList.remove("operators-hidden");
   $("#operatorsToggle").setAttribute("aria-pressed", "true");
   $(".create-panel").open = true; $("#cloneProfile").focus();
@@ -1193,7 +1176,6 @@ $("#runProfile").addEventListener("change", updateEditorStatus);
 $("#newButton").addEventListener("click", () => createPipeline().catch(error => toast(error.message, true)));
 $("#saveButton").addEventListener("click", () => ensureAppliedOrAction(() => save(false)));
 $("#saveAsButton").addEventListener("click", () => ensureAppliedOrAction(() => save(true)));
-$("#saveSolutionButton").addEventListener("click", () => ensureAppliedOrAction(() => save(true, true)));
 $("#layoutButton").addEventListener("click", () => {
   graph.layout(graphDocument(state.pipeline, state.catalog).nodes, true);
   renderAll();
@@ -1204,7 +1186,6 @@ $("#createMode").addEventListener("change", updateCreateForm);
 $("#validateButton").addEventListener("click", () => ensureAppliedOrAction(validate));
 $("#runButton").addEventListener("click", () => ensureAppliedOrAction(runDraft));
 $("#preflightButton").addEventListener("click", () => ensureAppliedOrAction(runPreflight));
-$("#associateDeploymentButton").addEventListener("click", handleAssociateDeployment);
 $("#cancelButton").addEventListener("click", async () => {
   const run = state.run;
   if (!run?.id || !runBusy()) return;
@@ -1213,8 +1194,8 @@ $("#cancelButton").addEventListener("click", async () => {
 });
 document.querySelectorAll(".tabs button").forEach(button => button.addEventListener("click", () => switchTab(button.dataset.tab)));
 
-async function applyNode() {
-  if (!state.editing || !$("#nodeForm").reportValidity()) return false;
+async function applyNode(redraw = true) {
+  if (!$("#nodeForm").checkValidity()) return false;
   if (!requireApplied("node")) return;
   if (!state.catalog.nodes.some(definition => definition.node_type === effectiveNodes().find(node => node.name === state.selected)?.type)) return toast("节点定义不可用，请重新打开方案或修正 JSON", true);
   const node = state.pipeline.pipeline.find(item => item.name === state.selected);
@@ -1224,7 +1205,7 @@ async function applyNode() {
     operationFeedback("节点名为空或重复", true); return false;
   }
   try {
-    const config = readConfigFields($("#configFields"));
+    const config = readConfigFields($("#configFields"), node.params || {});
     const oldId = node.name;
     if (newId !== oldId) {
       return await applyAuthoring({ kind: "rename_node", node: oldId, new_name: newId }, {
@@ -1236,7 +1217,7 @@ async function applyNode() {
       });
     }
     node.params = config;
-    drafts.clear("node"); markPipelineChanged(); renderAll();
+    drafts.clear("node"); markPipelineChanged(); if (redraw) renderAll(); else refreshDocumentView();
     return true;
   } catch (error) { operationFeedback(`配置错误：${error.message}`, true); return false; }
 }
@@ -1249,7 +1230,7 @@ $("#deleteNode").addEventListener("click", () => {
 });
 
 async function applyJson() {
-  if (!state.editing || !requireApplied("json")) return false;
+  if (!requireApplied("json")) return false;
   let parsed;
   try {
     parsed = JSON.parse($("#rawJson").value);
@@ -1265,38 +1246,34 @@ async function applyJson() {
   return true;
 }
 
-const applyDraft = async kind => {
-  operationFeedback("");
-  return kind === "node" ? applyNode() : kind === "model" ? applyModel() : kind === "io" ? applyIo() : applyJson();
-};
-async function applyManually(kind) {
-  if (await applyDraft(kind)) clearPendingAction();
-}
-$("#ioForm").addEventListener("submit", event => { event.preventDefault(); applyManually("io"); });
-$("#nodeForm").addEventListener("submit", event => { event.preventDefault(); applyManually("node"); });
-$("#modelForm").addEventListener("submit", event => { event.preventDefault(); applyManually("model"); });
-$("#applyJson").addEventListener("click", () => applyManually("json"));
-$("#stayDraft").addEventListener("click", clearPendingAction);
-async function continueDraft(discard) {
-  const action = pendingAction;
-  if (!action || action.documentVersion !== state.documentVersion) return;
-  $("#applyContinue").disabled = true; $("#discardContinue").disabled = true;
-  try {
-    const kind = drafts.pendingExcept("")[0];
-    if (kind) {
-      if (discard) {
-        drafts.clear(kind);
-        if (kind === "model") loadModelEditor(editingModelName);
-        renderAll();
-      } else if (!await applyDraft(kind)) return;
+function showDraftError(kind) {
+  switchTab(kind === "node" || kind === "io" ? "properties" : kind === "model" ? "models" : "json");
+  const input = kind === "json" ? $("#rawJson") : $(`#${kind}Form`).querySelector("input:invalid, select:invalid, textarea:invalid");
+  if (input) {
+    for (let parent = input.parentElement; parent; parent = parent.parentElement) {
+      if (parent.tagName === "DETAILS") parent.open = true;
     }
-    if (action.documentVersion !== state.documentVersion || pendingAction !== action) return;
-    clearPendingAction();
-    await action.continuation();
-  } finally { $("#applyContinue").disabled = false; $("#discardContinue").disabled = false; }
+    input.focus(); input.reportValidity();
+  }
+  if (!$("#operationFeedback").textContent) operationFeedback("请修正标出的输入，或点击“撤回输入”。", true);
 }
-$("#applyContinue").addEventListener("click", () => continueDraft(false));
-$("#discardContinue").addEventListener("click", () => continueDraft(true));
+
+function applyDraft(kind, redraw = true) {
+  if (draftCommit) return draftCommit;
+  // 失焦提交与随后点击的保存共用同一个 Promise，不丢弃后续操作，也不重复重命名。
+  draftCommit = Promise.resolve().then(async () => {
+    operationFeedback("");
+    const ok = await (kind === "node" ? applyNode(redraw) : kind === "model" ? applyModel() : kind === "io" ? applyIo(redraw) : applyJson());
+    if (!ok) showDraftError(kind);
+    return ok;
+  }).finally(() => { draftCommit = null; updateEditorStatus(); });
+  return draftCommit;
+}
+// 表单的 Enter 隐式提交只应用当前表单，不触发页面提交。
+for (const kind of ["io", "node", "model"]) {
+  $(`#${kind}Form`).addEventListener("submit", event => { event.preventDefault(); applyDraft(kind); });
+}
+$("#applyJson").addEventListener("click", () => applyDraft("json"));
 
 window.addEventListener("beforeunload", event => { if (state.dirty || drafts.pending) { event.preventDefault(); event.returnValue = ""; } });
 
