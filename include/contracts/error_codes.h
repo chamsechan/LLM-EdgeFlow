@@ -73,15 +73,10 @@
   X(kValidationFailed, -3068, "VALIDATION_FAILED")                      \
   X(kBodyTooLarge, -3069, "BODY_TOO_LARGE")                             \
   X(kDemoNotBuilt, -3070, "DEMO_NOT_BUILT")                             \
-  X(kDeploymentMismatch, -3071, "DEPLOYMENT_MISMATCH")                  \
-  X(kDeploymentNotFound, -3073, "DEPLOYMENT_NOT_FOUND")                 \
   X(kDeploymentValidationFailed, -3074, "DEPLOYMENT_VALIDATION_FAILED") \
   X(kDocumentTooLarge, -3075, "DOCUMENT_TOO_LARGE")                     \
   X(kFileExists, -3076, "FILE_EXISTS")                                  \
   X(kInvalidAuthoringRequest, -3077, "INVALID_AUTHORING_REQUEST")       \
-  X(kInvalidDeploymentConfig, -3078, "INVALID_DEPLOYMENT_CONFIG")       \
-  X(kInvalidDeploymentName, -3079, "INVALID_DEPLOYMENT_NAME")           \
-  X(kInvalidDeploymentPath, -3080, "INVALID_DEPLOYMENT_PATH")           \
   X(kInvalidInitRequest, -3081, "INVALID_INIT_REQUEST")                 \
   X(kInvalidPipelineDocument, -3083, "INVALID_PIPELINE_DOCUMENT")       \
   X(kInvalidPipelineFile, -3084, "INVALID_PIPELINE_FILE")               \

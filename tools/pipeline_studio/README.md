@@ -1,6 +1,6 @@
 # LLM-EdgeFlow Pipeline Studio
 
-Pipeline Studio 用于查看、编辑、校验和运行方案。工作台和命令行工具共用 C++ Catalog 与 Validator。
+Pipeline Studio 是 Pipeline JSON 的可视化编辑器，附带示例数据试运行。JSON 是唯一的方案文档；画布、参数表单和高级 JSON 编辑共用这份文档。节点能力与执行合法性仍来自 C++ Catalog 与 Validator。
 本目录包含 Python 服务端、Web 资源和使用文档。
 
 ## 前置条件
@@ -30,70 +30,59 @@ Backend、文件和显式参数。原生查看器只显示已配置的 `backend.
 
 使用 `--web` 启动服务。服务只监听 `127.0.0.1`。
 启动后，打开终端显示的地址。按 `Ctrl+C` 停止服务。
-如果启动时未指定文件，可在页面点击“导入文件…”选择单个 JSON。文件大小不得超过 4 MiB。
+如果启动时未指定文件，可在页面点击“打开 JSON…”选择单个 JSON。文件大小不得超过 4 MiB。
 
-受控方案为 `configs/pipeline_[a-z0-9_]+.json`。其他位置的文件作为导入文档浏览、编辑和校验，
-保存时另存到受控目录。打开只要求可解析。缺失模型、Backend 或工具时仍可浏览。
-保存前执行原生校验，并用 SHA-256 revision 检测外部修改。
+页面直接进入编辑。方案保存为服务 `configs/` 目录下的 `pipeline_[a-z0-9_]+.json`，
+保存时只需输入名称，前缀与扩展名自动补齐。其他位置的文件可通过“打开 JSON…”导入，
+保存为新文件，导入源文件保持原样。
+保存只检查文档结构并原子写入 JSON，允许缺失连接、模型或尚未完成的参数，
+不依赖校验工具、测试样例或模型资源。执行前必须通过原生校验。
+SHA-256 revision 用于防止覆盖其他程序或页签的修改。
 
-HTTP 请求以 `revision` 传入修订版本，以 `filename` 指定方案文件，以 `conf_name`
-指定要关联的部署配置文件。文件参数只接受文件名，不含目录。修复候选预览还校验 `tool_fingerprint`。
-编排请求直接交给原生 `edit`，由它完成操作及校验，无需预先调用一次 `validate`。
+Studio 不管理 `.conf`，没有部署关联或配套保存。服务端试运行时自动创建、清理临时
+JSON / `.conf`，复用现有 Operator / Demo 入口，保持 Pipeline 目录的资源解析基准。
+测试样例提供数据及运行参数，不写入方案 JSON。
 
 ### 查看与编辑
 
-- 未打开方案时，画布提供“新建方案”和“导入文件…”入口。已有方案从顶部列表选择后打开。
-- 默认进入浏览模式。拖动空白处平移、滚轮缩放。“查看全图”显示完整流程。文字过小时，
-  选中节点并点击“放大选中节点”，或双击节点，放大阅读。切换浏览与编辑保留手动缩放。
-  “自动布局”重新排列。实线表示数据流，虚线表示额外执行顺序。节点位置只存浏览器 `localStorage`。
-- “新建”默认“从示例开始”，选择示例后创建。“从空白开始”才显示输入输出 Converter 选择。
-  示例来自当前 Catalog 的 Profile，不复制其权重文件。运行前仍需检查模型资产。
-- 点击画布上的业务输入或业务输出，直接展开“输入与输出”，按 `(type, name)` 选择登记。
-  参数使用同一属性表单。更换登记时清除原登记的覆盖和输出连接。
-  当前构建找不到的 Converter 会提示未注册，应用其他 I/O 修改时保留其已有参数。
-- “编辑方案”启用新增、删除、重命名与端口连接。节点属性使用 `params`，连接直接写
-  `inputs: {逻辑端口: "节点名.端口名"}`。外部输入引用 `input.端口名`，输出连接写入对应
-  `io.output[]` 的 `inputs`。重命名或删除同步所有引用和 `depends_on`。
-- 连线单击选中后用“删除连线”或 `Delete` 删除。断开数据连接保留显式 `depends_on`。
-  属性页可单独编辑顺序约束。数据依赖由 Core 推导。
-- 撤销/重做支持 `Ctrl` / `⌘` + `Z`、`Shift` + `Z` 或 `Y`。文本框保留自身快捷键。
-  历史只属于当前文档，不跨刷新和文档切换。
-- 节点、I/O、模型或 JSON 表单有未应用修改时可应用或放弃。校验、运行、保存先应用合法表单。
-  非法字段保留输入并定位错误。切换对象可选择应用、放弃或留在当前。应用后还需保存文件。
-- 画布“运行…”只打开运行页。选择“示例数据”（对应 Profile）后，点击“运行当前方案”执行当前草稿。
-  不需要先保存。页面显示实际数据集，没有匹配示例时说明原因。部署关联位于结果下方的折叠区域。
-- 数值、布尔、枚举、数组、对象、映射和 JSON 字段的默认值只作提示，不自动写入配置。
-  已有显式值原样保留。清空相应覆盖可恢复缺省。嵌套字段使用 JSON 文本编辑。
-  自由字符串支持多行，保留空串、空白和换行。精确删除字段可使用 JSON 页。
-- 模型按类别与兼容 Backend 选择，界面显示当前构建对应的实现。Model 与 Backend 各自有 `params`。
-  节点的模型候选按其声明的类别筛选。无法执行的已有模型仍可浏览，兼容提示不代替资源与效果验收。
-- 修复候选先展示改动供审阅，应用一次产生一个撤销步骤。文档或工具变化会使旧候选失效。
+- 从示例开始，或打开已有 JSON。已有方案也可从顶部列表打开。
+- 默认隐藏节点库与参数面板；点击“添加步骤”搜索，点击节点查看参数。
+  节点库与参数表单直接显示 Catalog 中的节点类型、说明、字段名和字段语义，可按类型或说明搜索。
+- 常规节点和输入输出参数完成输入后自动更新。保存或试运行会先处理尚未完成的表单；
+  正在提交的重命名完成后会继续执行本次操作，无需再次点击。
+  非法输入保留并展开定位错误，也可用“撤回输入”恢复当前表单，不影响之前已完成的修改。
+  必填及已设置的参数直接显示，其余可选参数收在“更多参数”中。
+  映射与对象数组字段按 Definition 的 `items` 声明提供逐项编辑。
+  嵌套 JSON、模型设置及完整 JSON 编辑保留高级入口；模型设置需点击“更新模型”应用。
+- 修改当前方案不会立即写磁盘。文件状态（已保存／未保存）与检查状态独立显示。
+  不完整方案也能保存；试运行前会检查连接、类型与配置。
+- 有未保存修改时，刷新或关闭页面前会提示确认；修改不在浏览器中暂存。
+- 拖动空白处平移、滚轮缩放。复杂图首次打开优先保持节点可读；“查看全图”主动切换为概览，
+  双击节点或“放大选中节点”可返回局部阅读。参数面板左边缘可拖动调宽，键盘方向键也可调整。
+- 从输出端口拖到输入端口，或依次点击两个端口连接。类型相同的目标高亮；松开或第二次点击时
+  靠近高亮端口即吸附，其他输入端口需直接点中，最终由原生校验判断。拖动接近画布边缘时自动平移。
+  缩小画布时端口命中区放大，但不会覆盖相邻端口。Esc 取消；端口支持键盘 Enter / 空格选择。
+- 点击连线后用“删除连线”或 Delete 删除。额外执行顺序位于步骤高级设置，断开数据连接保留
+  显式 `depends_on`。撤销/重做支持 Ctrl / ⌘ + Z、Shift + Z 或 Y；文本框保留自身快捷键。
+- 默认值只作提示，不把未修改的默认值写入 JSON。未知参数在编辑已知字段时保留。
+- “试运行”打开测试面板，使用当前修改和所选样例，无需先保存。
+  无匹配数据时仍可编辑、保存。结果对应提交时的文档，后续修改会提示结果过期。
+- 检查诊断保留节点定位与原生详情。修复候选先预览，再确认应用；一次修复可以整体撤销。
 
 ### 第一次编排
 
 ```bash
-./build/alg_pipeline_tool catalog
-./build/alg_pipeline_tool describe-node text_rule_match
 ./tools/pipeline_studio/server.py --web
 ```
 
-1. 点击“新建”。
-2. 保留“从示例开始”，选择 `keyword_match_rules`，点击“创建方案”。
-3. 检查输入连接：`input.sentence_text` → 规则节点 `text`。
-4. 检查输出连接：规则节点 `matches` → 输出 Converter `matches`。可删除后重新拖动连接，或撤销恢复。
-5. 将规则 `categories` 改为 `{"FIRST_RUN":["VIP"]}`。
-6. 应用修改。
-7. 在 JSON 页核对配置。
-8. 执行校验。
-9. 在运行页选择示例数据 `keyword_match_rules`。
-10. 点击“运行当前方案”。
-11. 检查结果：第一条应命中 `FIRST_RUN`，第二条应未命中。
-12. 点击“另存为可运行方案”，保存为 `pipeline_first_solution.json`，生成配套 `.conf`。
+1. 点击“从示例开始”，选择 `keyword_match_rules`，创建方案。
+2. 点击 `text_rule_match` 节点，在 `categories` 中将键改为 `FIRST_RUN`，值改为 `VIP`。
+3. 点击“试运行”，使用默认匹配的测试样例，再点击“试运行”。
+4. 检查第一条结果命中 `FIRST_RUN`，第二条未命中。
+5. 点击“保存”，输入名称 `first_solution`，保存为 `configs/pipeline_first_solution.json`。
 
-运行页“输入输出说明”展示有序输入、输出 `(type, name)`、Converter 和宿主类型。
-Catalog 的 `type` 选择宿主 binding。`slot` 给出宿主结构类型、必需性、分配器及固定布局元数据，`logical_ports` 是内部端口，
-`config_fields` 是参数声明。完整外部请求/响应仍以 Converter 契约为准，内部端口不定义 JSON 载荷。
-
+可以删除一条连接再重新连接，也可撤销恢复。无需了解 `.conf`、Profile 或 Backend 的配置组织。
+输入输出的完整外部载荷仍以 Converter 契约为准；内部节点端口不能替代外部请求/响应契约。
 缺失算法时使用[第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，
 新增平台载体使用[业务接入指南](../../doc/dev_guide/business_onboarding.md)。
 
@@ -164,28 +153,22 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./tools/pipeline_studi
 
 ## 运行当前方案
 
-Pipeline JSON 包含节点、模型、I/O 与输出参数。`.conf` 仅以 `pipe_path` 定位该 JSON。
-Profile 提供数据集和运行参数，按有序 I/O 配对。所有模型文件以 Pipeline JSON 目录为基准。
-受控方案默认使用 `configs/` 中的资产。导入方案保存到这里前应确保这些相对引用可用。
+Studio 使用当前 JSON 与所选测试样例运行，不要求先保存。
+“检查运行条件”复用原生配置解析器，检查模型文件与运行组件，不加载权重。
+模型文件及声明为文件的参数相对 Pipeline JSON 目录解析；导入方案在受控目录试运行时，
+需要在该目录准备相应资源。真实模型效果和目标设备仍需[独立验收](../../doc/VERIFIABLE_SELECTION.md)。
 
-“检查运行条件”调用与 Create 相同的解析器，区分配置检查和文件存在性，不加载模型。
-`configuration.model_files` 逐项报告 `model`、原字段 `path`、绝对 `resolved`。`io` 报告生效参数，
-`output_pools` 报告容量。参数覆盖写在对应 Converter 的 `params`。分配器、布局与元数据归槽声明。
-池深、单次批次上限与硬上限分别由 `effective_frame_depth`、`effective_process_batch_limit`、
-`max_frame_depth_limit` 报告。
+运行日志保留末尾 2 MiB。异常、超时也保留日志；取消后回收子进程才发布终态。
+同一服务一次执行一个任务。切换方案隔离异步结果，旧任务仍可取消；不保存跨刷新运行历史。
+测试样例由开发者维护在 `demo/profiles.json`，按有序输入输出契约匹配。
+界面展示实际数据集，完整运行参数仍由 Demo 处理。
 
-“另存为可运行方案”创建 JSON、`.conf` 并提供完整命令。已有目标拒绝覆盖。
-会话创建的配套文件，以及在运行页明确“关联部署配置”的文件，会在保存时共同核对 revision 并预检。
-通过后只原子替换 JSON，`.conf` 内容和版本保持不变。冲突或预检失败不写入。
-关联只确认 `.conf` 指向当前方案，不写文件。服务重启后需重新关联。
-同一服务的保存操作串行提交：多个页签使用同一 revision 保存时，后续请求报告冲突。
-若 JSON 与 `.conf` 已保存，但生成命令所需的 `demo-profile.json` 写入失败，API 仍返回保存成功及实际 revision，并通过 `command_warning` 说明原因。页面明确提示文件已保存、运行命令未生成。
-修正输出目录后再次保存即可重新生成命令。
-自动关联按 Profile 文件的定义顺序选择首个 I/O 匹配项，并复用其完整运行设置。
-原示例仅提供 I/O 摘要和数据集，不校验其模型或节点参数；部署校验针对实际要运行或保存的方案。
+### 在 Studio 外调用 Demo
 
-也可手动创建 `configs/pipeline_first_solution.conf`。
-写入 `{"pipe_path":"pipeline_first_solution.json"}` 后，执行以下命令：
+宿主及 CLI 的部署入口仍使用 `.conf`，其唯一字段 `pipe_path` 指向 JSON。
+这属于调用方的启动配置，Studio 保存 JSON 时不会创建、修改或校验旁边的 `.conf`。
+例如手动创建 `configs/pipeline_first_solution.conf`，内容为
+`{"pipe_path":"pipeline_first_solution.json"}`，然后执行：
 
 ```bash
 ./build/alg_pipeline_tool validate configs/pipeline_first_solution.json
@@ -194,24 +177,13 @@ Profile 提供数据集和运行参数，按有序 I/O 配对。所有模型文�
 ./build/alg_demo --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --output-dir results/first-solution
 ```
 
-指定 Profile 时结果目录使用 Profile 名。无 Profile 时使用 `.conf` 文件名主体。
-按记录顺序核对 `results.jsonl` 的状态与业务字段，以及 `summary.json`。
-`chip`、`device_id`、`batch_size`、`depth` 来自 Profile，缺省为 cpu、0、1、1，
-如需自定义这些参数，使用 `--profiles-file`。Studio 生成的命令引用配套 `demo-profile.json`，不会凭空补齐缺失字段。
-
-草稿预检、保存校验与运行在实际配置目录直接创建自己持有的隐藏临时 JSON / `.conf`，
-保持资源路径，结束后清理。运行日志先写临时文件，结束时保留末尾 2 MiB。异常和超时也保留日志。
-方案或运行设置变化会标记旧结果，切换文档隔离异步返回。同一服务只运行一个任务。
-取消或超时后，运行线程先发送终止信号，最多等待 5 秒，再结束剩余进程组并回收子进程，之后发布终态。
-卡片最多 50 条，完整结果可展开。页面不保存跨刷新运行历史。
-
-Demo 默认执行配置初值。热更新使用显式 `--control-cmd` / `--control-file`，
-见[第一个 Control](../../doc/dev_guide/first_control.md)。模型输出与目标设备效果仍需
-[独立验收](../../doc/VERIFIABLE_SELECTION.md)。
+按记录顺序核对结果目录中的 `results.jsonl` 和 `summary.json`。
+需要自定义 `chip`、`device_id`、`batch_size`、`depth` 等运行参数时使用 Demo 的
+`--profiles-file`。热更新见[第一个 Control](../../doc/dev_guide/first_control.md)。
 
 ## 安全边界与交互回归
 
-保存限定受控文件名和目录，拒绝符号链接与路径逃逸。配置先经原生校验，再同目录原子替换。
+保存限定受控文件名和目录，拒绝符号链接与路径逃逸。文档先检查结构，再同目录原子替换；执行前调用原生校验。
 文件选择功能只读取用户选中的文件。服务不提供任意路径读取、目录浏览或账号鉴权。
 不要将服务开放到外部网络。
 

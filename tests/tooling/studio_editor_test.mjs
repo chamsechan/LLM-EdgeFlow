@@ -95,6 +95,9 @@ const declarations = [
 ];
 for (const field of declarations) editor.appendConfigField(fields, field, {prompt: '  line\r\n提示  '});
 assert.deepEqual(editor.readConfigFields(fields), {prompt: '  line\r\n提示  '});
+assert.deepEqual(editor.readConfigFields(fields, {future: {nested: ['保留', 1]}}), {
+  prompt: '  line\r\n提示  ', future: {nested: ['保留', 1]},
+});
 const [prompt, optional, count, enabled, options] = fields.querySelectorAll('[data-field]');
 assert.equal(prompt.required, false);
 count.value = '0';

@@ -89,7 +89,7 @@ Linux 默认构建只启用 Inferlet，也可运行无需模型的示例。其�
 ./tools/pipeline_studio/server.py configs/pipeline_keyword_match_rules.json --web
 ```
 
-工作台监听 `127.0.0.1`，支持连线、参数编辑、校验和运行。
+编辑器监听 `127.0.0.1`，直接编辑和保存 Pipeline JSON，支持连线、参数编辑、检查与试运行；无需管理 `.conf`。
 接下来，按 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则。用 Demo 验证修改后的方案。
 
 ## 架构与扩展

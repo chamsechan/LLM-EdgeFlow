@@ -1,5 +1,5 @@
 export function compatibleModels(models = [], modelType) {
-  return models.filter(model => model.type === modelType);
+  return (models || []).filter(model => model.type === modelType);
 }
 
 export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {

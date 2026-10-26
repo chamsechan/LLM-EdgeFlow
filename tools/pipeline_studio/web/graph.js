@@ -2,6 +2,9 @@ const WIDTH = 280;
 const PORT_TOP = 84;
 const PORT_STEP = 30;
 const SVG_NS = "http://www.w3.org/2000/svg";
+// 缩小画布时放大端口命中区，但不超过半个端口间距，避免相邻端口互相遮挡。
+const portRadius = scale => Math.min(PORT_STEP / 2 - 1, Math.max(7, 16 / scale));
+const SNAP_DISTANCE = 23;
 
 function svg(tag, attrs = {}) {
   const element = document.createElementNS(SVG_NS, tag);
@@ -233,6 +236,14 @@ export class GraphView {
       this.zoomBy(Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * .002), { x: event.clientX - bounds.left, y: event.clientY - bounds.top });
     }, { passive: false });
     let pan = null;
+    // 点击连线的第二次点击与拖放共用吸附规则：高亮的目标就是会连接的目标。
+    this.root.addEventListener("pointerdown", event => {
+      if (!this.connecting?.clickMode || event.button !== 0 || event.target.closest?.(".port.output")) return;
+      event.stopPropagation();
+      const target = this.connectionTarget(event.clientX, event.clientY);
+      const port = target || event.target.closest?.(".port.input");
+      if (port) this.finishConnection(port); else this.cancelConnection();
+    }, true);
     this.root.addEventListener("pointerdown", event => {
       if (event.button !== 0 || event.target.closest(".node, .edge")) return;
       this.root.focus({ preventScroll: true });
@@ -247,19 +258,16 @@ export class GraphView {
         this.transform();
       }
       if (this.connecting) {
-        const point = this.localPoint(event.clientX, event.clientY), source = this.positions[this.connecting.nodeId];
-        this.draftEdge.setAttribute("d", this.curve(source.x + WIDTH, source.y + this.connecting.y, point.x, point.y));
+        this.pointer = {x: event.clientX, y: event.clientY};
+        if (Math.hypot(event.clientX - this.connecting.startX, event.clientY - this.connecting.startY) > 4) this.connecting.moved = true;
+        this.drawConnection();
       }
     });
     window.addEventListener("pointerup", event => {
       pan = null;
-      if (this.connecting) {
-        const target = document.elementFromPoint?.(event.clientX, event.clientY)?.closest?.(".port.input");
-        if (this.editable && target?.dataset.nodeId && target.dataset.nodeId !== this.connecting.nodeId) {
-          this.callbacks.connect?.(this.connecting.nodeId, this.connecting.port, target.dataset.nodeId, target.dataset.port);
-        }
-        this.cancelConnection();
-      }
+      if (!this.connecting || this.connecting.clickMode) return;
+      if (!this.connecting.moved) { this.connecting.clickMode = true; return; }
+      this.finishConnection(this.connectionTarget(event.clientX, event.clientY));
     });
     window.addEventListener("pointercancel", () => { pan = null; this.cancelConnection(); });
     this.root.addEventListener("keydown", event => {
@@ -275,6 +283,7 @@ export class GraphView {
 
   transform() {
     this.viewport.setAttribute("transform", `translate(${this.offset.x} ${this.offset.y}) scale(${this.scale})`);
+    for (const port of this.nodeLayer?.querySelectorAll?.(".port") || []) port.setAttribute("r", portRadius(this.scale));
     this.callbacks.viewChanged?.({ scale: this.scale });
   }
 
@@ -342,10 +351,12 @@ export class GraphView {
     this.selectedEdge = selectedEdge;
     this.sizes = Object.fromEntries(nodes.map(node => [node.id, nodeSize(definitions[node.id])]));
     this.layout(nodes);
+    this.cancelConnection();
     this.nodeLayer.replaceChildren();
     this.renderEdges();
     nodes.forEach(node => this.nodeLayer.append(this.nodeElement(node, node.id === selectedId, errorIds.has(node.id), modelIds.has(node.id))));
     if (reopened || this.needsFit || this.autoFit) this.fit();
+    if ((reopened || this.needsFit) && this.scale < .65) this.focusNode(selectedId || nodes[0]?.id);
     this.lastPositions = this.positions;
     this.renderKey = renderKey;
     this.needsFit = false;
@@ -406,19 +417,27 @@ export class GraphView {
     for (const [direction, ports] of [["input", definition.inputs || []], ["output", definition.outputs || []]]) {
       ports.forEach((port, index) => {
         const y = PORT_TOP + index * PORT_STEP;
-        const circle = svg("circle", { class: `port ${direction}${this.editable ? "" : " disabled"}`, cx: direction === "input" ? 0 : WIDTH, cy: y, r: 7 });
-        circle.dataset.nodeId = node.id; circle.dataset.port = port.key;
+        const circle = svg("circle", { class: `port ${direction}${this.editable ? "" : " disabled"}`, cx: direction === "input" ? 0 : WIDTH, cy: y, r: portRadius(this.scale), tabindex: this.editable ? 0 : -1, role: "button", "aria-label": `${node.id} ${port.key} ${direction === "input" ? "输入" : "输出"}` });
+        circle.dataset.nodeId = node.id; circle.dataset.port = port.key; circle.dataset.typeId = port.type_id;
         const description = `${port.key}: ${port.type_id} · ${port.cardinality || ""}${port.required && direction === "input" ? " · 必需" : ""}`;
         const tooltip = svg("title"); tooltip.textContent = description; circle.append(tooltip);
         const label = svg("text", { class: "port-label", x: direction === "input" ? 13 : WIDTH - 13, y: y + 4, "text-anchor": direction === "input" ? "start" : "end" });
         const paired = direction === "input" ? definition.outputs?.[index] : definition.inputs?.[index];
         label.textContent = textLabel(`${port.key}${port.required && direction === "input" ? " *" : ""}`, paired ? WIDTH / 2 - 25 : WIDTH - 30, 13);
         const labelTitle = svg("title"); labelTitle.textContent = description; label.append(labelTitle);
-        if (direction === "output") circle.addEventListener("pointerdown", event => {
+        const activate = event => {
           event.stopPropagation();
-          if (this.editable && event.button === 0) this.connecting = { nodeId: node.id, port: port.key, y };
+          if (!this.editable) return;
+          if (direction === "output") this.startConnection(node.id, port, y, event);
+          else if (this.connecting) this.finishConnection(circle);
+          else this.callbacks.feedback?.("先点击一个输出端口，再选择输入端口。");
+        };
+        circle.addEventListener("pointerdown", event => { if (event.button === 0) activate(event); });
+        circle.addEventListener("keydown", event => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(event); if (this.connecting) this.connecting.clickMode = true; }
         });
-        group.append(circle, label);
+        const dot = svg("circle", {class: `port-dot ${direction}`, cx: direction === "input" ? 0 : WIDTH, cy: y, r: 7});
+        group.append(circle, dot, label);
       });
     }
     let drag = null, moved = false;
@@ -458,5 +477,62 @@ export class GraphView {
     return group;
   }
 
-  cancelConnection() { this.connecting = null; this.draftEdge.removeAttribute("d"); }
+  startConnection(nodeId, port, y, event) {
+    this.cancelConnection();
+    this.connecting = {nodeId, port: port.key, y, startX: event.clientX || 0, startY: event.clientY || 0, moved: false};
+    for (const target of this.nodeLayer.querySelectorAll(".port.input")) {
+      target.classList.toggle("candidate", target.dataset.nodeId !== nodeId && target.dataset.typeId === port.type_id);
+    }
+    this.callbacks.feedback?.("选择高亮的输入端口连接；Esc 取消。类型匹配后仍由方案检查确认。");
+    // 只在拖动连线时靠近边缘自动平移；点击模式下鼠标经过边缘不移动画布。
+    const tick = () => {
+      if (!this.connecting || this.connecting.clickMode) return;
+      const bounds = this.root.getBoundingClientRect(), p = this.pointer;
+      if (p && p.x >= bounds.left && p.x <= bounds.right && p.y >= bounds.top && p.y <= bounds.bottom) {
+        const dx = p.x < bounds.left + 32 ? 6 : p.x > bounds.right - 32 ? -6 : 0;
+        const dy = p.y < bounds.top + 32 ? 6 : p.y > bounds.bottom - 32 ? -6 : 0;
+        if (dx || dy) { this.offset.x += dx; this.offset.y += dy; this.autoFit = false; this.transform(); this.drawConnection(); }
+      }
+      this.connectionFrame = requestAnimationFrame(tick);
+    };
+    this.connectionFrame = requestAnimationFrame(tick);
+  }
+
+  // 只吸附到高亮的同类型端口；其他输入端口需直接落在端口上，再交由原生校验判断。
+  connectionTarget(x, y) {
+    if (!this.connecting) return null;
+    let nearest = null, distance = SNAP_DISTANCE;
+    for (const port of this.nodeLayer.querySelectorAll(".port.input.candidate")) {
+      const bounds = port.getBoundingClientRect();
+      const delta = Math.hypot(x - bounds.x - bounds.width / 2, y - bounds.y - bounds.height / 2);
+      if (delta < distance) { nearest = port; distance = delta; }
+    }
+    if (nearest) return nearest;
+    const direct = document.elementFromPoint?.(x, y)?.closest?.(".port.input");
+    return direct && direct.dataset.nodeId !== this.connecting.nodeId ? direct : null;
+  }
+
+  drawConnection() {
+    if (!this.connecting || !this.pointer) return;
+    const target = this.connectionTarget(this.pointer.x, this.pointer.y);
+    for (const port of this.nodeLayer.querySelectorAll(".port.input")) port.classList.toggle("snap-target", port === target);
+    const bounds = target?.getBoundingClientRect();
+    const point = this.localPoint(bounds ? bounds.x + bounds.width / 2 : this.pointer.x, bounds ? bounds.y + bounds.height / 2 : this.pointer.y);
+    const source = this.positions[this.connecting.nodeId];
+    this.draftEdge.setAttribute("d", this.curve(source.x + WIDTH, source.y + this.connecting.y, point.x, point.y));
+  }
+
+  finishConnection(target) {
+    const source = this.connecting;
+    this.cancelConnection();
+    if (!source || !this.editable) return;
+    if (target && source.nodeId !== target.dataset.nodeId) this.callbacks.connect?.(source.nodeId, source.port, target.dataset.nodeId, target.dataset.port);
+    else this.callbacks.feedback?.(target ? "不能连接到同一节点的输入端口。" : "未连接：请在高亮的输入端口附近松开，或依次点击两个端口。");
+  }
+
+  cancelConnection() {
+    this.connecting = null; this.pointer = null; this.draftEdge.removeAttribute("d");
+    if (this.connectionFrame) cancelAnimationFrame(this.connectionFrame);
+    for (const port of this.nodeLayer?.querySelectorAll?.(".port.input") || []) port.classList.remove("candidate", "snap-target");
+  }
 }
