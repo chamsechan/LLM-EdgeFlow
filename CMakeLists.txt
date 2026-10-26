@@ -6,6 +6,7 @@ endif()
 
 project(LLMEdgeFlow VERSION 11.0.0 LANGUAGES C CXX)
 
+include(cmake_ext/PlatformOptions.cmake)
 include(cmake_ext/BackendOptions.cmake)
 include(cmake_ext/ProjectSetup.cmake)
 include(cmake_ext/Dependencies.cmake)

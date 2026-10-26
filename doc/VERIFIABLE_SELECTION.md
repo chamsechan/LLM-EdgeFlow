@@ -90,8 +90,10 @@ schema 1。编译使用 `cmake --build <目录>`，不使用 3.20 才支持的 b
 | `kite-cpu` | Kite | Kite 文本、视觉及生成向量能力 |
 | `inferlet-cpu` | Inferlet | Linux CPU 上的文本、视觉及生成向量验证 |
 | `minimal` | 无推理 Backend | 规则、模板及纯数据处理方案 |
+| `macos-arm64-cpu` | ONNX Runtime、llama.cpp、whisper.cpp | Apple Silicon（含 M3）CPU 构建与原生测试 |
+| `linux-arm64-cross` | 无推理 Backend，可显式添加 | GNU/Linux arm64 SDK 编译，不在宿主执行目标程序 |
 
-普通 `cmake -S . -B build` 默认只启用 Inferlet；所有 `ENABLE_*` Backend 开关及互斥检查
+普通 `cmake -S . -B build` 在 Linux 默认只启用 Inferlet，在 macOS 默认只启用 llama.cpp CPU；所有 `ENABLE_*` Backend 开关及互斥检查
 集中在 [BackendOptions.cmake](../cmake_ext/BackendOptions.cmake)。其他引擎仅在显式启用后加载依赖。
 例如额外启用 ONNX Runtime，或切换为独立 llama.cpp：
 
@@ -125,6 +127,56 @@ sanitizer 的 `--fast` 复用 `minimal`，`--full` / `--ci-runtime` 复用 `dev-
 
 CMake 缓存包含绝对路径。如果更换构建目录，在新目录重新配置。
 保留已校验的 `3rdparty/` 缓存可减少重复下载。
+
+### 跨平台构建
+
+[`PlatformOptions.cmake`](../cmake_ext/PlatformOptions.cmake) 在依赖获取前统一校验目标。
+配置覆盖 Linux 与 macOS 的 x86_64/arm64，使用单配置生成器，每个构建目录只对应一种架构；实际支持证据
+以对应平台 CI 和设备执行结果为准。Windows、Universal Binary 和 Metal GPU 不在本次范围内。
+
+M3 使用原生 arm64 终端，安装 Xcode Command Line Tools、CMake、Ninja、Python 3 后执行：
+
+```bash
+cmake --preset=macos-arm64-cpu
+cmake --build build/variants/macos-arm64-cpu --parallel 3
+(cd build/variants/macos-arm64-cpu && ctest --output-on-failure --no-tests=error)
+```
+
+该预设在 `project()` 前选定 arm64、macosx SDK 和 macOS 14.0 最低部署版本，启用
+ONNX Runtime、llama.cpp、Whisper CPU。Mac 默认使用 Apple Accelerate、关闭 OpenMP 和 Metal；
+Inferlet/Kite 的现有包仅用于 Linux。`GGML_CPU_ARM_ARCH` 默认留空，使用目标编译器默认指令集，
+设备预设可显式覆盖；不使用宿主 `-march=native`。
+三方缓存按目标平台、工具链和编译参数隔离，Linux arm64 与 macOS arm64 不共享库产物。
+最低部署版本可用 `-DCMAKE_OSX_DEPLOYMENT_TARGET=<版本>` 覆盖，仍须满足所选依赖要求。
+
+完整开发门禁使用同一入口（还需 clang-format 18、Python `jsonschema`、Java 和下载程序）：
+
+```bash
+LLM_EDGEFLOW_BUILD_PRESET=macos-arm64-cpu ./scripts/run_all_tests.sh
+```
+
+该变量也用于 sanitizer 的 `--full` / `--ci-runtime`；`--fast` 仍使用 `minimal`。
+macOS CI 执行 CPU 门禁、dylib 导出检查和真实 GGUF Operator 推理；托管 Apple Silicon
+runner 的结果不代替 M3 的性能或 Metal 验收。
+
+Linux arm64 交叉编译由外部 GNU 工具链提供编译器及可选 sysroot：
+
+```bash
+cmake --preset=linux-arm64-cross
+# 有设备 sysroot 时，配置命令附加 -DCMAKE_SYSROOT=/path/to/target-rootfs
+cmake --build build/variants/linux-arm64-cross --target alg_sdk --parallel 4
+```
+
+[`linux-arm64.cmake`](../cmake_ext/toolchains/linux-arm64.cmake) 选择 `aarch64-linux-gnu-gcc/g++`，
+宿主程序按宿主路径查找，目标头/库/包使用 CMake 的 root-only 搜索规则。
+该隔离需要配置目标 `CMAKE_SYSROOT` 或 `CMAKE_FIND_ROOT_PATH`；两者为空时，
+仅设置 `CMAKE_FIND_ROOT_PATH_MODE_*=ONLY` 不会阻止搜索宿主前缀。
+设备 SDK 可用 `-DCMAKE_TOOLCHAIN_FILE=...` 替换工具链并提供目标搜索根。
+构建 SDK、Demo 或 CLI 直接选择已有的 `alg_sdk`、`alg_demo`、`alg_pipeline_tool` 目标。
+交叉预设关闭 `BUILD_TESTING`，目标程序在目标环境验证，不能用交叉编译替代原生测试门禁。
+CI 检查中性 SDK 和 Inferlet SDK 的交叉编译及 ELF 架构，编译成功不代表设备推理通过。
+
+无推理 Backend 的本机构建仍使用 `minimal`：
 
 ```bash
 cmake --preset=minimal

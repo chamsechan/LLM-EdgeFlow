@@ -290,14 +290,17 @@ template <typename T, typename Leaf>
 nlohmann::json SerializeParameterValue(
     const T& value, const std::shared_ptr<const Parameters<Leaf>>& item_spec) {
   if constexpr (ParameterContainer<T>::kArray || ParameterContainer<T>::kMap) {
+    using Value = typename ParameterContainer<T>::Value;
     auto result = ParameterContainer<T>::kArray ? nlohmann::json::array()
                                                 : nlohmann::json::object();
     if constexpr (ParameterContainer<T>::kArray) {
+      // libc++ 的 vector<bool> const iterator
+      // 也可能返回代理，按声明的元素类型序列化。
       for (const auto& item : value)
-        result.push_back(SerializeParameterValue(item, item_spec));
+        result.push_back(SerializeParameterValue<Value>(item, item_spec));
     } else {
       for (const auto& [key, item] : value)
-        result[key] = SerializeParameterValue(item, item_spec);
+        result[key] = SerializeParameterValue<Value>(item, item_spec);
     }
     return result;
   } else if constexpr (FieldTypeTraits<T>::kKind == ConfigValueKind::kObject) {

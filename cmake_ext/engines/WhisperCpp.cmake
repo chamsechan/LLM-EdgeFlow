@@ -22,32 +22,22 @@ edgeflow_prepare_third_party_cache(
   SOURCE_SHA256 "${_WHISPER_SOURCE_SHA256}"
   CACHE_DIR "${WHISPER_3RDPARTY_DIR}"
   KIND STATIC
-  ABI_OPTIONS GGML_PROVIDER=llama_cpp BUILD_SHARED_LIBS=OFF
+  ABI_OPTIONS GGML_PROVIDER=llama_cpp GGML_SOURCE=${LLM_EDGEFLOW_LLAMACPP_COMMIT}
+              GGML_CACHE=${LLAMA_3RDPARTY_DIR} BUILD_SHARED_LIBS=OFF
+  REQUIRED_FILES lib/libwhisper.a include/whisper.h
+  OUT_CACHE_DIR WHISPER_3RDPARTY_DIR
   OUT_VALID _WHISPER_CACHE_VALID
   OUT_MARKER _WHISPER_CACHE_MARKER)
 
-if(_WHISPER_CACHE_VALID AND
-   EXISTS "${WHISPER_3RDPARTY_DIR}/lib/libwhisper.a" AND
-   EXISTS "${WHISPER_3RDPARTY_DIR}/include/whisper.h" AND
-   NOT WHISPER_CPP_FORCE_REBUILD)
+if(LLM_EDGEFLOW_LLAMACPP_CACHEABLE AND _WHISPER_CACHE_VALID AND NOT WHISPER_CPP_FORCE_REBUILD)
   message(STATUS "[Model Execution] Using prebuilt whisper.cpp from 3rdparty: ${WHISPER_3RDPARTY_DIR} (skipping compilation)")
-
-  if(NOT TARGET whisper)
-    add_library(whisper STATIC IMPORTED GLOBAL)
-    set_target_properties(whisper PROPERTIES
-      IMPORTED_LOCATION "${WHISPER_3RDPARTY_DIR}/lib/libwhisper.a"
-      INTERFACE_INCLUDE_DIRECTORIES "${WHISPER_3RDPARTY_DIR}/include"
-      INTERFACE_LINK_LIBRARIES ggml
-    )
-  endif()
-
-  set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} whisper)
-  set(LLM_EDGEFLOW_HAS_WHISPERCPP ON)
-  set(WHISPERCPP_INCLUDE_DIRS "${WHISPER_3RDPARTY_DIR}/include")
-  message(STATUS "[Model Execution] Prebuilt whisper.cpp target imported successfully.")
+  add_library(whisper STATIC IMPORTED GLOBAL)
+  set_target_properties(whisper PROPERTIES
+    IMPORTED_LOCATION "${WHISPER_3RDPARTY_DIR}/lib/libwhisper.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${WHISPER_3RDPARTY_DIR}/include"
+    INTERFACE_LINK_LIBRARIES ggml)
+  set(_whisper_include_dir "${WHISPER_3RDPARTY_DIR}/include")
 else()
-  set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Position independent code" FORCE)
-  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
   set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
   set(WHISPER_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
   set(WHISPER_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
@@ -61,28 +51,26 @@ else()
     URL_HASH SHA256=${_WHISPER_SOURCE_SHA256}
     ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
+  # MakeAvailable 在 CMake 3.28 前不支持 EXCLUDE_FROM_ALL，此处只构建被链接的 whisper。
   FetchContent_GetProperties(whisper_cpp_source)
   if(NOT whisper_cpp_source_POPULATED)
     FetchContent_Populate(whisper_cpp_source)
     add_subdirectory(${whisper_cpp_source_SOURCE_DIR} ${whisper_cpp_source_BINARY_DIR} EXCLUDE_FROM_ALL)
   endif()
+  if(NOT TARGET whisper)
+    message(FATAL_ERROR "Pinned whisper.cpp source did not define target 'whisper'")
+  endif()
+  set(_whisper_include_dir "${whisper_cpp_source_SOURCE_DIR}/include")
 
-  if(TARGET whisper)
-    set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} whisper)
-    set(LLM_EDGEFLOW_HAS_WHISPERCPP ON)
-    set(WHISPERCPP_INCLUDE_DIRS
-        ${whisper_cpp_source_SOURCE_DIR}/include)
-    message(STATUS "[Model Execution] whisper.cpp target configured successfully.")
-
-    add_custom_target(archive_whisper_cpp_to_3rdparty ALL
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${WHISPER_3RDPARTY_DIR}/lib" "${WHISPER_3RDPARTY_DIR}/include"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:whisper>" "${WHISPER_3RDPARTY_DIR}/lib/"
-      COMMAND ${CMAKE_COMMAND} -E copy_directory "${whisper_cpp_source_SOURCE_DIR}/include" "${WHISPER_3RDPARTY_DIR}/include"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_WHISPER_CACHE_MARKER}" "${WHISPER_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
-      DEPENDS whisper
-      COMMENT "[3rdparty] Archiving whisper.cpp static library and headers to ${WHISPER_3RDPARTY_DIR}"
-    )
-  else()
-    message(WARNING "[Model Execution] whisper.cpp target 'whisper' was not created.")
+  if(LLM_EDGEFLOW_LLAMACPP_CACHEABLE)
+    edgeflow_publish_third_party_cache(whisper_cpp
+      CACHE_DIR "${WHISPER_3RDPARTY_DIR}" MARKER "${_WHISPER_CACHE_MARKER}"
+      DEPENDS whisper LIBRARIES "$<TARGET_FILE:whisper>"
+      HEADER_DIRS "${_whisper_include_dir}")
   endif()
 endif()
+
+set(LLM_EDGEFLOW_HAS_WHISPERCPP ON)
+list(APPEND LLM_EDGEFLOW_BACKEND_INCLUDE_DIRS "${_whisper_include_dir}")
+list(APPEND LLM_EDGEFLOW_BACKEND_COMPILE_DEFINITIONS HAVE_WHISPERCPP=1)
+list(APPEND LLM_EDGEFLOW_BACKEND_LIBRARIES whisper)

@@ -41,7 +41,7 @@ class IoParametersTest : public ::testing::Test {
   void SetUp() override {
     char directory[] = "/tmp/edgeflow-deployment-XXXXXX";
     ASSERT_NE(mkdtemp(directory), nullptr);
-    directory_ = directory;
+    directory_ = std::filesystem::canonical(directory);
     root_ = directory_ / "root";
     config_ = root_ / "conf";
     std::filesystem::create_directories(config_ / "nested");

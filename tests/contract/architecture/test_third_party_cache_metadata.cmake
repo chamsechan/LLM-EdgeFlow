@@ -45,6 +45,57 @@ probe(STATIC a=1 z=3)
 if(valid)
   message(FATAL_ERROR "Changed ABI option reused stale cache")
 endif()
+# Identity directories retain the original cache when any ABI input changes.
+function(identity_probe)
+  edgeflow_prepare_third_party_cache(
+    NAME identity VERSION pin SOURCE_SHA256 abc CACHE_DIR "${TEST_ROOT}/identities"
+    KIND STATIC MARKER_ROOT "${TEST_ROOT}/markers"
+    OUT_VALID identity_valid OUT_MARKER identity_marker OUT_CACHE_DIR identity_dir)
+  set(identity_valid "${identity_valid}" PARENT_SCOPE)
+  set(identity_marker "${identity_marker}" PARENT_SCOPE)
+  set(identity_dir "${identity_dir}" PARENT_SCOPE)
+endfunction()
+set(CMAKE_BUILD_TYPE Release)
+identity_probe()
+set(original_dir "${identity_dir}")
+file(MAKE_DIRECTORY "${original_dir}")
+configure_file("${identity_marker}" "${original_dir}/.edgeflow-cache-fingerprint" COPYONLY)
+foreach(variable CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_CXX_FLAGS CMAKE_C_FLAGS_RELEASE CMAKE_EXE_LINKER_FLAGS
+    CMAKE_SHARED_LINKER_FLAGS CMAKE_STATIC_LINKER_FLAGS CMAKE_SYSROOT
+    CMAKE_SYSROOT_COMPILE CMAKE_SYSROOT_LINK CMAKE_OSX_ARCHITECTURES
+    CMAKE_OSX_SYSROOT LLM_EDGEFLOW_APPLE_SDK_PATH LLM_EDGEFLOW_APPLE_SDK_VERSION
+    CMAKE_OSX_DEPLOYMENT_TARGET CMAKE_CXX_COMPILER_TARGET
+    CMAKE_BUILD_TYPE ENABLE_SANITIZERS LLM_EDGEFLOW_SANITIZERS)
+  set(saved "${${variable}}")
+  set(${variable} "changed")
+  identity_probe()
+  if(identity_valid OR identity_dir STREQUAL original_dir)
+    message(FATAL_ERROR "${variable} must select a distinct untrusted cache")
+  endif()
+  set(${variable} "${saved}")
+  identity_probe()
+  if(NOT identity_valid OR NOT identity_dir STREQUAL original_dir)
+    message(FATAL_ERROR "Changing ${variable} must preserve the original reusable cache")
+  endif()
+endforeach()
+set(CMAKE_TOOLCHAIN_FILE "${TEST_ROOT}/toolchain.cmake")
+file(WRITE "${CMAKE_TOOLCHAIN_FILE}" "# original toolchain\n")
+identity_probe()
+set(toolchain_dir "${identity_dir}")
+file(WRITE "${CMAKE_TOOLCHAIN_FILE}" "# changed toolchain at the same path\n")
+identity_probe()
+if(identity_dir STREQUAL toolchain_dir)
+  message(FATAL_ERROR "Editing a toolchain in place must change cache identity")
+endif()
+unset(CMAKE_TOOLCHAIN_FILE)
+set(CMAKE_C_FLAGS_DEBUG "unused debug flags")
+set(CMAKE_CXX_FLAGS_MINSIZEREL "unused size flags")
+identity_probe()
+if(NOT identity_valid OR NOT identity_dir STREQUAL original_dir)
+  message(FATAL_ERROR "Unselected configuration flags must not split the static cache")
+endif()
+unset(CMAKE_C_FLAGS_DEBUG)
+unset(CMAKE_CXX_FLAGS_MINSIZEREL)
 probe(HEADER_ONLY)
 configure_file("${marker}" "${TEST_ROOT}/cache/.edgeflow-cache-fingerprint" COPYONLY)
 set(CMAKE_SYSTEM_PROCESSOR arm64)
@@ -55,11 +106,94 @@ if(NOT valid)
 endif()
 probe(PREBUILT)
 configure_file("${marker}" "${TEST_ROOT}/cache/.edgeflow-cache-fingerprint" COPYONLY)
+foreach(variable CMAKE_OSX_SYSROOT LLM_EDGEFLOW_APPLE_SDK_PATH LLM_EDGEFLOW_APPLE_SDK_VERSION
+    CMAKE_SYSROOT CMAKE_SYSROOT_COMPILE CMAKE_SYSROOT_LINK CMAKE_OSX_DEPLOYMENT_TARGET
+    CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_CXX_COMPILER_VERSION)
+  set(saved "${${variable}}")
+  set(${variable} "changed locally")
+  probe(PREBUILT)
+  if(NOT valid)
+    message(FATAL_ERROR "Pinned prebuilt package must not depend on local ${variable}")
+  endif()
+  set(${variable} "${saved}")
+endforeach()
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
 probe(PREBUILT)
 if(valid)
   message(FATAL_ERROR "Prebuilt cache must depend on platform ABI")
 endif()
+set(CMAKE_SYSTEM_NAME Darwin)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+set(CMAKE_OSX_ARCHITECTURES arm64)
+probe(PREBUILT)
+configure_file("${marker}" "${TEST_ROOT}/cache/.edgeflow-cache-fingerprint" COPYONLY)
+set(CMAKE_SYSTEM_PROCESSOR arm64)
+probe(PREBUILT)
+if(NOT valid)
+  message(FATAL_ERROR "Explicit macOS target architecture must override the host processor")
+endif()
+set(CMAKE_OSX_ARCHITECTURES x86_64)
+probe(PREBUILT)
+if(valid)
+  message(FATAL_ERROR "Changing the actual macOS target architecture must invalidate prebuilt cache")
+endif()
+# A matching marker cannot make an incomplete cache importable.
+function(required_probe)
+  edgeflow_prepare_third_party_cache(
+    NAME required VERSION pin SOURCE_SHA256 abc CACHE_DIR "${TEST_ROOT}/required"
+    KIND HEADER_ONLY MARKER_ROOT "${TEST_ROOT}/markers" REQUIRED_FILES include/required.h
+    OUT_VALID required_valid OUT_MARKER required_marker)
+  set(required_valid "${required_valid}" PARENT_SCOPE)
+  set(required_marker "${required_marker}" PARENT_SCOPE)
+endfunction()
+required_probe()
+configure_file("${required_marker}" "${TEST_ROOT}/required/.edgeflow-cache-fingerprint" COPYONLY)
+required_probe()
+if(required_valid)
+  message(FATAL_ERROR "Cache missing a required file must not be reused")
+endif()
+file(WRITE "${TEST_ROOT}/required/include/required.h" "")
+required_probe()
+if(NOT required_valid)
+  message(FATAL_ERROR "Complete cache with a matching marker must be reusable")
+endif()
+
+# Verified downloads publish only complete files and recheck cached bytes.
+file(WRITE "${TEST_ROOT}/source/payload.txt" "verified payload\n")
+file(SHA256 "${TEST_ROOT}/source/payload.txt" payload_sha)
+set(url_download "${TEST_ROOT}/downloads/url/payload.txt")
+edgeflow_download_verified_file("${url_download}" "${payload_sha}"
+  URL "file://${TEST_ROOT}/source/payload.txt")
+set(command_download "${TEST_ROOT}/downloads/command/payload.txt")
+edgeflow_download_verified_file("${command_download}" "${payload_sha}"
+  COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_ROOT}/source/payload.txt"
+          "${TEST_ROOT}/downloads/command/staged.txt"
+  DOWNLOADED "${TEST_ROOT}/downloads/command/staged.txt")
+foreach(download IN ITEMS "${url_download}" "${command_download}")
+  if(NOT EXISTS "${download}")
+    message(FATAL_ERROR "Verified download was not published: ${download}")
+  endif()
+endforeach()
+function(expect_download_failure name script diagnostic)
+  file(WRITE "${TEST_ROOT}/${name}.cmake"
+    "include(\"${PROJECT_SOURCE_DIR}/cmake_ext/third_party/ThirdPartyCacheMetadata.cmake\")\n${script}\n")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -P "${TEST_ROOT}/${name}.cmake"
+                  RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(result EQUAL 0 OR NOT "${output}${error}" MATCHES "${diagnostic}")
+    message(FATAL_ERROR "${name} must fail with '${diagnostic}':\n${output}${error}")
+  endif()
+endfunction()
+expect_download_failure(wrong-hash
+  "edgeflow_download_verified_file(\"${TEST_ROOT}/downloads/wrong/payload.txt\" 0000 URL \"file://${TEST_ROOT}/source/payload.txt\")"
+  "Downloaded SHA-256 mismatch")
+if(EXISTS "${TEST_ROOT}/downloads/wrong/payload.txt")
+  message(FATAL_ERROR "Unverified download must not become a cached file")
+endif()
+file(WRITE "${url_download}" "tampered\n")
+expect_download_failure(tampered-cache
+  "edgeflow_download_verified_file(\"${url_download}\" ${payload_sha} URL \"file://${TEST_ROOT}/source/payload.txt\")"
+  "Cached SHA-256 mismatch")
+
 file(WRITE "${TEST_ROOT}/invalid.cmake"
   "include(\"${PROJECT_SOURCE_DIR}/cmake_ext/third_party/ThirdPartyCacheMetadata.cmake\")\nedgeflow_prepare_third_party_cache(NAME invalid KIND UNKNOWN)\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -P "${TEST_ROOT}/invalid.cmake"

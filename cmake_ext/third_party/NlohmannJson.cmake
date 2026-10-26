@@ -1,4 +1,3 @@
-# cmake_ext/third_party/NlohmannJson.cmake
 # nlohmann/json 现代化 C++ JSON 库智能缓存配置
 
 set(JSON_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/nlohmann_json")
@@ -9,17 +8,15 @@ edgeflow_prepare_third_party_cache(
   SOURCE_SHA256 0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406
   CACHE_DIR "${JSON_3RDPARTY_DIR}"
   KIND HEADER_ONLY
+  REQUIRED_FILES include/nlohmann/json.hpp
   OUT_VALID _JSON_CACHE_VALID
   OUT_MARKER _JSON_CACHE_MARKER)
 
-if(_JSON_CACHE_VALID AND
-   EXISTS "${JSON_3RDPARTY_DIR}/include/nlohmann/json.hpp")
+if(_JSON_CACHE_VALID)
   message(STATUS "[3rdparty] Using cached nlohmann/json from ${JSON_3RDPARTY_DIR}")
-  if(NOT TARGET nlohmann_json::nlohmann_json)
-    add_library(nlohmann_json INTERFACE)
-    add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
-    target_include_directories(nlohmann_json INTERFACE "${JSON_3RDPARTY_DIR}/include")
-  endif()
+  add_library(nlohmann_json INTERFACE)
+  add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
+  target_include_directories(nlohmann_json INTERFACE "${JSON_3RDPARTY_DIR}/include")
 else()
   include(FetchContent)
 

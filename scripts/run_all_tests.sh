@@ -13,6 +13,7 @@ if [[ $# -ne 0 ]]; then
   exit 2
 fi
 BUILD_DIR="$ROOT_DIR/build"
+PRESET="${LLM_EDGEFLOW_BUILD_PRESET:-dev-gate}"
 
 SELECTED_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 JOBS="${LLM_EDGEFLOW_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
@@ -26,7 +27,7 @@ NC='\033[0m'
 
 echo -e "${BOLD}${CYAN}==================================================================${NC}"
 echo -e "${BOLD}${CYAN}  LLM-EdgeFlow Unified Quality Gate                              ${NC}"
-echo -e "${BOLD}${CYAN}  Build: $BUILD_DIR | Linker: $SELECTED_LINKER${NC}"
+echo -e "${BOLD}${CYAN}  Build: $BUILD_DIR | Preset: $PRESET | Linker: $SELECTED_LINKER${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
 
 echo -e "${BOLD}[ Step 1/6: Shell syntax, Google C++ format and Git diff gates ]${NC}"
@@ -38,8 +39,9 @@ git -C "$ROOT_DIR" diff --check
 echo -e "${GREEN}✓ Static source gates passed.${NC}\n"
 
 echo -e "${BOLD}[ Step 2/6: Configure and build ]${NC}"
-"$SCRIPT_DIR/configure_build.sh" "$ROOT_DIR" "$BUILD_DIR" dev-gate \
-  -DLLM_EDGEFLOW_LINKER="$SELECTED_LINKER"
+"$SCRIPT_DIR/configure_build.sh" "$ROOT_DIR" "$BUILD_DIR" "$PRESET" \
+  -DLLM_EDGEFLOW_LINKER="$SELECTED_LINKER" \
+  -DBUILD_TESTING=ON
 cmake --build "$BUILD_DIR" -j"$JOBS"
 echo -e "${GREEN}✓ Build completed.${NC}\n"
 

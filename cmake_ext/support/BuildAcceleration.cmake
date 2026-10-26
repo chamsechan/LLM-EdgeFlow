@@ -23,7 +23,7 @@ endfunction()
 set(_edgeflow_selected_linker system)
 set(_edgeflow_linker_flag "")
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+if(LLM_EDGEFLOW_TARGET_OS STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   find_program(LLM_EDGEFLOW_MOLD_EXECUTABLE mold)
   find_program(LLM_EDGEFLOW_LLD_EXECUTABLE ld.lld)
 
@@ -49,8 +49,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif(NOT LLM_EDGEFLOW_LINKER STREQUAL "auto" AND
        NOT LLM_EDGEFLOW_LINKER STREQUAL "system")
   message(FATAL_ERROR
-    "LLM_EDGEFLOW_LINKER=${LLM_EDGEFLOW_LINKER} requires a GNU- or "
-    "Clang-compatible compiler driver.")
+    "LLM_EDGEFLOW_LINKER=${LLM_EDGEFLOW_LINKER} requires a Linux GNU/Clang toolchain; use system on macOS.")
 endif()
 
 if(_edgeflow_linker_flag)

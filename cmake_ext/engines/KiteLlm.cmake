@@ -8,84 +8,30 @@ endif()
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
 set(_kite_release "v0.1.0")
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
-   CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+if(LLM_EDGEFLOW_TARGET_ARCH STREQUAL "x86_64")
   set(_kite_platform "x64")
   set(_kite_sha256 "bddaa55abe37cfc87f481139c41aadf79ad579b7cc20fe2b12c01978a2d3b1a0")
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
-       CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+else()
   set(_kite_platform "arm")
   set(_kite_sha256 "1388da99c8fd4a45d0f85a489d29b2a12189e4955302ed75fd8bbddd1ebfc70d")
-else()
-  message(FATAL_ERROR
-    "Pinned kiteLLM integration supports Linux x86_64/aarch64 only; got "
-    "${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}")
 endif()
 set(_kite_asset "kiteLLM-${_kite_platform}.tar.gz")
 set(_kite_cache "${CMAKE_SOURCE_DIR}/3rdparty/kite_llm/${_kite_release}/${_kite_platform}")
 set(_kite_archive "${_kite_cache}/${_kite_asset}")
-file(MAKE_DIRECTORY "${_kite_cache}")
-# 不同构建目录共享此归档缓存。
-file(LOCK "${_kite_cache}/.download.lock" GUARD PROCESS TIMEOUT 60)
-if(NOT EXISTS "${_kite_archive}")
-  find_program(KITELLM_GH_EXECUTABLE NAMES gh)
-  if(NOT KITELLM_GH_EXECUTABLE)
-    message(FATAL_ERROR
-      "kiteLLM is a private GitHub dependency. Install gh and run gh auth login "
-      "with repository read access (CI: set GH_TOKEN).")
-  endif()
-  message(STATUS "[kiteLLM] Downloading chamsechan/kiteLLM ${_kite_release}/${_kite_asset}")
-  # 先下载到暂存目录，避免中断的下载变成可复用的归档。
-  # 即使 tag 被移动，也以下方校验和为准。
-  set(_kite_download "${_kite_cache}/download")
-  file(MAKE_DIRECTORY "${_kite_download}")
-  execute_process(
-    COMMAND "${KITELLM_GH_EXECUTABLE}" release download "${_kite_release}"
-            --repo chamsechan/kiteLLM --pattern "${_kite_asset}"
-            --dir "${_kite_download}" --clobber
-    RESULT_VARIABLE _kite_download_result
-    OUTPUT_QUIET ERROR_QUIET)
-  if(NOT _kite_download_result EQUAL 0)
-    message(FATAL_ERROR
-      "Cannot download private kiteLLM release. Check network and gh auth status; "
-      "the account (or CI GH_TOKEN) must have read access to chamsechan/kiteLLM.")
-  endif()
-  file(SHA256 "${_kite_download}/${_kite_asset}" _kite_actual_sha256)
-  if(NOT _kite_actual_sha256 STREQUAL _kite_sha256)
-    message(FATAL_ERROR "Downloaded kiteLLM release SHA-256 mismatch")
-  endif()
-  file(RENAME "${_kite_download}/${_kite_asset}" "${_kite_archive}")
-endif()
-file(SHA256 "${_kite_archive}" _kite_actual_sha256)
-if(NOT _kite_actual_sha256 STREQUAL _kite_sha256)
-  message(FATAL_ERROR
-    "Cached kiteLLM SHA-256 mismatch. Remove ${_kite_archive} and configure again.")
-endif()
-
-# 只把已校验的字节重新解压到本构建，避免残留或被篡改的头文件/库，
-# 以及旧环境遗留的机器相关绝对路径。
-set(_kite_extract "${CMAKE_BINARY_DIR}/_deps/kite_llm_release")
-file(MAKE_DIRECTORY "${_kite_extract}")
-execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xzf "${_kite_archive}"
-  WORKING_DIRECTORY "${_kite_extract}" RESULT_VARIABLE _kite_extract_result)
-if(NOT _kite_extract_result EQUAL 0)
-  message(FATAL_ERROR "Cannot extract verified kiteLLM release")
-endif()
-set(_kite_root "${_kite_extract}/kiteLLM-${_kite_platform}")
-edgeflow_prepare_third_party_cache(
-  NAME kite_llm VERSION "${_kite_release}" SOURCE_SHA256 "${_kite_sha256}"
-  CACHE_DIR "${_kite_cache}" KIND PREBUILT
-  OUT_VALID _kite_cache_valid OUT_MARKER _kite_marker)
-configure_file("${_kite_marker}" "${_kite_cache}/.edgeflow-cache-fingerprint" COPYONLY)
-
-unset(kiteLLM_DIR CACHE)
-set(kiteLLM_DIR "${_kite_root}/lib/cmake/kiteLLM")
-find_package(kiteLLM 0.1.0 EXACT CONFIG REQUIRED
-  PATHS "${_kite_root}/lib/cmake/kiteLLM" NO_DEFAULT_PATH)
-get_target_property(_kite_imported_library kiteLLM::kiteLLM IMPORTED_LOCATION_RELEASE)
-if(NOT _kite_imported_library STREQUAL "${_kite_root}/lib/libkiteLLM.a")
-  message(FATAL_ERROR "kiteLLM package must resolve to the verified release archive")
-endif()
+# 不同构建目录共享此归档缓存；只有缺少归档时才调用 gh。
+# 即使 tag 被移动，也以固定校验和为准。
+find_program(KITELLM_GH_EXECUTABLE NAMES gh)
+file(MAKE_DIRECTORY "${_kite_cache}/download")
+edgeflow_download_verified_file("${_kite_archive}" "${_kite_sha256}"
+  COMMAND "${KITELLM_GH_EXECUTABLE}" release download "${_kite_release}"
+          --repo chamsechan/kiteLLM --pattern "${_kite_asset}"
+          --dir "${_kite_cache}/download" --clobber
+  DOWNLOADED "${_kite_cache}/download/${_kite_asset}"
+  FAILURE_MESSAGE
+    "Cannot download private kiteLLM release. Install gh and run gh auth login; "
+    "the account (or CI GH_TOKEN) must have read access to chamsechan/kiteLLM.")
+edgeflow_import_release_package(kiteLLM 0.1.0 "${_kite_archive}"
+  "${CMAKE_BINARY_DIR}/_deps/kite_llm_release" "kiteLLM-${_kite_platform}" libkiteLLM.a)
 
 include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
@@ -137,5 +83,4 @@ if(NOT KITELLM_DIRECT_API_COMPATIBLE)
 endif()
 set(LLM_EDGEFLOW_HAS_KITELLM ON)
 list(APPEND LLM_EDGEFLOW_BACKEND_COMPILE_DEFINITIONS HAVE_KITELLM=1)
-list(APPEND THIRD_PARTY_ENGINE_LIBS kiteLLM::kiteLLM)
-message(STATUS "[kiteLLM] Verified ${_kite_release}: ${_kite_imported_library}")
+list(APPEND LLM_EDGEFLOW_BACKEND_LIBRARIES kiteLLM::kiteLLM)

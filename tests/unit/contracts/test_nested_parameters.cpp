@@ -96,6 +96,36 @@ TEST(NestedParametersTest, NestedDefaultsAndHooksProduceOwnedTypedValues) {
   EXPECT_EQ(default_items->items.at(0).prepared_units, 9);
 }
 
+TEST(NestedParametersTest, PackedBooleanContainersRoundTripDefaultsAndValues) {
+  struct Flags {
+    std::vector<bool> values;
+    std::vector<std::vector<bool>> rows;
+    std::map<std::string, std::vector<bool>> groups;
+  };
+  const Parameters<Flags> spec{
+      Field("values", &Flags::values).Default(std::vector<bool>{true, false}),
+      Field("rows", &Flags::rows)
+          .Default(std::vector<std::vector<bool>>{{false, true}, {}}),
+      Field("groups", &Flags::groups)
+          .Default(std::map<std::string, std::vector<bool>>{{"enabled", {true}},
+                                                            {"empty", {}}})};
+  const Json expected = {
+      {"values", Json::array({true, false})},
+      {"rows", Json::array({Json::array({false, true}), Json::array()})},
+      {"groups", {{"enabled", Json::array({true})}, {"empty", Json::array()}}}};
+  std::string diagnostic;
+  const auto defaults = spec.Parse(Json::object(), &diagnostic);
+  ASSERT_TRUE(defaults) << diagnostic;
+  EXPECT_EQ(spec.Read(*defaults), expected);
+  Json raw = {
+      {"values", Json::array({false})},
+      {"rows", Json::array({Json::array({true}), Json::array({false})})},
+      {"groups", {{"mixed", Json::array({false, true, false})}}}};
+  const auto parsed = spec.Parse(raw, &diagnostic);
+  ASSERT_TRUE(parsed) << diagnostic;
+  EXPECT_EQ(spec.Read(*parsed), raw);
+}
+
 TEST(NestedParametersTest, NestedErrorsReportEscapedPointersAndLeafKinds) {
   using Kind = ConfigFieldErrorKind;
   struct Case {

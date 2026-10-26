@@ -8,6 +8,7 @@
       "binaryDir": "${sourceDir}/build/variants/${presetName}",
       "cacheVariables": {
         "BUILD_TESTING": "ON",
+        "LLM_EDGEFLOW_EXPECTED_PLATFORM": "",
         "ENABLE_ONNXRUNTIME": "OFF",
         "ENABLE_LLAMACPP": "OFF",
         "ENABLE_WHISPERCPP": "OFF",
@@ -16,6 +17,7 @@
         "CMAKE_BUILD_TYPE": "Release",
         "ENABLE_REAL_MODEL_TESTS": "OFF",
         "ENABLE_SANITIZERS": "OFF",
+        "LLM_EDGEFLOW_LLAMACPP_METAL": "OFF",
         "LLM_EDGEFLOW_TEST_PCH": "OFF"
       }
     },
@@ -42,6 +44,34 @@
             "whisper_cpp"
           ]
         }
+      }
+    },
+    {
+      "name": "macos-arm64-cpu",
+      "displayName": "macOS Apple Silicon CPU (M3 and arm64)",
+      "inherits": "full-cpu",
+      "cacheVariables": {
+        "LLM_EDGEFLOW_EXPECTED_PLATFORM": "macos-arm64",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_SYSROOT": "macosx",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+        "LLM_EDGEFLOW_LINKER": "system"
+      },
+      "vendor": {
+        "llm-edgeflow/selection": {
+          "backends": ["onnxruntime", "llama_cpp", "whisper_cpp"]
+        }
+      }
+    },
+    {
+      "name": "linux-arm64-cross",
+      "displayName": "GNU/Linux arm64 SDK cross compilation",
+      "inherits": "minimal",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_ext/toolchains/linux-arm64.cmake",
+        "LLM_EDGEFLOW_EXPECTED_PLATFORM": "linux-arm64",
+        "BUILD_TESTING": "OFF",
+        "LLM_EDGEFLOW_LINKER": "system"
       }
     },
     {

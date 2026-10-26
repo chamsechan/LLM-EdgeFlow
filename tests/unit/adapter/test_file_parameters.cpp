@@ -74,7 +74,7 @@ class FileParametersTest : public ::testing::Test {
     ASSERT_TRUE(RegisterFileDeclarations());
     char directory[] = "/tmp/edgeflow-file-resolution-XXXXXX";
     ASSERT_NE(mkdtemp(directory), nullptr);
-    directory_ = directory;
+    directory_ = std::filesystem::canonical(directory);
     root_ = directory_ / "pipeline";
     std::filesystem::create_directory(root_);
   }
