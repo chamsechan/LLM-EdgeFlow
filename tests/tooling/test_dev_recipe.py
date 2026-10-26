@@ -25,7 +25,7 @@ class RecipeConsumerTest(unittest.TestCase):
         self.assertTrue(DEMO.is_file(), f'Set LLM_EDGEFLOW_DEMO_BINARY: {DEMO}')
         self.temporary = tempfile.TemporaryDirectory(prefix='recipe-consumer-')
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.build = self.root / 'build'
         self.build.mkdir()
         # Exact production scripts plus actual built binaries; no inferred Catalog.

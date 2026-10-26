@@ -293,7 +293,7 @@ class VerifyDriverTest(ToolTestCase):
                     tool.run_driver(self.driver(body), "unused.eftok", requests)
                 self.assertIn(message, str(raised.exception))
         with self.assertRaises(tool.ToolError):
-            tool.run_driver("/bin/true", "/nonexistent.eftok", requests)
+            tool.run_driver(self.driver("exit 0\n"), "/nonexistent.eftok", requests)
 
 
 class ByteFallbackVocabularyTest(ToolTestCase):

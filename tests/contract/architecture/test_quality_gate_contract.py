@@ -215,7 +215,7 @@ if [[ "${FAIL_AT:-}" == "$stage" ]]; then exit 23; fi
                 source.write_text('\n'.join('extern "C" void ' + symbol + '() {}' for symbol in exports))
                 library = self.root / (name + ('.dylib' if sys.platform == 'darwin' else '.so'))
                 compiled = subprocess.run(
-                    [HARNESS.cxx, '-dynamiclib' if sys.platform == 'darwin' else '-shared',
+                    [HARNESS.cxx, *HARNESS.cxx_flag, '-dynamiclib' if sys.platform == 'darwin' else '-shared',
                      '-fPIC', str(source), '-o', str(library)],
                     capture_output=True, text=True, timeout=60)
                 self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
@@ -252,7 +252,7 @@ TEST(Guard, OptionalAsset) {
 }
 ''')
         executable = self.root / 'guard'
-        command = [HARNESS.cxx, '-std=c++17', '-pthread']
+        command = [HARNESS.cxx, *HARNESS.cxx_flag, '-std=c++17', '-pthread']
         if HARNESS.sanitizers:
             command += [f'-fsanitize={HARNESS.sanitizers}', '-fno-omit-frame-pointer']
         for directory in HARNESS.gtest_include:
@@ -317,6 +317,7 @@ TEST(Guard, OptionalAsset) {
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cxx', required=True)
+    parser.add_argument('--cxx-flag', action='append', default=[])
     parser.add_argument('--sanitizers', default='')
     parser.add_argument('--gtest-include', action='append', required=True)
     parser.add_argument('--gtest-library', type=Path, required=True)

@@ -272,8 +272,8 @@ Json Generate(const std::string& input) {
       "llm_generate", "generate", {{"input", input}},
       {{"bind_model", "llm"}, {"endpoints", {{"answer", Json::object()}}}});
 }
-Json Pipeline(const char* business, Json inputs, Json outputs, Json nodes,
-              Json models) {
+Json Pipeline(const char* business, Json inputs, Json outputs,
+              std::vector<Json> nodes, std::vector<Json> models) {
   Json inbound = Json::array();
   for (const auto& type : inputs)
     inbound.push_back({{"type", type}, {"name", business}});
@@ -384,7 +384,7 @@ TEST_F(BusinessResponsesTest,
       Pipeline("translate", {"entity_in"}, {{"translation", "prompt.text"}},
                {Node("text_template", "prompt", {{"primary", "input.query"}},
                      {{"template", "{{primary}}"}})},
-               Json::array());
+               {});
   // {"translated":"xx"} 为 19 字节；第 3 行的结果超过容量。
   pipeline["io"]["output"][0]["params"] = {{"result_json_max_bytes", 20}};
   Create(std::move(pipeline), 3);
@@ -430,7 +430,7 @@ TEST_F(BusinessResponsesTest,
   Create(Pipeline("translate", {"entity_in"}, {{"translation", "prompt.text"}},
                   {Node("text_template", "prompt", {{"primary", "input.query"}},
                         {{"template", "old={{primary}}"}})},
-                  Json::array()));
+                  {}));
   std::array<std::string, 2> raw{R"({"query":"hello"})",
                                  R"({"query":"goodbye"})"};
   test_support::MockTextCarrier requests[]{

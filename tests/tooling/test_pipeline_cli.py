@@ -132,7 +132,7 @@ class PipelineCliContractTest(unittest.TestCase):
 
     def test_deployment_resolution_reports_the_selected_file_and_effective_io(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             (directory / "pipeline.json").write_text(json.dumps(self.base), encoding="utf-8")
             conf = directory / "pipeline.conf"
             conf.write_text('{"pipe_path":"pipeline.json"}', encoding="utf-8")

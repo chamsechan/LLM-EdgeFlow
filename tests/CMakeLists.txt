@@ -40,6 +40,10 @@ endfunction()
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+set(_edgeflow_guard_platform_flags "")
+foreach(flag IN LISTS edgeflow_cxx_platform_flags)
+  list(APPEND _edgeflow_guard_platform_flags "--cxx-flag=${flag}")
+endforeach()
 set(_edgeflow_guard_sanitizers "")
 if(ENABLE_SANITIZERS)
   list(APPEND _edgeflow_guard_sanitizers --sanitizers "${LLM_EDGEFLOW_SANITIZERS}")
@@ -48,6 +52,7 @@ add_test(NAME QualityGateScriptsContractTest
   COMMAND ${Python3_EXECUTABLE}
           ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.py
           --cxx ${CMAKE_CXX_COMPILER}
+          ${_edgeflow_guard_platform_flags}
           ${_edgeflow_guard_sanitizers}
           --gtest-include $<TARGET_PROPERTY:GTest::gtest,INTERFACE_INCLUDE_DIRECTORIES>
           --gtest-library $<TARGET_FILE:GTest::gtest>

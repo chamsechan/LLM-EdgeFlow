@@ -62,7 +62,7 @@ class StudioHttpContractTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="studio-contract-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.configs = self.root / "configs"
         self.configs.mkdir()
         (self.root / "demo").mkdir()
